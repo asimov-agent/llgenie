@@ -235,6 +235,7 @@ def read_model_meta_fast(path):
         "n_head": n_head,
         "n_head_kv": n_head_kv,
         "ctx_train": int(kv.get(f"{arch}.context_length", 0) or 0),
+        "nextn_layers": int(kv.get(f"{arch}.nextn_predict_layers", 0) or 0),
         "chat_template": str(kv.get("tokenizer.chat_template", "") or ""),
         "sampling": _extract_sampling_from_kv(kv),
         "size_gb": os.path.getsize(path) / (1024 ** 3),
@@ -267,6 +268,7 @@ def read_model_meta(path):
         "n_head": n_head,
         "n_head_kv": n_head_kv,
         "ctx_train": int(_gget(f.get(f"{arch}.context_length", "0")) or 0),
+        "nextn_layers": int(_gget(f.get(f"{arch}.nextn_predict_layers", "0")) or 0),
         "chat_template": str(_gget(f.get("tokenizer.chat_template", "0")) or ""),
         "sampling": _extract_sampling_from_fields(f),
         "size_gb": os.path.getsize(path) / (1024 ** 3),
@@ -910,6 +912,13 @@ def build_command(meta, ctx, port):
     # `message.reasoning_content` (deepseek format) so thinking is preserved.
     if is_reasoning_model(meta):
         cmd += ["--reasoning", "on", "--reasoning-format", "deepseek"]
+    # MTP (multi-token-prediction) head: only on Prism-fork models that carry
+    # nextn layers (e.g. Ternary-Bonsai-2-27B-PTQ1_0-MTP). Engage the draft head
+    # with n-max 1 (best on small cards at every context depth per the model
+    # card; n-max 2 only pays on a fresh context). The Prism fork ships the
+    # draft-mtp spec-decode path, so no extra build flag is needed.
+    if meta.get("nextn_layers", 0) > 0:
+        cmd += ["--spec-type", "draft-mtp", "--spec-draft-n-max", "1"]
     # parallel slots: 2 for small models, 1 for big
     np_slots = 2 if meta["size_gb"] < 10 else 1
     cmd += ["-np", str(np_slots)]

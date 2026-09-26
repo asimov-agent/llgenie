@@ -69,13 +69,25 @@ generate-requirements-dev-venv: venv-install ## pip-compile dev deps into the ve
 	@echo "pip-compiled $(DEVREQTXT) via venv"
 
 # ---- venv ------------------------------------------------------------------------
-create-venv: ## Create a python 3.10 virtualenv
-	python3.10 -m venv $(VENV)
-	@echo "venv at $(VENV)"
+create-venv: ## Create the gguf venv (idempotent — reuses an existing one when present)
+	# Reuse the venv if it already has a working python; only create it (with
+	# the best available python, 3.10 preferred) when absent. This is what lets
+	# `make install` round-trip (install -> uninstall -> install) without a
+	# fresh-host python3.10, since a second install must not clobber a working
+	# venv or fail when python3.10 is unavailable.
+	@echo "==> venv at $(VENV)"
+	@if [ -x "$(VENV)/bin/python" ]; then \
+		echo "    already present — reusing"; \
+	else \
+		echo "    creating with $$(command -v python3.10 >/dev/null 2>&1 && echo python3.10 || command -v python3)"; \
+		PY=$$(command -v python3.10 2>/dev/null || command -v python3 2>/dev/null || echo ""); \
+		[ -n "$$PY" ] || { echo "ERROR: no python3.10/python3 found to create the venv"; exit 1; }; \
+		"$$PY" -m venv $(VENV); \
+	fi
 
 venv: create-venv ## alias
 
-venv-install: create-venv $(REQTXT) ## Install generated requirements.txt into the 3.10 venv
+venv-install: create-venv $(REQTXT) ## Install generated requirements.txt into the venv
 	$(VENV)/bin/python -m pip install --upgrade pip
 	$(VENV)/bin/pip install -r $(REQTXT)
 	@echo "Installed gguf deps into $(VENV)"

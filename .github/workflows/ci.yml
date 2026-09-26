@@ -223,3 +223,158 @@ jobs:
         run: make test-top-tier-cli-ci
       - name: Prune orphaned test containers
         run: make test-clean
+
+  # ------------------------------------------------------------------
+  # #84/#89 variant matrix: build + verify EVERY tree x backend variant.
+  #
+  #   server-variants        (ubuntu-latest)  -> prism+cpu, prism+cuda,
+  #                                                upstream+cpu, upstream+cuda
+  #   server-variants-mac    (macos-14)       -> prism+metal, prism+cpu,
+  #                                                upstream+metal, upstream+cpu
+  #
+  # The two jobs run in PARALLEL. Each variant is built via
+  # scripts/build_llama_server.sh (clone-or-pull + cmake, always to the
+  # latest commit) and the resulting CLI binary is verified with --version
+  # + --help (exit 0). CUDA variants additionally assert that ldd links the
+  # cuda runtime libs; CPU variants run the 0.5B "hi" health check
+  # (scripts/ci_health.py) so the binary actually serves a model.
+  #
+  # The ubuntu job runs everything inside the CUDA+python variant image
+  # (gguf-tools/ci-variant:latest) which bundles nvcc + build toolchain +
+  # python/deps/hf, so the build and the "hi" check share one code path.
+  # The macos job runs on the native Apple-Silicon toolchain (Metal is
+  # Apple-only; the metal builds can only run there).
+  # ------------------------------------------------------------------
+
+  server-variants:
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build the CUDA+python variant image
+        run: make test-variant-image
+      - name: make install-prism-cpu (real install + 0.5B "hi")
+        run: |
+          set -eu
+          docker run --rm -e HOME=/root -v "$PWD":/repo:rw \
+            --entrypoint bash gguf-tools/ci-variant:latest -c '
+            cd /repo
+            make install-prism-cpu
+            srv="$(readlink ~/bin/llama-server)"
+            [ -x "$srv" ] || { echo "prism+cpu: installed server not executable"; exit 1; }
+            "$srv" --version 2>&1 | grep -m1 version || { echo "prism+cpu --version FAILED"; exit 1; }
+            "$srv" --help >/dev/null 2>&1 || { echo "prism+cpu --help FAILED"; exit 1; }
+            echo "prism+cpu: make install OK -> $srv"
+            python3 scripts/ci_health.py --server-bin "$srv"
+            '
+      - name: make install-prism-cuda (real install + cuda link check)
+        run: |
+          set -eu
+          docker run --rm -e HOME=/root -v "$PWD":/repo:rw \
+            --entrypoint bash gguf-tools/ci-variant:latest -c '
+            cd /repo
+            make install-prism-cuda
+            srv="$(readlink ~/bin/llama-server)"
+            [ -x "$srv" ] || { echo "prism+cuda: installed server not executable"; exit 1; }
+            "$srv" --version 2>&1 | grep -m1 version || { echo "prism+cuda --version FAILED"; exit 1; }
+            "$srv" --help >/dev/null 2>&1 || { echo "prism+cuda --help FAILED"; exit 1; }
+            ldd "$srv" 2>/dev/null | grep -Eq "libcudart|libcublas" \
+              || { echo "prism+cuda: installed server does NOT link cuda runtime libs"; exit 1; }
+            echo "prism+cuda: make install OK + cuda libs linked -> $srv"
+            '
+      - name: make install-upstream-cpu (real install + 0.5B "hi")
+        run: |
+          set -eu
+          docker run --rm -e HOME=/root -v "$PWD":/repo:rw \
+            --entrypoint bash gguf-tools/ci-variant:latest -c '
+            cd /repo
+            make install-upstream-cpu
+            srv="$(readlink ~/bin/llama-server)"
+            [ -x "$srv" ] || { echo "upstream+cpu: installed server not executable"; exit 1; }
+            "$srv" --version 2>&1 | grep -m1 version || { echo "upstream+cpu --version FAILED"; exit 1; }
+            "$srv" --help >/dev/null 2>&1 || { echo "upstream+cpu --help FAILED"; exit 1; }
+            echo "upstream+cpu: make install OK -> $srv"
+            python3 scripts/ci_health.py --server-bin "$srv"
+            '
+      - name: make install-upstream-cuda (real install + cuda link check)
+        run: |
+          set -eu
+          docker run --rm -e HOME=/root -v "$PWD":/repo:rw \
+            --entrypoint bash gguf-tools/ci-variant:latest -c '
+            cd /repo
+            make install-upstream-cuda
+            srv="$(readlink ~/bin/llama-server)"
+            [ -x "$srv" ] || { echo "upstream+cuda: installed server not executable"; exit 1; }
+            "$srv" --version 2>&1 | grep -m1 version || { echo "upstream+cuda --version FAILED"; exit 1; }
+            "$srv" --help >/dev/null 2>&1 || { echo "upstream+cuda --help FAILED"; exit 1; }
+            ldd "$srv" 2>/dev/null | grep -Eq "libcudart|libcublas" \
+              || { echo "upstream+cuda: installed server does NOT link cuda runtime libs"; exit 1; }
+            echo "upstream+cuda: make install OK + cuda libs linked -> $srv"
+            '
+      - name: Prune orphaned test containers
+        run: make test-clean
+
+  server-variants-mac:
+    runs-on: macos-14
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install bash 5 + python 3.10 and put them on PATH
+        # macOS ships bash 3.2 (no `set -o pipefail`/`[[ ]]` reliably) and a
+        # python that may not be 3.10. build_llama_server.sh needs bash 4+ and
+        # the gguf venv needs python 3.10, so install both via Homebrew and
+        # prepend them to PATH for every subsequent step in this job.
+        run: |
+          set -eu
+          brew install bash python@3.10
+          echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
+          echo "$(brew --prefix)/opt/python@3.10/bin" >> "$GITHUB_PATH"
+          bash --version | head -1
+          python3 --version
+      - name: python env for the 0.5B "hi" health check
+        run: |
+          set -eu
+          python3 -m venv "$HOME/cihealth"
+          "$HOME/cihealth/bin/pip" install --quiet gguf numpy "huggingface_hub[cli]>=0.30"
+      - name: Build + verify prism+metal (--version/--help)
+        run: |
+          set -eu
+          SERVER_ROOT="$HOME/repository/git"
+          ./scripts/build_llama_server.sh prism metal
+          B="$SERVER_ROOT/prism-llama.cpp/build-metal/bin/llama-server"
+          "$B" --version 2>&1 | grep -m1 version || { echo "prism+metal --version FAILED"; exit 1; }
+          "$B" --help >/dev/null 2>&1 || { echo "prism+metal --help FAILED"; exit 1; }
+          echo "prism+metal: --version/--help OK (Apple Silicon)"
+      - name: Build + verify prism+cpu, run 0.5B "hi"
+        run: |
+          set -eu
+          SERVER_ROOT="$HOME/repository/git"
+          ./scripts/build_llama_server.sh prism cpu
+          B="$SERVER_ROOT/prism-llama.cpp/build-cpu/bin/llama-server"
+          "$B" --version 2>&1 | grep -m1 version || { echo "prism+cpu --version FAILED"; exit 1; }
+          "$B" --help >/dev/null 2>&1 || { echo "prism+cpu --help FAILED"; exit 1; }
+          echo "prism+cpu: --version/--help OK"
+          HF_BIN="$HOME/cihealth/bin/hf" "$HOME/cihealth/bin/python" scripts/ci_health.py --server-bin "$B"
+      - name: Build + verify upstream+metal (--version/--help)
+        run: |
+          set -eu
+          SERVER_ROOT="$HOME/repository/git"
+          ./scripts/build_llama_server.sh upstream metal
+          B="$SERVER_ROOT/llama.cpp/build-metal/bin/llama-server"
+          "$B" --version 2>&1 | grep -m1 version || { echo "upstream+metal --version FAILED"; exit 1; }
+          "$B" --help >/dev/null 2>&1 || { echo "upstream+metal --help FAILED"; exit 1; }
+          echo "upstream+metal: --version/--help OK (Apple Silicon)"
+      - name: Build + verify upstream+cpu, run 0.5B "hi"
+        run: |
+          set -eu
+          SERVER_ROOT="$HOME/repository/git"
+          ./scripts/build_llama_server.sh upstream cpu
+          B="$SERVER_ROOT/llama.cpp/build-cpu/bin/llama-server"
+          "$B" --version 2>&1 | grep -m1 version || { echo "upstream+cpu --version FAILED"; exit 1; }
+          "$B" --help >/dev/null 2>&1 || { echo "upstream+cpu --help FAILED"; exit 1; }
+          echo "upstream+cpu: --version/--help OK"
+          HF_BIN="$HOME/cihealth/bin/hf" "$HOME/cihealth/bin/python" scripts/ci_health.py --server-bin "$B"

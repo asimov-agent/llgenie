@@ -305,14 +305,26 @@ git merge-base --is-ancestor origin/main HEAD 2>/dev/null \
 3. **Run the loop gate** (`make loop`) — it must be GREEN, and
    `make openspec-validate NAME=<name>` must pass, and every task in
    `tasks.md` must be ticked (`- [ ]` → `- [x]`), before the branch is ready.
-4. **When all tasks are completed AND verified**, push the branch and open a PR
-   against `main`:
+4. **When all tasks are completed AND verified**, push the branch to the **fork**
+   (`origin`) and open a PR against the **UPSTREAM** (`asimov-agent/llgenie`):
    ```bash
    git push -u origin feat/<kebab-name>
-   gh pr create --base main --head feat/<kebab-name> \
-       --title "feat: <kebab-name>" --body "Completes OpenSpec change <name>.<br>Loop gate GREEN, openspec validate passes, all tasks ticked."
+   # PR must ALWAYS target the upstream main, from the fork's branch:
+   gh pr create \
+       --repo asimov-agent/llgenie \
+       --base main \
+       --head andyholst:feat/<kebab-name> \
+       --title "feat: <kebab-name>" \
+       --body "Completes OpenSpec change <name>.<br>Issue: [#84](https://github.com/asimov-agent/llgenie/issues/84)<br>Loop gate GREEN, openspec validate passes, all tasks ticked."
    ```
-5. **Never push directly to `main`.** If you need `main` updated, merge via the PR.
+   **Rules (MANDATORY, every single PR):**
+   - The **base** repo is ALWAYS `asimov-agent/llgenie` (the upstream/mainstream).
+   - The **head** repo is `andyholst/llgenie` (the fork). Use `andyholst:feat/<name>`
+     (not just `feat/<name>`) so `--repo asimov-agent/llgenie` finds the branch.
+   - Push the branch to `origin` (the fork) with `git push -u origin feat/<name>`.
+   - NEVER create a PR against `andyholst/llgenie` (the fork). The PR always goes
+     to the upstream.
+   - NEVER push directly to `main` on either repo.
 6. Keep each PR to one change/OpenSpec change. Rebase or merge `main` in when the
    PR goes stale; never force-push shared branches.
 

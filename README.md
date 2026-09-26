@@ -78,6 +78,70 @@ cd tools && make venv-install      # create ~/llama-gguf-tools/.venv + install d
 `requirements.in` is the single source of truth; `requirements.txt` is generated with
 `pip-compile` inside the `tools/` Dockerfile container (`make generate-requirements`).
 
+## Which llama.cpp build is used (card-size rule, issue #84)
+
+`make install` picks the llama.cpp **source tree** and the **backend** from the
+hardware — it clones-or-pulls the chosen tree to its **latest commit** and builds
+it; it never symlinks a stale prebuilt.
+
+### Tree selection — card RAM only (no model quant inspection)
+Card RAM means the GPU's VRAM when an NVIDIA card is present (via `nvidia-smi`),
+otherwise the system RAM. `LLAMA_RAM_BYTES` is a test/CI seam, not a user knob.
+
+| Card RAM | Tree to build | Why |
+|---|---|---|
+| 8 GB  | **Prism** | only low-bit PTQ1_0 fits; stock can't load it |
+| 12 GB | **Prism** | PTQ1_0 fits; stock can't load it |
+| 16 GB | **Prism** | PQ2_0/PTQ1_0 fit; stock can't load them |
+| 24 GB | **Prism** | Q4_K fits; Prism runs low-bit AND standard quants |
+| 48 GB | **upstream** | Q8_0 fits; stock handles it |
+| 64 GB | **upstream** | Q8_0/F16 fits; stock handles it |
+
+The threshold is inclusive on the low side: **card_RAM <= 24 GB -> Prism, > 24 GB -> upstream**
+(single constant `PRISM_THRESHOLD_GB = 24` in `scripts/detect_server.py`).
+
+Prism (PrismML-Eng/llama.cpp, branch `prism`) is a **superset** of stock upstream:
+it loads every standard quant PLUS the low-bit PTQ1_0/PQ2_0/TQ1_0/TQ2_0 that only it supports.
+
+### Backend selection (hardware)
+Metal (macOS + Apple Silicon) · CUDA (nvidia-smi lists a GPU AND nvcc is present) · CPU (fallback).
+
+### Explicit variant targets (host: build ONE variant)
+```
+make install                 # auto-detects tree+backend for THIS card, builds it
+make build-variant TREE=prism BACKEND=cpu     # build just one variant (CI uses these)
+make build-variant TREE=upstream BACKEND=cuda
+make install-prism-cpu       # build+install one tree+backend in isolation
+make install-prism-cuda      # (needs nvcc)
+make install-prism-metal     # (macOS only)
+make install-upstream-cpu
+make install-upstream-cuda   # (needs nvcc)
+make install-upstream-metal  # (macOS only)
+make uninstall               # removes launcher + symlinks AND the cloned tree dirs
+```
+
+### Env seams (CI/test)
+- `LLAMA_BACKEND` = metal | cuda | cpu  (override hardware detection)
+- `LLAMA_RAM_BYTES` = card RAM in bytes (test/CI seam)
+- `LLAMA_SERVER_TREE` = prism | upstream (force the tree, independent of card RAM)
+
+### CI matrix (`.github/workflows/ci.yml`)
+Two **parallel** jobs build and verify every variant, each self-contained
+(own tree dir + per-backend build dir so variants never collide):
+
+- `server-variants` (**ubuntu-latest**, CUDA+python image): builds `prism+cpu`,
+  `prism+cuda`, `upstream+cpu`, `upstream+cuda`. The CUDA toolkit is installed
+  before the CUDA builds; every variant verifies `--version` + `--help` (exit 0),
+  the CUDA variants additionally assert `ldd` links cuda runtime libs, and the
+  CPU variants run the 0.5B `"hi"` health check (`scripts/ci_health.py`).
+- `server-variants-mac` (**macos-14**, Apple Silicon): builds `prism+metal`,
+  `prism+cpu`, `upstream+metal`, `upstream+cpu`. Metal is Apple-only and can
+  only be built here; every variant verifies `--version` + `--help`, and the CPU
+  variants run the 0.5B `"hi"` health check. The job installs **bash 5** and
+  **python 3.10** via Homebrew and prepends them to `PATH` (macOS ships bash 3.2,
+  which lacks `set -o pipefail`/`[[ ]]`, and the gguf venv needs python 3.10).
+
+
 ## Download a model (`scripts/hf_download.py`)
 
 ```bash
