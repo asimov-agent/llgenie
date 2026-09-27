@@ -63,11 +63,14 @@ And    only after that quiet window exceeds the threshold is the worker treated 
   no kill, no respawn, lock preserved.
 - `TestStuckWorkerResume.test_live_pid_with_stale_log_is_killed_and_respawned`: live PID + mtime past
   threshold → tree killed, lock removed, fresh spawn issued.
+
 ### Verification: B2
 - Existing `TestSpawnWorkerLock.test_alive_pid_lock_skips_spawn` stays green (live + no stale log) and
   `test_dead_pid_lock_is_removed_and_spawned` stays green (dead PID → clean + respawn).
+
 ### Verification: B3
 - `TestStuckWorkerResume.test_stuck_detection_uses_log_growth_not_wall_clock`: a worker whose mtime is
   within the threshold is not flagged regardless of when it started.
+
 ### Regression
 - `make lint`, `make test-unit`; `make openspec-validate`; CI unit job green.

@@ -223,3 +223,172 @@ jobs:
         run: make test-top-tier-cli-ci
       - name: Prune orphaned test containers
         run: make test-clean
+
+  # ------------------------------------------------------------------
+  # #84/#89 variant matrix: one GitHub job per tree x backend, all parallel.
+  #
+  #   server-variants        (ubuntu-latest) matrix:
+  #       prism+cpu    || prism+cuda
+  #       upstream+cpu || upstream+cuda     (stock llama.cpp)
+  #   server-variants-mac (macos-14) matrix:
+  #       prism+cpu    || prism+metal
+  #       upstream+cpu || upstream+metal    (stock llama.cpp)
+  #
+  # Each matrix cell is its own runner, so a long CUDA/Metal compile does not
+  # sit behind its CPU sibling and a failure does not cancel the other pair
+  # (fail-fast: false). Linux cells build inside the CUDA+python variant image
+  # (gguf-tools/ci-variant:latest). That image is FROM nvidia/cuda, so the
+  # CUDA toolkit is already built. The job compiles llama-server inside the
+  # container; it does not install the toolkit and it does not run a prebuilt
+  # llama-server image. macOS cells use the native Apple-Silicon toolchain
+  # (Metal is Apple-only).
+  #
+  # Verification goes through the Makefile. make install-<tree>-<backend>
+  # (or make build-variant on macOS) builds the binary. make test-serve-variant
+  # binds a free 127.0.0.1 port, so a server already listening is left alone,
+  # serves the cached Qwen 0.5B file (downloaded only when missing), posts "hi",
+  # then stops only that process. --n-gpu-layers is not passed, so
+  # llama-server keeps its default and takes GPU or CPU, whichever it can.
+  # CUDA cells also assert ldd links the cuda runtime libs.
+  # ------------------------------------------------------------------
+
+  server-variants:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: server-build-prism-cpu
+            tree: prism
+            backend: cpu
+          - name: server-build-prism-cuda
+            tree: prism
+            backend: cuda
+          - name: server-build-upstream-cpu
+            tree: upstream
+            backend: cpu
+          - name: server-build-upstream-cuda
+            tree: upstream
+            backend: cuda
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Restore the llama.cpp build cache
+        uses: actions/cache@v4
+        with:
+          path: llama-build
+          key: llama-${{ runner.os }}-${{ matrix.tree }}-${{ matrix.backend }}-${{ github.run_id }}
+          restore-keys: |
+            llama-${{ runner.os }}-${{ matrix.tree }}-${{ matrix.backend }}-
+      - name: Build the CUDA+python variant image
+        run: make test-variant-image
+      - name: Prebuilt CUDA toolkit is already in the image
+        run: |
+          set -eu
+          docker run --rm --entrypoint bash gguf-tools/ci-variant:latest -c '
+            set -eu
+            command -v nvcc
+            nvcc --version
+            ls /usr/local/cuda/lib64/libcudart.so*
+            echo "prebuilt CUDA toolkit present; llama-server is compiled next"
+          '
+      - name: make install-${{ matrix.tree }}-${{ matrix.backend }}
+        env:
+          VARIANT_TREE: ${{ matrix.tree }}
+          VARIANT_BACKEND: ${{ matrix.backend }}
+        run: |
+          set -eu
+          export BUILD_JOBS="$(nproc)"
+          echo "runner cores: ${BUILD_JOBS}"
+          mkdir -p llama-build
+          stdbuf -oL -eL docker run --rm -e HOME=/root \
+            -e VARIANT_TREE -e VARIANT_BACKEND -e BUILD_JOBS \
+            -e SERVER_ROOT=/root/repository/git \
+            -v "$PWD":/repo:rw \
+            -v "$PWD/llama-build:/root/repository/git" \
+            --entrypoint bash gguf-tools/ci-variant:latest -c '
+            set -eu
+            cd /repo
+            label="${VARIANT_TREE}+${VARIANT_BACKEND}"
+            make "install-${VARIANT_TREE}-${VARIANT_BACKEND}"
+            srv="$(readlink ~/bin/llama-server)"
+            [ -x "$srv" ] || { echo "$label: installed server not executable"; exit 1; }
+            "$srv" --version 2>&1 | grep -m1 version || { echo "$label --version FAILED"; exit 1; }
+            "$srv" --help >/dev/null 2>&1 || { echo "$label --help FAILED"; exit 1; }
+            if [ "$VARIANT_BACKEND" = cuda ]; then
+              ldd "$srv" 2>/dev/null | grep -Eq "libcudart|libcublas" \
+                || { echo "$label: installed server does NOT link cuda runtime libs"; exit 1; }
+            fi
+            make test-serve-variant TREE="$VARIANT_TREE" BACKEND="$VARIANT_BACKEND"
+            echo "$label: make test-serve-variant OK -> $srv"
+            '
+      - name: Prune orphaned test containers
+        if: always()
+        run: make test-clean
+
+  server-variants-mac:
+    name: ${{ matrix.name }}
+    runs-on: macos-14
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: server-build-prism-cpu-mac
+            tree: prism
+            backend: cpu
+          - name: server-build-prism-metal
+            tree: prism
+            backend: metal
+          - name: server-build-upstream-cpu-mac
+            tree: upstream
+            backend: cpu
+          - name: server-build-upstream-metal
+            tree: upstream
+            backend: metal
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install bash 5 + python 3.10 and put them on PATH
+        # macOS ships bash 3.2 (no `set -o pipefail`/`[[ ]]` reliably) and a
+        # python that may not be 3.10. build_llama_server.sh needs bash 4+ and
+        # the gguf venv needs python 3.10, so install both via Homebrew and
+        # prepend them to PATH for every subsequent step in this job.
+        run: |
+          set -eu
+          brew install bash python@3.10
+          echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
+          echo "$(brew --prefix)/opt/python@3.10/bin" >> "$GITHUB_PATH"
+          bash --version | head -1
+          python3 --version
+      - name: Restore the llama.cpp build cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/llama-build
+          key: llama-${{ runner.os }}-${{ matrix.tree }}-${{ matrix.backend }}-${{ github.run_id }}
+          restore-keys: |
+            llama-${{ runner.os }}-${{ matrix.tree }}-${{ matrix.backend }}-
+      - name: python env for the 0.5B "hi" health check
+        run: |
+          set -eu
+          python3 -m venv "$HOME/cihealth"
+          "$HOME/cihealth/bin/pip" install --quiet gguf numpy "huggingface_hub[cli]>=0.30"
+      - name: Build + verify ${{ matrix.tree }}+${{ matrix.backend }}
+        env:
+          VARIANT_TREE: ${{ matrix.tree }}
+          VARIANT_BACKEND: ${{ matrix.backend }}
+        run: |
+          set -eu
+          export PATH="$HOME/cihealth/bin:$PATH"
+          export HF_BIN="$HOME/cihealth/bin/hf"
+          export BUILD_JOBS="$(sysctl -n hw.ncpu)"
+          export SERVER_ROOT="${RUNNER_TEMP}/llama-build"
+          mkdir -p "$SERVER_ROOT"
+          echo "runner cores: ${BUILD_JOBS}"
+          make build-variant TREE="$VARIANT_TREE" BACKEND="$VARIANT_BACKEND"
+          make test-serve-variant TREE="$VARIANT_TREE" BACKEND="$VARIANT_BACKEND"
+          echo "${VARIANT_TREE}+${VARIANT_BACKEND}: make test-serve-variant OK"

@@ -49,9 +49,12 @@ And   `llama_serve.py` does not block the rest of the batch.
 ### Verification: A1
 - Hermetic test with an `HF_STALL_SECONDS`-shrunk threshold: a subprocess with no growth is
   killed and the attempt counter increments; `STALLED` appears in the log.
+
 ### Verification: A2
 - Hermetic negative guard: a growing subprocess survives the stall-watch (no false kill).
+
 ### Verification: A3
 - Hermetic test: repeated stalls exhaust `MAX_RETRY` and yield `SKIPPED (stall)`.
+
 ### Regression
 - `make lint`, `make test-unit`, `make test-top-tier`; `make openspec-validate`; CI green.

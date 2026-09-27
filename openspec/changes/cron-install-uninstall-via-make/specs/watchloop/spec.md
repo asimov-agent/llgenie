@@ -66,11 +66,15 @@ And   lists prerequisites and a first-tick smoke check.
 ### Verification: A1
 - Hermetic: install flattening produces exactly one entry (double-install idempotent), unrelated
   lines preserved — `tests/test_install_watchloop_cron.py`, stubbing `crontab`/`subprocess`.
+
 ### Verification: A2
 - Hermetic: uninstall removes only the watch-loop line, leaves unrelated lines byte-identical.
+
 ### Verification: A3
 - Hermetic: per-OS command generation returns the expected python3/PATH per platform.
+
 ### Verification: A4
 - README + AGENTS.md contain the fresh-host install/uninstall documentation.
+
 ### Regression
 - `make lint`, `make test-unit` green; `make openspec-validate` passes.

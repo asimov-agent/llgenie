@@ -13,7 +13,9 @@
 #       llgenie qwen            # launch by substring
 #       llgenie --dry qwen      # print the tuned command, don't run
 
-SHELL   := /bin/bash
+# Use the first bash on PATH so bash 5 (via brew on macOS) shadows the
+# system bash 3.2. Linux/CI runners already have bash 5 in /bin/bash.
+SHELL   := $(shell command -v bash 2>/dev/null || echo /bin/bash)
 HOME    := $(shell printf '%s' "$$HOME")
 BIN     := $(HOME)/bin
 # Put ~/bin on PATH for every recipe so `llama-server` (symlinked there by
@@ -27,14 +29,20 @@ VENV    := $(HOME)/llama-gguf-tools/.venv
 # same Makefile test/lint targets run identically on the host and in CI.
 PY      := $(if $(wildcard $(VENV)/bin/python),$(VENV)/bin/python,python3)
 LAUNCHER := $(BIN)/llgenie
-# llama.cpp llama-server binary — symlinked into ~/bin so llgenie.py resolves
-# it as `llama-server` on PATH. Override if built elsewhere.
-LLAMA_SERVER_BIN ?= $(HOME)/repository/git/llama.cpp/build/bin/llama-server
+# Where llama.cpp trees get cloned (clone-or-pull + build). On the host this is
+# the user's git home; in CI the variant jobs set SERVER_ROOT to a local dir.
+SERVER_ROOT ?= $(HOME)/repository/git
+# Stamp file holding the path of the freshly-built llama-server binary (written
+# by `build-server`). `link` symlinks ~/bin/llama-server from it, so build and
+# link always agree on the binary.
+SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 
-.PHONY: all install venv-install link uninstall smoke list version help \\
-		openspec-image openspec-new openspec-validate openspec-status openspec-shell \\
-		test test-unit test-agents-e2e test-install test-install-ci test-install-host test-health download-test-model \\
-		test-image test-clean lint lint-fix loop loop-harness chained cron-install cron-uninstall cron-snapshot
+.PHONY: all install venv-install link uninstall smoke list version help \
+	openspec-image openspec-new openspec-validate openspec-status openspec-shell \
+	test test-unit test-agents-e2e test-install test-install-ci test-install-host test-health download-test-model \
+	test-image test-clean lint lint-fix loop loop-harness chained cron-install cron-uninstall cron-snapshot \
+	build-server build-variant serve-variant test-serve-variant stop-serve-variant install-prism-cpu install-upstream-cpu \
+	install-prism-cuda install-upstream-cuda install-prism-metal install-upstream-metal
 
 # ---- container runtime (nerdctl preferred, docker fallback) --------------
 RUNTIME ?= nerdctl
@@ -45,11 +53,24 @@ OS_IMG := llgenie/openspec:latest
 
 all: install
 
-# ---- full install: venv + launcher + symlink + smoke test --------------
-install: venv-install link smoke
+# ---- full install: clone+build server + venv + launcher + smoke -----------
+# `make install` does the WHOLE setup so you never touch the venv manually:
+#   1. clones-or-pulls the RIGHT llama.cpp tree for the card (Prism <= 24 GB
+#      VRAM, upstream > 24 GB) and builds it for the detected backend
+#      (Metal / CUDA / CPU) — always to the latest commit (make build-server)
+#   2. builds the Python 3.10 gguf-tooling venv (./tools/venv-install)
+#   3. writes a runnable launcher `~/bin/llgenie` + symlinks it + the server
+#      (make link)
+#   4. verifies with a `--list` smoke run (make smoke)
+#
+# The host builds ONLY the right variant for its card (e.g. a 16 GB NVIDIA
+# card -> prism+cuda, once). CI builds every variant in parallel (see
+# .github/workflows/ci.yml build-variants).
+install: build-server venv-install link smoke
 	@echo
 	@echo "Installed. Run '$(LAUNCHER)' (e.g. 'llgenie --list', 'llgenie qwen')."
 	@echo "Symlink: $(BIN)/llgenie.py -> $(REPO)/scripts/llama_serve.py"
+	@echo "llama-server: $(BIN)/llama-server -> $(LLAMA_SERVER_BIN)"
 
 # ---- 1. build the gguf-tooling venv (Python 3.10 + gguf + numpy) --------
 venv-install:
@@ -63,24 +84,123 @@ link:
 		"$(REPO)/scripts/llama_serve.py" "$(VENV)" "$(PY)" "$(REPO)/scripts/llama_serve.py" > "$(LAUNCHER)"
 	@chmod +x "$(LAUNCHER)"
 	@ln -sfn "$(REPO)/scripts/llama_serve.py" "$(BIN)/llgenie.py"
-	@if [ -x "$(LLAMA_SERVER_BIN)" ]; then \
-		ln -sfn "$(LLAMA_SERVER_BIN)" "$(BIN)/llama-server"; \
-		echo "==> Symlinked ~/bin/llama-server -> $(LLAMA_SERVER_BIN)"; \
+	# Symlink the freshly-built llama-server (path from SERVER_BIN_STAMP, written
+	# by build-server) into ~/bin so llgenie.py resolves it on PATH.
+	@SRV="$(shell cat $(SERVER_BIN_STAMP) 2>/dev/null)"; \
+	if [ -n "$$SRV" ] && [ -x "$$SRV" ]; then \
+		ln -sfn "$$SRV" "$(BIN)/llama-server"; \
+		echo "==> Symlinked ~/bin/llama-server -> $$SRV"; \
 	else \
-		echo "WARN: llama-server binary not found at $(LLAMA_SERVER_BIN)." >&2; \
-		echo "      llgenie.py will terminate until 'llama-server' is on PATH." >&2; \
-		echo "      Set LLAMA_SERVER_BIN=<path> or add llama-server to PATH." >&2; \
+		echo "WARN: no freshly-built llama-server (missing/stale $(SERVER_BIN_STAMP))." >&2; \
+		echo "      Run 'make build-server' (or set SERVER_ROOT) so llgenie.py can serve." >&2; \
 	fi
 	@echo "==> Wrote $(LAUNCHER) (exec) and symlinked ~/bin/llgenie.py -> repo"
+	@$(PY) scripts/ensure_user_path.py
 
 # ---- 4. smoke: confirm the launcher can list models ---------------------
 smoke:
 	@echo "==> Smoke test: $(LAUNCHER) --list"
-	@if $(LAUNCHER) --list; then \
-		echo "==> OK: launcher runs and found models."; \
-	else \
-		echo "==> Launcher installed and runs. (No .gguf under ~/models yet — install succeeds; use 'llgenie --download-top-tier' to fetch trending top-tier models, or drop a .gguf into ~/models and run 'make list'.)" >&2; \
-	fi
+	- if $(LAUNCHER) --list; then echo "==> OK: launcher runs and found models."; else echo "==> Launcher installed and runs. (No .gguf under ~/models yet — install succeeds; use 'llgenie --download-top-tier' to fetch trending top-tier models, or drop a .gguf into ~/models and run 'make list'.)"; fi
+
+# ---- llama.cpp server clone-or-pull + build (the right tree/backend) ------
+# Auto-detects the tree from card RAM (Prism <= 24 GB, upstream > 24 GB) and the
+# backend from the hardware (Metal / CUDA / CPU) via scripts/detect_server.py,
+# then runs scripts/build_llama_server.sh to clone-or-pull the tree to the
+# LATEST commit and build it. Writes the built binary path to SERVER_BIN_STAMP
+# so `link` symlinks it into ~/bin.
+#
+# On the host this builds ONLY the right variant for the card (e.g. prism+cuda
+# on a 16 GB NVIDIA card). In CI, the build-variants job (ci.yml) calls
+# `build-variant` for each tree x backend combo instead.
+build-server:
+	@echo "==> detect_server: tree/backend for this card"
+	@python3 scripts/detect_server.py
+	@TREE=$(shell python3 -c "import scripts.detect_server as ds; print(ds.detect_all()['tree'])"); \
+	BACKEND=$(shell python3 -c "import scripts.detect_server as ds; print(ds.detect_all()['backend'])"); \
+	if [ -z "$$TREE" ] || [ -z "$$BACKEND" ]; then echo "ERROR: detect_server produced no tree/backend"; exit 1; fi; \
+	echo "==> building server: tree=$$TREE backend=$$BACKEND (clone-or-pull + build)"; \
+	set -o pipefail; \
+	if command -v stdbuf >/dev/null 2>&1; then LINEBUF="stdbuf -oL -eL"; else LINEBUF=; fi; \
+	SERVER_ROOT=$(SERVER_ROOT) $$LINEBUF $(REPO)/scripts/build_llama_server.sh "$$TREE" "$$BACKEND" 2>&1 | tee /tmp/llgenie_srv_build.log; \
+	SRV=$$(tail -n1 /tmp/llgenie_srv_build.log); \
+	test -x "$$SRV" || { echo "ERROR: build-server did not produce a binary ($$SRV)"; exit 1; }; \
+	mkdir -p $(dir $(SERVER_BIN_STAMP)); \
+	printf '%s\n' "$$SRV" > $(SERVER_BIN_STAMP); \
+	rm -f /tmp/llgenie_srv_build.log; \
+	echo "==> server binary: $$SRV (stamped to $(SERVER_BIN_STAMP))"
+# Explicit variant build (used by CI build-variants and by make install-<tree>-<backend>).
+# Sets the env seams (LLAMA_SERVER_TREE / LLAMA_BACKEND / LLAMA_RAM_BYTES) and runs
+# the SAME build_llama_server.sh, then stamps the binary path so `link` can
+# symlink it. The tree override (LLAMA_SERVER_TREE) is authoritative, so CI can
+# verify each tree+backend independently of the runner's card.
+#   make build-variant TREE=prism BACKEND=cuda
+# The build log is streamed (tee). Do not send it through `tail` or
+# `2>/dev/null`: those hide the CUDA/Metal compile until the job ends.
+build-variant:
+	@test -n "$(TREE)" -a -n "$(BACKEND)" || { echo "Usage: make build-variant TREE=prism BACKEND=cuda"; exit 1; }
+	set -o pipefail; \
+	if command -v stdbuf >/dev/null 2>&1; then LINEBUF="stdbuf -oL -eL"; else LINEBUF=; fi; \
+	TREE=$(TREE) BACKEND=$(BACKEND) \
+		LLAMA_SERVER_TREE=$(TREE) LLAMA_BACKEND=$(BACKEND) \
+		LLAMA_RAM_BYTES=17179869184 \
+		SERVER_ROOT=$(SERVER_ROOT) $$LINEBUF $(REPO)/scripts/build_llama_server.sh "$(TREE)" "$(BACKEND)" 2>&1 | tee /tmp/llgenie_srv_build.log
+	@mkdir -p $(dir $(SERVER_BIN_STAMP))
+	@SRV=$$(tail -n1 /tmp/llgenie_srv_build.log); \
+		test -x "$$SRV" || { echo "ERROR: build-variant did not produce a binary ($$SRV)"; exit 1; }; \
+		printf '%s\n' "$$SRV" > $(SERVER_BIN_STAMP); \
+		rm -f /tmp/llgenie_srv_build.log
+	@echo "==> stamped server binary: $$(cat $(SERVER_BIN_STAMP))"
+
+# Serve an already-built variant on its own port. Does not rebuild, does not
+# relink ~/bin/llama-server, and does not stop whatever is already listening
+# (the long-running server keeps its port). PORT empty picks a free
+# 127.0.0.1 port. --n-gpu-layers is not passed. llama-server keeps its
+# default and takes GPU or CPU, whichever it can.
+#   make serve-variant TREE=prism BACKEND=cuda
+#   make serve-variant TREE=prism BACKEND=cuda PORT=18080 MODEL=/path/to/model.gguf
+serve-variant:
+	@test -n "$(TREE)" -a -n "$(BACKEND)" || { echo "Usage: make serve-variant TREE=prism BACKEND=cuda [PORT=] [MODEL=]"; exit 1; }
+	$(PY) scripts/serve_variant.py --tree "$(TREE)" --backend "$(BACKEND)" \
+		--port "$(if $(PORT),$(PORT),0)" \
+		$(if $(MODEL),--model "$(MODEL)",) \
+		--server-root "$(SERVER_ROOT)"
+
+# POST "hi" to the variant server, then stop only that process.
+#   make test-serve-variant TREE=prism BACKEND=cuda
+test-serve-variant:
+	@test -n "$(TREE)" -a -n "$(BACKEND)" || { echo "Usage: make test-serve-variant TREE=prism BACKEND=cuda [PORT=] [MODEL=]"; exit 1; }
+	$(PY) scripts/serve_variant.py --tree "$(TREE)" --backend "$(BACKEND)" --test \
+		--port "$(if $(PORT),$(PORT),0)" \
+		$(if $(MODEL),--model "$(MODEL)",) \
+		--server-root "$(SERVER_ROOT)"
+
+# Stop the variant server this Makefile started. Does not touch any other port.
+#   make stop-serve-variant TREE=prism BACKEND=cuda
+stop-serve-variant:
+	@test -n "$(TREE)" -a -n "$(BACKEND)" || { echo "Usage: make stop-serve-variant TREE=prism BACKEND=cuda"; exit 1; }
+	$(PY) scripts/serve_variant.py --tree "$(TREE)" --backend "$(BACKEND)" --stop
+
+# ---- explicit variant install targets (host: build the right one only) ----
+# Each is a FULL install of ONE tree+backend: build-variant + venv + link + smoke.
+# `make install` (no args) = build-server (auto-detect from the card) + venv + link + smoke.
+install-prism-cpu: ## Build+install Prism llama.cpp (CPU)
+	$(MAKE) build-variant TREE=prism BACKEND=cpu
+	$(MAKE) venv-install link smoke
+install-upstream-cpu: ## Build+install upstream llama.cpp (CPU)
+	$(MAKE) build-variant TREE=upstream BACKEND=cpu
+	$(MAKE) venv-install link smoke
+install-prism-cuda: ## Build+install Prism llama.cpp (CUDA; needs nvcc)
+	$(MAKE) build-variant TREE=prism BACKEND=cuda
+	$(MAKE) venv-install link smoke
+install-upstream-cuda: ## Build+install upstream llama.cpp (CUDA; needs nvcc)
+	$(MAKE) build-variant TREE=upstream BACKEND=cuda
+	$(MAKE) venv-install link smoke
+install-prism-metal: ## Build+install Prism llama.cpp (Metal; macOS only)
+	$(MAKE) build-variant TREE=prism BACKEND=metal
+	$(MAKE) venv-install link smoke
+install-upstream-metal: ## Build+install upstream llama.cpp (Metal; macOS only)
+	$(MAKE) build-variant TREE=upstream BACKEND=metal
+	$(MAKE) venv-install link smoke
 
 # ---- helpers ------------------------------------------------------------
 list:
@@ -139,10 +259,22 @@ WORKTREE_MOUNT := $(if $(GIT_WORKTREE_PARENT),-v "$(GIT_WORKTREE_PARENT)":$(GIT_
 TEST_OPTS := --rm -u root -v "$(REPO)":/repo:rw -w /repo -e HOME=/root $(WORKTREE_MOUNT)
 TEST_RUN := $(RUNTIME) run $(TEST_OPTS) $(TEST_IMG)
 
+# CUDA-toolkit (nvcc) + python image for the #84/#89 variant builds. The same
+# image does all ubuntu-latest CPU + CUDA builds: builds use nvcc, and the
+# 0.5B "hi" health check uses the bundled python + gguf/numpy/hf. (Metal builds
+# run on macos-14 host toolchains — see the ci.yml jobs.)
+VARIANT_IMG := gguf-tools/ci-variant:latest
+VARIANT_RUN := $(RUNTIME) run $(VARIANT_OPTS) $(VARIANT_IMG)
+
 test-image: ## Build the containerized test image (copies compiled requirements into context)
 	@cp tools/requirements.txt tools/requirements-dev.txt containers/test/
 	$(RUNTIME) build -t $(TEST_IMG) containers/test/
 	@echo "Test image built: $(TEST_IMG)"
+
+test-variant-image: ## Build the CUDA toolkit + python variant-build image for CI variant builds
+	@cp tools/requirements.txt tools/requirements-dev.txt containers/ci-variant/
+	$(RUNTIME) build -t $(VARIANT_IMG) containers/ci-variant/
+	@echo "Variant image built: $(VARIANT_IMG)"
 
 test-clean: ## Remove left-over/stopped orphaned containers of the test image (interrupted/failed runs)
 	# Docker/nerdctl-agnostic: list all containers referencing the test image
@@ -162,7 +294,7 @@ test-clean: ## Remove left-over/stopped orphaned containers of the test image (i
 	echo "Pruned stopped orphaned $(TEST_IMG) containers."
 
 test-unit: ## Hermetic unit tests (containerized) — includes the lint regression + openspec-tasks-check tests
-	$(TEST_RUN) python -m pytest tests/test_llama_ai.py tests/test_hf_download_stall.py tests/test_lint_linefeeds.py tests/test_watchloop_dispatch.py tests/test_check_openspec_tasks.py tests/test_install_watchloop_cron.py tests/test_watch_report.py -p no:cacheprovider -q
+	$(TEST_RUN) python -m pytest tests/test_llama_ai.py tests/test_hf_download_stall.py tests/test_lint_linefeeds.py tests/test_watchloop_dispatch.py tests/test_check_openspec_tasks.py tests/test_install_watchloop_cron.py tests/test_watch_report.py tests/test_ci_variant_matrix.py tests/test_serve_variant.py tests/test_ensure_user_path.py -p no:cacheprovider -q
 
 test-agents-e2e: ## REAL end-to-end agent tests (containerized) — runs ONLY *_e2e*.py files directly
 	# issue #63 CI gate: exercises the REAL dispatcher spawn/kill/respawn against a fake
@@ -201,7 +333,7 @@ test-install-ci: ## REAL install tests inside the test container (NO SKIP): make
 	# SINGLE container session so the artifacts actually persist for pytest. Missing
 	# prerequisites are a loud failure here, never a skip.
 	@echo "==> test-install-ci: real make install + model seed + tests (no skips)"
-	$(TEST_RUN) sh -c 'make install && python scripts/download_test_model.py && python -m pytest tests/test_install.py -p no:cacheprovider -q'
+	$(TEST_RUN) sh -c 'make install && python scripts/download_test_model.py && python -m pytest tests/test_install.py -p no:cacheprovider -q && make uninstall && test ! -e ~/bin/llgenie && test ! -e ~/bin/llgenie.py && test ! -e ~/bin/llama-server && test -f scripts/llama_serve.py'
 
 test-top-tier: ## REAL top-tier acceptance (no mocks): live HF trending + fit gate + provider-aware download + placement
 	# Host-side acceptance for --download-top-tier (issue #49): hits the live
@@ -245,7 +377,7 @@ test: ## Full fast suite (unit + install; containerized)
 download-test-model: ## Fetch the lightweight (0.5B Q4 ~340MB) model into container ~/models/Qwen/8GB
 	$(TEST_RUN) python scripts/download_test_model.py
 
-lint: ## Linefeed lint: fail closed if any tracked text file lacks a trailing newline
+lint: ## Lint: fail closed if any tracked text file lacks a trailing newline, or a markdown heading is not preceded by a blank line
 	$(TEST_RUN) python scripts/lint_linefeeds.py
 
 lint-fix: ## Append a missing trailing newline (containerized)
@@ -263,15 +395,18 @@ loop-harness: ## Loop runner (host orchestration): image->download->lint->unit->
 chained: test-unit test-agents-read test-install test-health test openspec-validate
 	@echo "All chain steps completed."
 
-uninstall: ## Remove ONLY the launcher + symlinks in ~/bin (leaves the venv AND all repo source files)
-	# Removes just the installed artifacts: the ~/bin/llgenie launcher, the
-	# ~/bin/llgenie.py symlink, and the ~/bin/llama-server symlink. It MUST NOT
-	# delete repo source files (scripts/llama_serve.py, scripts/hf_download.py) —
-	# those live in the checkout/worktree and are tracked in git; deleting them
-	# breaks a subsequent `make install` from the same tree. Uninstall only
-	# undoes what `make install` wrote into ~/bin.
+uninstall: ## Remove the launcher + symlinks in ~/bin AND the cloned server trees (keeps venv AND repo source)
+	# Removes just the installed artifacts the `link` target creates: the
+	# ~/bin/llama-server launcher, the ~/bin/llama-serv.py symlink, and the
+	# ~/bin/llama-server symlink. It MUST NOT delete repo source files
+	# (scripts/llama_serve.py, scripts/hf_download.py) — those live in the
+	# checkout/worktree and are tracked in git; deleting them breaks a
+	# subsequent `make install`. Uninstall also removes the cloned llama.cpp
+	# server trees (issue #89: CI variant jobs clone these into ~/repository/git
+	# and must not pollute the workspace).
 	@rm -f "$(LAUNCHER)" "$(BIN)/llgenie.py" "$(BIN)/llama-server"
-	@echo "Removed $(LAUNCHER), $(BIN)/llgenie.py, and $(BIN)/llama-server"
+	@rm -rf "$(SERVER_ROOT)/prism-llama.cpp" "$(SERVER_ROOT)/llama.cpp"
+	@echo "Removed $(LAUNCHER), $(BIN)/llgenie.py, $(BIN)/llama-server, $(SERVER_ROOT)/prism-llama.cpp, $(SERVER_ROOT)/llama.cpp"
 	@echo "(venv kept at $(VENV) and repo source untouched; 'make -C tools clean' to drop requirements.txt)"
 
 # ---- watch-loop host crontab install/uninstall (issue #65) ----------------
@@ -298,3 +433,15 @@ help:
 	@echo "         loop (chained runner), loop-harness, chained, uninstall,"
 	@echo "         cron-install, cron-uninstall, cron-snapshot (watch-loop host crontab),"
 	@echo "         watch-report (human-readable watch-loop status report)"
+	@echo
+	@echo "Server build variants (issue #84):"
+	@echo "  make install                 auto-detect tree+backend for this card, clone-or-pull + build + link"
+	@echo "  make build-variant TREE=prism|upstream BACKEND=cpu|cuda|metal   build one variant in isolation"
+	@echo "  make install-prism-cpu|upstream-cpu|prism-cuda|upstream-cuda|prism-metal|upstream-metal"
+	@echo "                               full install of ONE tree+backend (build + venv + link + smoke)"
+	@echo
+	@echo "Env seams (override detection):"
+	@echo "  LLAMA_SERVER_TREE=prism|upstream   force the llama.cpp tree (else card RAM: <=24GB prism, >24GB upstream)"
+	@echo "  LLAMA_BACKEND=cpu|cuda|metal       force the backend (else hardware: Metal/CUDA/CPU)"
+	@echo "  LLAMA_RAM_BYTES=<bytes>            force the card RAM used by the tree decision"
+	@echo "  SERVER_ROOT=<dir>                  where llama.cpp trees are cloned (default ~/repository/git)"

@@ -6,7 +6,9 @@ exercise the pure functions in scripts/llama_serve.py and the on-disk model scan
 """
 from __future__ import annotations
 
+import os
 import struct
+import sys
 from pathlib import Path
 
 import io
@@ -164,18 +166,820 @@ def test_kv_bytes_per_token_positive():
 
 
 def test_tuned_context_capped_by_train_ctx():
+    """A model's trained context is the ceiling, and a tiny budget floors at 2048."""
+
+    # Given a dense model trained to 4096 tokens
     meta = {
         "ctx_train": 4096, "n_embd": 3584, "n_head": 28,
         "n_head_kv": 4, "n_layer": 28,
     }
-    # tiny budget => kv/token is positive and 1/that -> tiny ctx, floored at 2048
+
+    # When the KV budget cannot hold even one token, and when it is huge
     assert llama_ai.kv_bytes_per_token(meta) > 0
     ctx = llama_ai.tuned_context(meta, 1)
-    assert ctx == 2048
-    # huge budget => capped at train ctx (and rounded to a 1024 multiple)
     ctx2 = llama_ai.tuned_context(meta, 10 ** 18)
+
+    # Then the tiny budget floors at 2048 and the huge budget stays at the train ctx
+    assert ctx == 2048
     assert ctx2 <= 4096
     assert ctx2 % 1024 == 0
+
+
+def _bonsai_mtp_meta(size_gb=6.5):
+    """Shape of Ternary-Bonsai-2-27B-PTQ1_0-mtp.gguf (qwen35 hybrid, 262144 train ctx)."""
+    return {
+        "file": "/models/Ternary-Bonsai-2-27B-PTQ1_0-mtp.gguf",
+        "name": "bonsai",
+        "arch": "qwen35",
+        "n_layer": 65,
+        "n_embd": 5120,
+        "n_head": 24,
+        "n_head_kv": 4,
+        "ctx_train": 262144,
+        "key_length": 256,
+        "value_length": 256,
+        "full_attention_interval": 4,
+        "nextn_layers": 1,
+        "chat_template": "qwen",
+        "size_gb": size_gb,
+    }
+
+
+def test_hybrid_kv_counts_full_attention_layers_only():
+    """Hybrid models must not price every block as full attention."""
+
+    # Given a Bonsai-shaped hybrid (interval 4, key/value length 256, one MTP block)
+    meta = _bonsai_mtp_meta()
+
+    # When KV bytes/token are estimated
+    per = llama_ai.kv_bytes_per_token(meta)
+    dense = {
+        **meta,
+        "full_attention_interval": 0,
+        "key_length": 0,
+        "value_length": 0,
+    }
+    dense_per = llama_ai.kv_bytes_per_token(dense)
+
+    # Then only the full-attention layers are charged, using the real head dim
+    # 16 language layers (64 // 4) + 1 MTP block, q4_0, key=value=256, 4 KV heads
+    assert per == 17 * 4 * (256 + 256) * 0.5
+    assert per < dense_per
+
+
+def test_build_command_offloads_every_layer_when_the_card_fits(server_on_path):
+    """A GPU card that holds the weights and the KV cache asks for every layer."""
+
+    # Given a Bonsai-shaped file and a CUDA backend on a 16 GB card
+    meta = _bonsai_mtp_meta()
+    card = 16 * 1024 ** 3
+
+    # When the launch command is built
+    ctx = llama_ai.serve_context(meta, card)
+    cmd = llama_ai.build_command(meta, ctx, 11434, card_bytes=card, backend="cuda")
+
+    # Then context stays at the trained max and every layer goes to the GPU
+    assert cmd[cmd.index("-c") + 1] == "262144"
+    assert cmd[cmd.index("-ngl") + 1] == "99"
+    assert cmd[cmd.index("-fa") + 1] == "on"
+    assert cmd[cmd.index("-ctk") + 1] == "q4_0"
+    assert cmd[cmd.index("-ctv") + 1] == "q4_0"
+    assert cmd[cmd.index("-b") + 1] == "2048"
+    assert cmd[cmd.index("-ub") + 1] == "512"
+    assert "--jinja" in cmd
+    assert cmd[cmd.index("--spec-draft-n-max") + 1] == "1"
+
+
+def test_build_command_offloads_fewer_layers_when_the_weights_do_not_fit(server_on_path):
+    """An 8 GB card keeps a shorter context and a partial GPU offload."""
+
+    # Given the same file on an 8 GB CUDA card
+    meta = _bonsai_mtp_meta()
+    card = 8 * 1024 ** 3
+
+    # When the launch command is built
+    ctx = llama_ai.serve_context(meta, card)
+    cmd = llama_ai.build_command(meta, ctx, 11434, card_bytes=card, backend="cuda")
+
+    # Then -c is the reduced window and -ngl is only the layers that fit
+    assert cmd[cmd.index("-c") + 1] == "30720"
+    assert int(cmd[cmd.index("-ngl") + 1]) == 45
+    assert cmd[cmd.index("-b") + 1] == "512"
+    assert cmd[cmd.index("-ub") + 1] == "256"
+
+
+def test_build_command_cpu_backend_skips_gpu_flags(server_on_path):
+    """A CPU backend does not request GPU layers or flash attention."""
+
+    # Given a Bonsai-shaped file and a CPU backend
+    meta = _bonsai_mtp_meta()
+    card = 16 * 1024 ** 3
+
+    # When the launch command is built
+    ctx = llama_ai.serve_context(meta, card)
+    cmd = llama_ai.build_command(meta, ctx, 11434, card_bytes=card, backend="cpu")
+
+    # Then GPU-only flags are absent and the context flag remains
+    assert "-ngl" not in cmd
+    assert "-fa" not in cmd
+    assert cmd[cmd.index("-c") + 1] == "262144"
+
+
+def test_build_command_omits_flags_the_model_does_not_support(server_on_path):
+    """No chat template, no reasoning template, and no MTP head means those flags stay off."""
+
+    # Given a plain dense model
+    meta = {
+        "file": "/models/plain.gguf", "name": "plain", "arch": "llama",
+        "n_layer": 32, "n_embd": 4096, "n_head": 32, "n_head_kv": 8,
+        "ctx_train": 8192, "chat_template": "", "nextn_layers": 0,
+        "size_gb": 4.0,
+    }
+
+    # When the launch command is built for a CUDA card
+    cmd = llama_ai.build_command(
+        meta, ctx=8192, port=11434, card_bytes=16 * 1024 ** 3, backend="cuda",
+    )
+
+    # Then template, reasoning, and spec-decode flags are absent
+    assert "--jinja" not in cmd
+    assert "--reasoning" not in cmd
+    assert "--spec-type" not in cmd
+
+
+def test_batch_grows_with_the_card():
+    """A larger card gets a larger logical batch and micro-batch."""
+
+    # Given three card sizes
+    small = 8 * 1024 ** 3
+    mid = 16 * 1024 ** 3
+    big = 48 * 1024 ** 3
+
+    # When the batch is chosen
+    # Then it steps up with the card
+    assert llama_ai.batch_for_card(small) == (512, 256)
+    assert llama_ai.batch_for_card(mid) == (2048, 512)
+    assert llama_ai.batch_for_card(big) == (4096, 1024)
+
+
+def _prism_ptq_meta(quant="PTQ1_0", size_gb=5.93):
+    """Ternary Bonsai 2 low-bit packing. Shape matches the 27B qwen35 MTP file."""
+    meta = _bonsai_mtp_meta(size_gb)
+    meta["file"] = f"/models/Ternary-Bonsai-2-27B-{quant}.gguf"
+    meta["quant"] = quant
+    return meta
+
+
+def test_ptq1_0_on_16gb_keeps_full_context_and_bonsai_sampling(server_on_path):
+    """A Prism PTQ1_0 file that fits gets the trained window and Bonsai sampling."""
+
+    # Given a PTQ1_0 Bonsai file and a 16 GB CUDA card
+    meta = _prism_ptq_meta("PTQ1_0", 5.93)
+    card = 16 * 1024 ** 3
+
+    # When llgenie builds the server command
+    ctx = llama_ai.serve_context(meta, card)
+    cmd = llama_ai.build_command(meta, ctx, 11434, card_bytes=card, backend="cuda")
+
+    # Then the trained context, full offload, and Bonsai sampling are set
+    assert cmd[cmd.index("-c") + 1] == "262144"
+    assert cmd[cmd.index("-ngl") + 1] == "99"
+    assert cmd[cmd.index("-fa") + 1] == "on"
+    assert cmd[cmd.index("-ctk") + 1] == "q4_0"
+    assert cmd[cmd.index("-b") + 1] == "2048"
+    assert cmd[cmd.index("--temp") + 1] == "0.5"
+    assert cmd[cmd.index("--top-p") + 1] == "0.85"
+    assert cmd[cmd.index("--top-k") + 1] == "20"
+    assert cmd[cmd.index("--min-p") + 1] == "0"
+    assert cmd[cmd.index("--spec-draft-n-max") + 1] == "1"
+
+
+def test_ptq1_0_on_8gb_shrinks_context_and_offload(server_on_path):
+    """The same PTQ1_0 file on 8 GB does not keep 262144 or every layer."""
+
+    # Given that PTQ1_0 file on an 8 GB CUDA card
+    meta = _prism_ptq_meta("PTQ1_0", 5.93)
+    card = 8 * 1024 ** 3
+
+    # When llgenie builds the server command
+    ctx = llama_ai.serve_context(meta, card)
+    cmd = llama_ai.build_command(meta, ctx, 11434, card_bytes=card, backend="cuda")
+
+    # Then context and GPU layers both shrink
+    assert cmd[cmd.index("-c") + 1] == "30720"
+    assert cmd[cmd.index("-ngl") + 1] == "49"
+
+
+def test_pq2_0_on_8gb_offloads_fewer_layers_than_ptq1_0(server_on_path):
+    """PQ2_0 is heavier, so the same 8 GB card offloads fewer layers."""
+
+    # Given a PQ2_0 file (about 7.25 GB) on an 8 GB CUDA card
+    meta = _prism_ptq_meta("PQ2_0", 7.25)
+    card = 8 * 1024 ** 3
+
+    # When llgenie builds the server command
+    ctx = llama_ai.serve_context(meta, card)
+    cmd = llama_ai.build_command(meta, ctx, 11434, card_bytes=card, backend="cuda")
+
+    # Then context matches the card and fewer layers are offloaded than PTQ1_0
+    assert cmd[cmd.index("-c") + 1] == "30720"
+    assert cmd[cmd.index("-ngl") + 1] == "40"
+    assert cmd[cmd.index("--temp") + 1] == "0.5"
+
+
+def test_prism_file_keeps_author_sampling_when_present(server_on_path):
+    """A sampling block in the GGUF replaces the Bonsai defaults."""
+
+    # Given a PTQ1_0 file that already names a temperature
+    meta = _prism_ptq_meta()
+    meta["sampling"] = {"temperature": "0.7"}
+
+    # When llgenie builds the server command
+    cmd = llama_ai.build_command(
+        meta, ctx=4096, port=11434, card_bytes=16 * 1024 ** 3, backend="cuda",
+    )
+
+    # Then the file's temperature is used and the Bonsai 0.5 default is not
+    assert cmd[cmd.index("--temp") + 1] == "0.7"
+    assert "0.5" not in cmd
+
+
+def _install_fake_llama_server(monkeypatch, tmp_path, card_bytes, backend):
+    """Point llgenie at a fake binary. The script itself is not patched.
+
+    VRAM and backend go through LLAMA_RAM_BYTES and LLAMA_BACKEND, which
+    detect_server already reads. The fake binary records its argv and exits.
+    """
+    binary = tmp_path / "fake-bin" / "llama-server"
+    binary.parent.mkdir(parents=True, exist_ok=True)
+    argv_out = tmp_path / "fake-bin" / "argv.txt"
+    binary.write_text("#!/bin/sh\nprintf '%s\\n' \"$0\" \"$@\" > \"$LLAMA_ARGV_OUT\"\n")
+    binary.chmod(0o755)
+    monkeypatch.setenv("LLAMA_SERVER", str(binary))
+    monkeypatch.setenv("LLAMA_ARGV_OUT", str(argv_out))
+    monkeypatch.setenv("LLAMA_RAM_BYTES", str(int(card_bytes)))
+    monkeypatch.setenv("LLAMA_BACKEND", backend)
+    return binary, argv_out
+
+
+def _read_fake_argv(argv_out):
+    assert argv_out.is_file(), "llama-server was not started"
+    return argv_out.read_text().splitlines()
+
+
+def _run_llgenie(monkeypatch, tmp_path, filename, arch, fields, size_gb, card_bytes, backend, select):
+    """Run llama_serve.main. Only the llama-server binary is fake."""
+    models = tmp_path / "models"
+    models.mkdir()
+    _gguf_file(
+        models, filename, arch, fields,
+        {"tokenizer.chat_template": "qwen"},
+        int(size_gb * 1024 ** 3),
+    )
+    _binary, argv_out = _install_fake_llama_server(monkeypatch, tmp_path, card_bytes, backend)
+    monkeypatch.setenv("LLAMA_MODELS_ROOT", str(models))
+    monkeypatch.setattr(sys, "argv", ["llgenie", select, "--port", "45119"])
+    llama_ai.main()
+    return _read_fake_argv(argv_out)
+
+
+def _gguf_file(directory, filename, arch, fields, strings, size_bytes):
+    """Write a GGUF header, then set the file size the launcher will see."""
+
+    def s(v: str) -> bytes:
+        b = v.encode("utf-8")
+        return struct.pack("<Q", len(b)) + b
+
+    def kv(key: str, vtype: int, val: bytes) -> bytes:
+        return struct.pack("<Q", len(key)) + key.encode() + struct.pack("<I", vtype) + val
+
+    pairs = [
+        kv("general.architecture", 8, s(arch)),
+        kv("general.name", 8, s(filename)),
+    ]
+    for key, value in fields.items():
+        pairs.append(kv(f"{arch}.{key}", 4, struct.pack("<I", int(value))))
+    for key, value in strings.items():
+        pairs.append(kv(key, 8, s(value)))
+    buf = bytearray(b"GGUF" + struct.pack("<I", 3) + struct.pack("<Q", 0))
+    buf += struct.pack("<Q", len(pairs))
+    for pair in pairs:
+        buf += pair
+    path = directory / filename
+    path.write_bytes(bytes(buf))
+    os.truncate(path, int(size_bytes))
+    return path
+
+
+PRISM_HEADER = {
+    "block_count": 65,
+    "embedding_length": 5120,
+    "attention.head_count": 24,
+    "attention.head_count_kv": 4,
+    "context_length": 262144,
+    "attention.key_length": 256,
+    "attention.value_length": 256,
+    "full_attention_interval": 4,
+    "nextn_predict_layers": 1,
+}
+STOCK_HEADER = {
+    "block_count": 28,
+    "embedding_length": 3584,
+    "attention.head_count": 28,
+    "attention.head_count_kv": 4,
+    "context_length": 32768,
+}
+
+
+def _run_llgenie(monkeypatch, tmp_path, filename, arch, fields, size_gb, card_bytes, backend, select):
+    """Run real llgenie.main against a GGUF on disk and a fake llama-server."""
+    models = tmp_path / "models"
+    models.mkdir()
+    _gguf_file(models, filename, arch, fields, {"tokenizer.chat_template": "qwen"}, int(size_gb * 1024 ** 3))
+    binary, argv_out = _install_fake_llama_server(monkeypatch, tmp_path, card_bytes, backend)
+    monkeypatch.setenv("LLAMA_MODELS_ROOT", str(models))
+    monkeypatch.setattr(sys, "argv", ["llgenie", select, "--port", "45119"])
+    llama_ai.main()
+    cmd = _read_fake_argv(argv_out)
+    assert cmd[0] == str(binary)
+    return cmd
+
+
+def test_mocked_llgenie_start_ptq_uses_vram_and_does_not_exec(monkeypatch, tmp_path):
+    """Real llgenie reads a PTQ1_0 file and starts the fake binary with 16 GB flags."""
+
+    # Given a PTQ1_0 GGUF on disk and LLAMA_RAM_BYTES of 16 GB
+    cmd = _run_llgenie(
+        monkeypatch, tmp_path, "Ternary-Bonsai-2-27B-PTQ1_0.gguf", "qwen35",
+        PRISM_HEADER, 5.93, 16 * 1024 ** 3, "cuda", "PTQ1_0",
+    )
+
+    # Then the fake binary received the 16 GB parameters
+    assert cmd[cmd.index("-c") + 1] == "262144"
+    assert cmd[cmd.index("-ngl") + 1] == "99"
+    assert cmd[cmd.index("-b") + 1] == "2048"
+    assert cmd[cmd.index("--temp") + 1] == "0.5"
+    assert cmd[cmd.index("--spec-draft-n-max") + 1] == "1"
+
+
+def test_mocked_llgenie_start_ptq_on_8gb_shrinks_the_argv(monkeypatch, tmp_path):
+    """The same real launch on 8 GB carries the smaller context and partial offload."""
+
+    # Given that PTQ1_0 file and an 8 GB card
+    cmd = _run_llgenie(
+        monkeypatch, tmp_path, "Ternary-Bonsai-2-27B-PTQ1_0.gguf", "qwen35",
+        PRISM_HEADER, 5.93, 8 * 1024 ** 3, "cuda", "PTQ1_0",
+    )
+
+    # Then the fake binary received the 8 GB parameters
+    assert cmd[cmd.index("-c") + 1] == "30720"
+    assert cmd[cmd.index("-ngl") + 1] == "49"
+    assert cmd[cmd.index("-b") + 1] == "512"
+    assert cmd[cmd.index("-ub") + 1] == "256"
+
+
+def test_mocked_llgenie_start_pq2_on_8gb(monkeypatch, tmp_path):
+    """PQ2_0 is heavier, so the fake binary is started with fewer layers."""
+
+    # Given a PQ2_0 file and an 8 GB card
+    cmd = _run_llgenie(
+        monkeypatch, tmp_path, "Ternary-Bonsai-2-27B-PQ2_0.gguf", "qwen35",
+        PRISM_HEADER, 7.25, 8 * 1024 ** 3, "cuda", "PQ2_0",
+    )
+
+    # Then context matches the card and fewer layers are offloaded
+    assert cmd[cmd.index("-c") + 1] == "30720"
+    assert cmd[cmd.index("-ngl") + 1] == "40"
+
+
+# (quant, weight GB, card GB, -c, -ngl, -b, -ub, --spec-draft-n-max)
+# PTQ1_0 and TQ1_0 are the lighter packings (5.93 GB). PQ2_0 and TQ2_0 are
+# the heavier packings (7.25 GB). 12 GB is where their contexts diverge.
+PRISM_VRAM_CASES = [
+    ("PTQ1_0", 5.93, 2, "30720", "0", "512", "256", "1"),
+    ("PTQ1_0", 5.93, 4, "30720", "5", "512", "256", "1"),
+    ("PTQ1_0", 5.93, 8, "30720", "49", "512", "256", "1"),
+    ("PTQ1_0", 5.93, 12, "188416", "99", "2048", "512", "1"),
+    ("PTQ1_0", 5.93, 16, "262144", "99", "2048", "512", "1"),
+    ("PTQ1_0", 5.93, 24, "262144", "99", "2048", "512", "2"),
+    ("PTQ1_0", 5.93, 32, "262144", "99", "4096", "1024", "3"),
+    ("PTQ1_0", 5.93, 48, "262144", "99", "4096", "1024", "3"),
+    ("PTQ1_0", 5.93, 64, "262144", "99", "4096", "1024", "3"),
+    ("PTQ1_0", 5.93, 128, "262144", "99", "4096", "1024", "3"),
+    ("PQ2_0", 7.25, 2, "30720", "0", "512", "256", "1"),
+    ("PQ2_0", 7.25, 4, "30720", "4", "512", "256", "1"),
+    ("PQ2_0", 7.25, 8, "30720", "40", "512", "256", "1"),
+    ("PQ2_0", 7.25, 12, "107520", "99", "2048", "512", "1"),
+    ("PQ2_0", 7.25, 16, "262144", "99", "2048", "512", "1"),
+    ("PQ2_0", 7.25, 24, "262144", "99", "2048", "512", "2"),
+    ("PQ2_0", 7.25, 32, "262144", "99", "4096", "1024", "3"),
+    ("PQ2_0", 7.25, 48, "262144", "99", "4096", "1024", "3"),
+    ("PQ2_0", 7.25, 64, "262144", "99", "4096", "1024", "3"),
+    ("PQ2_0", 7.25, 128, "262144", "99", "4096", "1024", "3"),
+    ("TQ1_0", 5.93, 2, "30720", "0", "512", "256", "1"),
+    ("TQ1_0", 5.93, 4, "30720", "5", "512", "256", "1"),
+    ("TQ1_0", 5.93, 8, "30720", "49", "512", "256", "1"),
+    ("TQ1_0", 5.93, 12, "188416", "99", "2048", "512", "1"),
+    ("TQ1_0", 5.93, 16, "262144", "99", "2048", "512", "1"),
+    ("TQ1_0", 5.93, 24, "262144", "99", "2048", "512", "2"),
+    ("TQ1_0", 5.93, 32, "262144", "99", "4096", "1024", "3"),
+    ("TQ1_0", 5.93, 48, "262144", "99", "4096", "1024", "3"),
+    ("TQ1_0", 5.93, 64, "262144", "99", "4096", "1024", "3"),
+    ("TQ1_0", 5.93, 128, "262144", "99", "4096", "1024", "3"),
+    ("TQ2_0", 7.25, 2, "30720", "0", "512", "256", "1"),
+    ("TQ2_0", 7.25, 4, "30720", "4", "512", "256", "1"),
+    ("TQ2_0", 7.25, 8, "30720", "40", "512", "256", "1"),
+    ("TQ2_0", 7.25, 12, "107520", "99", "2048", "512", "1"),
+    ("TQ2_0", 7.25, 16, "262144", "99", "2048", "512", "1"),
+    ("TQ2_0", 7.25, 24, "262144", "99", "2048", "512", "2"),
+    ("TQ2_0", 7.25, 32, "262144", "99", "4096", "1024", "3"),
+    ("TQ2_0", 7.25, 48, "262144", "99", "4096", "1024", "3"),
+    ("TQ2_0", 7.25, 64, "262144", "99", "4096", "1024", "3"),
+    ("TQ2_0", 7.25, 128, "262144", "99", "4096", "1024", "3"),
+]
+
+
+@pytest.mark.parametrize("backend", ["cuda", "metal"])
+@pytest.mark.parametrize(
+    "quant,size_gb,gb,ctx,ngl,batch,ubatch,nmax", PRISM_VRAM_CASES,
+)
+def test_mocked_llgenie_start_each_prism_quant_at_each_vram(
+    monkeypatch, tmp_path, backend, quant, size_gb, gb, ctx, ngl, batch, ubatch, nmax,
+):
+    """Every Prism packing, on CUDA and Metal, at every card size that changes a flag."""
+
+    # Given this packing on disk and the card size in LLAMA_RAM_BYTES
+    cmd = _run_llgenie(
+        monkeypatch, tmp_path, f"Ternary-Bonsai-2-27B-{quant}.gguf", "qwen35",
+        PRISM_HEADER, size_gb, gb * 1024 ** 3, backend, quant,
+    )
+
+    # Then the fake binary received that packing's argv
+    assert cmd[cmd.index("-c") + 1] == ctx
+    assert cmd[cmd.index("-ngl") + 1] == ngl
+    assert cmd[cmd.index("-b") + 1] == batch
+    assert cmd[cmd.index("-ub") + 1] == ubatch
+    assert cmd[cmd.index("--spec-draft-n-max") + 1] == nmax
+    assert cmd[cmd.index("--temp") + 1] == "0.5"
+    assert cmd[cmd.index("-ctk") + 1] == "q4_0"
+    assert cmd[cmd.index("-fa") + 1] == "on"
+
+
+@pytest.mark.parametrize(
+    "quant,size_gb,gb,ctx,ngl,batch,ubatch,nmax", PRISM_VRAM_CASES,
+)
+def test_mocked_llgenie_start_prism_quant_on_cpu_skips_gpu_flags(
+    monkeypatch, tmp_path, quant, size_gb, gb, ctx, ngl, batch, ubatch, nmax,
+):
+    """CPU keeps the card-tuned context and batch, and does not request a GPU."""
+
+    # Given this packing on disk and a CPU card of this size
+    cmd = _run_llgenie(
+        monkeypatch, tmp_path, f"Ternary-Bonsai-2-27B-{quant}.gguf", "qwen35",
+        PRISM_HEADER, size_gb, gb * 1024 ** 3, "cpu", quant,
+    )
+
+    # Then context, batch, and MTP depth follow the card, and GPU flags are absent
+    assert cmd[cmd.index("-c") + 1] == ctx
+    assert cmd[cmd.index("-b") + 1] == batch
+    assert cmd[cmd.index("-ub") + 1] == ubatch
+    assert cmd[cmd.index("--spec-draft-n-max") + 1] == nmax
+    assert cmd[cmd.index("--temp") + 1] == "0.5"
+    assert "-ngl" not in cmd
+    assert "-fa" not in cmd
+    assert ngl is not None
+
+
+# Stock Qwen2 7B Q4, not a Prism packing. Context stays at its trained 32768
+# because that KV cache fits the 512 MiB floor. -ngl still follows the card.
+STOCK_VRAM_CASES = [
+    (2, "32768", "0", "512", "256"),
+    (4, "32768", "3", "512", "256"),
+    (8, "32768", "27", "512", "256"),
+    (12, "32768", "99", "2048", "512"),
+    (16, "32768", "99", "2048", "512"),
+    (24, "32768", "99", "2048", "512"),
+    (32, "32768", "99", "4096", "1024"),
+    (48, "32768", "99", "4096", "1024"),
+    (64, "32768", "99", "4096", "1024"),
+    (128, "32768", "99", "4096", "1024"),
+]
+
+
+def _stock_qwen_meta():
+    return {
+        "file": "/models/qwen2.5-7b-instruct-q4_k_m.gguf",
+        "name": "qwen",
+        "arch": "qwen2",
+        "n_layer": 28,
+        "n_embd": 3584,
+        "n_head": 28,
+        "n_head_kv": 4,
+        "ctx_train": 32768,
+        "chat_template": "qwen",
+        "nextn_layers": 0,
+        "size_gb": 4.68,
+    }
+
+
+@pytest.mark.parametrize("backend", ["cuda", "metal"])
+@pytest.mark.parametrize("gb,ctx,ngl,batch,ubatch", STOCK_VRAM_CASES)
+def test_mocked_llgenie_start_stock_model_at_each_vram(
+    monkeypatch, tmp_path, backend, gb, ctx, ngl, batch, ubatch,
+):
+    """A non-Prism model on CUDA and Metal. No Bonsai sampling and no MTP flags."""
+
+    # Given a stock Q4 Qwen file on disk and this card size
+    cmd = _run_llgenie(
+        monkeypatch, tmp_path, "qwen2.5-7b-instruct-q4_k_m.gguf", "qwen2",
+        STOCK_HEADER, 4.68, gb * 1024 ** 3, backend, "qwen",
+    )
+
+    # Then the fake binary received the stock argv
+    assert cmd[cmd.index("-c") + 1] == ctx
+    assert cmd[cmd.index("-ngl") + 1] == ngl
+    assert cmd[cmd.index("-b") + 1] == batch
+    assert cmd[cmd.index("-ub") + 1] == ubatch
+    assert cmd[cmd.index("-fa") + 1] == "on"
+    assert cmd[cmd.index("--temp") + 1] == "0.6"
+    assert "--spec-type" not in cmd
+    assert "--jinja" in cmd
+
+
+@pytest.mark.parametrize("gb,ctx,ngl,batch,ubatch", STOCK_VRAM_CASES)
+def test_mocked_llgenie_start_stock_model_on_cpu(
+    monkeypatch, tmp_path, gb, ctx, ngl, batch, ubatch,
+):
+    """A non-Prism model on CPU keeps -c and the batch, and skips GPU flags."""
+
+    # Given a stock Q4 Qwen file on disk and a CPU card
+    cmd = _run_llgenie(
+        monkeypatch, tmp_path, "qwen2.5-7b-instruct-q4_k_m.gguf", "qwen2",
+        STOCK_HEADER, 4.68, gb * 1024 ** 3, "cpu", "qwen",
+    )
+
+    # Then context and batch follow the card and GPU flags are absent
+    assert cmd[cmd.index("-c") + 1] == ctx
+    assert cmd[cmd.index("-b") + 1] == batch
+    assert cmd[cmd.index("-ub") + 1] == ubatch
+    assert cmd[cmd.index("--temp") + 1] == "0.6"
+    assert "-ngl" not in cmd
+    assert "-fa" not in cmd
+    assert "--spec-type" not in cmd
+    assert ngl is not None
+
+
+def test_mocked_start_reads_prism_quant_from_the_gguf_filename(monkeypatch, tmp_path):
+    """The packing is read from the file llgenie scans, not from a hand-built dict."""
+
+    # Given a tiny GGUF whose name is PTQ1_0 and a 16 GB CUDA card
+    cmd = _run_llgenie(
+        monkeypatch, tmp_path, "Ternary-Bonsai-2-27B-PTQ1_0.gguf", "qwen2",
+        STOCK_HEADER, 0.001, 16 * 1024 ** 3, "cuda", "PTQ1_0",
+    )
+
+    # Then context comes from the header and Bonsai sampling from the filename
+    assert cmd[cmd.index("-c") + 1] == "32768"
+    assert cmd[cmd.index("-ngl") + 1] == "99"
+    assert cmd[cmd.index("--temp") + 1] == "0.5"
+    assert cmd[cmd.index("-fa") + 1] == "on"
+
+
+def test_mocked_start_reads_a_stock_file_without_prism_sampling(monkeypatch, tmp_path):
+    """A file that is not a Prism packing keeps the generic sampler."""
+
+    # Given a tiny stock GGUF and a 16 GB CUDA card
+    cmd = _run_llgenie(
+        monkeypatch, tmp_path, "qwen2.5-7b-instruct-q4_k_m.gguf", "qwen2",
+        STOCK_HEADER, 0.001, 16 * 1024 ** 3, "cuda", "qwen",
+    )
+
+    # Then the header context is used and the sampler is the generic preset
+    assert cmd[cmd.index("-c") + 1] == "32768"
+    assert cmd[cmd.index("--temp") + 1] == "0.6"
+    assert "--spec-type" not in cmd
+
+
+def test_run_log_records_the_argv_before_the_mocked_binary(monkeypatch, tmp_path):
+    """The script writes the parameters, then the fake binary receives that same argv."""
+
+    # Given a PTQ1_0 file and a 16 GB CUDA card
+    cmd = _run_llgenie(
+        monkeypatch, tmp_path, "Ternary-Bonsai-2-27B-PTQ1_0.gguf", "qwen35",
+        PRISM_HEADER, 5.93, 16 * 1024 ** 3, "cuda", "PTQ1_0",
+    )
+
+    # Then .run.log holds the same command the fake binary was given
+    logged = (tmp_path / "models" / ".run.log").read_text()
+    assert " ".join(cmd) in logged
+    assert "-c 262144" in logged
+    assert "-ngl 99" in logged
+    assert "--temp 0.5" in logged
+
+
+def test_dry_llgenie_call_prints_ptq_command_for_16gb(server_on_path, monkeypatch, capsys):
+    """A mocked llgenie dry launch of PTQ1_0 on 16 GB prints the full command."""
+
+    # Given a PTQ1_0 model and a mocked 16 GB CUDA card
+    meta = _prism_ptq_meta("PTQ1_0", 5.93)
+    monkeypatch.setattr(llama_ai, "resolve_llama_server", lambda: "/usr/local/bin/llama-server")
+    monkeypatch.setattr(llama_ai.detect_server, "detect_card_ram_bytes", lambda: 16 * 1024 ** 3)
+    monkeypatch.setattr(llama_ai.detect_server, "detect_backend", lambda: "cuda")
+    args = type("Args", (), {"port": 11434, "dry": True})()
+
+    # When the dry launch runs
+    llama_ai._serve_chosen(meta, args)
+    out = capsys.readouterr().out
+
+    # Then the printed command has the trained context, full offload, and Bonsai sampling
+    assert "-c \\\n  262144" in out
+    assert "-ngl \\\n  99" in out
+    assert "--temp \\\n  0.5" in out
+    assert "--top-p \\\n  0.85" in out
+
+
+def test_serve_context_uses_model_max_when_the_card_fits():
+    """Selecting Bonsai on a 16 GB card serves its trained 262144 context."""
+
+    # Given the Bonsai MTP metadata and a 16 GB card
+    meta = _bonsai_mtp_meta()
+    card = 16 * 1024 ** 3
+
+    # When the launch context is tuned
+    ctx = llama_ai.serve_context(meta, card)
+
+    # Then -c is the model's trained maximum
+    assert ctx == 262144
+
+
+def test_serve_context_shrinks_when_the_card_cannot_hold_the_train_ctx():
+    """A card that cannot hold the trained window gets a smaller multiple of 1024."""
+
+    # Given the same Bonsai file on an 8 GB card
+    meta = _bonsai_mtp_meta()
+    card = 8 * 1024 ** 3
+
+    # When the launch context is tuned
+    ctx = llama_ai.serve_context(meta, card)
+
+    # Then the window stays under the trained maximum and above the floor
+    assert ctx == 30720
+    assert ctx < meta["ctx_train"]
+    assert ctx % 1024 == 0
+
+
+def test_serve_context_missing_train_ctx_caps_at_32768():
+    """A GGUF with no context_length is capped at 32768 even on a huge card."""
+
+    # Given a dense model whose header omitted context_length
+    meta = {
+        "ctx_train": 0, "n_embd": 3584, "n_head": 28,
+        "n_head_kv": 4, "n_layer": 28, "size_gb": 1.0,
+    }
+
+    # When it is served on a 48 GB card
+    ctx = llama_ai.serve_context(meta, 48 * 1024 ** 3)
+
+    # Then the fallback ceiling is 32768
+    assert ctx == 32768
+
+
+def test_launch_context_reads_card_ram_not_the_48gb_constant(monkeypatch):
+    """The serve path asks the card detector, not TOTAL_RAM_BYTES."""
+
+    # Given a card detector that reports 16 GB
+    monkeypatch.setattr(
+        llama_ai.detect_server, "detect_card_ram_bytes", lambda: 16 * 1024 ** 3,
+    )
+    meta = _bonsai_mtp_meta()
+
+    # When the launcher resolves the context the way main() does
+    card = llama_ai.detect_server.detect_card_ram_bytes()
+    ctx = llama_ai.serve_context(meta, card)
+
+    # Then the result matches the 16 GB card, which holds this model's full window
+    assert card == 16 * 1024 ** 3
+    assert ctx == 262144
+    assert llama_ai.TOTAL_RAM_BYTES == 48 * 1024 ** 3
+
+
+def test_fast_reader_captures_hybrid_context_fields(tmp_path):
+    """The header reader keeps the fields serve_context needs for a hybrid model."""
+
+    # Given a qwen35 header with a 262144 context and a full-attention interval
+    def s(v: str) -> bytes:
+        b = v.encode("utf-8")
+        return struct.pack("<Q", len(b)) + b
+
+    def kv(key: str, vtype: int, val: bytes) -> bytes:
+        return struct.pack("<Q", len(key)) + key.encode() + struct.pack("<I", vtype) + val
+
+    pairs = [
+        kv("general.architecture", 8, s("qwen35")),
+        kv("general.name", 8, s("bonsai")),
+        kv("qwen35.block_count", 4, struct.pack("<I", 65)),
+        kv("qwen35.embedding_length", 4, struct.pack("<I", 5120)),
+        kv("qwen35.attention.head_count", 4, struct.pack("<I", 24)),
+        kv("qwen35.attention.head_count_kv", 4, struct.pack("<I", 4)),
+        kv("qwen35.attention.key_length", 4, struct.pack("<I", 256)),
+        kv("qwen35.attention.value_length", 4, struct.pack("<I", 256)),
+        kv("qwen35.context_length", 4, struct.pack("<I", 262144)),
+        kv("qwen35.full_attention_interval", 4, struct.pack("<I", 4)),
+        kv("qwen35.nextn_predict_layers", 4, struct.pack("<I", 1)),
+        kv("tokenizer.chat_template", 8, s("chat")),
+    ]
+    buf = bytearray(b"GGUF" + struct.pack("<I", 3) + struct.pack("<Q", 0))
+    buf += struct.pack("<Q", len(pairs))
+    for x in pairs:
+        buf += x
+    p = tmp_path / "bonsai.gguf"
+    p.write_bytes(bytes(buf))
+
+    # When the fast reader parses it
+    m = llama_ai.read_model_meta_fast(str(p))
+
+    # Then the trained context and the hybrid KV fields are present
+    assert m["ctx_train"] == 262144
+    assert m["key_length"] == 256
+    assert m["value_length"] == 256
+    assert m["full_attention_interval"] == 4
+    assert m["nextn_layers"] == 1
+    assert llama_ai.serve_context(m, 16 * 1024 ** 3) == 262144
+
+
+def test_serve_chosen_dry_run_passes_ctx_flag(server_on_path, monkeypatch, capsys):
+    """The launch path prints llama-server -c from serve_context, and does not start the server."""
+
+    # Given Bonsai on a mocked 16 GB card, and the same file on an 8 GB card
+    meta = _bonsai_mtp_meta()
+    monkeypatch.setattr(llama_ai, "resolve_llama_server", lambda: "/usr/local/bin/llama-server")
+    args = type("Args", (), {"port": 11434, "dry": True})()
+
+    # When the dry launch runs on 16 GB
+    monkeypatch.setattr(llama_ai.detect_server, "detect_card_ram_bytes", lambda: 16 * 1024 ** 3)
+    llama_ai._serve_chosen(meta, args)
+    out_16 = capsys.readouterr().out
+
+    # Then the command carries -c 262144 and the process returns without serving
+    assert "-c \\\n  262144" in out_16
+    assert "context = 262144 tokens" in out_16
+
+    # When the same dry launch runs on 8 GB
+    monkeypatch.setattr(llama_ai.detect_server, "detect_card_ram_bytes", lambda: 8 * 1024 ** 3)
+    llama_ai._serve_chosen(meta, args)
+    out_8 = capsys.readouterr().out
+
+    # Then -c is the reduced window
+    assert "-c \\\n  30720" in out_8
+    assert "context = 30720 tokens" in out_8
+
+
+def test_main_dry_run_uses_selected_gguf_context(server_on_path, monkeypatch, capsys, tmp_path):
+    """`llgenie <name> --dry` sets -c from the file that was selected."""
+
+    # Given one hybrid GGUF under the model root and a 16 GB card
+    models = tmp_path / "models"
+    models.mkdir()
+    def s(v: str) -> bytes:
+        b = v.encode("utf-8")
+        return struct.pack("<Q", len(b)) + b
+
+    def kv(key: str, vtype: int, val: bytes) -> bytes:
+        return struct.pack("<Q", len(key)) + key.encode() + struct.pack("<I", vtype) + val
+
+    pairs = [
+        kv("general.architecture", 8, s("qwen35")),
+        kv("general.name", 8, s("bonsai")),
+        kv("qwen35.block_count", 4, struct.pack("<I", 65)),
+        kv("qwen35.embedding_length", 4, struct.pack("<I", 5120)),
+        kv("qwen35.attention.head_count", 4, struct.pack("<I", 24)),
+        kv("qwen35.attention.head_count_kv", 4, struct.pack("<I", 4)),
+        kv("qwen35.attention.key_length", 4, struct.pack("<I", 256)),
+        kv("qwen35.attention.value_length", 4, struct.pack("<I", 256)),
+        kv("qwen35.context_length", 4, struct.pack("<I", 262144)),
+        kv("qwen35.full_attention_interval", 4, struct.pack("<I", 4)),
+        kv("qwen35.nextn_predict_layers", 4, struct.pack("<I", 1)),
+        kv("tokenizer.chat_template", 8, s("chat")),
+    ]
+    buf = bytearray(b"GGUF" + struct.pack("<I", 3) + struct.pack("<Q", 0))
+    buf += struct.pack("<Q", len(pairs))
+    for x in pairs:
+        buf += x
+    gguf = models / "Ternary-Bonsai-2-27B-PTQ1_0-mtp.gguf"
+    gguf.write_bytes(bytes(buf))
+    monkeypatch.setattr(llama_ai, "MODELS_ROOT", str(models))
+    monkeypatch.setattr(llama_ai.detect_server, "detect_card_ram_bytes", lambda: 16 * 1024 ** 3)
+    monkeypatch.setattr(llama_ai, "resolve_llama_server", lambda: "/usr/local/bin/llama-server")
+    monkeypatch.setattr(sys, "argv", ["llgenie", "bonsai", "--dry"])
+
+    # When main selects that file and stops at --dry
+    llama_ai.main()
+    out = capsys.readouterr().out
+
+    # Then the printed server command uses the model's trained context
+    assert "context = 262144 tokens" in out
+    assert "-c \\\n  262144" in out
+    assert str(gguf) in out or "Ternary-Bonsai-2-27B-PTQ1_0-mtp.gguf" in out
 
 
 # ---------------------------------------------------------------------------
@@ -197,7 +1001,9 @@ def test_build_command_has_core_flags(server_on_path):
         "chat_template": "llama3",   # non-reasoning
         "size_gb": 24.0,
     }
-    cmd = llama_ai.build_command(meta, ctx=4096, port=11434)
+    cmd = llama_ai.build_command(
+        meta, ctx=4096, port=11434, card_bytes=64 * 1024 ** 3, backend="cuda",
+    )
     joined = " ".join(cmd)
     assert cmd[0] == "/usr/local/bin/llama-server"
     assert "-m" in cmd and str(meta["file"]) in cmd
@@ -221,13 +1027,155 @@ def test_build_command_reasoning_and_slots(server_on_path):
         "chat_template": "deepseek cot",  # reasoning
         "size_gb": 4.0,                   # small => 2 slots
     }
-    cmd = llama_ai.build_command(meta, ctx=4096, port=11434)
+    cmd = llama_ai.build_command(
+        meta, ctx=4096, port=11434, card_bytes=48 * 1024 ** 3, backend="cuda",
+    )
     assert "--reasoning" in cmd and "on" in cmd
     assert "--reasoning-format" in cmd and "deepseek" in cmd
     assert "-np" in cmd and "2" in cmd
 
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# MTP (spec-decode) card-driven flags (issue #84: n-max / p-min / -np)
+#
+# Grounded in the qwen38-mtp community rules:
+#   * rule 1: depth (n-max) sweet-spot is card/bandwidth dependent -> derive it
+#     from the card's RAM (8/12/16 GB -> 1, 24 GB inclusive -> 2, >24 GB -> 3).
+#   * rule 2: --spec-draft-p-min helps starved cards and hurts fast ones ->
+#     never a default; opt-in via the LLAMA_SPEC_DRAFT_P_MIN env seam.
+#   * rule 5: speculative decode is a single-stream optimisation -> when MTP is
+#     engaged, -np is pinned to 1 regardless of model size (--parallel > 1
+#     kills the gain and inflates the baseline).
+# ---------------------------------------------------------------------------
+_GB = 1024 ** 3  # GiB
+
+
+def _mtp_meta(size_gb, nextn=1):
+    """MTP model metadata (nextn_layers>0) sized `size_gb` GB."""
+    return {
+        "file": f"/models/mtp-{int(size_gb)}.gguf",
+        "name": f"mtp-{int(size_gb)}",
+        "arch": "qwen2",
+        "n_layer": 28,
+        "n_embd": 3584,
+        "n_head": 28,
+        "n_head_kv": 4,
+        "ctx_train": 32768,
+        "chat_template": "llama3",
+        "size_gb": size_gb,
+        "nextn_layers": nextn,
+    }
+
+
+def test_mtp_depth_for_card_16_gb_or_less_is_1():
+    """8/12/16 GB cards (<=16 GB) get depth 1 (shallow: pays everywhere)."""
+    for gb in (8, 12, 16):
+        assert llama_ai.mtp_depth_for_card(gb * _GB) == 1
+
+
+def test_mtp_depth_for_card_24_gb_is_2():
+    """20/24 GB cards get depth 2 (24 GB is the inclusive boundary)."""
+    assert llama_ai.mtp_depth_for_card(24 * _GB) == 2
+    assert llama_ai.mtp_depth_for_card(20 * _GB) == 2
+
+
+def test_mtp_depth_for_card_above_24_gb_is_3():
+    """>24 GB cards (32/48/64/128/...) get depth 3."""
+    for gb in (32, 48, 64, 128):
+        assert llama_ai.mtp_depth_for_card(gb * _GB) == 3
+
+
+def test_mtp_depth_for_card_falls_back_to_card_ram_seam(monkeypatch):
+    """card_bytes=None reads the card-RAM seam (mocked, hermetic)."""
+    monkeypatch.setattr(llama_ai, "read_total_ram_bytes", lambda: 32 * _GB)
+    assert llama_ai.mtp_depth_for_card(None) == 3
+
+
+def test_mtp_spec_flags_empty_when_no_nextn():
+    """A model without an MTP head (nextn_layers=0) emits no spec flags."""
+    meta = _mtp_meta(24.0, nextn=0)
+    assert llama_ai.mtp_spec_flags(meta, 24 * _GB, env={}) == []
+
+
+def test_mtp_spec_flags_emits_type_and_card_driven_depth():
+    """nextn_layers>0 => --spec-type draft-mtp; n-max follows the card."""
+    meta = _mtp_meta(24.0)
+    flags = llama_ai.mtp_spec_flags(meta, 24 * _GB, env={})
+    assert flags[:4] == ["--spec-type", "draft-mtp", "--spec-draft-n-max", "2"]
+    # depth follows the card, not a hard-coded constant
+    assert llama_ai.mtp_spec_flags(_mtp_meta(8.0), 8 * _GB, env={})[2:4]         == ["--spec-draft-n-max", "1"]
+    assert llama_ai.mtp_spec_flags(_mtp_meta(48.0), 48 * _GB, env={})[2:4]         == ["--spec-draft-n-max", "3"]
+
+
+def test_mtp_spec_flags_p_min_off_by_default():
+    """Rule 2: p-min is a knob, never a default (absent when env unset)."""
+    meta = _mtp_meta(24.0)
+    flags = llama_ai.mtp_spec_flags(meta, 24 * _GB, env={})
+    assert "--spec-draft-p-min" not in flags
+
+
+def test_mtp_spec_flags_p_min_emitted_only_when_env_set():
+    """p-min is emitted only when LLAMA_SPEC_DRAFT_P_MIN is set (opt-in)."""
+    meta = _mtp_meta(24.0)
+    flags = llama_ai.mtp_spec_flags(
+        meta, 24 * _GB, env={"LLAMA_SPEC_DRAFT_P_MIN": "0.7"})
+    i = flags.index("--spec-draft-p-min")
+    assert flags[i + 1] == "0.7"
+
+
+def test_build_command_mtp_emits_spec_flags_and_pins_np_1(server_on_path):
+    """MTP model => spec flags present and -np 1 regardless of model size
+    (rule 5: spec decode is single-stream; --parallel > 1 kills the gain)."""
+    meta = _mtp_meta(24.0)
+    cmd = llama_ai.build_command(meta, ctx=4096, port=11434, card_bytes=24 * _GB)
+    assert "--spec-type" in cmd and "draft-mtp" in cmd
+    assert cmd[cmd.index("--spec-draft-n-max") + 1] == "2"
+    assert cmd[cmd.index("-np") + 1] == "1"
+
+
+def test_build_command_mtp_pins_np_1_even_on_small_card(server_on_path):
+    """Rule 5 holds for a small MTP model: the size-based -np 2 must not win."""
+    meta = _mtp_meta(4.0)
+    cmd = llama_ai.build_command(meta, ctx=4096, port=11434, card_bytes=4 * _GB)
+    assert "--spec-type" in cmd
+    assert cmd[cmd.index("-np") + 1] == "1"
+    # depth follows the 4 GB card (<=16 GB -> depth 1)
+    assert cmd[cmd.index("--spec-draft-n-max") + 1] == "1"
+
+
+def test_build_command_mtp_card_bytes_drives_depth(server_on_path):
+    """The same MTP model on a bigger card gets a deeper n-max (card-driven)."""
+    meta = _mtp_meta(24.0)
+    small = llama_ai.build_command(meta, ctx=4096, port=11434, card_bytes=16 * _GB)
+    big = llama_ai.build_command(meta, ctx=4096, port=11434, card_bytes=64 * _GB)
+    assert small[small.index("--spec-draft-n-max") + 1] == "1"
+    assert big[big.index("--spec-draft-n-max") + 1] == "3"
+
+
+def test_build_command_no_mtp_keeps_normal_slots_and_no_spec_flags(server_on_path):
+    """Non-MTP model => no spec flags and size-based -np slots unchanged
+    (2 slots when the model is <10 GB)."""
+    meta = {
+        "file": "/models/plain.gguf", "name": "plain", "arch": "qwen2",
+        "n_layer": 28, "n_embd": 3584, "n_head": 28, "n_head_kv": 4,
+        "ctx_train": 32768, "chat_template": "llama3", "size_gb": 4.0,
+        "nextn_layers": 0,
+    }
+    cmd = llama_ai.build_command(meta, ctx=4096, port=11434, card_bytes=16 * _GB)
+    assert "--spec-type" not in cmd
+    assert "--spec-draft-n-max" not in cmd
+    assert cmd[cmd.index("-np") + 1] == "2"
+
+
+def test_build_command_mtp_auto_detects_card_when_card_bytes_none(server_on_path, monkeypatch):
+    """card_bytes=None => build_command reads
+    detect_server.detect_card_ram_bytes() and derives depth from the real card."""
+    meta = _mtp_meta(24.0)
+    monkeypatch.setattr(llama_ai.detect_server, "detect_card_ram_bytes",
+                        lambda: 48 * _GB)
+    cmd = llama_ai.build_command(meta, ctx=4096, port=11434)
+    assert cmd[cmd.index("--spec-draft-n-max") + 1] == "3"
 # author-recommended sampling defaults (general.sampling.*)
 # ---------------------------------------------------------------------------
 def test_build_command_uses_model_sampling_when_present(server_on_path):

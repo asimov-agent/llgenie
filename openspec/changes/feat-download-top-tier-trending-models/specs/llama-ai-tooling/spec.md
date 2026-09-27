@@ -35,11 +35,12 @@ single provider's failure is retried (up to 3×) without aborting the batch, and
 already-completed downloads are never re-fetched (etag/refresh idempotent).
 
 #### Scenario: On the dynamic total (48 GB host), the #1-trending provider offering only IQ2/IQ3
-#### (8-11 GB) is skipped, and the top provider ordering follows trendingScore (e.g. unsloth 281
-#### before a 40-trending 35B). With `--count 5` (per_provider 2), up to 10 picks surface across 5
-#### providers, each a high (Q8) + lower (Q6/Q5) pair. `--min-trending-score 250` drops any pick
-#### below 250. A download batch with one failing provider still completes the others, then retries
-#### the failed one.
+- **Given** a 48 GB host and a #1-trending provider offering only IQ2/IQ3 (8-11 GB) quants
+- **When** the top-tier download runs with `--count 5` (per_provider 2) and `--min-trending-score 250`
+- **Then** the (8-11 GB) pick is skipped, the top provider ordering follows trendingScore (e.g.
+  unsloth 281 before a 40-trending 35B), up to 10 picks surface across 5 providers each a high
+  (Q8) + lower (Q6/Q5) pair, any pick below 250 is dropped, and a download batch with one failing
+  provider still completes the others then retries the failed one
 
 ### Requirement: A2 — Dynamic memory detection + fit + buffer gate
 WHEN judging fit, THEN it reads the machine's real memory at runtime, not a fixed size, leaving
@@ -99,8 +100,10 @@ serve a downloaded model you use the normal launch path (`llama-ai <name>`), whi
 and `--dry`.
 
 #### Scenario: `llama-ai --download-top-tier --count 5` downloads up to 5 providers × 2
-#### quants (high + lower) and exits WITHOUT starting a server. Serving any of them is a
-#### separate, explicit command.
+- **Given** a `--count 5` top-tier download
+- **When** it runs
+- **Then** it downloads up to 5 providers × 2 quants (high + lower) and exits WITHOUT starting a
+  server; serving any of them is a separate, explicit command
 
 ### Requirement: A6 — Dynamic GPU load + "hi" verification with remaining-RAM proof
 WHEN verification loads a downloaded model, THEN it **proves** "fits" (does not assume it):

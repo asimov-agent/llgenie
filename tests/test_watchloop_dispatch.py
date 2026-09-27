@@ -60,6 +60,24 @@ class TestPidAlive:
         assert wd.pid_alive(0) is False
         assert wd.pid_alive(-1) is False
 
+    def test_zombie_is_not_alive(self, monkeypatch):
+        """A zombie is still in the process table but is not a live worker."""
+
+        # Given ps reports the pid as a zombie
+        def _ps(cmd, **kwargs):
+            class Result:
+                returncode = 0
+                stdout = "Z\n"
+            return Result()
+
+        monkeypatch.setattr(wd.subprocess, "run", _ps)
+
+        # When the liveness check runs
+        alive = wd.pid_alive(17)
+
+        # Then the zombie counts as dead
+        assert alive is False
+
 
 # --------------------------------------------------------------------------- #
 # spawn_worker stale-lock / alive-lock behavior (hermetic, monkeypatched)
@@ -148,10 +166,12 @@ class TestSpawnWorkerLock:
         class _LiveFakeProc:
             pid = os.getpid()
         class _LiveFakeSub:
-            def __init__(self, c): self.c = c
-            def Popen(self, argv, **kw):
-                self.c.append(argv)
-                return _LiveFakeProc()
+                    def __init__(self, c): self.c = c
+                    def Popen(self, argv, **kw):
+                        self.c.append(argv)
+                        return _LiveFakeProc()
+                    def run(self, argv, **kw):
+                        return _fake_ps_run(argv, **kw)
         monkeypatch.setattr(wd, "subprocess", _LiveFakeSub(spawned))
 
         wd.spawn_worker({"number": 1, "title": "race"})   # winner -> live pid
@@ -271,6 +291,26 @@ class TestStuckWorkerResume:
         assert lk.exists()
 
 
+def _fake_ps_run(argv, **kwargs):
+    """`subprocess.run` stand-in for `pid_alive`'s `ps -o stat=` probe.
+
+    Returns a live (non-zombie) stat for the current process and a dead
+    (empty) result for every other PID, so hermetic tests can distinguish an
+    alive worker lock (os.getpid()) from a dead one (e.g. 999999999).
+    """
+    class _R:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+    if "ps" in argv and "-p" in argv:
+        pid = argv[argv.index("-p") + 1]
+        if pid == str(os.getpid()):
+            _R.stdout = "S\n"  # live, non-zombie
+        else:
+            _R.returncode = 1  # not found -> dead
+    return _R()
+
+
 class _FakeSubprocess:
     """Stand-in exposing `.Popen` that records invocations and yields a proc."""
 
@@ -280,6 +320,9 @@ class _FakeSubprocess:
     def Popen(self, argv, **kwargs):
         self._calls.append(argv)
         return _FakeProc()
+
+    def run(self, argv, **kwargs):
+        return _fake_ps_run(argv, **kwargs)
 
 
 class _FakeProc:
@@ -1105,13 +1148,7 @@ class _FakeRunRecorder:
 
     def run(self, argv, **kwargs):
         self.calls.append(argv)
-
-        class _R:
-            returncode = 0
-            stdout = ""
-            stderr = ""
-
-        return _R()
+        return _fake_ps_run(argv, **kwargs)
 
 
 @pytest.fixture

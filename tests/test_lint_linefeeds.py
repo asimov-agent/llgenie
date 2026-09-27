@@ -143,3 +143,94 @@ def test_fix_returns_failfast_on_real_openspec_files_ending_newline(tmp_path: Pa
         assert L.check(report=False) == 0, "after fix must be green"
     finally:
         L._tracked_text_files = orig  # type: ignore[assignment]
+
+
+def test_markdown_heading_without_blank_line_is_flagged() -> None:
+    """A markdown heading directly after content (no blank line) fails the lint.
+
+    This is the exit-code contract the CI lint job relies on for the markdown
+    section-separation rule: a `#### Scenario:` (or any heading) that is not
+    preceded by a blank line must make `check()` return non-zero so the stage
+    turns RED. Regression guard for the spec.md gap where a `- **Test:**` line
+    was directly followed by the next scenario heading.
+    """
+    bad = [
+        "- **Test:** tests/test_detect_server.py::test_x",
+        "#### Scenario: unknown override falls back to RAM",
+        "- **Given** x",
+    ]
+    assert L._check_markdown_sections("spec.md", bad) == [2], (
+        "a heading not preceded by a blank line must be reported (line 2)"
+    )
+
+
+def test_markdown_heading_with_blank_line_is_clean() -> None:
+    """A heading preceded by a blank line is not flagged."""
+    good = [
+        "- **Test:** tests/test_detect_server.py::test_x",
+        "",
+        "#### Scenario: unknown override falls back to RAM",
+        "- **Given** x",
+    ]
+    assert L._check_markdown_sections("spec.md", good) == []
+
+
+def test_markdown_code_fence_and_indented_prose_are_ignored() -> None:
+    """`#` inside a fenced code block or indented prose is not a heading.
+
+    A `# Given`/`# Then` comment marker in a test body (indented) and a `#`
+    comment inside a ``` fence must NOT be treated as a heading, so they are
+    never flagged for missing a preceding blank line.
+    """
+    lines = [
+        "```bash",
+        "# a comment inside a code block",
+        "make install",
+        "```",
+        "",
+        "## Real heading",
+        "  # Then markers in the test body",
+        "",
+        "### Another real heading",
+    ]
+    # Only the two real column-0 headings (lines 6 and 9) are checked; both
+    # are preceded by a blank line, so nothing is flagged. The `#` inside the
+    # fence and the indented `# Then` prose are not headings.
+    assert L._check_markdown_sections("x.md", lines) == []
+
+
+def test_markdown_every_heading_level_needs_a_blank_line() -> None:
+    """The blank-line rule applies to EVERY heading level (##, ###, ####, …).
+
+    A `###`/`####`/`#####`/`######` heading directly after content (no blank
+    line) must be flagged just like a `##` — the rule is not limited to one
+    level. The first line of the file is exempt (nothing precedes it).
+    """
+    no_blank = [
+        "## Section A",
+        "body a",
+        "### Sub A",
+        "body a1",
+        "#### Sub-sub A",
+        "body a2",
+        "##### Deep A",
+        "body a3",
+        "###### Deepest A",
+        "body a4",
+    ]
+    # Line 1 (`##`) is the file's first line -> exempt. Lines 3,5,7,9 are the
+    # ###/####/#####/###### headings, each directly after content -> flagged.
+    assert L._check_markdown_sections("x.md", no_blank) == [3, 5, 7, 9]
+
+    with_blank = [
+        "## Section A",
+        "",
+        "### Sub A",
+        "",
+        "#### Sub-sub A",
+        "",
+        "##### Deep A",
+        "",
+        "###### Deepest A",
+    ]
+    assert L._check_markdown_sections("x.md", with_blank) == []

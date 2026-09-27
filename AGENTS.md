@@ -96,162 +96,6 @@ Rules:
     branch, so every OpenSpec change and PR trace to a GitHub issue that mirrors
     the goal.
 
-## Background watch loop — poll PRs/CI and drive new issues (MANDATORY)
-
-This repo runs an autonomous background loop so nothing sits un-driven between
-interactive sessions. The loop is a **host crontab** entry (not the in-process
-Hermes scheduler, whose ~3-min hard interrupt is too short for a full issue
-pipeline). Every 20 minutes, it launches a fresh one-shot **`project-manager`
-Hermes session** with cwd set to this repo (`cd` to the repo before invoking),
-which loads THIS file as the session's durable rules. The first thing that session
-always does is poll the project's GitHub state, so the repo is self-driving:
-
-1. **Poll PRs + CI first, every tick.** On session start (and on each loop tick),
-   list all open PRs against `main`, read every review/comment thread on each,
-   and check every PR's CI checks:
-   ```bash
-   gh pr list --state open --base main
-   # per PR: gh pr view <N> --json reviews,comments,statusCheckRollup
-   ```
-   Whenever a PR's CI is fully GREEN **and** it has an approval **and** no open
-   review threads, merge it to `main` and clean up both branches and the merged
-   PR locally. This is the only way approved work moves to `main` — never push
-   to `main` directly.
-2. **Every open issue must have a branch + PR in flight.** List all open issues;
-   for each, confirm a feature branch exists and a PR references it. If an issue
-   has NO live branch/PR yet (or is new), **start work on it immediately** — see
-   the worktree workflow below — because every issue must end at a PR against
-   `main`.
-3. **Reconcile drift as part of the loop.** Any issue whose goal does not match
-   its OpenSpec change and code is reconciled (per the sync rule above) before
-   doing anything else on it.
-
-### Issue → git worktree (MANDATORY for background work)
-
-Because the cron loop may start several issues' work concurrently, do NOT branch
-the checked-out working tree. For each new issue you start, create an isolated
-**git worktree** off `main`:
-
-```bash
-git worktree add -b feat/<kebab-name> ../llgenie-wt/<kebab-name> main
-# work inside ../llgenie-wt/<kebab-name>: OpenSpec change first, then implement
-```
-
-- The worktree lives OUTSIDE the main checkout (sibling dir), so parallel issues
-  don't collide and `make`/existing state in the main checkout is untouched.
-- Inside the worktree, follow this whole file: create the OpenSpec change first
-  (`make openspec-new NAME=<kebab-name>`), write `proposal.md` +
-  `specs/<cap>/spec.md` + `tasks.md`, implement, tick tasks, validate, then push
-  and open the PR referencing the issue from that worktree's branch.
-- When you must merge an approved green PR whose branch was created in a
-  worktree, you may do so with `gh pr merge <N> --merge --delete-branch` from the
-  main checkout and remove the worktree:
-  ```bash
-  git worktree remove ../llgenie-wt/<kebab-name>
-  ```
-- The main checkout's branch should stay on `main` (or the active PR branch of
-  whatever you're interactively helping on), with concurrency handled by
-  worktrees.
-
-### The host crontab that runs this (DISPATCHER + per-issue parallel workers)
-
-The loop lives in the user's host crontab, runs every 20 minutes (`*/20 * * * *`),
-and has NO time limit — it is intentionally NOT the in-process Hermes cron
-scheduler (which imposes a ~3-min hard interrupt per run). The crontab runs the
-**dispatcher**, which is a thin Python entrypoint (`scripts/watchloop_dispatch.py`)
-that each tick:
-
-1. **Finalizes merge-ready PRs** — merges a PR to `main` ONLY if ALL of:
-   CI fully green, an APPROVED review, no open review threads, and the PR head is
-   **NOT behind** `main` (never merge an out-of-sync / behind PR — see issue #9).
-2. **Spawns ONE dedicated parallel worker per orphaned issue** — for every open
-   issue with no live branch/PR, it creates its own isolated git worktree (`git
-   worktree add -b feat/<kebab> ../llgenie-wt/<kebab> origin/main`) and spawns a
-   dedicated background `project-manager` Hermes session **whose cwd is that
-   worktree** (so AGENTS.md loads) that drives ONLY that issue to a PR
-   (OpenSpec-first → implement → validate → push → PR). Issues run in PARALLEL —
-   they never serialize behind each other, and a worker resumes from its own log
-   on later ticks.
-5. **Auto-cleans merged worktrees + branches (issue: auto-clean stale worktrees
-   after a PR merges; issue #45: and the REMOTE branch).** After a PR merges to
-   `main`, the dispatcher automatically
-   removes the now-stale worktree (`git worktree remove --force
-   ../llgenie-wt/<kebab>`), the merged local `feat/<kebab>` branch, the
-   per-worker `.watchloop/run/worker-feat_<kebab>.running/.prompt` +
-   `.watchloop/logs/feat-<kebab>.log` artifacts, AND the REMOTE branch (`git
-   push origin --delete feat/<kebab>`) — so the loop leaves no dead
-   worktrees/branches (local or on `origin`) behind. GitHub's
-   `delete_branch_on_merge` only applies to UI-button merges, so the merge is
-   also requested with `delete_branch: true` in the API body; the cleanup sweep
-   is the safety net and only deletes remote `feat/*` branches that still exist
-   on `origin` and are already an ancestor of `origin/main` — never `main`.
-   In-flight PR worktrees and live running workers are NEVER touched.
-
-Parallel-safety rules (so concurrent workers never collide):
-- Every containerized `make` target (`openspec-*`, `test-unit`, `test-install`,
-  `lint`, `lint-fix`, `test`) is run through the shared fcntl lock helper
-  `scripts/serialized-make.py <lockfile> -- <target>` with the lock at
-  `.watchloop/run/test.lock`, so only ONE worker drives the nerdctl container at a
-  time. Workers NEVER run `make loop-harness`, `make test`, or `make
-  test-install-host` — those are the harness's own orchestrated steps.
-- Each worker uses its OWN worktree + its OWN log (no branch/container/log races).
-
-Logs:
-- Dispatcher run log: `.watchloop/run/dispatch.log`.
-- Per-issue/log worker logs: `.watchloop/logs/feat-<kebab>.log` (one per PR;
-  never corrupted, never interleaved with other workers').
-- Inspect: `tail .watchloop/run/dispatch.log`, `grep -i merg .watchloop/run/dispatch.log`,
-  or read any PR's own `.watchloop/logs/<branch>.log`.
-
-### Durable per-interval tick dedup — the hold-for-interval design
-
-The dispatcher runs once per 20-minute cron slot, but the host crontab can fire it
-TWICE inside one slot (the "doubled cron tick", issue #25). To guarantee `main()`
-runs exactly once per slot, the dispatcher takes a **tick lock**
-(`.watchloop/run/dispatch.tick.lock`) guarded by a coarse **interval bucket**
-(`_current_tick()` = `tick-<int(epoch)//1200>`). This design is non-obvious and
-**must not be "simplified"**:
-
-- **The lock is held for the WHOLE 20-min interval — it is NOT released at
-  `main()`'s end.** This is the whole point (issue #27 / PR #28). A phantom
-  re-fire in the same bucket typically lands seconds AFTER the first tick already
-  finished; a lock released synchronously in a `finally` would already be gone, so
-  the re-fire re-acquires and runs — the doubled tick. Holding the lock across the
-  whole bucket makes the dedup *durable*, independent of `main()`'s completion.
-- **A re-fire in the SAME interval is dedup'd.** `_tick_lock_acquire()` first
-  attempts an atomic `O_CREAT|O_EXCL` create, then if the lock exists reads the
-  recorded `(bucket, pid)`. If that bucket equals the current bucket, it logs
-  `[DEDUP] tick skipped: a previous invocation is already running this interval`
-  and `main()` returns WITHOUT a `tick start` — **regardless of whether the
-  recorded owner is still alive**. This is crucial: the first cron process
-  usually FINISHES (and exits) within seconds, so a same-bucket re-fire sees a
-  DEAD owner. Holding the whole interval means a finished same-bucket owner is
-  still a completed tick and MUST dedup; only an OLDER bucket (finished prior
-  interval) is reclaimed. This is exactly the "re-fire in the same interval
-  AFTER the first tick finished" case.
-- **A NEW interval reclaims.** When the wall clock crosses a 20-min boundary the
-  bucket string changes. `_tick_lock_acquire()` sees an OLD-bucket (finished)
-  owner and reclaims it atomically (`[DEDUP] reclaiming finished interval
-  <old> for <new>`), so `main()` runs exactly once for the fresh slot.
-- **A crash mid-tick is NOT a permanent block.** `main()` deliberately does NOT
-  release the lock on an exception — it logs `[DEDUP] tick crashed mid-run; lock
-  stays held until next interval` and re-raises. The lock is reclaimed by the
-  NEXT interval (its bucket differs) or swept as a stale dead-PID lock; it never
-  wedge the loop permanently. (Resuming the worker itself is a separate
-  `.running`-lock concern, documented above.)
-- **Seam to touch if you ever do:** `_current_tick()`, `_tick_lock_acquire()`,
-  `TICK_INTERVAL_SECONDS`, `_read_lock_owner()` in `scripts/watchloop_dispatch.py`,
-  and their hermetic regression tests `tests/test_watchloop_dispatch.py::TestTickDedup`.
-  Tweak-then-test; do not reorder releases without re-covering the "re-fire after
-  finish" case.
-
-Crontab / env / ops:
-- View: `crontab -l`; edit: `crontab -e`. Software + prompts live in `scripts/`.
-- If a worker is interrupted, its fcntl lock releases automatically and the next
-  dispatcher tick resumes it from its own log.
-- Do NOT recreate an in-process Hermes cron job for this — it would reintroduce the
-  3-min kill.
-
 ## Git workflow — feature branch + PR (MANDATORY)
 
 Every piece of work (bug fix, feature, tooling, docs) MUST be developed on a
@@ -305,14 +149,26 @@ git merge-base --is-ancestor origin/main HEAD 2>/dev/null \
 3. **Run the loop gate** (`make loop`) — it must be GREEN, and
    `make openspec-validate NAME=<name>` must pass, and every task in
    `tasks.md` must be ticked (`- [ ]` → `- [x]`), before the branch is ready.
-4. **When all tasks are completed AND verified**, push the branch and open a PR
-   against `main`:
+4. **When all tasks are completed AND verified**, push the branch to the **fork**
+   (`origin`) and open a PR against the **UPSTREAM** (`asimov-agent/llgenie`):
    ```bash
    git push -u origin feat/<kebab-name>
-   gh pr create --base main --head feat/<kebab-name> \
-       --title "feat: <kebab-name>" --body "Completes OpenSpec change <name>.<br>Loop gate GREEN, openspec validate passes, all tasks ticked."
+   # PR must ALWAYS target the upstream main, from the fork's branch:
+   gh pr create \
+       --repo asimov-agent/llgenie \
+       --base main \
+       --head andyholst:feat/<kebab-name> \
+       --title "feat: <kebab-name>" \
+       --body "Completes OpenSpec change <name>.<br>Issue: [#84](https://github.com/asimov-agent/llgenie/issues/84)<br>Loop gate GREEN, openspec validate passes, all tasks ticked."
    ```
-5. **Never push directly to `main`.** If you need `main` updated, merge via the PR.
+   **Rules (MANDATORY, every single PR):**
+   - The **base** repo is ALWAYS `asimov-agent/llgenie` (the upstream/mainstream).
+   - The **head** repo is `andyholst/llgenie` (the fork). Use `andyholst:feat/<name>`
+     (not just `feat/<name>`) so `--repo asimov-agent/llgenie` finds the branch.
+   - Push the branch to `origin` (the fork) with `git push -u origin feat/<name>`.
+   - NEVER create a PR against `andyholst/llgenie` (the fork). The PR always goes
+     to the upstream.
+   - NEVER push directly to `main` on either repo.
 6. Keep each PR to one change/OpenSpec change. Rebase or merge `main` in when the
    PR goes stale; never force-push shared branches.
 
@@ -476,6 +332,14 @@ scenario is the contract the tests are written against, so it must read like an 
   wired into the Makefile/CI gate. A validator that confirms the spec is valid (`make
   openspec-validate`) is required before a "done" claim, and the strict G/W/T block format
   should be used so the scenario is unambiguous.
+- **Every `#### Scenario:` MUST carry a `- **Test:**` reference line** naming the exact
+  test file + test case that locks it (e.g. `- **Test:** \`tests/test_detect_server.py::test_choose_tree_24gb_inclusive_is_prism\``),
+  or — for a live end-to-end scenario that hermetic unit tests cannot run — the CI job +
+  make command that exercises it (e.g. `CI jobs \`server-build-*\` -> \`make test-serve-variant TREE=… BACKEND=…\``).
+  A scenario with no `- **Test:**` line is a defect: a reviewer must be able to jump from
+  the spec scenario straight to the test that proves it. (See
+  `openspec/changes/feat-server-clone-build/specs/llama-server-build/spec.md` for the
+  reference format applied to every scenario.)
 - **The Python test itself must mirror the scenario:** each acceptance/behavior test's body
   MUST carry `# Given / # When / # Then` **comment markers** at the corresponding code steps so
   the behavior is readable in-place (a test whose body is a bare wall of asserts with no

@@ -4,6 +4,9 @@
 Used by the loop harness `lint` stage and `make lint`. Fails closed: if any
 tracked text file lacks a final ``\\n``, prints the offending file and exits 1.
 
+Also validates markdown section separation: every markdown heading MUST be
+preceded by a blank line so sections read as distinct blocks.
+
 Text files are the tracked files git knows about, restricted to types we
 version as text (exclude binaries like .gguf which are gitignored anyway, but
 guard against any tracked binary/images). Runs hermetically (needs git only).
@@ -68,8 +71,44 @@ def _repo_root() -> str:
     return Path(__file__).resolve().parent.parent
 
 
+def _check_markdown_sections(f: str, lines: list[str]) -> list[int]:
+    """Return line numbers (1-based) of markdown headings not preceded by a
+    blank line.
+
+    A heading (`#`, `##`, `###`, …) MUST be separated from the preceding
+    content by a blank line so sections read as distinct blocks. Lines inside
+    a fenced code block (``` or ~~~) are ignored — a `#` there is a comment,
+    not a heading. The first line of the file is exempt (nothing precedes it).
+    """
+    bad: list[int] = []
+    in_fence: str | None = None
+    for i, ln in enumerate(lines):
+        stripped = ln.strip()
+        # Toggle fenced code blocks (``` or ~~~, optionally with a language tag).
+        if stripped.startswith(("```", "~~~")):
+            if in_fence is None:
+                in_fence = stripped[:3]
+            elif stripped.startswith(in_fence):
+                in_fence = None
+            continue
+        if in_fence is not None:
+            continue  # inside a code block: `#` is a comment, not a heading
+        # A real markdown heading starts at column 0 (no leading whitespace)
+        # and is a run of 1-6 `#` followed by a space (or the line is just `#`s).
+        # Indented `# …` lines are prose/code, not headings.
+        if ln.startswith("#"):
+            rest = ln.lstrip("#")
+            if rest == "" or rest.startswith(" "):
+                if i == 0:
+                    continue  # first line of the file has nothing before it
+                if lines[i - 1].strip() != "":
+                    bad.append(i + 1)
+    return bad
+
+
 def check(report: bool = True, fix: bool = False) -> int:
     bad = []
+    md_bad: list[tuple[str, list[int]]] = []
     for f in _tracked_text_files():
         fp = Path(_repo_root()) / f
         if not fp.is_file():
@@ -88,17 +127,29 @@ def check(report: bool = True, fix: bool = False) -> int:
                 print(f"  fixed: {f}")
             else:
                 bad.append(f)
+        # Markdown section separation: every heading needs a blank line before it.
+        if f.endswith(".md"):
+            lines = data.decode("utf-8", errors="replace").split("\n")
+            issues = _check_markdown_sections(f, lines)
+            if issues:
+                md_bad.append((f, issues))
     if bad:
         if report:
             print("LINT FAIL — files missing a trailing newline:")
             for f in bad:
                 print(f"  - {f}")
         return 1
+    if md_bad:
+        if report:
+            print("LINT FAIL — markdown headings not preceded by a blank line:")
+            for f, issues in md_bad:
+                print(f"  - {f}: lines {', '.join(str(n) for n in issues)}")
+        return 1
     if fix:
         # --fix consumed everything bad already; re-scan to confirm.
         return check(report=False)
     if report:
-        print("LINT OK — all tracked text files end with a newline.")
+        print("LINT OK — all tracked text files end with a newline; markdown sections are blank-line separated.")
     return 0
 
 

@@ -352,14 +352,25 @@ def closing_issues(body) -> set:
 
 
 def pid_alive(pid: int) -> bool:
-    """True only if *pid* is a live process on this host."""
+    """True only if *pid* is a live process on this host.
+
+    A zombie still answers ``kill(pid, 0)`` until it is reaped. In the CI
+    container nothing reaps the SIGKILLed worker, so the e2e check stayed red.
+    ``ps -o stat=`` is Z for a zombie on both Linux and macOS.
+    """
     if not pid or pid <= 0:
         return False
     try:
-        os.kill(pid, 0)
-        return True
-    except (ProcessLookupError, PermissionError, OSError):
+        out = subprocess.run(
+            ["ps", "-o", "stat=", "-p", str(pid)],
+            capture_output=True, text=True,
+        )
+    except Exception:
         return False
+    stat = (out.stdout or "").strip()
+    if out.returncode != 0 or not stat:
+        return False
+    return not stat.startswith("Z")
 
 
 def _children_of(pid: int) -> list[int]:

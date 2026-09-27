@@ -53,10 +53,13 @@ Then   it invokes the make cron-* targets against the fake crontab and exits 0.
 
 ### Verification: A1
 - A new hermetic test (and the CI job) sets `CRONTAB_CMD` to a fake shim and confirms the script uses it.
+
 ### Verification: A2
 - The CI `cron` job runs `make cron-install` twice + `make cron-uninstall` against the fake crontab and
   asserts A2 idempotency / preservation behavior through the make layer.
+
 ### Verification: A3
 - `.github/workflows/ci.yml` has a `cron` job; it is green in CI.
+
 ### Regression
 - `make lint`, `make test-unit` (162 existing + new), `make openspec-validate`.

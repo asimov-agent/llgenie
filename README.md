@@ -48,6 +48,9 @@ make install
 4. **symlink + smoke** — symlinks `~/bin/llgenie.py` → this repo's launcher (`scripts/llama_serve.py`),
    then runs `~/bin/llgenie --list`. Succeeds even when `~/models` is empty (you populate it with
    `llgenie --download-top-tier`), failing only on a genuine gguf/launch error.
+5. **PATH** — if `$HOME/bin` is not already on `PATH` in the default shell's rc file,
+   adds `export PATH="$HOME/bin:$PATH"` at the top of `~/.bashrc` (login shell bash)
+   or `~/.zshrc` (login shell zsh). An existing line is left unchanged.
 
 After `make install`, just run:
 
@@ -77,6 +80,92 @@ cd tools && make venv-install      # create ~/llama-gguf-tools/.venv + install d
 
 `requirements.in` is the single source of truth; `requirements.txt` is generated with
 `pip-compile` inside the `tools/` Dockerfile container (`make generate-requirements`).
+
+## Which llama.cpp build is used (card-size rule, issue #84)
+
+`make install` picks the llama.cpp **source tree** and the **backend** from the
+hardware — it clones-or-pulls the chosen tree to its **latest commit** and builds
+it; it never symlinks a stale prebuilt.
+
+### Tree selection — card RAM only (no model quant inspection)
+Card RAM means the GPU's VRAM when an NVIDIA card is present (via `nvidia-smi`),
+otherwise the system RAM. `LLAMA_RAM_BYTES` is a test/CI seam, not a user knob.
+
+| Card RAM | Tree to build | Why |
+|---|---|---|
+| 8 GB  | **Prism** | only low-bit PTQ1_0 fits; stock can't load it |
+| 12 GB | **Prism** | PTQ1_0 fits; stock can't load it |
+| 16 GB | **Prism** | PQ2_0/PTQ1_0 fit; stock can't load them |
+| 24 GB | **Prism** | Q4_K fits; Prism runs low-bit AND standard quants |
+| 48 GB | **upstream** | Q8_0 fits; stock handles it |
+| 64 GB | **upstream** | Q8_0/F16 fits; stock handles it |
+
+The threshold is inclusive on the low side: **card_RAM <= 24 GB -> Prism, > 24 GB -> upstream**
+(single constant `PRISM_THRESHOLD_GB = 24` in `scripts/detect_server.py`).
+
+Prism (PrismML-Eng/llama.cpp, branch `prism`) is a **superset** of stock upstream:
+it loads every standard quant PLUS the low-bit PTQ1_0/PQ2_0/TQ1_0/TQ2_0 that only it supports.
+
+### Backend selection (hardware)
+Metal (macOS + Apple Silicon) · CUDA (nvidia-smi lists a GPU AND nvcc is present) · CPU (fallback).
+
+### Explicit variant targets (host: build ONE variant)
+```
+make install                 # auto-detects tree+backend for THIS card, builds it
+make build-variant TREE=prism BACKEND=cpu     # build just one variant (CI uses these)
+make build-variant TREE=upstream BACKEND=cuda
+make install-prism-cpu       # build+install one tree+backend in isolation
+make install-prism-cuda      # (needs nvcc)
+make install-prism-metal     # (macOS only)
+make install-upstream-cpu
+make install-upstream-cuda   # (needs nvcc)
+make install-upstream-metal  # (macOS only)
+make uninstall               # removes launcher + symlinks AND the cloned tree dirs
+make serve-variant TREE=prism BACKEND=cuda          # serve the built binary on a free port
+make serve-variant TREE=prism BACKEND=cuda PORT=18080
+make test-serve-variant TREE=prism BACKEND=cuda      # "hi", then stop that server
+make stop-serve-variant TREE=prism BACKEND=cuda      # stop only the server make started
+```
+
+`make serve-variant` does not rebuild and does not stop a llama-server that is
+already running. It binds `127.0.0.1` on `PORT`, or on a free port when `PORT`
+is omitted, and it will not bind a port that is already taken.
+`--n-gpu-layers` is not passed, so `llama-server` keeps its default and takes
+GPU or CPU, whichever it can. The model defaults to the
+cached Qwen 0.5B health file under `~/models/Qwen/8GB` and is downloaded only
+when that file is missing.
+
+`make test-serve-variant` posts `"hi"` and then stops the process that target
+started. `make stop-serve-variant` stops that same recorded pid. Neither one
+signals a llama-server that was not started by this Makefile.
+
+### Env seams (CI/test)
+- `LLAMA_BACKEND` = metal | cuda | cpu  (override hardware detection)
+- `LLAMA_RAM_BYTES` = card RAM in bytes (test/CI seam)
+- `LLAMA_SERVER_TREE` = prism | upstream (force the tree, independent of card RAM)
+
+### CI matrix (`.github/workflows/ci.yml`)
+Each variant is its own GitHub job. The two matrices start together, and
+inside each matrix the prism pair and the stock pair start together
+(`fail-fast: false`, so one variant does not cancel the other):
+
+- `server-variants` (**ubuntu-latest**, CUDA+python image), four jobs:
+  `prism+cpu` beside `prism+cuda`, and stock `upstream+cpu` beside
+  `upstream+cuda`. The image is `FROM nvidia/cuda`, so the CUDA toolkit is
+  already built. The job compiles `llama-server` inside that container. It does
+  not install the toolkit and it does not use a prebuilt `llama-server` image.
+  `make test-serve-variant` posts `"hi"` with the Qwen 0.5B file. CUDA jobs
+  also assert `ldd` links the prebuilt CUDA runtime libs. `--n-gpu-layers` is
+  not passed, so the server takes GPU or CPU, whichever it can.
+- `server-variants-mac` (**macos-14**, Apple Silicon), four jobs:
+  `prism+cpu` beside `prism+metal`, and stock `upstream+cpu` beside
+  `upstream+metal`. Metal is Apple-only and can only be built here. Every
+  variant verifies `--version` + `--help` and runs the same 0.5B `"hi"`
+  check (Metal serves it on the Apple GPU). Each job installs **bash 5** and
+  **python 3.10** via
+  Homebrew and prepends them to `PATH` (macOS ships bash 3.2, which lacks
+  `set -o pipefail`/`[[ ]]`, and the gguf venv needs python 3.10).
+
 
 ## Download a model (`scripts/hf_download.py`)
 
@@ -109,15 +198,41 @@ Run with the tooling venv's Python so `gguf`/`numpy` are importable:
 The launcher will:
 
 - Scan `~/models/**/*.gguf` (fast header-only metadata read for large files).
-- Auto-tune the server: context sized to RAM budget minus KV-cache/OS overhead, `-ngl 99`
-  (all layers to Metal), `-fa` flash attention, q4_0 KV cache, `--cont-batching`,
-  `--metrics`.
+- Auto-tune the server context (`-c`) from the **selected model**. The ceiling is
+  that GGUF's `context_length` (Ternary Bonsai 2 is 262144). The window is lowered
+  only when the q4_0 KV cache for that context does not fit in card RAM (NVIDIA
+  VRAM when a GPU is present, otherwise system RAM) after the weights and a 3 GB
+  reserve. Hybrid models (a `full_attention_interval` in the header) count only
+  the full-attention layers, plus an MTP block when the file has one. The result
+  is a multiple of 1024 and is never below 2048. On a CUDA or Metal backend,
+  `-ngl` is 99 when the weights and that KV cache fit, and a smaller layer
+  count when they do not. `-fa on` is set only for those GPU backends.
+  `-ctk`/`-ctv` stay `q4_0` so the cache matches the `-c` budget. `-b`/`-ub`
+  are 512/256 up to 8 GB, 2048/512 up to 24 GB, and 4096/1024 above that.
+  `--jinja` is set only when the GGUF has a chat template. `--cont-batching`
+  and `--metrics` are always on. A Prism low-bit file (`PTQ1_0`, `PQ2_0`,
+  `TQ1_0`, `TQ2_0`) with no author sampling block uses Bonsai's defaults
+  (`--temp 0.5`, `--top-p 0.85`, `--top-k 20`, `--min-p 0`). Its `-c`, `-ngl`,
+  and batch still follow that file and the card.
 - Detect reasoning-capable models from the chat template and enable `--reasoning` /
   `--reasoning-format deepseek` so thoughts are preserved in `message.reasoning_content`.
 - Serve **one model at a time**: any existing `llama-server` on the port is stopped before
   launch. Default port `11434`, override with `--port`.
 - Serve under a **stable alias `llm-local`** (`--alias llm-local`) so OpenAI-compatible
   clients can pin one endpoint name regardless of which model is loaded.
+- Engage **MTP (multi-token-prediction)** spec-decode when the model carries a
+  draft head (`nextn_layers` in the GGUF, e.g. Ternary-Bonsai-2 MTP /
+  Qwen3.8-27B MTP), with the speed knobs **derived from the card's RAM** (the
+  same card RAM that picks Prism-vs-upstream, via `detect_card_ram_bytes`), per
+  the [qwen38-mtp](https://github.com/sudoingX/qwen38-mtp) community rules:
+  - `--spec-draft-n-max` (depth) **card-class driven, never hard-coded**: card
+    RAM `<= 16 GB` -> `1`, `16 < RAM <= 24 GB` -> `2`, `> 24 GB` -> `3`.
+  - `--spec-draft-p-min` **never a default** (rule 2: helps starved cards, hurts
+    fast ones) — emitted only when the seam `LLAMA_SPEC_DRAFT_P_MIN` is set.
+  - `--parallel` **pinned to `-np 1` when MTP is engaged**, regardless of model
+    size (rule 5: spec decode is a single-stream optimisation; `--parallel > 1`
+    kills the gain). Without MTP, the size-based rule stands (`-np 2` for models
+    `< 10 GB`).
 - Write the exact command to `<model-dir>/.run.log` for audit/replay.
 
 You can customize `TOTAL_RAM_BYTES`, `OS_OVERHEAD`, `KV_QUANT`, and `SAMPLING` at the top
