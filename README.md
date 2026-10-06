@@ -1,14 +1,16 @@
 # llgenie
 
-Tooling to serve GGUF models locally via **llama.cpp's `llama-server`** (Metal / 48 GB
-unified-memory M-series Mac), plus a resilient Hugging Face downloader and the Python
-venv scaffold needed to run them.
+Tooling to pick and serve local LLMs through an OpenAI-compatible endpoint (`llm-local`).
+On Linux every inference server (llama.cpp, Prism, vLLM, Ollama, ...) runs from its
+CI-tested container image pulled from GHCR (`cpu | cuda | rocm | vulkan`); on macOS Metal,
+llama.cpp is built natively. Also included: a resilient Hugging Face downloader and the
+Python venv scaffold the launcher needs.
 
 This repo bundles three pieces that were built and validated together:
 
 | Piece | File | What it does |
 |---|---|---|
-| **GGUF launcher + auto-tuner** | `scripts/llama_serve.py` | Scan `~/models/**/*.gguf`, pick a model, auto-tune `llama-server` flags to fit 48 GB unified memory, and serve an OpenAI-compatible endpoint at `127.0.0.1:11434`. |
+| **GGUF launcher + auto-tuner** | `scripts/llama_serve.py` | Scan `~/models/**/*.gguf`, pick a model (and engine, `--pick`), auto-tune `llama-server` flags to the detected card RAM, and serve an OpenAI-compatible endpoint at `127.0.0.1:11434`. |
 | **HF downloader** | `scripts/hf_download.py` | Download a GGUF into a tiered models folder with live progress and auto-resume/auto-retry against a throttled Hugging Face CDN. |
 | **venv setup** | `tools/` | `gguf`-tooling environment (Python 3.10 venv + pip-compile container), recreatable via `make venv-install`. |
 
@@ -16,13 +18,15 @@ This repo bundles three pieces that were built and validated together:
 
 ## Requirements
 
-- **macOS** with an Apple Silicon GPU (tuned for 48 GB unified memory; edit the constants
-  in `scripts/llama_serve.py` for less).
-- **Docker** (Linux/PC): every inference server, llama.cpp included, runs from its
-  container image. `make install` pulls (or builds) the images and writes a
+- **Linux/PC: Docker.** Every inference server, llama.cpp included, runs from its
+  container image; nothing is compiled on the host. NVIDIA hosts also need
+  nvidia-container-toolkit with a CDI spec (see "Backend selection"). `make install` pulls the
+  published images (`BUILD=1` builds unpublished ones) and writes a
   `~/bin/llama-server` shim (stock llama.cpp image) and a `~/bin/prism-server` shim
   (Prism image). On macOS (Metal), a native
   llama.cpp build is used instead (`make install-prism-metal` / `install-upstream-metal`).
+- **macOS** with an Apple Silicon GPU for the native Metal path (card RAM is detected;
+  `TOTAL_RAM_BYTES` = 48 GB is only the fallback when detection fails).
 - **Python 3.10** (Homebrew: `brew install python@3.10`) for the `gguf` tooling venv.
 - Optional `hf` CLI (Hugging Face hub) in a venv — used by `scripts/hf_download.py`.
 
@@ -43,8 +47,10 @@ make install
    `--download-top-tier` is always available, no separate install needed).
 2. **launcher** — writes an executable `~/bin/llgenie` that runs `scripts/llama_serve.py` **with the
    venv's python**, so `gguf`/`numpy` resolve with zero extra steps.
-3. **engine images + start scripts** — pulls every engine image for this host's backend
-   from GHCR (or builds it from its generated Dockerfile) and writes
+3. **engine images + start scripts** — pulls this host's backend images from GHCR
+   (`LLGENIE_REGISTRY`, default `ghcr.io/asimov-agent`): by default llama.cpp + Prism,
+   `ENGINES=all` for every engine; other engines are pulled on first use by `llgenie --pick`.
+   `BUILD=1` builds an unpublished image from its generated Dockerfile. It writes
    `~/bin/llgenie-engine-<id>` per engine (`--version`, or `<model> [port]` to serve it as
    `llm-local` on `127.0.0.1:<port>/v1`), plus two shims that take the llama-server CLI:
    `~/bin/llama-server` runs the stock llama.cpp image, `~/bin/prism-server` the Prism image
@@ -162,10 +168,11 @@ make install-prism-metal     # macOS only: native Metal build (Metal cannot run 
 make install-upstream-metal  # macOS only
 make uninstall               # removes the launcher, llgenie.py, every llgenie-engine-* start script and the
                              # llama-server / prism-server shims; stops llgenie engine containers (PURGE_IMAGES=1: images too)
-make serve-variant TREE=prism BACKEND=cuda          # serve the built binary on a free port
-make serve-variant TREE=prism BACKEND=cuda PORT=18080
-make test-serve-variant TREE=prism BACKEND=cuda      # "hi", then stop that server
-make stop-serve-variant TREE=prism BACKEND=cuda      # stop only the server make started
+# native builds only (macOS Metal / CI server-variants-mac); on Linux use make run-engine
+make serve-variant TREE=prism BACKEND=metal          # serve the built binary on a free port
+make serve-variant TREE=prism BACKEND=metal PORT=18080
+make test-serve-variant TREE=prism BACKEND=metal     # "hi", then stop that server
+make stop-serve-variant TREE=prism BACKEND=metal     # stop only the server make started
 ```
 
 `make serve-variant` does not rebuild and does not stop a llama-server that is
@@ -185,11 +192,15 @@ signals a llama-server that was not started by this Makefile.
 - `LLGENIE_CUDA_ARCH` / `LLGENIE_CUDA_VERSION` / `LLGENIE_GPU_TARGETS` / `BUILD_JOBS` (engine-skill hardware params)
 - `LLAMA_RAM_BYTES` = card RAM in bytes (test/CI seam)
 - `LLAMA_SERVER_TREE` = prism | upstream (force the tree, independent of card RAM)
+- `LLGENIE_REGISTRY` = registry to pull/push engine images (default `ghcr.io/asimov-agent`)
+- `LLGENIE_NO_GPU=1` = start GPU images without GPU devices (CPU fallback; used by CI)
+- `LLGENIE_MODELS_DIR` = models dir the start scripts mount (default `~/models`)
 
 ### CI matrix (`.github/workflows/ci.yml`)
 - **Linux variants run as container images** from their own base images (`engine-image` jobs, see
   "Engine container images" below): upstream llama.cpp `FROM ghcr.io/ggml-org/llama.cpp:server[-cuda]`,
-  Prism compiled on the shared CUDA base and shipped on the CUDA runtime image. Every image has a
+  Prism compiled on the shared toolchain base (Prism cuda/rocm are disabled until #103, so
+  cuda/rocm hosts run `prism-server` from the Prism cpu image). Every image has a
   **test stage on the OpenAI API that AI harnesses use**. cpu images serve the 0.5B model and must
   answer `GET /v1/models` (lists `llm-local`) and `POST /v1/chat/completions` on the published port
   (`make test-engine`). GPU images (cuda/rocm/vulkan) print their engine version in the build job
@@ -207,8 +218,9 @@ Every inference server in the
 has one agent skill: `skills/engines/<id>/SKILL.md`. The skill is the single source
 of truth for how to detect, install and launch that engine **on this hardware**.
 `scripts/engine_skills.py` runs it and contains no engine-specific code.
-The llama.cpp and Prism builds above already go through their skills
-(`build_llama_server.sh` reads repo, branch, dirs and cmake flags from
+On Linux the skills are rendered into the committed per-arch params + Dockerfiles
+(`make generate-engine-params`, below); only the native macOS Metal build still reads a skill
+at build time (`build_llama_server.sh` takes repo, branch, dirs and cmake flags from
 `engine_skills.py build-env`).
 
 ```
@@ -306,7 +318,7 @@ On cuda/rocm/vulkan/cpu, `make engine-install` refuses and points at `make build
 There are no host venvs: Python engines install into the image's Python.
 
 **CI does the heavy lifting, with make only (no LLM).** `engine-matrix` computes the job list
-from the committed params (`make list-engine-images CI=1 JSON=1`, currently 29 engine x backend jobs).
+from the committed params (`make list-engine-images CI=1 JSON=1`, 29 engine x backend variants, 25 built in CI while the 4 below are disabled).
 `engine-base` publishes the 4 shared toolchain bases. Then `engine-image` runs one **parallel** job
 per entry: `make build-engine ENGINE=… ARCH=…` builds with `docker buildx` using a GHCR
 registry layer cache (`--cache-from`/`--cache-to`). A tag that is already published
