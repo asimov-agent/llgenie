@@ -39,7 +39,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import engine_skills as es  # noqa: E402
 
 RUNTIME = os.environ.get("RUNTIME") or ("docker" if shutil.which("docker") else "nerdctl")
-REGISTRY = os.environ.get("LLGENIE_REGISTRY", "").rstrip("/").lower()  # OCI refs must be lowercase
+# The CI-published, CI-tested images. The default lives here, not only in the Makefile, so
+# `llgenie` run straight from ~/bin pulls a picked engine on first use with no setup.
+# LLGENIE_REGISTRY overrides it (a fork's GHCR); LLGENIE_REGISTRY= (empty) = local images only.
+DEFAULT_REGISTRY = "ghcr.io/asimov-agent"
+REGISTRY = os.environ.get("LLGENIE_REGISTRY", DEFAULT_REGISTRY).rstrip("/").lower()  # OCI refs must be lowercase
 
 
 def _sh(cmd: list[str], **kw) -> subprocess.CompletedProcess:

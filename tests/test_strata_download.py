@@ -328,3 +328,68 @@ def test_interactive_reuses_a_complete_local_strata_set(tmp_path):
     listing = out.split("Pick model")[0]
     assert next(l for l in listing.splitlines() if "Qwen3.8-Flash-Next 125B" in l).endswith("[local]")
     assert "would download" not in out and f"llgenie-engine-strata {first} 11434" in out
+
+
+# ---------------------------------------------------------------------------
+# the engine start: the launch line Strata's own server.py accepts, serving llm-local
+# ---------------------------------------------------------------------------
+@pytest.fixture(scope="session")
+def strata_python(strata_src, tmp_path_factory) -> str:
+    """A venv with the server's own pinned packages (jinja2, regex, ...), the way the image
+    installs them; cmake/ninja/numpy (engine build only) are left out."""
+    venv = tmp_path_factory.mktemp("strata-py") / "py"
+    subprocess.run([sys.executable, "-m", "venv", str(venv)], check=True)
+    py = str(venv / "bin" / "python")
+    req = [l.strip() for l in (strata_src / "requirements.txt").read_text().splitlines()
+           if l.strip() and not l.startswith("#") and not l.split("==")[0] in ("numpy", "cmake", "ninja")]
+    subprocess.run([py, "-m", "pip", "install", "-q", "--disable-pip-version-check", *req], check=True, timeout=600)
+    return py
+
+
+def test_launch_line_is_accepted_by_strata_server_and_serves_llm_local(strata_src, strata_python, tmp_path):
+    """The image's launch line, run against Strata's REAL serve/server.py at the pinned
+    commit (its mock engine stands in for the GPU engine; argument parsing, the config's
+    aliases and the HTTP API are the real ones): server.py must accept every argument
+    (it once failed with "unrecognized arguments: --model-alias llm-local"), list
+    llm-local in /v1/models and answer a chat sent to model=llm-local."""
+    import socket
+    import time
+    import urllib.request
+    # a config like the one setup.py writes (strata-<tag>.json beside setup.py)
+    cfg = strata_src / "strata-iq3_xxs.json"
+    cfg.write_text(json.dumps({"exe": "/bin/true", "args": [], "model_name": "qwen3.8-flash-next"}))
+    try:
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+        p = json.loads(PARAMS.read_text())["variants"]["cuda"]
+        launch = p["launch"].replace("/opt/llgenie/engines/strata/src", str(strata_src))
+        launch = launch.replace("{port}", str(port)).replace("{host}", "127.0.0.1")
+        launch = launch.replace("py/bin/python", strata_python).replace("--engine strata", "--engine mock")
+        proc = subprocess.Popen(["bash", "-euo", "pipefail", "-c", launch], stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, text=True, start_new_session=True)
+        try:
+            models, end = None, time.time() + 60
+            while time.time() < end and proc.poll() is None:
+                try:
+                    with urllib.request.urlopen(f"http://127.0.0.1:{port}/v1/models", timeout=2) as r:
+                        models = json.load(r)
+                    break
+                except OSError:
+                    time.sleep(0.5)
+            assert models is not None, (proc.poll(), proc.stdout.read() if proc.poll() is not None else "")
+            assert "llm-local" in [m["id"] for m in models["data"]], models
+            req = urllib.request.Request(f"http://127.0.0.1:{port}/v1/chat/completions",
+                                         data=json.dumps({"model": "llm-local", "max_tokens": 16, "messages": [
+                                             {"role": "user", "content": "hi"}]}).encode(),
+                                         headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=30) as r:
+                reply = json.load(r)
+            msg = reply["choices"][0]["message"]
+            assert reply["model"] == "llm-local", reply
+            assert (msg.get("content") or msg.get("reasoning_content") or "").strip(), reply
+        finally:
+            os.killpg(proc.pid, 15)
+            proc.wait(10)
+    finally:
+        cfg.unlink(missing_ok=True)

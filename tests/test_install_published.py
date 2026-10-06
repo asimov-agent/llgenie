@@ -158,3 +158,19 @@ def test_make_install_pulls_this_backends_published_images_and_they_answer():
     assert not list(BIN.glob("llgenie-engine-*"))
     assert not (BIN / "llama-server").exists() and not (BIN / "prism-server").exists()
     assert not _running("llgenie-")
+
+
+def test_first_use_pull_works_without_llgenie_registry_live(tmp_path):
+    """Live GHCR, no mocks: the first-use install llgenie runs for a picked engine
+    (install_engine_launchers.py --ensure) with no LLGENIE_REGISTRY in the environment
+    pulls the published llama.cpp cpu image and writes its start script."""
+    tag = ei.resolve("llama.cpp", None, "cpu")["tag"]
+    subprocess.run([ei.RUNTIME, "rmi", "-f", tag], capture_output=True)   # force a real pull
+    env = {k: v for k, v in os.environ.items() if k != "LLGENIE_REGISTRY"}
+    r = subprocess.run([sys.executable, str(REPO / "scripts" / "install_engine_launchers.py"),
+                        "--bin", str(tmp_path), "--ensure", "llama.cpp", "--arch", "cpu"],
+                       env=env, capture_output=True, text=True, timeout=1800)
+    assert r.returncode == 0, r.stdout[-3000:] + r.stderr[-2000:]
+    assert "no LLGENIE_REGISTRY" not in r.stdout
+    assert f"pull ghcr.io/asimov-agent/{tag}" in r.stdout
+    assert tag in (tmp_path / "llgenie-engine-llama-cpp").read_text() and ei.image_exists(tag)

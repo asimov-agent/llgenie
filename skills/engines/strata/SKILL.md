@@ -39,15 +39,15 @@ install:
     - "git -C {src} fetch --depth 1 origin tag v{version} && git -C {src} checkout -q v{version}"
     - "python3 -m venv {src}/py && {src}/py/bin/pip install --no-cache-dir -r {src}/requirements.txt"
   cuda:
-    - "cd {src} && CUDA_ARCHITECTURES='{cuda_arch}' py/bin/python -c 'import os,shutil,setup; llama=setup.get_llama_cpp(); nvcc,_=setup.find_nvcc(); arch=os.environ[\"CUDA_ARCHITECTURES\"]; setup.cmake_build(setup.ROOT, setup.ROOT/\"build\",\"strata\",[\"-DSTRATA_ENABLE_CUDA=ON\",\"-DSTRATA_BUILD_TESTS=OFF\",\"-DCMAKE_CUDA_ARCHITECTURES=\"+arch,\"-DCMAKE_CUDA_COMPILER=\"+nvcc,\"-DSTRATA_GGML_DIR=\"+str(llama)],None,\"build-strata.bat\"); eng=setup.ROOT/\"engine\"; eng.mkdir(exist_ok=True); shutil.copy2(setup.ROOT/\"build\"/setup.EXE, eng/setup.EXE)'"
+    - "cd {src} && CUDA_ARCHITECTURES='{cuda_arch}' py/bin/python -c 'import os,shutil,setup; llama=setup.get_llama_cpp(); nvcc,_=setup.find_nvcc(); arch=os.environ[\"CUDA_ARCHITECTURES\"]; setup.cmake_build(setup.ROOT, setup.ROOT/\"build\",\"strata\",[\"-DSTRATA_ENABLE_CUDA=ON\",\"-DSTRATA_BUILD_TESTS=OFF\",\"-DSTRATA_PORTABLE=ON\",\"-DCMAKE_CUDA_ARCHITECTURES=\"+arch,\"-DCMAKE_CUDA_COMPILER=\"+nvcc,\"-DSTRATA_GGML_DIR=\"+str(llama)],None,\"build-strata.bat\"); eng=setup.ROOT/\"engine\"; eng.mkdir(exist_ok=True); shutil.copy2(setup.ROOT/\"build\"/setup.EXE, eng/setup.EXE); import json; (eng/\"BUILD.json\").write_text(json.dumps(dict(source=\"local\", version=setup.source_version(), archs=sorted(int(x) for x in arch.split(\";\")), vision=\"none\", cuda_dirs=[d for d in (\"/usr/local/cuda/bin\",\"/usr/local/cuda/lib64\") if os.path.isdir(d)], src=setup.source_hash(setup.ENGINE_SOURCES), vision_src=None), indent=1))'"
   rocm:
-    - "cd {src} && GPU_TARGETS='{gpu_targets}' py/bin/python -c 'import os,shutil,setup; llama=setup.get_llama_cpp(); arch=os.environ[\"GPU_TARGETS\"]; setup.cmake_build(setup.ROOT, setup.ROOT/\"build\",\"strata\",[\"-DSTRATA_ENABLE_HIP=ON\",\"-DSTRATA_BUILD_TESTS=OFF\",\"-DGPU_TARGETS=\"+arch,\"-DSTRATA_GGML_DIR=\"+str(llama)],None,\"build-strata.bat\"); eng=setup.ROOT/\"engine\"; eng.mkdir(exist_ok=True); shutil.copy2(setup.ROOT/\"build\"/setup.EXE, eng/setup.EXE)'"
+    - "cd {src} && GPU_TARGETS='{gpu_targets}' py/bin/python -c 'import os,shutil,setup; llama=setup.get_llama_cpp(); arch=os.environ[\"GPU_TARGETS\"]; setup.cmake_build(setup.ROOT, setup.ROOT/\"build\",\"strata\",[\"-DSTRATA_ENABLE_HIP=ON\",\"-DSTRATA_BUILD_TESTS=OFF\",\"-DSTRATA_PORTABLE=ON\",\"-DGPU_TARGETS=\"+arch,\"-DSTRATA_GGML_DIR=\"+str(llama)],None,\"build-strata.bat\"); eng=setup.ROOT/\"engine\"; eng.mkdir(exist_ok=True); shutil.copy2(setup.ROOT/\"build\"/setup.EXE, eng/setup.EXE); import json; (eng/\"BUILD.json\").write_text(json.dumps(dict(source=\"local\", backend=\"hip\", version=setup.source_version(), archs=sorted(arch.split(\";\") if \";\" in arch else arch.split()), vision=\"none\", src=setup.source_hash(setup.ENGINE_SOURCES), vision_src=None), indent=1))'"
 binary: "{src}/engine/strata"
 detect: "{binary} --help 2>&1 | grep -q '^strata ' && echo {version}"
 pre_launch: "cd {src} && choice=$(py/bin/python -c 'import os,sys,setup; c=setup.gguf_choice(os.path.basename(sys.argv[1])); print(\"--family %s --model %s\" % c if c else \"\")' {model}) && (test -n \"$choice\" || (echo \"[strata] $(basename {model}) is not a Strata model file (setup.py gguf_choice)\" >&2; exit 1)) && py/bin/python setup.py --setup --yes --no-start --no-browser --gguf-dir $(dirname {model}) $choice --data-dir /models/strata --port {port} --host {host}"
-launch: "cd {src} && py/bin/python serve/server.py --engine strata --config $(ls -t {src}/strata-*.json | head -1) --port {port} --host {host} --model-alias {alias}"
+launch: "cd {src} && cfg=$(ls -t {src}/strata-*.json | head -1) && py/bin/python -c 'import json,sys; p,a=sys.argv[1:3]; c=json.load(open(p)); al=c.get(\"aliases\") or []; c[\"aliases\"]=al if a in al else al+[a]; json.dump(c,open(p,\"w\"),indent=1)' \"$cfg\" {alias} && py/bin/python serve/server.py --engine strata --config \"$cfg\" --port {port} --host {host}"
 health: "GET /health"
-alias_mode: flag
+alias_mode: config
 container:
   cuda:
     apt: [libatomic1, libgomp1, python3-venv]
@@ -77,8 +77,9 @@ is downloaded on the first start.
 
 ## Serving as llm-local
 
-`serve/server.py --host 127.0.0.1 --port 11434 --model-alias llm-local`. The server
-accepts any model name, so `--model-alias` advertises it as `llm-local`.
+`serve/server.py --config <strata-*.json> --host 127.0.0.1 --port 11434`. server.py has no alias
+flag: the launch adds `llm-local` to the config's `aliases` (Strata #297), so `/v1/models` lists it
+and replies carry it. The server answers any model name either way.
 Routes: `/v1/chat/completions`, `/v1/messages`, `/v1/responses`, `/v1/models`, `/health`.
 
 ## Model files (llgenie)

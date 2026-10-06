@@ -11,6 +11,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -1278,3 +1279,27 @@ def test_only_engines_with_a_cpu_fallback_are_chat_tested_on_gpu_images():
                  ("mlx", "cuda"), ("tensorfold", "cuda")):
         assert not ei.chat_testable(e, v), (e, v)
     assert ei.chat_testable("vllm", "cpu") and ei.chat_testable("mlx", "cpu")
+
+
+def test_engine_images_default_to_the_published_registry_without_make():
+    """`llgenie` run straight from ~/bin (no make, no LLGENIE_REGISTRY in the shell) must
+    pull engines from the published registry: picking Strata failed with "not published in
+    (no LLGENIE_REGISTRY)" although the image was on GHCR. The default lives in
+    engine_image.py, the same value make exports; LLGENIE_REGISTRY still overrides it, and
+    LLGENIE_REGISTRY= (empty) still means local images only."""
+    py = (f"import sys; sys.path.insert(0, {str(REPO / 'scripts')!r}); "
+          "import engine_image as ei; print(repr(ei.REGISTRY))")
+
+    def registry(**env):
+        e = {k: v for k, v in os.environ.items() if k != "LLGENIE_REGISTRY"}
+        e.update(env)
+        r = subprocess.run([sys.executable, "-c", py], env=e, capture_output=True, text=True, timeout=60)
+        assert r.returncode == 0, r.stderr
+        return r.stdout.strip()
+
+    assert registry() == "'ghcr.io/asimov-agent'"
+    assert registry(LLGENIE_REGISTRY="ghcr.io/AndyHolst/") == "'ghcr.io/andyholst'"
+    assert registry(LLGENIE_REGISTRY="") == "''"
+    mk = (REPO / "Makefile").read_text()
+    assert "export LLGENIE_REGISTRY ?= ghcr.io/asimov-agent" in mk   # same default via make
+
