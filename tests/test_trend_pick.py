@@ -192,7 +192,7 @@ def test_llgenie_list_is_the_readme_list_that_fits_the_card(tmp_path, backend, g
         assert r["engines"]
         for e in r["engines"]:
             assert e["use_format"] in e["formats"]
-            assert r["plans"].get(e["use_format"]) or r["local"], (r["model"]["name"], e)
+            assert mp.engine_plan(r, e) or mp.engine_local(r, e), (r["model"]["name"], e)
         assert all(e["variant"] in (backend, "cpu") and not ei.disabled(e["id"], e["variant"]) for e in r["engines"])
         keys = [(e["rank"], -e["tps"]) for e in r["engines"]]
         assert keys == sorted(keys)
@@ -375,12 +375,13 @@ def test_moe_model_on_16gb_is_planned_with_system_ram():
 
 def test_unservable_row_says_why(tmp_path, monkeypatch):
     # Given an 8 GB RAM host: llama.cpp has no GGUF of the 125B that fits, but Strata
-    # reads the experts it cannot hold from the SSD, so the row stays servable on Strata
+    # installs its own choice whatever the RAM (setup.py recommends, never forces), so
+    # the row stays servable on Strata, with Strata's own first size (Q2_0)
     monkeypatch.setenv("LLGENIE_SYSTEM_RAM_BYTES", str(8 * 2**30))
     rows = {r["model"]["name"]: r for r in _offer(tmp_path, "cuda", 16)}
     row = rows["Qwen3.8-Flash-Next 125B"]
-    assert row["why"] == "" and row["engines"][0]["id"] == "strata"
-    assert "UD-IQ4_XS" in row["plans"]["gguf"]["path"]
+    assert row["why"] == "" and [e["id"] for e in row["engines"]] == ["strata"]
+    assert row["engine_plans"]["strata"]["path"] == "Q2_0/Qwen3.8-Flash-Next-GSQ-RCO-Q2_0-00001-of-00002.gguf"
     # and on a cpu host the MLX-only model has no image... mlx has a cpu image, so it stays
     rows = {r["model"]["name"]: r for r in _offer(tmp_path, "cpu", 16)}
     assert rows["RavenX-Conjecture-Qwen3-8B-MLX"]["why"] == ""
@@ -417,8 +418,8 @@ def test_select_every_row_plans_a_download_and_the_right_engine(tmp_path, monkey
         e = row["engines"][0]
         assert f"Model  : {row['model']['name']}" in r.stdout, (i, r.stdout)
         assert f"Engine : {e['engine']} [{e['variant']}]" in r.stdout, (i, r.stdout)
-        plan = row["plans"][e["use_format"]]
-        assert f"would download {plan['repo']}/" in r.stdout, (i, r.stdout)
+        plan = mp.engine_plan(row, e)
+        assert f"would download {plan['repo']}/{plan['path']}" in r.stdout, (i, r.stdout)
         assert "llgenie-engine-" + e["id"].replace(".", "-") in r.stdout, (i, r.stdout)
     assert _cli(tmp_path, "--select", str(len(rows) + 1), "--dry").returncode != 0
 
@@ -442,10 +443,10 @@ def test_every_model_in_the_list_downloads_the_first_bytes_of_its_planned_file(t
     assert [r["model"]["name"] for r in rows] == list(README_BEST_ON_16GB_CUDA)
     for row in rows:
         fmt = row["engines"][0]["use_format"]
-        plan = row["plans"][fmt]
+        plan = mp.engine_plan(row, row["engines"][0])
         assert plan, row["model"]["name"]
         out = mp.download(row["model"], 15.9921875, tmp_path, fmt=fmt, arch="cuda",
-                          ram_gb=64, engine=row["engines"][0]["id"])
+                          ram_gb=64, engine=row["engines"][0]["id"], plan=plan)
         assert out.exists() and 0 < out.stat().st_size <= 4096, (row["model"]["name"], out)
         assert plan["repo"].replace("/", "__") in str(out)
         assert out.name == Path(plan["path"] or plan["files"][0]).name, (row["model"]["name"], out.name)
@@ -461,7 +462,7 @@ def test_select_downloads_a_missing_model_for_real(tmp_path):
     test-install-trend). The start script is absent here, so llgenie stops right after."""
     rows = [x for x in _offer(tmp_path, "cpu", 2) if not x["why"]]
     target = rows[0]
-    plan = target["plans"][target["engines"][0]["use_format"]]
+    plan = mp.engine_plan(target, target["engines"][0])
     r = _cli(tmp_path, "--select", "1", backend="cpu", gb=2, timeout=1800)
     f = tmp_path / plan["repo"].replace("/", "__") / plan["path"]
     assert f.exists() and f.stat().st_size == plan["size"], (r.stdout[-2000:], r.stderr[-2000:])

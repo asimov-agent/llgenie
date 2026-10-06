@@ -306,26 +306,33 @@ def offer(registry: dict, arch: str | None = None, gb: float | None = None,
     README order. For each model the engines here are matched to a format llgenie
     can get for it: the local copy's format, else a download plan that fits
     (plan_download per format). Each engine gets `use_format`; engines without a
-    usable format are dropped; a row with none left gets `why`."""
+    usable format are dropped; a row with none left gets `why`.
+    Strata reads only the files its setup.py names, so it gets its own plan and local
+    copy (`engine_plans` / `engine_local`), never the generic GGUF of the format."""
     arch = arch or host_arch()
     gb = card_gb() if gb is None else gb
     rows = recommend(registry, arch, gb, all_rows=True)
     for r in rows:
         r["local"] = resolve_local(r["model"], root)
-        r["plans"] = {}
+        r["plans"], r["engine_plans"], r["engine_local"] = {}, {}, {}
         if r["why"]:
             continue
         local_fmt = model_format(r["local"]) if r["local"] else None
-        wanted = [f for f in DOWNLOADABLE if any(f in e["formats"] for e in r["engines"])]
+        generic = [e for e in r["engines"] if e["id"] != "strata"]
+        wanted = [f for f in DOWNLOADABLE if any(f in e["formats"] for e in generic)]
         for f in wanted:
-            if f == local_fmt:
-                continue
-            # the plan is the top engine's: Strata only converts its own quantizations
-            eng = next((e["id"] for e in r["engines"] if f in e["formats"]), None)
-            r["plans"][f] = plan_download(r["model"], gb, ram_gb, f, arch, engine=eng)
+            if f != local_fmt:
+                r["plans"][f] = plan_download(r["model"], gb, ram_gb, f, arch)
         usable = {f for f, pl in r["plans"].items() if pl} | ({local_fmt} if local_fmt else set())
         kept = []
         for e in r["engines"]:
+            if e["id"] == "strata":
+                here = strata_local(root, ram_gb) if strata_serves(r["model"]) else None
+                plan = None if here else plan_download(r["model"], gb, ram_gb, "gguf", arch, engine="strata")
+                if here or plan:
+                    r["engine_local"]["strata"], r["engine_plans"]["strata"] = here, plan
+                    kept.append({**e, "use_format": "gguf"})
+                continue
             fmt = next((f for f in e["formats"] if f == local_fmt), None) or \
                 next((f for f in e["formats"] if f in usable), None)
             if fmt:
@@ -335,6 +342,20 @@ def offer(registry: dict, arch: str | None = None, gb: float | None = None,
         if not kept:
             r["why"] = _no_fit_reason(r["model"], wanted, gb, arch, ram_gb)
     return rows
+
+
+def engine_plan(row: dict, eng: dict) -> dict | None:
+    """The download for `eng` in an offer() row: its own plan, else its format's."""
+    if eng["id"] in row.get("engine_plans", {}):
+        return row["engine_plans"][eng["id"]]
+    return row.get("plans", {}).get(eng["use_format"])
+
+
+def engine_local(row: dict, eng: dict) -> Path | None:
+    """The local copy `eng` loads in an offer() row (Strata: its own shard set)."""
+    if eng["id"] in row.get("engine_local", {}):
+        return row["engine_local"][eng["id"]]
+    return row.get("local")
 
 
 def _no_fit_reason(model: dict, fmts: list[str], gb: float, arch: str, ram_gb) -> str:
@@ -427,13 +448,14 @@ def _not_weights(path: str) -> bool:
     return "mmproj" in low or "imatrix" in name or name.startswith("mtp-") or low.startswith("mtp/")
 
 
-def _tree(repo: str) -> list[dict]:
-    if repo not in _TREE_CACHE:
+def _tree(repo: str, revision: str = "main") -> list[dict]:
+    key = f"{repo}@{revision}"
+    if key not in _TREE_CACHE:
         try:
-            _TREE_CACHE[repo] = _hub_json(f"{HF}/api/models/{repo}/tree/main?recursive=true")
+            _TREE_CACHE[key] = _hub_json(f"{HF}/api/models/{repo}/tree/{revision}?recursive=true")
         except Exception:  # noqa: BLE001  (missing/gated repo: no files)
-            _TREE_CACHE[repo] = []
-    return _TREE_CACHE[repo]
+            _TREE_CACHE[key] = []
+    return _TREE_CACHE[key]
 
 
 _TREE_CACHE: dict[str, list] = {}
@@ -503,16 +525,14 @@ def is_moe(model: dict) -> bool:
     return "moe" in (str(model.get("type", "")) + " " + str(model.get("params", ""))).lower()
 
 
-def weight_budget_gb(gb: float, moe: bool = False, ram_gb: float | None = None, arch: str = "cuda",
-                     ssd: bool = False) -> float:
+def weight_budget_gb(gb: float, moe: bool = False, ram_gb: float | None = None, arch: str = "cuda") -> float:
     """Largest model download that still runs on this host.
     Dense: 80% of the card minus 1 GiB (KV cache + compute buffers stay on the GPU;
     16 GB -> 11.8 GB). MoE on a GPU host: plus system RAM minus 4 GiB for the OS,
     because llama.cpp keeps the experts in RAM (--fit / mmap). On a cpu host the
-    "card" already is system RAM, so nothing is added. ssd=True is an engine that
-    reads the experts it cannot hold from the SSD (Strata's low-RAM mode), so the
-    download is not capped by RAM."""
-    if gb <= 0 or ssd:
+    "card" already is system RAM, so nothing is added. (Strata is not sized by this
+    rule: it installs what its own setup.py picks, strata_choice.)"""
+    if gb <= 0:
         return float("inf")
     card = max(gb * 0.8 - 1, gb * 0.5)
     if not moe or arch == "cpu":
@@ -521,30 +541,94 @@ def weight_budget_gb(gb: float, moe: bool = False, ram_gb: float | None = None, 
     return card + max(0.0, ram - 4)
 
 
-# Quantizations Strata's setup.py accepts (MODELS, v0.1.39). Anything else it refuses,
-# so a model served by Strata must be one of these or the config can never point at it.
-STRATA_QUANTS = ("Q2_0", "IQ2_XS", "IQ3_XXS", "IQ3_S", "IQ1_M", "UD-Q4_K_XL", "UD-IQ4_XS")
-
-
-def _strata_quant(path: str) -> bool:
-    """True when the file's quantization is one Strata converts. The token must stand
-    alone: UD-IQ1_M contains IQ1_M but is a different quantization Strata refuses."""
-    m = re.search(r"(?<![A-Za-z0-9])((?:UD-)?I?Q\d+(?:_[A-Za-z0-9]+)*)(?=-|\.gguf$)", Path(path).name)
-    return bool(m) and m.group(1) in STRATA_QUANTS
-
-
 def pick_weights(repo: str, gb: float, moe: bool = False, ram_gb: float | None = None,
-                 arch: str = "cuda", strata: bool = False) -> dict | None:
-    """The largest GGUF model in `repo` within weight_budget_gb (None when none fits).
-    strata=True keeps only the quantizations Strata's setup can convert into a pack."""
-    budget = weight_budget_gb(gb, moe, ram_gb, arch, ssd=strata) * 2**30
-    weights = [w for w in gguf_weights(repo) if not strata or _strata_quant(w["path"])]
-    ok = [w for w in weights if w["size"] <= budget]
-    if not ok:
+                 arch: str = "cuda") -> dict | None:
+    """The largest GGUF model in `repo` within weight_budget_gb (None when none fits)."""
+    budget = weight_budget_gb(gb, moe, ram_gb, arch) * 2**30
+    ok = [w for w in gguf_weights(repo) if w["size"] <= budget]
+    return max(ok, key=lambda w: w["size"]) if ok else None
+
+
+# ---------------------------------------------------------------------------
+# Strata: the files its setup.py names, never a guess (OpenSpec fix-engine-model-download-map).
+# data/strata_models.json is setup.py's MODELS / FAMILIES / HF_REVISIONS at the pinned
+# engine commit (make sync-strata-models; make check-strata-models fails on drift).
+# ---------------------------------------------------------------------------
+STRATA_MODELS = REPO / "data" / "strata_models.json"
+
+
+def strata_map() -> dict:
+    return json.loads(STRATA_MODELS.read_text())
+
+
+def strata_serves(model: dict) -> bool:
+    """True when `model` is the one Strata runs: its Hub name is in Strata's default
+    family's repo (Qwen/Qwen3.8-Flash-Next -> ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF)."""
+    name = str(model.get("hf") or "").rsplit("/", 1)[-1].lower()
+    fam = next(iter(strata_map()["families"].values()))
+    return bool(name) and name in fam["repo"].lower()
+
+
+def strata_choice(ram_gb: float) -> tuple[str, str]:
+    """(family, size) Strata's `setup.py --yes` installs on a PC with `ram_gb` GiB of RAM:
+    the first family; its sizes in setup's order, an experimental one last; IQ3_XXS from
+    60 GB of RAM, else the first size (setup.py main(), step 2)."""
+    s = strata_map()
+    family = next(iter(s["families"]))
+    names = [m for m, d in s["models"].items() if family in d["families"]]
+    names.sort(key=lambda m: bool(s["models"][m]["experimental"]))
+    return family, ("IQ3_XXS" if ram_gb >= 60 and "IQ3_XXS" in names else names[0])
+
+
+def strata_files(family: str, size: str) -> list[str]:
+    """Repo paths of every shard of a Strata choice (setup.py model_file / model_shards)."""
+    s = strata_map()
+    fam, d = s["families"][family], s["models"][size]
+    pattern, shards = d.get("file", fam["file"]), d.get("shards", fam["shards"])
+    sub = fam["subdir"].format(q=size)
+    return [sub + pattern.format(q=size, i=i) for i in range(1, shards + 1)]
+
+
+def strata_first_shards() -> dict[str, tuple[str, str]]:
+    """First-shard file name -> (family, size): what setup.py's gguf_choice maps."""
+    s = strata_map()
+    out = {}
+    for f in s["families"]:
+        for m, d in s["models"].items():
+            if f in d["families"]:
+                out.setdefault(Path(strata_files(f, m)[0]).name, (f, m))
+    return out
+
+
+def strata_plan(ram_gb: float | None = None) -> dict | None:
+    """The download for Strata on this host: its own choice's shards from its own repo at
+    its pinned revision, sizes from the Hub. None when a shard is missing on the Hub."""
+    ram = system_ram_gb() if ram_gb is None else ram_gb
+    family, size = strata_choice(ram)
+    fam = strata_map()["families"][family]
+    files = strata_files(family, size)
+    sizes = {f["path"]: int(f.get("size") or 0) for f in _tree(fam["repo"], fam["revision"])}
+    if not all(sizes.get(f) for f in files):
         return None
-    # Strata reads what it cannot hold from the SSD, so the smallest compatible file
-    # is the one it starts fastest (its own default, UD-IQ4_XS, not the 104 GB one).
-    return min(ok, key=lambda w: w["size"]) if strata else max(ok, key=lambda w: w["size"])
+    return {"repo": fam["repo"], "revision": fam["revision"], "path": files[0], "files": files,
+            "size": sum(sizes[f] for f in files), "strata": {"family": family, "model": size}}
+
+
+def strata_local(root: Path | None = None, ram_gb: float | None = None) -> Path | None:
+    """A complete set of Strata shards under the models root (the first shard), this
+    host's choice first; partial sets and files Strata cannot run are ignored."""
+    root = root or models_root()
+    if not root.exists():
+        return None
+    firsts = strata_first_shards()
+    want = Path(strata_files(*strata_choice(system_ram_gb() if ram_gb is None else ram_gb))[0]).name
+    hits = []
+    for p in root.rglob("*.gguf"):
+        if p.name in firsts:
+            f, m = firsts[p.name]
+            if all((p.parent / Path(x).name).is_file() for x in strata_files(f, m)):
+                hits.append(p)
+    return min(hits, key=lambda p: (p.name != want, str(p))) if hits else None
 
 
 def pick_file(repo: str, gb: float, moe: bool = False, ram_gb: float | None = None) -> tuple[str, int] | None:
@@ -590,11 +674,13 @@ def plan_download(model: dict, gb: float | None = None, ram_gb: float | None = N
     gb = card_gb() if gb is None else gb
     arch = arch or host_arch()
     budget = weight_budget_gb(gb, is_moe(model), ram_gb, arch) * 2**30
+    if engine == "strata":  # only the files Strata's setup.py names
+        return strata_plan(ram_gb) if fmt == "gguf" and strata_serves(model) else None
     if fmt == "gguf":
         repo = gguf_repo(model)
         if not repo:
             return None
-        w = pick_weights(repo, gb, is_moe(model), ram_gb, arch, strata=(engine == "strata"))
+        w = pick_weights(repo, gb, is_moe(model), ram_gb, arch)
         return {"repo": repo, **w} if w else None
     if fmt == "litertlm":
         for repo in _model_repos(model):
@@ -617,11 +703,11 @@ def plan_download(model: dict, gb: float | None = None, ram_gb: float | None = N
     return None
 
 
-def download_chunk(repo: str, filename: str, dest: Path, max_bytes: int) -> Path:
+def download_chunk(repo: str, filename: str, dest: Path, max_bytes: int, revision: str = "main") -> Path:
     """Fetch only the first `max_bytes` of a Hub file (HTTP Range) — CI's download test."""
     dest.mkdir(parents=True, exist_ok=True)
     out = dest / Path(filename).name
-    req = urllib.request.Request(f"{HF}/{repo}/resolve/main/{filename}",
+    req = urllib.request.Request(f"{HF}/{repo}/resolve/{revision}/{filename}",
                                  headers={"Range": f"bytes=0-{max_bytes - 1}", "User-Agent": "llgenie"})
     if os.environ.get("HF_TOKEN"):
         req.add_header("Authorization", f"Bearer {os.environ['HF_TOKEN']}")
@@ -631,25 +717,34 @@ def download_chunk(repo: str, filename: str, dest: Path, max_bytes: int) -> Path
 
 
 def download(model: dict, gb: float | None = None, root: Path | None = None, fmt: str = "gguf",
-             arch: str | None = None, ram_gb: float | None = None, engine: str | None = None) -> Path:
+             arch: str | None = None, ram_gb: float | None = None, engine: str | None = None,
+             plan: dict | None = None) -> Path:
     """Download plan_download(model, fmt) into ~/models/<org>__<repo>/ through the
     existing hf path (every shard / every file of a repo snapshot); returns what the
     engine loads (the GGUF / .litertlm file, or the repo dir)."""
     gb = card_gb() if gb is None else gb
     root = root or models_root()
-    plan = plan_download(model, gb, ram_gb, fmt, arch, engine=engine)
+    plan = plan or plan_download(model, gb, ram_gb, fmt, arch, engine=engine)
     if not plan:
         raise SystemExit(f"[pick] {model['name']}: no {fmt} download fits "
                          f"{weight_budget_gb(gb, is_moe(model), None, arch or host_arch()):.1f} GB on this host")
     repo, dest = plan["repo"], root / plan["repo"].replace("/", "__")
     max_bytes = int(os.environ.get("LLGENIE_DOWNLOAD_MAX_BYTES") or 0)
-    if max_bytes:  # CI seam: the first bytes of one planned file, never the whole download
-        return download_chunk(repo, plan["path"] or plan["files"][0], dest, max_bytes)
+    if max_bytes:  # CI seam: the first bytes of every planned file, never the whole download
+        rev = plan.get("revision", "main")
+        if plan["path"]:
+            for f in plan["files"]:
+                download_chunk(repo, f, dest / Path(f).parent, max_bytes, rev)
+            return dest / plan["path"]
+        return download_chunk(repo, plan["files"][0], dest, max_bytes, rev)
     env = dict(os.environ)
     venv_hf = Path(sys.executable).parent / "hf"  # the launcher runs the gguf venv, which ships hf
     if not env.get("HF_BIN") and venv_hf.exists():
         env["HF_BIN"] = str(venv_hf)
-    sizes = {f["path"]: int(f.get("size") or 0) for f in _tree(repo)}
+    rev = plan.get("revision", "main")
+    if rev != "main":
+        env["HF_REVISION"] = rev  # hf_download.py: `hf download --revision` (Strata's pinned files)
+    sizes = {f["path"]: int(f.get("size") or 0) for f in _tree(repo, rev)}
     for i, filename in enumerate(plan["files"], 1):
         label = model["id"] + (f"-{i}of{len(plan['files'])}" if len(plan["files"]) > 1 else "")
         rc = subprocess.run([sys.executable, str(REPO / "scripts" / "hf_download.py"), repo, filename,

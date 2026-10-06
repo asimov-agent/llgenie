@@ -1492,7 +1492,7 @@ def _print_trend(mp, reg, rows, gb):
             print(f"   --  {head}not here: {r['why']}")
             continue
         n += 1
-        mark = "  [local]" if r.get("local") else ""
+        mark = "  [local]" if mp.engine_local(r, e) else ""   # a copy the top engine loads
         print(f"  {n:2d}.  {head}{e['engine']} {_tps_label(e)}{mark}")
 
 
@@ -1521,7 +1521,6 @@ def _main_pick(args):
     if args.model and not rows:
         raise SystemExit(f"[llgenie] no registry model matches {args.model!r} with a compatible engine "
                          f"here; see `llgenie --engines {args.model}` or `llgenie --list`")
-    local = {r["model"]["id"]: r["local"] for r in rows}
     pickable = [r for r in rows if not r.get("why")]
     if not pickable:
         raise SystemExit("[llgenie] no model of the trend list can be served on this card")
@@ -1548,24 +1547,27 @@ def _main_pick(args):
                                            f"{e['use_format']:<16} {e['hardware']}",
                         "inference server", None, args.auto or bool(args.select))
     fmt = eng["use_format"]
-    path = Path(args.model_file).expanduser().resolve() if args.model_file else local.get(model["id"])
+    path = Path(args.model_file).expanduser().resolve() if args.model_file else mp.engine_local(row, eng)
     if args.model_file and not path.exists():
         raise SystemExit(f"[llgenie] --model-file {args.model_file} does not exist")
     if path is not None and not args.model_file and mp.model_format(path) != fmt:
         path = None  # the local copy is another format than this engine reads
     if path is None:
         print(f"[llgenie] {model['name']} ({fmt}) not under {mp.models_root()} -> downloading")
-        plan = row.get("plans", {}).get(fmt) or mp.plan_download(model, gb, None, fmt)
+        # the chosen engine's plan, the one the list was built from (Strata: its own files)
+        plan = mp.engine_plan(row, eng) or mp.plan_download(model, gb, None, fmt, engine=eng["id"])
         if not plan:
             raise SystemExit(f"[llgenie] {model['name']}: no {fmt} download fits this host")
         if args.dry:
             what = plan["path"] or f"(whole repo, {len(plan['files'])} files)"
             shards = f" ({len(plan['files'])} files)" if plan["path"] and len(plan["files"]) > 1 else ""
             print(f"[llgenie] (dry) would download {plan['repo']}/{what}{shards}, {plan['size'] / 2**30:.1f} GB")
+            for f in plan["files"] if len(plan["files"]) > 1 else []:
+                print(f"[llgenie] (dry)   {plan['repo']}/{f}")
             dest = mp.models_root() / plan["repo"].replace("/", "__")
             path = dest if plan.get("dir") else dest / plan["path"]
         else:
-            path = mp.download(model, gb, fmt=fmt)
+            path = mp.download(model, gb, fmt=fmt, engine=eng["id"], plan=plan)
     print(f"\nModel  : {model['name']}  ({path})")
     print(f"Engine : {eng['engine']} [{eng['variant']}]  {_tps_label(eng)}")
     _ensure_and_exec(eng, path, args)

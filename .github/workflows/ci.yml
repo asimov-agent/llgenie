@@ -47,6 +47,8 @@ jobs:
         run: make skills-validate
       - name: make check-registry (vendored data/models.json is a valid registry, issue #105)
         run: make check-registry
+      - name: make check-strata-models (data/strata_models.json = Strata's setup.py at the pinned commit)
+        run: make check-strata-models
       - name: make skills-validate REGISTRY=data/models.json (skills vs the vendored registry llgenie reads)
         run: make skills-validate REGISTRY=data/models.json
       - name: make check-engine-params (committed per-arch engine params match the skills)

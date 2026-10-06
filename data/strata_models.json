@@ -1,0 +1,112 @@
+{
+  "_generated_by": "make sync-strata-models (scripts/strata_models.py) - do not edit",
+  "source": "https://github.com/Niko1221/Strata/blob/6f32ec070f23ced9f50e704d854d775da52591ab/setup.py",
+  "ref": "v0.1.39",
+  "pinned": "6f32ec070f23ced9f50e704d854d775da52591ab",
+  "hf_revisions": {
+    "ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF": "ed59f92082b1e93c0e96d60a8b11aab089b52f09",
+    "ukisai/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF": "b22d729eae29b5796f76fb70f91aef549b9fc52c",
+    "ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-Coder-GGUF": "5348543e0147355ac9cbcb031184a3546350988e",
+    "unsloth/Qwen3.8-Flash-Next-GGUF": "38bb39ee97821de2c9009abb7e93950eec396e66"
+  },
+  "families": {
+    "qwen": {
+      "title": "Qwen3.8-Flash-Next",
+      "repo": "ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF",
+      "revision": "ed59f92082b1e93c0e96d60a8b11aab089b52f09",
+      "subdir": "{q}/",
+      "file": "Qwen3.8-Flash-Next-GSQ-RCO-{q}-0000{i}-of-00002.gguf",
+      "shards": 2,
+      "experimental": false
+    },
+    "swift": {
+      "title": "Swift 1.5",
+      "repo": "ukisai/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF",
+      "revision": "b22d729eae29b5796f76fb70f91aef549b9fc52c",
+      "subdir": "",
+      "file": "Swift-Qwen3.8-Flash-Next-GSQ-RCO-{q}-0000{i}-of-00002.gguf",
+      "shards": 2,
+      "experimental": false
+    },
+    "coder": {
+      "title": "Qwen3.8-Flash-Next Coder",
+      "repo": "ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-Coder-GGUF",
+      "revision": "5348543e0147355ac9cbcb031184a3546350988e",
+      "subdir": "{q}/",
+      "file": "Qwen3.8-Flash-Next-GSQ-RCO-{q}-0000{i}-of-00002.gguf",
+      "shards": 2,
+      "experimental": false
+    },
+    "unsloth": {
+      "title": "Qwen3.8-Flash-Next (Unsloth)",
+      "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
+      "revision": "38bb39ee97821de2c9009abb7e93950eec396e66",
+      "subdir": "{q}/",
+      "file": "Qwen3.8-Flash-Next-{q}-0000{i}-of-00004.gguf",
+      "shards": 4,
+      "experimental": false
+    }
+  },
+  "models": {
+    "Q2_0": {
+      "download_gb": 66.4,
+      "ram_gb": 48,
+      "families": [
+        "qwen"
+      ],
+      "experimental": false
+    },
+    "IQ2_XS": {
+      "download_gb": 68.0,
+      "ram_gb": 48,
+      "families": [
+        "qwen",
+        "swift"
+      ],
+      "experimental": false
+    },
+    "IQ3_XXS": {
+      "download_gb": 75.8,
+      "ram_gb": 60,
+      "families": [
+        "qwen",
+        "swift"
+      ],
+      "experimental": false
+    },
+    "IQ3_S": {
+      "download_gb": 83.6,
+      "ram_gb": 62,
+      "families": [
+        "qwen"
+      ],
+      "experimental": false
+    },
+    "IQ1_M": {
+      "download_gb": 58.4,
+      "ram_gb": 32,
+      "families": [
+        "coder"
+      ],
+      "experimental": false
+    },
+    "UD-Q4_K_XL": {
+      "download_gb": 111.3,
+      "ram_gb": 48,
+      "families": [
+        "unsloth"
+      ],
+      "experimental": true
+    },
+    "UD-IQ4_XS": {
+      "download_gb": 93.7,
+      "ram_gb": 48,
+      "families": [
+        "unsloth"
+      ],
+      "experimental": false,
+      "file": "Qwen3.8-Flash-Next-{q}-0000{i}-of-00003.gguf",
+      "shards": 3
+    }
+  }
+}

@@ -118,6 +118,8 @@ def main(argv=None):
         return 2
     cmd = [HF_BIN, "download", repo, filename,
            "--local-dir", dest, "--max-workers", "4"]
+    if os.environ.get("HF_REVISION"):  # a pinned commit (Strata's files): never the moving main
+        cmd += ["--revision", os.environ["HF_REVISION"]]
     final_path = os.path.join(dest, filename)
 
     TOTAL_BYTES = _resolve_expected_bytes(repo, filename, label, expected_bytes)
@@ -126,7 +128,7 @@ def main(argv=None):
     retry_pause = float(os.environ.get("HF_RETRY_PAUSE", str(DEFAULT_RETRY_PAUSE)))
     max_retry = int(os.environ.get("HF_MAX_RETRY", str(MAX_RETRY)))
 
-    write_log(f"MODE download {repo} :: {filename} -> {dest}\nSTART {time.ctime()} | max_retry={MAX_RETRY}\n")
+    write_log(f"MODE download {repo} :: {filename} @ {os.environ.get('HF_REVISION') or 'main'} -> {dest}\nSTART {time.ctime()} | max_retry={MAX_RETRY}\n")
 
     t_total = time.time()
     attempt = 1

@@ -44,7 +44,7 @@ install:
     - "cd {src} && GPU_TARGETS='{gpu_targets}' py/bin/python -c 'import os,shutil,setup; llama=setup.get_llama_cpp(); arch=os.environ[\"GPU_TARGETS\"]; setup.cmake_build(setup.ROOT, setup.ROOT/\"build\",\"strata\",[\"-DSTRATA_ENABLE_HIP=ON\",\"-DSTRATA_BUILD_TESTS=OFF\",\"-DGPU_TARGETS=\"+arch,\"-DSTRATA_GGML_DIR=\"+str(llama)],None,\"build-strata.bat\"); eng=setup.ROOT/\"engine\"; eng.mkdir(exist_ok=True); shutil.copy2(setup.ROOT/\"build\"/setup.EXE, eng/setup.EXE)'"
 binary: "{src}/engine/strata"
 detect: "{binary} --help 2>&1 | grep -q '^strata ' && echo {version}"
-pre_launch: "cd {src} && py/bin/python setup.py --setup --yes --no-start --no-browser --gguf-dir $(dirname {model}) --data-dir /models/strata --port {port} --host {host}"
+pre_launch: "cd {src} && choice=$(py/bin/python -c 'import os,sys,setup; c=setup.gguf_choice(os.path.basename(sys.argv[1])); print(\"--family %s --model %s\" % c if c else \"\")' {model}) && (test -n \"$choice\" || (echo \"[strata] $(basename {model}) is not a Strata model file (setup.py gguf_choice)\" >&2; exit 1)) && py/bin/python setup.py --setup --yes --no-start --no-browser --gguf-dir $(dirname {model}) $choice --data-dir /models/strata --port {port} --host {host}"
 launch: "cd {src} && py/bin/python serve/server.py --engine strata --config $(ls -t {src}/strata-*.json | head -1) --port {port} --host {host} --model-alias {alias}"
 health: "GET /health"
 alias_mode: flag
@@ -80,3 +80,12 @@ is downloaded on the first start.
 `serve/server.py --host 127.0.0.1 --port 11434 --model-alias llm-local`. The server
 accepts any model name, so `--model-alias` advertises it as `llm-local`.
 Routes: `/v1/chat/completions`, `/v1/messages`, `/v1/responses`, `/v1/models`, `/health`.
+
+## Model files (llgenie)
+
+Strata runs only the GGUF files its `setup.py` names (`MODELS` / `FAMILIES` / `HF_REVISIONS`).
+`data/strata_models.json` is that table at the pinned commit (`make sync-strata-models`;
+`make check-strata-models` fails on drift). llgenie downloads every shard of the choice
+`setup.py --yes` makes on the host (`qwen` `IQ3_XXS` from 60 GB of RAM, else `qwen` `Q2_0`) from
+its repo at its pinned revision, and `pre_launch` passes `--family` / `--model` from Strata's own
+`gguf_choice(<first shard>)`, so setup never picks another size inside the container.
