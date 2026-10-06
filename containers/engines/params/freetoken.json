@@ -1,0 +1,87 @@
+{
+  "_generated_by": "make generate-engine-params (scripts/engine_skills.py) - do not edit; edit the skill",
+  "engine": "FreeToken",
+  "id": "freetoken",
+  "repo": "https://github.com/FlashML-org/FreeToken",
+  "ref": "v0.1.3",
+  "pinned": "cac247a860e316e06580d05aeb05f2e647bde214",
+  "native": {},
+  "variants": {
+    "cuda": {
+      "id": "freetoken",
+      "engine": "FreeToken",
+      "backend": "cuda",
+      "arch": "",
+      "base": "nvidia/cuda:13.0.2-devel-ubuntu24.04",
+      "prebuilt": false,
+      "runtime_base": "",
+      "runtime_copy": [],
+      "apt": [],
+      "build_args": {
+        "CUDA_ARCH": "",
+        "GPU_TARGETS": "",
+        "TORCH_BACKEND": "cu130"
+      },
+      "install": [
+        "uv pip install --system --break-system-packages 'freetoken[accel]==0.1.3'"
+      ],
+      "env": {},
+      "detect": "ft --version",
+      "pre_launch": null,
+      "launch": "ft serve --model {model} --host {host} --port {port} --served-model-name llm-local --moe-strategy auto",
+      "post_launch": null,
+      "health": "GET /health",
+      "alias_mode": "flag",
+      "run_args": [
+        "--device",
+        "nvidia.com/gpu=all",
+        "--shm-size",
+        "2g"
+      ],
+      "port": 11434
+    },
+    "rocm": {
+      "id": "freetoken",
+      "engine": "FreeToken",
+      "backend": "rocm",
+      "arch": "gfx1100;gfx1101;gfx1102;gfx1103;gfx1200;gfx1201",
+      "base": "rocm/pytorch:rocm7.2.4_ubuntu24.04_py3.12_pytorch_release_2.10.0@sha256:4449f856653602317e4101a76fce599c7fcd58ccec2e539951fce5f73083179e",
+      "prebuilt": false,
+      "runtime_base": "",
+      "runtime_copy": [],
+      "apt": [],
+      "build_args": {
+        "CUDA_ARCH": "",
+        "GPU_TARGETS": "gfx1100;gfx1101;gfx1102;gfx1103;gfx1200;gfx1201",
+        "TORCH_BACKEND": "auto"
+      },
+      "install": [
+        "test -d /opt/llgenie/engines/freetoken/src/.git || git clone https://github.com/FlashML-org/FreeToken.git /opt/llgenie/engines/freetoken/src",
+        "git -C /opt/llgenie/engines/freetoken/src fetch origin main && git -C /opt/llgenie/engines/freetoken/src checkout -q 555efd89447232a555e05d187256b76a51c1aaa0",
+        "python3 -m pip install --no-cache-dir --index-url https://download.pytorch.org/whl/rocm7.2 'torch==2.11.*'",
+        "python3 -m pip install --no-cache-dir setuptools wheel",
+        "cd /opt/llgenie/engines/freetoken/src && ROCM_HOME=/opt/rocm CUDA_HOME=/opt/rocm PYTORCH_ROCM_ARCH='gfx1100;gfx1101;gfx1102;gfx1103;gfx1200;gfx1201' FREETOKEN_ROCM_ARCH='gfx1100;gfx1101;gfx1102;gfx1103;gfx1200;gfx1201' python3 -m pip install --no-cache-dir --no-build-isolation -e ."
+      ],
+      "env": {},
+      "detect": "ft --version",
+      "pre_launch": null,
+      "launch": "ft serve --model {model} --host {host} --port {port} --served-model-name llm-local --moe-strategy auto",
+      "post_launch": null,
+      "health": "GET /health",
+      "alias_mode": "flag",
+      "run_args": [
+        "--device",
+        "/dev/kfd",
+        "--device",
+        "/dev/dri",
+        "--group-add",
+        "video",
+        "--group-add",
+        "render",
+        "--ipc",
+        "host"
+      ],
+      "port": 11434
+    }
+  }
+}

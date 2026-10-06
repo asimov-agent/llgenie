@@ -8,7 +8,7 @@ on:
 # Every verification stage is its own independent job (GitHub Actions runs
 # jobs in parallel by default). Each job drives a Makefile target — the SAME
 # commands that `make loop` runs locally — and everything runs in the
-# containerized test image (python + pytest + CPU llama-server), so CI, the
+# containerized test image (python + pytest + hf + docker CLI), so CI, the
 # local nerdctl host, and the local loop behave identically.
 #
 # Each stage builds the test image first (cached by the runner), runs the
@@ -43,6 +43,10 @@ jobs:
         run: make test-image
       - name: make test-unit
         run: make test-unit
+      - name: make skills-validate (engine skills vs the trending-local-llms registry, issue #98)
+        run: make skills-validate
+      - name: make check-engine-params (committed per-arch engine params match the skills)
+        run: make check-engine-params
       - name: Prune orphaned test containers
         run: make test-clean
 
@@ -130,17 +134,242 @@ jobs:
   # `make install` + seeds a model + asserts the artifacts, all in ONE container.
   # NO SKIPS: a missing prerequisite fails the job loudly, it never silently skips.
   install:
+    # The real user path, in the python test container: make install pulls/builds
+    # every engine image with a cpu variant through the host docker socket and
+    # writes the ~/bin start scripts, then make test-built-engine (each script
+    # prints its engine version through its image), the install tests, llgenie
+    # answering "hi" through the container llama-server, and make uninstall.
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
+    env:
+      LLGENIE_REGISTRY: ghcr.io/${{ github.repository_owner }}
     steps:
       - uses: actions/checkout@v4
+      - name: Free disk (engine images are large)
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
       - name: Build test image
         run: make test-image
-      - name: make test-install-ci (real install, no skips)
-        run: make test-install-ci
+      - name: make test-install-ci (test container -> make install -> test-built-engine -> install tests -> hi -> uninstall)
+        run: make test-install-ci ARCH=cpu
       - name: Prune orphaned test containers
+        if: always()
         run: make test-clean
 
+  # ------------------------------------------------------------------
+  # engine-images (issue #98). Pure make, no LLM, nothing built on a laptop:
+  #   engine-base: one shared toolchain image per backend (cpu/cuda/rocm/vulkan,
+  #     containers/engines/base/Dockerfile.<backend>), built once, published to
+  #     GHCR with a registry layer cache; every compiled engine builds FROM it.
+  #   engine-matrix: job list from the committed params
+  #     (make list-engine-images CI=1 JSON=1) - ONE image per engine x backend,
+  #     GPU arch coverage is a fat build (CUDA 75..120, ROCm gfx1030..gfx1201).
+  #   engine-image: all engine x backend images in PARALLEL via
+  #     make build-engine ENGINE=… ARCH=… PUSH=1 (buildx, --cache-from/--cache-to
+  #     GHCR). A tag already published (unchanged Dockerfile/params) is pulled,
+  #     not rebuilt. cpu images are started and curl-tested (make test-engine).
+  # ------------------------------------------------------------------
+  engine-base:
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [cpu, cuda, rocm, vulkan]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    name: engine-base-${{ matrix.backend }}
+    env:
+      LLGENIE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+      # Publish (push images + registry cache) from EVERY push run, feature branches
+      # included (default for now, #101): the repo's own GHCR (ghcr.io/<owner>),
+      # so a fork's push run publishes to the fork's packages. pull_request runs
+      # get a read-only token: they build, use the published cache, and test.
+      PUBLISH: ${{ github.event_name == 'push' && '1' || '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR (publishing runs only)
+        if: ${{ env.PUBLISH == '1' }}
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: make build-engine-base BACKEND=${{ matrix.backend }} (PUSH=1 on upstream pushes)
+        run: make build-engine-base BACKEND=${{ matrix.backend }} PUSH=$PUBLISH
+
+  engine-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: m
+        run: echo "matrix=$(make -s list-engine-images CI=1 JSON=1)" >> "$GITHUB_OUTPUT"
+
+  engine-image:
+    needs: [engine-matrix, engine-base]
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix: ${{ fromJSON(needs.engine-matrix.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    permissions:
+      contents: read
+      packages: write
+    name: engine-image-${{ matrix.engine }}-${{ matrix.variant }}
+    env:
+      LLGENIE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+      PUBLISH: ${{ github.event_name == 'push' && '1' || '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free disk (CUDA/ROCm bases are large)
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR (publishing runs only)
+        if: ${{ env.PUBLISH == '1' }}
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: make build-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} (built locally; pushed only after its tests pass)
+        run: make build-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}
+      - name: Build test image (the post-build pytest stage runs in llgenie/test)
+        run: make test-image
+      - uses: astral-sh/setup-uv@v6
+        if: matrix.test == 'serve'
+      - name: hf CLI (tiny test model)
+        if: matrix.test == 'serve'
+        run: uv tool install "huggingface_hub[cli]>=0.30"
+      # POST-BUILD TEST STAGE: every engine image is tested once built, in parallel
+      # (matrix.test: 'serve' cpu images, 'detect' GPU images). Runs the python
+      # tests/test_engine_runs.py: cpu images serve a tiny model and must answer
+      # on the OpenAI endpoint (GET /v1/models -> llm-local, chat completion "hi");
+      # GPU images can't serve on a GPU-less runner, so their entrypoint must at
+      # least report the engine version (they are intentionally NOT started).
+      - name: "post-build test: pytest tests/test_engine_runs.py in llgenie/test (endpoint: serve + answer on the OpenAI API)"
+        if: matrix.test == 'serve'
+        run: make test-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}
+      - name: "post-build test: pytest tests/test_engine_version.py (engine binary reports its version; GPU images can't serve here)"
+        if: matrix.test == 'detect'
+        run: make test-engine-image ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}
+      # PUBLISH STAGE: every push run (any branch), only after the build AND its tests passed
+      # (any failed step above skips this). Pushes <registry>/<name>:<hash-arch>
+      # and the moving <registry>/<name>:<arch> tag to GHCR.
+      - name: make push-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} (every push run, after tests passed)
+        if: ${{ success() && env.PUBLISH == '1' }}
+        run: make push-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}
+
+  # ------------------------------------------------------------------
+  # engine-published-test (issue #102): SECOND MATRIX, one job per published
+  # container image (test-published-<engine>-<arch>). After every image is built, tested and
+  # pushed, test each one AGAIN as published, on a fresh runner with no build
+  # and no cache: pull the pinned tag from GHCR, check its digest equals the
+  # moving :<arch> tag, check the binary version, start the container and chat
+  # "hi" on /v1/chat/completions (GPU images without GPU devices), then the real
+  # install path (make engine-launchers pulls it, never builds; make test-built-engine).
+  # Every push run (any branch: they all publish), so a feature branch's images
+  # are pulled back and chatted with before the PR is merged.
+  # ------------------------------------------------------------------
+  engine-published-test:
+    needs: [engine-matrix, engine-image]
+    # runs even when some build jobs failed: every published image is still
+    # tested; an image whose build/test failed was never pushed, so its job here
+    # fails loudly on the pull (no skip)
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.engine-matrix.result == 'success' }}
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix: ${{ fromJSON(needs.engine-matrix.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: read
+    name: test-published-${{ matrix.engine }}-${{ matrix.variant }}
+    env:
+      LLGENIE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free disk (CUDA/ROCm images are large)
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
+      - uses: docker/setup-buildx-action@v3
+      # a package published for the first time can be private until linked: pull
+      # with the run's token (packages: read) instead of anonymously
+      - name: Log in to GHCR (read)
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - uses: astral-sh/setup-uv@v6
+      - name: hf CLI (tiny test model)
+        run: uv tool install "huggingface_hub[cli]>=0.30"
+      - name: Build test image
+        run: make test-image
+      # Every published image (GPU ones included) is started as a container and
+      # must answer "hi" on its OpenAI chat endpoint. Hosted runners have no GPU:
+      # GPU images run without GPU devices and their engine falls back to CPU.
+      - name: "make test-published-engine (pull from GHCR, digest check, binary version, container answers hi on /v1/chat/completions)"
+        run: make test-published-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}
+      - name: "install from the published image only (pull, never build) + make test-built-engine"
+        # GPU-less runner: no CDI spec, the start script runs the GPU image on CPU
+        env:
+          LLGENIE_NO_GPU: "1"
+        run: |
+          make engine-launchers BIN="$RUNNER_TEMP/bin" ENGINES=${{ matrix.engine }} ARCH=${{ matrix.variant }}
+          make test-built-engine BIN="$RUNNER_TEMP/bin"
+
+  # ------------------------------------------------------------------
+  # install-published: LAST stage. After every image was built, tested,
+  # published and re-tested as published, the real `make install` runs on a
+  # clean runner per backend (cpu/cuda/rocm/vulkan mocked via LLAMA_BACKEND; GPU
+  # images run on CPU): it may only PULL that backend's published images,
+  # llgenie answers "hi" through llama-server and prism-server, `llgenie --pick
+  # --engine` pulls the picked engine on first use, and make uninstall leaves
+  # nothing behind. Every push run (they all publish).
+  # ------------------------------------------------------------------
+  install-published:
+    needs: [engine-published-test]
+    if: ${{ !cancelled() && github.event_name == 'push' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [cpu, cuda, rocm, vulkan]
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: read
+    name: install-published-${{ matrix.backend }}
+    env:
+      LLGENIE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free disk (CUDA/ROCm images are large)
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
+      - name: Log in to GHCR (read)
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Build test image
+        run: make test-image
+      - name: "make test-install-published BACKEND=${{ matrix.backend }} (pull only this backend's images, llgenie hi via both shims + --pick --engine, uninstall)"
+        run: make test-install-published BACKEND=${{ matrix.backend }}
+      - name: Prune orphaned test containers
+        if: always()
+        run: make test-clean
+
+  # ------------------------------------------------------------------
+  # engine-smoke-mac: Metal cannot run in a container, so macOS installs the
+  # Metal engines natively through their skills on the hosted Apple runner.
+  # ------------------------------------------------------------------
+  engine-smoke-mac:
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [ollama, mlx]
+    runs-on: macos-14
+    timeout-minutes: 60
+    name: engine-smoke-${{ matrix.engine }}-metal
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: hf CLI (tiny smoke models)
+        run: uv tool install "huggingface_hub[cli]>=0.30"
+      - name: make engine-smoke ENGINE=${{ matrix.engine }} BACKEND=metal
+        env:
+          LLAMA_BACKEND: metal
+        run: make engine-smoke ENGINE=${{ matrix.engine }} BACKEND=metal
   # ------------------------------------------------------------------
   # agents-read: AGENTS.md must not match Hermes context-file threat patterns.
   # Runs on its OWN python:3.12 image (hermes-agent needs Python >=3.11) so it
@@ -187,15 +416,15 @@ jobs:
 
   # ------------------------------------------------------------------
   # cpu-health: Real CPU-only lightweight-LLM check (make test-health).
-  # `test-health` == download-test-model && pytest test_health.py, all inside
-  # the container that bundles the CPU-built llama-server. NO GPU anywhere.
+  # pytest runs in the test container; llgenie serves the 0.5B model through
+  # the llama.cpp ENGINE IMAGE (host docker socket) and must answer "hi".
   # ------------------------------------------------------------------
   cpu-health:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - name: Build test image (incl. CPU llama-server)
+      - name: Build test image
         run: make test-image
       - name: make test-health (CPU LLM answers "hi")
         run: make test-health
@@ -213,7 +442,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - name: "Build test image (bundles hf + gguf + CPU llama-server)"
+      - name: "Build test image (bundles hf + gguf + docker CLI)"
         run: make test-image
       - name: "make test-top-tier-ci (real acceptance: download, no mocks, CPU)"
         run: make test-top-tier-ci
@@ -225,110 +454,11 @@ jobs:
         run: make test-clean
 
   # ------------------------------------------------------------------
-  # #84/#89 variant matrix: one GitHub job per tree x backend, all parallel.
-  #
-  #   server-variants        (ubuntu-latest) matrix:
-  #       prism+cpu    || prism+cuda
-  #       upstream+cpu || upstream+cuda     (stock llama.cpp)
-  #   server-variants-mac (macos-14) matrix:
-  #       prism+cpu    || prism+metal
-  #       upstream+cpu || upstream+metal    (stock llama.cpp)
-  #
-  # Each matrix cell is its own runner, so a long CUDA/Metal compile does not
-  # sit behind its CPU sibling and a failure does not cancel the other pair
-  # (fail-fast: false). Linux cells build inside the CUDA+python variant image
-  # (gguf-tools/ci-variant:latest). That image is FROM nvidia/cuda, so the
-  # CUDA toolkit is already built. The job compiles llama-server inside the
-  # container; it does not install the toolkit and it does not run a prebuilt
-  # llama-server image. macOS cells use the native Apple-Silicon toolchain
-  # (Metal is Apple-only).
-  #
-  # Verification goes through the Makefile. make install-<tree>-<backend>
-  # (or make build-variant on macOS) builds the binary. make test-serve-variant
-  # binds a free 127.0.0.1 port, so a server already listening is left alone,
-  # serves the cached Qwen 0.5B file (downloaded only when missing), posts "hi",
-  # then stops only that process. --n-gpu-layers is not passed, so
-  # llama-server keeps its default and takes GPU or CPU, whichever it can.
-  # CUDA cells also assert ldd links the cuda runtime libs.
+  # #84/#89 native macOS variants (Metal cannot run in a container). The Linux
+  # variants (prism/upstream x cpu/cuda) are now the engine images above:
+  # engine-image-llama.cpp-* / engine-image-llama.cpp-prism-*, built from their
+  # own base image and tested on the OpenAI endpoints by `make test-engine`.
   # ------------------------------------------------------------------
-
-  server-variants:
-    name: ${{ matrix.name }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 150
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: server-build-prism-cpu
-            tree: prism
-            backend: cpu
-          - name: server-build-prism-cuda
-            tree: prism
-            backend: cuda
-          - name: server-build-upstream-cpu
-            tree: upstream
-            backend: cpu
-          - name: server-build-upstream-cuda
-            tree: upstream
-            backend: cuda
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Restore the llama.cpp build cache
-        uses: actions/cache@v4
-        with:
-          path: llama-build
-          key: llama-${{ runner.os }}-${{ matrix.tree }}-${{ matrix.backend }}-${{ github.run_id }}
-          restore-keys: |
-            llama-${{ runner.os }}-${{ matrix.tree }}-${{ matrix.backend }}-
-      - name: Build the CUDA+python variant image
-        run: make test-variant-image
-      - name: Prebuilt CUDA toolkit is already in the image
-        run: |
-          set -eu
-          docker run --rm --entrypoint bash gguf-tools/ci-variant:latest -c '
-            set -eu
-            command -v nvcc
-            nvcc --version
-            ls /usr/local/cuda/lib64/libcudart.so*
-            echo "prebuilt CUDA toolkit present; llama-server is compiled next"
-          '
-      - name: make install-${{ matrix.tree }}-${{ matrix.backend }}
-        env:
-          VARIANT_TREE: ${{ matrix.tree }}
-          VARIANT_BACKEND: ${{ matrix.backend }}
-        run: |
-          set -eu
-          export BUILD_JOBS="$(nproc)"
-          echo "runner cores: ${BUILD_JOBS}"
-          mkdir -p llama-build
-          stdbuf -oL -eL docker run --rm -e HOME=/root \
-            -e VARIANT_TREE -e VARIANT_BACKEND -e BUILD_JOBS \
-            -e SERVER_ROOT=/root/repository/git \
-            -v "$PWD":/repo:rw \
-            -v "$PWD/llama-build:/root/repository/git" \
-            --entrypoint bash gguf-tools/ci-variant:latest -c '
-            set -eu
-            cd /repo
-            label="${VARIANT_TREE}+${VARIANT_BACKEND}"
-            make "install-${VARIANT_TREE}-${VARIANT_BACKEND}"
-            srv="$(readlink ~/bin/llama-server)"
-            [ -x "$srv" ] || { echo "$label: installed server not executable"; exit 1; }
-            "$srv" --version 2>&1 | grep -m1 version || { echo "$label --version FAILED"; exit 1; }
-            "$srv" --help >/dev/null 2>&1 || { echo "$label --help FAILED"; exit 1; }
-            if [ "$VARIANT_BACKEND" = cuda ]; then
-              ldd "$srv" 2>/dev/null | grep -Eq "libcudart|libcublas" \
-                || { echo "$label: installed server does NOT link cuda runtime libs"; exit 1; }
-            fi
-            make test-serve-variant TREE="$VARIANT_TREE" BACKEND="$VARIANT_BACKEND"
-            echo "$label: make test-serve-variant OK -> $srv"
-            '
-      - name: Prune orphaned test containers
-        if: always()
-        run: make test-clean
-
   server-variants-mac:
     name: ${{ matrix.name }}
     runs-on: macos-14

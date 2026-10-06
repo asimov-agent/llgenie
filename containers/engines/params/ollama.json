@@ -1,0 +1,165 @@
+{
+  "_generated_by": "make generate-engine-params (scripts/engine_skills.py) - do not edit; edit the skill",
+  "engine": "Ollama",
+  "id": "ollama",
+  "repo": "https://github.com/ollama/ollama",
+  "ref": "v0.35.1",
+  "pinned": "b0c1ca4f7549d7acdfa52a7dcffc934bc63a43ce",
+  "native": {},
+  "variants": {
+    "cuda": {
+      "id": "ollama",
+      "engine": "Ollama",
+      "backend": "cuda",
+      "arch": "",
+      "base": "ollama/ollama:0.35.1",
+      "prebuilt": true,
+      "runtime_base": "",
+      "runtime_copy": [],
+      "apt": [],
+      "build_args": {
+        "CUDA_ARCH": "",
+        "GPU_TARGETS": "",
+        "TORCH_BACKEND": "cu130"
+      },
+      "install": [],
+      "env": {
+        "OLLAMA_HOST": "{host}:{port}",
+        "OLLAMA_MODELS": "/opt/llgenie/engines/ollama/models",
+        "OLLAMA_FLASH_ATTENTION": "1",
+        "OLLAMA_KV_CACHE_TYPE": "q8_0"
+      },
+      "detect": "/bin/ollama --version",
+      "pre_launch": null,
+      "launch": "/bin/ollama serve",
+      "post_launch": "printf 'FROM %s\\n' {model} > /opt/llgenie/engines/ollama/Modelfile && /bin/ollama create llm-local -f /opt/llgenie/engines/ollama/Modelfile",
+      "health": "GET /api/version",
+      "alias_mode": "create",
+      "run_args": [
+        "--device",
+        "nvidia.com/gpu=all",
+        "--shm-size",
+        "2g"
+      ],
+      "port": 11434
+    },
+    "rocm": {
+      "id": "ollama",
+      "engine": "Ollama",
+      "backend": "rocm",
+      "arch": "",
+      "base": "ollama/ollama:0.35.1-rocm",
+      "prebuilt": true,
+      "runtime_base": "",
+      "runtime_copy": [],
+      "apt": [],
+      "build_args": {
+        "CUDA_ARCH": "",
+        "GPU_TARGETS": "",
+        "TORCH_BACKEND": "auto"
+      },
+      "install": [],
+      "env": {
+        "OLLAMA_HOST": "{host}:{port}",
+        "OLLAMA_MODELS": "/opt/llgenie/engines/ollama/models",
+        "OLLAMA_FLASH_ATTENTION": "1",
+        "OLLAMA_KV_CACHE_TYPE": "q8_0"
+      },
+      "detect": "/bin/ollama --version",
+      "pre_launch": null,
+      "launch": "/bin/ollama serve",
+      "post_launch": "printf 'FROM %s\\n' {model} > /opt/llgenie/engines/ollama/Modelfile && /bin/ollama create llm-local -f /opt/llgenie/engines/ollama/Modelfile",
+      "health": "GET /api/version",
+      "alias_mode": "create",
+      "run_args": [
+        "--device",
+        "/dev/kfd",
+        "--device",
+        "/dev/dri",
+        "--group-add",
+        "video",
+        "--group-add",
+        "render",
+        "--ipc",
+        "host"
+      ],
+      "port": 11434
+    },
+    "vulkan": {
+      "id": "ollama",
+      "engine": "Ollama",
+      "backend": "vulkan",
+      "arch": "",
+      "base": "ollama/ollama:0.35.1",
+      "prebuilt": true,
+      "runtime_base": "",
+      "runtime_copy": [],
+      "apt": [
+        "glslc",
+        "glslang-tools",
+        "libvulkan-dev",
+        "spirv-headers",
+        "mesa-vulkan-drivers"
+      ],
+      "build_args": {
+        "CUDA_ARCH": "",
+        "GPU_TARGETS": "",
+        "TORCH_BACKEND": "cpu"
+      },
+      "install": [],
+      "env": {
+        "OLLAMA_HOST": "{host}:{port}",
+        "OLLAMA_MODELS": "/opt/llgenie/engines/ollama/models",
+        "OLLAMA_FLASH_ATTENTION": "1",
+        "OLLAMA_KV_CACHE_TYPE": "q8_0"
+      },
+      "detect": "/bin/ollama --version",
+      "pre_launch": null,
+      "launch": "/bin/ollama serve",
+      "post_launch": "printf 'FROM %s\\n' {model} > /opt/llgenie/engines/ollama/Modelfile && /bin/ollama create llm-local -f /opt/llgenie/engines/ollama/Modelfile",
+      "health": "GET /api/version",
+      "alias_mode": "create",
+      "run_args": [
+        "--device",
+        "/dev/dri",
+        "--shm-size",
+        "2g"
+      ],
+      "port": 11434
+    },
+    "cpu": {
+      "id": "ollama",
+      "engine": "Ollama",
+      "backend": "cpu",
+      "arch": "",
+      "base": "ollama/ollama:0.35.1",
+      "prebuilt": true,
+      "runtime_base": "",
+      "runtime_copy": [],
+      "apt": [],
+      "build_args": {
+        "CUDA_ARCH": "",
+        "GPU_TARGETS": "",
+        "TORCH_BACKEND": "cpu"
+      },
+      "install": [],
+      "env": {
+        "OLLAMA_HOST": "{host}:{port}",
+        "OLLAMA_MODELS": "/opt/llgenie/engines/ollama/models",
+        "OLLAMA_FLASH_ATTENTION": "1",
+        "OLLAMA_KV_CACHE_TYPE": "q8_0"
+      },
+      "detect": "/bin/ollama --version",
+      "pre_launch": null,
+      "launch": "/bin/ollama serve",
+      "post_launch": "printf 'FROM %s\\n' {model} > /opt/llgenie/engines/ollama/Modelfile && /bin/ollama create llm-local -f /opt/llgenie/engines/ollama/Modelfile",
+      "health": "GET /api/version",
+      "alias_mode": "create",
+      "run_args": [
+        "--shm-size",
+        "2g"
+      ],
+      "port": 11434
+    }
+  }
+}

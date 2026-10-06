@@ -40,22 +40,23 @@ def _cells(job: dict) -> set[tuple[str, str, str]]:
     return {(row["name"], row["tree"], row["backend"]) for row in include}
 
 
-def test_linux_prism_and_stock_pairs_are_parallel_matrix_cells():
-    """prism+cpu || prism+cuda and upstream+cpu || upstream+cuda."""
+def test_linux_prism_and_stock_variants_are_engine_image_jobs():
+    """prism+cpu/cuda and upstream+cpu/cuda now run as engine images, each from its own
+    base image, in parallel (the old in-container compile job is gone)."""
 
-    # Given the server-variants job on ubuntu-latest
-    job = _workflow()["jobs"]["server-variants"]
+    import scripts.engine_image as ei
 
-    # When the matrix is expanded
-    cells = _cells(job)
+    # Given the workflow and the generated engine-image matrix
+    jobs = _workflow()["jobs"]
+    rows = {(r["engine"], r["variant"]) for r in ei.matrix(ci=True)}
 
-    # Then both pairs are cells of one matrix, with no needs and fail-fast off
-    assert job["runs-on"] == "ubuntu-latest"
-    assert job["strategy"]["fail-fast"] is False
-    assert "needs" not in job
-    assert cells == LINUX_PAIRS
-    assert "max-parallel" not in job["strategy"]
-
+    # When the Linux variants are looked up
+    # Then each tree x backend is an engine-image job and the old job is removed
+    assert "server-variants" not in jobs
+    assert {("llama.cpp-prism", "cpu"), ("llama.cpp", "cpu"), ("llama.cpp", "cuda")} <= rows
+    # the disabled images (issue #103) are not CI jobs
+    assert not rows & set(ei.DISABLED)
+    assert jobs["engine-image"]["strategy"]["fail-fast"] is False
 
 def test_mac_prism_and_stock_pairs_are_parallel_matrix_cells():
     """prism+cpu || prism+metal and upstream+cpu || upstream+metal."""
@@ -78,30 +79,27 @@ def _run_scripts(job: dict) -> str:
     return "\n".join(step.get("run") or "" for step in job["steps"])
 
 
-def test_every_variant_runs_the_small_model_health_check():
-    """CPU, CUDA, and Metal each answer hi with the 0.5B GGUF."""
+def test_every_variant_runs_a_test_stage_on_the_openai_api():
+    """cpu images serve the 0.5B model and answer on /v1; GPU images start and run detect;
+    macOS Metal variants still answer "hi" natively."""
 
-    # Given both variant matrices
+    import scripts.engine_image as ei
+
+    # Given the workflow, the engine-image matrix and the mac variants
     jobs = _workflow()["jobs"]
-    linux = _run_scripts(jobs["server-variants"])
-    mac_steps = jobs["server-variants-mac"]["steps"]
+    image_steps = _run_scripts(jobs["engine-image"])
     mac = _run_scripts(jobs["server-variants-mac"])
+    rows = ei.matrix(ci=True)
 
-    # When the health-check steps are read
-    venv_step = next(s for s in mac_steps if "cihealth" in (s.get("run") or ""))
-
-    # Then every backend is tested through make test-serve-variant
-    assert "make test-serve-variant" in linux
+    # When the test stages are read
+    # Then every image job has a test (serve on cpu, detect on GPU) and mac still serves
+    assert "make test-engine ENGINE=" in image_steps
+    assert "make test-engine-image ENGINE=" in image_steps
+    assert all(r["test"] in ("serve", "detect") for r in rows)
+    assert {r["test"] for r in rows if r["engine"].startswith("llama.cpp") and r["variant"] == "cpu"} == {"serve"}
+    assert {r["test"] for r in rows if r["variant"] in ("cuda", "rocm", "vulkan")} == {"detect"}
     assert "make test-serve-variant" in mac
-    assert "actions/cache@v4" in (REPO / ".github" / "workflows" / "ci.yml").read_text()
-    assert "llama-build:/root/repository/git" in linux
-    assert "SERVER_ROOT" in mac
     assert "make build-variant" in mac
-    assert 'VARIANT_BACKEND" = cpu' not in linux
-    assert "--n-gpu-layers 0" not in linux
-    assert "if" not in venv_step
-    assert 'VARIANT_BACKEND" = cpu' not in mac
-
 
 def test_variant_build_streams_its_log():
     """The CUDA compile is visible in CI instead of discarded."""
@@ -122,23 +120,23 @@ def test_variant_build_streams_its_log():
     assert '-j"$CPUS"' in script
 
 
-def test_linux_variants_compile_llama_server_against_prebuilt_cuda():
-    """The toolkit is the nvidia/cuda image. llama-server is compiled in it."""
+def test_linux_variants_use_their_base_images():
+    """Upstream llama.cpp runs FROM the official ggml-org images; Prism compiles on the
+    shared CUDA base (nvidia/cuda devel) and ships on the CUDA runtime image."""
 
-    # Given the variant image and the Linux workflow
-    dockerfile = (REPO / "containers" / "ci-variant" / "Dockerfile").read_text()
-    linux = _run_scripts(_workflow()["jobs"]["server-variants"])
+    import scripts.engine_skills as es
 
-    # When the image base and the job steps are read
-    from_line = next(ln for ln in dockerfile.splitlines() if ln.startswith("FROM "))
+    # Given the generated Dockerfiles for the Linux variants
+    up = es.dockerfile_path("llama.cpp", "cuda").read_text()
+    prism = es.dockerfile_path("llama.cpp-prism", "cuda").read_text()
+    base = (es.BASE_DIR / "Dockerfile.cuda").read_text()
 
-    # Then CUDA is the prebuilt base image and llama-server is built in-container
-    assert from_line.startswith("FROM nvidia/cuda:")
-    assert "make test-variant-image" in linux
-    assert "make install-" in linux or 'make "install-' in linux
-    assert "nvidia-cuda-toolkit" not in linux
-    assert "ghcr.io/ggml-org/llama.cpp" not in linux
-
+    # When their bases are read
+    # Then each variant runs from its own base image
+    assert "FROM ghcr.io/ggml-org/llama.cpp:server-cuda@sha256:" in up
+    assert f"FROM {es.base_tag('cuda')} AS build" in prism
+    assert "FROM nvidia/cuda:13.0.2-runtime-ubuntu24.04" in prism
+    assert base.splitlines()[3].startswith("FROM nvidia/cuda:")
 
 def test_cuda_health_command_serves_the_model_on_cpu():
     """ubuntu-latest has no GPU, so the CUDA binary still answers on CPU."""
@@ -186,48 +184,77 @@ def test_build_script_clone_help_cuda_and_metal_contracts():
 
 
 def test_uninstall_removes_install_artifacts_and_not_repo_source():
-    """make uninstall removes the launcher and symlinks, not the repo scripts."""
+    """make uninstall undoes make install: the launcher, llgenie.py, every engine
+    start script and the llama-server shim; never repo source or other files."""
 
     # Given the uninstall recipe
     text = (REPO / "Makefile").read_text()
-    start = text.index("uninstall:")
+    start = text.index("\nuninstall:") + 1
     recipe = text[start:text.index("\n# ---- watch-loop", start)]
 
     # When the removals are read
-    # Then the three install paths are removed and repo source is not
-    assert "$(LAUNCHER)" in recipe
-    assert "$(BIN)/llgenie.py" in recipe
-    assert "$(BIN)/llama-server" in recipe
-    assert "rm " in recipe
-    assert "MUST NOT delete repo source" in recipe
-    assert "rm -f" in recipe and "scripts/" not in recipe.split("rm -f", 1)[1].split("\n", 1)[0]
+    # Then the launcher + llgenie.py are removed, the engine files go through the
+    #      installer's --uninstall, and no source tree / repo script is deleted
+    assert 'rm -f "$(LAUNCHER)" "$(BIN)/llgenie.py"' in recipe
+    assert "install_engine_launchers.py --bin \"$(BIN)\" --uninstall" in recipe
+    assert "PURGE_IMAGES" in recipe
+    assert "rm -rf" not in recipe and "SERVER_ROOT" not in recipe.split("\n\t@", 1)[1]
+    assert "scripts/llama_serve" not in recipe.split("rm -f", 1)[1].split("\n", 1)[0]
 
+
+def test_uninstall_removes_only_what_install_wrote(tmp_path, monkeypatch):
+    """--uninstall deletes the generated start scripts + shim, keeps foreign files."""
+
+    import importlib
+    import scripts.install_engine_launchers as il
+    importlib.reload(il)
+
+    # Given an install into a temp bin dir and an unrelated file there
+    monkeypatch.setattr(il.ei, "_available", lambda tag: True)
+    assert il.install(tmp_path, "cpu", build=False, only=["llama.cpp", "vllm"]) == 0
+    (tmp_path / "llgenie-engine-mine").write_text("#!/bin/sh\necho mine\n")
+    (tmp_path / "other-tool").write_text("x")
+    assert (tmp_path / "llama-server").exists()
+
+    # When uninstall runs (no engine containers running)
+    monkeypatch.setattr(il.subprocess, "run", lambda *a, **k: type("R", (), {"stdout": "", "returncode": 0})())
+    assert il.uninstall(tmp_path) == 0
+
+    # Then the generated scripts and shim are gone, foreign files stay
+    left = sorted(p.name for p in tmp_path.iterdir())
+    assert left == ["llgenie-engine-mine", "other-tool"]
 
 def test_install_ci_runs_make_install_and_make_uninstall():
-    """The install CI job executes the install chain and then uninstall."""
+    """The install CI job runs, inside the python test container, the real make install
+    (engine images via the host docker + start scripts),
+    make test-built-engine, the install tests, a "hi" through the container
+    llama-server, and make uninstall."""
 
-    # Given the test-install-ci recipe
+    # Given the test-install-ci recipe and the CI install job
     text = (REPO / "Makefile").read_text()
     start = text.index("test-install-ci:")
     recipe = text[start:text.index("\ntest-top-tier:", start)]
+    install = text[text.index("\ninstall:"):].split("\n", 2)[1]
+    job = _run_scripts(_workflow()["jobs"]["install"])
 
-    # When the container command is read
-    # Then it runs make install (build-server, venv, link, smoke) and make uninstall
-    assert "make install" in recipe
-    assert "make uninstall" in recipe
-    assert "scripts/llama_serve.py" in recipe
+    # When they are read
+    # Then make install builds/pulls the images and runs test-built-engine,
+    #      and the recipe tests, says hi, and uninstalls every installed file
+    assert "engine-launchers" in install and "test-built-engine" in install
+    assert "$(ENGINE_TEST_RUN)" in recipe  # python test container + host docker socket
+    assert "make install" in recipe and "make test-install-host" in recipe
+    assert "make test-health-host" in recipe and "make uninstall" in recipe
+    assert "llgenie-engine-*" in recipe and "scripts/llama_serve.py" in recipe
+    assert "make test-image" in job and "make test-install-ci" in job
 
 
-def test_linux_and_mac_matrices_do_not_wait_on_each_other():
-    """The two OS matrices start together."""
+def test_mac_variants_do_not_wait_on_the_image_matrix():
+    """The macOS Metal matrix starts immediately, independent of the image builds."""
 
-    # Given both variant jobs
+    # Given the mac variant job
     jobs = _workflow()["jobs"]
 
-    # When their dependency edges are read
-    linux_needs = jobs["server-variants"].get("needs")
-    mac_needs = jobs["server-variants-mac"].get("needs")
+    # When its dependency edges are read
+    # Then it waits on nothing
+    assert jobs["server-variants-mac"].get("needs") is None
 
-    # Then neither waits on the other
-    assert linux_needs is None
-    assert mac_needs is None

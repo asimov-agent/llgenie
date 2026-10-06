@@ -2443,3 +2443,20 @@ def test_discover_family_none_uses_trending(monkeypatch):
     assert trending_calls, "family=None must use _trending_gguf_repos"
     assert not family_calls, "family=None must never call _family_gguf_repos"
     assert [c["repo"] for c in cands] == ["trend/Repo"]
+
+
+def test_resolve_picks_prism_server_on_a_prism_card(monkeypatch, tmp_path):
+    """Issue #98: make install writes ~/bin/prism-server (Prism image) and
+    ~/bin/llama-server (stock image); a <= 24 GB (prism) card uses prism-server."""
+    monkeypatch.delenv("LLAMA_SERVER", raising=False)
+    monkeypatch.setattr(llama_ai.shutil, "which", lambda _: None)
+    home = tmp_path / "fakehome"
+    (home / "bin").mkdir(parents=True)
+    for n in ("llama-server", "prism-server"):
+        (home / "bin" / n).write_bytes(b"binary")
+        (home / "bin" / n).chmod(0o755)
+    monkeypatch.setattr(llama_ai.os.path, "expanduser", lambda _: str(home))
+    monkeypatch.setenv("LLAMA_SERVER_TREE", "prism")
+    assert llama_ai.resolve_llama_server() == str(home / "bin" / "prism-server")
+    monkeypatch.setenv("LLAMA_SERVER_TREE", "upstream")
+    assert llama_ai.resolve_llama_server() == str(home / "bin" / "llama-server")

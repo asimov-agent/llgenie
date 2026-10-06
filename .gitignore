@@ -42,3 +42,4 @@ env/
 
 # local watch-loop runtime state (host crontab prompt + logs); never commit
 .watchloop/
+.ci-home/

@@ -103,7 +103,7 @@ Every piece of work (bug fix, feature, tooling, docs) MUST be developed on a
 merged into `main` through a **pull request**. This matches the remote's branch
 protection (direct pushes to `main` are not allowed for new work).
 
-**ALWAYS SYNC TO LATEST `main` — EVERY time, before and during any work (MANDATORY, unconditional).** This is NOT optional and NOT "on resume only" — it runs at the START of every session AND before you create/resume a worktree AND immediately before you push/PR:
+**ALWAYS SYNC TO LATEST `main` — EVERY time, before and during any work (MANDATORY, unconditional).** This is NOT optional and NOT "on resume only" — it runs at the START of every session AND before you create/resume a feature branch AND immediately before you push/PR:
 
 ```bash
 git fetch --all --prune
@@ -115,14 +115,21 @@ git merge-base --is-ancestor origin/main HEAD 2>/dev/null \
 # not something to hand back.
 ```
 
-- **Before creating a worktree**, FIRST pull the latest main so the branch is cut from the newest tip:
+- **NO git worktrees (MANDATORY).** Never run `git worktree add` and never work in
+  `../llgenie-wt/` or any other second checkout. All work happens in the ONE clone
+  (`/home/asimov/repository/git/llgenie` on Linux, `/Users/andy/repository/git/llgenie`
+  on macOS) with the feature branch checked out there. A worktree splits the state
+  (uncommitted changes, built images, `.ci-home`, the user's own checkout) across
+  two directories, so the user cannot see or test what was changed.
+- **Before creating a feature branch**, FIRST pull the latest main so the branch is cut from the newest tip:
   ```bash
-  cd /Users/andy/repository/git/llgenie && git fetch origin main
-  git worktree add -b feat/<kebab> ../llgenie-wt/<kebab> origin/main
+  cd /home/asimov/repository/git/llgenie && git fetch origin main
+  git switch -c feat/<kebab> origin/main
   ```
-- **Before resuming/using an existing worktree**, refresh it against the latest remote main BEFORE touching any code — never start from a stale tip:
+- **Before resuming an existing feature branch**, check it out in the same clone and refresh it against the latest remote main BEFORE touching any code — never start from a stale tip:
   ```bash
-  cd ../llgenie-wt/<kebab> && git fetch origin main && git merge-base --is-ancestor origin/main HEAD 2>/dev/null || git rebase origin/main
+  cd /home/asimov/repository/git/llgenie && git switch feat/<kebab> && git fetch origin main \
+    && { git merge-base --is-ancestor origin/main HEAD 2>/dev/null || git rebase origin/main; }
   ```
 - **Right before you push / open a PR**, re-run the fetch+rebase above ONE final time so the PR is never behind.
 
@@ -171,6 +178,20 @@ git merge-base --is-ancestor origin/main HEAD 2>/dev/null \
    - NEVER push directly to `main` on either repo.
 6. Keep each PR to one change/OpenSpec change. Rebase or merge `main` in when the
    PR goes stale; never force-push shared branches.
+7. **Merging needs an approval — the agent NEVER merges (MANDATORY, durable).**
+   - A PR is merged into `main` only after a human reviewer has **approved** it
+     (`gh pr view <n> --json reviewDecision` == `APPROVED`). Green CI alone is not
+     enough.
+   - The agent never runs `gh pr merge` (no squash, no rebase, no merge commit,
+     no `--admin`, no auto-merge) and never pushes to `main`. When the work is done
+     it pushes the branch, updates the PR body, requests review, and **stops**,
+     reporting the PR URL and what it waits for.
+   - "Push to mainstream" means: the PR targets `asimov-agent/llgenie:main` and is
+     ready for review. The merge itself is the reviewer's action.
+   - Images reach GHCR only through that path: after the approved PR is merged,
+     the CI run on `main` builds, tests and then pushes each engine image.
+   - Even when asked to "merge", "ship" or "push to main", the agent stops at the
+     open, reviewable PR and says it is waiting for an approval.
 
 ## PR review comments — check them and reply yourself (MANDATORY, durable)
 
@@ -290,6 +311,69 @@ the local host, so behaviour is byte-identical in both. Concretely:
 Anything that adds a second, differently-implemented path for the SAME resource
 (downloader, HEALTH check, model resolution) is a regression and will be
 rejected, even when it "would just work" as a fallback.
+
+### Inference servers run ONLY in their container images (mandatory, durable)
+
+Every inference server (llama.cpp, the Prism and LaurentZuijdwijk forks, vLLM,
+Ollama, SGLang, ...) is built, run and tested **only through its engine image**.
+No engine is compiled or pip-installed on the host.
+
+- **Skills -> params -> images.** The agent skills (`skills/engines/<id>/SKILL.md`)
+  are read by ONE target only: `make generate-engine-params`. It writes the frozen
+  per-arch params, one Dockerfile per engine × arch
+  (`containers/engines/dockerfiles/<id>/Dockerfile.<arch>`) and the shared bases.
+  Commit the result. `make build-engine ENGINE=<id> ARCH=<arch>` builds strictly from
+  those files with plain make: no LLM, no skill reading. Use the engine's official
+  image (or the shared llgenie base) as the base whenever one exists.
+- **Disabled images:** an engine x arch image that cannot build or finish in CI goes into
+  `DISABLED` in `scripts/engine_image.py` with its tracking issue (now #103). It is then
+  left out of the CI matrix, `make install`, `llgenie --pick` and the tests; never leave a
+  red or endless job in the pipeline instead.
+- **CI pipeline per engine × arch, in parallel:** build -> test -> publish.
+  1. `make build-engine` (registry layer cache; unchanged params are not rebuilt).
+  2. Post-build test stage, driven by python test files through make:
+     cpu images serve a tiny model and must answer on the OpenAI API
+     (`make test-engine` -> `tests/test_engine_runs.py`, run inside
+     `llgenie/test:latest`: `GET /v1/models` lists `llm-local`, a chat completion
+     answers). Images that cannot serve on a GPU-less runner must at least print
+     their engine version (`make test-engine-image` -> `tests/test_engine_version.py`,
+     `docker run <image> version`).
+  3. `make push-engine` publishes to the repo's GHCR (`ghcr.io/<owner>/llgenie/<name>`)
+     on EVERY push run (feature branches too, default for now, #101) and ONLY after
+     build + tests passed. `pull_request` runs (read-only token) never push.
+  4. The separate `engine-published-test` matrix (jobs `test-published-<engine>-<arch>`) (every push run, after all builds) pulls
+     every image back from GHCR with no build and no cache, checks the digest, checks
+     the binary version, STARTS the container and chats "hi" on
+     `/v1/chat/completions` (cpu images, and the GPU images of engines with a CPU
+     fallback run without GPU devices; GPU-only engines get the version test; no
+     self-hosted runner), then installs it from the registry + `make test-built-engine`
+     (issue #102).
+- **`make install`** builds nothing natively. It PULLS this host's backend's published,
+  CI-tested images (`LLGENIE_REGISTRY`, default `ghcr.io/asimov-agent`; never builds unless
+  `BUILD=1`), the llama.cpp core by default (`ENGINES=all` for every engine; llgenie pulls
+  any other engine on first use). CI tests it last, per backend, against the published
+  images (`install-published`). It writes a start script per engine into `~/bin`
+  (`llgenie-engine-<id>`, plus the container shims `~/bin/llama-server` (stock
+  llama.cpp image) and `~/bin/prism-server` (Prism image), picked by card tree by
+  `llgenie`), then runs `make test-built-engine`: every start script must print its
+  engine version via its image. Only Metal (Apple-Silicon, cannot run in a container)
+  is exempt.
+- **Tests never run an engine on the host.** All engine tests go through the engine
+  images; the only host artifacts are the files `make install` writes. Python test
+  tools come from the test image (`containers/test/Dockerfile`, deps from
+  `tools/requirements*.txt`), so the test environment is the same everywhere.
+- **GPU images use the host driver.** cuda images never contain a driver; every
+  `docker run` (make run-engine, the start scripts, the llama-server shim) passes
+  `--device nvidia.com/gpu=all`, the CDI device from nvidia-container-toolkit
+  (`sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml`), which mounts the
+  host's `libcuda.so.1`/`nvidia-smi` into the container. ROCm passes `/dev/kfd` +
+  `/dev/dri`, Vulkan `/dev/dri`. `make install` on a cuda host fails loudly without
+  the toolkit.
+- **The test image holds no inference server.** `make test-install-ci`,
+  `make test-health` and `make test-top-tier-serve-ci` run pytest in the test image
+  with the host docker socket mounted (`$(ENGINE_TEST_RUN)`); the servers they talk
+  to are the engine images. Never add a llama-server build (or any engine) to
+  `containers/test/Dockerfile`.
 
 ### NO SKIPPED TESTS — every test must run and pass (mandatory, durable)
 
@@ -425,8 +509,18 @@ path.
 Each verification step is an independent target; `make loop`/`loop-harness`
 chains them all.
 
-- `make install` — build gguf venv, write `~/bin/llgenie` launcher, symlink
-  `~/bin/llgenie.py` + `~/bin/llama-server`, smoke-test (needs `~/models`).
+- `make install` — build gguf venv, pull/build every engine image for this host,
+  write `~/bin/llgenie`, `~/bin/llgenie-engine-<id>` start scripts and the
+  `~/bin/llama-server` container shim, then `make test-built-engine` (each start
+  script prints its engine version through its image).
+- `make test-built-engine` — run every installed `llgenie-engine-*` start script with
+  `--version` (docker run of its image); fails unless each prints a version.
+- `make generate-engine-params` — skills -> frozen params + Dockerfiles (the ONLY
+  step that reads skills). `make check-engine-params` fails when they are stale.
+- `make build-engine ENGINE=<id> ARCH=<arch>` / `make build-engine-<id>-<arch>` /
+  `make build-engines ARCH=<arch>` — build engine images from the generated files.
+- `make test-engine` / `make test-engine-image` — post-build image tests (endpoint /
+  version). `make push-engine` — publish a built + tested image (CI, every push run).
 - `make uninstall` — remove launcher + symlinks (keeps venv).
 - `make venv-install` / `make -C tools venv-install` — build the gguf venv.
 - `make download-test-model` — fetch the lightweight health-check model

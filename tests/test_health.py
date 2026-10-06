@@ -158,6 +158,9 @@ def test_health_endpoint_answers_hi():
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait(timeout=5)
+        # the llama-server / prism-server shims run the engine image as llgenie-<shim>-<port>
+        for shim in ("llama-server", "prism-server"):
+            subprocess.run(["docker", "rm", "-f", f"llgenie-{shim}-{port}"], capture_output=True)
         for pid in _pids_on_port(port):
             try:
                 os.kill(int(pid), signal.SIGKILL)

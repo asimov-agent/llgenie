@@ -1,0 +1,75 @@
+{
+  "_generated_by": "make generate-engine-params (scripts/engine_skills.py) - do not edit; edit the skill",
+  "engine": "MLX",
+  "id": "mlx",
+  "repo": "https://github.com/ml-explore/mlx-lm",
+  "ref": "v0.32.0",
+  "pinned": "a9bd8af5c02118882af735cef60705d2efce9fd0",
+  "native": {},
+  "variants": {
+    "cuda": {
+      "id": "mlx",
+      "engine": "MLX",
+      "backend": "cuda",
+      "arch": "",
+      "base": "nvidia/cuda:13.0.2-devel-ubuntu24.04",
+      "prebuilt": false,
+      "runtime_base": "",
+      "runtime_copy": [],
+      "apt": [],
+      "build_args": {
+        "CUDA_ARCH": "",
+        "GPU_TARGETS": "",
+        "TORCH_BACKEND": "cu130"
+      },
+      "install": [
+        "uv pip install --system --break-system-packages 'mlx[cuda13]' mlx-lm==0.32.0"
+      ],
+      "env": {},
+      "detect": "mlx_lm.server --help > /dev/null 2>&1 || python3 -c 'import importlib.metadata as m; print(\"mlx-lm\", m.version(\"mlx-lm\"), \"mlx\", m.version(\"mlx\"))'",
+      "pre_launch": null,
+      "launch": "d=/tmp/llgenie-mlx-{port} && mkdir -p $d && cd $d && ln -sfn {model} llm-local && mlx_lm.server --model llm-local --host {host} --port {port}",
+      "post_launch": null,
+      "health": "GET /health",
+      "alias_mode": "any-name",
+      "run_args": [
+        "--device",
+        "nvidia.com/gpu=all",
+        "--shm-size",
+        "2g"
+      ],
+      "port": 11434
+    },
+    "cpu": {
+      "id": "mlx",
+      "engine": "MLX",
+      "backend": "cpu",
+      "arch": "",
+      "base": "ubuntu:24.04",
+      "prebuilt": false,
+      "runtime_base": "",
+      "runtime_copy": [],
+      "apt": [],
+      "build_args": {
+        "CUDA_ARCH": "",
+        "GPU_TARGETS": "",
+        "TORCH_BACKEND": "cpu"
+      },
+      "install": [
+        "uv pip install --system --break-system-packages 'mlx[cpu]' mlx-lm==0.32.0"
+      ],
+      "env": {},
+      "detect": "python3 -c 'import importlib.metadata as m; print(\"mlx-lm\", m.version(\"mlx-lm\"), \"mlx\", m.version(\"mlx\"))'",
+      "pre_launch": null,
+      "launch": "d=/tmp/llgenie-mlx-{port} && mkdir -p $d && cd $d && ln -sfn {model} llm-local && mlx_lm.server --model llm-local --host {host} --port {port}",
+      "post_launch": null,
+      "health": "GET /health",
+      "alias_mode": "any-name",
+      "run_args": [
+        "--shm-size",
+        "2g"
+      ],
+      "port": 11434
+    }
+  }
+}

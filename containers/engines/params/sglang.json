@@ -1,0 +1,92 @@
+{
+  "_generated_by": "make generate-engine-params (scripts/engine_skills.py) - do not edit; edit the skill",
+  "engine": "SGLang",
+  "id": "sglang",
+  "repo": "https://github.com/sgl-project/sglang",
+  "ref": "v0.5.21",
+  "pinned": "e00930c5489053f26d86b179cee0d087f846acbb",
+  "native": {},
+  "variants": {
+    "cuda": {
+      "id": "sglang",
+      "engine": "SGLang",
+      "backend": "cuda",
+      "arch": "",
+      "base": "lmsysorg/sglang:v0.5.21",
+      "prebuilt": true,
+      "runtime_base": "",
+      "runtime_copy": [],
+      "apt": [],
+      "build_args": {
+        "CUDA_ARCH": "",
+        "GPU_TARGETS": "",
+        "TORCH_BACKEND": "cu130"
+      },
+      "install": [],
+      "env": {
+        "CUDA_HOME": "$(dirname $(dirname $(command -v nvcc)))"
+      },
+      "detect": "python3 -c 'import sglang; print(sglang.__version__)'",
+      "pre_launch": null,
+      "launch": "sglang serve --model-path {model} --host {host} --port {port} --served-model-name llm-local",
+      "post_launch": null,
+      "health": "GET /health",
+      "alias_mode": "flag",
+      "run_args": [
+        "--device",
+        "nvidia.com/gpu=all",
+        "--shm-size",
+        "2g"
+      ],
+      "port": 11434
+    },
+    "rocm": {
+      "id": "sglang",
+      "engine": "SGLang",
+      "backend": "rocm",
+      "arch": "",
+      "base": "rocm/pytorch:rocm7.2.4_ubuntu24.04_py3.12_pytorch_release_2.10.0@sha256:4449f856653602317e4101a76fce599c7fcd58ccec2e539951fce5f73083179e",
+      "prebuilt": false,
+      "runtime_base": "",
+      "runtime_copy": [],
+      "apt": [
+        "rustc-1.91",
+        "cargo-1.91"
+      ],
+      "build_args": {
+        "CUDA_ARCH": "",
+        "GPU_TARGETS": "",
+        "TORCH_BACKEND": "auto"
+      },
+      "install": [
+        "test -d /opt/llgenie/engines/sglang/src/.git || git clone -b v0.5.21 --depth 1 https://github.com/sgl-project/sglang.git /opt/llgenie/engines/sglang/src",
+        "cd /opt/llgenie/engines/sglang/src/python/sglang/kernels/aot && rm -f pyproject.toml && cp pyproject_rocm.toml pyproject.toml && AMDGPU_TARGET=gfx942 python3 setup_rocm.py install",
+        "ln -sf /usr/bin/cargo-1.91 /usr/local/bin/cargo && ln -sf /usr/bin/rustc-1.91 /usr/local/bin/rustc",
+        "pip list --format=freeze | grep -E '^(torch|triton)' > /tmp/sglang-constraints.txt",
+        "cd /opt/llgenie/engines/sglang/src && cp python/pyproject_other.toml python/pyproject.toml && SETUPTOOLS_SCM_PRETEND_VERSION=0.5.21 python3 -m pip install --no-cache-dir --no-build-isolation -c /tmp/sglang-constraints.txt -e 'python[srt_hip,diffusion_hip]'"
+      ],
+      "env": {
+        "SGLANG_USE_AITER": "1"
+      },
+      "detect": "python3 -c 'import sglang; print(sglang.__version__)'",
+      "pre_launch": null,
+      "launch": "sglang serve --model-path {model} --host {host} --port {port} --served-model-name llm-local",
+      "post_launch": null,
+      "health": "GET /health",
+      "alias_mode": "flag",
+      "run_args": [
+        "--device",
+        "/dev/kfd",
+        "--device",
+        "/dev/dri",
+        "--group-add",
+        "video",
+        "--group-add",
+        "render",
+        "--ipc",
+        "host"
+      ],
+      "port": 11434
+    }
+  }
+}

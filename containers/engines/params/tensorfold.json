@@ -1,0 +1,45 @@
+{
+  "_generated_by": "make generate-engine-params (scripts/engine_skills.py) - do not edit; edit the skill",
+  "engine": "TensorFold",
+  "id": "tensorfold",
+  "repo": "https://github.com/ashhart/TensorFold",
+  "ref": "v0.6.5",
+  "pinned": "609ca419abecebdc5a059498a613680bd3aa847f",
+  "native": {},
+  "variants": {
+    "cuda": {
+      "id": "tensorfold",
+      "engine": "TensorFold",
+      "backend": "cuda",
+      "arch": "",
+      "base": "nvcr.io/nvidia/pytorch:26.07-py3",
+      "prebuilt": false,
+      "runtime_base": "",
+      "runtime_copy": [],
+      "apt": [],
+      "build_args": {
+        "CUDA_ARCH": "",
+        "GPU_TARGETS": "",
+        "TORCH_BACKEND": "cu130"
+      },
+      "install": [
+        "uv pip install --system --break-system-packages torch triton",
+        "uv pip install --system --break-system-packages 'tensorfold @ git+https://github.com/ashhart/TensorFold.git@v0.6.5'"
+      ],
+      "env": {},
+      "detect": "tensorfold --help > /dev/null && python3 -c 'import importlib.metadata as m; print(m.version(\"tensorfold\"))'",
+      "pre_launch": null,
+      "launch": "tensorfold serve {model} --host {host} --port {port} --name llm-local",
+      "post_launch": null,
+      "health": "GET /v1/models",
+      "alias_mode": "flag",
+      "run_args": [
+        "--device",
+        "nvidia.com/gpu=all",
+        "--shm-size",
+        "2g"
+      ],
+      "port": 11434
+    }
+  }
+}

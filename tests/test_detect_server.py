@@ -168,7 +168,7 @@ def test_tree_branches_are_correct():
 def test_tree_urls_are_correct():
     # Given the two trees, their git URLs are correct
     assert ds.tree_url("prism") == "https://github.com/PrismML-Eng/llama.cpp.git"
-    assert ds.tree_url("upstream") == "https://github.com/ggerganov/llama.cpp.git"
+    assert ds.tree_url("upstream") == "https://github.com/ggml-org/llama.cpp.git"
 
 
 # ---------------------------------------------------------------------------

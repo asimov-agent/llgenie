@@ -1,0 +1,110 @@
+{
+  "_generated_by": "make generate-engine-params (scripts/engine_skills.py) - do not edit; edit the skill",
+  "engine": "vLLM",
+  "id": "vllm",
+  "repo": "https://github.com/vllm-project/vllm",
+  "ref": "v0.31.0",
+  "pinned": "db9527a46873454610df6dbedf79a36d6bf1a7f6",
+  "native": {},
+  "variants": {
+    "cuda": {
+      "id": "vllm",
+      "engine": "vLLM",
+      "backend": "cuda",
+      "arch": "",
+      "base": "vllm/vllm-openai:v0.31.0",
+      "prebuilt": true,
+      "runtime_base": "",
+      "runtime_copy": [],
+      "apt": [],
+      "build_args": {
+        "CUDA_ARCH": "",
+        "GPU_TARGETS": "",
+        "TORCH_BACKEND": "cu130"
+      },
+      "install": [],
+      "env": {},
+      "detect": "python3 -c 'from vllm import __version__ as v; print(v)'",
+      "pre_launch": null,
+      "launch": "vllm serve {model} --host {host} --port {port} --served-model-name llm-local --gpu-memory-utilization 0.90",
+      "post_launch": null,
+      "health": "GET /health",
+      "alias_mode": "flag",
+      "run_args": [
+        "--device",
+        "nvidia.com/gpu=all",
+        "--shm-size",
+        "2g"
+      ],
+      "port": 11434
+    },
+    "rocm": {
+      "id": "vllm",
+      "engine": "vLLM",
+      "backend": "rocm",
+      "arch": "",
+      "base": "vllm/vllm-openai-rocm:v0.31.0",
+      "prebuilt": true,
+      "runtime_base": "",
+      "runtime_copy": [],
+      "apt": [],
+      "build_args": {
+        "CUDA_ARCH": "",
+        "GPU_TARGETS": "",
+        "TORCH_BACKEND": "auto"
+      },
+      "install": [],
+      "env": {},
+      "detect": "python3 -c 'from vllm import __version__ as v; print(v)'",
+      "pre_launch": null,
+      "launch": "vllm serve {model} --host {host} --port {port} --served-model-name llm-local --gpu-memory-utilization 0.90",
+      "post_launch": null,
+      "health": "GET /health",
+      "alias_mode": "flag",
+      "run_args": [
+        "--device",
+        "/dev/kfd",
+        "--device",
+        "/dev/dri",
+        "--group-add",
+        "video",
+        "--group-add",
+        "render",
+        "--ipc",
+        "host"
+      ],
+      "port": 11434
+    },
+    "cpu": {
+      "id": "vllm",
+      "engine": "vLLM",
+      "backend": "cpu",
+      "arch": "",
+      "base": "vllm/vllm-openai-cpu:v0.31.0",
+      "prebuilt": true,
+      "runtime_base": "",
+      "runtime_copy": [],
+      "apt": [],
+      "build_args": {
+        "CUDA_ARCH": "",
+        "GPU_TARGETS": "",
+        "TORCH_BACKEND": "cpu"
+      },
+      "install": [],
+      "env": {
+        "VLLM_CPU_KVCACHE_SPACE": "4"
+      },
+      "detect": "python3 -c 'from vllm import __version__ as v; print(v)'",
+      "pre_launch": null,
+      "launch": "vllm serve {model} --host {host} --port {port} --served-model-name llm-local",
+      "post_launch": null,
+      "health": "GET /health",
+      "alias_mode": "flag",
+      "run_args": [
+        "--shm-size",
+        "2g"
+      ],
+      "port": 11434
+    }
+  }
+}

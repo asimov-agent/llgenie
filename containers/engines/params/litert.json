@@ -1,0 +1,42 @@
+{
+  "_generated_by": "make generate-engine-params (scripts/engine_skills.py) - do not edit; edit the skill",
+  "engine": "LiteRT",
+  "id": "litert",
+  "repo": "https://github.com/google-ai-edge/LiteRT-LM",
+  "ref": "v0.17.1",
+  "pinned": "5e58e9a0aef7abf7091207a8b1d1063a1c800f08",
+  "native": {},
+  "variants": {
+    "cpu": {
+      "id": "litert",
+      "engine": "LiteRT",
+      "backend": "cpu",
+      "arch": "",
+      "base": "ubuntu:24.04",
+      "prebuilt": false,
+      "runtime_base": "",
+      "runtime_copy": [],
+      "apt": [],
+      "build_args": {
+        "CUDA_ARCH": "",
+        "GPU_TARGETS": "",
+        "TORCH_BACKEND": "cpu"
+      },
+      "install": [
+        "uv pip install --system --break-system-packages litert-lm==0.17.1"
+      ],
+      "env": {},
+      "detect": "litert-lm --help > /dev/null && python3 -c 'import importlib.metadata as m; print(m.version(\"litert-lm\"))'",
+      "pre_launch": "litert-lm import {model} llm-local",
+      "launch": "litert-lm serve --host {host} --port {port}",
+      "post_launch": null,
+      "health": "GET /v1/models",
+      "alias_mode": "create",
+      "run_args": [
+        "--shm-size",
+        "2g"
+      ],
+      "port": 11434
+    }
+  }
+}

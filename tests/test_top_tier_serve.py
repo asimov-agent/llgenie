@@ -159,7 +159,7 @@ def test_top_tier_serve_loads_and_answers_hi(tmp_path):
     model = _resolve_model_file(str(tmp_path))
     server = _resolve_llama_server()
     # NO-SKIP: if llama-server is absent this is a loud FAILURE, never a silent skip.
-    # (In CI the test image bundles a CPU llama-server; locally it comes from PATH,
+    # (In CI it is the ~/bin/llama-server shim that runs the llama.cpp engine image; locally it comes from PATH,
     #  $LLAMA_SERVER, ~/bin/llama-server, or the repo build.)
     assert server, (
         "llama-server binary not found (checked $LLAMA_SERVER, PATH, ~/bin/llama-server, "
@@ -199,6 +199,9 @@ def test_top_tier_serve_loads_and_answers_hi(tmp_path):
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait(timeout=5)
+        # the llama-server / prism-server shims run the engine image as llgenie-<shim>-<port>
+        for shim in ("llama-server", "prism-server"):
+            subprocess.run(["docker", "rm", "-f", f"llgenie-{shim}-{port}"], capture_output=True)
         for pid in _pids_on_port(port):
             try:
                 os.kill(int(pid), signal.SIGKILL)

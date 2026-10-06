@@ -1,0 +1,44 @@
+{
+  "_generated_by": "make generate-engine-params (scripts/engine_skills.py) - do not edit; edit the skill",
+  "engine": "TensorRT-LLM",
+  "id": "tensorrt-llm",
+  "repo": "https://github.com/NVIDIA/TensorRT-LLM",
+  "ref": "v1.2.1",
+  "pinned": "376f7e1bd8ed543f75014309e3fd4b237e9b0e73",
+  "native": {},
+  "variants": {
+    "cuda": {
+      "id": "tensorrt-llm",
+      "engine": "TensorRT-LLM",
+      "backend": "cuda",
+      "arch": "",
+      "base": "nvcr.io/nvidia/tensorrt-llm/release:1.2.1",
+      "prebuilt": true,
+      "runtime_base": "",
+      "runtime_copy": [],
+      "apt": [],
+      "build_args": {
+        "CUDA_ARCH": "",
+        "GPU_TARGETS": "",
+        "TORCH_BACKEND": "cu130"
+      },
+      "install": [],
+      "env": {
+        "CUDA_HOME": "$(dirname $(dirname $(command -v nvcc)))"
+      },
+      "detect": "python3 -c 'import importlib.metadata as m; print(\"tensorrt_llm\", m.version(\"tensorrt_llm\"))'",
+      "pre_launch": "mkdir -p /opt/llgenie/engines/tensorrt-llm/served && ln -sfn {model} /opt/llgenie/engines/tensorrt-llm/served/llm-local",
+      "launch": "trtllm-serve {model} --host {host} --port {port} --backend pytorch --kv_cache_free_gpu_memory_fraction 0.9",
+      "post_launch": null,
+      "health": "GET /health",
+      "alias_mode": "symlink",
+      "run_args": [
+        "--device",
+        "nvidia.com/gpu=all",
+        "--shm-size",
+        "2g"
+      ],
+      "port": 11434
+    }
+  }
+}

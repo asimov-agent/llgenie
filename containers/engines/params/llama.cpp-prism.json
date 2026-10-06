@@ -1,0 +1,231 @@
+{
+  "_generated_by": "make generate-engine-params (scripts/engine_skills.py) - do not edit; edit the skill",
+  "engine": "llama.cpp (PrismML fork)",
+  "id": "llama.cpp-prism",
+  "repo": "https://github.com/PrismML-Eng/llama.cpp",
+  "ref": "prism",
+  "pinned": "2459f68b5c0eb26261fd5a81682004b93cd645ba",
+  "native": {
+    "cuda": {
+      "cmake_flags": "-DGGML_NATIVE=OFF -DGGML_CUDA=ON -DGGML_METAL=OFF -DGGML_SYCL=OFF -DCMAKE_EXE_LINKER_FLAGS=-Wl,--allow-shlib-undefined",
+      "hw_flags": {
+        "cuda_arch": "'-DCMAKE_CUDA_ARCHITECTURES={cuda_arch}'"
+      },
+      "env": {},
+      "src_dir": "prism-llama.cpp",
+      "build_dir": "build-cuda"
+    },
+    "rocm": {
+      "cmake_flags": "-DGGML_NATIVE=OFF -DGGML_HIP=ON -DGGML_METAL=OFF -DGGML_CUDA=OFF",
+      "hw_flags": {
+        "gpu_targets": "'-DGPU_TARGETS={gpu_targets}'"
+      },
+      "env": {
+        "HIPCXX": "$(hipconfig -l)/clang",
+        "HIP_PATH": "$(hipconfig -R)"
+      },
+      "src_dir": "prism-llama.cpp",
+      "build_dir": "build-rocm"
+    },
+    "vulkan": {
+      "cmake_flags": "-DGGML_NATIVE=OFF -DGGML_VULKAN=ON -DGGML_METAL=OFF -DGGML_CUDA=OFF",
+      "hw_flags": {},
+      "env": {},
+      "src_dir": "prism-llama.cpp",
+      "build_dir": "build-vulkan"
+    },
+    "metal": {
+      "cmake_flags": "-DGGML_NATIVE=OFF -DGGML_METAL=ON -DGGML_CUDA=OFF -DGGML_SYCL=OFF",
+      "hw_flags": {},
+      "env": {},
+      "src_dir": "prism-llama.cpp",
+      "build_dir": "build-metal"
+    },
+    "cpu": {
+      "cmake_flags": "-DGGML_NATIVE=OFF -DGGML_METAL=OFF -DGGML_CUDA=OFF -DGGML_SYCL=OFF",
+      "hw_flags": {},
+      "env": {},
+      "src_dir": "prism-llama.cpp",
+      "build_dir": "build-cpu"
+    }
+  },
+  "variants": {
+    "cuda": {
+      "id": "llama.cpp-prism",
+      "engine": "llama.cpp (PrismML fork)",
+      "backend": "cuda",
+      "arch": "75;80;86;89;90;120",
+      "base": "nvidia/cuda:13.0.2-devel-ubuntu24.04",
+      "prebuilt": false,
+      "runtime_base": "nvidia/cuda:13.0.2-runtime-ubuntu24.04",
+      "runtime_copy": [
+        "/opt/llgenie/src/prism-llama.cpp/build-cuda/bin"
+      ],
+      "apt": [],
+      "build_args": {
+        "CUDA_ARCH": "75;80;86;89;90;120",
+        "GPU_TARGETS": "",
+        "TORCH_BACKEND": "cu130"
+      },
+      "install": [
+        "test -d /opt/llgenie/src/prism-llama.cpp/.git || git clone -b prism https://github.com/PrismML-Eng/llama.cpp.git /opt/llgenie/src/prism-llama.cpp",
+        "git config --global --add safe.directory /opt/llgenie/src/prism-llama.cpp",
+        "git -C /opt/llgenie/src/prism-llama.cpp fetch origin prism",
+        "git -C /opt/llgenie/src/prism-llama.cpp checkout -B prism 2459f68b5c0eb26261fd5a81682004b93cd645ba",
+        "cmake -S /opt/llgenie/src/prism-llama.cpp -B /opt/llgenie/src/prism-llama.cpp/build-cuda -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DGGML_CUDA=ON -DGGML_METAL=OFF -DGGML_SYCL=OFF -DCMAKE_EXE_LINKER_FLAGS=-Wl,--allow-shlib-undefined '-DCMAKE_CUDA_ARCHITECTURES=75;80;86;89;90;120'",
+        "cmake --build /opt/llgenie/src/prism-llama.cpp/build-cuda --config Release -j$(nproc) --target llama-server",
+        "LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-}:/usr/local/cuda/lib64/stubs /opt/llgenie/src/prism-llama.cpp/build-cuda/bin/llama-server --help > /dev/null"
+      ],
+      "env": {},
+      "detect": "/opt/llgenie/src/prism-llama.cpp/build-cuda/bin/llama-server --version",
+      "pre_launch": null,
+      "launch": "/opt/llgenie/src/prism-llama.cpp/build-cuda/bin/llama-server -m {model} --host {host} --port {port} --alias llm-local --jinja",
+      "post_launch": null,
+      "health": "GET /health",
+      "alias_mode": "flag",
+      "run_args": [
+        "--device",
+        "nvidia.com/gpu=all",
+        "--shm-size",
+        "2g"
+      ],
+      "port": 11434
+    },
+    "rocm": {
+      "id": "llama.cpp-prism",
+      "engine": "llama.cpp (PrismML fork)",
+      "backend": "rocm",
+      "arch": "gfx1030;gfx1100;gfx1101;gfx1102;gfx1151;gfx1200;gfx1201;gfx942",
+      "base": "rocm/dev-ubuntu-24.04:7.0-complete",
+      "prebuilt": false,
+      "runtime_base": "rocm/dev-ubuntu-24.04:7.0-complete",
+      "runtime_copy": [
+        "/opt/llgenie/src/prism-llama.cpp/build-rocm/bin"
+      ],
+      "apt": [],
+      "build_args": {
+        "CUDA_ARCH": "",
+        "GPU_TARGETS": "gfx1030;gfx1100;gfx1101;gfx1102;gfx1151;gfx1200;gfx1201;gfx942",
+        "TORCH_BACKEND": "auto"
+      },
+      "install": [
+        "test -d /opt/llgenie/src/prism-llama.cpp/.git || git clone -b prism https://github.com/PrismML-Eng/llama.cpp.git /opt/llgenie/src/prism-llama.cpp",
+        "git config --global --add safe.directory /opt/llgenie/src/prism-llama.cpp",
+        "git -C /opt/llgenie/src/prism-llama.cpp fetch origin prism",
+        "git -C /opt/llgenie/src/prism-llama.cpp checkout -B prism 2459f68b5c0eb26261fd5a81682004b93cd645ba",
+        "cmake -S /opt/llgenie/src/prism-llama.cpp -B /opt/llgenie/src/prism-llama.cpp/build-rocm -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DGGML_HIP=ON -DGGML_METAL=OFF -DGGML_CUDA=OFF '-DGPU_TARGETS=gfx1030;gfx1100;gfx1101;gfx1102;gfx1151;gfx1200;gfx1201;gfx942'",
+        "cmake --build /opt/llgenie/src/prism-llama.cpp/build-rocm --config Release -j$(nproc) --target llama-server",
+        "LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-}:/usr/local/cuda/lib64/stubs /opt/llgenie/src/prism-llama.cpp/build-rocm/bin/llama-server --help > /dev/null"
+      ],
+      "env": {
+        "HIPCXX": "$(hipconfig -l)/clang",
+        "HIP_PATH": "$(hipconfig -R)"
+      },
+      "detect": "/opt/llgenie/src/prism-llama.cpp/build-rocm/bin/llama-server --version",
+      "pre_launch": null,
+      "launch": "/opt/llgenie/src/prism-llama.cpp/build-rocm/bin/llama-server -m {model} --host {host} --port {port} --alias llm-local --jinja",
+      "post_launch": null,
+      "health": "GET /health",
+      "alias_mode": "flag",
+      "run_args": [
+        "--device",
+        "/dev/kfd",
+        "--device",
+        "/dev/dri",
+        "--group-add",
+        "video",
+        "--group-add",
+        "render",
+        "--ipc",
+        "host"
+      ],
+      "port": 11434
+    },
+    "vulkan": {
+      "id": "llama.cpp-prism",
+      "engine": "llama.cpp (PrismML fork)",
+      "backend": "vulkan",
+      "arch": "",
+      "base": "ubuntu:24.04",
+      "prebuilt": false,
+      "runtime_base": "ubuntu:24.04",
+      "runtime_copy": [
+        "/opt/llgenie/src/prism-llama.cpp/build-vulkan/bin"
+      ],
+      "apt": [
+        "glslc",
+        "glslang-tools",
+        "libvulkan-dev",
+        "spirv-headers",
+        "mesa-vulkan-drivers"
+      ],
+      "build_args": {
+        "CUDA_ARCH": "",
+        "GPU_TARGETS": "",
+        "TORCH_BACKEND": "cpu"
+      },
+      "install": [
+        "test -d /opt/llgenie/src/prism-llama.cpp/.git || git clone -b prism https://github.com/PrismML-Eng/llama.cpp.git /opt/llgenie/src/prism-llama.cpp",
+        "git config --global --add safe.directory /opt/llgenie/src/prism-llama.cpp",
+        "git -C /opt/llgenie/src/prism-llama.cpp fetch origin prism",
+        "git -C /opt/llgenie/src/prism-llama.cpp checkout -B prism 2459f68b5c0eb26261fd5a81682004b93cd645ba",
+        "cmake -S /opt/llgenie/src/prism-llama.cpp -B /opt/llgenie/src/prism-llama.cpp/build-vulkan -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DGGML_VULKAN=ON -DGGML_METAL=OFF -DGGML_CUDA=OFF",
+        "cmake --build /opt/llgenie/src/prism-llama.cpp/build-vulkan --config Release -j$(nproc) --target llama-server",
+        "LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-}:/usr/local/cuda/lib64/stubs /opt/llgenie/src/prism-llama.cpp/build-vulkan/bin/llama-server --help > /dev/null"
+      ],
+      "env": {},
+      "detect": "/opt/llgenie/src/prism-llama.cpp/build-vulkan/bin/llama-server --version",
+      "pre_launch": null,
+      "launch": "/opt/llgenie/src/prism-llama.cpp/build-vulkan/bin/llama-server -m {model} --host {host} --port {port} --alias llm-local --jinja",
+      "post_launch": null,
+      "health": "GET /health",
+      "alias_mode": "flag",
+      "run_args": [
+        "--device",
+        "/dev/dri",
+        "--shm-size",
+        "2g"
+      ],
+      "port": 11434
+    },
+    "cpu": {
+      "id": "llama.cpp-prism",
+      "engine": "llama.cpp (PrismML fork)",
+      "backend": "cpu",
+      "arch": "",
+      "base": "ubuntu:24.04",
+      "prebuilt": false,
+      "runtime_base": "ubuntu:24.04",
+      "runtime_copy": [
+        "/opt/llgenie/src/prism-llama.cpp/build-cpu/bin"
+      ],
+      "apt": [],
+      "build_args": {
+        "CUDA_ARCH": "",
+        "GPU_TARGETS": "",
+        "TORCH_BACKEND": "cpu"
+      },
+      "install": [
+        "test -d /opt/llgenie/src/prism-llama.cpp/.git || git clone -b prism https://github.com/PrismML-Eng/llama.cpp.git /opt/llgenie/src/prism-llama.cpp",
+        "git config --global --add safe.directory /opt/llgenie/src/prism-llama.cpp",
+        "git -C /opt/llgenie/src/prism-llama.cpp fetch origin prism",
+        "git -C /opt/llgenie/src/prism-llama.cpp checkout -B prism 2459f68b5c0eb26261fd5a81682004b93cd645ba",
+        "cmake -S /opt/llgenie/src/prism-llama.cpp -B /opt/llgenie/src/prism-llama.cpp/build-cpu -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DGGML_METAL=OFF -DGGML_CUDA=OFF -DGGML_SYCL=OFF",
+        "cmake --build /opt/llgenie/src/prism-llama.cpp/build-cpu --config Release -j$(nproc) --target llama-server",
+        "LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-}:/usr/local/cuda/lib64/stubs /opt/llgenie/src/prism-llama.cpp/build-cpu/bin/llama-server --help > /dev/null"
+      ],
+      "env": {},
+      "detect": "/opt/llgenie/src/prism-llama.cpp/build-cpu/bin/llama-server --version",
+      "pre_launch": null,
+      "launch": "/opt/llgenie/src/prism-llama.cpp/build-cpu/bin/llama-server -m {model} --host {host} --port {port} --alias llm-local --jinja",
+      "post_launch": null,
+      "health": "GET /health",
+      "alias_mode": "flag",
+      "run_args": [
+        "--shm-size",
+        "2g"
+      ],
+      "port": 11434
+    }
+  }
+}

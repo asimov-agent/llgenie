@@ -1,0 +1,57 @@
+{
+  "_generated_by": "make generate-engine-params (scripts/engine_skills.py) - do not edit; edit the skill",
+  "engine": "ExLlamaV3 (ROCm fork)",
+  "id": "exllamav3-rocm",
+  "repo": "https://github.com/CarouselAether/rocm_exl3",
+  "ref": "main",
+  "pinned": "5226de53a23fd5248658559b0eb876f6fc0c249a",
+  "native": {},
+  "variants": {
+    "rocm": {
+      "id": "exllamav3-rocm",
+      "engine": "ExLlamaV3 (ROCm fork)",
+      "backend": "rocm",
+      "arch": "gfx1100,gfx1101,gfx1102,gfx1150,gfx1151,gfx1200,gfx1201",
+      "base": "rocm/pytorch:rocm7.2.4_ubuntu24.04_py3.12_pytorch_release_2.10.0@sha256:4449f856653602317e4101a76fce599c7fcd58ccec2e539951fce5f73083179e",
+      "prebuilt": false,
+      "runtime_base": "",
+      "runtime_copy": [],
+      "apt": [
+        "hipcc"
+      ],
+      "build_args": {
+        "CUDA_ARCH": "",
+        "GPU_TARGETS": "gfx1100,gfx1101,gfx1102,gfx1150,gfx1151,gfx1200,gfx1201",
+        "TORCH_BACKEND": "auto"
+      },
+      "install": [
+        "test -d /opt/llgenie/engines/exllamav3-rocm/src/.git || git clone https://github.com/CarouselAether/rocm_exl3.git /opt/llgenie/engines/exllamav3-rocm/src",
+        "git -C /opt/llgenie/engines/exllamav3-rocm/src fetch origin main && git -C /opt/llgenie/engines/exllamav3-rocm/src checkout -q 5226de53a23fd5248658559b0eb876f6fc0c249a",
+        "python3 -m pip install --no-cache-dir -U 'packaging>=24.2' 'setuptools>=77'",
+        "cd /opt/llgenie/engines/exllamav3-rocm/src && ROCM_HOME=/opt/rocm CUDA_HOME=/opt/rocm python3 -m pip install --no-cache-dir -r requirements_rocm.txt",
+        "python3 -m pip install --no-cache-dir -r /opt/llgenie/engines/exllamav3-rocm/src/requirements_rocm.txt",
+        "cd /opt/llgenie/engines/exllamav3-rocm/src && GPU_ARCHS='gfx1100,gfx1101,gfx1102,gfx1150,gfx1151,gfx1200,gfx1201' PYTORCH_ROCM_ARCH='gfx1100,gfx1101,gfx1102,gfx1150,gfx1151,gfx1200,gfx1201' EXL3_BACKEND=rocm MAX_JOBS=$(nproc) python3 -m pip install --no-cache-dir --no-build-isolation ."
+      ],
+      "env": {},
+      "detect": "python3 -c 'import exllamav3; print(exllamav3.__version__)'",
+      "pre_launch": null,
+      "launch": "python3 /opt/llgenie/engines/exllamav3-rocm/src/rocm_tools/exl3_server/server.py -m {model} -host {host} -port {port} -smn llm-local -cs 32768",
+      "post_launch": null,
+      "health": "GET /health",
+      "alias_mode": "flag",
+      "run_args": [
+        "--device",
+        "/dev/kfd",
+        "--device",
+        "/dev/dri",
+        "--group-add",
+        "video",
+        "--group-add",
+        "render",
+        "--ipc",
+        "host"
+      ],
+      "port": 11434
+    }
+  }
+}

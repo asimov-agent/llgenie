@@ -1,0 +1,191 @@
+{
+  "_generated_by": "make generate-engine-params (scripts/engine_skills.py) - do not edit; edit the skill",
+  "engine": "llama.cpp",
+  "id": "llama.cpp",
+  "repo": "https://github.com/ggml-org/llama.cpp",
+  "ref": "master",
+  "pinned": "8f9ae20c86ab9d7f092a0c95921f416125907337",
+  "native": {
+    "cuda": {
+      "cmake_flags": "-DGGML_NATIVE=OFF -DGGML_CUDA=ON -DGGML_METAL=OFF -DGGML_SYCL=OFF",
+      "hw_flags": {
+        "cuda_arch": "'-DCMAKE_CUDA_ARCHITECTURES={cuda_arch}'"
+      },
+      "env": {},
+      "src_dir": "llama.cpp",
+      "build_dir": "build-cuda"
+    },
+    "rocm": {
+      "cmake_flags": "-DGGML_NATIVE=OFF -DGGML_HIP=ON -DGGML_METAL=OFF -DGGML_CUDA=OFF",
+      "hw_flags": {
+        "gpu_targets": "'-DGPU_TARGETS={gpu_targets}'"
+      },
+      "env": {
+        "HIPCXX": "$(hipconfig -l)/clang",
+        "HIP_PATH": "$(hipconfig -R)"
+      },
+      "src_dir": "llama.cpp",
+      "build_dir": "build-rocm"
+    },
+    "vulkan": {
+      "cmake_flags": "-DGGML_NATIVE=OFF -DGGML_VULKAN=ON -DGGML_METAL=OFF -DGGML_CUDA=OFF",
+      "hw_flags": {},
+      "env": {},
+      "src_dir": "llama.cpp",
+      "build_dir": "build-vulkan"
+    },
+    "metal": {
+      "cmake_flags": "-DGGML_NATIVE=OFF -DGGML_METAL=ON -DGGML_CUDA=OFF -DGGML_SYCL=OFF",
+      "hw_flags": {},
+      "env": {},
+      "src_dir": "llama.cpp",
+      "build_dir": "build-metal"
+    },
+    "cpu": {
+      "cmake_flags": "-DGGML_NATIVE=OFF -DGGML_METAL=OFF -DGGML_CUDA=OFF -DGGML_SYCL=OFF",
+      "hw_flags": {},
+      "env": {},
+      "src_dir": "llama.cpp",
+      "build_dir": "build-cpu"
+    }
+  },
+  "variants": {
+    "cuda": {
+      "id": "llama.cpp",
+      "engine": "llama.cpp",
+      "backend": "cuda",
+      "arch": "75;80;86;89;90;120",
+      "base": "ghcr.io/ggml-org/llama.cpp:server-cuda@sha256:ef08b5a98b1170f2b62177be0a4027c88a84043c55afbf190dd18b9e7cdcfebf",
+      "prebuilt": true,
+      "runtime_base": "",
+      "runtime_copy": [],
+      "apt": [],
+      "build_args": {
+        "CUDA_ARCH": "75;80;86;89;90;120",
+        "GPU_TARGETS": "",
+        "TORCH_BACKEND": "cu130"
+      },
+      "install": [],
+      "env": {},
+      "detect": "/app/llama-server --version",
+      "pre_launch": null,
+      "launch": "/app/llama-server -m {model} --host {host} --port {port} --alias llm-local --jinja",
+      "post_launch": null,
+      "health": "GET /health",
+      "alias_mode": "flag",
+      "run_args": [
+        "--device",
+        "nvidia.com/gpu=all",
+        "--shm-size",
+        "2g"
+      ],
+      "port": 11434
+    },
+    "rocm": {
+      "id": "llama.cpp",
+      "engine": "llama.cpp",
+      "backend": "rocm",
+      "arch": "gfx1030;gfx1100;gfx1101;gfx1102;gfx1151;gfx1200;gfx1201;gfx942",
+      "base": "ghcr.io/ggml-org/llama.cpp:server-rocm@sha256:46583bd112bf2d62881d6aeaae52e59238d61cbf5803296521cdf518548016e6",
+      "prebuilt": true,
+      "runtime_base": "",
+      "runtime_copy": [],
+      "apt": [],
+      "build_args": {
+        "CUDA_ARCH": "",
+        "GPU_TARGETS": "gfx1030;gfx1100;gfx1101;gfx1102;gfx1151;gfx1200;gfx1201;gfx942",
+        "TORCH_BACKEND": "auto"
+      },
+      "install": [],
+      "env": {
+        "HIPCXX": "$(hipconfig -l)/clang",
+        "HIP_PATH": "$(hipconfig -R)"
+      },
+      "detect": "/app/llama-server --version",
+      "pre_launch": null,
+      "launch": "/app/llama-server -m {model} --host {host} --port {port} --alias llm-local --jinja",
+      "post_launch": null,
+      "health": "GET /health",
+      "alias_mode": "flag",
+      "run_args": [
+        "--device",
+        "/dev/kfd",
+        "--device",
+        "/dev/dri",
+        "--group-add",
+        "video",
+        "--group-add",
+        "render",
+        "--ipc",
+        "host"
+      ],
+      "port": 11434
+    },
+    "vulkan": {
+      "id": "llama.cpp",
+      "engine": "llama.cpp",
+      "backend": "vulkan",
+      "arch": "",
+      "base": "ghcr.io/ggml-org/llama.cpp:server-vulkan@sha256:431561ee79ee67b3980a02ff47ed9dc19496127643b75671d9789ef693ca57f9",
+      "prebuilt": true,
+      "runtime_base": "",
+      "runtime_copy": [],
+      "apt": [
+        "glslc",
+        "glslang-tools",
+        "libvulkan-dev",
+        "spirv-headers",
+        "mesa-vulkan-drivers"
+      ],
+      "build_args": {
+        "CUDA_ARCH": "",
+        "GPU_TARGETS": "",
+        "TORCH_BACKEND": "cpu"
+      },
+      "install": [],
+      "env": {},
+      "detect": "/app/llama-server --version",
+      "pre_launch": null,
+      "launch": "/app/llama-server -m {model} --host {host} --port {port} --alias llm-local --jinja",
+      "post_launch": null,
+      "health": "GET /health",
+      "alias_mode": "flag",
+      "run_args": [
+        "--device",
+        "/dev/dri",
+        "--shm-size",
+        "2g"
+      ],
+      "port": 11434
+    },
+    "cpu": {
+      "id": "llama.cpp",
+      "engine": "llama.cpp",
+      "backend": "cpu",
+      "arch": "",
+      "base": "ghcr.io/ggml-org/llama.cpp:server@sha256:559ac229adefe0f7e2d4e32f5222f26927b6bb8ba44b9db08e2544afebf41984",
+      "prebuilt": true,
+      "runtime_base": "",
+      "runtime_copy": [],
+      "apt": [],
+      "build_args": {
+        "CUDA_ARCH": "",
+        "GPU_TARGETS": "",
+        "TORCH_BACKEND": "cpu"
+      },
+      "install": [],
+      "env": {},
+      "detect": "/app/llama-server --version",
+      "pre_launch": null,
+      "launch": "/app/llama-server -m {model} --host {host} --port {port} --alias llm-local --jinja",
+      "post_launch": null,
+      "health": "GET /health",
+      "alias_mode": "flag",
+      "run_args": [
+        "--shm-size",
+        "2g"
+      ],
+      "port": 11434
+    }
+  }
+}

@@ -18,7 +18,8 @@ spec: an 8/16 GB NVIDIA card -> Prism, a >24 GB card (or a CPU box with
 >24 GB RAM) -> upstream.
 
 Env overrides (mock the hardware without touching it):
-  LLAMA_BACKEND     metal | cuda | cpu
+  LLAMA_BACKEND     metal | cuda | rocm | vulkan | cpu   (rocm/vulkan: engine-image hosts;
+                                                         the native build axis stays metal|cuda|cpu)
   LLAMA_RAM_BYTES   bytes
   LLAMA_SERVER_TREE prism | upstream   (forces the tree, independent of RAM;
                                           used by the parallel CI variant jobs)
@@ -48,19 +49,35 @@ import sys
 # Inclusive threshold: card_ram <= 24 GB -> Prism.
 PRISM_THRESHOLD_GB = 24
 
-PRISM_URL = "https://github.com/PrismML-Eng/llama.cpp.git"
-UPSTREAM_URL = "https://github.com/ggerganov/llama.cpp.git"
-PRISM_BRANCH = "prism"
-UPSTREAM_BRANCH = "master"
+# Repo URL + branch per tree come from the GENERATED, committed params
+# (containers/engines/params/<id>.json, written by `make generate-engine-params`
+# from the engine skills). Builds never read skills directly (issue #98).
+_PARAMS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                       "containers", "engines", "params")
+
+
+def _param(engine_id: str, key: str) -> str:
+    path = os.path.join(_PARAMS, f"{engine_id}.json")
+    with open(path) as f:
+        return json.load(f)[key]
+
+
+PRISM_URL = _param("llama.cpp-prism", "repo") + ".git"
+UPSTREAM_URL = _param("llama.cpp", "repo") + ".git"
+PRISM_BRANCH = _param("llama.cpp-prism", "ref")
+UPSTREAM_BRANCH = _param("llama.cpp", "ref")
 
 HOME = os.path.expanduser("~")
 PRISM_DIR = os.path.join(HOME, "repository/git/prism-llama.cpp")
 UPSTREAM_DIR = os.path.join(HOME, "repository/git/llama.cpp")
 
+# Backend cmake flags as declared by the llama.cpp skill (without the
+# hardware-derived arch flags, which engine_skills adds per machine).
+# LLAMA_CUBLAS is gone: it is a FATAL_ERROR shim in current llama.cpp.
 BACKEND_CMAKE_FLAGS = {
-    "metal": "-DGGML_METAL=ON -DGGML_CUDA=OFF -DGGML_SYCL=OFF -DLLAMA_CUBLAS=OFF",
-    "cuda": "-DGGML_CUDA=ON -DGGML_METAL=OFF -DGGML_SYCL=OFF -DLLAMA_CUBLAS=OFF",
-    "cpu": "-DGGML_METAL=OFF -DGGML_CUDA=OFF -DGGML_SYCL=OFF -DLLAMA_CUBLAS=OFF",
+    "metal": "-DGGML_METAL=ON -DGGML_CUDA=OFF -DGGML_SYCL=OFF -DGGML_NATIVE=OFF",
+    "cuda": "-DGGML_CUDA=ON -DGGML_METAL=OFF -DGGML_SYCL=OFF -DGGML_NATIVE=OFF",
+    "cpu": "-DGGML_METAL=OFF -DGGML_CUDA=OFF -DGGML_SYCL=OFF -DGGML_NATIVE=OFF",
 }
 BACKEND_BUILD_DIRS = {
     "metal": "build-metal",
@@ -139,9 +156,8 @@ def _find_nvcc() -> str:
     CUDA build can be selected even when CUDA lives under /opt/cuda or
     /usr/local/cuda rather than being on the caller's PATH.
     """
-    p = shutil.which("nvcc")
-    if p:
-        return p
+    if _which("nvcc"):  # the _which seam (tests mock it) decides PATH presence
+        return shutil.which("nvcc") or "nvcc"
     for d in _NVCC_SEARCH:
         if os.path.exists(d) and os.access(d, os.X_OK):
             return d
@@ -191,7 +207,7 @@ def detect_backend() -> str:
       4. otherwise -> 'cpu'
     """
     env_backend = (os.environ.get("LLAMA_BACKEND") or "").strip()
-    if env_backend in ("metal", "cuda", "cpu"):
+    if env_backend in ("metal", "cuda", "rocm", "vulkan", "cpu"):
         return env_backend
 
     # 2. Metal: Apple Silicon on macOS
@@ -305,7 +321,7 @@ def detect_all() -> dict:
     tree = choose_tree(ram_bytes, override=tree_override)
     backend = detect_backend()
     tree_dir = tree_path(tree)
-    build_dir = BACKEND_BUILD_DIRS[backend]
+    build_dir = BACKEND_BUILD_DIRS.get(backend, "build-cpu")
     return {
         "ram_bytes": ram_bytes,
         "card_gb": round(card_gb, 2),
@@ -314,9 +330,9 @@ def detect_all() -> dict:
         "tree_branch": tree_branch(tree),
         "tree_dir": tree_dir,
         "backend": backend,
-        "backend_flags": BACKEND_CMAKE_FLAGS[backend],
+        "backend_flags": BACKEND_CMAKE_FLAGS.get(backend, BACKEND_CMAKE_FLAGS["cpu"]),
         "build_dir": build_dir,
-        "cmake_flags": BACKEND_CMAKE_FLAGS[backend],
+        "cmake_flags": BACKEND_CMAKE_FLAGS.get(backend, BACKEND_CMAKE_FLAGS["cpu"]),
         "binary_path": os.path.join(tree_dir, build_dir, "bin", "llama-server"),
     }
 

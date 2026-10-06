@@ -7,6 +7,10 @@
 #   make -C tools venv-dev-install            # install runtime + dev deps into venv
 pytest==8.3.5
 pytest-cov==5.0.0
+openai==1.66.0
+httpx==0.28.1   # must match tools/requirements.txt (huggingface-hub); openai>=1.66 supports it   # harness/agent OpenAI-SDK conformance (scripts/tools/llgenie_harness.py)
+idna==3.19       # must match tools/requirements.txt (openai's transitive bumps it to 3.20)
+tqdm==4.70.0     # must match tools/requirements.txt (openai's transitive bumps it to 4.70.1)
 # Shared transitive deps must match what requirements.txt pulls (via huggingface_hub)
 # so the test image's combined install (requirements.txt + requirements-dev.txt)
 # does not hit a ResolutionImpossible conflict.

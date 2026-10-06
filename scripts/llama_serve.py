@@ -27,6 +27,7 @@ Usage:
     python3 ~/scripts/llama_serve.py <name>     # run by substring of filename
 """
 import argparse
+from pathlib import Path
 import json
 import os
 import re
@@ -605,14 +606,27 @@ def read_current_headroom_bytes(total_bytes=None):
 # ---------------------------------------------------------------------------
 # llama-server resolution
 # ---------------------------------------------------------------------------
+def server_name() -> str:
+    """The make-install shim for this card's llama.cpp tree (issue #98):
+    `prism-server` (Prism image) on cards <= 24 GB, `llama-server` (stock
+    llama.cpp image) above; LLAMA_SERVER_TREE forces the tree."""
+    try:
+        tree = detect_server.detect_all().get("tree", "upstream")
+    except Exception:  # noqa: BLE001
+        tree = "upstream"
+    return "prism-server" if tree == "prism" else "llama-server"
+
+
 def resolve_llama_server():
     """Locate the llama-server binary.
 
     Resolution order:
       1. $LLAMA_SERVER env var (explicit override; must be an executable file)
-      2. `llama-server` found on PATH
-      3. ~/bin/llama-server (the symlink make install creates) — covers
-         non-interactive shells where ~/bin is not on PATH
+      2. the tree's shim name (`prism-server` or `llama-server`) on PATH,
+         then ~/bin/<name> (make install writes it; covers non-interactive
+         shells where ~/bin is not on PATH)
+      3. `llama-server` on PATH / ~/bin (a native build, or the stock shim when
+         only that one is installed)
 
     If none yields a usable binary, raise SystemExit with a clear, actionable
     error so the launcher terminates instead of silently failing.
@@ -625,19 +639,19 @@ def resolve_llama_server():
             f"[ERROR] LLAMA_SERVER='{env}' is not an executable llama-server.\n"
             "        Fix LLAMA_SERVER, or make 'llama-server' available on your PATH."
         )
-    found = shutil.which("llama-server")
-    if found:
-        return found
-    # Fall back to ~/bin/llama-server (installed/symlinked by `make install`).
-    home_bin = os.path.join(os.path.expanduser("~"), "bin", "llama-server")
-    if os.path.isfile(home_bin) and os.access(home_bin, os.X_OK):
-        return home_bin
+    names = list(dict.fromkeys([server_name(), "llama-server"]))
+    for name in names:
+        found = shutil.which(name)
+        if found:
+            return found
+        home_bin = os.path.join(os.path.expanduser("~"), "bin", name)
+        if os.path.isfile(home_bin) and os.access(home_bin, os.X_OK):
+            return home_bin
     raise SystemExit(
-        "[ERROR] llama-server binary not found on PATH.\n"
-        "        Make llama.cpp's llama-server reachable as 'llama-server', e.g.:\n"
-        "          ln -s ~/repository/git/llama.cpp/build/bin/llama-server ~/bin/llama-server\n"
-        "        (or set LLAMA_SERVER=/full/path/to/llama-server).\n"
-        "        Build it first if needed: cmake -B build -DGGML_METAL=ON && cmake --build build --target llama-server"
+        f"[ERROR] llama-server binary not found ({' / '.join(names)} on PATH or in ~/bin).\n"
+        "        Run `make install` (writes ~/bin/llama-server for the stock llama.cpp image\n"
+        "        and ~/bin/prism-server for the Prism image), or set\n"
+        "        LLAMA_SERVER=/full/path/to/llama-server for a native build."
     )
 
 
@@ -1343,6 +1357,62 @@ def _serve_chosen(chosen, args):
     invoke_llama_server(cmd, chosen["file"])
 
 
+def _engine_script(engine_id):
+    """~/bin/llgenie-engine-<id>, written by `make install`."""
+    return os.path.join(HOME, "bin", "llgenie-engine-" + engine_id.replace(".", "-").replace("/", "-"))
+
+
+def _main_pick(args):
+    """Model (local or registry) + engine (ranked) -> serve via the engine image."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import model_engine_pick as mp
+    reg = mp.load_registry()
+    rows = mp.rank_models(reg)
+    if args.engine:  # only models the requested engine can run here
+        want = args.engine.lower()
+        rows = [r for r in rows if any(want in (e["id"] + " " + e["engine"]).lower() for e in r["engines"])]
+    if not rows:
+        raise SystemExit("[llgenie] no registry model fits this card with a runnable engine")
+    if args.pick or not args.model:
+        row = mp.choose(rows, lambda r: f"{r['model']['name']:<34} {r['model']['vram_tier']:>5}  "
+                                        f"best {r['engines'][0]['engine']} {r['tps']:.0f} t/s",
+                        "model", args.model, args.auto)
+    else:  # local substring -> registry model of the same name
+        row = mp.choose(rows, lambda r: r["model"]["name"] + " " + r["model"]["id"], "model",
+                        args.model, True)
+    model, engines = row["model"], row["engines"]
+    eng = mp.choose(engines, lambda e: f"{e['engine']:<34} {e['tps']:>6.0f} t/s  ({e['hardware']})",
+                    "inference server", args.engine, args.auto)
+    path = Path(args.model_file).expanduser().resolve() if args.model_file else mp.resolve_local(model)
+    if args.model_file and not path.exists():
+        raise SystemExit(f"[llgenie] --model-file {args.model_file} does not exist")
+    if path is None:
+        print(f"[llgenie] {model['name']} not under {mp.models_root()} -> downloading")
+        if args.dry:
+            print(f"[llgenie] (dry) would download {mp.repo_for(model)}")
+            path = mp.models_root() / mp.repo_for(model).replace("/", "__")
+        else:
+            path = mp.download(model)
+    script = _engine_script(eng["id"])
+    cmd = [script, str(path), str(args.port)]
+    print(f"\nModel  : {model['name']}  ({path})")
+    print(f"Engine : {eng['engine']} [{eng['variant']}]  {eng['tps']:.0f} t/s reported")
+    print(f"Serving: http://127.0.0.1:{args.port}/v1  model=llm-local")
+    print("Command: " + " ".join(cmd))
+    if args.dry:
+        return
+    # first use of this engine: pull its published image for this backend and
+    # write its start script (make install only installs the llama.cpp core)
+    inst = os.path.join(os.path.dirname(os.path.abspath(__file__)), "install_engine_launchers.py")
+    rc = subprocess.run([sys.executable, inst, "--bin", os.path.dirname(script),
+                         "--ensure", eng["id"], "--arch", eng["variant"]]).returncode
+    if rc or not os.access(script, os.X_OK):
+        raise SystemExit(f"[llgenie] could not install the {eng['id']} image ({eng['variant']}); "
+                         f"check LLGENIE_REGISTRY / docker, or run `make install ENGINES={eng['id']}`")
+    stop_server_on_port(args.port)
+    os.execv(script, cmd)
+
+
 def main():
     ap = argparse.ArgumentParser(description="Pick a GGUF model and launch llama-server tuned for it")
     ap.add_argument("model", nargs="?", help="substring of model filename to select")
@@ -1369,7 +1439,28 @@ def main():
                          "THAT family (word-boundary match, so 'qwen' never matches "
                          "'qwopus'/'qwythos'), each with high + lower quants. "
                          "--min-trending-score is ignored in family mode.")
+    ap.add_argument("--engine", type=str, default=None,
+                    help="inference server to serve with (substring of the engine id/name, e.g. "
+                         "'vllm', 'prism'). Without it llgenie ranks the engines that can run the "
+                         "model on this host (highest reported t/s, then trending) and asks; "
+                         "--auto takes the top one.")
+    ap.add_argument("--pick", action="store_true",
+                    help="pick from the trending registry instead of only local files: models "
+                         "that fit this card, each with its fastest engine; the chosen model is "
+                         "downloaded into ~/models if it is not there yet")
+    ap.add_argument("--model-file", type=str, default=None,
+                    help="with --pick/--engine: serve exactly this local model file (or dir) "
+                         "instead of the one llgenie finds under ~/models")
+    ap.add_argument("--auto", action="store_true",
+                    help="never ask: take the highest-t/s model (with --pick) and its "
+                         "highest-ranked engine")
     args = ap.parse_args()
+
+    # --pick / --engine path (issue #102): model + engine from the registry,
+    # served through the engine's container start script (make install).
+    if args.pick or args.engine:
+        _main_pick(args)
+        return
 
     # --download-top-tier path (trending + top-tier family + dynamic fit gate).
     if args.download_top_tier:

@@ -23,39 +23,27 @@ BACKEND="${2:-cpu}"
 REPO_ROOT="${REPO_ROOT:-$PWD/..}"          # this repo (Makefile passes REPO=$PWD)
 SERVER_ROOT="${SERVER_ROOT:-$HOME/repository/git}"
 
-# Resolve url/branch per tree.
-if [[ "$TREE" == "prism" ]]; then
-  REPO_URL="https://github.com/PrismML-Eng/llama.cpp.git"
-  BRANCH="prism"
-  TREE_DIR="$SERVER_ROOT/prism-llama.cpp"
-  echo "[build] tree=prism (PrismML-Eng/llama.cpp, branch=$BRANCH) at $TREE_DIR"
-else
-  REPO_URL="https://github.com/ggerganov/llama.cpp.git"
-  BRANCH="master"
-  TREE_DIR="$SERVER_ROOT/llama.cpp"
-  echo "[build] tree=upstream (ggml-org/ggerganov llama.cpp, branch=$BRANCH) at $TREE_DIR"
-fi
-
-if [[ "$BACKEND" == "metal" ]]; then
-  BUILD_DIR="$TREE_DIR/build-metal"
-  CMAKE_FLAGS="-DGGML_METAL=ON -DGGML_CUDA=OFF -DGGML_SYCL=OFF -DLLAMA_CUBLAS=OFF"
-elif [[ "$BACKEND" == "cuda" ]]; then
-  BUILD_DIR="$TREE_DIR/build-cuda"
-  CMAKE_FLAGS="-DGGML_CUDA=ON -DGGML_METAL=OFF -DGGML_SYCL=OFF -DLLAMA_CUBLAS=OFF"
-else
-  BUILD_DIR="$TREE_DIR/build-cpu"
-  CMAKE_FLAGS="-DGGML_METAL=OFF -DGGML_CUDA=OFF -DGGML_SYCL=OFF -DLLAMA_CUBLAS=OFF"
-fi
-
-# Disable -march=native (GGML_NATIVE defaults ON). The CI build cache restores
-# a previously-built binary onto a DIFFERENT runner, and a -march=native binary
-# compiled on one CPU crashes with SIGILL (illegal instruction) when it runs CPU
-# inference on another. A portable baseline build is safe to reuse across runners
-# and is what the CI cache depends on. (Host builds are unaffected in correctness;
-# the tiny perf cost of a baseline build is the price of a reusable cache.)
-CMAKE_FLAGS="$CMAKE_FLAGS -DGGML_NATIVE=OFF"
+# Resolve repo url, branch, clone dir, build dir and cmake flags from the
+# GENERATED params (containers/engines/params/<id>.json, written from the
+# engine skill by `make generate-engine-params`). This build never reads a
+# skill and needs no LLM. Hardware-derived flags (CMAKE_CUDA_ARCHITECTURES from
+# nvidia-smi compute_cap, GPU_TARGETS from rocminfo) are added only when the
+# hardware is visible, so a GPU-less CI container gets CMake's default list.
+# The params keep GGML_NATIVE=OFF: the CI build cache restores binaries onto a
+# DIFFERENT runner, and a -march=native binary crashes with SIGILL there.
+case "$TREE" in
+  prism)    SKILL_ID="llama.cpp-prism" ;;
+  upstream) SKILL_ID="llama.cpp" ;;
+  *)        SKILL_ID="$TREE" ;;
+esac
+ENV_PY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/native_build_env.py"
+BUILD_ENV="$(SERVER_ROOT="$SERVER_ROOT" python3 "$ENV_PY" "$SKILL_ID" "$BACKEND")" \
+  || { echo "[FAIL] no generated $BACKEND build params for $SKILL_ID (run make generate-engine-params)"; exit 1; }
+eval "$BUILD_ENV"
+echo "[build] tree=$TREE params=containers/engines/params/$SKILL_ID.json ($REPO_URL, branch=$BRANCH) at $TREE_DIR"
 
 echo "[build] backend=$BACKEND build-dir=$BUILD_DIR"
+echo "[build] cmake flags (from generated params + detected hardware): $CMAKE_FLAGS"
 
 # --- toolchain preflight (loud failure, never a skip) ---------------------
 for tool in git cmake g++; do

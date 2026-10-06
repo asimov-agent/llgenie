@@ -39,10 +39,12 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 
 .PHONY: all install venv-install link uninstall smoke list version help \
 	openspec-image openspec-new openspec-validate openspec-status openspec-shell \
-	test test-unit test-agents-e2e test-install test-install-ci test-install-host test-health download-test-model \
+	test test-unit test-agents-e2e test-install test-install-ci test-install-host test-health test-health-host download-test-model \
 	test-image test-clean lint lint-fix loop loop-harness chained cron-install cron-uninstall cron-snapshot \
 	build-server build-variant serve-variant test-serve-variant stop-serve-variant install-prism-cpu install-upstream-cpu \
-	install-prism-cuda install-upstream-cuda install-prism-metal install-upstream-metal
+	install-prism-cuda install-upstream-cuda install-prism-metal install-upstream-metal \
+	skills-validate engine-list engine-hardware engine-plan engine-check engine-install engine-detect engine-smoke test-engine ci-engine-images build-engine-base build-engines generate-build-engine-params test-engine-image push-engine test-published-engine test-install-published engine-launchers test-built-engine \
+	generate-engine-params check-engine-params build-engine run-engine stop-engine list-engine-images
 
 # ---- container runtime (nerdctl preferred, docker fallback) --------------
 RUNTIME ?= nerdctl
@@ -53,24 +55,22 @@ OS_IMG := llgenie/openspec:latest
 
 all: install
 
-# ---- full install: clone+build server + venv + launcher + smoke -----------
-# `make install` does the WHOLE setup so you never touch the venv manually:
-#   1. clones-or-pulls the RIGHT llama.cpp tree for the card (Prism <= 24 GB
-#      VRAM, upstream > 24 GB) and builds it for the detected backend
-#      (Metal / CUDA / CPU) — always to the latest commit (make build-server)
-#   2. builds the Python 3.10 gguf-tooling venv (./tools/venv-install)
-#   3. writes a runnable launcher `~/bin/llgenie` + symlinks it + the server
-#      (make link)
-#   4. verifies with a `--list` smoke run (make smoke)
-#
-# The host builds ONLY the right variant for its card (e.g. a 16 GB NVIDIA
-# card -> prism+cuda, once). CI builds every variant in parallel (see
-# .github/workflows/ci.yml build-variants).
-install: build-server venv-install link smoke
+# ---- full install: engine images + venv + launcher + start scripts ---------
+# `make install` does NOT build a native llama-server anymore. Entry points run
+# through the engine CONTAINER images (issue #98): it
+#   1. builds the gguf-tooling venv (venv-install, for llama_serve.py metadata/tuning)
+#   2. builds every engine image (llama.cpp, prism, ...) via `make build-engines` on
+#      the detected DEFAULT arch, or pulls the published image,
+#   3. writes a start script per engine image into ~/bin (engine-launchers) —
+#      scripts that docker-run the image with the model mounted,
+#   4. verifies each shim: `docker run … version` must report the engine version
+#      (test-launchers; the Metal engine, which can not run headless, is skipped).
+# llgenie.py resolves `llama-server` to the container shim below.
+install: venv-install engine-launchers link test-built-engine smoke
 	@echo
-	@echo "Installed. Run '$(LAUNCHER)' (e.g. 'llgenie --list', 'llgenie qwen')."
-	@echo "Symlink: $(BIN)/llgenie.py -> $(REPO)/scripts/llama_serve.py"
-	@echo "llama-server: $(BIN)/llama-server -> $(LLAMA_SERVER_BIN)"
+	@echo "Installed (published engine images for this host's backend pulled + start scripts written + version-tested)."
+	@echo "Run '$(LAUNCHER)' (e.g. 'llgenie --list', 'llgenie qwen'), or e.g. '$(BIN)/llgenie-engine-llama-cpp ~/models/m.gguf'."
+	@echo "Tips: 'make run-engine ENGINE=<id> MODEL=<m>' / 'make stop-engine ...' run/stop an engine image."
 
 # ---- 1. build the gguf-tooling venv (Python 3.10 + gguf + numpy) --------
 venv-install:
@@ -84,16 +84,7 @@ link:
 		"$(REPO)/scripts/llama_serve.py" "$(VENV)" "$(PY)" "$(REPO)/scripts/llama_serve.py" > "$(LAUNCHER)"
 	@chmod +x "$(LAUNCHER)"
 	@ln -sfn "$(REPO)/scripts/llama_serve.py" "$(BIN)/llgenie.py"
-	# Symlink the freshly-built llama-server (path from SERVER_BIN_STAMP, written
-	# by build-server) into ~/bin so llgenie.py resolves it on PATH.
-	@SRV="$(shell cat $(SERVER_BIN_STAMP) 2>/dev/null)"; \
-	if [ -n "$$SRV" ] && [ -x "$$SRV" ]; then \
-		ln -sfn "$$SRV" "$(BIN)/llama-server"; \
-		echo "==> Symlinked ~/bin/llama-server -> $$SRV"; \
-	else \
-		echo "WARN: no freshly-built llama-server (missing/stale $(SERVER_BIN_STAMP))." >&2; \
-		echo "      Run 'make build-server' (or set SERVER_ROOT) so llgenie.py can serve." >&2; \
-	fi
+	# ~/bin/llama-server is the container shim written by engine-launchers (no native build).
 	@echo "==> Wrote $(LAUNCHER) (exec) and symlinked ~/bin/llgenie.py -> repo"
 	@$(PY) scripts/ensure_user_path.py
 
@@ -180,27 +171,141 @@ stop-serve-variant:
 	@test -n "$(TREE)" -a -n "$(BACKEND)" || { echo "Usage: make stop-serve-variant TREE=prism BACKEND=cuda"; exit 1; }
 	$(PY) scripts/serve_variant.py --tree "$(TREE)" --backend "$(BACKEND)" --stop
 
-# ---- explicit variant install targets (host: build the right one only) ----
-# Each is a FULL install of ONE tree+backend: build-variant + venv + link + smoke.
-# `make install` (no args) = build-server (auto-detect from the card) + venv + link + smoke.
-install-prism-cpu: ## Build+install Prism llama.cpp (CPU)
-	$(MAKE) build-variant TREE=prism BACKEND=cpu
-	$(MAKE) venv-install link smoke
-install-upstream-cpu: ## Build+install upstream llama.cpp (CPU)
-	$(MAKE) build-variant TREE=upstream BACKEND=cpu
-	$(MAKE) venv-install link smoke
-install-prism-cuda: ## Build+install Prism llama.cpp (CUDA; needs nvcc)
-	$(MAKE) build-variant TREE=prism BACKEND=cuda
-	$(MAKE) venv-install link smoke
-install-upstream-cuda: ## Build+install upstream llama.cpp (CUDA; needs nvcc)
-	$(MAKE) build-variant TREE=upstream BACKEND=cuda
-	$(MAKE) venv-install link smoke
+# ---- explicit variant install targets --------------------------------------
+# One tree+backend. cpu/cuda run from the engine image (no host build); Metal is
+# Apple-only and cannot run in a container, so it is the only native build.
+install-prism-cpu: ## Install the Prism llama.cpp engine image (CPU) + start scripts + version test
+	$(MAKE) install ENGINES=llama.cpp-prism ARCH=cpu
+install-upstream-cpu: ## Install the upstream llama.cpp engine image (CPU)
+	$(MAKE) install ENGINES=llama.cpp ARCH=cpu
+install-prism-cuda: ## Install the Prism llama.cpp engine image (CUDA; host driver via nvidia-container-toolkit CDI)
+	$(MAKE) install ENGINES=llama.cpp-prism ARCH=cuda
+install-upstream-cuda: ## Install the upstream llama.cpp engine image (CUDA)
+	$(MAKE) install ENGINES=llama.cpp ARCH=cuda
 install-prism-metal: ## Build+install Prism llama.cpp (Metal; macOS only)
 	$(MAKE) build-variant TREE=prism BACKEND=metal
 	$(MAKE) venv-install link smoke
 install-upstream-metal: ## Build+install upstream llama.cpp (Metal; macOS only)
 	$(MAKE) build-variant TREE=upstream BACKEND=metal
 	$(MAKE) venv-install link smoke
+
+# ---- container start scripts + post-install version test (issue #98) -------
+# `make install` writes a start script per engine image into ~/bin
+# (llgenie-engine-<id>) that docker-runs the image with the model mounted, then
+# tests each shim's docker binary on --version. The Metal/Apple-Silicon variant
+# is the only one not container-tested (it cannot run headless in a container).
+# Images come from the CI-published registry: make install PULLS the tested image
+# for this host's backend and never builds unless BUILD=1. Default ENGINES = the
+# llama.cpp core (llama-server + prism-server); ENGINES=all = every engine; other
+# engines are pulled on first use by `llgenie --pick/--engine`.
+export LLGENIE_REGISTRY ?= ghcr.io/asimov-agent
+engine-launchers: ## Pull this host's published engine images (default: llama.cpp + Prism; ENGINES=all|id,id; BUILD=1 builds unpublished ones), write ~/bin/llgenie-engine-<id> + the llama-server / prism-server shims
+	python3 scripts/install_engine_launchers.py --bin "$(BIN)" $(if $(ARCH),--arch $(ARCH),) $(if $(BUILD),--build,) $(if $(ENGINES),--engines $(ENGINES),)
+test-built-engine: ## After make install: every ~/bin/llgenie-engine-* start script must print its engine version via docker (Metal-only engines excluded)
+	python3 scripts/install_engine_launchers.py --bin "$(BIN)" --test
+
+# ---- engine skills (issue #98) ------------------------------------------
+# One SKILL.md per inference server in skills/engines/<id>/. The skills are read
+# ONLY by `make generate-engine-params` (and the inspection targets below:
+# skills-validate, engine-list/plan/check). Every build target (install,
+# build-variant, build-engine, run-engine, test-engine, CI) uses the GENERATED,
+# committed files in containers/engines/ and runs with plain make: no LLM, no
+# skills needed. tests/test_engine_skills.py builds from a repo copy without skills/.
+# REGISTRY defaults to the pinned snapshot; pass the live URL to check drift:
+#   make skills-validate REGISTRY=https://raw.githubusercontent.com/andyholst/trending-local-llms/master/data/models.json
+REGISTRY ?= tests/fixtures/trending-models.json
+ENGINE_ARGS = $(if $(BACKEND),--backend $(BACKEND),)
+skills-validate: ## Validate every engine skill against the trending-local-llms registry
+	python3 scripts/engine_skills.py validate --registry "$(REGISTRY)"
+engine-list: ## List engine skills (servable, backends, fits this machine)
+	python3 scripts/engine_skills.py list
+engine-hardware: ## Show the detected hardware parameters skills render against
+	python3 scripts/engine_skills.py hardware
+engine-plan: ## Render ENGINE's install/launch for this machine (ENGINE=<id> [BACKEND=])
+	@test -n "$(ENGINE)" || { echo "Usage: make engine-plan ENGINE=<id> [BACKEND=cuda]"; exit 1; }
+	python3 scripts/engine_skills.py plan "$(ENGINE)" $(ENGINE_ARGS)
+engine-check: ## Report blockers for installing ENGINE here (ENGINE=<id> [BACKEND=])
+	@test -n "$(ENGINE)" || { echo "Usage: make engine-check ENGINE=<id> [BACKEND=cuda]"; exit 1; }
+	python3 scripts/engine_skills.py check "$(ENGINE)" $(ENGINE_ARGS)
+engine-install: ## Install ENGINE via its skill (ENGINE=<id> [BACKEND=] [DRY=1])
+	@test -n "$(ENGINE)" || { echo "Usage: make engine-install ENGINE=<id> [BACKEND=cuda] [DRY=1]"; exit 1; }
+	python3 scripts/engine_skills.py install "$(ENGINE)" $(ENGINE_ARGS) $(if $(DRY),--dry,)
+# ---- engine images: one per engine x backend x GPU arch -------------------
+# Two steps, never mixed, no LLM needed for either:
+#   1. make generate-engine-params  skills -> containers/engines/params/<engine>.json
+#      (FIXED build/run parameters per backend: cpu, cuda, rocm, vulkan; GPU
+#      code is a fat build covering CUDA 75..120 / ROCm gfx1030..gfx1201) AND one
+#      Dockerfile per engine x backend in containers/engines/dockerfiles/<engine>/
+#      Dockerfile.<backend>, plus shared toolchain bases in containers/engines/base,
+#      FROM the official upstream image when one exists (vllm/vllm-openai,
+#      ollama/ollama, lmsysorg/sglang, nvcr.io tensorrt-llm), else a CUDA/ROCm/
+#      ubuntu base with a slim runtime stage. Files change only when the rendered
+#      parameters differ. Commit the result.
+#   2. make build-engine ENGINE=<id> [ARCH=<variant>]  docker-builds that
+#      generated Dockerfile. Skills are not read. The tag hashes the frozen
+#      variant, so nothing is rebuilt unless the parameters changed.
+# The image serves the OpenAI API on 11434; run-engine publishes it on
+# 127.0.0.1:$(PORT) -> base_url http://127.0.0.1:$(PORT)/v1, model llm-local.
+PORT ?= 11434
+ARCH_ARGS = $(if $(ARCH),--variant $(ARCH),$(ENGINE_ARGS))
+generate-engine-params: ## Regenerate containers/engines/params/*.json from the current engine skills (per engine x arch)
+	python3 scripts/engine_skills.py params
+check-engine-params: ## CI: fail if committed engine params differ from what the skills generate
+	python3 scripts/engine_skills.py params --check
+build-engine-base: ## Build the shared toolchain base image for BACKEND (cpu|cuda|rocm|vulkan; PUSH=1 publishes + caches in LLGENIE_REGISTRY)
+	@test -n "$(BACKEND)" || { echo "Usage: make build-engine-base BACKEND=cpu|cuda|rocm|vulkan [PUSH=1]"; exit 1; }
+	python3 scripts/engine_image.py build-base "$(BACKEND)" $(if $(FORCE),--force,) $(if $(PUSH),--push,)
+build-engine: ## Build ENGINE's image for one backend from its generated Dockerfile (ARCH=cpu|cuda|rocm|vulkan; FORCE=1, PUSH=1)
+	@test -n "$(ENGINE)" || { echo "Usage: make build-engine ENGINE=<id> [ARCH=cpu|cuda|rocm|vulkan]"; exit 1; }
+	python3 scripts/engine_image.py build "$(ENGINE)" $(ARCH_ARGS) $(if $(FORCE),--force,) $(if $(PUSH),--push,)
+run-engine: ## Run ENGINE's image: OpenAI API on 127.0.0.1:$(PORT)/v1 as llm-local (MODEL=<path under ~/models | HF id>)
+	@test -n "$(ENGINE)" -a -n "$(MODEL)" || { echo "Usage: make run-engine ENGINE=<id> MODEL=<path|hf-id> [ARCH=] [PORT=11434]"; exit 1; }
+	python3 scripts/engine_image.py run "$(ENGINE)" $(ARCH_ARGS) --model "$(MODEL)" --port "$(PORT)"
+test-published-engine: ## Issue #102: pull ENGINE's ARCH image AS PUBLISHED (no build, digest == :ARCH), then (1) the binary reports its version and (2) the container serves the tiny model and answers "hi" on /v1/chat/completions as llm-local (cpu images, and GPU images of engines with a CPU fallback run without GPU devices; GPU-only engines get the version test)
+	@test -n "$(ENGINE)" -a -n "$(ARCH)" || { echo "Usage: make test-published-engine ENGINE=<id> ARCH=cpu|cuda|rocm|vulkan"; exit 1; }
+	python3 scripts/engine_image.py pull-published "$(ENGINE)" $(ARCH_ARGS)
+	$(MAKE) test-engine-image ENGINE=$(ENGINE) ARCH=$(ARCH)
+	@if python3 -c 'import sys; sys.path.insert(0, "scripts"); import engine_image as ei; sys.exit(0 if ei.chat_testable("$(ENGINE)", "$(ARCH)") else 1)'; then \
+	  python3 scripts/engine_smoke.py "$(ENGINE)" $(ARCH_ARGS) --image $(if $(filter cpu,$(ARCH)),,--no-gpu); \
+	else echo "[published] $(ENGINE)/$(ARCH) needs a GPU to serve (no CPU fallback): version test only; its cpu image is chat-tested"; fi
+push-engine: ## Push ENGINE's built + tested image to LLGENIE_REGISTRY (GHCR): <registry>/<name>:<pinned-hash-arch> and :<arch>
+	@test -n "$(ENGINE)" || { echo "Usage: make push-engine ENGINE=<id> ARCH=cpu|cuda|rocm|vulkan"; exit 1; }
+	python3 scripts/engine_image.py push "$(ENGINE)" $(ARCH_ARGS)
+stop-engine: ## Stop ENGINE's running container
+	@test -n "$(ENGINE)" || { echo "Usage: make stop-engine ENGINE=<id>"; exit 1; }
+	python3 scripts/engine_image.py stop "$(ENGINE)" $(ARCH_ARGS)
+ci-engine-images: ## Monitor the CI engine-image jobs for the current branch (builds run in CI, not locally)
+	@python3 scripts/engine_image.py ci-status $(if $(WATCH),--watch,) $(if $(RUN),--run $(RUN),)
+# Per-engine x arch shortcuts, e.g. `make build-engine-vllm-cuda`,
+# `make build-engine-llama.cpp-prism-rocm`, `make run-engine-ollama-cpu MODEL=…`.
+# The last dash-separated word is the arch (cpu|cuda|rocm|vulkan).
+build-engine-%: ## Build one engine x arch image from its generated Dockerfile (build-engine-<engine>-<arch>)
+	$(MAKE) build-engine ENGINE=$(patsubst %-$(lastword $(subst -, ,$*)),%,$*) ARCH=$(lastword $(subst -, ,$*))
+run-engine-%: ## Run one engine x arch image (run-engine-<engine>-<arch> MODEL=…)
+	$(MAKE) run-engine ENGINE=$(patsubst %-$(lastword $(subst -, ,$*)),%,$*) ARCH=$(lastword $(subst -, ,$*))
+build-engines: ## Build every engine image for ARCH (cpu|cuda|rocm|vulkan) from the generated Dockerfiles
+	@test -n "$(ARCH)" || { echo "Usage: make build-engines ARCH=cpu|cuda|rocm|vulkan [PUSH=1]"; exit 1; }
+	@for e in $$(python3 scripts/engine_image.py matrix --json | python3 -c 'import json,sys;print(" ".join(r["engine"] for r in json.load(sys.stdin)["include"] if r["variant"]=="$(ARCH)"))'); do \
+		$(MAKE) build-engine ENGINE=$$e ARCH=$(ARCH) $(if $(PUSH),PUSH=1,) || exit 1; done
+generate-build-engine-params: generate-engine-params ## Alias of generate-engine-params
+list-engine-images: ## List every engine x arch variant (CI=1: only CI variants, JSON=1: GitHub matrix JSON)
+	@python3 scripts/engine_image.py matrix $(if $(CI),--ci,) $(if $(JSON),--json,)
+test-engine-image: ## GPU images on GPU-less CI: run tests/test_engine_version.py (entrypoint `version`; needs a GPU to serve)
+	@test -n "$(ENGINE)" || { echo "Usage: make test-engine-image ENGINE=<id> ARCH=cuda|rocm|vulkan"; exit 1; }
+	python3 scripts/engine_image.py test-image "$(ENGINE)" $(ARCH_ARGS)
+	@mkdir -p "$(CI_HOME)"
+	$(ENGINE_TEST_ARGS) -e LLGENIE_TEST_ENGINE="$(ENGINE)" -e LLGENIE_TEST_ARCH="$(ARCH)" $(TEST_IMG) \
+		python3 -m pytest -q -p no:cacheprovider tests/test_engine_version.py
+	@$(CI_HOME_CLEAN)
+test-engine: ## Run ENGINE's image with a tiny model and curl its OpenAI API on the published port
+	@test -n "$(ENGINE)" || { echo "Usage: make test-engine ENGINE=<id> [ARCH=cpu-portable]"; exit 1; }
+	python3 scripts/engine_smoke.py "$(ENGINE)" $(ARCH_ARGS) --image
+engine-smoke: ## Install ENGINE via its skill, serve a tiny model, assert llm-local answers (CI engine-smoke job)
+	@test -n "$(ENGINE)" || { echo "Usage: make engine-smoke ENGINE=<id> [BACKEND=cpu]"; exit 1; }
+	python3 scripts/engine_smoke.py "$(ENGINE)" $(ENGINE_ARGS)
+engine-detect: ## Is ENGINE installed? Runs the skill's detect (ENGINE=<id> [BACKEND=])
+	@test -n "$(ENGINE)" || { echo "Usage: make engine-detect ENGINE=<id> [BACKEND=cuda]"; exit 1; }
+	python3 scripts/engine_skills.py detect "$(ENGINE)" $(ENGINE_ARGS)
 
 # ---- helpers ------------------------------------------------------------
 list:
@@ -257,6 +362,17 @@ TEST_IMG := llgenie/test:latest
 GIT_WORKTREE_PARENT := $(shell sed -nE 's|^gitdir: +||p' .git 2>/dev/null | sed 's|/.git/worktrees/.*||')
 WORKTREE_MOUNT := $(if $(GIT_WORKTREE_PARENT),-v "$(GIT_WORKTREE_PARENT)":$(GIT_WORKTREE_PARENT):rw,)
 TEST_OPTS := --rm -u root -v "$(REPO)":/repo:rw -w /repo -e HOME=/root $(WORKTREE_MOUNT)
+# Install/health tests start engine images through the HOST docker. The install
+# HOME lives inside the repo mount at the SAME path on host and in the container,
+# so bind mounts the container asks the host docker for (-v <models>:/models)
+# resolve on the host. --network host lets the tests reach the published ports.
+CI_HOME := $(REPO)/.ci-home
+ENGINE_TEST_ARGS := $(RUNTIME) run --rm -u root --network host \
+	-v /var/run/docker.sock:/var/run/docker.sock -v "$(REPO)":"$(REPO)":rw -w "$(REPO)" \
+	-e HOME="$(CI_HOME)" -e LLGENIE_REGISTRY -e HF_TOKEN -e RUNTIME=docker $(WORKTREE_MOUNT)
+ENGINE_TEST_RUN := $(ENGINE_TEST_ARGS) $(TEST_IMG)
+# .ci-home is written by root inside the container: remove it from a container too.
+CI_HOME_CLEAN := $(RUNTIME) run --rm -v "$(REPO)":/r $(TEST_IMG) rm -rf /r/.ci-home
 TEST_RUN := $(RUNTIME) run $(TEST_OPTS) $(TEST_IMG)
 
 # CUDA-toolkit (nvcc) + python image for the #84/#89 variant builds. The same
@@ -294,7 +410,7 @@ test-clean: ## Remove left-over/stopped orphaned containers of the test image (i
 	echo "Pruned stopped orphaned $(TEST_IMG) containers."
 
 test-unit: ## Hermetic unit tests (containerized) — includes the lint regression + openspec-tasks-check tests
-	$(TEST_RUN) python -m pytest tests/test_llama_ai.py tests/test_hf_download_stall.py tests/test_lint_linefeeds.py tests/test_watchloop_dispatch.py tests/test_check_openspec_tasks.py tests/test_install_watchloop_cron.py tests/test_watch_report.py tests/test_ci_variant_matrix.py tests/test_serve_variant.py tests/test_ensure_user_path.py -p no:cacheprovider -q
+	$(TEST_RUN) python -m pytest tests/test_llama_ai.py tests/test_hf_download_stall.py tests/test_lint_linefeeds.py tests/test_watchloop_dispatch.py tests/test_check_openspec_tasks.py tests/test_install_watchloop_cron.py tests/test_watch_report.py tests/test_ci_variant_matrix.py tests/test_serve_variant.py tests/test_ensure_user_path.py tests/test_engine_skills.py tests/test_detect_server.py tests/test_model_engine_pick.py -p no:cacheprovider -q
 
 test-agents-e2e: ## REAL end-to-end agent tests (containerized) — runs ONLY *_e2e*.py files directly
 	# issue #63 CI gate: exercises the REAL dispatcher spawn/kill/respawn against a fake
@@ -325,15 +441,24 @@ test-install-host: ## Verify the REAL host install (make install) — runs on th
 	@echo "==> Verifying host install artifacts via tests/test_install.py"
 	@$(PY) -m pytest tests/test_install.py -p no:cacheprovider -q
 
-test-install-ci: ## REAL install tests inside the test container (NO SKIP): make install + seed model + assert artifacts, in ONE container
-	# The install tests assert HOST install artifacts (~/bin/llgenie, ~/bin/llgenie.py,
-	# llama-server on PATH, ~/models). They must not skip: so this target performs a REAL
-	# `make install` (launcher + venv + symlinks) INSIDE the container, seeds the
-	# lightweight model so --list/--dry have something, then runs the tests — all in a
-	# SINGLE container session so the artifacts actually persist for pytest. Missing
-	# prerequisites are a loud failure here, never a skip.
-	@echo "==> test-install-ci: real make install + model seed + tests (no skips)"
-	$(TEST_RUN) sh -c 'make install && python scripts/download_test_model.py && python -m pytest tests/test_install.py -p no:cacheprovider -q && make uninstall && test ! -e ~/bin/llgenie && test ! -e ~/bin/llgenie.py && test ! -e ~/bin/llama-server && test -f scripts/llama_serve.py'
+test-install-ci: ## In the test container: REAL make install (engine images via host docker) -> test-built-engine -> install tests -> "hi" through the container llama-server -> uninstall (NO SKIP)
+	# Python, pytest and the hf/docker CLIs come from the test image; every
+	# inference server runs in its engine image (started through the host docker
+	# socket). HOME is a throwaway dir inside the repo (.ci-home).
+	@echo "==> test-install-ci (test container + engine images)"
+	@mkdir -p "$(CI_HOME)"
+	$(ENGINE_TEST_RUN) sh -c 'make install BUILD=1 ARCH=$(if $(ARCH),$(ARCH),cpu) && make -C tools venv-dev-install && HF_BIN=$$(command -v hf) python3 scripts/download_test_model.py && make test-install-host && make test-health-host && touch ~/bin/not-ours && make uninstall && test ! -e ~/bin/llgenie && test ! -e ~/bin/llgenie.py && test ! -e ~/bin/llama-server && ! ls ~/bin/llgenie-engine-* >/dev/null 2>&1 && test -e ~/bin/not-ours && test -z "$$(docker ps -q --filter name=^llgenie-)" && test -f scripts/llama_serve.py && echo "==> uninstall removed every installed file, kept foreign files, no engine container left"'
+	@$(CI_HOME_CLEAN)
+
+test-health-host: ## After make install: llgenie serves the 0.5B model through ~/bin/llama-server (the llama.cpp image) and answers "hi"
+	@HF_BIN="$${HF_BIN:-$$(command -v hf)}" $(PY) scripts/download_test_model.py
+	$(PY) -m pytest tests/test_health.py -p no:cacheprovider -q -s
+
+test-install-published: ## After CI published the images: in the test container, make install for BACKEND (mocked via LLAMA_BACKEND; GPU images on CPU) pulls ONLY that backend's published images, llgenie answers "hi" through llama-server and prism-server, --pick --engine pulls the picked engine on first use, make uninstall leaves nothing
+	@test -n "$(BACKEND)" || { echo "Usage: make test-install-published BACKEND=cpu|cuda|rocm|vulkan"; exit 1; }
+	@mkdir -p "$(CI_HOME)"
+	$(ENGINE_TEST_ARGS) -e LLAMA_BACKEND=$(BACKEND) -e LLGENIE_NO_GPU=1 $(TEST_IMG) sh -c 'HF_BIN=$$(command -v hf) python3 scripts/download_test_model.py && python3 -m pytest tests/test_install_published.py -p no:cacheprovider -q -s'
+	@$(CI_HOME_CLEAN)
 
 test-top-tier: ## REAL top-tier acceptance (no mocks): live HF trending + fit gate + provider-aware download + placement
 	# Host-side acceptance for --download-top-tier (issue #49): hits the live
@@ -357,8 +482,10 @@ test-top-tier-serve: ## Download a lightweight top-tier model, load it, answer '
 	@HF_BIN="$${HF_BIN:-$(shell command -v hf || echo $(HOME)/llama-gguf-tools/.venv/bin/hf)}" \
 		$(PY) -m pytest tests/test_top_tier_serve.py -p no:cacheprovider -q -s -m acceptance
 
-test-top-tier-serve-ci: ## Serve test inside the test container (CI/CPU): download lightweight, load, 'hi', RAM.
-	$(TEST_RUN) python -m pytest tests/test_top_tier_serve.py -p no:cacheprovider -q -s -m acceptance
+test-top-tier-serve-ci: ## In the test container: download lightweight, serve it through the llama.cpp ENGINE IMAGE, "hi", RAM
+	@mkdir -p "$(CI_HOME)"
+	$(ENGINE_TEST_RUN) sh -c 'python3 scripts/install_engine_launchers.py --bin ~/bin --arch cpu --build --engines llama.cpp && LLAMA_SERVER=$$HOME/bin/llama-server python3 -m pytest tests/test_top_tier_serve.py -p no:cacheprovider --basetemp=$$HOME/pytest-tmp -q -s -m acceptance'
+	@$(CI_HOME_CLEAN)
 
 test-top-tier-cli-ci: ## REAL CLI dry-run in the test container: llgenie --download-top-tier [--family] --dry (no download/network writes)
 	# Run the ACTUAL launcher entry point end-to-end with --dry, verifying the real
@@ -368,8 +495,10 @@ test-top-tier-cli-ci: ## REAL CLI dry-run in the test container: llgenie --downl
 	# the same way — a real HF family search, still no download.
 	$(TEST_RUN) python -m pytest tests/test_top_tier_acceptance.py::test_cli_download_top_tier_dry_run_detailed tests/test_top_tier_acceptance.py::test_family_dry_run_known_lowend_one_provider -p no:cacheprovider -q -s -m acceptance
 
-test-health: ## End-to-end CPU health check: ensure model, then tiny model answers 'hi' (containerized)
-	$(TEST_RUN) sh -c 'python scripts/download_test_model.py && python -m pytest tests/test_health.py -p no:cacheprovider -q -s'
+test-health: ## In the test container: llgenie serves the 0.5B model through the llama.cpp ENGINE IMAGE and answers "hi" (no server in the test image)
+	@mkdir -p "$(CI_HOME)"
+	$(ENGINE_TEST_RUN) sh -c 'python3 scripts/install_engine_launchers.py --bin ~/bin --arch cpu --build --engines llama.cpp && make venv-install link && make -C tools venv-dev-install && make test-health-host'
+	@$(CI_HOME_CLEAN)
 
 test: ## Full fast suite (unit + install; containerized)
 	$(TEST_RUN) python -m pytest tests/test_llama_ai.py tests/test_install.py tests/test_lint_linefeeds.py -p no:cacheprovider -q
@@ -395,19 +524,16 @@ loop-harness: ## Loop runner (host orchestration): image->download->lint->unit->
 chained: test-unit test-agents-read test-install test-health test openspec-validate
 	@echo "All chain steps completed."
 
-uninstall: ## Remove the launcher + symlinks in ~/bin AND the cloned server trees (keeps venv AND repo source)
-	# Removes just the installed artifacts the `link` target creates: the
-	# ~/bin/llama-server launcher, the ~/bin/llama-serv.py symlink, and the
-	# ~/bin/llama-server symlink. It MUST NOT delete repo source files
-	# (scripts/llama_serve.py, scripts/hf_download.py) — those live in the
-	# checkout/worktree and are tracked in git; deleting them breaks a
-	# subsequent `make install`. Uninstall also removes the cloned llama.cpp
-	# server trees (issue #89: CI variant jobs clone these into ~/repository/git
-	# and must not pollute the workspace).
-	@rm -f "$(LAUNCHER)" "$(BIN)/llgenie.py" "$(BIN)/llama-server"
-	@rm -rf "$(SERVER_ROOT)/prism-llama.cpp" "$(SERVER_ROOT)/llama.cpp"
-	@echo "Removed $(LAUNCHER), $(BIN)/llgenie.py, $(BIN)/llama-server, $(SERVER_ROOT)/prism-llama.cpp, $(SERVER_ROOT)/llama.cpp"
-	@echo "(venv kept at $(VENV) and repo source untouched; 'make -C tools clean' to drop requirements.txt)"
+uninstall: ## Undo make install: ~/bin/llgenie, llgenie.py, the llgenie-engine-* start scripts + llama-server shim; stop engine containers (PURGE_IMAGES=1 also removes the engine images). Keeps venv, models, repo, source trees.
+	# Removes only what `make install` wrote (start scripts carry a
+	# "Generated by `make install`" marker; a symlinked ~/bin/llama-server from the
+	# old native install is removed too). It never deletes repo source, models,
+	# or any git checkout under ~/repository/git: install no longer clones or
+	# builds llama.cpp on the host, so uninstall has no tree to remove.
+	@rm -f "$(LAUNCHER)" "$(BIN)/llgenie.py"
+	@python3 scripts/install_engine_launchers.py --bin "$(BIN)" --uninstall $(if $(PURGE_IMAGES),--purge-images,)
+	@rm -f "$(SERVER_BIN_STAMP)"
+	@echo "Removed $(LAUNCHER) and $(BIN)/llgenie.py (venv kept at $(VENV); models and repo untouched)"
 
 # ---- watch-loop host crontab install/uninstall (issue #65) ----------------
 # The self-driving loop (scripts/watchloop_dispatch.py) needs a `*/20 * * * *`
@@ -426,6 +552,14 @@ watch-report: ## Human-readable watch-loop status report (host-side, reads .watc
 	@python3 scripts/watch_report.py $(if $(WINDOW),--window $(WINDOW),) $(if $(WATCHLOOP),--watchloop $(WATCHLOOP),)
 
 help:
+	@echo "Engine images (issue #98, plain make, no LLM):"
+	@echo "  make generate-engine-params      skills -> containers/engines/{params,dockerfiles,base} (the ONLY step that reads skills)"
+	@echo "  make build-engine ENGINE=<id> [ARCH=cpu|cuda|rocm|vulkan] [PUSH=1]   build from the generated Dockerfile"
+	@echo "  make build-engine-<id>-<arch>    e.g. build-engine-vllm-cuda, build-engine-llama.cpp-prism-rocm"
+	@echo "  make build-engines ARCH=<arch>   every engine for one arch"
+	@echo "  make run-engine ENGINE=<id> MODEL=<m> [PORT=11434]   OpenAI API at http://127.0.0.1:PORT/v1 (llm-local)"
+	@echo "  make list-engine-images | ci-engine-images [WATCH=1]"
+	@echo
 	@echo "Targets:" \
 		"install (venv+launcher+symlink+smoke), venv-install, link, smoke,"
 	@echo "         test-unit, test-agents-e2e (real agent e2e), test-install, test-health (endpoint answers 'hi'), test,"
@@ -434,11 +568,12 @@ help:
 	@echo "         cron-install, cron-uninstall, cron-snapshot (watch-loop host crontab),"
 	@echo "         watch-report (human-readable watch-loop status report)"
 	@echo
-	@echo "Server build variants (issue #84):"
-	@echo "  make install                 auto-detect tree+backend for this card, clone-or-pull + build + link"
-	@echo "  make build-variant TREE=prism|upstream BACKEND=cpu|cuda|metal   build one variant in isolation"
-	@echo "  make install-prism-cpu|upstream-cpu|prism-cuda|upstream-cuda|prism-metal|upstream-metal"
-	@echo "                               full install of ONE tree+backend (build + venv + link + smoke)"
+	@echo "Install (issue #98: engines run from their images):"
+	@echo "  make install [ENGINES=all|id,id] [ARCH=cpu|cuda|rocm|vulkan] [BUILD=1]   pull this host's tested images + start scripts + version test"
+	@echo "  make install-prism-cpu|upstream-cpu|prism-cuda|upstream-cuda   one llama.cpp tree + backend (image)"
+	@echo "  make install-prism-metal|upstream-metal                         macOS: native Metal build"
+	@echo "  make build-variant TREE=prism|upstream BACKEND=metal            native build (Metal / macOS CI)"
+	@echo "  llgenie --pick [model] [--engine e] [--model-file f] [--auto]   pick model + fastest engine image"
 	@echo
 	@echo "Env seams (override detection):"
 	@echo "  LLAMA_SERVER_TREE=prism|upstream   force the llama.cpp tree (else card RAM: <=24GB prism, >24GB upstream)"
