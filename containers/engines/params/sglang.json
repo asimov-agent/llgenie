@@ -26,7 +26,7 @@
       "env": {
         "CUDA_HOME": "$(dirname $(dirname $(command -v nvcc)))"
       },
-      "detect": "python3 -c 'import sglang; print(sglang.__version__)'",
+      "detect": "sglang --help > /dev/null && python3 -c 'import sglang; print(sglang.__version__)'",
       "pre_launch": null,
       "launch": "sglang serve --model-path {model} --host {host} --port {port} --served-model-name llm-local",
       "post_launch": null,
@@ -68,7 +68,7 @@
       "env": {
         "SGLANG_USE_AITER": "1"
       },
-      "detect": "python3 -c 'import sglang; print(sglang.__version__)'",
+      "detect": "sglang --help > /dev/null && python3 -c 'import sglang; print(sglang.__version__)'",
       "pre_launch": null,
       "launch": "sglang serve --model-path {model} --host {host} --port {port} --served-model-name llm-local",
       "post_launch": null,

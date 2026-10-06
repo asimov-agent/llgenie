@@ -31,7 +31,12 @@ install:
   cpu:
     - "uv pip install --system --break-system-packages https://github.com/vllm-project/vllm/releases/download/v{version}/vllm-{version}+cpu-cp38-abi3-manylinux_2_39_{machine}.whl --torch-backend cpu"
 binary: "vllm"
-detect: "python3 -c 'from vllm import __version__ as v; print(v)'"
+detect:
+  # the cuda/rocm builds probe the device on startup and fail on a GPU-less
+  # runner (CI #106); the version comes from the package instead
+  cuda: "python3 -c 'from vllm import __version__ as v; print(v)'"
+  rocm: "python3 -c 'from vllm import __version__ as v; print(v)'"
+  cpu: "{binary} --version"
 launch:
   cuda: "{binary} serve {model} --host {host} --port {port} --served-model-name {alias} --gpu-memory-utilization 0.90"
   rocm: "{binary} serve {model} --host {host} --port {port} --served-model-name {alias} --gpu-memory-utilization 0.90"

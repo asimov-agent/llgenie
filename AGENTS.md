@@ -318,7 +318,16 @@ Every inference server (llama.cpp, the Prism and LaurentZuijdwijk forks, vLLM,
 Ollama, SGLang, ...) is built, run and tested **only through its engine image**.
 No engine is compiled or pip-installed on the host.
 
-- **Skills -> params -> images.** The agent skills (`skills/engines/<id>/SKILL.md`)
+- **A real OpenAI server always gets an image. Never opt it out.** Every engine the
+  trending-local-llms registry lists that serves an HTTP API (`servable: true`) gets
+  `container:` entries for each of its backends, a generated Dockerfile, a CI
+  `engine-image` job and a version test. `container: false` is only for an engine that
+  is not a server at all (a drafter, a benchmark harness, a browser library). An
+  interactive upstream installer is not a reason to skip the image: compile the engine
+  into the image the way the upstream project builds it, and leave the model download to
+  the first start. An engine with no image is invisible to `llgenie` — it never appears
+  in the trend list and is never offered — so dropping one silently hides the README's
+  top pick.
   are read by ONE target only: `make generate-engine-params`. It writes the frozen
   per-arch params, one Dockerfile per engine × arch
   (`containers/engines/dockerfiles/<id>/Dockerfile.<arch>`) and the shared bases.

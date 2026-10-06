@@ -39,11 +39,11 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 
 .PHONY: all install venv-install link uninstall smoke list version help \
 	openspec-image openspec-new openspec-validate openspec-status openspec-shell \
-	test test-unit test-agents-e2e test-install test-install-ci test-install-host test-health test-health-host download-test-model \
+	test test-unit test-agents-e2e test-install test-install-ci test-install-host test-install-trend test-health test-health-host download-test-model \
 	test-image test-clean lint lint-fix loop loop-harness chained cron-install cron-uninstall cron-snapshot \
 	build-server build-variant serve-variant test-serve-variant stop-serve-variant install-prism-cpu install-upstream-cpu \
 	install-prism-cuda install-upstream-cuda install-prism-metal install-upstream-metal \
-	skills-validate engine-list engine-hardware engine-plan engine-check engine-install engine-detect engine-smoke test-engine ci-engine-images build-engine-base build-engines generate-build-engine-params test-engine-image push-engine test-published-engine test-install-published engine-launchers test-built-engine \
+	sync-registry check-registry skills-validate engine-list engine-hardware engine-plan engine-check engine-install engine-detect engine-smoke test-engine ci-engine-images build-engine-base build-engines generate-build-engine-params test-engine-image push-engine test-published-engine test-install-published engine-launchers test-built-engine \
 	generate-engine-params check-engine-params build-engine run-engine stop-engine list-engine-images
 
 # ---- container runtime (nerdctl preferred, docker fallback) --------------
@@ -215,6 +215,14 @@ test-built-engine: ## After make install: every ~/bin/llgenie-engine-* start scr
 #   make skills-validate REGISTRY=https://raw.githubusercontent.com/andyholst/trending-local-llms/master/data/models.json
 REGISTRY ?= tests/fixtures/trending-models.json
 ENGINE_ARGS = $(if $(BACKEND),--backend $(BACKEND),)
+# ---- trending registry (issue #105) ------------------------------------------
+# data/models.json is a verbatim copy of trending-local-llms data/models.json:
+# llgenie's trend pick reads it (no live fetch at run time). The registry-sync
+# workflow runs `make sync-registry` daily and opens a PR when it changed.
+sync-registry: ## Download trending-local-llms data/models.json into data/models.json (validated; written only when changed)
+	python3 scripts/sync_registry.py sync
+check-registry: ## Validate the vendored data/models.json (CI unit job)
+	python3 scripts/sync_registry.py check
 skills-validate: ## Validate every engine skill against the trending-local-llms registry
 	python3 scripts/engine_skills.py validate --registry "$(REGISTRY)"
 engine-list: ## List engine skills (servable, backends, fits this machine)
@@ -361,7 +369,7 @@ TEST_IMG := llgenie/test:latest
 # is byte-identical to before.
 GIT_WORKTREE_PARENT := $(shell sed -nE 's|^gitdir: +||p' .git 2>/dev/null | sed 's|/.git/worktrees/.*||')
 WORKTREE_MOUNT := $(if $(GIT_WORKTREE_PARENT),-v "$(GIT_WORKTREE_PARENT)":$(GIT_WORKTREE_PARENT):rw,)
-TEST_OPTS := --rm -u root -v "$(REPO)":/repo:rw -w /repo -e HOME=/root $(WORKTREE_MOUNT)
+TEST_OPTS := --rm -u root -v "$(REPO)":/repo:rw -w /repo -e HOME=/root -e HF_TOKEN $(WORKTREE_MOUNT)
 # Install/health tests start engine images through the HOST docker. The install
 # HOME lives inside the repo mount at the SAME path on host and in the container,
 # so bind mounts the container asks the host docker for (-v <models>:/models)
@@ -410,7 +418,7 @@ test-clean: ## Remove left-over/stopped orphaned containers of the test image (i
 	echo "Pruned stopped orphaned $(TEST_IMG) containers."
 
 test-unit: ## Hermetic unit tests (containerized) — includes the lint regression + openspec-tasks-check tests
-	$(TEST_RUN) python -m pytest tests/test_llama_ai.py tests/test_hf_download_stall.py tests/test_lint_linefeeds.py tests/test_watchloop_dispatch.py tests/test_check_openspec_tasks.py tests/test_install_watchloop_cron.py tests/test_watch_report.py tests/test_ci_variant_matrix.py tests/test_serve_variant.py tests/test_ensure_user_path.py tests/test_engine_skills.py tests/test_detect_server.py tests/test_model_engine_pick.py -p no:cacheprovider -q
+	$(TEST_RUN) python -m pytest tests/test_llama_ai.py tests/test_hf_download_stall.py tests/test_lint_linefeeds.py tests/test_watchloop_dispatch.py tests/test_check_openspec_tasks.py tests/test_install_watchloop_cron.py tests/test_watch_report.py tests/test_ci_variant_matrix.py tests/test_serve_variant.py tests/test_ensure_user_path.py tests/test_engine_skills.py tests/test_detect_server.py tests/test_model_engine_pick.py tests/test_trend_pick.py -p no:cacheprovider -q
 
 test-agents-e2e: ## REAL end-to-end agent tests (containerized) — runs ONLY *_e2e*.py files directly
 	# issue #63 CI gate: exercises the REAL dispatcher spawn/kill/respawn against a fake
@@ -447,14 +455,17 @@ test-install-ci: ## In the test container: REAL make install (engine images via 
 	# socket). HOME is a throwaway dir inside the repo (.ci-home).
 	@echo "==> test-install-ci (test container + engine images)"
 	@mkdir -p "$(CI_HOME)"
-	$(ENGINE_TEST_RUN) sh -c 'make install BUILD=1 ARCH=$(if $(ARCH),$(ARCH),cpu) && make -C tools venv-dev-install && HF_BIN=$$(command -v hf) python3 scripts/download_test_model.py && make test-install-host && make test-health-host && touch ~/bin/not-ours && make uninstall && test ! -e ~/bin/llgenie && test ! -e ~/bin/llgenie.py && test ! -e ~/bin/llama-server && ! ls ~/bin/llgenie-engine-* >/dev/null 2>&1 && test -e ~/bin/not-ours && test -z "$$(docker ps -q --filter name=^llgenie-)" && test -f scripts/llama_serve.py && echo "==> uninstall removed every installed file, kept foreign files, no engine container left"'
+	$(ENGINE_TEST_RUN) sh -c 'make install BUILD=1 ARCH=$(if $(ARCH),$(ARCH),cpu) && make -C tools venv-dev-install && HF_BIN=$$(command -v hf) python3 scripts/download_test_model.py && make test-install-host && make test-health-host && make test-install-trend && touch ~/bin/not-ours && make uninstall && test ! -e ~/bin/llgenie && test ! -e ~/bin/llgenie.py && test ! -e ~/bin/llama-server && ! ls ~/bin/llgenie-engine-* >/dev/null 2>&1 && test -e ~/bin/not-ours && test -z "$$(docker ps -q --filter name=^llgenie-)" && test -f scripts/llama_serve.py && echo "==> uninstall removed every installed file, kept foreign files, no engine container left"'
 	@$(CI_HOME_CLEAN)
 
 test-health-host: ## After make install: llgenie serves the 0.5B model through ~/bin/llama-server (the llama.cpp image) and answers "hi"
 	@HF_BIN="$${HF_BIN:-$$(command -v hf)}" $(PY) scripts/download_test_model.py
 	$(PY) -m pytest tests/test_health.py -p no:cacheprovider -q -s
 
-test-install-published: ## After CI published the images: in the test container, make install for BACKEND (mocked via LLAMA_BACKEND; GPU images on CPU) pulls ONLY that backend's published images, llgenie answers "hi" through llama-server and prism-server, --pick --engine pulls the picked engine on first use, make uninstall leaves nothing
+test-install-trend: ## After make install: ~/bin/llgenie with no model in a pty -> recommended list from data/models.json -> pick 1/1 -> real GGUF download -> engine container answers "hi" (issue #105)
+	$(PY) -m pytest tests/test_install_trend.py -p no:cacheprovider -q -s
+
+test-install-published: ## After CI published the images: in the test container, make install for BACKEND (mocked via LLAMA_BACKEND; GPU images on CPU) pulls ONLY that backend's published images, llgenie answers "hi" through llama-server and prism-server, --pick --engine pulls the picked engine on first use, the installed llgenie with no model (pty) picks the top trend model + engine, downloads the full GGUF and answers "hi" (issue #105), make uninstall leaves nothing
 	@test -n "$(BACKEND)" || { echo "Usage: make test-install-published BACKEND=cpu|cuda|rocm|vulkan"; exit 1; }
 	@mkdir -p "$(CI_HOME)"
 	$(ENGINE_TEST_ARGS) -e LLAMA_BACKEND=$(BACKEND) -e LLGENIE_NO_GPU=1 $(TEST_IMG) sh -c 'HF_BIN=$$(command -v hf) python3 scripts/download_test_model.py && python3 -m pytest tests/test_install_published.py -p no:cacheprovider -q -s'

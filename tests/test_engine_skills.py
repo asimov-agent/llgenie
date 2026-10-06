@@ -226,6 +226,25 @@ def test_non_servable_engines_are_never_installed(skills):
         assert host in skills
 
 
+def test_every_real_server_gets_a_container_image(skills):
+    """A servable engine is an OpenAI server, so it gets an image on every backend that
+    can run in a container. Opting one out (container: false) hides it from the trend
+    list, which is how Strata was dropped. Only non-servers may have no image."""
+
+    # Given every skill and the images generated from it
+    for sid, skill in skills.items():
+        params = es.PARAMS_DIR / f"{sid}.json"
+        built = set(json.loads(params.read_text())["variants"]) if params.exists() else set()
+
+        # When it is a real server on Linux
+        # Then a generated image exists for each containerizable backend
+        if skill.get("servable") is True and "linux" in (skill.get("os") or []):
+            want = {b for b in skill.get("backends") or [] if b != "metal"}
+            assert want <= built, (sid, sorted(want - built))
+        else:
+            assert skill.get("servable") in (False, "via"), sid
+
+
 def test_every_servable_launch_exposes_llm_local_on_the_port(skills):
     """Whatever the engine, clients see 127.0.0.1:11434 and model llm-local."""
 
@@ -257,14 +276,18 @@ def test_engines_install_into_images_not_venvs(skills):
 
             # Given a skill's install steps for one backend
             # When they are scanned
-            # Then there is no venv, sudo or pipe-to-shell, and pip targets the image or a uv tool
-            assert "venv" not in steps, (sid, backend)
+            # Then there is no venv, sudo or pipe-to-shell, and pip targets the image or a uv tool.
+            # A source build may make a python env inside the image (python3 -m venv),
+            # which is not a host venv.
+            assert "venv" not in steps or "python3 -m venv" in steps, (sid, backend)
             assert "sudo " not in steps, (sid, backend)
             assert not re.search(r"\|\s*(sudo\s+)?(sh|bash)\b", steps), (sid, backend)
             if "pip install" in steps:
                 # uv targets the system python; source builds on rocm/pytorch use
-                # that image's own interpreter (python3 -m pip), as upstream does
-                assert ("--system" in steps or "python3 -m pip install" in steps) and backend != "metal", (sid, backend)
+                # that image's own interpreter (python3 -m pip), as upstream does;
+                # a source build's own python env (python3 -m venv) installs into itself
+                assert ("--system" in steps or "python3 -m pip install" in steps
+                        or "python3 -m venv" in steps) and backend != "metal", (sid, backend)
                 assert "uv pip install --system --break-system-packages --python" not in steps, (sid, backend)
             if backend == "metal" and "uv " in steps:
                 assert "uv tool install" in steps, (sid, backend)
@@ -656,7 +679,7 @@ def test_ci_builds_every_engine_arch_in_parallel_from_make(skills):
     # every params variant is a CI job except the disabled ones (issue #103)
     every = {(r["engine"], r["variant"]) for r in ei.matrix()}
     assert {(r["engine"], r["variant"]) for r in rows} == every - set(ei.DISABLED)
-    assert len(rows) == 29 - len(ei.DISABLED)
+    assert len(rows) == len(every) - len(ei.DISABLED)
     assert all(r["smoke"] == (r["variant"] == "cpu" and r["engine"] not in ei.SMOKE_SKIP) for r in rows)
     assert jobs["engine-image"]["needs"] == ["engine-matrix", "engine-base"]
     base_steps = " ".join(str(st.get("run", "")) for st in jobs["engine-base"]["steps"])
@@ -965,6 +988,26 @@ def test_pull_published_refuses_a_local_build_and_a_digest_mismatch(monkeypatch)
     # Then there is nothing to test
     assert ei.pull_published(spec) == ""
 
+
+
+def test_digest_reads_the_live_registry_and_retries_a_failed_lookup(capsys):
+    """Live GHCR, no mocks: the published llama.cpp cpu image's pinned tag and its
+    moving :cpu tag resolve to the same digest; a missing tag is retried, then "".
+    (A transient GHCR lookup failure once failed test-published-freetoken-rocm.)"""
+    import importlib
+    import scripts.engine_image as ei
+    importlib.reload(ei)
+    reg = "ghcr.io/asimov-agent"
+    # Given the published llama.cpp cpu image
+    tag = ei.resolve("llama.cpp", None, "cpu")["tag"]
+    # When both refs are looked up
+    d_pinned = ei._digest(f"{reg}/{tag}")
+    d_arch = ei._digest(f"{reg}/{tag.split(':')[0]}:cpu")
+    # Then both are the same sha256 digest
+    assert d_pinned.startswith("sha256:") and d_pinned == d_arch
+    # And a tag that does not exist is retried and gives ""
+    assert ei._digest(f"{reg}/llgenie/llama-cpp:llgenie-no-such-tag", attempts=2) == ""
+    assert "retrying" in capsys.readouterr().out
 
 
 def test_native_plan_binds_skill_env_to_the_requested_port(skills):

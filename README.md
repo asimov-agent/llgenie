@@ -64,25 +64,71 @@ make install
    adds `export PATH="$HOME/bin:$PATH"` at the top of `~/.bashrc` (login shell bash)
    or `~/.zshrc` (login shell zsh). An existing line is left unchanged.
 
-Pick the model and the inference server (registry-ranked by reported t/s for this card):
+### `llgenie`: trending model + fastest engine (issue #105)
+
+`llgenie` with no model is interactive:
+
+1. **The trend list**: exactly the [trending-local-llms](https://github.com/andyholst/trending-local-llms)
+   README "Most loved" list, in README order (🔥 trending -> 🕑 recent -> 💤 stale, then trend score),
+   every model whose README VRAM column fits this card (a 16 GB card is 16 GB even though
+   `nvidia-smi` reports 15.99 GiB). Every model you can run here is numbered, downloaded or not
+   (`[local]` = already in `~/models`); one that cannot run here stays in the list as `--` with the reason.
+2. **Engines** for the chosen model, each with the format llgenie fetches for it: figures
+   measured on this host's kind of hardware first (RTX for cuda, Radeon/Strix Halo for rocm/vulkan,
+   CPU for cpu), then figures from other hardware labelled `(ROCm)` / `(CPU)` / `(Metal)`, then
+   engines the registry lists as supported without a figure.
+3. **Download** when missing, in the engine's format:
+   - `gguf`: the registry's GGUF repo, else the most-downloaded `<name>-GGUF` repo; the largest GGUF
+     within 80% of the card minus 1 GiB (16 GB -> 11.8 GB). MoE models add system RAM minus 4 GiB
+     (llama.cpp keeps the experts in RAM). Split models: all shards. Never MTP heads, imatrix or mmproj.
+   - `litertlm`: the generic `.litertlm` of the registry repo (not the gpu/web/vendor builds).
+   - `mlx-safetensors` / `safetensors`: the whole registry repo (config + weights).
+4. **Serve** through `~/bin/llgenie-engine-<id>` (image pulled on first use) on
+   `127.0.0.1:<port>/v1` as `llm-local`.
+
+Without a terminal:
 
 ```bash
-llgenie --pick                         # list models that fit, each with its fastest engine; asks
-llgenie --pick bonsai --engine prism   # model + engine as parameters
-llgenie --pick bonsai --engine prism --model-file ~/models/Ternary-Bonsai-2-27B-PTQ1_0-mtp.gguf
-llgenie --pick --auto                  # never asks: fastest model + engine for this card
+llgenie --trend                 # print the numbered list and exit
+llgenie --select 4              # take row 4: download it if missing, serve with its top engine
+llgenie --select 2 --engine llama.cpp --dry   # row 2 on llama.cpp; --dry = print the plan only
 ```
 
-A model that is not under `~/models` is downloaded first; the server runs from the
-engine's image via `~/bin/llgenie-engine-<id>` on `127.0.0.1:<port>/v1` (`llm-local`).
+`--auto` (or no terminal) takes the top model and its top engine without asking.
+
+Manual mode, compatibility checked (image for this host + the engine skill's `formats`
+include the model's format; otherwise llgenie exits naming the compatible engines):
+
+```bash
+llgenie --list                         # local models
+llgenie --engines                      # engines with a published image for this host
+llgenie --engines qwen3-8b             # engines that can run that local file / registry model
+llgenie qwen2.5-0.5b --engine ollama   # this local model on this engine
+llgenie --pick bonsai --engine prism   # this registry model on this engine (downloads if missing)
+llgenie --pick bonsai --engine prism --model-file ~/models/Ternary-Bonsai-2-27B-PTQ1_0-mtp.gguf
+llgenie qwen2.5-0.5b                   # local model on llama.cpp (prism-server / llama-server by card size)
+llgenie --local                        # pick among local files, llama.cpp
+```
+
+The registry is `data/models.json` (with the README it was generated with, `data/trending-README.md`), a verbatim copy of
+[trending-local-llms](https://github.com/andyholst/trending-local-llms) `data/models.json`
+(no live fetch at run time; `LLGENIE_REGISTRY_SRC=<file|url>` overrides it):
+
+```bash
+make sync-registry    # download upstream data/models.json + README.md into data/ (validated: the
+                      # registry must be the README "Most loved" list in README order)
+make check-registry   # validate the vendored files (CI)
+```
+
+The `registry-sync` workflow runs `make sync-registry` daily and opens a PR when it changed.
 
 After `make install`, just run:
 
 ```bash
-llgenie                 # interactive model picker
-llgenie --list          # list models
-llgenie qwen            # launch by model-name substring
-llgenie --dry qwen      # print the tuned command without running
+llgenie                 # trending models that fit this card -> engine -> download -> serve
+llgenie --list          # list local models
+llgenie qwen            # launch a local model by name substring (llama.cpp)
+llgenie --dry           # print the pick and the command without running
 ```
 
 Other targets: `make venv-install`, `make link`, `make smoke`, `make list`,
@@ -105,7 +151,10 @@ picked engine on first use, and `make uninstall` leaves nothing behind.
 
 CI runs this exact path on a clean runner: the `install` job runs `make test-install-ci`
 (`make install` -> `make test-built-engine` -> install tests -> llgenie answers "hi"
-through the container shim (`llama-server` / `prism-server`) -> `make uninstall`).
+through the container shim (`llama-server` / `prism-server`) -> `make test-install-trend`:
+the installed `llgenie` with no model runs in a pty, picks the top recommendation and engine
+from `data/models.json`, downloads the GGUF and the engine container answers "hi" -> `make uninstall`).
+Each `install-published-<backend>` job also runs the trend pick (`--dry`) from the installed `llgenie`.
 
 > **Why a wrapper?** `scripts/llama_serve.py` imports the `gguf`/`numpy` packages that live in the
 > venv, so it must be launched with the venv python. The `~/bin/llgenie` wrapper does
@@ -765,32 +814,60 @@ It answers three questions:
 
 ## Layout
 
-```
+```text
 llgenie/
 ├── tools/             # gguf-tooling venv + pip-compile container
 │   ├── Makefile
 │   ├── requirements.in      # source of truth (numpy, gguf==0.19.0)
 │   ├── requirements.txt     # generated by pip-compile
 │   └── Dockerfile           # pip-compile resolver (python:3.10-slim)
-├── containers/test/   # test image: python+pytest+deps + hf + docker CLI (engines run in their images)
-│   └── Dockerfile
-├── docker-compose-files/test.yaml   # hermetic test container (documented)
+├── containers/
+│   ├── ci-variant/            # CI helper (variant build image)
+│   ├── engines/               # engine container images (one per engine x arch)
+│   │   ├── base/              #   shared toolchain base per backend (Dockerfile.cpu/cuda/rocm/vulkan)
+│   │   ├── dockerfiles/<engine>/Dockerfile.<arch>   # generated per engine x arch
+│   │   ├── entrypoint.sh      #   serve | health | detect | info | shell
+│   │   └── params/<engine>.json  # generated engine params (skills -> params, committed)
+│   └── test/               # test image: python+pytest+deps + hf + docker CLI
+│       └── Dockerfile
+├── data/
+│   ├── models.json         # vendored trending-local-llms registry (make sync-registry)
+│   └── trending-README.md  # the README the registry was generated with
+├── docker-compose-files/  # hermetic test container (documented)
 ├── scripts/
-│   ├── llama_serve.py    # GGUF launcher + llama-server auto-tuner + --download-top-tier
-│   ├── hf_download.py    # HF downloader (auto-resume/retry, throttled)
-│   ├── __init__.py       # package marker for hermetic unit tests
-│   ├── loop_harness.py       # `make loop` orchestrator (9 stages)
-│   ├── download_test_model.py# fetch Qwen2.5-0.5B into ~/models/Qwen/8GB via hf
-│   └── lint_linefeeds.py     # linefeed/editorconfig lint (--fix)
+│   ├── llama_serve.py      # GGUF launcher + llama-server auto-tuner + --download-top-tier / --trend / --select
+│   ├── model_engine_pick.py # trend/README pick, engine ranking, GGUF download plan (no mocks)
+│   ├── engine_skills.py    # engine skills: detect/install/launch every engine (no engine-specific code)
+│   ├── engine_image.py     # skills -> engine params + Dockerfiles; build/push/pull images
+│   ├── engine_runner.py    # run a built engine image on a host port
+│   ├── engine_smoke.py     # smoke-test an engine start script (--version / "hi")
+│   ├── install_engine_launchers.py  # writes ~/bin/llgenie-engine-<id> start scripts
+│   ├── sync_registry.py    # vendor + validate data/models.json + trending-README.md (make sync/check)
+│   ├── detect_server.py    # card RAM / backend detection (LLAMA_RAM_BYTES seam)
+│   ├── native_build_env.py # macOS Metal native build env (build_llama_server.sh)
+│   ├── hf_download.py      # HF downloader (auto-resume/retry, throttled, xet->HTTP fallback)
+│   ├── __init__.py         # package marker for hermetic unit tests
+│   ├── loop_harness.py     # `make loop` orchestrator (stages)
+│   ├── lint_linefeeds.py   # linefeed/editorconfig lint (--fix)
+│   ├── check_openspec_tasks.py  # validates openspec task checkboxes
+│   ├── install_watchloop_cron.py / watchloop_dispatch.py / watch_report.py  # background watch loop
+│   ├── serve_variant.py    # serve a built native variant on a free port
+│   └── ...                 # helper scripts (see make help / AGENTS.md)
+├── skills/engines/<id>/SKILL.md   # one skill per inference server (single source of truth)
 ├── tests/
-│   ├── test_llama_ai.py      # hermetic unit tests (imports scripts.llama_serve)
-│   ├── test_top_tier_acceptance.py # REAL (no-mock) top-tier download acceptance
-│   ├── test_install.py       # host-install tests (NO SKIPS — fail loudly if artifacts missing)
-│   ├── test_check_openspec_tasks.py # validates openspec task checkboxes (in CI unit job)
-│   └── test_health.py        # e2e CPU LLM health check (downloads + "hi")
-├── .github/workflows/ci.yml  # parallel per-stage CI (all branches/PRs)
-├── openspec/            # OpenSpec change tracking (spec-driven)
-├── LICENSE           # MIT
+│   ├── test_trend_pick.py            # trend pick: README list, engine ranking, real downloads
+│   ├── test_engine_skills.py         # skills -> image -> version/digest tests
+│   ├── test_model_engine_pick.py     # pick logic unit tests
+│   ├── test_install_trend.py         # pty trend pick from installed ~/bin/llgenie
+│   ├── test_install_published.py     # pty trend pick per backend from published images
+│   ├── test_llama_ai.py / test_top_tier_acceptance.py / test_install.py / test_health.py
+│   ├── test_watchloop_dispatch.py / test_watch_report.py / ...  # unit + e2e/watch tests
+│   └── conftest.py / ptydrive.py / fixtures/   # shared test helpers
+├── .github/workflows/
+│   ├── ci.yml              # parallel per-stage CI (all branches/PRs)
+│   └── registry-sync.yml   # daily sync-registry, opens a PR when the registry changed
+├── openspec/changes/    # OpenSpec change tracking (spec-driven; proposal/spec/tasks)
+├── LICENSE              # MIT
 └── README.md
 ```
 

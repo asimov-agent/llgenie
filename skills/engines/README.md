@@ -69,7 +69,7 @@ for humans.
 | `health` | readiness probe |
 | `alias_mode` | how `llm-local` is exposed: `flag`, `create` (ollama create / litert import), `config` (alias in a config file), `symlink` (served id = dir name) |
 | `upstream_watch` | upstream files whose change can invalidate the skill (drift sync diffs them) |
-| `container` | `false` (no image, e.g. Strata's interactive installer) or per backend `{base, apt, cuda_archs, gpu_targets}` overrides for `make generate-engine-params` |
+| `container` | per backend `{base, apt, cuda_archs, gpu_targets}` overrides for `make generate-engine-params`. **Required for every `servable: true` engine** — a real OpenAI server always gets an image, even when its upstream installer is interactive. `false` only for an engine that is not a server (a drafter, a benchmark harness, a browser library); an engine with no image never appears in the trend list |
 
 ### Placeholders
 

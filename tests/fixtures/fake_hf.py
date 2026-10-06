@@ -46,6 +46,13 @@ def main():
             f.flush()
         time.sleep(3600)  # never advances; the stall-watch must kill us
         return 0
+    elif mode == "xet-stall":
+        # issue #105: hf-xet makes no progress; plain HTTP (HF_HUB_DISABLE_XET=1) works
+        if os.environ.get("HF_HUB_DISABLE_XET") == "1":
+            os.environ["FAKE_HF_MODE"] = "grow"
+            return main()
+        time.sleep(3600)
+        return 0
     elif mode == "exit0":
         full = os.path.join(dest, "model.gguf")
         with open(full, "wb") as f:

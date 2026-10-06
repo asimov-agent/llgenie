@@ -45,6 +45,10 @@ jobs:
         run: make test-unit
       - name: make skills-validate (engine skills vs the trending-local-llms registry, issue #98)
         run: make skills-validate
+      - name: make check-registry (vendored data/models.json is a valid registry, issue #105)
+        run: make check-registry
+      - name: make skills-validate REGISTRY=data/models.json (skills vs the vendored registry llgenie reads)
+        run: make skills-validate REGISTRY=data/models.json
       - name: make check-engine-params (committed per-arch engine params match the skills)
         run: make check-engine-params
       - name: Prune orphaned test containers
@@ -149,7 +153,7 @@ jobs:
         run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
       - name: Build test image
         run: make test-image
-      - name: make test-install-ci (test container -> make install -> test-built-engine -> install tests -> hi -> uninstall)
+      - name: make test-install-ci (test container -> make install -> test-built-engine -> install tests -> hi -> interactive trend pick + real GGUF download + hi -> uninstall)
         run: make test-install-ci ARCH=cpu
       - name: Prune orphaned test containers
         if: always()
@@ -343,7 +347,7 @@ jobs:
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
       - name: Build test image
         run: make test-image
-      - name: "make test-install-published BACKEND=${{ matrix.backend }} (pull only this backend's images, llgenie hi via both shims + --pick --engine, uninstall)"
+      - name: "make test-install-published BACKEND=${{ matrix.backend }} (pull only this backend's images, llgenie hi via both shims + --pick --engine + interactive trend pick with a real GGUF download, uninstall)"
         run: make test-install-published BACKEND=${{ matrix.backend }}
       - name: Prune orphaned test containers
         if: always()

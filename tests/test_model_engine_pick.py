@@ -26,18 +26,25 @@ def reg():
 
 
 def test_engines_ranked_by_tps_then_trending_for_this_host(reg):
-    # Given qwen3.8-27b, measured on several engines
+    # Given qwen3.8-27b, measured on several engines and kinds of hardware
     m = next(x for x in reg["models"] if x["id"] == "qwen3.8-27b")
     # When ranked for a CUDA host
     rows = mp.rank_engines(m, "cuda")
-    # Then only engines with a container image run, best t/s first, Apple t/s ignored
-    tps = [r["tps"] for r in rows]
-    assert tps == sorted(tps, reverse=True)
+    # Then only engines with a container image run, figures measured on CUDA hardware
+    # first (highest t/s first), other-hardware figures (ROCm/CPU/Metal) after, labelled
+    keys = [(r["rank"], -r["tps"]) for r in rows]
+    assert keys == sorted(keys)
+    assert all(r["measured_on"] in ("CUDA", "ROCm", "CPU", "Metal", "") for r in rows)
+    assert all(r["rank"] > 0 for r in rows if r["measured_on"] != "CUDA")
     # (an engine whose cuda image is disabled, issue #103, falls back to its cpu image)
     import scripts.engine_image as ei
     assert all(r["variant"] == ("cpu" if ei.disabled(r["id"], "cuda") else "cuda") for r in rows)
-    assert not any("Apple" in r["hardware"] for r in rows)
-    assert rows[0]["id"] == "llama.cpp-laurentzuijdwijk"
+    assert all(r["measured_on"] == "Metal" for r in rows if "Apple" in r["hardware"])
+    assert rows[0]["same_hw"] and rows[0]["measured_on"] == "CUDA"
+    lz = next(r for r in rows if r["id"] == "llama.cpp-laurentzuijdwijk")  # Strix Halo figure only
+    assert lz["measured_on"] == "ROCm" and lz["rank"] == 1
+    ranks = [r["rank"] for r in rows]
+    assert ranks == sorted(ranks) and ranks[0] == 0  # every CUDA-measured engine before any other
 
 
 def test_models_fit_the_card_and_need_a_runnable_engine(reg):
@@ -45,10 +52,12 @@ def test_models_fit_the_card_and_need_a_runnable_engine(reg):
     rows = mp.rank_models(reg, "cpu", 8)
     # When the registry is ranked
     ids = [r["model"]["id"] for r in rows]
-    # Then nothing above 8 GB is offered, each row has an engine, best t/s first
+    # Then nothing above 8 GB is offered, each row has an engine, and the registry's
+    # (= the README's trend) order is kept
     assert ids and "qwen3.8-27b" not in ids
     assert all(mp._num(r["model"]["vram_tier"]) <= 8 and r["engines"] for r in rows)
-    assert [r["tps"] for r in rows] == sorted((r["tps"] for r in rows), reverse=True)
+    order = [m["id"] for m in reg["models"]]
+    assert [order.index(i) for i in ids] == sorted(order.index(i) for i in ids)
 
 
 def test_auto_takes_the_top_and_engine_param_selects(reg):

@@ -9,6 +9,10 @@ Reads HF_TOKEN from ~/.zshrc. Append progress to <dest_dir>/<label>.progress.log
 Uses HF_XET_HIGH_PERFORMANCE=1 (hf-xet chunked parallel) for speed — never
 HF_HUB_DISABLE_XET (would force slow single-stream download).
 Auto-retries on connection drop (rc!=0 while final .gguf absent), resuming the partial.
+Xet fallback (issue #105): hf-xet writes its chunks outside <dest>/.cache, and on
+some networks it makes no progress at all (0 bytes for minutes on xet-backed repos
+such as unsloth/*). After a stall the retries run with HF_HUB_DISABLE_XET=1 (plain
+HTTP, resumable .incomplete), so the download completes instead of stalling forever.
 Stall-watch (issue #55): a still-alive download that makes NO forward progress for
 HF_STALL_SECONDS (default 90) is terminated and retried, so a dead 0-MB/s connection
 can never hang the sequential batch forever.
@@ -126,6 +130,7 @@ def main(argv=None):
 
     t_total = time.time()
     attempt = 1
+    xet_off = False  # set after a stall: retry over plain HTTP
     while attempt <= max_retry:
         # WITHOUT refresh: a fully-present file is treated as done (fast path).
         # WITH refresh: always run `hf download` — it etag/checks the Hub and no-ops
@@ -136,6 +141,9 @@ def main(argv=None):
             break  # already done
         write_log(f"\n=== attempt {attempt} ({time.ctime()}) {('refresh' if refresh else 'plain')} ===")
         t0 = time.time()
+        if xet_off:
+            env["HF_HUB_DISABLE_XET"] = "1"
+            env.pop("HF_XET_HIGH_PERFORMANCE", None)
         proc = subprocess.Popen(cmd, env=env,
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         last_bytes = -1
@@ -154,6 +162,11 @@ def main(argv=None):
                         f"{stalled_for:.0f}s; terminating & retrying attempt {attempt + 1}")
                 write_log(line)
                 print(line, flush=True)
+                if not xet_off:
+                    xet_off = True
+                    msg = f"[{label}] stalled with hf-xet -> retrying over plain HTTP (HF_HUB_DISABLE_XET=1)"
+                    write_log(msg)
+                    print(msg, flush=True)
                 proc.terminate()
                 try:
                     proc.wait(timeout=15)

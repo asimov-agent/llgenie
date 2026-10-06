@@ -59,7 +59,7 @@
         "uv pip install --system --break-system-packages 'mlx[cpu]' mlx-lm==0.32.0"
       ],
       "env": {},
-      "detect": "python3 -c 'import importlib.metadata as m; print(\"mlx-lm\", m.version(\"mlx-lm\"), \"mlx\", m.version(\"mlx\"))'",
+      "detect": "mlx_lm.server --help > /dev/null && python3 -c 'import importlib.metadata as m; print(\"mlx-lm\", m.version(\"mlx-lm\"), \"mlx\", m.version(\"mlx\"))'",
       "pre_launch": null,
       "launch": "d=/tmp/llgenie-mlx-{port} && mkdir -p $d && cd $d && ln -sfn {model} llm-local && mlx_lm.server --model llm-local --host {host} --port {port}",
       "post_launch": null,

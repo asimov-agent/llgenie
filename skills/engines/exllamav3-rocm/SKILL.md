@@ -27,7 +27,7 @@ install:
     - "python3 -m pip install --no-cache-dir -r {src}/requirements_rocm.txt"
     - "cd {src} && GPU_ARCHS='{gpu_targets}' PYTORCH_ROCM_ARCH='{gpu_targets}' EXL3_BACKEND=rocm MAX_JOBS={jobs} python3 -m pip install --no-cache-dir --no-build-isolation ."
 binary: "{src}/rocm_tools/exl3_server/server.py"
-detect: "python3 -c 'import exllamav3; print(exllamav3.__version__)'"
+detect: "test -f {binary} && python3 -c 'import exllamav3; print(exllamav3.__version__)'"
 launch: "python3 {binary} -m {model} -host {host} -port {port} -smn {alias} -cs 32768"
 health: "GET /health"
 alias_mode: flag

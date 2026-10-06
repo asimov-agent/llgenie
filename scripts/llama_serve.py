@@ -364,6 +364,11 @@ def scan_models():
                     # fast path: read only GGUF header (no 27GB mmap)
                     meta = read_model_meta_fast(p)
                     if meta is None:
+                        # a file whose header is not GGUF is not a model (a test stub, a
+                        # partial download); skip it quietly instead of raising on it
+                        with open(p, "rb") as fh:
+                            if fh.read(4) != b"GGUF":
+                                continue
                         meta = read_model_meta(p)  # fallback to full reader
                     out.append(meta)
                 except Exception as e:
@@ -875,7 +880,7 @@ def _split_repo(repo):
 
 def discover_top_tier(limit=10, total_ram_bytes=None, headroom_bytes=None,
                       min_trending_score=0, per_provider=2, skip_summary=None,
-                      family=None, family_repos=None):
+                      family=None, family_repos=None, models_root=None):
     """Ranked top-tier GGUF candidates that FIT the card, with real file sizes.
 
     Combines the three signals (trending + top-tier family + fit gate) using the
@@ -998,7 +1003,8 @@ def discover_top_tier(limit=10, total_ram_bytes=None, headroom_bytes=None,
                     "trendingScore": repo_info["trendingScore"],
                     "tier_folder": pick_tier_folder(chosen["size_bytes"], total),
                     "dest_path": provider_dest_path(repo, filename,
-                                                    chosen["size_bytes"], total_ram_bytes=total),
+                                                    chosen["size_bytes"], models_root=models_root,
+                                                    total_ram_bytes=total),
                 })
             if len(cands) >= limit:
                 break
@@ -1362,41 +1368,10 @@ def _engine_script(engine_id):
     return os.path.join(HOME, "bin", "llgenie-engine-" + engine_id.replace(".", "-").replace("/", "-"))
 
 
-def _main_pick(args):
-    """Model (local or registry) + engine (ranked) -> serve via the engine image."""
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    import model_engine_pick as mp
-    reg = mp.load_registry()
-    rows = mp.rank_models(reg)
-    if args.engine:  # only models the requested engine can run here
-        want = args.engine.lower()
-        rows = [r for r in rows if any(want in (e["id"] + " " + e["engine"]).lower() for e in r["engines"])]
-    if not rows:
-        raise SystemExit("[llgenie] no registry model fits this card with a runnable engine")
-    if args.pick or not args.model:
-        row = mp.choose(rows, lambda r: f"{r['model']['name']:<34} {r['model']['vram_tier']:>5}  "
-                                        f"best {r['engines'][0]['engine']} {r['tps']:.0f} t/s",
-                        "model", args.model, args.auto)
-    else:  # local substring -> registry model of the same name
-        row = mp.choose(rows, lambda r: r["model"]["name"] + " " + r["model"]["id"], "model",
-                        args.model, True)
-    model, engines = row["model"], row["engines"]
-    eng = mp.choose(engines, lambda e: f"{e['engine']:<34} {e['tps']:>6.0f} t/s  ({e['hardware']})",
-                    "inference server", args.engine, args.auto)
-    path = Path(args.model_file).expanduser().resolve() if args.model_file else mp.resolve_local(model)
-    if args.model_file and not path.exists():
-        raise SystemExit(f"[llgenie] --model-file {args.model_file} does not exist")
-    if path is None:
-        print(f"[llgenie] {model['name']} not under {mp.models_root()} -> downloading")
-        if args.dry:
-            print(f"[llgenie] (dry) would download {mp.repo_for(model)}")
-            path = mp.models_root() / mp.repo_for(model).replace("/", "__")
-        else:
-            path = mp.download(model)
+def _ensure_and_exec(eng, path, args):
+    """Print the plan, pull the engine image on first use, exec its start script."""
     script = _engine_script(eng["id"])
     cmd = [script, str(path), str(args.port)]
-    print(f"\nModel  : {model['name']}  ({path})")
-    print(f"Engine : {eng['engine']} [{eng['variant']}]  {eng['tps']:.0f} t/s reported")
     print(f"Serving: http://127.0.0.1:{args.port}/v1  model=llm-local")
     print("Command: " + " ".join(cmd))
     if args.dry:
@@ -1413,8 +1388,191 @@ def _main_pick(args):
     os.execv(script, cmd)
 
 
+def _pick_mp():
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import model_engine_pick as mp
+    return mp
+
+
+def _match_engine(engines, want):
+    """`want` (substring of id/name) among `engines`, or exit naming them."""
+    hit = [e for e in engines if want.lower() in (e["id"] + " " + e["engine"]).lower()]
+    if not hit:
+        names = ", ".join(e["id"] for e in engines) or "none"
+        raise SystemExit(f"[llgenie] engine {want!r} is not compatible here; compatible engines: {names}")
+    return hit[0]
+
+
+def _local_files(sub):
+    """Local GGUF files / HF model dirs under the models root whose name contains `sub`
+    (filename match only: no metadata parse, so any readable file counts)."""
+    root = Path(models_root())
+    given = Path(os.path.expanduser(sub or ""))
+    if sub and given.exists() and (given.suffix == ".gguf" or (given / "config.json").exists()):
+        return [given.resolve()]  # an explicit path
+    if not sub or not root.exists():
+        return []
+    hits = [p for p in root.rglob("*") if sub.lower() in p.name.lower()
+            and (p.suffix == ".gguf" or (p.is_dir() and (p / "config.json").exists()))
+            and not p.name.endswith((".incomplete", ".progress.log"))]
+    return sorted(hits, key=lambda p: p.stat().st_size if p.is_file() else 0)
+
+
+def _registry_match(rows, want):
+    """Rows whose model id or name equals `want` (case-insensitive) when any does,
+    else those containing it: `qwen3-8b` is Qwen3 8B, not RavenX-...-Qwen3-8B-MLX."""
+    w = want.lower()
+    exact = [r for r in rows if w in (r["model"]["id"].lower(), r["model"]["name"].lower())]
+    return exact or [r for r in rows if w in (r["model"]["name"] + " " + r["model"]["id"]).lower()]
+
+
+def _main_engines(args):
+    """--engines [model]: engines with an image for this host (all, or compatible)."""
+    mp = _pick_mp()
+    if not args.model:
+        rows = mp.host_engines()
+        print(f"Engines with a published image for this host ({mp.host_arch()}):")
+        for e in rows:
+            print(f"  {e['id']:<28} {e['engine']:<34} [{e['variant']}]  formats: {', '.join(e['formats'])}")
+        return
+    local = _local_files(args.model)
+    if local:
+        f = str(local[0])
+        print(f"Engines that can serve {os.path.basename(f)} ({mp.model_format(Path(f))}) here:")
+        for e in mp.engines_for_file(Path(f)):
+            print(f"  {e['id']:<28} {e['engine']:<34} [{e['variant']}]")
+        return
+    rows = _registry_match(mp.rank_models(mp.load_registry()), args.model)
+    if not rows:
+        raise SystemExit(f"[llgenie] no local or registry model matches {args.model!r}")
+    print(f"Engines for {rows[0]['model']['name']} on this host, best reported t/s first:")
+    for e in rows[0]["engines"]:
+        print(f"  {e['id']:<28} {e['engine']:<34} [{e['variant']}] {e['tps']:>6.0f} t/s")
+
+
+def _main_local_engine(args, path):
+    """llgenie <local model> --engine <e>: serve that pair if compatible."""
+    mp = _pick_mp()
+    path = Path(path)
+    eng = _match_engine(mp.engines_for_file(path), args.engine)
+    print(f"\nModel  : {path.name}  ({path})")
+    print(f"Engine : {eng['engine']} [{eng['variant']}]")
+    _ensure_and_exec(eng, path, args)
+
+
+def _tps_label(e):
+    """'124 t/s' (this host's hardware), '96 t/s (ROCm)', or 'supported' (no figure)."""
+    if not e.get("measured_on"):
+        return "supported"
+    return f"{e['tps']:.0f} t/s" + ("" if e["same_hw"] else f" ({e['measured_on']})")
+
+
+def _ask(rows, prompt):
+    """Ask for a number 1..len(rows) (list already printed); re-ask on bad input."""
+    while True:
+        try:
+            sel = input(f"Pick {prompt} [1]: ").strip() or "1"
+        except EOFError:
+            raise SystemExit("cancel") from None
+        if sel.isdigit() and 1 <= int(sel) <= len(rows):
+            return rows[int(sel) - 1]
+        print(f"  enter 1-{len(rows)}")
+
+
+def _print_trend(mp, reg, rows, gb):
+    """The README trend list that fits this card; numbers = what --select / the prompt take."""
+    print(f"\ntrending-local-llms ({reg.get('generated_utc', '')}): every model whose VRAM fits "
+          f"this card ({gb:.0f} GB, {mp.host_arch()}), in README order:")
+    n = 0
+    for r in rows:
+        m, e = r["model"], (r["engines"] or [None])[0]
+        head = (f"{m['name']:<30} {mp.BAND_LABEL[mp.band(m, mp.registry_today(reg))]:<8} "
+                f"trend {mp.trend_score(m):>4.1f}  {m['vram_tier']:>5}  ")
+        if r.get("why"):
+            print(f"   --  {head}not here: {r['why']}")
+            continue
+        n += 1
+        mark = "  [local]" if r.get("local") else ""
+        print(f"  {n:2d}.  {head}{e['engine']} {_tps_label(e)}{mark}")
+
+
+def _main_pick(args):
+    """Trend pick (issue #105): recommended model -> its engines -> download -> serve."""
+    mp = _pick_mp()
+    reg = mp.load_registry()
+    manual = bool(args.model or args.engine or args.model_file)
+    gb = mp.card_gb()
+    if args.model:  # a registry model by id / name (exact first, then substring)
+        reg = {**reg, "models": [r["model"] for r in _registry_match(
+            [{"model": m} for m in reg.get("models") or []], args.model)]}
+    if args.model_file:  # the given file decides the format
+        fmt = mp.model_format(Path(args.model_file).expanduser())
+        rows = mp.recommend(reg, fmt=fmt)
+        for r in rows:
+            r["local"], r["plans"] = None, {}
+            r["engines"] = [{**e, "use_format": fmt} for e in r["engines"]]
+    else:
+        rows = mp.offer(reg, gb=gb)
+    if args.engine:  # only models the requested engine can run here
+        want = args.engine.lower()
+        rows = [r for r in rows if any(want in (e["id"] + " " + e["engine"]).lower() for e in r["engines"])]
+    if manual:
+        rows = [r for r in rows if not r.get("why")]
+    if args.model and not rows:
+        raise SystemExit(f"[llgenie] no registry model matches {args.model!r} with a compatible engine "
+                         f"here; see `llgenie --engines {args.model}` or `llgenie --list`")
+    local = {r["model"]["id"]: r["local"] for r in rows}
+    pickable = [r for r in rows if not r.get("why")]
+    if not pickable:
+        raise SystemExit("[llgenie] no model of the trend list can be served on this card")
+    interactive = not args.model and not args.auto and not args.select and sys.stdin.isatty()
+    if interactive or args.trend or args.select:
+        _print_trend(mp, reg, rows, gb)
+    if args.trend:
+        return
+    if args.select:
+        if not 1 <= args.select <= len(pickable):
+            raise SystemExit(f"[llgenie] --select {args.select}: pick 1-{len(pickable)}")
+        row = pickable[args.select - 1]
+    elif interactive:
+        row = _ask(pickable, "model")
+    else:
+        row = pickable[0]
+    model, engines = row["model"], row["engines"]
+    if args.engine:
+        eng = _match_engine(engines, args.engine)
+    else:
+        if not args.auto and not args.select and sys.stdin.isatty():
+            print(f"\nEngines for {model['name']} on this host, best t/s measured on {mp.host_arch()} hardware first:")
+        eng = mp.choose(engines, lambda e: f"{e['engine']:<34} [{e['variant']}] {_tps_label(e):<16} "
+                                           f"{e['use_format']:<16} {e['hardware']}",
+                        "inference server", None, args.auto or bool(args.select))
+    fmt = eng["use_format"]
+    path = Path(args.model_file).expanduser().resolve() if args.model_file else local.get(model["id"])
+    if args.model_file and not path.exists():
+        raise SystemExit(f"[llgenie] --model-file {args.model_file} does not exist")
+    if path is not None and not args.model_file and mp.model_format(path) != fmt:
+        path = None  # the local copy is another format than this engine reads
+    if path is None:
+        print(f"[llgenie] {model['name']} ({fmt}) not under {mp.models_root()} -> downloading")
+        plan = row.get("plans", {}).get(fmt) or mp.plan_download(model, gb, None, fmt)
+        if not plan:
+            raise SystemExit(f"[llgenie] {model['name']}: no {fmt} download fits this host")
+        if args.dry:
+            what = plan["path"] or f"(whole repo, {len(plan['files'])} files)"
+            shards = f" ({len(plan['files'])} files)" if plan["path"] and len(plan["files"]) > 1 else ""
+            print(f"[llgenie] (dry) would download {plan['repo']}/{what}{shards}, {plan['size'] / 2**30:.1f} GB")
+            dest = mp.models_root() / plan["repo"].replace("/", "__")
+            path = dest if plan.get("dir") else dest / plan["path"]
+        else:
+            path = mp.download(model, gb, fmt=fmt)
+    print(f"\nModel  : {model['name']}  ({path})")
+    print(f"Engine : {eng['engine']} [{eng['variant']}]  {_tps_label(eng)}")
+    _ensure_and_exec(eng, path, args)
+
+
 def main():
-    ap = argparse.ArgumentParser(description="Pick a GGUF model and launch llama-server tuned for it")
+    ap = argparse.ArgumentParser(description="llgenie: pick a trending model + the fastest compatible engine for this card (default, interactive), or serve a local GGUF (llgenie <name> / --local)")
     ap.add_argument("model", nargs="?", help="substring of model filename to select")
     ap.add_argument("--list", action="store_true", help="just list models")
     ap.add_argument("--port", type=int, default=11434)
@@ -1451,14 +1609,45 @@ def main():
     ap.add_argument("--model-file", type=str, default=None,
                     help="with --pick/--engine: serve exactly this local model file (or dir) "
                          "instead of the one llgenie finds under ~/models")
+    ap.add_argument("--engines", action="store_true",
+                    help="list the engines with a published image for this host; with a model "
+                         "(local file substring or registry name): only the compatible ones")
+    ap.add_argument("--local", action="store_true",
+                    help="pick from the local ~/models GGUF files and serve with llama.cpp "
+                         "(prism-server / llama-server by card size) instead of the trend pick")
+    ap.add_argument("--trend", action="store_true",
+                    help="print the trend list (the trending-local-llms README list that fits this "
+                         "card, numbered) and exit")
+    ap.add_argument("--select", type=int, default=0, metavar="N",
+                    help="take model N of the trend list without asking (same numbers as the "
+                         "prompt); downloads it when missing, then serves it with its top engine "
+                         "(or --engine)")
     ap.add_argument("--auto", action="store_true",
                     help="never ask: take the highest-t/s model (with --pick) and its "
                          "highest-ranked engine")
     args = ap.parse_args()
 
-    # --pick / --engine path (issue #102): model + engine from the registry,
-    # served through the engine's container start script (make install).
-    if args.pick or args.engine:
+    if args.engines:
+        _main_engines(args)
+        return
+
+    # llgenie <local model> --engine <e>: a manual, compatibility-checked pair
+    if args.engine and args.model and not args.pick and not args.model_file:
+        local = _local_files(args.model)
+        if len(local) > 1:
+            root = Path(models_root())
+            rel = [str(p.relative_to(root)) if p.is_relative_to(root) else str(p) for p in local]
+            raise SystemExit(f"[llgenie] {args.model!r} matches {len(local)} local models: "
+                             + ", ".join(rel) + " (give the full path to pick one)")
+        if local:
+            _main_local_engine(args, local[0])
+            return
+
+    # trend pick (issues #102/#105): the default when no model is named, or
+    # --pick / --engine: model + engine from the vendored registry, served
+    # through the engine's container start script (make install).
+    if args.pick or args.engine or args.trend or args.select or \
+            not (args.model or args.list or args.local or args.download_top_tier):
         _main_pick(args)
         return
 

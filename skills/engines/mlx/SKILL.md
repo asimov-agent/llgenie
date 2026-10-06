@@ -33,7 +33,7 @@ binary: "mlx_lm.server"
 detect:
   metal: "{binary} --help > /dev/null && uv tool list | grep '^mlx-lm '"
   cuda: "{binary} --help > /dev/null 2>&1 || python3 -c 'import importlib.metadata as m; print(\"mlx-lm\", m.version(\"mlx-lm\"), \"mlx\", m.version(\"mlx\"))'"
-  cpu: "python3 -c 'import importlib.metadata as m; print(\"mlx-lm\", m.version(\"mlx-lm\"), \"mlx\", m.version(\"mlx\"))'"
+  cpu: "{binary} --help > /dev/null && python3 -c 'import importlib.metadata as m; print(\"mlx-lm\", m.version(\"mlx-lm\"), \"mlx\", m.version(\"mlx\"))'"
 launch: "d=/tmp/llgenie-mlx-{port} && mkdir -p $d && cd $d && ln -sfn {model} llm-local && {binary} --model llm-local --host {host} --port {port}"
 health: "GET /health"
 alias_mode: any-name

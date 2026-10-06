@@ -43,7 +43,7 @@ env:
   rocm:
     SGLANG_USE_AITER: "1"
 binary: "sglang"
-detect: "python3 -c 'import sglang; print(sglang.__version__)'"
+detect: "{binary} --help > /dev/null && python3 -c 'import sglang; print(sglang.__version__)'"
 launch: "{binary} serve --model-path {model} --host {host} --port {port} --served-model-name {alias}"
 health: "GET /health"
 alias_mode: flag

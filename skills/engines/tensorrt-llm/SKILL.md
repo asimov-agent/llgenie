@@ -30,7 +30,7 @@ env:
   cuda:
     CUDA_HOME: "$(dirname $(dirname $(command -v nvcc)))"
 binary: "trtllm-serve"
-detect: "python3 -c 'import importlib.metadata as m; print(\"tensorrt_llm\", m.version(\"tensorrt_llm\"))'"
+detect: "python3 -c 'import importlib.metadata as m; print(m.version(\"tensorrt_llm\"))'"
 launch: "{binary} {model} --host {host} --port {port} --backend pytorch --kv_cache_free_gpu_memory_fraction 0.9"
 pre_launch: "mkdir -p {prefix}/served && ln -sfn {model} {prefix}/served/{alias}"
 health: "GET /health"

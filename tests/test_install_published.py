@@ -142,6 +142,16 @@ def test_make_install_pulls_this_backends_published_images_and_they_answer():
     assert (BIN / il.script_name(pick)).exists()
     print(f"[install-published] {BACKEND} --pick --engine {pick}: {tag} answered {reply.strip()!r}")
 
+    # 3b. issue #105: the installed llgenie with no model is the interactive trend pick
+    #     from the vendored data/models.json for this backend: pty, pick 1/1, the
+    #     full GGUF is downloaded and this backend's engine image answers "hi"
+    sys.path.insert(0, str(REPO / "tests"))
+    from test_install_trend import run_trend_pick
+    model, eng, local, reply, _ = run_trend_pick(BACKEND)
+    assert eng["variant"] in (BACKEND, "cpu")
+    print(f"[install-published] {BACKEND} trend pick: {model['name']} -> {eng['engine']} [{eng['variant']}] "
+          f"({local.name}) answered {reply.strip()[:60]!r}")
+
     # 4. make uninstall leaves nothing behind
     r = _make("uninstall")
     assert r.returncode == 0, r.stdout[-2000:]

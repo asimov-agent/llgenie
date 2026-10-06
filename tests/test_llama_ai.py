@@ -1876,7 +1876,7 @@ def test_mock_download_places_each_model_in_right_tier_dir(tmp_path, monkeypatch
         total = int(card_gb * G)
         result = llama_ai.discover_top_tier(limit=5, total_ram_bytes=total,
                                             headroom_bytes=head, min_trending_score=0,
-                                            per_provider=2)
+                                            per_provider=2, models_root=str(tmp_path))
         # mock-download every discovered candidate
         for cand in result:
             ll = llama_ai.download_top_tier_candidate(cand, models_root=str(tmp_path))

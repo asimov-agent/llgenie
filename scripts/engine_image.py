@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -211,7 +212,8 @@ def test_image(spec: dict) -> int:
               f"{(r.stdout or r.stderr).strip().splitlines()[-1:] or ['']}")
         if cmd == ["info"] and ("port=11434" not in r.stdout or "model=llm-local" not in r.stdout):
             rc = 1
-        if cmd == ["detect"] and r.returncode != 0:
+        if cmd == ["detect"] and (r.returncode != 0 or not re.search(r"\d+\.\d+", r.stdout + r.stderr)):
+            # the binary's own --version/--help must exit 0 and print a version
             print(r.stdout[-2000:], r.stderr[-2000:])
             rc = 1
     print(f"[engine-image] {'OK' if rc == 0 else 'FAIL'} image test {tag}")
@@ -238,10 +240,21 @@ def push(spec: dict) -> int:
     return 0
 
 
-def _digest(ref: str) -> str:
-    r = _sh([RUNTIME, "buildx", "imagetools", "inspect", ref, "--format", "{{json .Manifest.Digest}}"],
-            capture_output=True, text=True)
-    return r.stdout.strip().strip('"') if r.returncode == 0 else ""
+def _digest(ref: str, attempts: int = 4) -> str:
+    """Manifest digest of a registry ref, "" when it does not exist. GHCR manifest
+    lookups intermittently time out (seen: freetoken:rocm empty after 60 s while the
+    tag existed with the right digest), so a failed lookup is retried with backoff."""
+    for i in range(attempts):
+        r = _sh([RUNTIME, "buildx", "imagetools", "inspect", ref, "--format", "{{json .Manifest.Digest}}"],
+                capture_output=True, text=True)
+        d = r.stdout.strip().strip('"') if r.returncode == 0 else ""
+        if d:
+            return d
+        if i + 1 < attempts:
+            print(f"[engine-image] digest lookup for {ref} failed (attempt {i + 1}/{attempts}): "
+                  f"{(r.stderr or '').strip()[-200:]}; retrying", flush=True)
+            time.sleep(5 * (i + 1))
+    return ""
 
 
 def pull_published(spec: dict) -> str:

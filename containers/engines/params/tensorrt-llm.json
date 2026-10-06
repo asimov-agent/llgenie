@@ -26,7 +26,7 @@
       "env": {
         "CUDA_HOME": "$(dirname $(dirname $(command -v nvcc)))"
       },
-      "detect": "python3 -c 'import importlib.metadata as m; print(\"tensorrt_llm\", m.version(\"tensorrt_llm\"))'",
+      "detect": "python3 -c 'import importlib.metadata as m; print(m.version(\"tensorrt_llm\"))'",
       "pre_launch": "mkdir -p /opt/llgenie/engines/tensorrt-llm/served && ln -sfn {model} /opt/llgenie/engines/tensorrt-llm/served/llm-local",
       "launch": "trtllm-serve {model} --host {host} --port {port} --backend pytorch --kv_cache_free_gpu_memory_fraction 0.9",
       "post_launch": null,

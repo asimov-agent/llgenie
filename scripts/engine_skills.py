@@ -958,10 +958,20 @@ def validate(skills: dict, registry: dict | None = None) -> list[str]:
                     errors.append(f"{where}: hw_flags.{b}.{param} is not a detected hardware parameter")
         for b in s.get("backends") or []:
             steps = " ".join(str(x) for x in _flatten(_per_backend(s.get("install"), b)))
-            if "venv" in steps:
+            if "venv" in steps and "python3 -m venv" not in steps:
                 errors.append(f"{where}: install.{b} creates a venv; engines run from container images")
             if "--system" in steps and b == "metal":
                 errors.append(f"{where}: install.metal must not use --system (host); use `uv tool install`")
+        if s.get("servable") is True and "linux" in (s.get("os") or []):
+            # container_spec() builds an image for every containerizable backend unless the
+            # skill opts that backend out (container: false, or container.<backend>: false).
+            # Omitting the key means "use the defaults", which still produces an image.
+            cont = s.get("container")
+            missing = [b for b in (s.get("backends") or []) if b != "metal"
+                       and container_spec(s, b) is None]
+            if missing:
+                errors.append(f"{where}: servable engine has no container image for {missing}; "
+                              "a real OpenAI server always gets an image (AGENTS.md)")
         cont = s.get("container")
         if cont is not None and cont is not False and not isinstance(cont, dict):
             errors.append(f"{where}: container must be false or a per-backend mapping")

@@ -33,7 +33,7 @@
         "cd /opt/llgenie/engines/exllamav3-rocm/src && GPU_ARCHS='gfx1100,gfx1101,gfx1102,gfx1150,gfx1151,gfx1200,gfx1201' PYTORCH_ROCM_ARCH='gfx1100,gfx1101,gfx1102,gfx1150,gfx1151,gfx1200,gfx1201' EXL3_BACKEND=rocm MAX_JOBS=$(nproc) python3 -m pip install --no-cache-dir --no-build-isolation ."
       ],
       "env": {},
-      "detect": "python3 -c 'import exllamav3; print(exllamav3.__version__)'",
+      "detect": "test -f /opt/llgenie/engines/exllamav3-rocm/src/rocm_tools/exl3_server/server.py && python3 -c 'import exllamav3; print(exllamav3.__version__)'",
       "pre_launch": null,
       "launch": "python3 /opt/llgenie/engines/exllamav3-rocm/src/rocm_tools/exl3_server/server.py -m {model} -host {host} -port {port} -smn llm-local -cs 32768",
       "post_launch": null,

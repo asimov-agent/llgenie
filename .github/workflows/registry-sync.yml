@@ -1,0 +1,55 @@
+name: registry-sync
+
+# Issue #105: keep the vendored data/models.json (llgenie's trend pick) in sync
+# with andyholst/trending-local-llms. Daily + on demand; opens or updates a PR
+# from chore/registry-sync when the file changed. Never merges: a reviewer does.
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: make sync-registry
+        run: make sync-registry
+      - name: changed?
+        id: diff
+        run: |
+          if git diff --quiet -- data/models.json data/trending-README.md; then echo "changed=" >> "$GITHUB_OUTPUT"; echo "data/models.json unchanged"
+          else echo "changed=1" >> "$GITHUB_OUTPUT"; echo "utc=$(python3 -c 'import json;print(json.load(open("data/models.json"))["generated_utc"])')" >> "$GITHUB_OUTPUT"; fi
+      - name: Build test image
+        if: steps.diff.outputs.changed
+        run: make test-image
+      - name: make check-registry + skills-validate + test-unit against the new registry
+        if: steps.diff.outputs.changed
+        run: |
+          make check-registry
+          make skills-validate REGISTRY=data/models.json
+          make test-unit
+      - name: Open / update the sync PR
+        if: steps.diff.outputs.changed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UTC: ${{ steps.diff.outputs.utc }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C chore/registry-sync
+          git add data/models.json data/trending-README.md
+          git commit -m "chore(registry): sync data/models.json + README from trending-local-llms ($UTC)"
+          git push --force origin chore/registry-sync
+          body="Automated sync of \`data/models.json\` from andyholst/trending-local-llms (\`generated_utc\` $UTC) by \`make sync-registry\`. check-registry, skills-validate and test-unit passed on the new file. Issue #105."
+          if gh pr view chore/registry-sync --json state -q .state 2>/dev/null | grep -q OPEN; then
+            gh pr edit chore/registry-sync --title "chore(registry): sync models.json ($UTC)" --body "$body"
+          else
+            gh pr create --base main --head chore/registry-sync --title "chore(registry): sync models.json ($UTC)" --body "$body"
+          fi

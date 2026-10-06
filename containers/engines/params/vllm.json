@@ -94,7 +94,7 @@
       "env": {
         "VLLM_CPU_KVCACHE_SPACE": "4"
       },
-      "detect": "python3 -c 'from vllm import __version__ as v; print(v)'",
+      "detect": "vllm --version",
       "pre_launch": null,
       "launch": "vllm serve {model} --host {host} --port {port} --served-model-name llm-local",
       "post_launch": null,

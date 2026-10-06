@@ -1,0 +1,97 @@
+{
+  "_generated_by": "make generate-engine-params (scripts/engine_skills.py) - do not edit; edit the skill",
+  "engine": "Strata",
+  "id": "strata",
+  "repo": "https://github.com/Niko1221/Strata",
+  "ref": "v0.1.39",
+  "pinned": "6f32ec070f23ced9f50e704d854d775da52591ab",
+  "native": {},
+  "variants": {
+    "cuda": {
+      "id": "strata",
+      "engine": "Strata",
+      "backend": "cuda",
+      "arch": "75;80;86;89;90;120",
+      "base": "nvidia/cuda:13.0.2-devel-ubuntu24.04",
+      "prebuilt": false,
+      "runtime_base": "",
+      "runtime_copy": [],
+      "apt": [
+        "libatomic1",
+        "libgomp1",
+        "python3-venv"
+      ],
+      "build_args": {
+        "CUDA_ARCH": "75;80;86;89;90;120",
+        "GPU_TARGETS": "",
+        "TORCH_BACKEND": "cu130"
+      },
+      "install": [
+        "test -d /opt/llgenie/engines/strata/src/.git || git clone -b v0.1.39 --depth 1 https://github.com/Niko1221/Strata.git /opt/llgenie/engines/strata/src",
+        "git -C /opt/llgenie/engines/strata/src fetch --depth 1 origin tag v0.1.39 && git -C /opt/llgenie/engines/strata/src checkout -q v0.1.39",
+        "python3 -m venv /opt/llgenie/engines/strata/src/py && /opt/llgenie/engines/strata/src/py/bin/pip install --no-cache-dir -r /opt/llgenie/engines/strata/src/requirements.txt",
+        "cd /opt/llgenie/engines/strata/src && CUDA_ARCHITECTURES='75;80;86;89;90;120' py/bin/python -c 'import os,shutil,setup; llama=setup.get_llama_cpp(); nvcc,_=setup.find_nvcc(); arch=os.environ[\"CUDA_ARCHITECTURES\"]; setup.cmake_build(setup.ROOT, setup.ROOT/\"build\",\"strata\",[\"-DSTRATA_ENABLE_CUDA=ON\",\"-DSTRATA_BUILD_TESTS=OFF\",\"-DCMAKE_CUDA_ARCHITECTURES=\"+arch,\"-DCMAKE_CUDA_COMPILER=\"+nvcc,\"-DSTRATA_GGML_DIR=\"+str(llama)],None,\"build-strata.bat\"); eng=setup.ROOT/\"engine\"; eng.mkdir(exist_ok=True); shutil.copy2(setup.ROOT/\"build\"/setup.EXE, eng/setup.EXE)'"
+      ],
+      "env": {},
+      "detect": "/opt/llgenie/engines/strata/src/engine/strata --help 2>&1 | grep -q '^strata ' && echo 0.1.39",
+      "pre_launch": "cd /opt/llgenie/engines/strata/src && py/bin/python setup.py --setup --yes --no-start --no-browser --gguf-dir $(dirname {model}) --data-dir /models/strata --port {port} --host {host}",
+      "launch": "cd /opt/llgenie/engines/strata/src && py/bin/python serve/server.py --engine strata --config $(ls -t /opt/llgenie/engines/strata/src/strata-*.json | head -1) --port {port} --host {host} --model-alias llm-local",
+      "post_launch": null,
+      "health": "GET /health",
+      "alias_mode": "flag",
+      "run_args": [
+        "--device",
+        "nvidia.com/gpu=all",
+        "--shm-size",
+        "2g"
+      ],
+      "port": 11434
+    },
+    "rocm": {
+      "id": "strata",
+      "engine": "Strata",
+      "backend": "rocm",
+      "arch": "gfx1030;gfx1100;gfx1101;gfx1102;gfx1151;gfx1200;gfx1201;gfx942",
+      "base": "rocm/pytorch:rocm7.2.4_ubuntu24.04_py3.12_pytorch_release_2.10.0@sha256:4449f856653602317e4101a76fce599c7fcd58ccec2e539951fce5f73083179e",
+      "prebuilt": false,
+      "runtime_base": "",
+      "runtime_copy": [],
+      "apt": [
+        "libatomic1",
+        "libgomp1",
+        "python3-venv"
+      ],
+      "build_args": {
+        "CUDA_ARCH": "",
+        "GPU_TARGETS": "gfx1030;gfx1100;gfx1101;gfx1102;gfx1151;gfx1200;gfx1201;gfx942",
+        "TORCH_BACKEND": "auto"
+      },
+      "install": [
+        "test -d /opt/llgenie/engines/strata/src/.git || git clone -b v0.1.39 --depth 1 https://github.com/Niko1221/Strata.git /opt/llgenie/engines/strata/src",
+        "git -C /opt/llgenie/engines/strata/src fetch --depth 1 origin tag v0.1.39 && git -C /opt/llgenie/engines/strata/src checkout -q v0.1.39",
+        "python3 -m venv /opt/llgenie/engines/strata/src/py && /opt/llgenie/engines/strata/src/py/bin/pip install --no-cache-dir -r /opt/llgenie/engines/strata/src/requirements.txt",
+        "cd /opt/llgenie/engines/strata/src && GPU_TARGETS='gfx1030;gfx1100;gfx1101;gfx1102;gfx1151;gfx1200;gfx1201;gfx942' py/bin/python -c 'import os,shutil,setup; llama=setup.get_llama_cpp(); arch=os.environ[\"GPU_TARGETS\"]; setup.cmake_build(setup.ROOT, setup.ROOT/\"build\",\"strata\",[\"-DSTRATA_ENABLE_HIP=ON\",\"-DSTRATA_BUILD_TESTS=OFF\",\"-DGPU_TARGETS=\"+arch,\"-DSTRATA_GGML_DIR=\"+str(llama)],None,\"build-strata.bat\"); eng=setup.ROOT/\"engine\"; eng.mkdir(exist_ok=True); shutil.copy2(setup.ROOT/\"build\"/setup.EXE, eng/setup.EXE)'"
+      ],
+      "env": {},
+      "detect": "/opt/llgenie/engines/strata/src/engine/strata --help 2>&1 | grep -q '^strata ' && echo 0.1.39",
+      "pre_launch": "cd /opt/llgenie/engines/strata/src && py/bin/python setup.py --setup --yes --no-start --no-browser --gguf-dir $(dirname {model}) --data-dir /models/strata --port {port} --host {host}",
+      "launch": "cd /opt/llgenie/engines/strata/src && py/bin/python serve/server.py --engine strata --config $(ls -t /opt/llgenie/engines/strata/src/strata-*.json | head -1) --port {port} --host {host} --model-alias llm-local",
+      "post_launch": null,
+      "health": "GET /health",
+      "alias_mode": "flag",
+      "run_args": [
+        "--device",
+        "/dev/kfd",
+        "--device",
+        "/dev/dri",
+        "--group-add",
+        "video",
+        "--group-add",
+        "render",
+        "--ipc",
+        "host"
+      ],
+      "port": 11434
+    }
+  }
+}

@@ -35,6 +35,7 @@ def _run(tmp: Path, mode: str, stall_seconds: float = 90, poll: float = 3) -> di
     env["HF_MAX_RETRY"] = "2"   # keep the stall test's retry loop short/fast
     env.pop("HF_TOKEN", None)          # hermetic: never hit the Hub
     env.pop("HF_XET_HIGH_PERFORMANCE", None)
+    env.pop("HF_HUB_DISABLE_XET", None)
     label = f"test-{mode}"
     proc = subprocess.run(
         [sys.executable, str(HF_DL), "fake/repo", "model.gguf", str(dest), label, "1", "131072"],
@@ -104,3 +105,16 @@ def test_stall_decision_helper_semantics():
 
 # silence "unused fixture" warnings; nothing skipped
 print = pytest
+
+
+def test_xet_stall_falls_back_to_plain_http(tmp_path):
+    """Issue #105: a download that stalls under hf-xet is retried with HF_HUB_DISABLE_XET=1.
+
+    # Given a fake `hf` that never progresses with xet but downloads over plain HTTP,
+    # When  hf_download.main() runs with a small stall threshold,
+    # Then  the first attempt stalls, the retry disables xet and completes (rc=0).
+    """
+    r = _run(tmp_path, "xet-stall", stall_seconds=4, poll=0.2)
+    assert r["rc"] == 0, r["log_text"]
+    assert "STALLED" in r["log_text"] and "HF_HUB_DISABLE_XET=1" in r["log_text"], r["log_text"]
+    assert r["attempts"] == 2, r["log_text"]
