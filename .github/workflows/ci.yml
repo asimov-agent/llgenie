@@ -184,6 +184,38 @@ jobs:
           make test-built-engine BIN="$RUNNER_TEMP/bin"
 
   # ------------------------------------------------------------------
+  # native-engine-macos-arm64 (issue #114): Metal engines run NATIVELY (Metal
+  # cannot run in a container). On GitHub's Apple-Silicon runner (no Docker needed)
+  # the REAL TensorFold install script runs through the llgenie pick path:
+  # missing -> install, older -> update, current -> reuse, start script --version;
+  # the interactive pick (Qwen3.8-27B -> TensorFold, --dry: the 21 GB checkpoint does
+  # not fit a 7 GB runner); and the lightest TensorFold model (Qwen3.5-9B MLX 4-bit)
+  # through the llgenie start script: served on Metal + "hi" when TensorFold's plan
+  # fits the runner, else TensorFold's own budget refusal (macos-15 has 7 GB).
+  # Reports, never blocks (macOS runners are slow/unreliable).
+  # ------------------------------------------------------------------
+  native-engine-macos-arm64:
+    runs-on: macos-15
+    continue-on-error: true
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+      - name: hf CLI (lightest TensorFold model)
+        run: uv tool install "huggingface_hub[cli]>=0.30"
+      - name: make venv-dev-install (gguf venv + pytest)
+        run: make -C tools venv-dev-install
+      - name: "make test-native-engine (REAL uv: TensorFold install / update / reuse through the llgenie pick)"
+        run: make test-native-engine
+      - name: "make test-interactive-tensorfold-ci (plain interactive llgenie: pick Qwen3.8-27B, then TensorFold, real install)"
+        run: make test-interactive-tensorfold-ci
+      - name: "make test-native-engine-light (lightest TensorFold model on Metal via the llgenie start script, or its budget refusal)"
+        run: make test-native-engine-light
+
+  # ------------------------------------------------------------------
   # install-published: LAST stage, the same make command on Linux and on macOS.
   # Every push run (they all publish).
   # ------------------------------------------------------------------

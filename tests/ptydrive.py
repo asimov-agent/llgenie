@@ -60,13 +60,29 @@ class Pty:
             raise AssertionError(f"still running after {timeout}s:\n{self.out[-4000:]}")
         return self.proc.returncode
 
+    def _drain_until_exit(self, timeout: float) -> bool:
+        """Keep reading the master while the child exits: a child whose output fills the pty
+        buffer blocks in its exit until someone reads it (a real terminal always does)."""
+        end = time.time() + timeout
+        while time.time() < end:
+            if self.proc.poll() is not None:
+                return True
+            self._read(0.2)
+        return self.proc.poll() is not None
+
     def close(self) -> None:
         if self.proc.poll() is None:
             try:
                 os.killpg(self.proc.pid, signal.SIGTERM)
-                self.proc.wait(timeout=30)
-            except (ProcessLookupError, subprocess.TimeoutExpired):
-                os.killpg(self.proc.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass  # the group is already gone (macOS reports a reaped group as EPERM)
+            if not self._drain_until_exit(30):
+                try:
+                    os.killpg(self.proc.pid, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    self.proc.kill()
+                if not self._drain_until_exit(30):
+                    raise AssertionError(f"pid {self.proc.pid} did not exit after SIGKILL:\n{self.out[-4000:]}")
         try:
             os.close(self.master)
         except OSError:

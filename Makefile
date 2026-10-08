@@ -37,7 +37,7 @@ SERVER_ROOT ?= $(HOME)/repository/git
 # link always agree on the binary.
 SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 
-.PHONY: all install venv-install link uninstall smoke list version help \
+.PHONY: all install venv-install link uninstall smoke list version help test-native-engine test-native-engine-serve test-interactive-tensorfold test-interactive-tensorfold-ci \
 	openspec-image openspec-new openspec-validate openspec-status openspec-shell \
 	test test-unit test-agents-e2e test-agents-read agents-read-venv test-install test-install-ci test-install-host test-install-trend test-health test-health-host download-test-model \
 	test-image test-clean lint lint-fix loop loop-harness chained cron-install cron-uninstall cron-snapshot \
@@ -419,7 +419,7 @@ test-clean: ## Remove left-over/stopped orphaned containers of the test image (i
 	echo "Pruned stopped orphaned $(TEST_IMG) containers."
 
 test-unit: ## Hermetic unit tests (containerized) — includes the lint regression + openspec-tasks-check tests
-	$(TEST_RUN) python -m pytest tests/test_llama_ai.py tests/test_hf_download_stall.py tests/test_lint_linefeeds.py tests/test_watchloop_dispatch.py tests/test_check_openspec_tasks.py tests/test_install_watchloop_cron.py tests/test_watch_report.py tests/test_ci_variant_matrix.py tests/test_serve_variant.py tests/test_ensure_user_path.py tests/test_engine_skills.py tests/test_detect_server.py tests/test_model_engine_pick.py tests/test_trend_pick.py tests/test_strata_download.py tests/test_macos_install.py -p no:cacheprovider -q
+	$(TEST_RUN) python -m pytest tests/test_llama_ai.py tests/test_hf_download_stall.py tests/test_lint_linefeeds.py tests/test_watchloop_dispatch.py tests/test_check_openspec_tasks.py tests/test_install_watchloop_cron.py tests/test_watch_report.py tests/test_ci_variant_matrix.py tests/test_serve_variant.py tests/test_ensure_user_path.py tests/test_engine_skills.py tests/test_detect_server.py tests/test_model_engine_pick.py tests/test_trend_pick.py tests/test_strata_download.py tests/test_macos_install.py tests/test_mac_trend_pick.py tests/test_trend_list_acceptance.py tests/test_tensorfold_seamless.py -p no:cacheprovider -q
 
 test-agents-e2e: ## REAL end-to-end agent tests (containerized) — runs ONLY *_e2e*.py files directly
 	# issue #63 CI gate: exercises the REAL dispatcher spawn/kill/respawn against a fake
@@ -453,6 +453,32 @@ test-agents-read: agents-read-venv ## Guard: AGENTS.md must not match Hermes con
 
 test-install: ## Host install tests (containerized) — skips cleanly without artifacts
 	$(TEST_RUN) python -m pytest tests/test_install.py -p no:cacheprovider -q
+
+# Native (non-container) engine tests are hardware-scoped (issue #114): only Metal runs
+# natively, so they have test cases only on an Apple-Silicon Mac. On any other host
+# (every Linux CI job, cuda/rocm/vulkan/cpu) these targets have no case for that
+# hardware and say so; the Linux engines are tested through their images instead.
+# NATIVE_HOST= simulates a non-Metal host.
+NATIVE_HOST ?= $(shell [ "$$(uname -s)-$$(uname -m)" = "Darwin-arm64" ] && echo metal)
+NATIVE_GUARD = [ "$(NATIVE_HOST)" = "metal" ] || { echo "[$@] native engines are Metal-only: this host ($$(uname -s) $$(uname -m)) has none; its engines are tested in their images (make test-engine)"; exit 0; };
+
+test-native-engine: ## Apple-Silicon host: REAL native TensorFold install/update/reuse through the llgenie pick (real uv, isolated tool dir)
+	# issue #114: a Metal engine runs natively (Metal cannot run in a container), so
+	# this runs on the macOS arm64 host with the gguf venv python, never in the test image.
+	@$(NATIVE_GUARD) env -u PYTHONPATH $(PY) -m pytest tests/test_native_engine_real.py -p no:cacheprovider -q -s
+
+test-native-engine-serve: ## Apple-Silicon host: + `llgenie --select 1 --engine tensorfold` downloads, installs and serves on Metal, answers "hi"
+	@$(NATIVE_GUARD) env -u PYTHONPATH LLGENIE_NATIVE_SERVE=1 $(PY) -m pytest tests/test_native_engine_real.py -p no:cacheprovider -q -s
+
+test-native-engine-light: ## Apple-Silicon host: the lightest TensorFold model (Qwen3.5-9B MLX 4-bit) via the llgenie start script: serves on Metal + "hi" when TensorFold's plan fits this host, else the budget refusal (7 GB CI runner)
+	@$(NATIVE_GUARD) env -u PYTHONPATH $(PY) -m pytest tests/test_native_engine_light.py -p no:cacheprovider -q -s
+
+test-interactive-tensorfold: ## Apple-Silicon host: plain interactive `llgenie`, pick Qwen3.8-27B then TensorFold from the printed lists, installs TensorFold, serves on Metal, "hi"
+	# TEST_LAUNCHER=~/bin/llgenie tests the installed launcher (after make install); default: the repo script
+	@$(NATIVE_GUARD) env -u PYTHONPATH $(if $(TEST_LAUNCHER),LLGENIE_LAUNCHER=$(TEST_LAUNCHER)) $(PY) -m pytest tests/test_interactive_tensorfold_real.py -p no:cacheprovider -q -s
+
+test-interactive-tensorfold-ci: ## macOS arm64 CI runner: the same two interactive picks (48 GB Mac emulated, --dry) + the REAL TensorFold install; no Metal serve (7 GB runner)
+	@$(NATIVE_GUARD) env -u PYTHONPATH LLGENIE_NO_SERVE=1 $(PY) -m pytest tests/test_interactive_tensorfold_real.py -p no:cacheprovider -q -s
 
 test-install-host: ## Verify the REAL host install (make install) — runs on the host where ~/bin/llgenie + ~/models exist
 	# Runs tests/test_install.py with the gguf venv python on the HOST, so the

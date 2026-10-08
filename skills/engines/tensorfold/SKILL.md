@@ -30,7 +30,17 @@ binary: "tensorfold"
 detect:
   metal: "{binary} --help > /dev/null && uv tool list | grep '^tensorfold '"
   cuda: "{binary} --help > /dev/null && python3 -c 'import importlib.metadata as m; print(m.version(\"tensorfold\"))'"
-launch: "{binary} serve {model} --host {host} --port {port} --name {alias}"
+launch:
+  common: "{binary} serve {model} --host {host} --port {port} --name {alias}"
+  # Metal: a {context}-token window (LLGENIE_CONTEXT, default 65536 = Hermes Agent's 64K
+  # tool-use floor; 0 leaves the flag out so TensorFold sizes it to its budget).
+  # 65536 fits only with the full Mac budget below.
+  metal: "{context_flag}"
+env:
+  metal:
+    # the whole Mac's RAM; TensorFold caps it at the GPU's recommended working set
+    # (37.4 GiB on a 48 GB M5 Pro) instead of its default 70% (33.6 GiB, a 29,696 window)
+    TENSORFOLD_MEMORY_LIMIT_GB: "{ram_gib}"
 health: "GET /v1/models"
 alias_mode: flag
 container:
@@ -60,3 +70,14 @@ upstream_watch: [pyproject.toml, README.md, RUNBOOK.md, src/tensorfold/server.py
 so readiness is probed with `/v1/models`. Supported families only (Qwen3.8-27B,
 Qwen3.8 Flash Next, Nemotron, GLM-5.3-Flash, Gemma 4 26B, DeepSeek-V4-Flash,
 Ternary Bonsai 2 27B).
+
+On Metal llgenie adds `--context {context}` (default 65536, the 64K Hermes Agent needs
+for tool use; `LLGENIE_CONTEXT` overrides, `0` leaves the flag out so TensorFold sizes the
+window to its budget; TensorFold's own `--context 0` would mean unlimited) and sets
+`TENSORFOLD_MEMORY_LIMIT_GB` to the Mac's RAM, which TensorFold caps at the GPU's
+recommended working set. Its default budget is 70% of RAM: on a 48 GB Mac that is
+33.6 GiB and a 29,696-token window; the working set (37.4 GiB) serves Qwen3.8-27B-MLX-6bit
+with a 65,536 window (measured on an M5 Pro). A Mac whose budget cannot hold 65,536 tokens
+gets TensorFold's refusal ("a 65,536-token context window does not fit ... the most one
+request can use is N tokens"); `LLGENIE_CONTEXT=0` then serves the window it affords, below
+Hermes Agent's 64K floor. `--kv-dtype` is CUDA-only.

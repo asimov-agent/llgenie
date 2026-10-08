@@ -95,16 +95,55 @@ make install
    (`[local]` = already in `~/models`); one that cannot run here stays in the list as `--` with the reason.
 2. **Engines** for the chosen model, each with the format llgenie fetches for it: figures
    measured on this host's kind of hardware first (RTX for cuda, Radeon/Strix Halo for rocm/vulkan,
-   CPU for cpu), then figures from other hardware labelled `(ROCm)` / `(CPU)` / `(Metal)`, then
-   engines the registry lists as supported without a figure.
+   Apple Silicon for metal, CPU for cpu), then figures from other hardware labelled
+   `(CUDA)` / `(ROCm)` / `(CPU)` / `(Metal)`, then engines the registry lists as supported without a figure.
 3. **Download** when missing, in the engine's format:
    - `gguf`: the registry's GGUF repo, else the most-downloaded `<name>-GGUF` repo; the largest GGUF
      within 80% of the card minus 1 GiB (16 GB -> 11.8 GB). MoE models add system RAM minus 4 GiB
      (llama.cpp keeps the experts in RAM). Split models: all shards. Never MTP heads, imatrix or mmproj.
+     On a Mac (unified memory) the budget is 70% of RAM minus 7 GiB for every model (48 GB -> 26.6 GB).
    - `litertlm`: the generic `.litertlm` of the registry repo (not the gpu/web/vendor builds).
-   - `mlx-safetensors` / `safetensors`: the whole registry repo (config + weights).
+   - `mlx-safetensors` / `safetensors`: the whole registry repo (config + weights); for MLX also the
+     model's `<name>-MLX*` conversions on the Hub (the registry often names only the base repo).
+   - TensorFold: only TensorFold's own checkpoints, the largest `TensorFold/<name>-MLX-*` that fits.
 4. **Serve** through `~/bin/llgenie-engine-<id>` (image pulled on first use) on
    `127.0.0.1:<port>/v1` as `llm-local`.
+
+**On an Apple-Silicon Mac (issue #114)** the list is a `metal` list. TensorFold, MLX,
+llama.cpp, Prism, Ollama and LiteRT run **natively**, shown as `[metal]`, because Metal
+cannot run in a container. **Picking a Metal engine makes it ready by itself, installed or
+not:** missing → llgenie runs the skill's install script (TensorFold: `uv tool install
+--force 'tensorfold @ git+…@v<pinned>'`; the MLX wheels ship their Metal kernels
+precompiled); installed at another version than the skill pins → it updates to the pin;
+at the pin → it is reused. The engine list says which: `(installs 0.6.5 on pick)`,
+`(installed 0.6.4 -> updates to 0.6.5 on pick)` or `(installed 0.6.5)`. Then llgenie
+downloads the model's TensorFold checkpoint if missing, writes a native
+`~/bin/llgenie-engine-<id>` (no docker) and serves. TensorFold gets a **65,536-token window**
+(`--context`, the 64K Hermes Agent needs for tool use; `LLGENIE_CONTEXT=<n>` overrides, `0`
+lets TensorFold size it to its budget; a Mac too small for 65,536 tokens gets TensorFold's
+"does not fit ... the most one request can use is N tokens" refusal, then serve with
+`LLGENIE_CONTEXT=0`) and the Mac's full GPU working set as its budget
+(`TENSORFOLD_MEMORY_LIMIT_GB`): its default 70% gives a 48 GB Mac only 29,696 tokens. Point a
+client at `http://127.0.0.1:11434/v1`, model `llm-local`, context length 65536. Container-only engines
+fall back to their cpu image, and cuda/rocm-only engines (Strata, SGLang, ...) are not
+offered. The TensorFold *image* is CUDA-only and built by the Linux CI. A Linux container
+cannot reach the Apple GPU, so no Metal image exists. Qwen3.8-Flash-Next 125B needs
+≥ 63 GB of TensorFold weights: on a 48 GB Mac it is listed with that reason, and on a
+128 GB Mac it is pick 1 on TensorFold.
+
+The list is tested without the prompt (`llgenie --trend` prints exactly the rows the
+prompt asks from): `tests/test_mac_trend_pick.py` (Mac),
+`tests/test_trend_list_acceptance.py` (acceptance criteria AC1–AC8 on linux
+cuda/rocm/vulkan/cpu and mac metal) and `tests/test_tensorfold_seamless.py`
+(install / update / reuse on pick), all in `make test-unit`. On an Apple-Silicon Mac,
+`make test-native-engine` runs the REAL TensorFold install script through the pick
+(missing → install, older → update, current → reuse; isolated uv tool dir, also the CI
+job `native-engine-macos-arm64`), and `make test-native-engine-serve` adds the real
+`llgenie --select 1 --engine tensorfold` download of Qwen3.8-27B's TensorFold checkpoint +
+Metal serve with `context: 65536` + "hi". `make test-native-engine-light` serves the lightest
+model TensorFold runs (`mlx-community/Qwen3.5-9B-MLX-4bit`, 5.5 GiB) through the llgenie start
+script on Metal; on GitHub's 7 GB `macos-15` runner TensorFold's own budget check refuses it
+instead (smaller Qwen3.5 sizes tie their embeddings, which TensorFold 0.6.5 refuses).
 
 Without a terminal:
 
@@ -646,6 +685,14 @@ make test-install      # install tests (run in-container; host-artifact asserts 
 make test-install-ci   # REAL install tests, NO SKIPS: make install + model + assert in ONE container
 make test-uninstalled  # after make uninstall: no launcher/shim/llgenie-engine-* left, no engine container
 make test-install-host # verify the REAL host install: ~/bin/llgenie + symlinks + ~/models (runs on host)
+make test-native-engine        # Apple Silicon: REAL TensorFold install / update / reuse through the llgenie pick
+make test-native-engine-serve  # + llgenie --select 1 --engine tensorfold downloads Qwen3.8-27B, serves on Metal (context 65536), "hi"
+make test-native-engine-light  # lightest TensorFold model (Qwen3.5-9B MLX 4-bit) via the start script: Metal "hi", or the budget refusal on a 7 GB runner
+make test-interactive-tensorfold                          # plain interactive llgenie: pick Qwen3.8-27B, then TensorFold -> installs, serves on Metal, "hi"
+make test-interactive-tensorfold TEST_LAUNCHER=~/bin/llgenie  # the same through the launcher `make install` wrote
+make test-interactive-tensorfold-ci                       # macOS CI runner variant: same picks (--dry, 48 GB emulated) + real install
+# The native targets above are Metal-only: on Linux (any backend) they print that the host
+# has no native engine and exit 0; Linux engines are tested in their images (make test-engine).
 make test-health       # end-to-end CPU LLM check: downloads tiny model, answers "hi"
 make test-top-tier     # REAL acceptance (no mocks): live HF trending + fit gate + real download
 make test-top-tier-serve  # download a lightweight top-tier model, load llama-server, answer 'hi', check RAM

@@ -67,16 +67,36 @@ def engine_formats() -> dict[str, list[str]]:
     return {sid: [str(f).lower() for f in (s.get("formats") or [])] for sid, s in es.load_skills().items()}
 
 
+def metal_engines() -> set[str]:
+    """Engine ids that run natively on Apple-Silicon Metal (issue #114): a servable
+    skill (servable: true, not a `via` harness) with `metal` in its backends and an
+    install for it. Metal cannot run in a container, so these are the only engines
+    installed on the host (engine_skills.native_allowed); their `metal` variant is
+    native (scripts/install_engine_launchers.py writes a native start script)."""
+    sys.path.insert(0, str(REPO / "scripts"))
+    import engine_skills as es
+    out = set()
+    for sid, s in es.load_skills().items():
+        if s.get("servable") is True and "metal" in (s.get("backends") or []) \
+                and es._per_backend(s.get("install"), "metal"):
+            out.add(sid)
+    return out
+
+
 def engine_ids() -> dict[str, dict]:
-    """Registry engine name -> {id, variants, formats} from the generated params."""
+    """Registry engine name -> {id, variants, formats} from the generated params,
+    plus the native `metal` variant of every Metal engine (metal_engines)."""
     out = {}
     fmts = engine_formats()
+    metal = metal_engines()
     sys.path.insert(0, str(REPO / "scripts"))
     import engine_image as ei
     for pf in PARAMS.glob("*.json"):
         p = json.loads(pf.read_text())
-        out[p["engine"]] = {"id": p["id"], "formats": fmts.get(p["id"], []),
-                            "variants": [v for v in (p.get("variants") or {}) if not ei.disabled(p["id"], v)]}
+        variants = [v for v in (p.get("variants") or {}) if not ei.disabled(p["id"], v)]
+        if p["id"] in metal:
+            variants.append("metal")
+        out[p["engine"]] = {"id": p["id"], "formats": fmts.get(p["id"], []), "variants": variants}
     return out
 
 
@@ -112,10 +132,13 @@ def engines_for_file(path: Path, arch: str | None = None) -> list[dict]:
 
 
 def host_arch() -> str:
+    """cuda | rocm | vulkan | metal | cpu. An Apple-Silicon Mac is `metal` (issue #114):
+    its native Metal engines come first, container images fall back to cpu."""
     try:
         sys.path.insert(0, str(REPO / "scripts"))
         import detect_server as d
-        return {"cuda": "cuda", "rocm": "rocm", "vulkan": "vulkan"}.get(d.detect_all().get("backend"), "cpu")
+        return {"cuda": "cuda", "rocm": "rocm", "vulkan": "vulkan",
+                "metal": "metal"}.get(d.detect_all().get("backend"), "cpu")
     except Exception:  # noqa: BLE001
         return "cpu"
 
@@ -148,7 +171,7 @@ _AMD_GPU = re.compile(
     r"\s?(?:xtx|xt|gre)\b|\brocm\b|\bhip\b|\bstrix[\s-]?halo\b|\bryzen\s+ai\s+max\b"
     r"|\b(?:8065s|8060s|8050s|890m|880m|780m|760m|680m|660m)\b|\bgfx\d{3,4}\b|\binstinct\b|\bmi\d{3}x?\b"
     r"|\br9700\b|\bw7[89]00\b|\brdna\s?\d|\bnavi\s?\d|\bamd\s+(?:gpu|graphics)\b", re.I)
-HOST_TO_MEASURED = {"cuda": "CUDA", "rocm": "ROCm", "vulkan": "ROCm", "cpu": "CPU"}
+HOST_TO_MEASURED = {"cuda": "CUDA", "rocm": "ROCm", "vulkan": "ROCm", "metal": "Metal", "cpu": "CPU"}
 
 
 def measurement_backend(e: dict) -> str:
@@ -308,23 +331,26 @@ def offer(registry: dict, arch: str | None = None, gb: float | None = None,
     (plan_download per format). Each engine gets `use_format`; engines without a
     usable format are dropped; a row with none left gets `why`.
     Strata reads only the files its setup.py names, so it gets its own plan and local
-    copy (`engine_plans` / `engine_local`), never the generic GGUF of the format."""
+    copy (`engine_plans` / `engine_local`), never the generic GGUF of the format.
+    TensorFold likewise serves only its own MLX checkpoints (TensorFold/<base>-MLX-*,
+    issue #114), so it gets its own plan / local copy too."""
     arch = arch or host_arch()
     gb = card_gb() if gb is None else gb
     rows = recommend(registry, arch, gb, all_rows=True)
+    own = ("strata", "tensorfold")  # engines that read only their own checkpoints
     for r in rows:
         r["local"] = resolve_local(r["model"], root)
         r["plans"], r["engine_plans"], r["engine_local"] = {}, {}, {}
         if r["why"]:
             continue
         local_fmt = model_format(r["local"]) if r["local"] else None
-        generic = [e for e in r["engines"] if e["id"] != "strata"]
+        generic = [e for e in r["engines"] if e["id"] not in own]
         wanted = [f for f in DOWNLOADABLE if any(f in e["formats"] for e in generic)]
         for f in wanted:
             if f != local_fmt:
                 r["plans"][f] = plan_download(r["model"], gb, ram_gb, f, arch)
         usable = {f for f, pl in r["plans"].items() if pl} | ({local_fmt} if local_fmt else set())
-        kept = []
+        kept, own_missed = [], []
         for e in r["engines"]:
             if e["id"] == "strata":
                 here = strata_local(root, ram_gb) if strata_serves(r["model"]) else None
@@ -333,6 +359,16 @@ def offer(registry: dict, arch: str | None = None, gb: float | None = None,
                     r["engine_local"]["strata"], r["engine_plans"]["strata"] = here, plan
                     kept.append({**e, "use_format": "gguf"})
                 continue
+            if e["id"] == "tensorfold":
+                here = tensorfold_local(r["model"], root)
+                plan = None if here else plan_download(r["model"], gb, ram_gb, "mlx-safetensors", arch,
+                                                       engine="tensorfold")
+                if here or plan:
+                    r["engine_local"]["tensorfold"], r["engine_plans"]["tensorfold"] = here, plan
+                    kept.append({**e, "use_format": "mlx-safetensors"})
+                else:
+                    own_missed.append("tensorfold")
+                continue
             fmt = next((f for f in e["formats"] if f == local_fmt), None) or \
                 next((f for f in e["formats"] if f in usable), None)
             if fmt:
@@ -340,7 +376,7 @@ def offer(registry: dict, arch: str | None = None, gb: float | None = None,
         r["engines"] = kept
         r["tps"] = kept[0]["tps"] if kept else 0.0
         if not kept:
-            r["why"] = _no_fit_reason(r["model"], wanted, gb, arch, ram_gb)
+            r["why"] = _no_fit_reason(r["model"], wanted, gb, arch, ram_gb, own_missed)
     return rows
 
 
@@ -358,12 +394,22 @@ def engine_local(row: dict, eng: dict) -> Path | None:
     return row.get("local")
 
 
-def _no_fit_reason(model: dict, fmts: list[str], gb: float, arch: str, ram_gb) -> str:
+def _no_fit_reason(model: dict, fmts: list[str], gb: float, arch: str, ram_gb,
+                   own_missed: list[str] | None = None) -> str:
+    """Why no engine is left: the smallest download of each engine that could run it
+    against what this host holds (TensorFold: its own smallest checkpoint)."""
+    budget = weight_budget_gb(gb, is_moe(model), ram_gb, arch)
+    parts = []
+    if "tensorfold" in (own_missed or []):
+        s = tensorfold_smallest(model)
+        parts.append(f"smallest TensorFold MLX is {s['size'] / 2**30:.0f} GB" if s
+                     else "TensorFold publishes no MLX checkpoint of it")
     if "gguf" in fmts:
         ws = gguf_weights(gguf_repo(model) or "")
         if ws:
-            return (f"smallest GGUF is {ws[0]['size'] / 2**30:.0f} GB > "
-                    f"{weight_budget_gb(gb, is_moe(model), ram_gb, arch):.0f} GB this host can hold")
+            parts.append(f"smallest GGUF is {ws[0]['size'] / 2**30:.0f} GB")
+    if parts:
+        return f"{', '.join(parts)} > {budget:.0f} GB this host can hold"
     return f"no {'/'.join(fmts) or 'supported'} download of it fits this host"
 
 
@@ -530,10 +576,17 @@ def weight_budget_gb(gb: float, moe: bool = False, ram_gb: float | None = None, 
     Dense: 80% of the card minus 1 GiB (KV cache + compute buffers stay on the GPU;
     16 GB -> 11.8 GB). MoE on a GPU host: plus system RAM minus 4 GiB for the OS,
     because llama.cpp keeps the experts in RAM (--fit / mmap). On a cpu host the
-    "card" already is system RAM, so nothing is added. (Strata is not sized by this
-    rule: it installs what its own setup.py picks, strata_choice.)"""
+    "card" already is system RAM, so nothing is added. On a metal host (Apple
+    Silicon, unified memory, issue #114) the GPU may wire about 70% of RAM (MLX's
+    default process budget; Metal's recommended working set is close to it): 70%
+    minus 3 GiB process reserve minus 4 GiB for KV cache (48 GB -> 26.6 GB), MoE or
+    not, since there is no separate RAM to spill the experts into.
+    (Strata is not sized by this rule: it installs what its own setup.py picks,
+    strata_choice.)"""
     if gb <= 0:
         return float("inf")
+    if arch == "metal":
+        return max(gb * 0.7 - 7, gb * 0.4)
     card = max(gb * 0.8 - 1, gb * 0.5)
     if not moe or arch == "cpu":
         return card
@@ -669,13 +722,17 @@ def plan_download(model: dict, gb: float | None = None, ram_gb: float | None = N
     nothing of it in that format fits. {repo, path, size, files[, dir]}:
       gguf             largest GGUF in the GGUF repo within the budget (shards summed)
       litertlm         the generic .litertlm (no gpu/web/vendor build) that fits
-      mlx-safetensors  a registry repo named MLX with config.json + safetensors (whole repo)
-      safetensors      a non-MLX registry repo with config.json + safetensors (whole repo)"""
+      mlx-safetensors  a registry repo named MLX with config.json + safetensors (whole repo),
+                       else the most-downloaded `<name>-MLX*` Hub repo that fits
+      safetensors      a non-MLX registry repo with config.json + safetensors (whole repo)
+    engine="tensorfold": only TensorFold's own MLX checkpoints (tensorfold_plan)."""
     gb = card_gb() if gb is None else gb
     arch = arch or host_arch()
     budget = weight_budget_gb(gb, is_moe(model), ram_gb, arch) * 2**30
     if engine == "strata":  # only the files Strata's setup.py names
         return strata_plan(ram_gb) if fmt == "gguf" and strata_serves(model) else None
+    if engine == "tensorfold":  # only the checkpoints TensorFold publishes for its families
+        return tensorfold_plan(model, budget) if fmt == "mlx-safetensors" else None
     if fmt == "gguf":
         repo = gguf_repo(model)
         if not repo:
@@ -693,7 +750,10 @@ def plan_download(model: dict, gb: float | None = None, ram_gb: float | None = N
                 return {"repo": repo, "path": path, "size": size, "files": [path]}
         return None
     if fmt in ("mlx-safetensors", "safetensors"):
-        for repo in _model_repos(model):
+        repos = _model_repos(model)
+        if fmt == "mlx-safetensors":  # the registry names the base repo: find its MLX conversions
+            repos += mlx_repos(model)
+        for repo in dict.fromkeys(repos):
             if ("mlx" in repo.lower()) != (fmt == "mlx-safetensors"):
                 continue
             snap = _snapshot(repo)
@@ -701,6 +761,71 @@ def plan_download(model: dict, gb: float | None = None, ram_gb: float | None = N
                 return snap
         return None
     return None
+
+
+def _base_name(model: dict) -> str:
+    return str(model.get("hf") or "").rsplit("/", 1)[-1]
+
+
+def mlx_repos(model: dict) -> list[str]:
+    """Hub repos named `<base>-MLX...` (the model's own org first, then by downloads):
+    the MLX conversions of a model the registry lists only by its base repo
+    (ornith-ai/Ornith-1.5-9B -> ornith-ai/Ornith-1.5-9B-MLX-4bit)."""
+    name = _base_name(model)
+    if not name:
+        return []
+    org = str(model.get("hf") or "").split("/", 1)[0].lower()
+    try:
+        hits = _hub_json(f"{HF}/api/models?search={urllib.parse.quote(name)}&filter=mlx"
+                         f"&sort=downloads&direction=-1&limit=50")
+    except Exception:  # noqa: BLE001  (Hub down: no conversions)
+        return []
+    want = (name + "-mlx").lower()
+    ids = [h["id"] for h in hits if h["id"].split("/", 1)[-1].lower().startswith(want)]
+    return sorted(ids, key=lambda i: i.split("/")[0].lower() != org)
+
+
+TENSORFOLD_ORG = "TensorFold"
+
+
+def tensorfold_repos(model: dict) -> list[str]:
+    """TensorFold's own MLX checkpoints of `model` (TensorFold/<base>-MLX-<quant>[-MTP]):
+    TensorFold serves only the families it ships kernels for, and publishes their
+    checkpoints under its org (README "Supported models"; NVFP4/oQ are CUDA/other)."""
+    name = _base_name(model)
+    if not name:
+        return []
+    try:
+        hits = _hub_json(f"{HF}/api/models?author={TENSORFOLD_ORG}&search={urllib.parse.quote(name)}&limit=100")
+    except Exception:  # noqa: BLE001
+        return []
+    want = f"{TENSORFOLD_ORG}/{name}-MLX-".lower()
+    return sorted(h["id"] for h in hits if h["id"].lower().startswith(want))
+
+
+def tensorfold_plan(model: dict, budget_bytes: float) -> dict | None:
+    """The largest TensorFold MLX checkpoint of `model` within the budget (whole repo)."""
+    snaps = [s for s in (_snapshot(r) for r in tensorfold_repos(model)) if s]
+    fit = [s for s in snaps if s["size"] <= budget_bytes]
+    return max(fit, key=lambda s: (s["size"], s["repo"])) if fit else None
+
+
+def tensorfold_smallest(model: dict) -> dict | None:
+    snaps = [s for s in (_snapshot(r) for r in tensorfold_repos(model)) if s]
+    return min(snaps, key=lambda s: s["size"]) if snaps else None
+
+
+def tensorfold_local(model: dict, root: Path | None = None) -> Path | None:
+    """A downloaded TensorFold checkpoint of `model` under the models root
+    (~/models/TensorFold__<base>-MLX-*/ with config.json), largest first."""
+    root = root or models_root()
+    name = _base_name(model)
+    if not name or not root.exists():
+        return None
+    pre = f"{TENSORFOLD_ORG}__{name}-MLX-".lower()
+    hits = [p for p in root.iterdir() if p.is_dir() and p.name.lower().startswith(pre)
+            and (p / "config.json").exists()]
+    return max(hits, key=lambda p: sum(f.stat().st_size for f in p.glob("*.safetensors"))) if hits else None
 
 
 def download_chunk(repo: str, filename: str, dest: Path, max_bytes: int, revision: str = "main") -> Path:

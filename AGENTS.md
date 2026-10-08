@@ -144,6 +144,13 @@ git merge-base --is-ancestor origin/main HEAD 2>/dev/null \
   never force-push to rewrite another commit's history. After rebasing a
   branch that already has an open PR, `git push --force-with-lease` is the
   correct way to update it.
+- **Squashing your own PR branch before review is allowed (when the user asks).**
+  While the PR has no approving review yet and every commit on the branch is your
+  own, you may squash the branch into ONE Conventional Commit that references the
+  issue (`git reset --soft origin/main && git commit`, after the fetch+rebase above)
+  and update the PR with `git push --force-with-lease origin feat/<name>`. Once a
+  reviewer has engaged, review fixes go on top as normal commits again (see "PR
+  review comments"); never squash `main` or a branch someone else pushed to.
 
 1. **Before starting, branch off the latest `main`:**
    ```bash
@@ -367,6 +374,27 @@ No engine is compiled or pip-installed on the host.
   `llgenie`), then runs `make test-built-engine`: every start script must print its
   engine version via its image. Only Metal (Apple-Silicon, cannot run in a container)
   is exempt.
+- **Native Metal engines (issue #114) — the one exception to "only in images".** On an
+  Apple-Silicon Mac (`host_arch()` = `metal`) the engines whose skill has a `metal`
+  install (TensorFold first) run natively, because Metal cannot reach a container. They
+  are never installed by `make install`; **the llgenie pick makes them ready**:
+  interactive `llgenie` is hardware → README trend list that fits → model → its engines
+  → engine, and picking a Metal engine runs its skill's install script whatever is on
+  the host: missing → install, installed at another version than the skill's pinned
+  `version:` → update to the pin, at the pin → reuse
+  (`engine_skills.native_status` / `install_engine_launchers.ensure_native`). The
+  engine list shows which (`(installs X on pick)` / `(installed A -> updates to X on
+  pick)` / `(installed X)`), `--dry` never installs, a failed install fails loudly and
+  leaves no start script. Never add a second install path for them.
+- **Native engine tests are hardware-scoped.** `make test-native-engine`,
+  `test-native-engine-serve`, `test-native-engine-light`, `test-interactive-tensorfold[-ci]` run their real cases
+  (real `uv`, isolated `UV_TOOL_DIR`, real install, Metal serve) only on an
+  Apple-Silicon Mac — locally and in the CI job `native-engine-macos-arm64`. On any
+  other host (every Linux job) they print that native engines are Metal-only and exit
+  0; that host's engines are tested in their images. Never call them from a Linux job
+  and never make them run Metal cases elsewhere. The picking logic itself is covered
+  on every host by hermetic tests in `make test-unit` (`tests/test_tensorfold_seamless.py`,
+  incl. the interactive pty pick of Qwen3.8-27B → TensorFold).
 - **Tests never run an engine on the host.** All engine tests go through the engine
   images; the only host artifacts are the files `make install` writes. Python test
   tools come from the test image (`containers/test/Dockerfile`, deps from
@@ -546,6 +574,17 @@ chains them all.
 - `make test-install` — host install tests (verify installed launcher runs a model).
 - `make test-health` — **end-to-end**: launch the tiny model from `~/bin`, answer
   `"hi"` on `/v1/chat/completions`, assert a healthy reply.
+- `make test-native-engine` — Apple Silicon only (else prints why, exits 0): REAL
+  TensorFold install / update / reuse through the llgenie pick + start script version.
+  `make test-native-engine-serve` adds the real Qwen3.8-27B download + Metal serve (context
+  65536) + "hi". `make test-native-engine-light` serves the lightest TensorFold model
+  (Qwen3.5-9B MLX 4-bit) through the start script on Metal, or proves TensorFold's budget
+  refusal on a host too small for it (the 7 GB macos-15 runner).
+- `make test-interactive-tensorfold` — Apple Silicon only: plain interactive `llgenie`
+  in a pty, picks Qwen3.8-27B then TensorFold from the printed lists, real install,
+  Metal serve, "hi" (`TEST_LAUNCHER=~/bin/llgenie` tests the installed launcher).
+  `make test-interactive-tensorfold-ci` — the macOS CI runner variant (`--dry`, 48 GB
+  emulated, real install, no serve).
 - `make test` — fast suite (unit + install; health excluded from `test` — run
   `test-health` in the chain).
 - `make loop` / `make loop-harness` — run the chained `scripts/loop_harness.py`.

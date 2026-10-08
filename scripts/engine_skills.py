@@ -319,6 +319,14 @@ def context(skill: dict, backend: str, hw: dict, extra: dict | None = None) -> d
         "server_root": server_root, "repo_root": str(REPO_ROOT),
         "host": "127.0.0.1", "port": "11434", "alias": "llm-local",
         "model": "{model}", "drafter": "{drafter}",
+        # serving window for engines that take one (TensorFold on Metal): Hermes Agent's
+        # 64K tool-use floor by default; LLGENIE_CONTEXT overrides, 0 leaves the flag out so
+        # the engine sizes the window to its memory budget (TensorFold's `--context 0` on
+        # Metal would instead mean "unlimited")
+        "context": os.environ.get("LLGENIE_CONTEXT") or "65536",
+        "context_flag": ("" if (os.environ.get("LLGENIE_CONTEXT") or "65536").strip() == "0"
+                         else f"--context {os.environ.get('LLGENIE_CONTEXT') or '65536'}"),
+        "ram_gib": str(int(int(hw.get("card_ram_bytes") or 0) / 2**30) or ""),
     }
     # native builds follow the branch tip (as make install always has); image
     # builds check out exactly `pinned`, so the image tag never lies.
@@ -496,16 +504,53 @@ def install(skill: dict, backend: str, hw: dict, dry: bool = False,
 
 
 def detect(skill: dict, backend: str, hw: dict) -> int:
+    rc, _ = _detect_run(skill, backend, hw)
+    return rc
+
+
+def _detect_run(skill: dict, backend: str, hw: dict, quiet: bool = False) -> tuple[int, str]:
+    """Run the skill's detect command; (exit code, its first output line)."""
     p = plan(skill, backend, hw)
     if not p["detect"]:
-        print(f"[engine-skills] {skill['id']}: no detect command")
-        return 1
+        if not quiet:
+            print(f"[engine-skills] {skill['id']}: no detect command")
+        return 1, ""
     r = subprocess.run(["bash", "-euo", "pipefail", "-c", env_prelude(p["env"]) + p["detect"]],
                        capture_output=True, text=True)
     first = (r.stdout or r.stderr).strip().splitlines()[:1]
-    status = "installed" if r.returncode == 0 else "missing"
-    print(f"[engine-skills] {skill['id']}/{backend}: {status} {first[0] if first else ''}".rstrip())
-    return 0 if r.returncode == 0 else 1
+    line = first[0] if first else ""
+    if not quiet:
+        status = "installed" if r.returncode == 0 else "missing"
+        print(f"[engine-skills] {skill['id']}/{backend}: {status} {line}".rstrip())
+    return (0 if r.returncode == 0 else 1), line
+
+
+_SEMVER = re.compile(r"(\d+\.\d+(?:\.\d+)?)")
+
+
+def pinned_version(skill: dict) -> str | None:
+    """The release the skill pins (`version:` e.g. v0.6.5 -> 0.6.5), or None for a
+    branch-tracking skill (ref: master) that has no release to compare against."""
+    m = _SEMVER.search(str(skill.get("version") or ""))
+    return m.group(1) if m else None
+
+
+def native_status(skill: dict, backend: str, hw: dict) -> dict:
+    """Native (metal) install state of an engine, issue #114:
+    missing  -> llgenie installs it with the skill's install steps,
+    outdated -> installed version != the skill's pinned version: llgenie updates it,
+    current  -> installed at the pinned version (or the skill pins no release)."""
+    rc, line = _detect_run(skill, backend, hw, quiet=True)
+    want = pinned_version(skill)
+    m = _SEMVER.search(line) if rc == 0 else None
+    have = m.group(1) if m else None
+    if rc != 0:
+        state = "missing"
+    elif want and have and _version_tuple(have) != _version_tuple(want):
+        state = "outdated"
+    else:
+        state = "current"
+    return {"state": state, "installed": have, "wanted": want}
 
 
 def serve(skill: dict, backend: str, hw: dict, model: str, host: str = "127.0.0.1",

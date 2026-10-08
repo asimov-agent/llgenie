@@ -1389,9 +1389,11 @@ def _ensure_and_exec(eng, path, args):
     print("Command: " + " ".join(cmd))
     if args.dry:
         return
-    ensure_container_env()
+    if eng["variant"] != "metal":  # a native Metal engine (issue #114) needs no container runtime
+        ensure_container_env()
     # first use of this engine: pull its published image for this backend and
-    # write its start script (make install only installs the llama.cpp core)
+    # write its start script (make install only installs the llama.cpp core);
+    # metal: install it natively with its skill and write a native start script
     inst = os.path.join(os.path.dirname(os.path.abspath(__file__)), "install_engine_launchers.py")
     rc = subprocess.run([sys.executable, inst, "--bin", os.path.dirname(script),
                          "--ensure", eng["id"], "--arch", eng["variant"]]).returncode
@@ -1510,6 +1512,24 @@ def _print_trend(mp, reg, rows, gb):
         print(f"  {n:2d}.  {head}{e['engine']} {_tps_label(e)}{mark}")
 
 
+_STATE_LABEL = {"missing": "  (installs {wanted} on pick)",
+                "outdated": "  (installed {installed} -> updates to {wanted} on pick)",
+                "current": "  (installed {installed})"}
+
+
+def _engine_state(eng, _cache={}):
+    """Metal engines run natively (issue #114): show whether picking one installs,
+    updates or reuses it. Container engines show nothing (their image is pulled)."""
+    if eng.get("variant") != "metal":
+        return ""
+    if eng["id"] not in _cache:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import install_engine_launchers as iel
+        _cache[eng["id"]] = iel.native_state(eng["id"])
+    st = _cache[eng["id"]]
+    return _STATE_LABEL[st["state"]].format(installed=st["installed"] or "", wanted=st["wanted"] or "latest")
+
+
 def _main_pick(args):
     """Trend pick (issue #105): recommended model -> its engines -> download -> serve."""
     mp = _pick_mp()
@@ -1558,7 +1578,7 @@ def _main_pick(args):
         if not args.auto and not args.select and sys.stdin.isatty():
             print(f"\nEngines for {model['name']} on this host, best t/s measured on {mp.host_arch()} hardware first:")
         eng = mp.choose(engines, lambda e: f"{e['engine']:<34} [{e['variant']}] {_tps_label(e):<16} "
-                                           f"{e['use_format']:<16} {e['hardware']}",
+                                           f"{e['use_format']:<16} {e['hardware']}{_engine_state(e)}",
                         "inference server", None, args.auto or bool(args.select))
     fmt = eng["use_format"]
     path = Path(args.model_file).expanduser().resolve() if args.model_file else mp.engine_local(row, eng)
@@ -1583,7 +1603,7 @@ def _main_pick(args):
         else:
             path = mp.download(model, gb, fmt=fmt, engine=eng["id"], plan=plan)
     print(f"\nModel  : {model['name']}  ({path})")
-    print(f"Engine : {eng['engine']} [{eng['variant']}]  {_tps_label(eng)}")
+    print(f"Engine : {eng['engine']} [{eng['variant']}]  {_tps_label(eng)}{_engine_state(eng)}")
     _ensure_and_exec(eng, path, args)
 
 
