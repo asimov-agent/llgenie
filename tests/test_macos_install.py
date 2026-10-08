@@ -278,26 +278,29 @@ def test_linux_and_macos_run_the_same_pipeline():
 
     # And linux and macos call the same pipeline, on a Linux and a macOS runner
     assert callers["linux"] == ("./.github/workflows/pipeline.yml", "ubuntu-latest")
-    assert callers["macos"] == ("./.github/workflows/pipeline.yml", "macos-15-intel")
+    # (macOS: the same make ci-<job> targets in three Docker-VM jobs, issue #117)
+    assert callers["macos"] == ("./.github/workflows/pipeline-macos.yml", "macos-15-intel")
     assert callers["linux-published"] == ("./.github/workflows/published.yml", "ubuntu-latest")
     assert callers["macos-published"] == ("./.github/workflows/published.yml", "macos-15-intel")
 
     # And every pipeline job runs on the caller's runner and only through make
-    for name, job in pipeline.items():
+    mac_pipeline = yaml.safe_load((wf / "pipeline-macos.yml").read_text())["jobs"]
+    for name, job in {**pipeline, **mac_pipeline}.items():
         assert job["runs-on"] == "${{ inputs.runner }}", name
 
     # And only the linux jobs gate the run: every macOS job is optional (continue-on-error),
     # so a macOS failure or timeout reports on the PR but never turns the run red
     published = yaml.safe_load((wf / "published.yml").read_text())["jobs"]
-    for name, job in {**pipeline, **published}.items():
+    for name, job in {**pipeline, **mac_pipeline, **published}.items():
         assert job["continue-on-error"] == "${{ inputs.optional }}", name
     assert jobs["macos"]["with"]["optional"] is True and jobs["macos-published"]["with"]["optional"] is True
     assert "optional" not in jobs["linux"]["with"] and "optional" not in jobs["linux-published"]["with"]
     install = "\n".join(st.get("run", "") for st in pipeline["install"]["steps"])
-    assert "make test-install-ci" in install
+    assert "make ci-install" in install and "$(MAKE) test-install-ci ARCH=cpu" in mk
 
     # And the only OS-specific steps are Docker's own setup actions on macOS (no Colima)
     mac_steps = [st for st in docker["runs"]["steps"] if st.get("if") == "runner.os == 'macOS'"]
+    # (the action's other steps run on both OSes: docker version + the GHCR read login, issue #117)
     assert [st.get("uses", "").split("@")[0] for st in mac_steps] == [
         "docker/setup-docker-action", "docker/setup-buildx-action"]
     assert "colima" not in (REPO / ".github/actions/docker/action.yml").read_text().lower()
@@ -417,7 +420,7 @@ def test_agents_read_builds_its_own_python312_venv():
 
     # Given the Makefile and the shared CI pipeline
     mk = (REPO / "Makefile").read_text()
-    job = yaml.safe_load((REPO / ".github/workflows/pipeline.yml").read_text())["jobs"]["agents-read"]
+    jobs = yaml.safe_load((REPO / ".github/workflows/pipeline.yml").read_text())["jobs"]
 
     # When the test-agents-read recipe and the venv rule are read
     recipe = mk[mk.index("\ntest-agents-read:"):mk.index("\ntest-install:")]
@@ -432,8 +435,15 @@ def test_agents_read_builds_its_own_python312_venv():
     assert '"$(AGENTS_READ_VENV)/bin/python" scripts/scan_agents_md.py AGENTS.md' in recipe
     assert '"$(AGENTS_READ_VENV)/bin/python" -m pytest tests/test_agents_read.py' in recipe
 
-    # And the CI job runs no pip or pytest itself, only make
-    runs = [st["run"] for st in job["steps"] if "run" in st]
-    assert runs == ["make test-agents-read"]
+    # And the CI job runs no pip or pytest itself, only make (one ci-<job> target, issue #117)
+    runs = [st["run"] for st in jobs["agents-read"]["steps"] if "run" in st]
+    assert runs == ["make ci-agents-read"]
+    ci_recipe = mk.split("\nci-agents-read:", 1)[1].split("\n\n", 1)[0]
+    assert "$(MAKE) test-agents-read" in ci_recipe
+    # And the macOS combined job sets up the same python3.12 before that step
+    checks = yaml.safe_load((REPO / ".github/workflows/pipeline-macos.yml").read_text())["jobs"]["checks"]["steps"]
+    assert any(st.get("uses", "").startswith("actions/setup-python") and st["with"]["python-version"] == "3.12"
+               for st in checks)
+    assert any(st.get("run") == "make ci-agents-read" for st in checks)
     # And the venv lives outside the repo (the guard rejects a hermes module from the repo)
     assert "AGENTS_READ_VENV  ?= $(HOME)/.cache/llgenie/agents-read-venv" in mk

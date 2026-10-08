@@ -38,7 +38,8 @@ Rules:
 - **Create/validate through the CLI, never by hand-writing the change dir.**
   The CLI runs inside the `openspec/` container with the repo mounted at `/repo`
   (RUNTIME auto-detected: nerdctl → docker). `openspec/` Dockerfile +
-  `docker-compose-files/openspec.yaml` define it; `make openspec-image` builds it.
+  `docker-compose-files/openspec.yaml` define it; `make openspec-image` pulls it from GHCR
+  (or builds it when its Dockerfile hash is not published yet).
 - **Every implemented step maps to a task.** Keep `openspec/changes/<name>/tasks.md`
   as a tracked `- [ ]` checklist. **Tick each task the moment the work is verified** —
   never complete work while leaving the checklist item unticked.
@@ -592,6 +593,18 @@ chains them all.
 - `make generate-requirements` — recompile `tools/requirements.in` →
   `tools/requirements.txt` (container or venv pip-compile).
 - `make openspec-image|new|validate|status|shell` — Dockerized OpenSpec CLI.
+- `make test-image` / `make openspec-image` — pull the CI image published for the current
+  Dockerfile + lockfile hash (`ghcr.io/<owner>/llgenie/{test,openspec}:<hash>`); build it
+  locally only when that hash is not published yet (issue #117).
+- `make test-image-pull` / `make openspec-image-pull` — CI: pull that hash, never build
+  (fails when missing). `make publish-ci-images` — CI job `ci-images`: build + push
+  (amd64 + arm64) only the hashes not on GHCR. `make ci-image-refs` prints the refs.
+- `make ci-<job>` — one target per CI pipeline job (`ci-lint`, `ci-unit`, `ci-cron`,
+  `ci-watch-report`, `ci-dispatch-e2e`, `ci-agents-read`, `ci-openspec`, `ci-cpu-health`,
+  `ci-top-tier`, `ci-install`). Linux (`pipeline.yml`) runs one job each; macOS
+  (`pipeline-macos.yml`) runs them as steps of `checks` / `serve` / `install` (three
+  Docker-VM boots instead of ten). `make ci-free-disk` and `make test-engine-stage
+  TEST=serve|detect` keep OS / matrix decisions in make, so no CI job or step is skipped.
 
 ## Dependencies & lockfiles
 

@@ -673,7 +673,13 @@ started directly.
 
 ```bash
 make loop              # == make loop-harness: run ALL stages in order, GREEN gate
-make test-image        # build the test image (python+pytest+deps + hf + docker CLI; no inference server)
+make test-image        # the test image (python+pytest+deps + hf + docker CLI; no inference server): pulls the
+                       # published ghcr.io/asimov-agent/llgenie/test:<hash of its Dockerfile + lockfiles>,
+                       # builds it here only when that hash is not published yet (an edited Dockerfile/lockfile)
+make openspec-image    # the OpenSpec CLI image, the same way (hash of openspec/Dockerfile)
+make ci-image-refs     # print both GHCR refs for the current files
+make ci-<job>          # one CI pipeline job (ci-lint, ci-unit, ci-cron, ci-watch-report, ci-dispatch-e2e,
+                       # ci-agents-read, ci-openspec, ci-cpu-health, ci-top-tier, ci-install): what CI runs
 make lint              # linefeed/editorconfig lint (fail-closed)
 make test-unit         # hermetic unit tests (all files, incl. openspec-tasks-check)
 make test-agents-read  # AGENTS.md threat-pattern guard + its tests, in a make-built Python 3.12
@@ -727,22 +733,39 @@ image → download → lint → unit → install → health → top-tier → top
 - **One CI run per push:** `ci.yml` triggers on `push` to any branch only, so a push to a
   branch with an open PR runs once (its checks show on the PR), not a second time as a
   `pull_request` event.
+- **CI images are pulled, never rebuilt per job (issue #117):** the first job, `ci-images`,
+  tags `llgenie/test` and `llgenie/openspec` with a hash of the files they are built from
+  (`scripts/ci_images.py`) and runs `make publish-ci-images`: a hash already on GHCR is one
+  manifest lookup, a new one is built once for linux/amd64 + linux/arm64 (registry layer
+  cache) and pushed to `ghcr.io/<owner>/llgenie/{test,openspec}:<hash>`. Every other job
+  (Linux, macOS, `engine-image`, `test-published-*`, `install-published-*`) runs
+  `make test-image-pull` / `make openspec-image-pull`, which fail instead of building when the
+  tag is missing.
 - **The same CI pipeline on Linux and macOS:** `.github/workflows/ci.yml` runs
-  `pipeline.yml` twice in parallel, `linux` (ubuntu-latest) and `macos` (macos-15-intel,
+  `pipeline.yml` (`linux`, ubuntu-latest) and `pipeline-macos.yml` (`macos`, macos-15-intel,
   Docker from Docker's own `docker/setup-docker-action` (Docker CE in a Lima vz VM, the
   checkout mounted writable) + `docker/setup-buildx-action`: the Apple-Silicon runners lack
-  nested virtualization). Same jobs
-  (lint, unit, cron, watch-report, dispatch-e2e, install, agents-read, openspec, cpu-health,
-  top-tier), same `make` commands, same asserts; the only per-OS step is
-  `.github/actions/docker`. The engine images are built once (Linux containers), then
-  `published.yml` (`make test-install-published` per backend) installs them on both.
+  nested virtualization). Every job is one `make ci-<job>` target (lint, unit, cron,
+  watch-report, dispatch-e2e, install, agents-read, openspec, cpu-health, top-tier), same
+  asserts; the only per-OS step is `.github/actions/docker`. Linux runs one job per target.
+  macOS runs the same targets as steps of three jobs, `macos / checks`, `macos / serve` and
+  `macos / install`: each macOS job boots its own Docker VM (5-10 min) and GitHub runs few
+  macOS jobs at once. Each step runs even after a failed one, so every target still reports.
+  `tests/test_ci_images.py` locks that both files run exactly the same targets.
+- **No CI job or step is skipped:** each OS has its own pipeline file, and nothing carries a
+  `runner.os` / matrix / event condition. OS- and matrix-specific work is decided in make:
+  `make ci-free-disk` frees disk on a Linux runner and only reports on macOS, and
+  `make test-engine-stage TEST=serve|detect` is the one post-build test step of every engine
+  image (serve: `make test-engine`, detect: `make test-engine-image`). The engine images are
+  built once (Linux containers), then `published.yml` (`make test-install-published` per
+  backend) installs them on Linux and on macOS in every push run.
   `make test-install-ci` ends with `make test-uninstalled` (no installed file, no engine
   container left). make install picks this host's images by itself: on a Mac the cpu
   images (linux/amd64, run through Rosetta), and llgenie offers only trending models whose
   engine has an image for this host.
-- **CI** (`.github/workflows/ci.yml`) triggers on every branch/PR and runs each
-  stage as its own **parallel** job: `lint`, `unit`, `install`, `openspec`,
-  and `cpu-health`. Every job is a `make` command, so CI == your local loop.
+- **CI** (`.github/workflows/ci.yml`) triggers on every branch push and runs each
+  stage as its own **parallel** job on Linux: `lint`, `unit`, `install`, `openspec`,
+  `cpu-health`, ... Every job is a `make ci-<job>` command, so CI == your local loop.
 
 ### No-fallback rule
 

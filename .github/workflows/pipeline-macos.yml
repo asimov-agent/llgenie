@@ -1,0 +1,116 @@
+name: pipeline-macos
+
+# The verification pipeline on macOS (issue #117), called from ci.yml. It runs the SAME
+# `make ci-<job>` targets as pipeline.yml (Linux), as ordered steps of three jobs instead
+# of one job per target: every macOS job boots its own Docker VM (5-10 min, through
+# .github/actions/docker) and GitHub runs few macOS jobs at once, so ten jobs became
+# three. Every step runs even after a failed one (!cancelled()), so each target still
+# reports. tests/test_ci_images.py locks that both files run exactly the same targets.
+#
+# The CI images are pulled, never built here: ci.yml's ci-images job publishes them.
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: runs-on label (macos-15-intel)
+        required: true
+        type: string
+      optional:
+        description: a failure or timeout does not fail the run (macOS, issue #112)
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  # checks: the fast targets in ONE Docker VM. Each step runs even after a failed one.
+  checks:
+    runs-on: ${{ inputs.runner }}
+    continue-on-error: ${{ inputs.optional }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: ./.github/actions/docker
+      - name: Pull the test image (GHCR, published by ci-images)
+        run: make test-image-pull
+      - name: Pull the OpenSpec image (GHCR, published by ci-images)
+        if: ${{ !cancelled() }}
+        run: make openspec-image-pull
+      - name: make ci-lint
+        if: ${{ !cancelled() }}
+        run: make ci-lint
+      - name: make ci-unit
+        if: ${{ !cancelled() }}
+        run: make ci-unit
+      - name: make ci-cron
+        if: ${{ !cancelled() }}
+        run: make ci-cron
+      - name: make ci-watch-report
+        if: ${{ !cancelled() }}
+        run: make ci-watch-report
+      - name: make ci-dispatch-e2e
+        if: ${{ !cancelled() }}
+        run: make ci-dispatch-e2e
+      - name: make ci-agents-read
+        if: ${{ !cancelled() }}
+        run: make ci-agents-read
+      - name: make ci-openspec
+        if: ${{ !cancelled() }}
+        run: make ci-openspec
+      - name: Prune orphaned test containers
+        if: always()
+        run: make test-clean
+
+  # serve: the model-serving targets in ONE Docker VM. Each step runs even after a failed one.
+  serve:
+    runs-on: ${{ inputs.runner }}
+    continue-on-error: ${{ inputs.optional }}
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/docker
+      - name: Pull the test image (GHCR, published by ci-images)
+        run: make test-image-pull
+      - name: make ci-cpu-health
+        if: ${{ !cancelled() }}
+        run: make ci-cpu-health
+      - name: make ci-top-tier
+        if: ${{ !cancelled() }}
+        run: make ci-top-tier
+      - name: Prune orphaned test containers
+        if: always()
+        run: make test-clean
+
+  # install: the real make install -> test-built-engine -> install tests -> "hi"
+  # -> interactive trend pick -> make uninstall (make test-install-ci, NO SKIPS)
+  install:
+    runs-on: ${{ inputs.runner }}
+    continue-on-error: ${{ inputs.optional }}
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      packages: read
+    env:
+      LLGENIE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: make ci-free-disk (engine images are large)
+        run: make ci-free-disk
+      - uses: ./.github/actions/docker
+      - name: Pull the test image (GHCR, published by ci-images)
+        run: make test-image-pull
+      - name: make ci-install (test container -> make install -> test-built-engine -> install tests -> hi -> interactive trend pick + real GGUF download + hi -> uninstall)
+        run: make ci-install
+      - name: Prune orphaned test containers
+        if: always()
+        run: make test-clean

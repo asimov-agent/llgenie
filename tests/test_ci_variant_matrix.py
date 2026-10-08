@@ -79,8 +79,10 @@ def test_every_variant_runs_a_test_stage_on_the_openai_api():
 
     # When the test stages are read
     # Then every image job has a test (serve on cpu, detect on GPU)
-    assert "make test-engine ENGINE=" in image_steps
-    assert "make test-engine-image ENGINE=" in image_steps
+    # one step for every image (no skipped step): make picks serve or detect from matrix.test
+    assert "make test-engine-stage ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} TEST=${{ matrix.test }}" in image_steps
+    stage = (REPO / "Makefile").read_text().split("\ntest-engine-stage:", 1)[1].split("\n\n", 1)[0]
+    assert "$(MAKE) test-engine ENGINE=" in stage and "$(MAKE) test-engine-image ENGINE=" in stage
     assert all(r["test"] in ("serve", "detect") for r in rows)
     assert {r["test"] for r in rows if r["engine"].startswith("llama.cpp") and r["variant"] == "cpu"} == {"serve"}
     assert {r["test"] for r in rows if r["variant"] in ("cuda", "rocm", "vulkan")} == {"detect"}
@@ -229,6 +231,8 @@ def test_install_ci_runs_make_install_and_make_uninstall():
     assert "make install" in recipe and "make test-install-host" in recipe
     assert "make test-health-host" in recipe and "make uninstall" in recipe
     assert "llgenie-engine-*" in recipe and "scripts/llama_serve.py" in recipe
-    assert "make test-image" in job and "make test-install-ci" in job
+    # the CI job pulls the published test image (issue #117) and runs ci-install = test-install-ci
+    assert "make test-image-pull" in job and "make ci-install" in job
+    assert "$(MAKE) test-install-ci ARCH=cpu" in text.split("\nci-install:", 1)[1].split("\n\n", 1)[0]
 
 

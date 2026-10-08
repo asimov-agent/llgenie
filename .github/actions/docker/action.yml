@@ -23,3 +23,11 @@ runs:
     - name: docker version
       shell: bash
       run: docker version
+    # The CI images (llgenie/test, llgenie/openspec) are pulled from GHCR (issue #117); a
+    # package published for the first time can be private, so pull with the run's token.
+    - name: Log in to GHCR (read, the run's token)
+      shell: bash
+      env:
+        TOKEN: ${{ github.token }}
+        ACTOR: ${{ github.actor }}
+      run: echo "$TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin

@@ -6,23 +6,61 @@ on:
   push:
     branches: ["**"]      # ALL branches
 
-# Two identical pipelines run in parallel (issue #112): `linux` (ubuntu-latest) and
-# `macos` (macos-15-intel, Docker from docker/setup-docker-action: GitHub's Apple-Silicon runners have
-# no nested virtualization). Both call .github/workflows/pipeline.yml: the same jobs,
-# the same `make <target>` commands, the same asserts. The only per-OS step is
-# .github/actions/docker. make install picks this host's images by itself.
+# Two pipelines run in parallel (issue #112): `linux` (ubuntu-latest) and `macos`
+# (macos-15-intel, Docker from docker/setup-docker-action: GitHub's Apple-Silicon runners have
+# no nested virtualization). Both run the same `make ci-<job>` commands and asserts:
+# Linux calls pipeline.yml (one job per target), macOS pipeline-macos.yml (the same targets
+# as steps of three jobs: one Docker VM boot each, issue #117). The only per-OS step is
+# .github/actions/docker.
+#
+# ci-images (issue #117) publishes the CI images (llgenie/test, llgenie/openspec) to GHCR
+# once per content hash; every other job PULLS them (make test-image-pull /
+# make openspec-image-pull) and never builds them.
 #
 # The engine images are built ONCE (engine-base / engine-image / engine-published-test,
 # Linux: the images are linux containers), then installed from GHCR by both pipelines
 # (published.yml: make test-install-published per backend, on Linux and on macOS).
 jobs:
+  # ------------------------------------------------------------------
+  # ci-images (issue #117): the test image and the OpenSpec CLI image, tagged with a
+  # hash of their Dockerfile + lockfiles (scripts/ci_images.py). A hash already on
+  # GHCR is one manifest lookup; a new one is built ONCE for linux/amd64 + linux/arm64
+  # (registry layer cache) and pushed. Every job below pulls it instead of building.
+  # ------------------------------------------------------------------
+  ci-images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    env:
+      LLGENIE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: make publish-ci-images (build + push only the hashes not on GHCR yet)
+        run: make publish-ci-images
+      - name: make ci-image-refs
+        run: make ci-image-refs
+
   linux:
+    needs: [ci-images]
     uses: ./.github/workflows/pipeline.yml
+    permissions:
+      contents: read
+      packages: read
     with:
       runner: ubuntu-latest
 
   macos:
-    uses: ./.github/workflows/pipeline.yml
+    needs: [ci-images]
+    uses: ./.github/workflows/pipeline-macos.yml  # the same make ci-<job> targets in three Docker-VM jobs (issue #117)
+    permissions:
+      contents: read
+      packages: read
     with:
       runner: macos-15-intel
       optional: true   # macOS reports, never blocks: only the linux jobs gate the PR
@@ -61,10 +99,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
-      - name: Log in to GHCR (publishing runs only)
-        if: ${{ env.PUBLISH == '1' }}
+      - name: Log in to GHCR (every run is a push run and publishes)
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-      - name: make build-engine-base BACKEND=${{ matrix.backend }} (PUSH=1 on upstream pushes)
+      - name: make build-engine-base BACKEND=${{ matrix.backend }} (PUSH=1 on push runs)
         run: make build-engine-base BACKEND=${{ matrix.backend }} PUSH=$PUBLISH
 
   engine-matrix:
@@ -77,7 +114,7 @@ jobs:
         run: echo "matrix=$(make -s list-engine-images CI=1 JSON=1)" >> "$GITHUB_OUTPUT"
 
   engine-image:
-    needs: [engine-matrix, engine-base]
+    needs: [engine-matrix, engine-base, ci-images]
     strategy:
       fail-fast: false
       max-parallel: 20
@@ -96,35 +133,27 @@ jobs:
       - name: Free disk (CUDA/ROCm bases are large)
         run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
       - uses: docker/setup-buildx-action@v3
-      - name: Log in to GHCR (publishing runs only)
-        if: ${{ env.PUBLISH == '1' }}
+      - name: Log in to GHCR (every run is a push run and publishes)
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
       - name: make build-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} (built locally; pushed only after its tests pass)
         run: make build-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}
-      - name: Build test image (the post-build pytest stage runs in llgenie/test)
-        run: make test-image
+      - name: Pull the test image (GHCR, published by ci-images; the post-build pytest stage runs in llgenie/test)
+        run: make test-image-pull
       - uses: astral-sh/setup-uv@v6
-        if: matrix.test == 'serve'
       - name: hf CLI (tiny test model)
-        if: matrix.test == 'serve'
         run: uv tool install "huggingface_hub[cli]>=0.30"
-      # POST-BUILD TEST STAGE: every engine image is tested once built, in parallel
-      # (matrix.test: 'serve' cpu images, 'detect' GPU images). Runs the python
-      # tests/test_engine_runs.py: cpu images serve a tiny model and must answer
-      # on the OpenAI endpoint (GET /v1/models -> llm-local, chat completion "hi");
-      # GPU images can't serve on a GPU-less runner, so their entrypoint must at
-      # least report the engine version (they are intentionally NOT started).
-      - name: "post-build test: pytest tests/test_engine_runs.py in llgenie/test (endpoint: serve + answer on the OpenAI API)"
-        if: matrix.test == 'serve'
-        run: make test-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}
-      - name: "post-build test: pytest tests/test_engine_version.py (engine binary reports its version; GPU images can't serve here)"
-        if: matrix.test == 'detect'
-        run: make test-engine-image ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}
+      # POST-BUILD TEST STAGE: every engine image is tested once built, in parallel, by ONE
+      # step (no skipped step, issue #117): make test-engine-stage TEST=<matrix.test> runs
+      # tests/test_engine_runs.py for 'serve' (cpu images serve a tiny model and must answer
+      # on the OpenAI endpoint: GET /v1/models -> llm-local, chat completion "hi") and
+      # tests/test_engine_version.py for 'detect' (GPU images can't serve on a GPU-less
+      # runner, so their entrypoint must at least report the engine version).
+      - name: "post-build test: make test-engine-stage TEST=${{ matrix.test }} (serve: pytest tests/test_engine_runs.py in llgenie/test (endpoint: answers on the OpenAI API); detect: pytest tests/test_engine_version.py (engine binary reports its version))"
+        run: make test-engine-stage ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} TEST=${{ matrix.test }}
       # PUBLISH STAGE: every push run (any branch), only after the build AND its tests passed
-      # (any failed step above skips this). Pushes <registry>/<name>:<hash-arch>
+      # (a failed step above fails the job before this). Pushes <registry>/<name>:<hash-arch>
       # and the moving <registry>/<name>:<arch> tag to GHCR.
       - name: make push-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} (every push run, after tests passed)
-        if: ${{ success() && env.PUBLISH == '1' }}
         run: make push-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}
 
   # ------------------------------------------------------------------
@@ -139,7 +168,7 @@ jobs:
   # are pulled back and chatted with before the PR is merged.
   # ------------------------------------------------------------------
   engine-published-test:
-    needs: [engine-matrix, engine-image]
+    needs: [engine-matrix, engine-image, ci-images]
     # runs even when some build jobs failed: every published image is still
     # tested; an image whose build/test failed was never pushed, so its job here
     # fails loudly on the pull (no skip)
@@ -168,8 +197,8 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - name: hf CLI (tiny test model)
         run: uv tool install "huggingface_hub[cli]>=0.30"
-      - name: Build test image
-        run: make test-image
+      - name: Pull the test image (GHCR, published by ci-images)
+        run: make test-image-pull
       # Every published image (GPU ones included) is started as a container and
       # must answer "hi" on its OpenAI chat endpoint. Hosted runners have no GPU:
       # GPU images run without GPU devices and their engine falls back to CPU.
@@ -217,7 +246,7 @@ jobs:
 
   # ------------------------------------------------------------------
   # install-published: LAST stage, the same make command on Linux and on macOS.
-  # Every push run (they all publish).
+  # Every push run on both (they all publish); no job is skipped (issue #117).
   # ------------------------------------------------------------------
   linux-published:
     needs: [engine-published-test]

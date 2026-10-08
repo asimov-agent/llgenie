@@ -673,7 +673,7 @@ def test_ci_builds_every_engine_arch_in_parallel_from_make(skills):
     assert "make build-engine ENGINE=" in steps and "make push-engine ENGINE=" in steps
     # every push run publishes (feature branches too, #101); pull_request runs never do
     assert str(jobs["engine-image"]["env"]["PUBLISH"]) == "${{ github.event_name == 'push' && '1' || '' }}"
-    assert "make test-engine ENGINE=" in steps
+    assert "make test-engine-stage ENGINE=" in steps
     assert {(r["engine"], r["variant"]) for r in rows} >= {
         ("llama.cpp-prism", "vulkan"), ("vllm", "cpu"), ("ollama", "rocm"),
         ("llama.cpp", "vulkan"), ("llama.cpp", "rocm")}
@@ -682,7 +682,7 @@ def test_ci_builds_every_engine_arch_in_parallel_from_make(skills):
     assert {(r["engine"], r["variant"]) for r in rows} == every - set(ei.DISABLED)
     assert len(rows) == len(every) - len(ei.DISABLED)
     assert all(r["smoke"] == (r["variant"] == "cpu" and r["engine"] not in ei.SMOKE_SKIP) for r in rows)
-    assert jobs["engine-image"]["needs"] == ["engine-matrix", "engine-base"]
+    assert jobs["engine-image"]["needs"] == ["engine-matrix", "engine-base", "ci-images"]
     base_steps = " ".join(str(st.get("run", "")) for st in jobs["engine-base"]["steps"])
     assert "make build-engine-base BACKEND=" in base_steps and "PUSH=$PUBLISH" in base_steps
 
@@ -690,12 +690,15 @@ def test_ci_builds_every_engine_arch_in_parallel_from_make(skills):
 def test_ci_checks_params_are_fresh():
     """The unit job fails when someone edits a skill without regenerating params."""
 
-    # Given the CI unit job
+    # Given the CI unit job (one make target, issue #117)
     steps = " ".join(str(st.get("run", "")) for st in yaml.safe_load((REPO / ".github" / "workflows" / "pipeline.yml").read_text())["jobs"]["unit"]["steps"])
+    mk = (REPO / "Makefile").read_text()
 
-    # When its steps are read
+    # When its steps and its make target are read
+    recipe = mk.split("\nci-unit:", 1)[1].split("\n\n", 1)[0]
+
     # Then check-engine-params runs
-    assert "make check-engine-params" in steps
+    assert "make ci-unit" in steps and "$(MAKE) check-engine-params" in recipe
 
 
 def test_every_smoked_engine_has_a_tiny_test_model(skills):
@@ -932,7 +935,7 @@ def test_published_images_are_tested_again_as_a_separate_matrix_stage():
     i_push = next(i for i, r in enumerate(order) if "make push-engine" in r)
     assert i_test < i_push
     # And the published stage runs after it, on every push run, over the same matrix
-    assert set(pub["needs"]) == {"engine-matrix", "engine-image"}
+    assert set(pub["needs"]) == {"engine-matrix", "engine-image", "ci-images"}
     assert "github.event_name == 'push'" in pub["if"] and "!cancelled()" in pub["if"]
     assert pub["name"] == "test-published-${{ matrix.engine }}-${{ matrix.variant }}"
     assert pub["strategy"]["matrix"] == build["strategy"]["matrix"]
@@ -1041,11 +1044,12 @@ def test_native_smoke_runs_the_endpoint_test_without_docker():
 
 def test_post_build_tests_run_in_the_test_image_not_on_the_bare_runner():
     """#98 CI regression: runners have no pytest and no llgenie/test image.
-    The engine-image job builds llgenie/test before its post-build stage, and
-    test-engine-image runs pytest inside it (host docker socket), not via host python."""
+    The engine-image job pulls llgenie/test (published by ci-images, issue #117) before its
+    post-build stage, and test-engine-image runs pytest inside it (host docker socket), not
+    via host python."""
     ci = (REPO / ".github" / "workflows" / "ci.yml").read_text()
     job = ci.split("\n  engine-image:\n", 1)[1].split("\n  engine-published-test:\n", 1)[0]
-    assert job.index("run: make test-image") < job.index("post-build test:")
+    assert job.index("run: make test-image-pull") < job.index("post-build test:")
     mk = (REPO / "Makefile").read_text()
     recipe = mk.split("\ntest-engine-image:", 1)[1].split("\n\n", 1)[0].split("\ntest-", 1)[0]
     assert "$(ENGINE_TEST_ARGS)" in recipe and "$(TEST_IMG)" in recipe

@@ -40,11 +40,12 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 .PHONY: all install venv-install link uninstall smoke list version help test-native-engine test-native-engine-serve test-interactive-tensorfold test-interactive-tensorfold-ci \
 	openspec-image openspec-new openspec-validate openspec-status openspec-shell \
 	test test-unit test-agents-e2e test-agents-read agents-read-venv test-install test-install-ci test-install-host test-install-trend test-health test-health-host download-test-model \
-	test-image test-clean lint lint-fix loop loop-harness chained cron-install cron-uninstall cron-snapshot \
+	test-image test-image-pull openspec-image-pull publish-ci-images ci-image-refs test-clean lint lint-fix loop loop-harness chained cron-install cron-uninstall cron-snapshot \
 	build-server build-variant serve-variant test-serve-variant stop-serve-variant install-prism-cpu install-upstream-cpu \
 	install-prism-cuda install-upstream-cuda install-prism-metal install-upstream-metal \
 	sync-registry check-registry skills-validate engine-list engine-hardware engine-plan engine-check engine-install engine-detect engine-smoke test-engine ci-engine-images build-engine-base build-engines generate-build-engine-params test-engine-image push-engine test-published-engine test-install-published engine-launchers test-built-engine test-uninstalled \
-	generate-engine-params check-engine-params build-engine run-engine stop-engine list-engine-images
+	generate-engine-params check-engine-params build-engine run-engine stop-engine list-engine-images \
+	ci-lint ci-unit ci-cron ci-watch-report ci-dispatch-e2e ci-agents-read ci-openspec ci-cpu-health ci-top-tier ci-install ci-free-disk test-engine-stage
 
 # ---- container runtime: docker -------------------------------------------
 RUNTIME ?= docker
@@ -332,9 +333,11 @@ version: ## Show numpy/gguf versions inside the venv
 # this repository. This is the checklist-of-record for agent work: every step
 # you implement maps to a task in openspec/changes/<name>/tasks.md.
 
-openspec-image: ## Build the OpenSpec CLI container
-	$(RUNTIME) build -t $(OS_IMG) openspec/
-	@echo "OpenSpec image built: $(OS_IMG)"
+openspec-image: ## The OpenSpec CLI image: pull the published hash of openspec/Dockerfile (GHCR), else build it here (issue #117)
+	python3 scripts/ci_images.py ensure openspec
+
+openspec-image-pull: ## CI: pull the published OpenSpec image (hash of openspec/Dockerfile) as $(OS_IMG); fails if not published, never builds
+	python3 scripts/ci_images.py pull openspec
 
 OS_OPTS := --rm -u root -v "$(REPO)":/repo:rw -w /repo $(OS_IMG)
 
@@ -391,10 +394,17 @@ TEST_RUN := $(RUNTIME) run $(TEST_OPTS) $(TEST_IMG)
 VARIANT_IMG := gguf-tools/ci-variant:latest
 VARIANT_RUN := $(RUNTIME) run $(VARIANT_OPTS) $(VARIANT_IMG)
 
-test-image: ## Build the containerized test image (copies compiled requirements into context)
-	@cp tools/requirements.txt tools/requirements-dev.txt containers/test/
-	$(RUNTIME) build -t $(TEST_IMG) containers/test/
-	@echo "Test image built: $(TEST_IMG)"
+test-image: ## The test image: pull the published hash of its Dockerfile + lockfiles (GHCR), else build it here (issue #117)
+	python3 scripts/ci_images.py ensure test
+
+test-image-pull: ## CI: pull the published test image (hash of its Dockerfile + lockfiles) as $(TEST_IMG); fails if not published, never builds
+	python3 scripts/ci_images.py pull test
+
+publish-ci-images: ## CI job ci-images: build + push the test and OpenSpec images (linux/amd64 + arm64) ONLY when their hash tag is not on GHCR yet
+	python3 scripts/ci_images.py publish test openspec
+
+ci-image-refs: ## Print the GHCR refs of the CI images for the current Dockerfiles + lockfiles
+	@python3 scripts/ci_images.py ref
 
 test-variant-image: ## Build the CUDA toolkit + python variant-build image for CI variant builds
 	@cp tools/requirements.txt tools/requirements-dev.txt containers/ci-variant/
@@ -419,7 +429,7 @@ test-clean: ## Remove left-over/stopped orphaned containers of the test image (i
 	echo "Pruned stopped orphaned $(TEST_IMG) containers."
 
 test-unit: ## Hermetic unit tests (containerized) — includes the lint regression + openspec-tasks-check tests
-	$(TEST_RUN) python -m pytest tests/test_llama_ai.py tests/test_hf_download_stall.py tests/test_lint_linefeeds.py tests/test_watchloop_dispatch.py tests/test_check_openspec_tasks.py tests/test_install_watchloop_cron.py tests/test_watch_report.py tests/test_ci_variant_matrix.py tests/test_serve_variant.py tests/test_ensure_user_path.py tests/test_engine_skills.py tests/test_detect_server.py tests/test_model_engine_pick.py tests/test_trend_pick.py tests/test_strata_download.py tests/test_macos_install.py tests/test_mac_trend_pick.py tests/test_trend_list_acceptance.py tests/test_tensorfold_seamless.py -p no:cacheprovider -q
+	$(TEST_RUN) python -m pytest tests/test_llama_ai.py tests/test_hf_download_stall.py tests/test_lint_linefeeds.py tests/test_watchloop_dispatch.py tests/test_check_openspec_tasks.py tests/test_install_watchloop_cron.py tests/test_watch_report.py tests/test_ci_variant_matrix.py tests/test_serve_variant.py tests/test_ensure_user_path.py tests/test_engine_skills.py tests/test_detect_server.py tests/test_model_engine_pick.py tests/test_trend_pick.py tests/test_strata_download.py tests/test_macos_install.py tests/test_ci_images.py tests/test_mac_trend_pick.py tests/test_trend_list_acceptance.py tests/test_tensorfold_seamless.py -p no:cacheprovider -q
 
 test-agents-e2e: ## REAL end-to-end agent tests (containerized) — runs ONLY *_e2e*.py files directly
 	# issue #63 CI gate: exercises the REAL dispatcher spawn/kill/respawn against a fake
@@ -608,6 +618,90 @@ cron-snapshot: ## Preview the watch-loop crontab entry (no changes)
 
 watch-report: ## Human-readable watch-loop status report (host-side, reads .watchloop logs + live gh state; WINDOW=N sets dispatch-log window, WATCHLOOP=<dir> points at a fixture .watchloop tree)
 	@python3 scripts/watch_report.py $(if $(WINDOW),--window $(WINDOW),) $(if $(WATCHLOOP),--watchloop $(WATCHLOOP),)
+
+# ---- ci-<job>: ONE make target per CI pipeline job (issue #117) -------------
+# pipeline.yml runs each as one job on Linux (layout: split) and all of them as
+# ordered steps of three jobs on macOS (layout: combined: one Docker VM boot per job
+# instead of one per target). The commands are the same on both OSes. Every target
+# that runs in a container needs the pulled llgenie/test (or llgenie/openspec) image:
+# CI pulls it first with `make test-image-pull` / `make openspec-image-pull`.
+ci-lint: ## CI job lint: make lint
+	$(MAKE) lint
+
+ci-unit: ## CI job unit: hermetic unit tests + registry / skill / Strata / engine-param checks
+	$(MAKE) test-unit
+	$(MAKE) skills-validate
+	$(MAKE) check-registry
+	$(MAKE) check-strata-models
+	$(MAKE) skills-validate REGISTRY=data/models.json
+	$(MAKE) check-engine-params
+
+ci-cron: ## CI job cron: the real make cron-* targets against a fake crontab (issue #67)
+	$(MAKE) cron-snapshot
+	@set -eu; \
+	export CRONTAB_CMD="$(CURDIR)/tests/fixtures/fake-crontab.sh"; \
+	export FAKE_CRONTAB_FILE="$$(mktemp)"; \
+	echo "seed unrelated line" > "$$FAKE_CRONTAB_FILE"; \
+	$(MAKE) cron-install; \
+	$(MAKE) cron-install; \
+	test "$$(grep -c '^\*/20' "$$FAKE_CRONTAB_FILE")" = "1" || { echo "FAIL: expected exactly 1 */20 line"; exit 1; }; \
+	grep -q "seed unrelated line" "$$FAKE_CRONTAB_FILE" || { echo "FAIL: unrelated line lost"; exit 1; }; \
+	$(MAKE) cron-uninstall; \
+	if grep -q '^\*/20' "$$FAKE_CRONTAB_FILE"; then echo "FAIL: */20 line still present"; exit 1; fi; \
+	grep -q "seed unrelated line" "$$FAKE_CRONTAB_FILE" || { echo "FAIL: unrelated line lost on uninstall"; exit 1; }; \
+	rm -f "$$FAKE_CRONTAB_FILE"; \
+	echo "CRON MAKE-TARGETS OK: install idempotent, uninstall preserves unrelated"
+
+ci-watch-report: ## CI job watch-report: the real make watch-report against a fixture .watchloop tree + fake gh shim
+	@set -eu; \
+	fakebin="$$(mktemp -d)"; \
+	cp tests/fixtures/watch-report/fake-gh.sh "$$fakebin/gh"; \
+	chmod +x "$$fakebin/gh"; \
+	export PATH="$$fakebin:$$PATH"; \
+	export WATCH_REPORT_FIXTURE_ROOT="$(CURDIR)"; \
+	out="$$($(MAKE) -s watch-report WATCHLOOP="$(CURDIR)/tests/fixtures/watch-report")"; \
+	rm -rf "$$fakebin"; \
+	printf '%s\n' "$$out"; \
+	echo "$$out" | grep -q "## LIVE GitHub state" || { echo "FAIL: missing GitHub state section"; exit 1; }; \
+	echo "$$out" | grep -q "## Worker sessions" || { echo "FAIL: missing Worker sessions section"; exit 1; }; \
+	echo "$$out" | grep -q "## Dispatcher timeline" || { echo "FAIL: missing Dispatcher timeline section"; exit 1; }; \
+	echo "$$out" | grep -q "## CI-red reaction" || { echo "FAIL: missing CI-red reaction section"; exit 1; }; \
+	echo "$$out" | grep -q "1 FAIL" || { echo "FAIL: expected the fixture's 1 failing CI check to be surfaced"; exit 1; }; \
+	echo "WATCH-REPORT MAKE-TARGET OK: command runs and prints all sections"
+
+ci-dispatch-e2e: ## CI job dispatch-e2e: make test-agents-e2e (real dispatcher spawn/reclaim, README issue-work)
+	$(MAKE) test-agents-e2e
+
+ci-agents-read: ## CI job agents-read: make test-agents-read (Python 3.12 venv -> AGENTS.md scan -> guard tests)
+	$(MAKE) test-agents-read
+
+ci-openspec: ## CI job openspec: validate the OpenSpec changes and assert every active change has all tasks checked
+	$(MAKE) openspec-validate NAME=ci-pipeline
+	$(MAKE) openspec-tasks-check
+
+ci-cpu-health: ## CI job cpu-health: llgenie serves the 0.5B model through the llama.cpp engine image, "hi"
+	$(MAKE) test-health
+
+ci-top-tier: ## CI job top-tier: real top-tier acceptance, lightweight serve + "hi", CLI dry run (issue #49)
+	$(MAKE) test-top-tier-ci
+	$(MAKE) test-top-tier-serve-ci
+	$(MAKE) test-top-tier-cli-ci
+
+ci-install: ## CI job install: make test-install-ci ARCH=cpu (make install -> test-built-engine -> install tests -> hi -> trend pick -> uninstall)
+	$(MAKE) test-install-ci ARCH=cpu
+
+ci-free-disk: ## CI: free runner disk for the large engine images (Linux runner: drop preinstalled SDKs; macOS runner: report only)
+	@if [ "$$(uname -s)" = Linux ]; then sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL; \
+	else echo "[ci-free-disk] $$(uname -s) runner: nothing to free"; fi
+	@df -h /
+
+test-engine-stage: ## CI engine-image post-build test, ONE step for every image: TEST=serve -> make test-engine (OpenAI API answers), TEST=detect -> make test-engine-image (engine version)
+	@test -n "$(ENGINE)" -a -n "$(ARCH)" || { echo "Usage: make test-engine-stage ENGINE=<id> ARCH=<arch> TEST=serve|detect"; exit 1; }
+	@case "$(TEST)" in \
+	  serve)  $(MAKE) test-engine ENGINE="$(ENGINE)" ARCH="$(ARCH)" ;; \
+	  detect) $(MAKE) test-engine-image ENGINE="$(ENGINE)" ARCH="$(ARCH)" ;; \
+	  *) echo "[test-engine-stage] TEST must be serve or detect, got '$(TEST)'"; exit 1 ;; \
+	esac
 
 help:
 	@echo "Engine images (issue #98, plain make, no LLM):"
