@@ -1,0 +1,52 @@
+name: published
+
+# install-published, called from ci.yml for the Linux and the macOS runner with the
+# same make command (issue #112): after every image was built, tested, published and
+# re-tested as published, the real `make install` per backend (cpu/cuda/rocm/vulkan
+# mocked via LLAMA_BACKEND; GPU images run on CPU) may only PULL that backend's
+# published images, llgenie answers "hi" through llama-server and prism-server,
+# `llgenie --pick --engine` pulls the picked engine on first use, and make uninstall
+# leaves nothing behind.
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: runs-on label (ubuntu-latest | macos-15-intel)
+        required: true
+        type: string
+      optional:
+        description: a failure or timeout does not fail the run (macOS, issue #112)
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  install-published:
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [cpu, cuda, rocm, vulkan]
+    runs-on: ${{ inputs.runner }}
+    continue-on-error: ${{ inputs.optional }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: read
+    name: install-published-${{ matrix.backend }}
+    env:
+      LLGENIE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free disk (CUDA/ROCm images are large)
+        if: runner.os == 'Linux'
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
+      - uses: ./.github/actions/docker
+      - name: Log in to GHCR (read)
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Build test image
+        run: make test-image
+      - name: "make test-install-published BACKEND=${{ matrix.backend }} (pull only this backend's images, llgenie hi via both shims + --pick --engine + interactive trend pick with a real GGUF download, uninstall)"
+        run: make test-install-published BACKEND=${{ matrix.backend }}
+      - name: Prune orphaned test containers
+        if: always()
+        run: make test-clean

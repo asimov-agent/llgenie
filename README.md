@@ -27,6 +27,25 @@ This repo bundles three pieces that were built and validated together:
   llama.cpp build is used instead (`make install-prism-metal` / `install-upstream-metal`).
 - **macOS** with an Apple Silicon GPU for the native Metal path (card RAM is detected;
   `TOTAL_RAM_BYTES` = 48 GB is only the fallback when detection fails).
+- **macOS `make install` (the container images):** Docker through Colima on the docker
+  runtime, with Rosetta 2 for the linux/amd64 images (issue #112):
+  ```bash
+  softwareupdate --install-rosetta --agree-to-license
+  brew install colima docker docker-buildx
+  colima start --runtime docker --vm-type vz --vz-rosetta --cpu 4 --memory 8 \
+    --dns 1.1.1.1 --dns 8.8.8.8
+  docker context use colima
+  make install            # the same make install as on Linux
+  ```
+  llgenie uses plain `docker` everywhere (no nerdctl); Colima must use the docker runtime.
+  The start scripts run each image with `--platform` of the pulled image, so Docker does
+  not warn about the amd64-on-arm64 mismatch.
+  **Self-repair:** before `make install` pulls and before llgenie starts an engine
+  container, a Mac checks that Docker answers and that the Colima VM resolves `ghcr.io`.
+  A stopped VM is started with `--dns 1.1.1.1 --dns 8.8.8.8`; a VM whose DNS forwarder
+  does not answer (pulls fail with `lookup ... i/o timeout`) gets those resolvers written
+  into it, and is restarted with them when that is not enough. Run it by hand with
+  `python3 scripts/engine_image.py ensure-env`. Linux is never touched.
 - **Python 3.10** (Homebrew: `brew install python@3.10`) for the `gguf` tooling venv.
 - Optional `hf` CLI (Hugging Face hub) in a venv — used by `scripts/hf_download.py`.
 
@@ -56,7 +75,8 @@ make install
    `~/bin/llama-server` runs the stock llama.cpp image, `~/bin/prism-server` the Prism image
    (llgenie uses prism-server on cards <= 24 GB, llama-server above). `ENGINES=llama.cpp,vllm` limits the set.
    Then `make test-built-engine` runs every start script with `--version`; install fails
-   unless each one prints its engine version through its image.
+   unless each one exits 0 and prints its engine version through its image (on any output
+   line: container-runtime warnings around it are ignored).
 4. **symlink + smoke** — symlinks `~/bin/llgenie.py` → this repo's launcher (`scripts/llama_serve.py`),
    then runs `~/bin/llgenie --list`. Succeeds even when `~/models` is empty (you populate it with
    `llgenie --download-top-tier`), failing only on a genuine gguf/launch error.
@@ -375,7 +395,7 @@ registry layer cache (`--cache-from`/`--cache-to`). A tag that is already publis
 `llgenie/test`: cpu images are started and tested on the published port (`make test-engine`:
 `/v1/models` lists `llm-local` and `/v1/chat/completions` answers "hi"), GPU images print their
 version (`make test-engine-image`). Only then `make push-engine` publishes the image to the
-repo's GHCR, on every push run (feature branches too, for now; `pull_request` runs never push).
+repo's GHCR, on every push run (feature branches too, for now).
 The second matrix `engine-published-test` (`test-published-<engine>-<arch>`) then pulls every
 published image on a fresh runner, checks digest and version, starts the container and chats
 "hi" (GPU images on CPU), and installs it from the registry only (issue #102). Finally
@@ -608,7 +628,7 @@ top-tier tests pass unmodified).
 ## Verification, loop & CI (containerized — same everywhere)
 
 Every verification stage runs **inside the test container** so behaviour is
-byte-identical on your local host (nerdctl/Colima or docker) and on GitHub
+byte-identical on your local host (docker; on macOS through Colima) and on GitHub
 Actions CI. Stages are driven **only through `make`** — the container is never
 started directly.
 
@@ -617,10 +637,14 @@ make loop              # == make loop-harness: run ALL stages in order, GREEN ga
 make test-image        # build the test image (python+pytest+deps + hf + docker CLI; no inference server)
 make lint              # linefeed/editorconfig lint (fail-closed)
 make test-unit         # hermetic unit tests (all files, incl. openspec-tasks-check)
+make test-agents-read  # AGENTS.md threat-pattern guard + its tests, in a make-built Python 3.12
+                       # venv (~/.cache/llgenie/agents-read-venv: hermes-agent==0.19.0 + pytest;
+                       # needs python3.12)
 make test-agents-e2e   # REAL agent-spawn e2e: runs ONLY *_e2e*.py — fake worker does README
                        # issue-work, hung worker is killed+respawned (issue #63); <1 min
 make test-install      # install tests (run in-container; host-artifact asserts — no skips via test-install-ci)
 make test-install-ci   # REAL install tests, NO SKIPS: make install + model + assert in ONE container
+make test-uninstalled  # after make uninstall: no launcher/shim/llgenie-engine-* left, no engine container
 make test-install-host # verify the REAL host install: ~/bin/llgenie + symlinks + ~/models (runs on host)
 make test-health       # end-to-end CPU LLM check: downloads tiny model, answers "hi"
 make test-top-tier     # REAL acceptance (no mocks): live HF trending + fit gate + real download
@@ -641,8 +665,34 @@ image → download → lint → unit → install → health → top-tier → top
 - The **`health` stage** is a real end-to-end check: it downloads the
   lightweight `Qwen2.5-0.5B` model and asserts `/health` + a chat "hi" reply
   from the **llama.cpp engine image**, started from the test container through the host docker socket (the test image holds no inference server).
-- **`RUNTIME`** defaults to `nerdctl` and resolves to `docker` on non-Colima
-  hosts — the same `make` target runs under either engine.
+- **`RUNTIME`** is `docker`, on Linux and on macOS (Colima with `--runtime docker`).
+  `make install` reports a docker that does not answer as such, not as an unpublished image.
+  `RUNTIME=<path to a docker CLI>` overrides it.
+- **A slow test is shown, not hidden:** `pytest.ini` sets `faulthandler_timeout = 300`, so a
+  test running over 5 minutes prints every thread's stack into the log and keeps running.
+- **Required for merging into `main`** (branch protection): every `linux / *` job and the
+  four `linux-published / install-published-*` installs. Every macOS job (`macos / *`, both
+  macOS `make install` jobs: `macos / install` early and `macos-published / *` at the end)
+  runs on every push and shows on the PR, but does not block the merge or turn the run red:
+  `ci.yml` calls the shared pipelines with `optional: true` for macOS, which makes every
+  macOS job `continue-on-error`. The macOS runners are slow (Docker in a Lima VM on a
+  4-core Intel runner).
+- **One CI run per push:** `ci.yml` triggers on `push` to any branch only, so a push to a
+  branch with an open PR runs once (its checks show on the PR), not a second time as a
+  `pull_request` event.
+- **The same CI pipeline on Linux and macOS:** `.github/workflows/ci.yml` runs
+  `pipeline.yml` twice in parallel, `linux` (ubuntu-latest) and `macos` (macos-15-intel,
+  Docker from Docker's own `docker/setup-docker-action` (Docker CE in a Lima vz VM, the
+  checkout mounted writable) + `docker/setup-buildx-action`: the Apple-Silicon runners lack
+  nested virtualization). Same jobs
+  (lint, unit, cron, watch-report, dispatch-e2e, install, agents-read, openspec, cpu-health,
+  top-tier), same `make` commands, same asserts; the only per-OS step is
+  `.github/actions/docker`. The engine images are built once (Linux containers), then
+  `published.yml` (`make test-install-published` per backend) installs them on both.
+  `make test-install-ci` ends with `make test-uninstalled` (no installed file, no engine
+  container left). make install picks this host's images by itself: on a Mac the cpu
+  images (linux/amd64, run through Rosetta), and llgenie offers only trending models whose
+  engine has an image for this host.
 - **CI** (`.github/workflows/ci.yml`) triggers on every branch/PR and runs each
   stage as its own **parallel** job: `lint`, `unit`, `install`, `openspec`,
   and `cpu-health`. Every job is a `make` command, so CI == your local loop.

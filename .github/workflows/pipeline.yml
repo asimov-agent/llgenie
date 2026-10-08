@@ -1,0 +1,214 @@
+name: pipeline
+
+# The verification pipeline, called twice from ci.yml with the same jobs, make
+# commands and asserts: once on a Linux runner, once on a macOS runner (issue #112).
+# The only per-OS step is .github/actions/docker (macOS: docker/setup-docker-action);
+# everything else is `make <target>`, byte-identical on both.
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: runs-on label (ubuntu-latest | macos-15-intel)
+        required: true
+        type: string
+      optional:
+        description: a failure or timeout does not fail the run (macOS, issue #112)
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  # lint: linefeed / editorconfig (make lint)
+  lint:
+    runs-on: ${{ inputs.runner }}
+    continue-on-error: ${{ inputs.optional }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/docker
+      - name: Build test image
+        run: make test-image
+      - name: make lint
+        run: make lint
+      - name: Prune orphaned test containers
+        run: make test-clean
+
+  # unit: hermetic unit tests (make test-unit) + registry/skill/param checks
+  unit:
+    runs-on: ${{ inputs.runner }}
+    continue-on-error: ${{ inputs.optional }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/docker
+      - name: Build test image
+        run: make test-image
+      - name: make test-unit
+        run: make test-unit
+      - name: make skills-validate (engine skills vs the trending-local-llms registry, issue #98)
+        run: make skills-validate
+      - name: make check-registry (vendored data/models.json is a valid registry, issue #105)
+        run: make check-registry
+      - name: make check-strata-models (data/strata_models.json = Strata's setup.py at the pinned commit)
+        run: make check-strata-models
+      - name: make skills-validate REGISTRY=data/models.json (skills vs the vendored registry llgenie reads)
+        run: make skills-validate REGISTRY=data/models.json
+      - name: make check-engine-params (committed per-arch engine params match the skills)
+        run: make check-engine-params
+      - name: Prune orphaned test containers
+        run: make test-clean
+
+  # cron: the REAL make cron-* targets against a FAKE crontab (issue #67)
+  cron:
+    runs-on: ${{ inputs.runner }}
+    continue-on-error: ${{ inputs.optional }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/docker
+      - name: make cron-snapshot (real make invocation of the cron machinery)
+        run: make cron-snapshot
+      - name: Drive make cron-install/uninstall against a fake crontab shim
+        run: |
+          set -eu
+          export CRONTAB_CMD="$PWD/tests/fixtures/fake-crontab.sh"
+          export FAKE_CRONTAB_FILE="$(mktemp)"
+          echo "seed unrelated line" > "$FAKE_CRONTAB_FILE"
+          # install twice -> exactly one entry (idempotency)
+          make cron-install
+          make cron-install
+          test "$(grep -c '^\*/20' "$FAKE_CRONTAB_FILE")" = "1" || { echo "FAIL: expected exactly 1 */20 line"; exit 1; }
+          grep -q "seed unrelated line" "$FAKE_CRONTAB_FILE" || { echo "FAIL: unrelated line lost"; exit 1; }
+          # uninstall -> watch line gone, unrelated preserved
+          make cron-uninstall
+          if grep -q '^\*/20' "$FAKE_CRONTAB_FILE"; then echo "FAIL: */20 line still present"; exit 1; fi
+          grep -q "seed unrelated line" "$FAKE_CRONTAB_FILE" || { echo "FAIL: unrelated line lost on uninstall"; exit 1; }
+          echo "CRON MAKE-TARGETS OK: install idempotent, uninstall preserves unrelated"
+      - name: Prune orphaned test containers
+        run: make test-clean
+
+  # watch-report: the REAL make watch-report against a FAKE .watchloop tree + gh shim
+  watch-report:
+    runs-on: ${{ inputs.runner }}
+    continue-on-error: ${{ inputs.optional }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: make watch-report (fixture .watchloop + fake gh shim)
+        run: |
+          set -eu
+          mkdir -p "$HOME/fakebin"
+          cp tests/fixtures/watch-report/fake-gh.sh "$HOME/fakebin/gh"
+          chmod +x "$HOME/fakebin/gh"
+          export PATH="$HOME/fakebin:$PATH"
+          export WATCH_REPORT_FIXTURE_ROOT="$PWD"
+          out="$(make watch-report WATCHLOOP="$PWD/tests/fixtures/watch-report")"
+          printf '%s\n' "$out"
+          echo "$out" | grep -q "## LIVE GitHub state" || { echo "FAIL: missing GitHub state section"; exit 1; }
+          echo "$out" | grep -q "## Worker sessions" || { echo "FAIL: missing Worker sessions section"; exit 1; }
+          echo "$out" | grep -q "## Dispatcher timeline" || { echo "FAIL: missing Dispatcher timeline section"; exit 1; }
+          echo "$out" | grep -q "## CI-red reaction" || { echo "FAIL: missing CI-red reaction section"; exit 1; }
+          echo "$out" | grep -q "1 FAIL" || { echo "FAIL: expected the fixture's 1 failing CI check to be surfaced"; exit 1; }
+          echo "WATCH-REPORT MAKE-TARGET OK: command runs and prints all sections"
+
+  # dispatch-e2e: REAL agent-spawn end-to-end (issue #63), make test-agents-e2e
+  dispatch-e2e:
+    runs-on: ${{ inputs.runner }}
+    continue-on-error: ${{ inputs.optional }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/docker
+      - name: Build test image
+        run: make test-image
+      - name: make test-agents-e2e (real dispatcher spawn/reclaim, README issue-work)
+        run: make test-agents-e2e
+      - name: Prune orphaned test containers
+        run: make test-clean
+
+  # install: the real make install -> test-built-engine -> install tests -> "hi"
+  # -> interactive trend pick -> make uninstall (make test-install-ci, NO SKIPS)
+  install:
+    runs-on: ${{ inputs.runner }}
+    continue-on-error: ${{ inputs.optional }}
+    timeout-minutes: 120
+    env:
+      LLGENIE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free disk (engine images are large)
+        if: runner.os == 'Linux'
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
+      - uses: ./.github/actions/docker
+      - name: Build test image
+        run: make test-image
+      - name: make test-install-ci (test container -> make install -> test-built-engine -> install tests -> hi -> interactive trend pick + real GGUF download + hi -> uninstall)
+        run: make test-install-ci ARCH=cpu
+      - name: Prune orphaned test containers
+        if: always()
+        run: make test-clean
+
+  # agents-read: AGENTS.md must not match Hermes context-file threat patterns.
+  # setup-python only provides python3.12; make builds the venv (hermes-agent + pytest),
+  # scans AGENTS.md and runs the guard's tests, the same as on a dev host.
+  agents-read:
+    runs-on: ${{ inputs.runner }}
+    continue-on-error: ${{ inputs.optional }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: make test-agents-read (Python 3.12 venv -> AGENTS.md scan -> guard tests)
+        run: make test-agents-read
+
+  # openspec: validate the OpenSpec changes (make openspec-validate)
+  openspec:
+    runs-on: ${{ inputs.runner }}
+    continue-on-error: ${{ inputs.optional }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: ./.github/actions/docker
+      - name: make openspec-image
+        run: make openspec-image
+      - name: make openspec-validate
+        run: make openspec-validate NAME=ci-pipeline
+      # every active change, so a PR cannot land unticked `- [ ]` tasks
+      - name: Assert all active changes have all tasks checked (fails on any unchecked `- [ ]`)
+        run: make openspec-tasks-check
+      - name: Prune orphaned test containers
+        run: make test-clean
+
+  # cpu-health: llgenie serves the 0.5B model through the llama.cpp engine image, "hi"
+  cpu-health:
+    runs-on: ${{ inputs.runner }}
+    continue-on-error: ${{ inputs.optional }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/docker
+      - name: Build test image
+        run: make test-image
+      - name: make test-health (CPU LLM answers "hi")
+        run: make test-health
+      - name: Prune orphaned test containers
+        run: make test-clean
+
+  # top-tier: REAL (no-mock) top-tier acceptance (issue #49)
+  top-tier:
+    runs-on: ${{ inputs.runner }}
+    continue-on-error: ${{ inputs.optional }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/docker
+      - name: "Build test image (bundles hf + gguf + docker CLI)"
+        run: make test-image
+      - name: "make test-top-tier-ci (real acceptance: download, no mocks, CPU)"
+        run: make test-top-tier-ci
+      - name: "make test-top-tier-serve-ci (lightweight download + load + hi + RAM)"
+        run: make test-top-tier-serve-ci
+      - name: "REAL CLI dry run (llgenie --download-top-tier --dry --count 2 in-container)"
+        run: make test-top-tier-cli-ci
+      - name: Prune orphaned test containers
+        run: make test-clean

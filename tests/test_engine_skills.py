@@ -691,7 +691,7 @@ def test_ci_checks_params_are_fresh():
     """The unit job fails when someone edits a skill without regenerating params."""
 
     # Given the CI unit job
-    steps = " ".join(str(st.get("run", "")) for st in _ci()["jobs"]["unit"]["steps"])
+    steps = " ".join(str(st.get("run", "")) for st in yaml.safe_load((REPO / ".github" / "workflows" / "pipeline.yml").read_text())["jobs"]["unit"]["steps"])
 
     # When its steps are read
     # Then check-engine-params runs
@@ -705,9 +705,8 @@ def test_every_smoked_engine_has_a_tiny_test_model(skills):
 
     import scripts.engine_image as ei
 
-    # Given every engine CI smokes (images + macOS native)
+    # Given every engine CI smokes (the engine images)
     engines = {r["engine"] for r in ei.matrix(ci=True) if r["smoke"]}
-    engines |= set(_ci()["jobs"]["engine-smoke-mac"]["strategy"]["matrix"]["engine"])
 
     for engine in engines:
         # When a test-model format is picked from the skill's formats
@@ -1230,9 +1229,12 @@ def test_install_published_is_the_last_stage_per_mocked_backend():
     (cpu/cuda/rocm/vulkan mocked via LLAMA_BACKEND), after engine-published-test."""
     import yaml as _y
     jobs = _y.safe_load((REPO / ".github/workflows/ci.yml").read_text())["jobs"]
-    job = jobs["install-published"]
-    assert job["needs"] == ["engine-published-test"]
-    assert "github.event_name == 'push'" in job["if"] and "!cancelled()" in job["if"]
+    for side in ("linux-published", "macos-published"):
+        caller = jobs[side]
+        assert caller["needs"] == ["engine-published-test"]
+        assert "github.event_name == 'push'" in caller["if"] and "!cancelled()" in caller["if"]
+        assert caller["uses"] == "./.github/workflows/published.yml"
+    job = _y.safe_load((REPO / ".github/workflows/published.yml").read_text())["jobs"]["install-published"]
     assert job["strategy"]["matrix"]["backend"] == ["cpu", "cuda", "rocm", "vulkan"]
     runs = [st.get("run", "") for st in job["steps"]]
     assert any("docker login ghcr.io" in r for r in runs)

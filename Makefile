@@ -39,18 +39,15 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 
 .PHONY: all install venv-install link uninstall smoke list version help \
 	openspec-image openspec-new openspec-validate openspec-status openspec-shell \
-	test test-unit test-agents-e2e test-install test-install-ci test-install-host test-install-trend test-health test-health-host download-test-model \
+	test test-unit test-agents-e2e test-agents-read agents-read-venv test-install test-install-ci test-install-host test-install-trend test-health test-health-host download-test-model \
 	test-image test-clean lint lint-fix loop loop-harness chained cron-install cron-uninstall cron-snapshot \
 	build-server build-variant serve-variant test-serve-variant stop-serve-variant install-prism-cpu install-upstream-cpu \
 	install-prism-cuda install-upstream-cuda install-prism-metal install-upstream-metal \
-	sync-registry check-registry skills-validate engine-list engine-hardware engine-plan engine-check engine-install engine-detect engine-smoke test-engine ci-engine-images build-engine-base build-engines generate-build-engine-params test-engine-image push-engine test-published-engine test-install-published engine-launchers test-built-engine \
+	sync-registry check-registry skills-validate engine-list engine-hardware engine-plan engine-check engine-install engine-detect engine-smoke test-engine ci-engine-images build-engine-base build-engines generate-build-engine-params test-engine-image push-engine test-published-engine test-install-published engine-launchers test-built-engine test-uninstalled \
 	generate-engine-params check-engine-params build-engine run-engine stop-engine list-engine-images
 
-# ---- container runtime (nerdctl preferred, docker fallback) --------------
-RUNTIME ?= nerdctl
-ifeq ($(shell command -v $(RUNTIME) >/dev/null 2>&1 && echo yes),)
-RUNTIME = docker
-endif
+# ---- container runtime: docker -------------------------------------------
+RUNTIME ?= docker
 OS_IMG := llgenie/openspec:latest
 
 all: install
@@ -422,7 +419,7 @@ test-clean: ## Remove left-over/stopped orphaned containers of the test image (i
 	echo "Pruned stopped orphaned $(TEST_IMG) containers."
 
 test-unit: ## Hermetic unit tests (containerized) — includes the lint regression + openspec-tasks-check tests
-	$(TEST_RUN) python -m pytest tests/test_llama_ai.py tests/test_hf_download_stall.py tests/test_lint_linefeeds.py tests/test_watchloop_dispatch.py tests/test_check_openspec_tasks.py tests/test_install_watchloop_cron.py tests/test_watch_report.py tests/test_ci_variant_matrix.py tests/test_serve_variant.py tests/test_ensure_user_path.py tests/test_engine_skills.py tests/test_detect_server.py tests/test_model_engine_pick.py tests/test_trend_pick.py tests/test_strata_download.py -p no:cacheprovider -q
+	$(TEST_RUN) python -m pytest tests/test_llama_ai.py tests/test_hf_download_stall.py tests/test_lint_linefeeds.py tests/test_watchloop_dispatch.py tests/test_check_openspec_tasks.py tests/test_install_watchloop_cron.py tests/test_watch_report.py tests/test_ci_variant_matrix.py tests/test_serve_variant.py tests/test_ensure_user_path.py tests/test_engine_skills.py tests/test_detect_server.py tests/test_model_engine_pick.py tests/test_trend_pick.py tests/test_strata_download.py tests/test_macos_install.py -p no:cacheprovider -q
 
 test-agents-e2e: ## REAL end-to-end agent tests (containerized) — runs ONLY *_e2e*.py files directly
 	# issue #63 CI gate: exercises the REAL dispatcher spawn/kill/respawn against a fake
@@ -430,17 +427,29 @@ test-agents-e2e: ## REAL end-to-end agent tests (containerized) — runs ONLY *_
 	# (glob, so any future e2e file is picked up automatically).
 	$(TEST_RUN) sh -c 'python -m pytest tests/*_e2e*.py -p no:cacheprovider -q'
 
-test-agents-read: ## Guard: AGENTS.md must not match Hermes context-file threat patterns (fail-closed). Host-side: uses a Python >=3.11 that has hermes-agent installed (3rd-party PyPI dep, pinned ==0.19.0; the CI agents-read job installs it itself). Not containerized, to avoid bumping the 3.10 test image.
-	@echo "==> test-agents-read: scanning AGENTS.md with the installed hermes-agent threat scanner"
-	@AR=; for py in python3.12 python3.11; do \
-	  if command -v $$py >/dev/null 2>&1 && $$py -c "import tools.threat_patterns" 2>/dev/null; then AR=$$py; break; fi; \
-	done; \
-	if [ -z "$$AR" ]; then \
-	  echo "ERROR: no Python >=3.11 with hermes-agent installed found. Run 'pip install hermes-agent==0.19.0' into a Python >=3.11 interpreter (the CI agents-read job does this automatically)."; \
-	  exit 1; \
-	fi; \
-	echo "  using $$AR"; \
-	$$AR scripts/scan_agents_md.py AGENTS.md
+# hermes-agent needs Python >=3.11, the gguf venv and the test image are 3.10: the guard
+# gets its own Python 3.12 venv, built by make on any host (Linux, macOS, CI). It lives
+# outside the repo: tests/test_agents_read.py rejects a hermes module imported from the repo.
+PY312             ?= python3.12
+AGENTS_READ_VENV  ?= $(HOME)/.cache/llgenie/agents-read-venv
+HERMES_AGENT_PIN  := hermes-agent==0.19.0
+
+AGENTS_READ_STAMP := $(AGENTS_READ_VENV)/.installed-$(HERMES_AGENT_PIN)
+
+agents-read-venv: $(AGENTS_READ_STAMP) ## Build the Python 3.12 venv for test-agents-read (hermes-agent + pytest); rebuilt only when missing or the pin changes
+
+$(AGENTS_READ_STAMP):
+	@command -v $(PY312) >/dev/null 2>&1 || { echo "ERROR: $(PY312) not found (macOS: brew install python@3.12; Linux: apt install python3.12-venv)"; exit 1; }
+	@echo "==> Building $(AGENTS_READ_VENV) with $(PY312) ($(HERMES_AGENT_PIN) + pytest)"
+	@rm -rf "$(AGENTS_READ_VENV)"
+	$(PY312) -m venv "$(AGENTS_READ_VENV)"
+	"$(AGENTS_READ_VENV)/bin/python" -m pip install --quiet --no-cache-dir "$(HERMES_AGENT_PIN)" pytest
+	@touch "$@"
+
+test-agents-read: agents-read-venv ## Guard: AGENTS.md must not match Hermes context-file threat patterns (fail-closed), then the guard's own tests. Runs in the make-built Python 3.12 venv (agents-read-venv); not containerized, to avoid bumping the 3.10 test image.
+	@echo "==> test-agents-read: scanning AGENTS.md with the hermes-agent threat scanner ($(AGENTS_READ_VENV))"
+	"$(AGENTS_READ_VENV)/bin/python" scripts/scan_agents_md.py AGENTS.md
+	"$(AGENTS_READ_VENV)/bin/python" -m pytest tests/test_agents_read.py --noconftest -p no:cacheprovider -q
 
 test-install: ## Host install tests (containerized) — skips cleanly without artifacts
 	$(TEST_RUN) python -m pytest tests/test_install.py -p no:cacheprovider -q
@@ -453,14 +462,22 @@ test-install-host: ## Verify the REAL host install (make install) — runs on th
 	@echo "==> Verifying host install artifacts via tests/test_install.py"
 	@$(PY) -m pytest tests/test_install.py -p no:cacheprovider -q
 
-test-install-ci: ## In the test container: REAL make install (engine images via host docker) -> test-built-engine -> install tests -> "hi" through the container llama-server -> uninstall (NO SKIP)
+test-install-ci: ## In the test container: REAL make install (engine images via host docker) -> test-built-engine -> install tests -> "hi" through the container llama-server -> trend pick -> uninstall (NO SKIP). The same on Linux and macOS (CI linux / macos pipelines)
 	# Python, pytest and the hf/docker CLIs come from the test image; every
 	# inference server runs in its engine image (started through the host docker
 	# socket). HOME is a throwaway dir inside the repo (.ci-home).
 	@echo "==> test-install-ci (test container + engine images)"
 	@mkdir -p "$(CI_HOME)"
-	$(ENGINE_TEST_RUN) sh -c 'make install BUILD=1 ARCH=$(if $(ARCH),$(ARCH),cpu) && make -C tools venv-dev-install && HF_BIN=$$(command -v hf) python3 scripts/download_test_model.py && make test-install-host && make test-health-host && make test-install-trend && touch ~/bin/not-ours && make uninstall && test ! -e ~/bin/llgenie && test ! -e ~/bin/llgenie.py && test ! -e ~/bin/llama-server && ! ls ~/bin/llgenie-engine-* >/dev/null 2>&1 && test -e ~/bin/not-ours && test -z "$$(docker ps -q --filter name=^llgenie-)" && test -f scripts/llama_serve.py && echo "==> uninstall removed every installed file, kept foreign files, no engine container left"'
+	$(ENGINE_TEST_RUN) sh -c 'make install BUILD=1 ARCH=$(if $(ARCH),$(ARCH),cpu) && make -C tools venv-dev-install && HF_BIN=$$(command -v hf) python3 scripts/download_test_model.py && make test-install-host && make test-health-host && make test-install-trend && touch ~/bin/not-ours && make uninstall && make test-uninstalled && test -e ~/bin/not-ours && echo "==> uninstall removed every installed file, kept foreign files, no engine container left"'
 	@$(CI_HOME_CLEAN)
+
+test-uninstalled: ## After make uninstall: no installed launcher, shim or llgenie-engine-* is left in ~/bin, no llgenie engine container runs, the repo is untouched
+	@test ! -e "$(LAUNCHER)" && test ! -e "$(BIN)/llgenie.py" && test ! -e "$(BIN)/llama-server" && test ! -e "$(BIN)/prism-server" \
+	  || { echo "FAIL: make uninstall left a launcher or shim in $(BIN)"; exit 1; }
+	@! ls "$(BIN)"/llgenie-engine-* >/dev/null 2>&1 || { echo "FAIL: make uninstall left llgenie-engine-* in $(BIN)"; exit 1; }
+	@test -z "$$($(RUNTIME) ps -q --filter name=^llgenie-)" || { echo "FAIL: an llgenie engine container is still running"; exit 1; }
+	@test -f scripts/llama_serve.py || { echo "FAIL: repo touched"; exit 1; }
+	@echo "==> uninstall removed every installed file, no engine container left"
 
 test-health-host: ## After make install: llgenie serves the 0.5B model through ~/bin/llama-server (the llama.cpp image) and answers "hi"
 	@HF_BIN="$${HF_BIN:-$$(command -v hf)}" $(PY) scripts/download_test_model.py

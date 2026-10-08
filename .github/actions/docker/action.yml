@@ -1,0 +1,25 @@
+name: Docker
+description: >
+  Docker for the make targets. Linux runners have it; macOS runners get it through
+  docker/setup-docker-action, Docker's own GitHub action (Docker CE in a Lima VM, issue
+  #112). After this step every make target runs unchanged on either OS.
+runs:
+  using: composite
+  steps:
+    # vz + virtiofs: Apple's virtualization framework instead of qemu. --mount-writable:
+    # the action mounts ~ read-only by default, but the make targets bind-mount the repo
+    # (under ~/work) read-write into containers. The action's Lima template sets its own
+    # DNS (1.1.1.1) with the host resolver off, so image pulls resolve inside the VM.
+    - name: Docker through docker/setup-docker-action (macOS only)
+      if: runner.os == 'macOS'
+      uses: docker/setup-docker-action@v5
+      env:
+        LIMA_START_ARGS: --vm-type vz --mount-type virtiofs --mount-writable --cpus 3 --memory 10 --disk 80
+    - name: docker buildx (macOS only)
+      if: runner.os == 'macOS'
+      uses: docker/setup-buildx-action@v4
+      with:
+        driver: docker
+    - name: docker version
+      shell: bash
+      run: docker version

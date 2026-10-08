@@ -1,165 +1,31 @@
 name: CI
 
+# ONE run per push, on every branch: a push to a branch with an open PR is not run a
+# second time as a pull_request event (its checks show on the PR from this run).
 on:
   push:
     branches: ["**"]      # ALL branches
-  pull_request:
 
-# Every verification stage is its own independent job (GitHub Actions runs
-# jobs in parallel by default). Each job drives a Makefile target — the SAME
-# commands that `make loop` runs locally — and everything runs in the
-# containerized test image (python + pytest + hf + docker CLI), so CI, the
-# local nerdctl host, and the local loop behave identically.
+# Two identical pipelines run in parallel (issue #112): `linux` (ubuntu-latest) and
+# `macos` (macos-15-intel, Docker from docker/setup-docker-action: GitHub's Apple-Silicon runners have
+# no nested virtualization). Both call .github/workflows/pipeline.yml: the same jobs,
+# the same `make <target>` commands, the same asserts. The only per-OS step is
+# .github/actions/docker. make install picks this host's images by itself.
 #
-# Each stage builds the test image first (cached by the runner), runs the
-# equivalent `make <stage>`, then prunes any orphaned test containers via
-# `make test-clean` ("always removed"). The container is always started by the
-# make target (RUNTIME resolves nerdctl->docker), never invoked directly.
+# The engine images are built ONCE (engine-base / engine-image / engine-published-test,
+# Linux: the images are linux containers), then installed from GHCR by both pipelines
+# (published.yml: make test-install-published per backend, on Linux and on macOS).
 jobs:
-  # ------------------------------------------------------------------
-  # lint: linefeed / editorconfig (make lint)
-  # ------------------------------------------------------------------
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Build test image
-        run: make test-image
-      - name: make lint
-        run: make lint
-      - name: Prune orphaned test containers
-        run: make test-clean
+  linux:
+    uses: ./.github/workflows/pipeline.yml
+    with:
+      runner: ubuntu-latest
 
-  # ------------------------------------------------------------------
-  # unit: hermetic unit tests (make test-unit)
-  # ------------------------------------------------------------------
-  unit:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build test image
-        run: make test-image
-      - name: make test-unit
-        run: make test-unit
-      - name: make skills-validate (engine skills vs the trending-local-llms registry, issue #98)
-        run: make skills-validate
-      - name: make check-registry (vendored data/models.json is a valid registry, issue #105)
-        run: make check-registry
-      - name: make check-strata-models (data/strata_models.json = Strata's setup.py at the pinned commit)
-        run: make check-strata-models
-      - name: make skills-validate REGISTRY=data/models.json (skills vs the vendored registry llgenie reads)
-        run: make skills-validate REGISTRY=data/models.json
-      - name: make check-engine-params (committed per-arch engine params match the skills)
-        run: make check-engine-params
-      - name: Prune orphaned test containers
-        run: make test-clean
-
-  # ------------------------------------------------------------------
-  # cron: exercise the REAL make cron-* targets (issue #67)
-  # Runs make cron-snapshot, then drives make cron-install (x2, idempotency)
-  # and make cron-uninstall against a FAKE crontab (CRONTAB_CMD shim) — so the
-  # make layer is literally executed in CI without touching any real crontab.
-  # ------------------------------------------------------------------
-  cron:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: make cron-snapshot (real make invocation of the cron machinery)
-        run: make cron-snapshot
-      - name: Drive make cron-install/uninstall against a fake crontab shim
-        run: |
-          set -eu
-          export CRONTAB_CMD="$PWD/tests/fixtures/fake-crontab.sh"
-          export FAKE_CRONTAB_FILE="$(mktemp)"
-          echo "seed unrelated line" > "$FAKE_CRONTAB_FILE"
-          # install twice -> exactly one entry (idempotency)
-          make cron-install
-          make cron-install
-          test "$(grep -c '^\*/20' "$FAKE_CRONTAB_FILE")" = "1" || { echo "FAIL: expected exactly 1 */20 line"; exit 1; }
-          grep -q "seed unrelated line" "$FAKE_CRONTAB_FILE" || { echo "FAIL: unrelated line lost"; exit 1; }
-          # uninstall -> watch line gone, unrelated preserved
-          make cron-uninstall
-          if grep -q '^\*/20' "$FAKE_CRONTAB_FILE"; then echo "FAIL: */20 line still present"; exit 1; fi
-          grep -q "seed unrelated line" "$FAKE_CRONTAB_FILE" || { echo "FAIL: unrelated line lost on uninstall"; exit 1; }
-          echo "CRON MAKE-TARGETS OK: install idempotent, uninstall preserves unrelated"
-      - name: Prune orphaned test containers
-        run: make test-clean
-
-  # ------------------------------------------------------------------
-  # watch-report: exercise the REAL make watch-report target end-to-end
-  # against a FAKE .watchloop tree + a FAKE gh shim (mirrors the cron job's
-  # fake-crontab pattern). No real loop data / no GitHub token / no network.
-  # Asserts the command exits 0 and prints the report sections.
-  # ------------------------------------------------------------------
-  watch-report:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: make watch-report (fixture .watchloop + fake gh shim)
-        run: |
-          set -eu
-          # Point PATH at the fake gh shim so watch_report's `gh` calls return
-          # fixture JSON without a real token or network.
-          mkdir -p "$HOME/fakebin"
-          cp tests/fixtures/watch-report/fake-gh.sh "$HOME/fakebin/gh"
-          chmod +x "$HOME/fakebin/gh"
-          export PATH="$HOME/fakebin:$PATH"
-          export WATCH_REPORT_FIXTURE_ROOT="$PWD"
-          # Run the real make target against the fixture .watchloop tree.
-          out="$(make watch-report WATCHLOOP="$PWD/tests/fixtures/watch-report")"
-          # Assert the report produced its sections from the fixtures.
-          printf '%s\n' "$out"
-          echo "$out" | grep -q "## LIVE GitHub state" || { echo "FAIL: missing GitHub state section"; exit 1; }
-          echo "$out" | grep -q "## Worker sessions" || { echo "FAIL: missing Worker sessions section"; exit 1; }
-          echo "$out" | grep -q "## Dispatcher timeline" || { echo "FAIL: missing Dispatcher timeline section"; exit 1; }
-          echo "$out" | grep -q "## CI-red reaction" || { echo "FAIL: missing CI-red reaction section"; exit 1; }
-          echo "$out" | grep -q "1 FAIL" || { echo "FAIL: expected the fixture's 1 failing CI check to be surfaced"; exit 1; }
-          echo "WATCH-REPORT MAKE-TARGET OK: command runs and prints all sections"
-
-  # ------------------------------------------------------------------
-  # dispatch-e2e: REAL agent-spawn end-to-end (issue #63) — drives the actual
-  # dispatcher spawn/kill/respawn against a fake worker that does README
-  # issue-work, asserted. Runs in <1 minute via make test-agents-e2e (only
-  # tests/*_e2e*.py). No GitHub API / no LLM / no network.
-  # ------------------------------------------------------------------
-  dispatch-e2e:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build test image
-        run: make test-image
-      - name: make test-agents-e2e (real dispatcher spawn/reclaim, README issue-work)
-        run: make test-agents-e2e
-      - name: Prune orphaned test containers
-        run: make test-clean
-
-  # ------------------------------------------------------------------
-  # install: REAL host-install tests (make test-install-ci) — performs a real
-  # `make install` + seeds a model + asserts the artifacts, all in ONE container.
-  # NO SKIPS: a missing prerequisite fails the job loudly, it never silently skips.
-  install:
-    # The real user path, in the python test container: make install pulls/builds
-    # every engine image with a cpu variant through the host docker socket and
-    # writes the ~/bin start scripts, then make test-built-engine (each script
-    # prints its engine version through its image), the install tests, llgenie
-    # answering "hi" through the container llama-server, and make uninstall.
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-    env:
-      LLGENIE_REGISTRY: ghcr.io/${{ github.repository_owner }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Free disk (engine images are large)
-        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
-      - name: Build test image
-        run: make test-image
-      - name: make test-install-ci (test container -> make install -> test-built-engine -> install tests -> hi -> interactive trend pick + real GGUF download + hi -> uninstall)
-        run: make test-install-ci ARCH=cpu
-      - name: Prune orphaned test containers
-        if: always()
-        run: make test-clean
+  macos:
+    uses: ./.github/workflows/pipeline.yml
+    with:
+      runner: macos-15-intel
+      optional: true   # macOS reports, never blocks: only the linux jobs gate the PR
 
   # ------------------------------------------------------------------
   # engine-images (issue #98). Pure make, no LLM, nothing built on a laptop:
@@ -318,213 +184,26 @@ jobs:
           make test-built-engine BIN="$RUNNER_TEMP/bin"
 
   # ------------------------------------------------------------------
-  # install-published: LAST stage. After every image was built, tested,
-  # published and re-tested as published, the real `make install` runs on a
-  # clean runner per backend (cpu/cuda/rocm/vulkan mocked via LLAMA_BACKEND; GPU
-  # images run on CPU): it may only PULL that backend's published images,
-  # llgenie answers "hi" through llama-server and prism-server, `llgenie --pick
-  # --engine` pulls the picked engine on first use, and make uninstall leaves
-  # nothing behind. Every push run (they all publish).
+  # install-published: LAST stage, the same make command on Linux and on macOS.
+  # Every push run (they all publish).
   # ------------------------------------------------------------------
-  install-published:
+  linux-published:
     needs: [engine-published-test]
     if: ${{ !cancelled() && github.event_name == 'push' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        backend: [cpu, cuda, rocm, vulkan]
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
+    uses: ./.github/workflows/published.yml
     permissions:
       contents: read
       packages: read
-    name: install-published-${{ matrix.backend }}
-    env:
-      LLGENIE_REGISTRY: ghcr.io/${{ github.repository_owner }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Free disk (CUDA/ROCm images are large)
-        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
-      - name: Log in to GHCR (read)
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-      - name: Build test image
-        run: make test-image
-      - name: "make test-install-published BACKEND=${{ matrix.backend }} (pull only this backend's images, llgenie hi via both shims + --pick --engine + interactive trend pick with a real GGUF download, uninstall)"
-        run: make test-install-published BACKEND=${{ matrix.backend }}
-      - name: Prune orphaned test containers
-        if: always()
-        run: make test-clean
+    with:
+      runner: ubuntu-latest
 
-  # ------------------------------------------------------------------
-  # engine-smoke-mac: Metal cannot run in a container, so macOS installs the
-  # Metal engines natively through their skills on the hosted Apple runner.
-  # ------------------------------------------------------------------
-  engine-smoke-mac:
-    strategy:
-      fail-fast: false
-      matrix:
-        engine: [ollama, mlx]
-    runs-on: macos-14
-    timeout-minutes: 60
-    name: engine-smoke-${{ matrix.engine }}-metal
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-      - name: hf CLI (tiny smoke models)
-        run: uv tool install "huggingface_hub[cli]>=0.30"
-      - name: make engine-smoke ENGINE=${{ matrix.engine }} BACKEND=metal
-        env:
-          LLAMA_BACKEND: metal
-        run: make engine-smoke ENGINE=${{ matrix.engine }} BACKEND=metal
-  # ------------------------------------------------------------------
-  # agents-read: AGENTS.md must not match Hermes context-file threat patterns.
-  # Runs on its OWN python:3.12 image (hermes-agent needs Python >=3.11) so it
-  # does NOT bump the heavy 3.10 test image and avoids its dep conflicts. The
-  # guard imports the REAL hermes-agent PyPI package (pinned ==0.19.0, a
-  # 3rd-party dependency), never a vendored copy.
-  # ------------------------------------------------------------------
-  agents-read:
-    runs-on: ubuntu-latest
-    container: python:3.12-slim
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install hermes-agent + pytest (hermes is a declared PyPI dep)
-        run: pip install --no-cache-dir "hermes-agent==0.19.0" pytest
-      - name: Scan AGENTS.md (fail-closed guard)
-        run: python scripts/scan_agents_md.py AGENTS.md
-      - name: Unit-test the guard (edge cases + permutation corpus; --noconftest to skip the gguf venv root conftest)
-        run: python -m pytest tests/test_agents_read.py --noconftest -p no:cacheprovider -q
-
-  # ------------------------------------------------------------------
-  # openspec: validate the active OpenSpec change (make openspec-validate)
-  # ------------------------------------------------------------------
-  openspec:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-      - name: make openspec-image
-        run: make openspec-image
-      - name: make openspec-validate
-        run: make openspec-validate NAME=ci-pipeline
-      # Scan ALL active OpenSpec changes, not just NAME=ci-pipeline. A feature PR
-      # introduces its OWN new change dir under openspec/changes/<name>; scoping
-      # this check to a single always-present change (ci-pipeline) would let a PR
-      # land with unticked `- [ ]` tasks in its own change and CI stay green.
-      # check_openspec_tasks.py with no NAME walks every active change, so a PR
-      # that adds an incomplete change fails RED here.
-      - name: Assert all active changes have all tasks checked (fails on any unchecked `- [ ]`)
-        run: make openspec-tasks-check
-      - name: Prune orphaned test containers
-        run: make test-clean
-
-  # ------------------------------------------------------------------
-  # cpu-health: Real CPU-only lightweight-LLM check (make test-health).
-  # pytest runs in the test container; llgenie serves the 0.5B model through
-  # the llama.cpp ENGINE IMAGE (host docker socket) and must answer "hi".
-  # ------------------------------------------------------------------
-  cpu-health:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build test image
-        run: make test-image
-      - name: make test-health (CPU LLM answers "hi")
-        run: make test-health
-      - name: Prune orphaned test containers
-        run: make test-clean
-
-  # ------------------------------------------------------------------
-  # top-tier: REAL (no-mock) top-tier acceptance (issue #49) — live HF
-  # trending + dynamic fit gate + provider-aware placement + real `hf`
-  # download, containerized/CPU. Deterministic card size (16 GB) so any runner
-  # passes; no mock/skip.
-  # ------------------------------------------------------------------
-  top-tier:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-      - name: "Build test image (bundles hf + gguf + docker CLI)"
-        run: make test-image
-      - name: "make test-top-tier-ci (real acceptance: download, no mocks, CPU)"
-        run: make test-top-tier-ci
-      - name: "make test-top-tier-serve-ci (lightweight download + load + hi + RAM)"
-        run: make test-top-tier-serve-ci
-      - name: "REAL CLI dry run (llgenie --download-top-tier --dry --count 2 in-container)"
-        run: make test-top-tier-cli-ci
-      - name: Prune orphaned test containers
-        run: make test-clean
-
-  # ------------------------------------------------------------------
-  # #84/#89 native macOS variants (Metal cannot run in a container). The Linux
-  # variants (prism/upstream x cpu/cuda) are now the engine images above:
-  # engine-image-llama.cpp-* / engine-image-llama.cpp-prism-*, built from their
-  # own base image and tested on the OpenAI endpoints by `make test-engine`.
-  # ------------------------------------------------------------------
-  server-variants-mac:
-    name: ${{ matrix.name }}
-    runs-on: macos-14
-    timeout-minutes: 75
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: server-build-prism-cpu-mac
-            tree: prism
-            backend: cpu
-          - name: server-build-prism-metal
-            tree: prism
-            backend: metal
-          - name: server-build-upstream-cpu-mac
-            tree: upstream
-            backend: cpu
-          - name: server-build-upstream-metal
-            tree: upstream
-            backend: metal
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Install bash 5 + python 3.10 and put them on PATH
-        # macOS ships bash 3.2 (no `set -o pipefail`/`[[ ]]` reliably) and a
-        # python that may not be 3.10. build_llama_server.sh needs bash 4+ and
-        # the gguf venv needs python 3.10, so install both via Homebrew and
-        # prepend them to PATH for every subsequent step in this job.
-        run: |
-          set -eu
-          brew install bash python@3.10
-          echo "$(brew --prefix)/bin" >> "$GITHUB_PATH"
-          echo "$(brew --prefix)/opt/python@3.10/bin" >> "$GITHUB_PATH"
-          bash --version | head -1
-          python3 --version
-      - name: Restore the llama.cpp build cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ runner.temp }}/llama-build
-          key: llama-${{ runner.os }}-${{ matrix.tree }}-${{ matrix.backend }}-${{ github.run_id }}
-          restore-keys: |
-            llama-${{ runner.os }}-${{ matrix.tree }}-${{ matrix.backend }}-
-      - name: python env for the 0.5B "hi" health check
-        run: |
-          set -eu
-          python3 -m venv "$HOME/cihealth"
-          "$HOME/cihealth/bin/pip" install --quiet gguf numpy "huggingface_hub[cli]>=0.30"
-      - name: Build + verify ${{ matrix.tree }}+${{ matrix.backend }}
-        env:
-          VARIANT_TREE: ${{ matrix.tree }}
-          VARIANT_BACKEND: ${{ matrix.backend }}
-        run: |
-          set -eu
-          export PATH="$HOME/cihealth/bin:$PATH"
-          export HF_BIN="$HOME/cihealth/bin/hf"
-          export BUILD_JOBS="$(sysctl -n hw.ncpu)"
-          export SERVER_ROOT="${RUNNER_TEMP}/llama-build"
-          mkdir -p "$SERVER_ROOT"
-          echo "runner cores: ${BUILD_JOBS}"
-          make build-variant TREE="$VARIANT_TREE" BACKEND="$VARIANT_BACKEND"
-          make test-serve-variant TREE="$VARIANT_TREE" BACKEND="$VARIANT_BACKEND"
-          echo "${VARIANT_TREE}+${VARIANT_BACKEND}: make test-serve-variant OK"
+  macos-published:
+    needs: [engine-published-test]
+    if: ${{ !cancelled() && github.event_name == 'push' }}
+    uses: ./.github/workflows/published.yml
+    permissions:
+      contents: read
+      packages: read
+    with:
+      runner: macos-15-intel
+      optional: true   # macOS reports, never blocks: only the linux jobs gate the PR

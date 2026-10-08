@@ -21,16 +21,20 @@ LINUX_PAIRS = {
     ("server-build-upstream-cpu", "upstream", "cpu"),
     ("server-build-upstream-cuda", "upstream", "cuda"),
 }
-MAC_PAIRS = {
-    ("server-build-prism-cpu-mac", "prism", "cpu"),
-    ("server-build-prism-metal", "prism", "metal"),
-    ("server-build-upstream-cpu-mac", "upstream", "cpu"),
-    ("server-build-upstream-metal", "upstream", "metal"),
-}
+
+
+PIPELINE = REPO / ".github" / "workflows" / "pipeline.yml"
 
 
 def _workflow() -> dict:
     loaded = yaml.safe_load(CI.read_text())
+    assert isinstance(loaded, dict)
+    return loaded
+
+
+def _pipeline() -> dict:
+    """The jobs the linux and macos pipelines both run (pipeline.yml)."""
+    loaded = yaml.safe_load(PIPELINE.read_text())
     assert isinstance(loaded, dict)
     return loaded
 
@@ -58,48 +62,28 @@ def test_linux_prism_and_stock_variants_are_engine_image_jobs():
     assert not rows & set(ei.DISABLED)
     assert jobs["engine-image"]["strategy"]["fail-fast"] is False
 
-def test_mac_prism_and_stock_pairs_are_parallel_matrix_cells():
-    """prism+cpu || prism+metal and upstream+cpu || upstream+metal."""
-
-    # Given the server-variants-mac job on macos-14
-    job = _workflow()["jobs"]["server-variants-mac"]
-
-    # When the matrix is expanded
-    cells = _cells(job)
-
-    # Then both pairs are cells of one matrix, with no needs and fail-fast off
-    assert job["runs-on"] == "macos-14"
-    assert job["strategy"]["fail-fast"] is False
-    assert "needs" not in job
-    assert cells == MAC_PAIRS
-    assert "max-parallel" not in job["strategy"]
-
 
 def _run_scripts(job: dict) -> str:
     return "\n".join(step.get("run") or "" for step in job["steps"])
 
 
 def test_every_variant_runs_a_test_stage_on_the_openai_api():
-    """cpu images serve the 0.5B model and answer on /v1; GPU images start and run detect;
-    macOS Metal variants still answer "hi" natively."""
+    """cpu images serve the 0.5B model and answer on /v1; GPU images start and run detect."""
 
     import scripts.engine_image as ei
 
-    # Given the workflow, the engine-image matrix and the mac variants
+    # Given the workflow and the engine-image matrix
     jobs = _workflow()["jobs"]
     image_steps = _run_scripts(jobs["engine-image"])
-    mac = _run_scripts(jobs["server-variants-mac"])
     rows = ei.matrix(ci=True)
 
     # When the test stages are read
-    # Then every image job has a test (serve on cpu, detect on GPU) and mac still serves
+    # Then every image job has a test (serve on cpu, detect on GPU)
     assert "make test-engine ENGINE=" in image_steps
     assert "make test-engine-image ENGINE=" in image_steps
     assert all(r["test"] in ("serve", "detect") for r in rows)
     assert {r["test"] for r in rows if r["engine"].startswith("llama.cpp") and r["variant"] == "cpu"} == {"serve"}
     assert {r["test"] for r in rows if r["variant"] in ("cuda", "rocm", "vulkan")} == {"detect"}
-    assert "make test-serve-variant" in mac
-    assert "make build-variant" in mac
 
 def test_variant_build_streams_its_log():
     """The CUDA compile is visible in CI instead of discarded."""
@@ -235,7 +219,7 @@ def test_install_ci_runs_make_install_and_make_uninstall():
     start = text.index("test-install-ci:")
     recipe = text[start:text.index("\ntest-top-tier:", start)]
     install = text[text.index("\ninstall:"):].split("\n", 2)[1]
-    job = _run_scripts(_workflow()["jobs"]["install"])
+    job = _run_scripts(_pipeline()["jobs"]["install"])
 
     # When they are read
     # Then make install builds/pulls the images and runs test-built-engine,
@@ -247,14 +231,4 @@ def test_install_ci_runs_make_install_and_make_uninstall():
     assert "llgenie-engine-*" in recipe and "scripts/llama_serve.py" in recipe
     assert "make test-image" in job and "make test-install-ci" in job
 
-
-def test_mac_variants_do_not_wait_on_the_image_matrix():
-    """The macOS Metal matrix starts immediately, independent of the image builds."""
-
-    # Given the mac variant job
-    jobs = _workflow()["jobs"]
-
-    # When its dependency edges are read
-    # Then it waits on nothing
-    assert jobs["server-variants-mac"].get("needs") is None
 

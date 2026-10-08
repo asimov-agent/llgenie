@@ -38,7 +38,97 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import engine_skills as es  # noqa: E402
 
-RUNTIME = os.environ.get("RUNTIME") or ("docker" if shutil.which("docker") else "nerdctl")
+def runtime_answers(rt: str) -> bool:
+    """The container engine behind `rt` is reachable (`<rt> info` exits 0)."""
+    if not shutil.which(rt):
+        return False
+    try:
+        return subprocess.run([rt, "info"], capture_output=True, timeout=20).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+# ---- macOS: Docker runs in a Colima VM (issue #112) ------------------------------
+# Two ways the VM breaks that `make install` / llgenie can repair by themselves:
+#   * the VM is stopped (laptop rebooted): `docker info` fails;
+#   * the VM's DNS forwarder (192.168.5.1) does not answer (port 53 taken on the host,
+#     a VPN/network change): every pull fails with "lookup ... i/o timeout".
+# The repair is one `colima start` with explicit DNS resolvers. Linux is never touched.
+COLIMA_DNS = ("1.1.1.1", "8.8.8.8")
+DNS_PROBE_HOST = "ghcr.io"  # the registry every engine image comes from
+
+
+def _colima(*args: str, timeout: int = 60) -> subprocess.CompletedProcess | None:
+    try:
+        return subprocess.run(["colima", *args], capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def vm_dns_ok(host: str = DNS_PROBE_HOST) -> bool:
+    """The Colima VM resolves `host` (its DNS forwarder answers)."""
+    r = _colima("ssh", "--", "getent", "hosts", host, timeout=30)
+    return bool(r and r.returncode == 0 and r.stdout.strip())
+
+
+def colima_health() -> str:
+    """'' when Docker answers and the VM resolves the registry, else what is wrong:
+    'stopped' (no engine answers) or 'dns' (the VM cannot resolve DNS_PROBE_HOST)."""
+    if not runtime_answers(RUNTIME):
+        return "stopped"
+    return "" if vm_dns_ok() else "dns"
+
+
+def colima_repair_command() -> list[str]:
+    """`colima start` with explicit DNS resolvers (alone for a stopped VM, after a
+    `colima stop` when rewriting the VM's resolvers did not help)."""
+    return ["colima", "start", *[a for ip in COLIMA_DNS for a in ("--dns", ip)]]
+
+
+def vm_dns_fix_command() -> list[str]:
+    """Point the running VM at COLIMA_DNS right away (its /etc/resolv.conf), and restart
+    dockerd so the daemon's own resolver picks them up."""
+    conf = "".join(f"nameserver {ip}\\n" for ip in COLIMA_DNS)
+    return ["ssh", "--", "sudo", "sh", "-c",
+            f"printf '{conf}' > /etc/resolv.conf && (systemctl restart docker 2>/dev/null || true)"]
+
+
+def ensure_container_env(platform_name: str | None = None) -> bool:
+    """macOS only: make sure Docker through Colima answers and resolves the registry;
+    repair it when not. A stopped VM is started with explicit DNS resolvers; a running VM
+    whose DNS does not answer gets the resolvers written into it, then (still broken) a
+    restart with them. True when the environment works (always True off macOS, and when
+    Colima is not installed: nothing to repair)."""
+    if (platform_name or sys.platform) != "darwin" or not shutil.which("colima"):
+        return True
+    problem = colima_health()
+    if not problem:
+        return True
+    if problem == "dns":
+        print(f"[llgenie] the Colima VM cannot resolve {DNS_PROBE_HOST} (DNS): "
+              f"setting its resolvers to {', '.join(COLIMA_DNS)}", flush=True)
+        _colima(*vm_dns_fix_command(), timeout=120)
+        problem = colima_health()
+        if not problem:
+            print("[llgenie] Colima repaired", flush=True)
+            return True
+        print("[llgenie] still broken: restarting Colima with those resolvers", flush=True)
+        _colima("stop", timeout=180)
+    else:
+        print(f"[llgenie] '{RUNTIME}' does not answer (Colima stopped?): starting Colima "
+              f"with DNS {', '.join(COLIMA_DNS)}", flush=True)
+    r = _colima(*colima_repair_command()[1:], timeout=600)
+    if r is None or r.returncode:
+        print("[llgenie] colima start failed:\n" + ((r.stdout + r.stderr)[-2000:] if r else "(timeout)"))
+        return False
+    if colima_health() == "dns":
+        _colima(*vm_dns_fix_command(), timeout=120)
+    left = colima_health()
+    print("[llgenie] Colima repaired" if not left else f"[llgenie] Colima still broken ({left})", flush=True)
+    return not left
+
+
+RUNTIME = os.environ.get("RUNTIME") or "docker"  # docker only (issue #112)
 # The CI-published, CI-tested images. The default lives here, not only in the Makefile, so
 # `llgenie` run straight from ~/bin pulls a picked engine on first use with no setup.
 # LLGENIE_REGISTRY overrides it (a fork's GHCR); LLGENIE_REGISTRY= (empty) = local images only.
@@ -53,6 +143,18 @@ def _sh(cmd: list[str], **kw) -> subprocess.CompletedProcess:
 
 def image_exists(tag: str) -> bool:
     return subprocess.run([RUNTIME, "image", "inspect", tag], capture_output=True).returncode == 0
+
+
+def image_platform(tag: str) -> str:
+    """os/arch[/variant] the local image was built for (e.g. linux/amd64), or ""."""
+    try:
+        r = subprocess.run([RUNTIME, "image", "inspect", "-f",
+                            "{{.Os}}/{{.Architecture}}{{if .Variant}}/{{.Variant}}{{end}}", tag],
+                           capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    out = r.stdout.strip()
+    return out if r.returncode == 0 and re.fullmatch(r"[a-z0-9]+/[a-z0-9_]+(/[a-z0-9]+)?", out) else ""
 
 
 def load_params(engine: str) -> dict:
@@ -389,6 +491,7 @@ def main(argv=None) -> int:
     bb.add_argument("backend", choices=es.CONTAINER_BACKENDS)
     bb.add_argument("--force", action="store_true")
     bb.add_argument("--push", action="store_true")
+    sub.add_parser("ensure-env", help="macOS: repair Docker through Colima (stopped VM, VM DNS); no-op elsewhere")
     m = sub.add_parser("matrix")
     m.add_argument("--json", action="store_true")
     m.add_argument("--ci", action="store_true", help="only the variants CI builds")
@@ -398,6 +501,8 @@ def main(argv=None) -> int:
         return build_base(a.backend, a.force, a.push)
     if a.cmd == "ci-status":
         return ci_status(a.run, a.watch)
+    if a.cmd == "ensure-env":
+        return 0 if ensure_container_env() else 1
     if a.cmd == "matrix":
         rows = matrix(a.ci)
         print(json.dumps({"include": rows}) if a.json else

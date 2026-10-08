@@ -1314,6 +1314,18 @@ def _skip_summary_line(skip_summary):
     return f"{len(skip_summary)} skipped pre-flight: {parts}"
 
 
+def ensure_container_env():
+    """macOS: repair Docker through Colima (a stopped VM, or a VM whose DNS does not
+    answer) before an engine container starts (issue #112). No-op on Linux."""
+    if sys.platform != "darwin":
+        return
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import engine_image as ei
+    if not ei.ensure_container_env():
+        print("[llgenie] Docker through Colima does not work; see the messages above "
+              "(colima start --runtime docker --vm-type vz --vz-rosetta --dns 1.1.1.1)")
+
+
 def invoke_llama_server(cmd, model_path):
     """Record the argv, then start that llama-server binary.
 
@@ -1325,6 +1337,7 @@ def invoke_llama_server(cmd, model_path):
     with open(log_path, "a") as lf:
         lf.write(f"\n[{time.ctime()}] launching {os.path.basename(model_path)}\n")
         lf.write(" ".join(cmd) + "\n")
+    ensure_container_env()  # the llama-server shim runs a container
     try:
         subprocess.run(cmd)
     except KeyboardInterrupt:
@@ -1376,6 +1389,7 @@ def _ensure_and_exec(eng, path, args):
     print("Command: " + " ".join(cmd))
     if args.dry:
         return
+    ensure_container_env()
     # first use of this engine: pull its published image for this backend and
     # write its start script (make install only installs the llama.cpp core)
     inst = os.path.join(os.path.dirname(os.path.abspath(__file__)), "install_engine_launchers.py")
