@@ -7,19 +7,22 @@ on:
     branches: ["**"]      # ALL branches
 
 # Two pipelines run in parallel (issue #112): `linux` (ubuntu-latest) and `macos`
-# (macos-15-intel, Docker from docker/setup-docker-action: GitHub's Apple-Silicon runners have
-# no nested virtualization). Both run the same `make ci-<job>` commands and asserts:
-# Linux calls pipeline.yml (one job per target), macOS pipeline-macos.yml (the same targets
-# as steps of three jobs: one Docker VM boot each, issue #117). The only per-OS step is
-# .github/actions/docker.
+# (macos-15-intel). Both run the same `make ci-<job>` commands and asserts:
+# both call pipeline.yml, one job per target (issue #120: no combined jobs). Linux sets
+# up Docker; macOS runs the same targets in the Python 3.11 venv and never runs a Docker
+# GitHub Action. Both must succeed for the run to be green.
+# macOS never runs an inference server in a container and its runners have no Metal
+# GPU (issue #120): there is no macOS published-image stage and no native-engine CI
+# job. Native Metal engines are verified on an Apple-Silicon host with
+# `make ci-engines BACKEND=metal`.
 #
 # ci-images (issue #117) publishes the CI images (llgenie/test, llgenie/openspec) to GHCR
 # once per content hash; every other job PULLS them (make test-image-pull /
 # make openspec-image-pull) and never builds them.
 #
 # The engine images are built ONCE (engine-base / engine-image / engine-published-test,
-# Linux: the images are linux containers), then installed from GHCR by both pipelines
-# (published.yml: make test-install-published per backend, on Linux and on macOS).
+# Linux: the images are linux containers), then installed from GHCR on Linux only
+# (published.yml: make test-install-published per backend).
 jobs:
   # ------------------------------------------------------------------
   # ci-images (issue #117): the test image and the OpenSpec CLI image, tagged with a
@@ -57,13 +60,12 @@ jobs:
 
   macos:
     needs: [ci-images]
-    uses: ./.github/workflows/pipeline-macos.yml  # the same make ci-<job> targets in three Docker-VM jobs (issue #117)
+    uses: ./.github/workflows/pipeline.yml  # the SAME file as linux: one job per make ci-<job>, no combined jobs (issue #120)
     permissions:
       contents: read
       packages: read
     with:
-      runner: macos-15-intel
-      optional: true   # macOS reports, never blocks: only the linux jobs gate the PR
+      runner: macos-15-intel   # required: a macOS failure fails the run, same as Linux
 
   # ------------------------------------------------------------------
   # engine-images (issue #98). Pure make, no LLM, nothing built on a laptop:
@@ -213,40 +215,8 @@ jobs:
           make test-built-engine BIN="$RUNNER_TEMP/bin"
 
   # ------------------------------------------------------------------
-  # native-engine-macos-arm64 (issue #114): Metal engines run NATIVELY (Metal
-  # cannot run in a container). On GitHub's Apple-Silicon runner (no Docker needed)
-  # the REAL TensorFold install script runs through the llgenie pick path:
-  # missing -> install, older -> update, current -> reuse, start script --version;
-  # the interactive pick (Qwen3.8-27B -> TensorFold, --dry: the 21 GB checkpoint does
-  # not fit a 7 GB runner); and the lightest TensorFold model (Qwen3.5-9B MLX 4-bit)
-  # through the llgenie start script: served on Metal + "hi" when TensorFold's plan
-  # fits the runner, else TensorFold's own budget refusal (macos-15 has 7 GB).
-  # Reports, never blocks (macOS runners are slow/unreliable).
-  # ------------------------------------------------------------------
-  native-engine-macos-arm64:
-    runs-on: macos-15
-    continue-on-error: true
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - uses: astral-sh/setup-uv@v6
-      - name: hf CLI (lightest TensorFold model)
-        run: uv tool install "huggingface_hub[cli]>=0.30"
-      - name: make venv-dev-install (gguf venv + pytest)
-        run: make -C tools venv-dev-install
-      - name: "make test-native-engine (REAL uv: TensorFold install / update / reuse through the llgenie pick)"
-        run: make test-native-engine
-      - name: "make test-interactive-tensorfold-ci (plain interactive llgenie: pick Qwen3.8-27B, then TensorFold, real install)"
-        run: make test-interactive-tensorfold-ci
-      - name: "make test-native-engine-light (lightest TensorFold model on Metal via the llgenie start script, or its budget refusal)"
-        run: make test-native-engine-light
-
-  # ------------------------------------------------------------------
-  # install-published: LAST stage, the same make command on Linux and on macOS.
-  # Every push run on both (they all publish); no job is skipped (issue #117).
+  # install-published: LAST stage, Linux only (macOS has no published images to test:
+  # it never runs an engine container, issue #120). Every push run (issue #117).
   # ------------------------------------------------------------------
   linux-published:
     needs: [engine-published-test]
@@ -257,14 +227,3 @@ jobs:
       packages: read
     with:
       runner: ubuntu-latest
-
-  macos-published:
-    needs: [engine-published-test]
-    if: ${{ !cancelled() && github.event_name == 'push' }}
-    uses: ./.github/workflows/published.yml
-    permissions:
-      contents: read
-      packages: read
-    with:
-      runner: macos-15-intel
-      optional: true   # macOS reports, never blocks: only the linux jobs gate the PR

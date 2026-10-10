@@ -157,6 +157,38 @@ def test_readme_links_answer_and_a_broken_copy_is_caught():
     assert len(dead) == 1 and "this-repo-does-not-exist-404" in dead[0]
 
 
+def test_link_check_retries_a_gateway_timeout_but_not_a_404(monkeypatch):
+    """A GitHub 504 under load is retried (CI run 37890648373 failed on four 504s); a 404 is
+    dead at once."""
+    import urllib.error
+
+    # Given a server that times out twice then answers, and one that is 404
+    seen = {}
+
+    class R:
+        status = 200
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def urlopen(req, timeout):
+        n = seen[req.full_url] = seen.get(req.full_url, 0) + 1
+        if "gone" in req.full_url:
+            raise urllib.error.HTTPError(req.full_url, 404, "Not Found", {}, None)
+        if n < 3:
+            raise urllib.error.HTTPError(req.full_url, 504, "Gateway Time-out", {}, None)
+        return R()
+
+    monkeypatch.setattr(sr.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(sr.time, "sleep", lambda s: None)
+
+    # When both links are checked
+    dead = sr.check_links(["https://github.com/a/slow", "https://github.com/a/gone"])
+
+    # Then the slow one answers on the third try and only the 404 is dead, after one try
+    assert dead == ["https://github.com/a/gone -> HTTP Error 404: Not Found"]
+    assert seen == {"https://github.com/a/slow": 3, "https://github.com/a/gone": 1}
+
+
 def test_live_upstream_registry_is_the_live_readme_list():
     """Live GitHub: upstream data/models.json is exactly the README "Most loved" list."""
     data = sr.validate(sr.fetch(sr.UPSTREAM))

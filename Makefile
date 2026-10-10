@@ -1,7 +1,7 @@
 # llgenie install Makefile.
 #
 # `make install` does the WHOLE setup so you never touch the venv manually:
-#   1. builds the Python 3.10 gguf-tooling venv (./tools/venv-install)
+#   1. builds the Python 3.11 gguf-tooling venv (./tools/venv-install)
 #   2. writes a runnable launcher `~/bin/llgenie` that executes `llgenie.py`
 #      with the venv's python (so `gguf`/`numpy` resolve without extra steps)
 #   3. symlinks `~/bin/llgenie.py` -> this repo's `llgenie.py`
@@ -13,11 +13,26 @@
 #       llgenie qwen            # launch by substring
 #       llgenie --dry qwen      # print the tuned command, don't run
 
-# Use the first bash on PATH so bash 5 (via brew on macOS) shadows the
-# system bash 3.2. Linux/CI runners already have bash 5 in /bin/bash.
-SHELL   := $(shell command -v bash 2>/dev/null || echo /bin/bash)
+# Use a bash 5 recipe shell on BOTH OSes. On macOS the system bash is 3.2, so the
+# shell is brew's bash 5; Linux/CI runners already have bash 5 in /bin/bash.
+# scripts/check_bash.py --resolve picks it at make-parse time and, on macOS, first
+# `brew install`s bash when it is missing, so the SAME make run already uses bash 5
+# (a fresh runner needs no re-run). The `bash-check` gate (prerequisite of install /
+# ci-* / loop) then fails closed if the recipe shell is still not bash 5.
+SHELL    := $(shell python3 scripts/check_bash.py --resolve || command -v bash || echo /bin/bash)
+export LLGENIE_BASH := $(SHELL)
 HOME    := $(shell printf '%s' "$$HOME")
 BIN     := $(HOME)/bin
+
+# ---- bash 5 recipe-shell gate (parity: macOS uses brew bash 5, Linux bash 5) --
+# The actual SHELL was already resolved to brew's bash at make-parse time (see
+# the SHELL assignment above); this target is a thin entrypoint that runs
+# scripts/check_bash.py — the single source of truth for the bash-5 parity check.
+# On macOS it installs bash via `brew install bash` when missing; it fails closed
+# if the recipe shell is not bash 5 (so no stage ever runs under bash 3.2).
+bash-check:
+	@python3 scripts/check_bash.py "$(SHELL)" $(if $(CHECK_BASH_FORCE),--force,)
+
 # Put ~/bin on PATH for every recipe so `llama-server` (symlinked there by
 # `make install`) resolves even in non-interactive make subprocesses — not just
 # in an interactive zsh that sourced ~/.zshrc.
@@ -51,7 +66,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 RUNTIME ?= docker
 OS_IMG := llgenie/openspec:latest
 
-all: install
+all: bash-check install
 
 # ---- full install: engine images + venv + launcher + start scripts ---------
 # `make install` does NOT build a native llama-server anymore. Entry points run
@@ -64,13 +79,13 @@ all: install
 #   4. verifies each shim: `docker run … version` must report the engine version
 #      (test-launchers; the Metal engine, which can not run headless, is skipped).
 # llgenie.py resolves `llama-server` to the container shim below.
-install: venv-install engine-launchers link test-built-engine smoke
+install: bash-check venv-install engine-launchers link test-built-engine smoke
 	@echo
 	@echo "Installed (published engine images for this host's backend pulled + start scripts written + version-tested)."
 	@echo "Run '$(LAUNCHER)' (e.g. 'llgenie --list', 'llgenie qwen'), or e.g. '$(BIN)/llgenie-engine-llama-cpp ~/models/m.gguf'."
 	@echo "Tips: 'make run-engine ENGINE=<id> MODEL=<m>' / 'make stop-engine ...' run/stop an engine image."
 
-# ---- 1. build the gguf-tooling venv (Python 3.10 + gguf + numpy) --------
+# ---- 1. build the gguf-tooling venv (Python 3.11 + gguf + numpy) --------
 venv-install:
 	@echo "==> Building gguf venv at $(VENV)"
 	$(MAKE) -C tools venv-install
@@ -304,7 +319,7 @@ test-engine-image: ## GPU images on GPU-less CI: run tests/test_engine_version.p
 	@test -n "$(ENGINE)" || { echo "Usage: make test-engine-image ENGINE=<id> ARCH=cuda|rocm|vulkan"; exit 1; }
 	python3 scripts/engine_image.py test-image "$(ENGINE)" $(ARCH_ARGS)
 	@mkdir -p "$(CI_HOME)"
-	$(ENGINE_TEST_ARGS) -e LLGENIE_TEST_ENGINE="$(ENGINE)" -e LLGENIE_TEST_ARCH="$(ARCH)" $(TEST_IMG) \
+	$(call engine_test,LLGENIE_TEST_ENGINE="$(ENGINE)" LLGENIE_TEST_ARCH="$(ARCH)") \
 		python3 -m pytest -q -p no:cacheprovider tests/test_engine_version.py
 	@$(CI_HOME_CLEAN)
 test-engine: ## Run ENGINE's image with a tiny model and curl its OpenAI API on the published port
@@ -340,6 +355,9 @@ openspec-image-pull: ## CI: pull the published OpenSpec image (hash of openspec/
 	python3 scripts/ci_images.py pull openspec
 
 OS_OPTS := --rm -u root -v "$(REPO)":/repo:rw -w /repo $(OS_IMG)
+# Same pin as openspec/Dockerfile ARG OPENSPEC_VERSION. macOS has no Docker, so
+# openspec-validate installs this CLI instead of `docker run` (issue #120).
+OPENSPEC_VERSION := 1.10.0
 
 openspec-new: openspec-image ## openspec new change <NAME>
 	@test -n "$(NAME)" || { echo "Usage: make openspec-new NAME=<kebab-name>"; exit 1; }
@@ -347,7 +365,10 @@ openspec-new: openspec-image ## openspec new change <NAME>
 
 openspec-validate: ## openspec validate <NAME>  (fail-closed gate used by the loop)
 	@test -n "$(NAME)" || { echo "Usage: make openspec-validate NAME=<change>"; exit 1; }
-	$(RUNTIME) run $(OS_OPTS) openspec validate $(NAME)
+	@if [ "$(HOST_OS)" = Darwin ]; then \
+	  command -v openspec >/dev/null 2>&1 || npm install -g @fission-ai/openspec@$(OPENSPEC_VERSION); \
+	  openspec validate $(NAME); \
+	else $(RUNTIME) run $(OS_OPTS) openspec validate $(NAME); fi
 
 openspec-tasks-check: ## Assert all ACTIVE OpenSpec changes have no unchecked task checkboxes (NAME=<change> to check one). Fails CI when a task is left `- [ ]`. Pure-python host-side (no container needed).
 	@python3 scripts/check_openspec_tasks.py $(NAME)
@@ -379,13 +400,36 @@ TEST_OPTS := --rm -u root -v "$(REPO)":/repo:rw -w /repo -e HOME=/root -e HF_TOK
 # so bind mounts the container asks the host docker for (-v <models>:/models)
 # resolve on the host. --network host lets the tests reach the published ports.
 CI_HOME := $(REPO)/.ci-home
+# Python 3.11 everywhere (issue #120): Linux runs the test stages in llgenie/test
+# (python:3.11-slim); macOS runs the SAME commands natively in the 3.11 gguf venv
+# ($(VENV), built by `make test-env` -> tools venv-dev-install), never in a container.
+# `$(call engine_test,K=V ...)` = the engine-test runner with extra env vars.
+HOST_OS := $(shell uname -s)
+ifeq ($(HOST_OS),Darwin)
+VENV_GUARD := test -x "$(VENV)/bin/python" || { echo "ERROR: no Python 3.11 venv at $(VENV): run 'make test-env'"; exit 1; } &&
+TEST_RUN := $(VENV_GUARD) env PATH="$(VENV)/bin:$$PATH"
+engine_test = $(VENV_GUARD) env HOME="$(CI_HOME)" RUNTIME=docker PATH="$(VENV)/bin:$$PATH" $(1)
+ENGINE_TEST_RUN := $(call engine_test,)
+CI_HOME_CLEAN := rm -rf "$(CI_HOME)"
+else
 ENGINE_TEST_ARGS := $(RUNTIME) run --rm -u root --network host \
 	-v /var/run/docker.sock:/var/run/docker.sock -v "$(REPO)":"$(REPO)":rw -w "$(REPO)" \
 	-e HOME="$(CI_HOME)" -e LLGENIE_REGISTRY -e HF_TOKEN -e RUNTIME=docker $(WORKTREE_MOUNT)
-ENGINE_TEST_RUN := $(ENGINE_TEST_ARGS) $(TEST_IMG)
+engine_test = $(ENGINE_TEST_ARGS) $(foreach v,$(1),-e $(v)) $(TEST_IMG)
+ENGINE_TEST_RUN := $(call engine_test,)
 # .ci-home is written by root inside the container: remove it from a container too.
 CI_HOME_CLEAN := $(RUNTIME) run --rm -v "$(REPO)":/r $(TEST_IMG) rm -rf /r/.ci-home
 TEST_RUN := $(RUNTIME) run $(TEST_OPTS) $(TEST_IMG)
+endif
+
+test-env: ## The Python 3.11 test environment: Linux pulls llgenie/test (python:3.11-slim); macOS builds the 3.11 gguf venv + dev deps and puts uv on PATH (no container)
+ifeq ($(HOST_OS),Darwin)
+	$(MAKE) -C tools venv-dev-install
+	@command -v uv >/dev/null || brew install uv
+	@command -v uv >/dev/null
+else
+	python3 scripts/ci_images.py pull test
+endif
 
 # CUDA-toolkit (nvcc) + python image for the #84/#89 variant builds. The same
 # image does all ubuntu-latest CPU + CUDA builds: builds use nvcc, and the
@@ -437,7 +481,7 @@ test-agents-e2e: ## REAL end-to-end agent tests (containerized) — runs ONLY *_
 	# (glob, so any future e2e file is picked up automatically).
 	$(TEST_RUN) sh -c 'python -m pytest tests/*_e2e*.py -p no:cacheprovider -q'
 
-# hermes-agent needs Python >=3.11, the gguf venv and the test image are 3.10: the guard
+# hermes-agent needs Python >=3.11, it pins its own 3.12 (gguf venv + test image are 3.11): the guard
 # gets its own Python 3.12 venv, built by make on any host (Linux, macOS, CI). It lives
 # outside the repo: tests/test_agents_read.py rejects a hermes module imported from the repo.
 PY312             ?= python3.12
@@ -456,7 +500,7 @@ $(AGENTS_READ_STAMP):
 	"$(AGENTS_READ_VENV)/bin/python" -m pip install --quiet --no-cache-dir "$(HERMES_AGENT_PIN)" pytest
 	@touch "$@"
 
-test-agents-read: agents-read-venv ## Guard: AGENTS.md must not match Hermes context-file threat patterns (fail-closed), then the guard's own tests. Runs in the make-built Python 3.12 venv (agents-read-venv); not containerized, to avoid bumping the 3.10 test image.
+test-agents-read: agents-read-venv ## Guard: AGENTS.md must not match Hermes context-file threat patterns (fail-closed), then the guard's own tests. Runs in the make-built Python 3.12 venv (agents-read-venv); not containerized, so hermes-agent stays isolated from the 3.11 test image.
 	@echo "==> test-agents-read: scanning AGENTS.md with the hermes-agent threat scanner ($(AGENTS_READ_VENV))"
 	"$(AGENTS_READ_VENV)/bin/python" scripts/scan_agents_md.py AGENTS.md
 	"$(AGENTS_READ_VENV)/bin/python" -m pytest tests/test_agents_read.py --noconftest -p no:cacheprovider -q
@@ -476,6 +520,9 @@ test-native-engine: ## Apple-Silicon host: REAL native TensorFold install/update
 	# issue #114: a Metal engine runs natively (Metal cannot run in a container), so
 	# this runs on the macOS arm64 host with the gguf venv python, never in the test image.
 	@$(NATIVE_GUARD) env -u PYTHONPATH $(PY) -m pytest tests/test_native_engine_real.py -p no:cacheprovider -q -s
+
+test-native-engines: ## Apple-Silicon host: make install for EACH native-Metal engine (litert, mlx, ollama, tensorfold) in its own environment: skill install at the pin, start script version, tiny model served on Metal + "hi" (issue #120)
+	@$(NATIVE_GUARD) env -u PYTHONPATH $(PY) -m pytest tests/test_native_engines.py -p no:cacheprovider -q -s
 
 test-native-engine-serve: ## Apple-Silicon host: + `llgenie --select 1 --engine tensorfold` downloads, installs and serves on Metal, answers "hi"
 	@$(NATIVE_GUARD) env -u PYTHONPATH LLGENIE_NATIVE_SERVE=1 $(PY) -m pytest tests/test_native_engine_real.py -p no:cacheprovider -q -s
@@ -504,13 +551,14 @@ test-install-ci: ## In the test container: REAL make install (engine images via 
 	# socket). HOME is a throwaway dir inside the repo (.ci-home).
 	@echo "==> test-install-ci (test container + engine images)"
 	@mkdir -p "$(CI_HOME)"
-	$(ENGINE_TEST_RUN) sh -c 'make install BUILD=1 ARCH=$(if $(ARCH),$(ARCH),cpu) && make -C tools venv-dev-install && HF_BIN=$$(command -v hf) python3 scripts/download_test_model.py && make test-install-host && make test-health-host && make test-install-trend && touch ~/bin/not-ours && make uninstall && make test-uninstalled && test -e ~/bin/not-ours && echo "==> uninstall removed every installed file, kept foreign files, no engine container left"'
+	$(ENGINE_TEST_RUN) sh -c 'make install ARCH=$(if $(ARCH),$(ARCH),cpu) && make -C tools venv-dev-install && HF_BIN=$$(command -v hf) python3 scripts/download_test_model.py && make test-install-host && make test-health-host && make test-install-trend && touch ~/bin/not-ours && make uninstall && make test-uninstalled && test -e ~/bin/not-ours && echo "==> uninstall removed every installed file, kept foreign files, no engine container left"'
 	@$(CI_HOME_CLEAN)
 
 test-uninstalled: ## After make uninstall: no installed launcher, shim or llgenie-engine-* is left in ~/bin, no llgenie engine container runs, the repo is untouched
 	@test ! -e "$(LAUNCHER)" && test ! -e "$(BIN)/llgenie.py" && test ! -e "$(BIN)/llama-server" && test ! -e "$(BIN)/prism-server" \
 	  || { echo "FAIL: make uninstall left a launcher or shim in $(BIN)"; exit 1; }
 	@! ls "$(BIN)"/llgenie-engine-* >/dev/null 2>&1 || { echo "FAIL: make uninstall left llgenie-engine-* in $(BIN)"; exit 1; }
+	@if [ "$(HOST_OS)" = Darwin ]; then echo "==> uninstall removed every installed file (macOS: no container runtime was started)"; exit 0; fi
 	@test -z "$$($(RUNTIME) ps -q --filter name=^llgenie-)" || { echo "FAIL: an llgenie engine container is still running"; exit 1; }
 	@test -f scripts/llama_serve.py || { echo "FAIL: repo touched"; exit 1; }
 	@echo "==> uninstall removed every installed file, no engine container left"
@@ -525,7 +573,7 @@ test-install-trend: ## After make install: ~/bin/llgenie with no model in a pty 
 test-install-published: ## After CI published the images: in the test container, make install for BACKEND (mocked via LLAMA_BACKEND; GPU images on CPU) pulls ONLY that backend's published images, llgenie answers "hi" through llama-server and prism-server, --pick --engine pulls the picked engine on first use, the installed llgenie with no model (pty) picks the top trend model + engine, downloads the full GGUF and answers "hi" (issue #105), make uninstall leaves nothing
 	@test -n "$(BACKEND)" || { echo "Usage: make test-install-published BACKEND=cpu|cuda|rocm|vulkan"; exit 1; }
 	@mkdir -p "$(CI_HOME)"
-	$(ENGINE_TEST_ARGS) -e LLAMA_BACKEND=$(BACKEND) -e LLGENIE_NO_GPU=1 $(TEST_IMG) sh -c 'HF_BIN=$$(command -v hf) python3 scripts/download_test_model.py && python3 -m pytest tests/test_install_published.py -p no:cacheprovider -q -s'
+	$(call engine_test,LLAMA_BACKEND=$(BACKEND) LLGENIE_NO_GPU=1) sh -c 'HF_BIN=$$(command -v hf) python3 scripts/download_test_model.py && python3 -m pytest tests/test_install_published.py -p no:cacheprovider -q -s'
 	@$(CI_HOME_CLEAN)
 
 test-top-tier: ## REAL top-tier acceptance (no mocks): live HF trending + fit gate + provider-aware download + placement
@@ -550,10 +598,16 @@ test-top-tier-serve: ## Download a lightweight top-tier model, load it, answer '
 	@HF_BIN="$${HF_BIN:-$(shell command -v hf || echo $(HOME)/llama-gguf-tools/.venv/bin/hf)}" \
 		$(PY) -m pytest tests/test_top_tier_serve.py -p no:cacheprovider -q -s -m acceptance
 
-test-top-tier-serve-ci: ## In the test container: download lightweight, serve it through the llama.cpp ENGINE IMAGE, "hi", RAM
+test-top-tier-serve-ci: ## Linux: serve the lightweight model through the llama.cpp image. macOS: no engine image (issue #120)
+ifeq ($(HOST_OS),Darwin)
+	@echo "==> macOS top-tier serve: native Metal only; no engine image is started"
+	@python3 scripts/install_engine_launchers.py --bin "$(CI_HOME)/bin" --arch cpu; rc=$$?; \
+	  test $$rc -ne 0 || { echo "FAIL: macOS --arch cpu must be refused"; exit 1; }
+else
 	@mkdir -p "$(CI_HOME)"
 	$(ENGINE_TEST_RUN) sh -c 'python3 scripts/install_engine_launchers.py --bin ~/bin --arch cpu --build --engines llama.cpp && LLAMA_SERVER=$$HOME/bin/llama-server python3 -m pytest tests/test_top_tier_serve.py -p no:cacheprovider --basetemp=$$HOME/pytest-tmp -q -s -m acceptance'
 	@$(CI_HOME_CLEAN)
+endif
 
 test-top-tier-cli-ci: ## REAL CLI dry-run in the test container: llgenie --download-top-tier [--family] --dry (no download/network writes)
 	# Run the ACTUAL launcher entry point end-to-end with --dry, verifying the real
@@ -563,10 +617,16 @@ test-top-tier-cli-ci: ## REAL CLI dry-run in the test container: llgenie --downl
 	# the same way — a real HF family search, still no download.
 	$(TEST_RUN) python -m pytest tests/test_top_tier_acceptance.py::test_cli_download_top_tier_dry_run_detailed tests/test_top_tier_acceptance.py::test_family_dry_run_known_lowend_one_provider -p no:cacheprovider -q -s -m acceptance
 
-test-health: ## In the test container: llgenie serves the 0.5B model through the llama.cpp ENGINE IMAGE and answers "hi" (no server in the test image)
+test-health: ## Linux: 0.5B answers "hi" through the llama.cpp engine image. macOS: native Metal only, no image (issue #120)
+ifeq ($(HOST_OS),Darwin)
+	@echo "==> macOS health: native Metal only; no engine image is pulled and --arch cpu is refused"
+	@python3 scripts/install_engine_launchers.py --bin "$(CI_HOME)/bin" --arch cpu; rc=$$?; \
+	  test $$rc -ne 0 || { echo "FAIL: macOS --arch cpu must be refused"; exit 1; }
+else
 	@mkdir -p "$(CI_HOME)"
 	$(ENGINE_TEST_RUN) sh -c 'python3 scripts/install_engine_launchers.py --bin ~/bin --arch cpu --build --engines llama.cpp && make venv-install link && make -C tools venv-dev-install && make test-health-host'
 	@$(CI_HOME_CLEAN)
+endif
 
 test: ## Full fast suite (unit + install; containerized)
 	$(TEST_RUN) python -m pytest tests/test_llama_ai.py tests/test_install.py tests/test_lint_linefeeds.py -p no:cacheprovider -q
@@ -581,7 +641,7 @@ lint-fix: ## Append a missing trailing newline (containerized)
 	$(TEST_RUN) python scripts/lint_linefeeds.py --fix
 
 loop: loop-harness ## alias
-loop-harness: ## Loop runner (host orchestration): image->download->lint->unit->install->health->test->openspec
+loop-harness: bash-check ## Loop runner (host orchestration): image->download->lint->unit->install->health->test->openspec
 	# The harness orchestrates the other stages by shelling out to `make`, so it
 	# MUST run on the host (where make + nerdctl/docker live), NOT inside the
 	# test container. It only needs python stdlib.
@@ -589,7 +649,7 @@ loop-harness: ## Loop runner (host orchestration): image->download->lint->unit->
 
 # Run every verification step explicitly (Makefile-level chain, same order as
 # loop-harness). Fails fast on the first failing step.
-chained: test-unit test-agents-read test-install test-health test openspec-validate
+chained: bash-check test-unit test-agents-read test-install test-health test openspec-validate
 	@echo "All chain steps completed."
 
 uninstall: ## Undo make install: ~/bin/llgenie, llgenie.py, the llgenie-engine-* start scripts + llama-server shim; stop engine containers (PURGE_IMAGES=1 also removes the engine images). Keeps venv, models, repo, source trees.
@@ -620,15 +680,14 @@ watch-report: ## Human-readable watch-loop status report (host-side, reads .watc
 	@python3 scripts/watch_report.py $(if $(WINDOW),--window $(WINDOW),) $(if $(WATCHLOOP),--watchloop $(WATCHLOOP),)
 
 # ---- ci-<job>: ONE make target per CI pipeline job (issue #117) -------------
-# pipeline.yml runs each as one job on Linux (layout: split) and all of them as
-# ordered steps of three jobs on macOS (layout: combined: one Docker VM boot per job
-# instead of one per target). The commands are the same on both OSes. Every target
+# pipeline.yml runs each as one job, on Linux AND on macOS (issue #120: the same
+# file, no combined jobs). The commands are the same on both OSes. Every target
 # that runs in a container needs the pulled llgenie/test (or llgenie/openspec) image:
 # CI pulls it first with `make test-image-pull` / `make openspec-image-pull`.
-ci-lint: ## CI job lint: make lint
+ci-lint: bash-check ## CI job lint: make lint
 	$(MAKE) lint
 
-ci-unit: ## CI job unit: hermetic unit tests + registry / skill / Strata / engine-param checks
+ci-unit: bash-check ## CI job unit: hermetic unit tests + registry / skill / Strata / engine-param checks
 	$(MAKE) test-unit
 	$(MAKE) skills-validate
 	$(MAKE) check-registry
@@ -636,7 +695,7 @@ ci-unit: ## CI job unit: hermetic unit tests + registry / skill / Strata / engin
 	$(MAKE) skills-validate REGISTRY=data/models.json
 	$(MAKE) check-engine-params
 
-ci-cron: ## CI job cron: the real make cron-* targets against a fake crontab (issue #67)
+ci-cron: bash-check ## CI job cron: the real make cron-* targets against a fake crontab (issue #67)
 	$(MAKE) cron-snapshot
 	@set -eu; \
 	export CRONTAB_CMD="$(CURDIR)/tests/fixtures/fake-crontab.sh"; \
@@ -652,7 +711,7 @@ ci-cron: ## CI job cron: the real make cron-* targets against a fake crontab (is
 	rm -f "$$FAKE_CRONTAB_FILE"; \
 	echo "CRON MAKE-TARGETS OK: install idempotent, uninstall preserves unrelated"
 
-ci-watch-report: ## CI job watch-report: the real make watch-report against a fixture .watchloop tree + fake gh shim
+ci-watch-report: bash-check ## CI job watch-report: the real make watch-report against a fixture .watchloop tree + fake gh shim
 	@set -eu; \
 	fakebin="$$(mktemp -d)"; \
 	cp tests/fixtures/watch-report/fake-gh.sh "$$fakebin/gh"; \
@@ -669,26 +728,55 @@ ci-watch-report: ## CI job watch-report: the real make watch-report against a fi
 	echo "$$out" | grep -q "1 FAIL" || { echo "FAIL: expected the fixture's 1 failing CI check to be surfaced"; exit 1; }; \
 	echo "WATCH-REPORT MAKE-TARGET OK: command runs and prints all sections"
 
-ci-dispatch-e2e: ## CI job dispatch-e2e: make test-agents-e2e (real dispatcher spawn/reclaim, README issue-work)
+ci-dispatch-e2e: bash-check ## CI job dispatch-e2e: make test-agents-e2e (real dispatcher spawn/reclaim, README issue-work)
 	$(MAKE) test-agents-e2e
 
-ci-agents-read: ## CI job agents-read: make test-agents-read (Python 3.12 venv -> AGENTS.md scan -> guard tests)
+ci-agents-read: bash-check ## CI job agents-read: make test-agents-read (Python 3.12 venv -> AGENTS.md scan -> guard tests)
 	$(MAKE) test-agents-read
 
-ci-openspec: ## CI job openspec: validate the OpenSpec changes and assert every active change has all tasks checked
+ci-openspec: bash-check ## CI job openspec: validate the OpenSpec changes and assert every active change has all tasks checked
 	$(MAKE) openspec-validate NAME=ci-pipeline
 	$(MAKE) openspec-tasks-check
 
-ci-cpu-health: ## CI job cpu-health: llgenie serves the 0.5B model through the llama.cpp engine image, "hi"
+ci-cpu-health: bash-check ## CI job cpu-health: Linux answers "hi" through the llama.cpp image; macOS never starts an engine image
 	$(MAKE) test-health
 
-ci-top-tier: ## CI job top-tier: real top-tier acceptance, lightweight serve + "hi", CLI dry run (issue #49)
-	$(MAKE) test-top-tier-ci
-	$(MAKE) test-top-tier-serve-ci
-	$(MAKE) test-top-tier-cli-ci
+ci-top-tier: bash-check ## CI job top-tier: same targets on both OSes (venv on macOS, test image on Linux)
+	$(MAKE) test-top-tier-ci && $(MAKE) test-top-tier-serve-ci && $(MAKE) test-top-tier-cli-ci
 
-ci-install: ## CI job install: make test-install-ci ARCH=cpu (make install -> test-built-engine -> install tests -> hi -> trend pick -> uninstall)
-	$(MAKE) test-install-ci ARCH=cpu
+ci-install: bash-check ## CI job install: prepare the environment, then test make install, the installed llgenie dry run, and make uninstall as separate steps. macOS never runs a container.
+	$(MAKE) test-env
+	$(MAKE) ci-install-run
+	$(MAKE) ci-install-dry
+	$(MAKE) ci-install-uninstall
+
+ci-install-run: bash-check ## make install, as-is (Linux: inside the test container; macOS: the 3.11 venv, no container)
+ifeq ($(HOST_OS),Darwin)
+	$(MAKE) install
+else
+	$(ENGINE_TEST_RUN) sh -c 'make install ARCH=cpu'
+endif
+
+ci-install-dry: bash-check ## the installed main command, dry run, in the same home make install wrote (does not start a server)
+ifeq ($(HOST_OS),Darwin)
+	@"$(BIN)/llgenie" --dry
+else
+	$(ENGINE_TEST_RUN) sh -c '$$HOME/bin/llgenie --dry'
+endif
+
+ci-install-uninstall: bash-check ## make uninstall, as-is, then prove nothing of ours is left
+ifeq ($(HOST_OS),Darwin)
+	@touch "$(BIN)/not-ours"
+	$(MAKE) uninstall
+	$(MAKE) test-uninstalled
+	@test -e "$(BIN)/not-ours" && rm -f "$(BIN)/not-ours"
+else
+	$(ENGINE_TEST_RUN) sh -c 'touch ~/bin/not-ours && make uninstall && make test-uninstalled && test -e ~/bin/not-ours'
+endif
+
+ci-engines: bash-check ## CI engine stage, the ONLY per-OS row (issue #120): BACKEND=cpu|cuda|rocm|vulkan -> make test-install-published (container engines), BACKEND=metal -> each native-Metal engine installed + "hi" on Metal (scripts/ci_engines.py)
+	@test -n "$(BACKEND)" || { echo "Usage: make ci-engines BACKEND=cpu|cuda|rocm|vulkan|metal"; exit 1; }
+	python3 scripts/ci_engines.py $(BACKEND)
 
 ci-free-disk: ## CI: free runner disk for the large engine images (Linux runner: drop preinstalled SDKs; macOS runner: report only)
 	@if [ "$$(uname -s)" = Linux ]; then sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL; \

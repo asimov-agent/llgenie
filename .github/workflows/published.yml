@@ -1,7 +1,7 @@
 name: published
 
-# install-published, called from ci.yml for the Linux and the macOS runner with the
-# same make command (issue #112): after every image was built, tested, published and
+# install-published, called from ci.yml for the Linux runner only (issue #120: macOS
+# never runs an engine container, so it has no published images to test): after every image was built, tested, published and
 # re-tested as published, the real `make install` per backend (cpu/cuda/rocm/vulkan
 # mocked via LLAMA_BACKEND; GPU images run on CPU) may only PULL that backend's
 # published images, llgenie answers "hi" through llama-server and prism-server,
@@ -11,11 +11,11 @@ on:
   workflow_call:
     inputs:
       runner:
-        description: runs-on label (ubuntu-latest | macos-15-intel)
+        description: runs-on label (ubuntu-latest)
         required: true
         type: string
       optional:
-        description: a failure or timeout does not fail the run (macOS, issue #112)
+        description: unused; kept so an old caller still parses (issue #120: macOS is required)
         required: false
         default: false
         type: boolean
@@ -27,7 +27,7 @@ jobs:
       matrix:
         backend: [cpu, cuda, rocm, vulkan]
     runs-on: ${{ inputs.runner }}
-    continue-on-error: ${{ inputs.optional }}
+    continue-on-error: false
     timeout-minutes: 90
     permissions:
       contents: read
@@ -42,10 +42,10 @@ jobs:
       - uses: ./.github/actions/docker
       - name: Log in to GHCR (read)
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-      - name: Pull the test image (GHCR, published by ci-images)
-        run: make test-image-pull
-      - name: "make test-install-published BACKEND=${{ matrix.backend }} (pull only this backend's images, llgenie hi via both shims + --pick --engine + interactive trend pick with a real GGUF download, uninstall)"
-        run: make test-install-published BACKEND=${{ matrix.backend }}
+      - name: make test-env (pulls llgenie/test from GHCR)
+        run: make test-env
+      - name: "make ci-engines BACKEND=${{ matrix.backend }} (make install pulls only this backend's images, llgenie hi via both shims + --pick --engine + interactive trend pick with a real GGUF download, uninstall)"
+        run: make ci-engines BACKEND=${{ matrix.backend }}
       - name: Prune orphaned test containers
         if: always()
         run: make test-clean

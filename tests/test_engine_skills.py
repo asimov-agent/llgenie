@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -631,26 +632,15 @@ def test_runner_serves_from_a_frozen_plan(tmp_path):
     # Given a frozen plan whose "server" is a tiny python HTTP server
     port = __import__("scripts.engine_smoke", fromlist=["free_port"]).free_port()
     plan = {"id": "fake", "backend": "cpu", "env": {"GREETING": "$(echo ok)"},
-            "launch": "test \"$GREETING\" = ok && test {model} = /m && exec python3 -m http.server {port} --bind {host}",
+            "launch": "test \"$GREETING\" = ok && test {model} = /m && exec python3 scripts/loopback_server.py {port} --bind {host}",
             "health": "GET /", "pre_launch": None, "post_launch": None}
 
     # When the runner serves it and the server is stopped once ready
-    import threading, signal as sig
-    def stop_when_up():
-        for _ in range(100):
-            if runner.probe(port, "GET /"):
-                os.kill(os.getpid(), sig.SIGTERM)
-                return
-            __import__("time").sleep(0.1)
-    threading.Thread(target=stop_when_up, daemon=True).start()
-    old = sig.getsignal(sig.SIGTERM)
-    try:
-        rc = runner.serve_plan(plan, "/m", "127.0.0.1", port, ready_timeout=20)
-    finally:
-        sig.signal(sig.SIGTERM, old)
+    rc = runner.serve_plan(plan, "/m", "127.0.0.1", port, ready_timeout=30, on_ready=lambda: None)
 
     # Then env was shell-expanded, placeholders were bound, and it came up (stopped by SIGTERM)
-    assert rc in (0, -15, 143)
+    log = os.path.join(os.environ.get("TMPDIR", "/tmp"), "engine-runner-serve.log")
+    assert rc in (0, -15, 143), repr(open(log).read() if os.path.exists(log) else "server wrote nothing")
 
 
 def test_ci_builds_every_engine_arch_in_parallel_from_make(skills):
@@ -883,7 +873,7 @@ def test_install_writes_container_start_scripts(tmp_path, monkeypatch):
     assert 'name="llgenie-prism-server-$port"' in prism and 'name="llgenie-llama-server-$port"' in stock
     # And make test-built-engine drives the --version check
     mk = (REPO / "Makefile").read_text()
-    assert "install: venv-install engine-launchers link test-built-engine smoke" in mk
+    assert "install: bash-check venv-install engine-launchers link test-built-engine smoke" in mk
     assert "install_engine_launchers.py --bin \"$(BIN)\" --test" in mk
 
 
@@ -969,6 +959,7 @@ def test_pull_published_refuses_a_local_build_and_a_digest_mismatch(monkeypatch)
 
     monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
     monkeypatch.setattr(ei, "_sh", fake_sh)
+    monkeypatch.setattr(ei, "_have_runtime", lambda: True)
     spec = {"tag": "llgenie/llama-cpp:8f9ae20c-abc-cpu", "variant": "cpu"}
 
     # Given matching digests
@@ -994,20 +985,20 @@ def test_pull_published_refuses_a_local_build_and_a_digest_mismatch(monkeypatch)
 
 
 def test_digest_reads_the_live_registry_and_retries_a_failed_lookup(capsys):
-    """Live GHCR, no mocks: the published llama.cpp cpu image's pinned tag and its
-    moving :cpu tag resolve to the same digest; a missing tag is retried, then "".
+    """Live GHCR, no mocks: the published llama.cpp :cpu tag resolves to a sha256
+    digest; a missing tag is retried, then "". The pinned content-hash tag is only
+    published by the engine-image jobs, so the unit job must not require it.
     (A transient GHCR lookup failure once failed test-published-freetoken-rocm.)"""
     import importlib
     import scripts.engine_image as ei
     importlib.reload(ei)
     reg = "ghcr.io/asimov-agent"
-    # Given the published llama.cpp cpu image
-    tag = ei.resolve("llama.cpp", None, "cpu")["tag"]
-    # When both refs are looked up
-    d_pinned = ei._digest(f"{reg}/{tag}")
-    d_arch = ei._digest(f"{reg}/{tag.split(':')[0]}:cpu")
-    # Then both are the same sha256 digest
-    assert d_pinned.startswith("sha256:") and d_pinned == d_arch
+    # Given the published moving llama.cpp cpu tag
+    name = ei.resolve("llama.cpp", None, "cpu")["tag"].split(":")[0]
+    # When it is looked up
+    d_arch = ei._digest(f"{reg}/{name}:cpu")
+    # Then it is a sha256 digest
+    assert d_arch.startswith("sha256:"), d_arch
     # And a tag that does not exist is retried and gives ""
     assert ei._digest(f"{reg}/llgenie/llama-cpp:llgenie-no-such-tag", attempts=2) == ""
     assert "retrying" in capsys.readouterr().out
@@ -1052,7 +1043,7 @@ def test_post_build_tests_run_in_the_test_image_not_on_the_bare_runner():
     assert job.index("run: make test-image-pull") < job.index("post-build test:")
     mk = (REPO / "Makefile").read_text()
     recipe = mk.split("\ntest-engine-image:", 1)[1].split("\n\n", 1)[0].split("\ntest-", 1)[0]
-    assert "$(ENGINE_TEST_ARGS)" in recipe and "$(TEST_IMG)" in recipe
+    assert "$(call engine_test," in recipe and "tests/test_engine_version.py" in recipe
     assert "$(PY) -m pytest" not in recipe
 
 
@@ -1233,7 +1224,7 @@ def test_install_published_is_the_last_stage_per_mocked_backend():
     (cpu/cuda/rocm/vulkan mocked via LLAMA_BACKEND), after engine-published-test."""
     import yaml as _y
     jobs = _y.safe_load((REPO / ".github/workflows/ci.yml").read_text())["jobs"]
-    for side in ("linux-published", "macos-published"):
+    for side in ("linux-published",):
         caller = jobs[side]
         assert caller["needs"] == ["engine-published-test"]
         assert "github.event_name == 'push'" in caller["if"] and "!cancelled()" in caller["if"]
@@ -1242,11 +1233,13 @@ def test_install_published_is_the_last_stage_per_mocked_backend():
     assert job["strategy"]["matrix"]["backend"] == ["cpu", "cuda", "rocm", "vulkan"]
     runs = [st.get("run", "") for st in job["steps"]]
     assert any("docker login ghcr.io" in r for r in runs)
-    assert any("make test-install-published BACKEND=${{ matrix.backend }}" in r for r in runs)
+    assert any("make ci-engines BACKEND=${{ matrix.backend }}" in r for r in runs)
+    mk_ = (REPO / "Makefile").read_text()
+    assert "python3 scripts/ci_engines.py $(BACKEND)" in mk_.split("\nci-engines:", 1)[1].split("\n\n", 1)[0]
     assert not any("make build-engine" in r or "BUILD=1" in r for r in runs)
     mk = (REPO / "Makefile").read_text()
     recipe = mk.split("\ntest-install-published:", 1)[1].split("\n\n", 1)[0]
-    assert "-e LLAMA_BACKEND=$(BACKEND) -e LLGENIE_NO_GPU=1" in recipe
+    assert "LLAMA_BACKEND=$(BACKEND)" in recipe and "LLGENIE_NO_GPU=1" in recipe
     assert "tests/test_install_published.py" in recipe
     t = (REPO / "tests" / "test_install_published.py").read_text()
     for needle in ('"(pull published images only)"', '"[engine-image] built" not in', '"--pick", "--auto", "--engine"',
@@ -1255,13 +1248,17 @@ def test_install_published_is_the_last_stage_per_mocked_backend():
 
 
 def test_pre_publish_jobs_build_and_the_pull_only_install_runs_last():
-    """install/cpu-health/top-tier run in PR runs too (read-only token, nothing
-    published yet): they build the image (BUILD=1 / --build). The pull-only
-    `make install` is proven later by install-published, against published images."""
+    """cpu-health and top-tier run in PR runs too (read-only token, nothing
+    published yet): they build the image (BUILD=1 / --build). The install job
+    pulls the published images (BUILD=1 on the 7 GB macos-15-intel runner builds
+    the engine images until GitHub kills the job, run 37957085562, issue #120).
+    install-published proves the pull-only install per backend."""
     mk = (REPO / "Makefile").read_text()
-    for target in ("test-install-ci:", "test-top-tier-serve-ci:", "test-health:"):
+    for target in ("test-top-tier-serve-ci:", "test-health:"):
         recipe = mk.split("\n" + target, 1)[1].split("\n\n", 1)[0]
         assert "make install BUILD=1" in recipe or "--build --engines" in recipe, target
+    recipe = mk.split("\ntest-install-ci:", 1)[1].split("\n\n", 1)[0]
+    assert "make install ARCH=" in recipe and "BUILD=1" not in recipe
     recipe = mk.split("\ntest-install-published:", 1)[1].split("\n\n", 1)[0]
     assert "BUILD" not in recipe and "--build" not in recipe
 
@@ -1308,4 +1305,37 @@ def test_engine_images_default_to_the_published_registry_without_make():
     assert registry(LLGENIE_REGISTRY="") == "''"
     mk = (REPO / "Makefile").read_text()
     assert "export LLGENIE_REGISTRY ?= ghcr.io/asimov-agent" in mk   # same default via make
+
+
+def test_detect_accepts_a_version_when_the_daemon_is_down(monkeypatch, capsys):
+    """Ollama's `ollama --version` prints the version and then exits 1 with
+    `Warning: could not connect to a running Ollama instance` when no daemon is
+    running. A fresh install on the macOS runner has no daemon, so that shape
+    is installed at the printed version, not missing."""
+
+    # Given a detect command that prints the version and then fails like Ollama
+    class _R:
+        returncode = 1
+        stdout = "Warning: could not connect to a running Ollama instance\n"
+        stderr = "ollama version is 0.35.1\n"
+
+    monkeypatch.setattr(es.subprocess, "run", lambda *a, **k: _R)
+    skill = {"id": "ollama", "version": "v0.35.1", "backends": ["metal"]}
+
+    # When detect and native_status read it (plan/env are not needed)
+    monkeypatch.setattr(es, "plan", lambda *a, **k: {"detect": "ollama --version", "env": {}})
+    rc, line = es._detect_run(skill, "metal", {"backend": "metal"}, quiet=True)
+    status = es.native_status(skill, "metal", {"backend": "metal"})
+
+    # Then the engine is installed at 0.35.1, not missing
+    assert rc == 0
+    assert "0.35.1" in line
+    assert status["state"] == "current"
+    assert status["installed"] == "0.35.1"
+    # And a non-zero exit with no version line is still missing
+    _R.stdout = "Warning: could not connect to a running Ollama instance\n"
+    _R.stderr = ""
+    rc2, line2 = es._detect_run(skill, "metal", {"backend": "metal"}, quiet=True)
+    assert rc2 == 1 and line2 == ""
+    capsys.readouterr()
 

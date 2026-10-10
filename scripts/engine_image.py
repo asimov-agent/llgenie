@@ -48,40 +48,34 @@ def runtime_answers(rt: str) -> bool:
         return False
 
 
-# ---- macOS: Docker runs in a Colima VM (issue #112) ------------------------------
-# Two ways the VM breaks that `make install` / llgenie can repair by themselves:
-#   * the VM is stopped (laptop rebooted): `docker info` fails;
-#   * the VM's DNS forwarder (192.168.5.1) does not answer (port 53 taken on the host,
-#     a VPN/network change): every pull fails with "lookup ... i/o timeout".
-# The repair is one `colima start` with explicit DNS resolvers. Linux is never touched.
+# ---- macOS: Docker may run in a Colima VM (issue #112) -------------------------
+# llgenie never starts, stops, or rewrites that VM (issue #120). A stopped VM or
+# broken VM DNS is reported; the operator starts the engine. Linux is never touched.
 COLIMA_DNS = ("1.1.1.1", "8.8.8.8")
 DNS_PROBE_HOST = "ghcr.io"  # the registry every engine image comes from
 
 
 def _colima(*args: str, timeout: int = 60) -> subprocess.CompletedProcess | None:
-    try:
-        return subprocess.run(["colima", *args], capture_output=True, text=True, timeout=timeout)
-    except (OSError, subprocess.TimeoutExpired):
-        return None
+    """Colima is never invoked (issue #120). The args are ignored so no VM is started,
+    stopped, or SSH'd into."""
+    del args, timeout
+    print("[llgenie] refusing to run colima (issue #120)", flush=True)
+    return None
 
 
 def vm_dns_ok(host: str = DNS_PROBE_HOST) -> bool:
-    """The Colima VM resolves `host` (its DNS forwarder answers)."""
-    r = _colima("ssh", "--", "getent", "hosts", host, timeout=30)
-    return bool(r and r.returncode == 0 and r.stdout.strip())
+    """Never probes the Colima VM. A live runtime is enough; Colima is not called."""
+    del host
+    return runtime_answers(RUNTIME)
 
 
 def colima_health() -> str:
-    """'' when Docker answers and the VM resolves the registry, else what is wrong:
-    'stopped' (no engine answers) or 'dns' (the VM cannot resolve DNS_PROBE_HOST)."""
-    if not runtime_answers(RUNTIME):
-        return "stopped"
-    return "" if vm_dns_ok() else "dns"
+    """'' when the container runtime answers, else 'stopped'. Never calls Colima."""
+    return "" if runtime_answers(RUNTIME) else "stopped"
 
 
 def colima_repair_command() -> list[str]:
-    """`colima start` with explicit DNS resolvers (alone for a stopped VM, after a
-    `colima stop` when rewriting the VM's resolvers did not help)."""
+    """The command an operator would run. llgenie never executes it (issue #120)."""
     return ["colima", "start", *[a for ip in COLIMA_DNS for a in ("--dns", ip)]]
 
 
@@ -94,38 +88,15 @@ def vm_dns_fix_command() -> list[str]:
 
 
 def ensure_container_env(platform_name: str | None = None) -> bool:
-    """macOS only: make sure Docker through Colima answers and resolves the registry;
-    repair it when not. A stopped VM is started with explicit DNS resolvers; a running VM
-    whose DNS does not answer gets the resolvers written into it, then (still broken) a
-    restart with them. True when the environment works (always True off macOS, and when
-    Colima is not installed: nothing to repair)."""
-    if (platform_name or sys.platform) != "darwin" or not shutil.which("colima"):
+    """Report whether the container runtime answers. Never starts Colima (issue #120):
+    a stopped VM, a missing runtime, or broken VM DNS is the operator's job. True when
+    the runtime answers, and always True off macOS (Linux brings its own engine)."""
+    if (platform_name or sys.platform) != "darwin":
         return True
-    problem = colima_health()
-    if not problem:
+    if runtime_answers(RUNTIME):
         return True
-    if problem == "dns":
-        print(f"[llgenie] the Colima VM cannot resolve {DNS_PROBE_HOST} (DNS): "
-              f"setting its resolvers to {', '.join(COLIMA_DNS)}", flush=True)
-        _colima(*vm_dns_fix_command(), timeout=120)
-        problem = colima_health()
-        if not problem:
-            print("[llgenie] Colima repaired", flush=True)
-            return True
-        print("[llgenie] still broken: restarting Colima with those resolvers", flush=True)
-        _colima("stop", timeout=180)
-    else:
-        print(f"[llgenie] '{RUNTIME}' does not answer (Colima stopped?): starting Colima "
-              f"with DNS {', '.join(COLIMA_DNS)}", flush=True)
-    r = _colima(*colima_repair_command()[1:], timeout=600)
-    if r is None or r.returncode:
-        print("[llgenie] colima start failed:\n" + ((r.stdout + r.stderr)[-2000:] if r else "(timeout)"))
-        return False
-    if colima_health() == "dns":
-        _colima(*vm_dns_fix_command(), timeout=120)
-    left = colima_health()
-    print("[llgenie] Colima repaired" if not left else f"[llgenie] Colima still broken ({left})", flush=True)
-    return not left
+    print(f"[llgenie] '{RUNTIME}' does not answer; Colima is not started (issue #120)", flush=True)
+    return False
 
 
 RUNTIME = os.environ.get("RUNTIME") or "docker"  # docker only (issue #112)
@@ -197,7 +168,12 @@ def _buildx(tag: str, ctx: str, push: bool, cache_ref: str) -> int:
         return rc
     # Local build (PRs from forks have no push rights): the `default` (docker)
     # builder sees locally loaded base images; the published cache is read-only.
-    cmd = [RUNTIME, "buildx", "build", "--builder", "default", "-t", tag, "--load"]
+    # Only name it when it exists — a fresh Colima on the macOS runner has no
+    # builder called "default" and buildx errors instead of falling back.
+    cmd = [RUNTIME, "buildx", "build"]
+    if _sh([RUNTIME, "buildx", "inspect", "default"], capture_output=True).returncode == 0:
+        cmd += ["--builder", "default"]
+    cmd += ["-t", tag, "--load"]
     if REGISTRY:
         cmd += ["--cache-from", f"type=registry,ref={cache_ref}"]
     return _sh(cmd + [ctx]).returncode
@@ -346,21 +322,58 @@ def push(spec: dict) -> int:
     return 0
 
 
+def _have_runtime() -> bool:
+    """True when the container runtime is installed. A function so tests can replace it."""
+    import shutil
+    return shutil.which(RUNTIME) is not None
+
+
 def _digest(ref: str, attempts: int = 4) -> str:
     """Manifest digest of a registry ref, "" when it does not exist. GHCR manifest
     lookups intermittently time out (seen: freetoken:rocm empty after 60 s while the
-    tag existed with the right digest), so a failed lookup is retried with backoff."""
+    tag existed with the right digest), so a failed lookup is retried with backoff.
+    Docker is used when it is installed; otherwise the registry HTTP API, so a host
+    with no container engine (the macOS unit job) can still read a published digest."""
+    import shutil
     for i in range(attempts):
-        r = _sh([RUNTIME, "buildx", "imagetools", "inspect", ref, "--format", "{{json .Manifest.Digest}}"],
-                capture_output=True, text=True)
-        d = r.stdout.strip().strip('"') if r.returncode == 0 else ""
+        if _have_runtime():
+            r = _sh([RUNTIME, "buildx", "imagetools", "inspect", ref, "--format", "{{json .Manifest.Digest}}"],
+                    capture_output=True, text=True)
+            d = r.stdout.strip().strip('"') if r.returncode == 0 else ""
+            err = (getattr(r, "stderr", "") or "").strip()[-200:]
+        else:
+            d, err = _digest_http(ref)
         if d:
             return d
         if i + 1 < attempts:
             print(f"[engine-image] digest lookup for {ref} failed (attempt {i + 1}/{attempts}): "
-                  f"{(r.stderr or '').strip()[-200:]}; retrying", flush=True)
+                  f"{err}; retrying", flush=True)
             time.sleep(5 * (i + 1))
     return ""
+
+
+def _digest_http(ref: str) -> tuple:
+    """Digest of a registry ref via the registry HTTP API. ("", reason) on failure."""
+    import urllib.request
+    host, _, rest = ref.partition("/")
+    name, _, tag = rest.rpartition(":")
+    try:
+        tok = urllib.request.urlopen(
+            f"https://{host}/token?service={host}&scope=repository:{name}:pull", timeout=30).read()
+        token = __import__("json").loads(tok)["token"]
+    except Exception as e:  # noqa: BLE001 - no token means the registry is unreachable
+        return "", str(e)[-200:]
+    url = f"https://{host}/v2/{name}/manifests/{tag}"
+    req = urllib.request.Request(url, method="HEAD", headers={
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.oci.image.index.v1+json, "
+                  "application/vnd.docker.distribution.manifest.list.v2+json, "
+                  "application/vnd.oci.image.manifest.v1+json"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return resp.headers.get("Docker-Content-Digest", ""), ""
+    except Exception as e:  # noqa: BLE001 - a missing or unreachable tag is "not published"
+        return "", str(e)[-200:]
 
 
 def pull_published(spec: dict) -> str:
@@ -374,7 +387,17 @@ def pull_published(spec: dict) -> str:
     ref = f"{REGISTRY}/{tag}"
     latest = f"{REGISTRY}/{tag.split(':')[0]}:{spec['variant']}"
     _sh([RUNTIME, "rmi", "-f", tag, ref], capture_output=True)  # no local build may be used
-    if _sh([RUNTIME, "pull", ref]).returncode:
+    pulled = False
+    for i in range(6):
+        if _sh([RUNTIME, "pull", ref]).returncode == 0:
+            pulled = True
+            break
+        # A push run publishes this tag from a parallel engine-image job. That job
+        # can still be pushing when install starts, so a missing tag is retried.
+        if i + 1 < 6:
+            print(f"[engine-image] {ref} not published yet (attempt {i + 1}/6); retrying", flush=True)
+            time.sleep(20 * (i + 1))
+    if not pulled:
         print(f"[engine-image] FAIL {ref} is not published")
         return ""
     d_ref, d_latest = _digest(ref), _digest(latest)
@@ -491,7 +514,7 @@ def main(argv=None) -> int:
     bb.add_argument("backend", choices=es.CONTAINER_BACKENDS)
     bb.add_argument("--force", action="store_true")
     bb.add_argument("--push", action="store_true")
-    sub.add_parser("ensure-env", help="macOS: repair Docker through Colima (stopped VM, VM DNS); no-op elsewhere")
+    sub.add_parser("ensure-env", help="report whether the container runtime answers; never starts Colima")
     m = sub.add_parser("matrix")
     m.add_argument("--json", action="store_true")
     m.add_argument("--ci", action="store_true", help="only the variants CI builds")

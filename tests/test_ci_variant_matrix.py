@@ -231,8 +231,12 @@ def test_install_ci_runs_make_install_and_make_uninstall():
     assert "make install" in recipe and "make test-install-host" in recipe
     assert "make test-health-host" in recipe and "make uninstall" in recipe
     assert "llgenie-engine-*" in recipe and "scripts/llama_serve.py" in recipe
-    # the CI job pulls the published test image (issue #117) and runs ci-install = test-install-ci
-    assert "make test-image-pull" in job and "make ci-install" in job
-    assert "$(MAKE) test-install-ci ARCH=cpu" in text.split("\nci-install:", 1)[1].split("\n\n", 1)[0]
+    assert "make ci-install" in job and "test-install-ci" not in job
+    recipe = text.split("\nci-install:", 1)[1].split("\n\n", 1)[0]
+    assert "$(MAKE) test-env" in recipe and "$(MAKE) ci-install-run" in recipe
+    assert "$(MAKE) ci-install-dry" in recipe and "$(MAKE) ci-install-uninstall" in recipe
+    run = text.split("\nci-install-run:", 1)[1].split("\n\n", 1)[0]
+    assert "ifeq ($(HOST_OS),Darwin)" in run and "$(MAKE) install" in run
+    assert "test-install-ci" not in run
 
 

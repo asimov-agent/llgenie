@@ -7,7 +7,7 @@
 # It bundles python + pytest + the locked deps + the hf CLI + the docker CLI.
 # Inference servers are NOT in this image: tests start the engine images
 # (containers/engines/) through the host docker socket, exactly like `make install`.
-FROM python:3.10-slim AS base
+FROM python:3.11-slim AS base
 
 # Runtime + test deps (copied from the repo's compiled lockfiles at build).
 # These are regenerated from tools/requirements.in + tools/requirements-dev.in

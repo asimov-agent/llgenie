@@ -3,7 +3,7 @@
 llama_serve.py - GGUF model launcher + auto-tuner for llama.cpp llama-server (Metal).
 
 Serves an OpenAI-compatible endpoint via llama.cpp's llama-server. GGUF metadata
-is read by the `gguf` package from the 3.10 venv set up by ~/llama-gguf-tools
+is read by the `gguf` package from the 3.11 venv set up by ~/llama-gguf-tools
 (make venv-install). Run with that venv's python:
 
     ~/llama-gguf-tools/.venv/bin/python ~/scripts/llama_serve.py --list
@@ -40,7 +40,7 @@ import urllib.error
 import urllib.parse
 
 # ---------------------------------------------------------------------------
-# Interpreter bootstrap: the `gguf`/`numpy` deps live in the 3.10 venv built by
+# Interpreter bootstrap: the `gguf`/`numpy` deps live in the 3.11 venv built by
 # `make install` (~/llama-gguf-tools/.venv). This file is symlinked into ~/bin
 # as `llgenie.py` and its shebang (#!/usr/bin/env python3) often resolves to the
 # SYSTEM python, which lacks gguf -> "No module named 'gguf'". If the imports
@@ -203,7 +203,7 @@ import numpy as np
 
 
 # ----------------------------------------------------------------------------
-# GGUF metadata reader — uses the `gguf` package from the 3.10 venv
+# GGUF metadata reader — uses the `gguf` package from the 3.11 venv
 # (~/llama-gguf-tools/.venv, see `make venv-install`). No stdlib fallback.
 # ----------------------------------------------------------------------------
 def _gget(f):
@@ -1315,15 +1315,13 @@ def _skip_summary_line(skip_summary):
 
 
 def ensure_container_env():
-    """macOS: repair Docker through Colima (a stopped VM, or a VM whose DNS does not
-    answer) before an engine container starts (issue #112). No-op on Linux."""
+    """macOS: report whether Docker answers. Never starts Colima (issue #120)."""
     if sys.platform != "darwin":
         return
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import engine_image as ei
     if not ei.ensure_container_env():
-        print("[llgenie] Docker through Colima does not work; see the messages above "
-              "(colima start --runtime docker --vm-type vz --vz-rosetta --dns 1.1.1.1)")
+        print("[llgenie] the container runtime does not answer; Colima is not started (issue #120)")
 
 
 def invoke_llama_server(cmd, model_path):
@@ -1331,13 +1329,15 @@ def invoke_llama_server(cmd, model_path):
 
     The command line is appended to ``.run.log`` beside the model before
     ``subprocess.run``. Tests replace ``subprocess.run`` and read the log to
-    see the parameters that were about to be passed.
+    see the parameters that were about to be passed. macOS never starts an
+    engine image (issue #120), so the container-runtime check is Linux-only.
     """
     log_path = os.path.join(os.path.dirname(model_path) or ".", ".run.log")
     with open(log_path, "a") as lf:
         lf.write(f"\n[{time.ctime()}] launching {os.path.basename(model_path)}\n")
         lf.write(" ".join(cmd) + "\n")
-    ensure_container_env()  # the llama-server shim runs a container
+    if sys.platform != "darwin":
+        ensure_container_env()  # the Linux llama-server shim runs a container
     try:
         subprocess.run(cmd)
     except KeyboardInterrupt:
@@ -1382,14 +1382,22 @@ def _engine_script(engine_id):
 
 
 def _ensure_and_exec(eng, path, args):
-    """Print the plan, pull the engine image on first use, exec its start script."""
+    """Print the plan and exec the engine start script.
+
+    macOS never starts an engine image (issue #120): a non-metal variant is refused
+    here, before any runtime check or pull. Linux still pulls the image on first use.
+    """
     script = _engine_script(eng["id"])
     cmd = [script, str(path), str(args.port)]
     print(f"Serving: http://127.0.0.1:{args.port}/v1  model=llm-local")
     print("Command: " + " ".join(cmd))
     if args.dry:
         return
-    if eng["variant"] != "metal":  # a native Metal engine (issue #114) needs no container runtime
+    if sys.platform == "darwin" or eng["variant"] == "metal":
+        if eng["variant"] != "metal":
+            raise SystemExit(f"[llgenie] macOS never starts an engine image; {eng['id']} "
+                             f"[{eng['variant']}] is not a native Metal engine (issue #120)")
+    else:
         ensure_container_env()
     # first use of this engine: pull its published image for this backend and
     # write its start script (make install only installs the llama.cpp core);

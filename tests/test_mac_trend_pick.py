@@ -85,18 +85,20 @@ def test_metal_engines_are_the_servable_skills_with_a_metal_install():
         assert es.native_allowed(es.get_skill(sid), "metal")
 
 
-def test_metal_host_engines_include_tensorfold_native_and_no_cuda_only_engine():
+def test_metal_host_offers_only_native_metal_engines():
     # Given a metal host
 
     # When its engines are listed
     rows = {e["id"]: e for e in mp.host_engines("metal")}
 
-    # Then TensorFold, MLX and llama.cpp run natively (variant metal)
+    # Then every offered engine is native Metal (macOS never starts an image)
+    assert rows
+    assert {e["variant"] for e in rows.values()} == {"metal"}
     for sid in ("tensorfold", "mlx", "llama.cpp", "llama.cpp-prism", "ollama", "litert"):
         assert rows[sid]["variant"] == "metal", sid
 
-    # And container-only engines fall back to their cpu image; cuda/rocm-only ones are absent
-    assert rows["vllm"]["variant"] == "cpu"
+    # And a container-only engine and the cuda/rocm-only engines are absent
+    assert "vllm" not in rows
     assert {"strata", "sglang", "freetoken", "tensorrt-llm", "exllamav3-rocm"}.isdisjoint(rows)
 
 

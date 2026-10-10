@@ -3,9 +3,10 @@
 ### Requirement: an Apple-Silicon Mac is a metal host with native Metal engines
 `model_engine_pick.host_arch()` MUST return `metal` when detect_server reports Metal.
 Every servable engine skill with `metal` in its backends and a metal install MUST be
-offered on a metal host with the native variant `metal`. Container-only engines MUST
-fall back to their cpu image, and cuda/rocm-only engines MUST NOT be offered. No Linux
-backend MAY ever be offered a `metal` variant.
+offered on a metal host with the native variant `metal`. A container-only engine MUST
+NOT be offered on a metal host (macOS never starts an engine image, issue #120), and
+cuda/rocm-only engines MUST NOT be offered. No Linux backend MAY ever be offered a
+`metal` variant. Linux hosts MUST still fall back to a cpu image.
 
 WHEN llgenie runs on an Apple-Silicon Mac
 THEN the list header names `metal` and TensorFold / MLX / llama.cpp are offered natively.
@@ -28,9 +29,9 @@ And    the MLX-fast benchmark harness is not one of them.
 Given  a metal host,
 When   its engines are listed,
 Then   the Metal engines have variant `metal`,
-And    vLLM falls back to its cpu image,
+And    vLLM is not offered (macOS never starts its cpu image),
 And    Strata, SGLang, FreeToken, TensorRT-LLM and ExLlamaV3 are absent.
-- **Test:** `tests/test_mac_trend_pick.py::test_metal_host_engines_include_tensorfold_native_and_no_cuda_only_engine`
+- **Test:** `tests/test_mac_trend_pick.py::test_metal_host_offers_only_native_metal_engines`
 
 #### Scenario: Linux hosts never get metal
 Given  cuda, rocm, vulkan and cpu hosts,

@@ -49,20 +49,38 @@ def _make(*args: str, env: dict | None = None) -> subprocess.CompletedProcess:
                           capture_output=True, text=True, timeout=3600)
 
 
+def _probe_host() -> str:
+    """The host the test process can reach a published port on.
+
+    Inside the test container, 127.0.0.1 is the container, not the Mac that
+    published the engine port. Colima's host alias is host.lima.internal;
+    Docker Desktop's is host.docker.internal. On the host itself, loopback.
+    """
+    if Path("/.dockerenv").exists() or os.environ.get("container"):
+        for name in ("host.lima.internal", "host.docker.internal"):
+            try:
+                socket.getaddrinfo(name, None)
+                return name
+            except socket.gaierror:
+                continue
+    return "127.0.0.1"
+
+
 def _chat(port: int, timeout: float = 600) -> str:
     # ready = /v1/models lists llm-local (ollama answers /v1/models before
     # `ollama create llm-local` finished), exactly what a harness waits for
+    host = _probe_host()
     end = time.time() + timeout
     while time.time() < end:
         try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{port}/v1/models", timeout=3) as r:  # noqa: S310
+            with urllib.request.urlopen(f"http://{host}:{port}/v1/models", timeout=3) as r:  # noqa: S310
                 if any(m["id"].split(":")[0] == "llm-local" for m in json.load(r).get("data") or []):
                     break
         except Exception:  # noqa: BLE001
             pass
         time.sleep(2)
     req = urllib.request.Request(
-        f"http://127.0.0.1:{port}/v1/chat/completions",
+        f"http://{host}:{port}/v1/chat/completions",
         data=json.dumps({"model": "llm-local", "max_tokens": 12,
                          "messages": [{"role": "user", "content": "hi"}]}).encode(),
         headers={"Content-Type": "application/json"})

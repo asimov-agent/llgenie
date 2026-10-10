@@ -2,16 +2,17 @@ name: pipeline
 
 # The verification pipeline, called from ci.yml for Linux and for macOS with the same
 # make commands and asserts (issue #112). Every job runs ONE `make ci-<job>` target
-# (Makefile); the only per-OS step is .github/actions/docker (macOS:
-# docker/setup-docker-action).
+# (Makefile). Docker is set up only on Linux; macOS runs the same targets in the
+# Python 3.11 venv and never runs a Docker GitHub Action.
 #
 # The CI images (llgenie/test, llgenie/openspec) are never built here: ci.yml's
 # `ci-images` job publishes them to GHCR once per content hash and every job PULLS
 # them (make test-image-pull / make openspec-image-pull, issue #117).
 #
 # Linux runs one job per ci-<job> target, in parallel (the required checks).
-# macOS runs the SAME targets from pipeline-macos.yml as steps of three jobs (issue
-# #117); tests/test_ci_images.py locks that both files run exactly the same targets.
+# macOS calls THIS file too (issue #120): the same jobs, one make ci-<job> each, the
+# same asserts, no combined jobs; only the runner label differs. tests/test_ci_images.py
+# locks that both OSes call this one file.
 on:
   workflow_call:
     inputs:
@@ -20,7 +21,7 @@ on:
         required: true
         type: string
       optional:
-        description: a failure or timeout does not fail the run (macOS, issue #112)
+        description: unused; kept so an old caller still parses (issue #120: macOS is required)
         required: false
         default: false
         type: boolean
@@ -29,7 +30,7 @@ jobs:
   # lint: linefeed / editorconfig
   lint:
     runs-on: ${{ inputs.runner }}
-    continue-on-error: ${{ inputs.optional }}
+    continue-on-error: false
     permissions:
       contents: read
       packages: read
@@ -38,8 +39,9 @@ jobs:
         with:
           fetch-depth: 0
       - uses: ./.github/actions/docker
-      - name: Pull the test image (GHCR, published by ci-images)
-        run: make test-image-pull
+        if: runner.os == 'Linux'  # macOS: the 3.11 venv, no container
+      - name: make test-env (Python 3.11 - Linux pulls llgenie/test from GHCR, macOS builds the 3.11 venv)
+        run: make test-env
       - name: make ci-lint
         run: make ci-lint
       - name: Prune orphaned test containers
@@ -49,15 +51,16 @@ jobs:
   # unit: hermetic unit tests + registry/skill/param checks
   unit:
     runs-on: ${{ inputs.runner }}
-    continue-on-error: ${{ inputs.optional }}
+    continue-on-error: false
     permissions:
       contents: read
       packages: read
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/docker
-      - name: Pull the test image (GHCR, published by ci-images)
-        run: make test-image-pull
+        if: runner.os == 'Linux'  # unit tests are Python; macOS Colima would shadow python3
+      - name: make test-env (Python 3.11 - Linux pulls llgenie/test from GHCR, macOS builds the 3.11 venv)
+        run: make test-env
       - name: make ci-unit (test-unit, skills-validate, check-registry, check-strata-models, check-engine-params)
         run: make ci-unit
       - name: Prune orphaned test containers
@@ -67,7 +70,7 @@ jobs:
   # cron: the REAL make cron-* targets against a FAKE crontab (issue #67); host python, no container
   cron:
     runs-on: ${{ inputs.runner }}
-    continue-on-error: ${{ inputs.optional }}
+    continue-on-error: false
     steps:
       - uses: actions/checkout@v4
       - name: make ci-cron (cron-snapshot, cron-install x2 / cron-uninstall against a fake crontab)
@@ -76,7 +79,7 @@ jobs:
   # watch-report: the REAL make watch-report against a FAKE .watchloop tree + gh shim
   watch-report:
     runs-on: ${{ inputs.runner }}
-    continue-on-error: ${{ inputs.optional }}
+    continue-on-error: false
     steps:
       - uses: actions/checkout@v4
       - name: make ci-watch-report (fixture .watchloop + fake gh shim)
@@ -85,26 +88,27 @@ jobs:
   # dispatch-e2e: REAL agent-spawn end-to-end (issue #63)
   dispatch-e2e:
     runs-on: ${{ inputs.runner }}
-    continue-on-error: ${{ inputs.optional }}
+    continue-on-error: false
     permissions:
       contents: read
       packages: read
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/docker
-      - name: Pull the test image (GHCR, published by ci-images)
-        run: make test-image-pull
+        if: runner.os == 'Linux'  # macOS: no Colima
+      - name: make test-env (Python 3.11 - Linux pulls llgenie/test from GHCR, macOS builds the 3.11 venv)
+        run: make test-env
       - name: make ci-dispatch-e2e (real dispatcher spawn/reclaim, README issue-work)
         run: make ci-dispatch-e2e
       - name: Prune orphaned test containers
         if: always()
         run: make test-clean
 
-  # install: the real make install -> test-built-engine -> install tests -> "hi"
-  # -> interactive trend pick -> make uninstall (make test-install-ci, NO SKIPS)
+  # install: ci-install only prepares the environment. make install, the
+  # installed llgenie dry run, and make uninstall are separate steps.
   install:
     runs-on: ${{ inputs.runner }}
-    continue-on-error: ${{ inputs.optional }}
+    continue-on-error: false
     timeout-minutes: 120
     permissions:
       contents: read
@@ -116,9 +120,8 @@ jobs:
       - name: make ci-free-disk (engine images are large)
         run: make ci-free-disk
       - uses: ./.github/actions/docker
-      - name: Pull the test image (GHCR, published by ci-images)
-        run: make test-image-pull
-      - name: make ci-install (test container -> make install -> test-built-engine -> install tests -> hi -> interactive trend pick + real GGUF download + hi -> uninstall)
+        if: runner.os == 'Linux'  # macOS: make install in the 3.11 venv, no Colima
+      - name: make ci-install (environment, then make install, llgenie --dry, make uninstall)
         run: make ci-install
       - name: Prune orphaned test containers
         if: always()
@@ -129,7 +132,7 @@ jobs:
   # scans AGENTS.md and runs the guard's tests, the same as on a dev host.
   agents-read:
     runs-on: ${{ inputs.runner }}
-    continue-on-error: ${{ inputs.optional }}
+    continue-on-error: false
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -141,14 +144,20 @@ jobs:
   # openspec: validate the OpenSpec changes; every active change has all tasks checked
   openspec:
     runs-on: ${{ inputs.runner }}
-    continue-on-error: ${{ inputs.optional }}
+    continue-on-error: false
     permissions:
       contents: read
       packages: read
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        if: runner.os == 'macOS'  # no Docker: install the pinned openspec CLI
+        with:
+          node-version: "22"
       - uses: ./.github/actions/docker
-      - name: Pull the OpenSpec image (GHCR, published by ci-images)
+        if: runner.os == 'Linux'  # macOS: the pinned openspec CLI, no Docker GitHub Action
+      - name: Pull the OpenSpec image (GHCR, published by ci-images; Linux only, macOS has no Docker)
+        if: runner.os == 'Linux'
         run: make openspec-image-pull
       - name: make ci-openspec (openspec-validate + openspec-tasks-check, fails on any unchecked `- [ ]`)
         run: make ci-openspec
@@ -156,7 +165,7 @@ jobs:
   # cpu-health: llgenie serves the 0.5B model through the llama.cpp engine image, "hi"
   cpu-health:
     runs-on: ${{ inputs.runner }}
-    continue-on-error: ${{ inputs.optional }}
+    continue-on-error: false
     timeout-minutes: 45
     permissions:
       contents: read
@@ -164,9 +173,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/docker
-      - name: Pull the test image (GHCR, published by ci-images)
-        run: make test-image-pull
-      - name: make ci-cpu-health (CPU LLM answers "hi")
+        if: runner.os == 'Linux'  # macOS: no Colima
+      - name: make test-env (Python 3.11 - Linux pulls llgenie/test from GHCR, macOS builds the 3.11 venv)
+        run: make test-env
+      - name: make ci-cpu-health (0.5B answers hi through the llama.cpp image; macOS Colima, not a Docker GitHub Action)
         run: make ci-cpu-health
       - name: Prune orphaned test containers
         if: always()
@@ -175,7 +185,7 @@ jobs:
   # top-tier: REAL (no-mock) top-tier acceptance (issue #49)
   top-tier:
     runs-on: ${{ inputs.runner }}
-    continue-on-error: ${{ inputs.optional }}
+    continue-on-error: false
     timeout-minutes: 60
     permissions:
       contents: read
@@ -183,9 +193,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/docker
-      - name: Pull the test image (GHCR, published by ci-images)
-        run: make test-image-pull
-      - name: "make ci-top-tier (real acceptance download, lightweight serve + hi + RAM, CLI dry run)"
+        if: runner.os == 'Linux'  # macOS: no Colima
+      - name: make test-env (Python 3.11 - Linux pulls llgenie/test from GHCR, macOS builds the 3.11 venv)
+        run: make test-env
+      - name: make ci-top-tier (same targets on both OSes; macOS Colima, not a Docker GitHub Action)
         run: make ci-top-tier
       - name: Prune orphaned test containers
         if: always()

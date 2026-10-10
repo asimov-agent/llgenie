@@ -390,7 +390,7 @@ No engine is compiled or pip-installed on the host.
 - **Native engine tests are hardware-scoped.** `make test-native-engine`,
   `test-native-engine-serve`, `test-native-engine-light`, `test-interactive-tensorfold[-ci]` run their real cases
   (real `uv`, isolated `UV_TOOL_DIR`, real install, Metal serve) only on an
-  Apple-Silicon Mac — locally and in the CI job `native-engine-macos-arm64`. On any
+  Apple-Silicon Mac, locally (no CI job: the macOS runners have no Metal GPU). On any
   other host (every Linux job) they print that native engines are Metal-only and exit
   0; that host's engines are tested in their images. Never call them from a Linux job
   and never make them run Metal cases elsewhere. The picking logic itself is covered
@@ -575,6 +575,10 @@ chains them all.
 - `make test-install` — host install tests (verify installed launcher runs a model).
 - `make test-health` — **end-to-end**: launch the tiny model from `~/bin`, answer
   `"hi"` on `/v1/chat/completions`, assert a healthy reply.
+- `make ci-engines BACKEND=<b>` — the ONE engine stage (issue #120, `scripts/ci_engines.py`):
+  `cpu|cuda|rocm|vulkan` -> `make test-install-published`; `metal` -> `make test-native-engines`
+  (each native-Metal engine: install at the pin, version, tiny model on Metal + "hi") + the
+  TensorFold targets. CI calls it on Linux only (`published.yml`); `metal` runs on an Apple-Silicon host.
 - `make test-native-engine` — Apple Silicon only (else prints why, exits 0): REAL
   TensorFold install / update / reuse through the llgenie pick + start script version.
   `make test-native-engine-serve` adds the real Qwen3.8-27B download + Metal serve (context
@@ -601,9 +605,8 @@ chains them all.
   (amd64 + arm64) only the hashes not on GHCR. `make ci-image-refs` prints the refs.
 - `make ci-<job>` — one target per CI pipeline job (`ci-lint`, `ci-unit`, `ci-cron`,
   `ci-watch-report`, `ci-dispatch-e2e`, `ci-agents-read`, `ci-openspec`, `ci-cpu-health`,
-  `ci-top-tier`, `ci-install`). Linux (`pipeline.yml`) runs one job each; macOS
-  (`pipeline-macos.yml`) runs them as steps of `checks` / `serve` / `install` (three
-  Docker-VM boots instead of ten). `make ci-free-disk` and `make test-engine-stage
+  `ci-top-tier`, `ci-install`). Linux and macOS both call `pipeline.yml`: one job each,
+  the same on both OSes, no combined jobs (issue #120). `make ci-free-disk` and `make test-engine-stage
   TEST=serve|detect` keep OS / matrix decisions in make, so no CI job or step is skipped.
 
 ## Dependencies & lockfiles

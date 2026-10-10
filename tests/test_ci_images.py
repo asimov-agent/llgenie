@@ -231,9 +231,8 @@ def test_no_ci_job_builds_a_ci_image():
 
     # Given every workflow in .github/workflows
     ci = _jobs("ci.yml")
-    pipeline, mac, published = _jobs("pipeline.yml"), _jobs("pipeline-macos.yml"), _jobs("published.yml")
+    pipeline, published = _jobs("pipeline.yml"), _jobs("published.yml")
     every = {**{f"ci/{k}": v for k, v in ci.items()}, **{f"pipeline/{k}": v for k, v in pipeline.items()},
-             **{f"pipeline-macos/{k}": v for k, v in mac.items()},
              **{f"published/{k}": v for k, v in published.items()}}
 
     # When their run: steps are read
@@ -245,10 +244,10 @@ def test_no_ci_job_builds_a_ci_image():
         assert ("make publish-ci-images" in text) == (name == "ci/ci-images"), name
 
     # And every job that pulls a CI image needs ci-images, directly or through its caller
-    pulls = {n for n, t in runs.items() if "make test-image-pull" in t or "make openspec-image-pull" in t}
+    pulls = {n for n, t in runs.items() if "make test-image-pull" in t or "make test-env" in t or "make openspec-image-pull" in t}
     assert pulls, "no job pulls the CI images"
-    callers = {"pipeline": ("linux",), "pipeline-macos": ("macos",),
-               "published": ("linux-published", "macos-published")}
+    callers = {"pipeline": ("linux", "macos"),
+               "published": ("linux-published",)}
     for name in pulls:
         wf, job = name.split("/", 1)
         if wf == "ci":
@@ -271,39 +270,28 @@ def _make_targets(job: dict) -> list[str]:
     return [m for r in _runs(job) for m in re.findall(r"make (ci-[a-z0-9-]+)", r)]
 
 
-def test_macos_runs_the_linux_targets_as_steps_of_three_jobs():
-    """macOS (pipeline-macos.yml) runs exactly the make targets Linux (pipeline.yml) runs, in
-    three Docker jobs; neither file has a job that is skipped on its OS."""
+def test_macos_runs_the_linux_pipeline_file_job_for_job():
+    """macOS runs the SAME pipeline file as Linux (issue #120: no combined jobs), so every
+    job, make ci-<job> target and assert is identical; only the runner label differs."""
 
-    # Given the Linux and the macOS pipeline
-    linux, mac = _jobs("pipeline.yml"), _jobs("pipeline-macos.yml")
+    # Given ci.yml and the shared pipeline
+    ci, linux = _jobs("ci.yml"), _jobs("pipeline.yml")
 
-    # When the make targets of their jobs are collected
-    linux_targets = sorted(t for j in linux.values() for t in _make_targets(j))
-    mac_targets = sorted(t for j in mac.values() for t in _make_targets(j))
+    # When the callers of the pipeline are read
+    callers = {n: j for n, j in ci.items() if j.get("uses") == "./.github/workflows/pipeline.yml"}
 
-    # Then both sets are equal (and no target runs twice)
-    assert linux_targets == mac_targets and len(set(linux_targets)) == len(linux_targets)
-    assert len(linux) == 10 and set(mac) == {"checks", "serve", "install"}
+    # Then linux and macos call the one file, with only the runner (and optional) different
+    assert set(callers) == {"linux", "macos"}
+    assert callers["linux"]["with"] == {"runner": "ubuntu-latest"}
+    assert callers["macos"]["with"]["runner"] == "macos-15-intel"
+    assert not (REPO / ".github" / "workflows" / "pipeline-macos.yml").exists()
 
-    # And no job of either file has an if: (nothing shows as skipped on its OS)
-    assert not [n for n, j in {**linux, **mac}.items() if "if" in j]
+    # And each job runs one target, once (no combined job, nothing runs twice)
+    targets = sorted(t for j in linux.values() for t in _make_targets(j) if t != "ci-free-disk")
+    assert len(linux) == 10 and len(set(targets)) == len(targets) == 10
 
-    # And every macOS step runs even after a failed one (only the first image pull gates the job)
-    for name in ("checks", "serve"):
-        steps = mac[name]["steps"]
-        first_pull = next(i for i, st in enumerate(steps) if st.get("run") == "make test-image-pull")
-        for st in steps[first_pull + 1:]:
-            assert st.get("if") in ("${{ !cancelled() }}", "always()"), (name, st.get("name"))
-
-    # And exactly three macOS jobs use the Docker setup action
-    docker = [n for n, j in mac.items() if any(st.get("uses") == "./.github/actions/docker" for st in j["steps"])]
-    assert sorted(docker) == ["checks", "install", "serve"]
-
-    # And ci.yml calls each pipeline on its OS
-    ci = _jobs("ci.yml")
-    assert ci["linux"]["uses"] == "./.github/workflows/pipeline.yml"
-    assert ci["macos"]["uses"] == "./.github/workflows/pipeline-macos.yml"
+    # And no job has an if: (nothing shows as skipped on either OS)
+    assert not [n for n, j in linux.items() if "if" in j]
 
 
 def test_every_pipeline_job_runs_one_ci_make_target():
@@ -321,9 +309,21 @@ def test_every_pipeline_job_runs_one_ci_make_target():
         assert ts == [f"ci-{name}"], (name, ts)
         assert re.search(rf"^ci-{name}:", mk, re.M), name
 
-    # And ci-install runs make test-install-ci
+    # And ci-install only prepares the environment, then runs make install, the
+    # installed llgenie dry run, and make uninstall as separate make targets.
+    # macOS never runs those inside a container.
     recipe = mk.split("\nci-install:", 1)[1].split("\n\n", 1)[0]
-    assert "$(MAKE) test-install-ci ARCH=cpu" in recipe
+    assert "$(MAKE) test-env" in recipe
+    assert "$(MAKE) ci-install-run" in recipe and "$(MAKE) ci-install-dry" in recipe
+    assert "$(MAKE) ci-install-uninstall" in recipe and "test-install-ci" not in recipe
+    run = mk.split("\nci-install-run:", 1)[1].split("\n\n", 1)[0]
+    assert "ifeq ($(HOST_OS),Darwin)" in run and "$(MAKE) install" in run
+    assert "$(ENGINE_TEST_RUN)" in run.split("else", 1)[1]
+    dry = mk.split("\nci-install-dry:", 1)[1].split("\n\n", 1)[0]
+    assert '"$(BIN)/llgenie" --dry' in dry
+    assert "$$HOME/bin/llgenie --dry" in dry.split("else", 1)[1]
+    undo = mk.split("\nci-install-uninstall:", 1)[1].split("\n\n", 1)[0]
+    assert "$(MAKE) uninstall" in undo and "Darwin" in undo
 
 
 def test_no_ci_step_or_job_is_skipped():
@@ -331,7 +331,7 @@ def test_no_ci_step_or_job_is_skipped():
     skips it in a normal push run: OS- or matrix-specific work is decided inside make."""
 
     # Given every workflow
-    files = ("ci.yml", "pipeline.yml", "pipeline-macos.yml", "published.yml")
+    files = ("ci.yml", "pipeline.yml", "published.yml")
     wf = {f: _jobs(f) for f in files}
 
     # When every job-level and step-level if: is collected
@@ -344,9 +344,9 @@ def test_no_ci_step_or_job_is_skipped():
         assert cond.replace(" ", "") in ("${{!cancelled()&&github.event_name=='push'}}",
                                          "${{!cancelled()&&github.event_name=='push'&&needs.engine-matrix.result=='success'}}"), key
 
-    # And a step only ever runs after a failed one, never skips (no runner.os, matrix or env test)
+    # And a step only runs after a failed one, is Linux-only Docker, or is the macOS openspec CLI
     for key, cond in step_ifs.items():
-        assert cond in ("${{ !cancelled() }}", "always()"), key
+        assert cond in ("${{ !cancelled() }}", "always()", "runner.os == 'Linux'", "runner.os == 'macOS'"), key
 
     # And the OS / matrix decisions live in make: ci-free-disk and test-engine-stage
     mk = (REPO / "Makefile").read_text()

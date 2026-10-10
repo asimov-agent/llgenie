@@ -508,8 +508,28 @@ def detect(skill: dict, backend: str, hw: dict) -> int:
     return rc
 
 
+_SEMVER = re.compile(r"(\d+\.\d+(?:\.\d+)?)")
+
+
+def _version_line(text: str) -> str:
+    """The first line that carries a version, ignoring runtime warnings.
+
+    Ollama's `ollama --version` prints `ollama version is 0.35.1` and then
+    `Warning: could not connect to a running Ollama instance` and exits 1 when
+    no daemon is running. The version is still the installed version.
+    """
+    for ln in (text or "").splitlines():
+        if _SEMVER.search(ln):
+            return ln.strip()
+    return ""
+
+
 def _detect_run(skill: dict, backend: str, hw: dict, quiet: bool = False) -> tuple[int, str]:
-    """Run the skill's detect command; (exit code, its first output line)."""
+    """Run the skill's detect command; (exit code, its version line).
+
+    A version line counts as installed even when the command exits non-zero
+    because a daemon it talks to is not running (Ollama on a fresh install).
+    """
     p = plan(skill, backend, hw)
     if not p["detect"]:
         if not quiet:
@@ -517,15 +537,12 @@ def _detect_run(skill: dict, backend: str, hw: dict, quiet: bool = False) -> tup
         return 1, ""
     r = subprocess.run(["bash", "-euo", "pipefail", "-c", env_prelude(p["env"]) + p["detect"]],
                        capture_output=True, text=True)
-    first = (r.stdout or r.stderr).strip().splitlines()[:1]
-    line = first[0] if first else ""
+    line = _version_line((r.stdout or "") + "\n" + (r.stderr or ""))
+    installed = r.returncode == 0 or bool(line)
     if not quiet:
-        status = "installed" if r.returncode == 0 else "missing"
+        status = "installed" if installed else "missing"
         print(f"[engine-skills] {skill['id']}/{backend}: {status} {line}".rstrip())
-    return (0 if r.returncode == 0 else 1), line
-
-
-_SEMVER = re.compile(r"(\d+\.\d+(?:\.\d+)?)")
+    return (0 if installed else 1), line
 
 
 def pinned_version(skill: dict) -> str | None:

@@ -1,11 +1,10 @@
 # GGUF model-tooling Makefile.
 # Uses nerdctl (rootless) for the pip-compile container; installs deps into a
-# python 3.10 venv at ~/llama-gguf-tools/.venv.
+# python 3.11 venv at ~/llama-gguf-tools/.venv (issue #120).
 
 SHELL   := /bin/bash
 NERDCTL ?= nerdctl
 IMG     := gguf-tools/pip-compile:latest
-PY310   ?= /opt/homebrew/bin/python3.10
 VENV    := $(HOME)/llama-gguf-tools/.venv
 
 REQIN   := requirements.in
@@ -21,7 +20,7 @@ all: generate-requirements venv-install
 NERDCTL_TOOLS := $(shell command -v $(NERDCTL) >/dev/null 2>&1 && echo yes || echo no)
 
 # ---- container ------------------------------------------------------------------
-build-image: ## Build the pip-compile container (python 3.10)
+build-image: ## Build the pip-compile container (python 3.11)
 	$(NERDCTL) build -t $(IMG) .
 
 # ---- requirements ----------------------------------------------------------------
@@ -45,7 +44,7 @@ generate-requirements: ## Compile requirements.in -> requirements.txt
 	@echo "--- head of $(REQTXT) ---"
 	@head -15 $(REQTXT)
 
-generate-requirements-venv: venv-install ## pip-compile into the 3.10 venv (no container)
+generate-requirements-venv: venv-install ## pip-compile into the 3.11 venv (no container)
 	$(VENV)/bin/python -m pip install --quiet pip-tools
 	$(VENV)/bin/pip-compile --output-file $(REQTXT) $(REQIN)
 	@echo "pip-compiled $(REQTXT) via venv"
@@ -70,19 +69,19 @@ generate-requirements-dev-venv: venv-install ## pip-compile dev deps into the ve
 
 # ---- venv ------------------------------------------------------------------------
 create-venv: ## Create the gguf venv (idempotent — reuses an existing one when present)
-	# Reuse the venv if it already has a working python; only create it (with
-	# the best available python, 3.10 preferred) when absent. This is what lets
-	# `make install` round-trip (install -> uninstall -> install) without a
-	# fresh-host python3.10, since a second install must not clobber a working
-	# venv or fail when python3.10 is unavailable.
+	# Python 3.11 parity (issue #120): the venv runs the same scripts as the
+	# python:3.11-slim test image. A venv that already is 3.11 is reused (install ->
+	# uninstall -> install round-trips); any other version is recreated with the
+	# python3.11 that ../scripts/check_python.py resolves (brew installs it on macOS
+	# when missing; no 3.11 -> fails closed).
 	@echo "==> venv at $(VENV)"
-	@if [ -x "$(VENV)/bin/python" ]; then \
-		echo "    already present — reusing"; \
+	@if python3 ../scripts/check_python.py --venv "$(VENV)"; then \
+		echo "    already present (Python 3.11) — reusing"; \
 	else \
-		echo "    creating with $$(command -v python3.10 >/dev/null 2>&1 && echo python3.10 || command -v python3)"; \
-		PY=$$(command -v python3.10 2>/dev/null || command -v python3 2>/dev/null || echo ""); \
-		[ -n "$$PY" ] || { echo "ERROR: no python3.10/python3 found to create the venv"; exit 1; }; \
-		"$$PY" -m venv $(VENV); \
+		PY=$$(python3 ../scripts/check_python.py) || exit 1; \
+		echo "    creating with $$PY (Python 3.11)"; \
+		rm -rf "$(VENV)"; \
+		"$$PY" -m venv "$(VENV)"; \
 	fi
 
 venv: create-venv ## alias
@@ -93,7 +92,7 @@ venv-install: create-venv $(REQTXT) ## Install generated requirements.txt into t
 	@echo "Installed gguf deps into $(VENV)"
 	$(VENV)/bin/python -c "import gguf, numpy; print('gguf ok:', gguf.__file__)"
 
-venv-dev-install: venv-install $(DEVREQTXT) ## Install runtime + dev (pytest) deps into the 3.10 venv
+venv-dev-install: venv-install $(DEVREQTXT) ## Install runtime + dev (pytest) deps into the 3.11 venv
 	$(VENV)/bin/pip install -r $(DEVREQTXT)
 	@echo "Installed dev deps into $(VENV)"
 	$(VENV)/bin/python -m pytest --version

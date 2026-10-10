@@ -70,7 +70,9 @@ def pick_format(skill: dict) -> str:
 
 
 def bash(cmd: str, **kw) -> subprocess.CompletedProcess:
-    return subprocess.run(["bash", "-euo", "pipefail", "-c", cmd], **kw)
+    # LLGENIE_BASH is the bash make selected (bash 5). A bare `bash` on the macOS
+    # CI runner is /bin/bash 3.2 invoked as a login shell, which drops the venv.
+    return subprocess.run([os.environ.get("LLGENIE_BASH") or "bash", "-euo", "pipefail", "-c", cmd], **kw)
 
 
 def http(url: str, body: dict | None = None, timeout: float = 5) -> dict:
@@ -115,7 +117,7 @@ def harness_sdk_check(port: int, engine: str = "", arch: str = "cpu", container:
         env = None
     else:
         # same locked deps as the test image (tests/conftest.py needs gguf/numpy too)
-        cmd = ["uv", "run", "--no-project", "--quiet", "--python", "3.10",
+        cmd = ["uv", "run", "--no-project", "--quiet", "--python", "3.11",
                "--with-requirements", str(root / "tools" / "requirements.txt"),
                "--with-requirements", str(root / "tools" / "requirements-dev.txt"),
                "python", "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests/test_engine_runs.py"]
@@ -184,7 +186,7 @@ def smoke(skill_id: str, backend: str | None, port: int, timeout: float) -> int:
     launch = prelude + render(p["launch"])
     print(f"[smoke] launch: {launch}", flush=True)
     log = open(f"/tmp/llgenie-smoke-{skill_id}.log", "w")
-    proc = subprocess.Popen(["bash", "-c", launch], stdout=log, stderr=subprocess.STDOUT,
+    proc = subprocess.Popen([os.environ.get("LLGENIE_BASH") or "bash", "-c", launch], stdout=log, stderr=subprocess.STDOUT,
                             start_new_session=True)
     try:
         if not wait_ready(port, p["health"], proc, timeout):

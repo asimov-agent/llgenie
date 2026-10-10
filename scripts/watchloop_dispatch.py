@@ -59,12 +59,16 @@ import time
 import urllib.error
 import urllib.request
 
-REPO = "/Users/andy/repository/git/llama-ai"
+# The llgenie checkout this script lives in (/Users/andy/repository/git/llgenie on
+# the dev Mac, the runner's checkout in CI): never a hardcoded home path.
+REPO = os.environ.get(
+    "WATCHLOOP_REPO", os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+)
 LOGS = f"{REPO}/.watchloop/logs"
 RUN = f"{REPO}/.watchloop/run"
 WORKTREE_BASE = os.path.normpath(f"{REPO}/../llgenie-wt")
 API = "https://api.github.com/repos/asimov-agent/llgenie"
-HERMES = "/Users/andy/.local/bin/hermes"
+HERMES = os.environ.get("HERMES_BIN", os.path.expanduser("~/.local/bin/hermes"))
 
 # Worker model override. The profile default is `llm-local` (the local 35B), which
 # is correct for serving but SLOW for agentic driving (~170s/call in practice),

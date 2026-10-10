@@ -2,9 +2,9 @@
   "_generated_by": "make generate-engine-params (scripts/engine_skills.py) - do not edit; edit the skill",
   "engine": "llama.cpp (LaurentZuijdwijk fork)",
   "id": "llama.cpp-laurentzuijdwijk",
-  "repo": "https://github.com/LaurentZuijdwijk/llama.cpp",
-  "ref": "vulkan/strix-halo-port-2",
-  "pinned": "5a09c43da038e46b1f856dc134b8128974e8574b",
+  "repo": "https://github.com/agentionai/llama.cpp",
+  "ref": "perf/strix-vulkan",
+  "pinned": "3c75be02f45081987e1b4baafd5aa4c5af245de9",
   "native": {
     "vulkan": {
       "cmake_flags": "-DGGML_NATIVE=OFF -DGGML_VULKAN=ON -DGGML_CUDA=OFF -DGGML_METAL=OFF",
@@ -61,10 +61,10 @@
         "TORCH_BACKEND": "cu130"
       },
       "install": [
-        "test -d /opt/llgenie/src/laurentzuijdwijk-llama.cpp/.git || git clone -b vulkan/strix-halo-port-2 https://github.com/LaurentZuijdwijk/llama.cpp.git /opt/llgenie/src/laurentzuijdwijk-llama.cpp",
+        "test -d /opt/llgenie/src/laurentzuijdwijk-llama.cpp/.git || git clone -b perf/strix-vulkan https://github.com/agentionai/llama.cpp.git /opt/llgenie/src/laurentzuijdwijk-llama.cpp",
         "git config --global --add safe.directory /opt/llgenie/src/laurentzuijdwijk-llama.cpp",
-        "git -C /opt/llgenie/src/laurentzuijdwijk-llama.cpp fetch origin vulkan/strix-halo-port-2",
-        "git -C /opt/llgenie/src/laurentzuijdwijk-llama.cpp checkout -B vulkan/strix-halo-port-2 5a09c43da038e46b1f856dc134b8128974e8574b",
+        "git -C /opt/llgenie/src/laurentzuijdwijk-llama.cpp fetch origin perf/strix-vulkan",
+        "git -C /opt/llgenie/src/laurentzuijdwijk-llama.cpp checkout -B perf/strix-vulkan 3c75be02f45081987e1b4baafd5aa4c5af245de9",
         "cmake -S /opt/llgenie/src/laurentzuijdwijk-llama.cpp -B /opt/llgenie/src/laurentzuijdwijk-llama.cpp/build-cuda -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DGGML_CUDA=ON -DCMAKE_EXE_LINKER_FLAGS=-Wl,--allow-shlib-undefined '-DCMAKE_CUDA_ARCHITECTURES=75;80;86;89;90;120'",
         "cmake --build /opt/llgenie/src/laurentzuijdwijk-llama.cpp/build-cuda --config Release -j$(nproc) --target llama-server",
         "LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-}:/usr/local/cuda/lib64/stubs /opt/llgenie/src/laurentzuijdwijk-llama.cpp/build-cuda/bin/llama-server --help > /dev/null"
@@ -102,10 +102,10 @@
         "TORCH_BACKEND": "auto"
       },
       "install": [
-        "test -d /opt/llgenie/src/laurentzuijdwijk-llama.cpp/.git || git clone -b vulkan/strix-halo-port-2 https://github.com/LaurentZuijdwijk/llama.cpp.git /opt/llgenie/src/laurentzuijdwijk-llama.cpp",
+        "test -d /opt/llgenie/src/laurentzuijdwijk-llama.cpp/.git || git clone -b perf/strix-vulkan https://github.com/agentionai/llama.cpp.git /opt/llgenie/src/laurentzuijdwijk-llama.cpp",
         "git config --global --add safe.directory /opt/llgenie/src/laurentzuijdwijk-llama.cpp",
-        "git -C /opt/llgenie/src/laurentzuijdwijk-llama.cpp fetch origin vulkan/strix-halo-port-2",
-        "git -C /opt/llgenie/src/laurentzuijdwijk-llama.cpp checkout -B vulkan/strix-halo-port-2 5a09c43da038e46b1f856dc134b8128974e8574b",
+        "git -C /opt/llgenie/src/laurentzuijdwijk-llama.cpp fetch origin perf/strix-vulkan",
+        "git -C /opt/llgenie/src/laurentzuijdwijk-llama.cpp checkout -B perf/strix-vulkan 3c75be02f45081987e1b4baafd5aa4c5af245de9",
         "cmake -S /opt/llgenie/src/laurentzuijdwijk-llama.cpp -B /opt/llgenie/src/laurentzuijdwijk-llama.cpp/build-rocm -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DGGML_HIP=ON -DGGML_CUDA=OFF '-DGPU_TARGETS=gfx1030;gfx1100;gfx1101;gfx1102;gfx1151;gfx1200;gfx1201;gfx942'",
         "cmake --build /opt/llgenie/src/laurentzuijdwijk-llama.cpp/build-rocm --config Release -j$(nproc) --target llama-server",
         "LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-}:/usr/local/cuda/lib64/stubs /opt/llgenie/src/laurentzuijdwijk-llama.cpp/build-rocm/bin/llama-server --help > /dev/null"
@@ -158,10 +158,10 @@
         "TORCH_BACKEND": "cpu"
       },
       "install": [
-        "test -d /opt/llgenie/src/laurentzuijdwijk-llama.cpp/.git || git clone -b vulkan/strix-halo-port-2 https://github.com/LaurentZuijdwijk/llama.cpp.git /opt/llgenie/src/laurentzuijdwijk-llama.cpp",
+        "test -d /opt/llgenie/src/laurentzuijdwijk-llama.cpp/.git || git clone -b perf/strix-vulkan https://github.com/agentionai/llama.cpp.git /opt/llgenie/src/laurentzuijdwijk-llama.cpp",
         "git config --global --add safe.directory /opt/llgenie/src/laurentzuijdwijk-llama.cpp",
-        "git -C /opt/llgenie/src/laurentzuijdwijk-llama.cpp fetch origin vulkan/strix-halo-port-2",
-        "git -C /opt/llgenie/src/laurentzuijdwijk-llama.cpp checkout -B vulkan/strix-halo-port-2 5a09c43da038e46b1f856dc134b8128974e8574b",
+        "git -C /opt/llgenie/src/laurentzuijdwijk-llama.cpp fetch origin perf/strix-vulkan",
+        "git -C /opt/llgenie/src/laurentzuijdwijk-llama.cpp checkout -B perf/strix-vulkan 3c75be02f45081987e1b4baafd5aa4c5af245de9",
         "cmake -S /opt/llgenie/src/laurentzuijdwijk-llama.cpp -B /opt/llgenie/src/laurentzuijdwijk-llama.cpp/build-vulkan -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DGGML_VULKAN=ON -DGGML_CUDA=OFF -DGGML_METAL=OFF",
         "cmake --build /opt/llgenie/src/laurentzuijdwijk-llama.cpp/build-vulkan --config Release -j$(nproc) --target llama-server",
         "LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-}:/usr/local/cuda/lib64/stubs /opt/llgenie/src/laurentzuijdwijk-llama.cpp/build-vulkan/bin/llama-server --help > /dev/null"
@@ -199,10 +199,10 @@
         "TORCH_BACKEND": "cpu"
       },
       "install": [
-        "test -d /opt/llgenie/src/laurentzuijdwijk-llama.cpp/.git || git clone -b vulkan/strix-halo-port-2 https://github.com/LaurentZuijdwijk/llama.cpp.git /opt/llgenie/src/laurentzuijdwijk-llama.cpp",
+        "test -d /opt/llgenie/src/laurentzuijdwijk-llama.cpp/.git || git clone -b perf/strix-vulkan https://github.com/agentionai/llama.cpp.git /opt/llgenie/src/laurentzuijdwijk-llama.cpp",
         "git config --global --add safe.directory /opt/llgenie/src/laurentzuijdwijk-llama.cpp",
-        "git -C /opt/llgenie/src/laurentzuijdwijk-llama.cpp fetch origin vulkan/strix-halo-port-2",
-        "git -C /opt/llgenie/src/laurentzuijdwijk-llama.cpp checkout -B vulkan/strix-halo-port-2 5a09c43da038e46b1f856dc134b8128974e8574b",
+        "git -C /opt/llgenie/src/laurentzuijdwijk-llama.cpp fetch origin perf/strix-vulkan",
+        "git -C /opt/llgenie/src/laurentzuijdwijk-llama.cpp checkout -B perf/strix-vulkan 3c75be02f45081987e1b4baafd5aa4c5af245de9",
         "cmake -S /opt/llgenie/src/laurentzuijdwijk-llama.cpp -B /opt/llgenie/src/laurentzuijdwijk-llama.cpp/build-cpu -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DGGML_CUDA=OFF -DGGML_METAL=OFF",
         "cmake --build /opt/llgenie/src/laurentzuijdwijk-llama.cpp/build-cpu --config Release -j$(nproc) --target llama-server",
         "LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-}:/usr/local/cuda/lib64/stubs /opt/llgenie/src/laurentzuijdwijk-llama.cpp/build-cpu/bin/llama-server --help > /dev/null"

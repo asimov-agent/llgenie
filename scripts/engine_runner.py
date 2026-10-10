@@ -33,8 +33,19 @@ def env_prelude(env: dict) -> str:
     return "".join(out)
 
 
+def bash_exe() -> str:
+    """The bash make already selected (``LLGENIE_BASH``, set by the Makefile).
+
+    A bare ``bash`` is wrong on the macOS CI runner: GitHub invokes ``/bin/bash``
+    (3.2) as a login shell, so it drops the venv from PATH and a launch of
+    ``python3 -m http.server`` never binds. The Makefile's recipe shell is bash 5
+    and keeps the PATH ``make test-env`` put the 3.11 venv on.
+    """
+    return os.environ.get("LLGENIE_BASH") or "bash"
+
+
 def _bash(cmd: str, **kw) -> subprocess.CompletedProcess:
-    return subprocess.run(["bash", "-euo", "pipefail", "-c", cmd], **kw)
+    return subprocess.run([bash_exe(), "-euo", "pipefail", "-c", cmd], **kw)
 
 
 def install(p: dict) -> int:
@@ -67,17 +78,17 @@ def detect(p: dict) -> int:
     return 1
 
 
-def probe(port: int, health) -> bool:
+def probe(port: int, health, host: str = "127.0.0.1") -> bool:
     path = str(health or "GET /v1/models").split()[-1]
     try:
-        urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=3)  # noqa: S310 (loopback)
+        urllib.request.urlopen(f"http://{host}:{port}{path}", timeout=3)  # noqa: S310 (loopback)
         return True
     except Exception:
         return False
 
 
 def serve_plan(p: dict, model: str, host: str, port: int, drafter: str = "",
-               ready_timeout: float = 1800) -> int:
+               ready_timeout: float = 1800, on_ready=None) -> int:
     """pre_launch -> launch -> wait ready -> post_launch; stay in the foreground
     until the server exits. SIGTERM/SIGINT are forwarded to the server."""
     vals = {"{model}": model, "{drafter}": drafter, "{host}": host, "{port}": str(port)}
@@ -100,7 +111,10 @@ def serve_plan(p: dict, model: str, host: str, port: int, drafter: str = "",
         _bash(pre + r(p["pre_launch"]), check=True)
     launch = r(p["launch"])
     print(f"[engine-runner] serve {p['id']}/{p['backend']}: {launch}", flush=True)
-    proc = subprocess.Popen(["bash", "-c", pre + launch], start_new_session=True)
+    serve_log = os.path.join(os.environ.get("TMPDIR", "/tmp"), "engine-runner-serve.log")
+    out = open(serve_log, "w")
+    proc = subprocess.Popen([bash_exe(), "-c", pre + launch], start_new_session=True,
+                            stdout=out, stderr=subprocess.STDOUT)
 
     def stop(signum, _frame):
         try:
@@ -111,16 +125,26 @@ def serve_plan(p: dict, model: str, host: str, port: int, drafter: str = "",
     signal.signal(signal.SIGINT, stop)
 
     end = time.time() + ready_timeout
-    while proc.poll() is None and not probe(port, p.get("health")):
+    while proc.poll() is None and not probe(port, p.get("health"), host):
         if time.time() > end:
-            print(f"[engine-runner] {p['id']}: not ready after {ready_timeout:.0f}s", file=sys.stderr)
+            print(f"[engine-runner] {p['id']}: not ready after {ready_timeout:.0f}s (server exited {proc.poll()})", file=sys.stderr)
             stop(signal.SIGTERM, None)
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
+            log = os.path.join(os.environ.get("TMPDIR", "/tmp"), "engine-runner-serve.log")
+            if os.path.exists(log):
+                print(open(log, errors="replace").read()[-3000:], file=sys.stderr)
             return 1
         time.sleep(1)
     if proc.poll() is None:
         if p.get("post_launch"):
             _bash(pre + r(p["post_launch"]), check=True)
         print(f"[engine-runner] READY {p['id']}/{p['backend']} on {host}:{port} model=llm-local", flush=True)
+        if on_ready is not None:
+            on_ready()
+            stop(signal.SIGTERM, None)
     return proc.wait()
 
 

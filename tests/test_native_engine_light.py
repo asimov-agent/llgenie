@@ -14,8 +14,8 @@ same budget env the start script uses (TENSORFOLD_MEMORY_LIMIT_GB = RAM).
            budget, the start script refuses it the same way (no crash, no hang), and the
            dry launch is the one a bigger Mac serves (--context, budget env).
 
-Runs through `make test-native-engine-light` (local host + CI job
-`native-engine-macos-arm64`). A non-Apple-Silicon host FAILS loudly: there is no skip.
+Runs through `make test-native-engine-light` on an Apple-Silicon host (no CI job:
+the macOS runners have no Metal GPU). A non-Apple-Silicon host FAILS loudly: there is no skip.
 """
 from __future__ import annotations
 
@@ -92,7 +92,7 @@ def test_lightest_tensorfold_model_serves_on_metal_or_is_refused_by_its_budget(t
     if plan.returncode != 0:
         # Then (a host too small, e.g. the 7 GB CI runner) the plan names the budget, and the
         #      start script refuses the model the same way: exits, never serves, never hangs
-        assert "weights exceed the allowance" in plan_out, plan_out
+        assert "need more than" in plan_out, plan_out
         s = subprocess.run([start, str(model), str(PORT)], env=env, capture_output=True, text=True,
                            timeout=600)
         assert s.returncode != 0, s.stdout + s.stderr

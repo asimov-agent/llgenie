@@ -3,10 +3,10 @@ name: engine-llama-cpp-laurentzuijdwijk
 description: "Use when building or launching the LaurentZuijdwijk llama.cpp fork (Vulkan on AMD Strix Halo, adaptive speculative decoding via --spec-draft-adaptive)."
 engine: "llama.cpp (LaurentZuijdwijk fork)"
 id: llama.cpp-laurentzuijdwijk
-repo: https://github.com/LaurentZuijdwijk/llama.cpp
-ref: vulkan/strix-halo-port-2
+repo: https://github.com/agentionai/llama.cpp
+ref: perf/strix-vulkan
 ref_kind: branch
-pinned: 5a09c43da038e46b1f856dc134b8128974e8574b
+pinned: 3c75be02f45081987e1b4baafd5aa4c5af245de9
 verified: "2026-10-05"
 license: MIT
 servable: true
@@ -75,7 +75,7 @@ upstream_watch: [CMakeLists.txt, common/arg.cpp, ggml/src/ggml-vulkan/CMakeLists
 
 Its headline target is **AMD Strix Halo** (Radeon 8060S, `gfx1151`) over **Vulkan on
 stock Mesa RADV**, so no ROCm install is needed. The work lives on branch
-`vulkan/strix-halo-port-2`. The fork's `master` carries the adaptive
+`perf/strix-vulkan`. The fork's `main` carries the adaptive
 spec flags but not the Strix tuning.
 
 ## Hardware parameters

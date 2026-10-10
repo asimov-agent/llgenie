@@ -27,25 +27,10 @@ This repo bundles three pieces that were built and validated together:
   llama.cpp build is used instead (`make install-prism-metal` / `install-upstream-metal`).
 - **macOS** with an Apple Silicon GPU for the native Metal path (card RAM is detected;
   `TOTAL_RAM_BYTES` = 48 GB is only the fallback when detection fails).
-- **macOS `make install` (the container images):** Docker through Colima on the docker
-  runtime, with Rosetta 2 for the linux/amd64 images (issue #112):
-  ```bash
-  softwareupdate --install-rosetta --agree-to-license
-  brew install colima docker docker-buildx
-  colima start --runtime docker --vm-type vz --vz-rosetta --cpu 4 --memory 8 \
-    --dns 1.1.1.1 --dns 8.8.8.8
-  docker context use colima
-  make install            # the same make install as on Linux
-  ```
-  llgenie uses plain `docker` everywhere (no nerdctl); Colima must use the docker runtime.
-  The start scripts run each image with `--platform` of the pulled image, so Docker does
-  not warn about the amd64-on-arm64 mismatch.
-  **Self-repair:** before `make install` pulls and before llgenie starts an engine
-  container, a Mac checks that Docker answers and that the Colima VM resolves `ghcr.io`.
-  A stopped VM is started with `--dns 1.1.1.1 --dns 8.8.8.8`; a VM whose DNS forwarder
-  does not answer (pulls fail with `lookup ... i/o timeout`) gets those resolvers written
-  into it, and is restarted with them when that is not enough. Run it by hand with
-  `python3 scripts/engine_image.py ensure-env`. Linux is never touched.
+- **macOS (Metal) never starts an engine image.** Apple Silicon runs the native
+  Metal engines (TensorFold, MLX, llama.cpp, Prism, Ollama, LiteRT). `make install`
+  and `llgenie` do not pull or start a container image, and they never start Colima.
+  A container-only engine is not offered. Linux still pulls this host's images.
 - **Python 3.10** (Homebrew: `brew install python@3.10`) for the `gguf` tooling venv.
 - Optional `hf` CLI (Hugging Face hub) in a venv — used by `scripts/hf_download.py`.
 
@@ -124,9 +109,10 @@ lets TensorFold size it to its budget; a Mac too small for 65,536 tokens gets Te
 "does not fit ... the most one request can use is N tokens" refusal, then serve with
 `LLGENIE_CONTEXT=0`) and the Mac's full GPU working set as its budget
 (`TENSORFOLD_MEMORY_LIMIT_GB`): its default 70% gives a 48 GB Mac only 29,696 tokens. Point a
-client at `http://127.0.0.1:11434/v1`, model `llm-local`, context length 65536. Container-only engines
-fall back to their cpu image, and cuda/rocm-only engines (Strata, SGLang, ...) are not
-offered. The TensorFold *image* is CUDA-only and built by the Linux CI. A Linux container
+client at `http://127.0.0.1:11434/v1`, model `llm-local`, context length 65536. A
+container-only engine is not offered on a Mac (macOS never starts an engine image),
+and cuda/rocm-only engines (Strata, SGLang, ...) are not offered either. The TensorFold
+*image* is CUDA-only and built by the Linux CI. A Linux container
 cannot reach the Apple GPU, so no Metal image exists. Qwen3.8-Flash-Next 125B needs
 ≥ 63 GB of TensorFold weights: on a 48 GB Mac it is listed with that reason, and on a
 128 GB Mac it is pick 1 on TensorFold.
@@ -137,8 +123,8 @@ prompt asks from): `tests/test_mac_trend_pick.py` (Mac),
 cuda/rocm/vulkan/cpu and mac metal) and `tests/test_tensorfold_seamless.py`
 (install / update / reuse on pick), all in `make test-unit`. On an Apple-Silicon Mac,
 `make test-native-engine` runs the REAL TensorFold install script through the pick
-(missing → install, older → update, current → reuse; isolated uv tool dir, also the CI
-job `native-engine-macos-arm64`), and `make test-native-engine-serve` adds the real
+(missing → install, older → update, current → reuse; isolated uv tool dir; there is no CI
+job for it, GitHub's macOS runners have no usable Metal GPU), and `make test-native-engine-serve` adds the real
 `llgenie --select 1 --engine tensorfold` download of Qwen3.8-27B's TensorFold checkpoint +
 Metal serve with `context: 65536` + "hi". `make test-native-engine-light` serves the lightest
 model TensorFold runs (`mlx-community/Qwen3.5-9B-MLX-4bit`, 5.5 GiB) through the llgenie start
@@ -691,6 +677,8 @@ make test-install      # install tests (run in-container; host-artifact asserts 
 make test-install-ci   # REAL install tests, NO SKIPS: make install + model + assert in ONE container
 make test-uninstalled  # after make uninstall: no launcher/shim/llgenie-engine-* left, no engine container
 make test-install-host # verify the REAL host install: ~/bin/llgenie + symlinks + ~/models (runs on host)
+make ci-engines BACKEND=metal  # the engine stage (issue #120): cpu|cuda|rocm|vulkan -> container engines, metal -> every native engine
+make test-native-engines       # Apple Silicon: make install path for EACH native-Metal engine, tiny model on Metal + "hi"
 make test-native-engine        # Apple Silicon: REAL TensorFold install / update / reuse through the llgenie pick
 make test-native-engine-serve  # + llgenie --select 1 --engine tensorfold downloads Qwen3.8-27B, serves on Metal (context 65536), "hi"
 make test-native-engine-light  # lightest TensorFold model (Qwen3.5-9B MLX 4-bit) via the start script: Metal "hi", or the budget refusal on a 7 GB runner
@@ -699,9 +687,9 @@ make test-interactive-tensorfold TEST_LAUNCHER=~/bin/llgenie  # the same through
 make test-interactive-tensorfold-ci                       # macOS CI runner variant: same picks (--dry, 48 GB emulated) + real install
 # The native targets above are Metal-only: on Linux (any backend) they print that the host
 # has no native engine and exit 0; Linux engines are tested in their images (make test-engine).
-make test-health       # end-to-end CPU LLM check: downloads tiny model, answers "hi"
+make test-health       # Linux: 0.5B answers "hi" through the llama.cpp image. macOS: refuses --arch cpu, no image
 make test-top-tier     # REAL acceptance (no mocks): live HF trending + fit gate + real download
-make test-top-tier-serve  # download a lightweight top-tier model, load llama-server, answer 'hi', check RAM
+make test-top-tier-serve  # Linux: lightweight model through the llama.cpp image, "hi". macOS: no engine image
 make test-top-tier-cli-ci # REAL CLI dry-run in the CI container: llgenie --download-top-tier --dry --count 2
 make download-test-model  # fetch Qwen2.5-0.5B into ~/models/Qwen/8GB (via `hf` CLI)
 make openspec-validate NAME=<change>   # validate an OpenSpec change
@@ -715,21 +703,22 @@ container), then **always** prunes orphaned containers:
 image → download → lint → unit → install → health → top-tier → top-tier-serve → test → openspec → clean
 ```
 
-- The **`health` stage** is a real end-to-end check: it downloads the
+- The **`health` stage** on Linux is a real end-to-end check: it downloads the
   lightweight `Qwen2.5-0.5B` model and asserts `/health` + a chat "hi" reply
   from the **llama.cpp engine image**, started from the test container through the host docker socket (the test image holds no inference server).
+  On macOS the same `make test-health` does not start an image: `--arch cpu` is refused and the native Metal serve stays `make ci-engines BACKEND=metal`.
+- **Python 3.11 on both OSes:** on Linux the test stages run in `llgenie/test` (`python:3.11-slim`); on macOS the SAME make targets run natively with the 3.11 gguf venv (`~/llama-gguf-tools/.venv`), never in a container. `make test-env` prepares it (Linux: pulls the test image; macOS: `make -C tools venv-dev-install`, then `brew install uv` when `uv` is not already on PATH). LiteRT, MLX and TensorFold install as `uv` tools; a missing `uv` fails `make install` loudly.
 - **`RUNTIME`** is `docker`, on Linux and on macOS (Colima with `--runtime docker`).
   `make install` reports a docker that does not answer as such, not as an unpublished image.
   `RUNTIME=<path to a docker CLI>` overrides it.
 - **A slow test is shown, not hidden:** `pytest.ini` sets `faulthandler_timeout = 300`, so a
   test running over 5 minutes prints every thread's stack into the log and keeps running.
-- **Required for merging into `main`** (branch protection): every `linux / *` job and the
-  four `linux-published / install-published-*` installs. Every macOS job (`macos / *`, both
-  macOS `make install` jobs: `macos / install` early and `macos-published / *` at the end)
-  runs on every push and shows on the PR, but does not block the merge or turn the run red:
-  `ci.yml` calls the shared pipelines with `optional: true` for macOS, which makes every
-  macOS job `continue-on-error`. The macOS runners are slow (Docker in a Lima VM on a
-  4-core Intel runner).
+- **Required for merging into `main`** (branch protection): every Linux job and every
+  macOS job. A failure on either OS fails the run. That is `linux / *`, the four
+  `linux-published / install-published-*` installs and `macos / *`. No macOS job is
+  `continue-on-error`. macOS has no published-image stage and no native-engine job: it
+  never runs an inference server in a container, so there are no images to test there,
+  and GitHub's macOS runners have no Metal GPU to serve on.
 - **One CI run per push:** `ci.yml` triggers on `push` to any branch only, so a push to a
   branch with an open PR runs once (its checks show on the PR), not a second time as a
   `pull_request` event.
@@ -741,24 +730,76 @@ image → download → lint → unit → install → health → top-tier → top
   (Linux, macOS, `engine-image`, `test-published-*`, `install-published-*`) runs
   `make test-image-pull` / `make openspec-image-pull`, which fail instead of building when the
   tag is missing.
-- **The same CI pipeline on Linux and macOS:** `.github/workflows/ci.yml` runs
-  `pipeline.yml` (`linux`, ubuntu-latest) and `pipeline-macos.yml` (`macos`, macos-15-intel,
-  Docker from Docker's own `docker/setup-docker-action` (Docker CE in a Lima vz VM, the
-  checkout mounted writable) + `docker/setup-buildx-action`: the Apple-Silicon runners lack
-  nested virtualization). Every job is one `make ci-<job>` target (lint, unit, cron,
-  watch-report, dispatch-e2e, install, agents-read, openspec, cpu-health, top-tier), same
-  asserts; the only per-OS step is `.github/actions/docker`. Linux runs one job per target.
-  macOS runs the same targets as steps of three jobs, `macos / checks`, `macos / serve` and
-  `macos / install`: each macOS job boots its own Docker VM (5-10 min) and GitHub runs few
-  macOS jobs at once. Each step runs even after a failed one, so every target still reports.
-  `tests/test_ci_images.py` locks that both files run exactly the same targets.
+- **The same CI pipeline on Linux and macOS:** `.github/workflows/ci.yml` calls ONE file,
+  `pipeline.yml`, twice: `linux` (ubuntu-latest) and `macos` (macos-15-intel). Linux sets
+  up Docker; macOS runs the same `make ci-<job>` targets in the Python 3.11 gguf venv
+  and never starts Colima. No macOS job calls the Docker action. Engine images are the
+  Linux published stage. OpenSpec on macOS installs the pinned CLI.
+  The early `install` job runs `make ci-install` on both OSes. That target only prepares
+  the environment, then runs `make install`, `$HOME/bin/llgenie --dry` and `make uninstall`
+  as separate make targets. macOS runs them in the Python 3.11 venv and never starts a
+  container. The `macos` job is `macos-15-intel` (`x86_64`): `make install` there installs
+  no Metal engine and pulls no image, because LiteRT, MLX and TensorFold publish arm64
+  wheels only — and because nothing was written, the `test-built-engine` and `uninstall`
+  steps that follow are a no-op that exits 0 (nothing to version-test, nothing to remove).
+  Apple Silicon still installs every native Metal engine. Linux runs
+  `make install`, the dry run and `make uninstall` inside the test container, so the dry
+  run sees the launcher `make install` just wrote.
+  Native-Metal engines are not tested in CI (no Metal on the runners); run
+  `make ci-engines BACKEND=metal` on an Apple-Silicon host. Every job is one `make ci-<job>` target (lint, unit, cron, watch-report,
+  dispatch-e2e, install, agents-read, openspec, cpu-health, top-tier), the same job on both
+  OSes, same asserts, no combined jobs (issue #120). Docker is set up only on Linux
+  (`.github/actions/docker`); macOS never runs it. `tests/test_ci_images.py` locks that both OSes call the one file.
+- **Native Metal engines, on an Apple-Silicon host (issue #120):** `make ci-engines BACKEND=metal`
+  (no CI job: GitHub's macOS runners have no Metal GPU):
+  every servable engine with a Metal backend (`model_engine_pick.metal_engines()`: litert,
+  llama.cpp, llama.cpp-prism, mlx, ollama, tensorfold) is installed natively by its skill —
+  llama.cpp and the Prism fork are BUILT from source with `-DGGML_METAL=ON` — prints its
+  version and serves a tiny model on Metal answering "hi".
+- **One pipeline, per-OS engine set (issue #120):** the macOS pipeline is literally the
+  same pipeline as Linux — the same `make ci-<job>` targets, in the same order, with the
+  same asserts. The only divergence is the **engine matrix**: Linux builds/tests the
+  container engine images it supports; macOS installs/tests the native-Metal engines it
+  supports (issue #114 — Metal cannot run in a container). At the end each OS runs
+  `make install` **for each engine it supports, in that engine's own environment** and
+  proves it works (Linux in CI: the container engine answers "hi"; macOS on an
+  Apple-Silicon host: the native engine serves on Metal and answers "hi"). No engine is built or tested on the wrong platform,
+  and no supported engine is skipped.
+- **Every make command runs its corresponding Python script (issue #120):** each top-level
+  `make` target is a thin shell entrypoint that runs a Python script in `scripts/` (install,
+  engine skills, launch/tune/health, CI). The same script runs on both OSes — inside the
+  docker test image on Linux, inside the 3.11 venv (and natively for Metal) on macOS. There
+  is no hidden `_install` internal command API.
+- **bash 5 is the recipe shell on both OSes (issue #120):** the Makefile resolves `SHELL`
+  to brew's bash on macOS (bash 5) and `/bin/bash` on Linux (also bash 5). `make bash-check`
+  — a prerequisite of `install`, every `ci-*` target, `loop` and `chained` — installs bash
+  via `brew install bash` on macOS when it is missing and fails closed if the recipe shell
+  is not bash 5, so no stage ever runs under macOS's system bash 3.2. The Makefile exports
+  that shell as `LLGENIE_BASH`, and `engine_runner` / `engine_smoke` run their `bash -c`
+  under it — a bare `bash` on the macOS CI runner is `/bin/bash` 3.2, invoked as a login
+  shell, which drops the 3.11 venv from PATH. The readiness fixture is
+  `scripts/loopback_server.py`, not `python3 -m http.server`: on the macOS 15 runner
+  that module calls `socket.getfqdn()` between bind and listen, and the lookup stalls
+  ~35s, so a 30s probe reports the server dead while it is still alive. The check
+  lives in `scripts/check_bash.py` (single source of truth).
 - **No CI job or step is skipped:** each OS has its own pipeline file, and nothing carries a
   `runner.os` / matrix / event condition. OS- and matrix-specific work is decided in make:
   `make ci-free-disk` frees disk on a Linux runner and only reports on macOS, and
   `make test-engine-stage TEST=serve|detect` is the one post-build test step of every engine
   image (serve: `make test-engine`, detect: `make test-engine-image`). The engine images are
-  built once (Linux containers), then `published.yml` (`make test-install-published` per
-  backend) installs them on Linux and on macOS in every push run.
+  built once (Linux containers), then `published.yml` (`make ci-engines BACKEND=<b>` ->
+  `make test-install-published` per backend) installs them on Linux in every push run (macOS
+  never runs an engine container, so it has no published-image stage).
+- **One engine stage, the only per-OS row (issue #120):** `make ci-engines BACKEND=<b>`
+  (`scripts/ci_engines.py`). `BACKEND=cpu|cuda|rocm|vulkan` runs `make test-install-published`
+  (container engines, CI `linux-published`); `BACKEND=metal` (Apple-Silicon host only, no CI job) runs
+  `make test-native-engines` — `make install`'s path for EACH native-Metal engine (litert, mlx,
+  ollama, tensorfold): skill install at the pin, start-script version, a tiny model served on
+  Metal answering "hi" — plus `test-native-engine`, `test-interactive-tensorfold-ci` and
+  `test-native-engine-light`. Every stage runs; any failure fails it.
+- **Python 3.11 everywhere (issue #120):** the test image and the lockfile image are
+  `python:3.11-slim`; the gguf venv is created with Python 3.11 (`scripts/check_python.py`,
+  which `brew install`s python@3.11 on macOS when missing; a non-3.11 venv is recreated).
   `make test-install-ci` ends with `make test-uninstalled` (no installed file, no engine
   container left). make install picks this host's images by itself: on a Mac the cpu
   images (linux/amd64, run through Rosetta), and llgenie offers only trending models whose

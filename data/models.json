@@ -80,7 +80,7 @@
     },
     "llama.cpp (LaurentZuijdwijk fork)": {
       "backend": "ROCm",
-      "url": "https://github.com/LaurentZuijdwijk/llama.cpp",
+      "url": "https://github.com/agentionai/llama.cpp",
       "note": "Auto-registered from https://lightbrd.com/laurent_zw/status/2092215141144162519 — llama.cpp with adaptive speculative decoding (--spec-draft-adaptive) and a Vulkan backend tuned for AMD Strix Halo. 4.7x",
       "auto": true
     }

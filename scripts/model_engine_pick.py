@@ -101,12 +101,17 @@ def engine_ids() -> dict[str, dict]:
 
 
 def host_engines(arch: str | None = None, ids: dict | None = None) -> list[dict]:
-    """Every engine with an enabled image variant for this host (cpu fallback)."""
+    """Every engine with an enabled image variant for this host (cpu fallback).
+
+    A metal host never falls back to a cpu image (issue #120): macOS runs natively
+    and must not start an engine image. Linux keeps the cpu fallback.
+    """
     arch = arch or host_arch()
     ids = ids if ids is not None else engine_ids()
     out = []
     for name, info in ids.items():
-        variant = arch if arch in info["variants"] else ("cpu" if "cpu" in info["variants"] else None)
+        variant = arch if arch in info["variants"] else (
+            None if arch == "metal" else ("cpu" if "cpu" in info["variants"] else None))
         if variant:
             out.append({"engine": name, "id": info["id"], "variant": variant, "formats": info["formats"]})
     return sorted(out, key=lambda r: r["id"])
@@ -133,7 +138,8 @@ def engines_for_file(path: Path, arch: str | None = None) -> list[dict]:
 
 def host_arch() -> str:
     """cuda | rocm | vulkan | metal | cpu. An Apple-Silicon Mac is `metal` (issue #114):
-    its native Metal engines come first, container images fall back to cpu."""
+    its native Metal engines come first. A metal host never falls back to a cpu
+    image (issue #120): macOS runs natively and must not start an engine image."""
     try:
         sys.path.insert(0, str(REPO / "scripts"))
         import detect_server as d
@@ -238,7 +244,8 @@ def rank_engines(model: dict, arch: str | None = None, ids: dict | None = None) 
         info = ids.get(name)
         if not info:
             return  # no container image (Metal-only / browser-only / no-skill engines)
-        variant = arch if arch in info["variants"] else ("cpu" if "cpu" in info["variants"] else None)
+        variant = arch if arch in info["variants"] else (
+            None if arch == "metal" else ("cpu" if "cpu" in info["variants"] else None))
         if not variant:
             return
         rank = 0 if mb == want else (1 if mb else 2)

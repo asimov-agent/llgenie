@@ -44,6 +44,13 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
 import engine_image as ei  # noqa: E402
 
+
+def _macos_silicon() -> bool:
+    """True only on an Apple-Silicon Mac (detect_server probes the hardware)."""
+    import detect_server as d
+    return d._macos_silicon()
+
+
 PARAMS = REPO / "containers" / "engines" / "params"
 PREFIX = "llgenie-engine-"
 # same GPU passthrough as `make run-engine` (engine_skills.RUN_ARGS): the host
@@ -54,26 +61,36 @@ GPU_FLAGS = {k: " ".join(v) for k, v in es.RUN_ARGS.items()}
 
 CORE_ENGINES = ["llama.cpp", "llama.cpp-prism"]  # the two llama.cpp shims; others on demand
 RUNTIME_DOWN = ("container runtime '{rt}' does not answer (`{rt} info` failed): start its engine "
-                "(macOS: colima start --runtime docker --vm-type vz --vz-rosetta) or point RUNTIME at a docker CLI")
+                "or point RUNTIME at a docker CLI. Colima is never started (issue #120)")
 
 
 def detected_arch() -> str:
-    """cuda | rocm | vulkan | cpu for this host (LLAMA_BACKEND mocks it)."""
+    """cuda | rocm | vulkan | metal | cpu for this host (LLAMA_BACKEND mocks it).
+
+    Apple Silicon is metal (issue #120). Mapping it to cpu made macOS pull a cpu image.
+    """
     try:
         import detect_server as d
         b = d.detect_all().get("backend")
         if b == "cpu" and shutil.which("rocminfo") and es.rocm_gfx_targets():
             b = "rocm"
-        return {"cuda": "cuda", "rocm": "rocm", "vulkan": "vulkan"}.get(b, "cpu")
+        return {"cuda": "cuda", "rocm": "rocm", "vulkan": "vulkan", "metal": "metal"}.get(b, "cpu")
     except Exception:  # noqa: BLE001
         return "cpu"
 
 
 def variant_for(engine: str, arch: str) -> str | None:
-    """The engine's image variant for this backend; cpu when it has none."""
+    """The engine's image variant for this backend.
+
+    A metal host never falls back to a cpu image (issue #120). Linux does.
+    """
     variants = [v for v in json.loads((PARAMS / f"{engine}.json").read_text()).get("variants") or {}
                 if not ei.disabled(engine, v)]  # disabled images are never pulled (ei.DISABLED)
-    return arch if arch in variants else ("cpu" if "cpu" in variants else None)
+    if arch in variants:
+        return arch
+    if arch == "metal":
+        return None
+    return "cpu" if "cpu" in variants else None
 
 
 def script_name(engine: str) -> str:
@@ -399,14 +416,58 @@ def main(argv=None) -> int:
     ap.add_argument("--purge-images", action="store_true", help="with --uninstall: also remove the engine images")
     a = ap.parse_args(argv)
     bindir = Path(a.bin).expanduser()
+    # Intel macOS (macos-15-intel) has no native Metal engines and no container
+    # image is pulled for it. The default install (no --ensure) writes nothing,
+    # test-built-engine has nothing to version-test, and uninstall has nothing
+    # to remove: all three are a no-op that exits 0. An explicit non-metal
+    # --arch is still REFUSED (the health / top-tier job asserts `--arch cpu`
+    # fails, issue #120). An explicit `--ensure <engine>` still installs that
+    # engine natively for metal (the llgenie pick path; the hermetic TensorFold
+    # tests drive it on the Intel runner via LLAMA_BACKEND=metal). Apple Silicon
+    # still installs and tests every native-Metal engine; Linux still pulls.
+    intel_mac = sys.platform == "darwin" and not _macos_silicon()
+    if intel_mac and not a.ensure and (a.uninstall or a.test or not a.arch):
+        if a.uninstall:
+            print("[install] macOS x86_64: nothing was installed; nothing to uninstall", flush=True)
+        if a.test:
+            print("[test-built-engine] macOS x86_64: no start scripts were written; nothing to test",
+                  flush=True)
+        return 0
     if a.uninstall:
         return uninstall(bindir, a.purge_images)
     if a.test:
         return test(bindir)
-    # macOS: Docker runs in Colima; a stopped VM or a VM whose DNS does not answer is
-    # repaired (restarted with explicit DNS) before any pull (issue #112). No-op on Linux.
-    # A native Metal engine (--arch metal, issue #114) needs no container runtime.
+    # Nothing starts Colima, and macOS never starts or pulls an engine image
+    # (issue #120), even when --arch is passed. Only Apple Silicon writes native
+    # Metal start scripts. An Intel Mac has no Metal engines and must not pull a
+    # cpu image either. Linux still checks the runtime and pulls this host's images.
     arch = a.arch or detected_arch()
+    if sys.platform == "darwin":
+        if not _macos_silicon():
+            if a.arch and a.arch != "metal":
+                print(f"[install] refusing --arch {a.arch}: Intel macOS has no Metal engines and "
+                      f"never pulls an engine image (issue #120)", flush=True)
+                return 1
+            if not a.ensure:
+                print("[install] macOS x86_64: no native Metal engines and no engine image is pulled",
+                      flush=True)
+                return 0
+            print("[install] macOS x86_64: ensuring natively for metal (explicit --ensure)",
+                  flush=True)
+        else:
+            print("[install] macOS: native Metal only; no engine image is pulled and Colima is not started",
+                  flush=True)
+        if a.arch and a.arch != "metal":
+            print(f"[install] refusing --arch {a.arch}: macOS never starts an engine image (issue #120)",
+                  flush=True)
+            return 1
+        if a.ensure:
+            return ensure_native(bindir, a.ensure)
+        import model_engine_pick as mp
+        failed = 0
+        for engine in sorted(mp.metal_engines()):
+            failed = ensure_native(bindir, engine) or failed
+        return 1 if failed else 0
     if not (a.ensure and arch == "metal"):
         ei.ensure_container_env()
     if a.ensure:

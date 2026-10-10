@@ -13,6 +13,8 @@ import argparse
 import json
 import re
 import sys
+import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -107,18 +109,30 @@ def readme_links(readme: str) -> list[str]:
     return re.findall(r"\]\((https?://[^)]+)\)", section)
 
 
-def check_links(links: list[str]) -> list[str]:
-    """The links that do not answer. A link answers when a HEAD request comes back
-    below 400; GitHub and Hugging Face both answer HEAD."""
+def check_links(links: list[str], attempts: int = 5, backoff: float = 10.0) -> list[str]:
+    """The links that do not answer. A link answers when a GET request comes back
+    below 400 (only the status is read, not the body). GET, not HEAD: from GitHub
+    Actions runners github.com answers HEAD with 504s it does not give a browser GET.
+    A server error (5xx) or a network error is retried ``attempts`` times; a 4xx is
+    dead at once."""
     dead = []
     for url in dict.fromkeys(links):  # order kept, duplicates dropped
-        req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": "llgenie-link-check"})
-        try:
-            with urllib.request.urlopen(req, timeout=30) as r:  # noqa: S310
-                if r.status >= 400:
-                    dead.append(f"{url} -> {r.status}")
-        except Exception as e:  # noqa: BLE001 - a dead link is a result, not a crash
-            dead.append(f"{url} -> {e}")
+        req = urllib.request.Request(url, method="GET", headers={"User-Agent": "llgenie-link-check"})
+        for attempt in range(1, attempts + 1):
+            try:
+                with urllib.request.urlopen(req, timeout=30) as r:  # noqa: S310
+                    if r.status >= 400:
+                        dead.append(f"{url} -> {r.status}")
+                break
+            except urllib.error.HTTPError as e:
+                if e.code < 500 or attempt == attempts:
+                    dead.append(f"{url} -> {e}")
+                    break
+            except Exception as e:  # noqa: BLE001 - a dead link is a result, not a crash
+                if attempt == attempts:
+                    dead.append(f"{url} -> {e}")
+                    break
+            time.sleep(backoff * attempt)
     return dead
 
 

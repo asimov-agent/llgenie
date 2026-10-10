@@ -30,8 +30,9 @@ on TensorFold.
   host's hardware (`HOST_TO_MEASURED["metal"] = "Metal"`).
 - `metal_engines()`: every servable skill with `metal` in its backends and a metal
   install (TensorFold, MLX, llama.cpp, Prism, Ollama, LiteRT) gets a native `metal`
-  variant in `engine_ids()`. Container-only engines fall back to their cpu image;
-  cuda/rocm-only engines are absent.
+  variant in `engine_ids()`. A container-only engine is not offered on a Mac
+  (macOS never starts an engine image); cuda/rocm-only engines are absent.
+  Linux still falls back to a cpu image.
 - `weight_budget_gb(arch="metal")`: 70% of unified memory − 7 GiB (3 GiB process
   reserve + 4 GiB KV cache), floor 40%, MoE adds nothing.
 - TensorFold gets its own plan and local copy (`tensorfold_plan` /
