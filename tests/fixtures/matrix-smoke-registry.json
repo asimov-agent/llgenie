@@ -1,0 +1,19 @@
+{
+  "generated_utc": "2026-10-10T00:00:00Z",
+  "note": "Tiny registry for the hermetic --matrix CLI test: one model in a real, small GGUF repo (the llgenie health model). Matrix lists only this repo's tree.",
+  "models": [
+    {
+      "id": "qwen2.5-0.5b",
+      "name": "Qwen2.5 0.5B",
+      "type": "LLM",
+      "params": "0.5B",
+      "hf": "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
+      "vram_tier": "2GB",
+      "formats": [{"name": "GGUF", "hf": "Qwen/Qwen2.5-0.5B-Instruct-GGUF"}],
+      "engines": [{"engine": "llama.cpp", "tps": "10", "hardware": "cpu"}],
+      "supported_engines": ["llama.cpp"],
+      "last_seen": "2026-10-09",
+      "engagement": {"trend_score": 1.0, "posts_7d": 1}
+    }
+  ]
+}

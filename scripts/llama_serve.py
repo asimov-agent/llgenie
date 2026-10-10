@@ -1615,6 +1615,51 @@ def _main_pick(args):
     _ensure_and_exec(eng, path, args)
 
 
+def _main_matrix(args):
+    """--matrix [--vram V] [--ram R] [--arch A]: print every model x engine x quant
+    permutation of the interactive pick (models that fit VRAM, engines that can run
+    them here, the largest quantized HF download that fits VRAM+RAM) with its exact
+    resolvable Hub URL. No download, no serve. The explicit flags (or the positionals,
+    or the LLAMA_BACKEND / LLAMA_RAM_BYTES / LLGENIE_SYSTEM_RAM_BYTES env seams)
+    override the detected host, so CI can assert the whole arch x vram x ram
+    permutation set. Explicit flag > positional > env/detected."""
+    mp = _pick_mp()
+    reg = mp.load_registry()
+
+    def _f(flag: str | None, pos: str | None, env_default, default) -> float:
+        # an explicit flag wins over the positional; either wins over the host
+        pick = flag if flag not in (None, "") else pos
+        try:
+            return float(pick) if pick not in (None, "") else default
+        except ValueError:
+            raise SystemExit(f"[llgenie] --matrix: {pick!r} is not a number of GB")
+
+    gb = _f(args.matrix_vram, args.model, mp.card_gb(), mp.card_gb())
+    ram = _f(args.matrix_ram_flag, args.matrix_ram, mp.system_ram_gb() or 0.0, mp.system_ram_gb() or 0.0)
+    arch = (args.matrix_arch_flag or args.matrix_arch or "").strip() or mp.host_arch()
+    if arch not in ("cuda", "rocm", "vulkan", "metal", "cpu"):
+        raise SystemExit(f"[llgenie] --matrix: arch {arch!r} is not cuda|rocm|vulkan|metal|cpu")
+    src = "/(flags)" if any(x not in (None, "") for x in (args.matrix_vram, args.matrix_ram_flag, args.matrix_arch_flag)) else ""
+    res = mp.matrix(reg, gb, ram, arch)
+    print(f"\nmodel x engine x quant permutations ({arch}, VRAM {gb:.0f} GB, "
+          f"RAM {ram:.0f} GB){src} - every runnable choice maps to a fitting HF model:")
+    for row in res["permutations"]:
+        m = row["model"]
+        print(f"\n  {m['name']:<28} vram {m['vram_tier']:>6}  "
+              f"{mp.BAND_LABEL[mp.band(m, mp.registry_today(reg))]}")
+        for cell in row["engines"]:
+            e = cell["engine"]
+            print(f"    {e['engine']:<26} [{e['variant']:<6}] {cell['use_format']:<16} "
+                  f"{cell['size_gb']:6.1f} GB  {_tps_label(e)}")
+            for u in cell["url"]:
+                print(f"        {u}")
+    for s in res["skipped"]:
+        print(f"\n  --  {s['model']}: {s['why']}")
+    print(f"\n(matrix: {len(res['permutations'])} models, "
+          f"{sum(len(r['engines']) for r in res['permutations'])} runnable permutations; "
+          "no download, no serve)")
+
+
 def main():
     ap = argparse.ArgumentParser(description="llgenie: pick a trending model + the fastest compatible engine for this card (default, interactive), or serve a local GGUF (llgenie <name> / --local)")
     ap.add_argument("model", nargs="?", help="substring of model filename to select")
@@ -1669,7 +1714,32 @@ def main():
     ap.add_argument("--auto", action="store_true",
                     help="never ask: take the highest-t/s model (with --pick) and its "
                          "highest-ranked engine")
+    ap.add_argument("--matrix", action="store_true",
+                    help="print the model x engine x quant permutation matrix (every "
+                         "runnable choice -> one fitting quantized HF download with its "
+                         "resolvable URL) for VRAM [--vram V GB] and RAM [--ram R GB] GB, "
+                         "then exit. No download, no serve.")
+    ap.add_argument("--vram", dest="matrix_vram", default=None, metavar="GB",
+                    help="with --matrix: GPU VRAM in GB (default: the detected card)")
+    ap.add_argument("--ram", dest="matrix_ram_flag", default=None, metavar="GB",
+                    help="with --matrix: system RAM in GB (default: the host's)")
+    ap.add_argument("--arch", dest="matrix_arch_flag", default=None,
+                    metavar="cuda|rocm|vulkan|metal|cpu",
+                    help="with --matrix: architecture to test (default: the host's). "
+                         "Overrides which engine image variants are offered, so CI can "
+                         "assert the whole arch x vram x ram permutation set.")
+    ap.add_argument("matrix_ram", nargs="?", default=None,
+                    help="with --matrix (positional): system RAM in GB (default: the "
+                         "host's). Prefer --ram; an explicit --ram wins over this.")
+    ap.add_argument("matrix_arch", nargs="?", default=None,
+                    help="with --matrix (positional): architecture to test "
+                         "(cuda|rocm|vulkan|metal|cpu; default: the host's). Prefer "
+                         "--arch; an explicit --arch wins over this.")
     args = ap.parse_args()
+
+    if args.matrix:
+        _main_matrix(args)
+        return
 
     if args.engines:
         _main_engines(args)

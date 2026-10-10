@@ -137,7 +137,55 @@ Without a terminal:
 llgenie --trend                 # print the numbered list and exit
 llgenie --select 4              # take row 4: download it if missing, serve with its top engine
 llgenie --select 2 --engine llama.cpp --dry   # row 2 on llama.cpp; --dry = print the plan only
+llgenie --matrix                # print EVERY model x engine x quant permutation that fits
+                                 #   this card (VRAM) + RAM, each with its exact
+                                 #   https://huggingface.co/.../resolve/... URL (no download/serve)
+llgenie --matrix 24 32          # same, for a mocked 24 GB VRAM / 32 GB RAM host
+llgenie --matrix 24 32 cuda     # same, for a CUDA host (also: rocm | vulkan | metal | cpu)
+llgenie --matrix --vram 24 --ram 32 --arch cuda   # explicit flags — the clearest form
 ```
+
+The explicit flags are the recommended, unambiguous way to drive the matrix:
+`--vram V` (GPU VRAM, GB), `--ram R` (system RAM, GB), `--arch A`
+(`cuda | rocm | vulkan | metal | cpu`). They take precedence over the positionals
+`[GB] [RAM_GB] [ARCH]`, which in turn override the detected host. CI varies the
+whole (arch × vram × ram) permutation set through these: the choice of inference
+**server is selected by the architecture** — only engines with a runnable image
+variant for that host are offered (the arch variant, else the cpu fallback image;
+on Metal never a cpu image, issue #120) — and each chosen (model, engine) maps to a
+resolvable HF quant URL. The env seams `LLAMA_BACKEND` / `LLAMA_RAM_BYTES` /
+`LLGENIE_SYSTEM_RAM_BYTES` do the same when neither flags nor positionals are given.
+`tests/test_pick_matrix_arch_perms.py` asserts the whole (arch × vram × ram)
+permutation set on the Linux CI (`make test-unit`), and `tests/test_pick_full_registry.py`
+is the **system pick-matrix test**: it exercises the whole llgenie business logic for
+REAL over `data/models.json` — every trending model × every engine × arch × vram × ram —
+against the live Hugging Face Hub (the real quantized files and their real
+`https://huggingface.co/<repo>/resolve/<rev>/<file>` links are the source of truth, each
+asserted HTTP 200), with the ONLY thing mocked being the inference server start. A
+use-case pass runs the real `llgenie --pick <model> --engine <engine> --dry` launcher
+for every registered (model × engine × arch): `--dry` prints the plan and returns BEFORE
+the start script runs, so the whole pick runs end-to-end without starting any inference
+server (the engine start is mocked), asserting the CLI agrees with `matrix()`. The
+interactive pick's "model → its supported engines → the quants THAT engine supports →
+take the highest that fits" is first-class business logic:
+`mp.engine_supported_quants(model, engine, gb, ram_gb, arch)` (ascending real quants of
+the engine's own format) + `mp.pick_quant(...)` (the highest that fits), both covered by
+`tests/test_engine_supported_quants.py`. The pick logic reads it from a committed HF
+class table `data/trending-quant-catalog.json` (model → engine → `{arch, quants}`, each
+quant a real resolvable `huggingface.co/.../resolve/...` plan), so deciding what a chosen
+engine can load on this hardware never re-queries the live Hub (the pick's comparison
+path is hermetic; the Hub is touched only when downloading). `tests/test_trending_quant_catalog.py`
+asserts the table is well-formed and its committed fixture
+(`tests/fixtures/trending-quant-catalog.json`) exactly matches it — a link change or a
+dropped section is a caught regression — and the system pick-matrix test asserts every
+pick is a real catalog link. Nothing in the suite downloads a model — it only checks
+links exist. The **golden edge-case suite** (`test_pick_matrix_edge_case_golden`, 525
+cases, + `test_pick_matrix_edge_case_golden_ram`, 17) asserts every trending model ×
+engine × arch × VRAM ladder (8/16/24/32/64) and the RAM-sensitive engines' RAM ladder
+(16/32/48/60/64) as explicit `(arch, model, engine, vram, ram) -> expected quant`
+cases through the REAL `llgenie --matrix` CLI. RAM-sensitive engines covered: **Strata**
+(Q2_0 below 60 GB RAM, IQ3_XXS from 60 GB up) and **FreeToken** (MoE: more RAM → larger
+quant). No gaps across model × engine × arch × VRAM × RAM.
 
 `--auto` (or no terminal) takes the top model and its top engine without asking.
 
@@ -163,9 +211,20 @@ The registry is `data/models.json` (with the README it was generated with, `data
 make sync-registry    # download upstream data/models.json + README.md into data/ (validated: the
                       # registry must be the README "Most loved" list in README order)
 make check-registry   # validate the vendored files (CI)
+make sync-quant-catalog   # regenerate the HF class table data/trending-quant-catalog.json + its test
+                          # fixture (model -> engine -> arch + real quant plans with per-quant links)
+                          # from the registry + live Hub; validates the newly-added links vs the prior table
+make check-quant-catalog  # CI: fail if the committed quant catalog differs from the generator's output
 ```
 
-The `registry-sync` workflow runs `make sync-registry` daily and opens a PR when it changed.
+The `registry-sync` workflow runs `make sync-registry` daily, regenerates the quant
+catalog (`make sync-quant-catalog`), and opens a PR when either changed.
+
+The catalog's links are validated to exist (HTTP 200/206 ranged probe, no download):
+`make sync-quant-catalog` probes newly-added links, and the test suite probes every
+offered (model × engine × arch) pick. One caveat: **gated repos** (e.g. `meta-llama/Llama-3.1-8B`
+for llama-3.1-8b / vLLM) answer 401 without a `HF_TOKEN` — the files exist but need a
+token + license acceptance to download.
 
 After `make install`, just run:
 
@@ -289,6 +348,8 @@ signals a llama-server that was not started by this Makefile.
 - `LLGENIE_REGISTRY` = registry to pull/push engine images (default `ghcr.io/asimov-agent`)
 - `LLGENIE_NO_GPU=1` = start GPU images without GPU devices (CPU fallback; used by CI)
 - `LLGENIE_MODELS_DIR` = models dir the start scripts mount (default `~/models`)
+- `LLGENIE_QUANT_CATALOG` = path to the HF class table the pick reads (default
+  `data/trending-quant-catalog.json`; `0` disables it and always resolves live — a test seam)
 
 ### CI matrix (`.github/workflows/ci.yml`)
 - **Linux variants run as container images** from their own base images (`engine-image` jobs, see
@@ -722,6 +783,13 @@ image → download → lint → unit → install → health → top-tier → top
 - **One CI run per push:** `ci.yml` triggers on `push` to any branch only, so a push to a
   branch with an open PR runs once (its checks show on the PR), not a second time as a
   `pull_request` event.
+- **Only collaborators, the `github-actions[bot]`, and the owner may trigger the
+  workflows:** `ci.yml` and `registry-sync.yml` gate every run behind an actor guard that
+  fails unless the triggering actor is the repo owner, the `github-actions[bot]`, or a
+  collaborator (checked via the GitHub API collaborators endpoint). This is defense-in-depth
+  on top of the fact that a push to a fork already runs the workflow in the fork (its own
+  GHCR), never upstream — so a non-collaborator can never drive the upstream's GHCR publish
+  jobs (`ci-images`, `engine-base`, `engine-matrix` in ci.yml; `sync` in registry-sync.yml).
 - **CI images are pulled, never rebuilt per job (issue #117):** the first job, `ci-images`,
   tags `llgenie/test` and `llgenie/openspec` with a hash of the files they are built from
   (`scripts/ci_images.py`) and runs `make publish-ci-images`: a hash already on GHCR is one
@@ -799,7 +867,9 @@ image → download → lint → unit → install → health → top-tier → top
   `test-native-engine-light`. Every stage runs; any failure fails it.
 - **Python 3.11 everywhere (issue #120):** the test image and the lockfile image are
   `python:3.11-slim`; the gguf venv is created with Python 3.11 (`scripts/check_python.py`,
-  which `brew install`s python@3.11 on macOS when missing; a non-3.11 venv is recreated).
+  which `brew install`s python@3.11 on macOS when missing, and on Linux auto-provisions
+  it via `uv python install 3.11` when `uv` is on PATH — or finds a uv-managed 3.11 even
+  when it is not on PATH; a non-3.11 venv is recreated).
   `make test-install-ci` ends with `make test-uninstalled` (no installed file, no engine
   container left). make install picks this host's images by itself: on a Mac the cpu
   images (linux/amd64, run through Rosetta), and llgenie offers only trending models whose
@@ -993,10 +1063,12 @@ llgenie/
 │       └── Dockerfile
 ├── data/
 │   ├── models.json         # vendored trending-local-llms registry (make sync-registry)
-│   └── trending-README.md  # the README the registry was generated with
+│   ├── trending-README.md  # the README the registry was generated with
+│   ├── trending-quant-catalog.json  # HF class table llgenie's pick reads (make sync-quant-catalog)
+│   └── strata_models.json  # Strata's setup.py model/file/shard map (make sync-strata-models)
 ├── docker-compose-files/  # hermetic test container (documented)
 ├── scripts/
-│   ├── llama_serve.py      # GGUF launcher + llama-server auto-tuner + --download-top-tier / --trend / --select
+│   ├── llama_serve.py      # GGUF launcher + llama-server auto-tuner + --download-top-tier / --trend / --select / --matrix
 │   ├── model_engine_pick.py # trend/README pick, engine ranking, GGUF download plan (no mocks)
 │   ├── engine_skills.py    # engine skills: detect/install/launch every engine (no engine-specific code)
 │   ├── engine_image.py     # skills -> engine params + Dockerfiles; build/push/pull images
@@ -1004,6 +1076,7 @@ llgenie/
 │   ├── engine_smoke.py     # smoke-test an engine start script (--version / "hi")
 │   ├── install_engine_launchers.py  # writes ~/bin/llgenie-engine-<id> start scripts
 │   ├── sync_registry.py    # vendor + validate data/models.json + trending-README.md (make sync/check)
+│   ├── gen_trending_quant_catalog.py  # HF class table generator: model -> engine -> arch + real quant plans (make sync/check-quant-catalog)
 │   ├── detect_server.py    # card RAM / backend detection (LLAMA_RAM_BYTES seam)
 │   ├── native_build_env.py # macOS Metal native build env (build_llama_server.sh)
 │   ├── hf_download.py      # HF downloader (auto-resume/retry, throttled, xet->HTTP fallback)
@@ -1026,7 +1099,7 @@ llgenie/
 │   └── conftest.py / ptydrive.py / fixtures/   # shared test helpers
 ├── .github/workflows/
 │   ├── ci.yml              # parallel per-stage CI (all branches/PRs)
-│   └── registry-sync.yml   # daily sync-registry, opens a PR when the registry changed
+│   └── registry-sync.yml   # daily sync-registry + sync-quant-catalog, opens a PR when either changed
 ├── openspec/changes/    # OpenSpec change tracking (spec-driven; proposal/spec/tasks)
 ├── LICENSE              # MIT
 └── README.md

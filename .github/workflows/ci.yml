@@ -25,12 +25,51 @@ on:
 # (published.yml: make test-install-published per backend).
 jobs:
   # ------------------------------------------------------------------
+  # guard (issue #122): only collaborators, the github-actions[bot], and the repo
+  # owner may trigger this workflow. A push to a fork runs the workflow in the FORK
+  # (its own GHCR), never upstream; this guard additionally fails the run when the
+  # actor is not a collaborator/owner/bot, so a non-collaborator can never drive the
+  # upstream's publish jobs (ci-images / engine-base / engine-image push to GHCR).
+  # ------------------------------------------------------------------
+  guard:
+    runs-on: ubuntu-latest
+    outputs:
+      allowed: ${{ steps.check.outputs.allowed }}
+    steps:
+      - name: Only collaborators, bots, and owners may trigger
+        id: check
+        env:
+          ACTOR: ${{ github.actor }}
+          OWNER: ${{ github.repository_owner }}
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # the bot and the owner are always allowed
+          if [ "$ACTOR" = "github-actions[bot]" ] || [ "$ACTOR" = "$OWNER" ]; then
+            echo "allowed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # otherwise the actor must be a collaborator of the repo
+          code=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/collaborators/$ACTOR")
+          if [ "$code" = "204" ]; then
+            echo "allowed=true" >> "$GITHUB_OUTPUT"
+            echo "actor $ACTOR is a collaborator"
+          else
+            echo "allowed=false" >> "$GITHUB_OUTPUT"
+            echo "::error::actor $ACTOR is not a collaborator, bot, or owner; refusing to run"
+            exit 1
+          fi
+
+  # ------------------------------------------------------------------
   # ci-images (issue #117): the test image and the OpenSpec CLI image, tagged with a
   # hash of their Dockerfile + lockfiles (scripts/ci_images.py). A hash already on
   # GHCR is one manifest lookup; a new one is built ONCE for linux/amd64 + linux/arm64
   # (registry layer cache) and pushed. Every job below pulls it instead of building.
   # ------------------------------------------------------------------
   ci-images:
+    needs: [guard]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -81,6 +120,7 @@ jobs:
   #     not rebuilt. cpu images are started and curl-tested (make test-engine).
   # ------------------------------------------------------------------
   engine-base:
+    needs: [guard]
     strategy:
       fail-fast: false
       matrix:
@@ -107,6 +147,7 @@ jobs:
         run: make build-engine-base BACKEND=${{ matrix.backend }} PUSH=$PUBLISH
 
   engine-matrix:
+    needs: [guard]
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.m.outputs.matrix }}
