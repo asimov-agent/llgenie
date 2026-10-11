@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 import scripts.engine_bump as eb
 import scripts.engine_params_derive as epd
@@ -663,3 +664,58 @@ def test_real_docker_build_llama_cpp_cpu():
     assert r.returncode == 0, f"llama.cpp cpu `version` exited {r.returncode}: {out}"
     assert out, "llama.cpp cpu `version` printed nothing"
     print(f"[build] llama.cpp cpu built and answered: {out.splitlines()[-1]}")
+
+
+def _pr_step(workflow: str, job: str) -> str:
+    """The checkout and the PR-opening step of one job."""
+    doc = yaml.safe_load((REPO / ".github" / "workflows" / workflow).read_text())
+    steps = doc["jobs"][job]["steps"]
+    checkout = next(s for s in steps if str(s.get("uses", "")).startswith("actions/checkout"))
+    opening = next(s for s in steps if "pr create" in s.get("run", ""))
+    return yaml.dump({"checkout": checkout, "open": opening})
+
+
+def test_bump_pr_uses_owner_pat():
+    """The bump job checks out, pushes and opens the PR as the token owner.
+
+    A github-actions[bot] PR holds CI for approval (run 38113858713)."""
+
+    # Given the bump workflow
+    text = _pr_step("engine-bump.yml", "bump")
+
+    # When the job checks out and opens the PR
+    # Then those steps use the owner PAT and the commit is not the bot's
+    assert "secrets.BUMP_TOKEN" in text
+    assert "secrets.GITHUB_TOKEN" not in text
+    assert "github-actions[bot]" not in text
+    assert "gh api user" in text
+
+
+def test_sync_pr_uses_owner_pat():
+    """The sync job checks out, pushes and opens the PR as the token owner."""
+
+    # Given the registry-sync workflow
+    text = _pr_step("registry-sync.yml", "sync")
+
+    # When the job checks out and opens the PR
+    # Then those steps use the owner PAT and the commit is not the bot's
+    assert "secrets.BUMP_TOKEN" in text
+    assert "secrets.GITHUB_TOKEN" not in text
+    assert "github-actions[bot]" not in text
+    assert "gh api user" in text
+
+
+def test_guard_keeps_default_token():
+    """The collaborator guard still uses GITHUB_TOKEN, and neither workflow merges."""
+
+    # Given both workflows
+    bump = (REPO / ".github" / "workflows" / "engine-bump.yml").read_text()
+    sync = (REPO / ".github" / "workflows" / "registry-sync.yml").read_text()
+
+    # When the guard checks the actor
+    # Then it uses the default token, and nothing merges a PR
+    for text in (bump, sync):
+        guard = text.split("  plan:", 1)[0] if "  plan:" in text else text.split("  sync:", 1)[0]
+        assert "secrets.GITHUB_TOKEN" in guard
+        assert "gh pr merge" not in text
+        assert "secrets.BUMP_TOKEN" not in guard

@@ -6,6 +6,11 @@ name: engine-bump
 # separate from the registry sync (registry-sync.yml). Never merges: a reviewer
 # does. A derive hard-fail (removed option/flag) still opens the PR and flags it
 # in the body so a human fixes the skill (CI goes red on the build).
+#
+# The bump job checks out, pushes and opens the PR with the owner PAT
+# (secrets.BUMP_TOKEN), not GITHUB_TOKEN (issue #136). A PR authored by
+# github-actions[bot] holds every pull_request workflow for manual approval,
+# and a push made with GITHUB_TOKEN starts no workflows.
 on:
   schedule:
     - cron: "23 6 * * 1"   # weekly: Monday 06:23 UTC
@@ -85,6 +90,7 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
+          token: ${{ secrets.BUMP_TOKEN }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"   # the repo's pinned Python (issue #120)
@@ -104,15 +110,15 @@ jobs:
           echo "hard_fail=$hf" >> "$GITHUB_OUTPUT"
       - name: Open / update the bump PR
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
           ID: ${{ matrix.id }}
           OLD: ${{ matrix.old_sha }}
           NEW: ${{ matrix.new_sha }}
           REF: ${{ matrix.new_ref }}
           HARD_FAIL: ${{ steps.bump.outputs.hard_fail }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "$(gh api user --jq .login)"
+          git config user.email "$(gh api user --jq .id)+$(gh api user --jq .login)@users.noreply.github.com"
           branch="chore/engine-bump-${ID}"
           git switch -C "$branch"
           git add skills/engines/${ID}/SKILL.md containers/engines/params/${ID}.json containers/engines/dockerfiles/${ID}/

@@ -238,6 +238,10 @@ still created, with the hard-fail flagged in the PR body so a human fixes the
 skill (CI goes red on the build). Each bump opens a `chore/engine-bump-<id>` PR
 whose CI builds and tests **only** that engine's images. A PR exists ⟺ the plan
 found ≥1 new hash. The workflow is gated to collaborators/owner/bot only.
+Both this workflow and `registry-sync` check out, push and open the PR with the
+owner PAT in the `BUMP_TOKEN` repo secret, not `GITHUB_TOKEN`: a bot-authored
+PR holds CI for manual approval and a `GITHUB_TOKEN` push starts no workflows
+(issue #136).
 
 The catalog's links are validated to exist (HTTP 200/206 ranged probe, no download):
 `make sync-quant-catalog` probes newly-added links, and the test suite probes every

@@ -4,6 +4,11 @@ name: registry-sync
 # with andyholst/trending-local-llms. Runs on its OWN cron, separate from the
 # engine pin bump (engine-bump.yml). Opens or updates a PR when the file changed.
 # Never merges: a reviewer does.
+#
+# The sync job checks out, pushes and opens the PR with the owner PAT
+# (secrets.BUMP_TOKEN), not GITHUB_TOKEN (issue #136). A PR authored by
+# github-actions[bot] holds every pull_request workflow for manual approval,
+# and a push made with GITHUB_TOKEN starts no workflows.
 on:
   schedule:
     - cron: "17 5 * * *"
@@ -45,6 +50,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: main
+          token: ${{ secrets.BUMP_TOKEN }}
       - name: make sync-registry
         run: make sync-registry
       - name: make sync-quant-catalog (regenerate the HF class table to match the registry)
@@ -67,11 +73,11 @@ jobs:
       - name: Open / update the sync PR
         if: steps.diff.outputs.changed
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
           UTC: ${{ steps.diff.outputs.utc }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "$(gh api user --jq .login)"
+          git config user.email "$(gh api user --jq .id)+$(gh api user --jq .login)@users.noreply.github.com"
           git switch -C chore/registry-sync
           git add data/models.json data/trending-README.md tests/fixtures/trending-quant-catalog.json
           git commit -m "chore(registry): sync data/models.json + quant catalog + README from trending-local-llms ($UTC)"
