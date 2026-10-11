@@ -39,9 +39,9 @@ import urllib.request
 from pathlib import Path
 
 try:
-    from .hf_auth import authorize
+    from .hf_auth import authorize, hub_open, rate_limit_wait
 except ImportError:  # run as a script
-    from hf_auth import authorize  # type: ignore
+    from hf_auth import authorize, hub_open, rate_limit_wait  # type: ignore
 
 REPO = Path(__file__).resolve().parent.parent
 PARAMS = REPO / "containers" / "engines" / "params"
@@ -503,11 +503,17 @@ def _hub_open(req: urllib.request.Request, timeout: float):
         socket.create_connection = orig
 
 
-def _hub_json(url: str, attempts: int = 6):
-    """GET a Hub API URL as JSON. Answers are cached on disk for HUB_CACHE_TTL
-    (the list asks the same trees on every run); 429 / 5xx / network errors are
-    retried with backoff (Retry-After honoured): the Hub rate-limits unauthenticated
-    callers, which a plain listing of 11 models x formats can hit."""
+_rate_limited = 0  # consecutive Hub 429s across calls; a non-429 resets it
+
+
+def _hub_json(url: str, attempts: int = 3):
+    """GET a Hub API URL as JSON. Answers are cached on disk for HUB_CACHE_TTL.
+
+    A 429 waits for the window reset (`rate_limit_wait` in `hf_auth`) and is
+    retried twice. Any response that is not a 429 resets that count. 5xx and
+    transport errors keep a short backoff. A missing repo (HTTP 4xx) is not
+    retried.
+    """
     import hashlib
     import time
     cache = _hub_cache_dir() / (hashlib.sha256(url.encode()).hexdigest() + ".json")
@@ -516,6 +522,8 @@ def _hub_json(url: str, attempts: int = 6):
             return json.loads(cache.read_text())
         except ValueError:
             pass
+    global _rate_limited
+    data = None
     for i in range(attempts):
         # A new request each attempt: a timed-out Request is not reusable, and
         # macOS GitHub runners hang on huggingface.co's IPv6 address.
@@ -523,17 +531,25 @@ def _hub_json(url: str, attempts: int = 6):
         try:
             with _hub_open(req, 30) as r:
                 data = json.load(r)
+            _rate_limited = 0
             break
         except urllib.error.HTTPError as e:
-            if e.code not in (429, 500, 502, 503, 504) or i + 1 == attempts:
+            if e.code == 429:
+                _rate_limited += 1
+                if _rate_limited > 2 or i + 1 == attempts:
+                    raise
+                time.sleep(rate_limit_wait(e))
+                continue
+            _rate_limited = 0
+            if e.code not in (500, 502, 503, 504) or i + 1 == attempts:
                 raise
-            wait = e.headers.get("Retry-After", "") if e.headers else ""
-            time.sleep(min(60, int(wait) if wait.isdigit() else 2 ** (i + 1)))
+            time.sleep(2 ** (i + 1))
         except (urllib.error.URLError, TimeoutError):
+            _rate_limited = 0
             if i + 1 == attempts:
                 raise
             time.sleep(2 ** (i + 1))
-    if HUB_CACHE_TTL:
+    if HUB_CACHE_TTL and data is not None:
         try:
             cache.parent.mkdir(parents=True, exist_ok=True)
             cache.write_text(json.dumps(data))
@@ -1137,7 +1153,7 @@ def download_chunk(repo: str, filename: str, dest: Path, max_bytes: int, revisio
     req = authorize(urllib.request.Request(
         f"{HF}/{repo}/resolve/{revision}/{filename}",
         headers={"Range": f"bytes=0-{max_bytes - 1}", "User-Agent": "llgenie"}))
-    with urllib.request.urlopen(req, timeout=120) as r, open(out, "wb") as f:  # noqa: S310
+    with hub_open(req, timeout=120) as r, open(out, "wb") as f:  # noqa: S310
         f.write(r.read(max_bytes))
     return out
 

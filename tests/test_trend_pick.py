@@ -856,6 +856,46 @@ def test_hub_json_retries_a_timed_out_read(monkeypatch, tmp_path):
     assert len(seen) == 2 and seen[0] is not seen[1]
 
 
+def test_hub_json_waits_out_a_429_using_the_shared_wait(monkeypatch, tmp_path):
+    """A listing 429 sleeps exactly what scripts/hf_auth.rate_limit_wait says."""
+
+    # Given a 429 carrying RateLimit t=12, then a JSON list
+    from email.message import Message
+    import io
+    import urllib.error
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+    monkeypatch.setattr(mp, "HUB_CACHE_TTL", 0)
+    hdrs = Message()
+    hdrs["RateLimit"] = '"api";r=0;t=12'
+    err = urllib.error.HTTPError("https://huggingface.co/api/models", 429, "err", hdrs, io.BytesIO(b""))
+    calls = {"n": 0}
+    slept = []
+
+    class _Body:
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            return False
+        def read(self, *args):
+            return b'[{"path": "config.json", "type": "file"}]'
+
+    def _open(req, timeout):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise err
+        return _Body()
+
+    monkeypatch.setattr(mp, "_hub_open", _open)
+    monkeypatch.setattr("time.sleep", lambda s: slept.append(s))
+
+    # When the listing is fetched
+    got = mp._hub_json("https://huggingface.co/api/models/example/tree/main")
+
+    # Then the sleep is the shared wait, and the list comes back
+    assert got == [{"path": "config.json", "type": "file"}]
+    assert slept == [mp.rate_limit_wait(err)]
+
+
 def test_hub_addresses_are_ipv4(monkeypatch):
     """Hub connections resolve IPv4 before any other family."""
 

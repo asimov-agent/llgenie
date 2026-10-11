@@ -78,7 +78,63 @@ def test_workflows_inject_the_actions_secret():
     for name, doc in docs.items():
         assert doc["env"]["HF_TOKEN"] == "${{ secrets.HF_TOKEN }}", name
 
-    # And the reusable workflows are given that secret
-    ci = docs["ci.yml"]["jobs"]
+
+def _http_error(code, headers):
+    from email.message import Message
+    import io
+    import urllib.error
+    hdrs = Message()
+    for key, value in headers.items():
+        hdrs[key] = value
+    return urllib.error.HTTPError("https://huggingface.co/api/models", code, "err", hdrs, io.BytesIO(b""))
+
+
+def test_rate_limit_wait_uses_the_header_reset():
+    """A 429 waits the seconds the Hub says are left in the window."""
+
+    # Given a 429 carrying RateLimit t=12
+    err = _http_error(429, {"RateLimit": '"api";r=0;t=12'})
+
+    # When the shared wait is computed
+    wait = auth.rate_limit_wait(err)
+
+    # Then the wait is those 12 seconds, not a short backoff
+    assert wait == 12
+
+
+def test_rate_limit_wait_defaults_to_five_minutes():
+    """A 429 with no reset hint waits the documented 5-minute window."""
+
+    # Given a 429 with neither RateLimit nor Retry-After
+    err = _http_error(429, {})
+
+    # When the shared wait is computed
+    wait = auth.rate_limit_wait(err)
+
+    # Then the wait is the 5-minute window
+    assert wait == 300
+
+
+def test_rate_limit_wait_caps_at_ten_minutes():
+    """A 429 never holds the caller for more than 10 minutes."""
+
+    # Given a 429 whose window reset is 15 minutes away
+    err = _http_error(429, {"RateLimit": '"api";r=0;t=900'})
+
+    # When the shared wait is computed
+    wait = auth.rate_limit_wait(err)
+
+    # Then the wait is capped at 10 minutes
+    assert wait == 600
+
+
+def test_workflows_pass_the_secret_into_reusable_workflows():
+    """Reusable workflows receive the Hub token through secrets: inherit."""
+
+    # Given the caller workflow
+    ci = yaml.safe_load((REPO / ".github" / "workflows" / "ci.yml").read_text())["jobs"]
+
+    # When its reusable-workflow calls are read
+    # Then each one inherits the secret
     for job in ("linux", "macos", "linux-published"):
         assert ci[job]["secrets"] == "inherit", job

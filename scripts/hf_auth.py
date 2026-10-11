@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import os
 import re
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -48,6 +50,61 @@ def authorize(req: urllib.request.Request) -> urllib.request.Request:
         if tok:
             req.add_header("Authorization", f"Bearer {tok}")
     return req
+
+
+# Hub API quota is a fixed 5-minute window (https://huggingface.co/docs/hub/en/rate-limits).
+# A 429 carries the seconds left in that window as RateLimit: "api";r=0;t=<seconds>.
+# The Hub does not send Retry-After. Waiting less than t spends the next window on
+# another 429. 10 minutes is the longest a caller holds before it fails.
+RATE_LIMIT_WINDOW = 300
+RATE_LIMIT_WAIT_CAP = 600
+_RATE_LIMIT_T = re.compile(r"(?:^|[;,])t=(\d+)")
+
+
+def rate_limit_wait(err: urllib.error.HTTPError) -> int:
+    """Seconds to wait after a Hub 429, from the RateLimit header.
+
+    The `t` value is the seconds left in the fixed window. Absent, the wait is
+    the 5-minute window. Never more than 10 minutes. Every Hub caller and every
+    test that asserts this wait uses this function.
+    """
+    raw = ""
+    if err.headers:
+        raw = err.headers.get("RateLimit") or err.headers.get("Retry-After") or ""
+    match = _RATE_LIMIT_T.search(raw)
+    seconds = int(match.group(1)) if match else RATE_LIMIT_WINDOW
+    if not match and raw.strip().isdigit():
+        seconds = int(raw.strip())
+    return min(RATE_LIMIT_WAIT_CAP, max(0, seconds))
+
+
+_rate_limited = 0  # consecutive Hub 429s across calls; a non-429 resets it
+
+
+def hub_open(req: urllib.request.Request, timeout: float = 30):
+    """Open a Hub URL. A 429 waits `rate_limit_wait` and is retried twice.
+
+    Any response that is not a 429 resets the consecutive count, so the next
+    429 gets the full budget again. A third consecutive 429 raises. This is the
+    GET every Hub download uses; a caller does not call urlopen on a Hub URL.
+    """
+    global _rate_limited
+    authorize(req)
+    while True:
+        try:
+            resp = urllib.request.urlopen(req, timeout=timeout)  # noqa: S310
+        except urllib.error.HTTPError as e:
+            if e.code != 429:
+                _rate_limited = 0
+                raise
+            _rate_limited += 1
+            if _rate_limited > 2:
+                raise
+            time.sleep(rate_limit_wait(e))
+            req = urllib.request.Request(req.full_url, headers=dict(req.header_items()))
+            continue
+        _rate_limited = 0
+        return resp
 
 
 def apply_env(env: dict) -> dict:

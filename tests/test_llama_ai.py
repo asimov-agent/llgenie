@@ -2231,26 +2231,31 @@ def test_hf_get_retries_transient_and_fails_permanent(monkeypatch):
                                       "err", hdrs, io.BytesIO(b""))
 
     # no real sleeping in CI — drive the budget/pause via module attributes
-    monkeypatch.setattr(llama_ai, "HF_GET_MAX_ATTEMPTS", 4)
+    monkeypatch.setattr(llama_ai, "HF_GET_MAX_ATTEMPTS", 8)
+    monkeypatch.setattr(llama_ai, "_rate_limited", 0)
     monkeypatch.setattr(llama_ai, "HF_GET_BASE_PAUSE", 0.0)
 
     # --- Given: a transient 429 (twice) that clears on the 3rd call ---
     calls = {"n": 0}
+    slept = []
 
     def flaky_urlopen(req, timeout=30):
         calls["n"] += 1
         if calls["n"] <= 2:
-            raise _http_error(429, retry_after="0")
+            raise _http_error(429, retry_after=None)
         return _FakeResponse(_json.dumps({"ok": True}).encode())
 
     monkeypatch.setattr(llama_ai.urllib.request, "urlopen", flaky_urlopen)
+    monkeypatch.setattr(llama_ai.time, "sleep", lambda s: slept.append(s))
 
-    # When the transient 429s resolve after retrying
+    # When the transient 429s resolve after waiting out the window
     got = llama_ai._hf_get("https://huggingface.co/api/models?x")
 
-    # Then it retried through the 429s and returned the payload on the 3rd call
+    # Then it retried through the 429s and returned the payload on the 3rd call,
+    # waiting the shared rate-limit wait (no RateLimit header -> 5 minutes) each time
     assert got == {"ok": True}, got
     assert calls["n"] == 3, f"expected 3 urlopen calls (2 x 429 + 1 ok), got {calls['n']}"
+    assert slept == [llama_ai.rate_limit_wait(_http_error(429))] * 2
 
     # --- Given: a permanent 404 (a genuinely dead repo/file) ---
     calls2 = {"n": 0}
@@ -2278,14 +2283,101 @@ def test_hf_get_retries_transient_and_fails_permanent(monkeypatch):
 
     monkeypatch.setattr(llama_ai.urllib.request, "urlopen", always429)
 
-    # When the retry budget is exhausted
+    # When the 429 retry budget is spent
     with pytest.raises(SystemExit) as e:
         llama_ai._hf_get("https://huggingface.co/api/models?rate")
 
-    # Then it used EVERY attempt exactly (budget-bounded, never an infinite retry)
-    assert calls3["n"] == llama_ai.HF_GET_MAX_ATTEMPTS, \
-        f"must try exactly HF_GET_MAX_ATTEMPTS times, got {calls3['n']}"
+    # Then a third consecutive 429 failed the call, and was not followed by another attempt
+    assert calls3["n"] == 3, f"two 429 retries then fail, got {calls3['n']} calls"
     assert "still failing after" in str(e.value), str(e.value)
+
+
+def test_hf_get_waits_out_a_429_using_the_shared_wait(monkeypatch):
+    """A 429 sleeps exactly what scripts/hf_auth.rate_limit_wait says, then returns the body."""
+
+    # Given a 429 carrying RateLimit t=12, then a JSON body
+    from email.message import Message
+    import io
+    import json as _json
+
+    class _Body:
+        def __init__(self, body):
+            self._body = body
+        def __enter__(self):
+            return self
+        def __exit__(self, *exc):
+            return False
+        def read(self, *a):
+            return self._body
+
+    hdrs = Message()
+    hdrs["RateLimit"] = '"api";r=0;t=12'
+    err = urllib.error.HTTPError("https://huggingface.co/api/models", 429, "err", hdrs, io.BytesIO(b""))
+    calls = {"n": 0}
+    slept = []
+
+    def flaky(req, timeout=30):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise err
+        return _Body(_json.dumps({"ok": True}).encode())
+
+    monkeypatch.setattr(llama_ai.urllib.request, "urlopen", flaky)
+    monkeypatch.setattr(llama_ai.time, "sleep", lambda s: slept.append(s))
+
+    # When the top-tier GET is retried
+    got = llama_ai._hf_get("https://huggingface.co/api/models?x")
+
+    # Then the sleep is the shared wait for that 429, and the body comes back
+    assert got == {"ok": True}
+    assert slept == [llama_ai.rate_limit_wait(err)]
+
+
+def test_hf_get_resets_the_429_count_after_success(monkeypatch):
+    """A 200 between 429s starts the retry budget over."""
+
+    # Given 429, 200, 429, 429, 200
+    from email.message import Message
+    import io
+    import json as _json
+
+    class _Body:
+        def __init__(self, body):
+            self._body = body
+        def __enter__(self):
+            return self
+        def __exit__(self, *exc):
+            return False
+        def read(self, *a):
+            return self._body
+
+    plan = ["429", "200", "429", "429", "200"]
+    seen = {"n": 0}
+
+    def scripted(req, timeout=30):
+        step = plan[seen["n"]]
+        seen["n"] += 1
+        if step == "429":
+            hdrs = Message()
+            hdrs["RateLimit"] = '"api";r=0;t=1'
+            raise urllib.error.HTTPError("https://huggingface.co/api/models", 429,
+                                          "err", hdrs, io.BytesIO(b""))
+        return _Body(_json.dumps({"n": seen["n"]}).encode())
+
+    monkeypatch.setattr(llama_ai, "HF_GET_MAX_ATTEMPTS", 8)
+    monkeypatch.setattr(llama_ai, "_rate_limited", 0)
+    monkeypatch.setattr(llama_ai.urllib.request, "urlopen", scripted)
+    monkeypatch.setattr(llama_ai.time, "sleep", lambda _s: None)
+
+    # When the first GET returns, then a second GET hits two more 429s
+    first = llama_ai._hf_get("https://huggingface.co/api/models?reset")
+    second = llama_ai._hf_get("https://huggingface.co/api/models?reset")
+
+    # Then the 200 reset the count, so the second call retried two more 429s
+    assert first == {"n": 2}
+    assert second == {"n": 5}
+    assert seen["n"] == 5
+    assert llama_ai._rate_limited == 0
 
 
 def test_family_scope_mocked(monkeypatch):

@@ -72,11 +72,11 @@ def _resolve_expected_bytes(repo, filename, label, expected_bytes):
     try:
         url = f"https://huggingface.co/api/models/{repo}/tree/main?recursive=true"
         try:
-            from hf_auth import authorize
+            from hf_auth import authorize, hub_open
         except ImportError:
-            from scripts.hf_auth import authorize  # type: ignore
+            from scripts.hf_auth import authorize, hub_open  # type: ignore
         req = authorize(urllib.request.Request(url, headers={"User-Agent": f"llgenie/{label}"}))
-        with urllib.request.urlopen(req, timeout=30) as r:
+        with hub_open(req, timeout=30) as r:
             data = json.load(r)
         for f in data:
             if f.get("path", "").endswith(filename) and f.get("size"):

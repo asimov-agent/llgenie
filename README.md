@@ -559,7 +559,7 @@ how to add an engine: [`skills/engines/README.md`](skills/engines/README.md).
 python3 scripts/hf_download.py <repo_id> <filename> <dest_dir> <label>
 ```
 
-- Every Hub call (API, resolve, the `hf` CLI, and engine containers) sends `HF_TOKEN` from the environment, or from `~/.zshrc` / `~/.bashrc` when the environment is empty. CI sets that environment from the `HF_TOKEN` Actions secret (`secrets: inherit` into `pipeline.yml` and `published.yml`). The token is never stored in the repo. API GETs prefer IPv4 and retry a timed-out read with a new request; a transport failure is not remembered as an empty file tree (issue #161).
+- Every Hub call (API, resolve, the `hf` CLI, and engine containers) sends `HF_TOKEN` from the environment, or from `~/.zshrc` / `~/.bashrc` when the environment is empty. CI sets that environment from the `HF_TOKEN` Actions secret (`secrets: inherit` into `pipeline.yml` and `published.yml`). The token is never stored in the repo. API GETs prefer IPv4 and retry a timed-out read with a new request; a transport failure is not remembered as an empty file tree (issue #161). A Hub 429 waits out the rate-limit window through `scripts/hf_auth.py` (`rate_limit_wait`: the `RateLimit` header's `t`, else 5 minutes, capped at 10) and is retried twice; a later success resets that count (issue #163). The size lookup, the ranged chunk download and the preflight probe open the Hub through `hub_open` in that same module, so a download waits out the same window instead of calling `urlopen` itself.
 - Sets `HF_HUB_ENABLE_HF_TRANSFER=1 HF_HUB_DISABLE_XET=1` for speed.
 - Auto-retries (up to 20 attempts), resuming the partial file on dropped connections.
 - Appends a `.progress.log` next to the destination for live monitoring.
@@ -752,8 +752,12 @@ fed into the **same** pipeline, not a second implementation:
 - **Transient HF API errors are retried** (this applies to the whole top-tier
   pipeline, trending *and* family). Family mode fans out one HF API call per repo
   tree (hundreds), so the pipeline retries rate-limits / server blips
-  (HTTP 429/500/502/503/504 and plain network / socket-timeout errors) with
-  bounded exponential backoff that honours `Retry-After`; a **permanent** error
+  (HTTP 429/500/502/503/504 and plain network / socket-timeout errors). A 429
+  waits for the Hub's fixed 5-minute window to reset: the `t` seconds from the
+  `RateLimit` header, or 5 minutes when the header has no `t`, and never more
+  than 10 minutes (`scripts/hf_auth.py` `rate_limit_wait` — the one wait every
+  Hub caller and its tests use). It is retried twice; any response that is not
+  a 429 resets that count. A **permanent** error
   (401/403/404) is never retried — it fails fast so a genuinely gated/dead repo is
   still reported loudly (the skip+refill and "no repos" paths above). Without this
   retry, a single 429 on one repo tree would silently drop that repo and turn a
