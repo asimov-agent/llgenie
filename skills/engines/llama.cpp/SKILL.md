@@ -70,6 +70,28 @@ container:                       # official upstream images (ggml-org), pinned b
     prebuilt: true
     binary: /app/llama-server
 upstream_watch: [CMakeLists.txt, ggml/CMakeLists.txt, ggml/src/ggml-cuda/CMakeLists.txt, ggml/src/ggml-hip/CMakeLists.txt, docs/build.md, tools/server/README.md, common/arg.cpp]
+derive:
+  cmake:
+    options_from: [CMakeLists.txt, ggml/CMakeLists.txt, ggml/src/ggml-cuda/CMakeLists.txt, ggml/src/ggml-hip/CMakeLists.txt]
+    renames_from: CMakeLists.txt
+    recipe:
+      cuda: .devops/cuda.Dockerfile
+      rocm: .devops/rocm.Dockerfile
+      vulkan: .devops/vulkan.Dockerfile
+      cpu: .devops/cpu.Dockerfile
+    mirror: [GGML_BACKEND_DL, GGML_CPU_ALL_VARIANTS, LLAMA_BUILD_TESTS]
+  toolchain:
+    cuda:
+      file: .devops/cuda.Dockerfile
+      arg: CUDA_VERSION
+    rocm:
+      file: .devops/rocm.Dockerfile
+      arg: ROCM_VERSION
+  gpu_targets_var:
+    file: ggml/src/ggml-hip/CMakeLists.txt
+    candidates: [GPU_TARGETS, AMDGPU_TARGETS]
+  launch:
+    flags_from: common/arg.cpp
 ---
 
 # llama.cpp (upstream)

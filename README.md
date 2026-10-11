@@ -217,8 +217,27 @@ make sync-quant-catalog   # regenerate the HF class table data/trending-quant-ca
 make check-quant-catalog  # CI: fail if the committed quant catalog differs from the generator's output
 ```
 
-The `registry-sync` workflow runs `make sync-registry` daily, regenerates the quant
-catalog (`make sync-quant-catalog`), and opens a PR when either changed.
+The `registry-sync` workflow runs `make sync-registry` daily (cron `17 5 * * *`),
+regenerates the quant catalog (`make sync-quant-catalog`), and opens a PR when
+either changed. The `engine-bump` workflow runs on its **own** cron (weekly,
+Monday `23 6 * * 1`, separate from the registry sync) and pins every engine skill
+to the latest upstream commit, opening a PR per changed engine (issue #107):
+
+```bash
+make engine-bump-plan [ENGINE=<id>]   # which engines moved upstream (git ls-remote only)
+make engine-derive ENGINE=<id> [SHA=] # derive build params from the upstream tree (no LLM)
+make engine-bump ENGINE=<id>          # pin + derive + apply + regen (no push)
+make engine-bump-daily [DRY=1]        # plan -> bump every moved engine; DRY=1 prints only
+```
+
+The bump is safe by construction: it derives the build parameters from the
+upstream tree at the new commit with plain code (git/regex/file parsing — no
+LLM), auto-applies renames and known moves, and when a build option or launch
+flag was removed it records a **hard-fail** — the pin still moves and a PR is
+still created, with the hard-fail flagged in the PR body so a human fixes the
+skill (CI goes red on the build). Each bump opens a `chore/engine-bump-<id>` PR
+whose CI builds and tests **only** that engine's images. A PR exists ⟺ the plan
+found ≥1 new hash. The workflow is gated to collaborators/owner/bot only.
 
 The catalog's links are validated to exist (HTTP 200/206 ranged probe, no download):
 `make sync-quant-catalog` probes newly-added links, and the test suite probes every
@@ -784,12 +803,12 @@ image → download → lint → unit → install → health → top-tier → top
   branch with an open PR runs once (its checks show on the PR), not a second time as a
   `pull_request` event.
 - **Only collaborators, the `github-actions[bot]`, and the owner may trigger the
-  workflows:** `ci.yml` and `registry-sync.yml` gate every run behind an actor guard that
+  workflows:** `ci.yml`, `registry-sync.yml` and `engine-bump.yml` gate every run behind an actor guard that
   fails unless the triggering actor is the repo owner, the `github-actions[bot]`, or a
   collaborator (checked via the GitHub API collaborators endpoint). This is defense-in-depth
   on top of the fact that a push to a fork already runs the workflow in the fork (its own
   GHCR), never upstream — so a non-collaborator can never drive the upstream's GHCR publish
-  jobs (`ci-images`, `engine-base`, `engine-matrix` in ci.yml; `sync` in registry-sync.yml).
+  jobs (`ci-images`, `engine-base`, `engine-matrix` in ci.yml; `sync` in registry-sync.yml; `plan`/`bump` in engine-bump.yml).
 - **CI images are pulled, never rebuilt per job (issue #117):** the first job, `ci-images`,
   tags `llgenie/test` and `llgenie/openspec` with a hash of the files they are built from
   (`scripts/ci_images.py`) and runs `make publish-ci-images`: a hash already on GHCR is one
@@ -1099,7 +1118,8 @@ llgenie/
 │   └── conftest.py / ptydrive.py / fixtures/   # shared test helpers
 ├── .github/workflows/
 │   ├── ci.yml              # parallel per-stage CI (all branches/PRs)
-│   └── registry-sync.yml   # daily sync-registry + sync-quant-catalog, opens a PR when either changed
+│   ├── registry-sync.yml   # daily sync-registry + quant catalog (cron 17 5), opens a PR when changed
+│   └── engine-bump.yml     # weekly engine pin bumps (cron 23 6 * * 1, separate), opens a PR per changed engine
 ├── openspec/changes/    # OpenSpec change tracking (spec-driven; proposal/spec/tasks)
 ├── LICENSE              # MIT
 └── README.md

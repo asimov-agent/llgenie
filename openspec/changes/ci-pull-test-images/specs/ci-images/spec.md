@@ -114,18 +114,25 @@ And    `ci-install` runs `make test-install-ci`.
 - **Test:** `tests/test_ci_images.py::test_every_pipeline_job_runs_one_ci_make_target`
 
 ### Requirement: no CI job or step is skipped
-A job or step in `ci.yml`, `pipeline.yml`, `pipeline-macos.yml` or `published.yml` MUST NOT carry
-a condition that skips it in a push run. A job may only wait for its needs (`!cancelled()`); a
-step may only use `!cancelled()` or `always()`. OS- and matrix-specific work is decided inside
-make (`make ci-free-disk`, `make test-engine-stage TEST=serve|detect`).
+A job or step in `ci.yml`, `pipeline.yml` or `published.yml` MUST NOT carry a condition that
+skips it in a push run that has engines to build. A job may only wait for its needs
+(`!cancelled()`, and the push event). `matrix` is not a legal name in a job-level `if:`, and an
+empty include list fails the workflow before any job `if:` runs, so a PR that changes no engine
+params emits one `engine: none` row and every step of `engine-image` / `engine-published-test`
+skips `matrix.engine == 'none'` (issue #107). `linux-published` runs on a `pull_request` too, so
+the required `install-published-*` check names report (a skipped `uses:` job reports nothing,
+and the merge then waits forever). A step may only use `!cancelled()`, `always()`,
+`runner.os == 'Linux'` / `runner.os == 'macOS'`, or `matrix.engine != 'none'`. OS- and
+matrix-specific work is decided inside make (`make ci-free-disk`, `make test-engine-stage
+TEST=serve|detect`).
 
-WHEN a branch is pushed
+WHEN a branch is pushed and the engine matrix is non-empty
 THEN every job and every step of the run executes; none shows as skipped.
 
 #### Scenario: no workflow condition skips a job or a step
 Given  every CI workflow,
 When   every job-level and step-level `if:` is collected,
-Then   jobs only test `!cancelled()` and the push event, steps only `!cancelled()` or `always()`,
+Then   jobs only wait for their needs, steps only `!cancelled()`, `always()`, a runner.os check, or the `matrix.engine != 'none'` placeholder skip,
 And    the free-disk and post-build-test decisions are the make targets `ci-free-disk` and `test-engine-stage`.
 - **Test:** `tests/test_ci_images.py::test_no_ci_step_or_job_is_skipped`
 

@@ -326,9 +326,40 @@ def test_every_pipeline_job_runs_one_ci_make_target():
     assert "$(MAKE) uninstall" in undo and "Darwin" in undo
 
 
+# Job-level if: forms that do not skip a job in a normal push run with engines
+# to build. A PR that changes no engine params still emits one `none` row:
+# GitHub fails a workflow whose matrix include list is empty BEFORE the job if:
+# is evaluated (run 38105450418). The none row is skipped; it builds nothing.
+_PUSH_WAIT = (
+    "${{!cancelled()&&github.event_name=='push'}}",
+    "${{!cancelled()&&github.event_name=='push'&&needs.engine-matrix.result=='success'}}",
+    "${{!cancelled()&&github.event_name=='push'&&needs.engine-published-test.result=='success'}}",
+    # linux-published must run on a PR too: a skipped uses: job never reports
+    # the required install-published-* check names (PR #126).
+    "${{!cancelled()&&(github.event_name=='pull_request'||needs.engine-image.result=='success')}}",
+)
+
+
+def _job_if_allowed(cond):
+    """A job if: may only wait for its needs, or skip the none placeholder row."""
+
+    flat = cond.replace(" ", "")
+    if flat in _PUSH_WAIT:
+        return True
+    # engine-image: the none placeholder builds nothing
+    if flat == "${{matrix.engine!='none'}}":
+        return True
+    # engine-published-test: push + the image job succeeded (the none row is a step if:)
+    return (flat.startswith("${{!cancelled()&&github.event_name=='push'")
+            and "needs.engine-image.result=='success'" in flat)
+
+
 def test_no_ci_step_or_job_is_skipped():
     """No job or step in ci.yml / the pipelines / published.yml carries a condition that
-    skips it in a normal push run: OS- or matrix-specific work is decided inside make."""
+    skips it in a normal push run with engines to build: OS- or matrix-specific work is
+    decided inside make. A PR that changes no engine params emits one `none` row
+    (issue #107, run 38105450418): GitHub fails a workflow whose include list is
+    empty before the job if: is evaluated. That row is skipped and builds nothing."""
 
     # Given every workflow
     files = ("ci.yml", "pipeline.yml", "published.yml")
@@ -339,14 +370,15 @@ def test_no_ci_step_or_job_is_skipped():
     step_ifs = {(f, n, st.get("name") or st.get("uses")): st["if"]
                 for f, jobs in wf.items() for n, j in jobs.items() for st in j.get("steps", []) if "if" in st}
 
-    # Then a job only waits for its needs (!cancelled(), push runs: ci.yml runs on push only)
+    # Then a job only waits for its needs, or skips the none placeholder row
     for key, cond in job_ifs.items():
-        assert cond.replace(" ", "") in ("${{!cancelled()&&github.event_name=='push'}}",
-                                         "${{!cancelled()&&github.event_name=='push'&&needs.engine-matrix.result=='success'}}"), key
+        assert _job_if_allowed(cond), (key, cond)
 
-    # And a step only runs after a failed one, is Linux-only Docker, or is the macOS openspec CLI
+    # And a step only runs after a failed one, is Linux-only Docker, is the macOS
+    # openspec CLI, or skips the none placeholder row (matrix is illegal in a job if:)
     for key, cond in step_ifs.items():
-        assert cond in ("${{ !cancelled() }}", "always()", "runner.os == 'Linux'", "runner.os == 'macOS'"), key
+        assert cond in ("${{ !cancelled() }}", "always()", "runner.os == 'Linux'", "runner.os == 'macOS'",
+                        "${{ matrix.engine != 'none' }}"), key
 
     # And the OS / matrix decisions live in make: ci-free-disk and test-engine-stage
     mk = (REPO / "Makefile").read_text()

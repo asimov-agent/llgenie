@@ -927,6 +927,10 @@ def test_published_images_are_tested_again_as_a_separate_matrix_stage():
     # And the published stage runs after it, on every push run, over the same matrix
     assert set(pub["needs"]) == {"engine-matrix", "engine-image", "ci-images"}
     assert "github.event_name == 'push'" in pub["if"] and "!cancelled()" in pub["if"]
+    # nothing built (the none placeholder) skips every step; the job itself is push-only
+    assert "needs.engine-image.result == 'success'" in pub["if"]
+    assert all(st.get("if") == "${{ matrix.engine != 'none' }}" for st in pub["steps"])
+    assert all(st.get("if") == "${{ matrix.engine != 'none' }}" for st in jobs["engine-image"]["steps"])
     assert pub["name"] == "test-published-${{ matrix.engine }}-${{ matrix.variant }}"
     assert pub["strategy"]["matrix"] == build["strategy"]["matrix"]
     assert pub["permissions"]["packages"] == "read"
@@ -1226,9 +1230,19 @@ def test_install_published_is_the_last_stage_per_mocked_backend():
     jobs = _y.safe_load((REPO / ".github/workflows/ci.yml").read_text())["jobs"]
     for side in ("linux-published",):
         caller = jobs[side]
-        assert caller["needs"] == ["engine-published-test"]
-        assert "github.event_name == 'push'" in caller["if"] and "!cancelled()" in caller["if"]
+        assert caller["needs"] == ["engine-image", "ci-images"]
+        assert "!cancelled()" in caller["if"]
+        # a skipped uses: job reports no check names, so a PR must run it too
+        # (merge API: "4 of 14 required status checks are expected", PR #126)
+        assert "github.event_name == 'pull_request'" in caller["if"]
+        assert "needs.engine-image.result == 'success'" in caller["if"]
         assert caller["uses"] == "./.github/workflows/published.yml"
+    # continue-on-error is illegal on a uses: job: GitHub stops treating the job
+    # as a workflow call and then reports uses/with unexpected and runs-on
+    # missing (PR #126, run 38104306645). The if: is what skips a push-only job.
+    for name, job in jobs.items():
+        if "uses" in job:
+            assert "continue-on-error" not in job, name
     job = _y.safe_load((REPO / ".github/workflows/published.yml").read_text())["jobs"]["install-published"]
     assert job["strategy"]["matrix"]["backend"] == ["cpu", "cuda", "rocm", "vulkan"]
     runs = [st.get("run", "") for st in job["steps"]]
