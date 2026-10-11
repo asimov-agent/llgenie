@@ -241,7 +241,14 @@ LLM), auto-applies renames and known moves, and when a build option or launch
 flag was removed it records a **hard-fail** — the pin still moves and a PR is
 still created, with the hard-fail flagged in the PR body so a human fixes the
 skill (CI goes red on the build). Each bump opens a `chore/engine-bump-<id>` PR
-whose CI builds and tests **only** that engine's images. A PR exists ⟺ the plan
+whose CI builds and tests **only** that engine's images. A push publishes an
+image only when its tag changed since the parent commit: the tag is
+`<pin8>-<image-hash>-<arch>`, so an unchanged pin is already on GHCR and is
+not rebuilt (issue #153). `<image-hash>` hashes the variant params, its
+committed Dockerfile, `containers/engines/entrypoint.sh` and
+`scripts/engine_runner.py` — the same tag `make install` pulls, so changing
+what goes into it moves every engine at once and invalidates every published
+image; `tests/test_engine_image_matrix.py` pins it. A PR exists ⟺ the plan
 found ≥1 new hash. The workflow is gated to collaborators/owner/bot only.
 Both this workflow and `registry-sync` check out, push and open the PR with the
 owner PAT in the `BUMP_TOKEN` repo secret, not `GITHUB_TOKEN`: a bot-authored
@@ -536,7 +543,7 @@ how to add an engine: [`skills/engines/README.md`](skills/engines/README.md).
 python3 scripts/hf_download.py <repo_id> <filename> <dest_dir> <label>
 ```
 
-- Reads `HF_TOKEN` from `~/.zshrc` at runtime (never stored in the repo).
+- Every Hub call (API, resolve, the `hf` CLI, and engine containers) sends `HF_TOKEN` from the environment, or from `~/.zshrc` / `~/.bashrc` when the environment is empty. CI sets that environment from the `HF_TOKEN` Actions secret (`secrets: inherit` into `pipeline.yml` and `published.yml`). The token is never stored in the repo.
 - Sets `HF_HUB_ENABLE_HF_TRANSFER=1 HF_HUB_DISABLE_XET=1` for speed.
 - Auto-retries (up to 20 attempts), resuming the partial file on dropped connections.
 - Appends a `.progress.log` next to the destination for live monitoring.

@@ -127,6 +127,29 @@ def ensure_image(engine: str, variant: str, build: bool) -> str | None:
     return None
 
 
+# Load HF_TOKEN from the login rc when the job did not export it, then `docker -e HF_TOKEN`
+# forwards it. The value is never echoed.
+HF_TOKEN_SHELL = "\n".join([
+    'if [ -z "${HF_TOKEN:-}" ]; then',
+    '  _ll_rc=""; _ll_line=""',
+    '  for _ll_rc in "$HOME/.zshrc" "$HOME/.bashrc"; do',
+    '    [ -r "$_ll_rc" ] || continue',
+    '    _ll_line="$(grep -E \'^[[:space:]]*(export[[:space:]]+)?HF_TOKEN=\' "$_ll_rc" | tail -n 1 || true)"',
+    '    [ -n "$_ll_line" ] || continue',
+    '    HF_TOKEN=${_ll_line#*=}',
+    '    HF_TOKEN=${HF_TOKEN#\\"}',
+    '    HF_TOKEN=${HF_TOKEN%\\"}',
+    "    HF_TOKEN=${HF_TOKEN#\\'}",
+    "    HF_TOKEN=${HF_TOKEN%\\'}",
+    '    export HF_TOKEN',
+    '    break',
+    '  done',
+    '  unset _ll_rc _ll_line',
+    'fi',
+    '',
+])
+
+
 def launcher(engine: str, variant: str, tag: str, models: str, platform: str = "") -> str:
     name = script_name(engine)
     plat = f" --platform {platform}" if platform else ""
@@ -149,7 +172,7 @@ name="llgenie-{engine.replace('.', '-')}-$PORT"
 {ei.RUNTIME} rm -f "$name" >/dev/null 2>&1 || true
 trap '{ei.RUNTIME} rm -f "$name" >/dev/null 2>&1' EXIT INT TERM
 gpu=({GPU_FLAGS.get(variant, '')}); [ -n "${{LLGENIE_NO_GPU:-}}" ] && gpu=({GPU_FLAGS['cpu']})  # LLGENIE_NO_GPU=1: GPU image on CPU
-{modeset}{ei.RUNTIME} run --rm{plat} --name "$name" "${{gpu[@]}}" \\
+{HF_TOKEN_SHELL}{modeset}{ei.RUNTIME} run --rm{plat} --name "$name" "${{gpu[@]}}" \\
   -p "127.0.0.1:$PORT:11434" -v "$MODELS:/models" -e HF_TOKEN \\
   -e "LLGENIE_MODEL=$MODEL" "$IMAGE" serve &
 wait $!
@@ -195,8 +218,8 @@ name="llgenie-{name}-$port"
 {ei.RUNTIME} rm -f "$name" >/dev/null 2>&1 || true
 trap '{ei.RUNTIME} rm -f "$name" >/dev/null 2>&1' EXIT INT TERM
 gpu=({GPU_FLAGS.get(variant, '')}); [ -n "${{LLGENIE_NO_GPU:-}}" ] && gpu=({GPU_FLAGS['cpu']})  # LLGENIE_NO_GPU=1: GPU image on CPU
-{modeset}{ei.RUNTIME} run --rm{plat} --name "$name" "${{gpu[@]}}" -p "$host:$port:$port" "${{mounts[@]}}" \\
-  -e LD_LIBRARY_PATH={bindir} --entrypoint {binary} "$IMAGE" "${{args[@]}}" &
+{HF_TOKEN_SHELL}{modeset}{ei.RUNTIME} run --rm{plat} --name "$name" "${{gpu[@]}}" -p "$host:$port:$port" "${{mounts[@]}}" \\
+  -e HF_TOKEN -e LD_LIBRARY_PATH={bindir} --entrypoint {binary} "$IMAGE" "${{args[@]}}" &
 wait $!
 """
 

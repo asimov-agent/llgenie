@@ -24,6 +24,7 @@ waits until /v1/models answers and prints the base_url for AI harnesses.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -37,6 +38,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import engine_skills as es  # noqa: E402
+import hf_auth  # noqa: E402
 
 def runtime_answers(rt: str) -> bool:
     """The container engine behind `rt` is reachable (`<rt> info` exits 0)."""
@@ -271,6 +273,9 @@ def run(spec: dict, model: str, port: int, name: str, models_dir: Path, wait: fl
         return 1
     ensure_nvidia_modeset(spec["run_args"])
     subprocess.run([RUNTIME, "rm", "-f", name], capture_output=True)
+    tok = hf_auth.hf_token()
+    if tok:
+        os.environ["HF_TOKEN"] = tok  # docker -e HF_TOKEN reads it; the value stays off argv
     env = ["-e", f"LLGENIE_MODEL={container_model(model, models_dir)}"]
     for k in ("HF_TOKEN", "LLGENIE_DRAFTER"):
         if os.environ.get(k):
@@ -468,19 +473,59 @@ def disabled(engine: str, variant: str) -> str:
 SMOKE_SKIP = {"tensorrt-llm", "sglang", "tensorfold", "freetoken"}  # cuda-only servers, no cpu smoke
 
 
-def matrix(ci: bool = False, changed: str = "") -> list[dict]:
+def _bytes_at(ref: str, rel: str, root) -> bytes | None:
+    p = subprocess.run(["git", "show", f"{ref}:{rel}"], capture_output=True, cwd=root)
+    return None if p.returncode != 0 else p.stdout
+
+
+def _tag_at(ref: str, engine: str, variant: str, root=None) -> str:
+    """The image tag `<ref>` would publish for this engine x arch, or '' when the
+    params file does not exist there or has no such variant.
+
+    The bytes are the same ones `_current_tag` hashes, read from `<ref>` with
+    `git show` instead of from the working tree (which holds the new pin).
+    """
+    root = root or es.REPO_ROOT
+    raw = _bytes_at(ref, f"containers/engines/params/{engine}.json", root)
+    if raw is None:
+        return ""
+    try:
+        old = json.loads(raw)
+    except json.JSONDecodeError:
+        return ""
+    if variant not in old.get("variants", {}):
+        return ""
+    dockerfile = _bytes_at(ref, f"containers/engines/dockerfiles/{engine}/Dockerfile.{variant}", root)
+    entry = _bytes_at(ref, "containers/engines/entrypoint.sh", root)
+    runner = _bytes_at(ref, "scripts/engine_runner.py", root)
+    if None in (dockerfile, entry, runner):
+        return ""
+    inputs = es._image_inputs(old, variant, dockerfile=dockerfile, entrypoint=entry, runner=runner)
+    digest = hashlib.sha256(inputs).hexdigest()[:8]
+    return f"llgenie/{engine.replace('.', '-')}:{str(old['pinned'])[:8]}-{digest}-{variant}"
+
+
+def _current_tag(params: dict, variant: str, root=None) -> str:
+    """The tag HEAD publishes for this engine x arch — the very tag `make install`
+    pulls. Same digest function as `engine_skills.image_spec`, so the matrix can
+    never skip an image the install path then asks GHCR for."""
+    digest = hashlib.sha256(es._image_inputs(params, variant, root)).hexdigest()[:8]
+    return f"llgenie/{params['id'].replace('.', '-')}:{str(params['pinned'])[:8]}-{digest}-{variant}"
+
+
+def matrix(ci: bool = False, changed: str = "", params_dir=None) -> list[dict]:
     out = []
-    for path in sorted(es.PARAMS_DIR.glob("*.json")):
-        if changed:
-            rel = path.relative_to(es.REPO_ROOT)
-            p = subprocess.run(["git", "diff", "--quiet", f"{changed}..HEAD", "--", str(rel)],
-                               capture_output=True, cwd=es.REPO_ROOT)
-            if p.returncode == 0:  # no diff -> unchanged -> skip
-                continue
+    params_dir = params_dir or es.PARAMS_DIR
+    # params live in <repo>/containers/engines/params: the repo root is two levels
+    # above that dir, and every hashed path is relative to it.
+    root = params_dir.parents[2]
+    for path in sorted(params_dir.glob("*.json")):
         params = json.loads(path.read_text())
         for key, v in params["variants"].items():
             if ci and (key not in CI_VARIANTS or disabled(params["id"], key)):
                 continue
+            if changed and _tag_at(changed, params["id"], key, root) == _current_tag(params, key, root):
+                continue  # the published tag already is this image
             serve = key == "cpu" and params["id"] not in SMOKE_SKIP
             out.append({"engine": params["id"], "backend": v["backend"], "variant": key,
                         "smoke": serve, "test": "serve" if serve else "detect",
@@ -550,7 +595,7 @@ def main(argv=None) -> int:
     m = sub.add_parser("matrix")
     m.add_argument("--json", action="store_true")
     m.add_argument("--ci", action="store_true", help="only the variants CI builds")
-    m.add_argument("--changed", default="", help="ref: only engines whose params differ from it")
+    m.add_argument("--changed", default="", help="ref: only images whose tag differs from it")
     a = ap.parse_args(argv)
 
     if a.cmd == "build-base":

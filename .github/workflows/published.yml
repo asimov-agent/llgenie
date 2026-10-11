@@ -20,6 +20,9 @@ on:
         default: false
         type: boolean
 
+env:
+  HF_TOKEN: ${{ secrets.HF_TOKEN }}
+
 jobs:
   install-published:
     strategy:

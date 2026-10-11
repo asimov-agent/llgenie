@@ -21,6 +21,9 @@ on:
         required: false
         default: ""
 
+env:
+  HF_TOKEN: ${{ secrets.HF_TOKEN }}
+
 permissions:
   contents: write
   pull-requests: write

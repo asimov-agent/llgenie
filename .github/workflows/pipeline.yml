@@ -26,6 +26,10 @@ on:
         default: false
         type: boolean
 
+# Passed in by ci.yml (secrets: inherit). Every make ci-* job can call the Hub with it.
+env:
+  HF_TOKEN: ${{ secrets.HF_TOKEN }}
+
 jobs:
   # lint: linefeed / editorconfig
   lint:

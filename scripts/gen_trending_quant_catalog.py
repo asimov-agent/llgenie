@@ -134,8 +134,12 @@ def _probe_exists(url, timeout=20.0) -> bool:
     """A 1-byte ranged GET returns 200/206 — the real file exists (never a download)."""
     import urllib.error
     import urllib.request
-    req = urllib.request.Request(url, method="GET",
-                                 headers={"Range": "bytes=0-0", "User-Agent": "llgenie-catalog"})
+    try:
+        from hf_auth import authorize
+    except ImportError:
+        from scripts.hf_auth import authorize  # type: ignore
+    req = authorize(urllib.request.Request(
+        url, method="GET", headers={"Range": "bytes=0-0", "User-Agent": "llgenie-catalog"}))
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.status in (200, 206)

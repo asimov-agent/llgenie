@@ -10,6 +10,11 @@ on:
   push:
     branches: ["main"]    # merges: build + publish engine images to GHCR
 
+# Hub calls (unit pick, hf download, engine containers) send this. The value is
+# the repo Actions secret HF_TOKEN. Reusable workflows receive it via secrets: inherit.
+env:
+  HF_TOKEN: ${{ secrets.HF_TOKEN }}
+
 # Two pipelines run in parallel (issue #112): `linux` (ubuntu-latest) and `macos`
 # (macos-15-intel). Both run the same `make ci-<job>` commands and asserts:
 # both call pipeline.yml, one job per target (issue #120: no combined jobs). Linux sets
@@ -98,6 +103,7 @@ jobs:
     permissions:
       contents: read
       packages: read
+    secrets: inherit
     with:
       runner: ubuntu-latest
 
@@ -107,6 +113,7 @@ jobs:
     permissions:
       contents: read
       packages: read
+    secrets: inherit
     with:
       runner: macos-15-intel   # required: a macOS failure fails the run, same as Linux
 
@@ -160,11 +167,17 @@ jobs:
         with:
           fetch-depth: 0
       - id: m
-        # Issue #107: on a pull_request, build/test ONLY the engines whose params
-        # differ from the base branch; a push to main keeps the full matrix.
+        # Issue #153: build and publish an image only when its tag changed since
+        # the parent commit. The tag is <pin8>-<image-hash>-<arch>, so an
+        # unchanged pin (and unchanged build inputs) is already on GHCR.
+        # pull_request compares against the base branch; a push compares against
+        # github.event.before. A new branch's before sha is all zeros: full matrix.
         run: |
+          before="${{ github.event.before }}"
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             echo "matrix=$(make -s list-engine-images CI=1 JSON=1 CHANGED=origin/${{ github.base_ref }})" >> "$GITHUB_OUTPUT"
+          elif [ -n "$before" ] && [ "$before" != "0000000000000000000000000000000000000000" ]; then
+            echo "matrix=$(make -s list-engine-images CI=1 JSON=1 CHANGED=$before)" >> "$GITHUB_OUTPUT"
           else
             echo "matrix=$(make -s list-engine-images CI=1 JSON=1)" >> "$GITHUB_OUTPUT"
           fi
@@ -307,5 +320,6 @@ jobs:
     permissions:
       contents: read
       packages: read
+    secrets: inherit
     with:
       runner: ubuntu-latest

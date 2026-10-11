@@ -39,6 +39,12 @@ import urllib.request
 import urllib.error
 import urllib.parse
 
+try:
+    from .hf_auth import authorize
+except ImportError:  # run as a script
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from hf_auth import authorize  # type: ignore
+
 # ---------------------------------------------------------------------------
 # Interpreter bootstrap: the `gguf`/`numpy` deps live in the 3.11 venv built by
 # `make install` (~/llama-gguf-tools/.venv). This file is symlinked into ~/bin
@@ -683,8 +689,8 @@ def _hf_get(url, timeout=30):
     """
     max_attempts = max(1, HF_GET_MAX_ATTEMPTS)
     for attempt in range(1, max_attempts + 1):
-        req = urllib.request.Request(url, headers={"User-Agent": HF_UA,
-                                                   "Accept": "application/json"})
+        req = authorize(urllib.request.Request(url, headers={"User-Agent": HF_UA,
+                                                             "Accept": "application/json"}))
         try:
             with urllib.request.urlopen(req, timeout=timeout) as r:
                 return json.load(r)
@@ -819,7 +825,7 @@ def _probe_file_downloadable(repo, filename, timeout=15, probe_bytes=64 * 1024):
       None                  -> transient/other failure (caller decides: retry, not skip)
     """
     url = f"https://huggingface.co/{repo}/resolve/main/{filename}"
-    req = urllib.request.Request(url, method="GET")
+    req = authorize(urllib.request.Request(url, method="GET"))
     req.add_header("User-Agent", HF_UA)
     req.add_header("Range", f"bytes=0-{probe_bytes - 1}")
     try:

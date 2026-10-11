@@ -947,13 +947,38 @@ def pick_variant(params: dict, backend: str, hw: dict) -> str:
     return backend
 
 
+def _image_inputs(params: dict, variant: str, root=None, *, dockerfile: bytes | None = None,
+                  entrypoint: bytes | None = None, runner: bytes | None = None) -> bytes:
+    """The exact bytes an engine x arch image tag hashes: the variant's params, its
+    committed Dockerfile and the two files every image is built from.
+
+    The three file bytes are read relative to `root` (the repo the params file
+    lives in) so the hash matches `git show <ref>:<path>`, or passed in when the
+    caller already has them from another commit (`dockerfile=`, `entrypoint=`,
+    `runner=`) — that is how `matrix --changed <ref>` recomputes a ref's tag
+    without a checkout of it.
+
+    The concatenation IS the published tag's hash. What goes in here, and how it
+    is joined, decides which tag `make install` pulls: change it and every tag
+    moves, every image already on GHCR becomes unreachable and every install job
+    fails with "not published". `tests/test_engine_image_matrix.py::
+    test_tag_digest_is_the_published_scheme` locks the framing; the committed
+    Dockerfile equals `render_dockerfile` byte-for-byte (`make check-engine-params`
+    keeps that true), so hashing the committed file keeps the published digests.
+    """
+    root = root or REPO_ROOT
+    engine = params["id"]
+    parts = [json.dumps(params["variants"][variant], sort_keys=True).encode()]
+    for rel, given in ((f"containers/engines/dockerfiles/{engine}/Dockerfile.{variant}", dockerfile),
+                       ("containers/engines/entrypoint.sh", entrypoint),
+                       ("scripts/engine_runner.py", runner)):
+        parts.append(given if given is not None else (root / rel).read_bytes())
+    return b"".join(parts)
+
+
 def _image_hash(params: dict, variant: str) -> str:
     import hashlib
-    h = hashlib.sha256(json.dumps(params["variants"][variant], sort_keys=True).encode())
-    h.update(render_dockerfile(params, variant).encode())
-    for f in (CONTAINER_DIR / "entrypoint.sh", REPO_ROOT / "scripts" / "engine_runner.py"):
-        h.update(f.read_bytes())
-    return h.hexdigest()[:8]
+    return hashlib.sha256(_image_inputs(params, variant)).hexdigest()[:8]
 
 
 def image_spec(params: dict, variant: str) -> dict:

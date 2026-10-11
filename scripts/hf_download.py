@@ -5,7 +5,8 @@ Usage: hf_download.py <repo_id> <filename> <dest_dir> <label> [refresh] [expecte
 refresh: "1" -> ALWAYS consult the Hub (etag/hash) so a same-name file that was
 updated upstream (or a corrupt local copy) is re-fetched, not skipped. Leave a
 fully-fresh local file untouched (hf no-ops on matching etag).
-Reads HF_TOKEN from ~/.zshrc. Append progress to <dest_dir>/<label>.progress.log
+Sends HF_TOKEN (env, else ~/.zshrc or ~/.bashrc) on the hf CLI and the tree
+lookup. Append progress to <dest_dir>/<label>.progress.log
 Uses HF_XET_HIGH_PERFORMANCE=1 (hf-xet chunked parallel) for speed — never
 HF_HUB_DISABLE_XET (would force slow single-stream download).
 Auto-retries on connection drop (rc!=0 while final .gguf absent), resuming the partial.
@@ -17,7 +18,7 @@ Stall-watch (issue #55): a still-alive download that makes NO forward progress f
 HF_STALL_SECONDS (default 90) is terminated and retried, so a dead 0-MB/s connection
 can never hang the sequential batch forever.
 """
-import subprocess, sys, os, re, time, shutil
+import subprocess, sys, os, time, shutil
 
 MAX_RETRY = 20
 DEFAULT_STALL_SECONDS = 90
@@ -70,7 +71,11 @@ def _resolve_expected_bytes(repo, filename, label, expected_bytes):
     import urllib.request
     try:
         url = f"https://huggingface.co/api/models/{repo}/tree/main?recursive=true"
-        req = urllib.request.Request(url, headers={"User-Agent": f"llgenie/{label}"})
+        try:
+            from hf_auth import authorize
+        except ImportError:
+            from scripts.hf_auth import authorize  # type: ignore
+        req = authorize(urllib.request.Request(url, headers={"User-Agent": f"llgenie/{label}"}))
         with urllib.request.urlopen(req, timeout=30) as r:
             data = json.load(r)
         for f in data:
@@ -88,25 +93,20 @@ def main(argv=None):
     refresh = (argv[4] if len(argv) > 4 else "0") == "1"
     expected_bytes = int(argv[5]) if len(argv) > 5 and str(argv[5]).isdigit() else None
 
-    tok = None
-    try:
-        content = open(os.path.expanduser("~/.zshrc")).read()
-        m = re.search(r"HF_TOKEN=(hf_[A-Za-z0-9]+)", content)
-        tok = m.group(1) if m else None
-    except Exception:
-        pass
-
     os.makedirs(dest, exist_ok=True)
     log = os.path.join(dest, f"{label}.progress.log")
     env = dict(os.environ)
+    try:
+        from hf_auth import apply_env
+    except ImportError:
+        from scripts.hf_auth import apply_env  # type: ignore
+    apply_env(env)
 
     def write_log(msg):
         os.makedirs(dest, exist_ok=True)
         with open(log, "a") as lf:
             lf.write(msg + "\n")
 
-    if tok:
-        env["HF_TOKEN"] = tok
     # Speed: hf-xet (chunked parallel transfer) is ON by default in huggingface_hub.
     env["HF_XET_HIGH_PERFORMANCE"] = "1"
     env.pop("HF_HUB_ENABLE_HF_TRANSFER", None)

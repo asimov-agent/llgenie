@@ -18,6 +18,11 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+try:
+    from .hf_auth import authorize
+except ImportError:
+    from hf_auth import authorize  # type: ignore
+
 REPO = Path(__file__).resolve().parent.parent
 UPSTREAM = "https://raw.githubusercontent.com/andyholst/trending-local-llms/master/data/models.json"
 UPSTREAM_README = "https://raw.githubusercontent.com/andyholst/trending-local-llms/master/README.md"
@@ -117,7 +122,8 @@ def check_links(links: list[str], attempts: int = 5, backoff: float = 10.0) -> l
     dead at once."""
     dead = []
     for url in dict.fromkeys(links):  # order kept, duplicates dropped
-        req = urllib.request.Request(url, method="GET", headers={"User-Agent": "llgenie-link-check"})
+        req = authorize(urllib.request.Request(
+            url, method="GET", headers={"User-Agent": "llgenie-link-check"}))
         for attempt in range(1, attempts + 1):
             try:
                 with urllib.request.urlopen(req, timeout=30) as r:  # noqa: S310
@@ -138,7 +144,7 @@ def check_links(links: list[str], attempts: int = 5, backoff: float = 10.0) -> l
 
 def fetch(src: str) -> bytes:
     if src.startswith(("http://", "https://")):
-        req = urllib.request.Request(src, headers={"User-Agent": "llgenie-sync-registry"})
+        req = authorize(urllib.request.Request(src, headers={"User-Agent": "llgenie-sync-registry"}))
         with urllib.request.urlopen(req, timeout=60) as r:  # noqa: S310
             return r.read()
     return Path(src).read_bytes()

@@ -38,6 +38,11 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+try:
+    from .hf_auth import authorize
+except ImportError:  # run as a script
+    from hf_auth import authorize  # type: ignore
+
 REPO = Path(__file__).resolve().parent.parent
 PARAMS = REPO / "containers" / "engines" / "params"
 REGISTRY_FILE = REPO / "data" / "models.json"  # vendored; make sync-registry refreshes it
@@ -55,7 +60,7 @@ def load_registry(src: str | None = None) -> dict:
     """The vendored data/models.json; LLGENIE_REGISTRY_SRC (file or URL) overrides it."""
     src = src or os.environ.get("LLGENIE_REGISTRY_SRC") or str(REGISTRY_FILE)
     if src.startswith("http"):
-        with urllib.request.urlopen(src, timeout=30) as r:  # noqa: S310
+        with urllib.request.urlopen(authorize(urllib.request.Request(src)), timeout=30) as r:  # noqa: S310
             return json.load(r)
     return json.loads(Path(src).read_text())
 
@@ -467,9 +472,7 @@ def _hub_json(url: str, attempts: int = 6):
             return json.loads(cache.read_text())
         except ValueError:
             pass
-    req = urllib.request.Request(url, headers={"User-Agent": "llgenie"})
-    if os.environ.get("HF_TOKEN"):
-        req.add_header("Authorization", f"Bearer {os.environ['HF_TOKEN']}")
+    req = authorize(urllib.request.Request(url, headers={"User-Agent": "llgenie"}))
     for i in range(attempts):
         try:
             with urllib.request.urlopen(req, timeout=30) as r:  # noqa: S310
@@ -1079,10 +1082,9 @@ def download_chunk(repo: str, filename: str, dest: Path, max_bytes: int, revisio
     """Fetch only the first `max_bytes` of a Hub file (HTTP Range) — CI's download test."""
     dest.mkdir(parents=True, exist_ok=True)
     out = dest / Path(filename).name
-    req = urllib.request.Request(f"{HF}/{repo}/resolve/{revision}/{filename}",
-                                 headers={"Range": f"bytes=0-{max_bytes - 1}", "User-Agent": "llgenie"})
-    if os.environ.get("HF_TOKEN"):
-        req.add_header("Authorization", f"Bearer {os.environ['HF_TOKEN']}")
+    req = authorize(urllib.request.Request(
+        f"{HF}/{repo}/resolve/{revision}/{filename}",
+        headers={"Range": f"bytes=0-{max_bytes - 1}", "User-Agent": "llgenie"}))
     with urllib.request.urlopen(req, timeout=120) as r, open(out, "wb") as f:  # noqa: S310
         f.write(r.read(max_bytes))
     return out
