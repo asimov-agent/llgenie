@@ -245,11 +245,31 @@ def container_model(model: str, models_dir: Path) -> str:
     return model
 
 
+def ensure_nvidia_modeset(run_args: list[str]) -> None:
+    """Create /dev/nvidia-modeset before CDI injection (issue #157).
+
+    nvidia-container-toolkit's CDI spec stats /dev/nvidia-modeset. The
+    nvidia_modeset module can be loaded while that node (195, 254) was never
+    created, and docker then refuses `--device nvidia.com/gpu=all`.
+    nvidia-modprobe is setuid and creates the node.
+    """
+    if "nvidia.com/gpu=all" not in run_args or os.path.exists("/dev/nvidia-modeset"):
+        return
+    modprobe = shutil.which("nvidia-modprobe")
+    if modprobe:
+        subprocess.run([modprobe, "-c", "0", "-m", "-u"], check=False)
+    if not os.path.exists("/dev/nvidia-modeset"):
+        raise SystemExit(
+            "[llgenie] /dev/nvidia-modeset is missing, so NVIDIA CDI cannot inject the GPU.\n"
+            "[llgenie] create it with: nvidia-modprobe -m")
+
+
 def run(spec: dict, model: str, port: int, name: str, models_dir: Path, wait: float) -> int:
     tag = spec["tag"]
     if not image_exists(tag):
         print(f"[engine-image] {tag} not built; run: make engine-image ENGINE={spec['id']} BACKEND={spec['backend']}")
         return 1
+    ensure_nvidia_modeset(spec["run_args"])
     subprocess.run([RUNTIME, "rm", "-f", name], capture_output=True)
     env = ["-e", f"LLGENIE_MODEL={container_model(model, models_dir)}"]
     for k in ("HF_TOKEN", "LLGENIE_DRAFTER"):

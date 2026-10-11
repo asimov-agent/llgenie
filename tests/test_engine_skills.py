@@ -901,8 +901,108 @@ def test_cuda_containers_get_the_host_driver_via_cdi(tmp_path, monkeypatch):
     # Then all three request the CDI GPU device, never a baked-in driver
     assert v["run_args"] == ["--device", "nvidia.com/gpu=all", *es.SHM]
     assert "--device nvidia.com/gpu=all" in script and "--device nvidia.com/gpu=all" in shim
+    assert "nvidia-modprobe -c 0 -m -u" in script and "nvidia-modprobe -c 0 -m -u" in shim
+    # the serve run (the one that expands the CDI device) comes after the probe;
+    # --version is an earlier `docker run` that does not request the GPU
+    assert script.index("nvidia-modprobe -c 0 -m -u") < script.index('"${gpu[@]}"')
+    assert shim.index("nvidia-modprobe -c 0 -m -u") < shim.index('"${gpu[@]}"')
     assert "libcuda" not in (REPO / es.dockerfile_path("llama.cpp", "cuda")).read_text()
 
+
+def test_cuda_start_script_creates_nvidia_modeset_before_cdi():
+    """CDI aborts when /dev/nvidia-modeset is missing. The cuda script creates it first."""
+
+    import scripts.install_engine_launchers as il
+
+    # Given a cuda start script and shim, and a cpu start script
+    cuda = il.launcher("strata", "cuda", "llgenie/strata:test-cuda", "/home/asimov/models")
+    shim = il.llama_server_shim("llgenie/llama-cpp:test-cuda", "cuda")
+    cpu = il.launcher("strata", "cpu", "llgenie/strata:test-cpu", "/home/asimov/models")
+
+    # When their text is read
+    guard = '[[ " ${gpu[*]} " == *" nvidia.com/gpu=all "* && ! -e /dev/nvidia-modeset ]]'
+
+    # Then the cuda script and shim probe before docker run, and fail closed
+    for body in (cuda, shim):
+        assert guard in body
+        assert "nvidia-modprobe -c 0 -m -u" in body
+        assert body.index("nvidia-modprobe -c 0 -m -u") < body.index('"${gpu[@]}"')
+        assert 'echo "[llgenie] create it with: nvidia-modprobe -m"' in body
+        assert "exit 1" in body
+        # LLGENIE_NO_GPU rewrites gpu before the guard, so the probe sees no CDI device
+        assert body.index('LLGENIE_NO_GPU:-') < body.index("nvidia-modprobe -c 0 -m -u")
+
+    # And a cpu script never calls nvidia-modprobe
+    assert "nvidia-modprobe" not in cpu
+
+
+def test_run_engine_creates_nvidia_modeset_before_cdi(monkeypatch):
+    """make run-engine creates the missing modeset node before CDI injection."""
+
+    import scripts.engine_image as ei
+
+    # Given cuda run args, no /dev/nvidia-modeset, and nvidia-modprobe on PATH
+    state = {"node": False, "cmd": None}
+
+    def exists(path):
+        return state["node"] if path == "/dev/nvidia-modeset" else os.path.exists(path)
+
+    def fake_run(cmd, **kwargs):
+        state["cmd"] = cmd
+        state["node"] = True
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(ei.os.path, "exists", exists)
+    monkeypatch.setattr(ei.shutil, "which", lambda name: "/usr/bin/nvidia-modprobe" if name == "nvidia-modprobe" else None)
+    monkeypatch.setattr(ei.subprocess, "run", fake_run)
+
+    # When the modeset check runs
+    ei.ensure_nvidia_modeset(["--device", "nvidia.com/gpu=all", "--shm-size", "2g"])
+
+    # Then it executes nvidia-modprobe -c 0 -m -u
+    assert state["cmd"] == ["/usr/bin/nvidia-modprobe", "-c", "0", "-m", "-u"]
+
+
+def test_run_engine_fails_when_modeset_node_cannot_be_created(monkeypatch):
+    """A cuda run with no way to create /dev/nvidia-modeset fails before docker."""
+
+    import scripts.engine_image as ei
+
+    # Given cuda run args, no node, and no nvidia-modprobe
+    monkeypatch.setattr(ei.os.path, "exists", lambda path: False if path == "/dev/nvidia-modeset" else os.path.exists(path))
+    monkeypatch.setattr(ei.shutil, "which", lambda name: None)
+
+    # When the modeset check runs
+    with pytest.raises(SystemExit) as raised:
+        ei.ensure_nvidia_modeset(["--device", "nvidia.com/gpu=all"])
+
+    # Then it fails and names the command that creates the node
+    assert raised.value.code == (
+        "[llgenie] /dev/nvidia-modeset is missing, so NVIDIA CDI cannot inject the GPU.\n"
+        "[llgenie] create it with: nvidia-modprobe -m")
+
+
+def test_run_engine_skips_nvidia_modprobe_without_a_missing_cuda_node(monkeypatch):
+    """An existing node, and a run that does not request the CDI device, skip the probe."""
+
+    import scripts.engine_image as ei
+
+    # Given nvidia-modprobe would be noticed if it were called
+    called = []
+    monkeypatch.setattr(ei.shutil, "which", lambda name: called.append(name))
+    monkeypatch.setattr(ei.subprocess, "run", lambda *a, **k: called.append(a))
+
+    # When the node already exists
+    monkeypatch.setattr(ei.os.path, "exists", lambda path: True)
+
+    # Then the probe is not called
+    ei.ensure_nvidia_modeset(["--device", "nvidia.com/gpu=all"])
+    assert called == []
+
+    # And a non-cuda run does not call it either, even when the node is missing
+    monkeypatch.setattr(ei.os.path, "exists", lambda path: False)
+    ei.ensure_nvidia_modeset(["--shm-size", "2g"])
+    assert called == []
 
 
 def test_published_images_are_tested_again_as_a_separate_matrix_stage():

@@ -62,6 +62,11 @@ make install
    Then `make test-built-engine` runs every start script with `--version`; install fails
    unless each one exits 0 and prints its engine version through its image (on any output
    line: container-runtime warnings around it are ignored).
+   On cuda, the start scripts and both shims pass `--device nvidia.com/gpu=all`. If
+   `/dev/nvidia-modeset` is missing (the `nvidia_modeset` module can be loaded without
+   that device node), they run `nvidia-modprobe -c 0 -m -u` before `docker run` and exit
+   if the node is still missing. `LLGENIE_NO_GPU=1` drops the CDI device first, so that
+   path does not call `nvidia-modprobe`.
 4. **symlink + smoke** — symlinks `~/bin/llgenie.py` → this repo's launcher (`scripts/llama_serve.py`),
    then runs `~/bin/llgenie --list`. Succeeds even when `~/models` is empty (you populate it with
    `llgenie --download-top-tier`), failing only on a genuine gguf/launch error.
@@ -489,7 +494,9 @@ make list-engine-images              # every engine x arch variant
 Every image runs `containers/engines/entrypoint.sh` (`serve` | `health` | `detect` | `info` | `shell`),
 `EXPOSE 11434`, and has a `HEALTHCHECK` on `/v1/models`. `make run-engine` publishes the port on
 `127.0.0.1:$(PORT)`, mounts `~/models` at `/models`, and passes `--device nvidia.com/gpu=all` (cuda; host driver mounted via nvidia-container-toolkit CDI) or
-`/dev/kfd`+`/dev/dri` (rocm). Any AI harness then uses
+`/dev/kfd`+`/dev/dri` (rocm). Before a cuda `docker run`, `make run-engine` creates a missing
+`/dev/nvidia-modeset` with `nvidia-modprobe -c 0 -m -u` (CDI refuses to start when that node
+is absent). Any AI harness then uses
 `base_url=http://127.0.0.1:<PORT>/v1`, `model=llm-local`. Metal cannot run in a container,
 so Apple Metal engines install natively as uv tools (`make engine-install BACKEND=metal`).
 On cuda/rocm/vulkan/cpu, `make engine-install` refuses and points at `make build-engine`.
