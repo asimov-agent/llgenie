@@ -131,7 +131,7 @@ def test_plan_tag_picks_highest_stable_same_shape(tmp_path):
     repo = _make_repo(tmp_path, "up", {"f": "x"})
     for tag in ("v0.9.7-rc1", "v0.10.0", "v0.9.10", "v0.40.0"):
         _git(repo, "tag", tag)
-    skill = _skill(tmp_path, str(repo), "v0.35.1", "tag", "a" * 40)
+    skill = _skill(tmp_path, str(repo), "v0.40.3", "tag", "a" * 40)
     orig = es.load_skills
     es.load_skills = lambda: {"testengine": skill}
     try:
@@ -146,7 +146,7 @@ def test_plan_never_moves_backwards(tmp_path):
     """A pin newer than the highest upstream tag is skipped."""
     repo = _make_repo(tmp_path, "up", {"f": "x"})
     _git(repo, "tag", "v0.10.0")
-    skill = _skill(tmp_path, str(repo), "v0.35.1", "tag", "a" * 40)
+    skill = _skill(tmp_path, str(repo), "v0.40.3", "tag", "a" * 40)
     orig = es.load_skills
     es.load_skills = lambda: {"testengine": skill}
     try:
@@ -188,9 +188,9 @@ def test_pin_edit_is_surgical(tmp_path):
         "---\n"
         "name: engine-testengine\n"
         "id: testengine\n"
-        "ref: v0.35.1\n"
+        "ref: v0.40.3\n"
         "ref_kind: tag\n"
-        "version: v0.35.1\n"
+        "version: v0.40.3\n"
         f"pinned: {'0' * 40}\n"
         'verified: "2026-10-05"\n'
         "license: MIT\n"
@@ -284,7 +284,7 @@ def test_bump_rewrites_hardcoded_pin_asserts(tmp_path, monkeypatch):
     """A bump rewrites the same pin literals the unit suite asserts (issue #144).
 
     The failing shapes are the full sha, its 8-char image-tag prefix, the tag
-    (`v0.35.1`) and the tag with the leading v stripped (`0.35.1-rocm`). A
+    (`v0.40.3`) and the tag with the leading v stripped (`0.40.3-rocm`). A
     historical record and another engine's pin must be left alone.
     """
 
@@ -292,12 +292,12 @@ def test_bump_rewrites_hardcoded_pin_asserts(tmp_path, monkeypatch):
     repo = _make_repo(tmp_path, "up", {"CMakeLists.txt": "option(GGML_X ON)"})
     old = "a" * 40
     new = _git(repo, "rev-parse", "HEAD")
-    skill = _skill(tmp_path, str(repo), "v0.35.1", "tag", old, version="v0.35.1")
+    skill = _skill(tmp_path, str(repo), "v0.40.3", "tag", old, version="v0.40.3")
     tests = tmp_path / "tests"
     tests.mkdir()
     (tests / "test_pins.py").write_text(
-        'assert "releases/download/v0.35.1/ollama.tar.zst" in steps\n'
-        'assert "FROM ollama/ollama:0.35.1-rocm" in df("ollama", "rocm")\n'
+        'assert "releases/download/v0.40.3/ollama.tar.zst" in steps\n'
+        'assert "FROM ollama/ollama:0.40.3-rocm" in df("ollama", "rocm")\n'
         f'assert tag.startswith("llgenie/ollama:{old[:8]}-")\n'
         f'assert pinned == "{old}"\n'
         'assert "v0.31.0" in other  # another engine, must survive\n'
@@ -305,7 +305,7 @@ def test_bump_rewrites_hardcoded_pin_asserts(tmp_path, monkeypatch):
     (tmp_path / "README.md").write_text(f"tag `llgenie/ollama:{old[:8]}-<hash>-cuda`\n")
     record = tmp_path / "openspec" / "changes" / "old"
     record.mkdir(parents=True)
-    (record / "spec.md").write_text("pinned at v0.35.1\n")
+    (record / "spec.md").write_text("pinned at v0.40.3\n")
 
     # When the bump runs
     monkeypatch.setattr(eb, "REPO_ROOT", tmp_path)
@@ -313,19 +313,19 @@ def test_bump_rewrites_hardcoded_pin_asserts(tmp_path, monkeypatch):
     monkeypatch.setattr(es, "SKILLS_DIR", tmp_path / "skills" / "engines")
     monkeypatch.setattr(eb, "_regen_guard", lambda sid: [])
     monkeypatch.setattr(eb, "plan", lambda eid: [{
-        "id": eid, "old_sha": old, "new_sha": new, "old_ref": "v0.35.1",
+        "id": eid, "old_sha": old, "new_sha": new, "old_ref": "v0.40.3",
         "new_ref": "v0.40.3", "status": "moved"}])
     eb.bump("testengine")
 
     # Then every shape of this engine's pin moved, and nothing else did
     got = (tests / "test_pins.py").read_text()
-    assert "v0.40.3" in got and "v0.35.1" not in got
-    assert "0.40.3-rocm" in got and "0.35.1-rocm" not in got
+    assert "v0.40.3" in got and "v0.40.3" not in got
+    assert "0.40.3-rocm" in got and "0.40.3-rocm" not in got
     assert f"llgenie/ollama:{new[:8]}-" in got
     assert f'pinned == "{new}"' in got
     assert "v0.31.0" in got
     assert f"llgenie/ollama:{new[:8]}-" in (tmp_path / "README.md").read_text()
-    assert (record / "spec.md").read_text() == "pinned at v0.35.1\n"
+    assert (record / "spec.md").read_text() == "pinned at v0.40.3\n"
 
 
 def test_e4_recipe_flag_mirrored(tmp_path):
