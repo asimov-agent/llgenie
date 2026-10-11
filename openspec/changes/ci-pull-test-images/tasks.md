@@ -12,7 +12,7 @@
 
 - [x] 3.1 Makefile `ci-<job>` targets (lint, unit, cron, watch-report, dispatch-e2e, agents-read, openspec, cpu-health, top-tier, install); the cron and watch-report shell checks move from the workflow into them unchanged
 - [x] 3.2 `pipeline.yml` (Linux, one job per target, same check names) + `pipeline-macos.yml` (macOS `checks` + `serve` + `install`, every step `if: ${{ !cancelled() }}`); no job of either file has an `if:`
-- [x] 3.3 No job or step is skipped: `make ci-free-disk` and `make test-engine-stage TEST=serve|detect` replace the `runner.os` / `matrix.test` / `env.PUBLISH` step conditions; `macos-published` on every push run
+- [x] 3.3 No job or step is skipped in a push run that has engines to build: `make ci-free-disk` and `make test-engine-stage TEST=serve|detect` replace the `runner.os` / `matrix.test` / `env.PUBLISH` step conditions. A PR that changes no engine params emits one `engine: none` row (an empty include list fails the workflow); that row is skipped and builds nothing.
 
 ## 4. Tests and docs
 

@@ -1,10 +1,14 @@
 name: CI
 
-# ONE run per push, on every branch: a push to a branch with an open PR is not run a
-# second time as a pull_request event (its checks show on the PR from this run).
+# Runs on pull requests (targeting main) AND on merges to main — never on a bare
+# feature-branch push. This keeps the upstream pipeline (and the GHCR publish on
+# main) working while feature branches don't burn CI by themselves. For cross-repo
+# fork PRs the upstream pipeline runs the PR and its checks report on the PR.
 on:
+  pull_request:
+    branches: ["main"]
   push:
-    branches: ["**"]      # ALL branches
+    branches: ["main"]    # merges: build + publish engine images to GHCR
 
 # Two pipelines run in parallel (issue #112): `linux` (ubuntu-latest) and `macos`
 # (macos-15-intel). Both run the same `make ci-<job>` commands and asserts:
@@ -153,11 +157,24 @@ jobs:
       matrix: ${{ steps.m.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - id: m
-        run: echo "matrix=$(make -s list-engine-images CI=1 JSON=1)" >> "$GITHUB_OUTPUT"
+        # Issue #107: on a pull_request, build/test ONLY the engines whose params
+        # differ from the base branch; a push to main keeps the full matrix.
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "matrix=$(make -s list-engine-images CI=1 JSON=1 CHANGED=origin/${{ github.base_ref }})" >> "$GITHUB_OUTPUT"
+          else
+            echo "matrix=$(make -s list-engine-images CI=1 JSON=1)" >> "$GITHUB_OUTPUT"
+          fi
 
   engine-image:
     needs: [engine-matrix, engine-base, ci-images]
+    # A PR that changes no engine params still emits one `none` row. An empty
+    # include list fails the WORKFLOW before any job if: runs (run 38105450418),
+    # and `matrix` is not a legal name in a job-level if: (run 38106386848).
+    # The none row is skipped per step and builds nothing.
     strategy:
       fail-fast: false
       max-parallel: 20
@@ -173,17 +190,25 @@ jobs:
       PUBLISH: ${{ github.event_name == 'push' && '1' || '' }}
     steps:
       - uses: actions/checkout@v4
+        if: ${{ matrix.engine != 'none' }}
       - name: Free disk (CUDA/ROCm bases are large)
+        if: ${{ matrix.engine != 'none' }}
         run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
       - uses: docker/setup-buildx-action@v3
+        if: ${{ matrix.engine != 'none' }}
       - name: Log in to GHCR (every run is a push run and publishes)
+        if: ${{ matrix.engine != 'none' }}
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
       - name: make build-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} (built locally; pushed only after its tests pass)
+        if: ${{ matrix.engine != 'none' }}
         run: make build-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}
       - name: Pull the test image (GHCR, published by ci-images; the post-build pytest stage runs in llgenie/test)
+        if: ${{ matrix.engine != 'none' }}
         run: make test-image-pull
       - uses: astral-sh/setup-uv@v6
+        if: ${{ matrix.engine != 'none' }}
       - name: hf CLI (tiny test model)
+        if: ${{ matrix.engine != 'none' }}
         run: uv tool install "huggingface_hub[cli]>=0.30"
       # POST-BUILD TEST STAGE: every engine image is tested once built, in parallel, by ONE
       # step (no skipped step, issue #117): make test-engine-stage TEST=<matrix.test> runs
@@ -192,11 +217,13 @@ jobs:
       # tests/test_engine_version.py for 'detect' (GPU images can't serve on a GPU-less
       # runner, so their entrypoint must at least report the engine version).
       - name: "post-build test: make test-engine-stage TEST=${{ matrix.test }} (serve: pytest tests/test_engine_runs.py in llgenie/test (endpoint: answers on the OpenAI API); detect: pytest tests/test_engine_version.py (engine binary reports its version))"
+        if: ${{ matrix.engine != 'none' }}
         run: make test-engine-stage ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} TEST=${{ matrix.test }}
       # PUBLISH STAGE: every push run (any branch), only after the build AND its tests passed
       # (a failed step above fails the job before this). Pushes <registry>/<name>:<hash-arch>
       # and the moving <registry>/<name>:<arch> tag to GHCR.
       - name: make push-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} (every push run, after tests passed)
+        if: ${{ matrix.engine != 'none' }}
         run: make push-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}
 
   # ------------------------------------------------------------------
@@ -212,10 +239,10 @@ jobs:
   # ------------------------------------------------------------------
   engine-published-test:
     needs: [engine-matrix, engine-image, ci-images]
-    # runs even when some build jobs failed: every published image is still
-    # tested; an image whose build/test failed was never pushed, so its job here
-    # fails loudly on the pull (no skip)
-    if: ${{ !cancelled() && github.event_name == 'push' && needs.engine-matrix.result == 'success' }}
+    # Push-only. The `none` placeholder is skipped per step (matrix is not a
+    # legal name in a job-level if:). continue-on-error is illegal on a uses:
+    # job and is not used here either: a real failure on push must fail the run.
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.engine-image.result == 'success' }}
     strategy:
       fail-fast: false
       max-parallel: 20
@@ -230,24 +257,33 @@ jobs:
       LLGENIE_REGISTRY: ghcr.io/${{ github.repository_owner }}
     steps:
       - uses: actions/checkout@v4
+        if: ${{ matrix.engine != 'none' }}
       - name: Free disk (CUDA/ROCm images are large)
+        if: ${{ matrix.engine != 'none' }}
         run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
       - uses: docker/setup-buildx-action@v3
+        if: ${{ matrix.engine != 'none' }}
       # a package published for the first time can be private until linked: pull
       # with the run's token (packages: read) instead of anonymously
       - name: Log in to GHCR (read)
+        if: ${{ matrix.engine != 'none' }}
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
       - uses: astral-sh/setup-uv@v6
+        if: ${{ matrix.engine != 'none' }}
       - name: hf CLI (tiny test model)
+        if: ${{ matrix.engine != 'none' }}
         run: uv tool install "huggingface_hub[cli]>=0.30"
       - name: Pull the test image (GHCR, published by ci-images)
+        if: ${{ matrix.engine != 'none' }}
         run: make test-image-pull
       # Every published image (GPU ones included) is started as a container and
       # must answer "hi" on its OpenAI chat endpoint. Hosted runners have no GPU:
       # GPU images run without GPU devices and their engine falls back to CPU.
       - name: "make test-published-engine (pull from GHCR, digest check, binary version, container answers hi on /v1/chat/completions)"
+        if: ${{ matrix.engine != 'none' }}
         run: make test-published-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}
       - name: "install from the published image only (pull, never build) + make test-built-engine"
+        if: ${{ matrix.engine != 'none' }}
         # GPU-less runner: no CDI spec, the start script runs the GPU image on CPU
         env:
           LLGENIE_NO_GPU: "1"
@@ -260,8 +296,13 @@ jobs:
   # it never runs an engine container, issue #120). Every push run (issue #117).
   # ------------------------------------------------------------------
   linux-published:
-    needs: [engine-published-test]
-    if: ${{ !cancelled() && github.event_name == 'push' }}
+    needs: [engine-image, ci-images]
+    # Required check names (linux-published / install-published-*) must report on
+    # a pull_request too. A skipped uses: job reports nothing, and the merge API
+    # then waits forever: "4 of 14 required status checks are expected" (PR #126).
+    # On a PR, engine-image is the none placeholder (steps skipped), so this runs
+    # against the already-published images. On push it waits for that build.
+    if: ${{ !cancelled() && (github.event_name == 'pull_request' || needs.engine-image.result == 'success') }}
     uses: ./.github/workflows/published.yml
     permissions:
       contents: read
