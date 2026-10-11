@@ -768,22 +768,28 @@ def params_path(skill_id: str) -> Path:
     return PARAMS_DIR / f"{skill_id}.json"
 
 
-def write_params(skills: dict, check_only: bool = False) -> list[str]:
+def write_params(skills: dict, check_only: bool = False, only: str | None = None) -> list[str]:
     """Regenerate params JSON + one Dockerfile per engine x arch; write only
     files that differ, delete files for variants that no longer exist.
-    Returns the changed paths (relative to the repo)."""
+    `only` limits the write to that engine (a bump must not touch another
+    engine, or the shared bases). Returns the changed paths (relative to the repo)."""
     want: dict[Path, str] = {}
     for sid, skill in skills.items():
+        if only and sid != only:
+            continue
         data = generate_params(skill)
         if data is None:
             continue
         want[params_path(sid)] = json.dumps(data, indent=2, sort_keys=False) + "\n"
         for variant in data["variants"]:
             want[dockerfile_path(sid, variant)] = render_dockerfile(data, variant)
-    for b in CONTAINER_BACKENDS:
-        want[BASE_DIR / f"Dockerfile.{b}"] = render_base_dockerfile(b)
+    if not only:
+        for b in CONTAINER_BACKENDS:
+            want[BASE_DIR / f"Dockerfile.{b}"] = render_base_dockerfile(b)
     have = set(PARAMS_DIR.glob("*.json")) | set(DOCKERFILES_DIR.glob("*/Dockerfile.*")) | \
         set(BASE_DIR.glob("Dockerfile.*"))
+    if only:
+        have = {p for p in have if only in p.parts}
     changed = []
     for path, text in want.items():
         if not path.exists() or path.read_text() != text:
@@ -1099,6 +1105,7 @@ def main(argv: list[str] | None = None) -> int:
                            help="container build: skip GPU probes/floors (enforced at run)")
     pp = sub.add_parser("params", help="regenerate containers/engines/params/*.json from the skills")
     pp.add_argument("--check", action="store_true", help="exit 1 if any committed params file is stale")
+    pp.add_argument("--only", default="", help="regenerate only this engine (a bump must not touch another)")
     sv = sub.add_parser("serve")
     sv.add_argument("id")
     sv.add_argument("--backend", choices=BACKENDS, default=None)
@@ -1133,7 +1140,7 @@ def main(argv: list[str] | None = None) -> int:
               f"{len(errors)} error(s)")
         return 1 if errors else 0
     if a.cmd == "params":
-        changed = write_params(skills, check_only=a.check)
+        changed = write_params(skills, check_only=a.check, only=a.only or None)
         for rel in changed:
             print(f"[engine-params] {'STALE' if a.check else 'updated'} {rel}")
         print(f"[engine-params] {len(changed)} file(s) {'stale' if a.check else 'changed'}")
