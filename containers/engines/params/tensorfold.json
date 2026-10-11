@@ -3,8 +3,8 @@
   "engine": "TensorFold",
   "id": "tensorfold",
   "repo": "https://github.com/ashhart/TensorFold",
-  "ref": "v0.6.5",
-  "pinned": "609ca419abecebdc5a059498a613680bd3aa847f",
+  "ref": "v1.0.7",
+  "pinned": "dee65c75b1bffca5a1a2ba811c3b96017140c3c1",
   "native": {},
   "variants": {
     "cuda": {
@@ -24,7 +24,7 @@
       },
       "install": [
         "uv pip install --system --break-system-packages torch triton",
-        "uv pip install --system --break-system-packages 'tensorfold @ git+https://github.com/ashhart/TensorFold.git@v0.6.5'"
+        "uv pip install --system --break-system-packages 'tensorfold @ git+https://github.com/ashhart/TensorFold.git@v1.0.7'"
       ],
       "env": {},
       "detect": "tensorfold --help > /dev/null && python3 -c 'import importlib.metadata as m; print(m.version(\"tensorfold\"))'",
