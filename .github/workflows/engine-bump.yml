@@ -1,0 +1,129 @@
+name: engine-bump
+
+# Issue #107: pin every engine skill to the latest upstream commit, derive the
+# build parameters from the upstream tree (no LLM), and open a PR per changed
+# engine whose CI builds/tests ONLY that engine's images. Runs on its OWN cron,
+# separate from the registry sync (registry-sync.yml). Never merges: a reviewer
+# does. A derive hard-fail (removed option/flag) still opens the PR and flags it
+# in the body so a human fixes the skill (CI goes red on the build).
+on:
+  schedule:
+    - cron: "23 6 * * 1"   # weekly: Monday 06:23 UTC
+  workflow_dispatch:
+    inputs:
+      engine:
+        description: "Only bump this engine (id); empty = all"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Only collaborators, bots, and owners may trigger
+        env:
+          ACTOR: ${{ github.actor }}
+          OWNER: ${{ github.repository_owner }}
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "$ACTOR" = "github-actions[bot]" ] || [ "$ACTOR" = "$OWNER" ]; then
+            echo "allowed"
+            exit 0
+          fi
+          code=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/collaborators/$ACTOR")
+          if [ "$code" = "204" ]; then
+            echo "actor $ACTOR is a collaborator"
+          else
+            echo "::error::actor $ACTOR is not a collaborator, bot, or owner; refusing to run"
+            exit 1
+          fi
+
+  plan:
+    needs: [guard]
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.p.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"   # the repo's pinned Python (issue #120)
+      - id: p
+        env:
+          ENGINE: ${{ github.event.inputs.engine }}
+        run: |
+          if [ -n "$ENGINE" ]; then
+            echo "matrix=$(make -s engine-bump-plan ENGINE=$ENGINE | python3 -c 'import json,sys;print(json.dumps({"include":json.load(sys.stdin)}))')" >> "$GITHUB_OUTPUT"
+          else
+            echo "matrix=$(make -s engine-bump-plan | python3 -c 'import json,sys;print(json.dumps({"include":json.load(sys.stdin)}))')" >> "$GITHUB_OUTPUT"
+          fi
+
+  bump:
+    needs: [plan]
+    if: ${{ needs.plan.outputs.matrix != '{"include":[]}' && needs.plan.outputs.matrix != '' }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    name: bump-${{ matrix.id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"   # the repo's pinned Python (issue #120)
+      - name: make engine-bump (pin + derive + apply + regen)
+        id: bump
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          out=$(make engine-bump ENGINE=${{ matrix.id }}) || {
+            echo "::error::engine bump failed for ${{ matrix.id }}"
+            exit 1
+          }
+          echo "$out"
+          # a derive hard-fail is recorded, not fatal: the PR still opens, and the
+          # body flags it so a human fixes the skill (CI goes red on the build).
+          hf=$(echo "$out" | grep -o '"hard_fail": "[^"]*"' | head -1 | sed 's/.*: "//; s/"$//')
+          echo "hard_fail=$hf" >> "$GITHUB_OUTPUT"
+      - name: Open / update the bump PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ID: ${{ matrix.id }}
+          OLD: ${{ matrix.old_sha }}
+          NEW: ${{ matrix.new_sha }}
+          REF: ${{ matrix.new_ref }}
+          HARD_FAIL: ${{ steps.bump.outputs.hard_fail }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          branch="chore/engine-bump-${ID}"
+          git switch -C "$branch"
+          git add skills/engines/${ID}/SKILL.md containers/engines/params/${ID}.json containers/engines/dockerfiles/${ID}/
+          git commit -m "chore(engine): bump ${ID} to ${REF}@${NEW:0:8}" || { echo "nothing to commit"; exit 0; }
+          git push --force origin "$branch"
+          body="Automated engine pin bump (issue #107).\n\n- **Engine:** \`${ID}\`\n- **Pin:** \`${OLD:0:8}\` -> \`${NEW:0:8}\` (\`${REF}\`)\n- **Compare:** https://github.com/${{ github.repository }}/compare/${OLD}...${NEW}\n- CI builds and tests ONLY this engine's images. A red PR means the new commit needs a manual skill fix."
+          if [ -n "$HARD_FAIL" ]; then
+            body="${body}\n\n> ⚠️ **Manual review required:** a build parameter could not be auto-derived — ${HARD_FAIL}. The pin is bumped and the PR is open; CI will go red on the build until the skill is fixed by hand."
+          fi
+          if gh pr view "$branch" --json state -q .state 2>/dev/null | grep -q OPEN; then
+            gh pr edit "$branch" --title "chore(engine): bump ${ID} to ${REF}@${NEW:0:8}" --body "$body"
+          else
+            gh pr create --base main --head "$branch" --title "chore(engine): bump ${ID} to ${REF}@${NEW:0:8}" --body "$body"
+          fi

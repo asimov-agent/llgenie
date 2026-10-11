@@ -318,8 +318,18 @@ build-engines: ## Build every engine image for ARCH (cpu|cuda|rocm|vulkan) from 
 	@for e in $$(python3 scripts/engine_image.py matrix --json | python3 -c 'import json,sys;print(" ".join(r["engine"] for r in json.load(sys.stdin)["include"] if r["variant"]=="$(ARCH)"))'); do \
 		$(MAKE) build-engine ENGINE=$$e ARCH=$(ARCH) $(if $(PUSH),PUSH=1,) || exit 1; done
 generate-build-engine-params: generate-engine-params ## Alias of generate-engine-params
-list-engine-images: ## List every engine x arch variant (CI=1: only CI variants, JSON=1: GitHub matrix JSON)
-	@python3 scripts/engine_image.py matrix $(if $(CI),--ci,) $(if $(JSON),--json,)
+engine-bump-plan: ## Issue #107: which engines moved upstream (git ls-remote only; ENGINE=<id> to scope)
+	@$(PY) scripts/engine_bump.py plan $(if $(ENGINE),--engine $(ENGINE),)
+engine-derive: ## Issue #107: derive build params for ENGINE at SHA (or its pin) from the upstream tree (no LLM)
+	@test -n "$(ENGINE)" || { echo "Usage: make engine-derive ENGINE=<id> [SHA=<sha>] [OLD_SHA=<sha>]"; exit 1; }
+	@$(PY) scripts/engine_bump.py derive "$(ENGINE)" $(if $(SHA),--sha $(SHA),) $(if $(OLD_SHA),--old-sha $(OLD_SHA),)
+engine-bump: ## Issue #107: pin ENGINE to its latest upstream commit + derive + apply + regen (no push)
+	@test -n "$(ENGINE)" || { echo "Usage: make engine-bump ENGINE=<id>"; exit 1; }
+	@$(PY) scripts/engine_bump.py bump "$(ENGINE)"
+engine-bump-daily: ## Issue #107: plan -> bump every moved engine (DRY=1 prints the plan, no writes)
+	@$(PY) scripts/engine_bump.py bump-daily $(if $(DRY),--dry,)
+list-engine-images: ## List every engine x arch variant (CI=1: only CI variants, JSON=1: GitHub matrix JSON; CHANGED=<ref> scopes to engines whose params differ)
+	@python3 scripts/engine_image.py matrix $(if $(CI),--ci,) $(if $(JSON),--json,) $(if $(CHANGED),--changed $(CHANGED),)
 test-engine-image: ## GPU images on GPU-less CI: run tests/test_engine_version.py (entrypoint `version`; needs a GPU to serve)
 	@test -n "$(ENGINE)" || { echo "Usage: make test-engine-image ENGINE=<id> ARCH=cuda|rocm|vulkan"; exit 1; }
 	python3 scripts/engine_image.py test-image "$(ENGINE)" $(ARCH_ARGS)
@@ -815,6 +825,12 @@ help:
 	@echo "         loop (chained runner), loop-harness, chained, uninstall,"
 	@echo "         cron-install, cron-uninstall, cron-snapshot (watch-loop host crontab),"
 	@echo "         watch-report (human-readable watch-loop status report)"
+	@echo
+	@echo "Daily sync (issue #107):"
+	@echo "  make engine-bump-plan [ENGINE=<id>]   which engines moved upstream (git ls-remote only)"
+	@echo "  make engine-derive ENGINE=<id> [SHA=] derive build params from the upstream tree (no LLM)"
+	@echo "  make engine-bump ENGINE=<id>          pin + derive + apply + regen (no push)"
+	@echo "  make engine-bump-daily [DRY=1]        plan -> bump every moved engine; DRY=1 prints only"
 	@echo
 	@echo "Install (issue #98: engines run from their images):"
 	@echo "  make install [ENGINES=all|id,id] [ARCH=cpu|cuda|rocm|vulkan] [BUILD=1]   pull this host's tested images + start scripts + version test"

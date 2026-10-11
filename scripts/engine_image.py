@@ -448,9 +448,15 @@ def disabled(engine: str, variant: str) -> str:
 SMOKE_SKIP = {"tensorrt-llm", "sglang", "tensorfold", "freetoken"}  # cuda-only servers, no cpu smoke
 
 
-def matrix(ci: bool = False) -> list[dict]:
+def matrix(ci: bool = False, changed: str = "") -> list[dict]:
     out = []
     for path in sorted(es.PARAMS_DIR.glob("*.json")):
+        if changed:
+            rel = path.relative_to(es.REPO_ROOT)
+            p = subprocess.run(["git", "diff", "--quiet", f"{changed}..HEAD", "--", str(rel)],
+                               capture_output=True, cwd=es.REPO_ROOT)
+            if p.returncode == 0:  # no diff -> unchanged -> skip
+                continue
         params = json.loads(path.read_text())
         for key, v in params["variants"].items():
             if ci and (key not in CI_VARIANTS or disabled(params["id"], key)):
@@ -518,6 +524,7 @@ def main(argv=None) -> int:
     m = sub.add_parser("matrix")
     m.add_argument("--json", action="store_true")
     m.add_argument("--ci", action="store_true", help="only the variants CI builds")
+    m.add_argument("--changed", default="", help="ref: only engines whose params differ from it")
     a = ap.parse_args(argv)
 
     if a.cmd == "build-base":
@@ -527,7 +534,7 @@ def main(argv=None) -> int:
     if a.cmd == "ensure-env":
         return 0 if ensure_container_env() else 1
     if a.cmd == "matrix":
-        rows = matrix(a.ci)
+        rows = matrix(a.ci, a.changed)
         print(json.dumps({"include": rows}) if a.json else
               "\n".join(f"{r['engine']:28} {r['variant']:18} {'smoke' if r['smoke'] else ''}" for r in rows))
         return 0

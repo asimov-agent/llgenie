@@ -1,10 +1,14 @@
 name: CI
 
-# ONE run per push, on every branch: a push to a branch with an open PR is not run a
-# second time as a pull_request event (its checks show on the PR from this run).
+# Runs on pull requests (targeting main) AND on merges to main — never on a bare
+# feature-branch push. This keeps the upstream pipeline (and the GHCR publish on
+# main) working while feature branches don't burn CI by themselves. For cross-repo
+# fork PRs the upstream pipeline runs the PR and its checks report on the PR.
 on:
+  pull_request:
+    branches: ["main"]
   push:
-    branches: ["**"]      # ALL branches
+    branches: ["main"]    # merges: build + publish engine images to GHCR
 
 # Two pipelines run in parallel (issue #112): `linux` (ubuntu-latest) and `macos`
 # (macos-15-intel). Both run the same `make ci-<job>` commands and asserts:
@@ -153,8 +157,17 @@ jobs:
       matrix: ${{ steps.m.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - id: m
-        run: echo "matrix=$(make -s list-engine-images CI=1 JSON=1)" >> "$GITHUB_OUTPUT"
+        # Issue #107: on a pull_request, build/test ONLY the engines whose params
+        # differ from the base branch; a push to main keeps the full matrix.
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "matrix=$(make -s list-engine-images CI=1 JSON=1 CHANGED=origin/${{ github.base_ref }})" >> "$GITHUB_OUTPUT"
+          else
+            echo "matrix=$(make -s list-engine-images CI=1 JSON=1)" >> "$GITHUB_OUTPUT"
+          fi
 
   engine-image:
     needs: [engine-matrix, engine-base, ci-images]

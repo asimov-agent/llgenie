@@ -1,8 +1,9 @@
 name: registry-sync
 
 # Issue #105: keep the vendored data/models.json (llgenie's trend pick) in sync
-# with andyholst/trending-local-llms. Daily + on demand; opens or updates a PR
-# from chore/registry-sync when the file changed. Never merges: a reviewer does.
+# with andyholst/trending-local-llms. Runs on its OWN cron, separate from the
+# engine pin bump (engine-bump.yml). Opens or updates a PR when the file changed.
+# Never merges: a reviewer does.
 on:
   schedule:
     - cron: "17 5 * * *"
