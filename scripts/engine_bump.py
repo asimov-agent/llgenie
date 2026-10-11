@@ -263,12 +263,12 @@ def _regen_guard(skill_id: str) -> list[str]:
         if path:
             changed.append(path)
     for c in changed:
-        if not (c.startswith("containers/engines/params/") or
-                c.startswith("containers/engines/dockerfiles/")):
-            raise SystemExit(f"[engine-bump] regen changed a non-engine file: {c}")
-        if not (c == f"containers/engines/params/{skill_id}.json" or
-                c.startswith(f"containers/engines/dockerfiles/{skill_id}/")):
-            raise SystemExit(f"[engine-bump] regen changed another engine's file: {c}")
+        skill = f"skills/engines/{skill_id}/SKILL.md"
+        own = (c == skill
+               or c == f"containers/engines/params/{skill_id}.json"
+               or c.startswith(f"containers/engines/dockerfiles/{skill_id}/"))
+        if not own:
+            raise SystemExit(f"[engine-bump] regen changed a file outside {skill_id}: {c}")
     return changed
 
 
