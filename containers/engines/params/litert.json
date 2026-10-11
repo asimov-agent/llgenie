@@ -3,8 +3,8 @@
   "engine": "LiteRT",
   "id": "litert",
   "repo": "https://github.com/google-ai-edge/LiteRT-LM",
-  "ref": "v0.17.1",
-  "pinned": "5e58e9a0aef7abf7091207a8b1d1063a1c800f08",
+  "ref": "v0.18.0",
+  "pinned": "b2f686e2ed4718fb84ec398a61dd59ca0f0aff27",
   "native": {},
   "variants": {
     "cpu": {
@@ -23,7 +23,7 @@
         "TORCH_BACKEND": "cpu"
       },
       "install": [
-        "uv pip install --system --break-system-packages litert-lm==0.17.1"
+        "uv pip install --system --break-system-packages litert-lm==0.18.0"
       ],
       "env": {},
       "detect": "litert-lm --help > /dev/null && python3 -c 'import importlib.metadata as m; print(m.version(\"litert-lm\"))'",
