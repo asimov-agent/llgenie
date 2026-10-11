@@ -245,14 +245,23 @@ def _apply_findings(skill_id: str, findings: dict) -> list[str]:
 
 
 def _regen_guard(skill_id: str) -> list[str]:
-    """Run make generate-engine-params and fail if anything outside the bumped
-    engine's params/dockerfiles changed. Returns the allowed changed paths."""
-    p = _run(["make", "generate-engine-params"], cwd=REPO_ROOT, timeout=300)
+    """Run make generate-engine-params and fail if the working tree changed
+    outside the bumped engine's params/dockerfiles. Reads git status, not make's
+    stdout: GNU make prints `make[1]: Entering directory ...` there (run
+    38109392303), which is not a changed path."""
+    p = _run(["make", "generate-engine-params", f"ENGINE={skill_id}"], cwd=REPO_ROOT, timeout=300)
     if p.returncode != 0:
         raise SystemExit(f"[engine-bump] generate-engine-params failed:\n{p.stdout}\n{p.stderr}")
-    allowed = {f"containers/engines/params/{skill_id}.json",
-               f"containers/engines/dockerfiles/{skill_id}/"}
-    changed = [ln for ln in p.stdout.splitlines() if ln.strip()]
+    status = _run(["git", "status", "--porcelain"], cwd=REPO_ROOT, timeout=60)
+    if status.returncode != 0:
+        raise SystemExit(f"[engine-bump] git status failed:\n{status.stderr}")
+    changed = []
+    for ln in status.stdout.splitlines():
+        path = ln[3:].strip()
+        if " -> " in path:  # rename
+            path = path.split(" -> ", 1)[1].strip()
+        if path:
+            changed.append(path)
     for c in changed:
         if not (c.startswith("containers/engines/params/") or
                 c.startswith("containers/engines/dockerfiles/")):

@@ -278,8 +278,8 @@ engine-install: ## Install ENGINE via its skill (ENGINE=<id> [BACKEND=] [DRY=1])
 # 127.0.0.1:$(PORT) -> base_url http://127.0.0.1:$(PORT)/v1, model llm-local.
 PORT ?= 11434
 ARCH_ARGS = $(if $(ARCH),--variant $(ARCH),$(ENGINE_ARGS))
-generate-engine-params: ## Regenerate containers/engines/params/*.json from the current engine skills (per engine x arch)
-	python3 scripts/engine_skills.py params
+generate-engine-params: ## Regenerate containers/engines/params/*.json from the current engine skills (per engine x arch; ENGINE=<id> writes only that engine)
+	python3 scripts/engine_skills.py params $(if $(ENGINE),--only $(ENGINE),)
 check-engine-params: ## CI: fail if committed engine params differ from what the skills generate
 	python3 scripts/engine_skills.py params --check
 build-engine-base: ## Build the shared toolchain base image for BACKEND (cpu|cuda|rocm|vulkan; PUSH=1 publishes + caches in LLGENIE_REGISTRY)

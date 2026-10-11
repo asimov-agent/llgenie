@@ -374,18 +374,48 @@ def test_unparseable_recipe_hard_fails(tmp_path):
 # Regen guard + changed-engines scoping
 # ---------------------------------------------------------------------------
 
-def test_regen_guard_isolates_engine(tmp_path):
+def test_regen_guard_isolates_engine(tmp_path, monkeypatch):
     """A bump of A that changes B's params fails the job."""
-    # simulate: regen output lists another engine's file
-    orig = eb._run
-    eb._run = lambda cmd, **kw: type("P", (), {"returncode": 0,
-                                               "stdout": "containers/engines/params/other.json\n",
-                                               "stderr": ""})()
-    try:
-        with pytest.raises(SystemExit, match="another engine"):
-            eb._regen_guard("testengine")
-    finally:
-        eb._run = orig
+
+    # Given make succeeds and git status shows another engine's params
+    def fake_run(cmd, **kw):
+        out = " M containers/engines/params/other.json\n" if cmd[:2] == ["git", "status"] else ""
+        return type("P", (), {"returncode": 0, "stdout": out, "stderr": ""})()
+
+    # When the guard runs for testengine
+    monkeypatch.setattr(eb, "_run", fake_run)
+
+    # Then it fails naming the other engine
+    with pytest.raises(SystemExit, match="another engine"):
+        eb._regen_guard("testengine")
+
+
+def test_regen_guard_ignores_make_directory_lines(tmp_path, monkeypatch):
+    """make's Entering-directory line is not a changed file (run 38109392303).
+
+    The regen is scoped to the bumped engine: rewriting every engine's params
+    would fail this guard, and the bump job would never open a PR."""
+
+    # Given make prints a directory line and git status shows only this engine
+    seen = []
+
+    def fake_run(cmd, **kw):
+        seen.append(cmd)
+        if cmd[:1] == ["make"]:
+            return type("P", (), {"returncode": 0,
+                                  "stdout": "make[1]: Entering directory '/work/llgenie'\n",
+                                  "stderr": ""})()
+        return type("P", (), {"returncode": 0,
+                              "stdout": " M containers/engines/params/testengine.json\n",
+                              "stderr": ""})()
+
+    # When the guard runs
+    monkeypatch.setattr(eb, "_run", fake_run)
+    changed = eb._regen_guard("testengine")
+
+    # Then only the bumped engine's params file is reported, and regen was scoped
+    assert changed == ["containers/engines/params/testengine.json"]
+    assert ["make", "generate-engine-params", "ENGINE=testengine"] in seen
 
 
 def test_changed_engines_scopes_matrix(tmp_path):
