@@ -308,8 +308,11 @@ def test_linux_and_macos_run_the_same_pipeline():
     triggers = ci.get("on", ci.get(True))
     callers = {name: (job["uses"], job["with"]["runner"]) for name, job in jobs.items() if "uses" in job}
 
-    # Then a push starts ONE run (push only, every branch; no second pull_request run)
-    assert list(triggers) == ["push"] and triggers["push"]["branches"] == ["**"]
+    # Then CI runs on pull requests targeting main AND on merges to main — never on a
+    # bare feature-branch push (issue #107: PRs scope the engine matrix to changed engines)
+    assert list(triggers) == ["pull_request", "push"]
+    assert triggers["pull_request"]["branches"] == ["main"]
+    assert triggers["push"]["branches"] == ["main"]
 
     # And linux and macos call the same pipeline, on a Linux and a macOS runner
     assert callers["linux"] == ("./.github/workflows/pipeline.yml", "ubuntu-latest")
