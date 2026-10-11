@@ -386,7 +386,23 @@ def test_regen_guard_isolates_engine(tmp_path, monkeypatch):
     monkeypatch.setattr(eb, "_run", fake_run)
 
     # Then it fails naming the other engine
-    with pytest.raises(SystemExit, match="another engine"):
+    with pytest.raises(SystemExit, match="outside testengine"):
+        eb._regen_guard("testengine")
+
+
+def test_regen_guard_rejects_another_engines_skill(tmp_path, monkeypatch):
+    """Another engine's SKILL.md is not this bump."""
+
+    # Given git status shows a different engine's skill
+    def fake_run(cmd, **kw):
+        out = " M skills/engines/other/SKILL.md\n" if cmd[:2] == ["git", "status"] else ""
+        return type("P", (), {"returncode": 0, "stdout": out, "stderr": ""})()
+
+    # When the guard runs for testengine
+    monkeypatch.setattr(eb, "_run", fake_run)
+
+    # Then it fails naming the other skill
+    with pytest.raises(SystemExit, match="outside testengine"):
         eb._regen_guard("testengine")
 
 
@@ -416,6 +432,32 @@ def test_regen_guard_ignores_make_directory_lines(tmp_path, monkeypatch):
     # Then only the bumped engine's params file is reported, and regen was scoped
     assert changed == ["containers/engines/params/testengine.json"]
     assert ["make", "generate-engine-params", "ENGINE=testengine"] in seen
+
+
+def test_regen_guard_allows_the_bumped_skill(tmp_path, monkeypatch):
+    """The pin edit of the bumped engine's SKILL.md is the bump, not a stray file.
+
+    Run 38110707179 failed every bump job on skills/engines/<id>/SKILL.md."""
+
+    # Given git status shows the pin edit plus this engine's params
+    def fake_run(cmd, **kw):
+        if cmd[:1] == ["make"]:
+            return type("P", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+        return type("P", (), {"returncode": 0, "stdout": (
+            " M skills/engines/testengine/SKILL.md\n"
+            " M containers/engines/params/testengine.json\n"
+            " M containers/engines/dockerfiles/testengine/Dockerfile.cpu\n"), "stderr": ""})()
+
+    # When the guard runs
+    monkeypatch.setattr(eb, "_run", fake_run)
+    changed = eb._regen_guard("testengine")
+
+    # Then the skill, params and dockerfile are allowed
+    assert changed == [
+        "skills/engines/testengine/SKILL.md",
+        "containers/engines/params/testengine.json",
+        "containers/engines/dockerfiles/testengine/Dockerfile.cpu",
+    ]
 
 
 def test_changed_engines_scopes_matrix(tmp_path):
