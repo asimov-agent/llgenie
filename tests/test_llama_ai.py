@@ -107,6 +107,45 @@ def test_download_metadata_verification_rejects_html_error_page(tmp_path):
     assert meta is None, "an HTML error page is not a valid GGUF model and must be rejected"
 
 
+def test_unreadable_gguf_is_removed_and_refetched(tmp_path, monkeypatch):
+    """A same-size damaged file is dropped and fetched again, not rejected as-is.
+
+    `hf download` treats a same-size local file as done, so the metadata check
+    must remove the unreadable copy and re-fetch before it fails (job 114411102221).
+    """
+
+    # Given a candidate whose first fetch leaves a damaged same-size file
+    good = _minimal_gguf(tmp_path, "model.gguf")
+    good.write_bytes(good.read_bytes() + b"\x00" * 100_000_000)
+    dest = tmp_path / "tier" / "model.gguf"
+    dest.parent.mkdir()
+    dest.write_bytes(b"\x5a" * dest_size(good))
+    calls = {"n": 0}
+
+    def fake_download(cmd):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            dest.write_bytes(good.read_bytes())
+        return 0
+
+    monkeypatch.setattr(llama_ai.subprocess, "call", fake_download)
+    monkeypatch.setattr(llama_ai.shutil, "which", lambda name: "/usr/bin/hf")
+    cand = {"repo": "Qwen/x", "filename": "model.gguf", "dest_path": str(dest),
+            "size_gb": 0.1, "size_bytes": dest.stat().st_size, "tier_folder": "1GB"}
+
+    # When the candidate is downloaded
+    got = llama_ai.download_top_tier_candidate(cand)
+
+    # Then the damaged copy was removed and the second fetch restored a real GGUF
+    assert calls["n"] == 2
+    assert got == str(dest)
+    assert llama_ai.read_model_meta_fast(got)["name"] == "mini-model"
+
+
+def dest_size(path):
+    return path.stat().st_size
+
+
 # ---------------------------------------------------------------------------
 # model scan (reads whatever lives under MODELS_ROOT)
 # ---------------------------------------------------------------------------

@@ -244,6 +244,61 @@ def _apply_findings(skill_id: str, findings: dict) -> list[str]:
     return changed
 
 
+def _rewrite_pin_asserts(skill_id: str, old_sha: str, new_sha: str,
+                         old_ref: str, new_ref: str) -> list[str]:
+    """Rewrite hardcoded pin/version/image-tag asserts that name this engine's old pin.
+
+    The unit suite asserts the skill's current pin in three shapes (issue #144):
+    the full sha, its 8-char prefix (image tags), and the tag/version string
+    (`v0.35.1`, `0.35.1-rocm`). A bump that moves the pin without moving those
+    asserts makes `make test-unit` red on the bump PR. Only `tests/` and
+    `README.md` are rewritten; historical OpenSpec/agent-wiki records are not.
+    A ref that did not move (branch skills) is not substituted.
+    """
+    pairs = [(old_sha, new_sha), (old_sha[:8], new_sha[:8])]
+    if old_ref and new_ref and old_ref != new_ref:
+        pairs.append((old_ref, new_ref))
+        if old_ref.startswith("v") and new_ref.startswith("v"):
+            pairs.append((old_ref[1:], new_ref[1:]))
+    changed: list[str] = []
+    roots = [REPO_ROOT / "tests", REPO_ROOT / "README.md"]
+    files: list[Path] = []
+    for root in roots:
+        if root.is_file():
+            files.append(root)
+        elif root.is_dir():
+            files.extend(p for p in root.rglob("*") if p.is_file() and p.suffix in {".py", ".md"})
+    for path in files:
+        text = path.read_text()
+        new = text
+        for old, repl in pairs:
+            if old and old in new:
+                new = new.replace(old, repl)
+        if new != text:
+            path.write_text(new)
+            changed.append(str(path.relative_to(REPO_ROOT)))
+    return changed
+
+
+def _sync_generated(skill_id: str) -> list[str]:
+    """Re-run the generators whose output embeds this engine's pin.
+
+    `make check-strata-models` (part of `make ci-unit`) fails when
+    `data/strata_models.json` was built from a pin other than the skill's, so a
+    Strata bump must regenerate it. Other engines have no such artifact.
+    """
+    generators = {
+        "strata": ["make", "sync-strata-models"],
+    }
+    cmd = generators.get(skill_id)
+    if not cmd:
+        return []
+    p = _run(cmd, cwd=REPO_ROOT, timeout=300)
+    if p.returncode != 0:
+        raise SystemExit(f"[engine-bump] {' '.join(cmd)} failed:\n{p.stdout}\n{p.stderr}")
+    return [cmd[-1]]
+
+
 def _regen_guard(skill_id: str) -> list[str]:
     """Run make generate-engine-params and fail if the working tree changed
     outside the bumped engine's params/dockerfiles. Reads git status, not make's
@@ -266,7 +321,10 @@ def _regen_guard(skill_id: str) -> list[str]:
         skill = f"skills/engines/{skill_id}/SKILL.md"
         own = (c == skill
                or c == f"containers/engines/params/{skill_id}.json"
-               or c.startswith(f"containers/engines/dockerfiles/{skill_id}/"))
+               or c.startswith(f"containers/engines/dockerfiles/{skill_id}/")
+               or c.startswith("tests/")
+               or c == "README.md"
+               or c == "data/strata_models.json")
         if not own:
             raise SystemExit(f"[engine-bump] regen changed a file outside {skill_id}: {c}")
     return changed
@@ -308,9 +366,14 @@ def bump(skill_id: str, dry: bool = False) -> list[dict]:
         row["hard_fail"] = str(e)
     pin(skill_id, row["new_ref"], row["new_sha"])
     applied = _apply_findings(skill_id, findings)
+    rewritten = _rewrite_pin_asserts(skill_id, row["old_sha"], row["new_sha"],
+                                     row["old_ref"], row["new_ref"])
+    synced = _sync_generated(skill_id)
     changed = _regen_guard(skill_id)
     print(f"[engine-bump] {skill_id}: {row['old_sha'][:8]} -> {row['new_sha'][:8]} "
           f"({row['new_ref']}); applied: {', '.join(applied) or 'none'}; "
+          f"asserts: {', '.join(rewritten) or 'none'}; "
+          f"synced: {', '.join(synced) or 'none'}; "
           f"regen: {', '.join(changed)}")
     print(f"[engine-bump] {skill_id}: findings {json.dumps(findings, sort_keys=True)}")
     return [row]

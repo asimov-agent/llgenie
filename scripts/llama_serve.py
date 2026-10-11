@@ -1064,18 +1064,26 @@ def download_top_tier_candidate(cand, models_root=None):
     print(f"[top-tier] downloading {cand['repo']}::{cand['filename']} -> {dest_dir} "
           f"({cand['size_gb']:.2f} GB, tier {cand['tier_folder']})")
     rc = subprocess.call(cmd)
-    if rc != 0 or not os.path.isfile(final) or os.path.getsize(final) < 100_000_000:
-        raise SystemExit(f"[ERROR] top-tier download failed (rc={rc}); file missing/incomplete: {final}")
     # VERIFY the downloaded file by its GGUF metadata header (not just size/existence):
     # the file must actually be a readable GGUF model, not an HTML error page or a
-    # truncated/corrupt stub that happens to have the right filename+size.
-    meta = read_model_meta_fast(final)
-    if meta is None:
-        try:
-            meta = read_model_meta(final)   # full reader fallback (handles unusual GGUFs)
-        except Exception:
-            meta = None                     # corrupt/non-GGUF -> reject, never raise
-    if meta is None:
+    # truncated/corrupt stub that happens to have the right filename+size. `hf download`
+    # treats a same-size local file as done, so a damaged copy is never re-fetched on
+    # its own: drop it and fetch once more before failing (issue #144, job 114411102221).
+    for attempt in (1, 2):
+        if rc != 0 or not os.path.isfile(final) or os.path.getsize(final) < 100_000_000:
+            raise SystemExit(f"[ERROR] top-tier download failed (rc={rc}); file missing/incomplete: {final}")
+        meta = read_model_meta_fast(final)
+        if meta is None:
+            try:
+                meta = read_model_meta(final)   # full reader fallback (handles unusual GGUFs)
+            except Exception:
+                meta = None                     # corrupt/non-GGUF -> reject, never raise
+        if meta is not None:
+            break
+        print(f"[top-tier] {final} is not a readable GGUF; removing and re-fetching", flush=True)
+        os.remove(final)
+        rc = subprocess.call(cmd)
+    else:
         raise SystemExit(f"[ERROR] downloaded file is not a valid GGUF model "
                          f"(metadata unreadable): {final}")
     print(f"[top-tier] verified downloaded model via GGUF metadata: "

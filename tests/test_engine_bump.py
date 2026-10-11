@@ -280,6 +280,54 @@ def test_bump_still_pins_on_hard_fail(tmp_path):
     assert f"pinned: {new}" in text
 
 
+def test_bump_rewrites_hardcoded_pin_asserts(tmp_path, monkeypatch):
+    """A bump rewrites the same pin literals the unit suite asserts (issue #144).
+
+    The failing shapes are the full sha, its 8-char image-tag prefix, the tag
+    (`v0.35.1`) and the tag with the leading v stripped (`0.35.1-rocm`). A
+    historical record and another engine's pin must be left alone.
+    """
+
+    # Given a skill whose pin the unit suite hardcodes, and a newer upstream tag
+    repo = _make_repo(tmp_path, "up", {"CMakeLists.txt": "option(GGML_X ON)"})
+    old = "a" * 40
+    new = _git(repo, "rev-parse", "HEAD")
+    skill = _skill(tmp_path, str(repo), "v0.35.1", "tag", old, version="v0.35.1")
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    (tests / "test_pins.py").write_text(
+        'assert "releases/download/v0.35.1/ollama.tar.zst" in steps\n'
+        'assert "FROM ollama/ollama:0.35.1-rocm" in df("ollama", "rocm")\n'
+        f'assert tag.startswith("llgenie/ollama:{old[:8]}-")\n'
+        f'assert pinned == "{old}"\n'
+        'assert "v0.31.0" in other  # another engine, must survive\n'
+    )
+    (tmp_path / "README.md").write_text(f"tag `llgenie/ollama:{old[:8]}-<hash>-cuda`\n")
+    record = tmp_path / "openspec" / "changes" / "old"
+    record.mkdir(parents=True)
+    (record / "spec.md").write_text("pinned at v0.35.1\n")
+
+    # When the bump runs
+    monkeypatch.setattr(eb, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(es, "load_skills", lambda: {"testengine": skill})
+    monkeypatch.setattr(es, "SKILLS_DIR", tmp_path / "skills" / "engines")
+    monkeypatch.setattr(eb, "_regen_guard", lambda sid: [])
+    monkeypatch.setattr(eb, "plan", lambda eid: [{
+        "id": eid, "old_sha": old, "new_sha": new, "old_ref": "v0.35.1",
+        "new_ref": "v0.40.3", "status": "moved"}])
+    eb.bump("testengine")
+
+    # Then every shape of this engine's pin moved, and nothing else did
+    got = (tests / "test_pins.py").read_text()
+    assert "v0.40.3" in got and "v0.35.1" not in got
+    assert "0.40.3-rocm" in got and "0.35.1-rocm" not in got
+    assert f"llgenie/ollama:{new[:8]}-" in got
+    assert f'pinned == "{new}"' in got
+    assert "v0.31.0" in got
+    assert f"llgenie/ollama:{new[:8]}-" in (tmp_path / "README.md").read_text()
+    assert (record / "spec.md").read_text() == "pinned at v0.35.1\n"
+
+
 def test_e4_recipe_flag_mirrored(tmp_path):
     """A mirrored recipe flag is auto-added; non-mirrored is report-only."""
     repo = _make_repo(tmp_path, "up", {
