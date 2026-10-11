@@ -1,8 +1,8 @@
 {
   "_generated_by": "make sync-strata-models (scripts/strata_models.py) - do not edit",
-  "source": "https://github.com/Niko1221/Strata/blob/6f32ec070f23ced9f50e704d854d775da52591ab/setup.py",
-  "ref": "v0.1.39",
-  "pinned": "6f32ec070f23ced9f50e704d854d775da52591ab",
+  "source": "https://github.com/Niko1221/Strata/blob/61b3fb5dd3f1e8ec09cf7e4e05208bc6d3c46406/setup.py",
+  "ref": "v0.1.42",
+  "pinned": "61b3fb5dd3f1e8ec09cf7e4e05208bc6d3c46406",
   "hf_revisions": {
     "ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF": "ed59f92082b1e93c0e96d60a8b11aab089b52f09",
     "ukisai/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF": "b22d729eae29b5796f76fb70f91aef549b9fc52c",
@@ -78,7 +78,8 @@
       "download_gb": 83.6,
       "ram_gb": 62,
       "families": [
-        "qwen"
+        "qwen",
+        "swift"
       ],
       "experimental": false
     },
