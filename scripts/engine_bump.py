@@ -167,6 +167,148 @@ def pin(skill_id: str, new_ref: str, new_sha: str, dry: bool = False) -> str:
     return new_text
 
 
+def _frontmatter_span(text: str) -> tuple[int, int]:
+    """Byte span of the front matter body (between the two `---` lines)."""
+    if not text.startswith("---\n"):
+        raise SystemExit("[engine-bump] SKILL.md has no front matter")
+    end = text.find("\n---\n", 4)
+    if end < 0:
+        raise SystemExit("[engine-bump] unterminated front matter")
+    return 4, end
+
+
+def _block_span(text: str, key: str) -> tuple[int, int] | None:
+    """Span of a top-level front-matter block, from its key line through the
+    last indented line that belongs to it. None when the key is absent."""
+    start, end = _frontmatter_span(text)
+    fm = text[start:end]
+    m = re.search(rf"^{re.escape(key)}:.*$", fm, re.MULTILINE)
+    if not m:
+        return None
+    abs_start = start + m.start()
+    rest = fm[m.end():]
+    nxt = re.search(r"\n(?![ \n])", rest)
+    abs_end = start + m.end() + (nxt.start() if nxt else len(rest))
+    return abs_start, abs_end
+
+
+def _replace_in_block(text: str, key: str, pat: re.Pattern, repl: str, count: int = 0) -> tuple[str, int]:
+    """Substitute `pat` only inside the named front-matter block."""
+    span = _block_span(text, key)
+    if span is None:
+        return text, 0
+    a, b = span
+    new, n = pat.subn(repl, text[a:b], count=count)
+    return text[:a] + new + text[b:], n
+
+
+def _download(url: str, dest: Path) -> None:
+    """Stream `url` to `dest`. stdlib, so it runs in the test image (no curl)."""
+    import urllib.request
+    req = urllib.request.Request(url, headers={"User-Agent": "llgenie-engine-bump"})
+    with urllib.request.urlopen(req, timeout=180) as r, dest.open("wb") as f:
+        while True:
+            chunk = r.read(1 << 20)
+            if not chunk:
+                break
+            f.write(chunk)
+
+
+def _release_assets(repo: str, tag: str) -> list[dict]:
+    """The published GitHub release's assets for `tag`. Empty on any failure
+    (a missing release is "no archive", not a hard fail — other engines continue)."""
+    m = re.match(r"https?://github\.com/([^/]+/[^/]+?)(?:\.git)?/?$", repo.strip())
+    if not m:
+        return []
+    url = f"https://api.github.com/repos/{m.group(1)}/releases/tags/{tag}"
+    try:
+        import json as _json
+        import urllib.request
+        req = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json",
+                                                   "User-Agent": "llgenie-engine-bump"})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            data = _json.load(r)
+    except Exception:
+        return []
+    return [{"name": a.get("name", "")} for a in data.get("assets") or []]
+
+
+# (backend) -> (os token, arch token) in `<name>-<version>-<os>-<arch>.tar.gz`.
+_ARCHIVE_TARGET = {"cuda": ("linux", "x86_64"), "rocm": ("linux", "x86_64"),
+                   "vulkan": ("linux", "x86_64"), "cpu": ("linux", "x86_64"),
+                   "metal": ("macos", "arm64")}
+_ARCHIVE = re.compile(r"^(?P<name>.+)-(?P<ver>[0-9][0-9.]*)-(?P<os>linux|macos)-(?P<arch>[A-Za-z0-9_]+)\.tar\.gz$")
+
+
+def _native_archives(assets: list[dict]) -> dict[tuple[str, str], str]:
+    """`(os, arch) -> asset name` for archives that ship a sibling `.sha256`."""
+    names = {a["name"] for a in assets}
+    out = {}
+    for name in sorted(names):
+        m = _ARCHIVE.match(name)
+        if m and f"{name}.sha256" in names:
+            out[(m.group("os"), m.group("arch"))] = name
+    return out
+
+
+def _pip_install(steps) -> bool:
+    return any(re.search(r"\b(uv|pip3?)\b", str(s)) and "git+" in str(s) for s in (steps or []))
+
+
+def release_archive_install(skill: dict, assets: list[dict]) -> dict | None:
+    """Install steps that unpack the release archive, or None when the release
+    is not a native-archive release (or the skill does not pip-install from git)."""
+    found = _native_archives(assets)
+    if not found:
+        return None
+    install = skill.get("install") or {}
+    if not isinstance(install, dict) or not any(_pip_install(v if isinstance(v, list) else [v])
+                                                for v in install.values()):
+        return None
+    steps_for = {}
+    for backend in skill.get("backends") or []:
+        target = _ARCHIVE_TARGET.get(backend)
+        if target is None or target not in found:
+            return None  # a backend we cannot place an archive for: do not guess
+        asset = found[target]
+        # `{version}` is the skill version with no leading v, which is how the
+        # archive is named (tensorfold-1.0.5-linux-x86_64.tar.gz)
+        ver = re.search(r"-([0-9][0-9.]*)-", asset)
+        if ver is None:
+            return None
+        asset_tmpl = asset.replace(f"-{ver.group(1)}-", "-{version}-", 1)
+        slug = asset_tmpl[:-len(".tar.gz")]
+        check = "sha256sum -c" if target[0] == "linux" else "shasum -a 256 -c"
+        steps_for[backend] = [
+            "mkdir -p {prefix}/{version}",
+            "curl -fsSL -o {prefix}/" + asset_tmpl + " {repo}/releases/download/v{version}/" + asset_tmpl,
+            "curl -fsSL -o {prefix}/" + asset_tmpl + ".sha256 {repo}/releases/download/v{version}/" + asset_tmpl + ".sha256",
+            "cd {prefix} && " + check + " " + asset_tmpl + ".sha256",
+            "mkdir -p {prefix}/{version}/bin && tar -xzf {prefix}/" + asset_tmpl
+            + " -C {prefix}/{version} --strip-components=1 " + slug + "/bin",
+        ]
+    return steps_for
+
+
+def _dump_install(steps_for: dict) -> str:
+    lines = ["install:"]
+    for backend, steps in steps_for.items():
+        lines.append(f"  {backend}:")
+        for step in steps:
+            lines.append(f'    - "{step}"')
+    return "\n".join(lines)
+
+
+def _apply_release_archive(text: str, steps_for: dict) -> str:
+    span = _block_span(text, "install")
+    if span is None:
+        return text
+    a, b = span
+    block = _dump_install(steps_for)
+    # keep the newline that separated install from the next key
+    return text[:a] + block + text[b:]
+
+
 def _apply_findings(skill_id: str, findings: dict) -> list[str]:
     """Write the derived `auto` findings into the skill's frontmatter.
 
@@ -216,20 +358,40 @@ def _apply_findings(skill_id: str, findings: dict) -> list[str]:
                     text = text[:fm_end + 1] + block + text[fm_end + 1:]
                     changed.append(f"mirror {flag}={val}")
 
-    # E5: toolchain — update toolchain.<backend>
+    # E5: toolchain — update toolchain.<backend>, and only that block. A skill
+    # with no toolchain: key (llama.cpp keeps its toolchain under prereqs:) is
+    # left alone: writing the version onto prereqs.cuda turned `[nvcc]` into
+    # `12.8.1` (PR #149).
     toolchain = auto.get("toolchain") or {}
-    if toolchain:
+    if toolchain and _block_span(text, "toolchain"):
         for backend, ver in toolchain.items():
             pat = re.compile(rf"^  {re.escape(backend)}:.*$", re.MULTILINE)
-            if pat.search(text):
-                text = pat.sub(f"  {backend}: {ver}", text, count=1)
+            text, n = _replace_in_block(text, "toolchain", pat, f"  {backend}: {ver}", count=1)
+            if n:
                 changed.append(f"toolchain.{backend}={ver}")
 
-    # E6: gpu targets var — rename AMDGPU_TARGETS -> GPU_TARGETS in hw_flags
+    # E6: gpu targets var — rename AMDGPU_TARGETS inside hw_flags only. A whole
+    # file replace also rewrote derive.gpu_targets_var.candidates (PR #149).
     gtv = auto.get("gpu_targets_var")
-    if gtv:
-        text = text.replace("AMDGPU_TARGETS", gtv)
-        changed.append(f"gpu_targets_var={gtv}")
+    if gtv and "AMDGPU_TARGETS" in text:
+        text, n = _replace_in_block(text, "hw_flags", re.compile("AMDGPU_TARGETS"), gtv)
+        # the prose that names the old variable ("AMDGPU_TARGETS is a legacy alias")
+        body_at = text.find("\n---\n", 4)
+        if body_at > 0:
+            head, body = text[:body_at], text[body_at:]
+            body2 = body.replace("AMDGPU_TARGETS", gtv)
+            n += body2 != body
+            text = head + body2
+        if n:
+            changed.append(f"gpu_targets_var={gtv}")
+
+    # E10: a tag whose release ships native archives is no longer a pip install
+    assets = auto.get("release_assets")
+    if assets:
+        steps_for = release_archive_install(es.load_skill(path), assets)
+        if steps_for:
+            text = _apply_release_archive(text, steps_for)
+            changed.append("install=release-archive")
 
     # E7: torch backend
     tb = auto.get("torch_backend")
@@ -253,10 +415,16 @@ def _rewrite_pin_asserts(skill_id: str, old_sha: str, new_sha: str,
     (`v0.35.1`, `0.35.1-rocm`). A bump that moves the pin without moving those
     asserts makes `make test-unit` red on the bump PR. Only `tests/` and
     `README.md` are rewritten; historical OpenSpec/agent-wiki records are not.
-    A ref that did not move (branch skills) is not substituted.
+    A ref that did not move (branch skills, old_ref == new_ref) is still
+    substituted: the unit suite hardcodes the tag string next to the sha, and a
+    sha-only move must rewrite both. The substitution is a no-op when the two
+    sides are equal.
     """
     pairs = [(old_sha, new_sha), (old_sha[:8], new_sha[:8])]
-    if old_ref and new_ref and old_ref != new_ref:
+    # A tag pin's version literal is hardcoded as `v0.40.3` and `0.40.3-rocm`
+    # even when only the sha moved (the tag string is the same before and after).
+    # Substituting it only when old_ref != new_ref left those asserts red.
+    if old_ref and new_ref:
         pairs.append((old_ref, new_ref))
         if old_ref.startswith("v") and new_ref.startswith("v"):
             pairs.append((old_ref[1:], new_ref[1:]))

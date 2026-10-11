@@ -221,6 +221,17 @@ def derive(skill: dict, sha: str, repo_dir: Path | None = None,
             if used:
                 findings["auto"]["gpu_targets_var"] = used[0]
 
+        # E10: a tag pin whose GitHub release ships native archives. Read live;
+        # a release with no such assets (or any lookup failure) leaves install alone.
+        if skill.get("ref_kind") == "tag" and skill.get("ref"):
+            try:
+                from . import engine_bump as _eb
+            except ImportError:
+                import engine_bump as _eb
+            assets = _eb._release_assets(skill.get("repo", ""), skill["ref"])
+            if assets and _eb._native_archives(assets):
+                findings["auto"]["release_assets"] = assets
+
         # E7: python/torch
         py = derive_cfg.get("python") or {}
         if py.get("pyproject"):

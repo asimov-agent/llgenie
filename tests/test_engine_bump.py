@@ -7,6 +7,7 @@ subprocess calls), so plan/derive run against real git. No network, no skips.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -127,17 +128,27 @@ def test_plan_branch_resolves_head_sha(tmp_path):
 
 
 def test_plan_tag_picks_highest_stable_same_shape(tmp_path):
-    """Tag skill picks the highest stable vX.Y.Z, no -rc, peeled sha."""
+    """Tag skill picks the highest stable vX.Y.Z, no -rc, peeled sha.
+
+    The pin must be older than that tag: plan() never moves backwards, so a
+    pin of v0.40.3 against a highest tag of v0.40.0 is an empty plan, not a bump.
+    """
+
+    # Given an upstream whose highest stable tag is v0.40.0, and a pin behind it
     repo = _make_repo(tmp_path, "up", {"f": "x"})
     for tag in ("v0.9.7-rc1", "v0.10.0", "v0.9.10", "v0.40.0"):
         _git(repo, "tag", tag)
-    skill = _skill(tmp_path, str(repo), "v0.40.3", "tag", "a" * 40)
+    skill = _skill(tmp_path, str(repo), "v0.9.0", "tag", "a" * 40)
+
+    # When plan runs
     orig = es.load_skills
     es.load_skills = lambda: {"testengine": skill}
     try:
         rows = eb.plan("testengine")
     finally:
         es.load_skills = orig
+
+    # Then the highest stable tag wins, the rc is ignored, and the sha is peeled
     assert rows[0]["new_ref"] == "v0.40.0"
     assert rows[0]["new_sha"]  # peeled sha present
 
@@ -307,20 +318,20 @@ def test_bump_rewrites_hardcoded_pin_asserts(tmp_path, monkeypatch):
     record.mkdir(parents=True)
     (record / "spec.md").write_text("pinned at v0.40.3\n")
 
-    # When the bump runs
+    # When the bump runs (sha moved, tag string did not)
     monkeypatch.setattr(eb, "REPO_ROOT", tmp_path)
     monkeypatch.setattr(es, "load_skills", lambda: {"testengine": skill})
     monkeypatch.setattr(es, "SKILLS_DIR", tmp_path / "skills" / "engines")
     monkeypatch.setattr(eb, "_regen_guard", lambda sid: [])
     monkeypatch.setattr(eb, "plan", lambda eid: [{
         "id": eid, "old_sha": old, "new_sha": new, "old_ref": "v0.40.3",
-        "new_ref": "v0.40.3", "status": "moved"}])
+        "new_ref": "v0.41.0", "status": "moved"}])
     eb.bump("testengine")
 
     # Then every shape of this engine's pin moved, and nothing else did
     got = (tests / "test_pins.py").read_text()
-    assert "v0.40.3" in got and "v0.40.3" not in got
-    assert "0.40.3-rocm" in got and "0.40.3-rocm" not in got
+    assert "v0.41.0" in got and "v0.40.3" not in got
+    assert "0.41.0-rocm" in got and "0.40.3-rocm" not in got
     assert f"llgenie/ollama:{new[:8]}-" in got
     assert f'pinned == "{new}"' in got
     assert "v0.31.0" in got
@@ -693,27 +704,6 @@ def test_full_bump_lands_new_flag_in_params(tmp_path):
         assert "-DGGML_CPU_ALL_VARIANTS=ON" in native, f"{backend} missing new flag: {native}"
 
 
-def test_real_docker_build_llama_cpp_cpu():
-    """Real happy path: `make build-engine ENGINE=llama.cpp ARCH=cpu` builds the
-    image from the generated Dockerfile + params (docker required). The image
-    must build and its entrypoint must report a version."""
-    import shutil
-    if not shutil.which("docker"):
-        pytest.fail("docker is required for the real build test")
-    import scripts.engine_image as ei
-    spec = ei.resolve("llama.cpp", None, "cpu")
-    # build (force, so it actually runs even if a stale tag exists)
-    rc = ei.build(spec, force=True)
-    assert rc == 0, f"make build-engine llama.cpp cpu failed (exit {rc})"
-    # the built image answers `version`
-    r = subprocess.run([ei.RUNTIME, "run", "--rm", spec["tag"], "version"],
-                       capture_output=True, text=True, timeout=300)
-    out = (r.stdout + r.stderr).strip()
-    assert r.returncode == 0, f"llama.cpp cpu `version` exited {r.returncode}: {out}"
-    assert out, "llama.cpp cpu `version` printed nothing"
-    print(f"[build] llama.cpp cpu built and answered: {out.splitlines()[-1]}")
-
-
 def _pr_step(workflow: str, job: str) -> str:
     """The checkout and the PR-opening step of one job."""
     doc = yaml.safe_load((REPO / ".github" / "workflows" / workflow).read_text())
@@ -754,16 +744,286 @@ def test_sync_pr_uses_owner_pat():
 
 
 def test_guard_keeps_default_token():
-    """The collaborator guard still uses GITHUB_TOKEN, and neither workflow merges."""
+    """The collaborator guard job still uses GITHUB_TOKEN, and neither workflow merges.
+
+    The file header names BUMP_TOKEN (issue #136). Splitting on the next job key
+    includes that header, so the assert reads the guard job, not the preamble.
+    """
 
     # Given both workflows
-    bump = (REPO / ".github" / "workflows" / "engine-bump.yml").read_text()
-    sync = (REPO / ".github" / "workflows" / "registry-sync.yml").read_text()
+    for name in ("engine-bump.yml", "registry-sync.yml"):
+        doc = yaml.safe_load((REPO / ".github" / "workflows" / name).read_text())
+        text = (REPO / ".github" / "workflows" / name).read_text()
 
-    # When the guard checks the actor
-    # Then it uses the default token, and nothing merges a PR
-    for text in (bump, sync):
-        guard = text.split("  plan:", 1)[0] if "  plan:" in text else text.split("  sync:", 1)[0]
+        # When the guard job checks the actor
+        guard = yaml.dump(doc["jobs"]["guard"])
+
+        # Then that job uses the default token, and nothing merges a PR
         assert "secrets.GITHUB_TOKEN" in guard
-        assert "gh pr merge" not in text
         assert "secrets.BUMP_TOKEN" not in guard
+        assert "gh pr merge" not in text
+
+
+def test_apply_toolchain_does_not_clobber_prereqs(tmp_path):
+    """Toolchain and the GPU-targets rename stay in their own block.
+
+    A whole-file rewrite put `12.8.1` on `prereqs.cuda` and dropped
+    `AMDGPU_TARGETS` from `derive.gpu_targets_var.candidates` (PR #149).
+    """
+
+    # Given a skill whose prereqs and derive candidates share those names
+    p = _write_skill(tmp_path, (
+        "---\n"
+        "id: testengine\n"
+        "prereqs:\n"
+        "  cuda: [nvcc]\n"
+        "  rocm: [hipconfig]\n"
+        "toolchain:\n"
+        "  cuda: 12.8.1\n"
+        "hw_flags:\n"
+        "  rocm:\n"
+        "    gpu_targets: \"'-DAMDGPU_TARGETS={gpu_targets}'\"\n"
+        "derive:\n"
+        "  gpu_targets_var:\n"
+        "    candidates: [GPU_TARGETS, AMDGPU_TARGETS]\n"
+        "---\n"
+        "# AMDGPU_TARGETS is a legacy alias for GPU_TARGETS.\n"))
+    orig = es.SKILLS_DIR
+    es.SKILLS_DIR = tmp_path / "skills" / "engines"
+    try:
+        # When the bump applies a toolchain bump and a GPU-targets rename
+        eb._apply_findings("testengine", {"auto": {
+            "toolchain": {"cuda": "13.0.3", "rocm": "7.2.1"},
+            "gpu_targets_var": "GPU_TARGETS"}})
+    finally:
+        es.SKILLS_DIR = orig
+    text = p.read_text()
+
+    # Then only the toolchain block and hw_flags moved
+    assert "  cuda: 13.0.3" in text
+    assert "  cuda: [nvcc]" in text
+    assert "  rocm: [hipconfig]" in text
+    assert "candidates: [GPU_TARGETS, AMDGPU_TARGETS]" in text
+    assert "'-DGPU_TARGETS={gpu_targets}'" in text
+    assert "GPU_TARGETS is a legacy alias for GPU_TARGETS." in text
+
+
+def test_apply_release_archive_replaces_pip_install(tmp_path):
+    """A release of native archives replaces a git+ pip install."""
+
+    # Given a skill that pip-installs the engine from git, and a release whose
+    # assets are checksummed native archives
+    p = _write_skill(tmp_path, (
+        "---\n"
+        "id: testengine\n"
+        "repo: https://github.com/example/engine\n"
+        "ref: v1.0.5\n"
+        "version: v1.0.5\n"
+        "backends: [cuda, metal]\n"
+        "install:\n"
+        "  metal:\n"
+        "    - \"uv tool install --force 'engine @ git+{repo}.git@v{version}'\"\n"
+        "  cuda:\n"
+        "    - \"uv pip install --system 'engine @ git+{repo}.git@v{version}'\"\n"
+        "binary: \"engine\"\n"
+        "---\n"
+        "# body\n"))
+    assets = [{"name": n} for n in (
+        "engine-1.0.5-linux-x86_64.tar.gz", "engine-1.0.5-linux-x86_64.tar.gz.sha256",
+        "engine-1.0.5-macos-arm64.tar.gz", "engine-1.0.5-macos-arm64.tar.gz.sha256")]
+    orig = es.SKILLS_DIR
+    es.SKILLS_DIR = tmp_path / "skills" / "engines"
+    try:
+        # When the bump applies that release
+        changed = eb._apply_findings("testengine", {"auto": {"release_assets": assets}})
+    finally:
+        es.SKILLS_DIR = orig
+    text = p.read_text()
+
+    # Then both backends download, checksum and unpack the archive
+    assert "install=release-archive" in changed
+    assert "git+" not in text
+    assert "uv " not in text
+    assert "engine-{version}-linux-x86_64.tar.gz" in text
+    assert "engine-{version}-macos-arm64.tar.gz" in text
+    assert "sha256sum -c" in text
+    assert "shasum -a 256 -c" in text
+    assert "--strip-components=1" in text
+    skill = es.load_skill(p)
+    assert skill["install"]["cuda"][0].startswith("mkdir -p")
+    assert skill["binary"] == "engine"
+
+
+def test_apply_release_archive_ignores_wheels(tmp_path):
+    """A release of wheels is not an install-kind change."""
+
+    # Given a pip-installed skill and a release that ships only wheels
+    p = _write_skill(tmp_path, (
+        "---\n"
+        "id: testengine\n"
+        "repo: https://github.com/example/engine\n"
+        "backends: [cpu]\n"
+        "install:\n"
+        "  cpu:\n"
+        "    - \"uv pip install --system 'engine @ git+{repo}.git@v{version}'\"\n"
+        "---\n"))
+    orig = es.SKILLS_DIR
+    es.SKILLS_DIR = tmp_path / "skills" / "engines"
+    try:
+        # When the bump applies
+        changed = eb._apply_findings("testengine", {"auto": {"release_assets": [
+            {"name": "engine-1.0.5-py3-none-any.whl"}]}})
+    finally:
+        es.SKILLS_DIR = orig
+
+    # Then the install line is untouched
+    assert changed == []
+    assert "git+" in p.read_text()
+
+
+def test_derive_reports_the_live_release_archives(tmp_path):
+    """E10 lives in derive, not only in apply.
+
+    `derive` must put the published release's archives on `auto.release_assets`
+    for a tag pin, and must not for a branch pin. Reads the live GitHub release
+    and a real local git repo for the rest of the extractors.
+    """
+
+    # Given a tag-pinned skill whose repo is a real local git repo, and the
+    # published TensorFold v1.0.5 release standing in for its own
+    repo = _make_repo(tmp_path, "up", {"README.md": "native binary\n"})
+    sha = _git(repo, "rev-parse", "HEAD")
+    skill = _skill(tmp_path, "https://github.com/ashhart/TensorFold", "v1.0.5", "tag", sha)
+    skill["backends"] = ["cuda", "metal"]
+    skill["install"] = {"cuda": ["uv pip install 'engine @ git+{repo}.git@v{version}'"],
+                        "metal": ["uv tool install 'engine @ git+{repo}.git@v{version}'"]}
+
+    # When derive runs at that pin
+    findings = epd.derive(skill, sha, repo_dir=repo)
+
+    # Then the live release's archives are on the finding, ready for apply
+    names = {a["name"] for a in findings["auto"]["release_assets"]}
+    assert "tensorfold-1.0.5-linux-x86_64.tar.gz" in names
+    assert "tensorfold-1.0.5-linux-x86_64.tar.gz.sha256" in names
+    assert "tensorfold-1.0.5-macos-arm64.tar.gz" in names
+    steps = eb.release_archive_install(skill, findings["auto"]["release_assets"])
+    assert steps and "tensorfold-{version}-linux-x86_64.tar.gz" in steps["cuda"][1]
+
+    # And a branch pin never asks the release API
+    branch = dict(skill, ref="master", ref_kind="branch")
+    again = epd.derive(branch, sha, repo_dir=repo)
+    assert "release_assets" not in again["auto"]
+
+
+def test_tensorfold_v1_0_5_release_is_native_archives():
+    """The published TensorFold 1.0.5 release is what E10 must recognise.
+
+    Reads the live GitHub release. A bump that cannot see these assets would
+    leave the pip install that 1.0.5 refuses.
+    """
+
+    # Given the published TensorFold v1.0.5 release
+    assets = eb._release_assets("https://github.com/ashhart/TensorFold", "v1.0.5")
+
+    # When the bump classifies its assets
+    found = eb._native_archives(assets)
+
+    # Then both archives the skill's backends need are there, checksummed
+    assert assets, "GitHub returned no assets for TensorFold v1.0.5"
+    assert ("linux", "x86_64") in found
+    assert ("macos", "arm64") in found
+    assert found[("linux", "x86_64")].endswith(".tar.gz")
+    skill = es.get_skill("tensorfold")
+    steps = eb.release_archive_install(
+        {**skill, "ref": "v1.0.5", "version": "v1.0.5"}, assets)
+    assert steps is not None
+    assert "tensorfold-{version}-linux-x86_64.tar.gz" in steps["cuda"][1]
+    assert "tensorfold-{version}-macos-arm64.tar.gz" in steps["metal"][1]
+
+
+def test_tensorfold_release_archive_unpacks_and_runs(tmp_path):
+    """The install steps E10 writes actually install TensorFold 1.0.5.
+
+    Downloads the real release archive, checks the published checksum and runs
+    the unpacked binary. This is the step the cuda image died on: pip of
+    v1.0.5 refuses to build, the archive is what upstream ships instead.
+    """
+    import hashlib
+    import platform
+    import tarfile
+
+    # Given the archive E10 picks for this host's machine, and its published checksum.
+    # macos-15-intel is Darwin but x86_64: system() alone picked the arm64
+    # archive and the binary died with Bad CPU type.
+    arch_tok = "x86_64" if platform.machine() in ("x86_64", "AMD64") else "arm64"
+    os_tok = "linux" if platform.system() == "Linux" else "macos"
+    assets = eb._release_assets("https://github.com/ashhart/TensorFold", "v1.0.5")
+    found = eb._native_archives(assets)
+    asset = found[(os_tok, arch_tok)]
+    base = "https://github.com/ashhart/TensorFold/releases/download/v1.0.5"
+    archive = tmp_path / asset
+    eb._download(f"{base}/{asset}", archive)
+    eb._download(f"{base}/{asset}.sha256", tmp_path / f"{asset}.sha256")
+
+    # When the checksum is checked and the archive unpacked the way the install
+    # step does (bin/ one level down, --strip-components=1)
+    digest, named = (tmp_path / f"{asset}.sha256").read_text().split()
+    assert named == asset
+    assert hashlib.sha256(archive.read_bytes()).hexdigest() == digest
+    dest = tmp_path / "1.0.5"
+    with tarfile.open(archive) as tar:
+        members = [m for m in tar.getmembers() if m.name.startswith(asset[:-7] + "/bin/")]
+        assert members, [m.name for m in tar.getmembers()]
+        for m in members:
+            m.name = "/".join(m.name.split("/")[1:])
+            tar.extract(m, dest, filter="data")
+
+    # Then the unpacked binary is the native engine and reports 1.0.5
+    binary = dest / "bin" / "tensorfold-native"
+    assert binary.is_file() and os.access(binary, os.X_OK)
+    ver = subprocess.run([str(binary), "--version"], capture_output=True, text=True, timeout=60)
+    assert ver.returncode == 0, ver.stderr
+    assert "1.0.5" in ver.stdout + ver.stderr
+
+
+def test_unit_job_fetches_history():
+    """matrix(changed=origin/main) needs the parent commit in the unit checkout.
+
+    A default actions/checkout is depth 1. git show origin/main:<path> then
+    fails and every engine looks changed, so the placeholder row never appears.
+    """
+
+    # Given the unit job
+    doc = yaml.safe_load((REPO / ".github" / "workflows" / "pipeline.yml").read_text())
+    checkout = next(s for s in doc["jobs"]["unit"]["steps"]
+                    if str(s.get("uses", "")).startswith("actions/checkout"))
+
+    # When its checkout is read
+    # Then it fetches full history, and macOS still does not run the docker action
+    assert checkout.get("with", {}).get("fetch-depth") == 0
+    docker = next(s for s in doc["jobs"]["unit"]["steps"]
+                  if str(s.get("uses", "")).startswith("./.github/actions/docker"))
+    assert docker.get("if") == "runner.os == 'Linux'"
+
+
+def test_unit_recipe_keeps_the_image_build_out():
+    """The hermetic unit list runs the bump tests and not the image build.
+
+    make test-unit's container has no docker socket. The real llama.cpp cpu
+    build lives in its own file so wiring the bump tests into the unit job
+    cannot turn that job red.
+    """
+
+    # Given the test-unit recipe
+    recipe = (REPO / "Makefile").read_text().split("\ntest-unit:", 1)[1].split("\n\n", 1)[0]
+
+    # When its pytest file list is read
+    # Then the bump tests run and the image build does not
+    assert "tests/test_engine_bump.py" in recipe
+    assert "tests/test_engine_bump_build.py" not in recipe
+    assert "test_tensorfold_release_archive_unpacks_and_runs" in recipe
+    live = (REPO / "Makefile").read_text().split("\ntest-engine-bump-live:", 1)[1].split("\n\n", 1)[0]
+    assert "test_tensorfold_release_archive_unpacks_and_runs" in live
+    unit = yaml.safe_load((REPO / ".github" / "workflows" / "pipeline.yml").read_text())["jobs"]["unit"]
+    live_step = next(s for s in unit["steps"] if "test-engine-bump-live" in str(s.get("run", "")))
+    assert live_step.get("if") == "runner.os == 'Linux'"

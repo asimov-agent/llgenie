@@ -235,12 +235,28 @@ make engine-bump ENGINE=<id>          # pin + derive + apply + regen (no push)
 make engine-bump-daily [DRY=1]        # plan -> bump every moved engine; DRY=1 prints only
 ```
 
-The bump is safe by construction: it derives the build parameters from the
+The `engine-bump` unit tests run inside `make test-unit`. A pin newer than
+every upstream tag is not a bump. A sha-only move still rewrites a hardcoded
+tag literal. The collaborator guard is checked on the guard job, not the file
+header that names `BUMP_TOKEN`. The unit job checks out with full history so
+`matrix(changed=origin/main)` can see an unchanged tag. The real llama.cpp cpu
+image build is not in that hermetic list (its runner has no docker socket).
+The three tests that read the live TensorFold release run on the Linux unit
+job only (`make test-engine-bump-live`): the macOS runner cannot reach
+`api.github.com`, and that release has no `macos-x86_64` archive.
+The bump derives the build parameters from the
 upstream tree at the new commit with plain code (git/regex/file parsing — no
 LLM), auto-applies renames and known moves, and when a build option or launch
 flag was removed it records a **hard-fail** — the pin still moves and a PR is
 still created, with the hard-fail flagged in the PR body so a human fixes the
-skill (CI goes red on the build). Each bump opens a `chore/engine-bump-<id>` PR
+skill (CI goes red on the build). A toolchain or GPU-target rewrite stays inside
+its own front-matter block, so `prereqs:` and `derive:` are never rewritten.
+When the new tag's GitHub release ships native archives
+(`<name>-<version>-<os>-<arch>.tar.gz` plus a `.sha256`) and the skill still
+pip-installs that engine from `git+`, the bump rewrites `install:` to a
+checksum-verified download and unpack — a release that dropped pip (TensorFold
+1.0+) is installed from the archive, not left on a line the new tag refuses
+(issue #151). Each bump opens a `chore/engine-bump-<id>` PR
 whose CI builds and tests **only** that engine's images. A push publishes an
 image only when its tag changed since the parent commit: the tag is
 `<pin8>-<image-hash>-<arch>`, so an unchanged pin is already on GHCR and is

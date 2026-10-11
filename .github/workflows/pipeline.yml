@@ -61,12 +61,17 @@ jobs:
       packages: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # matrix(changed=origin/main) needs the parent commit
       - uses: ./.github/actions/docker
         if: runner.os == 'Linux'  # unit tests are Python; macOS Colima would shadow python3
       - name: make test-env (Python 3.11 - Linux pulls llgenie/test from GHCR, macOS builds the 3.11 venv)
         run: make test-env
       - name: make ci-unit (test-unit, skills-validate, check-registry, check-strata-models, check-engine-params)
         run: make ci-unit
+      - name: make test-engine-bump-live (TensorFold release archive; Linux only — macOS runners cannot reach api.github.com and ship no macos-x86_64 archive)
+        if: runner.os == 'Linux'
+        run: make test-engine-bump-live
       - name: Prune orphaned test containers
         if: always()
         run: make test-clean
