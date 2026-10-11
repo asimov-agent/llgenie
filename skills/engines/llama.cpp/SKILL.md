@@ -6,8 +6,8 @@ id: llama.cpp
 repo: https://github.com/ggml-org/llama.cpp
 ref: master
 ref_kind: branch
-pinned: 8f9ae20c86ab9d7f092a0c95921f416125907337
-verified: "2026-10-05"
+pinned: 23b0202a189c44a54625aadcb37a946dd1d6278d
+verified: "2026-10-11"
 license: MIT
 servable: true
 backends: [cuda, rocm, vulkan, metal, cpu]
@@ -18,12 +18,12 @@ src_dir: "{server_root}/llama.cpp"
 build_dir: "{src}/build-{backend}"
 prereqs:
   common: [git, cmake, g++]
-  cuda: [nvcc]
-  rocm: [hipconfig]
+  cuda: 12.8.1
+  rocm: 7.2.1
   vulkan: [glslc]
   metal: [xcrun]
 cmake_flags:
-  common: "-DGGML_NATIVE=OFF"
+  common: "-DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON; -DLLAMA_BUILD_TESTS=OFF"
   cuda: "-DGGML_CUDA=ON -DGGML_METAL=OFF -DGGML_SYCL=OFF"
   rocm: "-DGGML_HIP=ON -DGGML_METAL=OFF -DGGML_CUDA=OFF"
   vulkan: "-DGGML_VULKAN=ON -DGGML_METAL=OFF -DGGML_CUDA=OFF"
@@ -89,7 +89,7 @@ derive:
       arg: ROCM_VERSION
   gpu_targets_var:
     file: ggml/src/ggml-hip/CMakeLists.txt
-    candidates: [GPU_TARGETS, AMDGPU_TARGETS]
+    candidates: [GPU_TARGETS, GPU_TARGETS]
   launch:
     flags_from: common/arg.cpp
 ---
@@ -117,7 +117,7 @@ CMake builds its default arch list. `GGML_NATIVE=OFF` keeps the binary portable.
 
 - `LLAMA_CUBLAS` is a FATAL_ERROR shim and `LLAMA_CUDA` a warning shim. Use `GGML_CUDA`.
 - `LLAMA_HIPBLAS` has no shim. Use `GGML_HIP`.
-- `AMDGPU_TARGETS` is a legacy alias for `GPU_TARGETS`.
+- `GPU_TARGETS` is a legacy alias for `GPU_TARGETS`.
 - `GGML_CUDA_FA_ALL_QUANTS` is deprecated. Use `GGML_CUDA_FA_QUANTS=all`.
 
 ## Launch
