@@ -821,6 +821,88 @@ def test_model_pick_reprompts_on_invalid_input(tmp_path):
     assert p.out.count(f"enter 1-{n}") == 2
 
 
+def test_hub_json_retries_a_timed_out_read(monkeypatch, tmp_path):
+    """A timed-out Hub GET is retried with a new request."""
+
+    # Given the first open times out and the second returns a JSON list
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+    monkeypatch.setattr(mp, "HUB_CACHE_TTL", 3600)
+    seen = []
+
+    class _Body:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self, *args):
+            return b'[{"path": "config.json", "type": "file"}]'
+
+    def _open(req, timeout):
+        seen.append(req)
+        if len(seen) == 1:
+            raise TimeoutError("timed out")
+        return _Body()
+
+    monkeypatch.setattr(mp, "_hub_open", _open)
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+
+    # When the listing is fetched
+    got = mp._hub_json("https://huggingface.co/api/models/example/tree/main")
+
+    # Then the second response is returned, and each attempt had its own request
+    assert got == [{"path": "config.json", "type": "file"}]
+    assert len(seen) == 2 and seen[0] is not seen[1]
+
+
+def test_hub_addresses_are_ipv4(monkeypatch):
+    """Hub connections resolve IPv4 before any other family."""
+
+    # Given a resolver that records the address family it was asked for
+    import socket
+    asked = []
+
+    def _info(host, port, family=0, type=0, proto=0, flags=0):
+        asked.append(family)
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("1.2.3.4", port))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", _info)
+
+    # When addresses for a Hub host are resolved
+    infos = mp._hub_ipv4("huggingface.co", 443)
+
+    # Then the lookup is IPv4 and returns that address
+    assert asked == [socket.AF_INET]
+    assert infos[0][4] == ("1.2.3.4", 443)
+
+
+def test_tree_does_not_cache_a_transport_failure(monkeypatch):
+    """A timed-out tree is empty once, then the next call can see the files."""
+
+    # Given a listing that times out, then one that returns the snapshot files
+    calls = {"n": 0}
+
+    def _json(url, attempts=6):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise TimeoutError("timed out")
+        return [{"path": "config.json", "type": "file", "size": 1},
+                {"path": "model.safetensors", "type": "file", "size": 2}]
+
+    monkeypatch.setattr(mp, "_hub_json", _json)
+    mp._TREE_CACHE.clear()
+
+    # When the tree is read twice
+    first = mp._tree("hf-internal-testing/tiny-random-LlamaForCausalLM")
+    second = mp._tree("hf-internal-testing/tiny-random-LlamaForCausalLM")
+
+    # Then the timeout was not stored as an empty repo
+    assert first == []
+    assert any(f["path"] == "config.json" for f in second)
+    mp._TREE_CACHE.clear()
+
+
 def test_hub_json_caches_and_survives_a_missing_repo(tmp_path, monkeypatch):
     """Live Hub: a tree lookup is cached on disk (second call does not hit the
     network), and a repo that does not exist gives no files instead of crashing."""

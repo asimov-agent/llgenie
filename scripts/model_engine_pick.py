@@ -459,6 +459,50 @@ def _hub_cache_dir() -> Path:
     return Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "llgenie" / "hub"
 
 
+def _hub_ipv4(host: str, port: int) -> list:
+    """IPv4 addresses for a Hub host. Empty when the host has no A record."""
+    import socket
+    try:
+        return socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM)
+    except socket.gaierror:
+        return []
+
+
+def _hub_open(req: urllib.request.Request, timeout: float):
+    """Open a Hub URL over IPv4. Fall back to the default lookup when there is no A record."""
+    import socket
+    orig = socket.create_connection
+
+    def create_connection(address, timeout=socket._GLOBAL_DEFAULT_TIMEOUT,
+                          source_address=None, *, all_errors=False):
+        host, port = address
+        infos = _hub_ipv4(host, port)
+        if not infos:
+            return orig(address, timeout, source_address, all_errors=all_errors)
+        err = None
+        for af, socktype, proto, _canon, sa in infos:
+            sock = socket.socket(af, socktype, proto)
+            try:
+                if timeout is not None and timeout is not socket._GLOBAL_DEFAULT_TIMEOUT:
+                    sock.settimeout(timeout)
+                if source_address:
+                    sock.bind(source_address)
+                sock.connect(sa)
+                return sock
+            except OSError as e:
+                err = e
+                sock.close()
+        if err is not None:
+            raise err
+        return orig(address, timeout, source_address, all_errors=all_errors)
+
+    socket.create_connection = create_connection
+    try:
+        return urllib.request.urlopen(req, timeout=timeout)  # noqa: S310
+    finally:
+        socket.create_connection = orig
+
+
 def _hub_json(url: str, attempts: int = 6):
     """GET a Hub API URL as JSON. Answers are cached on disk for HUB_CACHE_TTL
     (the list asks the same trees on every run); 429 / 5xx / network errors are
@@ -472,10 +516,12 @@ def _hub_json(url: str, attempts: int = 6):
             return json.loads(cache.read_text())
         except ValueError:
             pass
-    req = authorize(urllib.request.Request(url, headers={"User-Agent": "llgenie"}))
     for i in range(attempts):
+        # A new request each attempt: a timed-out Request is not reusable, and
+        # macOS GitHub runners hang on huggingface.co's IPv6 address.
+        req = authorize(urllib.request.Request(url, headers={"User-Agent": "llgenie"}))
         try:
-            with urllib.request.urlopen(req, timeout=30) as r:  # noqa: S310
+            with _hub_open(req, 30) as r:
                 data = json.load(r)
             break
         except urllib.error.HTTPError as e:
@@ -508,9 +554,15 @@ def _tree(repo: str, revision: str = "main") -> list[dict]:
     key = f"{repo}@{revision}"
     if key not in _TREE_CACHE:
         try:
-            _TREE_CACHE[key] = _hub_json(f"{HF}/api/models/{repo}/tree/{revision}?recursive=true")
-        except Exception:  # noqa: BLE001  (missing/gated repo: no files)
+            files = _hub_json(f"{HF}/api/models/{repo}/tree/{revision}?recursive=true")
+        except urllib.error.HTTPError:  # missing or gated repo: no files
             _TREE_CACHE[key] = []
+            return []
+        except (urllib.error.URLError, TimeoutError, OSError):
+            return []  # a blip is not an empty repo; the next call tries again
+        if not isinstance(files, list):
+            return []
+        _TREE_CACHE[key] = files
     return _TREE_CACHE[key]
 
 

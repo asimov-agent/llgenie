@@ -543,7 +543,7 @@ how to add an engine: [`skills/engines/README.md`](skills/engines/README.md).
 python3 scripts/hf_download.py <repo_id> <filename> <dest_dir> <label>
 ```
 
-- Every Hub call (API, resolve, the `hf` CLI, and engine containers) sends `HF_TOKEN` from the environment, or from `~/.zshrc` / `~/.bashrc` when the environment is empty. CI sets that environment from the `HF_TOKEN` Actions secret (`secrets: inherit` into `pipeline.yml` and `published.yml`). The token is never stored in the repo.
+- Every Hub call (API, resolve, the `hf` CLI, and engine containers) sends `HF_TOKEN` from the environment, or from `~/.zshrc` / `~/.bashrc` when the environment is empty. CI sets that environment from the `HF_TOKEN` Actions secret (`secrets: inherit` into `pipeline.yml` and `published.yml`). The token is never stored in the repo. API GETs prefer IPv4 and retry a timed-out read with a new request; a transport failure is not remembered as an empty file tree (issue #161).
 - Sets `HF_HUB_ENABLE_HF_TRANSFER=1 HF_HUB_DISABLE_XET=1` for speed.
 - Auto-retries (up to 20 attempts), resuming the partial file on dropped connections.
 - Appends a `.progress.log` next to the destination for live monitoring.
