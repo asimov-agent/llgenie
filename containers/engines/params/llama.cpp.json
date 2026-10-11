@@ -4,10 +4,10 @@
   "id": "llama.cpp",
   "repo": "https://github.com/ggml-org/llama.cpp",
   "ref": "master",
-  "pinned": "8f9ae20c86ab9d7f092a0c95921f416125907337",
+  "pinned": "23b0202a189c44a54625aadcb37a946dd1d6278d",
   "native": {
     "cuda": {
-      "cmake_flags": "-DGGML_NATIVE=OFF -DGGML_CUDA=ON -DGGML_METAL=OFF -DGGML_SYCL=OFF",
+      "cmake_flags": "-DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON; -DLLAMA_BUILD_TESTS=OFF -DGGML_CUDA=ON -DGGML_METAL=OFF -DGGML_SYCL=OFF",
       "hw_flags": {
         "cuda_arch": "'-DCMAKE_CUDA_ARCHITECTURES={cuda_arch}'"
       },
@@ -16,7 +16,7 @@
       "build_dir": "build-cuda"
     },
     "rocm": {
-      "cmake_flags": "-DGGML_NATIVE=OFF -DGGML_HIP=ON -DGGML_METAL=OFF -DGGML_CUDA=OFF",
+      "cmake_flags": "-DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON; -DLLAMA_BUILD_TESTS=OFF -DGGML_HIP=ON -DGGML_METAL=OFF -DGGML_CUDA=OFF",
       "hw_flags": {
         "gpu_targets": "'-DGPU_TARGETS={gpu_targets}'"
       },
@@ -28,21 +28,21 @@
       "build_dir": "build-rocm"
     },
     "vulkan": {
-      "cmake_flags": "-DGGML_NATIVE=OFF -DGGML_VULKAN=ON -DGGML_METAL=OFF -DGGML_CUDA=OFF",
+      "cmake_flags": "-DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON; -DLLAMA_BUILD_TESTS=OFF -DGGML_VULKAN=ON -DGGML_METAL=OFF -DGGML_CUDA=OFF",
       "hw_flags": {},
       "env": {},
       "src_dir": "llama.cpp",
       "build_dir": "build-vulkan"
     },
     "metal": {
-      "cmake_flags": "-DGGML_NATIVE=OFF -DGGML_METAL=ON -DGGML_CUDA=OFF -DGGML_SYCL=OFF",
+      "cmake_flags": "-DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON; -DLLAMA_BUILD_TESTS=OFF -DGGML_METAL=ON -DGGML_CUDA=OFF -DGGML_SYCL=OFF",
       "hw_flags": {},
       "env": {},
       "src_dir": "llama.cpp",
       "build_dir": "build-metal"
     },
     "cpu": {
-      "cmake_flags": "-DGGML_NATIVE=OFF -DGGML_METAL=OFF -DGGML_CUDA=OFF -DGGML_SYCL=OFF",
+      "cmake_flags": "-DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON; -DLLAMA_BUILD_TESTS=OFF -DGGML_METAL=OFF -DGGML_CUDA=OFF -DGGML_SYCL=OFF",
       "hw_flags": {},
       "env": {},
       "src_dir": "llama.cpp",
