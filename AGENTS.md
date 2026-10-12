@@ -116,23 +116,34 @@ git merge-base --is-ancestor origin/main HEAD 2>/dev/null \
 # not something to hand back.
 ```
 
-- **NO git worktrees (MANDATORY).** Never run `git worktree add` and never work in
-  `../llgenie-wt/` or any other second checkout. All work happens in the ONE clone
-  (`/home/asimov/repository/git/llgenie` on Linux, `/Users/andy/repository/git/llgenie`
-  on macOS) with the feature branch checked out there. A worktree splits the state
-  (uncommitted changes, built images, `.ci-home`, the user's own checkout) across
-  two directories, so the user cannot see or test what was changed.
-- **Before creating a feature branch**, FIRST pull the latest main so the branch is cut from the newest tip:
+- **Each agent works in its own git worktree, every time (MANDATORY).** Never edit
+  the user's checkout (`/home/asimov/repository/git/llgenie` on Linux,
+  `/Users/andy/repository/git/llgenie` on macOS). Leave that checkout on the branch
+  the user left there. One agent, one worktree, one feature branch. A second agent
+  uses a second worktree. Do not reuse another agent's worktree, and do not
+  `git switch` the feature branch in the user's clone.
   ```bash
-  cd /home/asimov/repository/git/llgenie && git fetch origin main
-  git switch -c feat/<kebab> origin/main
+  git fetch origin main
+  mkdir -p ../llgenie-wt
+  git worktree add -b feat/<kebab> ../llgenie-wt/<kebab> origin/main
+  cd ../llgenie-wt/<kebab>
   ```
-- **Before resuming an existing feature branch**, check it out in the same clone and refresh it against the latest remote main BEFORE touching any code — never start from a stale tip:
+  All edits, commits, `make` gates, and pushes happen in that worktree. `make test-unit`
+  already mounts the parent repo when `.git` is a file, so the unit tests run from the
+  worktree.
+- **Before creating a feature branch**, fetch `origin/main` and cut the worktree from
+  that tip with the `git worktree add -b` command above.
+- **Before resuming an existing feature branch**, reuse `../llgenie-wt/<kebab>` when
+  it is already a worktree of that branch. If the branch exists and the directory
+  does not, attach it, then rebase onto `origin/main` before touching any code:
   ```bash
-  cd /home/asimov/repository/git/llgenie && git switch feat/<kebab> && git fetch origin main \
-    && { git merge-base --is-ancestor origin/main HEAD 2>/dev/null || git rebase origin/main; }
+  git fetch origin main
+  git worktree add ../llgenie-wt/<kebab> feat/<kebab>
+  cd ../llgenie-wt/<kebab>
+  git merge-base --is-ancestor origin/main HEAD 2>/dev/null || git rebase origin/main
   ```
-- **Right before you push / open a PR**, re-run the fetch+rebase above ONE final time so the PR is never behind.
+- **Right before you push / open a PR**, from that same worktree, re-run the
+  fetch+rebase above ONE final time so the PR is never behind.
 
 - **Why:** `main` moves whenever another PR merges. A branch that falls behind
   `main` will be rejected at the merge gate (issue #9: never merge a PR that is
@@ -153,12 +164,14 @@ git merge-base --is-ancestor origin/main HEAD 2>/dev/null \
   reviewer has engaged, review fixes go on top as normal commits again (see "PR
   review comments"); never squash `main` or a branch someone else pushed to.
 
-1. **Before starting, branch off the latest `main`:**
+1. **Before starting, add your own worktree off the latest `main`:**
    ```bash
-   git checkout main && git pull origin main
-   git checkout -b feat/<kebab-name>     # one branch per change/PR
+   git fetch origin main
+   mkdir -p ../llgenie-wt
+   git worktree add -b feat/<kebab-name> ../llgenie-wt/<kebab-name> origin/main
+   cd ../llgenie-wt/<kebab-name>
    ```
-2. **Do the work on that branch** — create/update the OpenSpec change, write
+2. **Do the work in that worktree** — create/update the OpenSpec change, write
    `proposal.md` + `specs/<cap>/spec.md` + `tasks.md`, implement the code, and
    tick each task as it's verified.
 3. **Run the loop gate** (`make loop`) — it must be GREEN, and
