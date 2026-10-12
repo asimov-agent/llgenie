@@ -184,6 +184,10 @@ git merge-base --is-ancestor origin/main HEAD 2>/dev/null \
    - NEVER create a PR against `andyholst/llgenie` (the fork). The PR always goes
      to the upstream.
    - NEVER push directly to `main` on either repo.
+   - **Every PR body MUST end with `closes #<issue id>`** (the deliberate closing
+     keyword the watch-loop's `issue_has_pr` / `process_merge_gate` parse to map
+     a PR back to its issue). If the PR does not close an issue, still end with
+     the issue reference so the PR ↔ issue link is never ambiguous.
 6. Keep each PR to one change/OpenSpec change. Rebase or merge `main` in when the
    PR goes stale; never force-push shared branches.
 7. **Merging needs an approval — the agent NEVER merges (MANDATORY, durable).**

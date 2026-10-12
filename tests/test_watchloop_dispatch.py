@@ -410,7 +410,7 @@ class TestMainSameTickSkip:
 
 
 # --------------------------------------------------------------------------- #
-# ensure_worktree refreshes an existing worktree onto latest origin/main
+# ensure_worktree refreshes an existing worktree onto the latest origin/main
 # --------------------------------------------------------------------------- #
 class TestEnsureWorktreeSync:
     def test_existing_worktree_behind_is_rebased(self, tmp_path, monkeypatch):
@@ -429,6 +429,7 @@ class TestEnsureWorktreeSync:
             calls.append(argv)
             class R:
                 stderr = ""
+                stdout = ""
                 def __init__(self, rc):
                     self.returncode = rc
             if "merge-base" in argv:
@@ -441,7 +442,12 @@ class TestEnsureWorktreeSync:
         wd.ensure_worktree("feat/always-sync", "always-sync")
 
         assert any("--prune" in c for c in calls), "must git fetch --all --prune"
-        assert any("rebase" in c for c in calls), "must rebase a behind worktree onto origin/main"
+        rebases = [c for c in calls if "rebase" in c]
+        assert rebases, "must rebase a behind worktree onto origin/main"
+        assert "origin/main" in rebases[0], f"must rebase onto origin/main: {rebases[0]}"
+        # the origin tip itself must be fetched before the ancestry check
+        assert any("origin" in c and "main" in c and "fetch" in c for c in calls), \
+            f"must fetch the origin main: {calls}"
 
     def test_existing_worktree_up_to_date_no_rebase(self, tmp_path, monkeypatch):
         """An existing worktree already at/after origin/main must NOT rebase."""
@@ -470,6 +476,140 @@ class TestEnsureWorktreeSync:
 
 
 # --------------------------------------------------------------------------- #
+# only the ENGINE-BUMP bot PRs are auto-rebased/synced against the UPSTREAM
+# asimov-agent main, resolved from the remote URL (issue #206)
+# --------------------------------------------------------------------------- #
+class TestUpstreamMainResolution:
+    """Only `chore/engine-bump-*` PRs (whose branches live on the upstream repo,
+    `asimov-agent/llgenie`) are forward-merged against the UPSTREAM main. On the
+    macOS clone `origin` is the fork, so those branches don't exist there — the
+    remote is resolved from its URL. All other PRs keep the origin behaviour.
+    """
+
+    FORK = "origin\thttps://github.com/andyholst/llgenie.git (fetch)\n" \
+           "origin\thttps://github.com/andyholst/llgenie.git (push)\n"
+    UPSTREAM = "upstream\thttps://github.com/asimov-agent/llgenie.git (fetch)\n" \
+               "upstream\thttps://github.com/asimov-agent/llgenie.git (push)\n"
+
+    def _remotes(self, monkeypatch, stdout: str, add_rc: int = 0):
+        calls: list = []
+
+        def fake_run(argv, capture_output=False, text=False, **k):
+            calls.append(argv)
+
+            class R:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+
+            r = R()
+            if "remote" in argv and "-v" in argv:
+                r.stdout = stdout
+            elif "remote" in argv and "add" in argv:
+                r.returncode = add_rc
+            return r
+
+        monkeypatch.setattr(wd.subprocess, "run", fake_run)
+        return calls
+
+    def test_upstream_remote_is_resolved_from_the_url_not_the_name(self, monkeypatch):
+        self._remotes(monkeypatch, self.FORK + self.UPSTREAM)
+        assert wd.upstream_remote() == "upstream"
+        # order of `git remote -v` output must not matter
+        self._remotes(monkeypatch, self.UPSTREAM + self.FORK)
+        assert wd.upstream_remote() == "upstream"
+
+    def test_ssh_style_upstream_url_is_recognised(self, monkeypatch):
+        self._remotes(monkeypatch, "origin\tgit@github.com:asimov-agent/llgenie.git (fetch)\n")
+        assert wd.upstream_remote() == "origin"
+
+    def test_origin_that_is_the_upstream_is_used_directly(self, monkeypatch):
+        self._remotes(monkeypatch,
+                      "origin\thttps://github.com/asimov-agent/llgenie.git (fetch)\n"
+                      "origin\thttps://github.com/asimov-agent/llgenie.git (push)\n")
+        assert wd.upstream_remote() == "origin"
+        assert wd.upstream_main() == "origin/main"
+
+    def test_missing_upstream_remote_is_added(self, monkeypatch):
+        calls = self._remotes(monkeypatch, self.FORK)
+        assert wd.upstream_remote() == "upstream"
+        adds = [c for c in calls if "remote" in c and "add" in c]
+        assert adds, f"must add the upstream remote: {calls}"
+        assert adds[0][-1] == wd.UPSTREAM_URL
+        assert wd.upstream_main() == "upstream/main"
+
+    def test_fork_only_clone_that_cannot_add_a_remote_falls_back_to_origin(self, monkeypatch):
+        self._remotes(monkeypatch, self.FORK, add_rc=128)
+        assert wd.upstream_remote() == "origin"
+
+    def test_is_engine_bump_pr_by_ref_prefix(self, monkeypatch):
+        assert wd.is_engine_bump_pr({"head": {"ref": "chore/engine-bump-tensorfold"}}) is True
+        assert wd.is_engine_bump_pr({"head": {"ref": "feat/x"}}) is False
+
+    def test_is_engine_bump_pr_by_head_repo(self, monkeypatch):
+        pr = {"head": {"ref": "x", "repo": {"full_name": "asimov-agent/llgenie"}}}
+        assert wd.is_engine_bump_pr(pr) is True
+        pr2 = {"head": {"ref": "x", "repo": {"full_name": "andyholst/llgenie"}}}
+        assert wd.is_engine_bump_pr(pr2) is False
+
+    def test_sync_engine_bump_pr_merges_the_upstream_main(self, monkeypatch):
+        """An engine-bump PR (upstream head repo) is fetched/merged/pushed against
+        the UPSTREAM remote + main, not the fork's origin (issue #206)."""
+        calls = self._remotes(monkeypatch, self.FORK + self.UPSTREAM)
+        monkeypatch.setattr(wd, "log", lambda *a, **k: None)
+        pr = {"number": 202, "head": {
+            "ref": "chore/engine-bump-tensorfold", "sha": "deadbeef",
+            "repo": {"full_name": "asimov-agent/llgenie"}}}
+        assert wd.sync_pr_with_main(pr) is True
+        merges = [c for c in calls if "merge" in c and "--no-ff" in c]
+        assert merges, f"must forward-merge the upstream main: {calls}"
+        assert "upstream/main" in merges[0], f"merge source must be the upstream main: {merges[0]}"
+        assert "origin/main" not in merges[0], f"must never merge the fork main: {merges[0]}"
+        pushes = [c for c in calls if "push" in c]
+        assert pushes and pushes[0][pushes[0].index("push") + 1] == "upstream", \
+            f"engine-bump branch must be pushed to upstream: {pushes}"
+        assert any(a.startswith("--force-with-lease=chore/engine-bump-tensorfold:deadbeef") for a in pushes[0]), \
+            f"sync push must be lease-pinned: {pushes[0]}"
+
+    def test_sync_worker_pr_keeps_origin_behaviour(self, monkeypatch):
+        """A NON-engine-bump (fork) PR is synced against origin/main exactly as
+        before — the fork main, never the upstream main (issue #206 scope)."""
+        calls = self._remotes(monkeypatch, self.FORK + self.UPSTREAM)
+        monkeypatch.setattr(wd, "log", lambda *a, **k: None)
+        pr = {"number": 205, "head": {
+            "ref": "feat/engine-push-requires-binary", "sha": "deadbeef",
+            "repo": {"full_name": "andyholst/llgenie"}}}
+        assert wd.sync_pr_with_main(pr) is True
+        merges = [c for c in calls if "merge" in c and "--no-ff" in c]
+        assert merges, f"must forward-merge main: {calls}"
+        assert "origin/main" in merges[0], f"worker PR merge source must be origin/main: {merges[0]}"
+        assert "upstream/main" not in merges[0], f"worker PR must NOT merge the upstream main: {merges[0]}"
+        pushes = [c for c in calls if "push" in c]
+        assert pushes and pushes[0][pushes[0].index("push") + 1] == "origin", \
+            f"worker PR branch must be pushed to origin: {pushes}"
+
+    def test_merged_into_main_compares_against_origin_main(self, monkeypatch):
+        """The cleanup ancestry check (worker feat/* worktrees) stays on origin/main."""
+        calls = self._remotes(monkeypatch, self.FORK + self.UPSTREAM)
+        monkeypatch.setattr(wd, "log", lambda *a, **k: None)
+        assert wd._merged_into_main("feat/merged") is True
+        checks = [c for c in calls if "merge-base" in c]
+        assert checks, f"must run an ancestry check: {calls}"
+        assert "origin/main" in checks[-1], f"ancestry check ref: {checks[-1]}"
+        assert "upstream/main" not in checks[-1], f"cleanup stays on origin/main: {checks[-1]}"
+
+    def test_worker_prompt_rebases_onto_origin_main(self, monkeypatch):
+        p = wd.worker_prompt(1, "t", "slug", "feat/x", "/wt", "/log")
+        assert "rebase origin/main" in p, "worker must rebase onto origin/main"
+        assert "upstream/main" not in p, "worker worktrees are on the fork origin"
+
+    def test_repair_prompt_rebases_onto_origin_main(self, monkeypatch):
+        p = wd.repair_prompt(1, "t", "slug", "feat/x", "/wt", "/log", ["behind main"])
+        assert "rebase origin/main" in p, "repair worker must rebase onto origin/main"
+        assert "upstream/main" not in p, "repair worktrees are on the fork origin"
+
+
+# --------------------------------------------------------------------------- #
 # ensure_worktree reuse of an existing branch/worktree (issue #46): the
 # repair spawn must never `git worktree add -b` a branch that already exists
 # (rc-255 regression from the stuck-PR repair stage, issue #42).
@@ -483,6 +623,13 @@ class _WorktreeRun:
       False    -> neither exists
     """
 
+    REMOTES = (
+        "origin\thttps://github.com/andyholst/llgenie.git (fetch)\n"
+        "origin\thttps://github.com/andyholst/llgenie.git (push)\n"
+        "upstream\thttps://github.com/asimov-agent/llgenie.git (fetch)\n"
+        "upstream\thttps://github.com/asimov-agent/llgenie.git (push)\n"
+    )
+
     def __init__(self, branch_exists: bool | str):
         self.calls: list = []
         self.branch_exists = branch_exists
@@ -495,6 +642,10 @@ class _WorktreeRun:
             stdout = ""
             stderr = ""
 
+        if "remote" in argv and "-v" in argv:
+            r = _R()
+            r.stdout = self.REMOTES
+            return r
         if "show-ref" in argv:
             ref = argv[-1]
             if self.branch_exists is True or self.branch_exists is False:
@@ -586,7 +737,7 @@ class TestEnsureWorktreeReuse:
 
     def test_neither_branch_nor_worktree_fresh_add_b(self, tmp_path, monkeypatch):
         """(3) neither exists -> fresh `git worktree add -b <branch> <path>
-        origin/main` (orphan-issue spawn, unchanged)."""
+        origin/main` (orphan-issue spawn — worker branches live on the fork origin)."""
         self._env(tmp_path, monkeypatch, "issue46-fresh")
         rec = _WorktreeRun(False)
         monkeypatch.setattr(wd.subprocess, "run", rec.run)

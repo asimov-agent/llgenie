@@ -15,9 +15,17 @@ Model: each crontab tick runs THIS dispatcher, which:
 
 NEVER-MERGE-BEHIND GATE (issue #9): a PR whose head is behind `main` is NEVER
 merged out of sync. The dispatcher does NOT merely skip such a PR — it
-forward-merges `origin/main` into the PR branch (rebase/merge-and-resolve), then
+forward-merges `main` into the PR branch (rebase/merge-and-resolve), then
 re-attempts the gate after CI re-runs. Merge conflicts are surfaced to the
 branch's worker, never silently auto-resolved or force-deleted.
+
+The `main` the loop syncs against is `asimov-agent/llgenie`'s (issue #206),
+resolved from the clone's remotes by URL, never assumed from the name `origin`
+(on the macOS clone `origin` IS the fork). Only the engine-bump bot's
+`chore/engine-bump-*` PRs — whose branches live directly on that upstream repo,
+not on a contributor's fork — are forward-merged against the UPSTREAM
+`asimov-agent/main`. Every other PR is a worker's fork branch and is synced
+against `origin/main` as before.
 
 PARALLEL-SAFETY:
   * every containerized `make` step inside a worker runs under a shared flock keyed
@@ -30,7 +38,7 @@ STALE-WORKTREE CLEANUP (issue #29 + issue #45): after a PR merges to `main`, the
 merged branch's worktree + local branch + worker lock/prompt/log files become
 stale and accumulate. Each tick, after the merge gate, the dispatcher cleans
 every `feat/*` worktree under ../llgenie-wt/ whose HEAD is an ancestor of
-origin/main (fully merged). In-flight worktrees and worktrees whose worker is
+`origin/main` (fully merged). In-flight worktrees and worktrees whose worker is
 still alive are never touched; `--dry` reports what would be cleaned without
 deleting. issue #45 closes the REMOTE gap: `merge_pr` passes
 `delete_branch: true` in the merge API body, and the cleanup sweep is the
@@ -67,7 +75,12 @@ REPO = os.environ.get(
 LOGS = f"{REPO}/.watchloop/logs"
 RUN = f"{REPO}/.watchloop/run"
 WORKTREE_BASE = os.path.normpath(f"{REPO}/../llgenie-wt")
-API = "https://api.github.com/repos/asimov-agent/llgenie"
+# The repo every PR targets (issue #206). A clone's `origin` is the upstream on
+# one machine and the fork on another, so the loop never assumes it: the remote
+# is resolved from its URL (see upstream_remote).
+UPSTREAM_SLUG = "asimov-agent/llgenie"
+UPSTREAM_URL = f"https://github.com/{UPSTREAM_SLUG}.git"
+API = f"https://api.github.com/repos/{UPSTREAM_SLUG}"
 HERMES = os.environ.get("HERMES_BIN", os.path.expanduser("~/.local/bin/hermes"))
 
 # Worker model override. The profile default is `llm-local` (the local 35B), which
@@ -267,49 +280,106 @@ def run_git(*args) -> subprocess.CompletedProcess:
     return subprocess.run(["git", "-C", REPO, *args], capture_output=True, text=True)
 
 
+def upstream_remote(repo: str = "") -> str:
+    """Name of the remote whose URL is the upstream repo; added when absent.
+
+    ONLY the engine-bump bot's PR branches live on that upstream repo (issue
+    #206); worker branches live on `origin`. `origin` is the upstream in one
+    clone and the fork in another, so when an engine-bump PR is synced the
+    remote is resolved from its URL, never from its name. A clone with no
+    upstream remote gets one named `upstream`; only a checkout where that
+    cannot be added keeps the `origin` behaviour.
+    """
+    repo = repo or REPO
+    r = subprocess.run(["git", "-C", repo, "remote", "-v"], capture_output=True, text=True)
+    for line in (r.stdout or "").splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and UPSTREAM_SLUG in parts[1].replace(":", "/"):
+            return parts[0]
+    add = subprocess.run(["git", "-C", repo, "remote", "add", "upstream", UPSTREAM_URL],
+                         capture_output=True, text=True)
+    if add.returncode == 0:
+        log(f"  added remote `upstream` -> {UPSTREAM_URL} (issue #206)")
+        return "upstream"
+    log(f"  no upstream remote and cannot add one -> syncing against origin")
+    return "origin"
+
+
+def upstream_main(repo: str = "") -> str:
+    """The ref an engine-bump PR is rebased / forward-merged onto: <upstream>/main."""
+    return f"{upstream_remote(repo)}/main"
+
+
+def is_engine_bump_pr(pr) -> bool:
+    """True if *pr* is one of the automated engine-bump PRs (issue #107).
+
+    The engine-bump workflow (`.github/workflows/engine-bump.yml`) opens
+    `chore/engine-bump-<id>` PRs directly on `asimov-agent/llgenie` (the
+    upstream), so their branches are NOT on a contributor's fork. These are the
+    ONLY PRs the loop auto-rebases/forward-merges against the UPSTREAM
+    `asimov-agent/main` (issue #206): worker PRs target that same main but their
+    branches live on the fork, and were already handled against `origin`.
+    """
+    ref = (pr.get("head") or {}).get("ref", "") or ""
+    if ref.startswith("chore/engine-bump-"):
+        return True
+    repo = (pr.get("head") or {}).get("repo") or {}
+    return (repo.get("full_name") or "") == UPSTREAM_SLUG
+
+
 def sync_pr_with_main(pr) -> bool:
-    """Bring a behind PR's head up to date with latest origin/main (issue #9).
+    """Bring a behind PR's head up to date with `main` (issue #9 + #206).
 
     issue #9: a PR that is behind main MUST NOT be merged out of sync. Instead of
-    merely skipping it, forward-merge origin/main into the PR branch so it no longer
-    drifts, then let CI re-run so the gate re-attempts on a later tick. Conflicts are
-    never auto-resolved — if a merge conflict arises, leave the branch for its worker
-    to resolve and return False (the PR stays NOT merged).
-    Returns True if the PR head is now in sync with origin/main, False otherwise.
+    merely skipping it, forward-merge main into the PR branch so it no longer
+    drifts, then let CI re-run so the gate re-attempts on a later tick. Conflicts
+    are never auto-resolved — if a merge conflict arises, leave the branch for its
+    worker to resolve and return False (the PR stays NOT merged).
+
+    issue #206: ONLY the engine-bump bot's PRs are forward-merged against the
+    UPSTREAM `asimov-agent/main`, fetched from and pushed back to the upstream
+    remote (their branches live there, not on the fork). Every other PR is
+    synced against `origin/main` exactly as before.
+    Returns True if the PR head is now in sync with main, False otherwise.
     """
     head_ref = pr["head"]["ref"]
     head_sha = pr["head"]["sha"]
     n = pr["number"]
-    r = run_git("fetch", "origin", f"+refs/heads/{head_ref}:refs/remotes/origin/{head_ref}")
+    if is_engine_bump_pr(pr):
+        remote = upstream_remote()   # the remote holding the engine-bump branch (#206)
+    else:
+        remote = "origin"
+    main_ref = f"{remote}/main"
+    r = run_git("fetch", remote, f"+refs/heads/{head_ref}:refs/remotes/{remote}/{head_ref}")
     if r.returncode != 0:
         log(f"  PR#{n}: sync fetch failed for {head_ref}: {r.stderr.strip()[:120]}")
         return False
     run_git("branch", "-D", "_dispatch_sync")  # clear any stale temp branch
-    r = run_git("branch", "_dispatch_sync", f"origin/{head_ref}")
+    r = run_git("branch", "_dispatch_sync", f"{remote}/{head_ref}")
     if r.returncode != 0:
         log(f"  PR#{n}: cannot create temp sync ref: {r.stderr.strip()[:120]}")
         return False
     r = run_git(
-        "merge", "origin/main", "--no-ff",
-        "-m", f"chore: sync to latest origin/main before merge (issue #9, PR #{n})",
+        "merge", main_ref, "--no-ff",
+        "-m", f"chore: sync to latest {main_ref} before merge (issue #9, PR #{n})",
     )
     if r.returncode != 0:
         run_git("merge", "--abort")
         run_git("branch", "-D", "_dispatch_sync")
-        log(f"  PR#{n}: merge conflict syncing {head_ref} onto origin/main -> needs manual "
+        log(f"  PR#{n}: merge conflict syncing {head_ref} onto {main_ref} -> needs manual "
             f"resolution, NOT merged (issue #9)")
         return False
     # Advance the PR branch to the synced head. force-with-lease pins to the known sha
     # so we never clobber newer commits a worker pushed concurrently.
     r = run_git(
-        "push", "origin", "_dispatch_sync:" + head_ref,
+        "push", remote, "_dispatch_sync:" + head_ref,
         f"--force-with-lease={head_ref}:{head_sha}",
     )
     run_git("branch", "-D", "_dispatch_sync")
     if r.returncode != 0:
         log(f"  PR#{n}: sync push failed for {head_ref}: {r.stderr.strip()[:160]}")
         return False
-    log(f"  PR#{n}: {head_ref} synced to origin/main (merge forward); CI must re-run, "
+    log(f"  PR#{n}: {head_ref} synced to {main_ref} (merge forward); CI must re-run, "
         "re-attempting gate next tick")
     return True
 
@@ -324,7 +394,7 @@ def process_merge_gate(prs) -> set:
         if pr_is_behind(pr):
             log(f"  PR#{n}: behind main (or unverifiable) -> NEVER merge as-is (issue #9)")
             if sync_pr_with_main(pr):
-                log(f"  PR#{n}: synced to origin/main; will re-attempt gate after CI ")
+                log(f"  PR#{n}: synced to main; will re-attempt gate after CI ")
             continue
         if not pr_approved(n):
             log(f"  PR#{n}: not approved -> NOT merged")
@@ -688,7 +758,9 @@ Per the issue body + AGENTS.md:
 5) Push: git -C {wd} push origin {branch} (use URL-embedded token from {REPO}/.env
    if the keyring token is revoked).
 6) Open a PR against main referencing issue #{num} (curl, token from {REPO}/.env).
-   PR body MUST reference it, and per issue #9 never merge if behind main.
+   PR body MUST reference it and MUST end with `closes #{num}` (the closing
+   keyword the loop parses to map the PR back to this issue), and per issue #9
+   never merge if behind main.
 7) APPEND your progress to {branch_log} (your own log only).
 
 Resume: if a prior tick already scaffolded OpenSpec or opened partial work, continue
