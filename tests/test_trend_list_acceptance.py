@@ -37,6 +37,7 @@ import pytest
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
+import hf_auth  # noqa: E402
 sys.path.insert(0, str(REPO / "tests"))
 import engine_image as ei  # noqa: E402
 import model_engine_pick as mp  # noqa: E402
@@ -98,7 +99,8 @@ def _offer(tmp_path: Path, backend: str, gb: int) -> list[dict]:
 
 def _cli(tmp_path: Path, backend: str, gb: int, *args: str) -> subprocess.CompletedProcess:
     return subprocess.run([sys.executable, str(SERVE), *args], env=_env(tmp_path, backend, gb),
-                          stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=600)
+                          stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                          timeout=hf_auth.TOP_TIER_DRY_RUN_TIMEOUT)
 
 
 def test_readme_parser_reads_the_vendored_list():

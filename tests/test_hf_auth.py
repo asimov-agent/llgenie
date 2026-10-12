@@ -143,39 +143,47 @@ def test_top_tier_dry_run_budget_is_one_window_plus_discovery():
     assert budget == cap + 180
 
 
-def test_both_dry_runs_use_the_hub_window_budget():
-    """Both launcher dry runs pass the shared budget to subprocess.run."""
+# Local-file pickers never call the Hub, so a short process limit stays.
+_LOCAL_ONLY = {
+    "test_local_flag_keeps_the_local_picker",
+    "test_ambiguous_local_model_with_engine_is_rejected",
+}
 
-    # Given the acceptance tests that start the real launcher
-    path = REPO / "tests" / "test_top_tier_acceptance.py"
-    tree = ast.parse(path.read_text())
-    names = (
-        "test_cli_download_top_tier_dry_run_detailed",
-        "test_family_dry_run_known_lowend_one_provider",
-    )
 
-    # When each function's subprocess.run timeout is read
-    found = {}
-    for node in tree.body:
-        if isinstance(node, ast.FunctionDef) and node.name in names:
-            timeouts = []
-            for call in ast.walk(node):
+def _short_hub_process_limits() -> list[tuple[str, str, int]]:
+    """Numeric subprocess limits under one Hub window, on launcher or download calls."""
+    short = []
+    for path in sorted((REPO / "tests").glob("test_*.py")):
+        tree = ast.parse(path.read_text())
+        for fn in [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]:
+            if fn.name in _LOCAL_ONLY:
+                continue
+            for call in ast.walk(fn):
                 if not isinstance(call, ast.Call):
                     continue
                 func = call.func
                 if not isinstance(func, ast.Attribute) or func.attr != "run":
                     continue
+                blob = ast.dump(call)
+                if "llama_serve.py" not in blob and "hf_download.py" not in blob:
+                    continue
                 for kw in call.keywords:
-                    if kw.arg == "timeout":
-                        timeouts.append(kw.value)
-            found[node.name] = timeouts
+                    if kw.arg != "timeout" or not isinstance(kw.value, ast.Constant):
+                        continue
+                    if isinstance(kw.value.value, (int, float)) and kw.value.value < auth.TOP_TIER_DRY_RUN_TIMEOUT:
+                        short.append((path.name, fn.name, kw.value.value))
+    return short
 
-    # Then each run uses TOP_TIER_DRY_RUN_TIMEOUT and no other timeout
-    assert set(found) == set(names)
-    for name, timeouts in found.items():
-        assert len(timeouts) == 1, name
-        value = timeouts[0]
-        assert isinstance(value, ast.Attribute) and value.attr == "TOP_TIER_DRY_RUN_TIMEOUT"
+
+def test_hub_launcher_processes_use_the_dry_run_budget():
+    """A launcher or real download subprocess outlives one capped Hub 429."""
+
+    # Given every test that starts llama_serve or hf_download
+    short = _short_hub_process_limits()
+
+    # When its subprocess timeout is a number
+    # Then none of those numbers is shorter than one window plus discovery
+    assert short == []
 
 
 def test_workflows_pass_the_secret_into_reusable_workflows():

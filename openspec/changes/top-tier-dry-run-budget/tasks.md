@@ -5,3 +5,4 @@
 - [x] 3. Unit tests lock the 780-second sum, both call sites, and a real local-server 429
 - [x] 4. README states the CI dry-run budget
 - [x] 5. `make openspec-validate NAME=top-tier-dry-run-budget` exits 0
+- [x] 6. Every other `llama_serve.py` or `hf_download.py` subprocess that can call the Hub uses that same budget. Local-file pickers stay short.

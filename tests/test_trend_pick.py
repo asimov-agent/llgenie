@@ -16,6 +16,7 @@ import pytest
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
 sys.path.insert(0, str(REPO / "tests"))
+import hf_auth  # noqa: E402
 import model_engine_pick as mp  # noqa: E402
 import sync_registry as sr  # noqa: E402
 from ptydrive import Pty  # noqa: E402
@@ -422,7 +423,8 @@ def test_unservable_row_says_why(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 # non-interactive CLI: --trend (print the list), --select N (pick row N)
 # ---------------------------------------------------------------------------
-def _cli(tmp_path, *args, backend="cuda", gb=15.9921875, ram=RAM64, timeout=300):
+def _cli(tmp_path, *args, backend="cuda", gb=15.9921875, ram=RAM64,
+         timeout=hf_auth.TOP_TIER_DRY_RUN_TIMEOUT):
     env = _env(tmp_path, backend, 16, LLAMA_RAM_BYTES=str(int(gb * 2**30)), LLGENIE_SYSTEM_RAM_BYTES=ram)
     return subprocess.run([sys.executable, str(SERVE), *args], env=env, stdin=subprocess.DEVNULL,
                           capture_output=True, text=True, timeout=timeout)
@@ -587,7 +589,8 @@ def test_auto_and_no_tty_take_the_top_pick(tmp_path):
     top = [r for r in _offer(tmp_path, "cuda", 24) if not r["why"]][0]
     # When llgenie --dry runs
     r = subprocess.run([sys.executable, str(SERVE), "--dry"], env=env, stdin=subprocess.DEVNULL,
-                       capture_output=True, text=True, timeout=300)
+                       capture_output=True, text=True,
+                       timeout=hf_auth.TOP_TIER_DRY_RUN_TIMEOUT)
     # Then it never asks and takes the first servable README model + its top engine
     assert r.returncode == 0, r.stderr
     assert "Pick model" not in r.stdout
@@ -602,7 +605,8 @@ def test_engines_listing_and_manual_pair_compatibility(tmp_path):
     f.write_bytes(b"GGUF")
     env = _env(tmp_path, "cpu", 16)
     run = lambda *a: subprocess.run([sys.executable, str(SERVE), *a], env=env, stdin=subprocess.DEVNULL,  # noqa: E731
-                                    capture_output=True, text=True, timeout=120)
+                                    capture_output=True, text=True,
+                                    timeout=hf_auth.TOP_TIER_DRY_RUN_TIMEOUT)
     # When the engines are listed
     r = run("--engines")
     assert r.returncode == 0, r.stderr
@@ -740,7 +744,8 @@ def test_choose_reprompts_on_invalid_input(tmp_path):
 def test_manual_registry_pick_errors_and_engines_for_registry_model(tmp_path):
     env = _env(tmp_path, "cuda", 24)
     run = lambda *a: subprocess.run([sys.executable, str(SERVE), *a], env=env, stdin=subprocess.DEVNULL,  # noqa: E731
-                                    capture_output=True, text=True, timeout=300)
+                                    capture_output=True, text=True,
+                                    timeout=hf_auth.TOP_TIER_DRY_RUN_TIMEOUT)
     # When a registry model is named that does not exist
     r = run("--pick", "no-such-model-zz", "--dry")
     assert r.returncode != 0 and "no registry model matches" in r.stderr

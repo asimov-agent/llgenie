@@ -364,7 +364,8 @@ def test_download_progress_shows_percentage():
         out = subprocess.run(
             [sys.executable, dl, "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
              "qwen2.5-0.5b-instruct-q4_0.gguf", tmp, "pcttest", "0", str(real["size_bytes"])],
-            capture_output=True, text=True, timeout=240).stdout
+            capture_output=True, text=True,
+            timeout=hf_auth.TOP_TIER_DRY_RUN_TIMEOUT).stdout
         # the live terminal progress must contain a percentage
         assert "%" in out, f"download should print a % progress; got:\n{out[-600:]}"
         # and the log file should too

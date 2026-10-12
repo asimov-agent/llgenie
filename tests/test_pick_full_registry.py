@@ -42,6 +42,7 @@ import pytest
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
+import hf_auth  # noqa: E402
 import model_engine_pick as mp  # noqa: E402
 
 REGISTRY = REPO / "data" / "models.json"
@@ -286,7 +287,7 @@ def test_pick_matrix_llgenie_cli_agrees_with_business_logic(p, tmp_path):
     env.pop("LLGENIE_REGISTRY_SRC", None)
     r = subprocess.run([sys.executable, str(SERVE), "--pick", mid, "--engine", eng, "--dry"],
                        env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True,
-                       timeout=300)
+                       timeout=hf_auth.TOP_TIER_DRY_RUN_TIMEOUT)
     if offered:
         assert r.returncode == 0, (mid, eng, arch, r.stdout[-1000:], r.stderr[-1000:])
         eng_line = next((l for l in r.stdout.splitlines() if l.startswith("Engine :")), "")
@@ -869,7 +870,7 @@ def test_pick_matrix_edge_case_golden(arch, model_id, vram, ram, expected, engin
     env.pop("LLGENIE_REGISTRY_SRC", None)
     r = subprocess.run([sys.executable, str(SERVE), "--matrix", "--vram", str(vram),
                         "--ram", str(ram), "--arch", arch],
-                       env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=300)
+                       env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=hf_auth.TOP_TIER_DRY_RUN_TIMEOUT)
     assert r.returncode == 0, (arch, model_id, engine, vram, ram, r.stdout[-800:], r.stderr[-800:])
     out = r.stdout
     # the CLI prints display names, not ids: map them for the presence checks
@@ -935,7 +936,7 @@ def test_pick_matrix_edge_case_golden_ram(arch, model_id, engine, vram, ram, exp
     env.pop("LLGENIE_REGISTRY_SRC", None)
     r = subprocess.run([sys.executable, str(SERVE), "--matrix", "--vram", str(vram),
                         "--ram", str(ram), "--arch", arch],
-                       env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=300)
+                       env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=hf_auth.TOP_TIER_DRY_RUN_TIMEOUT)
     assert r.returncode == 0, (arch, model_id, engine, vram, ram, r.stdout[-800:], r.stderr[-800:])
     out = r.stdout
     model_name = next(m["name"] for m in real_models() if m["id"] == model_id)

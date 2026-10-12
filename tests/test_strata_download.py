@@ -22,6 +22,7 @@ import pytest
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
 sys.path.insert(0, str(REPO / "tests"))
+import hf_auth  # noqa: E402
 import model_engine_pick as mp  # noqa: E402
 import strata_models as sm  # noqa: E402
 from ptydrive import Pty  # noqa: E402
@@ -234,7 +235,8 @@ def test_hf_downloader_uses_the_pinned_revision_for_real(tmp_path):
     size = next(int(f["size"]) for f in mp._tree(ISTA, rev) if f["path"] == name)
     env = {**os.environ, "HF_REVISION": rev, "HF_STALL_SECONDS": "120"}
     r = subprocess.run([sys.executable, str(REPO / "scripts" / "hf_download.py"), ISTA, name, str(tmp_path),
-                        "strata-rev", "0", str(size)], env=env, capture_output=True, text=True, timeout=600)
+                        "strata-rev", "0", str(size)], env=env, capture_output=True, text=True,
+                        timeout=hf_auth.TOP_TIER_DRY_RUN_TIMEOUT)
     assert r.returncode == 0, r.stdout[-2000:] + r.stderr[-2000:]
     assert (tmp_path / name).stat().st_size == size
     log = (tmp_path / "strata-rev.progress.log").read_text()

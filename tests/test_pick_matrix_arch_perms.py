@@ -23,6 +23,7 @@ import pytest
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
+import hf_auth  # noqa: E402
 import model_engine_pick as mp  # noqa: E402
 
 GB = 2**30
@@ -203,7 +204,7 @@ def test_llgenie_matrix_arch_override_in_header(matrix_env, arch, tmp_path):
     import subprocess
     r = subprocess.run([sys.executable, str(REPO / "scripts" / "llama_serve.py"),
                         "--matrix", "24", "32", arch],
-                       capture_output=True, text=True, env=env, timeout=120, input="")
+                       capture_output=True, text=True, env=env, timeout=hf_auth.TOP_TIER_DRY_RUN_TIMEOUT, input="")
     # Then it exits 0 and prints the architecture it computed the permutations for
     assert r.returncode == 0, r.stderr
     assert f"({arch}, VRAM 24 GB" in r.stdout
@@ -222,7 +223,7 @@ def test_llgenie_matrix_explicit_flags(matrix_env, arch, tmp_path):
     # Given the explicit --vram/--ram/--arch form (the flagship smoke model fits 24 GB)
     r = subprocess.run([sys.executable, str(REPO / "scripts" / "llama_serve.py"),
                         "--matrix", "--vram", "24", "--ram", "32", "--arch", arch],
-                       capture_output=True, text=True, env=env, timeout=120, input="")
+                       capture_output=True, text=True, env=env, timeout=hf_auth.TOP_TIER_DRY_RUN_TIMEOUT, input="")
     # Then it exits 0 and the header echoes exactly the flags that were set
     assert r.returncode == 0, r.stderr
     assert f"({arch}, VRAM 24 GB, RAM 32 GB)" in r.stdout
@@ -239,7 +240,7 @@ def test_llgenie_matrix_flag_wins_over_positional(matrix_env, tmp_path):
     # Given BOTH a positional GB (99) and an explicit --vram (24), RAM via --ram
     r = subprocess.run([sys.executable, str(REPO / "scripts" / "llama_serve.py"),
                         "--matrix", "99", "--vram", "24", "--ram", "32"],
-                       capture_output=True, text=True, env=env, timeout=120, input="")
+                       capture_output=True, text=True, env=env, timeout=hf_auth.TOP_TIER_DRY_RUN_TIMEOUT, input="")
     # Then the flag wins: the header shows 24, never 99
     assert r.returncode == 0, r.stderr
     assert "VRAM 24 GB" in r.stdout and "VRAM 99" not in r.stdout

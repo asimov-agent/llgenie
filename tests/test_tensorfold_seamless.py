@@ -23,6 +23,7 @@ import pytest
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
 import engine_skills as es  # noqa: E402
+import hf_auth  # noqa: E402
 import install_engine_launchers as iel  # noqa: E402
 
 SERVE = REPO / "scripts" / "llama_serve.py"
@@ -276,7 +277,8 @@ def _llgenie(host, tmp_path, *args):
            "XDG_CACHE_HOME": str(HUB_CACHE)}
     env.pop("LLGENIE_REGISTRY_SRC", None)
     return subprocess.run([sys.executable, str(SERVE), *args], env=env, stdin=subprocess.DEVNULL,
-                          capture_output=True, text=True, timeout=600)
+                          capture_output=True, text=True,
+                          timeout=hf_auth.TOP_TIER_DRY_RUN_TIMEOUT)
 
 
 @pytest.mark.parametrize("seed,label", [

@@ -15,6 +15,7 @@ import pytest
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
+import hf_auth  # noqa: E402
 import model_engine_pick as mp  # noqa: E402
 
 FIXTURE = REPO / "tests" / "fixtures" / "trending-models.json"
@@ -89,7 +90,8 @@ def test_llgenie_dry_run_prints_model_engine_and_container_command(tmp_path):
     # When llgenie --pick --auto --dry --engine vllm runs
     r = subprocess.run([sys.executable, str(REPO / "scripts" / "llama_serve.py"),
                         "--pick", "--auto", "--dry", "--engine", "vllm"],
-                       capture_output=True, text=True, env=env, timeout=120)
+                       capture_output=True, text=True, env=env,
+                       timeout=hf_auth.TOP_TIER_DRY_RUN_TIMEOUT)
     # Then it picks a vllm-servable model, would download it, and serves via the engine script
     assert r.returncode == 0, r.stderr
     assert "Engine : vLLM [cpu]" in r.stdout
@@ -120,7 +122,8 @@ def test_model_file_param_serves_that_exact_file(tmp_path):
     # When llgenie --pick bonsai --engine prism --model-file <f> --dry runs
     r = subprocess.run([sys.executable, str(REPO / "scripts" / "llama_serve.py"), "--pick", "bonsai",
                         "--engine", "prism", "--model-file", str(f), "--auto", "--dry"],
-                       capture_output=True, text=True, env=env, timeout=120)
+                       capture_output=True, text=True, env=env,
+                       timeout=hf_auth.TOP_TIER_DRY_RUN_TIMEOUT)
     # Then it serves exactly that file with the Prism start script, no download
     assert r.returncode == 0, r.stderr
     assert "llama.cpp (PrismML fork)" in r.stdout and str(f) in r.stdout

@@ -16,6 +16,7 @@ import pytest
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
+import hf_auth  # noqa: E402
 import model_engine_pick as mp  # noqa: E402
 
 GB = 2**30
@@ -214,7 +215,8 @@ def test_llgenie_matrix_prints_urls(tmp_path):
     # Given --matrix 24 32 on stdin that is not a tty
     r = subprocess.run([sys.executable, str(REPO / "scripts" / "llama_serve.py"),
                         "--matrix", "24", "32"],
-                       capture_output=True, text=True, env=env, timeout=120,
+                       capture_output=True, text=True, env=env,
+                       timeout=hf_auth.TOP_TIER_DRY_RUN_TIMEOUT,
                        input="")
     # Then it exits 0 and prints the resolvable Hub URL of its one permutation
     assert r.returncode == 0, r.stderr

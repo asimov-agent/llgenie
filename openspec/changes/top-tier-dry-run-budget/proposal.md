@@ -18,6 +18,7 @@ seconds the detailed dry run already had for discovery.
 
 - `scripts/hf_auth.py` defines `TOP_TIER_DRY_RUN_TIMEOUT = RATE_LIMIT_WAIT_CAP + 180`.
 - Both CI dry-run subprocesses use that name.
+- Every other test subprocess that runs `llama_serve.py` or `hf_download.py` against the Hub uses that same budget. A local-file picker that never calls the Hub keeps its short limit.
 - A unit test locks the sum and both call sites.
 - A unit test runs the real `_hf_get` against a local HTTP server: 429 with
   `RateLimit: t=1`, then 200 JSON. The gap between the requests is at least one

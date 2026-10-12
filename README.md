@@ -767,10 +767,10 @@ fed into the **same** pipeline, not a second implementation:
   waits for the Hub's fixed 5-minute window to reset: the `t` seconds from the
   `RateLimit` header, or 5 minutes when the header has no `t`, and never more
   than 10 minutes (`scripts/hf_auth.py` `rate_limit_wait` — the one wait every
-  Hub caller and its tests use). The CI dry runs (`--download-top-tier --dry`
-  and `--family qwen --dry`) allow that 10-minute cap plus 180 seconds
+  Hub caller and its tests use). Every CI process that runs the launcher or the
+  real downloader against the Hub allows that 10-minute cap plus 180 seconds
   (`TOP_TIER_DRY_RUN_TIMEOUT`), so one sleep cannot expire the process before
-  the retry finishes the listing (issue #180). It is retried twice; any response that is not
+  the retry finishes (issue #180). It is retried twice; any response that is not
   a 429 resets that count. A **permanent** error
   (401/403/404) is never retried — it fails fast so a genuinely gated/dead repo is
   still reported loudly (the skip+refill and "no repos" paths above). Without this

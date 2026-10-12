@@ -22,7 +22,15 @@ seconds the detailed dry run already had for discovery.
 - **Given** the detailed dry run and the family dry run
 - **When** each starts the real launcher
 - **Then** the `subprocess.run` timeout is `TOP_TIER_DRY_RUN_TIMEOUT`
-- **Test:** `tests/test_hf_auth.py::test_both_dry_runs_use_the_hub_window_budget`
+- **Test:** `tests/test_hf_auth.py::test_hub_launcher_processes_use_the_dry_run_budget`
+
+#### Scenario: every other Hub launcher subprocess uses that same budget
+
+- **Given** a test subprocess that runs `llama_serve.py` or `hf_download.py` against the Hub
+- **When** its `subprocess.run` timeout is a number
+- **Then** that number is at least `TOP_TIER_DRY_RUN_TIMEOUT`
+- **And** a local-file picker that never calls the Hub may stay shorter
+- **Test:** `tests/test_hf_auth.py::test_hub_launcher_processes_use_the_dry_run_budget`
 
 ### Requirement: A real 429 is waited out against a local server
 
