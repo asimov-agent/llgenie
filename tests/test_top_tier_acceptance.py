@@ -22,6 +22,7 @@ import pytest
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
+import scripts.hf_auth as hf_auth  # noqa: E402
 import scripts.llama_serve as llama_ai  # noqa: E402
 
 pytestmark = pytest.mark.acceptance
@@ -397,7 +398,8 @@ def test_cli_download_top_tier_dry_run_detailed():
     env["LLAMA_RAM_BYTES"] = str(48 * 1024 ** 3)
     out = subprocess.run([sys.executable, str(REPO / "scripts/llama_serve.py"),
                           "--download-top-tier", "--dry", "--count", "2"],
-                         capture_output=True, text=True, timeout=180, env=env)
+                         capture_output=True, text=True,
+                         timeout=hf_auth.TOP_TIER_DRY_RUN_TIMEOUT, env=env)
     assert out.returncode == 0, f"dry run must exit 0; stderr:\n{out.stderr[-800:]}"
     s = out.stdout
     assert "detecting memory on the actual card" in s, s[-800:]
@@ -446,7 +448,8 @@ def test_family_dry_run_known_lowend_one_provider():
     out = subprocess.run([sys.executable, str(REPO / "scripts/llama_serve.py"),
                           "--download-top-tier", "--family", "qwen",
                           "--count", "1", "--dry"],
-                         capture_output=True, text=True, timeout=300, env=env)
+                         capture_output=True, text=True,
+                         timeout=hf_auth.TOP_TIER_DRY_RUN_TIMEOUT, env=env)
     assert out.returncode == 0, f"dry run must exit 0; stderr:\n{out.stderr[-800:]}"
     s = out.stdout
     # family readout + dynamic memory readout

@@ -5,6 +5,7 @@ CI injects the Actions secret as HF_TOKEN. A non-Hub URL never receives it.
 """
 from __future__ import annotations
 
+import ast
 import urllib.request
 from pathlib import Path
 
@@ -126,6 +127,55 @@ def test_rate_limit_wait_caps_at_ten_minutes():
 
     # Then the wait is capped at 10 minutes
     assert wait == 600
+
+
+def test_top_tier_dry_run_budget_is_one_window_plus_discovery():
+    """The CI dry run stays up for one capped 429 and the listing after it."""
+
+    # Given the shared cap of one Hub window
+    cap = auth.RATE_LIMIT_WAIT_CAP
+
+    # When the dry-run process budget is read
+    budget = auth.TOP_TIER_DRY_RUN_TIMEOUT
+
+    # Then it is that cap plus the 180 seconds the detailed dry run had for discovery
+    assert cap == 600
+    assert budget == cap + 180
+
+
+def test_both_dry_runs_use_the_hub_window_budget():
+    """Both launcher dry runs pass the shared budget to subprocess.run."""
+
+    # Given the acceptance tests that start the real launcher
+    path = REPO / "tests" / "test_top_tier_acceptance.py"
+    tree = ast.parse(path.read_text())
+    names = (
+        "test_cli_download_top_tier_dry_run_detailed",
+        "test_family_dry_run_known_lowend_one_provider",
+    )
+
+    # When each function's subprocess.run timeout is read
+    found = {}
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name in names:
+            timeouts = []
+            for call in ast.walk(node):
+                if not isinstance(call, ast.Call):
+                    continue
+                func = call.func
+                if not isinstance(func, ast.Attribute) or func.attr != "run":
+                    continue
+                for kw in call.keywords:
+                    if kw.arg == "timeout":
+                        timeouts.append(kw.value)
+            found[node.name] = timeouts
+
+    # Then each run uses TOP_TIER_DRY_RUN_TIMEOUT and no other timeout
+    assert set(found) == set(names)
+    for name, timeouts in found.items():
+        assert len(timeouts) == 1, name
+        value = timeouts[0]
+        assert isinstance(value, ast.Attribute) and value.attr == "TOP_TIER_DRY_RUN_TIMEOUT"
 
 
 def test_workflows_pass_the_secret_into_reusable_workflows():

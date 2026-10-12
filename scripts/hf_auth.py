@@ -58,6 +58,9 @@ def authorize(req: urllib.request.Request) -> urllib.request.Request:
 # another 429. 10 minutes is the longest a caller holds before it fails.
 RATE_LIMIT_WINDOW = 300
 RATE_LIMIT_WAIT_CAP = 600
+# One capped 429 sleep, then the 180s the detailed dry run already had for
+# discovery. A limit equal to the cap expires as that sleep ends.
+TOP_TIER_DRY_RUN_TIMEOUT = RATE_LIMIT_WAIT_CAP + 180
 _RATE_LIMIT_T = re.compile(r"(?:^|[;,])t=(\d+)")
 
 

@@ -2333,6 +2333,55 @@ def test_hf_get_waits_out_a_429_using_the_shared_wait(monkeypatch):
     assert slept == [llama_ai.rate_limit_wait(err)]
 
 
+def test_hf_get_waits_out_a_local_429():
+    """A real 429 from a local server is slept, then the JSON body comes back."""
+
+    # Given a local server: 429 with RateLimit t=1, then 200 JSON
+    import json as _json
+    import threading
+    import time
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    hits = []
+
+    class _Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            hits.append(time.monotonic())
+            if len(hits) == 1:
+                self.send_response(429)
+                self.send_header("RateLimit", "api;r=0;t=1")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            body = _json.dumps({"ok": True}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_args):
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    llama_ai._rate_limited = 0
+    url = f"http://127.0.0.1:{server.server_address[1]}/models"
+
+    try:
+        # When the real top-tier GET hits that server
+        got = llama_ai._hf_get(url)
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    # Then the body is the second response, and the retry waited out t=1
+    assert got == {"ok": True}
+    assert len(hits) == 2
+    assert hits[1] - hits[0] >= 1
+
+
 def test_hf_get_resets_the_429_count_after_success(monkeypatch):
     """A 200 between 429s starts the retry budget over."""
 
