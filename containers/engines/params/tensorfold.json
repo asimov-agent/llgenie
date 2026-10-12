@@ -3,8 +3,8 @@
   "engine": "TensorFold",
   "id": "tensorfold",
   "repo": "https://github.com/ashhart/TensorFold",
-  "ref": "v0.6.5",
-  "pinned": "609ca419abecebdc5a059498a613680bd3aa847f",
+  "ref": "v1.0.8",
+  "pinned": "0b53e173c94c7227f2da45057c1e68eee20ab0bc",
   "native": {},
   "variants": {
     "cuda": {
@@ -23,13 +23,17 @@
         "TORCH_BACKEND": "cu130"
       },
       "install": [
-        "uv pip install --system --break-system-packages torch triton",
-        "uv pip install --system --break-system-packages 'tensorfold @ git+https://github.com/ashhart/TensorFold.git@v0.6.5'"
+        "mkdir -p /opt/llgenie/engines/tensorfold/1.0.8",
+        "curl -fsSL -o /opt/llgenie/engines/tensorfold/tensorfold-1.0.8-linux-x86_64.tar.gz https://github.com/ashhart/TensorFold/releases/download/v1.0.8/tensorfold-1.0.8-linux-x86_64.tar.gz",
+        "curl -fsSL -o /opt/llgenie/engines/tensorfold/tensorfold-1.0.8-linux-x86_64.tar.gz.sha256 https://github.com/ashhart/TensorFold/releases/download/v1.0.8/tensorfold-1.0.8-linux-x86_64.tar.gz.sha256",
+        "cd /opt/llgenie/engines/tensorfold && sha256sum -c tensorfold-1.0.8-linux-x86_64.tar.gz.sha256",
+        "tar -xzf /opt/llgenie/engines/tensorfold/tensorfold-1.0.8-linux-x86_64.tar.gz -C /opt/llgenie/engines/tensorfold/1.0.8 --strip-components=1",
+        "exe=$(find /opt/llgenie/engines/tensorfold/1.0.8/bin -maxdepth 1 -type f -perm -111); set -- $exe; ln -sfn \"$1\" /opt/llgenie/engines/tensorfold/1.0.8/bin/tensorfold"
       ],
       "env": {},
-      "detect": "tensorfold --help > /dev/null && python3 -c 'import importlib.metadata as m; print(m.version(\"tensorfold\"))'",
+      "detect": "/opt/llgenie/engines/tensorfold/1.0.8/bin/tensorfold --version",
       "pre_launch": null,
-      "launch": "tensorfold serve {model} --host {host} --port {port} --name llm-local",
+      "launch": "/opt/llgenie/engines/tensorfold/1.0.8/bin/tensorfold serve {model} --host {host} --port {port} --name llm-local",
       "post_launch": null,
       "health": "GET /v1/models",
       "alias_mode": "flag",

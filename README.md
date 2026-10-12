@@ -105,8 +105,8 @@ cannot run in a container. **Picking a Metal engine makes it ready by itself, in
 not:** missing → llgenie runs the skill's install script (TensorFold: `uv tool install
 --force 'tensorfold @ git+…@v<pinned>'`; the MLX wheels ship their Metal kernels
 precompiled); installed at another version than the skill pins → it updates to the pin;
-at the pin → it is reused. The engine list says which: `(installs 0.6.5 on pick)`,
-`(installed 0.6.4 -> updates to 0.6.5 on pick)` or `(installed 0.6.5)`. Then llgenie
+at the pin → it is reused. The engine list says which: `(installs 1.0.8 on pick)`,
+`(installed 0.6.4 -> updates to 1.0.8 on pick)` or `(installed 1.0.8)`. Then llgenie
 downloads the model's TensorFold checkpoint if missing, writes a native
 `~/bin/llgenie-engine-<id>` (no docker) and serves. TensorFold gets a **65,536-token window**
 (`--context`, the 64K Hermes Agent needs for tool use; `LLGENIE_CONTEXT=<n>` overrides, `0`
@@ -134,7 +134,7 @@ job for it, GitHub's macOS runners have no usable Metal GPU), and `make test-nat
 Metal serve with `context: 65536` + "hi". `make test-native-engine-light` serves the lightest
 model TensorFold runs (`mlx-community/Qwen3.5-9B-MLX-4bit`, 5.5 GiB) through the llgenie start
 script on Metal; on GitHub's 7 GB `macos-15` runner TensorFold's own budget check refuses it
-instead (smaller Qwen3.5 sizes tie their embeddings, which TensorFold 0.6.5 refuses).
+instead (smaller Qwen3.5 sizes tie their embeddings, which TensorFold 1.0.8 refuses).
 
 Without a terminal:
 
