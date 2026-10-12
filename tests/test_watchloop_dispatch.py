@@ -608,6 +608,18 @@ class TestUpstreamMainResolution:
         assert "rebase origin/main" in p, "repair worker must rebase onto origin/main"
         assert "upstream/main" not in p, "repair worktrees are on the fork origin"
 
+    def test_dispatcher_uses_shared_sync_module(self, monkeypatch):
+        """The dispatcher's engine-bump sync functions delegate to the shared
+        engine_bump_sync module (issue #208) — one implementation, no duplication."""
+        import scripts.engine_bump_sync as ebs
+        # Given the dispatcher imports the shared module
+        # Then its classification IS the shared implementation
+        assert wd.is_engine_bump_pr is ebs.is_engine_bump_pr
+        # And its sync/remote wrappers delegate to the shared module
+        assert wd._sync_pr_with_main is ebs.sync_pr_with_main
+        assert wd._upstream_remote is ebs.upstream_remote
+        assert wd._upstream_main is ebs.upstream_main
+
 
 # --------------------------------------------------------------------------- #
 # ensure_worktree reuse of an existing branch/worktree (issue #46): the

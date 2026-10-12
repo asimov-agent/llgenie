@@ -235,6 +235,16 @@ make engine-bump ENGINE=<id>          # pin + derive + apply + regen (no push)
 make engine-bump-daily [DRY=1]        # plan -> bump every moved engine; DRY=1 prints only
 ```
 
+The `engine-bump-rebase` workflow (daily cron `17 5 * * *`, issue #208) keeps
+those open `chore/engine-bump-*` PRs current with the latest `main`: it finds
+every open engine-bump PR and, when one is behind `main`, forward-merges the
+latest `main` into it and force-with-lease-pushes it back — automatically, and
+only when the merge applies cleanly (a conflict is left for a human). It reuses
+the SAME sync logic as the watch-loop dispatcher via the shared module
+`scripts/engine_bump_sync.py` (imported by `scripts/engine_bump_rebase.py`), so
+there is no duplicated implementation. Run it locally with
+`python3 scripts/engine_bump_rebase.py --dry` to preview without pushing.
+
 Before that commit, and only when both the old sha and the new sha are known,
 the bump reads `requirements.txt`, `pyproject.toml`, and `Dockerfile` with
 `git show <sha>:<path>` and keeps the names the new pin added (issue #186).

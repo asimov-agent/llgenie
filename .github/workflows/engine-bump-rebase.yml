@@ -1,0 +1,75 @@
+name: engine-bump-rebase
+
+# Issue #208: keep the open engine-bump PRs (chore/engine-bump-*, created by
+# engine-bump.yml, issue #107) current with the latest `main`. The engine-bump
+# workflow only CREATES those PRs; nothing in CI kept them rebased except the
+# watch-loop dispatcher's host crontab. This daily job finds every open
+# chore/engine-bump-* PR and, when one is behind `main`, forward-merges the
+# latest `main` into it and force-with-lease-pushes it back — automatically,
+# and only when the merge applies cleanly (a conflict is left for a human).
+#
+# It reuses the SAME sync logic as the dispatcher (scripts/engine_bump_sync.py,
+# imported by scripts/engine_bump_rebase.py) — no duplicated implementation.
+#
+# The job checks out, pushes and opens with the owner PAT (secrets.BUMP_TOKEN),
+# not GITHUB_TOKEN (issue #136): a push made with GITHUB_TOKEN starts no
+# workflows, and the PAT is what engine-bump.yml already uses to write the
+# upstream branches.
+on:
+  schedule:
+    - cron: "17 5 * * *"   # daily: 05:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Only collaborators, bots, and owners may trigger
+        env:
+          ACTOR: ${{ github.actor }}
+          OWNER: ${{ github.repository_owner }}
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "$ACTOR" = "github-actions[bot]" ] || [ "$ACTOR" = "$OWNER" ]; then
+            echo "allowed"
+            exit 0
+          fi
+          code=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Bearer ***" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/collaborators/$ACTOR")
+          if [ "$code" = "204" ]; then
+            echo "actor $ACTOR is a collaborator"
+          else
+            echo "::error::actor $ACTOR is not a collaborator, bot, or owner; refusing to run"
+            exit 1
+          fi
+
+  rebase:
+    needs: [guard]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.BUMP_TOKEN }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"   # the repo's pinned Python (issue #120)
+      - name: Rebase open engine-bump PRs onto the latest main
+        env:
+          GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
+        run: |
+          git config user.name "$(gh api user --jq .login)"
+          git config user.email "$(gh api user --jq .id)+$(gh api user --jq .login)@users.noreply.github.com"
+          python3 scripts/engine_bump_rebase.py

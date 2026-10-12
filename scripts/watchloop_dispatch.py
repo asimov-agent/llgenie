@@ -280,6 +280,17 @@ def run_git(*args) -> subprocess.CompletedProcess:
     return subprocess.run(["git", "-C", REPO, *args], capture_output=True, text=True)
 
 
+# The engine-bump sync logic is shared with the CI rebase entrypoint
+# (scripts/engine_bump_rebase.py) — one implementation, no duplication
+# (issue #208). These thin wrappers bind the dispatcher's REPO/run_git/log.
+from scripts.engine_bump_sync import (  # noqa: E402
+    is_engine_bump_pr,
+    upstream_remote as _upstream_remote,
+    upstream_main as _upstream_main,
+    sync_pr_with_main as _sync_pr_with_main,
+)
+
+
 def upstream_remote(repo: str = "") -> str:
     """Name of the remote whose URL is the upstream repo; added when absent.
 
@@ -290,98 +301,24 @@ def upstream_remote(repo: str = "") -> str:
     upstream remote gets one named `upstream`; only a checkout where that
     cannot be added keeps the `origin` behaviour.
     """
-    repo = repo or REPO
-    r = subprocess.run(["git", "-C", repo, "remote", "-v"], capture_output=True, text=True)
-    for line in (r.stdout or "").splitlines():
-        parts = line.split()
-        if len(parts) >= 2 and UPSTREAM_SLUG in parts[1].replace(":", "/"):
-            return parts[0]
-    add = subprocess.run(["git", "-C", repo, "remote", "add", "upstream", UPSTREAM_URL],
-                         capture_output=True, text=True)
-    if add.returncode == 0:
-        log(f"  added remote `upstream` -> {UPSTREAM_URL} (issue #206)")
-        return "upstream"
-    log(f"  no upstream remote and cannot add one -> syncing against origin")
-    return "origin"
+    return _upstream_remote(repo or REPO, run_git, log)
 
 
 def upstream_main(repo: str = "") -> str:
     """The ref an engine-bump PR is rebased / forward-merged onto: <upstream>/main."""
-    return f"{upstream_remote(repo)}/main"
-
-
-def is_engine_bump_pr(pr) -> bool:
-    """True if *pr* is one of the automated engine-bump PRs (issue #107).
-
-    The engine-bump workflow (`.github/workflows/engine-bump.yml`) opens
-    `chore/engine-bump-<id>` PRs directly on `asimov-agent/llgenie` (the
-    upstream), so their branches are NOT on a contributor's fork. These are the
-    ONLY PRs the loop auto-rebases/forward-merges against the UPSTREAM
-    `asimov-agent/main` (issue #206): worker PRs target that same main but their
-    branches live on the fork, and were already handled against `origin`.
-    """
-    ref = (pr.get("head") or {}).get("ref", "") or ""
-    if ref.startswith("chore/engine-bump-"):
-        return True
-    repo = (pr.get("head") or {}).get("repo") or {}
-    return (repo.get("full_name") or "") == UPSTREAM_SLUG
+    return _upstream_main(repo or REPO, run_git, log)
 
 
 def sync_pr_with_main(pr) -> bool:
     """Bring a behind PR's head up to date with `main` (issue #9 + #206).
 
-    issue #9: a PR that is behind main MUST NOT be merged out of sync. Instead of
-    merely skipping it, forward-merge main into the PR branch so it no longer
-    drifts, then let CI re-run so the gate re-attempts on a later tick. Conflicts
-    are never auto-resolved — if a merge conflict arises, leave the branch for its
-    worker to resolve and return False (the PR stays NOT merged).
-
-    issue #206: ONLY the engine-bump bot's PRs are forward-merged against the
-    UPSTREAM `asimov-agent/main`, fetched from and pushed back to the upstream
-    remote (their branches live there, not on the fork). Every other PR is
-    synced against `origin/main` exactly as before.
-    Returns True if the PR head is now in sync with main, False otherwise.
+    Shared with the CI rebase entrypoint (issue #208): ONLY the engine-bump
+    bot's PRs are forward-merged against the UPSTREAM `asimov-agent/main`,
+    fetched from and pushed back to the upstream remote (their branches live
+    there, not on the fork). Every other PR is synced against `origin/main`
+    exactly as before. Returns True if the PR head is now in sync with main.
     """
-    head_ref = pr["head"]["ref"]
-    head_sha = pr["head"]["sha"]
-    n = pr["number"]
-    if is_engine_bump_pr(pr):
-        remote = upstream_remote()   # the remote holding the engine-bump branch (#206)
-    else:
-        remote = "origin"
-    main_ref = f"{remote}/main"
-    r = run_git("fetch", remote, f"+refs/heads/{head_ref}:refs/remotes/{remote}/{head_ref}")
-    if r.returncode != 0:
-        log(f"  PR#{n}: sync fetch failed for {head_ref}: {r.stderr.strip()[:120]}")
-        return False
-    run_git("branch", "-D", "_dispatch_sync")  # clear any stale temp branch
-    r = run_git("branch", "_dispatch_sync", f"{remote}/{head_ref}")
-    if r.returncode != 0:
-        log(f"  PR#{n}: cannot create temp sync ref: {r.stderr.strip()[:120]}")
-        return False
-    r = run_git(
-        "merge", main_ref, "--no-ff",
-        "-m", f"chore: sync to latest {main_ref} before merge (issue #9, PR #{n})",
-    )
-    if r.returncode != 0:
-        run_git("merge", "--abort")
-        run_git("branch", "-D", "_dispatch_sync")
-        log(f"  PR#{n}: merge conflict syncing {head_ref} onto {main_ref} -> needs manual "
-            f"resolution, NOT merged (issue #9)")
-        return False
-    # Advance the PR branch to the synced head. force-with-lease pins to the known sha
-    # so we never clobber newer commits a worker pushed concurrently.
-    r = run_git(
-        "push", remote, "_dispatch_sync:" + head_ref,
-        f"--force-with-lease={head_ref}:{head_sha}",
-    )
-    run_git("branch", "-D", "_dispatch_sync")
-    if r.returncode != 0:
-        log(f"  PR#{n}: sync push failed for {head_ref}: {r.stderr.strip()[:160]}")
-        return False
-    log(f"  PR#{n}: {head_ref} synced to {main_ref} (merge forward); CI must re-run, "
-        "re-attempting gate next tick")
-    return True
+    return _sync_pr_with_main(pr, REPO, run_git, log)
 
 
 def process_merge_gate(prs) -> set:
