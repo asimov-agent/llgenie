@@ -435,6 +435,28 @@ Mechanics of the guarantee:
   meaningful behavior that CAN run (e.g. the error message / CLI contract), never
   `pytest.skip("needs X")`.
 
+### Business logic is never mocked (mandatory, durable)
+
+A test that claims to lock business logic runs that logic. It MUST NOT replace
+the system under test with a stub, fake, or monkeypatch. `plan`, `derive`,
+`pin`, apply, loaders, guards, rewriters, and any other function of the
+product are the behavior. A test that passes because a mock returned the
+answer the assertion wanted does not lock that behavior and is a defect.
+
+The only stand-in allowed is an **external** system, and only when the test
+is **not** end to end:
+
+- A git remote may be a local repository the real `git` talks to.
+- An HTTP API may be a file or a local server the real client reads.
+- The production code that builds the request still runs. The test asserts
+  on that request and on the files the product writes.
+
+An end-to-end test calls the real external system. `make test-health`,
+`make test-agents-e2e`, `make test-engine`, `make test-engine-bump-live`,
+and the native and published-image serve tests do not mock that call.
+Pointing `SKILLS_DIR` or `REPO_ROOT` at fixture files is not a mock: the
+real loader and the real git still run.
+
 ### EVERY spec scenario must have Given / When / Then (mandatory, durable)
 
 Every spec-driven change (`openspec/changes/<name>/specs/**/spec.md`) must express each

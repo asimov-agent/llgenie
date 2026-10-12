@@ -155,11 +155,14 @@ def _watch_backends(skill: dict, changed: list[str]) -> list[str]:
 
 
 def derive(skill: dict, sha: str, repo_dir: Path | None = None,
-           old_sha: str | None = None) -> dict:
+           old_sha: str | None = None, ref: str | None = None) -> dict:
     """Run the extractors the skill declares. Returns a stable findings dict.
 
     `repo_dir` is a `--filter=blob:none` clone of the skill's repo (created here
     when not given). `old_sha` enables the E9 watch diff; without it E9 is empty.
+    `ref` is the tag whose GitHub release E10 reads. A bump derives before it
+    writes the new tag into the skill, so it passes the destination tag here.
+    Without `ref`, E10 reads the tag still written in the skill.
     """
     derive_cfg = skill.get("derive") or {}
     findings: dict = {"sha": sha, "auto": {}, "report": {}, "hard_fail": None}
@@ -221,14 +224,17 @@ def derive(skill: dict, sha: str, repo_dir: Path | None = None,
             if used:
                 findings["auto"]["gpu_targets_var"] = used[0]
 
-        # E10: a tag pin whose GitHub release ships native archives. Read live;
-        # a release with no such assets (or any lookup failure) leaves install alone.
-        if skill.get("ref_kind") == "tag" and skill.get("ref"):
+        # E10: a tag pin whose GitHub release ships native archives. Read live.
+        # The tag is the one the caller is moving to (`ref`), else the tag still
+        # written in the skill. A release with no such assets (or any lookup
+        # failure) leaves install alone.
+        tag = ref or skill.get("ref")
+        if skill.get("ref_kind") == "tag" and tag:
             try:
                 from . import engine_bump as _eb
             except ImportError:
                 import engine_bump as _eb
-            assets = _eb._release_assets(skill.get("repo", ""), skill["ref"])
+            assets = _eb._release_assets(skill.get("repo", ""), tag)
             if assets and _eb._native_archives(assets):
                 findings["auto"]["release_assets"] = assets
 

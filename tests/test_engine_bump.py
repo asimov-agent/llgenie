@@ -6,10 +6,14 @@ subprocess calls), so plan/derive run against real git. No network, no skips.
 """
 from __future__ import annotations
 
+import io
 import json
 import os
+import re
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 import pytest
@@ -521,11 +525,19 @@ def test_regen_guard_allows_the_bumped_skill(tmp_path, monkeypatch):
 
 
 def test_changed_engines_scopes_matrix(tmp_path):
-    """matrix(changed=...) keeps only engines whose params differ."""
+    """An unchanged tree is the placeholder row. A bump PR is not unchanged.
+
+    Comparing this checkout to origin/main failed linux / unit on every
+    engine-bump PR from that run: #165 tensorfold, #166 llama.cpp-prism,
+    #167 strata, #168 llama.cpp. Each pin move changes that engine's image
+    tag, so the matrix lists the engine. That is the scope those PRs want.
+    The unchanged case is this commit against itself. A moved pin is
+    test_engine_image_matrix.py::test_matrix_keeps_only_the_engine_whose_pin_changed.
+    """
     import scripts.engine_image as ei
-    # no diff on this branch -> the one placeholder row, never an empty include
+    # HEAD against HEAD: one placeholder row, never an empty include
     # (GitHub fails a workflow whose matrix include list is empty)
-    rows = ei.matrix(ci=True, changed="origin/main")
+    rows = ei.matrix(ci=True, changed="HEAD")
     assert rows == [{"engine": "none", "backend": "cpu", "variant": "none",
                      "smoke": False, "test": "detect", "chat": ""}]
     # full matrix is non-empty and has no placeholder
@@ -840,7 +852,8 @@ def test_apply_release_archive_replaces_pip_install(tmp_path):
         es.SKILLS_DIR = orig
     text = p.read_text()
 
-    # Then both backends download, checksum and unpack the archive
+    # Then both backends download, checksum and unpack the archive, and the
+    # skill points at the unpacked executable rather than the pip package
     assert "install=release-archive" in changed
     assert "git+" not in text
     assert "uv " not in text
@@ -849,10 +862,636 @@ def test_apply_release_archive_replaces_pip_install(tmp_path):
     assert "sha256sum -c" in text
     assert "shasum -a 256 -c" in text
     assert "--strip-components=1" in text
+    assert "ln -sfn" in text
     skill = es.load_skill(p)
     assert skill["install"]["cuda"][0].startswith("mkdir -p")
-    assert skill["binary"] == "engine"
+    assert skill["install"]["cuda"][-1].startswith("exe=$(find ")
+    assert skill["binary"] == "{prefix}/{version}/bin/{id}"
+    assert skill["detect"] == "{binary} --version"
 
+
+# A bump's only stand-ins are files for the two external systems: a local git
+# remote (git insteadOf, so plan/clone speak the skill's GitHub URL) and one
+# JSON file per release tag (urllib.request.urlopen). plan, derive, pin, apply,
+# the pin rewrite and the regen guard all run. Versions are the shape of the
+# bump PRs (vX.Y.Z, branch names) and are not the live pins: v0.6.5 and v0.1.42
+# are hardcoded in this checkout, and the fixture repo is the only tree the
+# rewrite is allowed to touch.
+_MAKEFILE = (
+    "generate-engine-params:\n"
+    "\t@true\n"
+    "\n"
+    "sync-strata-models:\n"
+    "\tmkdir -p data\n"
+    "\tprintf '%s\\n' '{}' > data/strata_models.json\n"
+)
+
+
+class _ReleaseFile(io.BytesIO):
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+        return False
+
+
+def _github(slug: str) -> str:
+    return f"https://github.com/fixture/{slug}"
+
+
+def _archive_body(name: str, version: str, targets=("linux-x86_64", "macos-arm64"),
+                  checksum: bool = True) -> dict:
+    assets = []
+    for target in targets:
+        asset = f"{name}-{version}-{target}.tar.gz"
+        assets.append({"name": asset})
+        if checksum:
+            assets.append({"name": asset + ".sha256"})
+    return {"assets": assets}
+
+
+def _write_release(releases: Path, slug: str, tag: str, body: dict) -> None:
+    path = releases / "fixture" / slug / f"{tag}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(body))
+
+
+def _skill_text(*, sid: str, engine: str, repo: str, ref: str, ref_kind: str,
+                pinned: str, backends: list[str], install: list[tuple[str, list[str]]],
+                binary: str, detect: list[str], version: str = "") -> str:
+    lines = [
+        "---",
+        f"name: engine-{sid}",
+        f"engine: {engine}",
+        f"id: {sid}",
+        f"repo: {repo}",
+        f"ref: {ref}",
+        f"ref_kind: {ref_kind}",
+    ]
+    if version:
+        lines.append(f"version: {version}")
+    lines += [
+        f"pinned: {pinned}",
+        'verified: "2026-10-05"',
+        "license: MIT",
+        "servable: true",
+        "backends: [" + ", ".join(backends) + "]",
+        "install:",
+    ]
+    for backend, steps in install:
+        lines.append(f"  {backend}:")
+        for step in steps:
+            lines.append('    - "' + step.replace("\\", "\\\\").replace('"', '\\"') + '"')
+    lines.append(f'binary: "{binary}"')
+    lines.extend(detect)
+    lines += ["---", "# body"]
+    return "\n".join(lines) + "\n"
+
+
+def _moved_tag(tmp_path: Path, old_tag: str, new_tag: str, extra: str = "") -> tuple[Path, str, str]:
+    """Two lightweight tags on different commits. The new sha does not contain the old prefix."""
+    repo = _make_repo(tmp_path, "up", {"README.md": "old\n"})
+    old = _git(repo, "rev-parse", "HEAD")
+    _git(repo, "tag", old_tag)
+    new = old
+    for n in range(1, 9):
+        new = _commit(repo, {"README.md": f"new {n}\n"})
+        if old[:8] not in new and new[:8] not in old:
+            break
+    _git(repo, "tag", new_tag)
+    if extra:
+        _commit(repo, {"README.md": "extra\n"})
+        _git(repo, "tag", extra)
+    return repo, old, new
+
+
+def _moved_branch(tmp_path: Path, branch: str) -> tuple[Path, str, str]:
+    repo = _make_repo(tmp_path, "up", {"README.md": "old\n"})
+    old = _git(repo, "rev-parse", "HEAD")
+    new = old
+    for n in range(1, 9):
+        new = _commit(repo, {"README.md": f"new {n}\n"})
+        if old[:8] not in new and new[:8] not in old:
+            break
+    if branch != "master":
+        _git(repo, "branch", branch)
+    return repo, old, new
+
+
+def _checkout(tmp_path: Path, sid: str, skill: str, old: str, ref: str) -> tuple[Path, Path]:
+    """A real llgenie git repo whose regen Makefile and pin asserts are files."""
+    root = tmp_path / "llgenie"
+    (root / "skills" / "engines" / sid).mkdir(parents=True)
+    (root / "tests").mkdir()
+    marker = f"{old}\n{old[:8]}\n{ref}\n"
+    path = root / "skills" / "engines" / sid / "SKILL.md"
+    path.write_text(skill)
+    (root / "tests" / "test_pins.py").write_text(marker)
+    (root / "README.md").write_text(marker)
+    (root / "Makefile").write_text(_MAKEFILE)
+    _git(root, "init", "-q", "-b", "main")
+    _git(root, "config", "user.email", "t@t")
+    _git(root, "config", "user.name", "t")
+    _git(root, "add", "-A")
+    _git(root, "commit", "-qm", "fixture")
+    return root, path
+
+
+def _bind_files(monkeypatch, checkout: Path, upstream: Path, github: str, releases: Path) -> list[str]:
+    """GitHub URL -> local repo. Release URL -> JSON file. Nothing else is stubbed."""
+    monkeypatch.setattr(es, "SKILLS_DIR", checkout / "skills" / "engines")
+    monkeypatch.setattr(eb, "REPO_ROOT", checkout)
+    monkeypatch.setenv("GIT_TERMINAL_PROMPT", "0")
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    remote = github if github.endswith(".git") else github + ".git"
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", f"url.{upstream.resolve()}/.insteadOf")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", remote)
+    seen: list[str] = []
+
+    def urlopen(req, timeout=None, *args, **kwargs):
+        url = req.full_url if isinstance(req, urllib.request.Request) else str(req)
+        seen.append(url)
+        match = re.search(r"https://api\.github\.com/repos/([^/]+/[^/]+)/releases/tags/([^/?#]+)$", url)
+        if not match:
+            raise urllib.error.URLError(url)
+        path = releases / match.group(1) / f"{match.group(2)}.json"
+        if not path.is_file():
+            raise urllib.error.URLError(f"no release file {path}")
+        return _ReleaseFile(path.read_bytes())
+
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    return seen
+
+
+def _assert_pins_rewritten(checkout: Path, old: str, new: str, old_ref: str, new_ref: str) -> None:
+    for rel in ("tests/test_pins.py", "README.md"):
+        text = (checkout / rel).read_text()
+        assert new in text
+        assert new[:8] in text
+        assert new_ref in text
+        assert old not in text
+        if old_ref != new_ref:
+            assert old_ref not in text
+
+
+def _pip_engine(sid: str, engine: str, github: str, ref: str, pinned: str,
+                backends: list[str], install: list[tuple[str, list[str]]],
+                binary: str, version: str = "") -> str:
+    detect = [
+        "detect:",
+        "  cuda: \"python3 -c 'import importlib.metadata as m; print(m.version(\\\"" + sid + "\\\"))'\"",
+    ]
+    return _skill_text(sid=sid, engine=engine, repo=github, ref=ref, ref_kind="tag",
+                       pinned=pinned, backends=backends, install=install, binary=binary,
+                       detect=detect, version=version)
+
+
+def _bump_tag(tmp_path, monkeypatch, *, sid, engine, slug, old_tag, new_tag,
+              install, binary, backends=("cuda", "metal"), releases=None,
+              extra_tag="", skill_ref="", skill_pin=""):
+    """Real bump. `releases` maps a tag to a GitHub release JSON body."""
+    upstream, old, new = _moved_tag(tmp_path, old_tag, new_tag, extra_tag)
+    ref = skill_ref or old_tag
+    pinned = skill_pin or old
+    github = _github(slug)
+    text = _pip_engine(sid, engine, github, ref, pinned, list(backends), install, binary,
+                       version=ref)
+    checkout, path = _checkout(tmp_path, sid, text, pinned, ref)
+    seen = _bind_files(monkeypatch, checkout, upstream, github, tmp_path / "releases")
+    for tag, body in (releases or {}).items():
+        _write_release(tmp_path / "releases", slug, tag, body)
+    rows = eb.bump(sid)
+    return checkout, path, seen, old, new, rows
+
+
+_TENSORFOLD_INSTALL = [
+    ("metal", ["uv tool install --force 'tensorfold @ git+{repo}.git@v{version}'"]),
+    ("cuda", ["uv pip install --system 'tensorfold @ git+{repo}.git@v{version}'"]),
+]
+
+
+def test_bump_reads_the_destination_release(tmp_path, monkeypatch):
+    """A bump rewrites pip from the tag it moves to, while the skill still names the old one.
+
+    derive() runs before pin(). The old tag's release file is absent. The
+    destination tag's file has checksummed native archives. v9.1.0 -> v9.2.0
+    is the vX.Y.Z shape of TensorFold v0.6.5 -> v1.0.7.
+    """
+
+    # Given a git+ skill on v9.1.0 and archives only in the v9.2.0 release file
+    checkout, path, seen, old, new, rows = _bump_tag(
+        tmp_path, monkeypatch, sid="tensorfold", engine="TensorFold", slug="tensorfold",
+        old_tag="v9.1.0", new_tag="v9.2.0", install=_TENSORFOLD_INSTALL, binary="tensorfold",
+        releases={"v9.2.0": _archive_body("tensorfold", "9.2.0")})
+
+    # Then plan found v9.2.0, the only release read is that tag, and the install
+    # is the unpacked executable. The fixture's pin asserts moved with it.
+    assert rows[0]["new_ref"] == "v9.2.0"
+    assert rows[0]["new_sha"] == new
+    assert seen == ["https://api.github.com/repos/fixture/tensorfold/releases/tags/v9.2.0"]
+    text = path.read_text()
+    assert "git+" not in text
+    assert "importlib" not in text
+    assert "tensorfold-{version}-linux-x86_64.tar.gz" in text
+    assert "tensorfold-{version}-macos-arm64.tar.gz" in text
+    assert f"pinned: {new}" in text
+    assert "ref: v9.2.0" in text
+    got = es.load_skill(path)
+    assert got["binary"] == "{prefix}/{version}/bin/{id}"
+    assert got["detect"] == "{binary} --version"
+    assert "sha256sum -c" in got["install"]["cuda"][3]
+    assert "shasum -a 256 -c" in got["install"]["metal"][3]
+    link = got["install"]["cuda"][-1]
+    assert link.startswith("exe=$(find ")
+    assert "{prefix}/{version}/bin/{id}" in link
+    assert "|" not in link
+    _assert_pins_rewritten(checkout, old, new, "v9.1.0", "v9.2.0")
+    assert not (checkout / "data" / "strata_models.json").exists()
+
+
+def test_derive_release_lookup_uses_the_passed_tag(tmp_path, monkeypatch):
+    """E10 reads `ref` when derive runs before the skill file is updated.
+
+    With no `ref`, it reads the tag still written in the skill. An empty
+    release file leaves `auto` without archives. The release body is a JSON
+    file. derive clones the local repo behind the skill's GitHub URL.
+    """
+
+    # Given a skill whose file still says v9.1.0, and archives only in v9.2.0.json
+    upstream, _old, new = _moved_tag(tmp_path, "v9.1.0", "v9.2.0")
+    github = _github("tensorfold")
+    skill = _skill(tmp_path, github, "v9.1.0", "tag", _old,
+                   backends=["cuda", "metal"],
+                   install={"cuda": ["uv pip install 'engine @ git+{repo}.git@v{version}'"],
+                            "metal": ["uv tool install 'engine @ git+{repo}.git@v{version}'"]})
+    releases = tmp_path / "releases"
+    _write_release(releases, "tensorfold", "v9.2.0", _archive_body("tensorfold", "9.2.0"))
+    _write_release(releases, "tensorfold", "v9.1.0", {"assets": []})
+    checkout, _path = _checkout(tmp_path, "unused", "---\nid: unused\nref: v9.1.0\n---\n", _old, "v9.1.0")
+    seen = _bind_files(monkeypatch, checkout, upstream, github, releases)
+
+    # When derive is told the destination tag and clones the upstream itself
+    found = epd.derive(skill, new, ref="v9.2.0")
+
+    # Then that tag is the one requested, and its archives are the finding
+    assert seen == ["https://api.github.com/repos/fixture/tensorfold/releases/tags/v9.2.0"]
+    names = {a["name"] for a in found["auto"]["release_assets"]}
+    assert "tensorfold-9.2.0-linux-x86_64.tar.gz" in names
+    assert "tensorfold-9.2.0-macos-arm64.tar.gz" in names
+
+    # And with no destination tag, the skill's own tag is what gets asked
+    again = epd.derive(skill, new)
+    assert seen[-1].endswith("/releases/tags/v9.1.0")
+    assert "release_assets" not in again["auto"]
+
+
+def test_bump_leaves_pip_when_destination_release_has_no_archives(tmp_path, monkeypatch):
+    """A destination tag with no native archives still moves the pin and keeps pip."""
+
+    # Given a git+ skill and a destination release file with an empty asset list
+    checkout, path, seen, old, new, rows = _bump_tag(
+        tmp_path, monkeypatch, sid="tensorfold", engine="TensorFold", slug="tensorfold",
+        old_tag="v9.1.0", new_tag="v9.2.0", install=_TENSORFOLD_INSTALL, binary="tensorfold",
+        releases={"v9.2.0": {"assets": []}})
+
+    # Then the pin moved, the release read was the new tag, and pip stayed
+    assert rows[0]["new_ref"] == "v9.2.0"
+    assert seen == ["https://api.github.com/repos/fixture/tensorfold/releases/tags/v9.2.0"]
+    text = path.read_text()
+    assert "git+" in text
+    assert "ln -sfn" not in text
+    assert "releases/download" not in text
+    assert f"pinned: {new}" in text
+    assert "ref: v9.2.0" in text
+    assert es.load_skill(path)["binary"] == "tensorfold"
+    _assert_pins_rewritten(checkout, old, new, "v9.1.0", "v9.2.0")
+
+
+def test_bump_branch_does_not_query_a_release(tmp_path, monkeypatch):
+    """A branch bump does not ask GitHub for a release."""
+
+    # Given a branch skill that pip-installs from git, one commit behind master
+    upstream, old, new = _moved_branch(tmp_path, "master")
+    github = _github("branchengine")
+    text = _skill_text(
+        sid="branchengine", engine="branchengine", repo=github, ref="master", ref_kind="branch",
+        pinned=old, backends=["cuda"], binary="engine", version="",
+        install=[("cuda", ["uv pip install --system 'engine @ git+{repo}.git@master'"])],
+        detect=['detect: "engine --version"'])
+    checkout, path = _checkout(tmp_path, "branchengine", text, old, "master")
+    seen = _bind_files(monkeypatch, checkout, upstream, github, tmp_path / "releases")
+    _write_release(tmp_path / "releases", "branchengine", "master", _archive_body("engine", "9.2.0"))
+
+    # When the bump runs
+    rows = eb.bump("branchengine")
+
+    # Then no release was requested, the pip line stayed, and the pin moved
+    assert rows[0]["new_sha"] == new
+    assert seen == []
+    assert "git+" in path.read_text()
+    assert f"pinned: {new}" in path.read_text()
+    assert "ref: master" in path.read_text()
+    _assert_pins_rewritten(checkout, old, new, "master", "master")
+
+
+@pytest.mark.parametrize("engine", [
+    "tensorfold",
+    "strata",
+    "llama.cpp",
+    "llama.cpp-prism",
+])
+def test_each_failed_bump_engine_keeps_its_install_kind(tmp_path, monkeypatch, engine):
+    """The four red bump PRs do not repeat.
+
+    The versions are the shape of those PRs, not the live pins. tensorfold is
+    v9.1.0 -> v9.2.0, the v0.6.5 -> v1.0.7 git+ bump. strata is v8.1.0 ->
+    v8.2.0, the v0.1.42 -> v0.1.43 clone and cmake bump. llama.cpp stays on
+    master and llama.cpp-prism stays on prism.
+
+    Each case runs plan, derive, pin and apply. The GitHub remote is a local
+    repo. The release body is a JSON file.
+    """
+
+    # Given that engine's install, still on the pin the bump started from
+    if engine == "tensorfold":
+        checkout, path, seen, old, new, rows = _bump_tag(
+            tmp_path, monkeypatch, sid="tensorfold", engine="TensorFold", slug="tensorfold",
+            old_tag="v9.1.0", new_tag="v9.2.0", install=_TENSORFOLD_INSTALL, binary="tensorfold",
+            releases={"v9.2.0": _archive_body("tensorfold", "9.2.0")})
+        assert rows[0]["new_ref"] == "v9.2.0"
+        assert seen == ["https://api.github.com/repos/fixture/tensorfold/releases/tags/v9.2.0"]
+        text = path.read_text()
+        assert "git+" not in text
+        assert "importlib" not in text
+        assert "ref: v9.2.0" in text
+        assert f"pinned: {new}" in text
+        got = es.load_skill(path)
+        assert got["binary"] == "{prefix}/{version}/bin/{id}"
+        assert got["detect"] == "{binary} --version"
+        assert "tensorfold-{version}-linux-x86_64.tar.gz" in text
+        assert "tensorfold-{version}-macos-arm64.tar.gz" in text
+        _assert_pins_rewritten(checkout, old, new, "v9.1.0", "v9.2.0")
+        return
+
+    if engine == "strata":
+        upstream, old, new = _moved_tag(tmp_path, "v8.1.0", "v8.2.0")
+        github = _github("strata")
+        install = [
+            ("common", [
+                "test -d {src}/.git || git clone -b v{version} --depth 1 {repo}.git {src}",
+                "python3 -m venv {src}/py && {src}/py/bin/pip install --no-cache-dir -r {src}/requirements.txt",
+            ]),
+            ("cuda", ["cd {src} && py/bin/python -c 'import setup; setup.cmake_build'"]),
+            ("rocm", ["cd {src} && py/bin/python -c 'import setup; setup.cmake_build'"]),
+        ]
+        text = _skill_text(
+            sid="strata", engine="Strata", repo=github, ref="v8.1.0", ref_kind="tag",
+            pinned=old, backends=["cuda", "rocm"], install=install,
+            binary="{src}/engine/strata", version="v8.1.0",
+            detect=['detect: "{binary} --help"'])
+        checkout, path = _checkout(tmp_path, "strata", text, old, "v8.1.0")
+        # The real tree tracks this file, so a regen shows a modification of
+        # data/strata_models.json. An untracked data/ is `?? data/`, which the
+        # guard rejects.
+        seeded = checkout / "data" / "strata_models.json"
+        seeded.parent.mkdir()
+        seeded.write_text('{"old": true}\n')
+        _git(checkout, "add", "-A")
+        _git(checkout, "commit", "-qm", "seed strata models")
+        seen = _bind_files(monkeypatch, checkout, upstream, github, tmp_path / "releases")
+        _write_release(tmp_path / "releases", "strata", "v8.2.0",
+                       _archive_body("strata", "8.2.0", targets=("linux-x86_64",)))
+        rows = eb.bump("strata")
+        assert rows[0]["new_ref"] == "v8.2.0"
+        assert seen == ["https://api.github.com/repos/fixture/strata/releases/tags/v8.2.0"]
+        body = path.read_text()
+        assert "git clone -b v{version}" in body
+        assert "pip install --no-cache-dir -r" in body
+        assert "setup.cmake_build" in body
+        assert "ln -sfn" not in body
+        assert "releases/download" not in body
+        assert "ref: v8.2.0" in body
+        assert f"pinned: {new}" in body
+        assert es.load_skill(path)["binary"] == "{src}/engine/strata"
+        assert (checkout / "data" / "strata_models.json").read_text() == "{}\n"
+        _assert_pins_rewritten(checkout, old, new, "v8.1.0", "v8.2.0")
+        return
+
+    ref = "prism" if engine == "llama.cpp-prism" else "master"
+    slug = "llamacpp-prism" if engine == "llama.cpp-prism" else "llamacpp"
+    upstream, old, new = _moved_branch(tmp_path, ref)
+    github = _github(slug)
+    install = [
+        ("common", [
+            "test -d {src}/.git || git clone -b {ref} {repo}.git {src}",
+            "cmake -S {src} -B {build} -DCMAKE_BUILD_TYPE=Release {cmake_flags}",
+            "cmake --build {build} --config Release -j{jobs} --target llama-server",
+        ]),
+    ]
+    text = _skill_text(
+        sid=engine, engine=engine, repo=github, ref=ref, ref_kind="branch",
+        pinned=old, backends=["cuda", "cpu"], install=install,
+        binary="{build}/bin/llama-server", detect=['detect: "{binary} --version"'])
+    checkout, path = _checkout(tmp_path, engine, text, old, ref)
+    seen = _bind_files(monkeypatch, checkout, upstream, github, tmp_path / "releases")
+    _write_release(tmp_path / "releases", slug, ref, _archive_body("llama", "9.2.0"))
+    rows = eb.bump(engine)
+    assert rows[0]["new_sha"] == new
+    assert rows[0]["new_ref"] == ref
+    assert seen == []
+    body = path.read_text()
+    assert "cmake --build {build}" in body
+    assert "git clone -b {ref}" in body
+    assert "ln -sfn" not in body
+    assert f"pinned: {new}" in body
+    assert f"ref: {ref}" in body
+    got = es.load_skill(path)
+    assert got["binary"] == "{build}/bin/llama-server"
+    assert got["detect"] == "{binary} --version"
+    _assert_pins_rewritten(checkout, old, new, ref, ref)
+    assert not (checkout / "data" / "strata_models.json").exists()
+
+
+def test_bump_ignores_archives_published_only_on_the_old_tag(tmp_path, monkeypatch):
+    """Archives on the tag still written in the skill must not win.
+
+    This is the v0.6.5 -> v1.0.7 failure: derive used to read the old tag.
+    The old release file has checksummed archives. The destination file is empty.
+    """
+
+    # Given archives on v9.1.0 and an empty v9.2.0 release
+    _checkout_path, path, seen, _old, new, rows = _bump_tag(
+        tmp_path, monkeypatch, sid="tensorfold", engine="TensorFold", slug="tensorfold",
+        old_tag="v9.1.0", new_tag="v9.2.0", install=_TENSORFOLD_INSTALL, binary="tensorfold",
+        releases={
+            "v9.1.0": _archive_body("tensorfold", "9.1.0"),
+            "v9.2.0": {"assets": []},
+        })
+
+    # Then the only request is the destination tag, and the git+ install stays
+    assert rows[0]["new_ref"] == "v9.2.0"
+    assert seen == ["https://api.github.com/repos/fixture/tensorfold/releases/tags/v9.2.0"]
+    text = path.read_text()
+    assert "git+" in text
+    assert "ln -sfn" not in text
+    assert "releases/download" not in text
+    assert f"pinned: {new}" in text
+    assert "ref: v9.2.0" in text
+
+
+def test_bump_keeps_pip_when_archive_has_no_checksum(tmp_path, monkeypatch):
+    """A tar.gz with no sibling .sha256 is not a native archive."""
+
+    # Given destination archives that ship no checksum file
+    _checkout_path, path, seen, _old, new, _rows = _bump_tag(
+        tmp_path, monkeypatch, sid="tensorfold", engine="TensorFold", slug="tensorfold",
+        old_tag="v9.1.0", new_tag="v9.2.0", install=_TENSORFOLD_INSTALL, binary="tensorfold",
+        releases={"v9.2.0": _archive_body("tensorfold", "9.2.0", checksum=False)})
+
+    # Then the pin moves and the pip install stays
+    assert seen == ["https://api.github.com/repos/fixture/tensorfold/releases/tags/v9.2.0"]
+    text = path.read_text()
+    assert "git+" in text
+    assert "ln -sfn" not in text
+    assert f"pinned: {new}" in text
+    assert es.load_skill(path)["binary"] == "tensorfold"
+
+
+def test_bump_keeps_pip_when_a_backend_has_no_archive(tmp_path, monkeypatch):
+    """One missing backend archive keeps the pip install for every backend."""
+
+    # Given a linux archive and no macos archive, with both cuda and metal
+    _checkout_path, path, seen, _old, new, _rows = _bump_tag(
+        tmp_path, monkeypatch, sid="tensorfold", engine="TensorFold", slug="tensorfold",
+        old_tag="v9.1.0", new_tag="v9.2.0", install=_TENSORFOLD_INSTALL, binary="tensorfold",
+        releases={"v9.2.0": _archive_body("tensorfold", "9.2.0", targets=("linux-x86_64",))})
+
+    # Then nothing is rewritten: a partial archive set is not applied
+    assert seen == ["https://api.github.com/repos/fixture/tensorfold/releases/tags/v9.2.0"]
+    text = path.read_text()
+    assert "git+" in text
+    assert "ln -sfn" not in text
+    assert "uv tool install" in text
+    assert f"pinned: {new}" in text
+    assert "ref: v9.2.0" in text
+
+
+def test_bump_already_at_latest_tag_does_nothing(tmp_path, monkeypatch):
+    """A skill already on the highest stable tag is not rewritten."""
+
+    # Given the pin sha and the only tag are the same commit
+    upstream = _make_repo(tmp_path, "up", {"README.md": "tip\n"})
+    sha = _git(upstream, "rev-parse", "HEAD")
+    _git(upstream, "tag", "v9.2.0")
+    github = _github("tensorfold")
+    text = _pip_engine("tensorfold", "TensorFold", github, "v9.2.0", sha,
+                       ["cuda", "metal"], _TENSORFOLD_INSTALL, "tensorfold", version="v9.2.0")
+    checkout, path = _checkout(tmp_path, "tensorfold", text, sha, "v9.2.0")
+    before = path.read_text()
+    pins = (checkout / "tests" / "test_pins.py").read_text()
+    seen = _bind_files(monkeypatch, checkout, upstream, github, tmp_path / "releases")
+    _write_release(tmp_path / "releases", "tensorfold", "v9.2.0", _archive_body("tensorfold", "9.2.0"))
+
+    # When the bump runs
+    assert eb.bump("tensorfold") == []
+
+    # Then the skill is untouched and no release was read
+    assert path.read_text() == before
+    assert (checkout / "tests" / "test_pins.py").read_text() == pins
+    assert seen == []
+
+
+def test_bump_ignores_a_newer_prerelease_tag(tmp_path, monkeypatch):
+    """A newer rc tag does not beat the highest stable tag of the same shape."""
+
+    # Given v9.3.0-rc1 ahead of v9.2.0, and archives only on the stable tag
+    checkout, path, seen, old, new, rows = _bump_tag(
+        tmp_path, monkeypatch, sid="tensorfold", engine="TensorFold", slug="tensorfold",
+        old_tag="v9.1.0", new_tag="v9.2.0", extra_tag="v9.3.0-rc1",
+        install=_TENSORFOLD_INSTALL, binary="tensorfold",
+        releases={"v9.2.0": _archive_body("tensorfold", "9.2.0")})
+
+    # Then the bump lands on v9.2.0 and installs that archive
+    assert rows[0]["new_ref"] == "v9.2.0"
+    assert rows[0]["new_sha"] == new
+    assert seen == ["https://api.github.com/repos/fixture/tensorfold/releases/tags/v9.2.0"]
+    text = path.read_text()
+    assert "v9.3.0" not in text
+    assert "git+" not in text
+    assert "ref: v9.2.0" in text
+    _assert_pins_rewritten(checkout, old, new, "v9.1.0", "v9.2.0")
+
+
+def test_bump_does_not_move_to_an_older_tag(tmp_path, monkeypatch):
+    """A pin newer than every upstream tag stays where it is."""
+
+    # Given upstream stopped at v9.2.0 and the skill is already on v9.3.0
+    upstream = _make_repo(tmp_path, "up", {"README.md": "old\n"})
+    _git(upstream, "tag", "v9.2.0")
+    github = _github("tensorfold")
+    pinned = "ab" * 20
+    text = _pip_engine("tensorfold", "TensorFold", github, "v9.3.0", pinned,
+                       ["cuda", "metal"], _TENSORFOLD_INSTALL, "tensorfold", version="v9.3.0")
+    checkout, path = _checkout(tmp_path, "tensorfold", text, pinned, "v9.3.0")
+    before = path.read_text()
+    seen = _bind_files(monkeypatch, checkout, upstream, github, tmp_path / "releases")
+    _write_release(tmp_path / "releases", "tensorfold", "v9.2.0", _archive_body("tensorfold", "9.2.0"))
+
+    # When the bump runs
+    assert eb.bump("tensorfold") == []
+
+    # Then the file is unchanged and the older release was not read
+    assert path.read_text() == before
+    assert "ref: v9.3.0" in before
+    assert seen == []
+
+
+def test_bump_branch_already_at_tip_does_nothing(tmp_path, monkeypatch):
+    """A branch pin already at the remote head is not a bump."""
+
+    # Given master and the skill pin are the same commit
+    upstream = _make_repo(tmp_path, "up", {"README.md": "tip\n"})
+    sha = _git(upstream, "rev-parse", "HEAD")
+    github = _github("llamacpp")
+    text = _skill_text(
+        sid="llama.cpp", engine="llama.cpp", repo=github, ref="master", ref_kind="branch",
+        pinned=sha, backends=["cuda"], binary="{build}/bin/llama-server",
+        install=[("cuda", ["cmake --build {build} --target llama-server"])],
+        detect=['detect: "{binary} --version"'])
+    checkout, path = _checkout(tmp_path, "llama.cpp", text, sha, "master")
+    before = path.read_text()
+    seen = _bind_files(monkeypatch, checkout, upstream, github, tmp_path / "releases")
+
+    # When the bump runs
+    assert eb.bump("llama.cpp") == []
+
+    # Then the pin is unchanged and no release was requested
+    assert path.read_text() == before
+    assert seen == []
+
+
+def test_bump_tag_lookup_failure_leaves_the_pin(tmp_path, monkeypatch):
+    """No tags is a failed lookup. The pin does not move."""
+
+    # Given a tag skill whose upstream has commits and no tags
+    upstream = _make_repo(tmp_path, "up", {"README.md": "bare\n"})
+    sha = _git(upstream, "rev-parse", "HEAD")
+    github = _github("tensorfold")
+    text = _pip_engine("tensorfold", "TensorFold", github, "v9.1.0", sha,
+                       ["cuda", "metal"], _TENSORFOLD_INSTALL, "tensorfold", version="v9.1.0")
+    checkout, path = _checkout(tmp_path, "tensorfold", text, sha, "v9.1.0")
+    before = path.read_text()
+    seen = _bind_files(monkeypatch, checkout, upstream, github, tmp_path / "releases")
+
+    # When the bump runs
+    with pytest.raises(SystemExit, match="lookup failed"):
+        eb.bump("tensorfold")
+
+    # Then the skill is unchanged and no release was requested
+    assert path.read_text() == before
+    assert "ref: v9.1.0" in before
+    assert seen == []
 
 def test_apply_release_archive_ignores_wheels(tmp_path):
     """A release of wheels is not an install-kind change."""
@@ -1027,3 +1666,57 @@ def test_unit_recipe_keeps_the_image_build_out():
     unit = yaml.safe_load((REPO / ".github" / "workflows" / "pipeline.yml").read_text())["jobs"]["unit"]
     live_step = next(s for s in unit["steps"] if "test-engine-bump-live" in str(s.get("run", "")))
     assert live_step.get("if") == "runner.os == 'Linux'"
+
+
+def _pytest_k_selects(expr: str, name: str) -> bool:
+    """pytest `-k`: a bare word is true when it is a substring of the test name."""
+    def repl(m):
+        word = m.group(0)
+        if word in ("and", "or", "not"):
+            return word
+        return "True" if word.lower() in name.lower() else "False"
+    return bool(eval(re.sub(r"[A-Za-z_][A-Za-z0-9_]*", repl, expr)))  # noqa: S307
+
+
+def test_unit_recipe_runs_the_destination_release_cases():
+    """make test-unit runs the hermetic destination-tag cases and not the live release reads.
+
+    The unit job calls this recipe. The three GitHub-release tests stay on
+    `make test-engine-bump-live` (Linux only).
+    """
+
+    # Given the test-unit pytest invocation
+    recipe = (REPO / "Makefile").read_text().split("\ntest-unit:", 1)[1].split("\n\n", 1)[0]
+    expr = recipe.split("-k '", 1)[1].split("'", 1)[0]
+    hermetic = (
+        "test_derive_release_lookup_uses_the_passed_tag",
+        "test_bump_reads_the_destination_release",
+        "test_bump_leaves_pip_when_destination_release_has_no_archives",
+        "test_bump_branch_does_not_query_a_release",
+        "test_apply_release_archive_replaces_pip_install",
+        "test_changed_engines_scopes_matrix",
+        "test_each_failed_bump_engine_keeps_its_install_kind",
+        "test_each_bump_pr_engine_is_scoped_not_a_placeholder",
+        "test_bump_ignores_archives_published_only_on_the_old_tag",
+        "test_bump_keeps_pip_when_archive_has_no_checksum",
+        "test_bump_keeps_pip_when_a_backend_has_no_archive",
+        "test_bump_already_at_latest_tag_does_nothing",
+        "test_bump_ignores_a_newer_prerelease_tag",
+        "test_bump_does_not_move_to_an_older_tag",
+        "test_bump_branch_already_at_tip_does_nothing",
+        "test_bump_tag_lookup_failure_leaves_the_pin",
+        "test_two_moved_pins_list_both_engines",
+        "test_a_non_image_file_change_stays_the_placeholder",
+    )
+    assert "tests/test_engine_image_matrix.py" in recipe
+    live = (
+        "test_derive_reports_the_live_release_archives",
+        "test_tensorfold_v1_0_5_release_is_native_archives",
+        "test_tensorfold_release_archive_unpacks_and_runs",
+    )
+
+    # When the -k expression is applied to each name
+    # Then the hermetic cases run inside test-unit, and the live ones do not
+    assert "tests/test_engine_bump.py" in recipe
+    assert all(_pytest_k_selects(expr, name) for name in hermetic)
+    assert not any(_pytest_k_selects(expr, name) for name in live)

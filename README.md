@@ -238,8 +238,16 @@ make engine-bump-daily [DRY=1]        # plan -> bump every moved engine; DRY=1 p
 The `engine-bump` unit tests run inside `make test-unit`. A pin newer than
 every upstream tag is not a bump. A sha-only move still rewrites a hardcoded
 tag literal. The collaborator guard is checked on the guard job, not the file
-header that names `BUMP_TOKEN`. The unit job checks out with full history so
-`matrix(changed=origin/main)` can see an unchanged tag. The real llama.cpp cpu
+header that names `BUMP_TOKEN`. The unit job checks out with full history so a changed-engine matrix can
+see the parent commit. The hermetic check that an unchanged tree is the
+placeholder row compares `HEAD` to itself. A bump PR's diff against `main`
+lists the engine whose image tag moved. `make test-unit` locks that for
+tensorfold (#165), llama.cpp-prism (#166), strata (#167) and llama.cpp (#168):
+a moved pin scopes the matrix to that engine, TensorFold's `git+` install
+follows the destination tag's release archive, and the three source builds
+keep their clone or cmake install. Those cases run the bump. The GitHub
+remote is a local repository and the release body is a JSON file. An archive
+that exists only on the previous tag does not replace the pip install. The real llama.cpp cpu
 image build is not in that hermetic list (its runner has no docker socket).
 The three tests that read the live TensorFold release run on the Linux unit
 job only (`make test-engine-bump-live`): the macOS runner cannot reach
@@ -256,7 +264,10 @@ When the new tag's GitHub release ships native archives
 pip-installs that engine from `git+`, the bump rewrites `install:` to a
 checksum-verified download and unpack — a release that dropped pip (TensorFold
 1.0+) is installed from the archive, not left on a line the new tag refuses
-(issue #151). Each bump opens a `chore/engine-bump-<id>` PR
+(issue #151). The release it reads is the tag the bump is moving to. Derive
+runs before that tag is written into the skill (issue #171). The rewrite also
+points `binary` at `{prefix}/{version}/bin/{id}` (a link to the one executable
+in the archive) and `detect` at `{binary} --version`. Each bump opens a `chore/engine-bump-<id>` PR
 whose CI builds and tests **only** that engine's images. A push publishes an
 image only when its tag changed since the parent commit: the tag is
 `<pin8>-<image-hash>-<arch>`, so an unchanged pin is already on GHCR and is

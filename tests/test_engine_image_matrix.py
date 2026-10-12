@@ -12,6 +12,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import pytest
+
 import scripts.engine_image as ei
 import scripts.engine_skills as es
 
@@ -64,6 +66,100 @@ _SHARED = {
     "containers/engines/dockerfiles/llama.cpp/Dockerfile.cpu": "FROM ubuntu\n",
     "containers/engines/dockerfiles/ollama/Dockerfile.cpu": "FROM ubuntu\n",
 }
+
+
+@pytest.mark.parametrize("engine", [
+    "tensorfold",       # PR #165
+    "llama.cpp-prism",  # PR #166
+    "strata",           # PR #167
+    "llama.cpp",        # PR #168
+])
+def test_each_bump_pr_engine_is_scoped_not_a_placeholder(tmp_path, monkeypatch, engine):
+    """A pin move for this engine is that engine's rows, not the placeholder.
+
+    linux / unit failed on #165, #166, #167 and #168 because the check compared
+    the bump branch to origin/main and expected engine: none. The pin move
+    changes the image tag, so the matrix lists this engine and not the sibling.
+    Once that pin is committed, HEAD against itself is the placeholder again.
+    """
+
+    # Given this engine and a sibling, both pinned, then only this pin moves
+    other = "ollama"
+    old, new = "a" * 40, "b" * 40
+    files = {
+        f"containers/engines/params/{engine}.json": _params(engine, old, _VARIANT),
+        f"containers/engines/params/{other}.json": _params(other, old, _VARIANT),
+        "containers/engines/entrypoint.sh": "#!/bin/sh\n",
+        "scripts/engine_runner.py": "# runner\n",
+        f"containers/engines/dockerfiles/{engine}/Dockerfile.cpu": "FROM ubuntu\n",
+        f"containers/engines/dockerfiles/{other}/Dockerfile.cpu": "FROM ubuntu\n",
+    }
+    repo, parent = _repo(tmp_path, files)
+    moved = json.loads(files[f"containers/engines/params/{engine}.json"])
+    moved["pinned"] = new
+    (repo / "containers" / "engines" / "params" / f"{engine}.json").write_text(
+        json.dumps(moved, indent=2) + "\n")
+    _point(monkeypatch, repo)
+
+    # When the matrix is scoped to the parent, before the pin is committed
+    rows = ei.matrix(ci=True, changed=parent, params_dir=repo / "containers" / "engines" / "params")
+
+    # Then this engine is built and the placeholder is not what a bump PR gets
+    assert rows != [PLACEHOLDER]
+    assert {r["engine"] for r in rows} == {engine}
+
+    # And once the pin is the tree, HEAD against itself publishes nothing
+    assert _git(repo, "add", ".").returncode == 0
+    assert _git(repo, "commit", "-q", "-m", "pin").returncode == 0
+    head = _git(repo, "rev-parse", "HEAD").stdout.strip()
+    assert ei.matrix(ci=True, changed=head,
+                     params_dir=repo / "containers" / "engines" / "params") == [PLACEHOLDER]
+
+
+def test_two_moved_pins_list_both_engines(tmp_path, monkeypatch):
+    """Two pin moves are two engines. A bump of one must not hide the other."""
+
+    # Given llama.cpp and ollama, both pins moved and nothing else
+    old, new = "a" * 40, "b" * 40
+    files = {
+        "containers/engines/params/llama.cpp.json": _params("llama.cpp", old, _VARIANT),
+        "containers/engines/params/ollama.json": _params("ollama", old, _VARIANT),
+        **_SHARED,
+    }
+    repo, parent = _repo(tmp_path, files)
+    for engine in ("llama.cpp", "ollama"):
+        moved = json.loads(files[f"containers/engines/params/{engine}.json"])
+        moved["pinned"] = new
+        (repo / "containers" / "engines" / "params" / f"{engine}.json").write_text(
+            json.dumps(moved, indent=2) + "\n")
+    _point(monkeypatch, repo)
+
+    # When the matrix is scoped to the parent
+    rows = ei.matrix(ci=True, changed=parent, params_dir=repo / "containers" / "engines" / "params")
+
+    # Then both engines are listed and the placeholder is not
+    assert {r["engine"] for r in rows} == {"llama.cpp", "ollama"}
+    assert rows != [PLACEHOLDER]
+
+
+def test_a_non_image_file_change_stays_the_placeholder(tmp_path, monkeypatch):
+    """A file the image tag does not hash leaves the matrix on the placeholder."""
+
+    # Given a committed tree, then only README.md changes
+    files = {
+        "containers/engines/params/llama.cpp.json": _params("llama.cpp", "a" * 40, _VARIANT),
+        "README.md": "before\n",
+        **_SHARED,
+    }
+    repo, parent = _repo(tmp_path, files)
+    (repo / "README.md").write_text("after\n")
+    _point(monkeypatch, repo)
+
+    # When the matrix is scoped to the parent
+    rows = ei.matrix(ci=True, changed=parent, params_dir=repo / "containers" / "engines" / "params")
+
+    # Then nothing is built
+    assert rows == [PLACEHOLDER]
 
 
 def test_matrix_keeps_only_the_engine_whose_pin_changed(tmp_path, monkeypatch):

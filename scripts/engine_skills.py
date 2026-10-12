@@ -187,9 +187,16 @@ def load_skill(path: Path) -> dict:
     return meta
 
 
-def load_skills(skills_dir: Path = SKILLS_DIR) -> dict[str, dict]:
+def load_skills(skills_dir: Path | None = None) -> dict[str, dict]:
+    """Load every SKILL.md under skills_dir.
+
+    The default is SKILLS_DIR at call time. A default argument would capture
+    the import-time path, so a caller that points SKILLS_DIR at another tree
+    would still read the tree that was current at import.
+    """
+    root = SKILLS_DIR if skills_dir is None else skills_dir
     skills = {}
-    for p in sorted(skills_dir.glob("*/SKILL.md")):
+    for p in sorted(root.glob("*/SKILL.md")):
         s = load_skill(p)
         skills[s.get("id") or p.parent.name] = s
     return skills

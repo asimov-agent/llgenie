@@ -277,15 +277,19 @@ def release_archive_install(skill: dict, assets: list[dict]) -> dict | None:
         if ver is None:
             return None
         asset_tmpl = asset.replace(f"-{ver.group(1)}-", "-{version}-", 1)
-        slug = asset_tmpl[:-len(".tar.gz")]
         check = "sha256sum -c" if target[0] == "linux" else "shasum -a 256 -c"
+        # The archive's bin/ name is upstream's (tensorfold-native), not the
+        # skill id. Link the one executable to {id} so binary/detect/launch
+        # share one path. No pipe: the runner uses bash -o pipefail.
+        link = ("exe=$(find {prefix}/{version}/bin -maxdepth 1 -type f -perm -111); "
+                "set -- $exe; ln -sfn \"$1\" {prefix}/{version}/bin/{id}")
         steps_for[backend] = [
             "mkdir -p {prefix}/{version}",
             "curl -fsSL -o {prefix}/" + asset_tmpl + " {repo}/releases/download/v{version}/" + asset_tmpl,
             "curl -fsSL -o {prefix}/" + asset_tmpl + ".sha256 {repo}/releases/download/v{version}/" + asset_tmpl + ".sha256",
             "cd {prefix} && " + check + " " + asset_tmpl + ".sha256",
-            "mkdir -p {prefix}/{version}/bin && tar -xzf {prefix}/" + asset_tmpl
-            + " -C {prefix}/{version} --strip-components=1 " + slug + "/bin",
+            "tar -xzf {prefix}/" + asset_tmpl + " -C {prefix}/{version} --strip-components=1",
+            link,
         ]
     return steps_for
 
@@ -295,8 +299,21 @@ def _dump_install(steps_for: dict) -> str:
     for backend, steps in steps_for.items():
         lines.append(f"  {backend}:")
         for step in steps:
-            lines.append(f'    - "{step}"')
+            lines.append('    - "' + step.replace('"', '\\"') + '"')
     return "\n".join(lines)
+
+
+def _set_scalar(text: str, key: str, value: str) -> str:
+    """Replace a top-level front-matter key (a scalar or a whole block) with one line."""
+    line = f"{key}: {value}"
+    span = _block_span(text, key)
+    if span is not None:
+        a, b = span
+        return text[:a] + line + text[b:]
+    fm_end = text.find("\n---\n")
+    if fm_end < 0:
+        return text
+    return text[:fm_end] + "\n" + line + text[fm_end:]
 
 
 def _apply_release_archive(text: str, steps_for: dict) -> str:
@@ -306,7 +323,12 @@ def _apply_release_archive(text: str, steps_for: dict) -> str:
     a, b = span
     block = _dump_install(steps_for)
     # keep the newline that separated install from the next key
-    return text[:a] + block + text[b:]
+    text = text[:a] + block + text[b:]
+    # The unpacked executable is linked to {id}. detect used to ask pip or
+    # `uv tool` for a package the archive does not install.
+    text = _set_scalar(text, "binary", '"{prefix}/{version}/bin/{id}"')
+    text = _set_scalar(text, "detect", '"{binary} --version"')
+    return text
 
 
 def _apply_findings(skill_id: str, findings: dict) -> list[str]:
@@ -498,12 +520,16 @@ def _regen_guard(skill_id: str) -> list[str]:
     return changed
 
 
-def derive(skill_id: str, sha: str = "", old_sha: str = "") -> dict:
-    """Run the skill's extractors against the upstream tree at `sha`."""
+def derive(skill_id: str, sha: str = "", old_sha: str = "", ref: str = "") -> dict:
+    """Run the skill's extractors against the upstream tree at `sha`.
+
+    `ref` is the destination tag. E10 reads that release, not the tag the skill
+    file still names (derive runs before pin writes it).
+    """
     skill = es.get_skill(skill_id)
     sha = sha or skill["pinned"]
     try:
-        return epd.derive(skill, sha, old_sha=old_sha or None)
+        return epd.derive(skill, sha, old_sha=old_sha or None, ref=ref or None)
     except epd.HardFail as e:
         raise SystemExit(f"[engine-bump] {skill_id}: {e}")
 
@@ -525,9 +551,11 @@ def bump(skill_id: str, dry: bool = False) -> list[dict]:
     if dry:
         print(json.dumps(row, indent=2))
         return [row]
-    # derive first; a hard fail is recorded, not fatal — the PR still opens
+    # derive first; a hard fail is recorded, not fatal — the PR still opens.
+    # The skill file still names the old tag here. E10 must read the destination tag.
+    ref = row["new_ref"] if row.get("ref_kind") == "tag" else ""
     try:
-        findings = derive(skill_id, row["new_sha"], row["old_sha"])
+        findings = derive(skill_id, row["new_sha"], row["old_sha"], ref=ref)
         row["hard_fail"] = None
     except SystemExit as e:
         findings = {"hard_fail": str(e)}
