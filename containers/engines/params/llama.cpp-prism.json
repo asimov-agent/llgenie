@@ -4,7 +4,7 @@
   "id": "llama.cpp-prism",
   "repo": "https://github.com/PrismML-Eng/llama.cpp",
   "ref": "prism",
-  "pinned": "2459f68b5c0eb26261fd5a81682004b93cd645ba",
+  "pinned": "e8fd209c975c80aa7fb36a8423571ff3b1b7e955",
   "native": {
     "cuda": {
       "cmake_flags": "-DGGML_NATIVE=OFF -DGGML_CUDA=ON -DGGML_METAL=OFF -DGGML_SYCL=OFF -DCMAKE_EXE_LINKER_FLAGS=-Wl,--allow-shlib-undefined",
@@ -71,7 +71,7 @@
         "test -d /opt/llgenie/src/prism-llama.cpp/.git || git clone -b prism https://github.com/PrismML-Eng/llama.cpp.git /opt/llgenie/src/prism-llama.cpp",
         "git config --global --add safe.directory /opt/llgenie/src/prism-llama.cpp",
         "git -C /opt/llgenie/src/prism-llama.cpp fetch origin prism",
-        "git -C /opt/llgenie/src/prism-llama.cpp checkout -B prism 2459f68b5c0eb26261fd5a81682004b93cd645ba",
+        "git -C /opt/llgenie/src/prism-llama.cpp checkout -B prism e8fd209c975c80aa7fb36a8423571ff3b1b7e955",
         "cmake -S /opt/llgenie/src/prism-llama.cpp -B /opt/llgenie/src/prism-llama.cpp/build-cuda -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DGGML_CUDA=ON -DGGML_METAL=OFF -DGGML_SYCL=OFF -DCMAKE_EXE_LINKER_FLAGS=-Wl,--allow-shlib-undefined '-DCMAKE_CUDA_ARCHITECTURES=75;80;86;89;90;120'",
         "cmake --build /opt/llgenie/src/prism-llama.cpp/build-cuda --config Release -j$(nproc) --target llama-server",
         "LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-}:/usr/local/cuda/lib64/stubs /opt/llgenie/src/prism-llama.cpp/build-cuda/bin/llama-server --help > /dev/null"
@@ -112,7 +112,7 @@
         "test -d /opt/llgenie/src/prism-llama.cpp/.git || git clone -b prism https://github.com/PrismML-Eng/llama.cpp.git /opt/llgenie/src/prism-llama.cpp",
         "git config --global --add safe.directory /opt/llgenie/src/prism-llama.cpp",
         "git -C /opt/llgenie/src/prism-llama.cpp fetch origin prism",
-        "git -C /opt/llgenie/src/prism-llama.cpp checkout -B prism 2459f68b5c0eb26261fd5a81682004b93cd645ba",
+        "git -C /opt/llgenie/src/prism-llama.cpp checkout -B prism e8fd209c975c80aa7fb36a8423571ff3b1b7e955",
         "cmake -S /opt/llgenie/src/prism-llama.cpp -B /opt/llgenie/src/prism-llama.cpp/build-rocm -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DGGML_HIP=ON -DGGML_METAL=OFF -DGGML_CUDA=OFF '-DGPU_TARGETS=gfx1030;gfx1100;gfx1101;gfx1102;gfx1151;gfx1200;gfx1201;gfx942'",
         "cmake --build /opt/llgenie/src/prism-llama.cpp/build-rocm --config Release -j$(nproc) --target llama-server",
         "LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-}:/usr/local/cuda/lib64/stubs /opt/llgenie/src/prism-llama.cpp/build-rocm/bin/llama-server --help > /dev/null"
@@ -168,7 +168,7 @@
         "test -d /opt/llgenie/src/prism-llama.cpp/.git || git clone -b prism https://github.com/PrismML-Eng/llama.cpp.git /opt/llgenie/src/prism-llama.cpp",
         "git config --global --add safe.directory /opt/llgenie/src/prism-llama.cpp",
         "git -C /opt/llgenie/src/prism-llama.cpp fetch origin prism",
-        "git -C /opt/llgenie/src/prism-llama.cpp checkout -B prism 2459f68b5c0eb26261fd5a81682004b93cd645ba",
+        "git -C /opt/llgenie/src/prism-llama.cpp checkout -B prism e8fd209c975c80aa7fb36a8423571ff3b1b7e955",
         "cmake -S /opt/llgenie/src/prism-llama.cpp -B /opt/llgenie/src/prism-llama.cpp/build-vulkan -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DGGML_VULKAN=ON -DGGML_METAL=OFF -DGGML_CUDA=OFF",
         "cmake --build /opt/llgenie/src/prism-llama.cpp/build-vulkan --config Release -j$(nproc) --target llama-server",
         "LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-}:/usr/local/cuda/lib64/stubs /opt/llgenie/src/prism-llama.cpp/build-vulkan/bin/llama-server --help > /dev/null"
@@ -209,7 +209,7 @@
         "test -d /opt/llgenie/src/prism-llama.cpp/.git || git clone -b prism https://github.com/PrismML-Eng/llama.cpp.git /opt/llgenie/src/prism-llama.cpp",
         "git config --global --add safe.directory /opt/llgenie/src/prism-llama.cpp",
         "git -C /opt/llgenie/src/prism-llama.cpp fetch origin prism",
-        "git -C /opt/llgenie/src/prism-llama.cpp checkout -B prism 2459f68b5c0eb26261fd5a81682004b93cd645ba",
+        "git -C /opt/llgenie/src/prism-llama.cpp checkout -B prism e8fd209c975c80aa7fb36a8423571ff3b1b7e955",
         "cmake -S /opt/llgenie/src/prism-llama.cpp -B /opt/llgenie/src/prism-llama.cpp/build-cpu -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DGGML_METAL=OFF -DGGML_CUDA=OFF -DGGML_SYCL=OFF",
         "cmake --build /opt/llgenie/src/prism-llama.cpp/build-cpu --config Release -j$(nproc) --target llama-server",
         "LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-}:/usr/local/cuda/lib64/stubs /opt/llgenie/src/prism-llama.cpp/build-cpu/bin/llama-server --help > /dev/null"
