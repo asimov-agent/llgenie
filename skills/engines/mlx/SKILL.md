@@ -30,6 +30,9 @@ install:
   cpu:
     - "uv pip install --system --break-system-packages 'mlx[cpu]' mlx-lm=={version}"
 binary: "mlx_lm.server"
+binary_flags: ["--help"]   # mlx_lm.server is argparse: --help prints usage (no --version)
+binary_probe:
+  cuda: device   # mlx[cuda] import needs the CUDA device, so --help cannot answer on a GPU-less runner
 detect:
   metal: "{binary} --help > /dev/null && uv tool list | grep '^mlx-lm '"
   cuda: "{binary} --help > /dev/null 2>&1 || python3 -c 'import importlib.metadata as m; print(\"mlx-lm\", m.version(\"mlx-lm\"), \"mlx\", m.version(\"mlx\"))'"

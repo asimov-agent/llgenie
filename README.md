@@ -576,7 +576,17 @@ registry layer cache (`--cache-from`/`--cache-to`). A tag that is already publis
 `llgenie/test`: cpu images are started and tested on the published port (`make test-engine`:
 `/v1/models` lists `llm-local` and `/v1/chat/completions` answers "hi"), GPU images print their
 version (`make test-engine-image`). Only then `make push-engine` publishes the image to the
-repo's GHCR, on every push run (feature branches too, for now).
+repo's GHCR, on every push run (feature branches too, for now). The push runs that check again and does not tag or push unless the engine binary
+file exists in the image and answers the version/help flag that engine documents
+(`binary_flags` in its skill: `--version` for llama.cpp, ollama, vllm/cpu and freetoken;
+`--help` for sglang, strata, tensorfold, litert, mlx, exllamav3 and tensorrt-llm).
+A Python import is not that check (issue #204). Those flags, and the file each image
+must contain, are generated into `containers/engines/binaries.json` with the params
+(`make generate-engine-params`, checked by `make check-engine-params`) and are NOT part
+of the image-tag hash, so documenting them moves no published tag. A backend whose CLI
+initialises its device at startup (`binary_probe: device`: vllm cuda/rocm, mlx cuda,
+tensorrt-llm cuda, exllamav3 rocm) still has to CONTAIN the file; there the version comes
+from `entrypoint.sh detect` (CI #106).
 The second matrix `engine-published-test` (`test-published-<engine>-<arch>`) then pulls every
 published image on a fresh runner, checks digest and version, starts the container and chats
 "hi" (GPU images on CPU), and installs it from the registry only (issue #102). Finally

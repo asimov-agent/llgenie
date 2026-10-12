@@ -27,6 +27,9 @@ install:
     - "python3 -m pip install --no-cache-dir -r {src}/requirements_rocm.txt"
     - "cd {src} && GPU_ARCHS='{gpu_targets}' PYTORCH_ROCM_ARCH='{gpu_targets}' EXL3_BACKEND=rocm MAX_JOBS={jobs} python3 -m pip install --no-cache-dir --no-build-isolation ."
 binary: "{src}/rocm_tools/exl3_server/server.py"
+binary_flags: ["--help"]   # exl3_server/server.py is argparse (-m/-host/-port/-smn/-cs)
+binary_probe:
+  rocm: device   # importing exllamav3 needs the ROCm device, so --help cannot answer on a GPU-less runner
 detect: "test -f {binary} && python3 -c 'import exllamav3; print(exllamav3.__version__)'"
 launch: "python3 {binary} -m {model} -host {host} -port {port} -smn {alias} -cs 32768"
 health: "GET /health"

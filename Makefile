@@ -278,9 +278,9 @@ engine-install: ## Install ENGINE via its skill (ENGINE=<id> [BACKEND=] [DRY=1])
 # 127.0.0.1:$(PORT) -> base_url http://127.0.0.1:$(PORT)/v1, model llm-local.
 PORT ?= 11434
 ARCH_ARGS = $(if $(ARCH),--variant $(ARCH),$(ENGINE_ARGS))
-generate-engine-params: ## Regenerate containers/engines/params/*.json from the current engine skills (per engine x arch; ENGINE=<id> writes only that engine)
+generate-engine-params: ## Regenerate containers/engines/params/*.json + binaries.json (binary file + documented flags per image) from the current engine skills (per engine x arch; ENGINE=<id> writes only that engine)
 	python3 scripts/engine_skills.py params $(if $(ENGINE),--only $(ENGINE),)
-check-engine-params: ## CI: fail if committed engine params differ from what the skills generate
+check-engine-params: ## CI: fail if committed engine params or the binaries manifest differ from what the skills generate
 	python3 scripts/engine_skills.py params --check
 build-engine-base: ## Build the shared toolchain base image for BACKEND (cpu|cuda|rocm|vulkan; PUSH=1 publishes + caches in LLGENIE_REGISTRY)
 	@test -n "$(BACKEND)" || { echo "Usage: make build-engine-base BACKEND=cpu|cuda|rocm|vulkan [PUSH=1]"; exit 1; }
@@ -295,10 +295,15 @@ test-published-engine: ## Issue #102: pull ENGINE's ARCH image AS PUBLISHED (no 
 	@test -n "$(ENGINE)" -a -n "$(ARCH)" || { echo "Usage: make test-published-engine ENGINE=<id> ARCH=cpu|cuda|rocm|vulkan"; exit 1; }
 	python3 scripts/engine_image.py pull-published "$(ENGINE)" $(ARCH_ARGS)
 	$(MAKE) test-engine-image ENGINE=$(ENGINE) ARCH=$(ARCH)
+	# issue #204: the real published image's engine binary must answer its documented flags
+	@mkdir -p "$(CI_HOME)"
+	LLGENIE_PUBLISHED_PULLED=1 LLGENIE_TEST_ENGINE="$(ENGINE)" LLGENIE_TEST_ARCH="$(ARCH)" \
+	  python3 -m pytest -q -p no:cacheprovider tests/test_published_engine_binary.py
+	@$(CI_HOME_CLEAN)
 	@if python3 -c 'import sys; sys.path.insert(0, "scripts"); import engine_image as ei; sys.exit(0 if ei.chat_testable("$(ENGINE)", "$(ARCH)") else 1)'; then \
 	  python3 scripts/engine_smoke.py "$(ENGINE)" $(ARCH_ARGS) --image $(if $(filter cpu,$(ARCH)),,--no-gpu); \
 	else echo "[published] $(ENGINE)/$(ARCH) needs a GPU to serve (no CPU fallback): version test only; its cpu image is chat-tested"; fi
-push-engine: ## Push ENGINE's built + tested image to LLGENIE_REGISTRY (GHCR): <registry>/<name>:<pinned-hash-arch> and :<arch>
+push-engine: ## Push ENGINE's image to GHCR only after its binary FILE answers the version/help flags it documents: <registry>/<name>:<pinned-hash-arch> and :<arch>
 	@test -n "$(ENGINE)" || { echo "Usage: make push-engine ENGINE=<id> ARCH=cpu|cuda|rocm|vulkan"; exit 1; }
 	python3 scripts/engine_image.py push "$(ENGINE)" $(ARCH_ARGS)
 stop-engine: ## Stop ENGINE's running container

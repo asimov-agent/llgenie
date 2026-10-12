@@ -31,6 +31,10 @@ install:
   cpu:
     - "uv pip install --system --break-system-packages https://github.com/vllm-project/vllm/releases/download/v{version}/vllm-{version}+cpu-cp38-abi3-manylinux_2_39_{machine}.whl --torch-backend cpu"
 binary: "vllm"
+binary_flags: ["--version", "--help"]   # the vllm CLI answers --version (cpu detect) and --help
+binary_probe:
+  cuda: device   # the cuda/rocm CLI probes the device at startup and fails on a GPU-less runner (CI #106)
+  rocm: device
 detect:
   # the cuda/rocm builds probe the device on startup and fail on a GPU-less
   # runner (CI #106); the version comes from the package instead

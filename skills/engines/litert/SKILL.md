@@ -22,6 +22,7 @@ install:
   metal:
     - "uv tool install --force litert-lm=={version}"
 binary: "litert-lm"
+binary_flags: ["--help"]   # litert-lm answers --help (detect proves it on metal + cpu)
 detect:
   metal: "{binary} --help > /dev/null && uv tool list | grep '^litert-lm '"
   cpu: "{binary} --help > /dev/null && python3 -c 'import importlib.metadata as m; print(m.version(\"litert-lm\"))'"

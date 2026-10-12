@@ -1,0 +1,269 @@
+{
+  "_generated_by": "make generate-engine-params (scripts/engine_skills.py) - do not edit; edit the skill",
+  "engines": {
+    "exllamav3-rocm": {
+      "rocm": {
+        "binary": "/opt/llgenie/engines/exllamav3-rocm/src/rocm_tools/exl3_server/server.py",
+        "flags": [
+          "--help"
+        ],
+        "probe": "device"
+      }
+    },
+    "freetoken": {
+      "cuda": {
+        "binary": "ft",
+        "flags": [
+          "--version",
+          "--help"
+        ],
+        "probe": "flags"
+      },
+      "rocm": {
+        "binary": "ft",
+        "flags": [
+          "--version",
+          "--help"
+        ],
+        "probe": "flags"
+      }
+    },
+    "litert": {
+      "cpu": {
+        "binary": "litert-lm",
+        "flags": [
+          "--help"
+        ],
+        "probe": "flags"
+      }
+    },
+    "llama.cpp": {
+      "cuda": {
+        "binary": "/app/llama-server",
+        "flags": [
+          "--version",
+          "--help"
+        ],
+        "probe": "flags"
+      },
+      "rocm": {
+        "binary": "/app/llama-server",
+        "flags": [
+          "--version",
+          "--help"
+        ],
+        "probe": "flags"
+      },
+      "vulkan": {
+        "binary": "/app/llama-server",
+        "flags": [
+          "--version",
+          "--help"
+        ],
+        "probe": "flags"
+      },
+      "cpu": {
+        "binary": "/app/llama-server",
+        "flags": [
+          "--version",
+          "--help"
+        ],
+        "probe": "flags"
+      }
+    },
+    "llama.cpp-laurentzuijdwijk": {
+      "cuda": {
+        "binary": "/opt/llgenie/src/laurentzuijdwijk-llama.cpp/build-cuda/bin/llama-server",
+        "flags": [
+          "--version",
+          "--help"
+        ],
+        "probe": "flags"
+      },
+      "rocm": {
+        "binary": "/opt/llgenie/src/laurentzuijdwijk-llama.cpp/build-rocm/bin/llama-server",
+        "flags": [
+          "--version",
+          "--help"
+        ],
+        "probe": "flags"
+      },
+      "vulkan": {
+        "binary": "/opt/llgenie/src/laurentzuijdwijk-llama.cpp/build-vulkan/bin/llama-server",
+        "flags": [
+          "--version",
+          "--help"
+        ],
+        "probe": "flags"
+      },
+      "cpu": {
+        "binary": "/opt/llgenie/src/laurentzuijdwijk-llama.cpp/build-cpu/bin/llama-server",
+        "flags": [
+          "--version",
+          "--help"
+        ],
+        "probe": "flags"
+      }
+    },
+    "llama.cpp-prism": {
+      "cuda": {
+        "binary": "/opt/llgenie/src/prism-llama.cpp/build-cuda/bin/llama-server",
+        "flags": [
+          "--version",
+          "--help"
+        ],
+        "probe": "flags"
+      },
+      "rocm": {
+        "binary": "/opt/llgenie/src/prism-llama.cpp/build-rocm/bin/llama-server",
+        "flags": [
+          "--version",
+          "--help"
+        ],
+        "probe": "flags"
+      },
+      "vulkan": {
+        "binary": "/opt/llgenie/src/prism-llama.cpp/build-vulkan/bin/llama-server",
+        "flags": [
+          "--version",
+          "--help"
+        ],
+        "probe": "flags"
+      },
+      "cpu": {
+        "binary": "/opt/llgenie/src/prism-llama.cpp/build-cpu/bin/llama-server",
+        "flags": [
+          "--version",
+          "--help"
+        ],
+        "probe": "flags"
+      }
+    },
+    "mlx": {
+      "cuda": {
+        "binary": "mlx_lm.server",
+        "flags": [
+          "--help"
+        ],
+        "probe": "device"
+      },
+      "cpu": {
+        "binary": "mlx_lm.server",
+        "flags": [
+          "--help"
+        ],
+        "probe": "flags"
+      }
+    },
+    "ollama": {
+      "cuda": {
+        "binary": "/bin/ollama",
+        "flags": [
+          "--version",
+          "--help"
+        ],
+        "probe": "flags"
+      },
+      "rocm": {
+        "binary": "/bin/ollama",
+        "flags": [
+          "--version",
+          "--help"
+        ],
+        "probe": "flags"
+      },
+      "vulkan": {
+        "binary": "/bin/ollama",
+        "flags": [
+          "--version",
+          "--help"
+        ],
+        "probe": "flags"
+      },
+      "cpu": {
+        "binary": "/bin/ollama",
+        "flags": [
+          "--version",
+          "--help"
+        ],
+        "probe": "flags"
+      }
+    },
+    "sglang": {
+      "cuda": {
+        "binary": "sglang",
+        "flags": [
+          "--help"
+        ],
+        "probe": "flags"
+      },
+      "rocm": {
+        "binary": "sglang",
+        "flags": [
+          "--help"
+        ],
+        "probe": "flags"
+      }
+    },
+    "strata": {
+      "cuda": {
+        "binary": "/opt/llgenie/engines/strata/src/engine/strata",
+        "flags": [
+          "--help"
+        ],
+        "probe": "flags"
+      },
+      "rocm": {
+        "binary": "/opt/llgenie/engines/strata/src/engine/strata",
+        "flags": [
+          "--help"
+        ],
+        "probe": "flags"
+      }
+    },
+    "tensorfold": {
+      "cuda": {
+        "binary": "tensorfold",
+        "flags": [
+          "--help"
+        ],
+        "probe": "flags"
+      }
+    },
+    "tensorrt-llm": {
+      "cuda": {
+        "binary": "trtllm-serve",
+        "flags": [
+          "--help"
+        ],
+        "probe": "device"
+      }
+    },
+    "vllm": {
+      "cuda": {
+        "binary": "vllm",
+        "flags": [
+          "--version",
+          "--help"
+        ],
+        "probe": "device"
+      },
+      "rocm": {
+        "binary": "vllm",
+        "flags": [
+          "--version",
+          "--help"
+        ],
+        "probe": "device"
+      },
+      "cpu": {
+        "binary": "vllm",
+        "flags": [
+          "--version",
+          "--help"
+        ],
+        "probe": "flags"
+      }
+    }
+  }
+}

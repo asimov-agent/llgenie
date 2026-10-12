@@ -57,6 +57,7 @@ install:
     - "cd {prefix} && grep ' ./ollama-darwin.tgz$' sha256sum.txt | sed 's# ./# #' | shasum -a 256 -c -"
     - "mkdir -p {prefix}/{version}/bin && tar -xzf {prefix}/ollama-darwin.tgz -C {prefix}/{version}/bin"
 binary: "{prefix}/{version}/bin/ollama"   # linux tarballs; darwin tgz has ollama at the root (metal override below)
+binary_flags: ["--version", "--help"]   # ollama answers --version (detect) and --help (usage)
 env:
   common:
     OLLAMA_HOST: "{host}:{port}"

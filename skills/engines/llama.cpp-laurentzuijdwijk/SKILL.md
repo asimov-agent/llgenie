@@ -51,6 +51,7 @@ install:
     # host at run time via the nvidia CDI device)
     - "LD_LIBRARY_PATH=${{LD_LIBRARY_PATH:-}}:/usr/local/cuda/lib64/stubs {binary} --help > /dev/null"
 binary: "{build}/bin/llama-server"
+binary_flags: ["--version", "--help"]   # fork of llama.cpp: same --version / --help
 detect: "{binary} --version"
 launch: "{binary} -m {model} --host {host} --port {port} --alias {alias} --jinja"
 health: "GET /health"

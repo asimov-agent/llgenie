@@ -744,6 +744,354 @@ def test_push_targets_only_the_registry_tag(monkeypatch):
     assert any(a.startswith("type=registry,ref=ghcr.io/asimov-agent/llgenie/base-cpu:buildcache") for a in build)
 
 
+def _push_spec() -> dict:
+    return {"tag": "llgenie/demo:abc-cpu", "id": "demo", "variant": "cpu"}
+
+
+def test_push_refuses_when_the_binary_does_not_report_a_version(monkeypatch):
+    """A version check failure publishes nothing."""
+
+    import scripts.engine_image as ei
+
+    # Given a local image whose binary does not report a version
+    calls = []
+    monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+    monkeypatch.setattr(ei, "image_exists", lambda tag: True)
+    monkeypatch.setattr(ei, "test_image", lambda spec: calls.append("test") or 1)
+    monkeypatch.setattr(ei, "_sh", lambda cmd, **kw: calls.append(cmd) or subprocess.CompletedProcess(cmd, 0))
+
+    # When the push runs
+    rc = ei.push(_push_spec())
+
+    # Then it stops before any tag or push
+    assert rc == 1
+    assert calls == ["test"]
+
+
+def test_push_publishes_only_after_the_binary_reports_a_version(monkeypatch):
+    """The pinned tag and the moving arch tag are pushed after the version check."""
+
+    import scripts.engine_image as ei
+
+    # Given a local image whose binary reports a version
+    order = []
+    monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+    monkeypatch.setattr(ei, "image_exists", lambda tag: True)
+    monkeypatch.setattr(ei, "test_image", lambda spec: order.append("test") or 0)
+
+    def sh(cmd, **kw):
+        order.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(ei, "_sh", sh)
+
+    # When the push runs
+    rc = ei.push(_push_spec())
+
+    # Then the check is first, and both registry tags are pushed
+    assert rc == 0
+    assert order[0] == "test"
+    pushed = [cmd[-1] for cmd in order[1:] if cmd[1] == "push"]
+    assert pushed == [
+        "ghcr.io/asimov-agent/llgenie/demo:abc-cpu",
+        "ghcr.io/asimov-agent/llgenie/demo:cpu",
+    ]
+
+
+FLAGS = ("--version", "-h", "--help")
+
+
+def _probe(binary: str, path_dir: str = "", flags: tuple = FLAGS):
+    """Run the binary-file probe on the host. `path_dir` is prepended to PATH."""
+    import scripts.engine_image as ei
+    env = os.environ.copy()
+    if path_dir:
+        env["PATH"] = path_dir + os.pathsep + env.get("PATH", "")
+    return subprocess.run(
+        ["bash", "-c", ei.BINARY_PROBE, "llgenie-binary", str(binary), *flags],
+        capture_output=True, text=True, env=env)
+
+
+def test_binary_probe_requires_the_file_and_a_flag(tmp_path):
+    """0 = a documented flag answered, 1 = no such file, 2 = file exists, no flag answered."""
+
+    # Given an executable that answers --version, one that answers only -h,
+    # a python file that answers -h, a file that answers neither, and no file
+    versioned = tmp_path / "versioned"
+    versioned.write_text("#!/bin/sh\nif [ \"$1\" = --version ]; then echo 1.2.3; exit 0; fi\nexit 1\n")
+    versioned.chmod(0o755)
+    helped = tmp_path / "helped"
+    helped.write_text("#!/bin/sh\nif [ \"$1\" = -h ]; then echo help; exit 0; fi\nexit 1\n")
+    helped.chmod(0o755)
+    script = tmp_path / "server.py"
+    script.write_text("import sys\nraise SystemExit(0 if sys.argv[1:] == ['-h'] else 1)\n")
+    silent = tmp_path / "silent"
+    silent.write_text("#!/bin/sh\nexit 1\n")
+    silent.chmod(0o755)
+    named = tmp_path / "namedbin"
+    named.write_text("#!/bin/sh\nif [ \"$1\" = --version ]; then echo 9.9; exit 0; fi\nexit 1\n")
+    named.chmod(0o755)
+    long_help = tmp_path / "longhelp"
+    long_help.write_text("#!/bin/sh\nif [ \"$1\" = --help ]; then echo usage; exit 0; fi\nexit 1\n")
+    long_help.chmod(0o755)
+
+    # When each file is probed with the flags its engine documents
+    # Then a real file that answers one of them passes, including a PATH name
+    assert _probe(versioned).returncode == 0
+    assert _probe(helped).returncode == 0
+    assert _probe(script).returncode == 0
+    assert _probe("namedbin", str(tmp_path)).returncode == 0
+
+    # And the documented flag is what is tried first: an engine documenting only
+    # --help passes on --help, and fails when its documented flag does not answer
+    assert _probe(long_help, flags=("--help",)).returncode == 0
+    assert _probe(long_help, flags=("--version",)).returncode == 2
+
+    # A file that answers nothing is 2 (the file IS there), a missing file is 1
+    answered = _probe(silent)
+    assert answered.returncode == 2
+    assert "exists but" in answered.stderr
+    missing = _probe(tmp_path / "absent")
+    assert missing.returncode == 1
+    assert "missing binary file" in missing.stderr
+
+
+def test_every_published_image_has_a_binary_and_documented_flags():
+    """binaries.json covers every engine x variant CI builds, publishes and installs."""
+
+    import scripts.engine_image as ei
+    import scripts.engine_skills as es
+
+    # Given the committed manifest and the CI matrix it must cover
+    manifest = json.loads((REPO / "containers/engines/binaries.json").read_text())["engines"]
+    rows = [r for r in ei.matrix(ci=True) if r["engine"] != "none"]
+    assert rows
+
+    # When each published image is looked up in the manifest
+    # Then every one names the file its image must contain and the flags it answers
+    for row in rows:
+        entry = (manifest.get(row["engine"]) or {}).get(row["variant"])
+        assert entry, f"{row['engine']}/{row['variant']} has no binaries.json entry"
+        assert entry["binary"], f"{row['engine']}/{row['variant']} has no binary file"
+        assert entry["flags"], f"{row['engine']}/{row['variant']} documents no flag"
+        assert set(entry["flags"]) <= set(es.BINARY_FLAGS), entry["flags"]
+        assert entry["probe"] in ("flags", "device"), entry
+
+    # And the frozen params (what make install pulls) are covered too, not just the CI subset
+    for path in (REPO / "containers/engines/params").glob("*.json"):
+        params = json.loads(path.read_text())
+        for variant in params["variants"]:
+            assert (manifest.get(params["id"]) or {}).get(variant), f"{params['id']}/{variant}"
+
+
+def test_the_manifest_is_generated_and_never_part_of_the_image_hash(skills):
+    """binaries.json is generated with the params, and hashing it would move every tag."""
+
+    import inspect
+
+    import scripts.engine_skills as es
+
+    # Given the skills regenerated into a manifest
+    engines = {}
+    for sid, skill in skills.items():
+        manifest: dict = {}
+        es.generate_params(skill, manifest)
+        if manifest:
+            engines[sid] = manifest
+
+    # When the committed manifest is compared with what the skills generate
+    committed = json.loads((REPO / "containers/engines/binaries.json").read_text())
+    assert committed["engines"] == engines
+
+    # Then the manifest is NOT one of the hashed inputs, and the params still carry no binary
+    hashed = inspect.getsource(es._image_inputs)
+    assert "binaries" not in hashed and "BINARIES" not in hashed
+    raw = json.loads((REPO / "containers/engines/params/llama.cpp.json").read_text())
+    assert "binary" not in raw["variants"]["cuda"]
+
+
+def test_each_engine_documents_the_flags_its_binary_answers(skills):
+    """Every servable engine says which version/help flag its own binary answers."""
+
+    import scripts.engine_skills as es
+
+    for sid, skill in skills.items():
+        if skill.get("servable") is not True:
+            continue
+        flags = es.documented_flags(skill)
+        assert flags, f"{sid} documents no binary_flags"
+        assert set(flags) <= set(es.BINARY_FLAGS), f"{sid}: {flags}"
+        # the flag the skill's own detect uses must be one of them. Match whole
+        # tokens, never substrings: "-h" is a substring of "--help" and would be a
+        # false positive.
+        detect = " ".join(str(x) for x in es._flatten(skill.get("detect")))
+        used = [f for f in es.BINARY_FLAGS
+                if re.search(r"(?<![A-Za-z0-9-])" + re.escape(f) + r"(?![A-Za-z0-9-])", detect)]
+        assert not used or all(f in flags for f in used), f"{sid}: detect uses {used}, docs say {flags}"
+
+
+def test_a_device_cli_is_exempted_only_where_the_file_still_has_to_be_there(monkeypatch):
+    """probe: device tolerates a CLI that cannot answer without its device, never a missing file."""
+
+    import scripts.engine_image as ei
+
+    # Given vllm's cuda image (its CLI probes the device at startup, CI #106)
+    def runner(rc: int, stderr: str):
+        def run(cmd, **kw):
+            return subprocess.CompletedProcess(cmd, rc, "", stderr)
+        return run
+
+    vllm_cuda = {"tag": "llgenie/vllm:x-cuda", "id": "vllm", "variant": "cuda"}
+    monkeypatch.setattr(ei.subprocess, "run",
+                        runner(2, "binary file vllm exists but none of: --version -h --help answered"))
+
+    # When the file is there but its CLI needs the device
+    # Then the check passes, and the version proof is left to the image's detect
+    assert ei.binary_file_works(vllm_cuda) == 0
+
+    # And when the file is missing it fails, device policy or not
+    monkeypatch.setattr(ei.subprocess, "run", runner(1, "missing binary file: vllm"))
+    assert ei.binary_file_works(vllm_cuda) == 1
+
+    # A flags-policy image gets no exemption: its binary must answer a documented flag
+    monkeypatch.setattr(ei.subprocess, "run",
+                        runner(2, "binary file /app/llama-server exists but none answered"))
+    assert ei.binary_file_works({"tag": "llgenie/llama-cpp:x-cuda", "id": "llama.cpp", "variant": "cuda"}) == 1
+
+
+def test_device_variant_still_probes_its_documented_flags(monkeypatch):
+    """probe: device is a deliberate rc-2 tolerance, never a skipped probe: the
+    documented flags are still passed to the binary file, and a missing file (rc 1)
+    still fails (issue #204)."""
+
+    import scripts.engine_image as ei
+
+    seen = []
+
+    def run(cmd, **kw):
+        seen.append(cmd)
+        return subprocess.CompletedProcess(cmd, 2, "", "binary file vllm exists but none answered")
+
+    monkeypatch.setattr(ei.subprocess, "run", run)
+    vllm_cuda = {"tag": "llgenie/vllm:x-cuda", "id": "vllm", "variant": "cuda"}
+
+    # When the device-policy image is checked
+    assert ei.binary_file_works(vllm_cuda) == 0
+
+    # Then the probe still ran the binary file with its documented flags first
+    probe = next(cmd for cmd in seen if "llgenie-binary" in cmd)
+    args = probe[probe.index("llgenie-binary") + 1:]
+    assert args[0] == "vllm", f"must probe the engine binary file, got: {args}"
+    assert "--version" in args and "--help" in args, f"documented flags must be probed: {args}"
+
+
+def test_validator_requires_documented_binary_flags(skills):
+    """A servable engine with no / a wrong binary_flags, or a bogus binary_probe, fails validation."""
+
+    import scripts.engine_skills as es
+
+    # Given llama.cpp with its binary_flags removed, misspelled, or probing a backend it lacks
+    missing = dict(skills["llama.cpp"])
+    missing.pop("binary_flags")
+    assert any("binary_flags" in e for e in es.validate({**skills, "llama.cpp": missing}))
+
+    wrong = dict(skills["llama.cpp"])
+    wrong["binary_flags"] = ["--verson"]
+    assert any("binary_flags" in e for e in es.validate({**skills, "llama.cpp": wrong}))
+
+    bad_probe = dict(skills["llama.cpp"])
+    bad_probe["binary_probe"] = {"wasm": "device"}  # wasm is not a backend of llama.cpp
+    assert any("binary_probe" in e for e in es.validate({**skills, "llama.cpp": bad_probe}))
+
+    # Then the committed skills pass
+    assert es.validate(skills) == []
+
+
+def test_each_engine_binary_is_the_file_in_its_image():
+    """Prebuilt images use the container path. Built images use the rendered skill path.
+
+    The path stays out of params JSON, because that JSON is the published image hash.
+    """
+
+    import scripts.engine_skills as es
+
+    # Given the committed engine skills
+    llama = es.render_variant(es.get_skill("llama.cpp"), "cuda", "")
+    prism = es.render_variant(es.get_skill("llama.cpp-prism"), "cpu", "")
+    vllm = es.render_variant(es.get_skill("vllm"), "cpu", "")
+    strata = es.render_variant(es.get_skill("strata"), "cuda", "")
+    raw = json.loads((REPO / "containers/engines/params/llama.cpp.json").read_text())
+    manifest = json.loads((REPO / "containers/engines/binaries.json").read_text())["engines"]
+
+    # When their image binaries are rendered
+    # Then each one is that image's file, and the hashed params do not carry it
+    assert llama["binary"] == "/app/llama-server"
+    assert prism["binary"].endswith("/bin/llama-server")
+    assert prism["binary"].startswith("/")
+    assert vllm["binary"] == "vllm"
+    assert strata["binary"].endswith("/engine/strata")
+    assert "binary" not in raw["variants"]["cuda"]
+
+    # And the manifest the push gate reads names the same file
+    assert manifest["llama.cpp"]["cuda"]["binary"] == llama["binary"]
+    assert manifest["vllm"]["cpu"]["binary"] == "vllm"
+
+
+def test_image_fails_when_the_binary_file_does_not_answer(monkeypatch):
+    """A detect import is not enough. The binary file itself must accept a flag."""
+
+    import scripts.engine_image as ei
+
+    # Given an image whose detect would pass but whose binary file does not answer
+    seen = []
+    monkeypatch.setattr(ei, "_available", lambda tag: True)
+    monkeypatch.setattr(ei, "binary_manifest",
+                        lambda engine, variant: {"binary": "/app/llama-server",
+                                                 "flags": ["--version", "--help"], "probe": "flags"})
+
+    def run(cmd, **kw):
+        seen.append(cmd)
+        if "llgenie-binary" in cmd:
+            return subprocess.CompletedProcess(cmd, 1, "", "missing binary file: /app/llama-server")
+        if cmd[-1] == "info":
+            return subprocess.CompletedProcess(cmd, 0, "port=11434 model=llm-local\n", "")
+        return subprocess.CompletedProcess(cmd, 0, "version 1.2.3\n", "")
+
+    monkeypatch.setattr(ei.subprocess, "run", run)
+    spec = {"tag": "llgenie/llama-cpp:x-cuda", "id": "llama.cpp", "variant": "cuda"}
+
+    # When the image test runs
+    rc = ei.test_image(spec)
+
+    # Then it fails, and the probe was the binary file with its documented flags
+    # (documented first, then the standard trio as the fallback)
+    assert rc == 1
+    probe = next(cmd for cmd in seen if "llgenie-binary" in cmd)
+    assert probe[probe.index("llgenie-binary") + 1:] == ["/app/llama-server", "--version", "--help", "-h"]
+    script = probe[probe.index("-c") + 1]
+    assert '"$@"' in script and "exit 2" in script
+
+
+def test_push_does_not_publish_an_unbuilt_image(monkeypatch):
+    """No local image means no version check and no registry command."""
+
+    import scripts.engine_image as ei
+
+    # Given the tag was never built
+    calls = []
+    monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+    monkeypatch.setattr(ei, "image_exists", lambda tag: False)
+    monkeypatch.setattr(ei, "test_image", lambda spec: calls.append("test") or 0)
+    monkeypatch.setattr(ei, "_sh", lambda cmd, **kw: calls.append(cmd) or subprocess.CompletedProcess(cmd, 0))
+
+    # When the push runs
+    rc = ei.push(_push_spec())
+
+    # Then nothing is checked and nothing is published
+    assert rc == 1
+    assert calls == []
+
+
 def test_every_image_uses_an_official_or_shared_base(skills):
     """No Dockerfile starts from a bare distro with a per-engine toolchain: each is FROM the
     engine's official image, an upstream runtime (NGC/rocm-pytorch), or the shared llgenie base."""

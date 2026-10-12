@@ -571,6 +571,7 @@ def _regen_guard(skill_id: str) -> list[str]:
         own = (c == skill
                or c == f"containers/engines/params/{skill_id}.json"
                or c.startswith(f"containers/engines/dockerfiles/{skill_id}/")
+               or c == "containers/engines/binaries.json"  # regenerate-engine-params writes this aggregate manifest even for --only
                or c.startswith("tests/")
                or c == "README.md"
                or c == "data/strata_models.json")

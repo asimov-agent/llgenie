@@ -500,6 +500,25 @@ def test_regen_guard_ignores_make_directory_lines(tmp_path, monkeypatch):
     assert ["make", "generate-engine-params", "ENGINE=testengine"] in seen
 
 
+def test_regen_guard_accepts_the_aggregate_binaries_manifest(tmp_path, monkeypatch):
+    """generate-engine-params rewrites containers/engines/binaries.json even for
+    `ENGINE=<id>` (it is the aggregate manifest: the bumped engine's entry plus
+    every other engine kept verbatim), so the guard must not treat it as scope
+    creep (issue #204)."""
+
+    def fake_run(cmd, **kw):
+        out = " M containers/engines/binaries.json\n" if cmd[:2] == ["git", "status"] else ""
+        return type("P", (), {"returncode": 0, "stdout": out, "stderr": ""})()
+
+    monkeypatch.setattr(eb, "_run", fake_run)
+
+    # When the guard runs for an engine whose bump refreshed the manifest
+    changed = eb._regen_guard("testengine")
+
+    # Then the manifest is accepted and reported as a change
+    assert "containers/engines/binaries.json" in changed
+
+
 def test_regen_guard_allows_the_bumped_skill(tmp_path, monkeypatch):
     """The pin edit of the bumped engine's SKILL.md is the bump, not a stray file.
 
@@ -2172,6 +2191,12 @@ def test_bump_applies_one_fixture_before_it_commits(tmp_path, capsys, monkeypatc
     assert text.count("apt: [libold1, libalready, libnew1]") == 2
     assert "libalready, libalready" not in text
     assert "cmake --build" in text and "new-pkg" not in text and "new-pydep" not in text
+    # And the aggregate binaries manifest: this bump's single-engine regen kept the
+    # other engine's entry VERBATIM (it may only update fixtureengine, issue #204).
+    manifest = json.loads((checkout / "containers/engines/binaries.json").read_text())["engines"]
+    assert manifest["otherengine"] == {
+        "cuda": {"binary": "/x", "flags": ["--help"], "probe": "flags"}
+    }, f"bump must preserve other engines in the manifest, got: {manifest}"
     # The files make wrote, not a second render after bump returned
     params = json.loads((checkout / "containers/engines/params/fixtureengine.json").read_text())
     for backend in ("cuda", "cpu"):
@@ -2277,6 +2302,7 @@ def _commit_real_regen(checkout: Path, skill_id: str) -> None:
         "es.PARAMS_DIR = es.CONTAINER_DIR / 'params'\n"
         "es.DOCKERFILES_DIR = es.CONTAINER_DIR / 'dockerfiles'\n"
         "es.BASE_DIR = es.CONTAINER_DIR / 'base'\n"
+        "es.BINARIES_PATH = es.CONTAINER_DIR / 'binaries.json'\n"
         f"es.write_params(es.load_skills(), only={skill_id!r})\n"
     )
     (checkout / "Makefile").write_text(
@@ -2292,6 +2318,15 @@ def _commit_real_regen(checkout: Path, skill_id: str) -> None:
     params = checkout / "containers/engines/params" / f"{skill_id}.json"
     params.parent.mkdir(parents=True, exist_ok=True)
     params.write_text("{}\n")
+    # Production tracks the aggregate binaries.json, so it is committed here too:
+    # a single-engine regen must PRESERVE every other engine's entry verbatim and
+    # only update the bumped engine (issue #204) — not recreate a fresh, empty file.
+    manifest = checkout / "containers/engines/binaries.json"
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text(
+        '{"engines": {"otherengine": {"cuda": {"binary": "/x", "flags": ["--help"], '
+        '"probe": "flags"}}}}\n'
+    )
     _git(checkout, "add", "-A")
     _git(checkout, "commit", "-qm", "regen runs write_params")
 

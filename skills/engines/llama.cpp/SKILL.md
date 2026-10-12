@@ -48,6 +48,7 @@ install:
     - "cmake --build {build} --config Release -j{jobs} --target llama-server"
     - "{binary} --help > /dev/null"
 binary: "{build}/bin/llama-server"
+binary_flags: ["--version", "--help"]   # llama-server prints its version with --version, usage with --help
 detect: "{binary} --version"
 launch: "{binary} -m {model} --host {host} --port {port} --alias {alias} --jinja"
 health: "GET /health"

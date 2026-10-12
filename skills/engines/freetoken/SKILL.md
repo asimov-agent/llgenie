@@ -38,6 +38,7 @@ install:
     - "python3 -m pip install --no-cache-dir setuptools wheel"
     - "cd {src} && ROCM_HOME=/opt/rocm CUDA_HOME=/opt/rocm PYTORCH_ROCM_ARCH='{gpu_targets}' FREETOKEN_ROCM_ARCH='{gpu_targets}' python3 -m pip install --no-cache-dir --no-build-isolation -e ."
 binary: "ft"
+binary_flags: ["--version", "--help"]   # ft answers --version (detect) and --help
 detect: "{binary} --version"
 launch: "{binary} serve --model {model} --host {host} --port {port} --served-model-name {alias} --moe-strategy auto"
 health: "GET /health"

@@ -43,6 +43,7 @@ env:
   rocm:
     SGLANG_USE_AITER: "1"
 binary: "sglang"
+binary_flags: ["--help"]   # the sglang CLI answers --help (no --version); detect proves it
 detect: "{binary} --help > /dev/null && python3 -c 'import sglang; print(sglang.__version__)'"
 launch: "{binary} serve --model-path {model} --host {host} --port {port} --served-model-name {alias}"
 health: "GET /health"

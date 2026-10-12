@@ -30,6 +30,9 @@ env:
   cuda:
     CUDA_HOME: "$(dirname $(dirname $(command -v nvcc)))"
 binary: "trtllm-serve"
+binary_flags: ["--help"]   # trtllm-serve is argparse (NVIDIA's CLI reference lists its options)
+binary_probe:
+  cuda: device   # importing tensorrt_llm needs the CUDA device, so --help cannot answer on a GPU-less runner
 detect: "python3 -c 'import importlib.metadata as m; print(m.version(\"tensorrt_llm\"))'"
 launch: "{binary} {model} --host {host} --port {port} --backend pytorch --kv_cache_free_gpu_memory_fraction 0.9"
 pre_launch: "mkdir -p {prefix}/served && ln -sfn {model} {prefix}/served/{alias}"

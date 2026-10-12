@@ -9,7 +9,10 @@
 
 Images are built ONLY from the committed, frozen parameters in
 containers/engines/params/<engine>.json (generated from the skill by
-`make engine-params`); skills are never read here. The variant defaults to the
+`make engine-params`). The build does not read skills. The binary-file check
+reads the same generated manifest (containers/engines/binaries.json: the file
+each image must contain + the version/help flags it answers), never a skill.
+The variant defaults to the
 one matching this machine's GPU arch (e.g. cuda-sm89), else <backend>-portable.
 
 `build` is a no-op when the tag already exists locally (or can be pulled from
@@ -39,6 +42,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import engine_skills as es  # noqa: E402
 import hf_auth  # noqa: E402
+
+# Generated with the params (make generate-engine-params): engine -> variant ->
+# {binary, flags}. The binary-file check reads it instead of a skill, so the
+# probe checks the same generated files the image was built from (issue #204).
+BINARIES_FILE = es.BINARIES_PATH
+
 
 def runtime_answers(rt: str) -> bool:
     """The container engine behind `rt` is reachable (`<rt> info` exits 0)."""
@@ -304,15 +313,134 @@ def run(spec: dict, model: str, port: int, name: str, models_dir: Path, wait: fl
     return 1
 
 
+# Proves one engine file: it exists, and it answers the flags its engine
+# documents (binaries.json), tried in that order. --help is the long form of -h
+# (strata, tensorfold, sglang). A .py file is the server itself (exllamav3
+# server.py) and is run with python3.
+# Exit codes: 0 = a flag answered, 1 = the file is missing, 2 = the file exists
+# but no flag answered (a CLI that needs its device; see probe: device).
+BINARY_PROBE = """
+bin=$1
+shift
+path=
+# Portable timeout: GNU `timeout` (Linux) or coreutils `gtimeout` (macOS), else none.
+# Production runs inside a Linux container where `timeout` exists; the host-side
+# hermetic test on macOS must still work without it.
+TO=
+if command -v timeout >/dev/null 2>&1; then TO="timeout 30"
+elif command -v gtimeout >/dev/null 2>&1; then TO="gtimeout 30"
+fi
+if [ -f "$bin" ]; then
+  path=$bin
+else
+  path=$(command -v "$bin" 2>/dev/null || true)
+fi
+if [ -z "$path" ] || [ ! -f "$path" ]; then
+  echo "missing binary file: $bin" >&2
+  exit 1
+fi
+try() {
+  if [ "${path##*.}" = py ]; then
+    $TO python3 "$path" "$1"
+  else
+    $TO "$path" "$1"
+  fi
+}
+for flag in "$@"; do
+  if try "$flag" >/tmp/llgenie-bin.out 2>&1; then
+    echo "binary file $path accepts $flag"
+    exit 0
+  fi
+done
+echo "binary file $path exists but none of: $* answered" >&2
+if [ -f /tmp/llgenie-bin.out ]; then
+  tail -c 2000 /tmp/llgenie-bin.out >&2
+fi
+exit 2
+"""
+
+# The standard trio a server binary is expected to answer. The engine's own
+# documented flags are tried first; this is the fallback, so a documented flag
+# that stopped answering shows up in the log instead of passing silently.
+FALLBACK_FLAGS = ("--version", "-h", "--help")
+
+
+def binary_manifest(engine: str, variant: str) -> dict:
+    """{binary, flags} for one image, from the committed generated manifest.
+
+    containers/engines/binaries.json is generated with the params and Dockerfiles
+    (make generate-engine-params) and is NOT part of the image-tag hash, so the
+    probe reads generated files only - never a skill.
+    """
+    if not BINARIES_FILE.exists():
+        raise SystemExit(f"[engine-image] missing {BINARIES_FILE.relative_to(es.REPO_ROOT)}; "
+                         f"run: make generate-engine-params")
+    engines = json.loads(BINARIES_FILE.read_text()).get("engines") or {}
+    entry = (engines.get(engine) or {}).get(variant)
+    if not entry:
+        raise SystemExit(f"[engine-image] {engine}/{variant} has no entry in "
+                         f"containers/engines/binaries.json; run: make generate-engine-params")
+    return entry
+
+
+def variant_binary(spec: dict) -> str:
+    """The engine file for this image. Same path the image was built to contain."""
+    return str(binary_manifest(spec["id"], spec["variant"]).get("binary") or "")
+
+
+def variant_flags(spec: dict) -> list[str]:
+    """The version/help flags this engine's own binary documents (issue #204)."""
+    return [str(f) for f in (binary_manifest(spec["id"], spec["variant"]).get("flags") or [])]
+
+
+def binary_file_works(spec: dict) -> int:
+    """The image contains the engine file, and that file answers a version/help flag.
+
+    Runs inside the built image. A name on PATH is resolved to its file first, so
+    a missing file is not hidden by a later Python import. The engine's documented
+    flags are probed first; the standard trio is the fallback. A variant whose CLI
+    initialises its device at startup (`probe: device`, e.g. vllm cuda/rocm, CI #106)
+    must still CONTAIN the file - there the version proof is the image's own
+    `detect`, which `test_image` runs next.
+    """
+    tag = spec["tag"]
+    entry = binary_manifest(spec["id"], spec["variant"])
+    binary = str(entry.get("binary") or "")
+    if not binary:
+        print(f"[engine-image] FAIL {tag}: binaries.json has no binary for "
+              f"{spec['id']}/{spec['variant']}")
+        return 1
+    documented = [str(f) for f in (entry.get("flags") or [])]
+    flags = list(documented) + [f for f in FALLBACK_FLAGS if f not in documented]
+    r = subprocess.run(
+        [RUNTIME, "run", "--rm", "--entrypoint", "bash", tag, "-c", BINARY_PROBE,
+         "llgenie-binary", binary, *flags],
+        capture_output=True, text=True)
+    out = ((r.stdout or "") + (r.stderr or "")).strip()
+    print(f"[engine-image] {spec['id']}/{spec['variant']} binary {binary} "
+          f"(documented: {' '.join(documented) or 'none'}, probe: {entry.get('probe') or 'flags'}): "
+          f"{out.splitlines()[-1:] or ['']}")
+    if r.returncode == 0:
+        return 0
+    if r.returncode == 2 and entry.get("probe") == "device":
+        print(f"[engine-image] {spec['id']}/{spec['variant']}: {binary} IS in the image but its CLI "
+              f"needs its device (probe: device) -> its version must come from entrypoint detect")
+        return 0
+    print(out[-2000:])
+    return 1
+
+
 def test_image(spec: dict) -> int:
-    """GPU images on GPU-less runners: start the image through its entrypoint and
-    check the engine binary runs (`entrypoint.sh detect`) and the image metadata
-    (`entrypoint.sh info`: port 11434, model llm-local). Serving needs the GPU."""
+    """GPU images on GPU-less runners: the engine file exists and accepts
+    --version or -h, `entrypoint.sh detect` prints a version, and
+    `entrypoint.sh info` reports port 11434 and model llm-local."""
     tag = spec["tag"]
     if not _available(tag):
         print(f"[engine-image] {tag} not built")
         return 1
     rc = 0
+    if binary_file_works(spec) != 0:
+        rc = 1
     for cmd in (["info"], ["detect"]):
         r = subprocess.run([RUNTIME, "run", "--rm", tag, *cmd], capture_output=True, text=True)
         print(f"[engine-image] {spec['id']}/{spec['variant']} entrypoint {cmd[0]}: "
@@ -328,14 +456,21 @@ def test_image(spec: dict) -> int:
 
 
 def push(spec: dict) -> int:
-    """Push an already built AND tested local image to the registry (GHCR).
-    Called only after the post-build test stage passed (CI: main branch only)."""
+    """Push a built image to GHCR only after its binary reports a version.
+
+    The CI matrix tests the image first (`make test-engine-stage`). This runs
+    that same version check again and does not tag or push when it fails, so a
+    matrix row whose binary is missing is not published.
+    """
     if not REGISTRY:
         print("[engine-image] LLGENIE_REGISTRY not set; nothing to push")
         return 1
     tag = spec["tag"]
     if not image_exists(tag):
         print(f"[engine-image] {tag} not built locally; build + test it first")
+        return 1
+    if test_image(spec) != 0:
+        print(f"[engine-image] FAIL {tag}: engine binary file missing or did not accept --version or -h; not pushing")
         return 1
     ref = f"{REGISTRY}/{tag}"
     latest = f"{REGISTRY}/{tag.split(':')[0]}:{spec['variant']}"  # moving per-arch tag

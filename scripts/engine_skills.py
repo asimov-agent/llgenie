@@ -55,6 +55,10 @@ REQUIRED_KEYS = ("name", "description", "engine", "id", "repo", "ref", "ref_kind
                  "pinned", "verified", "license", "servable", "backends", "os",
                  "formats", "upstream_watch")
 SERVABLE_KEYS = ("install", "binary", "detect", "launch", "health", "alias_mode", "prereqs")
+# The version/help flags an engine's OWN binary answers, documented in the skill
+# (issue #204). `make push-engine` probes exactly these inside the built image,
+# and the committed manifest containers/engines/binaries.json carries them.
+BINARY_FLAGS = ("--version", "--help", "-h")
 ALIAS_MODES = ("flag", "create", "config", "symlink", "any-name")
 
 
@@ -616,6 +620,10 @@ def serve(skill: dict, backend: str, hw: dict, model: str, host: str = "127.0.0.
 # ---------------------------------------------------------------------------
 CONTAINER_DIR = REPO_ROOT / "containers" / "engines"
 PARAMS_DIR = CONTAINER_DIR / "params"
+# engine -> variant -> {binary, flags}: the file each published image must
+# contain and the flags that file answers. Generated like the params, but NOT
+# part of the image-tag hash (issue #204: a probe must not move a tag).
+BINARIES_PATH = CONTAINER_DIR / "binaries.json"
 CONTAINER_BACKENDS = ("cuda", "rocm", "vulkan", "cpu")  # metal cannot run in a container
 DEFAULT_BASE = {
     "cuda": "nvidia/cuda:13.0.2-devel-ubuntu24.04",   # devel: nvcc for builds AND runtime JITs (FlashInfer, triton)
@@ -718,13 +726,18 @@ def render_variant(skill: dict, backend: str, arch: str) -> dict:
                 os.environ.pop(k, None)
             else:
                 os.environ[k] = v
+    # The file this image must contain. A prebuilt image's container.binary
+    # (llama-server at /app, ollama at /bin/ollama) replaces the skill path.
+    binary = p.get("binary") or ""
+    if prebuilt and spec.get("binary"):
+        binary = str(spec["binary"])
+        sk_bin = p.get("binary") or ""
+        if sk_bin and sk_bin != binary:
+            for k in ("detect", "pre_launch", "launch", "post_launch"):
+                if p.get(k):
+                    p[k] = p[k].replace(sk_bin, binary)
     if prebuilt:  # the official image already contains the engine: no install steps
         steps = []
-        if spec.get("binary"):
-            sk_bin = p.get("binary") or ""
-            for k in ("detect", "pre_launch", "launch", "post_launch"):
-                if p.get(k) and sk_bin:
-                    p[k] = p[k].replace(sk_bin, str(spec["binary"]))
     # host/port/model stay placeholders: bound at `docker run` time.
     unbind = lambda c: c.replace("--host 127.0.0.1", "--host {host}").replace("-host 127.0.0.1", "-host {host}") \
         .replace("127.0.0.1:11434", "{host}:{port}").replace("11434", "{port}") if c else c  # noqa: E731
@@ -740,17 +753,50 @@ def render_variant(skill: dict, backend: str, arch: str) -> dict:
         "detect": p["detect"], "pre_launch": unbind(p["pre_launch"]), "launch": unbind(p["launch"]),
         "post_launch": unbind(p["post_launch"]), "health": p["health"], "alias_mode": p["alias_mode"],
         "run_args": RUN_ARGS[backend], "port": CONTAINER_PORT,
+        # Not written into params JSON: that dict is the image-tag hash, and
+        # adding a key would move every published tag.
+        "binary": binary,
     }
 
 
-def generate_params(skill: dict) -> dict | None:
+def documented_flags(skill: dict) -> list[str]:
+    """The flags this engine's own binary answers, as documented in its skill.
+
+    `binary_flags: ["--version", "--help"]` in the front matter. The push gate
+    probes these first inside the built image (issue #204).
+    """
+    return [str(f) for f in (skill.get("binary_flags") or [])]
+
+
+def probe_policy(skill: dict, backend: str) -> str:
+    """How this variant's binary is proven: "flags" (default) or "device".
+
+    `binary_probe: {cuda: device}` marks a backend whose CLI initialises the
+    device at startup, so it cannot answer a flag on a device-less CI runner
+    (vllm's cuda/rocm CLI, CI #106). Those variants still must CONTAIN the
+    binary file; their version is proven by the image's own `detect`.
+    """
+    value = _per_backend(skill.get("binary_probe"), backend)
+    return "device" if str(value).strip() == "device" else "flags"
+
+
+def generate_params(skill: dict, manifest: dict | None = None) -> dict | None:
     variants = {}
     for b in CONTAINER_BACKENDS:
         spec = container_spec(skill, b)
         if spec is None:
             continue
         for key, arch in _arch_variants(skill, b, spec):
-            variants[key] = render_variant(skill, b, arch)
+            variant = render_variant(skill, b, arch)
+            if manifest is not None:
+                # The file this image must contain + the flags it answers. They
+                # go to containers/engines/binaries.json, never into the variant:
+                # that dict is hashed into the published image tag.
+                manifest[key] = {"binary": variant.get("binary") or "",
+                                 "flags": documented_flags(skill),
+                                 "probe": probe_policy(skill, b)}
+            variant.pop("binary", None)  # kept off the hashed params
+            variants[key] = variant
     if not variants:
         return None
     return {"_generated_by": "make generate-engine-params (scripts/engine_skills.py) - do not edit; edit the skill",
@@ -779,26 +825,49 @@ def params_path(skill_id: str) -> Path:
     return PARAMS_DIR / f"{skill_id}.json"
 
 
+def binaries_text(engines: dict) -> str:
+    """The committed manifest body: engine -> variant -> {binary, flags}."""
+    return json.dumps({"_generated_by": "make generate-engine-params "
+                                        "(scripts/engine_skills.py) - do not edit; edit the skill",
+                       "engines": {sid: engines[sid] for sid in sorted(engines)}},
+                      indent=2) + "\n"
+
+
 def write_params(skills: dict, check_only: bool = False, only: str | None = None) -> list[str]:
     """Regenerate params JSON + one Dockerfile per engine x arch; write only
     files that differ, delete files for variants that no longer exist.
     `only` limits the write to that engine (a bump must not touch another
     engine, or the shared bases). Returns the changed paths (relative to the repo)."""
     want: dict[Path, str] = {}
+    engines: dict = {}
     for sid, skill in skills.items():
         if only and sid != only:
             continue
-        data = generate_params(skill)
+        manifest: dict = {}
+        data = generate_params(skill, manifest)
         if data is None:
             continue
+        engines[sid] = manifest
         want[params_path(sid)] = json.dumps(data, indent=2, sort_keys=False) + "\n"
         for variant in data["variants"]:
             want[dockerfile_path(sid, variant)] = render_dockerfile(data, variant)
     if not only:
         for b in CONTAINER_BACKENDS:
             want[BASE_DIR / f"Dockerfile.{b}"] = render_base_dockerfile(b)
+        want[BINARIES_PATH] = binaries_text(engines)
+    else:
+        # A bump rewrites ONE engine: keep every other engine's manifest entry
+        # exactly as committed, so `only` never re-derives another engine.
+        committed = {}
+        if BINARIES_PATH.exists():
+            committed = json.loads(BINARIES_PATH.read_text()).get("engines") or {}
+        if engines:
+            committed[only] = engines[only]
+        else:
+            committed.pop(only, None)  # the engine no longer has a container image
+        want[BINARIES_PATH] = binaries_text(committed)
     have = set(PARAMS_DIR.glob("*.json")) | set(DOCKERFILES_DIR.glob("*/Dockerfile.*")) | \
-        set(BASE_DIR.glob("Dockerfile.*"))
+        set(BASE_DIR.glob("Dockerfile.*")) | ({BINARIES_PATH} if BINARIES_PATH.exists() else set())
     if only:
         have = {p for p in have if only in p.parts}
     changed = []
@@ -1039,6 +1108,22 @@ def validate(skills: dict, registry: dict | None = None) -> list[str]:
             for k in SERVABLE_KEYS:
                 if not s.get(k):
                     errors.append(f"{where}: servable engine needs {k}")
+            flags = documented_flags(s)
+            if not flags:
+                errors.append(f"{where}: servable engine needs binary_flags "
+                              f"(the version/help flags its own binary answers)")
+            bad = [f for f in flags if f not in BINARY_FLAGS]
+            if bad:
+                errors.append(f"{where}: binary_flags must be one of {list(BINARY_FLAGS)}, got {bad}")
+            probe_map = s.get("binary_probe")
+            if probe_map and not isinstance(probe_map, dict):
+                errors.append(f"{where}: binary_probe must be a backend: device map")
+            for b, v in (probe_map or {}).items() if isinstance(probe_map, dict) else []:
+                if str(v).strip() != "device":
+                    errors.append(f"{where}: binary_probe.{b} must be 'device' "
+                                  f"(a CLI that needs its device to answer a flag)")
+                if b not in (s.get("backends") or []):
+                    errors.append(f"{where}: binary_probe.{b} is not a backend of this engine")
             if s.get("alias_mode") not in ALIAS_MODES:
                 errors.append(f"{where}: alias_mode must be one of {ALIAS_MODES}")
             launch = " ".join(str(x) for x in (_flatten(s.get("launch")) + _flatten(s.get("post_launch"))

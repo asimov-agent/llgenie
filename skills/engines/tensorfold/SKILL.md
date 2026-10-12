@@ -27,6 +27,7 @@ install:
     - "uv pip install --system --break-system-packages torch triton"
     - "uv pip install --system --break-system-packages 'tensorfold @ git+{repo}.git@v{version}'"
 binary: "tensorfold"
+binary_flags: ["--help"]   # tensorfold answers --help (detect proves it on metal + cuda)
 detect:
   metal: "{binary} --help > /dev/null && uv tool list | grep '^tensorfold '"
   cuda: "{binary} --help > /dev/null && python3 -c 'import importlib.metadata as m; print(m.version(\"tensorfold\"))'"
