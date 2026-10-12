@@ -592,8 +592,14 @@ def bump(skill_id: str, dry: bool = False) -> list[dict]:
     deps = (findings.get("report") or {}).get("dependencies") or {}
     py_added = ",".join(deps.get("python_added") or [])
     apt_added = ",".join(deps.get("apt_added") or [])
-    if py_added or apt_added:
-        print(f"[engine-bump] DEPS python_added={py_added} apt_added={apt_added}")
+    py_removed = ",".join(deps.get("python_removed") or [])
+    apt_removed = ",".join(deps.get("apt_removed") or [])
+    if py_added or apt_added or py_removed or apt_removed:
+        print(
+            "[engine-bump] DEPS "
+            f"python_added={py_added} apt_added={apt_added} "
+            f"python_removed={py_removed} apt_removed={apt_removed}"
+        )
     pin(skill_id, row["new_ref"], row["new_sha"])
     applied = _apply_findings(skill_id, findings)
     rewritten = _rewrite_pin_asserts(skill_id, row["old_sha"], row["new_sha"],

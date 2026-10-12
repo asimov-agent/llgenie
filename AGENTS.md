@@ -463,28 +463,46 @@ not say which backend it belongs to. `generate-engine-params` then writes those
 names into that engine's Dockerfile only. When the skill has no `apt:` line,
 `hard_fail` names the packages and no `container:` block is created.
 
-**What the unit test must prove before a bump.** One fixture is the old tag's
-files and the new tag's files, and `bump()` runs on it through pin and apply.
-That run does not commit and does not push. It must show the hard-fail, the
-`DEPS` line, both `apt:` lines, and the generated Dockerfiles. A release pin is two tags.
-The test builds both trees in a real git repo, tags them, and calls `derive`
-with the old sha and the destination tag. Names present at the old tag are
-not new. Names in both trees are not added. Names only the new tag added are
-the install delta. A test of this step follows
-the new package through `generate_params` and `render_dockerfile`. The
-generated Dockerfile's `apt-get install` line contains the new apt name. The
-shared base Dockerfile does not. The generated install steps still contain the
-existing `pip install -r` line and do not add a pip line that names the new
-Python package. A hard-fail leaves that name out of the Dockerfile and out of
-the install steps. A test that stops at the skill `apt:` line does not show
-what the image build will install. These tests live in `tests/test_engine_bump.py`
-and run under `make test-unit`, which `make ci-unit` runs on Linux and macOS.
+**What the unit test must prove before a bump (issue #192, mandatory).** One
+fixture is the old tag's files and the new tag's files. `bump()` runs on it
+through pin, apply, and `make generate-engine-params`. That make target runs
+`write_params`. The test reads the Dockerfile and the params JSON that command
+wrote in the checkout. A Makefile target of `@true` does not test the bump. A
+`render_dockerfile` call after `bump()` returns does not test the bump. The
+run does not commit and does not push. These tests live in
+`tests/test_engine_bump.py` and run under `make test-unit`, which
+`make ci-unit` runs on Linux and macOS.
+
+A release pin is two tags. The test builds both trees in a real git repo, tags
+them, and calls `derive` with the old sha and the destination tag. Names
+present at the old tag are not new. Names in both trees are not added. Names
+only the new tag added are the install delta. The Dockerfile `make` wrote
+contains that apt name on its `apt-get install` line. The shared base
+Dockerfile does not. The install steps still contain the existing
+`pip install -r` line and do not name the new Python package. A hard-fail
+leaves that name out of the Dockerfile and out of the install steps. A test
+that stops at the skill `apt:` line does not show what the image build will
+install.
+
+**What — removed packages.** Names present at the old sha and absent at the new
+sha are `python_removed` and `apt_removed`. The bump does not delete them from
+the skill and does not invent a pip line. It does print them. The `DEPS` line
+is:
+
+```text
+[engine-bump] DEPS python_added=… apt_added=… python_removed=… apt_removed=…
+```
+
+It is printed when any of the four lists is non-empty. A pin that only removes
+packages still prints the line. The TensorFold v1.0.7 pin removed
+`huggingface-hub`, `jinja2`, `mlx`, `mlx-lm`, `numpy`, `safetensors`, and
+`tokenizers`. The unit test uses those seven names.
 
 **What — the PR.** A dependency `hard_fail` does not abort the bump. The pin
-still moves, the PR still opens, the body carries the hard-fail and the line
-`[engine-bump] DEPS python_added=… apt_added=…`, and CI goes red until a person
-fixes the skill. A removed cmake option or launch flag still raises `HardFail`:
-derive applies nothing, and the pin still moves.
+still moves, the PR still opens, the body carries the hard-fail and the `DEPS`
+line, and CI goes red until a person fixes the skill. A removed cmake option
+or launch flag still raises `HardFail`: derive applies nothing, and the pin
+still moves.
 
 **What — a binary that already exists.** `dpkg-shlibdeps -O <binary>` names the
 Debian packages that binary links, runtime libraries only. The weekly bump does

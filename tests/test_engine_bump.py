@@ -1972,6 +1972,7 @@ def test_bump_applies_one_fixture_before_it_commits(tmp_path, capsys, monkeypatc
         "",
     ])
     checkout, skill_path = _checkout(tmp_path, "fixtureengine", skill_text, old, "v1.2.0")
+    _commit_real_regen(checkout, "fixtureengine")
     skill = es.load_skill(skill_path)
 
     # When derive has no old sha, the new tree is not treated as all-new
@@ -1979,8 +1980,10 @@ def test_bump_applies_one_fixture_before_it_commits(tmp_path, capsys, monkeypatc
     assert "dependencies" not in bare["report"]
     assert bare["hard_fail"] is None
 
-    # When the bump runs through pin and apply, and stops before commit
+    # When the bump runs through pin, apply, and make generate-engine-params
     monkeypatch.setenv("GIT_TERMINAL_PROMPT", "0")
+    monkeypatch.setenv("LLGENIE_SRC", str(REPO))
+    monkeypatch.setenv("LLGENIE_CHECKOUT", str(checkout))
     orig_skills, orig_root = es.SKILLS_DIR, eb.REPO_ROOT
     es.SKILLS_DIR = checkout / "skills" / "engines"
     eb.REPO_ROOT = checkout
@@ -2003,27 +2006,137 @@ def test_bump_applies_one_fixture_before_it_commits(tmp_path, capsys, monkeypatc
     assert "new-pkg" in rows[0]["hard_fail"] and "new-pydep" in rows[0]["hard_fail"]
     assert "commentpkg" not in rows[0]["hard_fail"]
     assert "devnew" not in rows[0]["hard_fail"] and "testnew" not in rows[0]["hard_fail"]
-    assert "[engine-bump] DEPS python_added=new-pkg,new-pydep apt_added=libalready,libnew1" in out
+    assert (
+        "[engine-bump] DEPS python_added=new-pkg,new-pydep "
+        "apt_added=libalready,libnew1 python_removed= apt_removed=libold1"
+    ) in out
     text = skill_path.read_text()
     assert "ref: v1.3.0" in text and f"pinned: {new}" in text
     assert text.count("apt: [libold1, libalready, libnew1]") == 2
     assert "libalready, libalready" not in text
     assert "cmake --build" in text and "new-pkg" not in text and "new-pydep" not in text
+    # The files make wrote, not a second render after bump returned
+    params = json.loads((checkout / "containers/engines/params/fixtureengine.json").read_text())
+    for backend in ("cuda", "cpu"):
+        dockerfile = (checkout / "containers/engines/dockerfiles/fixtureengine" / f"Dockerfile.{backend}").read_text()
+        base = es.render_base_dockerfile(backend)
+        assert "apt-get install" in dockerfile and "libnew1" in dockerfile
+        assert "libalready" in dockerfile and "libold1" in dockerfile
+        assert "libstay1" not in dockerfile and "libnew1" not in base
+        joined = "\n".join(params["variants"][backend]["install"])
+        assert "cmake --build" in joined
+        assert "new-pkg" not in joined and "devnew" not in joined
+
+
+def test_bump_reports_packages_the_new_tag_removed(tmp_path, capsys, monkeypatch):
+    """The v1.0.7 shape: the new tag drops pyproject dependencies and adds none.
+
+    bump must say those names were removed. It must not invent a pip line,
+    and it must not commit.
+    """
+
+    # Given the packages the TensorFold v1.0.7 pin removed
+    names = ["huggingface-hub", "jinja2", "mlx", "mlx-lm", "numpy", "safetensors", "tokenizers"]
+    old_py = (
+        "[project]\nname = \"engine\"\nversion = \"1.0.6\"\ndependencies = [\n"
+        + "".join(f"  \"{name}\",\n" for name in names)
+        + "]\n"
+    )
+    new_py = "[project]\nname = \"engine\"\nversion = \"1.0.7\"\ndependencies = []\n"
+    upstream = _make_repo(tmp_path, "up", {"pyproject.toml": old_py})
+    _git(upstream, "tag", "v1.0.6")
+    old = _git(upstream, "rev-parse", "v1.0.6^{}")
+    _commit(upstream, {"pyproject.toml": new_py})
+    _git(upstream, "tag", "v1.0.7")
+    new = _git(upstream, "rev-parse", "v1.0.7^{}")
+    install = "uv tool install --python 3.11 tensorfold @ git+{repo}@{pinned}"
+    skill_text = "\n".join([
+        "---",
+        "name: engine-fixtureengine",
+        "engine: Fixture",
+        "id: fixtureengine",
+        f"repo: {upstream}",
+        "ref: v1.0.6",
+        "ref_kind: tag",
+        "version: v1.0.6",
+        f"pinned: {old}",
+        'verified: "2026-10-05"',
+        "license: MIT",
+        "servable: true",
+        "backends: [cuda]",
+        "os: [linux]",
+        "formats: [gguf]",
+        "upstream_watch: [pyproject.toml]",
+        "install:",
+        "  common:",
+        f"    - \"{install}\"",
+        "---",
+        "# body",
+        "",
+    ])
+    checkout, skill_path = _checkout(tmp_path, "fixtureengine", skill_text, old, "v1.0.6")
+    _commit_real_regen(checkout, "fixtureengine")
+
+    # When the bump runs
+    monkeypatch.setenv("GIT_TERMINAL_PROMPT", "0")
+    monkeypatch.setenv("LLGENIE_SRC", str(REPO))
+    monkeypatch.setenv("LLGENIE_CHECKOUT", str(checkout))
+    orig_skills, orig_root = es.SKILLS_DIR, eb.REPO_ROOT
     es.SKILLS_DIR = checkout / "skills" / "engines"
+    eb.REPO_ROOT = checkout
+    head = _git(checkout, "rev-parse", "HEAD")
     try:
-        for backend in ("cuda", "cpu"):
-            dockerfile, base, install = (
-                es.render_dockerfile(es.generate_params(es.load_skill(skill_path)), backend),
-                es.render_base_dockerfile(backend),
-                es.generate_params(es.load_skill(skill_path))["variants"][backend]["install"],
-            )
-            assert "libnew1" in dockerfile and "libalready" in dockerfile and "libold1" in dockerfile
-            assert "libstay1" not in dockerfile and "libnew1" not in base
-            joined = "\n".join(install)
-            assert "cmake --build" in joined
-            assert "new-pkg" not in joined and "devnew" not in joined
+        rows = eb.bump("fixtureengine")
     finally:
         es.SKILLS_DIR = orig_skills
+        eb.REPO_ROOT = orig_root
+    out = capsys.readouterr().out
+
+    # Then the removal is on the DEPS line and the install text is untouched
+    assert _git(checkout, "rev-parse", "HEAD") == head
+    assert rows[0]["hard_fail"] is None
+    removed = "huggingface-hub,jinja2,mlx,mlx-lm,numpy,safetensors,tokenizers"
+    assert f"python_removed={removed}" in out
+    assert "python_added= " in out or "python_added= apt_added=" in out
+    text = skill_path.read_text()
+    assert install in text
+    assert "pip install" not in text
+    assert f"pinned: {new}" in text
+
+
+def _commit_real_regen(checkout: Path, skill_id: str) -> None:
+    """Replace the `@true` Makefile with one that runs `write_params`."""
+
+    (checkout / "regen.py").write_text(
+        "import os\n"
+        "import sys\n"
+        "from pathlib import Path\n"
+        "sys.path.insert(0, os.environ['LLGENIE_SRC'])\n"
+        "import scripts.engine_skills as es\n"
+        "root = Path(os.environ['LLGENIE_CHECKOUT'])\n"
+        "es.REPO_ROOT = root\n"
+        "es.SKILLS_DIR = root / 'skills' / 'engines'\n"
+        "es.CONTAINER_DIR = root / 'containers' / 'engines'\n"
+        "es.PARAMS_DIR = es.CONTAINER_DIR / 'params'\n"
+        "es.DOCKERFILES_DIR = es.CONTAINER_DIR / 'dockerfiles'\n"
+        "es.BASE_DIR = es.CONTAINER_DIR / 'base'\n"
+        f"es.write_params(es.load_skills(), only={skill_id!r})\n"
+    )
+    (checkout / "Makefile").write_text(
+        "generate-engine-params:\n"
+        "\tpython3 regen.py\n"
+    )
+    # The live bump edits Dockerfiles that are already tracked. Seed them so
+    # git status names the files instead of a new untracked directory.
+    for backend in ("cuda", "cpu"):
+        path = checkout / "containers/engines/dockerfiles" / skill_id / f"Dockerfile.{backend}"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("placeholder\n")
+    params = checkout / "containers/engines/params" / f"{skill_id}.json"
+    params.parent.mkdir(parents=True, exist_ok=True)
+    params.write_text("{}\n")
+    _git(checkout, "add", "-A")
+    _git(checkout, "commit", "-qm", "regen runs write_params")
 
 
 def test_dpkg_shlibdeps_names_libc(tmp_path):

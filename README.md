@@ -240,7 +240,9 @@ the bump reads `requirements.txt`, `pyproject.toml`, and `Dockerfile` with
 `git show <sha>:<path>` and keeps the names the new pin added (issue #186).
 A release move compares the old tag's tree to the new tag's tree. A name
 already at the old tag is not installed as new. One fixture runs that bump
-through the pin and the Dockerfile render and does not commit.
+through the pin and `make generate-engine-params`, and the test reads the
+Dockerfile that command wrote. A pin that only removes packages prints those
+names. The bump does not commit.
 
 An engine Dockerfile is generated from the skill. Shared build tools stay in
 the base image. Packages for one engine come from that skill's `apt:` key,
