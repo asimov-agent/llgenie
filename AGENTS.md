@@ -184,6 +184,10 @@ git merge-base --is-ancestor origin/main HEAD 2>/dev/null \
    - NEVER create a PR against `andyholst/llgenie` (the fork). The PR always goes
      to the upstream.
    - NEVER push directly to `main` on either repo.
+   - **Every PR body MUST end with `closes #<issue id>`** (the deliberate closing
+     keyword GitHub uses to link a PR to its issue). If the PR does not close an
+     issue, still end with the issue reference so the PR ↔ issue link is never
+     ambiguous.
 6. Keep each PR to one change/OpenSpec change. Rebase or merge `main` in when the
    PR goes stale; never force-push shared branches.
 7. **Merging needs an approval — the agent NEVER merges (MANDATORY, durable).**
@@ -285,7 +289,7 @@ make loop            # runs: download-test-model -> lint -> test-unit -> test-in
 python3 scripts/loop_harness.py
 ```
 
-- `scripts/loop_harness.py` runs the seven stages in a fixed order and **fails
+- `scripts/loop_harness.py` runs the stages in a fixed order and **fails
   closed** (any failed stage → non-zero exit even if later stages run and pass).
 - **`lint` stage (`make lint`) is mandatory:** every tracked text file must end
   with a trailing newline. `make lint-fix` appends the missing newlines
@@ -560,7 +564,7 @@ is **not** end to end:
   on that request and on the files the product writes.
 
 An end-to-end test calls the real external system. `make test-health`,
-`make test-agents-e2e`, `make test-engine`, `make test-engine-bump-live`,
+`make test-engine`, `make test-engine-bump-live`,
 and the native and published-image serve tests do not mock that call.
 Pointing `SKILLS_DIR` or `REPO_ROOT` at fixture files is not a mock: the
 real loader and the real git still run.
@@ -665,14 +669,11 @@ also run the check **on the host with the actual GPU (Metal)** and record it:
 
 **All verification — locally and in CI — MUST run through the Makefile, never by
 hand-running `pytest`/`nerdctl`/the container directly.** This is unconditional:
-every stage (lint, unit, install, health, top-tier, **e2e**, openspec) is invoked
+every stage (lint, unit, install, health, top-tier, openspec) is invoked
 via `make <target>` both on the host loop and in the GitHub Actions jobs, so the
 command executed is byte-identical in CI and locally. A Python test that exists
 with no corresponding `make` target to drive it is a defect; a CI job that calls
-`pytest` (or any tool) directly instead of `make <target>` is a defect. The e2e
-tests (`tests/*_e2e*.py`) are ALWAYS run by the `test-agents-e2e` make target,
-and the CI `dispatch-e2e` job invokes exactly that target — never a bare pytest
-path.
+`pytest` (or any tool) directly instead of `make <target>` is a defect.
 
 Each verification step is an independent target; `make loop`/`loop-harness`
 chains them all.
@@ -696,12 +697,6 @@ chains them all.
 - `make lint` — linefeed lint: fail closed if any tracked text file lacks a trailing newline.
 - `make lint-fix` — append the missing trailing newline to tracked text files.
 - `make test-unit` — hermetic unit tests only (no `~/bin`/`~/models` needed).
-- `make test-agents-e2e` — REAL agent-spawn e2e (issue #63): runs ONLY
-  `tests/*_e2e*.py` via a glob. A fake worker does README issue-work, a hung
-  worker is killed+respawned, and the README wording is asserted — all in <1 min,
-  no GitHub API/LLM/network. Wired into CI as the `dispatch-e2e` job AND the
-  loop-harness `agents-e2e` stage. **Must always be run through `make`, never by
-  invoking the e2e pytest file directly.**
 - `make test-install` — host install tests (verify installed launcher runs a model).
 - `make test-health` — **end-to-end**: launch the tiny model from `~/bin`, answer
   `"hi"` on `/v1/chat/completions`, assert a healthy reply.
@@ -733,8 +728,8 @@ chains them all.
 - `make test-image-pull` / `make openspec-image-pull` — CI: pull that hash, never build
   (fails when missing). `make publish-ci-images` — CI job `ci-images`: build + push
   (amd64 + arm64) only the hashes not on GHCR. `make ci-image-refs` prints the refs.
-- `make ci-<job>` — one target per CI pipeline job (`ci-lint`, `ci-unit`, `ci-cron`,
-  `ci-watch-report`, `ci-dispatch-e2e`, `ci-agents-read`, `ci-openspec`, `ci-cpu-health`,
+- `make ci-<job>` — one target per CI pipeline job (`ci-lint`, `ci-unit`,
+  `ci-agents-read`, `ci-openspec`, `ci-cpu-health`,
   `ci-top-tier`, `ci-install`). Linux and macOS both call `pipeline.yml`: one job each,
   the same on both OSes, no combined jobs (issue #120). `make ci-free-disk` and `make test-engine-stage
   TEST=serve|detect` keep OS / matrix decisions in make, so no CI job or step is skipped.

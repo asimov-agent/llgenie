@@ -77,43 +77,6 @@ jobs:
         if: always()
         run: make test-clean
 
-  # cron: the REAL make cron-* targets against a FAKE crontab (issue #67); host python, no container
-  cron:
-    runs-on: ${{ inputs.runner }}
-    continue-on-error: false
-    steps:
-      - uses: actions/checkout@v4
-      - name: make ci-cron (cron-snapshot, cron-install x2 / cron-uninstall against a fake crontab)
-        run: make ci-cron
-
-  # watch-report: the REAL make watch-report against a FAKE .watchloop tree + gh shim
-  watch-report:
-    runs-on: ${{ inputs.runner }}
-    continue-on-error: false
-    steps:
-      - uses: actions/checkout@v4
-      - name: make ci-watch-report (fixture .watchloop + fake gh shim)
-        run: make ci-watch-report
-
-  # dispatch-e2e: REAL agent-spawn end-to-end (issue #63)
-  dispatch-e2e:
-    runs-on: ${{ inputs.runner }}
-    continue-on-error: false
-    permissions:
-      contents: read
-      packages: read
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ./.github/actions/docker
-        if: runner.os == 'Linux'  # macOS: no Colima
-      - name: make test-env (Python 3.11 - Linux pulls llgenie/test from GHCR, macOS builds the 3.11 venv)
-        run: make test-env
-      - name: make ci-dispatch-e2e (real dispatcher spawn/reclaim, README issue-work)
-        run: make ci-dispatch-e2e
-      - name: Prune orphaned test containers
-        if: always()
-        run: make test-clean
-
   # install: ci-install only prepares the environment. make install, the
   # installed llgenie dry run, and make uninstall are separate steps.
   install:

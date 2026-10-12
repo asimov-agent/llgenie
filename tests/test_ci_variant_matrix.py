@@ -176,7 +176,7 @@ def test_uninstall_removes_install_artifacts_and_not_repo_source():
     # Given the uninstall recipe
     text = (REPO / "Makefile").read_text()
     start = text.index("\nuninstall:") + 1
-    recipe = text[start:text.index("\n# ---- watch-loop", start)]
+    recipe = text[start:text.index("\n# ---- ci-<job>", start)]
 
     # When the removals are read
     # Then the launcher + llgenie.py are removed, the engine files go through the

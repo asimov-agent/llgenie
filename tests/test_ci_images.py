@@ -288,7 +288,7 @@ def test_macos_runs_the_linux_pipeline_file_job_for_job():
 
     # And each job runs one target, once (no combined job, nothing runs twice)
     targets = sorted(t for j in linux.values() for t in _make_targets(j) if t != "ci-free-disk")
-    assert len(linux) == 10 and len(set(targets)) == len(targets) == 10
+    assert len(linux) == 7 and len(set(targets)) == len(targets) == 7
 
     # And no job has an if: (nothing shows as skipped on either OS)
     assert not [n for n, j in linux.items() if "if" in j]

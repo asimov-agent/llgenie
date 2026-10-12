@@ -235,6 +235,16 @@ make engine-bump ENGINE=<id>          # pin + derive + apply + regen (no push)
 make engine-bump-daily [DRY=1]        # plan -> bump every moved engine; DRY=1 prints only
 ```
 
+The `engine-bump-rebase` workflow (daily cron `17 5 * * *`, issue #208) keeps
+those open `chore/engine-bump-*` PRs current with the latest `main`: it finds
+every open engine-bump PR and, when one is behind `main`, forward-merges the
+latest `main` into it and force-with-lease-pushes it back — automatically, and
+only when the merge applies cleanly (a conflict is left for a human). It reuses
+the SAME sync logic via the shared module
+`scripts/engine_bump_sync.py` (imported by `scripts/engine_bump_rebase.py`), so
+there is no duplicated implementation. Run it locally with
+`python3 scripts/engine_bump_rebase.py --dry` to preview without pushing.
+
 Before that commit, and only when both the old sha and the new sha are known,
 the bump reads `requirements.txt`, `pyproject.toml`, and `Dockerfile` with
 `git show <sha>:<path>` and keeps the names the new pin added (issue #186).
@@ -837,15 +847,13 @@ make test-image        # the test image (python+pytest+deps + hf + docker CLI; n
                        # builds it here only when that hash is not published yet (an edited Dockerfile/lockfile)
 make openspec-image    # the OpenSpec CLI image, the same way (hash of openspec/Dockerfile)
 make ci-image-refs     # print both GHCR refs for the current files
-make ci-<job>          # one CI pipeline job (ci-lint, ci-unit, ci-cron, ci-watch-report, ci-dispatch-e2e,
+make ci-<job>          # one CI pipeline job (ci-lint, ci-unit,
                        # ci-agents-read, ci-openspec, ci-cpu-health, ci-top-tier, ci-install): what CI runs
 make lint              # linefeed/editorconfig lint (fail-closed)
 make test-unit         # hermetic unit tests (all files, incl. openspec-tasks-check)
 make test-agents-read  # AGENTS.md threat-pattern guard + its tests, in a make-built Python 3.12
                        # venv (~/.cache/llgenie/agents-read-venv: hermes-agent==0.19.0 + pytest;
                        # needs python3.12)
-make test-agents-e2e   # REAL agent-spawn e2e: runs ONLY *_e2e*.py — fake worker does README
-                       # issue-work, hung worker is killed+respawned (issue #63); <1 min
 make test-install      # install tests (run in-container; host-artifact asserts — no skips via test-install-ci)
 make test-install-ci   # REAL install tests, NO SKIPS: make install + model + assert in ONE container
 make test-uninstalled  # after make uninstall: no launcher/shim/llgenie-engine-* left, no engine container
@@ -926,8 +934,8 @@ image → download → lint → unit → install → health → top-tier → top
   `make install`, the dry run and `make uninstall` inside the test container, so the dry
   run sees the launcher `make install` just wrote.
   Native-Metal engines are not tested in CI (no Metal on the runners); run
-  `make ci-engines BACKEND=metal` on an Apple-Silicon host. Every job is one `make ci-<job>` target (lint, unit, cron, watch-report,
-  dispatch-e2e, install, agents-read, openspec, cpu-health, top-tier), the same job on both
+  `make ci-engines BACKEND=metal` on an Apple-Silicon host. Every job is one `make ci-<job>` target (lint, unit,
+  install, agents-read, openspec, cpu-health, top-tier), the same job on both
   OSes, same asserts, no combined jobs (issue #120). Docker is set up only on Linux
   (`.github/actions/docker`); macOS never runs it. `tests/test_ci_images.py` locks that both OSes call the one file.
 - **Native Metal engines, on an Apple-Silicon host (issue #120):** `make ci-engines BACKEND=metal`
@@ -1004,155 +1012,6 @@ change that touches the launcher/health/serving as done, you must also run the
 health check against the **host GPU (Metal)** via `~/bin/llgenie` with the
 `Qwen/8GB` model and record the reply.
 
-### Self-driving development (background watch loop)
-
-This repository is **self-driving** when its background watch loop is installed
-on the host. A `*/20 * * * *` host crontab entry launches a one-shot
-`project-manager` Hermes session (cwd = this repo, so `AGENTS.md` loads as its
-durable rulebook) that, each tick:
-
-- **Polls PRs + CI first** and merges any PR whose CI is fully green AND has an
-  approval AND no open review threads, then cleans up the merged branch — the
-  local worktree + local branch + per-worker artifacts **and the REMOTE branch**
-  (`git push origin --delete feat/<kebab>`; the merge itself also requests
-  `delete_branch: true`, so no stale `origin` branches accumulate after a merge).
-- **Drives every open issue to a PR**: for any open issue lacking a live branch/
-  PR it creates an isolated git worktree feature branch off `main`
-  (`../llgenie-wt/<kebab>`), follows the OpenSpec-first lifecycle
-  (change/proposal/spec/tasks first, then implementation), validates, then opens
-  a PR against `main` that references the issue.
-- **Keeps the issue body, OpenSpec change, and code in sync** (bidirectional,
-  continuous).
-- **Reclaims only genuinely dead or long-silent workers.** Each worker writes a
-  spawn-wrapper heartbeat line to its own `feat-<slug>.log` every
-  `WORKER_LOG_HEARTBEAT_SECONDS` (default 5 min) while its hermes child is alive, so
-  the loop's liveness check never mistakes a productive-but-slow worker for a hung
-  one (`hermes chat` buffers all stdout until it exits — it never streams mid-run).
-  A worker is only reclaimed as stuck after its log has been silent for
-  `STUCK_LOG_STALE_SECONDS` (default 4 h, far beyond the heartbeat cadence), and a
-  worker whose process has exited is reclaimed immediately via the dead-PID path.
-
-The durable rules and the exact crontab entry live in `AGENTS.md` (the
-"Background watch loop" section); the loop prompt and its output log are
-`.watchloop/prompt.txt` and `.watchloop/watchloop.log` (both gitignored). You can
-review past loop runs with `grep 'WATCH-LOOP SUMMARY' .watchloop/watchloop.log`.
-
-This contract is exercised end-to-end by verification issue
-[#7](https://github.com/asimov-agent/llgenie/issues/7), which the loop drove to a
-real worktree → OpenSpec → code → PR lifecycle on the branch
-`feat/test-watchloop-verify-the-background-watch-loop-dr` — proof the loop is not
-just documented but actually drives a brand-new issue to a PR.
-
-### Choosing the worker model the loop uses
-
-Each cron-spawned worker is a `project-manager` Hermes session that drives one open
-issue to a PR. It uses an LLM whose choice defaults to the local GGUF model
-(`llm-local` on `:11434`, good for serving) but is **configurable** so the loop runs
-fast when you want it to.
-
-**Where it is set — two places (resolution order, first wins):**
-
-1. **Environment variables** (in the crontab / exported): `WATCHLOOP_WORKER_MODEL`
-   and `WATCHLOOP_WORKER_PROVIDER`.
-2. **The config file** `.watchloop/run/worker-model` — two lines, line 1 = model id,
-   line 2 = provider (blank = profile provider). This is a **local, gitignored** file.
-
-If both are empty, workers use the profile default (`llm-local`).
-
-**How to configure (recommended, uses the template):**
-
-```bash
-# copy the versioned template into the live (gitignored) config, then edit it
-cp scripts/worker-model.template .watchloop/run/worker-model
-```
-
-A built-in template lives at **`scripts/worker-model.template`** (tracked in git) and
-documents both options in place:
-
-- **llama.cpp / local GGUF** — set line 1 to `llm-local`, leave line 2 empty. Good
-  for offline/private jobs; slower for agentic driving (~170s/call on the 35B).
-- **Hosted / OpenRouter (recommended for speed)** — e.g. line 1
-  `deepseek/deepseek-v4-flash-0731`, line 2 `openrouter`. Makes the autonomous loop
-  drive issues to a PR quickly.
-
-The dispatcher reads this at startup and launches each worker with
-`hermes chat ... -m <MODEL> --provider <PROVIDER>`. Change the file (or the env vars)
-and the next cron tick picks it up.
-
-### Installing / uninstalling the watch loop (macOS + Linux)
-
-The watch loop runs as a host crontab entry (`*/20 * * * *`). Two `make` targets
-install and uninstall it idempotently (guarding against duplicates and preserving
-your other crontab lines):
-
-```bash
-make cron-install      # add the */20 watch-loop entry (idempotent; no-op if already present)
-make cron-uninstall    # remove ONLY the watch-loop entry (keeps unrelated lines)
-make cron-snapshot     # (via scripts/install_watchloop_cron.py snapshot) preview the entry
-```
-
-**Prerequisites before installing:**
-1. `make install` (so the launcher, venv, and `~/bin` symlinks exist).
-2. (Workers that drive issues need GitHub push access) a working token in `.env`
-   (gitignored) — the dispatcher reads `GITHUB_TOKEN` from it at runtime. Never
-   commit the token.
-3. `python3` on PATH (macOS: the helper falls back to `/opt/homebrew/bin/python3`
-   if present; Linux: plain `python3`).
-
-**What the entry does** — every 20 min it launches `scripts/watchloop_dispatch.py`
-as a `project-manager` Hermes session (`cwd = this repo`, so `AGENTS.md` loads as
-its rulebook) that polls PRs/CI, merges ready PRs, and drives every open issue to
-a PR. See the "Self-driving development" section above.
-
-**First-tick smoke check** after `make cron-install`:
-```bash
-crontab -l | grep watchloop_dispatch      # entry present
-# wait up to 20 min, then confirm the loop ran:
-tail .watchloop/run/dispatch.log          # should show a `tick start` line + activity
-```
-
-### Observing the watch loop (`make watch-report`)
-
-To see whether the cron agents are actually working, run the on-demand status
-report (host-side, reads the repo's own `.watchloop` logs + live GitHub state):
-
-```bash
-make watch-report            # default: last 60 dispatch.log lines
-make watch-report WINDOW=200 # wider dispatcher window
-```
-
-`make watch-report` is **exercised in CI** by the `watch-report` job, which runs
-the real target against a committed fixture `.watchloop` tree + a fake `gh`
-shim (no real loop data, token, or network) and fails if any report section is
-missing or the command errors.
-
-It answers three questions:
-
-1. **What work did the cron agents do?** — each worker session found in
-   `.watchloop/logs` is listed with its issue, PR, branch, heartbeat count, and
-   a "what this tick did" snippet when the log carries a `STATUS: DONE` /
-   `WATCH-LOOP SUMMARY` block. Live workers (heartbeat within the last 40 min)
-   are shown separately from STALE/DONE logs, so a leftover log from a finished
-   branch is never mistaken for an active worker.
-2. **What is the output rate?** — live open issues + open PRs with each PR's
-   merge-state, review decision, and compact CI verdict; plus the dispatcher
-   timeline (spawn / repair / merge-wait / clean / tick counts in the window)
-   and a tick-start-vs-tick-done balance check that flags a possible doubled or
-   incomplete run.
-3. **How does it react to red CI?** — repair-stage action count in the window
-   plus any open PR currently showing failing CI (the PRs the repair stage is
-   expected to fix).
-
-**Per-OS notes:**
-- macOS: cron uses a minimal PATH; the entry prefixes
-  `/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin`. If you use a
-  custom python, `make cron-install PYTHON=/path/to/python3`.
-- Linux (systemd-cron / vixie-cron): the same cron syntax applies; the entry uses
-  plain `python3` from your cron PATH. If `cron` isn't running: `sudo systemctl
-  enable --now cron` / `sudo service cron start`.
-
-**To remove the loop entirely:** `make cron-uninstall`.
-
 ---
 
 ## Layout
@@ -1196,7 +1055,6 @@ llgenie/
 │   ├── loop_harness.py     # `make loop` orchestrator (stages)
 │   ├── lint_linefeeds.py   # linefeed/editorconfig lint (--fix)
 │   ├── check_openspec_tasks.py  # validates openspec task checkboxes
-│   ├── install_watchloop_cron.py / watchloop_dispatch.py / watch_report.py  # background watch loop
 │   ├── serve_variant.py    # serve a built native variant on a free port
 │   └── ...                 # helper scripts (see make help / AGENTS.md)
 ├── skills/engines/<id>/SKILL.md   # one skill per inference server (single source of truth)
@@ -1207,12 +1065,12 @@ llgenie/
 │   ├── test_install_trend.py         # pty trend pick from installed ~/bin/llgenie
 │   ├── test_install_published.py     # pty trend pick per backend from published images
 │   ├── test_llama_ai.py / test_top_tier_acceptance.py / test_install.py / test_health.py
-│   ├── test_watchloop_dispatch.py / test_watch_report.py / ...  # unit + e2e/watch tests
 │   └── conftest.py / ptydrive.py / fixtures/   # shared test helpers
 ├── .github/workflows/
 │   ├── ci.yml              # parallel per-stage CI (all branches/PRs)
 │   ├── registry-sync.yml   # daily sync-registry + quant catalog (cron 17 5), opens a PR when changed
-│   └── engine-bump.yml     # weekly engine pin bumps (cron 23 6 * * 1, separate), opens a PR per changed engine
+│   ├── engine-bump.yml     # weekly engine pin bumps (cron 23 6 * * 1, separate), opens a PR per changed engine
+│   └── engine-bump-rebase.yml  # daily: rebase open engine-bump PRs onto the latest main (issue #208)
 ├── openspec/changes/    # OpenSpec change tracking (spec-driven; proposal/spec/tasks)
 ├── LICENSE              # MIT
 └── README.md

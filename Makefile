@@ -54,14 +54,14 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 
 .PHONY: all install venv-install link uninstall smoke list version help test-native-engine test-native-engine-serve test-interactive-tensorfold test-interactive-tensorfold-ci \
 	openspec-image openspec-new openspec-validate openspec-status openspec-shell \
-	test test-unit test-agents-e2e test-agents-read agents-read-venv test-install test-install-ci test-install-host test-install-trend test-health test-health-host download-test-model \
-	test-image test-image-pull openspec-image-pull publish-ci-images ci-image-refs test-clean lint lint-fix loop loop-harness chained cron-install cron-uninstall cron-snapshot \
+	test test-unit test-agents-read agents-read-venv test-install test-install-ci test-install-host test-install-trend test-health test-health-host download-test-model \
+	test-image test-image-pull openspec-image-pull publish-ci-images ci-image-refs test-clean lint lint-fix loop loop-harness chained \
 	build-server build-variant serve-variant test-serve-variant stop-serve-variant install-prism-cpu install-upstream-cpu \
 	install-prism-cuda install-upstream-cuda install-prism-metal install-upstream-metal \
 	sync-registry check-registry skills-validate engine-list engine-hardware engine-plan engine-check engine-install engine-detect engine-smoke test-engine ci-engine-images build-engine-base build-engines generate-build-engine-params test-engine-image push-engine test-published-engine test-install-published engine-launchers test-built-engine test-uninstalled \
 	sync-quant-catalog check-quant-catalog sync-strata-models check-strata-models \
 	generate-engine-params check-engine-params build-engine run-engine stop-engine list-engine-images \
-	ci-lint ci-unit ci-cron ci-watch-report ci-dispatch-e2e ci-agents-read ci-openspec ci-cpu-health ci-top-tier ci-install ci-free-disk test-engine-stage
+	ci-lint ci-unit ci-agents-read ci-openspec ci-cpu-health ci-top-tier ci-install ci-free-disk test-engine-stage
 
 # ---- container runtime: docker -------------------------------------------
 RUNTIME ?= docker
@@ -494,18 +494,12 @@ test-clean: ## Remove left-over/stopped orphaned containers of the test image (i
 	echo "Pruned stopped orphaned $(TEST_IMG) containers."
 
 test-unit: ## Hermetic unit tests (containerized) — includes the lint regression + openspec-tasks-check tests
-	$(TEST_RUN) python -m pytest tests/test_llama_ai.py tests/test_hf_auth.py tests/test_hf_download_stall.py tests/test_hf_download_retry.py tests/test_lint_linefeeds.py tests/test_watchloop_dispatch.py tests/test_check_openspec_tasks.py tests/test_install_watchloop_cron.py tests/test_watch_report.py tests/test_ci_variant_matrix.py tests/test_serve_variant.py tests/test_ensure_user_path.py tests/test_engine_skills.py tests/test_engine_bump.py tests/test_engine_bump_pr_body.py tests/test_detect_server.py tests/test_model_engine_pick.py tests/test_trend_pick.py tests/test_strata_download.py tests/test_macos_install.py tests/test_ci_images.py tests/test_mac_trend_pick.py tests/test_trend_list_acceptance.py tests/test_tensorfold_seamless.py tests/test_pick_matrix.py tests/test_pick_matrix_arch_perms.py tests/test_pick_full_registry.py tests/test_trending_quant_catalog.py tests/test_engine_supported_quants.py tests/test_quant_generator_edges.py tests/test_check_python_uv.py tests/test_engine_image_matrix.py -p no:cacheprovider -q -k 'not test_derive_reports_the_live_release_archives and not test_tensorfold_v1_0_5_release_is_native_archives and not test_tensorfold_release_archive_unpacks_and_runs'
+	$(TEST_RUN) python -m pytest tests/test_llama_ai.py tests/test_hf_auth.py tests/test_hf_download_stall.py tests/test_hf_download_retry.py tests/test_lint_linefeeds.py tests/test_engine_bump_sync.py tests/test_engine_bump_rebase.py tests/test_check_openspec_tasks.py tests/test_remove_watchloop.py tests/test_ci_variant_matrix.py tests/test_serve_variant.py tests/test_ensure_user_path.py tests/test_engine_skills.py tests/test_engine_bump.py tests/test_engine_bump_pr_body.py tests/test_detect_server.py tests/test_model_engine_pick.py tests/test_trend_pick.py tests/test_strata_download.py tests/test_macos_install.py tests/test_ci_images.py tests/test_mac_trend_pick.py tests/test_trend_list_acceptance.py tests/test_tensorfold_seamless.py tests/test_pick_matrix.py tests/test_pick_matrix_arch_perms.py tests/test_pick_full_registry.py tests/test_trending_quant_catalog.py tests/test_engine_supported_quants.py tests/test_quant_generator_edges.py tests/test_check_python_uv.py tests/test_engine_image_matrix.py -p no:cacheprovider -q -k 'not test_derive_reports_the_live_release_archives and not test_tensorfold_v1_0_5_release_is_native_archives and not test_tensorfold_release_archive_unpacks_and_runs'
 
 # Live GitHub release reads. Linux only: the macOS runner cannot reach
 # api.github.com, and TensorFold publishes no macos-x86_64 archive.
 test-engine-bump-live: ## TensorFold v1.0.5 release archive: list, classify, checksum, run
 	$(TEST_RUN) python -m pytest tests/test_engine_bump.py::test_derive_reports_the_live_release_archives tests/test_engine_bump.py::test_tensorfold_v1_0_5_release_is_native_archives tests/test_engine_bump.py::test_tensorfold_release_archive_unpacks_and_runs -p no:cacheprovider -q
-
-test-agents-e2e: ## REAL end-to-end agent tests (containerized) — runs ONLY *_e2e*.py files directly
-	# issue #63 CI gate: exercises the REAL dispatcher spawn/kill/respawn against a fake
-	# worker that does README issue-work, all within a minute. Only tests/*_e2e*.py run
-	# (glob, so any future e2e file is picked up automatically).
-	$(TEST_RUN) sh -c 'python -m pytest tests/*_e2e*.py -p no:cacheprovider -q'
 
 # hermes-agent needs Python >=3.11, it pins its own 3.12 (gguf venv + test image are 3.11): the guard
 # gets its own Python 3.12 venv, built by make on any host (Linux, macOS, CI). It lives
@@ -689,22 +683,6 @@ uninstall: ## Undo make install: ~/bin/llgenie, llgenie.py, the llgenie-engine-*
 	@rm -f "$(SERVER_BIN_STAMP)"
 	@echo "Removed $(LAUNCHER) and $(BIN)/llgenie.py (venv kept at $(VENV); models and repo untouched)"
 
-# ---- watch-loop host crontab install/uninstall (issue #65) ----------------
-# The self-driving loop (scripts/watchloop_dispatch.py) needs a `*/20 * * * *`
-# host crontab entry. These targets install/uninstall it idempotently, preserving
-# unrelated crontab lines, via scripts/install_watchloop_cron.py (per-OS python).
-cron-install: ## Install the */20 watch-loop host crontab entry (idempotent, preserves unrelated lines)
-	@python3 scripts/install_watchloop_cron.py install $(if $(PYTHON),--python $(PYTHON),)
-
-cron-uninstall: ## Remove ONLY the watch-loop host crontab entry (preserves unrelated lines)
-	@python3 scripts/install_watchloop_cron.py uninstall
-
-cron-snapshot: ## Preview the watch-loop crontab entry (no changes)
-	@python3 scripts/install_watchloop_cron.py snapshot
-
-watch-report: ## Human-readable watch-loop status report (host-side, reads .watchloop logs + live gh state; WINDOW=N sets dispatch-log window, WATCHLOOP=<dir> points at a fixture .watchloop tree)
-	@python3 scripts/watch_report.py $(if $(WINDOW),--window $(WINDOW),) $(if $(WATCHLOOP),--watchloop $(WATCHLOOP),)
-
 # ---- ci-<job>: ONE make target per CI pipeline job (issue #117) -------------
 # pipeline.yml runs each as one job, on Linux AND on macOS (issue #120: the same
 # file, no combined jobs). The commands are the same on both OSes. Every target
@@ -721,42 +699,6 @@ ci-unit: bash-check ## CI job unit: hermetic unit tests + registry / skill / Str
 	$(MAKE) check-quant-catalog
 	$(MAKE) skills-validate REGISTRY=data/models.json
 	$(MAKE) check-engine-params
-
-ci-cron: bash-check ## CI job cron: the real make cron-* targets against a fake crontab (issue #67)
-	$(MAKE) cron-snapshot
-	@set -eu; \
-	export CRONTAB_CMD="$(CURDIR)/tests/fixtures/fake-crontab.sh"; \
-	export FAKE_CRONTAB_FILE="$$(mktemp)"; \
-	echo "seed unrelated line" > "$$FAKE_CRONTAB_FILE"; \
-	$(MAKE) cron-install; \
-	$(MAKE) cron-install; \
-	test "$$(grep -c '^\*/20' "$$FAKE_CRONTAB_FILE")" = "1" || { echo "FAIL: expected exactly 1 */20 line"; exit 1; }; \
-	grep -q "seed unrelated line" "$$FAKE_CRONTAB_FILE" || { echo "FAIL: unrelated line lost"; exit 1; }; \
-	$(MAKE) cron-uninstall; \
-	if grep -q '^\*/20' "$$FAKE_CRONTAB_FILE"; then echo "FAIL: */20 line still present"; exit 1; fi; \
-	grep -q "seed unrelated line" "$$FAKE_CRONTAB_FILE" || { echo "FAIL: unrelated line lost on uninstall"; exit 1; }; \
-	rm -f "$$FAKE_CRONTAB_FILE"; \
-	echo "CRON MAKE-TARGETS OK: install idempotent, uninstall preserves unrelated"
-
-ci-watch-report: bash-check ## CI job watch-report: the real make watch-report against a fixture .watchloop tree + fake gh shim
-	@set -eu; \
-	fakebin="$$(mktemp -d)"; \
-	cp tests/fixtures/watch-report/fake-gh.sh "$$fakebin/gh"; \
-	chmod +x "$$fakebin/gh"; \
-	export PATH="$$fakebin:$$PATH"; \
-	export WATCH_REPORT_FIXTURE_ROOT="$(CURDIR)"; \
-	out="$$($(MAKE) -s watch-report WATCHLOOP="$(CURDIR)/tests/fixtures/watch-report")"; \
-	rm -rf "$$fakebin"; \
-	printf '%s\n' "$$out"; \
-	echo "$$out" | grep -q "## LIVE GitHub state" || { echo "FAIL: missing GitHub state section"; exit 1; }; \
-	echo "$$out" | grep -q "## Worker sessions" || { echo "FAIL: missing Worker sessions section"; exit 1; }; \
-	echo "$$out" | grep -q "## Dispatcher timeline" || { echo "FAIL: missing Dispatcher timeline section"; exit 1; }; \
-	echo "$$out" | grep -q "## CI-red reaction" || { echo "FAIL: missing CI-red reaction section"; exit 1; }; \
-	echo "$$out" | grep -q "1 FAIL" || { echo "FAIL: expected the fixture's 1 failing CI check to be surfaced"; exit 1; }; \
-	echo "WATCH-REPORT MAKE-TARGET OK: command runs and prints all sections"
-
-ci-dispatch-e2e: bash-check ## CI job dispatch-e2e: make test-agents-e2e (real dispatcher spawn/reclaim, README issue-work)
-	$(MAKE) test-agents-e2e
 
 ci-agents-read: bash-check ## CI job agents-read: make test-agents-read (Python 3.12 venv -> AGENTS.md scan -> guard tests)
 	$(MAKE) test-agents-read
@@ -831,11 +773,9 @@ help:
 	@echo
 	@echo "Targets:" \
 		"install (venv+launcher+symlink+smoke), venv-install, link, smoke,"
-	@echo "         test-unit, test-agents-e2e (real agent e2e), test-install, test-health (endpoint answers 'hi'), test,"
+	@echo "         test-unit, test-install, test-health (endpoint answers 'hi'), test,"
 	@echo "         download-test-model, openspec-validate, openspec-new/status,"
 	@echo "         loop (chained runner), loop-harness, chained, uninstall,"
-	@echo "         cron-install, cron-uninstall, cron-snapshot (watch-loop host crontab),"
-	@echo "         watch-report (human-readable watch-loop status report)"
 	@echo
 	@echo "Daily sync (issue #107):"
 	@echo "  make engine-bump-plan [ENGINE=<id>]   which engines moved upstream (git ls-remote only)"
