@@ -16,6 +16,10 @@ Extractors (each a pure function `(repo_dir, skill) -> Findings`):
   E7 python/torch    requires-python / torch== pin -> toolchain.python / torch_backend
   E8 launch flags    flags in skill launch absent from flags_from / --help -> hard fail
   E9 watch report    git diff --numstat old..new -- <upstream_watch> -> per-backend
+  E11 dependencies   requirements.txt / pyproject.toml / Dockerfile added at the
+                     new sha. New apt packages the skill already lists an apt:
+                     key for are auto-added. New Python packages the install
+                     does not pip-install are a hard-fail. Nothing is guessed.
 
 Each skill declares which extractors apply in a `derive:` frontmatter key, so
 the generic code has no per-engine `if`.
@@ -30,9 +34,11 @@ import tempfile
 from pathlib import Path
 
 try:
+    from . import engine_deps
     from . import engine_skills as es
 except ImportError:  # pragma: no cover - script mode
     sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import engine_deps
     import engine_skills as es
 
 REPO_ROOT = es.REPO_ROOT
@@ -264,6 +270,30 @@ def derive(skill: dict, sha: str, repo_dir: Path | None = None,
             changed = [ln.split("\t")[2] for ln in numstat.splitlines() if "\t" in ln]
             findings["report"]["watch_changed"] = changed
             findings["report"]["watch_backends"] = _watch_backends(skill, changed)
+
+        # E11: dependencies the new pin added. Read the pin's own files.
+        # Without an old sha the whole file would look new; that is a first
+        # import, not a delta, so the weekly bump only compares two pins.
+        if old_sha:
+            delta = engine_deps.dependency_delta(repo_dir, old_sha, sha, skill)
+            findings["report"]["dependencies"] = delta
+            new_apt = [p for p in delta["apt_added"] if p not in engine_deps.declared_apt(skill)]
+            if new_apt:
+                if engine_deps.declared_apt(skill):
+                    findings["auto"]["apt_add"] = new_apt
+                else:
+                    findings["hard_fail"] = (
+                        f"new apt packages at {sha[:8]} are not in an apt: list: "
+                        f"{', '.join(new_apt)}"
+                    )
+            if delta["python_added"] and not delta["python_covered"]:
+                msg = (
+                    f"new python requirements at {sha[:8]} are not installed by the skill: "
+                    + ", ".join(delta["python_added"])
+                )
+                findings["hard_fail"] = (
+                    f"{findings['hard_fail']}; {msg}" if findings["hard_fail"] else msg
+                )
     finally:
         if own_dir:
             subprocess.run(["rm", "-rf", str(repo_dir)], capture_output=True)

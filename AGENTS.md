@@ -413,6 +413,96 @@ No engine is compiled or pip-installed on the host.
   to are the engine images. Never add a llama-server build (or any engine) to
   `containers/test/Dockerfile`.
 
+### Engine bump dependencies (issue #186, mandatory, durable)
+
+`make engine-bump ENGINE=<id>` runs before the weekly commit. It pins the skill,
+derives, applies, then runs `make generate-engine-params ENGINE=<id>`. That
+generator rewrites `containers/engines/dockerfiles/<id>/Dockerfile.<arch>` from
+the skill. It does not read the new upstream commit. A package the new pin added
+reaches that engine's image only when the skill already installs it, or when
+this step writes it onto the skill first.
+
+**Why.** An engine image gets Debian packages from two places. The shared base
+(`containers/engines/base/Dockerfile.<backend>`, `BUILD_TOOLS` plus that
+backend's defaults) is the toolchain every compiled engine shares. The second
+`apt-get install` layer is that engine alone, and its names come from the skill
+key `container.<backend>.apt`. The key is written inline in the front matter:
+
+```yaml
+apt: [libatomic1, libgomp1, python3-venv]
+```
+
+There is no `apt-list` file. `generate-engine-params` copies those names into
+that engine's Dockerfile and leaves the shared base alone. A library added to
+the base would be installed for every engine. A new name that never lands on
+`apt:` is absent from the image, because the generator has nothing else to copy.
+
+**When.** On a bump that has both the old sha and the new sha. A derive with no
+old sha does not run this comparison: the whole file would look newly added, and
+that is a first import, not a delta. The read is `git show <sha>:<path>` on the
+real clone, for the skill's watched `requirements*.txt` (a name containing `dev`
+or `test` is skipped), `pyproject.toml`, and `Dockerfile`. When the watch list
+has none of those, the repo-root copies of the same three names are used. The
+comparison finishes inside `derive`, before `pin`, before `_apply_findings`, and
+before `generate-engine-params` and the workflow's `git commit`.
+
+**What — Python.** Names present at the new sha and absent at the old sha are
+`python_added`. When the skill install already runs `pip install -r` or
+`uv pip install -r` on a requirements file, or the install mentions both
+`pyproject.toml` and `pip install`, `python_covered` is true. The bump reports
+the names and does not add an install line: the existing line reads the file at
+the new pin when the image builds. When the install does not do that, `hard_fail`
+names the packages. The bump does not invent a pip line.
+
+**What — apt.** Names newly present on an `apt-get install` line in the pin's
+Dockerfile, and not already on any `container.*.apt` list, are the apt delta.
+When the skill already has an `apt:` line, they are `auto.apt_add` and
+`_apply_findings` appends them to every front-matter line of the form
+`apt: [name, name]`. Both backends receive the name, because the Dockerfile did
+not say which backend it belongs to. `generate-engine-params` then writes those
+names into that engine's Dockerfile only. When the skill has no `apt:` line,
+`hard_fail` names the packages and no `container:` block is created.
+
+**What the unit test must prove before a bump.** One fixture is the old tag's
+files and the new tag's files, and `bump()` runs on it through pin and apply.
+That run does not commit and does not push. It must show the hard-fail, the
+`DEPS` line, both `apt:` lines, and the generated Dockerfiles. A release pin is two tags.
+The test builds both trees in a real git repo, tags them, and calls `derive`
+with the old sha and the destination tag. Names present at the old tag are
+not new. Names in both trees are not added. Names only the new tag added are
+the install delta. A test of this step follows
+the new package through `generate_params` and `render_dockerfile`. The
+generated Dockerfile's `apt-get install` line contains the new apt name. The
+shared base Dockerfile does not. The generated install steps still contain the
+existing `pip install -r` line and do not add a pip line that names the new
+Python package. A hard-fail leaves that name out of the Dockerfile and out of
+the install steps. A test that stops at the skill `apt:` line does not show
+what the image build will install. These tests live in `tests/test_engine_bump.py`
+and run under `make test-unit`, which `make ci-unit` runs on Linux and macOS.
+
+**What — the PR.** A dependency `hard_fail` does not abort the bump. The pin
+still moves, the PR still opens, the body carries the hard-fail and the line
+`[engine-bump] DEPS python_added=… apt_added=…`, and CI goes red until a person
+fixes the skill. A removed cmake option or launch flag still raises `HardFail`:
+derive applies nothing, and the pin still moves.
+
+**What — a binary that already exists.** `dpkg-shlibdeps -O <binary>` names the
+Debian packages that binary links, runtime libraries only. The weekly bump does
+not compile and does not unpack, so it does not run this command. Use it once a
+binary is on disk. It does not see headers, and `apt-file` is not how this step
+finds a package. `cmake` and `tar` do not print apt names.
+
+**What — detect.** The archive install sets `detect` to
+`{prefix}/{version}/bin/{id} --version`. A missing file makes bash print
+`No such file or directory` with the version inside the path. That line is not
+an installed version. A program that prints its own version and exits non-zero
+(Ollama with the daemon down) is still installed.
+
+Do not guess a package name. Do not put one engine's package into the shared
+base. Do not rewrite the TensorFold unit tests that still expect `git+` as part
+of this step. Issue #170 (the install job pulling an image tag before
+`engine-image-*` publishes it) is a different change.
+
 ### NO SKIPPED TESTS — every test must run and pass (mandatory, durable)
 
 A skipped test is a **loud FAILURE**, never a silent skip. There are NO

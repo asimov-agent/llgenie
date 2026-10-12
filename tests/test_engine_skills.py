@@ -1453,3 +1453,33 @@ def test_detect_accepts_a_version_when_the_daemon_is_down(monkeypatch, capsys):
     assert rc2 == 1 and line2 == ""
     capsys.readouterr()
 
+
+def test_missing_binary_whose_path_contains_the_version_is_missing(tmp_path):
+    """A version inside a missing path is not an installed version.
+
+    The archive detect command is `{prefix}/{version}/bin/{id} --version`.
+    bash prints that path in `No such file or directory`.
+    """
+
+    # Given the binary is absent and its path contains 1.0.7
+    missing = tmp_path / "1.0.7" / "bin" / "tensorfold"
+    hw = es.detect_hardware()
+    skill = {
+        "id": "tensorfold",
+        "engine": "TensorFold",
+        "repo": "https://example.invalid/tensorfold",
+        "ref": "v1.0.7",
+        "pinned": "a" * 40,
+        "version": "v1.0.7",
+        "backends": [hw["backend"]],
+        "os": [hw["os"]],
+        "detect": f"{missing} --version",
+    }
+
+    # When native status runs the real detect command
+    status = es.native_status(skill, hw["backend"], hw)
+
+    # Then the engine is missing
+    assert status["state"] == "missing"
+    assert status["installed"] is None
+

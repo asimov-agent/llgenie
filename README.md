@@ -235,6 +235,29 @@ make engine-bump ENGINE=<id>          # pin + derive + apply + regen (no push)
 make engine-bump-daily [DRY=1]        # plan -> bump every moved engine; DRY=1 prints only
 ```
 
+Before that commit, and only when both the old sha and the new sha are known,
+the bump reads `requirements.txt`, `pyproject.toml`, and `Dockerfile` with
+`git show <sha>:<path>` and keeps the names the new pin added (issue #186).
+A release move compares the old tag's tree to the new tag's tree. A name
+already at the old tag is not installed as new. One fixture runs that bump
+through the pin and the Dockerfile render and does not commit.
+
+An engine Dockerfile is generated from the skill. Shared build tools stay in
+the base image. Packages for one engine come from that skill's `apt:` key,
+written `apt: [libatomic1, libgomp1]`. There is no `apt-list` file. A new
+`apt-get install` name is appended to every existing `apt:` line, then
+`generate-engine-params` writes it into that engine's Dockerfile. The unit
+test renders that Dockerfile and checks the `apt-get install` line before a
+bump commits. A skill with
+no `apt:` line hard-fails and names the packages; the bump does not invent a
+`container:` block. A new Python requirement is installed by the skill's
+existing `pip install -r` line and only reported. When the install does not
+read that file, the bump hard-fails and names the packages. The pin still
+moves and the PR still opens. `dpkg-shlibdeps -O <binary>` names the Debian
+packages a binary links once that binary exists; the weekly bump does not
+compile, so it does not run that command. The rule for agents is in
+`AGENTS.md` under "Engine bump dependencies".
+
 The `engine-bump` unit tests run inside `make test-unit`. A pin newer than
 every upstream tag is not a bump. A sha-only move still rewrites a hardcoded
 tag literal. The collaborator guard is checked on the guard job, not the file

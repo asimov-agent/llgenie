@@ -111,6 +111,8 @@ jobs:
           # body flags it so a human fixes the skill (CI goes red on the build).
           hf=$(echo "$out" | grep -o '"hard_fail": "[^"]*"' | head -1 | sed 's/.*: "//; s/"$//')
           echo "hard_fail=$hf" >> "$GITHUB_OUTPUT"
+          deps=$(echo "$out" | sed -n 's/^\[engine-bump\] DEPS //p' | head -1)
+          echo "deps=$deps" >> "$GITHUB_OUTPUT"
       - name: Open / update the bump PR
         env:
           GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
@@ -119,6 +121,7 @@ jobs:
           NEW: ${{ matrix.new_sha }}
           REF: ${{ matrix.new_ref }}
           HARD_FAIL: ${{ steps.bump.outputs.hard_fail }}
+          DEPS: ${{ steps.bump.outputs.deps }}
         run: |
           git config user.name "$(gh api user --jq .login)"
           git config user.email "$(gh api user --jq .id)+$(gh api user --jq .login)@users.noreply.github.com"
@@ -130,6 +133,9 @@ jobs:
           body=$(printf 'Automated engine pin bump (issue #107).\n\n- **Engine:** `%s`\n- **Pin:** `%s` -> `%s` (`%s`)\n- **Compare:** https://github.com/${{ github.repository }}/compare/%s...%s\n- CI builds and tests ONLY this engine'\''s images. A red PR means the new commit needs a manual skill fix.' "$ID" "${OLD:0:8}" "${NEW:0:8}" "$REF" "$OLD" "$NEW")
           if [ -n "$HARD_FAIL" ]; then
             body="$(printf '%b' "${body}" '\n' '\n' '> ⚠️ **Manual review required:** a build parameter could not be auto-derived — ' "$HARD_FAIL" '. The pin is bumped and the PR is open; CI will go red on the build until the skill is fixed by hand.')"
+          fi
+          if [ -n "$DEPS" ]; then
+            body="$(printf '%b' "${body}" '\n' '- **Dependencies:** ' "$DEPS")"
           fi
           if gh pr view "$branch" --json state -q .state 2>/dev/null | grep -q OPEN; then
             gh pr edit "$branch" --title "chore(engine): bump ${ID} to ${REF}@${NEW:0:8}" --body "$body"

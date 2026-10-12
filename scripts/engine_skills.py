@@ -526,6 +526,10 @@ def _version_line(text: str) -> str:
     no daemon is running. The version is still the installed version.
     """
     for ln in (text or "").splitlines():
+        # bash prints the command path on a missing binary. A version in that
+        # path ({prefix}/{version}/bin/{id}) is not an installed version.
+        if "No such file or directory" in ln:
+            continue
         if _SEMVER.search(ln):
             return ln.strip()
     return ""

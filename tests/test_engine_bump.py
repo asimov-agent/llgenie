@@ -10,6 +10,7 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import urllib.error
@@ -20,6 +21,7 @@ import pytest
 import yaml
 
 import scripts.engine_bump as eb
+import scripts.engine_deps as engine_deps
 import scripts.engine_params_derive as epd
 import scripts.engine_skills as es
 
@@ -1720,3 +1722,343 @@ def test_unit_recipe_runs_the_destination_release_cases():
     assert "tests/test_engine_bump.py" in recipe
     assert all(_pytest_k_selects(expr, name) for name in hermetic)
     assert not any(_pytest_k_selects(expr, name) for name in live)
+
+
+def _dep_skill(tmp_path, repo, old, install, container):
+    return _skill(
+        tmp_path, str(repo), "master", "branch", old,
+        install=install, container=container,
+    )
+
+
+def _image_install(skill_path: Path):
+    """The Dockerfile and install steps `generate-engine-params` would build."""
+    skill = es.load_skill(skill_path)
+    params = es.generate_params(skill)
+    assert params and "cuda" in params["variants"]
+    return (
+        es.render_dockerfile(params, "cuda"),
+        es.render_base_dockerfile("cuda"),
+        params["variants"]["cuda"]["install"],
+    )
+
+
+def test_new_requirements_the_skill_already_installs_are_reported(tmp_path):
+    """A requirements.txt the install already pip-installs is not a hard-fail."""
+
+    # Given the new pin adds newpkg and the skill pip-installs requirements.txt
+    repo = _make_repo(tmp_path, "up", {
+        "requirements.txt": "oldpkg\n",
+        "Dockerfile": "RUN apt-get install -y --no-install-recommends libold1 \\\n    && rm -rf /var/lib/apt/lists/*\n",
+    })
+    old = _git(repo, "rev-parse", "HEAD")
+    new = _commit(repo, {
+        "requirements.txt": "oldpkg\nnewpkg>=1\n",
+        "Dockerfile": "RUN apt-get install -y --no-install-recommends libold1 libnew1 \\\n    && rm -rf /var/lib/apt/lists/*\n",
+    })
+    skill = _dep_skill(
+        tmp_path, repo, old,
+        {"common": ["python3 -m pip install --no-cache-dir -r {src}/requirements.txt"]},
+        {"cuda": {"apt": ["libold1"]}},
+    )
+
+    # When derive reads both shas
+    found = epd.derive(skill, new, repo_dir=repo, old_sha=old)
+
+    # Then the new python package is covered and the new apt package is applied
+    deps = found["report"]["dependencies"]
+    assert deps["python_added"] == ["newpkg"]
+    assert deps["python_covered"] is True
+    assert found["hard_fail"] is None
+    assert found["auto"]["apt_add"] == ["libnew1"]
+    skill_path = tmp_path / "skills" / "engines" / "testengine" / "SKILL.md"
+    skill_text = skill_path.read_text().replace(
+        "    apt:\n      - libold1\n", "    apt: [libold1]\n")
+    skill_path.write_text(skill_text)
+    orig = es.SKILLS_DIR
+    es.SKILLS_DIR = tmp_path / "skills" / "engines"
+    try:
+        changed = eb._apply_findings("testengine", found)
+    finally:
+        es.SKILLS_DIR = orig
+    text = skill_path.read_text()
+    assert "apt=libnew1" in changed
+    assert "apt: [libold1, libnew1]" in text
+
+    # And the generated image installs that package, not a new pip line
+    dockerfile, base, install = _image_install(skill_path)
+    assert "apt-get install" in dockerfile and "libnew1" in dockerfile
+    assert "libnew1" not in base
+    joined = "\n".join(install)
+    assert "pip install" in joined and "requirements.txt" in joined
+    assert "newpkg" not in joined
+
+
+def test_new_requirements_the_skill_does_not_install_hard_fail(tmp_path):
+    """A new python requirement with no pip -r line is named and not guessed."""
+
+    # Given a cmake-only install and a new requirements.txt package
+    repo = _make_repo(tmp_path, "up", {"requirements.txt": "oldpkg\n", "Dockerfile": "FROM scratch\n"})
+    old = _git(repo, "rev-parse", "HEAD")
+    new = _commit(repo, {"requirements.txt": "oldpkg\nnewpkg\n", "Dockerfile": "FROM scratch\n"})
+    skill = _dep_skill(
+        tmp_path, repo, old,
+        {"common": ["cmake --build {build}"]},
+        {"cuda": {"apt": ["libold1"]}},
+    )
+
+    # When derive reads the new pin
+    found = epd.derive(skill, new, repo_dir=repo, old_sha=old)
+
+    # Then the bump records the package and does not invent a pip line
+    assert found["report"]["dependencies"]["python_added"] == ["newpkg"]
+    assert found["report"]["dependencies"]["python_covered"] is False
+    assert "newpkg" in found["hard_fail"]
+    assert "apt_add" not in found["auto"]
+    skill_path = tmp_path / "skills" / "engines" / "testengine" / "SKILL.md"
+    dockerfile, _base, install = _image_install(skill_path)
+    joined = "\n".join(install)
+    assert "cmake --build" in joined
+    assert "newpkg" not in joined
+    assert "newpkg" not in dockerfile
+
+
+def test_new_apt_package_without_an_apt_list_hard_fails(tmp_path):
+    """A new Dockerfile package is not written when the skill has no apt: list."""
+
+    # Given no apt: key and a Dockerfile that gains libnew1
+    repo = _make_repo(tmp_path, "up", {"Dockerfile": "RUN apt-get install -y libold1\n"})
+    old = _git(repo, "rev-parse", "HEAD")
+    new = _commit(repo, {"Dockerfile": "RUN apt-get install -y libold1 libnew1\n"})
+    skill = _dep_skill(tmp_path, repo, old, {"common": ["true"]}, {})
+
+    # When derive reads the new pin
+    found = epd.derive(skill, new, repo_dir=repo, old_sha=old)
+
+    # Then the package is named and no container block is created
+    assert found["report"]["dependencies"]["apt_added"] == ["libnew1"]
+    assert "libnew1" in found["hard_fail"]
+    assert "apt_add" not in found["auto"]
+    skill_path = tmp_path / "skills" / "engines" / "testengine" / "SKILL.md"
+    assert "libnew1" not in skill_path.read_text()
+    dockerfile, base, _install = _image_install(skill_path)
+    assert "libnew1" not in dockerfile
+    assert "libnew1" not in base
+
+
+def test_release_pin_compares_the_old_tag_to_the_new_tag(tmp_path):
+    """A tag move compares the old release tree to the new release tree.
+
+    Names already at v1.0.0 are not new. Names only at v1.1.0 are. A name in
+    both trees is not added, and a name the new tag dropped is not installed
+    as if it were new.
+    """
+
+    # Given v1.0.0 and v1.1.0, each with its own requirements and Dockerfile
+    repo = _make_repo(tmp_path, "up", {
+        "requirements.txt": "oldpkg\nstaypkg\n",
+        "Dockerfile": "RUN apt-get install -y libold1 libstay1\n",
+    })
+    _git(repo, "tag", "v1.0.0")
+    old = _git(repo, "rev-parse", "v1.0.0^{}")
+    _commit(repo, {
+        "requirements.txt": "staypkg\nnewpkg>=1\n",
+        "Dockerfile": "RUN apt-get install -y libstay1 libnew1\n",
+    })
+    _git(repo, "tag", "v1.1.0")
+    new = _git(repo, "rev-parse", "v1.1.0^{}")
+    skill = _skill(
+        tmp_path, str(repo), "v1.0.0", "tag", old,
+        install={"common": ["python3 -m pip install --no-cache-dir -r {src}/requirements.txt"]},
+        container={"cuda": {"apt": ["libold1"]}},
+    )
+
+    # When derive reads the destination tag against the old tag
+    found = epd.derive(skill, new, repo_dir=repo, old_sha=old, ref="v1.1.0")
+
+    # Then only the names the new tag added are the install delta
+    deps = found["report"]["dependencies"]
+    assert deps["python_added"] == ["newpkg"]
+    assert deps["python_removed"] == ["oldpkg"]
+    assert "staypkg" not in deps["python_added"]
+    assert deps["apt_added"] == ["libnew1"]
+    assert deps["apt_removed"] == ["libold1"]
+    assert "libstay1" not in deps["apt_added"]
+    assert deps["python_covered"] is True
+    assert found["hard_fail"] is None
+    assert "release_assets" not in found["auto"]
+    skill_path = tmp_path / "skills" / "engines" / "testengine" / "SKILL.md"
+    skill_path.write_text(skill_path.read_text().replace(
+        "    apt:\n      - libold1\n", "    apt: [libold1]\n"))
+    orig = es.SKILLS_DIR
+    es.SKILLS_DIR = tmp_path / "skills" / "engines"
+    try:
+        eb._apply_findings("testengine", found)
+    finally:
+        es.SKILLS_DIR = orig
+    dockerfile, base, install = _image_install(skill_path)
+    assert "libnew1" in dockerfile and "libold1" in dockerfile
+    assert "libstay1" not in dockerfile
+    assert "libnew1" not in base and "libstay1" not in base
+    joined = "\n".join(install)
+    assert "requirements.txt" in joined
+    assert "newpkg" not in joined and "oldpkg" not in joined
+
+
+def test_bump_applies_one_fixture_before_it_commits(tmp_path, capsys, monkeypatch):
+    """One old tag and one new tag exercise the bump before commit and push.
+
+    The new tree adds a requirements name, a pyproject name, an apt name, and
+    noise the bump must ignore: a comment, a pip option, dev and test
+    requirements, a package already on the apt: line, and a package present
+    on both tags. The install does not pip-install the requirements, so the
+    python names hard-fail while the new apt name is still appended.
+    """
+
+    # Given v1.2.0 and v1.3.0, and a skill pinned to the old tag
+    old_files = {
+        "requirements.txt": "oldpkg\n# commentpkg\n-e ./localpkg\nSome_Name>=1\n",
+        "requirements-dev.txt": "devonly\n",
+        "requirements-test.txt": "testonly\n",
+        "pyproject.toml": (
+            "[project]\nname = \"engine\"\nversion = \"1.2.0\"\n"
+            "dependencies = [\"oldpy\"]\n"
+        ),
+        "Dockerfile": "RUN apt-get install -y --no-install-recommends libold1 libstay1\n",
+    }
+    new_files = {
+        "requirements.txt": "oldpkg\n# commentpkg\n-e ./localpkg\nSome_Name>=1\nnew_pkg>=2\n",
+        "requirements-dev.txt": "devonly\ndevnew\n",
+        "requirements-test.txt": "testonly\ntestnew\n",
+        "pyproject.toml": (
+            "[project]\nname = \"engine\"\nversion = \"1.3.0\"\n"
+            "dependencies = [\"oldpy\", \"New_PyDep>=1\"]\n"
+        ),
+        "Dockerfile": "RUN apt-get install -y --no-install-recommends libstay1 libnew1 libalready\n",
+    }
+    upstream = _make_repo(tmp_path, "up", old_files)
+    _git(upstream, "tag", "v1.2.0")
+    old = _git(upstream, "rev-parse", "v1.2.0^{}")
+    _commit(upstream, new_files)
+    _git(upstream, "tag", "v1.3.0")
+    new = _git(upstream, "rev-parse", "v1.3.0^{}")
+    skill_text = "\n".join([
+        "---",
+        "name: engine-fixtureengine",
+        "engine: Fixture",
+        "id: fixtureengine",
+        f"repo: {upstream}",
+        "ref: v1.2.0",
+        "ref_kind: tag",
+        "version: v1.2.0",
+        f"pinned: {old}",
+        'verified: "2026-10-05"',
+        "license: MIT",
+        "servable: true",
+        "backends: [cuda, cpu]",
+        "os: [linux]",
+        "formats: [gguf]",
+        "upstream_watch: [requirements.txt, requirements-dev.txt, requirements-test.txt, pyproject.toml, Dockerfile]",
+        "install:",
+        "  common:",
+        "    - \"cmake --build {build}\"",
+        "container:",
+        "  cuda:",
+        "    apt: [libold1, libalready]",
+        "  cpu:",
+        "    apt: [libold1, libalready]",
+        "---",
+        "# body",
+        "",
+    ])
+    checkout, skill_path = _checkout(tmp_path, "fixtureengine", skill_text, old, "v1.2.0")
+    skill = es.load_skill(skill_path)
+
+    # When derive has no old sha, the new tree is not treated as all-new
+    bare = epd.derive(skill, new, repo_dir=upstream, ref="v1.3.0")
+    assert "dependencies" not in bare["report"]
+    assert bare["hard_fail"] is None
+
+    # When the bump runs through pin and apply, and stops before commit
+    monkeypatch.setenv("GIT_TERMINAL_PROMPT", "0")
+    orig_skills, orig_root = es.SKILLS_DIR, eb.REPO_ROOT
+    es.SKILLS_DIR = checkout / "skills" / "engines"
+    eb.REPO_ROOT = checkout
+    head = _git(checkout, "rev-parse", "HEAD")
+    try:
+        rows = eb.bump("fixtureengine")
+    finally:
+        es.SKILLS_DIR = orig_skills
+        eb.REPO_ROOT = orig_root
+    out = capsys.readouterr().out
+
+    # Then the pin moved, the ignored names stayed out, and nothing was committed
+    assert _git(checkout, "rev-parse", "HEAD") == head
+    assert _git(checkout, "remote") == ""
+    assert "SKILL.md" in _git(checkout, "status", "--porcelain")
+    assert len(rows) == 1
+    assert rows[0]["old_sha"] == old and rows[0]["new_sha"] == new
+    assert rows[0]["new_ref"] == "v1.3.0"
+    assert rows[0]["hard_fail"]
+    assert "new-pkg" in rows[0]["hard_fail"] and "new-pydep" in rows[0]["hard_fail"]
+    assert "commentpkg" not in rows[0]["hard_fail"]
+    assert "devnew" not in rows[0]["hard_fail"] and "testnew" not in rows[0]["hard_fail"]
+    assert "[engine-bump] DEPS python_added=new-pkg,new-pydep apt_added=libalready,libnew1" in out
+    text = skill_path.read_text()
+    assert "ref: v1.3.0" in text and f"pinned: {new}" in text
+    assert text.count("apt: [libold1, libalready, libnew1]") == 2
+    assert "libalready, libalready" not in text
+    assert "cmake --build" in text and "new-pkg" not in text and "new-pydep" not in text
+    es.SKILLS_DIR = checkout / "skills" / "engines"
+    try:
+        for backend in ("cuda", "cpu"):
+            dockerfile, base, install = (
+                es.render_dockerfile(es.generate_params(es.load_skill(skill_path)), backend),
+                es.render_base_dockerfile(backend),
+                es.generate_params(es.load_skill(skill_path))["variants"][backend]["install"],
+            )
+            assert "libnew1" in dockerfile and "libalready" in dockerfile and "libold1" in dockerfile
+            assert "libstay1" not in dockerfile and "libnew1" not in base
+            joined = "\n".join(install)
+            assert "cmake --build" in joined
+            assert "new-pkg" not in joined and "devnew" not in joined
+    finally:
+        es.SKILLS_DIR = orig_skills
+
+
+def test_dpkg_shlibdeps_names_libc(tmp_path):
+    """dpkg-shlibdeps names the Debian packages a real binary links.
+
+    The Linux unit container is root and can apt-get install gcc and dpkg-dev,
+    then this asserts libc6. A host that cannot install the tool still runs
+    the call and must fail loudly. The published test image is unchanged.
+    """
+
+    # Given a Debian root container, install the real tool
+    if shutil.which("dpkg-shlibdeps") is None and shutil.which("apt-get") and os.geteuid() == 0:
+        subprocess.run(["apt-get", "update", "-qq"], check=True)
+        subprocess.run(
+            ["apt-get", "install", "-y", "-qq", "gcc", "dpkg-dev"],
+            check=True,
+        )
+
+    # Given the tool is still absent on this host
+    if shutil.which("dpkg-shlibdeps") is None or shutil.which("gcc") is None:
+        # When the call runs
+        with pytest.raises(RuntimeError, match="dpkg-shlibdeps is not installed"):
+            engine_deps.shlib_packages(tmp_path / "missing")
+        # Then it named the missing tool
+        return
+
+    # Given a binary this machine just compiled
+    src = tmp_path / "hi.c"
+    src.write_text("int main(void){return 0;}\n")
+    binary = tmp_path / "hi"
+    built = subprocess.run(["gcc", "-o", str(binary), str(src)], capture_output=True, text=True)
+    assert built.returncode == 0, built.stderr
+
+    # When the shared-library command reads it
+    packages = engine_deps.shlib_packages(binary)
+
+    # Then libc is one of the packages
+    assert "libc6" in packages

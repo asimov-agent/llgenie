@@ -415,6 +415,13 @@ def _apply_findings(skill_id: str, findings: dict) -> list[str]:
             text = _apply_release_archive(text, steps_for)
             changed.append("install=release-archive")
 
+    # E11: apt packages the new pin's Dockerfile added
+    apt_add = auto.get("apt_add") or []
+    if apt_add:
+        text, added = _append_apt(text, apt_add)
+        if added:
+            changed.append("apt=" + ",".join(added))
+
     # E7: torch backend
     tb = auto.get("torch_backend")
     if tb:
@@ -426,6 +433,28 @@ def _apply_findings(skill_id: str, findings: dict) -> list[str]:
     if changed:
         path.write_text(text)
     return changed
+
+
+def _append_apt(text: str, packages: list[str]) -> tuple[str, list[str]]:
+    """Append packages to every front-matter `apt: [...]` line. The body is unchanged."""
+    fm_end = text.find("\n---\n", 4)
+    if fm_end < 0:
+        return text, []
+    head, body = text[:fm_end], text[fm_end:]
+    added: list[str] = []
+
+    def repl(match: re.Match) -> str:
+        indent, inner = match.group(1), match.group(2)
+        current = [part.strip() for part in inner.split(",") if part.strip()]
+        for pkg in packages:
+            if pkg not in current:
+                current.append(pkg)
+                if pkg not in added:
+                    added.append(pkg)
+        return f"{indent}apt: [{', '.join(current)}]"
+
+    head = re.sub(r"^(\s*)apt:\s*\[([^\]]*)\]\s*$", repl, head, flags=re.MULTILINE)
+    return head + body, added
 
 
 def _rewrite_pin_asserts(skill_id: str, old_sha: str, new_sha: str,
@@ -556,10 +585,15 @@ def bump(skill_id: str, dry: bool = False) -> list[dict]:
     ref = row["new_ref"] if row.get("ref_kind") == "tag" else ""
     try:
         findings = derive(skill_id, row["new_sha"], row["old_sha"], ref=ref)
-        row["hard_fail"] = None
+        row["hard_fail"] = findings.get("hard_fail")
     except SystemExit as e:
         findings = {"hard_fail": str(e)}
         row["hard_fail"] = str(e)
+    deps = (findings.get("report") or {}).get("dependencies") or {}
+    py_added = ",".join(deps.get("python_added") or [])
+    apt_added = ",".join(deps.get("apt_added") or [])
+    if py_added or apt_added:
+        print(f"[engine-bump] DEPS python_added={py_added} apt_added={apt_added}")
     pin(skill_id, row["new_ref"], row["new_sha"])
     applied = _apply_findings(skill_id, findings)
     rewritten = _rewrite_pin_asserts(skill_id, row["old_sha"], row["new_sha"],

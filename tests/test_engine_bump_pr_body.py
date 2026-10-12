@@ -68,18 +68,18 @@ def _body_slice() -> list[str]:
     block = _run_block()
     lines = block.splitlines()
     start = next(i for i, l in enumerate(lines) if "body=" in l)
-    # the assembly is exactly: base body line, then the if/guard/fi append.
-    end = next((i for i, l in enumerate(lines) if l.strip() == "fi" and i > start), None)
-    assert end is not None, "hard-fail guard 'fi' not found in body assembly"
-    return lines[start : end + 1]
+    end = next((i for i, l in enumerate(lines) if "gh pr view" in l and i > start), None)
+    assert end is not None, "gh pr view not found after the body assembly"
+    return lines[start:end]
 
 
-def _bash(body_slice: list[str], hard_fail: str) -> str:
+def _bash(body_slice: list[str], hard_fail: str, deps: str = "") -> str:
     """Run the body-assembly slice in bash and print `$body` on stdout."""
     script = "set -eu\n"
     for key, val in _OS_ENV.items():
         script += f'{key}={_shell_quote(val)}\n'
     script += f"HARD_FAIL={_shell_quote(hard_fail)}\n"
+    script += f"DEPS={_shell_quote(deps)}\n"
     body_source = "\n".join(body_slice)
     body_source = body_source.replace("${{ github.repository }}", _REPO)
     script += body_source + "\n"
@@ -134,6 +134,19 @@ def test_hard_fail_absent_does_not_append():
     # Then  the body is exactly the base (no warning)
     assert body == _EXPECTED_BASE
     assert "Manual review required" not in body
+
+
+def test_dependency_line_is_appended():
+    """A bump that found new packages names them on their own line."""
+
+    # Given the new pin added a python package and an apt package
+    deps = "python_added=newpkg apt_added=libnew1"
+    body = _bash(_body_slice(), hard_fail="", deps=deps)
+
+    # When the body is rendered
+    # Then the dependency line follows the base body
+    assert body == _EXPECTED_BASE + "\n- **Dependencies:** " + deps
+    assert "\\n" not in body
 
 
 def test_run_block_is_valid_bash():
