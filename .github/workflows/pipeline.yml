@@ -29,6 +29,7 @@ on:
 # Passed in by ci.yml (secrets: inherit). Every make ci-* job can call the Hub with it.
 env:
   HF_TOKEN: ${{ secrets.HF_TOKEN }}
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
   # lint: linefeed / editorconfig

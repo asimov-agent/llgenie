@@ -1522,6 +1522,163 @@ def test_apply_release_archive_ignores_wheels(tmp_path):
     assert "git+" in p.read_text()
 
 
+def _denied(url: str, code: int) -> urllib.error.HTTPError:
+    from email.message import Message
+    return urllib.error.HTTPError(url, code, "denied", Message(), io.BytesIO(b""))
+
+
+def _bind_release(monkeypatch, handler) -> None:
+    """The real lookup runs. urlopen is the external stand-in and records the request."""
+    monkeypatch.setattr(urllib.request, "urlopen", handler)
+
+
+def test_workflows_export_the_github_token():
+    """Workflows that can start a test container export the Actions GitHub token."""
+
+    # Given the workflows that already export HF_TOKEN
+    names = ("ci.yml", "pipeline.yml", "published.yml", "engine-bump.yml", "registry-sync.yml")
+
+    # When their workflow env is read
+    # Then each sets GITHUB_TOKEN from the Actions secret
+    for name in names:
+        doc = yaml.safe_load((REPO / ".github" / "workflows" / name).read_text())
+        assert doc["env"]["GITHUB_TOKEN"] == "${{ secrets.GITHUB_TOKEN }}", name
+
+
+def test_linux_test_containers_forward_the_github_token():
+    """Linux test containers receive the GitHub token by name, like HF_TOKEN.
+
+    docker -e NAME copies the value from the environment. Assigning it on the
+    command line would publish it in the process list.
+    """
+
+    # Given the two Linux container runners
+    text = (REPO / "Makefile").read_text()
+    opts = text.split("TEST_OPTS :=", 1)[1].split("\n", 1)[0]
+    engine = text.split("ENGINE_TEST_ARGS :=", 1)[1].split("\nendif", 1)[0]
+
+    # When their container environment flags are read
+    # Then each forwards the token names and not a value
+    for block in (opts, engine):
+        assert "-e GITHUB_TOKEN" in block
+        assert "-e GH_TOKEN" in block
+        assert "GITHUB_TOKEN=" not in block
+        assert "GH_TOKEN=" not in block
+
+
+def test_release_lookup_sends_the_github_token(monkeypatch):
+    """GITHUB_TOKEN wins when both token variables are set."""
+
+    # Given both tokens, and a release body standing in for the GitHub API
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_actions")
+    monkeypatch.setenv("GH_TOKEN", "ghp_other")
+    seen = {}
+
+    def urlopen(req, timeout=None, *args, **kwargs):
+        seen["auth"] = req.get_header("Authorization")
+        return _ReleaseFile(b'{"assets":[{"name":"engine-1.0.5-linux-x86_64.tar.gz"}]}')
+
+    _bind_release(monkeypatch, urlopen)
+
+    # When the release lookup runs
+    assets = eb._release_assets("https://github.com/ashhart/TensorFold", "v1.0.5")
+
+    # Then the request carries GITHUB_TOKEN and the assets come back
+    assert seen["auth"] == "Bearer ghp_actions"
+    assert assets == [{"name": "engine-1.0.5-linux-x86_64.tar.gz"}]
+
+
+def test_release_lookup_uses_gh_token_when_github_token_is_empty(monkeypatch):
+    """GH_TOKEN is the token when GITHUB_TOKEN is unset."""
+
+    # Given only GH_TOKEN
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.setenv("GH_TOKEN", "ghp_cli")
+    seen = {}
+
+    def urlopen(req, timeout=None, *args, **kwargs):
+        seen["auth"] = req.get_header("Authorization")
+        return _ReleaseFile(b'{"assets":[{"name":"a.tar.gz"}]}')
+
+    _bind_release(monkeypatch, urlopen)
+
+    # When the release lookup runs
+    assets = eb._release_assets("https://github.com/ashhart/TensorFold", "v1.0.5")
+
+    # Then the request carries GH_TOKEN
+    assert seen["auth"] == "Bearer ghp_cli"
+    assert assets == [{"name": "a.tar.gz"}]
+
+
+def test_release_lookup_without_a_token_sends_no_authorization(monkeypatch):
+    """No token means no Authorization header."""
+
+    # Given neither token
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    seen = {}
+
+    def urlopen(req, timeout=None, *args, **kwargs):
+        seen["auth"] = req.get_header("Authorization")
+        return _ReleaseFile(b'{"assets":[]}')
+
+    _bind_release(monkeypatch, urlopen)
+
+    # When the release lookup runs
+    assets = eb._release_assets("https://github.com/ashhart/TensorFold", "v1.0.5")
+
+    # Then the request is anonymous and an empty asset list is empty
+    assert seen["auth"] is None
+    assert assets == []
+
+
+def test_release_lookup_retries_a_foreign_repo_denial_without_the_token(monkeypatch):
+    """A repo-scoped token is denied on another public repo. Read it once more, anonymously."""
+
+    # Given a token GitHub refuses for this release
+    monkeypatch.setenv("GITHUB_TOKEN", "ghs_installation")
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    seen = []
+
+    def urlopen(req, timeout=None, *args, **kwargs):
+        auth = req.get_header("Authorization")
+        seen.append(auth)
+        if auth:
+            raise _denied(req.full_url, 403)
+        return _ReleaseFile(b'{"assets":[{"name":"tensorfold-1.0.5-linux-x86_64.tar.gz"}]}')
+
+    _bind_release(monkeypatch, urlopen)
+
+    # When the release lookup runs
+    assets = eb._release_assets("https://github.com/ashhart/TensorFold", "v1.0.5")
+
+    # Then the denial is followed by one anonymous read, and those assets are kept
+    assert seen == ["Bearer ghs_installation", None]
+    assert assets == [{"name": "tensorfold-1.0.5-linux-x86_64.tar.gz"}]
+
+
+def test_release_lookup_does_not_retry_a_missing_release(monkeypatch):
+    """A 404 is a missing release, not a token denial."""
+
+    # Given a token and a release GitHub does not have
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_actions")
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    seen = []
+
+    def urlopen(req, timeout=None, *args, **kwargs):
+        seen.append(req.get_header("Authorization"))
+        raise _denied(req.full_url, 404)
+
+    _bind_release(monkeypatch, urlopen)
+
+    # When the release lookup runs
+    assets = eb._release_assets("https://github.com/ashhart/TensorFold", "v9.9.9")
+
+    # Then there is no second request and no assets
+    assert seen == ["Bearer ghp_actions"]
+    assert assets == []
+
+
 def test_derive_reports_the_live_release_archives(tmp_path):
     """E10 lives in derive, not only in apply.
 

@@ -409,7 +409,8 @@ TEST_IMG := llgenie/test:latest
 # is byte-identical to before.
 GIT_WORKTREE_PARENT := $(shell sed -nE 's|^gitdir: +||p' .git 2>/dev/null | sed 's|/.git/worktrees/.*||')
 WORKTREE_MOUNT := $(if $(GIT_WORKTREE_PARENT),-v "$(GIT_WORKTREE_PARENT)":$(GIT_WORKTREE_PARENT):rw,)
-TEST_OPTS := --rm -u root -v "$(REPO)":/repo:rw -w /repo -e HOME=/root -e HF_TOKEN $(WORKTREE_MOUNT)
+# Token names only. docker copies the values from the environment; they stay off argv.
+TEST_OPTS := --rm -u root -v "$(REPO)":/repo:rw -w /repo -e HOME=/root -e HF_TOKEN -e GITHUB_TOKEN -e GH_TOKEN $(WORKTREE_MOUNT)
 # Install/health tests start engine images through the HOST docker. The install
 # HOME lives inside the repo mount at the SAME path on host and in the container,
 # so bind mounts the container asks the host docker for (-v <models>:/models)
@@ -429,7 +430,7 @@ CI_HOME_CLEAN := rm -rf "$(CI_HOME)"
 else
 ENGINE_TEST_ARGS := $(RUNTIME) run --rm -u root --network host \
 	-v /var/run/docker.sock:/var/run/docker.sock -v "$(REPO)":"$(REPO)":rw -w "$(REPO)" \
-	-e HOME="$(CI_HOME)" -e LLGENIE_REGISTRY -e HF_TOKEN -e RUNTIME=docker $(WORKTREE_MOUNT)
+	-e HOME="$(CI_HOME)" -e LLGENIE_REGISTRY -e HF_TOKEN -e GITHUB_TOKEN -e GH_TOKEN -e RUNTIME=docker $(WORKTREE_MOUNT)
 engine_test = $(ENGINE_TEST_ARGS) $(foreach v,$(1),-e $(v)) $(TEST_IMG)
 ENGINE_TEST_RUN := $(call engine_test,)
 # .ci-home is written by root inside the container: remove it from a container too.

@@ -16,6 +16,7 @@ on:
 
 env:
   HF_TOKEN: ${{ secrets.HF_TOKEN }}
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 permissions:
   contents: write

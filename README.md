@@ -277,6 +277,12 @@ image build is not in that hermetic list (its runner has no docker socket).
 The three tests that read the live TensorFold release run on the Linux unit
 job only (`make test-engine-bump-live`): the macOS runner cannot reach
 `api.github.com`, and that release has no `macos-x86_64` archive.
+That job's container receives `GITHUB_TOKEN` and `GH_TOKEN` by name, the same
+way it receives `HF_TOKEN` (`-e GITHUB_TOKEN`, the value stays in the
+environment). The release lookup sends `Authorization: Bearer` with
+`GITHUB_TOKEN`, or `GH_TOKEN` when `GITHUB_TOKEN` is empty. A 401 or 403 from
+a token that cannot read another repository is retried once with no
+`Authorization` header (issue #199).
 The bump derives the build parameters from the
 upstream tree at the new commit with plain code (git/regex/file parsing — no
 LLM), auto-applies renames and known moves, and when a build option or launch

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -214,22 +215,51 @@ def _download(url: str, dest: Path) -> None:
             f.write(chunk)
 
 
+def _github_token() -> str:
+    """The forwarded GitHub token. `GITHUB_TOKEN`, else `GH_TOKEN`. Never logged."""
+    for key in ("GITHUB_TOKEN", "GH_TOKEN"):
+        token = os.environ.get(key, "").strip()
+        if token:
+            return token
+    return ""
+
+
+def _release_json(url: str, headers: dict) -> dict:
+    import json as _json
+    import urllib.request
+    req = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(req, timeout=30) as r:
+        data = _json.load(r)
+    return data if isinstance(data, dict) else {}
+
+
 def _release_assets(repo: str, tag: str) -> list[dict]:
     """The published GitHub release's assets for `tag`. Empty on any failure
-    (a missing release is "no archive", not a hard fail — other engines continue)."""
+    (a missing release is "no archive", not a hard fail — other engines continue).
+
+    Sends the token the test container forwarded (`GITHUB_TOKEN`, else
+    `GH_TOKEN`). An installation token is scoped to this repository and GitHub
+    answers 401 or 403 for another public repo; that one denial is retried
+    with no Authorization header.
+    """
     m = re.match(r"https?://github\.com/([^/]+/[^/]+?)(?:\.git)?/?$", repo.strip())
     if not m:
         return []
     url = f"https://api.github.com/repos/{m.group(1)}/releases/tags/{tag}"
+    base = {"Accept": "application/vnd.github+json", "User-Agent": "llgenie-engine-bump"}
+    token = _github_token()
+    headers = dict(base)
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     try:
-        import json as _json
-        import urllib.request
-        req = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json",
-                                                   "User-Agent": "llgenie-engine-bump"})
-        with urllib.request.urlopen(req, timeout=30) as r:
-            data = _json.load(r)
-    except Exception:
-        return []
+        data = _release_json(url, headers)
+    except Exception as exc:
+        if not (token and getattr(exc, "code", None) in (401, 403)):
+            return []
+        try:
+            data = _release_json(url, base)
+        except Exception:
+            return []
     return [{"name": a.get("name", "")} for a in data.get("assets") or []]
 
 
