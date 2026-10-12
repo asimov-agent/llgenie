@@ -26,6 +26,13 @@ import subprocess
 import sys
 import urllib.request
 
+# `python3 scripts/engine_bump_rebase.py` puts scripts/ on sys.path, so the
+# package import below is missing unless the repo root is added first.
+# Run 38318141627 died here with ModuleNotFoundError.
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
+
 from scripts.engine_bump_sync import (
     UPSTREAM_SLUG,
     is_engine_bump_pr,

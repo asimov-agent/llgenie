@@ -7,6 +7,7 @@ sync so no real network or push happens.
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -149,3 +150,31 @@ class TestWorkflowYaml:
             assert "TOKEN: ${{ secrets.GITHUB_TOKEN }}" in text
             assert 'Authorization: Bearer $TOKEN' in text
             assert "Bearer ***" not in text
+
+    def test_file_invocation_imports_the_scripts_package(self):
+        """The workflow command can import scripts.engine_bump_sync.
+
+        Run 38318141627 ran `python3 scripts/engine_bump_rebase.py` and died
+        with ModuleNotFoundError: No module named 'scripts'.
+        """
+
+        # Given the workflow command and a token that cannot list PRs
+        env = os.environ.copy()
+        env["GITHUB_TOKEN"] = "test-token-hermetic"
+        env["GH_TOKEN"] = "test-token-hermetic"
+        root = Path(__file__).resolve().parent.parent
+
+        # When the entrypoint is run as a file
+        proc = subprocess.run(
+            [sys.executable, "scripts/engine_bump_rebase.py", "--dry"],
+            cwd=root,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=40,
+        )
+
+        # Then the scripts package imports and no rebase is attempted
+        assert "No module named 'scripts'" not in proc.stderr
+        assert proc.returncode == 0
+        assert "[engine-bump-rebase] no open engine-bump PRs" in proc.stdout
