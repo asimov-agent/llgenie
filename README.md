@@ -244,6 +244,8 @@ the SAME sync logic via the shared module
 `scripts/engine_bump_sync.py` (imported by `scripts/engine_bump_rebase.py`), so
 there is no duplicated implementation. Run it locally with
 `python3 scripts/engine_bump_rebase.py --dry` to preview without pushing.
+Its collaborator guard sends `Authorization: Bearer $TOKEN`, with `TOKEN`
+set to `secrets.GITHUB_TOKEN`, the same header `engine-bump` uses.
 
 Before that commit, and only when both the old sha and the new sha are known,
 the bump reads `requirements.txt`, `pyproject.toml`, and `Dockerfile` with
@@ -904,7 +906,7 @@ image → download → lint → unit → install → health → top-tier → top
   branch with an open PR runs once (its checks show on the PR), not a second time as a
   `pull_request` event.
 - **Only collaborators, the `github-actions[bot]`, and the owner may trigger the
-  workflows:** `ci.yml`, `registry-sync.yml` and `engine-bump.yml` gate every run behind an actor guard that
+  workflows:** `ci.yml`, `registry-sync.yml`, `engine-bump.yml` and `engine-bump-rebase.yml` gate every run behind an actor guard that
   fails unless the triggering actor is the repo owner, the `github-actions[bot]`, or a
   collaborator (checked via the GitHub API collaborators endpoint). This is defense-in-depth
   on top of the fact that a push to a fork already runs the workflow in the fork (its own

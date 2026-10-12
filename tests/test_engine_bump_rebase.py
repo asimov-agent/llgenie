@@ -124,3 +124,28 @@ class TestWorkflowYaml:
         assert "secrets.BUMP_TOKEN" in text, "must use the owner PAT"
         assert "engine_bump_rebase.py" in text, "must run the rebase entrypoint"
         assert "workflow_dispatch" in text, "must allow manual dispatch"
+
+    def test_guard_sends_the_token_variable(self):
+        """The collaborator check authenticates with $TOKEN, not a literal.
+
+        Run 38315109038 refused a write collaborator because the rebase guard
+        sent the header as the three characters '***'.
+        """
+
+        # Given every workflow that calls the collaborators endpoint
+        root = Path(__file__).resolve().parent.parent / ".github/workflows"
+        names = (
+            "ci.yml",
+            "engine-bump.yml",
+            "engine-bump-rebase.yml",
+            "registry-sync.yml",
+        )
+
+        # When each guard job is read
+        for name in names:
+            text = (root / name).read_text()
+
+            # Then the header is the default token variable
+            assert "TOKEN: ${{ secrets.GITHUB_TOKEN }}" in text
+            assert 'Authorization: Bearer $TOKEN' in text
+            assert "Bearer ***" not in text
