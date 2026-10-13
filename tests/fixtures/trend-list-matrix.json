@@ -1,5 +1,5 @@
 {
-  "generated_utc": "2026-10-12T23:52:23Z",
+  "generated_utc": "2026-10-13T14:31:40Z",
   "order": "README weighted trend (buzz + log2 of consumer t/s). The server is the highest t/s engine on this arch with a quant that fits this vram and ram.",
   "cases": [
     {
@@ -40,12 +40,12 @@
           "why": "smallest GGUF is 27 GB > 9 GB this host can hold"
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
-          "measured_on": "CUDA",
-          "variant": "cuda",
-          "why": ""
+          "model": "Qwen3.8-35B-A3B",
+          "server": "",
+          "tps": 0,
+          "measured_on": "",
+          "variant": "",
+          "why": "smallest GGUF is 12 GB > 9 GB this host can hold"
         },
         {
           "model": "RavenX-Conjecture-Qwen3-8B-MLX",
@@ -70,6 +70,14 @@
           "measured_on": "",
           "variant": "",
           "why": "smallest GGUF is 17 GB > 9 GB this host can hold"
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
+          "variant": "cuda",
+          "why": ""
         },
         {
           "model": "Llama 3.1 8B",
@@ -135,9 +143,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -163,6 +171,14 @@
           "server": "llama.cpp",
           "tps": 5.0,
           "measured_on": "CPU",
+          "variant": "cuda",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
         },
@@ -230,9 +246,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -258,6 +274,14 @@
           "server": "llama.cpp",
           "tps": 5.0,
           "measured_on": "CPU",
+          "variant": "cuda",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
         },
@@ -325,9 +349,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -353,6 +377,14 @@
           "server": "llama.cpp",
           "tps": 5.0,
           "measured_on": "CPU",
+          "variant": "cuda",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
         },
@@ -460,9 +492,9 @@
           "why": "smallest GGUF is 27 GB > 16 GB this host can hold"
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -498,6 +530,14 @@
           "measured_on": "",
           "variant": "",
           "why": "smallest GGUF is 17 GB > 16 GB this host can hold"
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
+          "variant": "cuda",
+          "why": ""
         },
         {
           "model": "Llama 3.1 8B",
@@ -603,9 +643,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -639,6 +679,14 @@
           "server": "llama.cpp",
           "tps": 5.0,
           "measured_on": "CPU",
+          "variant": "cuda",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
         },
@@ -746,9 +794,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -782,6 +830,14 @@
           "server": "llama.cpp",
           "tps": 5.0,
           "measured_on": "CPU",
+          "variant": "cuda",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
         },
@@ -889,9 +945,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -925,6 +981,14 @@
           "server": "llama.cpp",
           "tps": 5.0,
           "measured_on": "CPU",
+          "variant": "cuda",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
         },
@@ -1040,9 +1104,9 @@
           "why": "smallest GGUF is 27 GB > 22 GB this host can hold"
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -1083,6 +1147,14 @@
           "model": "Muse Glimmer 30B",
           "server": "llama.cpp",
           "tps": 233.0,
+          "measured_on": "CUDA",
+          "variant": "cuda",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -1207,9 +1279,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -1250,6 +1322,14 @@
           "model": "Muse Glimmer 30B",
           "server": "llama.cpp",
           "tps": 233.0,
+          "measured_on": "CUDA",
+          "variant": "cuda",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -1374,9 +1454,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -1417,6 +1497,14 @@
           "model": "Muse Glimmer 30B",
           "server": "llama.cpp",
           "tps": 233.0,
+          "measured_on": "CUDA",
+          "variant": "cuda",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -1541,9 +1629,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -1584,6 +1672,14 @@
           "model": "Muse Glimmer 30B",
           "server": "llama.cpp",
           "tps": 233.0,
+          "measured_on": "CUDA",
+          "variant": "cuda",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -1708,9 +1804,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -1759,6 +1855,14 @@
           "model": "Muse Glimmer 30B",
           "server": "llama.cpp",
           "tps": 233.0,
+          "measured_on": "CUDA",
+          "variant": "cuda",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -1883,9 +1987,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -1934,6 +2038,14 @@
           "model": "Muse Glimmer 30B",
           "server": "llama.cpp",
           "tps": 233.0,
+          "measured_on": "CUDA",
+          "variant": "cuda",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -2058,9 +2170,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -2109,6 +2221,14 @@
           "model": "Muse Glimmer 30B",
           "server": "llama.cpp",
           "tps": 233.0,
+          "measured_on": "CUDA",
+          "variant": "cuda",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -2233,9 +2353,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -2284,6 +2404,14 @@
           "model": "Muse Glimmer 30B",
           "server": "llama.cpp",
           "tps": 233.0,
+          "measured_on": "CUDA",
+          "variant": "cuda",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -2360,12 +2488,12 @@
           "why": "smallest GGUF is 27 GB > 9 GB this host can hold"
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
-          "measured_on": "CUDA",
-          "variant": "rocm",
-          "why": ""
+          "model": "Qwen3.8-35B-A3B",
+          "server": "",
+          "tps": 0,
+          "measured_on": "",
+          "variant": "",
+          "why": "smallest GGUF is 12 GB > 9 GB this host can hold"
         },
         {
           "model": "RavenX-Conjecture-Qwen3-8B-MLX",
@@ -2390,6 +2518,14 @@
           "measured_on": "",
           "variant": "",
           "why": "smallest GGUF is 17 GB > 9 GB this host can hold"
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
+          "variant": "rocm",
+          "why": ""
         },
         {
           "model": "Llama 3.1 8B",
@@ -2455,9 +2591,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
@@ -2483,6 +2619,14 @@
           "server": "llama.cpp",
           "tps": 5.0,
           "measured_on": "CPU",
+          "variant": "rocm",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
         },
@@ -2550,9 +2694,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
@@ -2578,6 +2722,14 @@
           "server": "llama.cpp",
           "tps": 5.0,
           "measured_on": "CPU",
+          "variant": "rocm",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
         },
@@ -2645,9 +2797,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
@@ -2673,6 +2825,14 @@
           "server": "llama.cpp",
           "tps": 5.0,
           "measured_on": "CPU",
+          "variant": "rocm",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
         },
@@ -2780,9 +2940,9 @@
           "why": "smallest GGUF is 27 GB > 16 GB this host can hold"
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
@@ -2818,6 +2978,14 @@
           "measured_on": "",
           "variant": "",
           "why": "smallest GGUF is 17 GB > 16 GB this host can hold"
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
+          "variant": "rocm",
+          "why": ""
         },
         {
           "model": "Llama 3.1 8B",
@@ -2923,9 +3091,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
@@ -2959,6 +3127,14 @@
           "server": "llama.cpp",
           "tps": 5.0,
           "measured_on": "CPU",
+          "variant": "rocm",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
         },
@@ -3066,9 +3242,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
@@ -3102,6 +3278,14 @@
           "server": "llama.cpp",
           "tps": 5.0,
           "measured_on": "CPU",
+          "variant": "rocm",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
         },
@@ -3209,9 +3393,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
@@ -3245,6 +3429,14 @@
           "server": "llama.cpp",
           "tps": 5.0,
           "measured_on": "CPU",
+          "variant": "rocm",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
         },
@@ -3360,9 +3552,9 @@
           "why": "smallest GGUF is 27 GB > 22 GB this host can hold"
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
@@ -3403,6 +3595,14 @@
           "model": "Muse Glimmer 30B",
           "server": "llama.cpp",
           "tps": 233.0,
+          "measured_on": "CUDA",
+          "variant": "rocm",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
           "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
@@ -3527,9 +3727,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
@@ -3570,6 +3770,14 @@
           "model": "Muse Glimmer 30B",
           "server": "llama.cpp",
           "tps": 233.0,
+          "measured_on": "CUDA",
+          "variant": "rocm",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
           "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
@@ -3694,9 +3902,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
@@ -3737,6 +3945,14 @@
           "model": "Muse Glimmer 30B",
           "server": "llama.cpp",
           "tps": 233.0,
+          "measured_on": "CUDA",
+          "variant": "rocm",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
           "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
@@ -3861,9 +4077,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
@@ -3904,6 +4120,14 @@
           "model": "Muse Glimmer 30B",
           "server": "llama.cpp",
           "tps": 233.0,
+          "measured_on": "CUDA",
+          "variant": "rocm",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
           "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
@@ -4028,9 +4252,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
@@ -4079,6 +4303,14 @@
           "model": "Muse Glimmer 30B",
           "server": "llama.cpp",
           "tps": 233.0,
+          "measured_on": "CUDA",
+          "variant": "rocm",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
           "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
@@ -4203,9 +4435,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
@@ -4254,6 +4486,14 @@
           "model": "Muse Glimmer 30B",
           "server": "llama.cpp",
           "tps": 233.0,
+          "measured_on": "CUDA",
+          "variant": "rocm",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
           "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
@@ -4378,9 +4618,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
@@ -4429,6 +4669,14 @@
           "model": "Muse Glimmer 30B",
           "server": "llama.cpp",
           "tps": 233.0,
+          "measured_on": "CUDA",
+          "variant": "rocm",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
           "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
@@ -4553,9 +4801,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
@@ -4604,6 +4852,14 @@
           "model": "Muse Glimmer 30B",
           "server": "llama.cpp",
           "tps": 233.0,
+          "measured_on": "CUDA",
+          "variant": "rocm",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
           "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
@@ -4680,12 +4936,12 @@
           "why": "smallest GGUF is 27 GB > 9 GB this host can hold"
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
-          "measured_on": "CUDA",
-          "variant": "vulkan",
-          "why": ""
+          "model": "Qwen3.8-35B-A3B",
+          "server": "",
+          "tps": 0,
+          "measured_on": "",
+          "variant": "",
+          "why": "smallest GGUF is 12 GB > 9 GB this host can hold"
         },
         {
           "model": "RavenX-Conjecture-Qwen3-8B-MLX",
@@ -4710,6 +4966,14 @@
           "measured_on": "",
           "variant": "",
           "why": "smallest GGUF is 17 GB > 9 GB this host can hold"
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
+          "variant": "vulkan",
+          "why": ""
         },
         {
           "model": "Llama 3.1 8B",
@@ -4775,9 +5039,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
@@ -4803,6 +5067,14 @@
           "server": "llama.cpp",
           "tps": 5.0,
           "measured_on": "CPU",
+          "variant": "vulkan",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
         },
@@ -4870,9 +5142,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
@@ -4898,6 +5170,14 @@
           "server": "llama.cpp",
           "tps": 5.0,
           "measured_on": "CPU",
+          "variant": "vulkan",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
         },
@@ -4965,9 +5245,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
@@ -4993,6 +5273,14 @@
           "server": "llama.cpp",
           "tps": 5.0,
           "measured_on": "CPU",
+          "variant": "vulkan",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
         },
@@ -5100,9 +5388,9 @@
           "why": "smallest GGUF is 27 GB > 16 GB this host can hold"
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
@@ -5138,6 +5426,14 @@
           "measured_on": "",
           "variant": "",
           "why": "smallest GGUF is 17 GB > 16 GB this host can hold"
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
+          "variant": "vulkan",
+          "why": ""
         },
         {
           "model": "Llama 3.1 8B",
@@ -5243,9 +5539,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
@@ -5279,6 +5575,14 @@
           "server": "llama.cpp",
           "tps": 5.0,
           "measured_on": "CPU",
+          "variant": "vulkan",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
         },
@@ -5386,9 +5690,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
@@ -5422,6 +5726,14 @@
           "server": "llama.cpp",
           "tps": 5.0,
           "measured_on": "CPU",
+          "variant": "vulkan",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
         },
@@ -5529,9 +5841,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
@@ -5565,6 +5877,14 @@
           "server": "llama.cpp",
           "tps": 5.0,
           "measured_on": "CPU",
+          "variant": "vulkan",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
         },
@@ -5629,7 +5949,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "no vulkan engine image (ExLlamaV3, FreeToken, TensorFold, glm-flash-lite)"
+          "why": "no vulkan engine image (ExLlamaV3, FreeToken, Project Maya, TensorFold, glm-flash-lite)"
         },
         {
           "model": "Nemotron 3.5 Lightning 30B-A3B",
@@ -5680,9 +6000,9 @@
           "why": "smallest GGUF is 27 GB > 22 GB this host can hold"
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
@@ -5723,6 +6043,14 @@
           "model": "Muse Glimmer 30B",
           "server": "llama.cpp",
           "tps": 233.0,
+          "measured_on": "CUDA",
+          "variant": "vulkan",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
@@ -5796,7 +6124,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "no vulkan engine image (ExLlamaV3, FreeToken, TensorFold, glm-flash-lite)"
+          "why": "no vulkan engine image (ExLlamaV3, FreeToken, Project Maya, TensorFold, glm-flash-lite)"
         },
         {
           "model": "Nemotron 3.5 Lightning 30B-A3B",
@@ -5847,9 +6175,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
@@ -5890,6 +6218,14 @@
           "model": "Muse Glimmer 30B",
           "server": "llama.cpp",
           "tps": 233.0,
+          "measured_on": "CUDA",
+          "variant": "vulkan",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
@@ -5963,7 +6299,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "no vulkan engine image (ExLlamaV3, FreeToken, TensorFold, glm-flash-lite)"
+          "why": "no vulkan engine image (ExLlamaV3, FreeToken, Project Maya, TensorFold, glm-flash-lite)"
         },
         {
           "model": "Nemotron 3.5 Lightning 30B-A3B",
@@ -6014,9 +6350,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
@@ -6057,6 +6393,14 @@
           "model": "Muse Glimmer 30B",
           "server": "llama.cpp",
           "tps": 233.0,
+          "measured_on": "CUDA",
+          "variant": "vulkan",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
@@ -6130,7 +6474,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "no vulkan engine image (ExLlamaV3, FreeToken, TensorFold, glm-flash-lite)"
+          "why": "no vulkan engine image (ExLlamaV3, FreeToken, Project Maya, TensorFold, glm-flash-lite)"
         },
         {
           "model": "Nemotron 3.5 Lightning 30B-A3B",
@@ -6181,9 +6525,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
@@ -6224,6 +6568,14 @@
           "model": "Muse Glimmer 30B",
           "server": "llama.cpp",
           "tps": 233.0,
+          "measured_on": "CUDA",
+          "variant": "vulkan",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
@@ -6297,7 +6649,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "no vulkan engine image (ExLlamaV3, FreeToken, TensorFold, glm-flash-lite)"
+          "why": "no vulkan engine image (ExLlamaV3, FreeToken, Project Maya, TensorFold, glm-flash-lite)"
         },
         {
           "model": "Nemotron 3.5 Lightning 30B-A3B",
@@ -6348,9 +6700,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
@@ -6399,6 +6751,14 @@
           "model": "Muse Glimmer 30B",
           "server": "llama.cpp",
           "tps": 233.0,
+          "measured_on": "CUDA",
+          "variant": "vulkan",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
@@ -6472,7 +6832,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "no vulkan engine image (ExLlamaV3, FreeToken, TensorFold, glm-flash-lite)"
+          "why": "no vulkan engine image (ExLlamaV3, FreeToken, Project Maya, TensorFold, glm-flash-lite)"
         },
         {
           "model": "Nemotron 3.5 Lightning 30B-A3B",
@@ -6523,9 +6883,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
@@ -6574,6 +6934,14 @@
           "model": "Muse Glimmer 30B",
           "server": "llama.cpp",
           "tps": 233.0,
+          "measured_on": "CUDA",
+          "variant": "vulkan",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
@@ -6647,7 +7015,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "no vulkan engine image (ExLlamaV3, FreeToken, TensorFold, glm-flash-lite)"
+          "why": "no vulkan engine image (ExLlamaV3, FreeToken, Project Maya, TensorFold, glm-flash-lite)"
         },
         {
           "model": "Nemotron 3.5 Lightning 30B-A3B",
@@ -6698,9 +7066,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
@@ -6749,6 +7117,14 @@
           "model": "Muse Glimmer 30B",
           "server": "llama.cpp",
           "tps": 233.0,
+          "measured_on": "CUDA",
+          "variant": "vulkan",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
@@ -6822,7 +7198,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "no vulkan engine image (ExLlamaV3, FreeToken, TensorFold, glm-flash-lite)"
+          "why": "no vulkan engine image (ExLlamaV3, FreeToken, Project Maya, TensorFold, glm-flash-lite)"
         },
         {
           "model": "Nemotron 3.5 Lightning 30B-A3B",
@@ -6873,9 +7249,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
@@ -6924,6 +7300,14 @@
           "model": "Muse Glimmer 30B",
           "server": "llama.cpp",
           "tps": 233.0,
+          "measured_on": "CUDA",
+          "variant": "vulkan",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
@@ -7000,12 +7384,12 @@
           "why": "smallest GGUF is 27 GB > 3 GB this host can hold"
         },
         {
-          "model": "Qwen3 8B",
+          "model": "Qwen3.8-35B-A3B",
           "server": "",
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 5 GB > 3 GB this host can hold"
+          "why": "smallest GGUF is 12 GB > 3 GB this host can hold"
         },
         {
           "model": "RavenX-Conjecture-Qwen3-8B-MLX",
@@ -7030,6 +7414,14 @@
           "measured_on": "",
           "variant": "",
           "why": "smallest GGUF is 17 GB > 3 GB this host can hold"
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "",
+          "tps": 0,
+          "measured_on": "",
+          "variant": "",
+          "why": "smallest GGUF is 5 GB > 3 GB this host can hold"
         },
         {
           "model": "Llama 3.1 8B",
@@ -7095,12 +7487,12 @@
           "why": "smallest GGUF is 27 GB > 3 GB this host can hold"
         },
         {
-          "model": "Qwen3 8B",
+          "model": "Qwen3.8-35B-A3B",
           "server": "",
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 5 GB > 3 GB this host can hold"
+          "why": "smallest GGUF is 12 GB > 3 GB this host can hold"
         },
         {
           "model": "RavenX-Conjecture-Qwen3-8B-MLX",
@@ -7125,6 +7517,14 @@
           "measured_on": "",
           "variant": "",
           "why": "smallest GGUF is 17 GB > 3 GB this host can hold"
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "",
+          "tps": 0,
+          "measured_on": "",
+          "variant": "",
+          "why": "smallest GGUF is 5 GB > 3 GB this host can hold"
         },
         {
           "model": "Llama 3.1 8B",
@@ -7190,12 +7590,12 @@
           "why": "smallest GGUF is 27 GB > 3 GB this host can hold"
         },
         {
-          "model": "Qwen3 8B",
+          "model": "Qwen3.8-35B-A3B",
           "server": "",
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 5 GB > 3 GB this host can hold"
+          "why": "smallest GGUF is 12 GB > 3 GB this host can hold"
         },
         {
           "model": "RavenX-Conjecture-Qwen3-8B-MLX",
@@ -7220,6 +7620,14 @@
           "measured_on": "",
           "variant": "",
           "why": "smallest GGUF is 17 GB > 3 GB this host can hold"
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "",
+          "tps": 0,
+          "measured_on": "",
+          "variant": "",
+          "why": "smallest GGUF is 5 GB > 3 GB this host can hold"
         },
         {
           "model": "Llama 3.1 8B",
@@ -7285,12 +7693,12 @@
           "why": "smallest GGUF is 27 GB > 3 GB this host can hold"
         },
         {
-          "model": "Qwen3 8B",
+          "model": "Qwen3.8-35B-A3B",
           "server": "",
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 5 GB > 3 GB this host can hold"
+          "why": "smallest GGUF is 12 GB > 3 GB this host can hold"
         },
         {
           "model": "RavenX-Conjecture-Qwen3-8B-MLX",
@@ -7317,6 +7725,14 @@
           "why": "smallest GGUF is 17 GB > 3 GB this host can hold"
         },
         {
+          "model": "Qwen3 8B",
+          "server": "",
+          "tps": 0,
+          "measured_on": "",
+          "variant": "",
+          "why": "smallest GGUF is 5 GB > 3 GB this host can hold"
+        },
+        {
           "model": "Llama 3.1 8B",
           "server": "",
           "tps": 0,
@@ -7420,12 +7836,12 @@
           "why": "smallest GGUF is 27 GB > 6 GB this host can hold"
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
-          "measured_on": "CUDA",
-          "variant": "metal",
-          "why": ""
+          "model": "Qwen3.8-35B-A3B",
+          "server": "",
+          "tps": 0,
+          "measured_on": "",
+          "variant": "",
+          "why": "smallest GGUF is 12 GB > 6 GB this host can hold"
         },
         {
           "model": "Gemma 4 12B",
@@ -7458,6 +7874,14 @@
           "measured_on": "",
           "variant": "",
           "why": "smallest GGUF is 17 GB > 6 GB this host can hold"
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
+          "variant": "metal",
+          "why": ""
         },
         {
           "model": "Llama 3.1 8B",
@@ -7563,12 +7987,12 @@
           "why": "smallest GGUF is 27 GB > 6 GB this host can hold"
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
-          "measured_on": "CUDA",
-          "variant": "metal",
-          "why": ""
+          "model": "Qwen3.8-35B-A3B",
+          "server": "",
+          "tps": 0,
+          "measured_on": "",
+          "variant": "",
+          "why": "smallest GGUF is 12 GB > 6 GB this host can hold"
         },
         {
           "model": "Gemma 4 12B",
@@ -7601,6 +8025,14 @@
           "measured_on": "",
           "variant": "",
           "why": "smallest GGUF is 17 GB > 6 GB this host can hold"
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
+          "variant": "metal",
+          "why": ""
         },
         {
           "model": "Llama 3.1 8B",
@@ -7706,12 +8138,12 @@
           "why": "smallest GGUF is 27 GB > 6 GB this host can hold"
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
-          "measured_on": "CUDA",
-          "variant": "metal",
-          "why": ""
+          "model": "Qwen3.8-35B-A3B",
+          "server": "",
+          "tps": 0,
+          "measured_on": "",
+          "variant": "",
+          "why": "smallest GGUF is 12 GB > 6 GB this host can hold"
         },
         {
           "model": "Gemma 4 12B",
@@ -7744,6 +8176,14 @@
           "measured_on": "",
           "variant": "",
           "why": "smallest GGUF is 17 GB > 6 GB this host can hold"
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
+          "variant": "metal",
+          "why": ""
         },
         {
           "model": "Llama 3.1 8B",
@@ -7849,12 +8289,12 @@
           "why": "smallest GGUF is 27 GB > 6 GB this host can hold"
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
-          "measured_on": "CUDA",
-          "variant": "metal",
-          "why": ""
+          "model": "Qwen3.8-35B-A3B",
+          "server": "",
+          "tps": 0,
+          "measured_on": "",
+          "variant": "",
+          "why": "smallest GGUF is 12 GB > 6 GB this host can hold"
         },
         {
           "model": "Gemma 4 12B",
@@ -7887,6 +8327,14 @@
           "measured_on": "",
           "variant": "",
           "why": "smallest GGUF is 17 GB > 6 GB this host can hold"
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
+          "variant": "metal",
+          "why": ""
         },
         {
           "model": "Llama 3.1 8B",
@@ -8000,12 +8448,12 @@
           "why": "smallest GGUF is 27 GB > 10 GB this host can hold"
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
-          "measured_on": "CUDA",
-          "variant": "metal",
-          "why": ""
+          "model": "Qwen3.8-35B-A3B",
+          "server": "",
+          "tps": 0,
+          "measured_on": "",
+          "variant": "",
+          "why": "smallest GGUF is 12 GB > 10 GB this host can hold"
         },
         {
           "model": "Gemma 4 12B",
@@ -8044,6 +8492,14 @@
           "server": "llama.cpp",
           "tps": 50.0,
           "measured_on": "Metal",
+          "variant": "metal",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
           "variant": "metal",
           "why": ""
         },
@@ -8167,12 +8623,12 @@
           "why": "smallest GGUF is 27 GB > 10 GB this host can hold"
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
-          "measured_on": "CUDA",
-          "variant": "metal",
-          "why": ""
+          "model": "Qwen3.8-35B-A3B",
+          "server": "",
+          "tps": 0,
+          "measured_on": "",
+          "variant": "",
+          "why": "smallest GGUF is 12 GB > 10 GB this host can hold"
         },
         {
           "model": "Gemma 4 12B",
@@ -8211,6 +8667,14 @@
           "server": "llama.cpp",
           "tps": 50.0,
           "measured_on": "Metal",
+          "variant": "metal",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
           "variant": "metal",
           "why": ""
         },
@@ -8334,12 +8798,12 @@
           "why": "smallest GGUF is 27 GB > 10 GB this host can hold"
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
-          "measured_on": "CUDA",
-          "variant": "metal",
-          "why": ""
+          "model": "Qwen3.8-35B-A3B",
+          "server": "",
+          "tps": 0,
+          "measured_on": "",
+          "variant": "",
+          "why": "smallest GGUF is 12 GB > 10 GB this host can hold"
         },
         {
           "model": "Gemma 4 12B",
@@ -8378,6 +8842,14 @@
           "server": "llama.cpp",
           "tps": 50.0,
           "measured_on": "Metal",
+          "variant": "metal",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
           "variant": "metal",
           "why": ""
         },
@@ -8501,12 +8973,12 @@
           "why": "smallest GGUF is 27 GB > 10 GB this host can hold"
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
-          "measured_on": "CUDA",
-          "variant": "metal",
-          "why": ""
+          "model": "Qwen3.8-35B-A3B",
+          "server": "",
+          "tps": 0,
+          "measured_on": "",
+          "variant": "",
+          "why": "smallest GGUF is 12 GB > 10 GB this host can hold"
         },
         {
           "model": "Gemma 4 12B",
@@ -8545,6 +9017,14 @@
           "server": "llama.cpp",
           "tps": 50.0,
           "measured_on": "Metal",
+          "variant": "metal",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
           "variant": "metal",
           "why": ""
         },
@@ -8668,9 +9148,9 @@
           "why": "smallest GGUF is 27 GB > 27 GB this host can hold"
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "metal",
           "why": ""
@@ -8720,6 +9200,14 @@
           "server": "llama.cpp",
           "tps": 50.0,
           "measured_on": "Metal",
+          "variant": "metal",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
           "variant": "metal",
           "why": ""
         },
@@ -8843,9 +9331,9 @@
           "why": "smallest GGUF is 27 GB > 27 GB this host can hold"
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "metal",
           "why": ""
@@ -8895,6 +9383,14 @@
           "server": "llama.cpp",
           "tps": 50.0,
           "measured_on": "Metal",
+          "variant": "metal",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
           "variant": "metal",
           "why": ""
         },
@@ -9018,9 +9514,9 @@
           "why": "smallest GGUF is 27 GB > 27 GB this host can hold"
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "metal",
           "why": ""
@@ -9070,6 +9566,14 @@
           "server": "llama.cpp",
           "tps": 50.0,
           "measured_on": "Metal",
+          "variant": "metal",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
           "variant": "metal",
           "why": ""
         },
@@ -9193,9 +9697,9 @@
           "why": "smallest GGUF is 27 GB > 27 GB this host can hold"
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "metal",
           "why": ""
@@ -9245,6 +9749,14 @@
           "server": "llama.cpp",
           "tps": 50.0,
           "measured_on": "Metal",
+          "variant": "metal",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
           "variant": "metal",
           "why": ""
         },
@@ -9320,12 +9832,12 @@
           "why": "smallest GGUF is 27 GB > 5 GB this host can hold"
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
-          "measured_on": "CUDA",
-          "variant": "cpu",
-          "why": ""
+          "model": "Qwen3.8-35B-A3B",
+          "server": "",
+          "tps": 0,
+          "measured_on": "",
+          "variant": "",
+          "why": "smallest GGUF is 12 GB > 5 GB this host can hold"
         },
         {
           "model": "RavenX-Conjecture-Qwen3-8B-MLX",
@@ -9350,6 +9862,14 @@
           "measured_on": "",
           "variant": "",
           "why": "smallest GGUF is 17 GB > 5 GB this host can hold"
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
+          "variant": "cpu",
+          "why": ""
         },
         {
           "model": "Llama 3.1 8B",
@@ -9415,12 +9935,12 @@
           "why": "smallest GGUF is 27 GB > 5 GB this host can hold"
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
-          "measured_on": "CUDA",
-          "variant": "cpu",
-          "why": ""
+          "model": "Qwen3.8-35B-A3B",
+          "server": "",
+          "tps": 0,
+          "measured_on": "",
+          "variant": "",
+          "why": "smallest GGUF is 12 GB > 5 GB this host can hold"
         },
         {
           "model": "RavenX-Conjecture-Qwen3-8B-MLX",
@@ -9445,6 +9965,14 @@
           "measured_on": "",
           "variant": "",
           "why": "smallest GGUF is 17 GB > 5 GB this host can hold"
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
+          "variant": "cpu",
+          "why": ""
         },
         {
           "model": "Llama 3.1 8B",
@@ -9510,12 +10038,12 @@
           "why": "smallest GGUF is 27 GB > 5 GB this host can hold"
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
-          "measured_on": "CUDA",
-          "variant": "cpu",
-          "why": ""
+          "model": "Qwen3.8-35B-A3B",
+          "server": "",
+          "tps": 0,
+          "measured_on": "",
+          "variant": "",
+          "why": "smallest GGUF is 12 GB > 5 GB this host can hold"
         },
         {
           "model": "RavenX-Conjecture-Qwen3-8B-MLX",
@@ -9540,6 +10068,14 @@
           "measured_on": "",
           "variant": "",
           "why": "smallest GGUF is 17 GB > 5 GB this host can hold"
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
+          "variant": "cpu",
+          "why": ""
         },
         {
           "model": "Llama 3.1 8B",
@@ -9605,12 +10141,12 @@
           "why": "smallest GGUF is 27 GB > 5 GB this host can hold"
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
-          "measured_on": "CUDA",
-          "variant": "cpu",
-          "why": ""
+          "model": "Qwen3.8-35B-A3B",
+          "server": "",
+          "tps": 0,
+          "measured_on": "",
+          "variant": "",
+          "why": "smallest GGUF is 12 GB > 5 GB this host can hold"
         },
         {
           "model": "RavenX-Conjecture-Qwen3-8B-MLX",
@@ -9635,6 +10171,14 @@
           "measured_on": "",
           "variant": "",
           "why": "smallest GGUF is 17 GB > 5 GB this host can hold"
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
+          "variant": "cpu",
+          "why": ""
         },
         {
           "model": "Llama 3.1 8B",
@@ -9740,9 +10284,9 @@
           "why": "smallest GGUF is 27 GB > 12 GB this host can hold"
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
@@ -9778,6 +10322,14 @@
           "measured_on": "",
           "variant": "",
           "why": "smallest GGUF is 17 GB > 12 GB this host can hold"
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
+          "variant": "cpu",
+          "why": ""
         },
         {
           "model": "Llama 3.1 8B",
@@ -9883,9 +10435,9 @@
           "why": "smallest GGUF is 27 GB > 12 GB this host can hold"
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
@@ -9921,6 +10473,14 @@
           "measured_on": "",
           "variant": "",
           "why": "smallest GGUF is 17 GB > 12 GB this host can hold"
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
+          "variant": "cpu",
+          "why": ""
         },
         {
           "model": "Llama 3.1 8B",
@@ -10026,9 +10586,9 @@
           "why": "smallest GGUF is 27 GB > 12 GB this host can hold"
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
@@ -10064,6 +10624,14 @@
           "measured_on": "",
           "variant": "",
           "why": "smallest GGUF is 17 GB > 12 GB this host can hold"
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
+          "variant": "cpu",
+          "why": ""
         },
         {
           "model": "Llama 3.1 8B",
@@ -10169,9 +10737,9 @@
           "why": "smallest GGUF is 27 GB > 12 GB this host can hold"
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
@@ -10207,6 +10775,14 @@
           "measured_on": "",
           "variant": "",
           "why": "smallest GGUF is 17 GB > 12 GB this host can hold"
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
+          "variant": "cpu",
+          "why": ""
         },
         {
           "model": "Llama 3.1 8B",
@@ -10269,7 +10845,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "no cpu engine image (ExLlamaV3, FreeToken, TensorFold, glm-flash-lite)"
+          "why": "no cpu engine image (ExLlamaV3, FreeToken, Project Maya, TensorFold, glm-flash-lite)"
         },
         {
           "model": "Nemotron 3.5 Lightning 30B-A3B",
@@ -10320,9 +10896,9 @@
           "why": "smallest GGUF is 27 GB > 18 GB this host can hold"
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
@@ -10363,6 +10939,14 @@
           "model": "Muse Glimmer 30B",
           "server": "llama.cpp",
           "tps": 233.0,
+          "measured_on": "CUDA",
+          "variant": "cpu",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
@@ -10436,7 +11020,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "no cpu engine image (ExLlamaV3, FreeToken, TensorFold, glm-flash-lite)"
+          "why": "no cpu engine image (ExLlamaV3, FreeToken, Project Maya, TensorFold, glm-flash-lite)"
         },
         {
           "model": "Nemotron 3.5 Lightning 30B-A3B",
@@ -10487,9 +11071,9 @@
           "why": "smallest GGUF is 27 GB > 18 GB this host can hold"
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
@@ -10530,6 +11114,14 @@
           "model": "Muse Glimmer 30B",
           "server": "llama.cpp",
           "tps": 233.0,
+          "measured_on": "CUDA",
+          "variant": "cpu",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
@@ -10603,7 +11195,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "no cpu engine image (ExLlamaV3, FreeToken, TensorFold, glm-flash-lite)"
+          "why": "no cpu engine image (ExLlamaV3, FreeToken, Project Maya, TensorFold, glm-flash-lite)"
         },
         {
           "model": "Nemotron 3.5 Lightning 30B-A3B",
@@ -10654,9 +11246,9 @@
           "why": "smallest GGUF is 27 GB > 18 GB this host can hold"
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
@@ -10697,6 +11289,14 @@
           "model": "Muse Glimmer 30B",
           "server": "llama.cpp",
           "tps": 233.0,
+          "measured_on": "CUDA",
+          "variant": "cpu",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
@@ -10770,7 +11370,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "no cpu engine image (ExLlamaV3, FreeToken, TensorFold, glm-flash-lite)"
+          "why": "no cpu engine image (ExLlamaV3, FreeToken, Project Maya, TensorFold, glm-flash-lite)"
         },
         {
           "model": "Nemotron 3.5 Lightning 30B-A3B",
@@ -10821,9 +11421,9 @@
           "why": "smallest GGUF is 27 GB > 18 GB this host can hold"
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
@@ -10864,6 +11464,14 @@
           "model": "Muse Glimmer 30B",
           "server": "llama.cpp",
           "tps": 233.0,
+          "measured_on": "CUDA",
+          "variant": "cpu",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
@@ -10937,7 +11545,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "no cpu engine image (ExLlamaV3, FreeToken, TensorFold, glm-flash-lite)"
+          "why": "no cpu engine image (ExLlamaV3, FreeToken, Project Maya, TensorFold, glm-flash-lite)"
         },
         {
           "model": "Nemotron 3.5 Lightning 30B-A3B",
@@ -10988,9 +11596,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
@@ -11039,6 +11647,14 @@
           "model": "Muse Glimmer 30B",
           "server": "llama.cpp",
           "tps": 233.0,
+          "measured_on": "CUDA",
+          "variant": "cpu",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
@@ -11112,7 +11728,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "no cpu engine image (ExLlamaV3, FreeToken, TensorFold, glm-flash-lite)"
+          "why": "no cpu engine image (ExLlamaV3, FreeToken, Project Maya, TensorFold, glm-flash-lite)"
         },
         {
           "model": "Nemotron 3.5 Lightning 30B-A3B",
@@ -11163,9 +11779,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
@@ -11214,6 +11830,14 @@
           "model": "Muse Glimmer 30B",
           "server": "llama.cpp",
           "tps": 233.0,
+          "measured_on": "CUDA",
+          "variant": "cpu",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
@@ -11287,7 +11911,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "no cpu engine image (ExLlamaV3, FreeToken, TensorFold, glm-flash-lite)"
+          "why": "no cpu engine image (ExLlamaV3, FreeToken, Project Maya, TensorFold, glm-flash-lite)"
         },
         {
           "model": "Nemotron 3.5 Lightning 30B-A3B",
@@ -11338,9 +11962,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
@@ -11389,6 +12013,14 @@
           "model": "Muse Glimmer 30B",
           "server": "llama.cpp",
           "tps": 233.0,
+          "measured_on": "CUDA",
+          "variant": "cpu",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
@@ -11462,7 +12094,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "no cpu engine image (ExLlamaV3, FreeToken, TensorFold, glm-flash-lite)"
+          "why": "no cpu engine image (ExLlamaV3, FreeToken, Project Maya, TensorFold, glm-flash-lite)"
         },
         {
           "model": "Nemotron 3.5 Lightning 30B-A3B",
@@ -11513,9 +12145,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
@@ -11564,6 +12196,14 @@
           "model": "Muse Glimmer 30B",
           "server": "llama.cpp",
           "tps": 233.0,
+          "measured_on": "CUDA",
+          "variant": "cpu",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
@@ -11680,9 +12320,9 @@
           "why": ""
         },
         {
-          "model": "Qwen3 8B",
-          "server": "Ollama",
-          "tps": 100.0,
+          "model": "Qwen3.8-35B-A3B",
+          "server": "llama.cpp",
+          "tps": 50.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -11716,6 +12356,14 @@
           "server": "llama.cpp",
           "tps": 5.0,
           "measured_on": "CPU",
+          "variant": "cuda",
+          "why": ""
+        },
+        {
+          "model": "Qwen3 8B",
+          "server": "Ollama",
+          "tps": 100.0,
+          "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
         },
