@@ -265,7 +265,17 @@ def rank_engines(model: dict, arch: str | None = None, ids: dict | None = None) 
         add(e["engine"], _num(e.get("tps")), _engagement(e), measurement_backend(e), e.get("hardware", ""))
     for name in model.get("supported_engines") or []:
         add(name, 0.0, 0, "", "")
-    return sorted(best.values(), key=lambda r: (r["rank"], -r["tps"], -r["engagement"], r["id"]))
+    # An own-checkpoint engine (TensorFold) is only a real recommendation when the
+    # catalog has a downloadable plan for THIS model: TensorFold serves only the
+    # families it publishes MLX checkpoints for, and a model it does not publish is
+    # not servable by it no matter what the registry's t/s table says. Without this
+    # gate rank_engines would offer TensorFold for a model with no TensorFold
+    # checkpoint (e.g. a brand-new registry entry the catalog has not caught up to),
+    # and the pick would fail at download time. The catalog is the source of truth
+    # for what an engine can actually load (issue #122).
+    return [r for r in sorted(best.values(), key=lambda r: (r["rank"], -r["tps"], -r["engagement"], r["id"]))
+            if r["id"] != "tensorfold"
+            or catalog_engine_cell(str(model.get("id") or ""), r["engine"]) is not None]
 
 
 def card_class_gb(gb: float) -> float:

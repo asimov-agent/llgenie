@@ -48,18 +48,29 @@ def test_the_committed_matrix_is_the_vram_ram_arch_grid():
 
 
 def test_ram_changes_which_cuda_16gb_model_is_served():
-    """Same card and architecture, two RAM sizes: the MoE fits only the larger one."""
+    """Same card and architecture, two RAM sizes: the MoE fits only the larger one.
+
+    The committed fixture is the source of truth: the RAM-sensitive row is the one
+    whose server changes between 8 GB and 64 GB of RAM (a MoE whose download budget
+    grows with system RAM). It is served at 64 GB and left with a reason at 8 GB.
+    """
 
     # Given the committed CUDA 16 GB lists
     tight = _expected("cuda", 16, 8)
     roomy = _expected("cuda", 16, 64)
 
-    # When the first README row is read at each RAM size
+    # When the rows that differ between the two RAM sizes are read
+    by_model = {r["model"]: r for r in roomy}
+    tight_by = {r["model"]: r for r in tight}
 
-    # Then 64 GB of RAM serves it on Strata, and 8 GB leaves a reason instead
-    assert roomy[0]["model"] == tight[0]["model"]
-    assert roomy[0]["server"] == "Strata" and roomy[0]["tps"] == 124.0
-    assert tight[0]["server"] == "" and tight[0]["why"]
+    # Then exactly the RAM-sensitive model is served at 64 GB and not at 8 GB
+    gained = [m for m, r in by_model.items() if r["server"] and not tight_by[m]["server"]]
+    assert gained, "a MoE model must be served only when the RAM budget grows"
+    for m in gained:
+        assert by_model[m]["server"] and by_model[m]["tps"] > 0
+        assert tight_by[m]["server"] == "" and tight_by[m]["why"]
+    # and the model list is identical across RAM sizes (only the server changes)
+    assert [r["model"] for r in roomy] == [r["model"] for r in tight]
 
 
 @pytest.mark.parametrize("arch,vram,ram", tlm.CASES, ids=IDS)

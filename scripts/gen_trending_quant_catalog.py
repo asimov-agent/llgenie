@@ -80,11 +80,20 @@ def _model_catalog(m):
                         items.append(_plan_row(plan["repo"], plan["revision"], f, [f],
                                                plan["size"] / GB))
         elif eng_id == "tensorfold":
-            plan = mp.tensorfold_plan(m, mp.weight_budget_gb(24, mp.is_moe(m), 64) * GB)
-            if plan:
-                items.append(_plan_row(plan["repo"], plan.get("revision", "main"),
-                                       plan["files"][0] if plan["files"] else "",
-                                       plan["files"], plan["size"] / GB))
+            # TensorFold publishes its own MLX checkpoints per supported family
+            # (TensorFold/<base>-MLX-*). List EVERY real checkpoint it publishes for
+            # the model — like the gguf/mlx/safetensors branches list ALL real quantized
+            # plans ("the pick filters by the host's budget; the table lists ALL real
+            # quants"), so a model TensorFold can serve always has a catalog cell even
+            # when no checkpoint fits a mid-size sample card. A model TensorFold does
+            # not publish at all gets no cell (rank_engines refuses to offer it: an
+            # engine with no downloadable plan is not a recommendation).
+            from model_engine_pick import tensorfold_repos
+            for repo in tensorfold_repos(m):
+                snap = mp._snapshot(repo)
+                if snap:
+                    items.append(_plan_row(repo, "main", "", snap["files"],
+                                           snap["size"] / GB, dir=True))
         for fmt in fmts:
             if eng_id in ("strata", "tensorfold"):
                 continue  # own-checkpoint engines: catalog holds only their own plans

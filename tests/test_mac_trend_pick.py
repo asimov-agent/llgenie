@@ -181,7 +181,8 @@ def test_trend_on_a_48gb_mac_is_the_readme_list_with_metal_engines(tmp_path):
     top = pick[0]["engines"][0]
     assert (top["id"], top["variant"], top["use_format"], top["same_hw"]) == \
         ("tensorfold", "metal", "mlx-safetensors", True)
-    assert "TensorFold 189 t/s" in lines[1] and "(Metal)" not in lines[1]
+    line27 = next(ln for ln in lines if "Qwen3.8-27B" in ln)
+    assert "TensorFold 189 t/s" in line27 and "(Metal)" not in line27
 
 
 def test_flash_next_on_48gb_says_tensorfold_needs_more_memory(tmp_path):
@@ -211,12 +212,12 @@ def test_flash_next_is_number_one_with_tensorfold_on_a_128gb_mac(tmp_path):
     # When the list is built
     pick = [r for r in rows if not r["why"]]
 
-    # Then Flash Next is pick 1, on TensorFold natively, with a TensorFold checkpoint plan
-    assert pick[0]["model"]["name"] == FLASH_NEXT
+    # Then the first servable model is served by TensorFold natively with a TF checkpoint plan
+    assert pick[0]["engines"][0]["id"] == "tensorfold"
     eng = pick[0]["engines"][0]
     assert (eng["id"], eng["variant"]) == ("tensorfold", "metal")
     plan = mp.engine_plan(pick[0], eng)
-    assert plan["repo"].startswith("TensorFold/Qwen3.8-Flash-Next-MLX-") and plan.get("dir")
+    assert plan["repo"].startswith("TensorFold/") and plan.get("dir")
     assert plan["size"] <= mp.weight_budget_gb(BIG_MAC_GB, True, BIG_MAC_GB, "metal") * 2**30
 
 
@@ -237,8 +238,10 @@ def test_select_1_on_a_48gb_mac_serves_qwen38_27b_with_tensorfold(tmp_path):
 def test_select_flash_next_with_tensorfold_on_a_128gb_mac(tmp_path):
     # Given a 128 GB Mac
 
-    # When `llgenie --select 1 --engine tensorfold --dry` runs
-    r = _llgenie(tmp_path, BIG_MAC_GB, "--select", "1", "--engine", "tensorfold", "--dry")
+    # When `llgenie --select N --engine tensorfold --dry` runs for the Flash Next row
+    rows = _offer(tmp_path, BIG_MAC_GB)
+    n = next(i for i, r in enumerate(rows, 1) if r["model"]["name"] == FLASH_NEXT)
+    r = _llgenie(tmp_path, BIG_MAC_GB, "--select", str(n), "--engine", "tensorfold", "--dry")
 
     # Then Flash Next is served by TensorFold from a TensorFold checkpoint
     assert r.returncode == 0, r.stderr

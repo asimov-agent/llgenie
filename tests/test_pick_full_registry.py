@@ -610,21 +610,21 @@ _EDGE_CASES = [
     ('rocm', 'qwen3.6-35b-a3b', 24, 64, 'Qwen/Qwen3.6-35B-A3B', 'freetoken'),
     ('rocm', 'qwen3.6-35b-a3b', 32, 64, 'Qwen/Qwen3.6-35B-A3B', 'freetoken'),
     ('rocm', 'qwen3.6-35b-a3b', 64, 64, 'Qwen/Qwen3.6-35B-A3B', 'freetoken'),
-    ('vulkan', 'qwen3.6-35b-a3b', 8, 64, 'absent (below vram_tier)', 'freetoken'),
-    ('vulkan', 'qwen3.6-35b-a3b', 16, 64, 'absent (below vram_tier)', 'freetoken'),
-    ('vulkan', 'qwen3.6-35b-a3b', 24, 64, 'absent (below vram_tier)', 'freetoken'),
-    ('vulkan', 'qwen3.6-35b-a3b', 32, 64, 'absent (below vram_tier)', 'freetoken'),
-    ('vulkan', 'qwen3.6-35b-a3b', 64, 64, 'absent (below vram_tier)', 'freetoken'),
-    ('cpu', 'qwen3.6-35b-a3b', 8, 64, 'absent (below vram_tier)', 'freetoken'),
-    ('cpu', 'qwen3.6-35b-a3b', 16, 64, 'absent (below vram_tier)', 'freetoken'),
-    ('cpu', 'qwen3.6-35b-a3b', 24, 64, 'absent (below vram_tier)', 'freetoken'),
-    ('cpu', 'qwen3.6-35b-a3b', 32, 64, 'absent (below vram_tier)', 'freetoken'),
-    ('cpu', 'qwen3.6-35b-a3b', 64, 64, 'absent (below vram_tier)', 'freetoken'),
-    ('metal', 'qwen3.6-35b-a3b', 8, 64, 'absent (below vram_tier)', 'freetoken'),
-    ('metal', 'qwen3.6-35b-a3b', 16, 64, 'absent (below vram_tier)', 'freetoken'),
-    ('metal', 'qwen3.6-35b-a3b', 24, 64, 'absent (below vram_tier)', 'freetoken'),
-    ('metal', 'qwen3.6-35b-a3b', 32, 64, 'absent (below vram_tier)', 'freetoken'),
-    ('metal', 'qwen3.6-35b-a3b', 64, 64, 'absent (below vram_tier)', 'freetoken'),
+    ('vulkan', 'qwen3.6-35b-a3b', 8, 64, 'Qwen3.6-35B-A3B-BF16-00001-of-00002.gguf', 'llama.cpp'),
+    ('vulkan', 'qwen3.6-35b-a3b', 16, 64, 'Qwen3.6-35B-A3B-BF16-00001-of-00002.gguf', 'llama.cpp'),
+    ('vulkan', 'qwen3.6-35b-a3b', 24, 64, 'Qwen3.6-35B-A3B-BF16-00001-of-00002.gguf', 'llama.cpp'),
+    ('vulkan', 'qwen3.6-35b-a3b', 32, 64, 'Qwen3.6-35B-A3B-BF16-00001-of-00002.gguf', 'llama.cpp'),
+    ('vulkan', 'qwen3.6-35b-a3b', 64, 64, 'Qwen3.6-35B-A3B-BF16-00001-of-00002.gguf', 'llama.cpp'),
+    ('cpu', 'qwen3.6-35b-a3b', 8, 64, 'no-fit', 'llama.cpp'),
+    ('cpu', 'qwen3.6-35b-a3b', 16, 64, 'Qwen3.6-35B-A3B-UD-Q2_K_XL.gguf', 'llama.cpp'),
+    ('cpu', 'qwen3.6-35b-a3b', 24, 64, 'Qwen3.6-35B-A3B-UD-IQ4_NL_XL.gguf', 'llama.cpp'),
+    ('cpu', 'qwen3.6-35b-a3b', 32, 64, 'Qwen3.6-35B-A3B-UD-Q5_K_S.gguf', 'llama.cpp'),
+    ('cpu', 'qwen3.6-35b-a3b', 64, 64, 'Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf', 'llama.cpp'),
+    ('metal', 'qwen3.6-35b-a3b', 8, 64, 'no-fit', 'llama.cpp'),
+    ('metal', 'qwen3.6-35b-a3b', 16, 64, 'no-fit', 'llama.cpp'),
+    ('metal', 'qwen3.6-35b-a3b', 24, 64, 'Qwen3.6-35B-A3B-UD-IQ1_M.gguf', 'llama.cpp'),
+    ('metal', 'qwen3.6-35b-a3b', 32, 64, 'Qwen3.6-35B-A3B-UD-Q3_K_S.gguf', 'llama.cpp'),
+    ('metal', 'qwen3.6-35b-a3b', 64, 64, 'Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf', 'llama.cpp'),
     ('cuda', 'ornith-1.5', 8, 64, 'absent (below vram_tier)', 'mlx'),
     ('cuda', 'ornith-1.5', 16, 64, 'absent (below vram_tier)', 'mlx'),
     ('cuda', 'ornith-1.5', 24, 64, 'absent (below vram_tier)', 'mlx'),
@@ -881,8 +881,11 @@ def test_pick_matrix_edge_case_golden(arch, model_id, vram, ram, expected, engin
         assert model_name not in out, f"{arch}/{model_id}/{engine} v{vram}: expected absent but it was printed"
         return
     if expected.startswith("no ") or expected == "no-fit":
-        # fits VRAM but no engine/quant: printed as a skipped row with the reason
-        assert model_name in out, f"{arch}/{model_id}/{engine} v{vram}: expected skip but not printed"
+        # fits VRAM but no engine/quant: printed as a skipped row with the reason.
+        # A skipped row names the model by its id (--  <id>: reason), so accept
+        # either the display name (a permutation header) or the id (a skip line).
+        assert model_id in out or model_name in out, \
+            f"{arch}/{model_id}/{engine} v{vram}: expected skip but not printed"
         return
     # offered: the exact quantized HF model must appear in the CLI output
     assert expected in out, \

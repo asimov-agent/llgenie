@@ -74,15 +74,17 @@ def _env(tmp_path: Path, backend: str, gb: int) -> dict:
 
 def _readme_rows() -> list[tuple[str, int]]:
     """(name, VRAM GB) parsed straight from the vendored README markdown (the list a
-    user reads on GitHub), independent of data/models.json."""
+    user reads on GitHub), independent of data/models.json. The VRAM column is
+    `16GB`, a bare `8`, or `CPU` (a CPU-only model); all three parse the same way
+    production does (mp._num: 16, 8, 0)."""
     section = README.read_text().split(sr.MOST_LOVED, 1)[1].split("\n## ", 1)[0]
     rows = []
     for line in section.splitlines():
         m = re.match(r"^\| \[\*\*(.+?)\*\*\]", line)
         if m:
             cells = [c.strip() for c in line.split(" | ")]
-            vram = next(c for c in cells if re.fullmatch(r"\d+GB", c))
-            rows.append((m.group(1), int(vram[:-2])))
+            vram = next(c for c in cells if re.fullmatch(r"\d+GB|\d+|CPU", c))
+            rows.append((m.group(1), int(mp._num(vram))))
     return rows
 
 

@@ -291,10 +291,15 @@ def test_pre_launch_refuses_a_file_strata_cannot_run(strata_src, tmp_path):
 # the interactive llgenie: pick 1 (the 125B) -> 1 (Strata)
 # ---------------------------------------------------------------------------
 def _interactive(tmp_path: Path, ram: int, engine: str = "1") -> str:
+    # drive the pick to the model Strata serves (Qwen3.8-Flash-Next), wherever it
+    # sits in the current README order, so the test follows the vendored registry
+    rows = mp.offer(mp.load_registry(), "cuda", 15.9921875, root=tmp_path, ram_gb=ram)
+    target = next(r for r in rows if r["model"]["id"] == "qwen3.8-flash-next-125b")
+    model_no = rows.index(target) + 1
     p = Pty([sys.executable, str(SERVE), "--dry"], _env(tmp_path, ram), cwd=str(REPO))
     try:
         p.expect(r"Pick model \[1\]: ", 300)
-        p.send("1")
+        p.send(str(model_no))
         p.expect(r"Engines for Qwen3.8-Flash-Next 125B", 120)
         p.expect(r"Pick inference server \[1\]: ", 120)
         p.send(engine)

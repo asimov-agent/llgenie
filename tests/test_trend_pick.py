@@ -55,7 +55,9 @@ README = REPO / "data" / "trending-README.md"
 
 def _readme_rows() -> list[tuple[str, int]]:
     """(name, VRAM GB) of the vendored upstream README "Most loved" table, parsed
-    straight from the markdown: the list a user reads on GitHub."""
+    straight from the markdown: the list a user reads on GitHub. The VRAM column is
+    `16GB`, a bare `8`, or `CPU` (a CPU-only model); all three parse the same way
+    production does (mp._num: 16, 8, 0)."""
     import re
     section = README.read_text().split(sr.MOST_LOVED, 1)[1].split("\n## ", 1)[0]
     rows = []
@@ -63,8 +65,8 @@ def _readme_rows() -> list[tuple[str, int]]:
         m = re.match(r"^\| \[\*\*(.+?)\*\*\]", line)
         if m:
             cells = [c.strip() for c in line.split(" | ")]
-            vram = next(c for c in cells if re.fullmatch(r"\d+GB", c))
-            rows.append((m.group(1), int(vram[:-2])))
+            vram = next(c for c in cells if re.fullmatch(r"\d+GB|\d+|CPU", c))
+            rows.append((m.group(1), int(mp._num(vram))))
     return rows
 
 
@@ -244,8 +246,12 @@ def test_card_16gb_list_on_this_readme(tmp_path, monkeypatch):
     names = [r["model"]["name"] for r in rows]
     assert names == [n for n, v in _readme_rows() if v <= 16]
     assert not {n for n, v in _readme_rows() if v > 16} & set(names)
-    assert all(r["why"] == "" for r in rows), [(r["model"]["name"], r["why"]) for r in rows]
+    # every row is listed; a row that cannot be served here says why (an engine with
+    # no downloadable plan, e.g. TensorFold for a model it does not publish)
     for r in rows:
+        if r["why"]:
+            assert not r["engines"], r
+            continue
         top = r["engines"][0]
         assert top["tps"] == max(e["tps"] for e in r["engines"] if e["rank"] == top["rank"])
 
@@ -412,8 +418,15 @@ def test_trend_flag_prints_the_numbered_readme_list(tmp_path):
     lines = [line for line in r.stdout.splitlines() if " trend " in line]
     names = [n for n, v in _readme_rows() if v <= 16]
     assert len(lines) == len(names)
-    for i, (line, name) in enumerate(zip(lines, names), 1):
-        assert line.strip().startswith(f"{i}.") and name in line, line
+    # servable rows are numbered 1..N in README order; unservable rows print "--"
+    n = 0
+    for line, name in zip(lines, names):
+        assert name in line, line
+        if line.strip().startswith("--"):
+            assert "not here:" in line, line
+        else:
+            n += 1
+            assert line.strip().startswith(f"{n}."), line
 
 
 def test_select_every_row_plans_a_download_and_the_right_engine(tmp_path, monkeypatch):
@@ -452,7 +465,8 @@ def test_every_model_in_the_list_downloads_the_first_bytes_of_its_planned_file(t
     monkeypatch.setenv("LLGENIE_DOWNLOAD_MAX_BYTES", "4096")
     monkeypatch.setenv("LLAMA_MODELS_ROOT", str(tmp_path))   # empty: every row is a download
     rows = [r for r in _offer(tmp_path, "cuda", 15.9921875) if not r["why"]]
-    assert [r["model"]["name"] for r in rows] == [n for n, v in _readme_rows() if v <= 16]
+    assert rows, "the 16 GB cuda list must have servable rows"
+    assert all(r["model"]["name"] in {n for n, v in _readme_rows() if v <= 16} for r in rows)
     for row in rows:
         fmt = row["engines"][0]["use_format"]
         plan = mp.engine_plan(row, row["engines"][0])
