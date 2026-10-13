@@ -302,6 +302,38 @@ to paste the comment into chat.
    This mirrors the obsidian-timestamp-utility B32 (review-approved squash +
    finalise): "once a reviewer has approved, the agent may finalise".
 
+## Analysis: every change surfaces gaps → issues, never implementation (MANDATORY, durable)
+
+Every change is also an opportunity to see what the codebase is becoming. While
+you work, you MUST analyse the change for **real gaps and technical debt** — and
+file them as **issues**, never as an implementation inside the current work:
+
+- behaviours the tests pin only by accident (an order, a fixture, a golden value);
+- data that is no longer accurate given how the product actually behaves;
+- missing coverage, brittle assumptions, unclear or duplicated logic;
+- refactor and technical-debt opportunities.
+
+Rules:
+
+- **Analysis ships issues, not code.** Each real finding MUST be filed as its own
+  **detailed issue** — title, evidence (the code path / data point / scenario),
+  why it matters, and what "done" looks like. The change you are shipping keeps
+  its own single objective; do NOT fold findings into it.
+- **Separate the issues** (see the out-of-scope rule above): a finding is its own
+  issue, linked both ways — never a paragraph in the PR body.
+- **A finding must be demonstrable** — a code path, a data point, a missing or
+  failing scenario. Vague concerns are not issues.
+- **Never implement from this analysis in the same change.** If a finding *is* the
+  current task, it is the change; otherwise it is an issue, fixed later as its own
+  reviewed change with its own issue and OpenSpec change.
+- Do this every time, not on request — the codebase grows on every sync, so the
+  re-examination is routine.
+
+Example: fixing the registry-sync gate (#223) revealed the engine-ranking rule
+(#225), the scope/filter question (#227), the per-engine list + matrix coverage
+(#228) and the unskilled-engine gap (#229) — all filed as separate issues, none
+folded into the fix.
+
 ## Loop gate (run before claiming done — B20-equivalent)
 
 Never report a change done without running the loop:
