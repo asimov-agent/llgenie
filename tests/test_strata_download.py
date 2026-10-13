@@ -187,8 +187,13 @@ def test_strata_plan_ignores_other_engines_and_formats():
 def test_offer_gives_strata_its_own_plan_and_llama_cpp_its_own(tmp_path):
     rows = {r["model"]["id"]: r for r in mp.offer(mp.load_registry(), "cuda", 16, root=tmp_path, ram_gb=64)}
     row = rows["qwen3.8-flash-next-125b"]
-    strata, llama = row["engines"][0], row["engines"][1]
-    assert (strata["id"], llama["id"]) == ("strata", "llama.cpp")
+    # Select the engines by id, never by index: the engine ORDER is vendored upstream
+    # data (rank_engines sorts same-backend engines by measured t/s) and legitimately
+    # changes between syncs. A new upstream measurement on CUDA-class hardware (e.g.
+    # TensorFold on a DGX Spark, 67 t/s) can slot above llama.cpp (33.7 t/s) for this
+    # model, so [0]/[1] is not the contract — the engine ids are.
+    by_id = {e["id"]: e for e in row["engines"]}
+    strata, llama = by_id["strata"], by_id["llama.cpp"]
     assert mp.engine_plan(row, strata)["path"] == "IQ3_XXS/Qwen3.8-Flash-Next-GSQ-RCO-IQ3_XXS-00001-of-00002.gguf"
     assert mp.engine_plan(row, llama)["repo"] == "unsloth/Qwen3.8-Flash-Next-GGUF"
     assert mp.engine_local(row, strata) is None
@@ -323,8 +328,19 @@ def test_interactive_pick_strata_downloads_strata_files_and_starts_strata_on_the
     assert re.search(r"Command: \S*llgenie-engine-strata " + re.escape(str(first)) + " 11434", out), out
 
 
+def _engine_no(tmp_path: Path, ram: int, engine_id: str) -> str:
+    """The 1-based position of engine_id in the model's engine list, so the
+    interactive test follows the vendored registry's ranking instead of hardcoding
+    a number. The engine ORDER is upstream data and changes between syncs (a new
+    TensorFold measurement on CUDA-class hardware can outrank llama.cpp), so a
+    literal "2" that used to be llama.cpp can silently become another engine."""
+    rows = mp.offer(mp.load_registry(), "cuda", 15.9921875, root=tmp_path, ram_gb=ram)
+    target = next(r for r in rows if r["model"]["id"] == "qwen3.8-flash-next-125b")
+    return str([e["id"] for e in target["engines"]].index(engine_id) + 1)
+
+
 def test_interactive_pick_llama_cpp_for_the_same_model_gets_its_own_files(tmp_path):
-    out = _interactive(tmp_path, 64, engine="2")
+    out = _interactive(tmp_path, 64, engine=_engine_no(tmp_path, 64, "llama.cpp"))
     assert "Engine : llama.cpp [cuda]" in out
     assert "would download unsloth/Qwen3.8-Flash-Next-GGUF/" in out and ISTA not in out.split("Engines for")[1]
 

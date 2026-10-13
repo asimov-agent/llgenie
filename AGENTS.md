@@ -96,6 +96,17 @@ Rules:
     GitHub issue as part of converting it into an OpenSpec change and a feature
     branch, so every OpenSpec change and PR trace to a GitHub issue that mirrors
     the goal.
+  - **Out-of-scope work is a SEPARATE, linked issue — never prose (MANDATORY).**
+    Every issue and PR body MUST close its scope with an explicit `Not covered` /
+    out-of-scope section, and EACH item in it MUST be filed as its **own** GitHub
+    issue, linked in BOTH directions: the issue/PR names the side issue (`#N`),
+    and the side issue states which issue/PR it came from. Never leave
+    out-of-scope work as prose in the original body (a reviewer cannot track it)
+    and never fold it into the original scope. Separating them keeps each issue
+    one objective: the original PR ships only its own change and the deferred
+    behaviour becomes a first-class, linkable work item. Example: #223 fixed the
+    order-brittle registry-sync tests and deferred the ranking rule to #225 — the
+    PR's `Not covered` names #225 and #225 links back to #223.
 
 ## Git workflow — feature branch + PR (MANDATORY)
 
@@ -581,6 +592,34 @@ An end-to-end test calls the real external system. `make test-health`,
 and the native and published-image serve tests do not mock that call.
 Pointing `SKILLS_DIR` or `REPO_ROOT` at fixture files is not a mock: the
 real loader and the real git still run.
+
+### Tests address engines by id, never by index (mandatory, durable)
+
+A test that drives `model_engine_pick.offer()` / `rank_engines()` or the
+interactive picker MUST address an engine by its **id** (or derive its position
+from the same call), and MUST NOT hardcode an index. The engine **order is
+vendored upstream data** (`data/models.json` from trending-local-llms):
+`rank_engines` sorts same-backend engines by measured t/s, so a new or updated
+upstream measurement reorders a model's engines with **no llgenie code change**.
+
+Pinning a *named* engine to a *fixed* slot — `row["engines"][1] == "llama.cpp"`,
+or a literal interactive choice `engine="2"` — is a defect. When upstream shifts
+the order the `registry-sync` gate goes red, so the sync PR never opens and
+llgenie's data silently ages. `row["engines"][0]` meaning "the top-ranked engine"
+is fine; a named engine at a fixed index is not. Use
+`by_id = {e["id"]: e for e in row["engines"]}` and read `by_id["<engine>"]`, and
+derive an interactive engine's 1-based position from the same `offer()` the PTY
+is driven with.
+
+Measured (2026-10-13): upstream added a TensorFold measurement on a **DGX Spark**
+(an NVIDIA/CUDA box, 67 t/s) that sorted above llama.cpp (33.7 t/s) for
+`qwen3.8-flash-next-125b`; two tests in `tests/test_strata_download.py` went red
+(`2 failed, 4220 passed`) and the sync PR never opened.
+
+Prove a fix is real, not a loosened test: run it against a freshly synced
+registry (`make sync-registry`, `make sync-quant-catalog`,
+`make render-trend-list-matrix`) in `llgenie/test:latest` and show the test fails
+on the old (index-based) code and passes on BOTH the old and the new registry.
 
 ### EVERY spec scenario must have Given / When / Then (mandatory, durable)
 
