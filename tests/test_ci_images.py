@@ -28,15 +28,20 @@ def _copy_inputs(root: Path) -> Path:
     return root
 
 
-def _fake_docker(tmp: Path, published: bool) -> tuple[dict, Path]:
+def _fake_docker(tmp: Path, published: bool, cache_published: bool = True) -> tuple[dict, Path]:
     """`docker` that logs its args (and the build context's files) and answers the registry
     lookup / pull with `published`."""
     log = tmp / "docker.log"
     rc = 0 if published else 1
+    # The registry cache ref is probed separately: a NEW image's first publish has no cache
+    # yet, and buildx fails to configure the importer then (so publish omits --cache-from).
+    cache_rc = 0 if cache_published else 1
     script = f'''#!/bin/sh
 echo "$*" >> "{log}"
 case "$1 $2" in
-  "buildx imagetools") exit {rc} ;;
+  "buildx imagetools")
+    case "$*" in *buildcache*) exit {cache_rc} ;; esac
+    exit {rc} ;;
   "buildx build") for a in "$@"; do [ -d "$a" ] && ls "$a" | tr '\\n' ' ' | sed 's/^/CTX: /' >> "{log}" && echo >> "{log}"; done; exit 0 ;;
 esac
 case "$1" in
@@ -144,6 +149,73 @@ def test_publish_builds_both_arches_and_pushes_a_new_hash(tmp_path):
     # And its context holds the Dockerfile and both lockfiles
     ctx = next(c for c in _calls(log) if c.startswith("CTX: "))
     assert set(ctx[5:].split()) == {"Dockerfile", "requirements.txt", "requirements-dev.txt"}
+
+
+def test_a_first_publish_omits_cache_from_but_keeps_cache_to(tmp_path):
+    """A brand-new image reads no registry cache: buildx fails on a missing cache importer.
+
+    This is the llgenie/agent case: the image did not exist yet, so
+    `--cache-from ...:buildcache` made the build die with
+    "failed to configure registry cache importer: ...:buildcache: not found", and the
+    publish never happened. The write side (`--cache-to`) still seeds the cache.
+    """
+
+    # Given neither the image tag nor its cache ref on the registry (a first publish)
+    env, log = _fake_docker(tmp_path, published=False, cache_published=False)
+
+    # When publish runs
+    r = _ci_images(env, "publish", "test")
+
+    # Then it builds and pushes without --cache-from, and still writes the cache
+    assert r.returncode == 0, r.stdout + r.stderr
+    b = next(c for c in _calls(log) if c.startswith("buildx build"))
+    assert "--cache-from" not in b, "a missing cache ref must not be probed as a source"
+    assert "--cache-to type=registry,ref=ghcr.io/asimov-agent/llgenie/test:buildcache,mode=max" in b
+    assert "--push" in b
+
+
+def test_publish_agent_pins_the_test_image_it_builds_from(tmp_path):
+    """The agent (Hermes) image is built FROM the test image's published hash tag, so a
+    rebuilt base must produce a new agent tag and the build passes --build-arg TEST_IMAGE=."""
+
+    # Given a registry without the agent image's hash tag
+    env, log = _fake_docker(tmp_path, published=False)
+
+    # When ci_images.py publish agent runs
+    r = _ci_images(env, "publish", "agent")
+
+    # Then one amd64 buildx build pushes it, pinning the exact test image ref (the agent image
+    # publishes amd64 only: it builds Hermes at build time, which times out under arm64 emulation)
+    assert r.returncode == 0, r.stdout + r.stderr
+    builds = [c for c in _calls(log) if c.startswith("buildx build")]
+    assert len(builds) == 1, _calls(log)
+    b = builds[0]
+    assert "--platform linux/amd64" in b and "--push" in b
+    assert "arm64" not in b
+    assert re.search(r"--build-arg TEST_IMAGE=ghcr\.io/asimov-agent/llgenie/test:[0-9a-f]{12}", b), b
+
+    # And its context holds the agent Dockerfile and the install script it COPYs
+    ctx = next(c for c in _calls(log) if c.startswith("CTX: "))
+    assert set(ctx[5:].split()) == {"Dockerfile", "install_hermes_ci.sh"}, ctx
+
+
+def test_agent_tag_changes_when_the_test_image_tag_changes(tmp_path):
+    """The agent tag folds in the test image's tag, so a rebuilt base re-tags the agent."""
+
+    import ci_images
+
+    root = _copy_inputs(tmp_path)
+    # the agent image's own inputs (Dockerfile + install script) must exist in the copy
+    for rel in ("containers/agent/Dockerfile", "scripts/install_hermes_ci.sh"):
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(REPO / rel, root / rel)
+
+    before = ci_images.tag("agent", root)
+    # a change to the test image's lockfile changes the test tag, hence the agent tag
+    with (root / "tools/requirements-dev.txt").open("a") as f:
+        f.write("pytest-timeout==2.3.1\n")
+    after = ci_images.tag("agent", root)
+    assert before != after and re.fullmatch(r"[0-9a-f]{12}", before)
 
 
 # ---------------------------------------------------------------------------
@@ -395,3 +467,28 @@ def test_no_ci_step_or_job_is_skipped():
     assert re.search(r"^ci-free-disk:", mk, re.M) and re.search(r"^test-engine-stage:", mk, re.M)
     stage = mk.split("\ntest-engine-stage:", 1)[1].split("\n\n", 1)[0]
     assert "serve)  $(MAKE) test-engine " in stage and "detect) $(MAKE) test-engine-image " in stage
+
+
+def test_the_agent_image_publishes_amd64_only(tmp_path):
+    """The agent image builds Hermes at build time; under arm64 emulation that took >900s and the
+    multi-arch publish died mid-install. The bots run on amd64 runners, so it publishes amd64."""
+    import ci_images as ci
+    assert ci.platforms("agent") == "linux/amd64"
+    assert ci.platforms("test") == ci.PLATFORMS, "every other image keeps both platforms"
+    assert ci.platforms("openspec") == ci.PLATFORMS
+
+    env, log = _fake_docker(tmp_path, published=False, cache_published=True)
+    r = _ci_images(env, "publish", "agent")
+    assert r.returncode == 0, r.stdout + r.stderr
+    b = next(c for c in _calls(log) if c.startswith("buildx build"))
+    assert "--platform linux/amd64" in b, b
+    assert "linux/arm64" not in b, "no arm64 consumer exists for the agent image"
+
+
+def test_a_normal_image_still_publishes_both_platforms(tmp_path):
+    """The override must not leak: the test image still publishes both arches."""
+    env, log = _fake_docker(tmp_path, published=False, cache_published=True)
+    r = _ci_images(env, "publish", "test")
+    assert r.returncode == 0, r.stdout + r.stderr
+    b = next(c for c in _calls(log) if c.startswith("buildx build"))
+    assert "--platform linux/amd64,linux/arm64" in b, b

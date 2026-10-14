@@ -1,0 +1,83 @@
+# Publish the agent (Hermes) image (issues #222/#238/#248): build + push ONLY the
+# llgenie/agent container to GHCR, on demand, by the owner or a collaborator.
+#
+# Why a SEPARATE job from ci-images: the agent image is the Hermes container the bots
+# run in, and publishing it is a privileged action (it spends the Nous key at run time
+# and is the toolchain every bot job trusts). It is therefore NOT published on every
+# PR/push like the test/openspec images — it is published deliberately, by hand, and
+# only by someone with write access.
+#
+# Guard model (defense in depth):
+#   1. `workflow_dispatch` is only visible/triggerable by users with write access to
+#      the repo — GitHub's own permission gate.
+#   2. The `guard` job re-checks the actor (and triggering actor) is the owner or a
+#      collaborator with write/maintain/admin BEFORE any secret is read. A stranger
+#      can never drive the publish.
+#   3. GHCR login uses the owner PAT (secrets.BUMP_TOKEN), not GITHUB_TOKEN: the
+#      default token is an installation token and is DENIED "Create organization
+#      package" for a brand-new package (the first publish of llgenie/agent). The
+#      owner PAT can create it; thereafter the hash-tagged updates also work.
+#
+# The image is tagged with a hash of its Dockerfile + install script (and the test
+# image it builds FROM), so re-running this job is a no-op unless those inputs changed
+# (scripts/ci_images.py publish agent). It never merges, never touches main.
+name: Publish agent image
+
+on:
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Rebuild + push even if the hash tag is already on GHCR"
+        required: false
+        default: "false"
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish-agent-image
+  cancel-in-progress: false
+
+jobs:
+  # Before anything touches a secret: only the owner or a collaborator with
+  # write/maintain/admin may publish the agent image (it is the Hermes toolchain the
+  # bots trust). Same guard shape as the issue-bot and fix-bot workflows.
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Owner / collaborator trigger guard
+        env:
+          ACTOR: ${{ github.actor }}
+          TRIGGER: ${{ github.triggering_actor }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for u in "$ACTOR" "$TRIGGER"; do
+            if [ "$u" = "$OWNER" ]; then continue; fi
+            perm=$(gh api "repos/$REPO/collaborators/$u/permission" --jq .permission 2>/dev/null || echo none)
+            case "$perm" in
+              admin|maintain|write) echo "Collaborator $u has $perm - allowed." ;;
+              *) echo "Refused: $u is not the owner or a collaborator with write access (permission: ${perm:-none})."; exit 1 ;;
+            esac
+          done
+          echo "Allowed: actor=$ACTOR triggering_actor=$TRIGGER"
+
+  publish:
+    needs: guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      LLGENIE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR (owner PAT - can create the org package)
+        run: echo "${{ secrets.BUMP_TOKEN }}" | docker login ghcr.io -u "${{ github.repository_owner }}" --password-stdin
+      - name: make publish-agent-image (build + push the Hermes image when its hash is not on GHCR yet)
+        run: make publish-agent-image
+      - name: Print the published ref
+        run: make ci-image-refs

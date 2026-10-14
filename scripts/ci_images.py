@@ -34,12 +34,26 @@ REPO = Path(__file__).resolve().parent.parent
 RUNTIME = os.environ.get("RUNTIME") or "docker"  # docker only (issue #112)
 DEFAULT_REGISTRY = "ghcr.io/asimov-agent"  # the same default as engine_image.py and the Makefile
 PLATFORMS = "linux/amd64,linux/arm64"  # Linux + Intel-macOS runners, Apple-Silicon dev hosts
+# The agent image installs the Hermes CLI by BUILDING it. Under arm64 emulation that step alone
+# runs for many minutes and the multi-arch publish job times out mid-install (measured: the
+# installer was still on "Installing Python dependencies" past 900s). The bots run on
+# GitHub-hosted ubuntu runners, which are amd64, so this image publishes amd64 only — no arm64
+# consumer exists to justify paying that, and no other image is affected.
+PLATFORMS_FOR = {"agent": "linux/amd64"}
+
+
+def platforms(name: str) -> str:
+    """The `--platform` list an image publishes for."""
+    return PLATFORMS_FOR.get(name, PLATFORMS)
 SOURCE = "https://github.com/" + (os.environ.get("GITHUB_REPOSITORY") or "asimov-agent/llgenie")
 
 # name -> (Dockerfile, the files COPYed into the build context next to it)
 IMAGES: dict[str, tuple[str, tuple[str, ...]]] = {
     "test": ("containers/test/Dockerfile", ("tools/requirements.txt", "tools/requirements-dev.txt")),
     "openspec": ("openspec/Dockerfile", ()),
+    # the bots' agent image (issues #222/#238/#248): the test image plus the Hermes CLI and the
+    # git/gh/docker tooling a bot job needs. Its inputs include the install script it COPYs.
+    "agent": ("containers/agent/Dockerfile", ("scripts/install_hermes_ci.sh",)),
 }
 
 
@@ -58,7 +72,19 @@ def tag(name: str, root: Path = REPO) -> str:
     h = hashlib.sha256()
     for p in inputs(name, root):
         h.update(p.relative_to(root).as_posix().encode() + b"\0" + p.read_bytes() + b"\0")
+    if name == "agent":
+        # The agent image is built FROM the test image's published tag, so a rebuilt base must
+        # produce a new agent tag — otherwise the agent would keep an old base and its Hermes
+        # toolchain would silently drift from the gates it has to run.
+        h.update(b"base\0" + tag("test", root).encode() + b"\0")
     return h.hexdigest()[:12]
+
+
+def build_args(name: str, root: Path = REPO) -> list[str]:
+    """Extra `--build-arg` flags: the agent image pins the exact test image it builds FROM."""
+    if name == "agent":
+        return ["--build-arg", f"TEST_IMAGE={ref('test', root)}"]
+    return []
 
 
 def local_name(name: str) -> str:
@@ -107,10 +133,15 @@ def publish(name: str, root: Path = REPO) -> int:
         return 0
     ctx = context(name, root)
     try:
-        rc = _sh([RUNTIME, "buildx", "build", "--platform", PLATFORMS, "-t", r,
+        # A registry cache ref that does not exist yet makes buildx fail to configure the
+        # importer (the first publish of a NEW image), so only read a cache that is published.
+        cache_flags = (["--cache-from", f"type=registry,ref={cache_ref(name)}"]
+                       if published(cache_ref(name)) else [])
+        rc = _sh([RUNTIME, "buildx", "build", "--platform", platforms(name), "-t", r,
+                  *build_args(name, root),
                   # links the GHCR package to the repo, so it gets the repo's visibility
                   "--label", f"org.opencontainers.image.source={SOURCE}",
-                  "--cache-from", f"type=registry,ref={cache_ref(name)}",
+                  *cache_flags,
                   "--cache-to", f"type=registry,ref={cache_ref(name)},mode=max",
                   "--push", str(ctx)]).returncode
     finally:
@@ -141,7 +172,7 @@ def ensure(name: str, root: Path = REPO) -> int:
           f"building {local_name(name)} here", flush=True)
     ctx = context(name, root)
     try:
-        return _sh([RUNTIME, "build", "-t", local_name(name), str(ctx)]).returncode
+        return _sh([RUNTIME, "build", "-t", local_name(name), *build_args(name, root), str(ctx)]).returncode
     finally:
         shutil.rmtree(ctx, ignore_errors=True)
 

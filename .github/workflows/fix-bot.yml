@@ -1,0 +1,207 @@
+# PR fix-bot (issue #222): repair a red PR with Hermes, re-check, stop.
+#
+# Triggered by `workflow_dispatch` (by hand or by the scheduled sweep's dispatch call)
+# and by its OWN `schedule`, whose `sweep` job decides which PR deserves the bot.
+# There is deliberately NO `workflow_run` trigger — a bot-authored PR (pushed with
+# GITHUB_TOKEN elsewhere) would otherwise be able to re-trigger the bot — and no
+# conditional job in ci.yml, because issue #107 requires that decision to live in code
+# (scripts/fix_bot_sweep.py), not in a job `if:` that can silently skip a job.
+#
+# The loop (scripts/fix_loop.sh) runs the failing check, hands the failure to Hermes,
+# re-checks, up to FIX_ROUNDS (default 3) — and NEVER commits or pushes. This workflow
+# pushes the working tree as ONE commit only when the loop ends green, with the owner
+# PAT so the push re-triggers CI, and never merges: a human reviews the result.
+#
+# Local equivalent (repo checked out on the PR branch):
+#   NOUS_API_KEY=... FIX_ROUNDS=3 scripts/fix_loop.sh
+name: PR fix-bot
+
+on:
+  # The sweep (below) asks scripts/fix_bot_sweep.py which PR to repair, then dispatches
+  # this workflow with that PR; the sibling repo's lesson is that a schedule is a safer
+  # trigger than workflow_run for anything a bot can push to.
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number whose branch should be repaired"
+        required: false
+      branch:
+        description: "PR head branch (used when pr_number is empty)"
+        required: false
+      check:
+        description: "the deterministic check to drive the loop"
+        required: false
+        default: "make ci-unit"
+      rounds:
+        description: "repair attempts (default 3)"
+        required: false
+        default: "3"
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+
+concurrency:
+  group: fix-bot-${{ inputs.pr_number || inputs.branch }}
+  cancel-in-progress: false
+
+jobs:
+  fix:
+    # Only a real dispatch (the sweep's or a human's) repairs a PR.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      NOUS_API_KEY: ${{ secrets.NOUS_PORTAL_API_TOKEN }}
+      GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
+      FIX_ROUNDS: ${{ inputs.rounds || '3' }}
+      FIX_CHECK: ${{ inputs.check || 'make ci-unit' }}
+    steps:
+      # ---------------------------------------------------------------- guards
+      - name: Only the owner or a write-level collaborator may run this
+        env:
+          REPO: ${{ github.repository }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          if [ "$ACTOR" = "$(echo "$REPO" | cut -d/ -f1)" ]; then echo "owner: $ACTOR"; exit 0; fi
+          perm=$(gh api "repos/$REPO/collaborators/$ACTOR/permission" -q .permission 2>/dev/null || echo none)
+          case "$perm" in
+            admin|write) echo "$ACTOR has $perm" ;;
+            *) echo "Refused: $ACTOR is not the owner or a collaborator with write access (permission: ${perm:-none})."; exit 1 ;;
+          esac
+
+      - name: Resolve the PR branch (never main)
+        id: pr
+        env:
+          REPO: ${{ github.repository }}
+          IN_PR: ${{ inputs.pr_number }}
+          IN_BRANCH: ${{ inputs.branch }}
+        run: |
+          set -euo pipefail
+          if [ -n "$IN_PR" ]; then
+            read -r num branch < <(gh pr view "$IN_PR" --repo "$REPO" --json number,headRefName \
+              -q '.number, .headRefName' | paste -sd' ' -)
+          else
+            read -r num branch < <(gh pr list --repo "$REPO" --head "$IN_BRANCH" --state open \
+              --json number,headRefName -q '.[0] | .number, .headRefName' | paste -sd' ' -)
+          fi
+          case "$branch" in
+            ""|main|master) echo "No open PR branch resolved (or it is $branch) — nothing to fix; the bot never touches main."; exit 0 ;;
+          esac
+          echo "PR #$num -> branch '$branch'"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "number=$num" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout the PR branch with the owner PAT (so the push re-triggers CI)
+        if: steps.pr.outputs.branch != ''
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pr.outputs.branch }}
+          token: ${{ secrets.BUMP_TOKEN }}
+          fetch-depth: 0
+
+      # ------------------------------------------------------------- the loop
+      - name: Resolve the agent image for this commit (hash of the Dockerfile + install script)
+        id: agent
+        if: steps.pr.outputs.branch != ''
+        run: |
+          set -euo pipefail
+          image=$(make agent-image-ref)
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          echo "agent image: $image"
+
+      - name: Run the fix loop INSIDE the agent image (check -> repair -> re-check)
+        id: loop
+        if: steps.pr.outputs.branch != ''
+        continue-on-error: true
+        env:
+          AGENT_IMAGE: ${{ steps.agent.outputs.image }}
+        run: |
+          set -o pipefail
+          # The bot runs in the pinned image (Hermes + git + gh + docker CLI), never on the
+          # runner's whatever-is-installed; the image ref is resolved from THIS commit's
+          # Dockerfile hash, so it cannot drift from the workflow that names it.
+          make fix-loop-image AGENT_IMAGE="$AGENT_IMAGE" LOG=/tmp/fix-loop.log
+          echo "exit=$?" >> "$GITHUB_OUTPUT"
+
+      # ------------------------------------------------------------- publish
+      - name: The tree must not be left dirty without a commit
+        if: steps.pr.outputs.branch != '' && steps.loop.outcome == 'success'
+        run: |
+          set -euo pipefail
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "The loop ended green with no changes — nothing to push."
+            echo "changed=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "changed=1" >> "$GITHUB_OUTPUT"
+
+      - name: Push the repair as ONE commit (only when the loop ended green)
+        id: push
+        if: steps.pr.outputs.branch != '' && steps.loop.outcome == 'success'
+        run: |
+          set -euo pipefail
+          git status --porcelain
+          git diff --stat
+          if [ -z "$(git status --porcelain)" ]; then exit 0; fi
+          git -c user.name="llgenie fix-bot" -c user.email="fix-bot@users.noreply.github.com" \
+            commit -am "fix(bot): repair the failing check (#222)
+
+          Repaired by the PR fix-bot loop (scripts/fix_loop.sh): the check ran, Hermes
+          was handed the failure and the repo rules, and the check was re-run until it
+          passed — all checks in the same round are the deterministic CI commands, and
+          nothing was mocked, weakened or skipped."
+          git push origin "HEAD:${BRANCH}"
+          echo "pushed=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        env:
+          BRANCH: ${{ steps.pr.outputs.branch }}
+
+      - name: Comment the outcome on the PR
+        if: always() && steps.pr.outputs.number != ''
+        env:
+          NUM: ${{ steps.pr.outputs.number }}
+          OUTCOME: ${{ steps.loop.outcome }}
+          REPORT: /tmp/fix-report.txt
+        run: |
+          set -uo pipefail
+          {
+            if [ "$OUTCOME" = "success" ]; then
+              echo "The fix-bot ran \`${FIX_CHECK}\`, repaired the failure, and the check is GREEN again."
+              echo
+              echo "Pushed as one commit with the owner PAT, so CI re-runs on the new head. A human still reviews — the bot never merges."
+            else
+              make fix-bot-report REPORT="$REPORT" CHECK="$FIX_CHECK" 2>/dev/null \
+                || echo "The fix-bot ran \`${FIX_CHECK}\` and it is still failing after ${FIX_ROUNDS} attempts; leaving it for a human."
+            fi
+            echo
+            echo "_fix-bot: check \`${FIX_CHECK}\`, up to ${FIX_ROUNDS} attempt(s), never merges (issue #222)._"
+          } > /tmp/fix-comment.md
+          gh pr comment "$NUM" --repo "${{ github.repository }}" --body-file /tmp/fix-comment.md
+
+  # ------------------------------------------------------------------
+  # sweep (issue #222): the scheduled half. It runs unconditionally —
+  # issue #107 forbids a job that can skip itself, so the DECISION lives in
+  # scripts/fix_bot_sweep.py: open, non-draft, same-repo PRs with a failing
+  # check and fewer than 3 `fix(bot):` commits, oldest first, one per sweep.
+  # It dispatches the `fix` job above for the winner and does nothing otherwise.
+  # ------------------------------------------------------------------
+  sweep:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sweep the open PRs for one the fix-bot should repair
+        env:
+          GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
+        run: |
+          set -euo pipefail
+          make fix-bot-sweep REPO="${{ github.repository }}" CHECK="make ci-unit" ATTEMPTS=3

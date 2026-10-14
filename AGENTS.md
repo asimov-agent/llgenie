@@ -16,6 +16,13 @@ workflow. Follow it for any change.
   `~/models/**/*.gguf` tree. There is no separate sandbox — the host is canonical.
 - Verify through the Makefile with real output. Prefer `make <target>` over
   hand-running the underlying tools so the defined gates are exercised.
+- **Every command a CI workflow runs must be a `make` target** (or a `gh`/`git`
+  orchestration call that has no repo logic). Never call `python3 scripts/…` or a
+  `scripts/*.sh` directly from a workflow — that bypasses the Makefile and makes the
+  command unreusable locally and by the pipeline. If a workflow needs a script, give
+  it a make target (e.g. `fix-bot-sweep`, `fix-bot-report`, `agent-image-ref`,
+  `fix-loop-image`) and call that. The wiring guard (`make check-wiring`) enforces
+  that every script is wired to a target CI runs.
 
 ## OpenSpec is the checklist of record (MANDATORY)
 
