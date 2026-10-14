@@ -1135,3 +1135,12 @@ llgenie/
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Environment variables
+
+- `LLGENIE_KV_QUANT` — the KV cache type a llama.cpp launch serves: a type name from the
+  table (`f16`, `q8_0`/`int8`, `k8v4`, `q5_0`, `q4_0`, …) or `auto` for the largest that
+  still fits this card and context. Unset keeps `q4_0`, the tightest cache, and an
+  unknown name fails loudly instead of silently falling back (issue #247). The resolved
+  value is the one used by the context budget, the GPU-layer count, `-ctk`/`-ctv` and the
+  plan printed by `--dry`.

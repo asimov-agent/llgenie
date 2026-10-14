@@ -89,7 +89,27 @@ HOME = os.path.expanduser("~")
 MODELS_ROOT = os.environ.get("LLAMA_MODELS_ROOT") or os.path.join(HOME, "models")
 TOTAL_RAM_BYTES = 48 * 1024 * 1024 * 1024  # M5 Pro unified 48 GB
 OS_OVERHEAD = 3 * 1024 * 1024 * 1024       # keep headroom for macOS/Metal
-KV_QUANT = "q4_0"                           # K and V cache quant type
+# KV-cache element size in bytes, per type, for every type llama.cpp and the
+# engine skills accept (issue #247). fp16/bf16 = 2 bytes/element; 8-bit — q8_0
+# and Strata's `int8` — = 1; k8v4 = K 8-bit + V 4-bit = 0.75; q5_* = 5.5 bits
+# = 0.6875; q4_0/q4_1/iq4_nl = 0.5. `skills/engines/strata/SKILL.md` documents
+# `--kv q4_0|int8|k8v4`, so all three must be representable here: an unknown
+# type is a loud error (kv_bytes_per_element), never a silent fp16 assumption
+# (which doubled the 8-bit bill and so halved the context that fit).
+KV_BYTES_PER_ELEMENT = {
+    "f16": 2.0, "fp16": 2.0, "bf16": 2.0,
+    "q8_0": 1.0, "int8": 1.0,
+    "k8v4": 0.75,
+    "q5_0": 0.6875, "q5_1": 0.6875,
+    "q4_0": 0.5, "q4_1": 0.5, "iq4_nl": 0.5,
+}
+KV_QUANT = "q4_0"                           # the floor: the tightest cache, used when nothing larger fits
+# Opt-in override for the cache type a launch serves (issue #247): a type name
+# from the table, or "auto" for the largest that still fits this card/context.
+# Unset keeps KV_QUANT, so the default behaviour of every existing host is
+# unchanged; whatever it resolves to is the ONE value the budget, the -ngl
+# decision, the -ctk/-ctv flags and the printed plan all use.
+KV_QUANT_ENV = "LLGENIE_KV_QUANT"
 # ---------------------------------------------------------------------------
 # Top-tier trending download (`--download-top-tier`)
 # ---------------------------------------------------------------------------
@@ -423,31 +443,75 @@ def _head_dim_pair(meta):
     return key, val
 
 
+def kv_bytes_per_element(quant: str) -> float:
+    """Bytes per KV-cache element for `quant`; an unknown type raises (issue #247).
+
+    Never guesses: the old `return f16_bytes` fallback billed an 8-bit cache at
+    the fp16 size, a 2x overestimate that halved the context the card could
+    actually serve. A type llgenie cannot size is a bug to surface, not to
+    paper over with the largest assumption.
+    """
+    try:
+        return KV_BYTES_PER_ELEMENT[quant]
+    except (KeyError, TypeError):
+        known = ", ".join(sorted(KV_BYTES_PER_ELEMENT))
+        raise ValueError(f"unknown KV cache type {quant!r} (known: {known})") from None
+
+
 def kv_bytes_per_token(meta, quant=KV_QUANT):
     """Approx K+V cache bytes/token for the layers that actually grow with context."""
+    per_element = kv_bytes_per_element(quant)
     key_len, val_len = _head_dim_pair(meta)
     n_kv = int(meta.get("n_head_kv") or 0) or int(meta.get("n_head") or 0) or 1
     layers = _kv_cache_layers(meta)
-    # fp16 is 2 bytes per element; K and V are separate.
-    f16_bytes = 2.0 * layers * n_kv * (key_len + val_len)
-    # q4_0 KV is ~0.5 byte per element vs 2 for fp16 => ~4x smaller
-    if quant in ("q4_0", "q4_1", "q5_0", "q5_1"):
-        return f16_bytes / 4.0
-    return f16_bytes
+    # K and V are separate caches, so both are counted.
+    return per_element * layers * n_kv * (key_len + val_len)
 
 
-def tuned_context(meta, target_bytes):
+def kv_quant_for(meta, ctx, card_bytes, quant=KV_QUANT, prefer_larger=False):
+    """The KV cache type a launch serves `ctx` with — resolved once, from the card.
+
+    The *policy* is `quant` (the `KV_QUANT` floor: the smallest cache, which is
+    what this repo has always served — 42 launch cases pin it), so this is not a
+    behaviour change. What is derived here is the coherence the issue is about:
+    one function answers for this card and this context, and that same answer
+    feeds the budget arithmetic, the `-ngl` decision, the `-ctk`/`-ctv` flags and
+    the plan a user reads, so none of them can disagree about the cache that was
+    actually accounted for.
+
+    With `prefer_larger=True` the largest type that still fits the same budget
+    wins (fp16, then 8-bit, then the floor). That is the policy hook for #245
+    (deriving every serving parameter from the hardware); this change
+    deliberately does not flip the default, and the hook is covered by tests so
+    the two cannot drift.
+    """
+    if card_bytes is None or not prefer_larger:
+        return quant
+    weights = int(float(meta.get("size_gb") or 0) * (1024 ** 3))
+    for cand in ("f16", "q8_0", quant):
+        kv = int(kv_bytes_per_token(meta, cand) * int(ctx))
+        if weights + kv + OS_OVERHEAD <= int(card_bytes):
+            return cand
+    return quant
+
+
+def tuned_context(meta, target_bytes, quant=KV_QUANT):
     """Context that fits in `target_bytes` of KV, capped by the model's train ctx.
 
     The ceiling is the selected GGUF's ``context_length``. A missing field
     falls back to 32768. The result is never above that ceiling, is rounded
     down to a multiple of 1024, and is never below 2048.
+
+    `quant` is the KV cache type the bytes are budgeted for; it defaults to the
+    `KV_QUANT` floor, so a context sized here stays valid for any larger type
+    the launch later picks (issue #247): the bigger cache only has to fit the
+    same budget, which kv_quant_for checks.
     """
     if meta.get("ctx_train"):
         hard = int(meta["ctx_train"])
     else:
         hard = 32768
-    per_tok = kv_bytes_per_token(meta)
+    per_tok = kv_bytes_per_token(meta, quant)
     if per_tok > 0:
         by_budget = int(target_bytes / per_tok)
     else:
@@ -457,18 +521,22 @@ def tuned_context(meta, target_bytes):
     return ctx
 
 
-def gpu_offload_layers(meta, ctx, card_bytes, backend):
+def gpu_offload_layers(meta, ctx, card_bytes, backend, quant=KV_QUANT):
     """Layers to place on the GPU, or None when the backend has no GPU.
 
-    cuda and metal get 99 when the weights and the q4_0 KV cache for `ctx`
+    cuda and metal get 99 when the weights and the `quant` KV cache for `ctx`
     fit in the card after the 3 GB reserve (every layer). Otherwise they get
     the fraction of `n_layer` those leftover bytes can hold. cpu omits `-ngl`.
+
+    `quant` is the type the launch will emit (`build_command` passes the derived
+    one), so the offload decision is made against the cache that is actually
+    allocated (issue #247).
     """
     if backend not in ("cuda", "metal"):
         return None
     n_layer = int(meta.get("n_layer") or 0)
     weights = int(float(meta.get("size_gb") or 0) * (1024 ** 3))
-    kv = int(kv_bytes_per_token(meta) * int(ctx))
+    kv = int(kv_bytes_per_token(meta, quant) * int(ctx))
     room = int(card_bytes) - OS_OVERHEAD - kv
     if n_layer <= 0 or weights <= 0 or room >= weights:
         return 99
@@ -494,9 +562,50 @@ def context_kv_budget_bytes(meta, card_bytes):
     return budget
 
 
+def resolve_kv_quant(meta, ctx, card_bytes, env=None):
+    """The KV cache type this launch serves — resolved once, from the knob or the floor.
+
+    `LLGENIE_KV_QUANT` (`KV_QUANT_ENV`) is the opt-in: a type name from the table
+    is validated (an unknown one is a loud error naming the known types) and
+    honoured as asked; `auto` (or `largest`) derives the largest type that still
+    fits this card and context. Unset — the default — keeps the `KV_QUANT` floor,
+    so no existing host changes behaviour.
+
+    This is the single source of the value: the budget arithmetic, the `-ngl`
+    decision, the `-ctk`/`-ctv` flags and the printed plan all take it from here,
+    which is the coherence issue #247 asks for.
+    """
+    env = os.environ if env is None else env
+    want = (env.get(KV_QUANT_ENV) or "").strip()
+    if not want:
+        return quant_default()
+    if want.lower() in ("auto", "largest"):
+        return kv_quant_for(meta, ctx, card_bytes, prefer_larger=True)
+    kv_bytes_per_element(want)          # loud for anything the table cannot size
+    return want
+
+
+def quant_default() -> str:
+    """The floor type (`KV_QUANT`), named so every reader can see it is the floor."""
+    return KV_QUANT
+
+
+def serve_plan(meta, card_bytes):
+    """(context, KV cache type) for this model on this card: one budget, one answer.
+
+    The context is budgeted at the `KV_QUANT` floor and the type is then resolved
+    for that same context (`resolve_kv_quant`, i.e. the knob or the floor), so
+    whichever type the launch emits the cache still fits what the context was
+    sized for — the helper and the launch cannot disagree (issue #247). Returned
+    together so a caller prints the same numbers it serves.
+    """
+    ctx = tuned_context(meta, context_kv_budget_bytes(meta, card_bytes))
+    return ctx, resolve_kv_quant(meta, ctx, card_bytes)
+
+
 def serve_context(meta, card_bytes):
     """`-c` for this model on this card: min(trained context, what the KV cache fits)."""
-    return tuned_context(meta, context_kv_budget_bytes(meta, card_bytes))
+    return serve_plan(meta, card_bytes)[0]
 
 
 def mtp_depth_for_card(card_bytes, env=None):
@@ -1117,12 +1226,17 @@ def build_command(meta, ctx, port, card_bytes=None, backend=None):
         card_bytes = detect_server.detect_card_ram_bytes()
     if backend is None:
         backend = detect_server.detect_backend()
+    # The KV cache type is derived for this card and this context (issue #247):
+    # the arithmetic that sized `ctx` (KV_QUANT floor) and the -ctk/-ctv emitted
+    # below must be the same answer, so no caller can serve a type the budget
+    # never accounted for.
+    quant = resolve_kv_quant(meta, ctx, card_bytes)
     cmd = [LLAMA_SERVER,
            "-m", meta["file"],
            "--host", "0.0.0.0",
            "--port", str(port),
            "-c", str(ctx)]
-    ngl = gpu_offload_layers(meta, ctx, card_bytes, backend)
+    ngl = gpu_offload_layers(meta, ctx, card_bytes, backend, quant)
     if ngl is not None:
         cmd += ["-ngl", str(ngl)]
     if backend in ("cuda", "metal"):
@@ -1130,7 +1244,7 @@ def build_command(meta, ctx, port, card_bytes=None, backend=None):
     if meta.get("chat_template"):
         cmd += ["--jinja"]
     batch, ubatch = batch_for_card(card_bytes)
-    cmd += ["-ctk", KV_QUANT, "-ctv", KV_QUANT,
+    cmd += ["-ctk", quant, "-ctv", quant,
             "-b", str(batch), "-ub", str(ubatch),
             "--cont-batching",
             "--metrics"]
@@ -1371,12 +1485,15 @@ def _serve_chosen(chosen, args):
     ctx = serve_context(chosen, card_bytes)
     global LLAMA_SERVER
     LLAMA_SERVER = resolve_llama_server()
+    quant = resolve_kv_quant(chosen, ctx, card_bytes)
     cmd = build_command(chosen, ctx, args.port, card_bytes=card_bytes)
 
     print(f"\nModel : {chosen['name']} ({chosen['arch']})")
     print(f"File  : {chosen['file']}")
     print(f"Layers: {chosen['n_layer']}, dim={chosen['n_embd']}, heads={chosen['n_head']}, kv_heads={chosen['n_head_kv']}")
-    print(f"Train ctx: {chosen['ctx_train']}, KV/tok ~= {kv_bytes_per_token(chosen)/1e6:.1f} MB")
+    print(f"Train ctx: {chosen['ctx_train']}, KV/tok ~= {kv_bytes_per_token(chosen, quant)/1e6:.2f} MB "
+          f"| KV cache: {quant} = {kv_bytes_per_token(chosen, quant) * int(ctx) / (1024 ** 3):.2f} GiB "
+          f"for {ctx} tokens (derived for this card, issue #247)")
     print(f'Serving at http://127.0.0.1:{args.port}, context = {ctx} tokens\n')
     print("Command:\n  " + pretty(cmd) + "\n")
     print("Log: " + os.path.join(os.path.dirname(chosen["file"]), ".run.log"))
@@ -1837,12 +1954,15 @@ def main():
     # command — terminates with a clear error if the binary is missing.
     global LLAMA_SERVER
     LLAMA_SERVER = resolve_llama_server()
+    quant = resolve_kv_quant(chosen, ctx, card_bytes)
     cmd = build_command(chosen, ctx, args.port, card_bytes=card_bytes)
 
     print(f"\nModel : {chosen['name']} ({chosen['arch']})")
     print(f"File  : {chosen['file']}")
     print(f"Layers: {chosen['n_layer']}, dim={chosen['n_embd']}, heads={chosen['n_head']}, kv_heads={chosen['n_head_kv']}")
-    print(f"Train ctx: {chosen['ctx_train']}, KV/tok ~= {kv_bytes_per_token(chosen)/1e6:.1f} MB")
+    print(f"Train ctx: {chosen['ctx_train']}, KV/tok ~= {kv_bytes_per_token(chosen, quant)/1e6:.2f} MB "
+          f"| KV cache: {quant} = {kv_bytes_per_token(chosen, quant) * int(ctx) / (1024 ** 3):.2f} GiB "
+          f"for {ctx} tokens (derived for this card, issue #247)")
     print(f"Serving at http://127.0.0.1:{args.port}, context = {ctx} tokens\n")
     print("Command:\n  " + pretty(cmd) + "\n")
     print("Log: " + os.path.join(os.path.dirname(chosen["file"]), ".run.log"))
