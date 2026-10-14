@@ -60,6 +60,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	install-prism-cuda install-upstream-cuda install-prism-metal install-upstream-metal \
 	sync-registry check-registry skills-validate engine-list engine-hardware engine-plan engine-check engine-install engine-detect engine-smoke test-engine ci-engine-images build-engine-base build-engines generate-build-engine-params test-engine-image push-engine test-published-engine test-install-published engine-launchers test-built-engine test-uninstalled \
 	sync-quant-catalog check-quant-catalog render-trend-list-matrix check-trend-list-matrix render-engine-skill-gap check-engine-skill-gap engine-skill-gap spawn-engine-skill-issues sync-strata-models check-strata-models check-wiring wiring-report queued-alarm \ fix-loop fix-loop-image fix-bot-sweep fix-bot-report agent-image-ref
+	issue-bot-dispatch issue-bot-open-pr issue-bot-image implement-issue hermes-smoke \
 	generate-engine-params check-engine-params build-engine run-engine stop-engine list-engine-images \
 	ci-lint ci-unit ci-agents-read ci-openspec ci-cpu-health ci-top-tier ci-install ci-install-dry-args ci-free-disk test-engine-stage
 
@@ -256,6 +257,58 @@ engine-skill-gap: ## Show the unskilled-engine gap: shipped / known-unsupported 
 	python3 scripts/engine_skill_gap.py report
 spawn-engine-skill-issues: ## Open one tracking issue per NEW unskilled registry engine (the sync job runs this; DRY=1 previews, REPO= picks the repo)
 	python3 scripts/engine_skill_gap.py spawn $(if $(REPO),--repo $(REPO),) $(if $(DRY),--dry,)
+# ---- issue-bot: one issue per run, at most 3/day (issue #248) -----------------
+# The dispatcher is deterministic (no LLM): cap -> pick ONE -> claim -> issue.md
+# + branch. `implement-issue` is the shared Hermes agent step (AGENTS.md is the
+# authority the agent reads; #238 wires the token/plugin into the agent image).
+issue-bot-dispatch: ## The issue-implementer's dispatcher: cap (3/day) -> pick one labeled/ready issue -> claim -> write issue.md + branch (REPO= issue-bot.yml sets it; FORCE_ISSUE= pins a manual run; DRY=1 previews)
+	python3 scripts/issue_implementer.py dispatch --repo "$(REPO)" $(if $(FORCE_ISSUE),--force-issue $(FORCE_ISSUE),) $(if $(DRY),--dry,) $(if $(TODAY),--today $(TODAY),)
+issue-bot-open-pr: ## Open the draft-free PR linking ISSUE from BRANCH (never merges; REPO=/ISSUE=/BRANCH= from the workflow)
+	@test -n "$(ISSUE)" && test -n "$(BRANCH)" || { echo "Usage: make issue-bot-open-pr REPO=<owner/repo> ISSUE=<n> BRANCH=<agent/issue-n-slug>"; exit 1; }
+	python3 scripts/issue_implementer.py open-pr --repo "$(REPO)" --issue $(ISSUE) --branch "$(BRANCH)" --title "issue-bot implementation" --wants "Verification notes land on the PR as CI runs it."
+# The agent step: Hermes reads issue.md + AGENTS.md at the repo root and
+# implements it. AGENTS.md is the authority (Makefile-driven verification, no
+# skipped tests, business logic never mocked, one make path per stage, wiring).
+# Runs on the CI runner with NOUS_API_KEY from a secret; #238 wires the
+# token/plugin into the agent image. The model alias matches the sibling repo.
+# Hermes's bundled `nous` provider is OAuth-only, so `--provider nous` cannot work with a
+# secret. The image's install script writes a custom-provider alias instead (provider=custom,
+# base_url=the Nous OpenAI-compatible endpoint, key_env=NOUS_API_KEY) and this is the model
+# name every call uses. `-m` is the MODEL flag (a bare `-m "text"` sets the model to text).
+nous-alias := -m nous-deepseek
+HERMES_REASONING ?= low
+# The bots run INSIDE the agent image (issues #222/#238/#248): Hermes, git, gh and the docker
+# CLI are installed when the image is built, so a runner never installs the agent on the fly —
+# and the image a job uses is the one built from THIS commit's Dockerfile + install script
+# (the ref is their hash, so it cannot drift from the workflow that names it).
+# NOUS_API_KEY and GH_TOKEN travel as run-time env; nothing is baked into the image.
+# `ensure` pulls the published image of these inputs, or builds the same Dockerfile locally, and
+# tags it under this name either way — so this works on a dev host and on a runner. The tag hash
+# pins it to the exact Dockerfile THIS commit carries.
+AGENT_IMAGE := llgenie/agent:latest
+
+issue-bot-image: ## Build/pull the agent image the issue-bot runs in (the same image the fix-bot uses; alias of agent-image)
+	python3 scripts/ci_images.py ensure agent
+
+implement-issue: ## Implement issue.md with Hermes INSIDE the agent image (AGENTS.md is the authority; NOUS_API_KEY/GH_TOKEN from secrets; runs the gates; pushes nothing)
+	@python3 scripts/ci_images.py ensure agent
+	@$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo \
+	  -e NOUS_API_KEY -e GH_TOKEN -e HERMES_REASONING -e REPO \
+	  $(AGENT_IMAGE) bash -lc 'make _implement-issue'
+
+hermes-smoke: ## One real Hermes call through the alias the implementer uses, inside the agent image (die in seconds, not after 20 min)
+	@test -n "$$NOUS_API_KEY" || { echo "NOUS_API_KEY unset - refusing to spend time on a dead key"; exit 1; }
+	@python3 scripts/ci_images.py ensure agent
+	@$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo -e NOUS_API_KEY \
+	  $(AGENT_IMAGE) bash -lc 'make _hermes-smoke'
+
+_implement-issue: # (internal) the host recipe: implement issue.md with Hermes. Invoked
+# inside the agent image by the public `implement-issue` target.
+	hermes -z "Load AGENTS.md for rules. The issue to implement is issue.md at the repo root - read it FIRST (and the linked OpenSpec change if present) and implement exactly its acceptance criteria; do not widen the scope. HARD RULES: (1) run every gate through the Makefile and fix what they report; (2) never weaken or mock a test to get green; (3) a test or script you add must be named by a make target (nothing dead); (4) follow the repo's issue -> branch -> OpenSpec -> code -> PR lifecycle. Do not push, do not merge, do not touch main." $(nous-alias) --reasoning $(HERMES_REASONING) --yolo
+_hermes-smoke: # (internal) one real Hermes call. Invoked inside the agent image by
+# the public `hermes-smoke` target.
+	@test -n "$$NOUS_API_KEY" || { echo "NOUS_API_KEY unset - refusing to spend time on a dead key"; exit 1; }
+	hermes -z "Reply with exactly: ok" $(nous-alias) --reasoning low --yolo
 sync-strata-models: ## Write data/strata_models.json from Strata's setup.py at the skill's pinned commit (the GGUF files Strata runs)
 	python3 scripts/strata_models.py sync
 check-strata-models: ## CI: fail when data/strata_models.json differs from Strata's setup.py at the pinned commit
@@ -550,7 +603,7 @@ test-clean: ## Remove left-over/stopped orphaned containers of the test image (i
 	echo "Pruned stopped orphaned $(TEST_IMG) containers."
 
 test-unit: ## Hermetic unit tests (containerized) — includes the lint regression + openspec-tasks-check tests
-	$(TEST_RUN) python -m pytest tests/test_llgenie_serve.py tests/test_hf_auth.py tests/test_hf_download_stall.py tests/test_hf_download_retry.py tests/test_lint_linefeeds.py tests/test_engine_bump_sync.py tests/test_engine_bump_rebase.py tests/test_check_openspec_tasks.py tests/test_remove_watchloop.py tests/test_ci_variant_matrix.py tests/test_serve_variant.py tests/test_ensure_user_path.py tests/test_engine_skills.py tests/test_engine_bump.py tests/test_engine_bump_pr_body.py tests/test_detect_server.py tests/test_model_engine_pick.py tests/test_trend_pick.py tests/test_registry_sync_trend.py tests/test_trend_list_matrix.py tests/test_registry_keys.py tests/test_engine_skill_gap.py tests/test_strata_download.py tests/test_macos_install.py tests/test_ci_images.py tests/test_mac_trend_pick.py tests/test_trend_list_acceptance.py tests/test_tensorfold_seamless.py tests/test_pick_matrix.py tests/test_pick_matrix_arch_perms.py tests/test_pick_full_registry.py tests/test_trending_quant_catalog.py tests/test_engine_supported_quants.py tests/test_quant_generator_edges.py tests/test_check_python_uv.py tests/test_engine_image_matrix.py tests/test_agents_worktree.py tests/test_agents_debt_analysis.py tests/test_wiring.py tests/test_kv_quant_bytes.py tests/test_queued_run_alarm.py tests/test_rename_llgenie_serve.py tests/test_fix_loop.py tests/test_fix_bot_sweep.py -p no:cacheprovider -q -k 'not test_derive_reports_the_live_release_archives and not test_tensorfold_v1_0_5_release_is_native_archives and not test_tensorfold_release_archive_unpacks_and_runs'
+	$(TEST_RUN) python -m pytest tests/test_llgenie_serve.py tests/test_hf_auth.py tests/test_hf_download_stall.py tests/test_hf_download_retry.py tests/test_lint_linefeeds.py tests/test_engine_bump_sync.py tests/test_engine_bump_rebase.py tests/test_check_openspec_tasks.py tests/test_remove_watchloop.py tests/test_ci_variant_matrix.py tests/test_serve_variant.py tests/test_ensure_user_path.py tests/test_engine_skills.py tests/test_engine_bump.py tests/test_engine_bump_pr_body.py tests/test_detect_server.py tests/test_model_engine_pick.py tests/test_trend_pick.py tests/test_registry_sync_trend.py tests/test_trend_list_matrix.py tests/test_registry_keys.py tests/test_engine_skill_gap.py tests/test_strata_download.py tests/test_macos_install.py tests/test_ci_images.py tests/test_mac_trend_pick.py tests/test_trend_list_acceptance.py tests/test_tensorfold_seamless.py tests/test_pick_matrix.py tests/test_pick_matrix_arch_perms.py tests/test_pick_full_registry.py tests/test_trending_quant_catalog.py tests/test_engine_supported_quants.py tests/test_quant_generator_edges.py tests/test_check_python_uv.py tests/test_engine_image_matrix.py tests/test_agents_worktree.py tests/test_agents_debt_analysis.py tests/test_wiring.py tests/test_kv_quant_bytes.py tests/test_queued_run_alarm.py tests/test_rename_llgenie_serve.py tests/test_fix_loop.py tests/test_fix_bot_sweep.py tests/test_issue_implementer.py -p no:cacheprovider -q -k 'not test_derive_reports_the_live_release_archives and not test_tensorfold_v1_0_5_release_is_native_archives and not test_tensorfold_release_archive_unpacks_and_runs'
 
 # Live GitHub release reads. Linux only: the macOS runner cannot reach
 # api.github.com, and TensorFold publishes no macos-x86_64 archive.
@@ -840,6 +893,10 @@ help:
 	@echo "  make spawn-engine-skill-issues   open one tracking issue per NEW unskilled engine (the weekly sync runs this)"
 	@echo "  make check-wiring                CI: fail when a test/script is wired to no make target, or only to one CI never runs (tests/fixtures/host-only-wiring.json records the deliberate ones)"
 	@echo "  make wiring-report               show how every test/script is wired (target + whether CI runs it) and the host-only exceptions"
+	@echo "  make issue-bot-dispatch          the issue-implementer dispatcher (issue #248): cap 3/day -> pick one labeled/ready issue -> claim -> write issue.md + branch"
+	@echo "  make issue-bot-open-pr          open the draft-free PR linking ISSUE from BRANCH (never merges)"
+	@echo "  make implement-issue             the shared Hermes agent step: read issue.md + AGENTS.md, implement, run the gates, push nothing (NOUS_API_KEY from a secret)"
+	@echo "  make hermes-smoke               one real Hermes call through the implementer alias (die in seconds)"
 	@echo "  make build-engine ENGINE=<id> [ARCH=cpu|cuda|rocm|vulkan] [PUSH=1]   build from the generated Dockerfile"
 	@echo "  make build-engine-<id>-<arch>    e.g. build-engine-vllm-cuda, build-engine-llama.cpp-prism-rocm"
 	@echo "  make build-engines ARCH=<arch>   every engine for one arch"

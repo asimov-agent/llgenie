@@ -297,6 +297,45 @@ there is no duplicated implementation. Run it locally with
 Its collaborator guard sends `Authorization: Bearer $TOKEN`, with `TOKEN`
 set to `secrets.GITHUB_TOKEN`, the same header `engine-bump` uses.
 
+## The issue-implementer (issue #248)
+
+Nothing takes an issue and produces its first PR — until now. The
+`issue-bot` workflow (`.github/workflows/issue-bot.yml`) implements ONE issue
+per run, at most **3 per UTC day**, one at a time, each left as a draft-free
+reviewable PR that is **never merged**. It replaces the old host watch-loop
+in CI (that loop was removed in #210).
+
+The **dispatcher** is deterministic (no LLM, stdlib only) and is the
+unit-testable core — `scripts/issue_implementer.py`:
+
+```bash
+make issue-bot-dispatch REPO=asimov-agent/llgenie   # cap -> pick -> claim -> issue.md + branch
+make issue-bot-open-pr REPO=<repo> ISSUE=<n> BRANCH=agent/issue-<n>-<slug>  # draft-free PR, never merges
+make implement-issue      # the shared Hermes agent step: read issue.md + AGENTS.md, implement, run gates, push nothing
+make hermes-smoke          # one real Hermes call through the implementer alias (die in seconds)
+```
+
+- **Cap**: at 3 PRs already opened today (counted from GitHub with
+  `gh search prs --author <bot> --created ">=today 00:00Z"`), the run logs
+  `cap reached: N/3 today, next issue tomorrow`, exits 0 and changes nothing.
+  Never a batch.
+- **Pick**: exactly ONE issue — labelled `agent:implement` first (oldest label
+  first), else the oldest open `agent:ready`. When you want a specific issue
+  implemented, add the `agent:implement` label to it (or run the workflow
+  dispatch with its number).
+- **Claim**: a marker comment plus the branch slug, so a second concurrent run
+  cannot grab the same issue.
+- **The agent step** (`make implement-issue`): Hermes reads `issue.md` +
+  `AGENTS.md` at the repo root and implements — Makefile-driven verification,
+  no weakened or mocked tests, nothing dead (a script/test must be named by a
+  make target), the issue → branch → OpenSpec → code → PR lifecycle, never
+  pushes, never merges, never touches `main`. The token comes from a CI secret
+  at run time, never baked (issue #238 wires the Nerve/JEV plugin into the
+  container).
+- **Follow-ups**: once the PR is open, issue #246 keeps it rebased (one PR per
+  day) and #222 repairs it when a check goes red — the implementer does not
+  grow its own loop.
+
 Before that commit, and only when both the old sha and the new sha are known,
 the bump reads `requirements.txt`, `pyproject.toml`, and `Dockerfile` with
 `git show <sha>:<path>` and keeps the names the new pin added (issue #186).

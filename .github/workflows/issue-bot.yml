@@ -1,0 +1,183 @@
+name: issue-bot
+
+# ISSUE-BOT — implements ONE issue per run (issue #248), at most 3 a day, each
+# left as a draft-free reviewable PR that is NEVER merged.
+#
+# Trigger surface: the explicit `agent:implement` label, a daily schedule, and
+# workflow_dispatch for the owner. Concurrency queues a second event for the
+# SAME issue instead of launching a parallel implementer.
+#
+# Flow (all of it, or the run is a defect):
+#   guard (owner/collaborator, BEFORE any secret is read)
+#   -> dispatch (cap -> pick one -> claim -> issue.md + branch),
+#      via make issue-bot-dispatch (scripts/issue_implementer.py)
+#   -> implement it with Hermes (make implement-issue, AGENTS.md is the authority)
+#   -> commit + push the feature branch (owner PAT, so CI really runs)
+#   -> open a DRAFT-FREE PR (closes #<n>), never merged
+#   -> report the outcome on the issue
+#
+# The bot NEVER merges, never pushes to main, and never implements a batch. The
+# dispatch's cap is the hard bound: once 3 PRs exist today, the run stops before
+# any work, with a "cap reached" log and no comment (no spam).
+
+on:
+  issues:
+    types: [labeled]
+  schedule:
+    - cron: "23 6 * * *"   # daily 06:23 UTC (an odd minute; gets the agent a slot each day)
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "Issue to implement (owner only)"
+        required: true
+        default: ""
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: issue-bot
+  cancel-in-progress: false
+
+jobs:
+  # Before anything touches a secret: only the owner or a collaborator with
+  # write/maintain/admin may run the implementer (it spends the Nous key and
+  # pushes with the owner PAT). A stranger's issue can never start it.
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Owner / collaborator trigger guard
+        env:
+          ACTOR: ${{ github.actor }}
+          TRIGGER: ${{ github.triggering_actor }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for u in "$ACTOR" "$TRIGGER"; do
+            if [ "$u" = "$OWNER" ]; then continue; fi
+            perm=$(gh api "repos/$REPO/collaborators/$u/permission" --jq .permission 2>/dev/null || echo none)
+            case "$perm" in
+              admin|maintain|write) echo "Collaborator $u has $perm - allowed." ;;
+              *) echo "Refused: $u is not the owner or a collaborator with write access (permission: ${perm:-none})."; exit 1 ;;
+            esac
+          done
+          echo "Allowed: actor=$ACTOR triggering_actor=$TRIGGER"
+
+  implement:
+    needs: guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      NOUS_API_KEY: ${{ secrets.NOUS_PORTAL_API_TOKEN }}
+      REPO: ${{ github.repository }}
+    steps:
+      - name: Checkout main (PAT, so its push re-triggers CI)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.BUMP_TOKEN }}
+
+      - name: Dispatch (cap -> pick one -> claim -> issue.md + branch)
+        id: dispatch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # A label event (`agent:implement`, the explicit ask) or a manual
+          # dispatch pins FORCE_ISSUE to that issue; only a schedule run lets
+          # the dispatcher pick the oldest labeled/ready issue itself.
+          FORCE_ISSUE: ${{ github.event.issue.number || inputs.issue_number || '' }}
+        run: |
+          set +e
+          out=$(make issue-bot-dispatch REPO="$REPO" FORCE_ISSUE="${FORCE_ISSUE:-}")
+          rc=$?
+          echo "$out"
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          branch=$(printf '%s\n' "$out" | sed -n 's/^branch=//p' | tail -1)
+          issue=$(printf '%s\n' "$out" | sed -n 's/^issue=//p' | tail -1)
+          action=$(printf '%s\n' "$out" | sed -n 's/^action=//p' | tail -1)
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "issue=$issue" >> "$GITHUB_OUTPUT"
+          echo "action=$action" >> "$GITHUB_OUTPUT"
+          if [ "$action" = "cap" ] || [ "$action" = "none" ]; then echo "dispatch=false" >> "$GITHUB_OUTPUT"; else echo "dispatch=true" >> "$GITHUB_OUTPUT"; fi
+          exit 0
+
+      - name: Hermes routing smoke (die in seconds, not after 20 min)
+        if: steps.dispatch.outputs.dispatch == 'true'
+        run: make hermes-smoke
+
+      - name: Implement the issue (Hermes reads issue.md + AGENTS.md)
+        id: impl
+        if: steps.dispatch.outputs.dispatch == 'true'
+        run: |
+          set +e
+          make implement-issue
+          rc=$?
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          if [ "$rc" != "0" ]; then echo "implemented=false" >> "$GITHUB_OUTPUT"; else echo "implemented=true" >> "$GITHUB_OUTPUT"; fi
+          exit 0
+
+      - name: Commit + push the feature branch
+        id: push
+        if: steps.dispatch.outputs.dispatch == 'true' && steps.impl.outputs.implemented == 'true'
+        env:
+          BRANCH: ${{ steps.dispatch.outputs.branch }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add -A
+          git reset -q -- issue.md 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "The implementation produced no file changes - nothing to push."
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git commit -m "feat(issue-bot): implement #${{ steps.dispatch.outputs.issue }}"
+          git push -u origin "$BRANCH"
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Open the PR (never merged; closes the issue)
+        id: pr
+        if: steps.push.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
+          BRANCH: ${{ steps.dispatch.outputs.branch }}
+          ISSUE: ${{ steps.dispatch.outputs.issue }}
+          REPO: ${{ github.repository }}
+        run: |
+          out=$(make issue-bot-open-pr REPO="$REPO" ISSUE="$ISSUE" BRANCH="$BRANCH")
+          echo "$out"
+          pr_url=$(printf '%s\n' "$out" | sed -n 's/^pr_url=//p' | tail -1)
+          echo "pr_url=$pr_url" >> "$GITHUB_OUTPUT"
+
+      - name: Report the outcome on the issue
+        if: always() && steps.dispatch.outputs.dispatch == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ISSUE: ${{ steps.dispatch.outputs.issue }}
+          BRANCH: ${{ steps.dispatch.outputs.branch }}
+          PR_URL: ${{ steps.pr.outputs.pr_url }}
+          IMPLEMENTED: ${{ steps.impl.outputs.implemented }}
+        run: |
+          {
+            echo "issue-bot ran for this issue (at most 3/day, one at a time)."
+            echo ""
+            echo "- branch: \`$BRANCH\`"
+            echo "- implementation: ${IMPLEMENTED:-not started}"
+            echo "- PR: ${PR_URL:-none opened}"
+            echo ""
+            echo "The bot never merges. A reviewer approves the PR; #246 keeps it rebased,"
+            echo "#222 repairs it when a check goes red."
+          } > comment.md
+          gh issue comment "$ISSUE" --body-file comment.md
+
+      - name: Fail loudly when the implementation did not happen
+        if: always() && steps.dispatch.outputs.dispatch == 'true' && steps.impl.outputs.implemented != 'true'
+        run: |
+          echo "::error::issue-bot produced no implementation for #${{ steps.dispatch.outputs.issue }} (make implement-issue rc=${{ steps.impl.outputs.rc }})."
+          exit 1
