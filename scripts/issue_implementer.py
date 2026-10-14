@@ -43,6 +43,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+import bot_claims  # the shared claim protocol (scripts/bot_claims.py)
+
 # Author the PRs count as from the bot; a human's work is never counted toward the cap.
 BOT_AUTHOR = "github-actions[bot]"
 MAX_PER_DAY = 3
@@ -157,6 +159,28 @@ def _pick(cands: list[dict]) -> dict | None:
     return None
 
 
+def _pick_free(gh: str, repo: str, cands: list[dict]) -> dict | None:
+    """The oldest candidate nobody else is on.
+
+    A bot that is going to refine or implement an issue says so ON THE ISSUE, and any recent
+    comment that has not been concluded by a `done` comment means someone is on it - so this run
+    skips THAT issue and takes the next one in the list (scripts/bot_claims.py). The implementer's
+    own `pr-open` marker counts too, so an implemented issue is never implemented twice.
+    """
+    for issue in sorted(cands, key=lambda i: i.get("createdAt") or ""):
+        names = [l.get("name") for l in (issue.get("labels") or []) if l.get("name")]
+        if any(n in DECIDED_LABELS for n in names):
+            continue
+        num = issue["number"]
+        why = bot_claims.occupied((_thread(gh, repo, num) or {}).get("comments"),
+                                  bot_claims.IMPLEMENTER)
+        if why:
+            print(f"[issue-implementer] #{num} is {why}: skipping it and taking the next one")
+            continue
+        return issue
+    return None
+
+
 def dispatch(gh: str, repo: str, bot: str, dry: bool = False, today: str | None = None,
              out_path: Path = Path("issue.md"), force_issue: int | None = None) -> dict:
     """Apply the cap, pick ONE issue, claim it, and emit the branch + issue.md."""
@@ -176,9 +200,9 @@ def dispatch(gh: str, repo: str, bot: str, dry: bool = False, today: str | None 
         num = detail["number"]
     else:
         # Labeled `agent:implement` first (oldest label first); else the oldest `agent:ready`.
-        issue = _pick(_issue_list(gh, repo, "agent:implement"))
+        issue = _pick_free(gh, repo, _issue_list(gh, repo, "agent:implement"))
         if issue is None:
-            issue = _pick(_issue_list(gh, repo, "agent:ready"))
+            issue = _pick_free(gh, repo, _issue_list(gh, repo, "agent:ready"))
         if issue is None:
             print("[issue-implementer] no issue labelled agent:implement or agent:ready left "
                   "(decided issues carry agent:refined / agent:closed and are skipped)")
@@ -193,10 +217,11 @@ def dispatch(gh: str, repo: str, bot: str, dry: bool = False, today: str | None 
     print(f"[issue-implementer] issue.md: body + {len(comments)} comment(s) + the decision block")
 
     if not dry:
-        marker = (f"issue-implementer: claiming #{num} (branch `{branch}`) at "
-                  f"{datetime.now(timezone.utc).isoformat(timespec='seconds')} — one issue "
-                  f"per run, at most {MAX_PER_DAY}/day, PR left for review (never merged).")
-        _gh(gh, ["issue", "comment", str(num), "--repo", repo, "--body", marker])
+        _gh(gh, ["issue", "comment", str(num), "--repo", repo, "--body",
+                 bot_claims.claim_comment(bot_claims.IMPLEMENTER, "implement",
+                                          datetime.now(timezone.utc))
+                 + f"\n\nbranch `{branch}`; one issue per run, at most {MAX_PER_DAY}/day, "
+                   "PR left for review (never merged)."])
 
     print(f"[issue-implementer] picked #{num}: {title} -> {branch} (daily count {n}/{MAX_PER_DAY})")
     return {"action": "dispatch", "count": n, "issue": num, "title": title, "branch": branch}
@@ -213,6 +238,13 @@ def open_pr(gh: str, repo: str, num: int, branch: str, title: str, body: str,
                    "--title", pr_title, "--body", f"{body}\n\ncloses #{num}\n{wants}"])
     url = out.strip().splitlines()[-1] if out.strip() else ""
     print(f"[issue-implementer] opened {url}")
+    # `done` with the kind `pr-open`: implemented, NOT yet approved. It keeps occupying the issue -
+    # nobody should start a second implementation while this PR is in review - and the marker is
+    # what tells every other bot that.
+    _gh(gh, ["issue", "comment", str(num), "--repo", repo, "--body",
+             bot_claims.done_comment(bot_claims.IMPLEMENTER, datetime.now(timezone.utc), "pr-open")
+             + f"\n\nImplemented on `{branch}`" + (f": {url}" if url else "") +
+               ". Awaiting review; this bot never merges."])
     return url
 
 

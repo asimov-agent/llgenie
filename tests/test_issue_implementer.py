@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import pathlib
 from pathlib import Path
 
 import pytest
@@ -132,7 +133,8 @@ def test_below_cap_it_picks_a_labeled_issue_and_claims_it(tmp_path):
     # The claim marker comment carries the issue number and the branch.
     comments = [c for c in _calls(log) if c[:2] == ["issue", "comment"]]
     assert len(comments) == 1
-    assert comments[0][2] == "11" and "issue-implementer: claiming" in comments[0][-1]
+    assert comments[0][2] == "11" and "bot-claim: implementer" in comments[0][-1], \
+        "the claim must be the marker the other bot reads"
     assert f"agent/issue-11-{SLUG}" in comments[0][-1]
     # issue.md has the title + body the agent reads.
     md = (tmp_path / "issue.md").read_text()
@@ -446,3 +448,66 @@ def test_a_close_without_evidence_is_refused_and_mutates_nothing(tmp_path):
     with pytest.raises(SystemExit):
         ii.apply_verdict(str(gh), f"{OWNER}/{REPO_NAME}", 11, "TRIAGE: close\nREASON: too hard\n")
     assert _calls(log) == [], "a refused close must not comment, label or close anything"
+
+
+# ---- the claim protocol on the implementer's side (scripts/bot_claims.py) ----
+
+def test_pick_free_skips_an_issue_another_bot_claimed_and_takes_the_next(monkeypatch):
+    """The maintainer's rule: a recent comment not concluded by a `done` means someone is on it -
+    skip THAT issue and take the next one in the list."""
+    import datetime as dt
+    stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    cands = [{"number": 1, "title": "one", "createdAt": "2026-09-01T00:00:00Z", "labels": []},
+             {"number": 2, "title": "two", "createdAt": "2026-09-02T00:00:00Z", "labels": []}]
+    threads = {1: {"comments": [{"body": f"<!-- bot-claim: refiner {stamp} refine -->"}]},
+               2: {"comments": []}}
+    monkeypatch.setattr(ii, "_thread", lambda gh, repo, num: threads[num])
+    picked = ii._pick_free("gh", "o/r", cands)
+    assert picked and picked["number"] == 2, picked
+
+
+def test_a_decided_issue_is_still_skipped_before_any_thread_is_read(monkeypatch):
+    def boom(*a, **k):
+        raise AssertionError("a decided issue must not cost a thread read")
+    monkeypatch.setattr(ii, "_thread", boom)
+    cands = [{"number": 1, "title": "one", "createdAt": "2026-09-01T00:00:00Z",
+              "labels": [{"name": "agent:refined"}]}]
+    assert ii._pick_free("gh", "o/r", cands) is None
+
+
+def test_opening_the_pr_records_a_pr_open_done(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ii, "_gh", lambda gh, args: calls.append(args) or "https://x.invalid/pull/9")
+    url = ii.open_pr("gh", "o/r", 11, "agent/issue-11-s", "t", "b", "wants", dry=False)
+    assert url.endswith("/pull/9")
+    done = [c for c in calls if c[:2] == ["issue", "comment"]]
+    assert done, "no done comment was posted"
+    body = " ".join(done[0])
+    assert "bot-done: implementer" in body and "pr-open" in body, body
+    assert "never merges" in body
+
+
+def test_a_pr_open_marker_keeps_the_issue_occupied_but_a_closure_releases_it():
+    """The kinds the maintainer asked for: implemented-and-not-approved still occupies the issue,
+    while a merge/close releases it - so nobody implements it twice."""
+    import bot_claims as bc
+    import datetime as dt
+    now = dt.datetime(2026, 10, 14, 12, 0, tzinfo=dt.timezone.utc)
+    at = "2026-10-14T11:30:00Z"
+    assert bc.occupied([{"body": f"<!-- bot-done: implementer {at} pr-open -->\nPR up"}],
+                       bc.REFINER, now) is not None
+    assert bc.occupied([{"body": f"<!-- bot-done: implementer {at} merged -->\nlanded"}],
+                       bc.REFINER, now) is None
+    assert bc.occupied([{"body": f"<!-- bot-claim: refiner {at} refine -->\ntaking it"}],
+                       bc.IMPLEMENTER, now) is not None
+    assert bc.occupied([{"body": f"<!-- bot-claim: implementer {at} implement -->\nmine"}],
+                       bc.IMPLEMENTER, now) is None, "its own claim never blocks it"
+
+
+def test_the_shared_helper_is_byte_identical_to_the_refiner_copy():
+    """Both bots read one protocol: the file is shipped byte-identically in both branches, so
+    whichever merges first makes the other a no-op."""
+    import hashlib
+    here = pathlib.Path(__file__).resolve().parent.parent / "scripts" / "bot_claims.py"
+    digest = hashlib.sha256(here.read_bytes()).hexdigest()
+    assert len(digest) == 64 and "bot-claim" in here.read_text()
