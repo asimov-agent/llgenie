@@ -109,9 +109,37 @@ jobs:
         if: steps.dispatch.outputs.dispatch == 'true'
         run: make hermes-smoke
 
+      - name: Triage the issue (Hermes reviews the body AND the whole comment thread)
+        id: triage
+        if: steps.dispatch.outputs.dispatch == 'true'
+        run: |
+          set +e
+          make issue-bot-triage
+          rc=$?
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          echo "triage.md:"; sed -n '1,40p' triage.md 2>/dev/null || echo "  (the agent wrote no triage.md)"
+          exit 0
+
+      - name: Apply the verdict (refine -> one comment, no PR; close -> needs cited evidence)
+        id: verdict
+        if: steps.dispatch.outputs.dispatch == 'true' && steps.triage.outputs.rc == '0'
+        env:
+          GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
+          REPO: ${{ github.repository }}
+          ISSUE: ${{ steps.dispatch.outputs.issue }}
+        run: |
+          set +e
+          out=$(make issue-bot-verdict ISSUE="$ISSUE" REPO="$REPO")
+          rc=$?
+          echo "$out"
+          v=$(printf '%s\n' "$out" | sed -n 's/^verdict=//p' | tail -1)
+          echo "verdict=${v:-unknown}" >> "$GITHUB_OUTPUT"
+          if [ "$rc" != "0" ]; then echo "verdict=error" >> "$GITHUB_OUTPUT"; fi
+          exit 0
+
       - name: Implement the issue (Hermes reads issue.md + AGENTS.md)
         id: impl
-        if: steps.dispatch.outputs.dispatch == 'true'
+        if: steps.dispatch.outputs.dispatch == 'true' && steps.verdict.outputs.verdict == 'implement'
         run: |
           set +e
           make implement-issue
@@ -122,7 +150,7 @@ jobs:
 
       - name: Commit + push the feature branch
         id: push
-        if: steps.dispatch.outputs.dispatch == 'true' && steps.impl.outputs.implemented == 'true'
+        if: steps.verdict.outputs.verdict == 'implement' && steps.impl.outputs.implemented == 'true'
         env:
           BRANCH: ${{ steps.dispatch.outputs.branch }}
         run: |
@@ -163,12 +191,21 @@ jobs:
           BRANCH: ${{ steps.dispatch.outputs.branch }}
           PR_URL: ${{ steps.pr.outputs.pr_url }}
           IMPLEMENTED: ${{ steps.impl.outputs.implemented }}
+          VERDICT: ${{ steps.verdict.outputs.verdict }}
         run: |
           {
             echo "issue-bot ran for this issue (at most 3/day, one at a time)."
             echo ""
             echo "- branch: \`$BRANCH\`"
-            echo "- implementation: ${IMPLEMENTED:-not started}"
+            echo "- verdict: ${VERDICT:-none reached}"
+            if [ "${VERDICT}" = "refine" ]; then
+              echo "- outcome: the thread is not actionable yet, so this run posted a refined"
+              echo "  restatement instead of guessing. No branch, no PR."
+            elif [ "${VERDICT}" = "close" ]; then
+              echo "- outcome: closed as no longer applicable, with the evidence cited above."
+            else
+              echo "- implementation: ${IMPLEMENTED:-not started}"
+            fi
             echo "- PR: ${PR_URL:-none opened}"
             echo ""
             echo "The bot never merges. A reviewer approves the PR; #246 keeps it rebased,"
@@ -177,7 +214,9 @@ jobs:
           gh issue comment "$ISSUE" --body-file comment.md
 
       - name: Fail loudly when the implementation did not happen
-        if: always() && steps.dispatch.outputs.dispatch == 'true' && steps.impl.outputs.implemented != 'true'
+        # Only a verdict of `implement` owes a PR: a refine or a close ends the run on purpose,
+        # so it must not be reported as a failure.
+        if: always() && steps.dispatch.outputs.dispatch == 'true' && steps.verdict.outputs.verdict == 'implement' && steps.impl.outputs.implemented != 'true'
         run: |
-          echo "::error::issue-bot produced no implementation for #${{ steps.dispatch.outputs.issue }} (make implement-issue rc=${{ steps.impl.outputs.rc }})."
+          echo "::error::issue-bot produced no implementation for #${{ steps.dispatch.outputs.issue }} (verdict=implement, make implement-issue rc=${{ steps.impl.outputs.rc }})."
           exit 1

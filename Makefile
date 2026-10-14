@@ -60,7 +60,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	install-prism-cuda install-upstream-cuda install-prism-metal install-upstream-metal \
 	sync-registry check-registry skills-validate engine-list engine-hardware engine-plan engine-check engine-install engine-detect engine-smoke test-engine ci-engine-images build-engine-base build-engines generate-build-engine-params test-engine-image push-engine test-published-engine test-install-published engine-launchers test-built-engine test-uninstalled \
 	sync-quant-catalog check-quant-catalog render-trend-list-matrix check-trend-list-matrix render-engine-skill-gap check-engine-skill-gap engine-skill-gap spawn-engine-skill-issues sync-strata-models check-strata-models check-wiring wiring-report queued-alarm \ fix-loop fix-loop-image fix-bot-sweep fix-bot-report agent-image-ref
-	issue-bot-dispatch issue-bot-open-pr issue-bot-image implement-issue hermes-smoke \
+	issue-bot-dispatch issue-bot-open-pr issue-bot-image issue-bot-triage issue-bot-verdict implement-issue hermes-smoke \
 	generate-engine-params check-engine-params build-engine run-engine stop-engine list-engine-images \
 	ci-lint ci-unit ci-agents-read ci-openspec ci-cpu-health ci-top-tier ci-install ci-install-dry-args ci-free-disk test-engine-stage
 
@@ -289,6 +289,19 @@ AGENT_IMAGE := llgenie/agent:latest
 
 issue-bot-image: ## Build/pull the agent image the issue-bot runs in (the same image the fix-bot uses; alias of agent-image)
 	python3 scripts/ci_images.py ensure agent
+
+issue-bot-triage: ## Hermes REVIEWS the issue (issue.md: body + the whole comment thread + the decision block) and writes its verdict to triage.md (implement | refine | close). No PR, nothing else touched; runs INSIDE the agent image
+	@python3 scripts/ci_images.py ensure agent
+	@$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo \
+	  -e NOUS_API_KEY -e HERMES_REASONING -e REPO \
+	  $(AGENT_IMAGE) bash -lc 'make _issue-bot-triage'
+
+_issue-bot-triage: # (internal) the host recipe the agent image runs: the decision, not the code
+	hermes -z "Load AGENTS.md for rules. Read issue.md at the repo root: it carries the issue, its WHOLE comment thread (oldest first), and the decision instruction. Follow that instruction and decide ONE verdict - implement, refine or close - then write it to triage.md at the repo root in exactly the required shape (a TRIAGE: line, plus REFINED:/EVIDENCE:/REASON: blocks as that verdict requires). HARD RULES: do NOT implement anything, do NOT modify any file other than triage.md, do NOT create a branch, do NOT push, do NOT comment on the issue yourself. A close without an EVIDENCE: block is refused by the next step, so cite what you checked. If a decision is still open in the thread, that is a refine, not a guess." $(nous-alias) --reasoning $(HERMES_REASONING) --yolo
+
+issue-bot-verdict: ## Apply the agent's TRIAGE verdict from triage.md: implement -> nothing (the PR path runs), refine -> ONE comment + agent:refined (no PR), close -> comment with the cited evidence + agent:closed (refused without EVIDENCE)
+	@test -n "$(ISSUE)" || { echo "Usage: make issue-bot-verdict ISSUE=<n> [REPO=<owner/repo>]"; exit 1; }
+	python3 scripts/issue_implementer.py apply-verdict triage.md --repo $(if $(REPO),$(REPO),asimov-agent/llgenie) --issue $(ISSUE)
 
 implement-issue: ## Implement issue.md with Hermes INSIDE the agent image (AGENTS.md is the authority; NOUS_API_KEY/GH_TOKEN from secrets; runs the gates; pushes nothing)
 	@python3 scripts/ci_images.py ensure agent

@@ -324,3 +324,125 @@ def test_the_image_wires_the_nous_token_as_a_custom_provider_alias():
     assert "the alias ${ALIAS} was not configured" in script, (
         "a bot whose alias is missing must fail loudly at build time, not at run time"
     )
+
+
+# ---------------------------------------------------------------------------
+# the whole thread, the verdict, and the three outcomes (issue #261)
+# ---------------------------------------------------------------------------
+def _thread_view(number=11, comments=None):
+    return {"number": number, "title": f"Fix the thing #{number}", "body": "body says add --foo",
+            "state": "open", "author": {"login": "andyholst"},
+            "labels": [{"name": "agent:ready"}], "comments": comments or []}
+
+
+def test_dispatch_fetches_the_whole_thread_and_renders_it(tmp_path, capsys):
+    """The thread is the specification: dispatch asks for the comments and issue.md carries them."""
+    comments = [{"author": {"login": "andyholst"}, "createdAt": "2026-10-14T09:00:00Z",
+                 "body": "only for CPU builds"},
+                {"author": {"login": "reviewer"}, "createdAt": "2026-10-14T10:30:00Z",
+                 "body": "and never on arm64"}]
+    gh, log = _fake_gh(tmp_path, {"labeled": [{"number": 11, "title": "Fix the thing #11",
+                                               "createdAt": "2026-10-01T00:00:00Z",
+                                               "labels": [{"name": "agent:implement"}]}],
+                                 "view": _thread_view(comments=comments)})
+    out = tmp_path / "issue.md"
+    r = ii.dispatch(str(gh), f"{OWNER}/{REPO_NAME}", ii.BOT_AUTHOR, today="2026-10-14", out_path=out)
+
+    # it asked for the thread, not just the body
+    view = [c for c in _calls(log) if c[:2] == ["issue", "view"]][0]
+    assert "--comments" in view, view
+    assert "comments" in view[view.index("--json") + 1]
+
+    # and the agent's input carries the body, every comment with author+date, and the decision
+    text = out.read_text()
+    assert "body says add --foo" in text
+    assert "only for CPU builds" in text and "and never on arm64" in text
+    assert "andyholst · 2026-10-14T09:00:00Z" in text and "reviewer · 2026-10-14T10:30:00Z" in text
+    assert "Comments (oldest first, 2)" in text
+    assert "## Decide first, then act" in text
+    for verdict in ("TRIAGE: implement", "TRIAGE: refine", "TRIAGE: close"):
+        assert verdict in text, verdict
+    assert r["branch"] == "agent/issue-11-fix-the-thing-11"
+
+
+def test_an_issue_already_decided_is_never_picked_again(tmp_path):
+    """A refine/close labels the issue, and dispatch must skip it — or the bot loops forever."""
+    gh, log = _fake_gh(tmp_path, {"labeled": [
+        {"number": 11, "title": "refined one", "createdAt": "2026-10-01T00:00:00Z",
+         "labels": [{"name": "agent:refined"}]},
+        {"number": 12, "title": "closed one", "createdAt": "2026-10-02T00:00:00Z",
+         "labels": [{"name": "agent:closed"}]},
+        {"number": 13, "title": "Fix the thing #13", "createdAt": "2026-10-03T00:00:00Z",
+         "labels": [{"name": "agent:implement"}]},
+    ], "view": _thread_view(number=13)})
+    r = ii.dispatch(str(gh), f"{OWNER}/{REPO_NAME}", ii.BOT_AUTHOR, today="2026-10-14",
+                    out_path=tmp_path / "issue.md")
+    assert r["issue"] == 13, r
+    assert [c for c in _calls(log) if c[:2] == ["issue", "view"]][0][2] == "13"
+
+
+def test_a_verdict_is_parsed_out_of_the_agents_output():
+    """The workflow parses the verdict mechanically, so the format is fixed and tested."""
+    assert ii.parse_verdict("TRIAGE: implement\n")["verdict"] == "implement"
+    v = ii.parse_verdict("TRIAGE: refine\nREFINED:\n- [ ] --foo on CPU only\nREASON: arm64 undecided\n")
+    assert v["verdict"] == "refine" and "--foo on CPU only" in v["refined"]
+    assert v["reason"] == "arm64 undecided"
+    v = ii.parse_verdict("TRIAGE: close\nEVIDENCE: #123 merged as 4b2c2f1 does exactly this\n")
+    assert v["verdict"] == "close" and "#123 merged as 4b2c2f1" in v["evidence"]
+    for bad in ("", "nothing to see", "TRIAGE: maybe\n"):
+        with pytest.raises(SystemExit):
+            ii.parse_verdict(bad)
+
+
+def test_an_implement_verdict_changes_nothing_itself(tmp_path):
+    """`implement` only lets the existing path run: apply-verdict must mutate nothing."""
+    gh, log = _fake_gh(tmp_path)
+    v = ii.apply_verdict(str(gh), f"{OWNER}/{REPO_NAME}", 11, "TRIAGE: implement\n")
+    assert v["verdict"] == "implement"
+    assert _calls(log) == [], _calls(log)
+
+
+def test_a_refine_posts_one_comment_and_labels_it_without_a_pr(tmp_path):
+    """A refine is a comment for humans: one comment, the label, and no PR."""
+    gh, log = _fake_gh(tmp_path)
+    ii.apply_verdict(str(gh), f"{OWNER}/{REPO_NAME}", 11,
+                     "TRIAGE: refine\nREFINED:\n- [ ] --foo on CPU only\nREASON: arm64 open\n")
+    calls = _calls(log)
+    comment = [c for c in calls if c[:2] == ["issue", "comment"]][0]
+    assert "11" in comment and "--foo on CPU only" in " ".join(comment)
+    edit = [c for c in calls if c[:2] == ["issue", "edit"]][0]
+    assert "agent:refined" in edit
+    assert not [c for c in calls if c[:2] == ["pr", "create"]]
+    assert not [c for c in calls if c[:2] == ["issue", "close"]]
+
+
+def test_a_refine_without_a_refined_block_is_refused(tmp_path):
+    """'It is unclear' is not a refinement: the block that restates the issue is required."""
+    gh, log = _fake_gh(tmp_path)
+    with pytest.raises(SystemExit):
+        ii.apply_verdict(str(gh), f"{OWNER}/{REPO_NAME}", 11, "TRIAGE: refine\nREASON: unclear\n")
+    assert _calls(log) == []
+
+
+def test_a_close_cites_evidence_then_closes_and_labels(tmp_path):
+    """Closing is allowed only with what was checked, and it must not be picked again."""
+    gh, log = _fake_gh(tmp_path)
+    ii.apply_verdict(str(gh), f"{OWNER}/{REPO_NAME}", 11,
+                     "TRIAGE: close\nEVIDENCE: #123 merged as 4b2c2f1 does exactly this\n"
+                     "REASON: already implemented\n")
+    calls = _calls(log)
+    comment = [c for c in calls if c[:2] == ["issue", "comment"]][0]
+    assert "4b2c2f1" in " ".join(comment) and "already implemented" in " ".join(comment)
+    close = [c for c in calls if c[:2] == ["issue", "close"]][0]
+    assert "11" in close and "not planned" in close
+    edit = [c for c in calls if c[:2] == ["issue", "edit"]][0]
+    assert "agent:closed" in edit and "agent:implement" in edit
+    assert not [c for c in calls if c[:2] == ["pr", "create"]]
+
+
+def test_a_close_without_evidence_is_refused_and_mutates_nothing(tmp_path):
+    """The one rule that must never soften: no evidence, no close."""
+    gh, log = _fake_gh(tmp_path)
+    with pytest.raises(SystemExit):
+        ii.apply_verdict(str(gh), f"{OWNER}/{REPO_NAME}", 11, "TRIAGE: close\nREASON: too hard\n")
+    assert _calls(log) == [], "a refused close must not comment, label or close anything"

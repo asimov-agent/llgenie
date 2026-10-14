@@ -313,7 +313,25 @@ make issue-bot-dispatch REPO=asimov-agent/llgenie   # cap -> pick -> claim -> is
 make issue-bot-open-pr REPO=<repo> ISSUE=<n> BRANCH=agent/issue-<n>-<slug>  # draft-free PR, never merges
 make implement-issue      # the shared Hermes agent step: read issue.md + AGENTS.md, implement, run gates, push nothing
 make hermes-smoke          # one real Hermes call through the implementer alias (die in seconds)
+make issue-bot-triage     # step 1: Hermes REVIEWS the issue.md thread (body + every comment) and writes triage.md
+make issue-bot-verdict ISSUE=<n>   # step 2: apply that verdict — implement | refine | close
 ```
+
+**The bot decides before it implements.** It reads the issue *and its whole comment thread*
+(`gh issue view --comments`), because the thread is where an issue is usually specified: a body
+that says "add `--foo`" with a later comment "only for CPU builds" is a different issue. It then
+picks ONE verdict, written to `triage.md`:
+
+- **`implement`** — actionable as written; the branch/gates/PR path runs as before.
+- **`refine`** — a real decision is still open or the acceptance criteria are missing: the bot
+  posts ONE comment with an implementable restatement and labels the issue `agent:refined`. No PR
+  that run; it does not rewrite someone else's issue body.
+- **`close`** — already implemented, superseded, a duplicate, or not a change this repo can make:
+  the bot comments the reason **with the evidence it checked** and closes the issue. A close
+  whose verdict carries no evidence is **refused**, because "hard" or "vague" is a refine.
+
+An issue labelled `agent:refined` or `agent:closed` is never picked again, so neither verdict can
+loop, and neither opens a PR — so it does not consume the 3/day PR cap.
 
 - **Cap**: at 3 PRs already opened today (counted from GitHub with
   `gh search prs --author <bot> --created ">=today 00:00Z"`), the run logs
