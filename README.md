@@ -555,6 +555,33 @@ key it has already filed, and a cap (3 per run) bounds a bad run — a weekly ru
 files nothing and stays quiet. The two API-backed checks need a token with admin to read the secret
 list; without one they warn loudly and skip rather than filing a claim they cannot support.
 
+## Dispatching a bot by hand (issue #276)
+Every workflow a human can start by hand states **what work the run will do** — in its name, in its
+dispatch form, and in the header block at the top of the file (`Trigger surface` / `Flow` / `Never`).
+A bot you cannot dispatch without reading its YAML is a bot only its author can operate.
+`make check-dispatch-forms` enforces it (in the `ci-unit` job): every dispatchable workflow must
+- have a `name:` that states the work, not the file name — `issue-bot — implements ONE issue per run
+  as a reviewable PR (never merges)`, so the Actions list reads as a list of jobs;
+- give every `workflow_dispatch` input a `description:` (written as the instruction a user needs) and
+  a `default:` or `required: true` — a bare `workflow_dispatch:` is allowed only with an explicit
+  `# dispatch: no inputs — <reason>` line, so "it takes no input" is a decision, not an oversight;
+- carry the header block, where `Flow` names the make target behind each stage and `Never` states the
+  invariants (never merges, never pushes to `main`, never edits code).
+The table below is generated from the workflows by `make dispatch-forms-report` and verified against
+them by `make check-dispatch-forms`, so the documentation you read before dispatching cannot drift
+from the pipeline that will run.
+<!-- dispatch-forms:begin -->
+| workflow | what the run does | dispatch inputs |
+|---|---|---|
+| `engine-bump-rebase.yml` | rebases every open engine-bump PR onto the latest main | `dry` (optional, default `false`) — print the PRs it would rebase and push nothing (no branch is touched) |
+| `engine-bump.yml` | bumps pinned engines to their newest upstream release and opens the PR | `engine` (optional) — Only bump this engine (id); empty = all |
+| `fix-bot.yml` | repairs a failing PR branch until its checks pass (never merges) | `pr_number` (optional) — PR number whose branch should be repaired<br>`branch` (optional) — PR head branch (used when pr_number is empty)<br>`check` (optional, default `make ci-unit`) — the deterministic check to drive the loop<br>`rounds` (optional, default `3`) — repair attempts (default 3) |
+| `issue-bot.yml` | implements ONE issue per run as a reviewable PR (never merges) | `issue_number` (required) — Issue to implement (owner only) |
+| `publish-agent-image.yml` | builds + pushes the Hermes agent image when its hash is not on GHCR yet | `force` (optional, default `false`) — Rebuild + push even if the hash tag is already on GHCR |
+| `queued-alarm.yml` | reports CI jobs queued far too long, once per affected run | `minutes` (optional, default `30`) — report jobs queued longer than this many minutes |
+| `registry-sync.yml` | syncs the vendored registry and regenerates the derived tables, then opens the PR | none — the sync has no modes: it always fetches the upstream registry, regenerates |
+<!-- dispatch-forms:end -->
+
 ## Which llama.cpp build is used (card-size rule, issue #84)
 
 `make install` picks the llama.cpp **tree** (upstream or Prism) and the **backend** from the

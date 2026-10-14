@@ -6,8 +6,13 @@
 #
 # No conditional job anywhere: issue #107 requires the decision to live in code, and it does —
 # scripts/queued_run_alarm.py decides what counts as stuck and what to report.
-name: Queued-run alarm
+name: queued-alarm — reports CI jobs queued far too long, once per affected run
 
+# Trigger surface: schedule twice an hour (`7,37 * * * *` — GitHub drops top-of-hour runs), and
+#                  workflow_dispatch (`minutes` = the queue-age threshold).
+# Flow: guard -> make queued-alarm (scripts/queued_run_alarm.py: list the runs still `queued` past
+#       the threshold and comment once per affected run).
+# Never: never cancels a run, never merges, never comments twice on the same run.
 on:
   schedule:
     - cron: "7,37 * * * *"   # twice an hour (an odd minute; GitHub drops top-of-hour runs)
@@ -38,5 +43,5 @@ jobs:
           GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
         run: |
           set -euo pipefail
-          python3 scripts/queued_run_alarm.py --repo "${{ github.repository }}" \
-            --minutes "${{ inputs.minutes || '30' }}" --comment
+          make queued-alarm REPO="${{ github.repository }}" \
+            MINUTES="${{ inputs.minutes || '30' }}" COMMENT=1

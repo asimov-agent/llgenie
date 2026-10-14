@@ -9,6 +9,7 @@ from __future__ import annotations
 import datetime as dt
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -161,8 +162,21 @@ class TestWorkflowYaml:
         # Then it has a daily cron, checks out with BUMP_TOKEN, and runs the entrypoint
         # The minute moved with issue #275: every bot owns its own slot. It must still be DAILY.
         assert "cron:" in text and "41 5 * * *" in text, "must have a daily cron on its own minute"
+        # Given the workflow file and the make target behind its step
+        root = Path(__file__).resolve().parent.parent
+        text = (root / ".github/workflows/engine-bump-rebase.yml").read_text()
+        makefile = (root / "Makefile").read_text()
+        # Then it has a daily cron, checks out with BUMP_TOKEN, and reaches the entrypoint through
+        # `make` (a workflow step calls a make target and nothing else) — with the `dry` input the
+        # dispatch form offers wired to the script's own `--dry`
+        assert "cron:" in text and "17 5 * * *" in text, "must have a daily cron"
         assert "secrets.BUMP_TOKEN" in text, "must use the owner PAT"
-        assert "engine_bump_rebase.py" in text, "must run the rebase entrypoint"
+        assert "make engine-bump-rebase" in text, "the step must call the make target"
+        assert "engine_bump_rebase.py" not in text.split("on:", 1)[1], \
+            "the run block must not call the script directly (issue #270's rule)"
+        assert re.search(r"^engine-bump-rebase:.*\n\tpython3 scripts/engine_bump_rebase\.py", makefile,
+                         re.M), "the make target must run the entrypoint"
+        assert "inputs.dry" in text, "the documented `dry` input must reach the target"
         assert "workflow_dispatch" in text, "must allow manual dispatch"
 
     def test_guard_sends_the_token_variable(self):

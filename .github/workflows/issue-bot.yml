@@ -1,4 +1,4 @@
-name: issue-bot
+name: issue-bot — implements ONE issue per run as a reviewable PR (never merges)
 
 # ISSUE-BOT — implements ONE issue per run (issue #248), at most 3 a day, each
 # left as a draft-free reviewable PR that is NEVER merged.
@@ -20,6 +20,15 @@ name: issue-bot
 # dispatch's cap is the hard bound: once 3 PRs exist today, the run stops before
 # any work, with a "cap reached" log and no comment (no spam).
 
+# Trigger surface: the explicit `agent:implement` label, schedule daily 06:23 UTC, and
+#                  workflow_dispatch for the owner (`issue_number`).
+# Flow: guard -> make issue-bot-dispatch (cap -> pick ONE issue -> claim -> issue.md + branch)
+#       -> make issue-bot-triage (Hermes reads the body + the WHOLE thread and writes a verdict)
+#       -> make issue-bot-verdict (implement | refine | close) -> make implement-issue (Hermes
+#       implements it inside the agent image, runs the gates, pushes nothing) -> push the branch
+#       -> make issue-bot-open-pr (draft-free PR that closes the issue) -> report on the issue.
+# Never: never merges, never pushes to `main`, never implements a batch, never exceeds the 3 PRs/day
+#        cap (the cap stops the run before any work, with no comment: no spam).
 on:
   issues:
     types: [labeled]

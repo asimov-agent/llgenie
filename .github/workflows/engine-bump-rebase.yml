@@ -1,4 +1,4 @@
-name: engine-bump-rebase
+name: engine-bump-rebase — rebases every open engine-bump PR onto the latest main
 
 # Issue #208: keep the open engine-bump PRs (chore/engine-bump-*, created by
 # engine-bump.yml, issue #107) current with the latest `main`. The engine-bump
@@ -15,10 +15,22 @@ name: engine-bump-rebase
 # not GITHUB_TOKEN (issue #136): a push made with GITHUB_TOKEN starts no
 # workflows, and the PAT is what engine-bump.yml already uses to write the
 # upstream branches.
+# Trigger surface: schedule daily 05:17 UTC, and workflow_dispatch (owner/collaborator; `dry=true`
+#                  prints the plan and pushes nothing).
+# Flow: guard (owner/collaborator/bot, BEFORE any secret is read) -> make engine-bump-rebase
+#       (scripts/engine_bump_rebase.py: every open `chore/engine-bump-*` PR that is behind `main`
+#       gets the latest `main` forward-merged in and is force-with-lease pushed).
+# Never: never merges a PR, never pushes to `main`, never touches a branch whose merge conflicts —
+#        a conflicting PR is left for a human.
 on:
   schedule:
     - cron: "41 5 * * *"   # daily: 05:41 UTC (unique minute, issue #275)
   workflow_dispatch:
+    inputs:
+      dry:
+        description: "print the PRs it would rebase and push nothing (no branch is touched)"
+        required: false
+        default: "false"
 
 permissions:
   contents: write
@@ -76,4 +88,4 @@ jobs:
         run: |
           git config user.name "$(gh api user --jq .login)"
           git config user.email "$(gh api user --jq .id)+$(gh api user --jq .login)@users.noreply.github.com"
-          python3 scripts/engine_bump_rebase.py
+          make engine-bump-rebase ${{ inputs.dry == 'true' && 'DRY=1' || '' }}

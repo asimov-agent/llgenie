@@ -1,4 +1,4 @@
-name: registry-sync
+name: registry-sync — syncs the vendored registry and regenerates the derived tables, then opens the PR
 
 # Issue #105, #179: keep the vendored data/models.json (llgenie's trend pick) in
 # sync with andyholst/trending-local-llms. Weekly cron, separate from the
@@ -10,6 +10,14 @@ name: registry-sync
 # (secrets.BUMP_TOKEN), not GITHUB_TOKEN (issue #136). A PR authored by
 # github-actions[bot] holds every pull_request workflow for manual approval,
 # and a push made with GITHUB_TOKEN starts no workflows.
+# Trigger surface: schedule weekly Monday 05:17 UTC, and workflow_dispatch (owner/collaborator).
+# Flow: guard -> make sync-registry -> make sync-quant-catalog -> make render-trend-list-matrix
+#       -> make render-engine-skill-gap -> (when something changed) make check-registry,
+#       check-quant-catalog, engine-skill-gap, skills-validate, test-unit -> make
+#       spawn-engine-skill-issues -> push `chore/registry-sync` and open or update its PR.
+# Never: never merges, never pushes to `main`, never pushes a file the checks did not pass on.
+# dispatch: no inputs — the sync has no modes: it always fetches the upstream registry, regenerates
+#           every derived table, and opens or updates the same PR only when a file changed.
 on:
   schedule:
     - cron: "19 5 * * 1"   # Monday 05:19 UTC (unique minute, issue #275)

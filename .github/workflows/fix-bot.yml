@@ -25,8 +25,15 @@
 #
 # Local equivalent (repo checked out on the PR branch):
 #   NOUS_API_KEY=... FIX_ROUNDS=3 scripts/fix_loop.sh
-name: PR fix-bot
+name: fix-bot — repairs a failing PR branch until its checks pass (never merges)
 
+# Trigger surface: its own schedule (hourly, `17 * * * *`), the scheduled sweep's own dispatch call,
+#                  and `workflow_dispatch` by hand (owner/collaborator).
+# Flow: guard (owner/collaborator, BEFORE any secret is read) -> make fix-bot-sweep (decide which PR
+#       deserves the bot) -> make fix-loop-image (run the failing check, hand it to Hermes, re-check,
+#       up to `rounds`) -> push the green tree as ONE commit -> make fix-bot-report (comment).
+# Never: never merges, never pushes to `main`, never commits or pushes a tree whose check is still
+#        red, never loops past `rounds` attempts.
 on:
   # The sweep (below) asks scripts/fix_bot_sweep.py which PR to repair, then dispatches
   # this workflow with that PR; the sibling repo's lesson is that a schedule is a safer
@@ -38,9 +45,11 @@ on:
       pr_number:
         description: "PR number whose branch should be repaired"
         required: false
+        default: ""
       branch:
         description: "PR head branch (used when pr_number is empty)"
         required: false
+        default: ""
       check:
         description: "the deterministic check to drive the loop"
         required: false
