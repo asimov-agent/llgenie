@@ -670,8 +670,12 @@ thin trend list (`llgenie` then ranks engines from data that no longer exists).
   `(engine, hardware)` measurement group, a lowered t/s, a lowered engagement
   counter, a lost `backends` / `supported_engines` entry, a lost format, or a
   removed engine-registry entry.
-- **`make check-registry-keys`** drives it and is part of `make check-registry`
-  (the CI unit job), so a lossy sync PR cannot go green. Test:
+- **`make check-registry-keys`** drives it and is part of `make check-registry`,
+  which `make ci-unit` (`.github/workflows/pipeline.yml`) and the weekly
+  `.github/workflows/registry-sync.yml` job both run — a guard no CI job executes
+  is a defect, never a spare part (bundle it into an existing target or add its
+  own target following the internal-`_name` + public-wrapper pattern; the upstream
+  twin of this rule is trending-local-llms rule 6d). Test:
   `tests/test_registry_keys.py`, wired into `make test-unit`.
 - The same rule is enforced where the store is WRITTEN — trending-local-llms
   `check_no_value_loss` (its issue #114). llgenie never patches upstream data to
