@@ -1,0 +1,30 @@
+{
+  "note": "Documents that a human runs by hand and that no CI job reaches, on purpose (issue #237). `make check-wiring` fails when a document is named only by a target CI never calls and no entry here records why — an omission has to be a dated decision, not an accident. An entry that CI starts reaching is STALE and must be deleted, so this file cannot rot either.",
+  "decided_utc": "2026-10-14",
+  "documents": {
+    "tests/test_health.py": {
+      "reason": "The INSTALLED launcher serves the 0.5B model on this host's real backend (Metal on an Apple-Silicon Mac, the host docker on Linux) — hardware, not a gate. A CI runner has neither, and the cpu-health stage answers \"hi\" through the engine image instead (make test-health).",
+      "target": "test-health-host",
+      "decided": "2026-10-14",
+      "issue": 237
+    },
+    "tests/test_native_engine_real.py": {
+      "reason": "Native Metal engines (issue #114) run only on an Apple-Silicon host: a CI runner has no Metal GPU and every Linux engine is tested inside its own image. The macOS pipeline runs the non-Metal half.",
+      "target": "test-native-engine",
+      "decided": "2026-10-14",
+      "issue": 237
+    },
+    "tests/test_native_engine_light.py": {
+      "reason": "Same Metal-only scope as test_native_engine_real.py: it serves the lightest TensorFold model through the native start script, or proves the budget refusal on a host too small for it — both need real Metal.",
+      "target": "test-native-engine-light",
+      "decided": "2026-10-14",
+      "issue": 237
+    },
+    "tests/test_interactive_tensorfold_real.py": {
+      "reason": "The interactive pty pick with a REAL native install and Metal serve (issue #114). Metal-only; the macOS runner variant (make test-interactive-tensorfold-ci, --dry) is the CI-adjacent form and the real serve stays a human-run check.",
+      "target": "test-interactive-tensorfold",
+      "decided": "2026-10-14",
+      "issue": 237
+    }
+  }
+}

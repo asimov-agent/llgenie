@@ -230,7 +230,27 @@ make check-engine-skill-gap    # CI gate: fail on a registry engine with no skil
                                # decision, a stale decision, or a stale rendered file
 make engine-skill-gap          # show that gap (shipped / known-unsupported / NEW-unresolved)
 make spawn-engine-skill-issues # open one tracking issue per NEW unskilled engine (the sync does this)
+make check-wiring              # CI: fail when a test/script is wired to no make target, or only to
+                               # one CI never runs (tests/fixtures/host-only-wiring.json records the
+                               # deliberate ones), or a workflow calls a make target that does not exist
+make wiring-report            # show how every test/script is wired (which target, whether CI runs it)
 ```
+
+Every check needs exactly one `make` path, and CI must be the one that runs it — so the
+wiring is itself checked: a new `tests/test_*.py` nobody names, a `scripts/*.py` nothing
+references or imports, or a `make <target>` typo in a workflow `run:` block fails
+`make check-wiring` (a step of `ci-unit`) and names what to fix. The same gate covers the
+Makefile's own promises: a target whose `##` comment claims CI coverage (a CI job, pipeline,
+matrix or runner) that no CI job reaches is an error, or a recorded, dated entry in
+`tests/fixtures/host-only-wiring.json` (`targets`) — that is how `make test-install-ci`
+(#239) and `make ci-engine-images` are on the record instead of being believed. A check that
+can only run by hand — a native-Metal engine, the installed launcher on real hardware — is
+recorded the same way (with the target a human runs); the moment CI reaches it, the entry is
+stale and the gate says to delete it. The same check covers the code inside those scripts:
+a top-level definition whose name appears exactly once in the tree is its own `def` line and
+nothing else — dead — so a helper that loses its last caller is named instead of sitting
+there.
+
 
 The `registry-sync` workflow runs `make sync-registry` weekly (cron `17 5 * * 1`,
 Monday 05:17 UTC), regenerates the quant catalog (`make sync-quant-catalog`), the

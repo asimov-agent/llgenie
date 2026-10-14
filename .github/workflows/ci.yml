@@ -226,11 +226,12 @@ jobs:
         run: uv tool install "huggingface_hub[cli]>=0.30"
       # POST-BUILD TEST STAGE: every engine image is tested once built, in parallel, by ONE
       # step (no skipped step, issue #117): make test-engine-stage TEST=<matrix.test> runs
-      # tests/test_engine_runs.py for 'serve' (cpu images serve a tiny model and must answer
-      # on the OpenAI endpoint: GET /v1/models -> llm-local, chat completion "hi") and
+      # scripts/engine_smoke.py --image for 'serve' (the cpu image serves a tiny model and
+      # must answer on the OpenAI endpoint: GET /v1/models -> llm-local, chat completion
+      # "hi"; that script pytest-runs tests/test_engine_runs.py inside llgenie/test) and
       # tests/test_engine_version.py for 'detect' (GPU images can't serve on a GPU-less
       # runner, so their entrypoint must at least report the engine version).
-      - name: "post-build test: make test-engine-stage TEST=${{ matrix.test }} (serve: pytest tests/test_engine_runs.py in llgenie/test (endpoint: answers on the OpenAI API); detect: pytest tests/test_engine_version.py (engine binary reports its version))"
+      - name: "post-build test: make test-engine-stage TEST=${{ matrix.test }} (serve: scripts/engine_smoke.py --image -> pytest tests/test_engine_runs.py in llgenie/test (endpoint: answers on the OpenAI API); detect: pytest tests/test_engine_version.py (engine binary reports its version))"
         if: ${{ matrix.engine != 'none' }}
         run: make test-engine-stage ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} TEST=${{ matrix.test }}
       # PUBLISH STAGE: every push run (any branch), only after the build AND its tests passed

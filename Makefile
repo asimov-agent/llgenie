@@ -59,7 +59,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	build-server build-variant serve-variant test-serve-variant stop-serve-variant install-prism-cpu install-upstream-cpu \
 	install-prism-cuda install-upstream-cuda install-prism-metal install-upstream-metal \
 	sync-registry check-registry skills-validate engine-list engine-hardware engine-plan engine-check engine-install engine-detect engine-smoke test-engine ci-engine-images build-engine-base build-engines generate-build-engine-params test-engine-image push-engine test-published-engine test-install-published engine-launchers test-built-engine test-uninstalled \
-	sync-quant-catalog check-quant-catalog render-trend-list-matrix check-trend-list-matrix render-engine-skill-gap check-engine-skill-gap engine-skill-gap spawn-engine-skill-issues sync-strata-models check-strata-models \
+	sync-quant-catalog check-quant-catalog render-trend-list-matrix check-trend-list-matrix render-engine-skill-gap check-engine-skill-gap engine-skill-gap spawn-engine-skill-issues sync-strata-models check-strata-models check-wiring wiring-report \
 	generate-engine-params check-engine-params build-engine run-engine stop-engine list-engine-images \
 	ci-lint ci-unit ci-agents-read ci-openspec ci-cpu-health ci-top-tier ci-install ci-free-disk test-engine-stage
 
@@ -260,6 +260,10 @@ sync-strata-models: ## Write data/strata_models.json from Strata's setup.py at t
 	python3 scripts/strata_models.py sync
 check-strata-models: ## CI: fail when data/strata_models.json differs from Strata's setup.py at the pinned commit
 	python3 scripts/strata_models.py check
+check-wiring: ## CI: fail when a test/script is wired to no make target or only to one CI never runs, when a recorded host-only exception is stale, or when a workflow calls a make target that does not exist
+	python3 scripts/check_wiring.py check
+wiring-report: ## Show how every test/script is wired (which make target, and whether CI runs it) and the recorded host-only exceptions
+	python3 scripts/check_wiring.py report
 # UNSUPPORTED=<file>: upstream engines with no skill are omitted from the trend
 # offer (no image). Passing the decisions file tolerates ONLY the engines recorded
 # there with a dated decision (issue #229); an engine with no skill and no decision
@@ -366,7 +370,7 @@ test-engine-image: ## GPU images on GPU-less CI: run tests/test_engine_version.p
 test-engine: ## Run ENGINE's image with a tiny model and curl its OpenAI API on the published port
 	@test -n "$(ENGINE)" || { echo "Usage: make test-engine ENGINE=<id> [ARCH=cpu-portable]"; exit 1; }
 	python3 scripts/engine_smoke.py "$(ENGINE)" $(ARCH_ARGS) --image
-engine-smoke: ## Install ENGINE via its skill, serve a tiny model, assert llm-local answers (CI engine-smoke job)
+engine-smoke: ## Install ENGINE via its skill, serve a tiny model, assert llm-local answers (a HOST entry point; CI's per-engine serve check is `make test-engine-stage TEST=serve` inside the engine-image jobs, and `make test-published-engine` on the published image)
 	@test -n "$(ENGINE)" || { echo "Usage: make engine-smoke ENGINE=<id> [BACKEND=cpu]"; exit 1; }
 	python3 scripts/engine_smoke.py "$(ENGINE)" $(ENGINE_ARGS)
 engine-detect: ## Is ENGINE installed? Runs the skill's detect (ENGINE=<id> [BACKEND=])
@@ -492,7 +496,7 @@ publish-ci-images: ## CI job ci-images: build + push the test and OpenSpec image
 ci-image-refs: ## Print the GHCR refs of the CI images for the current Dockerfiles + lockfiles
 	@python3 scripts/ci_images.py ref
 
-test-variant-image: ## Build the CUDA toolkit + python variant-build image for CI variant builds
+test-variant-image: ## Build the CUDA toolkit + python variant-build image locally (the variant-build matrix is no longer a pipeline job; this reproduces it by hand)
 	@cp tools/requirements.txt tools/requirements-dev.txt containers/ci-variant/
 	$(RUNTIME) build -t $(VARIANT_IMG) containers/ci-variant/
 	@echo "Variant image built: $(VARIANT_IMG)"
@@ -515,7 +519,7 @@ test-clean: ## Remove left-over/stopped orphaned containers of the test image (i
 	echo "Pruned stopped orphaned $(TEST_IMG) containers."
 
 test-unit: ## Hermetic unit tests (containerized) — includes the lint regression + openspec-tasks-check tests
-	$(TEST_RUN) python -m pytest tests/test_llama_ai.py tests/test_hf_auth.py tests/test_hf_download_stall.py tests/test_hf_download_retry.py tests/test_lint_linefeeds.py tests/test_engine_bump_sync.py tests/test_engine_bump_rebase.py tests/test_check_openspec_tasks.py tests/test_remove_watchloop.py tests/test_ci_variant_matrix.py tests/test_serve_variant.py tests/test_ensure_user_path.py tests/test_engine_skills.py tests/test_engine_bump.py tests/test_engine_bump_pr_body.py tests/test_detect_server.py tests/test_model_engine_pick.py tests/test_trend_pick.py tests/test_registry_sync_trend.py tests/test_trend_list_matrix.py tests/test_registry_keys.py tests/test_engine_skill_gap.py tests/test_strata_download.py tests/test_macos_install.py tests/test_ci_images.py tests/test_mac_trend_pick.py tests/test_trend_list_acceptance.py tests/test_tensorfold_seamless.py tests/test_pick_matrix.py tests/test_pick_matrix_arch_perms.py tests/test_pick_full_registry.py tests/test_trending_quant_catalog.py tests/test_engine_supported_quants.py tests/test_quant_generator_edges.py tests/test_check_python_uv.py tests/test_engine_image_matrix.py tests/test_agents_worktree.py tests/test_agents_debt_analysis.py -p no:cacheprovider -q -k 'not test_derive_reports_the_live_release_archives and not test_tensorfold_v1_0_5_release_is_native_archives and not test_tensorfold_release_archive_unpacks_and_runs'
+	$(TEST_RUN) python -m pytest tests/test_llama_ai.py tests/test_hf_auth.py tests/test_hf_download_stall.py tests/test_hf_download_retry.py tests/test_lint_linefeeds.py tests/test_engine_bump_sync.py tests/test_engine_bump_rebase.py tests/test_check_openspec_tasks.py tests/test_remove_watchloop.py tests/test_ci_variant_matrix.py tests/test_serve_variant.py tests/test_ensure_user_path.py tests/test_engine_skills.py tests/test_engine_bump.py tests/test_engine_bump_pr_body.py tests/test_detect_server.py tests/test_model_engine_pick.py tests/test_trend_pick.py tests/test_registry_sync_trend.py tests/test_trend_list_matrix.py tests/test_registry_keys.py tests/test_engine_skill_gap.py tests/test_strata_download.py tests/test_macos_install.py tests/test_ci_images.py tests/test_mac_trend_pick.py tests/test_trend_list_acceptance.py tests/test_tensorfold_seamless.py tests/test_pick_matrix.py tests/test_pick_matrix_arch_perms.py tests/test_pick_full_registry.py tests/test_trending_quant_catalog.py tests/test_engine_supported_quants.py tests/test_quant_generator_edges.py tests/test_check_python_uv.py tests/test_engine_image_matrix.py tests/test_agents_worktree.py tests/test_agents_debt_analysis.py tests/test_wiring.py -p no:cacheprovider -q -k 'not test_derive_reports_the_live_release_archives and not test_tensorfold_v1_0_5_release_is_native_archives and not test_tensorfold_release_archive_unpacks_and_runs'
 
 # Live GitHub release reads. Linux only: the macOS runner cannot reach
 # api.github.com, and TensorFold publishes no macos-x86_64 archive.
@@ -722,6 +726,7 @@ ci-unit: bash-check ## CI job unit: hermetic unit tests + registry / skill / Str
 	$(MAKE) skills-validate REGISTRY=data/models.json UNSUPPORTED=data/unsupported-engines.json
 	$(MAKE) check-engine-skill-gap
 	$(MAKE) check-engine-params
+	$(MAKE) check-wiring
 
 ci-agents-read: bash-check ## CI job agents-read: make test-agents-read (Python 3.12 venv -> AGENTS.md scan -> guard tests)
 	$(MAKE) test-agents-read
@@ -794,6 +799,8 @@ help:
 	@echo "  make check-engine-skill-gap      CI gate: a registry engine with no skill and no dated decision in data/unsupported-engines.json, a stale decision, or a stale file"
 	@echo "  make engine-skill-gap            show the gap: shipped / known-unsupported / NEW-unresolved engines"
 	@echo "  make spawn-engine-skill-issues   open one tracking issue per NEW unskilled engine (the weekly sync runs this)"
+	@echo "  make check-wiring                CI: fail when a test/script is wired to no make target, or only to one CI never runs (tests/fixtures/host-only-wiring.json records the deliberate ones)"
+	@echo "  make wiring-report               show how every test/script is wired (target + whether CI runs it) and the host-only exceptions"
 	@echo "  make build-engine ENGINE=<id> [ARCH=cpu|cuda|rocm|vulkan] [PUSH=1]   build from the generated Dockerfile"
 	@echo "  make build-engine-<id>-<arch>    e.g. build-engine-vllm-cuda, build-engine-llama.cpp-prism-rocm"
 	@echo "  make build-engines ARCH=<arch>   every engine for one arch"
