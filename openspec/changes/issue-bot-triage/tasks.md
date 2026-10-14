@@ -13,3 +13,10 @@
 - [x] 7. README + agent-wiki + this change, so #257's docs gate is satisfied by the change itself.
 - [x] 8. Verify: the suite, `make check-docs`, `make lint`, `make check-wiring`,
       `openspec-validate NAME=issue-bot-triage`.
+- [x] 9. Fix the two real-CLI bugs this change shipped with, found by running the dispatch against
+      the live repo: (a) `gh issue view --comments --json ...` is REFUSED by `gh` ("specify only one
+      of --comments or --json"), so every dispatch failed before it picked an issue — the comments
+      now come from `--json` alone; (b) the forced-issue check compared the state against a
+      lowercase `"open"` while `gh --json state` returns `OPEN`, so it refused every real issue.
+      The fixtures now use the REAL values (`OPEN`/`CLOSED`) and a test scans every argv the
+      dispatch builds for the flag combination the CLI rejects.

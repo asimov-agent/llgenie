@@ -4,9 +4,15 @@
 
 ### Requirement: The bot reads the issue body and every comment
 
-`dispatch` SHALL fetch the issue with `gh issue view <n> --comments` and the agent's input SHALL
-contain the title, state, author, the body, and every comment in chronological order with its
-author and date, followed by the decision instruction and the exact verdict format.
+`dispatch` SHALL fetch the issue through `gh issue view <n> --json
+number,title,body,state,author,labels,comments` — the comments come with the JSON, and `gh`
+REJECTS `--comments` together with `--json` ("specify only one of --comments or --json"), which
+made every dispatch fail until that was fixed — and the agent's input SHALL contain the title,
+state, author, the body, and every comment in chronological order with its author and date,
+followed by the decision instruction and the exact verdict format.
+
+`dispatch` SHALL treat the issue's state case-insensitively: `gh issue view --json state` returns
+the CLI's own enum, `OPEN`/`CLOSED`, so a lowercase comparison refuses every real issue.
 
 #### Scenario: the thread reaches the agent
 
@@ -14,6 +20,10 @@ author and date, followed by the decision instruction and the exact verdict form
 - **WHEN** `dispatch` writes `issue.md`
 - **THEN** the file SHALL contain both comments with their authors and dates
 - **AND** it SHALL state the three verdicts and their required blocks
+- **Test:** `tests/test_issue_implementer.py::test_dispatch_fetches_the_whole_thread_and_renders_it`
+- **Test:** `tests/test_issue_implementer.py::test_no_gh_call_combines_comments_with_json`
+- **Test:** `tests/test_issue_implementer.py::test_force_issue_pins_dispatch_to_that_issue`
+- **Test:** `tests/test_issue_implementer.py::test_force_issue_that_is_closed_does_not_dispatch`
 
 ### Requirement: The verdict is one of three, and closing needs evidence
 

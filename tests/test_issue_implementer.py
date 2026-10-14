@@ -196,7 +196,7 @@ def test_force_issue_pins_dispatch_to_that_issue(tmp_path):
         "prs": [],
         "labeled": [{"number": 11, "title": "Fix the thing", "createdAt": "2026-10-14T00:00:00Z"}],
         "ready": [{"number": 12, "title": "Ready", "createdAt": "2026-10-13T00:00:00Z"}],
-        "view": {"number": 99, "title": "The labeled issue", "body": "state=open", "state": "open"}})
+        "view": {"number": 99, "title": "The labeled issue", "body": "state=open", "state": "OPEN"}})
     r = ii.dispatch(str(gh), f"{OWNER}/{REPO_NAME}", ii.BOT_AUTHOR,
                     today="2026-10-14", out_path=tmp_path / "issue.md", force_issue=99)
     # It claims the FORCED issue (99), never the oldest labeled (11) or ready (12).
@@ -214,7 +214,7 @@ def test_force_issue_that_is_closed_does_not_dispatch(tmp_path):
     """A forced non-open issue is reported as none, never claimed."""
     gh, log = _fake_gh(tmp_path, {
         "prs": [],
-        "view": {"number": 99, "title": "Closed", "body": "", "state": "closed"}})
+        "view": {"number": 99, "title": "Closed", "body": "", "state": "CLOSED"}})
     r = ii.dispatch(str(gh), f"{OWNER}/{REPO_NAME}", ii.BOT_AUTHOR,
                     today="2026-10-14", out_path=tmp_path / "issue.md", force_issue=99)
     assert r["action"] == "none" and r["issue"] is None
@@ -350,9 +350,10 @@ def test_dispatch_fetches_the_whole_thread_and_renders_it(tmp_path, capsys):
     out = tmp_path / "issue.md"
     r = ii.dispatch(str(gh), f"{OWNER}/{REPO_NAME}", ii.BOT_AUTHOR, today="2026-10-14", out_path=out)
 
-    # it asked for the thread, not just the body
+    # it asked for the thread through --json (comments come with the JSON: `gh` rejects
+    # `--comments` combined with `--json`, which is what broke every dispatch)
     view = [c for c in _calls(log) if c[:2] == ["issue", "view"]][0]
-    assert "--comments" in view, view
+    assert "--comments" not in view, view
     assert "comments" in view[view.index("--json") + 1]
 
     # and the agent's input carries the body, every comment with author+date, and the decision
@@ -511,3 +512,22 @@ def test_the_shared_helper_is_byte_identical_to_the_refiner_copy():
     here = pathlib.Path(__file__).resolve().parent.parent / "scripts" / "bot_claims.py"
     digest = hashlib.sha256(here.read_bytes()).hexdigest()
     assert len(digest) == 64 and "bot-claim" in here.read_text()
+# ---------------------------------------------------------------------------
+# the argv the REAL `gh` accepts
+# ---------------------------------------------------------------------------
+def test_no_gh_call_combines_comments_with_json(tmp_path):
+    """`gh` rejects `--comments` together with `--json` — that argv broke every dispatch.
+    A fake `gh` answers whatever it is asked, so a fixture alone cannot catch a flag combination
+    the real CLI refuses: this test encodes that constraint and scans EVERY argv a full dispatch
+    builds (measured: `gh 2.102.0` exits 1 with "specify only one of --comments or --json", so
+    `make issue-bot-dispatch` never produced an issue for the implementer to work on).
+    """
+    labeled = [{"number": 11, "title": "Fix the thing #11", "createdAt": "2026-10-01T00:00:00Z",
+                "labels": [{"name": "agent:implement"}]}]
+    gh, log = _fake_gh(tmp_path, {"labeled": labeled, "view": _thread_view()})
+    ii.dispatch(str(gh), f"{OWNER}/{REPO_NAME}", ii.BOT_AUTHOR, today="2026-10-14",
+                out_path=tmp_path / "issue.md")
+    calls = _calls(log)
+    assert calls, "the dispatch built no argv at all"
+    for call in calls:
+        assert not ("--comments" in call and "--json" in call), call

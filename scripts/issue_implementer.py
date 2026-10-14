@@ -143,8 +143,13 @@ def _issue_list(gh: str, repo: str, label: str) -> list[dict]:
 
 
 def _thread(gh: str, repo: str, num: int) -> dict:
-    """The issue WITH its comments: the thread is the specification, not just the body."""
-    out = _gh(gh, ["issue", "view", str(num), "--repo", repo, "--comments",
+    """The issue WITH its comments: the thread is the specification, not just the body.
+
+    `--json ...comments` already returns the thread; `gh` rejects `--comments` together with
+    `--json` ("specify only one of --comments or --json"), which is what broke every dispatch
+    until this was fixed. Ask for the comments through `--json` only.
+    """
+    out = _gh(gh, ["issue", "view", str(num), "--repo", repo,
                    "--json", "number,title,body,state,author,labels,comments"])
     return json.loads(out or "{}")
 
@@ -193,7 +198,10 @@ def dispatch(gh: str, repo: str, bot: str, dry: bool = False, today: str | None 
     if force_issue is not None:
         # A workflow_dispatch pins dispatch to the explicit issue (owner-only path).
         detail = _thread(gh, repo, force_issue)
-        if detail.get("state") != "open":
+        # `gh issue view --json state` returns the CLI's own enum: "OPEN" / "CLOSED", uppercase.
+        # Comparing against a lowercase literal refused every real issue ("is 'OPEN', not open"),
+        # so the check is case-insensitive — and the fixtures below use the REAL values.
+        if (detail.get("state") or "").strip().lower() != "open":
             print(f"[issue-implementer] forced issue #{force_issue} is '{detail.get('state')}', not open")
             return {"action": "none", "count": n, "issue": None}
         title = detail["title"]

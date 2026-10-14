@@ -327,7 +327,9 @@ make issue-bot-verdict ISSUE=<n>   # step 2: apply that verdict — implement | 
 ```
 
 **The bot decides before it implements.** It reads the issue *and its whole comment thread*
-(`gh issue view --comments`), because the thread is where an issue is usually specified: a body
+(`gh issue view <n> --json number,title,body,state,author,labels,comments` — the comments come with the
+JSON, and `gh` **refuses** `--comments` together with `--json`, which is what broke every dispatch
+until #268 fixed it), because the thread is where an issue is usually specified: a body
 that says "add `--foo`" with a later comment "only for CPU builds" is a different issue. It then
 picks ONE verdict, written to `triage.md`:
 
