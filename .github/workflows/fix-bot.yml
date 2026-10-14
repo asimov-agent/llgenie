@@ -12,6 +12,17 @@
 # pushes the working tree as ONE commit only when the loop ends green, with the owner
 # PAT so the push re-triggers CI, and never merges: a human reviews the result.
 #
+# Time budget: the loop can run FIX_ROUNDS rounds, and each round is the failing check
+# plus an agent repair. `make ci-unit` (the default check) is measured at 11-20 minutes on
+# a linux runner depending on container pulls, and a repair that reads AGENTS.md, edits and
+# re-runs the gates is 10-30 minutes, so the worst case is 3 x (20 + 30) = 150 minutes —
+# which a 120-minute job cap would cut off mid-round, leaving a CANCELLED run instead of the
+# loop's own "still failing after N attempts" verdict. The job therefore allows 180 minutes
+# (under GitHub's 360-minute ceiling for hosted runners). Nothing tighter bounds it: there
+# are no step-level `timeout-minutes` here, `scripts/fix_loop.sh` imposes no per-round
+# timeout, and Hermes is given no step or wall-clock cap (`hermes -z ... --yolo`).
+# tests/test_bot_time_budget.py asserts this arithmetic against the loop's own default.
+#
 # Local equivalent (repo checked out on the PR branch):
 #   NOUS_API_KEY=... FIX_ROUNDS=3 scripts/fix_loop.sh
 name: PR fix-bot
@@ -53,7 +64,8 @@ jobs:
     # Only a real dispatch (the sweep's or a human's) repairs a PR.
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    # FIX_ROUNDS rounds x (check + agent); see the header for the measured arithmetic.
+    timeout-minutes: 180
     env:
       NOUS_API_KEY: ${{ secrets.NOUS_PORTAL_API_TOKEN }}
       GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
