@@ -325,6 +325,16 @@ def test_every_pipeline_job_runs_one_ci_make_target():
     undo = mk.split("\nci-install-uninstall:", 1)[1].split("\n\n", 1)[0]
     assert "$(MAKE) uninstall" in undo and "Darwin" in undo
 
+    # And the install job also exercises the INSTALLED launcher's argument surface in dry
+    # run (issue #236): bare --dry is not the whole CLI, and every grid dry run in the unit
+    # stage goes through scripts/llama_serve.py, never the wrapper a user runs.
+    assert "$(MAKE) ci-install-dry-args" in recipe
+    args = mk.split("\nci-install-dry-args:", 1)[1].split("\n\n", 1)[0]
+    assert "tests/test_cli_dry_run_matrix.py" in args
+    assert "$(ENGINE_TEST_RUN)" in args.split("else", 1)[1]      # Linux: the same HOME make install wrote
+    assert "$(TEST_RUN)" in args.split("else", 1)[0]             # macOS: the 3.11 venv, no container
+    assert "ci-install-dry-args" in mk.split("\n.PHONY:", 1)[1].split("\n\n", 1)[0]
+
 
 # Job-level if: forms that do not skip a job in a normal push run with engines
 # to build. A PR that changes no engine params still emits one `none` row:

@@ -61,7 +61,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	sync-registry check-registry skills-validate engine-list engine-hardware engine-plan engine-check engine-install engine-detect engine-smoke test-engine ci-engine-images build-engine-base build-engines generate-build-engine-params test-engine-image push-engine test-published-engine test-install-published engine-launchers test-built-engine test-uninstalled \
 	sync-quant-catalog check-quant-catalog render-trend-list-matrix check-trend-list-matrix render-engine-skill-gap check-engine-skill-gap engine-skill-gap spawn-engine-skill-issues sync-strata-models check-strata-models \
 	generate-engine-params check-engine-params build-engine run-engine stop-engine list-engine-images \
-	ci-lint ci-unit ci-agents-read ci-openspec ci-cpu-health ci-top-tier ci-install ci-free-disk test-engine-stage
+	ci-lint ci-unit ci-agents-read ci-openspec ci-cpu-health ci-top-tier ci-install ci-install-dry-args ci-free-disk test-engine-stage
 
 # ---- container runtime: docker -------------------------------------------
 RUNTIME ?= docker
@@ -740,6 +740,7 @@ ci-install: bash-check ## CI job install: prepare the environment, then test mak
 	$(MAKE) test-env
 	$(MAKE) ci-install-run
 	$(MAKE) ci-install-dry
+	$(MAKE) ci-install-dry-args
 	$(MAKE) ci-install-uninstall
 
 ci-install-run: bash-check ## make install, as-is (Linux: inside the test container; macOS: the 3.11 venv, no container)
@@ -754,6 +755,13 @@ ifeq ($(HOST_OS),Darwin)
 	@"$(BIN)/llgenie" --dry
 else
 	$(ENGINE_TEST_RUN) sh -c '$$HOME/bin/llgenie --dry'
+endif
+
+ci-install-dry-args: bash-check ## The INSTALLED launcher's own argument surface, dry run, over the mocked (arch, vram, ram) grid (issue #236): the wrapper a user runs must reach the same code path
+ifeq ($(HOST_OS),Darwin)
+	$(TEST_RUN) python -m pytest tests/test_cli_dry_run_matrix.py -p no:cacheprovider -q
+else
+	$(ENGINE_TEST_RUN) sh -c 'python3 -m pytest tests/test_cli_dry_run_matrix.py -p no:cacheprovider -q'
 endif
 
 ci-install-uninstall: bash-check ## make uninstall, as-is, then prove nothing of ours is left

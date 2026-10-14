@@ -881,6 +881,10 @@ make openspec-image    # the OpenSpec CLI image, the same way (hash of openspec/
 make ci-image-refs     # print both GHCR refs for the current files
 make ci-<job>          # one CI pipeline job (ci-lint, ci-unit,
                        # ci-agents-read, ci-openspec, ci-cpu-health, ci-top-tier, ci-install): what CI runs
+                       # ci-install chains, in this order: test-env -> ci-install-run (make install)
+                       # -> ci-install-dry (the installed launcher, bare --dry) -> ci-install-dry-args
+                       # (the INSTALLED launcher's argument surface over the mocked arch x vram x ram
+                       # grid, issue #236) -> ci-install-uninstall
 make lint              # linefeed/editorconfig lint (fail-closed)
 make test-unit         # hermetic unit tests (all files, incl. openspec-tasks-check)
 make test-agents-read  # AGENTS.md threat-pattern guard + its tests, in a make-built Python 3.12
