@@ -391,6 +391,19 @@ It runs **every 6 hours** and handles **ONE PR per run**, oldest first:
   wiring guard — and pushes with **`--force-with-lease`** to the **PR's own head remote**: a fork
   PR goes to the fork, never to `origin`. It never merges, and a resolution it cannot finish is
   reported on the PR and left for a human.
+make issue-refiner-pick   # keep the backlog implementable: spare capacity -> the oldest issue that is not decided/claimed
+make issue-refiner        # step 1: Hermes REVIEWS that issue (refine-in.md) and writes its verdict to refine.md
+make issue-refiner-apply ISSUE=<n>  # step 2: ONE comment + the agent:refined label (never a PR)
+**A companion bot reviews the backlog — the issues that have not been implemented yet.** It is a
+separate workflow (`issue-refiner.yml`) that runs **hourly** and reviews **one issue per run**: open,
+oldest first, not already reviewed (`agent:refined`), not claimed for implementation, and not already
+linked to a pull request — i.e. an issue no PR answers yet. It opens **no PR at all**: its outcome is
+ONE comment plus the `agent:refined` label, which is what stops it reviewing the same issue twice.
+The only thing it refuses to do is race the implementer: while an issue is *waiting* for it
+(labelled `agent:implement`/`agent:ready` with no PR yet) the run says so and yields; once that issue
+has a PR it is not waiting for anyone and the next hourly run proceeds. Hermes does the *review* —
+explicit acceptance criteria, scope in/out, the surfaces it would touch, and any open decision
+**named as a question** rather than decided. It never rewrites an issue body and never merges.
 
 - **Cap**: at 3 PRs already opened today (counted from GitHub with
   `gh search prs --author <bot> --created ">=today 00:00Z"`), the run logs

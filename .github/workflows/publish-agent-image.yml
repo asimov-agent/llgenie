@@ -13,17 +13,10 @@
 #   2. The `guard` job re-checks the actor (and triggering actor) is the owner or a
 #      collaborator with write/maintain/admin BEFORE any secret is read. A stranger
 #      can never drive the publish.
-#   3. GHCR login uses the DEFAULT GITHUB_TOKEN (with `packages: write` below), NOT a PAT.
-#      Measured on a real publish attempt: the owner PAT is refused with
-#      `permission_denied: create_package` for an org package when the account is an outside
-#      collaborator rather than an org member - while the default token creates packages here
-#      fine (that is how llgenie/test, llgenie/openspec and llgenie/strata came to exist, all
-#      published by this repo's own workflows). The default token is the credential for this
-#      org package; the PAT was the wrong choice.
-#   4. The job PROVES it can push (`make agent-image-push-check`: a push-scoped GHCR token plus
-#      the cheapest real write there is, an empty blob upload) BEFORE the ten-minute build, so a
-#      credential that cannot create the package fails in seconds with the registry's own
-#      message instead of after a full build.
+#   3. GHCR login uses the owner PAT (secrets.BUMP_TOKEN), not GITHUB_TOKEN: the
+#      default token is an installation token and is DENIED "Create organization
+#      package" for a brand-new package (the first publish of llgenie/agent). The
+#      owner PAT can create it; thereafter the hash-tagged updates also work.
 #
 # The image is tagged with a hash of its Dockerfile + install script (and the test
 # image it builds FROM), so re-running this job is a no-op unless those inputs changed
@@ -82,10 +75,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
-      - name: Log in to GHCR with the default token (the credential that can create this org package)
-        run: echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-      - name: Prove this credential can push (fail in seconds, not after the build)
-        run: make agent-image-push-check
+      - name: Log in to GHCR (owner PAT - can create the org package)
+        run: echo "${{ secrets.BUMP_TOKEN }}" | docker login ghcr.io -u "${{ github.repository_owner }}" --password-stdin
       - name: make publish-agent-image (build + push the Hermes image when its hash is not on GHCR yet)
         run: make publish-agent-image
       - name: Print the published ref

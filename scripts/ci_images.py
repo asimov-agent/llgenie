@@ -22,8 +22,6 @@ Commands (driven by make, never by hand):
 from __future__ import annotations
 
 import argparse
-import json
-import base64
 import hashlib
 import os
 import shutil
@@ -111,74 +109,6 @@ def _sh(cmd: list[str], **kw) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, **kw)
 
 
-def _docker_auth(host: str = "ghcr.io") -> tuple[str, str] | None:
-    """The credential `docker login` stored, as (user, secret). None when absent."""
-    d = os.environ.get("DOCKER_CONFIG") or str(Path.home() / ".docker")
-    cfg = Path(d) / "config.json"
-    if not cfg.exists():
-        return None
-    entry = (json.loads(cfg.read_text()).get("auths") or {}).get(host) or {}
-    if not entry.get("auth"):
-        return None
-    user, _, secret = base64.b64decode(entry["auth"]).decode().partition(":")
-    return user, secret
-
-
-def check_push(name: str, root: Path = REPO) -> int:
-    """Prove the ambient credential can actually PUSH this image, before the build.
-
-    A publish that is going to be DENIED (a token that cannot create the package, a PAT that
-    is not the account that owns the key, a repository-scoped token for an org package) fails
-    after a ten-minute build otherwise, and says only "denied". So: ask for a push-scoped GHCR
-    token, initiate the cheapest real write there is (a blob upload with no data), and report
-    the registry's own message. Nothing is uploaded; an aborted upload leaves no layer.
-    """
-    r = ref(name, root)
-    path = r.split("/", 1)[1].split(":")[0]          # asimov-agent/llgenie/<name>
-    host = r.split("/")[0]
-    cred = _docker_auth(host)
-    if not cred:
-        print(f"[ci-images] not logged into {host}: `docker login {host}` first", flush=True)
-        return 1
-    scope = f"repository:{path}:push,pull"
-    basic = base64.b64encode(f"{cred[0]}:{cred[1]}".encode()).decode()
-    try:
-        token = json.loads(_http(f"https://{host}/token?scope={scope}&service={host}",
-                                 {"Authorization": f"Basic {basic}"}))["token"]
-        code, body = _http_status(f"https://{host}/v2/{path}/blobs/uploads/",
-                                  {"Authorization": f"Bearer {token}", "Content-Length": "0"},
-                                  method="POST")
-    except Exception as e:                                            # noqa: BLE001
-        print(f"[ci-images] cannot reach {host}: {e}", flush=True)
-        return 1
-    if code in (201, 202):
-        print(f"[ci-images] push OK: {cred[0]} may publish {r}", flush=True)
-        return 0
-    try:
-        msg = json.loads(body)["errors"][0]["message"]
-    except Exception:                                                 # noqa: BLE001
-        msg = body.strip()[:200]
-    print(f"[ci-images] push DENIED for {r}: {msg}", flush=True)
-    return 1
-
-
-def _http(url: str, headers: dict) -> str:
-    import urllib.request
-    with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=30) as fh:
-        return fh.read().decode()
-
-
-def _http_status(url: str, headers: dict, method: str = "GET") -> tuple[int, str]:
-    import urllib.error
-    import urllib.request
-    req = urllib.request.Request(url, headers=headers, method=method)
-    try:
-        with urllib.request.urlopen(req, timeout=30) as fh:
-            return fh.status, fh.read().decode()
-    except urllib.error.HTTPError as e:
-        return e.code, e.read().decode()
-
-
 def published(r: str) -> bool:
     """One manifest lookup on the registry; no pull, no build."""
     return _sh([RUNTIME, "buildx", "imagetools", "inspect", r], capture_output=True).returncode == 0
@@ -253,7 +183,7 @@ def ensure(name: str, root: Path = REPO) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="CI images on GHCR: publish once per hash, pull everywhere")
-    ap.add_argument("cmd", choices=("publish", "pull", "ensure", "ref", "tag", "check-push"))
+    ap.add_argument("cmd", choices=("publish", "pull", "ensure", "ref", "tag"))
     ap.add_argument("names", nargs="*", default=list(IMAGES), help=f"default: {' '.join(IMAGES)}")
     a = ap.parse_args(argv)
     for n in a.names:
@@ -263,7 +193,7 @@ def main(argv: list[str] | None = None) -> int:
         for n in a.names:
             print(ref(n) if a.cmd == "ref" else tag(n))
         return 0
-    run = {"publish": publish, "pull": pull, "ensure": ensure, "check-push": check_push}[a.cmd]
+    run = {"publish": publish, "pull": pull, "ensure": ensure}[a.cmd]
     rc = 0
     for n in a.names:
         rc = run(n) or rc

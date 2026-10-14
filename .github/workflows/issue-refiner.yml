@@ -1,0 +1,135 @@
+# The issue-refiner (issue #263): review the BACKLOG of not-yet-implemented issues so they are
+# implementable BEFORE the implementer reaches them.
+#
+# HOURLY, one issue per run. It opens NO PR: its outcome is ONE comment plus the `agent:refined`
+# label, which is also what stops it reviewing the same issue again. The only thing it will not
+# do is race the implementer: while an issue is waiting for it (labelled agent:implement /
+# agent:ready with no PR yet) the run yields and says so.
+#
+# Same guard shape as the issue-bot: workflow_dispatch is owner/collaborator only, and the
+# `guard` job re-checks the actor before any secret is read. The decision (spare capacity?
+# which issue?) lives in scripts/issue_refiner.py, not in a job `if:` — issue #107 requires
+# that, and tests/test_issue_refiner.py asserts it.
+name: issue-refiner
+
+on:
+  schedule:
+    - cron: "43 * * * *"   # hourly, at an odd minute: one issue reviewed per run
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: issue-refiner
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Owner / collaborator trigger guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ACTOR: ${{ github.actor }}
+          TRIGGER: ${{ github.triggering_actor }}
+        run: |
+          set -euo pipefail
+          OWNER="${REPO%%/*}"
+          for u in "$ACTOR" "$TRIGGER"; do
+            if [ "$u" = "$OWNER" ]; then continue; fi
+            perm=$(gh api "repos/$REPO/collaborators/$u/permission" --jq .permission 2>/dev/null || echo none)
+            case "$perm" in
+              admin|maintain|write) echo "Collaborator $u has $perm - allowed." ;;
+              *) echo "Refused: $u is not the owner or a collaborator with write access (permission: ${perm:-none})."; exit 1 ;;
+            esac
+          done
+          echo "Allowed: actor=$ACTOR triggering_actor=$TRIGGER"
+
+  refine:
+    needs: guard
+    runs-on: ubuntu-latest
+    # The review is one agent call plus the gates it is told to consult; 120 is the same
+    # budget the implementer gets, and nothing inside bounds it (no step timeout, no cap).
+    timeout-minutes: 120
+    env:
+      NOUS_API_KEY: ${{ secrets.NOUS_PORTAL_API_TOKEN }}
+      TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+      REPO: ${{ github.repository }}
+    steps:
+      - name: "Checkout main (read-only for this bot - it pushes nothing)"
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.BUMP_TOKEN }}
+
+      - name: Decide (spare capacity? -> the oldest eligible issue -> refine-in.md)
+        id: pick
+        env:
+          GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
+        run: |
+          set +e
+          out=$(make issue-refiner-pick REPO="$REPO")
+          echo "$out"
+          action=$(printf '%s\n' "$out" | sed -n 's/^action=//p' | tail -1)
+          issue=$(printf '%s\n' "$out" | sed -n 's/^issue=//p' | tail -1)
+          echo "action=${action:-unknown}" >> "$GITHUB_OUTPUT"
+          echo "issue=$issue" >> "$GITHUB_OUTPUT"
+          [ "$action" = "pick" ] && echo "picked=true" >> "$GITHUB_OUTPUT" || echo "picked=false" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Prove the JEV engine is active — the review does not start without it (issue #238)
+        if: steps.pick.outputs.picked == 'true'
+        run: make agent-jev-preflight NERVE_REQUIRE=1
+
+      - name: Review the issue (Hermes reads refine-in.md and writes refine.md)
+        id: review
+        if: steps.pick.outputs.picked == 'true'
+        run: |
+          set +e
+          make issue-refiner
+          rc=$?
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          echo "refine.md:"; sed -n '1,40p' refine.md 2>/dev/null || echo "  (the agent wrote no refine.md)"
+          exit 0
+
+      - name: Apply the review (ONE comment + agent:refined; never a PR)
+        id: apply
+        if: steps.pick.outputs.picked == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
+          ISSUE: ${{ steps.pick.outputs.issue }}
+        run: |
+          set +e
+          out=$(make issue-refiner-apply ISSUE="$ISSUE" REPO="$REPO")
+          rc=$?
+          echo "$out"
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Report the outcome on the issue
+        if: always() && steps.pick.outputs.picked == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
+          ISSUE: ${{ steps.pick.outputs.issue }}
+        run: |
+          {
+            echo "issue-refiner reviewed this issue (one issue per run, one comment, never a PR)."
+            echo ""
+            echo "- verdict applied: ${{ steps.apply.outputs.rc == '0' && 'yes' || 'no (see the step log)' }}"
+            echo ""
+            echo "The refined text is the comment above. A human decides anything it leaves open;"
+            echo "the implementer (#248/#261) picks the issue up through its normal label flow."
+          } | gh issue comment "$ISSUE" --repo "$REPO" --body-file - || echo "could not comment (leaving the review above)"
+
+      - name: Fail loudly when a picked issue produced no review
+        if: always() && steps.pick.outputs.picked == 'true' && steps.apply.outputs.rc != '0'
+        run: |
+          echo "::error::issue-refiner picked #${{ steps.pick.outputs.issue }} but applied no review (make issue-refiner-apply rc=${{ steps.apply.outputs.rc }})."
+          exit 1
