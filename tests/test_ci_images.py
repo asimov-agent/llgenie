@@ -492,3 +492,70 @@ def test_a_normal_image_still_publishes_both_platforms(tmp_path):
     assert r.returncode == 0, r.stdout + r.stderr
     b = next(c for c in _calls(log) if c.startswith("buildx build"))
     assert "--platform linux/amd64,linux/arm64" in b, b
+
+
+# ---- the push pre-flight: a publish that is going to be DENIED must fail before the build ----
+# Measured on the real registry: the owner PAT is refused `permission_denied: create_package` for
+# this org package, while the default GITHUB_TOKEN creates packages here (llgenie/test,
+# llgenie/openspec and llgenie/strata all exist). So the pre-flight is what turns a ten-minute
+# build that dies into a seconds-long, named failure.
+
+def _check_push_mod():
+    sys.path.insert(0, str(REPO / "scripts"))
+    return importlib.import_module("ci_images")
+
+
+def _logged_in(tmp: Path, user: str = "andyholst", secret: str = "ghp_x") -> Path:
+    """A docker config shaped as `docker login` writes it."""
+    import base64
+    import json
+    cfg = tmp / "docker"
+    cfg.mkdir(exist_ok=True)
+    (cfg / "config.json").write_text(json.dumps({"auths": {"ghcr.io": {
+        "auth": base64.b64encode(f"{user}:{secret}".encode()).decode()}}}))
+    return cfg
+
+
+def test_check_push_passes_when_the_registry_accepts_the_upload(tmp_path, monkeypatch, capsys):
+    ci = _check_push_mod()
+    monkeypatch.setenv("DOCKER_CONFIG", str(_logged_in(tmp_path)))
+    monkeypatch.setattr(ci, "_http", lambda url, headers: '{"token": "t"}')
+    monkeypatch.setattr(ci, "_http_status", lambda url, headers, method="GET": (202, ""))
+    assert ci.check_push("agent") == 0
+    assert "push OK" in capsys.readouterr().out
+
+
+def test_check_push_reports_the_registrys_own_refusal(tmp_path, monkeypatch, capsys):
+    ci = _check_push_mod()
+    monkeypatch.setenv("DOCKER_CONFIG", str(_logged_in(tmp_path)))
+    monkeypatch.setattr(ci, "_http", lambda url, headers: '{"token": "t"}')
+    monkeypatch.setattr(ci, "_http_status", lambda url, headers, method="GET":
+                        (403, '{"errors":[{"code":"DENIED",'
+                              '"message":"permission_denied: create_package"}]}'))
+    assert ci.check_push("agent") == 1
+    out = capsys.readouterr().out
+    assert "push DENIED" in out and "create_package" in out
+
+
+def test_check_push_is_loud_without_a_login(tmp_path, monkeypatch, capsys):
+    ci = _check_push_mod()
+    monkeypatch.setenv("DOCKER_CONFIG", str(tmp_path / "empty"))
+    assert ci.check_push("agent") == 1
+    assert "not logged into ghcr.io" in capsys.readouterr().out
+
+
+def test_check_push_asks_for_a_push_scope_and_initiates_a_real_write():
+    """A GET proves nothing: it must ask for `:push` and POST a blob upload. No data is sent, so
+    a refusal costs nothing and a success leaves no layer behind."""
+    import inspect
+    src = inspect.getsource(_check_push_mod().check_push)
+    assert ":push" in src and "blobs/uploads/" in src and 'method="POST"' in src
+    assert "create_package" not in src or "errors" in src  # it reports, it does not pre-judge
+
+
+def test_the_publish_workflow_uses_the_default_token_and_proves_push_first():
+    wf = (WF / "publish-agent-image.yml").read_text()
+    assert "secrets.BUMP_TOKEN" not in wf, "the PAT cannot create this org package"
+    assert "github.token" in wf and "docker login ghcr.io" in wf
+    assert wf.index("make agent-image-push-check") < wf.index("make publish-agent-image"), \
+        "the push pre-flight must run before the build"

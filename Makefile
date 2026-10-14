@@ -581,6 +581,9 @@ test-image-pull: ## CI: pull the published test image (hash of its Dockerfile + 
 publish-ci-images: ## CI job ci-images: build + push the test and OpenSpec images ONLY when their hash tag is not on GHCR yet. The AGENT image is NOT here: the default GITHUB_TOKEN is denied "Create organization package" for a brand-new package (the first llgenie/agent publish), so it goes out through publish-agent-image.yml with the owner PAT, deliberately and by hand
 	python3 scripts/ci_images.py publish test openspec
 
+agent-image-push-check: ## CI: prove the ambient credential can PUSH the agent image BEFORE a 10-minute build, printing the registry's own refusal when it cannot
+	python3 scripts/ci_images.py check-push agent
+
 publish-agent-image: ## Build + push ONLY the agent (Hermes) image to GHCR (linux/amd64: it builds Hermes at build time, which times out under arm64 emulation) when its hash tag is not there yet. The dedicated job for the Hermes container (issues #222/#238/#248); guarded to owner/collaborators.
 	python3 scripts/ci_images.py publish agent
 

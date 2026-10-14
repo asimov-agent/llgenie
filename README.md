@@ -1201,3 +1201,12 @@ MIT — see [LICENSE](LICENSE).
   unknown name fails loudly instead of silently falling back (issue #247). The resolved
   value is the one used by the context budget, the GPU-layer count, `-ctk`/`-ctv` and the
   plan printed by `--dry`.
+
+- `make agent-image-push-check` proves the **credential can actually push** the agent image
+  before a ten-minute build: it asks GHCR for a push-scoped token and initiates the cheapest real
+  write there is (an empty blob upload), then prints the registry's own refusal if it is denied.
+  It exists because the publish once burned a full build and died with `permission_denied:
+  create_package` — a PAT cannot create a package in an org its owner is only a collaborator of,
+  while the workflow's own `GITHUB_TOKEN` can (it is what created `llgenie/test`,
+  `llgenie/openspec` and `llgenie/strata`). The workflow therefore logs in with the default token
+  and calls this first.
