@@ -64,7 +64,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	issue-bot-dispatch issue-bot-open-pr issue-bot-image issue-bot-triage issue-bot-verdict implement-issue hermes-smoke \
 	code-review-scan code-review-file \
 	issue-bot-dispatch issue-bot-open-pr issue-bot-image implement-issue hermes-smoke \
-	rebase-bot-sweep rebase-bot rebase-bot-agent \
+rebase-bot-sweep rebase-bot rebase-bot-agent check-docs docs-report \
 	generate-engine-params check-engine-params build-engine run-engine stop-engine list-engine-images \
 	ci-lint ci-unit ci-agents-read ci-openspec ci-cpu-health ci-top-tier ci-install ci-install-dry-args ci-free-disk test-engine-stage
 
@@ -424,6 +424,10 @@ check-wiring: ## CI: fail when a test/script is wired to no make target or only 
 	python3 scripts/check_wiring.py check
 wiring-report: ## Show how every test/script is wired (which make target, and whether CI runs it) and the recorded host-only exceptions
 	python3 scripts/check_wiring.py report
+check-docs: ## CI: fail when a user-facing (## help) make target is not documented in README.md, when a recorded exception is stale, or when an agent-wiki/ work record references no issue or PR (issue #257)
+	python3 scripts/check_docs.py check
+docs-report: ## Show every user-facing make target as documented / missing / a recorded exception, and each agent-wiki/ work record's issue references
+	python3 scripts/check_docs.py report
 # UNSUPPORTED=<file>: upstream engines with no skill are omitted from the trend
 # offer (no image). Passing the decisions file tolerates ONLY the engines recorded
 # there with a dated decision (issue #229); an engine with no skill and no decision
@@ -691,8 +695,7 @@ test-clean: ## Remove left-over/stopped orphaned containers of the test image (i
 	echo "Pruned stopped orphaned $(TEST_IMG) containers."
 
 test-unit: ## Hermetic unit tests (containerized) — includes the lint regression + openspec-tasks-check tests
-	$(TEST_RUN) python -m pytest tests/test_llgenie_serve.py tests/test_hf_auth.py tests/test_hf_download_stall.py tests/test_hf_download_retry.py tests/test_lint_linefeeds.py tests/test_engine_bump_sync.py tests/test_engine_bump_rebase.py tests/test_check_openspec_tasks.py tests/test_remove_watchloop.py tests/test_ci_variant_matrix.py tests/test_serve_variant.py tests/test_ensure_user_path.py tests/test_engine_skills.py tests/test_engine_bump.py tests/test_engine_bump_pr_body.py tests/test_detect_server.py tests/test_model_engine_pick.py tests/test_trend_pick.py tests/test_registry_sync_trend.py tests/test_trend_list_matrix.py tests/test_registry_keys.py tests/test_engine_skill_gap.py tests/test_strata_download.py tests/test_macos_install.py tests/test_ci_images.py tests/test_mac_trend_pick.py tests/test_trend_list_acceptance.py tests/test_tensorfold_seamless.py tests/test_pick_matrix.py tests/test_pick_matrix_arch_perms.py tests/test_pick_full_registry.py tests/test_trending_quant_catalog.py tests/test_engine_supported_quants.py tests/test_quant_generator_edges.py tests/test_check_python_uv.py tests/test_engine_image_matrix.py tests/test_agents_worktree.py tests/test_agents_debt_analysis.py tests/test_wiring.py tests/test_agent_nerve.py tests/test_secret_output.py tests/test_kv_quant_bytes.py tests/test_queued_run_alarm.py tests/test_rename_llgenie_serve.py tests/test_fix_loop.py tests/test_fix_bot_sweep.py tests/test_issue_implementer.py tests/test_bot_time_budget.py tests/test_code_review.py tests/test_bot_pipeline_isolation.py tests/test_ci_concurrency.py tests/test_rebase_bot_sweep.py -p no:cacheprovider -q -k 'not test_derive_reports_the_live_release_archives and not test_tensorfold_v1_0_5_release_is_native_archives and not test_tensorfold_release_archive_unpacks_and_runs'
-	$(TEST_RUN) python -m pytest tests/test_llgenie_serve.py tests/test_hf_auth.py tests/test_hf_download_stall.py tests/test_hf_download_retry.py tests/test_lint_linefeeds.py tests/test_engine_bump_sync.py tests/test_engine_bump_rebase.py tests/test_check_openspec_tasks.py tests/test_remove_watchloop.py tests/test_ci_variant_matrix.py tests/test_serve_variant.py tests/test_ensure_user_path.py tests/test_engine_skills.py tests/test_engine_bump.py tests/test_engine_bump_pr_body.py tests/test_detect_server.py tests/test_model_engine_pick.py tests/test_trend_pick.py tests/test_registry_sync_trend.py tests/test_trend_list_matrix.py tests/test_registry_keys.py tests/test_engine_skill_gap.py tests/test_strata_download.py tests/test_macos_install.py tests/test_ci_images.py tests/test_mac_trend_pick.py tests/test_trend_list_acceptance.py tests/test_tensorfold_seamless.py tests/test_pick_matrix.py tests/test_pick_matrix_arch_perms.py tests/test_pick_full_registry.py tests/test_trending_quant_catalog.py tests/test_engine_supported_quants.py tests/test_quant_generator_edges.py tests/test_check_python_uv.py tests/test_engine_image_matrix.py tests/test_agents_worktree.py tests/test_agents_debt_analysis.py tests/test_wiring.py tests/test_agent_nerve.py tests/test_secret_output.py tests/test_kv_quant_bytes.py tests/test_queued_run_alarm.py tests/test_rename_llgenie_serve.py tests/test_fix_loop.py tests/test_fix_bot_sweep.py tests/test_issue_implementer.py tests/test_bot_claims.py tests/test_bot_time_budget.py tests/test_code_review.py tests/test_bot_pipeline_isolation.py tests/test_ci_concurrency.py -p no:cacheprovider -q -k 'not test_derive_reports_the_live_release_archives and not test_tensorfold_v1_0_5_release_is_native_archives and not test_tensorfold_release_archive_unpacks_and_runs'
+	$(TEST_RUN) python -m pytest tests/test_llgenie_serve.py tests/test_hf_auth.py tests/test_hf_download_stall.py tests/test_hf_download_retry.py tests/test_lint_linefeeds.py tests/test_engine_bump_sync.py tests/test_engine_bump_rebase.py tests/test_check_openspec_tasks.py tests/test_remove_watchloop.py tests/test_ci_variant_matrix.py tests/test_serve_variant.py tests/test_ensure_user_path.py tests/test_engine_skills.py tests/test_engine_bump.py tests/test_engine_bump_pr_body.py tests/test_detect_server.py tests/test_model_engine_pick.py tests/test_trend_pick.py tests/test_registry_sync_trend.py tests/test_trend_list_matrix.py tests/test_registry_keys.py tests/test_engine_skill_gap.py tests/test_strata_download.py tests/test_macos_install.py tests/test_ci_images.py tests/test_mac_trend_pick.py tests/test_trend_list_acceptance.py tests/test_tensorfold_seamless.py tests/test_pick_matrix.py tests/test_pick_matrix_arch_perms.py tests/test_pick_full_registry.py tests/test_trending_quant_catalog.py tests/test_engine_supported_quants.py tests/test_quant_generator_edges.py tests/test_check_python_uv.py tests/test_engine_image_matrix.py tests/test_agents_worktree.py tests/test_agents_debt_analysis.py tests/test_wiring.py tests/test_agent_nerve.py tests/test_secret_output.py tests/test_kv_quant_bytes.py tests/test_queued_run_alarm.py tests/test_rename_llgenie_serve.py tests/test_fix_loop.py tests/test_fix_bot_sweep.py tests/test_issue_implementer.py tests/test_bot_time_budget.py tests/test_code_review.py tests/test_bot_pipeline_isolation.py tests/test_ci_concurrency.py tests/test_rebase_bot_sweep.py tests/test_bot_claims.py tests/test_check_docs.py -p no:cacheprovider -q -k 'not test_derive_reports_the_live_release_archives and not test_tensorfold_v1_0_5_release_is_native_archives and not test_tensorfold_release_archive_unpacks_and_runs'
 
 # Live GitHub release reads. Linux only: the macOS runner cannot reach
 # api.github.com, and TensorFold publishes no macos-x86_64 archive.
@@ -901,6 +904,7 @@ ci-unit: bash-check ## CI job unit: hermetic unit tests + registry / skill / Str
 	$(MAKE) check-engine-params
 	$(MAKE) check-wiring
 	$(MAKE) check-secret-output
+	$(MAKE) check-docs
 
 ci-agents-read: bash-check ## CI job agents-read: make test-agents-read (Python 3.12 venv -> AGENTS.md scan -> guard tests)
 	$(MAKE) test-agents-read
@@ -991,6 +995,8 @@ help:
 	@echo "  make implement-issue             the shared Hermes agent step: read issue.md + AGENTS.md, implement, run the gates, push nothing (NOUS_API_KEY from a secret)"
 	@echo "  make hermes-smoke               one real Hermes call through the implementer alias (die in seconds)"
 	@echo "  make agent-jev-preflight           report whether the JEV decision layer is available in the agent image (never blocks a run; NERVE_REQUIRE=1 verifies the image instead) — issue #238"
+	@echo "  make check-docs                  CI: fail when a user-facing make target is not documented in README.md, a recorded exception is stale, or an agent-wiki/ work record references no issue"
+	@echo "  make docs-report                 show every user-facing make target (documented / missing / recorded exception) and each work record's issue references"
 	@echo "  make build-engine ENGINE=<id> [ARCH=cpu|cuda|rocm|vulkan] [PUSH=1]   build from the generated Dockerfile"
 	@echo "  make build-engine-<id>-<arch>    e.g. build-engine-vllm-cuda, build-engine-llama.cpp-prism-rocm"
 	@echo "  make build-engines ARCH=<arch>   every engine for one arch"

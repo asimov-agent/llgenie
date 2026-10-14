@@ -341,6 +341,7 @@ unit-testable core — `scripts/issue_implementer.py`:
 make issue-bot-dispatch REPO=asimov-agent/llgenie   # cap -> pick -> claim -> issue.md + branch
 make issue-bot-open-pr REPO=<repo> ISSUE=<n> BRANCH=agent/issue-<n>-<slug>  # draft-free PR, never merges
 make implement-issue      # the shared Hermes agent step: read issue.md + AGENTS.md, implement, run gates, push nothing
+make issue-bot-image      # build/pull the agent image the bot runs in (same image as the fix-bot)
 make hermes-smoke          # one real Hermes call through the implementer alias (die in seconds)
 make issue-bot-triage     # step 1: Hermes REVIEWS the issue.md thread (body + every comment) and writes triage.md
 make issue-bot-verdict ISSUE=<n>   # step 2: apply that verdict — implement | refine | close
@@ -580,6 +581,10 @@ make install BUILD=1                      # build an image that is not published
 make test-built-engine                    # every ~/bin/llgenie-engine-* prints its engine version
 make install-prism-metal     # macOS only: native Metal build (Metal cannot run in a container)
 make install-upstream-metal  # macOS only
+make install-prism-cpu       # Linux: the Prism llama.cpp engine image (CPU) + start scripts + version test
+make install-prism-cuda      # Linux: the same for CUDA (host driver via nvidia-container-toolkit CDI)
+make install-upstream-cpu    # Linux: the upstream llama.cpp engine image (CPU)
+make install-upstream-cuda   # Linux: the same for CUDA
 make uninstall               # removes the launcher, llgenie.py, every llgenie-engine-* start script and the
                              # llama-server / prism-server shims; stops llgenie engine containers (PURGE_IMAGES=1: images too)
 # native builds only (macOS Metal / CI server-variants-mac); on Linux use make run-engine
@@ -1042,11 +1047,30 @@ make test-interactive-tensorfold-ci                       # macOS CI runner vari
 # The native targets above are Metal-only: on Linux (any backend) they print that the host
 # has no native engine and exit 0; Linux engines are tested in their images (make test-engine).
 make test-health       # Linux: 0.5B answers "hi" through the llama.cpp image. macOS: refuses --arch cpu, no image
+make test-health-host  # after make install: the same through ~/bin/llama-server (on the host, no container)
 make test-top-tier     # REAL acceptance (no mocks): live HF trending + fit gate + real download
 make test-top-tier-serve  # Linux: lightweight model through the llama.cpp image, "hi". macOS: no engine image
+make test-top-tier-ci        # REAL top-tier acceptance inside the test container (CI/CPU; hf + gguf are bundled)
+make test-top-tier-serve-ci  # Linux: serve the lightweight model through the llama.cpp image. macOS: no engine image
 make test-top-tier-cli-ci # REAL CLI dry-run in the CI container: llgenie --download-top-tier --dry --count 2
+make test-variant-image      # CUDA toolkit + python variant-build image, built locally (the matrix job is retired)
 make download-test-model  # fetch Qwen2.5-0.5B into ~/models/Qwen/8GB (via `hf` CLI)
+make lint-fix          # append a missing trailing newline to tracked text files (containerized)
+make check-registry-keys     # fail when the vendored registry dropped a key, model or measurement vs the committed copy
+make check-strata-models     # fail when data/strata_models.json differs from Strata's setup.py at the pinned commit
+make queued-alarm      # report CI jobs stuck in `queued` too long (a runner that never picks them up, issue #254)
 make openspec-validate NAME=<change>   # validate an OpenSpec change
+make openspec-new NAME=<change>        # create a change dir (the OpenSpec CLI, containerized)
+make openspec-status                   # list the changes and their task state
+make openspec-shell                    # interactive shell with the openspec CLI in a container
+make engine-detect ENGINE=<id>         # is ENGINE installed? runs that skill's detect
+make engine-smoke ENGINE=<id>          # HOST entry: install the engine via its skill, serve a tiny model, assert llm-local answers
+make generate-build-engine-params      # alias of generate-engine-params
+make run-engine-<engine>-<arch> MODEL=…  # run one engine x arch image (e.g. run-engine-vllm-cuda PORT=11434)
+make fix-bot-sweep | fix-loop | fix-loop-image | fix-bot-report  # the PR fix-bot (issues #222, #238): sweep, loop, loop-in-the-agent-image, report
+make agent-image | agent-image-pull | agent-image-ref | publish-agent-image  # the Hermes agent image: pull, CI pull, ref, publish
+make check-docs        # fail when a user-facing make target is not documented here, or a work record names no issue (issue #257)
+make docs-report       # show every user-facing target: documented, missing, or a recorded exception
 make test-clean        # prune stopped orphaned test containers (always)
 ```
 
@@ -1170,6 +1194,60 @@ image → download → lint → unit → install → health → top-tier → top
 - **CI** (`.github/workflows/ci.yml`) triggers on every branch push and runs each
   stage as its own **parallel** job on Linux: `lint`, `unit`, `install`, `openspec`,
   `cpu-health`, ... Every job is a `make ci-<job>` command, so CI == your local loop.
+
+### PR fix-bot & the agent (Hermes) image (issues #222, #238)
+
+The Hermes agent image is what repairs a red PR in CI, so it gets its own publish path
+instead of riding the test/openspec images:
+
+```
+make agent-image        # pull the hash-tagged Hermes image (its Dockerfile + install script), else build it here
+make agent-image-pull   # CI: pull the published agent image as llgenie/agent:latest; fails when missing, never builds
+make agent-image-ref    # print the GHCR ref for the current Dockerfile + install script
+make publish-agent-image  # build + push ONLY the agent image (linux/amd64) when its hash tag is not there yet
+```
+
+`publish-agent-image.yml` is `workflow_dispatch`-only, re-checks that the actor is the
+owner/a collaborator with write before any secret is read, and pushes with the owner PAT
+(the default `GITHUB_TOKEN` is denied "Create organization package" for a brand-new
+package). It is `linux/amd64` only: building Hermes under arm64 emulation times out. The
+image is hash-tagged, so re-running it is a no-op unless its inputs changed.
+
+The fix-bot (`fix-bot.yml`: hourly `schedule` + `workflow_dispatch`) repairs the branch,
+re-checks and stops — it **never merges**; a human reviews the result:
+
+```
+make fix-bot-sweep      # which red PR deserves the bot, then dispatch it (DRY=1 previews; needs gh)
+make fix-loop           # run the loop locally against the failing check (scripts/fix_loop.sh; needs an agent on PATH)
+make fix-loop-image     # the same loop inside the agent image (AGENT_IMAGE= overrides the ref, LOG=path tees)
+make fix-bot-report     # render the loop's failure report (REPORT=<path>) — the comment the workflow posts
+```
+
+The loop runs the failing check, hands the failure to Hermes and re-checks, up to
+`FIX_ROUNDS` (default 3). The loop itself never commits or pushes; the workflow pushes
+the repaired tree as ONE commit with the owner PAT (so CI re-runs) only when the loop
+ends green.
+
+### Documentation is part of the change (issue #257)
+
+A change is not done until the docs the user reads describe it. Two rules, both
+enforced in `ci-unit` by `make check-docs` (`scripts/check_docs.py`):
+
+1. **Every user-facing make target is documented here, in the same change.** A target
+   that `make help` prints (its recipe carries a `##`) must be named in this README —
+   whole-token, so `docs-report` does not document `docs`, and a pattern target
+   (`run-engine-%`) is documented by its stem. A target that deliberately stays out of
+   the README is recorded in `tests/fixtures/docs-exceptions.json` with a reason, a
+   date and the issue; `make check-docs` fails when that record goes STALE (the README
+   documents it after all) so the file cannot rot.
+2. **Every `agent-wiki/` work record references the issue or PR it implements** (`#<n>`).
+   A work record that names no issue is unfalsifiable, and `make check-docs` fails it.
+
+The same applies to a workflow, feature, stage or behaviour change: mirror it in the
+README's matching section and update the `agent-wiki/` entry in the same commit, before
+the PR is ready. `make check-docs` catches a target the README never learned about;
+the reviewer reads the rest. `make docs-report` shows the whole picture (documented,
+missing, recorded exceptions, and each work record's references).
 
 ### No-fallback rule
 

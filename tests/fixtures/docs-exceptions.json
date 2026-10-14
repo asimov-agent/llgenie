@@ -1,0 +1,5 @@
+{
+  "note": "User-facing (## help) make targets that deliberately stay OUT of README.md (issue #257). `make check-docs` fails when such a target is not documented there and no entry here records why — an omission has to be a dated decision, not an accident. An entry that the README starts documenting is STALE and must be deleted, so this file cannot rot.",
+  "decided_utc": "2026-10-14",
+  "targets": {}
+}
