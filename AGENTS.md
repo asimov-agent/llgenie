@@ -653,6 +653,50 @@ registry (`make sync-registry`, `make sync-quant-catalog`,
 `make render-trend-list-matrix`) in `llgenie/test:latest` and show the test fails
 on the old (index-based) code and passes on BOTH the old and the new registry.
 
+### The vendored registry is additive only (mandatory, durable)
+
+`data/models.json` is a **verbatim copy** of trending-local-llms'
+`data/models.json`, replaced wholesale by the weekly `make sync-registry` PR.
+`make check-registry` re-validates the NEW file's shape, which cannot see what
+the sync **lost**, so a sync that dropped a key, a model, a measurement, a t/s
+or an engagement counter used to land silently and only show up later as a
+thin trend list (`llgenie` then ranks engines from data that no longer exists).
+
+- **A key is never removed, renamed or narrowed, and a value is never shrunk.**
+  Additions are always fine. `scripts/registry_keys.py` compares the working
+  copy against the previously committed one (`HEAD:data/models.json`) and fails
+  on: a removed model, a key gone from a model row (list-of-objects compared as
+  a key union, so an upstream collapse/reorder is not a loss), a lost
+  `(engine, hardware)` measurement group, a lowered t/s, a lowered engagement
+  counter, a lost `backends` / `supported_engines` entry, a lost format, or a
+  removed engine-registry entry.
+- **`make check-registry-keys`** drives it and is part of `make check-registry`
+  (the CI unit job), so a lossy sync PR cannot go green. Test:
+  `tests/test_registry_keys.py`, wired into `make test-unit`.
+- The same rule is enforced where the store is WRITTEN — trending-local-llms
+  `check_no_value_loss` (its issue #114). llgenie never patches upstream data to
+  make a sync pass: a loss is reported upstream and fixed there.
+
+### Agent-implemented issues always end in a monitored, green PR (mandatory, durable)
+
+When an agent implements an issue — its own or a filed analysis issue — the work
+is not done at "code written":
+
+1. **Implement on a feature branch** cut from the tip of `main` (worktree rule
+   above), with the OpenSpec change + tests in the same branch.
+2. **Open the PR** (upstream base, fork head, `closes #<issue>`, one
+   Conventional Commit message per logical step). Never leave the work as an
+   unpushed branch or a local-only change.
+3. **Monitor the pipeline the PR triggered** (`gh pr checks`), read the failing
+   job's real output, and **fix the PR until the checks are green** — the agent
+   owns its own PR's CI, including flaky-looking stages it can reproduce.
+4. **Merge is a squash merge with a proper Conventional Commit message** (the
+   PR title/body carry the issue reference), so history stays one commit per
+   change. Where the repo's CI owns the merge (e.g. trending-local-llms'
+   `auto-merge` job), the agent drives the PR to green and lets that job land it
+   — it never merges a red PR, a draft, or one with unresolved review threads,
+   and it never merges a PR a human reviewer is still working on.
+
 ### EVERY spec scenario must have Given / When / Then (mandatory, durable)
 
 Every spec-driven change (`openspec/changes/<name>/specs/**/spec.md`) must express each
