@@ -1,0 +1,101 @@
+name: code-review-bot — reviews the tree and the pipelines and files one issue per finding (never edits code)
+
+# CODE-REVIEW — reads the TREE and the PIPELINES once a week and files one issue per finding
+# (issue #269). Analysis, never implementation: it never edits a file, never opens a PR, never
+# merges, and never comments on anyone's PR — its entire output is issues, each carrying the
+# evidence the finding came from.
+#
+# Trigger surface: a weekly schedule (its own slot, an hour after engine-bump) and
+# workflow_dispatch for the owner/collaborators. Concurrency queues a second run instead of
+# launching a parallel one — the filer's marker dedup is what makes a repeat run quiet, not
+# this line.
+#
+# Flow (all of it, or the run is a defect):
+#   guard (owner/collaborator, BEFORE any secret is read)
+#   -> scan  (make code-review-scan: the checks read the real tree + the real pipelines;
+#             no model, no writes, so a scan costs nothing and cannot invent a finding)
+#   -> file  (make code-review-file: ONE issue per NEW finding, capped per run, dedup by the
+#             `<!-- code-review:<key> -->` marker in the body)
+#
+# No model key is involved anywhere: the checks are deterministic. The only secret is the token
+# that can read the repo's secret list (admin) and create issues.
+
+# Trigger surface: schedule weekly Monday 07:23 UTC (its own slot, an hour after engine-bump), and
+#                  workflow_dispatch for the owner/collaborators (`dry` previews the issues).
+# Flow: guard (owner/collaborator, BEFORE any secret is read) -> make code-review-scan (the checks
+#       read the real tree and the real pipelines; no model, no writes) -> make code-review-file
+#       (ONE issue per NEW finding, marker dedup, capped per run).
+# Never: never edits a file, never opens a PR, never merges, never comments on anyone's PR — its
+#        whole output is issues (asserted by tests/test_code_review.py).
+on:
+  schedule:
+    - cron: "23 7 * * 1"   # Monday 07:23 UTC — its own slot, an hour after engine-bump (06:23)
+  workflow_dispatch:
+    inputs:
+      dry:
+        description: "Preview the issues it would file (owner only)"
+        required: false
+        default: "false"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: code-review
+  cancel-in-progress: false
+
+jobs:
+  # Before anything touches a secret: only the owner or a collaborator with
+  # write/maintain/admin may run the reviewer (it reads the repo's secret list and
+  # writes issues). A stranger can never start it.
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Owner / collaborator trigger guard
+        env:
+          ACTOR: ${{ github.actor }}
+          TRIGGER: ${{ github.triggering_actor }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for u in "$ACTOR" "$TRIGGER"; do
+            if [ "$u" = "$OWNER" ]; then continue; fi
+            perm=$(gh api "repos/$REPO/collaborators/$u/permission" --jq .permission 2>/dev/null || echo none)
+            case "$perm" in
+              admin|write|maintain) ;;
+              *) echo "refusing: $u is '$perm', not owner/collaborator"; exit 1 ;;
+            esac
+          done
+          echo "guard ok: $ACTOR / $TRIGGER"
+
+  review:
+    needs: guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # The scan is the record of what the checks saw: it runs on the checked-out tree, writes
+      # nothing, and its output is the evidence the issues will quote.
+      - name: Scan the tree and the pipelines
+        run: make code-review-scan REPO="${{ github.repository }}"
+
+      # One issue per NEW finding, capped. An already-filed key is skipped (its marker is in the
+      # body), so a weekly run on an unchanged tree files nothing and stays quiet.
+      - name: File one issue per new finding
+        env:
+          # The owner PAT: `gh secret list` needs admin, which the default job token does not
+          # have, and the fallback keeps the run alive (with a loud warning) if the PAT is absent.
+          GH_TOKEN: ${{ secrets.BUMP_TOKEN || github.token }}
+        run: make code-review-file REPO="${{ github.repository }}" ${{ inputs.dry == 'true' && 'DRY=1' || '' }}
+
+      - name: Report
+        if: always()
+        run: |
+          echo "### code-review" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Findings: see the scan step above; issues filed: see the filer step." >> "$GITHUB_STEP_SUMMARY"
+          echo "The bot never edits code, never opens a PR and never merges." >> "$GITHUB_STEP_SUMMARY"

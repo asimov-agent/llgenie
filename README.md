@@ -460,6 +460,38 @@ the log stream, so a transformed value (base64, a URL, a slice) sails past it, a
 a log a job uploads itself. `make secret-output-report` shows which files name a secret and whether any
 of them prints it.
 
+## The code-review bot (issue #269)
+
+A bot that reads the **tree and the pipelines** and files issues for what is actually wrong. It is
+**analysis, never implementation** (AGENTS.md, #231): it never edits a file, opens a PR, merges, or
+comments on anyone's PR — its entire output is one issue per finding, and every issue carries the
+evidence the finding came from, so a reviewer can check the claim without re-deriving it.
+
+```bash
+make code-review-scan REPO=asimov-agent/llgenie            # the checks: tree + pipelines -> findings (writes nothing)
+make code-review-scan REPO=asimov-agent/llgenie STATIC=1   # skip the two checks that read the GitHub API
+make code-review-file REPO=asimov-agent/llgenie            # file ONE issue per NEW finding, capped (CAP=, default 3)
+make code-review-file REPO=asimov-agent/llgenie DRY=1      # preview what it would file
+```
+
+`.github/workflows/code-review-bot.yml` runs it weekly (Monday 07:23 UTC, its own slot) and on
+`workflow_dispatch` for the owner/collaborators, guard first, then scan, then file.
+
+The checks, and the two limits they are held to:
+
+| check | what it catches |
+|---|---|
+| `workflow-inline-scripts` | a workflow `run:` that invokes a repo script directly instead of a make target (a step whose whole job is gh/git orchestration is exempt, as the rule says) |
+| `secrets-not-defined` | a workflow reads `secrets.X` and X is not one of the repo's secrets — GitHub substitutes an **empty string**, so the job does not fail at startup, it fails later wherever that value is used |
+| `workflow-never-ran` | a workflow with its own events that has never run — never verified, only reviewed. `workflow_call`-only files are exempt: GitHub counts a reusable workflow's runs under its **caller** (`ci.yml` calls `pipeline.yml` three times and reports 892 runs while `pipeline.yml` reports 0) |
+| `cron-collisions` | two workflows scheduled at the same minute+hour on overlapping days (only fixed slots are compared — an hourly cron fires many times a day by design) |
+| `reusable-orphan` | a `workflow_call` pipeline that nothing calls, so nothing can run it |
+
+**Idempotent by contract**: a filed issue carries `<!-- code-review:<key> -->`, the filer skips any
+key it has already filed, and a cap (3 per run) bounds a bad run — a weekly run on an unchanged tree
+files nothing and stays quiet. The two API-backed checks need a token with admin to read the secret
+list; without one they warn loudly and skip rather than filing a claim they cannot support.
+
 ## Which llama.cpp build is used (card-size rule, issue #84)
 
 `make install` picks the llama.cpp **tree** (upstream or Prism) and the **backend** from the
