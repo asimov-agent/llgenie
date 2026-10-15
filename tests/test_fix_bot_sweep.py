@@ -22,11 +22,12 @@ import fix_bot_sweep as sweep  # noqa: E402
 OWNER = "asimov-agent"
 
 
-def gh_stub(tmp_path: Path, prs, checks: dict, commits: dict) -> Path:
+def gh_stub(tmp_path: Path, prs, checks: dict, commits: dict, comments: dict | None = None) -> Path:
     """A `gh` that answers the three shapes the sweep uses, and logs a dispatch."""
     bin_dir = tmp_path / "bin"; bin_dir.mkdir(exist_ok=True)
     scenario = tmp_path / "scenario.json"
-    scenario.write_text(json.dumps({"prs": prs, "checks": checks, "commits": commits}))
+    scenario.write_text(json.dumps({"prs": prs, "checks": checks, "commits": commits,
+                                    "comments": comments or {}}))
     log = tmp_path / "gh-calls"
     log.write_text("")
     gh = bin_dir / "gh"
@@ -41,7 +42,10 @@ if a[:2] == ["pr", "list"]:
 elif a[:2] == ["pr", "checks"]:
     print(json.dumps(sc["checks"].get(a[2], [])))
 elif a[:2] == ["pr", "view"]:
-    print(json.dumps({{"commits": [{{"messageHeadline": m}} for m in sc["commits"].get(a[2], [])]}}))
+    print(json.dumps({{"commits": [{{"messageHeadline": m}} for m in sc["commits"].get(a[2], [])],
+                      "comments": sc.get("comments", {{}}).get(a[2], [])}}))
+elif a[:2] == ["pr", "comment"]:
+    pass
 elif a[:2] == ["workflow", "run"]:
     pass
 else:
@@ -128,3 +132,52 @@ def test_the_cap_is_a_parameter(tmp_path):
     gh_stub(tmp_path, [pr(50)], {"50": RED}, {"50": ["fix(bot): a"]})
     r = run_sweep(tmp_path, ["--repo", f"{OWNER}/llgenie", "--max-attempts", "1"])
     assert "the cap (1/1 attempts)" in r.stdout
+
+
+# ---- the claim protocol on the fix-bot's side (issue #279) ----
+
+def _claim(at, work="fix", bot="fix-bot"):
+    return {"body": f"<!-- bot-claim: {bot} {at} {work} -->\nstarting"}
+
+
+def test_an_occupied_pr_is_skipped_and_the_next_red_one_is_taken(tmp_path):
+    """A recent comment without a `done` means someone is on that PR: skip it, take the next one."""
+    import datetime as dt
+    now = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    red = [{"number": 21, "title": "one", "isDraft": False, "updatedAt": "2026-10-01T00:00:00Z",
+            "headRefName": "b1", "mergeStateStatus": "CLEAN"},
+           {"number": 22, "title": "two", "isDraft": False, "updatedAt": "2026-10-02T00:00:00Z",
+            "headRefName": "b2", "mergeStateStatus": "CLEAN"}]
+    log = gh_stub(tmp_path, red, checks={"21": [{"name": "unit", "state": "failure", "bucket": "fail"}],
+                     "22": [{"name": "unit", "state": "failure", "bucket": "fail"}]}, commits={},
+                  comments={"21": [_claim(now, "rebase", bot="rebase-bot")]})
+    r = run_sweep(tmp_path, ["--repo", f"{OWNER}/llgenie"])
+    calls = log.read_text()
+    assert r.returncode == 0, f"sweep exited {r.returncode}: {r.stderr[-400:]}"
+    # it read #21's comments, left it alone, and claimed the one it took
+    assert "pr comment 21" not in calls, "an occupied PR must not be claimed"
+    assert "pr comment 22" in calls, "the picked PR must be claimed before the loop runs"
+
+
+def test_the_sweep_claims_the_pr_before_it_dispatches_the_loop(tmp_path):
+    """Issue #279: the repair is invisible for up to 180 minutes (no commit, nothing in flight), so
+    the claim on the PR is the only thing the rebase-bot can see. It has to be posted BEFORE the
+    dispatch, or the window it exists to close stays open."""
+    red = [{"number": 21, "title": "one", "isDraft": False, "updatedAt": "2026-10-01T00:00:00Z",
+            "headRefName": "b1", "mergeStateStatus": "CLEAN"}]
+    log = gh_stub(tmp_path, red, checks={"21": [{"name": "unit", "state": "failure", "bucket": "fail"}]}, commits={})
+    run_sweep(tmp_path, ["--repo", f"{OWNER}/llgenie"])
+    calls = log.read_text().splitlines()
+    claim = next((i for i, l in enumerate(calls) if l.startswith("pr comment 21") and "bot-claim" in l), None)
+    dispatch = next((i for i, l in enumerate(calls) if l.startswith("workflow run")), None)
+    assert claim is not None and dispatch is not None, calls
+    assert claim < dispatch, f"the claim must precede the dispatch: {calls}"
+    assert "fix-bot" in calls[claim] and " fix " in calls[claim], calls[claim]
+
+
+def test_the_sweep_does_not_claim_when_it_dry_runs(tmp_path):
+    red = [{"number": 21, "title": "one", "isDraft": False, "updatedAt": "2026-10-01T00:00:00Z",
+            "headRefName": "b1", "mergeStateStatus": "CLEAN"}]
+    log = gh_stub(tmp_path, red, checks={"21": [{"name": "unit", "state": "failure", "bucket": "fail"}]}, commits={})
+    run_sweep(tmp_path, ["--repo", f"{OWNER}/llgenie", "--dry"])
+    assert "pr comment" not in log.read_text(), "a dry run must not claim anything"

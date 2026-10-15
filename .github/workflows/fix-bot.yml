@@ -199,6 +199,11 @@ jobs:
             fi
             echo
             echo "_fix-bot: check \`${FIX_CHECK}\`, up to ${FIX_ROUNDS} attempt(s), never merges (issue #222)._"
+            echo
+            # RELEASE the claim (scripts/bot_claims.py, issues #279/#285): a repair that ends - green
+            # or exhausted - has to say so, or the PR stays claimed for the whole TTL and the
+            # rebase-bot never touches it. The claim is what the other bots read; this is its end.
+            PYTHONPATH=scripts python3 -c "import datetime as dt, bot_claims; print(bot_claims.done_comment(bot_claims.FIXER, dt.datetime.now(dt.timezone.utc), 'fixed' if '${OUTCOME}' == 'success' else 'gave-up'))"
           } > /tmp/fix-comment.md
           gh pr comment "$NUM" --repo "${{ github.repository }}" --body-file /tmp/fix-comment.md
 

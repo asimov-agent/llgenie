@@ -18,6 +18,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import bot_claims  # the shared protocol (issue #279)
 import subprocess
 import sys
 
@@ -57,6 +64,31 @@ def bot_attempts(repo: str, pr: int) -> int:
     return sum(1 for c in commits if (c.get("messageHeadline") or "").startswith(BOT_PREFIX))
 
 
+#: This bot, as the claim marker names it (scripts/bot_claims.py).
+FIX_BOT = bot_claims.FIXER   # one name source for every bot
+
+
+def occupied(repo: str, pr: dict) -> str | None:
+    """A reason to leave this PR alone, or None: the claim protocol (issue #279).
+
+    A bot that is going to work a PR says so on it first, and any recent comment that has NOT been
+    concluded by a `done` comment means someone is on it - so this sweep skips THAT PR and takes the
+    next one, rather than racing whoever is already there.
+    """
+    out = _gh(["pr", "view", str(pr["number"]), "--repo", repo, "--json", "comments"])
+    # PR_CLAIM_TTL, not the default: a repair can run 180 minutes, and a claim younger than that
+    # is a bot still working, not a stale one (scripts/bot_claims.py).
+    return bot_claims.occupied((json.loads(out or "{}") or {}).get("comments"), FIX_BOT,
+                               ttl=bot_claims.PR_CLAIM_TTL)
+
+
+def claim(repo: str, pr: dict) -> None:
+    """Say we are starting, before the loop does - in the marker the other bots read."""
+    _gh(["pr", "comment", str(pr["number"]), "--repo", repo, "--body",
+         bot_claims.claim_comment(FIX_BOT, "fix", datetime.now(timezone.utc),
+                                  ttl=bot_claims.PR_CLAIM_TTL)])
+
+
 def eligible(repo: str, pr: dict, max_attempts: int = 3) -> tuple[bool, str]:
     """(would the bot run for this PR, why not). Every rule is a plain reason string."""
     head = pr.get("headRepositoryOwner") or {}
@@ -70,6 +102,9 @@ def eligible(repo: str, pr: dict, max_attempts: int = 3) -> tuple[bool, str]:
         return False, f"a fork ({owner})"
     if not failing_checks(repo, pr["number"]):
         return False, "no failing check"
+    why = occupied(repo, pr)
+    if why:
+        return False, why
     tries = bot_attempts(repo, pr["number"])
     if tries >= max_attempts:
         return False, f"the cap ({tries}/{max_attempts} attempts)"
@@ -97,6 +132,10 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
 
     pr, skipped = choose(a.repo, a.max_attempts)
+    if pr is not None and not a.dry:
+        # Say we are starting, on the PR itself, before the loop runs (issue #279): the other
+        # bots read every claim before they pick anything.
+        claim(a.repo, pr)
     for p, why in skipped:
         print(f"[sweep] skip #{p['number']} ({p['title'][:60]}): {why}", flush=True)
     if pr is None:
