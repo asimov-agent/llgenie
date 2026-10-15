@@ -26,7 +26,12 @@ What "wired" means — one graph, no guessing:
   `tests/fixtures/host-only-wiring.json` (reason + the target a human runs by hand) —
   a decision, not an accident. A recorded one that CI now reaches is **stale** and must
   be deleted, so the file cannot rot either — and every `make <target>` a workflow calls
-  must exist, because a typo in a `run:` block is a silent no-op.
+  must exist, because a typo in a `run:` block is a silent no-op;
+- a **target** whose `##` help line CLAIMS CI coverage ("CI: ...", "CI job x", "Fails CI
+  when ...", "(CI pipelines)") must be reached by a CI job, transitively through the
+  targets a workflow calls. A help line that promises coverage nothing delivers is the
+  same lie as an unwired document, read by a human at `make help` time: correct the line,
+  wire the target, or record the decision under `"targets"` in the same file (issue #239).
 
 Stdlib only.
 """
@@ -43,6 +48,9 @@ REPO = Path(__file__).resolve().parent.parent
 MAKEFILES = ("Makefile", "tools/Makefile")
 WORKFLOW_DIR = ".github/workflows"
 EXCEPTIONS = "tests/fixtures/host-only-wiring.json"
+
+#: A `##` help line CLAIMS CI coverage when it says so in one of the ways the tree actually does.
+CI_CLAIM_RE = re.compile(r"^\s*CI\b|\bCI job\b|\bCI pipelines\b|\(CI\b|\bFails CI\b")
 DOC_PATTERNS = ("tests/test_*.py", "scripts/*.py")
 TARGET_RE = re.compile(r"^([a-z0-9][a-z0-9._-]*):", re.M)
 DOC_RE = re.compile(r"(tests/[A-Za-z0-9_./-]+\.py|scripts/[A-Za-z0-9_./-]+\.py)")
@@ -146,6 +154,19 @@ def _close(root: Path, docs: list[str], recipes: dict[str, str], calls: dict[str
     return reach
 
 
+def _help_lines(root: Path = REPO) -> dict[str, str]:
+    """Every target's `##` help line — the text a human reads at `make help` time."""
+    mk = root / "Makefile"
+    if not mk.exists():
+        return {}
+    out = {}
+    for line in mk.read_text().splitlines():
+        m = re.match(r"^([A-Za-z0-9_.-]+):[^#]*##\s*(.+)$", line)
+        if m:
+            out[m.group(1)] = m.group(2).strip()
+    return out
+
+
 def graph(root: Path = REPO) -> dict:
     """The whole wiring graph, computed from the real files: which target/workflow names
     each document, and which of those targets the CI workflows actually call."""
@@ -161,8 +182,16 @@ def graph(root: Path = REPO) -> dict:
     workflow_docs = {d for t in steps.values() for d in DOC_RE.findall(t) if d in docs}
     ci_targets = sorted({t for targets in workflow_targets.values() for t in targets if t in recipes})
 
+    # the target half of the claim (issue #239): what each `##` help line promises, and which
+    # targets CI actually reaches — directly, or through the targets a CI target calls.
+    claims = {t: h for t, h in _help_lines(root).items() if CI_CLAIM_RE.search(h)}
+    seen, frontier = set(ci_targets), set(ci_targets)
+    while frontier:
+        frontier = {c for t in frontier for c in calls.get(t, set())} - seen
+        seen |= frontier
     return {
         "root": str(root), "recipes": recipes, "calls": calls, "docs": docs,
+        "claim_targets": claims, "ci_target_closure": sorted(seen),
         "tests": [d for d in docs if d.startswith("tests/")],
         "scripts": [d for d in docs if d.startswith("scripts/")],
         "workflow_targets": workflow_targets, "ci_targets": ci_targets,
@@ -173,18 +202,25 @@ def graph(root: Path = REPO) -> dict:
 
 
 def load_exceptions(path: Path) -> dict:
-    """The host-only documents a human runs by hand: `{doc: {reason, target, decided}}`."""
+    """The dated decisions: host-only documents (`{doc: {reason, target, decided}}`) and targets
+    whose help line claims CI coverage nothing delivers (`{target: {reason, decided}}`)."""
     if not path.exists():
-        return {"path": str(path), "documents": {}}
+        return {"path": str(path), "documents": {}, "targets": {}}
     data = json.loads(path.read_text())
-    docs = data.get("documents")
+    docs, tgts = data.get("documents"), data.get("targets") or {}
     if not isinstance(docs, dict):
         raise SystemExit(f"[check-wiring] {path}: 'documents' must be an object")
     for doc, e in docs.items():
         for k in ("reason", "target", "decided"):
             if not e.get(k):
                 raise SystemExit(f"[check-wiring] {path}: {doc!r} lacks {k}")
-    return {"path": str(path), "documents": docs}
+    if not isinstance(tgts, dict):
+        raise SystemExit(f"[check-wiring] {path}: 'targets' must be an object")
+    for tgt, e in tgts.items():
+        for k in ("reason", "decided"):
+            if not e.get(k):
+                raise SystemExit(f"[check-wiring] {path}: target {tgt!r} lacks {k}")
+    return {"path": str(path), "documents": docs, "targets": tgts}
 
 
 def check(g: dict, exceptions: dict) -> list[str]:
@@ -212,6 +248,21 @@ def check(g: dict, exceptions: dict) -> list[str]:
     for doc in sorted(recorded):
         if doc not in g["docs"]:
             errors.append(f"{exceptions['path']}: {doc!r} does not exist — delete the entry")
+
+    # The target half: a help line that claims CI coverage nothing delivers (issue #239).
+    recorded_t = exceptions.get("targets") or {}
+    ci_reaches = set(g.get("ci_target_closure") or ())
+    for tgt, help_text in sorted((g.get("claim_targets") or {}).items()):
+        if tgt in ci_reaches or tgt in recorded_t:
+            continue
+        errors.append(f"`make {tgt}` claims CI coverage in its help line ({help_text[:70]!r}) but no CI job "
+                      f"reaches it: correct the `##` line, wire it to a target a CI job calls, or record the "
+                      f"decision under \"targets\" in {exceptions['path']}")
+    for tgt in sorted(recorded_t):
+        if tgt not in g["recipes"]:
+            errors.append(f"{exceptions['path']}: target {tgt!r} is not a make target — delete the entry")
+        elif tgt in ci_reaches:
+            errors.append(f"{exceptions['path']}: `make {tgt}` is reached by CI now — delete the entry")
     return errors
 
 
@@ -225,6 +276,12 @@ def report(g: dict, exceptions: dict) -> str:
     for doc in sorted(recorded):
         e = recorded[doc]
         lines.append(f"  host-only: {doc} — {e['reason']} (run: make {e['target']})")
+    claims = g.get("claim_targets") or {}
+    reached = set(g.get("ci_target_closure") or ())
+    lines.append(f"  {len(claims)} target(s) claim CI coverage in their help line, "
+                 f"{len([t for t in claims if t in reached])} are reached by CI")
+    for tgt in sorted(set(claims) - reached):
+        lines.append(f"  CLAIMS CI, NOT REACHED: make {tgt}")
     for doc in docs:
         if not g["reachable"][doc]:
             lines.append(f"  UNWIRED: {doc}")

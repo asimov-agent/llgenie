@@ -157,6 +157,48 @@ def test_a_target_ci_never_runs_needs_a_dated_decision_and_goes_stale(tmp_path):
     assert bad.returncode != 0 and "lacks reason" in bad.stderr
 
 
+def test_a_target_whose_help_line_claims_ci_coverage_is_guarded(tmp_path):
+    """Issue #239: the other half of the lie. A help line that says CI runs this target, while no
+    CI job reaches it, is read by a human at `make help` time and believed."""
+
+    # Given a target that says CI runs it, and a workflow that does not
+    makefile = "claims: ## CI job nothing: fail when the guard is asleep\n\techo hi\n"
+    root = _tree(tmp_path, makefile, {}, {"ci.yml": "jobs:\n  x:\n    steps:\n      - run: make other\n"})
+    (root / "Makefile").write_text(makefile + "other:\n\techo other\n")
+
+    # When the wiring is checked
+    r = _run(root, "check")
+
+    # Then the claim is an error, and it names the file a decision goes in
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "claims CI coverage" in r.stderr and "host-only-wiring.json" in r.stderr
+
+    # And a reasonless decision is refused, not accepted
+    _tree(root, makefile + "other:\n\techo other\n", {},
+          {"ci.yml": "jobs:\n  x:\n    steps:\n      - run: make other\n"},
+          exceptions={"documents": {}, "targets": {"claims": {"reason": "not wired on purpose"}}})
+    bad = _run(root, "check")
+    assert bad.returncode != 0 and "lacks decided" in (bad.stdout + bad.stderr)
+
+    # And a reasoned, dated decision settles it
+    _tree(root, makefile + "other:\n\techo other\n", {},
+          {"ci.yml": "jobs:\n  x:\n    steps:\n      - run: make other\n"},
+          exceptions={"documents": {}, "targets": {
+              "claims": {"reason": "runs in the host's loop only", "decided": "2026-10-15"}}})
+    assert _run(root, "check").returncode == 0
+
+    # And wiring it settles it too - with no decision to rot
+    (root / ".github/workflows/ci.yml").write_text("jobs:\n  x:\n    steps:\n      - run: make claims\n")
+    (root / "tests/fixtures/host-only-wiring.json").write_text(json.dumps({"documents": {}}))
+    assert _run(root, "check").returncode == 0
+
+    # And once CI reaches it, a leftover decision is stale and must be deleted
+    (root / "tests/fixtures/host-only-wiring.json").write_text(json.dumps(
+        {"documents": {}, "targets": {"claims": {"reason": "x", "decided": "2026-10-15"}}}))
+    stale = _run(root, "check")
+    assert stale.returncode == 1 and "reached by CI now" in (stale.stdout + stale.stderr)
+
+
 def test_a_workflow_that_calls_a_missing_make_target_fails(tmp_path):
     """A typo in a `run:` block is an error, not a silent no-op."""
 

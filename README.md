@@ -1109,9 +1109,11 @@ image → download → lint → unit → install → health → top-tier → top
   `continue-on-error`. macOS has no published-image stage and no native-engine job: it
   never runs an inference server in a container, so there are no images to test there,
   and GitHub's macOS runners have no Metal GPU to serve on.
-- **One CI run per push:** `ci.yml` triggers on `push` to any branch only, so a push to a
-  branch with an open PR runs once (its checks show on the PR), not a second time as a
-  `pull_request` event.
+- **One CI run per change, not per push:** `ci.yml` triggers on `pull_request` against
+  `main` and on `push` to `main` (a merge, which additionally builds and publishes the
+  engine images) — never on a bare feature-branch push. So a branch is vetted by its PR's
+  run, and the merge commit's run is the publish path. A fork PR is vetted by the upstream
+  run and its checks report on the PR (issue #155).
 - **Only collaborators, the `github-actions[bot]`, and the owner may trigger the
   workflows:** `ci.yml`, `registry-sync.yml`, `engine-bump.yml` and `engine-bump-rebase.yml` gate every run behind an actor guard that
   fails unless the triggering actor is the repo owner, the `github-actions[bot]`, or a
@@ -1203,9 +1205,11 @@ image → download → lint → unit → install → health → top-tier → top
   container left). make install picks this host's images by itself: on a Mac the cpu
   images (linux/amd64, run through Rosetta), and llgenie offers only trending models whose
   engine has an image for this host.
-- **CI** (`.github/workflows/ci.yml`) triggers on every branch push and runs each
-  stage as its own **parallel** job on Linux: `lint`, `unit`, `install`, `openspec`,
-  `cpu-health`, ... Every job is a `make ci-<job>` command, so CI == your local loop.
+- **CI** (`.github/workflows/ci.yml`) triggers on a `pull_request` against `main` and on a
+  `push` to `main`; it is the hub, and calls the reusable `pipeline.yml` once per OS
+  (`linux`, `macos-15-intel`), which runs each stage as its own **parallel** job: `lint`,
+  `unit`, `install`, `openspec`, `cpu-health`, ... Every job is a `make ci-<job>` command, so
+  CI == your local loop.
 
 ### PR fix-bot & the agent (Hermes) image (issues #222, #238)
 
