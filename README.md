@@ -297,6 +297,15 @@ there is no duplicated implementation. Run it locally with
 Its collaborator guard sends `Authorization: Bearer $TOKEN`, with `TOKEN`
 set to `secrets.GITHUB_TOKEN`, the same header `engine-bump` uses.
 
+Before that commit, and only when both the old sha and the new sha are known,
+the bump reads `requirements.txt`, `pyproject.toml`, and `Dockerfile` with
+`git show <sha>:<path>` and keeps the names the new pin added (issue #186).
+A release move compares the old tag's tree to the new tag's tree. A name
+already at the old tag is not installed as new. One fixture runs that bump
+through the pin and `make generate-engine-params`, and the test reads the
+Dockerfile that command wrote. A pin that only removes packages prints those
+names. The bump does not commit.
+
 ## The issue-implementer (issue #248)
 
 Nothing takes an issue and produces its first PR — until now. The
@@ -347,135 +356,71 @@ loop, and neither opens a PR — so it does not consume the 3/day PR cap.
   `AGENTS.md` at the repo root and implements — Makefile-driven verification,
   no weakened or mocked tests, nothing dead (a script/test must be named by a
   make target), the issue → branch → OpenSpec → code → PR lifecycle, never
-  pushes, never merges, never touches `main`. The token comes from a CI secret
-  at run time, never baked (issue #238 wires the Nerve/JEV plugin into the
-  container).
+  pushes, never merges, never touches `main`. Every token (the model key, the
+  owner PAT, the Nerve/JEV provider key) comes from a CI secret at run time and
+  is never baked — the container's supervision is wired by #238, below.
 - **Follow-ups**: once the PR is open, issue #246 keeps it rebased (one PR per
   day) and #222 repairs it when a check goes red — the implementer does not
   grow its own loop.
 
-Before that commit, and only when both the old sha and the new sha are known,
-the bump reads `requirements.txt`, `pyproject.toml`, and `Dockerfile` with
-`git show <sha>:<path>` and keeps the names the new pin added (issue #186).
-A release move compares the old tag's tree to the new tag's tree. A name
-already at the old tag is not installed as new. One fixture runs that bump
-through the pin and `make generate-engine-params`, and the test reads the
-Dockerfile that command wrote. A pin that only removes packages prints those
-names. The bump does not commit.
+### The JEV decision layer in the container (issue #238)
 
-An engine Dockerfile is generated from the skill. Shared build tools stay in
-the base image. Packages for one engine come from that skill's `apt:` key,
-written `apt: [libatomic1, libgomp1]`. There is no `apt-list` file. A new
-`apt-get install` name is appended to every existing `apt:` line, then
-`generate-engine-params` writes it into that engine's Dockerfile. The unit
-test renders that Dockerfile and checks the `apt-get install` line before a
-bump commits. A skill with
-no `apt:` line hard-fails and names the packages; the bump does not invent a
-`container:` block. A new Python requirement is installed by the skill's
-existing `pip install -r` line and only reported. When the install does not
-read that file, the bump hard-fails and names the packages. The pin still
-moves and the PR still opens. `dpkg-shlibdeps -O <binary>` names the Debian
-packages a binary links once that binary exists; the weekly bump does not
-compile, so it does not run that command. The rule for agents is in
-`AGENTS.md` under "Engine bump dependencies".
+The agent image carries the host's **Nerve plugin**, so the bots run with the same JEV decision
+layer the host runs. That layer is what makes an autonomous run *cheaper and more accurate*: it
+answers the cheap decisions — which step next, is this edit the right one, does this satisfy the
+check, is the turn even worth starting — so the expensive model calls are spent only where they
+are needed. The intended trade is **more JEV calls, fewer LLM calls**: fewer tokens, better
+accuracy, and a faster run, with the context curation keeping the prompt to the part of the repo
+that matters.
 
-The `engine-bump` unit tests run inside `make test-unit`. A pin newer than
-every upstream tag is not a bump. A sha-only move still rewrites a hardcoded
-tag literal. The collaborator guard is checked on the guard job, not the file
-header that names `BUMP_TOKEN`. The unit job checks out with full history so a changed-engine matrix can
-see the parent commit. The hermetic check that an unchanged tree is the
-placeholder row compares `HEAD` to itself. A bump PR's diff against `main`
-lists the engine whose image tag moved. `make test-unit` locks that for
-tensorfold (#165), llama.cpp-prism (#166), strata (#167) and llama.cpp (#168):
-a moved pin scopes the matrix to that engine, TensorFold's `git+` install
-follows the destination tag's release archive, and the three source builds
-keep their clone or cmake install. Those cases run the bump. The GitHub
-remote is a local repository and the release body is a JSON file. An archive
-that exists only on the previous tag does not replace the pip install. The real llama.cpp cpu
-image build is not in that hermetic list (its runner has no docker socket).
-The three tests that read the live TensorFold release run on the Linux unit
-job only (`make test-engine-bump-live`): the macOS runner cannot reach
-`api.github.com`, and that release has no `macos-x86_64` archive.
-That job's container receives `GITHUB_TOKEN` and `GH_TOKEN` by name, the same
-way it receives `HF_TOKEN` (`-e GITHUB_TOKEN`, the value stays in the
-environment). The release lookup sends `Authorization: Bearer` with
-`GITHUB_TOKEN`, or `GH_TOKEN` when `GITHUB_TOKEN` is empty. A 401 or 403 from
-a token that cannot read another repository is retried once with no
-`Authorization` header (issue #199).
-The bump derives the build parameters from the
-upstream tree at the new commit with plain code (git/regex/file parsing — no
-LLM), auto-applies renames and known moves, and when a build option or launch
-flag was removed it records a **hard-fail** — the pin still moves and a PR is
-still created, with the hard-fail flagged in the PR body so a human fixes the
-skill (CI goes red on the build). A toolchain or GPU-target rewrite stays inside
-its own front-matter block, so `prereqs:` and `derive:` are never rewritten.
-When the new tag's GitHub release ships native archives
-(`<name>-<version>-<os>-<arch>.tar.gz` plus a `.sha256`) and the skill still
-pip-installs that engine from `git+`, the bump rewrites `install:` to a
-checksum-verified download and unpack — a release that dropped pip (TensorFold
-1.0+) is installed from the archive, not left on a line the new tag refuses
-(issue #151). The release it reads is the tag the bump is moving to. Derive
-runs before that tag is written into the skill (issue #171). The rewrite also
-points `binary` at `{prefix}/{version}/bin/{id}` (a link to the one executable
-in the archive) and `detect` at `{binary} --version`. Each bump opens a `chore/engine-bump-<id>` PR
-whose CI builds and tests **only** that engine's images. A push publishes an
-image only when its tag changed since the parent commit: the tag is
-`<pin8>-<image-hash>-<arch>`, so an unchanged pin is already on GHCR and is
-not rebuilt (issue #153). `<image-hash>` hashes the variant params, its
-committed Dockerfile, `containers/engines/entrypoint.sh` and
-`scripts/engine_runner.py` — the same tag `make install` pulls, so changing
-what goes into it moves every engine at once and invalidates every published
-image; `tests/test_engine_image_matrix.py` pins it. A PR exists ⟺ the plan
-found ≥1 new hash. The workflow is gated to collaborators/owner/bot only.
-Both this workflow and `registry-sync` check out, push and open the PR with the
-owner PAT in the `BUMP_TOKEN` repo secret, not `GITHUB_TOKEN`: a bot-authored
-PR holds CI for manual approval and a `GITHUB_TOKEN` push starts no workflows
-(issue #136).
-
-The catalog's links are validated to exist (HTTP 200/206 ranged probe, no download):
-`make sync-quant-catalog` probes newly-added links, and the test suite probes every
-offered (model × engine × arch) pick. One caveat: **gated repos** (e.g. `meta-llama/Llama-3.1-8B`
-for llama-3.1-8b / vLLM) answer 401 without a `HF_TOKEN` — the files exist but need a
-token + license acceptance to download.
-
-After `make install`, just run:
+It is **not** a gate on the bots and not a stand-in for the review a PR gets. The bots are
+autonomous: nothing in this path may stop a run.
 
 ```bash
-llgenie                 # trending models that fit this card -> engine -> download -> serve
-llgenie --list          # list local models
-llgenie qwen            # launch a local model by name substring (llama.cpp)
-llgenie --dry           # print the pick and the command without running
+make agent-jev-preflight   # report whether the layer is available for this run (never blocks)
+make agent-image           # the image: Hermes CLI + the pinned nerve plugin + its settings + the profile
+make agent-image-ref       # the GHCR ref of THIS commit's Dockerfile + install scripts (their hash)
+make issue-bot-image       # the same image, for the issue-bot (alias of agent-image)
 ```
 
-Other targets: `make venv-install`, `make link`, `make smoke`, `make list`,
-`make version`, `make uninstall` (removes the launcher, symlink and every start script,
-keeps the venv), `make help`.
-
-CI tests every engine image twice. The build job tests it right after the build
-(`make test-engine` / `make test-engine-image`) and only then pushes it to GHCR
-(`make push-engine`, every push run, feature branches too). The separate `engine-published-test`
-matrix (one job per image, `test-published-<engine>-<arch>`) then pulls each image back from GHCR on a fresh runner (`make test-published-engine`:
-no local build, digest of the pinned tag == `:<arch>`, binary version, then the container is
-started and must answer "hi" on `/v1/chat/completions`; GPU images of the llama.cpp family
-and Ollama run without GPU devices and fall back to CPU, GPU-only engines such as vLLM or SGLang
-get the version test on their GPU images), and installs from the registry only
-(`make engine-launchers` + `make test-built-engine`). The last stage, `install-published`,
-runs the real `make install` per backend (cpu/cuda/rocm/vulkan mocked via `LLGENIE_BACKEND`, GPU
-images on CPU) against those published images: only that backend's images are pulled, llgenie
-answers "hi" through `llama-server` and `prism-server`, `llgenie --pick --engine` pulls the
-picked engine on first use, and `make uninstall` leaves nothing behind.
-
-CI runs this exact path on a clean runner: the `install` job runs `make test-install-ci`
-(`make install` -> `make test-built-engine` -> install tests -> llgenie answers "hi"
-through the container shim (`llama-server` / `prism-server`) -> `make test-install-trend`:
-the installed `llgenie` with no model runs in a pty, picks the top recommendation and engine
-from `data/models.json`, downloads the GGUF and the engine container answers "hi" -> `make uninstall`).
-Each `install-published-<backend>` job also runs the trend pick (`--dry`) from the installed `llgenie`.
-
-> **Why a wrapper?** `scripts/llgenie_serve.py` imports the `gguf`/`numpy` packages that live in the
-> venv, so it must be launched with the venv python. The `~/bin/llgenie` wrapper does
-> exactly that; the `llgenie.py` symlink keeps editors/`--list` pointing at the real file (which lives at
-> `scripts/llgenie_serve.py`).
+- **Build** (`containers/agent/Dockerfile` → `scripts/install_nerve_ci.sh`): the plugin is
+  installed at an immutable commit (`hermes plugins install keeltrace/hermes-nerve --ref
+  <40-char sha> --yes-deps --enable`, the v0.3.1 release commit). The wiring follows the plugin's
+  own `docs/SETUP.md` and mirrors the host:
+  - the documented **nervous-system block** under `plugins.entries.nerve.settings` (a value
+    written one level up is never read): `nervous_enabled`, `nervous_turn_admission`,
+    `nervous_mode: correct_next`, `nervous_challenge_confidence: 0.86`,
+    `nervous_call_threshold: 0.58`;
+  - the provider: `jev_provider: typesafe`, `typesafe_model: jev-latest`;
+  - `context_engine_mode`/`context_curation_mode: apply` (`apply` is where prompt tokens are won;
+    the schema default is `shadow`, which only measures) and `work_supervision_mode: advisory`
+    (advisory steers without blocking, which is what an autonomous bot needs; `enforce` is a
+    build arg);
+  - `gate_mode: off` is deliberate: SETUP.md calls the old synchronous pre-tool gate
+    compatibility behavior, not the recommended decision architecture — the nervous system above
+    is;
+  - the **profile sidecar** `${HERMES_HOME}/nerve/profile.json` = the host's profile `lean`
+    (reflex, nervous, work_supervision, token_trajectory, receipts), written through the plugin's
+    *own* `save_profile` so it is validated and atomic. A named profile is what decides which
+    modules register at all, so without it the settings above would tune modules nobody enabled.
+  - the dead pre-0.3.1 block `plugins.entries.hermes-nerve` is removed if a base image has it:
+    Hermes never reads it, and nerve warns about it at startup.
+  The build **fails** when the plugin did not land, when the ref is not an immutable SHA, when the
+  profile is not one the plugin knows, or when a provider key is present in the *build*
+  environment — a key in a build layer is a leak.
+- **Run** (`scripts/agent_jev_preflight.sh`, reached through `make agent-jev-preflight`, and run by
+  `make implement-issue` / `make fix-loop-image` before any agent work): it reports whether the
+  plugin is in this `HERMES_HOME`, whether the key is available, whether the plugin is *enabled*,
+  and whether the provider answers a real decision call (the plugin's own
+  `scripts/live_api_smoke.py`, no stand-in). The key travels as `-e TYPESAFE_API_KEY` from the
+  `TYPESAFE_API_KEY` repo secret (`issue-bot.yml`, `fix-bot.yml`) and is written into the image's
+  `HERMES_HOME/.env` (mode 600), because Hermes resolves credentials per home rather than from the
+  environment; the value is never printed. **When the layer is unavailable the run continues**,
+  loudly: a missing key, a plugin that is not installed, a provider that does not answer — each is
+  reported with what to do about it, and the bot does its work with more LLM calls and more
+  mistakes for the reviewer to catch than a JEV-assisted run would make. `NERVE_REQUIRE=1` turns
+  the report into a failure and exists to verify the *image* (`make agent-jev-preflight
+  NERVE_REQUIRE=1`); no bot workflow sets it.
 
 ### Manual setup (only if you don't want `make install`)
 

@@ -1,0 +1,213 @@
+#!/usr/bin/env python3
+"""A stand-in `hermes` for the nerve install/gate tests (issue #238).
+
+Not a mock of the product under test: `scripts/install_nerve_ci.sh` and
+`scripts/agent_jev_preflight.sh` run for real, as subprocesses, and this file answers the
+subcommands they call the way the REAL CLI answers them — including the trap that cost a debug
+round: `hermes config set plugins.entries.nerve.settings.gate_mode off` stores a YAML 1.1
+BOOLEAN (`false`), because a bare `off` is a boolean token, and the plugin then reads
+`gate_mode != "off"` as True and turns the Action Gate ON.
+
+Config is a real nested YAML-ish file at $HERMES_HOME/config.yaml, the plugin bundle is a real
+directory with a real plugin.yaml, and `plugins list --json` emits the shape the real command
+emits (name/status/version/source, source `git pinned@<sha8>`).
+
+    FAKE_HERMES_PIN     the sha8 the fake reports as installed (default: the requested ref)
+    FAKE_HERMES_STATUS  the status it reports (default: enabled when it was enabled at install)
+"""
+from __future__ import annotations
+
+import json
+import os
+import sys
+from pathlib import Path
+
+HOME = Path(os.environ.get("HERMES_HOME", "/root/.hermes"))
+CONFIG = HOME / "config.yaml"
+STATE = HOME / ".fake-hermes.json"
+BOOLS = {"off": False, "on": True, "yes": True, "no": False, "true": True, "false": False}
+
+
+def _coerce(value: str):
+    """YAML 1.1 scalar resolution, which is what the real CLI's writer applies.
+
+    A QUOTED token is a string whatever it looks like (`'off'` is the string "off", not the
+    boolean) — that is the whole reason the install script quotes it.
+    """
+    raw = value.strip()
+    if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in "'\"":
+        return raw[1:-1]
+    low = raw.lower()
+    if low in BOOLS:
+        return BOOLS[low]
+    try:
+        return int(value)
+    except ValueError:
+        pass
+    try:
+        return float(value)
+    except ValueError:
+        return value.strip().strip("'")
+
+
+def _dump_scalar(value) -> str:
+    return "true" if value is True else "false" if value is False else str(value)
+
+
+def _read_config() -> dict:
+    """A minimal reader for the flat shape this fake writes (nested by indentation)."""
+    out: dict = {}
+    stack: list[tuple[int, dict]] = [(-1, out)]
+    if not CONFIG.exists():
+        return out
+    for line in CONFIG.read_text().splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip())
+        key, _, raw = line.strip().partition(":")
+        while stack and stack[-1][0] >= indent:
+            stack.pop()
+        node = stack[-1][1]
+        if raw.strip() == "":
+            child: dict = {}
+            node[key] = child
+            stack.append((indent, child))
+        else:
+            node[key] = _coerce(raw)
+    return out
+
+
+def _write_config(cfg: dict) -> None:
+    lines: list[str] = []
+
+    def emit(node: dict, indent: int) -> None:
+        for key, value in node.items():
+            pad = " " * indent
+            if isinstance(value, dict):
+                lines.append(f"{pad}{key}:")
+                emit(value, indent + 2)
+            elif isinstance(value, list):
+                lines.append(f"{pad}{key}:")
+                lines.extend(f"{pad}  - {item}" for item in value)
+            else:
+                lines.append(f"{pad}{key}: {_dump_scalar(value)}")
+
+    emit(cfg, 0)
+    CONFIG.parent.mkdir(parents=True, exist_ok=True)
+    CONFIG.write_text("\n".join(lines) + "\n")
+
+
+def _state() -> dict:
+    try:
+        return json.loads(STATE.read_text())
+    except Exception:
+        return {}
+
+
+def _save_state(state: dict) -> None:
+    STATE.parent.mkdir(parents=True, exist_ok=True)
+    STATE.write_text(json.dumps(state))
+
+
+def plugins_install(args: list[str]) -> int:
+    identifier = args[0] if args else ""
+    ref = args[args.index("--ref") + 1] if "--ref" in args else ""
+    enabled = "--enable" in args
+    bundle = HOME / "plugins" / "nerve"
+    bundle.mkdir(parents=True, exist_ok=True)
+    (bundle / "plugin.yaml").write_text('name: nerve\nversion: "0.3.1"\n')
+    _save_state({"ref": ref, "enabled": enabled})
+    cfg = _read_config()
+    plugins = cfg.setdefault("plugins", {})
+    plugins.setdefault("disabled", [])
+    names = plugins.setdefault("enabled", [])
+    if enabled and "nerve" not in names:
+        names.append("nerve")
+    _write_config(cfg)
+    print(f"✓ Plugin installed: {identifier} (pinned {ref[:8]})")
+    print("✓ Plugin nerve enabled." if enabled else "Plugin installed disabled.")
+    return 0
+
+
+def plugins_list(args: list[str]) -> int:
+    state = _state()
+    ref = os.environ.get("FAKE_HERMES_PIN") or state.get("ref", "")
+    status = os.environ.get("FAKE_HERMES_STATUS") or ("enabled" if state.get("enabled") else "disabled")
+    rows = [{"name": "browser-firecrawl", "status": "enabled", "version": "1.0.0", "source": "bundled"}]
+    if (HOME / "plugins" / "nerve" / "plugin.yaml").exists():
+        rows.append({"name": "nerve", "status": status, "version": "0.3.1",
+                     "description": "Nerve supervisory nervous system",
+                     "source": f"git pinned@{ref[:8]}"})
+    if "--json" in args:
+        print(json.dumps(rows, indent=1))
+    else:
+        for row in rows:
+            print(f"{row['status']:12} {row['source']:22} {row['version']:8} {row['name']}")
+    return 0
+
+
+def config_set(key: str, value: str) -> int:
+    cfg = _read_config()
+    parts = key.split(".")
+    node = cfg
+    for part in parts[:-1]:
+        node = node.setdefault(part, {})
+    node[parts[-1]] = _coerce(value)
+    _write_config(cfg)
+    return 0
+
+
+def config_get(key: str) -> int:
+    node = _read_config()
+    for part in key.split("."):
+        if not isinstance(node, dict) or part not in node:
+            print("", file=sys.stderr)
+            return 1
+        node = node[part]
+    if isinstance(node, list):
+        for item in node:
+            print(f"  - {item}")
+        return 0
+    print(_dump_scalar(node))
+    return 0
+
+
+def config_unset(key: str) -> int:
+    """Remove a key, the way the real CLI does: an absent key is an error (exit 1)."""
+    cfg = _read_config()
+    parts = key.split(".")
+    node = cfg
+    for part in parts[:-1]:
+        if not isinstance(node, dict) or part not in node:
+            print(f"fake-hermes: no such key: {key}", file=sys.stderr)
+            return 1
+        node = node[part]
+    if not isinstance(node, dict) or parts[-1] not in node:
+        print(f"fake-hermes: no such key: {key}", file=sys.stderr)
+        return 1
+    del node[parts[-1]]
+    _write_config(cfg)
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) < 2:
+        print("usage: hermes <group> <command> ...", file=sys.stderr)
+        return 2
+    group, command, rest = argv[0], argv[1], argv[2:]
+    if group == "plugins" and command == "install":
+        return plugins_install(rest)
+    if group == "plugins" and command in ("list", "ls"):
+        return plugins_list(rest)
+    if group == "config" and command == "set":
+        return config_set(rest[0], rest[1]) if len(rest) >= 2 else 2
+    if group == "config" and command == "get":
+        return config_get(rest[0]) if rest else 2
+    if group == "config" and command == "unset":
+        return config_unset(rest[0]) if rest else 2
+    print(f"fake-hermes: unsupported: {group} {command}", file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

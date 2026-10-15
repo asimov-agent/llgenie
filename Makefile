@@ -60,7 +60,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	install-prism-cuda install-upstream-cuda install-prism-metal install-upstream-metal \
 	sync-registry check-registry skills-validate engine-list engine-hardware engine-plan engine-check engine-install engine-detect engine-smoke test-engine ci-engine-images build-engine-base build-engines generate-build-engine-params test-engine-image push-engine test-published-engine test-install-published engine-launchers test-built-engine test-uninstalled \
 	sync-quant-catalog check-quant-catalog render-trend-list-matrix check-trend-list-matrix render-engine-skill-gap check-engine-skill-gap engine-skill-gap spawn-engine-skill-issues sync-strata-models check-strata-models check-wiring wiring-report queued-alarm \ fix-loop fix-loop-image fix-bot-sweep fix-bot-report agent-image-ref
-	issue-bot-dispatch issue-bot-open-pr issue-bot-image issue-bot-triage issue-bot-verdict implement-issue hermes-smoke \
+	issue-bot-dispatch issue-bot-open-pr issue-bot-image issue-bot-triage issue-bot-verdict implement-issue hermes-smoke \ agent-jev-preflight
 	generate-engine-params check-engine-params build-engine run-engine stop-engine list-engine-images \
 	ci-lint ci-unit ci-agents-read ci-openspec ci-cpu-health ci-top-tier ci-install ci-install-dry-args ci-free-disk test-engine-stage
 
@@ -303,20 +303,49 @@ issue-bot-verdict: ## Apply the agent's TRIAGE verdict from triage.md: implement
 	@test -n "$(ISSUE)" || { echo "Usage: make issue-bot-verdict ISSUE=<n> [REPO=<owner/repo>]"; exit 1; }
 	python3 scripts/issue_implementer.py apply-verdict triage.md --repo $(if $(REPO),$(REPO),asimov-agent/llgenie) --issue $(ISSUE)
 
-implement-issue: ## Implement issue.md with Hermes INSIDE the agent image (AGENTS.md is the authority; NOUS_API_KEY/GH_TOKEN from secrets; runs the gates; pushes nothing)
+# The JEV preflight (issue #238). The agent image carries the Nerve/JEV decision layer, which
+# is what makes a bot run cheaper and more correct: the layer answers "is this the right next
+# step" before the model spends a call on it, and the curated context sends the model the part
+# of the repo that matters. This target reports whether the layer is available for THIS run and
+# puts the provider key where the plugin reads it (run time only — nothing is baked into the
+# image, exactly like NOUS_API_KEY).
+#
+# It NEVER stops a bot: the bots are autonomous, so a missing key or an unreachable provider
+# means a normal, slightly more expensive run, reported loudly. `NERVE_REQUIRE=1` turns the
+# report into a failure, and EVERY bot workflow sets it: a job whose image has the JEV engine
+# turned off does not start, because a bot that silently runs unsupervised is the failure mode
+# this guards against. Use NERVE_REQUIRE=1 alone to verify a freshly built image.
+agent-jev-preflight: ## Prove the JEV engine is active in the agent image; every bot workflow runs it with NERVE_REQUIRE=1, so a job whose engine is off does not start. NERVE_GATE_SKIP_PROVIDER=1 skips the live provider call
+	@python3 scripts/ci_images.py ensure agent
+	@$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo \
+	  -e TYPESAFE_API_KEY -e OPENROUTER_API_KEY -e OPENCODE_API_KEY \
+	  -e HERMES_NERVE_PROVIDER -e NERVE_REQUIRE -e NERVE_GATE_SKIP_PROVIDER \
+	  $(AGENT_IMAGE) bash -lc 'make _agent-jev-preflight'
+implement-issue: ## Implement issue.md with Hermes INSIDE the agent image (AGENTS.md is the authority; NOUS_API_KEY/GH_TOKEN + the Nerve/JEV key from secrets; runs the gates; pushes nothing)
 	@python3 scripts/ci_images.py ensure agent
 	@$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo \
 	  -e NOUS_API_KEY -e GH_TOKEN -e HERMES_REASONING -e REPO \
+	  -e TYPESAFE_API_KEY -e OPENROUTER_API_KEY -e OPENCODE_API_KEY \
+	  -e HERMES_NERVE_PROVIDER -e NERVE_REQUIRE \
 	  $(AGENT_IMAGE) bash -lc 'make _implement-issue'
 
 hermes-smoke: ## One real Hermes call through the alias the implementer uses, inside the agent image (die in seconds, not after 20 min)
 	@test -n "$$NOUS_API_KEY" || { echo "NOUS_API_KEY unset - refusing to spend time on a dead key"; exit 1; }
 	@python3 scripts/ci_images.py ensure agent
 	@$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo -e NOUS_API_KEY \
+	  -e TYPESAFE_API_KEY -e HERMES_NERVE_PROVIDER -e NERVE_REQUIRE \
 	  $(AGENT_IMAGE) bash -lc 'make _hermes-smoke'
+
+# Inside the image: the JEV preflight first, so the run knows whether the decision layer is
+# there. It reports; it never blocks.
+_agent-jev-preflight: # (internal) report whether the JEV layer is available in this home.
+# Invoked inside the agent image by the public `agent-jev-preflight` target, and by
+# `_implement-issue` before any agent work.
+	/usr/local/bin/agent_jev_preflight.sh
 
 _implement-issue: # (internal) the host recipe: implement issue.md with Hermes. Invoked
 # inside the agent image by the public `implement-issue` target.
+	$(MAKE) _agent-jev-preflight
 	hermes -z "Load AGENTS.md for rules. The issue to implement is issue.md at the repo root - read it FIRST (and the linked OpenSpec change if present) and implement exactly its acceptance criteria; do not widen the scope. HARD RULES: (1) run every gate through the Makefile and fix what they report; (2) never weaken or mock a test to get green; (3) a test or script you add must be named by a make target (nothing dead); (4) follow the repo's issue -> branch -> OpenSpec -> code -> PR lifecycle. Do not push, do not merge, do not touch main." $(nous-alias) --reasoning $(HERMES_REASONING) --yolo
 _hermes-smoke: # (internal) one real Hermes call. Invoked inside the agent image by
 # the public `hermes-smoke` target.
@@ -334,7 +363,8 @@ fix-loop-image: ## Run the fix-bot loop inside the agent image (the same image t
 	echo "agent image: $$img"; \
 	$(RUNTIME) run --rm --init -v "$$PWD:/repo" -w /repo \
 	  -e NOUS_API_KEY -e GH_TOKEN -e FIX_CHECK -e FIX_ROUNDS \
-	  "$$img" bash -lc 'scripts/fix_loop.sh' 2>&1 | tee "$(if $(LOG),$(LOG),/tmp/fix-loop.log)"
+	  -e TYPESAFE_API_KEY -e HERMES_NERVE_PROVIDER -e NERVE_REQUIRE \
+	  "$$img" bash -lc 'scripts/agent_jev_preflight.sh && scripts/fix_loop.sh' 2>&1 | tee "$(if $(LOG),$(LOG),/tmp/fix-loop.log)"
 
 fix-bot-sweep: ## Which red PR the fix-bot should repair, and dispatch it (DRY=1 previews; needs gh)
 	python3 scripts/fix_bot_sweep.py --repo $(if $(REPO),$(REPO),asimov-agent/llgenie) --check "$(if $(CHECK),$(CHECK),make ci-unit)" --max-attempts $(if $(ATTEMPTS),$(ATTEMPTS),3) $(if $(DRY),--dry,)
@@ -619,7 +649,7 @@ test-clean: ## Remove left-over/stopped orphaned containers of the test image (i
 	echo "Pruned stopped orphaned $(TEST_IMG) containers."
 
 test-unit: ## Hermetic unit tests (containerized) — includes the lint regression + openspec-tasks-check tests
-	$(TEST_RUN) python -m pytest tests/test_llgenie_serve.py tests/test_hf_auth.py tests/test_hf_download_stall.py tests/test_hf_download_retry.py tests/test_lint_linefeeds.py tests/test_engine_bump_sync.py tests/test_engine_bump_rebase.py tests/test_check_openspec_tasks.py tests/test_remove_watchloop.py tests/test_ci_variant_matrix.py tests/test_serve_variant.py tests/test_ensure_user_path.py tests/test_engine_skills.py tests/test_engine_bump.py tests/test_engine_bump_pr_body.py tests/test_detect_server.py tests/test_model_engine_pick.py tests/test_trend_pick.py tests/test_registry_sync_trend.py tests/test_trend_list_matrix.py tests/test_registry_keys.py tests/test_engine_skill_gap.py tests/test_strata_download.py tests/test_macos_install.py tests/test_ci_images.py tests/test_mac_trend_pick.py tests/test_trend_list_acceptance.py tests/test_tensorfold_seamless.py tests/test_pick_matrix.py tests/test_pick_matrix_arch_perms.py tests/test_pick_full_registry.py tests/test_trending_quant_catalog.py tests/test_engine_supported_quants.py tests/test_quant_generator_edges.py tests/test_check_python_uv.py tests/test_engine_image_matrix.py tests/test_agents_worktree.py tests/test_agents_debt_analysis.py tests/test_wiring.py tests/test_kv_quant_bytes.py tests/test_queued_run_alarm.py tests/test_rename_llgenie_serve.py tests/test_fix_loop.py tests/test_fix_bot_sweep.py tests/test_issue_implementer.py tests/test_bot_time_budget.py -p no:cacheprovider -q -k 'not test_derive_reports_the_live_release_archives and not test_tensorfold_v1_0_5_release_is_native_archives and not test_tensorfold_release_archive_unpacks_and_runs'
+	$(TEST_RUN) python -m pytest tests/test_llgenie_serve.py tests/test_hf_auth.py tests/test_hf_download_stall.py tests/test_hf_download_retry.py tests/test_lint_linefeeds.py tests/test_engine_bump_sync.py tests/test_engine_bump_rebase.py tests/test_check_openspec_tasks.py tests/test_remove_watchloop.py tests/test_ci_variant_matrix.py tests/test_serve_variant.py tests/test_ensure_user_path.py tests/test_engine_skills.py tests/test_engine_bump.py tests/test_engine_bump_pr_body.py tests/test_detect_server.py tests/test_model_engine_pick.py tests/test_trend_pick.py tests/test_registry_sync_trend.py tests/test_trend_list_matrix.py tests/test_registry_keys.py tests/test_engine_skill_gap.py tests/test_strata_download.py tests/test_macos_install.py tests/test_ci_images.py tests/test_mac_trend_pick.py tests/test_trend_list_acceptance.py tests/test_tensorfold_seamless.py tests/test_pick_matrix.py tests/test_pick_matrix_arch_perms.py tests/test_pick_full_registry.py tests/test_trending_quant_catalog.py tests/test_engine_supported_quants.py tests/test_quant_generator_edges.py tests/test_check_python_uv.py tests/test_engine_image_matrix.py tests/test_agents_worktree.py tests/test_agents_debt_analysis.py tests/test_wiring.py tests/test_agent_nerve.py tests/test_kv_quant_bytes.py tests/test_queued_run_alarm.py tests/test_rename_llgenie_serve.py tests/test_fix_loop.py tests/test_fix_bot_sweep.py tests/test_issue_implementer.py tests/test_bot_time_budget.py -p no:cacheprovider -q -k 'not test_derive_reports_the_live_release_archives and not test_tensorfold_v1_0_5_release_is_native_archives and not test_tensorfold_release_archive_unpacks_and_runs'
 
 # Live GitHub release reads. Linux only: the macOS runner cannot reach
 # api.github.com, and TensorFold publishes no macos-x86_64 archive.
@@ -913,6 +943,7 @@ help:
 	@echo "  make issue-bot-open-pr          open the draft-free PR linking ISSUE from BRANCH (never merges)"
 	@echo "  make implement-issue             the shared Hermes agent step: read issue.md + AGENTS.md, implement, run the gates, push nothing (NOUS_API_KEY from a secret)"
 	@echo "  make hermes-smoke               one real Hermes call through the implementer alias (die in seconds)"
+	@echo "  make agent-jev-preflight           report whether the JEV decision layer is available in the agent image (never blocks a run; NERVE_REQUIRE=1 verifies the image instead) — issue #238"
 	@echo "  make build-engine ENGINE=<id> [ARCH=cpu|cuda|rocm|vulkan] [PUSH=1]   build from the generated Dockerfile"
 	@echo "  make build-engine-<id>-<arch>    e.g. build-engine-vllm-cuda, build-engine-llama.cpp-prism-rocm"
 	@echo "  make build-engines ARCH=<arch>   every engine for one arch"

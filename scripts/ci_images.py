@@ -55,7 +55,11 @@ IMAGES: dict[str, tuple[str, tuple[str, ...]]] = {
     "openspec": ("openspec/Dockerfile", ()),
     # the bots' agent image (issues #222/#238/#248): the test image plus the Hermes CLI and the
     # git/gh/docker tooling a bot job needs. Its inputs include the install script it COPYs.
-    "agent": ("containers/agent/Dockerfile", ("scripts/install_hermes_ci.sh",)),
+    # every file the Dockerfile COPYs belongs here: the hash tag is what makes "the image a job
+    # uses" the image of THIS commit, so a changed install script must move the tag.
+    "agent": ("containers/agent/Dockerfile", ("scripts/install_hermes_ci.sh",
+                                              "scripts/install_nerve_ci.sh",
+                                              "scripts/agent_jev_preflight.sh")),
 }
 
 

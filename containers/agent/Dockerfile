@@ -27,9 +27,23 @@
 # build asserts the alias landed. The alias is why every bot call is `hermes -z ... -m
 # nous-deepseek`.
 #
-# Secrets are NEVER baked: the KEY itself (NOUS_API_KEY), GH_TOKEN and HF_TOKEN arrive at run
-# time (`docker run -e ...`, or `container:` + the job's env), exactly as #238 requires. The
-# image only knows the NAME of the env var to read (key_env=NOUS_API_KEY).
+# ADDED: the Nerve plugin and its settings, installed at build time by
+# scripts/install_nerve_ci.sh (issue #238). The host runs Hermes with Nerve enabled — its JEV
+# provider is the supervisory layer (DoD checks, nervous challenges, completion auditing, JEV
+# telemetry) — and a container that only installed the CLI would run a bot UNSupervised. The
+# pin is an immutable 40-char SHA (a tag would make this image's hash tag lie):
+#     --build-arg HERMES_NERVE_PLUGIN=keeltrace/hermes-nerve
+#     --build-arg HERMES_NERVE_REF=<40-char sha>          (default: the v0.3.1 release commit)
+#     --build-arg HERMES_NERVE_WORK_SUPERVISION_MODE=advisory|enforce   (bot policy decision)
+#     --build-arg HERMES_NERVE_PROFILE=lean|operator|marie_kondo|fat_cat  (default: lean, the host's profile)
+#
+# Secrets are NEVER baked: the KEY itself (NOUS_API_KEY), GH_TOKEN, HF_TOKEN and the JEV
+# provider key (TYPESAFE_API_KEY) arrive at run time (`docker run -e ...`, or `container:` +
+# the job's env), exactly as #238 requires. The image only knows the NAME of the env var to
+# read (key_env=NOUS_API_KEY; the plugin reads TYPESAFE_API_KEY from the secret scope).
+# scripts/install_nerve_ci.sh REFUSES a build that has a provider key in its environment, and
+# scripts/agent_jev_preflight.sh (run at the start of every bot run) reports whether the
+# decision layer is available; it never blocks a run, because the bots are autonomous.
 # The repo's test image is hash-tagged on GHCR; locally `make test-image` produces the
 # `llgenie/test:latest` alias, and CI passes the resolved hash tag through --build-arg.
 ARG TEST_IMAGE=llgenie/test:latest
@@ -44,6 +58,14 @@ ARG HERMES_PACKAGE="hermes-agent"
 ARG HERMES_ALIAS="nous-deepseek"
 ARG HERMES_MODEL_ID="deepseek/deepseek-v4.1-flash"
 ARG HERMES_BASE_URL="https://inference-api.nousresearch.com/v1"
+# The Nerve plugin pin and the provider it supervises through (see the header, issue #238).
+ARG HERMES_NERVE_PLUGIN="keeltrace/hermes-nerve"
+ARG HERMES_NERVE_REF="3de7d94982b7a2cb87c829e4b2366ced927d8fed"   # keeltrace/hermes-nerve v0.3.1
+ARG HERMES_NERVE_PROFILE="lean"
+ARG HERMES_NERVE_PROVIDER="typesafe"
+# advisory logs and steers without blocking; enforce can stop a run. The host runs advisory,
+# which is the default here too — a bot still has to be able to push a reviewable PR.
+ARG HERMES_NERVE_WORK_SUPERVISION_MODE="advisory"
 
 USER root
 
@@ -64,8 +86,14 @@ RUN set -eux; \
 # The CI build context is FLAT (ci_images.context copies each input file to the
 # context root), so the COPY path is the file's name, not its repo path.
 COPY install_hermes_ci.sh /usr/local/bin/install_hermes_ci.sh
+COPY install_nerve_ci.sh /usr/local/bin/install_nerve_ci.sh
+COPY agent_jev_preflight.sh /usr/local/bin/agent_jev_preflight.sh
 ENV HERMES_INSTALL_URL=${HERMES_INSTALL_URL} HERMES_PACKAGE=${HERMES_PACKAGE} \
-    HERMES_ALIAS=${HERMES_ALIAS} HERMES_MODEL_ID=${HERMES_MODEL_ID} HERMES_BASE_URL=${HERMES_BASE_URL}
+    HERMES_ALIAS=${HERMES_ALIAS} HERMES_MODEL_ID=${HERMES_MODEL_ID} HERMES_BASE_URL=${HERMES_BASE_URL} \
+    HERMES_NERVE_PLUGIN=${HERMES_NERVE_PLUGIN} HERMES_NERVE_REF=${HERMES_NERVE_REF} \
+    HERMES_NERVE_PROVIDER=${HERMES_NERVE_PROVIDER} \
+    HERMES_NERVE_PROFILE=${HERMES_NERVE_PROFILE} \
+    HERMES_NERVE_WORK_SUPERVISION_MODE=${HERMES_NERVE_WORK_SUPERVISION_MODE}
 # `install.sh` puts the CLI in ~/.local/bin and its tree in ~/.hermes; make both stick for
 # the runtime user too (a `container:` job does not source a login shell).
 ENV PATH="/root/.local/bin:${PATH}"
@@ -80,10 +108,26 @@ RUN chmod +x /usr/local/bin/install_hermes_ci.sh \
     && test "$(hermes config get "model.aliases.${HERMES_ALIAS}.key_env")" = "NOUS_API_KEY" \
     && echo "[agent-image] alias ${HERMES_ALIAS} -> ${HERMES_MODEL_ID} (key_env=NOUS_API_KEY, key supplied at run time)"
 
+# The supervisory layer (issue #238). HERMES_HOME is explicit because the plugin, its settings
+# and the run-time gate must all agree on which home is "this" home — plugins are per-home, and
+# a `container:` job never sources a login shell. The install script writes the pinned bundle
+# into ${HERMES_HOME}/plugins/nerve, the host's settings under plugins.entries.nerve.settings,
+# and fails the BUILD if either did not land.
+ENV HERMES_HOME=/root/.hermes
+RUN chmod +x /usr/local/bin/install_nerve_ci.sh /usr/local/bin/agent_jev_preflight.sh \
+    && /usr/local/bin/install_nerve_ci.sh \
+    # Prove the layer is really there and really secret-free, at build time: an image that
+    # claims supervision but has no plugin (or has a baked key) is the failure #238 names.
+    && hermes plugins list | grep -q 'nerve' \
+    && test -f "${HERMES_HOME}/plugins/nerve/plugin.yaml" \
+    && test -x /usr/local/bin/agent_jev_preflight.sh \
+    && ! env | grep -qE '^(TYPESAFE|OPENROUTER|OPENCODE)_API_KEY=' \
+    && echo "[agent-image] JEV layer installed; provider key arrives at run time (scripts/agent_jev_preflight.sh wires it in)"
+
 # The repo is checked out by the workflow (the agent edits the working tree); this is only
 # the default working dir, and `git config` is left to the workflow so the bot's identity
 # is visible in the commits it makes.
 WORKDIR /repo
 
 # Same entry shape as the test image: a command, not a daemon.
-CMD ["bash", "-lc", "git --version && gh --version && hermes --version"]
+CMD ["bash", "-lc", "git --version && gh --version && hermes --version && hermes plugins list | grep -q nerve && echo 'nerve: enabled'"]

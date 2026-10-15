@@ -1,0 +1,13 @@
+# Tasks
+
+- [x] 1. `scripts/install_nerve_ci.sh`: install `keeltrace/hermes-nerve` at an immutable 40-char commit, then wire it the way the host is wired per the plugin's `docs/SETUP.md` — the nervous-system block, the provider, `context_*_mode: apply`, `work_supervision_mode: advisory`, `gate_mode: off` — and fail the build on a mutable ref, a key in the build environment, a bundle that did not land, a plugin that is not enabled, a profile the plugin does not know, or a setting that did not land where Hermes reads it
+- [x] 2. `scripts/install_nerve_ci.sh`: the **profile sidecar** (`$HERMES_HOME/nerve/profile.json` = the host's `lean`) written through the plugin's own `save_profile` (validated, atomic) and verified through its own loader, plus removal of the dead `plugins.entries.hermes-nerve` block
+- [x] 3. `scripts/agent_jev_preflight.sh` (renamed from `agent_nerve_gate.sh`): report whether the layer is available — bundle, key (env or the home's `.env`, written back mode 600), plugin enabled, a real provider decision call — and **CONTINUE on every failure**, with `NERVE_REQUIRE=1` as the image-verification mode and no `ALLOW_UNSUPERVISED` opt-out left
+- [x] 4. `containers/agent/Dockerfile`: build args for pin/provider/profile/supervision mode, explicit `HERMES_HOME`, COPY + run the install script, assert the layer at build time, no provider key in the image env
+- [x] 5. `scripts/ci_images.py`: both scripts added to the agent image's hash inputs
+- [x] 6. Makefile: `agent-jev-preflight` (public, a working recipe: `ensure` + `$(RUNTIME) run`) + `_agent-jev-preflight` (internal), wired into `_implement-issue` and `fix-loop-image` before any agent work, `-e TYPESAFE_API_KEY` on every bot target, `.PHONY`, help text
+- [x] 7. `.github/workflows/issue-bot.yml` + `fix-bot.yml`: `TYPESAFE_API_KEY` from the repo secret as run-time env, and the preflight as a step of the implementer before it spends model time, named for what it does
+- [x] 8. `tests/test_agent_nerve.py` in `make test-unit`, with `tests/fixtures/fake-hermes/hermes` as the CLI stand-in and `tests/fixtures/fake-nerve-plugin/` as the plugin-package stand-in: real subprocesses, and a test that no bot workflow makes JEV a precondition
+- [x] 9. README: the "JEV decision layer in the container" section (purpose, the host-parity wiring table, the never-blocks contract)
+- [x] 10. `agent-wiki/2026-10-14-agent-nerve-jev.md`: the work record
+- [x] 11. Verification: `bash -n` on both scripts, `py_compile`, `make check-wiring`, `lint_linefeeds`, `check_openspec_tasks`, `make openspec-validate NAME=agent-nerve-jev`, and the image-level halves exercised for real inside `llgenie/agent:latest`

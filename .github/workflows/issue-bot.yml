@@ -73,6 +73,11 @@ jobs:
     timeout-minutes: 120
     env:
       NOUS_API_KEY: ${{ secrets.NOUS_PORTAL_API_TOKEN }}
+      # The JEV/provider key for the Nerve supervision the agent image carries (issue #238).
+      # Run-time only, like NOUS_API_KEY: `docker run -e`, never baked into the image. The
+      # gate step below fails the run when it is missing, so the bot never implements an
+      # issue unsupervised.
+      TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
       REPO: ${{ github.repository }}
     steps:
       - name: Checkout main (PAT, so its push re-triggers CI)
@@ -104,6 +109,10 @@ jobs:
           echo "action=$action" >> "$GITHUB_OUTPUT"
           if [ "$action" = "cap" ] || [ "$action" = "none" ]; then echo "dispatch=false" >> "$GITHUB_OUTPUT"; else echo "dispatch=true" >> "$GITHUB_OUTPUT"; fi
           exit 0
+
+      - name: Prove the JEV engine is active — the run does not start without it (issue #238)
+        if: steps.dispatch.outputs.dispatch == 'true'
+        run: make agent-jev-preflight NERVE_REQUIRE=1
 
       - name: Hermes routing smoke (die in seconds, not after 20 min)
         if: steps.dispatch.outputs.dispatch == 'true'

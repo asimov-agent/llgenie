@@ -194,9 +194,13 @@ def test_publish_agent_pins_the_test_image_it_builds_from(tmp_path):
     assert "arm64" not in b
     assert re.search(r"--build-arg TEST_IMAGE=ghcr\.io/asimov-agent/llgenie/test:[0-9a-f]{12}", b), b
 
-    # And its context holds the agent Dockerfile and the install script it COPYs
+    # And its context holds the agent Dockerfile and EVERY script it COPYs. Read from the
+    # registry's own input list rather than a literal set: a new COPY that is not a hash input
+    # (or vice versa) is exactly the drift this assertion exists to catch.
+    import ci_images as _ci
     ctx = next(c for c in _calls(log) if c.startswith("CTX: "))
-    assert set(ctx[5:].split()) == {"Dockerfile", "install_hermes_ci.sh"}, ctx
+    expected = {"Dockerfile", *(Path(rel).name for rel in _ci.IMAGES["agent"][1])}
+    assert set(ctx[5:].split()) == expected, ctx
 
 
 def test_agent_tag_changes_when_the_test_image_tag_changes(tmp_path):
@@ -205,8 +209,9 @@ def test_agent_tag_changes_when_the_test_image_tag_changes(tmp_path):
     import ci_images
 
     root = _copy_inputs(tmp_path)
-    # the agent image's own inputs (Dockerfile + install script) must exist in the copy
-    for rel in ("containers/agent/Dockerfile", "scripts/install_hermes_ci.sh"):
+    # the agent image's own inputs (its Dockerfile + every script it COPYs) must exist in the
+    # copy — read from the registry's input list, so adding a script cannot leave this behind
+    for rel in ("containers/agent/Dockerfile", *ci_images.IMAGES["agent"][1]):
         (root / rel).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(REPO / rel, root / rel)
 
