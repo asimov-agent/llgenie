@@ -16,6 +16,8 @@ import json
 import sys
 from pathlib import Path
 
+import yaml
+
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
 import code_review as cr  # noqa: E402
@@ -205,6 +207,49 @@ jobs:
           KEY: ${{ secrets.PRESENT_SECRET }}
 """})
     assert cr.check_secrets_not_defined(root, {"PRESENT_SECRET"}) == []
+
+
+def test_a_secret_named_only_in_a_comment_is_not_a_finding(tmp_path):
+    """A workflow documents example shapes in comments; a name that lives ONLY there is not a
+    reference the job reads, so it must not be filed as an undefined secret (issue #307)."""
+
+    # Given a workflow whose only `secrets.X` appears in a `#` comment
+    root = _tree(tmp_path, {"a.yml": """\
+name: A
+on:
+  workflow_dispatch:
+jobs:
+  a:
+    steps:
+      # `${{ secrets.X }}` inside a `run:` block is a value in a log waiting to happen.
+      - run: make x
+"""})
+
+    # When the secrets check runs
+    found = cr.check_secrets_not_defined(root, set())
+
+    # Then no finding is reported for that name
+    assert found == [], found
+
+
+def test_the_scan_step_carries_the_same_token_as_the_filer():
+    """The scan and the filer call the SAME checks, so the scan step must carry the same token —
+    without it the API-backed checks are skipped there and the scan prints "no findings" while the
+    filer, on the same tree, files (issue #307, run 38825474696)."""
+
+    # Given the code-review workflow
+    wf = yaml.safe_load((cr.REPO_ROOT / cr.WORKFLOWS / "code-review-bot.yml").read_text())
+    steps = {s.get("name"): s for s in wf["jobs"]["review"]["steps"]}
+
+    # When the scan and filer steps are read
+    scan = steps["Scan the tree and the pipelines"]
+    filer = steps["File one issue per new finding"]
+
+    # Then the scan carries GH_TOKEN exactly like the filer, and each step calls one make target
+    assert scan.get("env", {}).get("GH_TOKEN"), scan
+    assert scan["env"]["GH_TOKEN"] == filer["env"]["GH_TOKEN"], (scan["env"], filer["env"])
+    assert "make code-review-scan" in scan["run"]
+    assert "make code-review-file" in filer["run"]
 
 
 # ---------------------------------------------------------------------------

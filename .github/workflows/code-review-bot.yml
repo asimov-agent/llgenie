@@ -79,8 +79,15 @@ jobs:
       - uses: actions/checkout@v4
 
       # The scan is the record of what the checks saw: it runs on the checked-out tree, writes
-      # nothing, and its output is the evidence the issues will quote.
+      # nothing, and its output is the evidence the issues will quote. It carries the SAME token as
+      # the filer because both halves call the same checks — without it the two API-backed checks
+      # (secrets, run counts) are SKIPPED here and the scan prints "no findings" while the filer,
+      # on the same tree, files (issue #307).
       - name: Scan the tree and the pipelines
+        env:
+          # The owner PAT (admin, for `gh secret list`); the fallback keeps the run alive with a
+          # loud warning if the PAT is absent.
+          GH_TOKEN: ${{ secrets.BUMP_TOKEN || github.token }}
         run: make code-review-scan REPO="${{ github.repository }}"
 
       # One issue per NEW finding, capped. An already-filed key is skipped (its marker is in the

@@ -56,6 +56,17 @@ def _read(path: Path) -> str:
     return path.read_text() if path.exists() else ""
 
 
+def _without_comments(text: str) -> str:
+    """The workflow text with full-line `#` comments removed.
+
+    A workflow documents example shapes in comments (`# ${{ secrets.X }} ...`), so a name that
+    appears ONLY there is documentation, not a reference the job reads. The other checks already
+    read comment-stripped `run:` blocks via `_steps`; the secrets check must strip too, or a comment
+    is filed as an undefined secret.
+    """
+    return "\n".join(line for line in text.splitlines() if not line.strip().startswith("#"))
+
+
 def _workflow_files(root: Path) -> list[Path]:
     return sorted((root / WORKFLOWS).glob("*.yml"))
 
@@ -171,7 +182,7 @@ def check_secrets_not_defined(root: Path, defined: set[str]) -> list[dict]:
     """A workflow reads `secrets.X` and X is not one of the repo's secrets: the job env is empty."""
     used: dict[str, set[str]] = {}
     for wf in _workflow_files(root):
-        for name in SECRET_REF.findall(_read(wf)):
+        for name in SECRET_REF.findall(_without_comments(_read(wf))):
             used.setdefault(name, set()).add(wf.name)
     out = []
     for name in sorted(used):
