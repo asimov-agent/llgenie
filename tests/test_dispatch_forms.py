@@ -151,6 +151,32 @@ def test_all_three_header_keys_pass(tmp_path):
 # ---------------------------------------------------------------------------
 # scope: only what a human can start
 # ---------------------------------------------------------------------------
+def test_a_header_that_names_a_time_the_cron_does_not_have_is_a_violation(tmp_path):
+    """Issue #275 moved every bot's minute; the prose moved with them in one file and not in three
+    others. A header that says `05:17 UTC` over a `41 5 * * *` cron is the exact drift a reader
+    believes, so the guard checks the claim against the schedule."""
+    header = HEADER.replace("# Trigger surface: schedule + workflow_dispatch.",
+                            "# Trigger surface: schedule daily 05:17 UTC, and workflow_dispatch.")
+    stale = _wf().replace(HEADER, header)          # cron in _wf() is 23 6 * * *
+    bad = cdf.violations(_tree(tmp_path, {"a-bot.yml": stale}))
+    assert any("05:17 UTC" in b and "23 6 * * *" in b for b in bad), bad
+
+    # And the SAME file with the header naming its real minute is clean
+    ok_header = header.replace("05:17 UTC", "06:23 UTC")
+    root = _tree(tmp_path, {"a-bot.yml": stale.replace(header, ok_header)})
+    assert cdf.violations(root) == []
+
+
+def test_a_header_time_with_no_schedule_at_all_is_a_violation(tmp_path):
+    """`workflow_dispatch`-only, but the header claims a time: nothing schedules this, so the claim
+    is about a run that does not exist."""
+    no_sched = _wf().replace('  schedule:\n    - cron: "23 6 * * *"\n',
+                             "").replace(HEADER, HEADER.replace("# Trigger surface: schedule + workflow_dispatch.",
+                                                              "# Trigger surface: schedule daily 05:41 UTC."))
+    bad = cdf.violations(_tree(tmp_path, {"a-bot.yml": no_sched}))
+    assert any("no schedule" in b for b in bad), bad
+
+
 def test_a_workflow_without_workflow_dispatch_is_out_of_scope(tmp_path):
     root = _tree(tmp_path, {"ci.yml": "name: CI\n\non:\n  push:\njobs:\n  a:\n    steps:\n      - run: make x\n"})
     assert cdf.violations(root) == []

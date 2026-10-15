@@ -47,6 +47,10 @@ NO_INPUTS = re.compile(r"^#\s*dispatch:\s*no inputs\s*[—:-]\s*(\S.*)$", re.M)
 #: A `name:` states the work when it reads `<identifier><separator><what it does>`.
 NAME_SEPARATOR = re.compile(r"^(.{2,40}?)\s*(?:—|–|:|-)\s+(\S.*)$")
 MIN_DESCRIPTION = 10
+#: A `HH:MM UTC` the header names, e.g. "schedule daily 05:41 UTC" (the claim a reader believes).
+HEADER_TIME = re.compile(r"(\d{1,2}):(\d{2})\s*UTC")
+#: A `cron: "M H * * *"` line, so the header's claim can be checked against the schedule itself.
+CRON = re.compile(r'cron:\s*"([^"]+)"')
 
 
 def workflow_files(root: Path = REPO_ROOT) -> list[Path]:
@@ -154,8 +158,27 @@ def analyse(path: Path) -> dict:
         "exempt": bool(exempt),
         "exempt_reason": (exempt.group(1).strip() if exempt else ""),
         "header": header_block(text),
+        "header_lines": leading_comment_block(text),
+        "crons": CRON.findall(text),
         "text": text,
     }
+
+
+def leading_comment_block(text: str) -> str:
+    """The comment block a reader sees first — where the header lives, verbatim.
+
+    `header_block()` returns the KEY NAMES it found (that is what the missing-key rule needs), so a
+    rule about what those lines CLAIM has to read the lines themselves.
+    """
+    out: list[str] = []
+    for line in text.splitlines():
+        if line.startswith("#"):
+            out.append(line)
+        elif not line.strip() and out:
+            continue                      # a blank line inside the block, not the end of it
+        elif out:
+            break
+    return "\n".join(out)
 
 
 def violations(root: Path = REPO_ROOT) -> list[str]:
@@ -173,6 +196,19 @@ def violations(root: Path = REPO_ROOT) -> list[str]:
         if missing_header:
             out.append(f"{a['file']}: header block is missing "
                        f"{', '.join(f'`# {k}:`' for k in missing_header)}")
+
+        # A header that names a TIME must name THIS file's time: the minutes moved in #275 and the
+        # prose moved with them in one file and not in three others, which is exactly the drift this
+        # guard exists to stop (a reader believes "schedule daily 05:41 UTC" more than the cron line).
+        header_text = a["header_lines"]
+        for hh, mm in HEADER_TIME.findall(header_text):
+            fields = [c.split() for c in a["crons"]]
+            named = f"{int(hh):02d}:{mm}"
+            if not fields:
+                out.append(f"{a['file']}: the header claims `{named} UTC` but the file has no schedule")
+            elif not any(len(f) == 5 and f[0] == str(int(mm)) and f[1] == str(int(hh)) for f in fields):
+                out.append(f"{a['file']}: the header claims `{named} UTC` but no cron in the file starts "
+                           f"then ({', '.join(a['crons'])})")
 
         if not a["inputs"] and not a["exempt"]:
             out.append(f"{a['file']}: bare `workflow_dispatch:` — either give it a documented "

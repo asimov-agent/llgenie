@@ -11,7 +11,7 @@ name: engine-bump — bumps pinned engines to their newest upstream release and 
 # (secrets.BUMP_TOKEN), not GITHUB_TOKEN (issue #136). A PR authored by
 # github-actions[bot] holds every pull_request workflow for manual approval,
 # and a push made with GITHUB_TOKEN starts no workflows.
-# Trigger surface: schedule weekly Monday 06:23 UTC, and workflow_dispatch (owner/collaborator;
+# Trigger surface: schedule weekly Monday 06:53 UTC (`53 6 * * 1`), and workflow_dispatch (owner/collaborator;
 #                  `engine` limits the run to one engine id, empty = every engine).
 # Flow: guard (owner/collaborator/bot, BEFORE any secret is read) -> make engine-bump
 #       (scripts/engine_bump.py: move the pin to the newest upstream tag, re-derive the build

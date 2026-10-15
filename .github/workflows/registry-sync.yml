@@ -10,7 +10,7 @@ name: registry-sync — syncs the vendored registry and regenerates the derived 
 # (secrets.BUMP_TOKEN), not GITHUB_TOKEN (issue #136). A PR authored by
 # github-actions[bot] holds every pull_request workflow for manual approval,
 # and a push made with GITHUB_TOKEN starts no workflows.
-# Trigger surface: schedule weekly Monday 05:17 UTC, and workflow_dispatch (owner/collaborator).
+# Trigger surface: schedule weekly Monday 05:19 UTC (`19 5 * * 1`), and workflow_dispatch (owner/collaborator).
 # Flow: guard -> make sync-registry -> make sync-quant-catalog -> make render-trend-list-matrix
 #       -> make render-engine-skill-gap -> (when something changed) make check-registry,
 #       check-quant-catalog, engine-skill-gap, skills-validate, test-unit -> make

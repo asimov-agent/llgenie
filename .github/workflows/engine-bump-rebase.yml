@@ -15,7 +15,7 @@ name: engine-bump-rebase — rebases every open engine-bump PR onto the latest m
 # not GITHUB_TOKEN (issue #136): a push made with GITHUB_TOKEN starts no
 # workflows, and the PAT is what engine-bump.yml already uses to write the
 # upstream branches.
-# Trigger surface: schedule daily 05:17 UTC, and workflow_dispatch (owner/collaborator; `dry=true`
+# Trigger surface: schedule daily 05:41 UTC (`41 5 * * *`), and workflow_dispatch (owner/collaborator; `dry=true`
 #                  prints the plan and pushes nothing).
 # Flow: guard (owner/collaborator/bot, BEFORE any secret is read) -> make engine-bump-rebase
 #       (scripts/engine_bump_rebase.py: every open `chore/engine-bump-*` PR that is behind `main`
