@@ -34,6 +34,21 @@ PROVIDER="${PROVIDER:-typesafe}"
 say()  { echo "[jev-preflight] $*"; }
 warn() { echo "[jev-preflight] WARNING: $*" >&2; }
 
+# The key value must never reach a terminal, a log or a step summary. THIS script never prints it,
+# but the provider's own smoke does the printing for step 4 — so its output is filtered before it
+# goes anywhere: the exact key, and anything key-shaped, come out as REDACTED. The key is passed to
+# the filter through the environment (not argv, so it cannot show up in a process list).
+redact() {
+  _JEV_KEY="${key:-}" "${HERMES_NERVE_PYTHON:-python3}" -c '
+import os, re, sys
+data = sys.stdin.read()
+key = os.environ.get("_JEV_KEY") or ""
+if key:
+    data = data.replace(key, "***REDACTED-KEY***")
+sys.stdout.write(re.sub(r"(?:hf_|sk-|sk_|jev-)[A-Za-z0-9_-]{12,}", "***REDACTED-KEY-SHAPE***", data))
+'
+}
+
 # A workflow run must be READABLE at a glance: the layer never blocks a run, so a silent "JEV off"
 # would only exist in the log. In Actions, annotate the run (the annotation shows on the run and
 # the job summary) and write the outcome to the step summary. Locally this stays plain text.
@@ -141,8 +156,9 @@ else
   fi
   say "provider smoke: ${PROVIDER} (model $(hermes config get plugins.entries.nerve.settings.typesafe_model 2>/dev/null || echo '?'), no token echoed)"
   if ! out="$(HERMES_NERVE_PROVIDER="$PROVIDER" "${HERMES_NERVE_PYTHON:-python3}" "$smoke" 2>&1)"; then
-    # The plugin redacts the key, and so do we: only the provider's own message is shown.
-    printf '%s\n' "$out" | tail -n 5 >&2
+    # The plugin redacts the key, and so do we: the smoke's own message is shown through the
+    # filter, so a provider that echoes the credential cannot leak it into the run log.
+    printf '%s\n' "$out" | tail -n 5 | redact >&2
     require "the ${PROVIDER} provider did not answer a live decision call"
   fi
   printf '%s\n' "$out" | grep -q '"ok": true' \
