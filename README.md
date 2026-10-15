@@ -248,6 +248,8 @@ make render-engine-skill-gap   # rewrite data/engine-skill-gap.json: the per-eng
 make check-engine-skill-gap    # CI gate: fail on a registry engine with no skill and no dated
                                # decision, a stale decision, or a stale rendered file
 make engine-skill-gap          # show that gap (shipped / known-unsupported / NEW-unresolved)
+make engine-skill-gap-md       # the same gap as MARKDOWN, for a PR/issue body (the registry-sync
+                               # workflow embeds it, so the step calls a make target - issue #296)
 make spawn-engine-skill-issues # open one tracking issue per NEW unskilled engine (the sync does this)
 make check-wiring              # CI: fail when a test/script is wired to no make target, or only to
                                # one CI never runs (tests/fixtures/host-only-wiring.json records the

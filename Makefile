@@ -60,7 +60,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	install-prism-cuda install-upstream-cuda install-prism-metal install-upstream-metal \
 	sync-registry check-registry skills-validate engine-list engine-hardware engine-plan engine-check engine-install engine-detect engine-smoke test-engine ci-engine-images build-engine-base build-engines generate-build-engine-params test-engine-image push-engine test-published-engine test-install-published engine-launchers test-built-engine test-uninstalled \
 	sync-quant-catalog check-quant-catalog render-trend-list-matrix check-trend-list-matrix render-engine-skill-gap check-engine-skill-gap \
-	engine-skill-gap spawn-engine-skill-issues sync-strata-models check-strata-models check-wiring wiring-report check-secret-output secret-output-report \
+	engine-skill-gap engine-skill-gap-md spawn-engine-skill-issues sync-strata-models check-strata-models check-wiring wiring-report check-secret-output secret-output-report \
 	queued-alarm fix-loop fix-loop-image fix-bot-sweep fix-bot-report agent-image-ref issue-bot-dispatch issue-bot-open-pr issue-bot-image \
 	issue-bot-triage issue-bot-verdict implement-issue hermes-smoke agent-jev-preflight code-review-scan code-review-file rebase-bot-sweep rebase-bot \
 	rebase-bot-agent check-docs docs-report issue-refiner-pick issue-refiner issue-refiner-apply check-dispatch-forms dispatch-forms-report \
@@ -258,6 +258,9 @@ check-engine-skill-gap: ## CI: fail when a registry engine has no skill and no d
 	python3 scripts/engine_skill_gap.py check
 engine-skill-gap: ## Show the unskilled-engine gap: shipped / known-unsupported / new-and-unresolved, the models that can never be offered, and the per-engine list
 	python3 scripts/engine_skill_gap.py report
+
+engine-skill-gap-md: ## The same gap report as MARKDOWN, for a PR/issue body (the registry-sync workflow embeds it)
+	python3 scripts/engine_skill_gap.py report --md
 spawn-engine-skill-issues: ## Open one tracking issue per NEW unskilled registry engine (the sync job runs this; DRY=1 previews, REPO= picks the repo)
 	python3 scripts/engine_skill_gap.py spawn $(if $(REPO),--repo $(REPO),) $(if $(DRY),--dry,)
 # ---- issue-bot: one issue per run, at most 3/day (issue #248) -----------------

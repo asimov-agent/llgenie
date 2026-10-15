@@ -123,6 +123,51 @@ jobs:
     assert cr.check_workflow_inline_scripts(root) == []
 
 
+def test_a_gh_step_cannot_hide_a_repo_script_on_another_line(tmp_path):
+    """#296: the block-level exemption let a violation hide. A step that orchestrates with `gh` may
+    not call a repo script on another line - that is exactly what `registry-sync.yml` did."""
+    root = _tree(tmp_path, {"a.yml": """
+name: A
+on:
+  workflow_dispatch:
+jobs:
+  a:
+    steps:
+      - name: sync
+        run: |
+          git config user.name "$(gh api user --jq .login)"
+          gap="$(python3 scripts/engine_skill_gap.py report --md)"
+          gh pr create --base main --title x --body "$gap"
+"""})
+    found = cr.check_workflow_inline_scripts(root)
+    assert len(found) == 1, found
+    assert "engine_skill_gap.py" in found[0]["evidence"], found[0]["evidence"]
+
+
+def test_a_make_target_on_the_same_line_clears_a_script_call(tmp_path):
+    """The fix for the hidden call: the step asks a make target for the same value."""
+    root = _tree(tmp_path, {"a.yml": """
+name: A
+on:
+  workflow_dispatch:
+jobs:
+  a:
+    steps:
+      - name: sync
+        run: |
+          gap="$(make engine-skill-gap-md)"
+          gh pr create --base main --title x --body "$gap"
+"""})
+    assert cr.check_workflow_inline_scripts(root) == []
+
+
+def test_the_real_tree_has_no_inline_script_call():
+    """Self-consistency: the check this file pins runs over the real workflows, and every step there
+    reaches its logic through a make target (#270, #296)."""
+    found = cr.check_workflow_inline_scripts(Path(__file__).resolve().parents[1])
+    assert found == [], [f["evidence"] for f in found]
+
+
 # ---------------------------------------------------------------------------
 # secrets-not-defined
 # ---------------------------------------------------------------------------

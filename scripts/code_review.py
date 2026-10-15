@@ -50,7 +50,6 @@ SECRET_REF = re.compile(r"secrets\.([A-Za-z0-9_]+)")
 INLINE_SCRIPT = re.compile(r"(?:^|[^\w./-])((?:python3?\s+)?(?:\./)?(?:scripts/[\w./-]+|tools/[\w./-]+\.sh))\b")
 MAKE_CALL = re.compile(r"\bmake\s+[\w-]+")
 #: `run:` blocks that are allowed to be shell: the guard/orchestration steps the rule exempts.
-GUARD_ALLOWED = ("gh api", "gh pr", "gh issue", "gh run", "gh search", "gh workflow")
 
 
 def _read(path: Path) -> str:
@@ -133,25 +132,38 @@ def _days_overlap(a: str, b: str) -> bool:
 # the checks
 # ---------------------------------------------------------------------------
 def check_workflow_inline_scripts(root: Path) -> list[dict]:
-    """A workflow step that runs a repo script directly: the rule is one `make <target>` per step."""
+    """A workflow runs a repo script directly instead of a make target - checked PER COMMAND.
+
+    The rule is one `make <target>` per command (AGENTS.md, "Every command a CI workflow runs must
+    be a make target"); only gh/git orchestration that carries no repo logic may stay inline.
+
+    The scan is per LINE, not per step block (issue #296). A block-level exemption (skip the block as
+    soon as it contains a make call, or any `gh api`/`gh pr`/...) is exactly how a violation hides: a
+    step that legitimately orchestrates with `gh` may still call a repo script on another line, and
+    that is what `registry-sync.yml` did with `scripts/engine_skill_gap.py` for as long as the
+    exemption existed. A `make` on the SAME line as the script call is the one thing that clears it.
+    """
     out = []
     for wf in _workflow_files(root):
         for name, block in _steps(_read(wf)):
-            if MAKE_CALL.search(block) or any(a in block for a in GUARD_ALLOWED):
-                continue
-            for hit in INLINE_SCRIPT.findall(block):
-                out.append({
+            for line in block.splitlines():
+                hit = INLINE_SCRIPT.search(line)
+                if not hit or MAKE_CALL.search(line):
+                    continue
+                finding = {
                     "key": f"workflow-inline-scripts/{wf.name}",
                     "title": f"ci: {wf.name} runs a repo script directly instead of a make target",
                     "evidence": (
-                        f"`{wf.name}` step \"{name or '(unnamed)'}\" invokes `{hit}` in its `run:` "
-                        f"block, while the standing rule is that a workflow's `run:` calls a `make` "
-                        f"target and nothing else (AGENTS.md, \"Every command a CI workflow runs "
-                        f"must be a make target\"). Only gh/git orchestration that carries no repo "
-                        f"logic may stay inline."
+                        f"`{wf.name}` step \"{name or '(unnamed)'}\" invokes `{hit.group(1)}` on a "
+                        f"line of its `run:` block, while the standing rule is that a workflow's "
+                        f"`run:` calls a `make` target and nothing else (AGENTS.md, \"Every command "
+                        f"a CI workflow runs must be a make target\"). Only gh/git orchestration that "
+                        f"carries no repo logic may stay inline."
                     ),
                     "where": f"{WORKFLOWS}/{wf.name}",
-                })
+                }
+                if finding not in out:
+                    out.append(finding)
     return out
 
 
