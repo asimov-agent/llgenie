@@ -602,6 +602,17 @@ signals a llama-server that was not started by this Makefile.
   `prism+cpu` beside `prism+metal`, and stock `upstream+cpu` beside
   `upstream+metal`. Metal is Apple-only and cannot run in a container, so these
   build natively and answer the same 0.5B `"hi"` check.
+- **Triggers + superseding runs.** `ci.yml` runs on a `pull_request` targeting `main` and on a
+  `push` to `main` (a bare feature-branch push runs nothing; a fork PR runs in the fork). It
+  declares one `concurrency` group, `${{ github.workflow }}-${{ github.ref }}`, with
+  `cancel-in-progress: ${{ github.event_name == 'pull_request' }}` (issue #288): a push to a PR
+  **cancels the run started by the push before it** — one PR supersedes its own predecessor, two
+  different PRs never cancel each other — while a `push` to `main` is never cancelled (a main run
+  mid-publish to GHCR must finish). The bot workflows are deliberately the opposite
+  (`cancel-in-progress: false`): a repair or rebase may only be superseded by its own schedule slot,
+  never killed mid-agent. `tests/test_ci_concurrency.py` evaluates the expression for both event
+  names and fails on any workflow that runs on a pull request with no group, or on an unconditional
+  `cancel-in-progress: true`.
 
 ## Engine skills — one per inference server (issue #98)
 

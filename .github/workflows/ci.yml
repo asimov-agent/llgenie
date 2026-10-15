@@ -16,6 +16,22 @@ env:
   HF_TOKEN: ${{ secrets.HF_TOKEN }}
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+# A push to a PR SUPERSEDES the run it replaces (issue #288): the group carries `github.ref`, which
+# for a pull_request run is `refs/pull/<n>/merge`, so one PR cancels its own previous run and two
+# different PRs never cancel each other. Without it a second push left the first run's jobs alive —
+# measured 2026-10-15: `feat/bot-pipeline-isolation` had run 38680205632 (sha 345e7eb8) and run
+# 38683422700 (sha 846d4ed8) both live — and a same-repo PR run PUBLISHES to GHCR (`make push-engine`
+# is an unconditional step of every engine-image job), so both were building and pushing the same
+# images while the superseded one sat in the runner queue.
+#
+# `cancel-in-progress` is TRUE for pull_request ONLY: a `push` to main must never cancel a main run
+# that is mid-publish (a cancelled publish leaves the content-hash tag half-pushed and the next run
+# republishes all of it). The bots are untouched — they keep `cancel-in-progress: false`, because a
+# repair/rebase that is 40 minutes into a 180-minute agent job must never be killed by its next tick.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 # Two pipelines run in parallel (issue #112): `linux` (ubuntu-latest) and `macos`
 # (macos-15-intel). Both run the same `make ci-<job>` commands and asserts:
 # both call pipeline.yml, one job per target (issue #120: no combined jobs). Linux sets
