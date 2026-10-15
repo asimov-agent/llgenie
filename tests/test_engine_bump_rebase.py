@@ -156,20 +156,17 @@ class TestMain:
 
 class TestWorkflowYaml:
     def test_workflow_runs_the_rebase_entrypoint(self):
-        # Given the workflow file
-        wf = Path(__file__).resolve().parent.parent / ".github/workflows/engine-bump-rebase.yml"
-        text = wf.read_text()
-        # Then it has a daily cron, checks out with BUMP_TOKEN, and runs the entrypoint
-        # The minute moved with issue #275: every bot owns its own slot. It must still be DAILY.
-        assert "cron:" in text and "41 5 * * *" in text, "must have a daily cron on its own minute"
         # Given the workflow file and the make target behind its step
         root = Path(__file__).resolve().parent.parent
         text = (root / ".github/workflows/engine-bump-rebase.yml").read_text()
         makefile = (root / "Makefile").read_text()
-        # Then it has a daily cron, checks out with BUMP_TOKEN, and reaches the entrypoint through
-        # `make` (a workflow step calls a make target and nothing else) — with the `dry` input the
-        # dispatch form offers wired to the script's own `--dry`
-        assert "cron:" in text and "17 5 * * *" in text, "must have a daily cron"
+        # Then it runs on its OWN daily minute (the minute moved with issue #275: every bot owns a
+        # slot, and pinning one here would just go stale again), checks out with BUMP_TOKEN, and
+        # reaches the entrypoint through `make` (a workflow step calls a make target and nothing
+        # else) — with the `dry` input the dispatch form offers wired to the script's own `--dry`.
+        assert "cron:" in text, "must be scheduled"
+        assert re.search(r'cron:\s*"\S+ \S+ \* \* \*"', text), "must have a DAILY cron"
+        assert "17 5 * * *" not in text, "the old SHARED minute (05:17 UTC) must stay gone (#275)"
         assert "secrets.BUMP_TOKEN" in text, "must use the owner PAT"
         assert "make engine-bump-rebase" in text, "the step must call the make target"
         assert "engine_bump_rebase.py" not in text.split("on:", 1)[1], \
