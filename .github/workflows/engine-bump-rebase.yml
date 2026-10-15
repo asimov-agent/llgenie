@@ -85,7 +85,17 @@ jobs:
       - name: Rebase open engine-bump PRs onto the latest main
         env:
           GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
+          DRY_INPUT: ${{ inputs.dry }}   # empty on a scheduled run; "true"/"false" by hand
         run: |
           git config user.name "$(gh api user --jq .login)"
           git config user.email "$(gh api user --jq .id)+$(gh api user --jq .login)@users.noreply.github.com"
-          make engine-bump-rebase ${{ inputs.dry == 'true' && 'DRY=1' || '' }}
+          # `dry` is OFF unless a dispatcher ticks the box: the daily cron REBASES each open
+          # chore/engine-bump-* PR onto main and force-with-lease pushes it. Spelled out rather than
+          # folded into one `${{ ... }}` so the mode this run took is readable in the log.
+          if [ "${DRY_INPUT}" = "true" ]; then
+            echo "==> DRY RUN: printing the PRs that would be rebased; nothing is pushed"
+            make engine-bump-rebase DRY=1
+          else
+            echo "==> REAL REBASE: forward-merging main into each open engine-bump PR and pushing it back"
+            make engine-bump-rebase
+          fi

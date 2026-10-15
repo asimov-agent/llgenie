@@ -90,7 +90,16 @@ jobs:
           # The owner PAT: `gh secret list` needs admin, which the default job token does not
           # have, and the fallback keeps the run alive (with a loud warning) if the PAT is absent.
           GH_TOKEN: ${{ secrets.BUMP_TOKEN || github.token }}
-        run: make code-review-file REPO="${{ github.repository }}" ${{ inputs.dry == 'true' && 'DRY=1' || '' }}
+          DRY_INPUT: ${{ inputs.dry }}   # "false" by hand unless ticked; empty on a schedule
+        run: |
+          # `dry` is OFF unless a dispatcher ticks the box, so the weekly run FILES issues.
+          if [ "${DRY_INPUT}" = "true" ]; then
+            echo "==> DRY RUN: printing the issues it would file; filing nothing"
+            make code-review-file REPO="${{ github.repository }}" DRY=1
+          else
+            echo "==> FILING: one issue per new finding"
+            make code-review-file REPO="${{ github.repository }}"
+          fi
 
       - name: Report
         if: always()
