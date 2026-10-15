@@ -418,7 +418,9 @@ make issue-bot-image       # the same image, for the issue-bot (alias of agent-i
   environment; the value is never printed. **When the layer is unavailable the run continues**,
   loudly: a missing key, a plugin that is not installed, a provider that does not answer — each is
   reported with what to do about it, and the bot does its work with more LLM calls and more
-  mistakes for the reviewer to catch than a JEV-assisted run would make. `NERVE_REQUIRE=1` turns
+  mistakes for the reviewer to catch than a JEV-assisted run would make. In a workflow the run is
+  **annotated** either way (`::notice` when the layer is ready, `::warning` when it is not, plus a
+  line in the job summary), so "is JEV on?" is answerable from the run page instead of a log grep. `NERVE_REQUIRE=1` turns
   the report into a failure and exists to verify the *image* (`make agent-jev-preflight
   NERVE_REQUIRE=1`); no bot workflow sets it.
 

@@ -69,10 +69,11 @@ jobs:
     env:
       NOUS_API_KEY: ${{ secrets.NOUS_PORTAL_API_TOKEN }}
       GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
-      # The JEV/provider key for the Nerve supervision the agent image carries (issue #238).
-      # Run-time only, exactly like NOUS_API_KEY: it travels into the container with `-e` and
-      # is never baked into the image. `make fix-loop-image` runs the gate first, so a run
-      # without this secret fails loudly instead of repairing a PR unsupervised.
+      # The JEV/provider key for the decision layer the agent image carries (issue #238):
+      # fewer LLM calls, fewer tokens, fewer mistakes per repair. Run-time only, exactly like
+      # NOUS_API_KEY: it travels into the container with `-e` and is never baked into the
+      # image. `make fix-loop-image` runs the preflight first: it reports whether the layer is
+      # available and never stops the repair (a missing key is annotated as a warning).
       TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
       FIX_ROUNDS: ${{ inputs.rounds || '3' }}
       FIX_CHECK: ${{ inputs.check || 'make ci-unit' }}

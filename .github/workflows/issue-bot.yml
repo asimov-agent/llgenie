@@ -73,10 +73,12 @@ jobs:
     timeout-minutes: 120
     env:
       NOUS_API_KEY: ${{ secrets.NOUS_PORTAL_API_TOKEN }}
-      # The JEV/provider key for the Nerve supervision the agent image carries (issue #238).
-      # Run-time only, like NOUS_API_KEY: `docker run -e`, never baked into the image. The
-      # gate step below fails the run when it is missing, so the bot never implements an
-      # issue unsupervised.
+      # The JEV/provider key for the decision layer the agent image carries (issue #238):
+      # it answers the cheap decisions so this run makes FEWER LLM calls, with fewer tokens
+      # and fewer mistakes. Run-time only, like NOUS_API_KEY: `docker run -e`, never baked
+      # into the image. The step below REPORTS whether the layer is available; it never stops
+      # the run, because the bots are autonomous (a missing key costs the run its decision
+      # layer and is annotated as a warning on the run).
       TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
       REPO: ${{ github.repository }}
     steps:

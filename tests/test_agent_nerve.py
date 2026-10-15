@@ -425,6 +425,61 @@ def test_the_preflight_reads_an_existing_home_env_and_never_echoes_it(tmp_path):
     assert not LEAKED_KEY.search(r.stdout + r.stderr), "the preflight must never echo the key"
 
 
+def test_the_run_annotates_whether_jev_is_on_or_off(tmp_path):
+    """A non-blocking layer must still be VISIBLE: the run says JEV is ON, or warns that it is off.
+
+    The layer never stops a run, so "JEV was inactive" would otherwise only exist in a log nobody
+    reads. In Actions the preflight annotates the run (`::notice` / `::warning`, which also reach
+    the job summary) and writes the outcome to the step summary; locally it stays plain text.
+    """
+
+    # Given a key-less home and a home that has everything the layer needs
+    home = _home(tmp_path)
+    off = _run(PREFLIGHT, {"HERMES_HOME": str(home), "NERVE_GATE_SKIP_PROVIDER": "1",
+                           "GITHUB_ACTIONS": "true"})
+
+    # When the preflight reports in a workflow
+    # Then the off case carries a GitHub warning, and still exits 0
+    assert off.returncode == 0, off.stderr
+    assert "::warning title=JEV decision layer::" in off.stdout + off.stderr
+    assert "JEV is INACTIVE for this run" in off.stderr
+
+    # And the same home, with a plugin that answers, carries a notice instead
+    smoke = home / "plugins" / "nerve" / "scripts"
+    smoke.mkdir(parents=True, exist_ok=True)
+    (smoke / "live_api_smoke.py").write_text('print(\'{"ok": true}\')\n')
+    on = _run(PREFLIGHT, _with_fake_hermes(tmp_path, HERMES_HOME=str(home),
+                                          FAKE_HERMES_STATUS="enabled",
+                                          GITHUB_ACTIONS="true",
+                                          **{KEY_VAR: "jev-okkey-0123456789abcdef"}))
+    assert on.returncode == 0, on.stderr
+    assert "::notice title=JEV decision layer::" in on.stdout
+    assert "JEV is ON for this run" in on.stdout
+
+    # And outside Actions there is no annotation noise, only the plain lines
+    plain = _run(PREFLIGHT, {"HERMES_HOME": str(home), "NERVE_GATE_SKIP_PROVIDER": "1"})
+    assert "::warning" not in plain.stdout + plain.stderr
+    assert "::notice" not in plain.stdout + plain.stderr
+
+    # And the step summary is written when Actions offers one
+    summary = tmp_path / "summary.md"
+    _run(PREFLIGHT, {"HERMES_HOME": str(home), "NERVE_GATE_SKIP_PROVIDER": "1",
+                     "GITHUB_ACTIONS": "true", "GITHUB_STEP_SUMMARY": str(summary)})
+    assert "JEV decision layer" in summary.read_text()
+
+
+def test_the_workflow_comments_describe_the_layer_it_actually_runs():
+    """A comment that says "fails the run when the key is missing" is a lie about an autonomous bot."""
+
+    for wf in ("issue-bot.yml", "fix-bot.yml"):
+        text = (WORKFLOWS / wf).read_text()
+        assert "fewer llm calls" in text.lower(), f"{wf} must say what the layer is for"
+        assert "never stop" in text or "never stops" in text, f"{wf} must say it never blocks a run"
+        for stale in ("fails the run when it is missing", "fails loudly instead of repairing",
+                      "so the bot never implements an issue unsupervised"):
+            assert stale not in text, f"{wf} still describes the old gate contract: {stale!r}"
+
+
 # ---------------------------------------------------------------------------
 # the wiring: the key travels at run time, and the scripts move the image tag
 # ---------------------------------------------------------------------------

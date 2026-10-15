@@ -33,6 +33,21 @@ PROVIDER="${PROVIDER:-typesafe}"
 
 say()  { echo "[jev-preflight] $*"; }
 warn() { echo "[jev-preflight] WARNING: $*" >&2; }
+
+# A workflow run must be READABLE at a glance: the layer never blocks a run, so a silent "JEV off"
+# would only exist in the log. In Actions, annotate the run (the annotation shows on the run and
+# the job summary) and write the outcome to the step summary. Locally this stays plain text.
+#   `::warning`  the layer is unavailable — this run makes more LLM calls than it needs to
+#   `::notice`   the layer is ready — this run is JEV-assisted
+annotate() {   # annotate <warning|notice> <message>
+  if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
+    echo "::$1 title=JEV decision layer::$2"
+    if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+      printf '**JEV decision layer (%s):** %s\n' "$1" "$2" >> "$GITHUB_STEP_SUMMARY"
+    fi
+  fi
+}
+
 #: The ONE failure mode: the caller asked to verify the image (`NERVE_REQUIRE=1`).
 require() {
   if [ "${NERVE_REQUIRE:-}" = "1" ]; then
@@ -42,6 +57,7 @@ require() {
   warn "$*"
   warn "JEV is INACTIVE for this run: the agent still works, autonomously — expect more LLM"
   warn "calls and more mistakes for a reviewer to catch than a JEV-assisted run would make."
+  annotate warning "JEV is INACTIVE for this run: $* — the agent continues, with more LLM calls and more mistakes than a JEV-assisted run."
   say "continuing without JEV (the bots never stop for this)"
   exit 0
 }
@@ -136,3 +152,4 @@ fi
 
 say "JEV ready: nerve enabled in ${HERMES_HOME}, provider ${PROVIDER}, token supplied at run time only"
 say "the agent runs with the decision layer available — fewer LLM calls, fewer mistakes"
+annotate notice "JEV is ON for this run: nerve enabled (${HERMES_HOME}), provider ${PROVIDER} answered a real decision call."
