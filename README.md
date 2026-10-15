@@ -488,6 +488,20 @@ make issue-bot-image       # the same image, for the issue-bot (alias of agent-i
   NERVE_REQUIRE=1`): a bot run does not start with the JEV engine off — the layer is a precondition
   for an autonomous run, and an ordinary manual or local invocation keeps the report-and-continue
   behaviour.
+A bump PR publishes the images it built (`make push-engine` is a step of every
+`engine-image-*` job), but those jobs run in parallel with the `install` job, so
+`make ci-install` waits first: it runs `make ci-wait-engine-images ARCH=cpu` before
+`make ci-install-run`. It resolves exactly the tags `make install` pulls and polls
+the registry manifest until each one is published, naming and failing on a tag that never
+appears (it never builds an image and never pulls a different one). The OS branch lives in
+the gate target: macOS pulls no engine image, so its run of the gate does no lookup and
+`ci-install` stays the same on both OSes. Without that gate the first run of a new pin fails
+`[install] FAIL llama.cpp/cpu: not published` while its own build job is still pushing
+the tag (issue #169).
+> **Why a wrapper?** `scripts/llama_serve.py` imports the `gguf`/`numpy` packages that live in the
+> venv, so it must be launched with the venv python. The `~/bin/llgenie` wrapper does
+> exactly that; the `llgenie.py` symlink keeps editors/`--list` pointing at the real file (which lives at
+> `scripts/llama_serve.py`).
 
 ### Manual setup (only if you don't want `make install`)
 
@@ -625,6 +639,7 @@ make install ENGINES=all                  # every engine for this backend (other
 make install ENGINES=vllm ARCH=cuda       # some engines / a forced backend
 make install BUILD=1                      # build an image that is not published (default: pull only)
 make test-built-engine                    # every ~/bin/llgenie-engine-* prints its engine version
+make ci-wait-engine-images ARCH=cpu       # CI gate: wait until every image `make install` pulls is published (issue #169)
 make install-prism-metal     # macOS only: native Metal build (Metal cannot run in a container)
 make install-upstream-metal  # macOS only
 make install-prism-cpu       # Linux: the Prism llama.cpp engine image (CPU) + start scripts + version test
