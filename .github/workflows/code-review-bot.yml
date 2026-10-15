@@ -20,7 +20,7 @@ name: code-review-bot — reviews the tree and the pipelines and files one issue
 # No model key is involved anywhere: the checks are deterministic. The only secret is the token
 # that can read the repo's secret list (admin) and create issues.
 
-# Trigger surface: schedule weekly Monday 07:23 UTC (its own slot, an hour after engine-bump), and
+# Trigger surface: schedule weekly Monday 07:31 UTC (its own slot; minute :31, issue #301), and
 #                  workflow_dispatch for the owner/collaborators (`dry` previews the issues).
 # Flow: guard (owner/collaborator, BEFORE any secret is read) -> make code-review-scan (the checks
 #       read the real tree and the real pipelines; no model, no writes) -> make code-review-file
@@ -29,7 +29,7 @@ name: code-review-bot — reviews the tree and the pipelines and files one issue
 #        whole output is issues (asserted by tests/test_code_review.py).
 on:
   schedule:
-    - cron: "23 7 * * 1"   # Monday 07:23 UTC — its own slot, an hour after engine-bump (06:23)
+    - cron: "31 7 * * 1"   # Monday 07:31 UTC — its own slot (issue #301: :23 is issue-bot's)
   workflow_dispatch:
     inputs:
       dry:

@@ -21,7 +21,7 @@
 #   * the implementer cannot be raced: it pushes a NEW branch and only then opens the PR, so a PR
 #     it created is fresh (never BEHIND/DIRTY) by construction;
 #   * the refiner never touches a branch at all (comments and a label only).
-# Trigger surface: its own schedule (every 6 hours, `23 */6 * * *`) and `workflow_dispatch` by hand
+# Trigger surface: its own schedule (every 6 hours, `29 */6 * * *`) and `workflow_dispatch` by hand
 #                  (owner/collaborator).
 # Flow: guard (owner/collaborator, BEFORE any secret is read) -> make rebase-bot-sweep (decide which ONE
 #       PR, or none) -> make rebase-bot PR=.. HEAD_BRANCH=.. HEAD_REPO=.. (fetch, forward-merge `main`,
@@ -35,7 +35,8 @@ name: rebase-bot — keeps every open PR current with main, ONE PR per run (neve
 
 on:
   schedule:
-    - cron: "23 */6 * * *"   # every 6 hours, at an odd minute
+    - cron: "29 */6 * * *"   # every 6 hours, at an odd minute — :29, its OWN slot (issue #301:
+                             # :23 is issue-bot's, and sharing it meant both started at 06:23 UTC)
   workflow_dispatch:
 
 permissions:

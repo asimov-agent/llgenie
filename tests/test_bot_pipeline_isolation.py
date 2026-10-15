@@ -11,6 +11,15 @@ into the set of `(minute, weekday)` slots it owns, and no slot may be owned by m
 bot. The check is deliberately about the SLOT, not the hour, so the hourly bots
 (`fix-bot` at :17, `queued-alarm` at :07/:37) are held to it too — a daily bot on minute 17
 would collide with the hourly fix-bot every day.
+
+**The scope is DERIVED, never listed (issue #301).** #275 wrote the bot set as a hand-kept
+tuple of six filenames, so the three bots merged afterwards (`rebase-bot` #246, `issue-refiner`
+#264, `code-review-bot` #269) were outside the guard entirely: the guard could not fail for a
+bot it did not know, and `issue-bot` (`23 6 * * *`) and `rebase-bot` (`23 */6 * * *`) silently
+shared minute :23 — both starting at 06:23 UTC every day, the exact failure #271/#272 were
+filed for. A guard whose scope is a hand-written list stops protecting the moment someone adds
+a file, so this one reads the workflow directory: ANY workflow with a `schedule:` is a bot and
+is held to the rule, whether or not anyone remembered to mention it here.
 """
 from __future__ import annotations
 
@@ -22,21 +31,8 @@ import yaml
 REPO = Path(__file__).resolve().parents[1]
 WF = REPO / ".github" / "workflows"
 
-#: The bots. Each is one scheduled workflow whose runs are a bot's own pipeline.
-BOT_WORKFLOWS = (
-    "issue-bot.yml",
-    "fix-bot.yml",
-    "queued-alarm.yml",
-    "engine-bump.yml",
-    "engine-bump-rebase.yml",
-    "registry-sync.yml",
-)
-
-#: The minutes an hourly-minute bot reserves on every weekday (must not be reused by a
-#: daily/weekly bot). fix-bot: :17; queued-alarm: :07 and :37.
-RESERVED_MINUTES = {17, 7, 37}
-
 _MINUTES = range(60)
+_HOURS = range(24)
 _WEEKDAYS = range(7)  # 0 = Sunday .. 6 = Saturday (GitHub's cron)
 
 
@@ -75,6 +71,19 @@ def _expand(field: str, domain: range) -> set[int]:
     return values & set(domain)
 
 
+def _scheduled_workflows() -> tuple[str, ...]:
+    """Every workflow that declares a `schedule:` — the bots, read from the tree.
+
+    This is the whole point of #301: the scope comes from the filesystem, so a bot merged
+    tomorrow is inside the guard without anyone editing this module.
+    """
+    return tuple(sorted(p.name for p in WF.glob("*.yml") if _schedules(_load(p.name))))
+
+
+#: The bots, DERIVED (never a literal list — see the module docstring, issue #301).
+BOT_WORKFLOWS = _scheduled_workflows()
+
+
 def _slots(cron: str) -> set[tuple[int, int]]:
     """The (minute, weekday) pairs a classic 5-field cron owns — the hour is irrelevant to a
     shared-slot collision."""
@@ -86,6 +95,28 @@ def _slots(cron: str) -> set[tuple[int, int]]:
     return {(m, w) for m in minutes for w in weekdays}
 
 
+def _runs_every_hour(cron: str) -> bool:
+    """True when the cron fires at its minute in EVERY hour — the shape that reserves a
+    minute on all seven weekdays."""
+    fields = cron.split()
+    return len(fields) == 5 and _expand(fields[1], _HOURS) == set(_HOURS)
+
+
+def _reserved_minutes() -> set[int]:
+    """The minutes the every-hour bots hold on all seven weekdays, derived from the crons.
+
+    A daily/weekly bot landing on one of these collides with an every-hour bot every day,
+    so it must pick another minute. Derived, so adding an every-hour bot reserves its
+    minute automatically.
+    """
+    minutes: set[int] = set()
+    for name in BOT_WORKFLOWS:
+        for cron in _schedules(_load(name)):
+            if _runs_every_hour(cron):
+                minutes |= _expand(cron.split()[0], _MINUTES)
+    return minutes
+
+
 def _concurrency(wf: dict):
     """(group, cancel-in-progress) or None when the workflow declares no group."""
     conc = wf.get("concurrency")
@@ -94,6 +125,27 @@ def _concurrency(wf: dict):
     if isinstance(conc, dict):
         return conc.get("group"), conc.get("cancel-in-progress")
     return conc, None
+
+
+def test_the_scope_is_derived_from_the_workflow_files():
+    """The bot set is read from the tree, not hand-listed (issue #301).
+
+    A narrowed list is the defect that let three bots go unchecked, so pin the derivation
+    itself: every workflow with a `schedule:` is in scope, and the known bots are there.
+    """
+    # Given the workflows on disk, and the ones that declare a schedule
+    derived = _scheduled_workflows()
+
+    # Then the guard's scope is exactly that — a hand-narrowed list fails here
+    assert set(BOT_WORKFLOWS) == set(derived), (
+        "BOT_WORKFLOWS must be derived from the workflow files, not hand-listed "
+        f"(issue #301): scope={sorted(BOT_WORKFLOWS)} disk={sorted(derived)}"
+    )
+
+    # And it is not vacuous: the bots that exist today are all in scope
+    assert len(BOT_WORKFLOWS) >= 9, f"only {len(BOT_WORKFLOWS)} scheduled bots found: {BOT_WORKFLOWS}"
+    for known in ("issue-bot.yml", "rebase-bot.yml", "issue-refiner.yml", "code-review-bot.yml"):
+        assert known in BOT_WORKFLOWS, f"{known} declares a schedule but is out of scope"
 
 
 def test_no_workflow_shares_a_minute():
@@ -144,17 +196,22 @@ def test_every_bot_has_its_own_concurrency_group():
 
 
 def test_the_hourly_bots_minutes_are_not_reused():
-    """A daily/weekly bot must not land on a minute the hourly bots reserve every day."""
-    # Given the minutes the hourly-minute bots reserve on every weekday
-    # When a daily/weekly bot's cron is read
+    """A daily/weekly bot must not land on a minute an every-hour bot reserves every day."""
+    # Given the minutes the every-hour bots reserve on all seven weekdays
+    reserved = _reserved_minutes()
+    assert reserved, "no every-hour bot found — the reservation set cannot be empty"
+
+    # When a bot that does NOT run every hour is read
     for name in BOT_WORKFLOWS:
-        if name in ("fix-bot.yml", "queued-alarm.yml"):
+        crons = _schedules(_load(name))
+        if any(_runs_every_hour(c) for c in crons):
             continue
-        for cron in _schedules(_load(name)):
+        for cron in crons:
             for minute, _weekday in _slots(cron):
                 # Then it must not reuse a reserved minute
-                assert minute not in RESERVED_MINUTES, (
-                    f"{name}: minute {minute} is reserved by an hourly bot (issue #275)"
+                assert minute not in reserved, (
+                    f"{name}: minute {minute} is reserved by an every-hour bot "
+                    f"({sorted(reserved)}), issue #275/#301"
                 )
 
 

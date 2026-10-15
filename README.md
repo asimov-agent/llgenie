@@ -537,7 +537,7 @@ make code-review-file REPO=asimov-agent/llgenie            # file ONE issue per 
 make code-review-file REPO=asimov-agent/llgenie DRY=1      # preview what it would file
 ```
 
-`.github/workflows/code-review-bot.yml` runs it weekly (Monday 07:23 UTC, its own slot) and on
+`.github/workflows/code-review-bot.yml` runs it weekly (Monday 07:31 UTC, its own slot) and on
 `workflow_dispatch` for the owner/collaborators, guard first, then scan, then file.
 
 The checks, and the two limits they are held to:
