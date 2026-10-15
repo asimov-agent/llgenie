@@ -283,6 +283,8 @@ make engine-bump-plan [ENGINE=<id>]   # which engines moved upstream (git ls-rem
 make engine-derive ENGINE=<id> [SHA=] # derive build params from the upstream tree (no LLM)
 make engine-bump ENGINE=<id>          # pin + derive + apply + regen (no push)
 make engine-bump-daily [DRY=1]        # plan -> bump every moved engine; DRY=1 prints only
+make test-engine-bump-live            # the TensorFold v1.0.5 release archive as a live end-to-end: list,
+                                      # classify, checksum and RUN it (the archive path an engine bump takes)
 ```
 
 The `engine-bump-rebase` workflow (daily cron `41 5 * * *`, issue #208) keeps
@@ -366,6 +368,7 @@ An issue labelled `agent:refined` or `agent:closed` is never picked again, so ne
 loop, and neither opens a PR — so it does not consume the 3/day PR cap.
 make rebase-bot-sweep     # which ONE open PR needs rebasing (BEHIND/DIRTY against main), with the reason for every pass-over
 make rebase-bot PR=<n> HEAD_BRANCH=<b> HEAD_REPO=<owner>   # rebase it (agent resolves a conflict), verify, push --force-with-lease
+make rebase-bot-agent     # the conflict hand-off: it asks Hermes to resolve a stopped rebase (the conflict prompt arrives on STDIN) and runs INSIDE the agent image
 **Every open PR is kept on `main` by a third bot** (`rebase-bot.yml`, issue #246), because
 AGENTS.md's rule is that a branch behind `main` cannot be merged — so a stale PR blocks itself.
 It runs **every 6 hours** and handles **ONE PR per run**, oldest first:
@@ -1036,6 +1039,15 @@ make test-install      # install tests (run in-container; host-artifact asserts 
 make test-install-ci   # REAL install tests, NO SKIPS: make install + model + assert in ONE container
 make test-uninstalled  # after make uninstall: no launcher/shim/llgenie-engine-* left, no engine container
 make test-install-host # verify the REAL host install: ~/bin/llgenie + symlinks + ~/models (runs on host)
+make engine-launchers  # pull this host's published engine images (default llama.cpp + Prism; ENGINES=all|id,id;
+                       # BUILD=1 builds unpublished ones) and write ~/bin/llgenie-engine-<id> + the
+                       # llama-server / prism-server shims
+make test-install-trend # after make install: ~/bin/llgenie with NO model in a pty -> recommended list from
+                       # data/models.json -> pick 1/1 -> REAL GGUF download -> the engine container answers
+                       # "hi" (issue #105)
+make test-published-engine ENGINE=<id> ARCH=<arch>  # issue #102: pull ENGINE's :ARCH image AS PUBLISHED
+                       # (no build, digest == the :ARCH tag), then the binary reports its version and the
+                       # container serves the tiny model and answers "hi" on /v1/chat/completions
 make ci-engines BACKEND=metal  # the engine stage (issue #120): cpu|cuda|rocm|vulkan -> container engines, metal -> every native engine
 make test-native-engines       # Apple Silicon: make install path for EACH native-Metal engine, tiny model on Metal + "hi"
 make test-native-engine        # Apple Silicon: REAL TensorFold install / update / reuse through the llgenie pick
