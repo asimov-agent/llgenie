@@ -4,8 +4,10 @@
 # run never concludes and every PR's checks sit at "pending" (that is main today: the `macos`
 # jobs queue on `macos-15-intel`). This sweep makes that state loud instead of silent.
 #
-# No conditional job anywhere: issue #107 requires the decision to live in code, and it does —
-# scripts/queued_run_alarm.py decides what counts as stuck and what to report.
+# No conditional job anywhere (`needs: [guard]` is a gate, not an `if:`): issue #107 requires the
+# decision to live in code, and it does — scripts/queued_run_alarm.py decides what counts as
+# stuck and what to report. The guard job is what makes a hand dispatch owner/collaborator-only
+# (issue #295: this workflow was the only dispatchable one without it).
 name: queued-alarm — reports CI jobs queued far too long, once per affected run
 
 # Trigger surface: schedule twice an hour (`7,37 * * * *` — GitHub drops top-of-hour runs), and
@@ -34,7 +36,30 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Owner / collaborator trigger guard
+        env:
+          ACTOR: ${{ github.actor }}
+          TRIGGER: ${{ github.triggering_actor }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for u in "$ACTOR" "$TRIGGER"; do
+            if [ "$u" = "$OWNER" ]; then continue; fi
+            perm=$(gh api "repos/$REPO/collaborators/$u/permission" --jq .permission 2>/dev/null || echo none)
+            case "$perm" in
+              admin|maintain|write) echo "Collaborator $u has $perm - allowed." ;;
+              *) echo "Refused: $u is not the owner or a collaborator with write access (permission: ${perm:-none})."; exit 1 ;;
+            esac
+          done
+          echo "Allowed: actor=$ACTOR triggering_actor=$TRIGGER"
   alarm:
+    needs: [guard]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

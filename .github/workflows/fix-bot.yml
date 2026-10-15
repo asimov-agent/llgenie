@@ -88,19 +88,24 @@ jobs:
       FIX_CHECK: ${{ inputs.check || 'make ci-unit' }}
     steps:
       # ---------------------------------------------------------------- guards
-      - name: Only the owner or a write-level collaborator may run this
+      - name: Owner / collaborator trigger guard
         env:
-          REPO: ${{ github.repository }}
           ACTOR: ${{ github.actor }}
+          TRIGGER: ${{ github.triggering_actor }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if [ "$ACTOR" = "$(echo "$REPO" | cut -d/ -f1)" ]; then echo "owner: $ACTOR"; exit 0; fi
-          perm=$(gh api "repos/$REPO/collaborators/$ACTOR/permission" -q .permission 2>/dev/null || echo none)
-          case "$perm" in
-            admin|write) echo "$ACTOR has $perm" ;;
-            *) echo "Refused: $ACTOR is not the owner or a collaborator with write access (permission: ${perm:-none})."; exit 1 ;;
-          esac
-
+          for u in "$ACTOR" "$TRIGGER"; do
+            if [ "$u" = "$OWNER" ]; then continue; fi
+            perm=$(gh api "repos/$REPO/collaborators/$u/permission" --jq .permission 2>/dev/null || echo none)
+            case "$perm" in
+              admin|maintain|write) echo "Collaborator $u has $perm - allowed." ;;
+              *) echo "Refused: $u is not the owner or a collaborator with write access (permission: ${perm:-none})."; exit 1 ;;
+            esac
+          done
+          echo "Allowed: actor=$ACTOR triggering_actor=$TRIGGER"
       - name: Resolve the PR branch (never main)
         id: pr
         env:

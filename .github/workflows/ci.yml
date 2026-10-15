@@ -57,37 +57,35 @@ jobs:
   # actor is not a collaborator/owner/bot, so a non-collaborator can never drive the
   # upstream's publish jobs (ci-images / engine-base / engine-image push to GHCR).
   # ------------------------------------------------------------------
+  # ------------------------------------------------------------------
+  # guard (issue #122, hardened by #295): only the owner, a collaborator with WRITE access, or
+  # the bot may drive this workflow. Both `github.actor` and `github.triggering_actor` are checked,
+  # and the refusal is this step's non-zero exit — every publishing job needs `guard` (directly or
+  # through `ci-images`), so a refused run never reaches GHCR. (The old form accepted ANY
+  # collaborator level, because `GET /collaborators/<user>` answers 204 for read and triage too.)
+  # ------------------------------------------------------------------
   guard:
     runs-on: ubuntu-latest
-    outputs:
-      allowed: ${{ steps.check.outputs.allowed }}
+    timeout-minutes: 10
     steps:
-      - name: Only collaborators, bots, and owners may trigger
-        id: check
+      - name: Owner / collaborator trigger guard
         env:
           ACTOR: ${{ github.actor }}
+          TRIGGER: ${{ github.triggering_actor }}
           OWNER: ${{ github.repository_owner }}
-          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          # the bot and the owner are always allowed
-          if [ "$ACTOR" = "github-actions[bot]" ] || [ "$ACTOR" = "$OWNER" ]; then
-            echo "allowed=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          # otherwise the actor must be a collaborator of the repo
-          code=$(curl -s -o /dev/null -w "%{http_code}" \
-            -H "Authorization: Bearer $TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ github.repository }}/collaborators/$ACTOR")
-          if [ "$code" = "204" ]; then
-            echo "allowed=true" >> "$GITHUB_OUTPUT"
-            echo "actor $ACTOR is a collaborator"
-          else
-            echo "allowed=false" >> "$GITHUB_OUTPUT"
-            echo "::error::actor $ACTOR is not a collaborator, bot, or owner; refusing to run"
-            exit 1
-          fi
-
+          set -euo pipefail
+          for u in "$ACTOR" "$TRIGGER"; do
+            if [ "$u" = "$OWNER" ]; then continue; fi
+            perm=$(gh api "repos/$REPO/collaborators/$u/permission" --jq .permission 2>/dev/null || echo none)
+            case "$perm" in
+              admin|maintain|write) echo "Collaborator $u has $perm - allowed." ;;
+              *) echo "Refused: $u is not the owner or a collaborator with write access (permission: ${perm:-none})."; exit 1 ;;
+            esac
+          done
+          echo "Allowed: actor=$ACTOR triggering_actor=$TRIGGER"
   # ------------------------------------------------------------------
   # ci-images (issue #117): the test image and the OpenSpec CLI image, tagged with a
   # hash of their Dockerfile + lockfiles (scripts/ci_images.py). A hash already on

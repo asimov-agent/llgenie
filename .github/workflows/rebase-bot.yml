@@ -54,13 +54,13 @@ jobs:
     steps:
       - name: Owner / collaborator trigger guard
         env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
           ACTOR: ${{ github.actor }}
           TRIGGER: ${{ github.triggering_actor }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          OWNER="${REPO%%/*}"
           for u in "$ACTOR" "$TRIGGER"; do
             if [ "$u" = "$OWNER" ]; then continue; fi
             perm=$(gh api "repos/$REPO/collaborators/$u/permission" --jq .permission 2>/dev/null || echo none)
@@ -70,7 +70,6 @@ jobs:
             esac
           done
           echo "Allowed: actor=$ACTOR triggering_actor=$TRIGGER"
-
   rebase:
     needs: guard
     runs-on: ubuntu-latest

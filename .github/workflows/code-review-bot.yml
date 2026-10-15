@@ -61,16 +61,16 @@ jobs:
           REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           for u in "$ACTOR" "$TRIGGER"; do
             if [ "$u" = "$OWNER" ]; then continue; fi
             perm=$(gh api "repos/$REPO/collaborators/$u/permission" --jq .permission 2>/dev/null || echo none)
             case "$perm" in
-              admin|write|maintain) ;;
-              *) echo "refusing: $u is '$perm', not owner/collaborator"; exit 1 ;;
+              admin|maintain|write) echo "Collaborator $u has $perm - allowed." ;;
+              *) echo "Refused: $u is not the owner or a collaborator with write access (permission: ${perm:-none})."; exit 1 ;;
             esac
           done
-          echo "guard ok: $ACTOR / $TRIGGER"
-
+          echo "Allowed: actor=$ACTOR triggering_actor=$TRIGGER"
   review:
     needs: guard
     runs-on: ubuntu-latest

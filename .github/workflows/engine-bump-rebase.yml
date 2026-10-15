@@ -44,28 +44,26 @@ concurrency:
 jobs:
   guard:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - name: Only collaborators, bots, and owners may trigger
+      - name: Owner / collaborator trigger guard
         env:
           ACTOR: ${{ github.actor }}
+          TRIGGER: ${{ github.triggering_actor }}
           OWNER: ${{ github.repository_owner }}
-          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if [ "$ACTOR" = "github-actions[bot]" ] || [ "$ACTOR" = "$OWNER" ]; then
-            echo "allowed"
-            exit 0
-          fi
-          code=$(curl -s -o /dev/null -w "%{http_code}" \
-            -H "Authorization: Bearer $TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ github.repository }}/collaborators/$ACTOR")
-          if [ "$code" = "204" ]; then
-            echo "actor $ACTOR is a collaborator"
-          else
-            echo "::error::actor $ACTOR is not a collaborator, bot, or owner; refusing to run"
-            exit 1
-          fi
-
+          set -euo pipefail
+          for u in "$ACTOR" "$TRIGGER"; do
+            if [ "$u" = "$OWNER" ]; then continue; fi
+            perm=$(gh api "repos/$REPO/collaborators/$u/permission" --jq .permission 2>/dev/null || echo none)
+            case "$perm" in
+              admin|maintain|write) echo "Collaborator $u has $perm - allowed." ;;
+              *) echo "Refused: $u is not the owner or a collaborator with write access (permission: ${perm:-none})."; exit 1 ;;
+            esac
+          done
+          echo "Allowed: actor=$ACTOR triggering_actor=$TRIGGER"
   rebase:
     needs: [guard]
     runs-on: ubuntu-latest

@@ -777,10 +777,14 @@ def test_sync_pr_uses_owner_pat():
 
 
 def test_guard_keeps_default_token():
-    """The collaborator guard job still uses GITHUB_TOKEN, and neither workflow merges.
+    """The collaborator guard job uses the DEFAULT token, and neither workflow merges.
 
-    The file header names BUMP_TOKEN (issue #136). Splitting on the next job key
-    includes that header, so the assert reads the guard job, not the preamble.
+    The file header names BUMP_TOKEN (issue #136), and the guard job must NOT
+    hold it — a job that only reads a collaborator's permission level must not
+    carry a token that can push. The guard's token is the run's own
+    `github.token` (issue #295's one guard shape), which is the default token
+    that `secrets.GITHUB_TOKEN` resolves to. The job is loaded as YAML, so the
+    assert reads the guard job, not the preamble.
     """
 
     # Given both workflows
@@ -792,9 +796,10 @@ def test_guard_keeps_default_token():
         guard = yaml.dump(doc["jobs"]["guard"])
 
         # Then that job uses the default token, and nothing merges a PR
-        assert "secrets.GITHUB_TOKEN" in guard
-        assert "secrets.BUMP_TOKEN" not in guard
-        assert "gh pr merge" not in text
+        assert "GH_TOKEN: ${{ github.token }}" in guard, name
+        assert "secrets.BUMP_TOKEN" not in guard, name
+        assert "secrets.GITHUB_TOKEN" not in guard, name
+        assert "gh pr merge" not in text, name
 
 
 def test_apply_toolchain_does_not_clobber_prereqs(tmp_path):

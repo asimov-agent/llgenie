@@ -14,6 +14,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import yaml
+
 os.environ.setdefault("GITHUB_TOKEN", "test-token-hermetic")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -176,11 +178,16 @@ class TestWorkflowYaml:
         assert "inputs.dry" in text, "the documented `dry` input must reach the target"
         assert "workflow_dispatch" in text, "must allow manual dispatch"
 
-    def test_guard_sends_the_token_variable(self):
-        """The collaborator check authenticates with $TOKEN, not a literal.
+    def test_guard_sends_the_default_token_variable(self):
+        """The collaborator check hands `gh api` the DEFAULT token, never a literal.
 
         Run 38315109038 refused a write collaborator because the rebase guard
-        sent the header as the three characters '***'.
+        hand-built an `Authorization:` header and the runner expanded the
+        expression to the three characters '***'. The one guard shape (issue
+        #295) asks `gh api …/permission` for the level instead, so the CLI reads
+        the default token from `GH_TOKEN` and no guard hand-builds a header at
+        all. The job is loaded as YAML so the assert reads the guard job, not the
+        file preamble.
         """
 
         # Given every workflow that calls the collaborators endpoint
@@ -194,12 +201,15 @@ class TestWorkflowYaml:
 
         # When each guard job is read
         for name in names:
-            text = (root / name).read_text()
+            doc = yaml.safe_load((root / name).read_text())
 
-            # Then the header is the default token variable
-            assert "TOKEN: ${{ secrets.GITHUB_TOKEN }}" in text
-            assert 'Authorization: Bearer $TOKEN' in text
-            assert "Bearer ***" not in text
+            # Then the job authenticates the CLI with the default token, and no
+            # hand-built Authorization header (the shape that shipped the
+            # masked literal) survives anywhere in the file
+            guard = yaml.dump(doc["jobs"]["guard"])
+            assert "GH_TOKEN: ${{ github.token }}" in guard
+            assert "Authorization" not in (root / name).read_text()
+            assert "Bearer ***" not in (root / name).read_text()
 
     def test_file_invocation_imports_the_scripts_package(self):
         """The workflow command can import scripts.engine_bump_sync.

@@ -1429,6 +1429,21 @@ MIT — see [LICENSE](LICENSE).
   `llgenie/openspec` and `llgenie/strata`). The workflow therefore logs in with the default token
   and calls this first.
 
+## Who may start a bot or publish (the trigger guard)
+
+Every workflow a human can dispatch with `Run workflow` — the four bots, the engine bump + rebase, the
+registry sync, the code review, the queued-run alarm and the agent-image publish — starts with the **same
+`guard`** job: it refuses anyone who is not the repo owner or a collaborator with **write** access, and it
+checks **both** `github.actor` and `github.triggering_actor` (the actor who started it, so a re-run by
+someone else is re-checked too). The refusal is the step's non-zero exit, and every job that touches a
+secret, a branch or GHCR needs the guard, directly or transitively. GitHub itself already refuses
+`workflow_dispatch` from a user without write access; the guard is the second line, and it is what covers
+the paths that are not a dispatch (`issues: [labeled]`, a fork-side run). `ci.yml` carries the guard for the
+publish jobs that run on `pull_request`/`push`. `tests/test_workflow_guards.py` holds all of it to one
+shape: an any-collaborator `curl` check, an actor-only check, a guard nothing depends on, or a declared
+guard output nobody reads (issue #295) all fail `make test-unit`. The guard is the same step — name, `env`
+and script — byte-for-byte in all eleven places, so a fix to the rule cannot miss a copy of it.
+
 ## How the bots stay out of each other's way
 
 Four bots (`issue-bot`, `issue-refiner`, `fix-bot`, `rebase-bot`) write to the same issues and PR
