@@ -413,8 +413,8 @@ check-dispatch-forms: ## CI: fail when a dispatchable workflow does not state th
 	python3 scripts/check_dispatch_forms.py check
 dispatch-forms-report: ## Print the README's dispatch table (generated from the workflow files; paste it between the dispatch-forms markers)
 	python3 scripts/check_dispatch_forms.py report
-queued-alarm: ## Report jobs stuck in `queued` far too long (a runner that never picks them up, issue #254)
-	python3 scripts/queued_run_alarm.py --repo $(if $(REPO),$(REPO),asimov-agent/llgenie) --minutes $(if $(MINUTES),$(MINUTES),30) $(if $(COMMENT),--comment,)
+queued-alarm: ## Report jobs stuck in `queued` far too long (a runner that never picks them up, issue #254); COMMENT=1 delivers the report, DRY=1 previews it
+	python3 scripts/queued_run_alarm.py --repo $(if $(REPO),$(REPO),asimov-agent/llgenie) --minutes $(if $(MINUTES),$(MINUTES),30) $(if $(COMMENT),--comment,) $(if $(DRY),--dry,)
 
 fix-loop-image: ## Run the fix-bot loop inside the agent image (the same image the workflow uses); AGENT_IMAGE overrides the resolved ref, LOG=path tees the output
 	@img=$$(if [ -n "$(AGENT_IMAGE)" ]; then echo "$(AGENT_IMAGE)"; else python3 scripts/ci_images.py ref agent; fi); \
