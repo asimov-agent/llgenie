@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -56,6 +57,24 @@ def _gh(gh: str, args: list[str]) -> str:
     if r.returncode != 0:
         raise SystemExit(f"[issue-implementer] {gh} {' '.join(args)} failed ({r.returncode}): {r.stderr.strip()}")
     return r.stdout
+
+
+
+
+#: Cache of the liveness probe: one lookup per run id per process (scripts/bot_claims.py, #291).
+_LIVE: dict[int, "bool | None"] = {}
+
+
+def run_is_live(gh: str, run_id: int) -> "bool | None":
+    """Whether the run that posted a claim is still going (cached).
+
+    A cancelled/preempted run must not hold a subject for the rest of the claim's TTL (#291): the
+    marker carries the run, and this asks GitHub about it. Unknown stays unknown - it never
+    releases a claim.
+    """
+    if run_id not in _LIVE:
+        _LIVE[run_id] = bot_claims.run_is_live(lambda args: _gh(gh, args), run_id)
+    return _LIVE[run_id]
 
 
 def _today() -> str:
@@ -177,11 +196,16 @@ def _pick_free(gh: str, repo: str, cands: list[dict]) -> dict | None:
         if any(n in DECIDED_LABELS for n in names):
             continue
         num = issue["number"]
-        why = bot_claims.occupied((_thread(gh, repo, num) or {}).get("comments"),
-                                  bot_claims.IMPLEMENTER)
+        comments = (_thread(gh, repo, num) or {}).get("comments")
+        why = bot_claims.occupied(comments, bot_claims.IMPLEMENTER,
+                                  is_live=lambda rid: run_is_live(gh, rid))
         if why:
             print(f"[issue-implementer] #{num} is {why}: skipping it and taking the next one")
             continue
+        gone = bot_claims.released(comments, bot_claims.IMPLEMENTER,
+                                   is_live=lambda rid: run_is_live(gh, rid))
+        if gone:
+            print(f"[issue-implementer] #{num}: {gone}")
         return issue
     return None
 
@@ -227,7 +251,8 @@ def dispatch(gh: str, repo: str, bot: str, dry: bool = False, today: str | None 
     if not dry:
         _gh(gh, ["issue", "comment", str(num), "--repo", repo, "--body",
                  bot_claims.claim_comment(bot_claims.IMPLEMENTER, "implement",
-                                          datetime.now(timezone.utc))
+                                          datetime.now(timezone.utc),
+                                          run_id=os.environ.get("GITHUB_RUN_ID"))
                  + f"\n\nbranch `{branch}`; one issue per run, at most {MAX_PER_DAY}/day, "
                    "PR left for review (never merged)."])
 

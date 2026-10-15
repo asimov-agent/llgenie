@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import datetime as dt
@@ -53,6 +54,24 @@ def _gh(gh: str, args: list[str]) -> str:
     if r.returncode != 0:
         raise SystemExit(f"[rebase-bot] {gh} {' '.join(args)} failed ({r.returncode}): {r.stderr.strip()}")
     return r.stdout
+
+
+
+
+#: Cache of the liveness probe: one lookup per run id per process (scripts/bot_claims.py, #291).
+_LIVE: dict[int, "bool | None"] = {}
+
+
+def run_is_live(gh: str, run_id: int) -> "bool | None":
+    """Whether the run that posted a claim is still going (cached).
+
+    A cancelled/preempted run must not hold a subject for the rest of the claim's TTL (#291): the
+    marker carries the run, and this asks GitHub about it. Unknown stays unknown - it never
+    releases a claim.
+    """
+    if run_id not in _LIVE:
+        _LIVE[run_id] = bot_claims.run_is_live(lambda args: _gh(gh, args), run_id)
+    return _LIVE[run_id]
 
 
 def _today() -> str:
@@ -126,11 +145,17 @@ def sweep(gh: str, repo: str, today: str | None = None, max_per_day: int = MAX_P
         # spends up to 180 minutes in the agent with nothing in flight and no commit yet, so the
         # checks and the attempt counter both look idle. A claim from ANY other bot makes this PR
         # theirs; a `done` marker releases it, and a claim older than PR_CLAIM_TTL is ignored.
-        held = bot_claims.occupied(_comments(gh, repo, num), bot_claims.REBASER,
-                                   ttl=bot_claims.PR_CLAIM_TTL)
+        comments = _comments(gh, repo, num)
+        held = bot_claims.occupied(comments, bot_claims.REBASER, ttl=bot_claims.PR_CLAIM_TTL,
+                                   is_live=lambda rid: run_is_live(gh, rid))
         if held:
             reasons.append(f"#{num} is held by another bot: {held}")
             continue
+        gone = bot_claims.released(comments, bot_claims.REBASER, ttl=bot_claims.PR_CLAIM_TTL,
+                                   is_live=lambda rid: run_is_live(gh, rid))
+        if gone:
+            # #291: the PR is free because its holder is gone; say so instead of waiting silently.
+            print(f"[rebase-bot] #{num}: {gone}")
         running, red = _checks(gh, repo, num)
         if running:
             reasons.append(f"#{num} has checks in flight; rebasing now would cancel that run")
@@ -166,7 +191,8 @@ def main(argv=None) -> int:
         posted = _gh(a.gh, ["pr", "comment", str(res["pr"]), "--repo", a.repo, "--body",
                             bot_claims.claim_comment(bot_claims.REBASER, "rebase",
                                                      dt.datetime.now(dt.timezone.utc),
-                                                     ttl=REBASE_CLAIM_TTL)])
+                                                     ttl=REBASE_CLAIM_TTL,
+                                                     run_id=os.environ.get("GITHUB_RUN_ID"))])
         print(f"[rebase-bot] claimed #{res['pr']} for {bot_claims.REBASER} "
               f"({int(REBASE_CLAIM_TTL.total_seconds() // 60)} min){'' if posted else ' — the comment did not post'}")
     print(f"action={res['action']}")

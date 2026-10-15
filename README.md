@@ -1410,21 +1410,29 @@ MIT — see [LICENSE](LICENSE).
 
 ## How the bots stay out of each other's way
 
-Three bots write to the same issues and PRs, so they announce what they are doing **on the issue
-itself**, and each one reads the thread before it starts:
+Four bots (`issue-bot`, `issue-refiner`, `fix-bot`, `rebase-bot`) write to the same issues and PR
+branches, so each one announces what it is doing **on the subject itself** and reads the thread
+before it picks anything:
 
-    <!-- bot-claim: refiner 2026-10-14T22:10:03Z refine -->
+    <!-- bot-claim: refiner 2026-10-14T22:10:03Z refine ttl=180m run=123456 -->
     <!-- bot-done:  refiner 2026-10-14T22:41:55Z refined -->
 
-- A bot that is going to **refine** or **implement** an issue claims it first — one comment, before
-  the agent runs, so the other bot can see it in time.
+- A bot claims the issue/PR first — one comment, **before** its first mutation, so a sibling can see
+  it in time.
 - **A recent comment that has not been concluded by a `done` comment means someone is on the
-  issue**, so the run *skips that issue and takes the next one in the list* — it never stands down
-  for the whole run. That is why the schedules do not have to be the race protection.
-- A claim holds for three hours (longer than the agent jobs are budgeted for, short enough that a
-  crashed run frees the backlog). A `done` marker releases it, and **it says which kind of done**:
-  `refined`, `closed` and `merged` release the issue, while **`pr-open` keeps occupying it** —
-  implemented but not yet approved must not be implemented a second time.
-- `make test-unit` runs the rule (`tests/test_issue_refiner.py`, `tests/test_issue_implementer.py`);
-  `scripts/bot_claims.py` is shared **byte-identically** by both bots, so whoever merges first makes
-  the other a no-op.
+  subject**, so the run *skips it and takes the next one in the list* — it never stands down for the
+  whole run. That is why the schedules are not the race protection.
+- **The marker carries the terms the reader applies** (issue #292): `ttl=<minutes>m` is the writer's
+  own window (the same number the human sentence names it with), and `run=<id>` is the run holding
+  it. A reader honours the announced `ttl` — its own default is only the fallback for a marker
+  written before that field existed — so a 30-minute rebase no longer blocks a 4-hour repair.
+- **A run that is over releases its claim immediately** (issue #291): the reader asks GitHub about
+  `run=<id>` and, when that run is finished or cancelled, takes the subject and prints why. An
+  unreadable run state is *unknown*, which never releases a claim.
+- A `done` marker releases it, and **it says which kind of done**: `refined`, `closed`, `merged`,
+  `cancelled` and `repaired` release the subject, while **`pr-open` keeps occupying it** — implemented
+  but not yet approved must not be implemented a second time.
+- `make test-unit` runs the rule (`tests/test_bot_claims.py`, `tests/test_issue_refiner.py`,
+  `tests/test_issue_implementer.py`, `tests/test_fix_bot_sweep.py`, `tests/test_rebase_bot_sweep.py`);
+  `scripts/bot_claims.py` is shared **byte-identically** by all four bots, so whoever merges first
+  makes the other three no-ops.

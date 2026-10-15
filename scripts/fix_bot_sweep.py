@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -37,6 +38,24 @@ def _gh(args: list[str]) -> str:
     if r.returncode != 0:
         raise RuntimeError(f"gh {' '.join(args)} failed: {r.stderr.strip()}")
     return r.stdout
+
+
+
+
+#: Cache of the liveness probe: one lookup per run id per process (scripts/bot_claims.py, #291).
+_LIVE: dict[int, "bool | None"] = {}
+
+
+def run_is_live(repo: str, run_id: int) -> "bool | None":
+    """Whether the run that posted a claim is still going (cached).
+
+    A cancelled/preempted run must not hold a subject for the rest of the claim's TTL (#291): the
+    marker carries the run, and this asks GitHub about it. Unknown stays unknown - it never
+    releases a claim.
+    """
+    if run_id not in _LIVE:
+        _LIVE[run_id] = bot_claims.run_is_live(lambda args: _gh(args), run_id)
+    return _LIVE[run_id]
 
 
 def open_prs(repo: str) -> list[dict]:
@@ -76,17 +95,28 @@ def occupied(repo: str, pr: dict) -> str | None:
     next one, rather than racing whoever is already there.
     """
     out = _gh(["pr", "view", str(pr["number"]), "--repo", repo, "--json", "comments"])
-    # PR_CLAIM_TTL, not the default: a repair can run 180 minutes, and a claim younger than that
-    # is a bot still working, not a stale one (scripts/bot_claims.py).
-    return bot_claims.occupied((json.loads(out or "{}") or {}).get("comments"), FIX_BOT,
-                               ttl=bot_claims.PR_CLAIM_TTL)
+    comments = (json.loads(out or "{}") or {}).get("comments")
+    # PR_CLAIM_TTL, not the default: that is the FALLBACK for a marker written before #292, which
+    # carries its own ttl. A repair can run 180 minutes, so a claim younger than that is a bot
+    # still working, not a stale one (scripts/bot_claims.py).
+    why = bot_claims.occupied(comments, FIX_BOT, ttl=bot_claims.PR_CLAIM_TTL,
+                              is_live=lambda rid: run_is_live(repo, rid))
+    if why:
+        return why
+    gone = bot_claims.released(comments, FIX_BOT, ttl=bot_claims.PR_CLAIM_TTL,
+                               is_live=lambda rid: run_is_live(repo, rid))
+    if gone:
+        # #291: say it out loud - the PR is free because its holder is GONE, not because it idled.
+        print(f"[sweep] #{pr['number']}: {gone}")
+    return None
 
 
 def claim(repo: str, pr: dict) -> None:
     """Say we are starting, before the loop does - in the marker the other bots read."""
     _gh(["pr", "comment", str(pr["number"]), "--repo", repo, "--body",
          bot_claims.claim_comment(FIX_BOT, "fix", datetime.now(timezone.utc),
-                                  ttl=bot_claims.PR_CLAIM_TTL)])
+                                  ttl=bot_claims.PR_CLAIM_TTL,
+                                  run_id=os.environ.get("GITHUB_RUN_ID"))])
 
 
 def eligible(repo: str, pr: dict, max_attempts: int = 3) -> tuple[bool, str]:

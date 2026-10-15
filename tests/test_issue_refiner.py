@@ -225,7 +225,9 @@ def test_the_newest_claim_wins_and_junk_is_ignored():
 def test_the_claim_comment_carries_a_marker_another_bot_can_read():
     at = dt.datetime(2026, 10, 14, 12, 0, tzinfo=dt.timezone.utc)
     body = bc.claim_comment(bc.REFINER, "refine", at)
-    assert bc.claims([{"body": body}]) == [{"bot": "refiner", "at": at, "work": "refine"}]
+    # the marker also carries the terms a READER applies (issue #292): its own ttl, and the run
+    assert bc.claims([{"body": body}]) == [{"bot": "refiner", "at": at, "work": "refine",
+                                            "ttl": bc.CLAIM_TTL, "run": None}]
     assert bc.occupied([{"body": body}], bc.IMPLEMENTER, now=at) is not None, \
         "the implementer sees it while the claim is fresh"
 
