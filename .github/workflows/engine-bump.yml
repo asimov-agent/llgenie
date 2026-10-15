@@ -13,7 +13,7 @@ name: engine-bump
 # and a push made with GITHUB_TOKEN starts no workflows.
 on:
   schedule:
-    - cron: "23 6 * * 1"   # weekly: Monday 06:23 UTC
+    - cron: "53 6 * * 1"   # weekly: Monday 06:53 UTC (unique minute, issue #275)
   workflow_dispatch:
     inputs:
       engine:
@@ -29,6 +29,10 @@ permissions:
   contents: write
   pull-requests: write
   issues: write
+
+concurrency:
+  group: engine-bump
+  cancel-in-progress: false
 
 jobs:
   guard:

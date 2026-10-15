@@ -147,7 +147,7 @@ def test_registry_sync_workflow_is_weekly_and_accounts_for_unskilled_engines():
 
     # Then it is Monday 05:17 UTC, accounts for the unshipped engines (a report + one
     # tracking issue per new one), and commits the registry files
-    assert cron == "17 5 * * 1"
+    assert cron == "19 5 * * 1", "its own Monday slot (issue #275)"
     assert "ALLOW_UNSKILLED" not in text
     assert "make engine-skill-gap" in text and "spawn-engine-skill-issues" in text
     assert "secrets.BUMP_TOKEN" in yaml.dump(opening)

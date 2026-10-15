@@ -17,13 +17,17 @@ name: engine-bump-rebase
 # upstream branches.
 on:
   schedule:
-    - cron: "17 5 * * *"   # daily: 05:17 UTC
+    - cron: "41 5 * * *"   # daily: 05:41 UTC (unique minute, issue #275)
   workflow_dispatch:
 
 permissions:
   contents: write
   pull-requests: write
   issues: write
+
+concurrency:
+  group: engine-bump-rebase
+  cancel-in-progress: false
 
 jobs:
   guard:

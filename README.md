@@ -285,7 +285,7 @@ make engine-bump ENGINE=<id>          # pin + derive + apply + regen (no push)
 make engine-bump-daily [DRY=1]        # plan -> bump every moved engine; DRY=1 prints only
 ```
 
-The `engine-bump-rebase` workflow (daily cron `17 5 * * *`, issue #208) keeps
+The `engine-bump-rebase` workflow (daily cron `41 5 * * *`, issue #208) keeps
 those open `chore/engine-bump-*` PRs current with the latest `main`: it finds
 every open engine-bump PR and, when one is behind `main`, forward-merges the
 latest `main` into it and force-with-lease-pushes it back — automatically, and
@@ -305,6 +305,26 @@ already at the old tag is not installed as new. One fixture runs that bump
 through the pin and `make generate-engine-params`, and the test reads the
 Dockerfile that command wrote. A pin that only removes packages prints those
 names. The bump does not commit.
+
+## Bot pipelines are isolated (issue #275)
+
+Every bot runs on **its own pipeline**: a cron minute no other bot owns on any day, and a
+`concurrency:` group of its own (`cancel-in-progress: false`) so a manual `workflow_dispatch`
+queues behind its scheduled run instead of overlapping it. The current slots:
+
+| Bot | Cron | Minute today |
+|---|---|---|
+| `issue-bot` | `23 6 * * *` | daily 06:23 |
+| `fix-bot` | `17 * * * *` | hourly at :17 |
+| `queued-alarm` | `7,37 * * * *` | twice hourly (:07, :37) |
+| `engine-bump-rebase` | `41 5 * * *` | daily 05:41 |
+| `registry-sync` | `19 5 * * 1` | Monday 05:19 |
+| `engine-bump` | `53 6 * * 1` | Monday 06:53 |
+
+`tests/test_bot_pipeline_isolation.py` (in `make test-unit`) expands every scheduled
+workflow's cron into its `(minute, weekday)` slots and fails if any two bots share one, or if
+a bot declares no concurrency group — so a future bot that lands on a used slot goes red at
+`ci-unit` instead of silently racing.
 
 ## The issue-implementer (issue #248)
 
@@ -1185,9 +1205,9 @@ llgenie/
 │   ├── test_llgenie_serve.py / test_top_tier_acceptance.py / test_install.py / test_health.py
 │   └── conftest.py / ptydrive.py / fixtures/   # shared test helpers
 ├── .github/workflows/
-│   ├── ci.yml              # parallel per-stage CI (all branches/PRs)
-│   ├── registry-sync.yml   # weekly sync-registry + quant catalog (cron 17 5 * * 1), opens a PR when changed
-│   ├── engine-bump.yml     # weekly engine pin bumps (cron 23 6 * * 1, separate), opens a PR per changed engine
+│   ├── ci.yml              # parallel per-stage CI (PRs to main + pushes to main)
+│   ├── registry-sync.yml   # weekly sync-registry + quant catalog (cron 19 5 * * 1), opens a PR when changed
+│   ├── engine-bump.yml     # weekly engine pin bumps (cron 53 6 * * 1, separate), opens a PR per changed engine
 │   └── engine-bump-rebase.yml  # daily: rebase open engine-bump PRs onto the latest main (issue #208)
 ├── openspec/changes/    # OpenSpec change tracking (spec-driven; proposal/spec/tasks)
 ├── LICENSE              # MIT
