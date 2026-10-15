@@ -6,4 +6,4 @@
 - [x] 4. Re-stagger the colliding crons: `rebase-bot` `23 */6 * * *` -> `29 */6 * * *`, `code-review-bot` `23 7 * * 1` -> `31 7 * * 1`.
 - [x] 5. Prove the guard fails on the pre-fix tree and passes after (rule 6c).
 - [x] 6. Update the two workflow header comments, `README.md`, and add an `agent-wiki/` entry citing #301.
-- [ ] 7. Run `make lint`, `make test-unit`, `make check-docs`, `make openspec-validate NAME=bot-slot-guard-derives-its-scope`; commit, push, open the PR (closes #301).
+- [x] 7. Verified: `make lint` OK, `make check-docs` ok (143 targets), `make openspec-validate NAME=bot-slot-guard-derives-its-scope` valid, `make test-unit` 4583 passed / 3 deselected, and the rewritten guard fails on the pre-fix crons and passes with the fix (rule 6c).
