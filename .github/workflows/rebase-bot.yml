@@ -21,7 +21,17 @@
 #   * the implementer cannot be raced: it pushes a NEW branch and only then opens the PR, so a PR
 #     it created is fresh (never BEHIND/DIRTY) by construction;
 #   * the refiner never touches a branch at all (comments and a label only).
-name: rebase-bot
+# Trigger surface: its own schedule (every 6 hours, `23 */6 * * *`) and `workflow_dispatch` by hand
+#                  (owner/collaborator).
+# Flow: guard (owner/collaborator, BEFORE any secret is read) -> make rebase-bot-sweep (decide which ONE
+#       PR, or none) -> make rebase-bot PR=.. HEAD_BRANCH=.. HEAD_REPO=.. (fetch, forward-merge `main`,
+#       hand a conflict to make rebase-bot-agent, verify, push --force-with-lease to the PR's OWN head
+#       remote) -> the outcome comment on the PR.
+# Never: never merges, never pushes to `main`, never clobbers another bot's push (the lease rejects
+#        instead), never rebases a PR whose checks are still running.
+# dispatch: no inputs — the bot decides by itself which ONE PR to take (scripts/rebase_bot_sweep.py);
+# a hand dispatch means "run that decision now", never "rebase this one specific PR".
+name: rebase-bot — keeps every open PR current with main, ONE PR per run (never merges)
 
 on:
   schedule:

@@ -10,7 +10,16 @@
 # `guard` job re-checks the actor before any secret is read. The decision (spare capacity?
 # which issue?) lives in scripts/issue_refiner.py, not in a job `if:` — issue #107 requires
 # that, and tests/test_issue_refiner.py asserts it.
-name: issue-refiner
+# Trigger surface: its own schedule (hourly, `43 * * * *`) and `workflow_dispatch` by hand
+#                  (owner/collaborator).
+# Flow: guard (owner/collaborator, BEFORE any secret is read) -> make issue-refiner-pick (the oldest
+#       eligible issue, or none) -> make issue-refiner (the agent reads the issue + its whole thread
+#       and writes refine.md) -> make issue-refiner-apply (ONE comment + the `agent:refined` label).
+# Never: never opens a PR, never creates a branch, never edits an issue body, never merges, never
+#        decides an open question for a human, never takes an issue the implementer has claimed.
+# dispatch: no inputs — the bot decides by itself which ONE issue to review (scripts/issue_refiner.py);
+# a hand dispatch means "run that decision now", never "review this one specific issue".
+name: issue-refiner — reviews ONE not-yet-implemented issue, never opens a PR
 
 on:
   schedule:
