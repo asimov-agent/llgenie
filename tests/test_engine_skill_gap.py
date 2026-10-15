@@ -530,9 +530,10 @@ def test_the_weekly_sync_regenerates_the_gap_and_spawns_a_tracking_issue():
     assert "secrets.BUMP_TOKEN" in yaml.dump(spawn)
     assert doc["permissions"]["issues"] == "write"
 
-    # And the sync PR body carries the gap
+    # And the sync PR body carries the gap, asked of a make target (#296) - not the script directly
     body = next(r for r in runs if "gh pr create" in r)
-    assert "report --md" in body and "${gap}" in body
+    assert "make engine-skill-gap-md" in body and "${gap}" in body
+    assert "python3 scripts/" not in body
 
     # And the make targets exist, and the gate is a step of the ci-unit job
     assert "render-engine-skill-gap:" in mk and "check-engine-skill-gap:" in mk

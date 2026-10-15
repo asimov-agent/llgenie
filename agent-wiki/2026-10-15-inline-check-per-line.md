@@ -18,6 +18,10 @@ never inspected, and `registry-sync.yml` had been calling `python3 scripts/engin
 - Tests pin the regression case (a `gh api` step with a script on another line IS a finding), the
   clearing case (`make` on the same line), and the self-consistency case (the check over the real tree
   finds nothing).
+- The step's own test moved with the call: `tests/test_engine_skill_gap.py` pinned the sync step's
+  shape as `"report --md" in body`, so changing the step turned `make test-unit` red
+  (`test_the_weekly_sync_regenerates_the_gap_and_spawns_a_tracking_issue`) until the test pinned
+  `make engine-skill-gap-md` instead. A workflow change is not done until the test that locks it agrees.
 
 ## Verification
 
@@ -32,3 +36,7 @@ never inspected, and `registry-sync.yml` had been calling `python3 scripts/engin
 
 - #293 — the reviewer bot does not look at open PRs (a PR already fixing a finding does not suppress it).
 - #295 — the trigger-guard audit (queued-alarm has no guard; four guards accept any collaborator level).
+- #305 — measured while proving this fix over the real workflows: `_steps()` never ends a block (a
+  workflow has no unindented line after the first `run:`), so it yields only a file's LAST `run:` block
+  (`ci.yml`: `current=1` vs `real=20`). The per-command scan above is correct, but it is exercised only
+  on that last block until #305 lands. Filed, linked both ways, and deliberately not folded in here.

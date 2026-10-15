@@ -25,14 +25,21 @@ THEN the check reports it, naming the script and the step.
 
 Every step of every committed workflow MUST call a make target for repo logic, so the self-consistency
 case runs the check over `.github/workflows` and requires no finding. `registry-sync.yml` MUST get the
-markdown gap report through `make engine-skill-gap-md` rather than calling the script.
+markdown gap report through `make engine-skill-gap-md` rather than calling the script, and the test
+that locks that step MUST pin the make target, not the script call it replaced.
 
 WHEN the check runs over the real workflows
-THEN it finds nothing.
+THEN it finds nothing, and the sync step it clears asks a make target for the gap markdown.
 
 #### Scenario: no inline script call remains in the tree
 
 - **Given** the committed workflows, including `registry-sync.yml`
 - **When** `check_workflow_inline_scripts` runs over the repository
 - **Then** it returns no finding, and `make engine-skill-gap-md` exists as the target the sync step calls
-- **Test:** `tests/test_code_review.py::test_the_real_tree_has_no_inline_script_call`
+- **And** the sync workflow's PR body is built from that target, with no repo script called inline
+- **Test:** `tests/test_code_review.py::test_the_real_tree_has_no_inline_script_call` and
+  `tests/test_engine_skill_gap.py::test_the_weekly_sync_regenerates_the_gap_and_spawns_a_tracking_issue`
+
+Note: the check reads steps through `_steps()`, which today yields only a workflow's LAST `run:` block
+(#305); the scenario above is therefore satisfiable for the last step of each workflow, and #305 is the
+separate change that makes every step visible. Not in scope here.

@@ -31,11 +31,17 @@ every gate.
   embedding the same markdown, it just reaches it the way every other step does.
 - **Tests**: the hidden-call fixture (a `gh api` step with a script on another line) is a finding, a
   `make` on the same line is not, and the check runs over the REAL tree and finds nothing.
+- **The consumer of that step is updated with it**: `tests/test_engine_skill_gap.py` pinned the sync
+  step's own shape (`"report --md" in body`); it now pins `make engine-skill-gap-md`, so the workflow
+  and the test that locks it cannot drift apart.
 
 ## Not covered
 
 - #270 — the same class, already fixed for `queued-alarm.yml` by #277.
 - #293 — the reviewer bot does not look at open PRs (a different blind spot in the same tool).
+- #305 — `_steps()` yields only a workflow's LAST `run:` block (measured: `current=1` vs `real=20` for
+  `ci.yml`), so this per-command scan is exercised only on the last step of each workflow. Measured
+  while proving this change on the real tree; fixed by its own change, not folded in here.
 - #295 — the trigger-guard audit (queued-alarm has no guard; four accept any collaborator level).
 
 Refs: #269 (the reviewer bot), #270, #277.
