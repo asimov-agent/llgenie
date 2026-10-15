@@ -143,6 +143,21 @@ jobs:
 
       - name: Prove the JEV engine is active — the loop does not start without it (issue #238)
         run: make agent-jev-preflight NERVE_REQUIRE=1
+      - name: Sync the PR's branch with latest upstream main before repairing it (issue #303)
+        id: sync
+        run: |
+          set +e
+          make bot-sync-branch
+          rc=$?
+          set -e
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          if [ "$rc" = "2" ]; then
+            echo "::notice title=Sync conflict::the PR does not rebase cleanly onto main; left to the rebase-bot (issue #246)"
+          elif [ "$rc" != "0" ]; then
+            echo "::error title=Sync failed::could not sync with upstream main (rc=$rc) - refusing to repair a stale base"
+            exit "$rc"
+          fi
+
       - name: Run the fix loop INSIDE the agent image (check -> repair -> re-check)
         id: loop
         if: steps.pr.outputs.branch != ''
@@ -184,7 +199,9 @@ jobs:
           was handed the failure and the repo rules, and the check was re-run until it
           passed — all checks in the same round are the deterministic CI commands, and
           nothing was mocked, weakened or skipped."
-          git push origin "HEAD:${BRANCH}"
+          # the sync may have rewritten history (a rebase), so the push is guarded: if another bot
+          # pushed meanwhile, this is REJECTED loudly instead of clobbering it (issue #303).
+          git push --force-with-lease origin "HEAD:${BRANCH}"
           echo "pushed=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
         env:
           BRANCH: ${{ steps.pr.outputs.branch }}

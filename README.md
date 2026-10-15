@@ -74,6 +74,25 @@ make install
    adds `export PATH="$HOME/bin:$PATH"` at the top of `~/.bashrc` (login shell bash)
    or `~/.zshrc` (login shell zsh). An existing line is left unchanged.
 
+### Bots sync with upstream `main` before they start work (issue #303)
+
+A bot never works from a stale base:
+
+- `make bot-sync-main` — fetch upstream `main` and **reset the working tree to it**. The
+  **implementer** runs this before it picks an issue, so the branch it pushes is based on the
+  latest `main` rather than on whatever `actions/checkout` happened to have when the run began.
+- `make bot-sync-branch` — fetch upstream `main` and **rebase the checked-out PR branch onto it**.
+  The **fix-bot** runs this before its repair loop, so a green repair is green on top of current
+  `main`. Exit code **2** means the branch does not rebase cleanly: it is reported and left alone,
+  because resolving that conflict is the **rebase-bot's** job (`make rebase-bot`, issue #246).
+- Both fail loudly if `main` cannot be reached — a bot that cannot sync must not start. The
+  fix-bot pushes with `--force-with-lease` afterwards, because a sync rewrites history; if another
+  bot pushed meanwhile the push is rejected instead of clobbering it.
+
+Driven by `scripts/bot_sync_main.sh`; `tests/test_bot_sync.py` runs the rules through a real
+scratch git repository.
+
+
 ### `llgenie`: trending model + fastest engine (issue #105)
 
 `llgenie` with no model is interactive:

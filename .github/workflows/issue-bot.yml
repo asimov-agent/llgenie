@@ -98,6 +98,9 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.BUMP_TOKEN }}
 
+      - name: Sync with latest upstream main (the branch must start from it - issue #303)
+        run: make bot-sync-main
+
       - name: Dispatch (cap -> pick one -> claim -> issue.md + branch)
         id: dispatch
         env:
