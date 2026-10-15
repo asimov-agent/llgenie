@@ -421,8 +421,10 @@ make issue-bot-image       # the same image, for the issue-bot (alias of agent-i
   mistakes for the reviewer to catch than a JEV-assisted run would make. In a workflow the run is
   **annotated** either way (`::notice` when the layer is ready, `::warning` when it is not, plus a
   line in the job summary), so "is JEV on?" is answerable from the run page instead of a log grep. `NERVE_REQUIRE=1` turns
-  the report into a failure and exists to verify the *image* (`make agent-jev-preflight
-  NERVE_REQUIRE=1`); no bot workflow sets it.
+  the report into a failure instead, and **both bot workflows arm it** (`make agent-jev-preflight
+  NERVE_REQUIRE=1`): a bot run does not start with the JEV engine off — the layer is a precondition
+  for an autonomous run, and an ordinary manual or local invocation keeps the report-and-continue
+  behaviour.
 
 ### Manual setup (only if you don't want `make install`)
 

@@ -11,7 +11,8 @@ layer is a leak.
 THE RULE THESE TESTS PIN: the bots are autonomous, so the integration may never stop a run. A
 missing key, a plugin that is not installed, a provider that does not answer — each is reported
 LOUDLY and the run continues, because the answer is a normal (slightly more expensive, slightly
-more mistake-prone) agent run, not a stopped bot. `NERVE_REQUIRE=1` turns the report into a
+more mistake-prone) agent run, not a stopped bot. The bot workflows arm `NERVE_REQUIRE=1`,
+which turns the report into a
 failure and exists to verify the IMAGE; no bot workflow sets it.
 
 These tests run the REAL scripts as subprocesses against real files: `scripts/install_nerve_ci.sh`
@@ -338,7 +339,8 @@ def test_a_missing_provider_key_is_reported_and_the_run_continues(tmp_path):
 
 
 def test_nerve_require_turns_the_report_into_a_failure(tmp_path):
-    """`NERVE_REQUIRE=1` is the IMAGE-verification mode: same home, a non-zero exit on purpose."""
+    """`NERVE_REQUIRE=1` is the strict mode (the bot workflows and an image check arm it):
+    the same home exits non-zero on purpose."""
 
     # Given the same key-less home, and the verify-only flag
     home = _home(tmp_path)
@@ -350,7 +352,7 @@ def test_nerve_require_turns_the_report_into_a_failure(tmp_path):
     assert r.returncode != 0, r.stdout
     assert f"{KEY_VAR} is not set" in r.stderr
     assert "NERVE_REQUIRE=1" in r.stderr
-    assert "verification failure" in r.stderr
+    assert "the JEV layer is required here" in r.stderr
 
 
 def test_a_home_without_the_plugin_is_reported_and_the_run_continues(tmp_path):
@@ -392,7 +394,7 @@ def test_a_provider_that_does_not_answer_does_not_stop_the_run(tmp_path):
     # And the verify-only mode is what turns exactly that into a failure
     r = _run(PREFLIGHT, {**env, "NERVE_REQUIRE": "1"})
     assert r.returncode != 0, r.stdout
-    assert "verification failure" in r.stderr
+    assert "the JEV layer is required here" in r.stderr
 
 
 def test_every_bot_workflow_arms_the_gate_so_no_job_runs_unsupervised():
@@ -545,6 +547,39 @@ def test_no_message_interpolates_the_key_value():
 # ---------------------------------------------------------------------------
 # the wiring: the key travels at run time, and the scripts move the image tag
 # ---------------------------------------------------------------------------
+def test_the_annotation_does_not_claim_a_call_that_was_skipped(tmp_path):
+    """The ON/OFF signal must not overstate itself: the offline path says the provider was NOT
+    contacted, because a maintainer reading "JEV is ON … answered a real decision call" would
+    believe a live call happened."""
+    home = _home(tmp_path)
+    env = _with_fake_hermes(tmp_path, HERMES_HOME=str(home), FAKE_HERMES_STATUS="enabled",
+                            GITHUB_ACTIONS="true", NERVE_GATE_SKIP_PROVIDER="1",
+                            **{KEY_VAR: "jev-annot-0123456789abcdef"})
+    r = _run(PREFLIGHT, env)
+    assert r.returncode == 0, r.stderr
+    assert "JEV is configured for this run" in r.stdout
+    assert "the provider was NOT contacted" in r.stdout
+    assert "answered a real decision call" not in r.stdout
+
+    # And with the provider actually contacted, the notice says so
+    smoke = home / "plugins" / "nerve" / "scripts"
+    smoke.mkdir(parents=True, exist_ok=True)
+    (smoke / "live_api_smoke.py").write_text('print(\'{"ok": true}\')\n')
+    r2 = _run(PREFLIGHT, {**env, "NERVE_GATE_SKIP_PROVIDER": ""})
+    assert r2.returncode == 0, r2.stderr
+    assert "answered a real decision call" in r2.stdout
+
+
+def test_the_docs_match_the_armed_contract():
+    """The bot workflows ARM the gate now, so nothing may still claim "no bot workflow sets it"."""
+    pre = PREFLIGHT.read_text()
+    readme = (REPO / "README.md").read_text()
+    assert "No bot workflow sets it." not in pre, "the preflight still denies the armed gate"
+    assert "no bot workflow sets it" not in readme, "the README still denies the armed gate"
+    assert "both bot workflows arm it" in readme
+    assert "BOT WORKFLOWS ARM IT" in pre
+
+
 def test_the_workflows_pass_the_key_at_run_time_only():
     """Every bot workflow hands the key to the container; none of them bakes it."""
 

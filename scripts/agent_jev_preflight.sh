@@ -10,12 +10,17 @@
 # that matters instead of everything. The measurable effect is FEWER LLM CALLS and FEWER
 # MISTAKES that would otherwise be caught later, by the reviewer or by CI.
 #
-# THE RULE THIS FILE EXISTS TO HONOUR: the bots are autonomous. Nothing here may stop a run.
-# A missing key, a plugin that is not installed, a provider that does not answer — each is
-# reported LOUDLY and the run CONTINUES, because the answer to "JEV is unavailable" is a
-# normal (slightly more expensive) agent run, not a stopped bot. `NERVE_REQUIRE=1` turns the
-# report into a failure, and it exists for ONE purpose: a CI job that verifies the IMAGE
-# carries the layer (see `make agent-jev-preflight NERVE_REQUIRE=1`). No bot workflow sets it.
+# TWO MODES, and the difference is deliberate:
+#
+#   default (no flag)     REPORT and CONTINUE. A missing key, a plugin that is not installed, a
+#                         provider that does not answer — each is printed loudly with the fix and
+#                         the run proceeds, because for a manual or local invocation the answer to
+#                         "JEV is unavailable" is a normal (slightly more expensive) agent run.
+#   NERVE_REQUIRE=1       the layer is a PRECONDITION: any of those is a non-zero exit before a
+#                         model call is made. `make agent-jev-preflight NERVE_REQUIRE=1` verifies a
+#                         built image, and the BOT WORKFLOWS ARM IT — a bot job does not start with
+#                         the JEV engine off (issue-bot.yml / fix-bot.yml), which is the maintainer's
+#                         rule for autonomous runs: turn the layer on, and require it.
 #
 #   TYPESAFE_API_KEY / OPENROUTER_API_KEY / OPENCODE_API_KEY  the provider key (by provider)
 #   HERMES_NERVE_PROVIDER      typesafe (default) | openrouter | opencode
@@ -63,10 +68,10 @@ annotate() {   # annotate <warning|notice> <message>
   fi
 }
 
-#: The ONE failure mode: the caller asked to verify the image (`NERVE_REQUIRE=1`).
+#: The strict mode: `NERVE_REQUIRE=1` (the bot workflows and an image check both arm it).
 require() {
   if [ "${NERVE_REQUIRE:-}" = "1" ]; then
-    echo "[jev-preflight] ERROR: $* (NERVE_REQUIRE=1, so this is a verification failure)" >&2
+    echo "[jev-preflight] ERROR: $* (NERVE_REQUIRE=1 — the JEV layer is required here: a bot run does not start without it, and an image check fails without it)" >&2
     exit 1
   fi
   warn "$*"
@@ -168,4 +173,10 @@ fi
 
 say "JEV ready: nerve enabled in ${HERMES_HOME}, provider ${PROVIDER}, token supplied at run time only"
 say "the agent runs with the decision layer available — fewer LLM calls, fewer mistakes"
-annotate notice "JEV is ON for this run: nerve enabled (${HERMES_HOME}), provider ${PROVIDER} answered a real decision call."
+# Say exactly what was verified. With NERVE_GATE_SKIP_PROVIDER=1 the provider was NOT contacted, so
+# the annotation must not claim it answered: a signal that overstates itself is worse than none.
+if [ "${NERVE_GATE_SKIP_PROVIDER:-}" = "1" ]; then
+  annotate notice "JEV is configured for this run: nerve enabled (${HERMES_HOME}), provider ${PROVIDER} — the provider was NOT contacted (NERVE_GATE_SKIP_PROVIDER=1)."
+else
+  annotate notice "JEV is ON for this run: nerve enabled (${HERMES_HOME}), provider ${PROVIDER} answered a real decision call."
+fi
