@@ -45,7 +45,7 @@ DONE_RE = re.compile(
 #: reader then falls back to its own default TTL and cannot check liveness.
 CLAIM_RE = re.compile(
     r"<!--\s*bot-claim:\s*(?P<bot>[A-Za-z0-9_.-]+)\s+(?P<at>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)"
-    r"\s+(?P<work>refine|implement|fix|rebase)"
+    r"\s+(?P<work>refine|implement|fix|rebase|clean)"
     r"(?:\s+ttl=(?P<ttl>\d+)m)?"
     r"(?:\s+run=(?P<run>\d+))?\s*-->")
 
@@ -56,6 +56,7 @@ REFINER = "refiner"
 IMPLEMENTER = "implementer"
 FIXER = "fix-bot"
 REBASER = "rebase-bot"
+CLEANER = "issue-cleaner"
 
 #: How long a PR claim holds when the marker does not say. The fix-bot's own budget is 180 minutes
 #: (three rounds of check + agent repair), so a reader must age a claim by at least that or the
@@ -105,7 +106,7 @@ def claim_comment(bot: str, work: str, when: dt.datetime, ttl: dt.timedelta | No
     (which run holds it, so a reader can see it end). The sentence a human reads is built from the
     same `ttl`, so the two can no longer disagree (#292).
     """
-    assert work in ("refine", "implement", "fix", "rebase"), work
+    assert work in ("refine", "implement", "fix", "rebase", "clean"), work
     window = ttl or CLAIM_TTL
     marker = f"<!-- bot-claim: {bot} {_stamp(when)} {work} ttl={int(window.total_seconds() // 60)}m"
     if run_id:

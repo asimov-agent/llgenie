@@ -1191,6 +1191,13 @@ make pr-hygiene-report # show every producer the PR/commit-message guard reads, 
 make check-pr-authors  # fail when a PR commit is authored by anyone but Andy Holst or Asimov Agent, when a Co-authored-by trailer names anyone else, or when a producer commits off the allowlist (issue #345)
 make pr-authors-report # show every commit in the range with its author verdict, and the identity each producer assigns
 make check-workflows   # fail when a YAML file's GitHub expression does not parse, a YAML file lacks a trailing newline, a workflow has no top-level name, or a `workflow_run` trigger names no workflows (issue #330)
+make issue-cleaner-scan   # which OPEN issue a merged PR already implemented: GitHub closes an issue at merge
+                          # only when the body carries a closing keyword bound to it, so a PR that merged and
+                          # left its issue open is a stale-open (issue #325). Prints each finding with its
+                          # evidence and closes nothing; REPO= picks the repo
+make issue-cleaner-apply  # the same decision, then: an evidence comment on the issue and a close as
+                          # completed. An issue the PR's own `Not covered` section names is a tracked
+                          # remainder and is left open; REPO= picks the repo
 make workflows-report  # show every YAML file the workflow gate reads, how many expressions it validated, and its verdict
 make test-clean        # prune stopped orphaned test containers (always)
 ```
