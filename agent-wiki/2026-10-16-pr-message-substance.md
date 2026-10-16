@@ -1,5 +1,7 @@
 # PR bodies and commit messages state the issue, the fix and the benefit (#313)
 
+Implemented by PR [#315](https://github.com/asimov-agent/llgenie/pull/315) (issue #313).
+
 ## Why
 
 `AGENTS.md` required a PR body to reference its issue and end with `closes #N`, and every commit to
