@@ -93,7 +93,11 @@ jobs:
           make check-registry
           make check-quant-catalog
           make engine-skill-gap
-          make skills-validate
+          # The SAME scope ci-unit uses (issue #319): the bare target validates the Makefile's
+          # fixture, and REGISTRY without UNSUPPORTED errors on every engine recorded in
+          # data/unsupported-engines.json — both let the job pass/skip while the registry it is
+          # about to push fails the identical check in CI.
+          make skills-validate REGISTRY=data/models.json UNSUPPORTED=data/unsupported-engines.json
           make test-unit
       - name: Spawn one tracking issue per NEW unskilled engine
         if: steps.diff.outputs.changed

@@ -352,3 +352,28 @@ def test_skills_validate_cli_with_the_decisions_exits_zero_on_the_october_5_fixt
     # Then it reports 0 errors
     assert result.returncode == 0, result.stderr
     assert "0 error(s)" in result.stdout
+
+
+def test_the_sync_job_validates_the_registry_it_just_synced():
+    """Issue #319: the sync job's post-sync gate must validate the SAME data ci-unit does.
+
+    Without the overrides `make skills-validate` falls back to the Makefile's small fixture, and the
+    earlier form passed REGISTRY without UNSUPPORTED — so the job's own gate could pass (or error on
+    recorded-unsupported engines) while the registry it was about to push was never really checked.
+    """
+
+    # Given the sync workflow's validation step and ci-unit's own skills-validate line
+    wf = yaml.safe_load(WORKFLOW.read_text())
+    step = next(s for s in wf["jobs"]["sync"]["steps"]
+                if "skills-validate" in (s.get("run") or ""))
+    ci_lines = [l.strip() for l in (REPO / "Makefile").read_text().splitlines()
+                if "skills-validate" in l and "REGISTRY=data/models.json" in l]
+
+    # When the sync job's invocation is read
+    run = step["run"]
+
+    # Then it pins the same registry AND the same unsupported-decisions list ci-unit uses
+    assert ("make skills-validate REGISTRY=data/models.json "
+            "UNSUPPORTED=data/unsupported-engines.json") in run, run
+    assert ci_lines, "ci-unit must keep validating the real registry"
+    assert "UNSUPPORTED=data/unsupported-engines.json" in ci_lines[0], ci_lines
