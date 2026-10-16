@@ -1,6 +1,6 @@
 # A PR closes the issue it implements — the closing rule loses its loophole (#324)
 
-Implemented by PR [#326](https://github.com/asimov-agent/llgenie/pull/326) (issue #324).
+Implemented by PR [#328](https://github.com/asimov-agent/llgenie/pull/328) (issue #324).
 
 ## Why
 
