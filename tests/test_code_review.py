@@ -163,9 +163,82 @@ jobs:
     assert cr.check_workflow_inline_scripts(root) == []
 
 
+def test_a_violation_in_a_step_that_is_not_last_is_still_a_finding(tmp_path):
+    """#305: `_steps` yielded only a workflow's LAST `run:` block, so a violation in an earlier step
+    was invisible. Here the violating step is FIRST and a make-only step is LAST."""
+    # Given a workflow whose FIRST step runs a repo script and whose LAST step is a make target
+    root = _tree(tmp_path, {"a.yml": """
+name: A
+on:
+  workflow_dispatch:
+jobs:
+  a:
+    steps:
+      - name: sync
+        run: |
+          gap="$(python3 scripts/engine_skill_gap.py report --md)"
+      - name: unit
+        run: make test-unit
+"""})
+    # When the check runs over it
+    found = cr.check_workflow_inline_scripts(root)
+    # Then the early violation is a finding, named with the step it is in
+    assert len(found) == 1, found
+    assert "engine_skill_gap.py" in found[0]["evidence"], found[0]["evidence"]
+    assert "sync" in found[0]["evidence"], found[0]["evidence"]
+
+
+def test_a_script_name_in_a_quoted_message_is_prose_not_a_command(tmp_path):
+    """#305: scanning every step must not turn a script name quoted in a commit message into a
+    finding. `fix-bot.yml` writes `... (scripts/fix_loop.sh): the check ran ...` into a commit body."""
+    # Given a step whose run block only MENTIONS a script inside a quoted commit message
+    root = _tree(tmp_path, {"a.yml": """
+name: A
+on:
+  workflow_dispatch:
+jobs:
+  a:
+    steps:
+      - name: push
+        run: |
+          set -euo pipefail
+          git commit -am "fix(bot): repair the failing check
+
+          Repaired by the PR fix-bot loop (scripts/fix_loop.sh): the check ran, Hermes
+          was handed the failure."
+"""})
+    # When the check runs over it
+    found = cr.check_workflow_inline_scripts(root)
+    # Then the mention is not filed
+    assert found == [], [f["evidence"] for f in found]
+
+
+def test_a_script_in_a_substitution_is_still_a_command(tmp_path):
+    """The false-positive fix must not swallow a real call: a script run inside `$( ... )` is a
+    command even though it sits inside double quotes."""
+    # Given a step whose run block runs the script in a substitution
+    root = _tree(tmp_path, {"a.yml": """
+name: A
+on:
+  workflow_dispatch:
+jobs:
+  a:
+    steps:
+      - name: sync
+        run: |
+          gap="$(python3 scripts/engine_skill_gap.py report --md)"
+          gh pr create --body "$gap"
+"""})
+    # When the check runs over it
+    found = cr.check_workflow_inline_scripts(root)
+    # Then it is a finding
+    assert len(found) == 1, found
+    assert "engine_skill_gap.py" in found[0]["evidence"]
+
+
 def test_the_real_tree_has_no_inline_script_call():
     """Self-consistency: the check this file pins runs over the real workflows, and every step there
-    reaches its logic through a make target (#270, #296)."""
+    reaches its logic through a make target (#270, #296, #305)."""
     found = cr.check_workflow_inline_scripts(Path(__file__).resolve().parents[1])
     assert found == [], [f["evidence"] for f in found]
 

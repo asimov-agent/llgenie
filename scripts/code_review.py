@@ -72,28 +72,37 @@ def _workflow_files(root: Path) -> list[Path]:
 
 
 def _steps(text: str) -> list[tuple[str, str]]:
-    """(step name, its run block) for every step of a workflow file, comments stripped."""
+    """(step name, its run block) for every step of a workflow file, comments stripped.
+
+    A `run:` block ends at the first non-blank line indented at or **below** the `run:` line
+    itself (issue #305). It does NOT end at an unindented line: a workflow nests every line under
+    `jobs:`/`<job>:`/`steps:`, so "no leading whitespace" is never true and the old loop kept
+    extending the same block, dropping every step but the file's last one (`ci.yml`: 1 vs 20).
+    """
     out: list[tuple[str, str]] = []
     name = ""
     block: list[str] | None = None
+    run_indent = 0
     for line in text.splitlines():
         stripped = line.strip()
-        if stripped.startswith("#"):
+        if not stripped or stripped.startswith("#"):
             continue
+        indent = len(line) - len(line.lstrip())
+        if block is not None and indent <= run_indent:
+            out.append((name, "\n".join(block)))
+            block = None
         if re.match(r"^-\s+name:", stripped):
             name = stripped.split(":", 1)[1].strip().strip("'\"")
+            continue
         if re.match(r"^-\s+run:", stripped) or re.match(r"^run:", stripped):
+            run_indent = indent
             block = []
             tail = stripped.split("run:", 1)[1].strip()
             if tail and tail not in ("|", ">"):
                 block.append(tail)
             continue
         if block is not None:
-            if line and not line.startswith((" ", "\t")):
-                out.append((name, "\n".join(block)))
-                block = None
-            elif stripped:
-                block.append(stripped)
+            block.append(stripped)
     if block is not None:
         out.append((name, "\n".join(block)))
     return out
@@ -139,6 +148,58 @@ def _days_overlap(a: str, b: str) -> bool:
     return bool(seta & setb)
 
 
+def _code_only(block: str) -> str:
+    """A `run:` block with quoted PROSE removed, but `$( ... )` and backtick substitutions kept.
+
+    The rule is per COMMAND (issue #296): a repo script a workflow *runs*. A script name inside a
+    plain quoted string is prose — `git commit -am "... (scripts/fix_loop.sh): the check ran ..."`
+    is a message, not a command — so it must not be filed. A name inside a command substitution IS
+    a command (`gap="$(python3 scripts/engine_skill_gap.py report --md)"`), so it must be filed.
+    This is what keeps #305's "scan every step" from trading a false negative for a false positive.
+    """
+    out: list[str] = []
+    state = "code"  # code | single | double | backtick
+    paren = 0       # depth of `$(` inside a double-quoted string
+    i, n = 0, len(block)
+    while i < n:
+        ch = block[i]
+        nxt = block[i + 1] if i + 1 < n else ""
+        if state == "code":
+            if ch == "'":
+                state = "single"
+            elif ch == '"':
+                state = "double"
+            elif ch == "`":
+                state = "backtick"
+            elif ch == "\\" and nxt:
+                out.append(ch); out.append(nxt); i += 2; continue
+            else:
+                out.append(ch)
+        elif state == "single":
+            if ch == "'":
+                state = "code"
+        elif state == "double":
+            if ch == "\\" and nxt:
+                i += 2; continue
+            if ch == "$" and nxt == "(":
+                paren += 1; out.append("$("); i += 2; continue
+            if ch == ")" and paren > 0:
+                paren -= 1; out.append(")"); i += 1; continue
+            if ch == '"' and paren == 0:
+                state = "code"
+            elif paren > 0:
+                out.append(ch)
+        elif state == "backtick":
+            if ch == "\\" and nxt:
+                i += 2; continue
+            if ch == "`":
+                state = "code"
+            else:
+                out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 # ---------------------------------------------------------------------------
 # the checks
 # ---------------------------------------------------------------------------
@@ -153,11 +214,15 @@ def check_workflow_inline_scripts(root: Path) -> list[dict]:
     step that legitimately orchestrates with `gh` may still call a repo script on another line, and
     that is what `registry-sync.yml` did with `scripts/engine_skill_gap.py` for as long as the
     exemption existed. A `make` on the SAME line as the script call is the one thing that clears it.
+
+    The scan reads every step of a workflow, not just its last one (issue #305), and it reads each
+    step's *commands*, not its prose: `_code_only` drops a script name quoted as a message (the
+    commit-message string in `fix-bot.yml`) while keeping a script name run in a substitution.
     """
     out = []
     for wf in _workflow_files(root):
         for name, block in _steps(_read(wf)):
-            for line in block.splitlines():
+            for line in _code_only(block).splitlines():
                 hit = INLINE_SCRIPT.search(line)
                 if not hit or MAKE_CALL.search(line):
                     continue
