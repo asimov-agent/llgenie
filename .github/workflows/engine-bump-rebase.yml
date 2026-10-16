@@ -89,7 +89,10 @@ jobs:
           git config user.email "$(gh api user --jq .id)+$(gh api user --jq .login)@users.noreply.github.com"
           # `dry` is OFF unless a dispatcher ticks the box: the daily cron REBASES each open
           # chore/engine-bump-* PR onto main and force-with-lease pushes it. Spelled out rather than
-          # folded into one `${{ ... }}` so the mode this run took is readable in the log.
+          # folded into one expression, so the mode this run took is readable in the log. (The
+          # expression syntax is NOT written out here on purpose: a `#` line inside this run block is
+          # script text, not a YAML comment, so a literal expression would be parsed — and an
+          # unparseable one makes GitHub refuse the whole file, issue #330.)
           if [ "${DRY_INPUT}" = "true" ]; then
             echo "==> DRY RUN: printing the PRs that would be rebased; nothing is pushed"
             make engine-bump-rebase DRY=1

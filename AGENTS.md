@@ -283,6 +283,37 @@ that is not a typed Conventional Commit or no body, on a PR opened with an empty
 and on an `AGENTS.md` that no longer carries this section. `make pr-hygiene-report` prints what it
 reads.
 
+## Every workflow file is validated before it can merge (MANDATORY, durable)
+
+GitHub REFUSES a whole workflow file whose `${{ ... }}` expression it cannot parse, and the refusal is
+silent: the run arrives `status=completed`, `conclusion=failure`, with **zero jobs**, a `name` equal to
+the file PATH, and no log at all (`gh run view <id> --log-failed` → `log not found`). Measured on `main`
+(issue #330): `.github/workflows/engine-bump-rebase.yml` was refused on every workflow-touching push
+because of one comment inside the `rebase` job's `run: |` block —
+
+```yaml
+        run: |
+          # folded into one `${{ ... }}` so the mode this run took is readable in the log.
+```
+
+Rules that follow:
+
+- **A `#` line inside a `run:` block scalar is SCRIPT TEXT, not a YAML comment.** GitHub evaluates every
+  `${{ ... }}` in the file's raw text, so an expression written in such a comment IS parsed, and an
+  unparseable one refuses the whole file. Never write expression syntax there — describe it in words.
+- **`yaml.safe_load` does not save you.** PyYAML has no notion of `${{ }}`, so it accepts a file GitHub
+  rejects. A YAML parse is not a workflow validation; PyYAML also accepts a duplicate key that GitHub
+  refuses.
+- **A 0-job red run whose `name` is the file PATH is a startup failure, not a failed job.**
+  `gh run view <id> --json name,jobs` → `name` = the path and 0 jobs = GitHub refused the file. Do not
+  chase it as a regression in the code the run would have tested.
+- **`make check-workflows`** (`scripts/check_workflows.py check`, run by `ci-unit`) is the gate: every
+  YAML file in the repository must end with a newline, every `${{ ... }}` in it must parse, and every
+  `.github/workflows/*.yml` must declare a top-level `name:` (a missing name is what makes a run present
+  itself as a path). `make workflows-report` prints what it reads. Its tests are
+  `tests/test_workflows_valid.py` in `make test-unit`, where a strict YAML parse with no duplicate keys
+  also runs — the make gate is stdlib only, so `ci-unit` can run it on the host on Linux and macOS.
+
 ## PR review comments — check them and reply yourself (MANDATORY, durable)
 
 When a feature branch has an OPEN PR, review commentary is a first-class source

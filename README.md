@@ -1151,6 +1151,8 @@ make check-docs        # fail when a user-facing make target is not documented h
 make docs-report       # show every user-facing target: documented, missing, or a recorded exception
 make check-pr-hygiene  # fail when a producer's commit message or PR body is empty, a placeholder, a subject with no body, or when AGENTS.md lost the mandate (issue #313)
 make pr-hygiene-report # show every producer the PR/commit-message guard reads, and its verdict
+make check-workflows   # fail when a YAML file's GitHub expression does not parse, a YAML file lacks a trailing newline, or a workflow has no top-level name (issue #330)
+make workflows-report  # show every YAML file the workflow gate reads, how many expressions it validated, and its verdict
 make test-clean        # prune stopped orphaned test containers (always)
 ```
 
@@ -1359,6 +1361,36 @@ so the guard's scope is visible rather than assumed.
 The in-repo producers follow the same rule: `engine-bump.yml`, `issue-bot.yml` and `registry-sync.yml`
 build their commit message (and PR body) as a subject plus the `Issue:`/`Fix:`/`Benefit:`/`Technical:`
 body, so a bot's commit reads like a human's.
+
+### Every workflow file is validated before it can merge (issue #330)
+
+GitHub **refuses a whole workflow file** whose `${{ ... }}` expression it cannot parse, and the refusal
+is silent: the run arrives `status=completed`, `conclusion=failure`, with **zero jobs**, a `name` equal
+to the file path, and no log at all. `engine-bump-rebase.yml` shipped exactly that for four pushes on
+`main`, because of one comment inside the `rebase` job's `run: |` block:
+
+```yaml
+        run: |
+          # folded into one `${{ ... }}` so the mode this run took is readable in the log.
+```
+
+A `#` line inside a `run:` block scalar is **script text, not a YAML comment**, so GitHub evaluated the
+expression in it, could not parse `...`, and refused the file. `yaml.safe_load` accepts it — PyYAML has
+no notion of `${{ }}` — which is why nothing caught it.
+
+`make check-workflows` (`scripts/check_workflows.py`, in the `ci-unit` job) is the gate, and it reads
+**every YAML file in the repository**, not only the workflows:
+
+1. every `${{ ... }}` in a file must parse (a real recursive-descent parser over GitHub's expression
+   grammar, so the expressions this repo already uses are not false positives);
+2. every YAML file must end with a newline (the repository's linefeed lint spec);
+3. every `.github/workflows/*.yml` must declare a top-level `name:` — a missing name is what makes a run
+   present itself as a file path, indistinguishable from a startup failure in `gh run list`.
+
+`make workflows-report` prints the file count, how many expressions were validated and the verdict, so
+the gate's scope is visible rather than assumed. `tests/test_workflows_valid.py` (in `make test-unit`, so
+it runs under `ci.yml`) pins each rule and adds the check only a YAML library can make — a strict parse
+with **no duplicate keys**, which GitHub also refuses and PyYAML hides (last key wins).
 
 ### No-fallback rule
 
