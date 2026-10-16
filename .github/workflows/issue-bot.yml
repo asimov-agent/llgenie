@@ -121,6 +121,14 @@ jobs:
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
           echo "issue=$issue" >> "$GITHUB_OUTPUT"
           echo "action=$action" >> "$GITHUB_OUTPUT"
+          # A CRASHED decision is not "nothing to do" (issue #312). Without this check an empty
+          # `action` falls through the cap/none test below, so `dispatch=true` and the run marches on
+          # to triage/implement with no issue picked — failing somewhere later, or not at all. Fail
+          # HERE, naming the target and its rc.
+          if [ "$rc" != "0" ]; then
+            echo "::error::the issue-bot's decision failed (make issue-bot-dispatch rc=$rc); refusing to treat a crashed decision as 'nothing to pick'"
+            exit 1
+          fi
           if [ "$action" = "cap" ] || [ "$action" = "none" ]; then echo "dispatch=false" >> "$GITHUB_OUTPUT"; else echo "dispatch=true" >> "$GITHUB_OUTPUT"; fi
           exit 0
 
