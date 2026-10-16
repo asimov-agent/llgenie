@@ -1,6 +1,6 @@
 # A workflow GitHub refused, and the gate that stops the next one (#330, #329)
 
-Implemented by PR (see the `Implemented by` line added after the PR opened) for issue #330.
+Implemented by PR [#331](https://github.com/asimov-agent/llgenie/pull/331) (issue #330).
 
 ## Why
 
