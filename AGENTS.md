@@ -215,10 +215,24 @@ git merge-base --is-ancestor origin/main HEAD 2>/dev/null \
    - NEVER create a PR against `andyholst/llgenie` (the fork). The PR always goes
      to the upstream.
    - NEVER push directly to `main` on either repo.
-   - **Every PR body MUST end with `closes #<issue id>`** (the deliberate closing
-     keyword GitHub uses to link a PR to its issue). If the PR does not close an
-     issue, still end with the issue reference so the PR ↔ issue link is never
-     ambiguous.
+   - **A PR that implements an issue MUST close it — `closes #<issue id>`**
+     (the deliberate closing keyword GitHub uses to link a PR to its issue, so
+     merging the PR closes the issue). Three cases, no fourth:
+     - **The PR implements the issue:** the body MUST end with `closes #<n>`.
+       Measured on `main` (`4d999e3`), 13 of the last 38 merged PRs carried no
+       closing reference — an issue whose implementation merged was left open, or
+       was closed by hand with no implementing PR (#321: closed manually at
+       02:47:40Z, and the defect it names still reproduces — run `38841759439`,
+       `failure`, 0 jobs).
+     - **The PR implements only PART of the issue:** the body MUST NOT close it.
+       The issue stays open and the body names what remains as its own linked work
+       item in `Not covered` — never prose the next reader has to find (#290 left
+       #279 open with its remaining half described only in the PR text).
+     - **The PR implements no issue** (a pure chore): say so in `Issue:`, name the
+       change instead, and open a tracking issue if the change needs one.
+   - **NEVER close an issue by hand while a PR implements it.** The PR closes it on
+     merge; a hand-closed issue whose PR is still open (or never existed) makes the
+     issue's state stop being evidence about the code.
 6. Keep each PR to one change/OpenSpec change. Rebase or merge `main` in when the
    PR goes stale; never force-push shared branches.
 7. **Merging needs an approval — the agent NEVER merges (MANDATORY, durable).**
@@ -256,8 +270,9 @@ opening the issue. An empty, placeholder or subject-only message is a defect, ne
 - **Then the technical extension** as a `Technical:` part: the files, functions, make targets, tests
   and gates the change touches, plus any measured number that proves the claim — the detail a
   reviewer needs to verify the work without re-deriving it.
-- **A PR body ends with `closes #<issue id>`** (required above); the commit references the issue, the
-  PR closes it. Both exist for every change, both carry the three parts.
+- **A PR that implements an issue closes it — `closes #<issue id>` in the body** (required above); a
+  partial implementation does not close it and names what remains as a linked work item. The commit
+  references the issue, the PR closes it. Both exist for every change, both carry the three parts.
 - **The in-repo producers follow the same rule.** `engine-bump.yml`, `issue-bot.yml` and
   `registry-sync.yml` build their commit message and PR body this way — a bot's commit is read by the
   same reviewer as a human's.

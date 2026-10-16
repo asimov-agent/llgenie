@@ -1,11 +1,11 @@
-"""The PR/commit message-substance guard (issue #313): a message states the issue, the fix, the benefit.
+"""The PR/commit message-substance guard (issue #313) and the closing rule (issue #324).
 
 A commit and a PR are read on their own, so a message that carries a subject and nothing else fails
 the reviewer exactly as an empty one does. Every rule is tested on a fixture tree first — a bodiless
 commit, a placeholder subject, a subject that is not a typed Conventional Commit, a PR opened with no
-body or an empty one, an `AGENTS.md` that lost the mandate, and the Python argv form the repo's `_gh`
-helper uses — and then the guard is run over THIS repository, because a convention the repo itself
-violates is not a convention.
+body or an empty one, an `AGENTS.md` that lost the mandate or the closing rule, and the Python argv
+form the repo's `_gh` helper uses — and then the guard is run over THIS repository, because a
+convention the repo itself violates is not a convention.
 
 The exit code matters as much as the rules: `make check-pr-hygiene` runs inside the `ci-unit` job, so
 `main(["check"])` must return non-zero on a violation and 0 on this tree.
@@ -21,8 +21,11 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
 import check_pr_hygiene as cph  # noqa: E402
 
-#: An AGENTS.md that carries the mandate — the baseline every fixture starts from.
-AGENTS_OK = "# Agents\n\n" + cph.AGENTS_MANDATE + "\n\nThe body of the mandate.\n"
+#: An AGENTS.md that carries the mandate — the baseline every fixture starts from. It carries BOTH
+#: required texts: the message mandate and the closing rule, so a fixture that drops either is the
+#: one thing a test breaks.
+AGENTS_OK = ("# Agents\n\n" + cph.AGENTS_MANDATE + "\n\n" + cph.AGENTS_CLOSING_RULE
+             + "\n\nThe body of the mandate.\n")
 #: The three producers whose messages this change gives a body.
 PRODUCERS = (".github/workflows/engine-bump.yml",
              ".github/workflows/issue-bot.yml",
@@ -183,6 +186,47 @@ def test_a_missing_agents_mandate_is_a_violation(tmp_path: Path):
 
     # Then  the missing mandate is a violation
     assert "agents-mandate" in keys
+
+
+def test_a_missing_closing_rule_is_a_violation(tmp_path: Path):
+    """A PR must close the issue it implements — the closing rule cannot be deleted silently."""
+
+    # Given an AGENTS.md that carries the mandate but NOT the closing rule
+    agents = "# Agents\n\n" + cph.AGENTS_MANDATE + "\n\nThe body of the mandate.\n"
+    root = _tree(tmp_path, agents=agents)
+
+    # When  the guard reads it
+    items = cph.findings(root)
+    keys = _keys(root)
+
+    # Then  the closing rule is reported as its OWN finding — not the message mandate
+    assert "agents-closing-rule" in keys
+    assert "agents-mandate" not in keys
+    assert "MUST close it" in cph.render(items)
+
+
+def test_agents_mandate_passes_when_the_closing_rule_is_present(tmp_path: Path):
+    """Both required texts present → no AGENTS.md finding at all."""
+
+    # Given the baseline AGENTS.md, which carries the mandate AND the closing rule
+    root = _tree(tmp_path)
+
+    # When  the guard reads it
+    keys = _keys(root)
+
+    # Then  neither the mandate nor the closing rule is reported
+    assert "agents-mandate" not in keys
+    assert "agents-closing-rule" not in keys
+
+
+def test_this_repository_carries_the_closing_rule():
+    """AGENTS.md states the closing rule, so this repo's own PRs follow it."""
+
+    # Given this repository's AGENTS.md
+    text = (REPO / cph.AGENTS).read_text()
+
+    # Then  the closing rule text is present, verbatim
+    assert cph.AGENTS_CLOSING_RULE in text
 
 
 def test_check_exits_non_zero_on_a_violation_and_zero_on_this_repo(tmp_path: Path):

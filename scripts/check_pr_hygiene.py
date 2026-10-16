@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
-"""A commit message and a PR body state the issue, the fix and the benefit (issue #313).
+"""A commit message and a PR body state the issue, the fix and the benefit (issue #313), and a PR
+closes the issue it implements (issue #324).
 
 A reviewer who reads a commit or a PR must learn three things without opening the issue: **what the
 issue was**, **how the change solves it**, and **what the benefit is** — plus the technical detail
 (files, tests, gates, measured numbers) that lets them verify the claim. A subject-only commit or an
-empty PR body carries none of that, so this guard makes both a red `ci-unit` instead of a habit.
+empty PR body carries none of that, so this guard makes both a red `ci-unit` instead of a habit. The
+closing rule is the other half: a PR that implements an issue MUST close it (`closes #<n>`), so the
+issue's state stays evidence about the code — measured on `main` (`4d999e3`), 13 of the last 38
+merged PRs closed nothing.
 
 It reads the producers the repository OWNS — `.github/workflows/*.yml`, the `Makefile`,
 `scripts/**/*.sh` (shell invocations) and `scripts/**/*.py` (an argv list handed to the repo's `_gh`
@@ -13,8 +17,10 @@ helper) — extracts every commit and every PR open they run, and reports:
 * `commit-message`      a commit with no message, a placeholder message, a subject that is not a
                         typed Conventional Commit, or no body (a bare subject);
 * `pr-body`             a PR opened with no body, or a body that is empty / a placeholder;
-* `agents-mandate`      an `AGENTS.md` that no longer carries the mandate section, so the rule
-                        cannot be deleted silently.
+* `agents-mandate`      an `AGENTS.md` that no longer carries the message mandate, so the rule
+                        cannot be deleted silently;
+* `agents-closing-rule` an `AGENTS.md` that no longer states that a PR closes the issue it
+                        implements, so the closing rule cannot be deleted silently either.
 
 A producer that opens a PR through a variable or a file is accepted — the guard checks that a real
 body is PASSED, and the producers' own tests pin what that body says. Message content (the
@@ -42,6 +48,9 @@ SCRIPTS = "scripts"
 AGENTS = "AGENTS.md"
 #: The mandate heading AGENTS.md must carry. Deleting it is a violation, not an edit.
 AGENTS_MANDATE = "## Every PR body and commit message carries the issue, the fix and the benefit"
+#: The closing rule AGENTS.md must carry — a PR that implements an issue closes it. The loophole
+#: ("if the PR does not close an issue, still end with the issue reference") is what this forbids.
+AGENTS_CLOSING_RULE = "A PR that implements an issue MUST close it"
 #: A typed Conventional Commit subject: `type(scope): summary`.
 CONVENTIONAL = re.compile(r"^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)"
                           r"(\([^)]+\))?!?: \S")
@@ -288,21 +297,37 @@ def check_producers(root: Path) -> list[dict]:
 
 
 def check_agents_mandate(root: Path) -> list[dict]:
-    """AGENTS.md carries the mandate section, so the rule cannot be deleted silently."""
+    """AGENTS.md carries the mandate section AND the closing rule, so neither is deleted silently."""
     text = (root / AGENTS).read_text() if (root / AGENTS).exists() else ""
-    if AGENTS_MANDATE in text:
-        return []
-    return [{
-        "key": "agents-mandate/agents-md",
-        "title": "ci: AGENTS.md no longer carries the PR/commit message mandate",
-        "evidence": (
-            f"`{AGENTS}` does not contain the heading `{AGENTS_MANDATE}`. That section states what "
-            f"every commit message and PR body must carry — the issue, the fix, the benefit and the "
-            f"technical extension. A rule that can be deleted by accident is not a rule, so its "
-            f"presence is checked (issue #313)."
-        ),
-        "where": AGENTS,
-    }]
+    out: list[dict] = []
+    if AGENTS_MANDATE not in text:
+        out.append({
+            "key": "agents-mandate/agents-md",
+            "title": "ci: AGENTS.md no longer carries the PR/commit message mandate",
+            "evidence": (
+                f"`{AGENTS}` does not contain the heading `{AGENTS_MANDATE}`. That section states what "
+                f"every commit message and PR body must carry — the issue, the fix, the benefit and the "
+                f"technical extension. A rule that can be deleted by accident is not a rule, so its "
+                f"presence is checked (issue #313)."
+            ),
+            "where": AGENTS,
+        })
+    if AGENTS_CLOSING_RULE not in text:
+        out.append({
+            "key": "agents-closing-rule/agents-md",
+            "title": "ci: AGENTS.md no longer states that a PR closes the issue it implements",
+            "evidence": (
+                f"`{AGENTS}` does not contain `{AGENTS_CLOSING_RULE}`. A PR that implements an issue "
+                f"must close it (`closes #<n>`); a partial implementation must not, and must name what "
+                f"remains as a linked work item. Without the rule stated, a PR that closes nothing "
+                f"passes review silently — 13 of the last 38 merged PRs did exactly that on `main` "
+                f"(`4d999e3`), and #321 was closed by hand with no implementing PR while its defect "
+                f"still reproduced. The rule cannot be deleted by an edit that leaves the code green "
+                f"(issue #324)."
+            ),
+            "where": AGENTS,
+        })
+    return out
 
 
 def findings(root: Path = REPO_ROOT) -> list[dict]:
