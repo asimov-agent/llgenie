@@ -41,7 +41,12 @@ every gate.
 - #293 — the reviewer bot does not look at open PRs (a different blind spot in the same tool).
 - #305 — `_steps()` yields only a workflow's LAST `run:` block (measured: `current=1` vs `real=20` for
   `ci.yml`), so this per-command scan is exercised only on the last step of each workflow. Measured
-  while proving this change on the real tree; fixed by its own change, not folded in here.
+  while proving this change on the real tree; fixed by its own change, not folded in here. **Fixed by
+  PR #326** (`inline-check-all-steps`): `_steps()` now returns every step (13 → 105 blocks).
+- #317 — found while running `make loop` to verify this change: the loop's `test` stage runs
+  `tests/test_install.py` in a `--rm` container with `HOME=/root`, where the install artifacts cannot
+  exist, so the stage is red on every Linux host. Fixed by its own change, not folded in here.
+  **Fixed by PR #322** (`loop-test-host-install`).
 - #295 — the trigger-guard audit (queued-alarm has no guard; four accept any collaborator level).
 
 Refs: #269 (the reviewer bot), #270, #277.

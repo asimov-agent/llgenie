@@ -7,4 +7,5 @@
 - [x] 5. README documents `engine-skill-gap-md`; `agent-wiki/2026-10-15-inline-check-per-line.md` records the work
 - [x] 6. `make lint`, `make check-docs`, `make check-wiring`, `make check-dispatch-forms` and `make openspec-validate NAME=inline-check-per-line` exit 0
 - [x] 7. The step's own test moves with it: `tests/test_engine_skill_gap.py::test_the_weekly_sync_regenerates_the_gap_and_spawns_a_tracking_issue` pins `make engine-skill-gap-md` (not `report --md`), so the sync workflow and the test that locks it cannot drift; `make test-unit` green
-- [x] 8. #305 filed for `_steps()` yielding only a workflow's LAST `run:` block (measured `current=1` vs `real=20` for `ci.yml`), linked both ways and not folded into this change
+- [x] 8. #305 filed for `_steps()` yielding only a workflow's LAST `run:` block (measured `current=1` vs `real=20` for `ci.yml`), linked both ways and not folded into this change; landed as PR #326 (`inline-check-all-steps`)
+- [x] 9. #317 filed for the loop's `test` stage being red on Linux (`tests/test_install.py` in a `--rm` container with `HOME=/root`), linked both ways and not folded into this change; landed as PR #322 (`loop-test-host-install`)

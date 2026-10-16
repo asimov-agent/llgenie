@@ -40,6 +40,7 @@ THEN it finds nothing, and the sync step it clears asks a make target for the ga
 - **Test:** `tests/test_code_review.py::test_the_real_tree_has_no_inline_script_call` and
   `tests/test_engine_skill_gap.py::test_the_weekly_sync_regenerates_the_gap_and_spawns_a_tracking_issue`
 
-Note: the check reads steps through `_steps()`, which today yields only a workflow's LAST `run:` block
-(#305); the scenario above is therefore satisfiable for the last step of each workflow, and #305 is the
-separate change that makes every step visible. Not in scope here.
+Note: the check reads steps through `_steps()`, which at the time of this change yielded only a
+workflow's LAST `run:` block (#305); the scenario above was therefore satisfiable only for the last
+step of each workflow. #305 — the separate change that makes every step visible — landed as PR #326
+(`inline-check-all-steps`), so the scenario now holds for every step. Not in scope here.

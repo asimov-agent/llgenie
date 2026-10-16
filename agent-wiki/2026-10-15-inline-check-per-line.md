@@ -40,3 +40,9 @@ never inspected, and `registry-sync.yml` had been calling `python3 scripts/engin
   workflow has no unindented line after the first `run:`), so it yields only a file's LAST `run:` block
   (`ci.yml`: `current=1` vs `real=20`). The per-command scan above is correct, but it is exercised only
   on that last block until #305 lands. Filed, linked both ways, and deliberately not folded in here.
+  **Fixed by PR #326** (`feat/inline-check-all-steps`): `_steps()` now ends a `run:` block at the first
+  line indented at or below the `run:` line, so every step is scanned (13 → 105 blocks over the tree).
+- #317 — found while running `make loop` to verify this change: the loop's `test` stage runs
+  `tests/test_install.py` in a `--rm` container with `HOME=/root`, where the install artifacts cannot
+  exist, so the stage is red on every Linux host. Proven pre-existing on `29080c7` (6 failed, 1 passed).
+  Filed as its own issue and **fixed by PR #322** (`feat/loop-test-host-install`); not folded in here.
