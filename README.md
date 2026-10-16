@@ -1473,7 +1473,9 @@ the paths that are not a dispatch (`issues: [labeled]`, a fork-side run). `ci.ym
 publish jobs that run on `pull_request`/`push`. `tests/test_workflow_guards.py` holds all of it to one
 shape: an any-collaborator `curl` check, an actor-only check, a guard nothing depends on, or a declared
 guard output nobody reads (issue #295) all fail `make test-unit`. The guard is the same step — name, `env`
-and script — byte-for-byte in all eleven places, so a fix to the rule cannot miss a copy of it.
+and script — byte-for-byte in all eleven places, so a fix to the rule cannot miss a copy of it. The
+accepted **permission set** is read from the guard's own `case` arm, not matched as substrings, so an arm
+that also accepts `read`/`triage` (or a bare `*`) fails the suite and names the workflow (issue #306).
 
 ## How the bots stay out of each other's way
 

@@ -15,6 +15,7 @@ dispatchable workflows plus `ci.yml`, which is guarded though no human dispatche
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import yaml
@@ -59,6 +60,33 @@ def _is_guard(text: str) -> bool:
     return "/collaborators/" in text and "permission" in text
 
 
+#: A `case` arm that lists permission words, e.g. `admin|maintain|write)`. The refusal arm (`*)`) is
+#: excluded because `*` is not a permission word — it cannot match this pattern.
+_CASE_ARM = re.compile(r"^[ \t]*([a-z]+(?:\|[a-z]+)*)\)[ \t]*(.*)$", re.M)
+
+
+def _accepted_levels(run: str) -> set[str]:
+    """The permission words the guard's own `case` arm accepts.
+
+    Read the DECISION — the arm's word list — not the whole step text. A substring check for the three
+    allowed words is satisfied by `admin|maintain|write|read`, so it cannot fail for the case it exists
+    to catch (issue #306). An arm whose line also `exit`s is a refusal arm, so it is skipped.
+    """
+    levels: set[str] = set()
+    for arm, rest in _CASE_ARM.findall(run):
+        if "exit" in rest:
+            continue
+        levels |= set(arm.split("|"))
+    return levels
+
+
+def _guard_runs(path: Path) -> str:
+    """The run text of the guard step(s) in ONE workflow — the guard's own script, not the whole job's
+    step text. The `204` check must read the guard, or an unrelated step mentioning `204` would trip it
+    (issue #306)."""
+    return "\n".join(str(step.get("run") or "") for p, step in _guard_steps() if p == path)
+
+
 def test_every_dispatchable_workflow_has_the_guard():
     """A workflow a human can start by hand states who may start it."""
     missing = []
@@ -72,21 +100,47 @@ def test_every_dispatchable_workflow_has_the_guard():
 
 def test_the_guard_checks_both_actors_and_a_write_level():
     """`github.actor` alone is not enough (a re-run is someone else), and any-collaborator is not a
-    write level: `GET /collaborators/<user>` answers 204 for read/triage collaborators too."""
+    write level: `GET /collaborators/<user>` answers 204 for read/triage collaborators too.
+
+    The accepted set is read from the guard's own `case` arm, not matched as substrings: a substring
+    check for the three allowed words is satisfied by `admin|maintain|write|read`, so it cannot fail
+    for the case it exists to catch (issue #306)."""
     weak = []
     for path in _dispatchable():
-        wf = _load(path)
         text = path.read_text()
-        guards = [t for _, t in _runs(wf) if _is_guard(t)]
-        assert guards, path.name
-        joined = "\n".join(guards)
-        if not all(level in joined for level in ALLOWED_PERMISSIONS):
-            weak.append(f"{path.name}: accepted levels are not exactly {ALLOWED_PERMISSIONS}")
+        run = _guard_runs(path)
+        assert run, path.name
+        accepted = _accepted_levels(run)
+        if accepted != set(ALLOWED_PERMISSIONS):
+            weak.append(f"{path.name}: the `case` arm accepts {sorted(accepted) or 'nothing'} — "
+                        f"must be exactly {sorted(ALLOWED_PERMISSIONS)}")
         if "triggering_actor" not in text:
             weak.append(f"{path.name}: checks `github.actor` only, not `github.triggering_actor`")
-        if "204" in joined:
+        if "204" in run:
             weak.append(f"{path.name}: still uses the curl-204 form (any collaborator level)")
     assert not weak, "\n  ".join(["weak guards:"] + weak)
+
+
+def test_the_write_level_rule_reads_the_decision_not_the_prose():
+    """#306: the rule used to be a substring match — `all(level in joined for level in ALLOWED)` — which
+    a guard that ADDS a weaker level satisfies, so the regression #295 fixed could come back silently.
+    A guard that cannot be made to trip is vacuous, so each widening of the arm is shown to fail."""
+    real = _guard_steps()[0][1].get("run") or ""
+    assert _accepted_levels(real) == set(ALLOWED_PERMISSIONS), "the real guard must read as write-level"
+
+    # A guard that ADDS read/triage keeps all three allowed words, so the substring check passes it —
+    # this is the regression #306 exists for. Reading the `case` arm must reject it.
+    for arm in ("admin|maintain|write|read", "admin|maintain|write|read|triage"):
+        widened = real.replace("admin|maintain|write)", f"{arm})")
+        assert widened != real, "the fixture did not change the arm"
+        assert all(level in widened for level in ALLOWED_PERMISSIONS), "the old check cannot fail"
+        assert _accepted_levels(widened) != set(ALLOWED_PERMISSIONS), f"{arm} must not pass"
+
+    # A guard whose arm drops the write levels (or accepts anything) is rejected too — the substring
+    # check happened to catch these, but the arm reader must catch them for the right reason.
+    for arm in ("read", "triage", "*"):
+        narrowed = real.replace("admin|maintain|write)", f"{arm})")
+        assert _accepted_levels(narrowed) != set(ALLOWED_PERMISSIONS), f"{arm} must not pass"
 
 
 def _guard_steps() -> list[tuple[Path, dict]]:
