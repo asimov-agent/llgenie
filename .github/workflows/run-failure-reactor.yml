@@ -1,0 +1,59 @@
+name: run-failure-reactor — routes a failed run to a fix or a deduped issue (never merges)
+
+# RUN-FAILURE-REACTOR — reacts to a FAILED CI run (issue #286): any run, not just a PR check.
+#
+# Trigger surface: `workflow_run` on the repo's own workflows, `types: [completed]`. The reactor
+# reads the run's conclusion and routes it to a remedy. It is NOT dispatchable by hand — it is a
+# reaction, not an action — so it carries no `workflow_dispatch` and no owner/collaborator guard
+# (issue #295's guard is for workflows a human can start; this one cannot be started by a human).
+#
+# Flow: the reactor step calls `make run-failure-reactor` (scripts/run_failure_reactor.py), which
+#       decides in code (issue #107 — never a job `if:` that can silently skip):
+#         Route A — the failed run has a pushable same-repo PR: claim it (scripts/bot_claims.py,
+#                    issues #279/#285) and dispatch the EXISTING fix-bot for it.
+#         Route B — no pushable PR (a red main push, a red scheduled bot run, a red publish job):
+#                    file ONE marker-deduped issue labelled `agent:implement` so the issue-bot
+#                    picks it up.
+# Never: never repairs, commits, pushes or merges in the file-issue path — it files; the issue-bot
+#        owns implementation, the fix-bot owns PR repair. A run it cannot diagnose is reported
+#        loudly, never silently dropped.
+on:
+  workflow_run:
+    types: [completed]
+
+permissions:
+  actions: write
+  issues: write
+  pull-requests: write
+  contents: read
+
+concurrency:
+  group: run-failure-reactor
+  cancel-in-progress: false
+
+jobs:
+  react:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Route the failed run to a fix or a deduped issue
+        env:
+          # The owner PAT: the reactor dispatches the fix-bot, whose own guard refuses a
+          # `github-actions[bot]` actor — so the dispatch must carry the owner identity, and the
+          # same token files the issue.
+          GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          make run-failure-reactor REPO="$REPO" RUN_ID="$RUN_ID"
+
+      - name: Report
+        if: always()
+        run: |
+          echo "### run-failure-reactor" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Routed run ${{ github.event.workflow_run.id }} (see the reactor step above)." >> "$GITHUB_STEP_SUMMARY"
+          echo "The reactor never merges; the issue-bot owns implementation, the fix-bot owns PR repair." >> "$GITHUB_STEP_SUMMARY"

@@ -584,6 +584,33 @@ key it has already filed, and a cap (3 per run) bounds a bad run — a weekly ru
 files nothing and stays quiet. The two API-backed checks need a token with admin to read the secret
 list; without one they warn loudly and skip rather than filing a claim they cannot support.
 
+## The run-failure reactor (issue #286)
+
+A bot that reacts to a **failed CI run** — any run, not just a PR check — and routes it to a remedy.
+It is triggered by `workflow_run: types: [completed]` over the repo's own workflows, and the route
+decision lives in `scripts/run_failure_reactor.py` (stdlib only, no LLM), never in a job `if:` that
+can silently skip (issue #107):
+
+```bash
+make run-failure-reactor REPO=asimov-agent/llgenie RUN_ID=<run>   # route a failed run
+make run-failure-reactor REPO=asimov-agent/llgenie RUN_ID=<run> DRY=1   # preview, dispatch/file nothing
+```
+
+- **Route A** — the failed run has a pushable **same-repo** PR: the reactor claims the PR
+  (`scripts/bot_claims.py`, issues #279/#285) and dispatches the **existing** `fix-bot` for it,
+  reusing `scripts/fix_bot_sweep.py`'s eligibility rules. A **fork** PR is never dispatched (the
+  token cannot push it).
+- **Route B** — no pushable PR (a red `main` push, a red scheduled bot run, a red publish job):
+  the reactor files **exactly ONE** issue whose title names the workflow + failing job, whose body
+  carries the failing job, its step, and a tail of `gh run view --log-failed`, deduped by the
+  marker `<!-- run-fixer: WORKFLOW/JOB@SHORTSHA -->` (searched `in:body`), and labelled
+  `agent:implement` so the issue-bot picks it up. An OPEN issue already carrying the marker files
+  nothing.
+
+`.github/workflows/run-failure-reactor.yml` runs it on every completed run. It **never** repairs,
+commits, pushes or merges in the file-issue path — it files; the issue-bot owns implementation, the
+fix-bot owns PR repair. A run it cannot diagnose is reported loudly, never silently dropped.
+
 ## Dispatching a bot by hand (issue #276)
 Every workflow a human can start by hand states **what work the run will do** — in its name, in its
 dispatch form, and in the header block at the top of the file (`Trigger surface` / `Flow` / `Never`).
@@ -1145,6 +1172,8 @@ make check-strata-models     # fail when data/strata_models.json differs from St
 make queued-alarm      # report CI jobs stuck in `queued` too long (a runner that never picks them up, issue #254);
                        # COMMENT=1 delivers it to the run's pull request (else ONE deduped issue per stuck runner
                        # label, for runs no PR tracks) and a delivery that fails is exit 3, never silent; DRY=1 previews
+make run-failure-reactor  # route a failed CI run to a remedy (REPO=; RUN_ID=; DRY=1 previews): a pushable same-repo
+                       # PR -> dispatch the fix-bot; else file ONE deduped issue labelled agent:implement (issue #286)
 make openspec-validate NAME=<change>   # validate an OpenSpec change
 make openspec-new NAME=<change>        # create a change dir (the OpenSpec CLI, containerized)
 make openspec-status                   # list the changes and their task state
