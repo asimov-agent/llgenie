@@ -335,3 +335,36 @@ def test_the_pick_step_fails_loudly_when_the_pick_fails():
     assert "rc=$?" in run
     assert 'if [ "$rc" != "0" ]' in run, run
     assert "exit 1" in run, run
+
+
+def test_the_refine_job_does_not_read_undefined_secrets():
+    """Issue #311: the refine job read secrets the repo does not define, so GitHub handed the
+    container an EMPTY string for each and the run carried on with a blank key."""
+
+    # Given the refine job's env block in the refiner workflow
+    wf = yaml.safe_load((REPO / ".github/workflows/issue-refiner.yml").read_text())
+    env = wf["jobs"]["refine"]["env"]
+
+    # When its keys are read
+    # Then it declares only the secrets the repo defines ...
+    assert "OPENROUTER_API_KEY" not in env, sorted(env)
+    assert "OPENCODE_API_KEY" not in env, sorted(env)
+    # ... and still names the ones it does define
+    assert "NOUS_API_KEY" in env and "TYPESAFE_API_KEY" in env, sorted(env)
+
+
+def test_the_refiner_recipe_forwards_only_defined_keys():
+    """Issue #311: the recipes forwarded `-e OPENROUTER_API_KEY -e OPENCODE_API_KEY` for keys the
+    repo does not define; the run then carried a blank value into the container."""
+
+    # Given the Makefile
+    mk = (REPO / "Makefile").read_text()
+
+    # When every agent recipe is read
+    # Then none forwards a key the repo does not define ...
+    assert "-e OPENROUTER_API_KEY" not in mk, "an undefined key is still forwarded"
+    assert "-e OPENCODE_API_KEY" not in mk, "an undefined key is still forwarded"
+
+    # ... while the refiner recipe still forwards the key the repo DOES define
+    recipe = mk[mk.index("issue-refiner:"):mk.index("_issue-refiner:")]
+    assert "-e TYPESAFE_API_KEY" in recipe, recipe

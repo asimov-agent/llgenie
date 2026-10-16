@@ -15,6 +15,7 @@ dispatchable workflows plus `ci.yml`, which is guarded though no human dispatche
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import yaml
@@ -174,3 +175,31 @@ def test_every_guarded_workflow_is_covered_by_this_file():
     assert "queued-alarm.yml" in [p.name for p in _dispatchable()], (
         "queued-alarm.yml is the workflow the audit found unguarded — it must stay dispatchable AND "
         "guarded, not made undispatchable to pass")
+
+
+def test_no_workflow_reads_an_undefined_secret():
+    """Issue #311: the refiner's job read `secrets.OPENROUTER_API_KEY` / `secrets.OPENCODE_API_KEY`,
+    neither of which the repo defines — GitHub substitutes an empty string for a missing secret, so
+    the job ran with a blank key instead of failing at the point of use. A workflow must read only
+    the secrets the repository actually defines."""
+
+    # Given every workflow in the tree
+    refs: dict[str, list[str]] = {}
+    for path in sorted(WF.glob("*.yml")):
+        # a commented example (`# ... secrets.X ...`) is documentation, not a reference
+        text = "\n".join(line for line in path.read_text().splitlines()
+                          if not line.strip().startswith("#"))
+        found = sorted(set(re.findall(r"secrets\.([A-Za-z_][A-Za-z0-9_]*)", text)))
+        if found:
+            refs[path.name] = found
+
+    # When the referenced names are collected
+    named = {name for names in refs.values() for name in names}
+
+    # Then none of them is a key the repo does not define ...
+    assert "OPENROUTER_API_KEY" not in named, refs
+    assert "OPENCODE_API_KEY" not in named, refs
+
+    # ... and the workflows still read the secrets the repo DOES define
+    assert "TYPESAFE_API_KEY" in named, refs
+    assert "NOUS_PORTAL_API_TOKEN" in named, refs

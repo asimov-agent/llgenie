@@ -67,8 +67,6 @@ jobs:
     env:
       NOUS_API_KEY: ${{ secrets.NOUS_PORTAL_API_TOKEN }}
       TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
-      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-      OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
       REPO: ${{ github.repository }}
     steps:
       - name: "Checkout main (read-only for this bot - it pushes nothing)"

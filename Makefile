@@ -277,7 +277,7 @@ rebase-bot-agent: ## Ask Hermes to resolve a stopped rebase (the conflict prompt
 	@python3 scripts/ci_images.py ensure agent
 	@$(RUNTIME) run --rm -i --init -v "$(CURDIR):/repo" -w /repo \
 	  -e NOUS_API_KEY -e HERMES_REASONING \
-	  -e TYPESAFE_API_KEY -e OPENROUTER_API_KEY -e OPENCODE_API_KEY \
+	  -e TYPESAFE_API_KEY \
 	  -e HERMES_NERVE_PROVIDER -e NERVE_REQUIRE \
 	  $(AGENT_IMAGE) bash -lc 'make _rebase-bot-agent'
 
@@ -295,7 +295,7 @@ issue-refiner-pick: ## Spare capacity (the implementer's cap is spent)? -> the o
 issue-refiner: ## Hermes REVIEWS the picked issue (reads refine-in.md: the thread + the review instruction) and writes its verdict to refine.md. No branch, no PR, nothing else touched; runs INSIDE the agent image
 	@$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo \
 	  -e NOUS_API_KEY -e HERMES_REASONING -e REPO \
-	  -e TYPESAFE_API_KEY -e OPENROUTER_API_KEY -e OPENCODE_API_KEY \
+	  -e TYPESAFE_API_KEY \
 	  -e HERMES_NERVE_PROVIDER -e NERVE_REQUIRE \
 	  $(AGENT_IMAGE) bash -lc 'make _issue-refiner'
 _issue-refiner: # (internal) the host recipe the agent image runs: the review, not the code
@@ -367,7 +367,7 @@ bot-sync-branch: ## Fetch upstream main and rebase the checked-out PR branch ont
 agent-jev-preflight: ## Prove the JEV engine is active in the agent image; every bot workflow runs it with NERVE_REQUIRE=1, so a job whose engine is off does not start. NERVE_GATE_SKIP_PROVIDER=1 skips the live provider call
 	@python3 scripts/ci_images.py ensure agent
 	@$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo \
-	  -e TYPESAFE_API_KEY -e OPENROUTER_API_KEY -e OPENCODE_API_KEY \
+	  -e TYPESAFE_API_KEY \
 	  -e HERMES_NERVE_PROVIDER -e NERVE_REQUIRE -e NERVE_GATE_SKIP_PROVIDER \
 	  $(AGENT_IMAGE) bash -lc 'make _agent-jev-preflight'
 # The code-review bot (issue #269): it reads the TREE and the PIPELINES and files what is
@@ -386,7 +386,7 @@ implement-issue: ## Implement issue.md with Hermes INSIDE the agent image (AGENT
 	@python3 scripts/ci_images.py ensure agent
 	@$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo \
 	  -e NOUS_API_KEY -e GH_TOKEN -e HERMES_REASONING -e REPO \
-	  -e TYPESAFE_API_KEY -e OPENROUTER_API_KEY -e OPENCODE_API_KEY \
+	  -e TYPESAFE_API_KEY \
 	  -e HERMES_NERVE_PROVIDER -e NERVE_REQUIRE \
 	  $(AGENT_IMAGE) bash -lc 'make _implement-issue'
 

@@ -528,7 +528,7 @@ Every key this repo uses travels the same way: a CI secret, `docker run -e VAR` 
 `VAR=value`), and a guard that echoes only the variable's name when it is missing. `make
 check-secret-output` (in the `ci-unit` job) keeps that true for **all** of them — `NOUS_API_KEY` /
 `NOUS_PORTAL_API_TOKEN`, `GH_TOKEN` / `BUMP_TOKEN` / `GITHUB_TOKEN`, `HF_TOKEN`, `TYPESAFE_API_KEY`,
-`OPENROUTER_API_KEY`, `OPENCODE_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`:
+`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`:
 
 | rule | what it fails on |
 |---|---|

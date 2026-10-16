@@ -22,8 +22,8 @@
 #                         the JEV engine off (issue-bot.yml / fix-bot.yml), which is the maintainer's
 #                         rule for autonomous runs: turn the layer on, and require it.
 #
-#   TYPESAFE_API_KEY / OPENROUTER_API_KEY / OPENCODE_API_KEY  the provider key (by provider)
-#   HERMES_NERVE_PROVIDER      typesafe (default) | openrouter | opencode
+#   TYPESAFE_API_KEY           the provider key (typesafe, the repo's only provider)
+#   HERMES_NERVE_PROVIDER      typesafe (the only provider)
 #   NERVE_REQUIRE=1            verify-only mode: exit non-zero when the layer is unavailable
 #   NERVE_GATE_SKIP_PROVIDER=1 skip the live provider call (offline check only)
 set -euo pipefail
@@ -83,10 +83,8 @@ require() {
 }
 
 case "$PROVIDER" in
-  typesafe)   KEY_VAR=TYPESAFE_API_KEY ;;
-  openrouter) KEY_VAR=OPENROUTER_API_KEY ;;
-  opencode)   KEY_VAR=OPENCODE_API_KEY ;;
-  *) require "unsupported HERMES_NERVE_PROVIDER='${PROVIDER}' (typesafe | openrouter | opencode)" ;;
+  typesafe) KEY_VAR=TYPESAFE_API_KEY ;;
+  *) require "unsupported HERMES_NERVE_PROVIDER='${PROVIDER}' (typesafe)" ;;
 esac
 
 # 1. the plugin must be in THIS home (plugins are per-home: a copy in another profile or in

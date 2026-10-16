@@ -11,6 +11,7 @@ NO-SKIP POLICY: a missing prerequisite is a LOUD FAILURE, never a skip.
 """
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -196,3 +197,25 @@ def test_the_guard_is_wired_into_the_repo():
     ci_unit = mk.split("\nci-unit:", 1)[1].split("\n\n", 1)[0]
     assert "check-secret-output" in ci_unit, "ci-unit must run the guard"
     assert "tests/test_secret_output.py" in mk.split("\ntest-unit:", 1)[1].split("\n\n", 1)[0]
+
+
+def test_the_secret_list_matches_the_repo_secrets():
+    """Issue #311: SECRET_VARS named two provider keys the repo does not define, so the guard scanned
+    for a leak of a variable that can never carry a value. The list must be the credential variables
+    this repo actually uses."""
+
+    # Given the secret-output guard's list
+    # When it is read
+    # Then it drops the unused provider keys ...
+    assert "TYPESAFE_API_KEY" in cso.SECRET_VARS, cso.SECRET_VARS
+    assert "OPENROUTER_API_KEY" not in cso.SECRET_VARS, cso.SECRET_VARS
+    assert "OPENCODE_API_KEY" not in cso.SECRET_VARS, cso.SECRET_VARS
+
+    # ... and every secret a workflow actually reads is still in the list (a leak of it IS scanned)
+    named: set[str] = set()
+    for path in sorted((REPO / ".github" / "workflows").glob("*.yml")):
+        text = "\n".join(line for line in path.read_text().splitlines()
+                          if not line.strip().startswith("#"))
+        named |= set(re.findall(r"secrets\.([A-Za-z_][A-Za-z0-9_]*)", text))
+    missing = sorted(n for n in named if n not in cso.SECRET_VARS)
+    assert not missing, f"workflows read {missing}, which the secret-output guard does not scan"

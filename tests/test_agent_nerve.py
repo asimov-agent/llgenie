@@ -688,3 +688,60 @@ def test_every_bot_workflow_arms_the_jev_gate():
         assert "NERVE_REQUIRE=1" in text, f"{name} checks it but does not ARM it (report only)"
     assert "never blocks the run" not in (REPO / ".github" / "workflows" / "issue-bot.yml").read_text(), \
         "the gate must not be described as advisory"
+
+
+def test_an_unsupported_provider_is_refused_loudly(tmp_path):
+    """Issue #311: the preflight advertised `openrouter` and `opencode` as supported providers and
+    mapped each to a key the repo does not define. A provider the repo does not configure must be
+    refused, naming the one it does."""
+
+    # Given HERMES_NERVE_PROVIDER set to a provider the repo does not configure
+    r = _run(PREFLIGHT, {"HERMES_HOME": str(_home(tmp_path)), "HERMES_NERVE_PROVIDER": "openrouter",
+                         "NERVE_REQUIRE": "1"})
+
+    # When the preflight runs
+    # Then it exits non-zero ...
+    assert r.returncode != 0, r.stdout
+
+    # ... and its message names `typesafe` as the only supported provider
+    assert "unsupported HERMES_NERVE_PROVIDER='openrouter'" in r.stderr, r.stderr
+    assert "(typesafe)" in r.stderr, r.stderr
+
+    # ... and it no longer advertises the removed providers
+    assert "(typesafe | openrouter | opencode)" not in r.stderr, r.stderr
+
+
+def test_the_typesafe_provider_selects_its_key(tmp_path):
+    """Issue #311: the provider case mapped `typesafe` to TYPESAFE_API_KEY and two more providers to
+    keys the repo does not define. The one provider the repo configures must select its own key."""
+
+    # Given HERMES_NERVE_PROVIDER=typesafe and NO key in the environment or the home
+    r = _run(PREFLIGHT, {"HERMES_HOME": str(_home(tmp_path)), "HERMES_NERVE_PROVIDER": "typesafe"})
+
+    # When the preflight's provider case runs
+    # Then the key variable it checks is TYPESAFE_API_KEY
+    assert "TYPESAFE_API_KEY is not set" in r.stderr, r.stderr
+
+    # ... and it never looks for a key the repo does not define
+    assert "OPENROUTER_API_KEY" not in r.stdout + r.stderr
+    assert "OPENCODE_API_KEY" not in r.stdout + r.stderr
+
+
+def test_a_provider_key_in_the_build_environment_fails_the_build(tmp_path):
+    """Issue #311: the build guard names the WHOLE provider-key namespace, so a future provider key
+    is caught by the same guard even though the repo now configures only `typesafe`."""
+
+    # Given a build environment carrying each provider key in turn
+    for var in ("TYPESAFE_API_KEY", "OPENROUTER_API_KEY", "OPENCODE_API_KEY"):
+        r = _run(INSTALL, {"HERMES_NERVE_REF": "0" * 40, "HERMES_HOME": str(_home(tmp_path)),
+                           var: "jev-notarealkey-0123456789abcdef"})
+
+        # When the install script runs
+        # Then the build fails loudly and names the offending variable
+        assert r.returncode != 0, r.stdout
+        assert f"{var} is set in the BUILD environment" in r.stderr, (var, r.stderr)
+
+    # And the Dockerfile's own guard covers the same three names, so the layer is checked too
+    guard = DOCKERFILE.read_text()
+    assert "^(TYPESAFE|OPENROUTER|OPENCODE)_API_KEY=" in guard, \
+        "the Dockerfile build guard must name the whole provider-key namespace"
