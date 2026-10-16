@@ -1,7 +1,7 @@
 # A PR's commits are authored by Andy Holst or Asimov Agent — and by no one else (#345)
 
-Implemented for issue [#345](https://github.com/asimov-agent/llgenie/issues/345); the deferred half is
-[#346](https://github.com/asimov-agent/llgenie/issues/346).
+Implemented by PR [#351](https://github.com/asimov-agent/llgenie/pull/351) (issue #345); the deferred
+half is [#346](https://github.com/asimov-agent/llgenie/issues/346).
 
 ## Why
 
