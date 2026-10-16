@@ -1451,14 +1451,17 @@ MIT — see [LICENSE](LICENSE).
   value is the one used by the context budget, the GPU-layer count, `-ctk`/`-ctv` and the
   plan printed by `--dry`.
 
-- `make agent-image-push-check` proves the **credential can actually push** the agent image
-  before a ten-minute build: it asks GHCR for a push-scoped token and initiates the cheapest real
-  write there is (an empty blob upload), then prints the registry's own refusal if it is denied.
-  It exists because the publish once burned a full build and died with `permission_denied:
-  create_package` — a PAT cannot create a package in an org its owner is only a collaborator of,
-  while the workflow's own `GITHUB_TOKEN` can (it is what created `llgenie/test`,
-  `llgenie/openspec` and `llgenie/strata`). The workflow therefore logs in with the default token
-  and calls this first.
+- Publishing the agent image is `make publish-agent-image`, run by `publish-agent-image.yml`
+  (`workflow_dispatch` only, behind the owner/collaborator guard, issue #222/#238/#248). The image
+  is **hash-tagged** with its Dockerfile + install script + the test image it builds FROM, so a
+  re-run is a no-op unless those inputs changed; the job logs in to GHCR with the **owner PAT**
+  (`secrets.BUMP_TOKEN`), not `GITHUB_TOKEN`, and prints the published ref with `make
+  ci-image-refs`. The credential reasoning is stated in that workflow's header, which is the file
+  that has to stay true.
+  A pre-flight that proves the credential can push **before** the ten-minute build — an empty blob
+  upload, the cheapest real write — is **not implemented**: `make agent-image-push-check` was
+  documented here but is not a target, so this paragraph used to describe both a target and a token
+  the pipeline does not have. Tracked as issue #335.
 
 ## Who may start a bot or publish (the trigger guard)
 

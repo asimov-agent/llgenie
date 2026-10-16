@@ -256,3 +256,99 @@ def test_every_bot_workflow_present_is_dispatchable_and_named():
         ok, why = cdf.name_states_the_work(a["text"], a["stem"])
         assert ok, why
         assert a["inputs"] or a["exempt"], f"{name} has neither an input nor a reason for none"
+
+
+# ---------------------------------------------------------------------------
+# the `Flow:` line names STAGES, and every stage must be a make target that exists (issue #323)
+# ---------------------------------------------------------------------------
+def _flow_wf(flow: str) -> str:
+    """A valid dispatch form whose `Flow:` line is the thing under test."""
+    header = ("# Trigger surface: schedule + workflow_dispatch.\n"
+              f"# Flow: {flow}\n"
+              "# Never: never merges, never pushes to main.\n")
+    return ("name: a-bot — does the work of a bot\n\n" + header +
+            '\non:\n  schedule:\n    - cron: "23 6 * * *"\n' + DISPATCH_OK +
+            "jobs:\n  a:\n    steps:\n      - run: make real-target\n")
+
+
+def _tree_mk(tmp_path: Path, workflow: str, targets: tuple[str, ...]) -> Path:
+    root = _tree(tmp_path, {"a-bot.yml": workflow})
+    (root / "Makefile").write_text("".join(f"{x}: ## does {x}\n\ttrue\n\n" for x in targets))
+    return root
+
+
+def test_a_flow_naming_a_target_that_does_not_exist_is_a_violation(tmp_path):
+    """The exact finding: the header promised a stage (`make agent-image-push-check`) no one could
+    run, and nothing checked the comment."""
+
+    # Given a workflow whose Flow names a target the Makefile does not define
+    root = _tree_mk(tmp_path, _flow_wf("guard -> make real-target -> make ghost-target"),
+                    ("real-target",))
+
+    # When the guard reads it
+    bad = cdf.violations(root)
+
+    # Then it names the missing target
+    assert any("ghost-target" in b and "not a target in the Makefile" in b for b in bad), bad
+
+
+def test_a_flow_naming_only_real_targets_passes(tmp_path):
+    """The positive direction, so the rule is not vacuous."""
+
+    # Given a workflow whose every Flow stage is a real target
+    root = _tree_mk(tmp_path, _flow_wf("guard -> make real-target -> make other-target"),
+                    ("real-target", "other-target"))
+
+    # When the guard reads it
+    # Then it is clean
+    assert cdf.violations(root) == [], cdf.violations(root)
+
+
+def test_a_continuation_of_the_flow_line_is_scanned(tmp_path):
+    """The real file wrapped its Flow over three `#` lines, so the rule must follow them."""
+
+    # Given a Flow whose second line carries the bad stage
+    wf = _flow_wf("guard\n#       -> make ghost-target (on the continuation)")
+    root = _tree_mk(tmp_path, wf, ("real-target",))
+
+    # When the guard reads it
+    bad = cdf.violations(root)
+
+    # Then the continuation is scanned too
+    assert any("ghost-target" in b for b in bad), bad
+
+
+def test_prose_that_merely_says_make_target_is_not_a_violation(tmp_path):
+    """The false positive this rule must not have: the Flow line is PROSE, and the comment that
+    documents the rule itself says `a make target`."""
+
+    # Given a Flow line that mentions "a make target" in prose
+    root = _tree_mk(tmp_path,
+                    _flow_wf("guard -> make real-target (the stage; not in a make target)"),
+                    ("real-target",))
+
+    # When the guard reads it
+    # Then only a STAGE position counts, so the prose is not a finding
+    assert cdf.violations(root) == [], cdf.violations(root)
+
+
+def test_a_placeholder_stage_is_not_a_violation(tmp_path):
+    """`ci-<job>` is a documented placeholder, not a target name."""
+
+    # Given a Flow naming the repo's placeholder form
+    root = _tree_mk(tmp_path, _flow_wf("guard -> make ci-<job>"), ("real-target",))
+
+    # When the guard reads it
+    # Then the placeholder is skipped
+    assert cdf.violations(root) == [], cdf.violations(root)
+
+
+def test_the_repository_flows_name_only_real_targets():
+    """Over THIS repository: every `Flow:` stage resolves to a Makefile target."""
+
+    # Given the repository's workflows and Makefile
+    # When the guard runs
+    bad = [b for b in cdf.violations(REPO) if "Flow" in b]
+
+    # Then no header names a target that does not exist
+    assert bad == [], bad

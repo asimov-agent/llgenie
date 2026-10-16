@@ -26,9 +26,10 @@ name: publish-agent-image — builds + pushes the Hermes agent image when its ha
 # Trigger surface: `workflow_dispatch` ONLY (owner/collaborator) — nothing schedules it, so the
 #                  image is published when a human decides to, and `force=true` rebuilds even when
 #                  the hash tag is already on GHCR.
-# Flow: guard -> make agent-image-ref (the hash of this commit's Dockerfile + install script)
-#       -> make agent-image-push-check -> make publish-agent-image (build, and push to GHCR when
-#       that hash is not there yet).
+# Flow: guard (owner / collaborator with write/maintain/admin, BEFORE any secret is read) ->
+#       make publish-agent-image (scripts/ci_images.py publish agent — builds the image, and pushes
+#       it to GHCR only when its hash tag is not there yet; that decision lives inside the script,
+#       NOT in a make target) -> make ci-image-refs (prints the published ref).
 # Never: never pushes an image whose hash already exists (unless `force=true`), never overwrites a
 #        different hash's tag, never merges, never runs on a schedule.
 on:

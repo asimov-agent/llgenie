@@ -181,6 +181,46 @@ def leading_comment_block(text: str) -> str:
     return "\n".join(out)
 
 
+#: A `make <target>` in a STAGE position on the `Flow:` line — right after a `->`, or at the start of
+#: the `Flow:` line / one of its continuation lines. Anchoring matters: the line is prose, and an
+#: unanchored match fires on ordinary English ("that decision lives in a make target"), which would
+#: make the guard cry wolf on the very comment that documents the rule.
+MAKE_IN_FLOW = re.compile(r"(?:->|^#(?:\s*Flow:)?\s*)\s*make\s+(?:-C\s+\S+\s+)?"
+                          r"([A-Za-z0-9][A-Za-z0-9._<>-]*)", re.M)
+#: A header key at the start of a comment line — where one key's text stops and the next begins.
+_HEADER_KEY = re.compile(r"^#\s*(Trigger surface|Flow|Never)\s*:")
+
+
+def flow_lines(text: str) -> list[str]:
+    """The `Flow:` header line and its continuation lines — the stages the run will take.
+
+    Takes the WHOLE file, not `leading_comment_block()`: the header block sits AFTER the `name:`
+    line, so the leading comment block stops before it (measured — `header_block()` finds the keys
+    with a whole-text search for exactly this reason).
+    """
+    out: list[str] = []
+    collecting = False
+    for line in text.splitlines():
+        if _HEADER_KEY.match(line):
+            collecting = bool(re.match(r"^#\s*Flow\s*:", line))
+            if collecting:
+                out.append(line)
+            continue
+        if collecting and line.startswith("#"):
+            out.append(line)
+        else:
+            collecting = False
+    return out
+
+
+def makefile_targets(root: Path = REPO_ROOT) -> set[str]:
+    """Every target name the Makefile defines (a bare `name:` at the start of a line)."""
+    mk = root / "Makefile"
+    if not mk.exists():
+        return set()
+    return {m.group(1) for m in re.finditer(r"^([A-Za-z0-9_.-]+):(?!=)", mk.read_text(), re.M)}
+
+
 def violations(root: Path = REPO_ROOT) -> list[str]:
     """Every way a dispatchable workflow fails to state the work it will do."""
     out: list[str] = []
@@ -209,6 +249,20 @@ def violations(root: Path = REPO_ROOT) -> list[str]:
             elif not any(len(f) == 5 and f[0] == str(int(mm)) and f[1] == str(int(hh)) for f in fields):
                 out.append(f"{a['file']}: the header claims `{named} UTC` but no cron in the file starts "
                            f"then ({', '.join(a['crons'])})")
+
+        # The header's `Flow:` line is a promise about the stages the run takes, so every `make
+        # <target>` it names must resolve. Nothing else checks it: the line is a comment, so
+        # check-wiring's `run:`-block scan never sees it, and a header naming a target nobody can run
+        # misdescribes the pipeline (issue #323 — `make agent-image-push-check` never existed).
+        known = makefile_targets(root)
+        if known:                      # no Makefile to judge against (a scratch tree): skip the rule
+            for line in flow_lines(a["text"]):
+                for target in MAKE_IN_FLOW.findall(line):
+                    if "<" in target:
+                        continue        # a placeholder (`make ci-<job>`), not a named target
+                    if target not in known:
+                        out.append(f"{a['file']}: the header's `Flow:` names `make {target}`, which "
+                                   f"is not a target in the Makefile")
 
         if not a["inputs"] and not a["exempt"]:
             out.append(f"{a['file']}: bare `workflow_dispatch:` — either give it a documented "
