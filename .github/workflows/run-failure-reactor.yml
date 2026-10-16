@@ -7,6 +7,14 @@ name: run-failure-reactor — routes a failed run to a fix or a deduped issue (n
 # reaction, not an action — so it carries no `workflow_dispatch` and no owner/collaborator guard
 # (issue #295's guard is for workflows a human can start; this one cannot be started by a human).
 #
+# `workflows:` is REQUIRED by GitHub for a `workflow_run` trigger: a file that omits it is REFUSED
+# outright ("`on.workflow_run` does not reference any workflows"), and the refusal is silent — the
+# run arrives with 0 jobs, `conclusion=failure`, and a `name` equal to the file path (the #330
+# signature). So every workflow this repo owns is named here, EXCEPT this one: the reactor skips
+# its own completion, which also makes a self-trigger loop structurally impossible. GitHub matches
+# these against a workflow's top-level `name:`, so a workflow whose `name:` changes must be renamed
+# here too — `make check-workflows` fails when a `workflow_run` carries no `workflows:` list.
+#
 # Flow: the reactor step calls `make run-failure-reactor` (scripts/run_failure_reactor.py), which
 #       decides in code (issue #107 — never a job `if:` that can silently skip):
 #         Route A — the failed run has a pushable same-repo PR: claim it (scripts/bot_claims.py,
@@ -19,6 +27,20 @@ name: run-failure-reactor — routes a failed run to a fix or a deduped issue (n
 #        loudly, never silently dropped.
 on:
   workflow_run:
+    workflows:
+      - CI
+      - pipeline
+      - published
+      - publish-agent-image — builds + pushes the Hermes agent image when its hash is not on GHCR yet
+      - registry-sync — syncs the vendored registry and regenerates the derived tables, then opens the PR
+      - engine-bump — bumps pinned engines to their newest upstream release and opens the PR
+      - engine-bump-rebase — rebases every open engine-bump PR onto the latest main
+      - issue-bot — implements ONE issue per run as a reviewable PR (never merges)
+      - issue-refiner — reviews ONE not-yet-implemented issue, never opens a PR
+      - fix-bot — repairs a failing PR branch until its checks pass (never merges)
+      - rebase-bot — keeps every open PR current with main, ONE PR per run (never merges)
+      - queued-alarm — reports CI jobs queued far too long, once per affected run
+      - code-review-bot — reviews the tree and the pipelines and files one issue per finding (never edits code)
     types: [completed]
 
 permissions:

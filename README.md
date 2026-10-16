@@ -1190,7 +1190,7 @@ make check-pr-hygiene  # fail when a producer's commit message or PR body is emp
 make pr-hygiene-report # show every producer the PR/commit-message guard reads, and its verdict
 make check-pr-authors  # fail when a PR commit is authored by anyone but Andy Holst or Asimov Agent, when a Co-authored-by trailer names anyone else, or when a producer commits off the allowlist (issue #345)
 make pr-authors-report # show every commit in the range with its author verdict, and the identity each producer assigns
-make check-workflows   # fail when a YAML file's GitHub expression does not parse, a YAML file lacks a trailing newline, or a workflow has no top-level name (issue #330)
+make check-workflows   # fail when a YAML file's GitHub expression does not parse, a YAML file lacks a trailing newline, a workflow has no top-level name, or a `workflow_run` trigger names no workflows (issue #330)
 make workflows-report  # show every YAML file the workflow gate reads, how many expressions it validated, and its verdict
 make test-clean        # prune stopped orphaned test containers (always)
 ```
@@ -1458,7 +1458,11 @@ no notion of `${{ }}` — which is why nothing caught it.
    grammar, so the expressions this repo already uses are not false positives);
 2. every YAML file must end with a newline (the repository's linefeed lint spec);
 3. every `.github/workflows/*.yml` must declare a top-level `name:` — a missing name is what makes a run
-   present itself as a file path, indistinguishable from a startup failure in `gh run list`.
+   present itself as a file path, indistinguishable from a startup failure in `gh run list`;
+4. an `on.workflow_run` trigger must carry a `workflows:` list. GitHub **requires** it and refuses the
+   whole file without it (`Invalid workflow file: on.workflow_run does not reference any workflows`),
+   just as silently: a 0-job run whose `name` is the file path and with no log. Measured on
+   `run-failure-reactor.yml`, whose first two push runs were refused that way while this gate passed.
 
 `make workflows-report` prints the file count, how many expressions were validated and the verdict, so
 the gate's scope is visible rather than assumed. `tests/test_workflows_valid.py` (in `make test-unit`, so

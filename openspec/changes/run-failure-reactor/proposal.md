@@ -31,8 +31,15 @@ conclusion. A merge that breaks `main` sits red until a human notices; a failed 
   repairs/commits/pushes/merges in Route B — it files.
 - `make run-failure-reactor` — the one make path the workflow calls.
 - `.github/workflows/run-failure-reactor.yml` — `on: workflow_run: types: [completed]` over the
-  repo's own workflows, guard first, then the reactor.
+  repo's own workflows. GitHub REQUIRES a `workflows:` list on a `workflow_run` trigger and refuses
+  the whole file without one, silently (a 0-job run whose `name` is the file path), so the file
+  names every workflow this repository owns except the reactor's own — which is also what makes a
+  self-trigger loop structurally impossible.
+- `scripts/check_workflows.py` — a new `workflow-run-refs` rule: a workflow file declaring
+  `workflow_run` with no `workflows:` list fails `make check-workflows`, so the refusal above is
+  caught in review instead of by a silent 0-job run.
 - `tests/test_run_failure_reactor.py` — fake `gh` on PATH, real script, real argv asserted.
+- `tests/test_workflows_valid.py` — the `workflow-run-refs` rule, both directions.
 - README + agent-wiki entry in the same commit.
 
 ## The claim protocol (issue #286 follow-up, #279/#285)

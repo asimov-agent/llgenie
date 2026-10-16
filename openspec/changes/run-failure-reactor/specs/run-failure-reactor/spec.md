@@ -102,3 +102,33 @@ The workflow SHALL call the reactor through a `make` target; the decision SHALL 
 - **WHEN** its reactor step runs
 - **THEN** it SHALL invoke `make run-failure-reactor` and SHALL carry the same token as the guard
 - **Test:** `tests/test_run_failure_reactor.py::test_the_workflow_calls_the_reactor_through_a_make_target`
+
+### Requirement: The workflow names the workflows it reacts to
+
+`on.workflow_run` SHALL carry a `workflows:` list naming every workflow this repository owns, except
+the reactor's own — GitHub REQUIRES the list and REFUSES the whole file without it, silently (a 0-job
+run whose `name` is the file path and with no log). Because the trigger surface is a list of names, a
+workflow file that declares `workflow_run` with no `workflows:` SHALL fail `make check-workflows`, so a
+refused trigger is caught in review rather than by a silent 0-job run.
+
+#### Scenario: a workflow_run with no workflows list fails the gate
+
+- **GIVEN** a workflow file declaring `on.workflow_run` with no `workflows:` list
+- **WHEN** the workflow gate reads it
+- **THEN** it SHALL report a `workflow-run-refs` violation and SHALL exit non-zero
+- **Test:** `tests/test_workflows_valid.py::test_a_workflow_run_without_a_workflows_list_is_a_violation`
+
+#### Scenario: a workflow_run that names its workflows is accepted
+
+- **GIVEN** a workflow file declaring `on.workflow_run` with a `workflows:` list
+- **WHEN** the workflow gate reads it
+- **THEN** it SHALL report no violation
+- **Test:** `tests/test_workflows_valid.py::test_a_workflow_run_that_names_workflows_is_accepted`
+
+#### Scenario: the reactor's own file passes the gate
+
+- **GIVEN** this repository's `.github/workflows/run-failure-reactor.yml`, which names every workflow
+  except itself
+- **WHEN** the workflow gate reads this repository
+- **THEN** it SHALL report no violation
+- **Test:** `tests/test_workflows_valid.py::test_this_repository_passes_its_own_gate`

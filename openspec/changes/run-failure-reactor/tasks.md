@@ -8,15 +8,19 @@
       claim the PR before the dispatch, use `PR_CLAIM_TTL` so readers honour the announced window.
 - [x] 3. `make run-failure-reactor` + `.PHONY` + `make help` + README, so the target is reachable
       exactly as every other stage is.
-- [x] 4. `.github/workflows/run-failure-reactor.yml`: `on: workflow_run: types: [completed]`,
-      no guard (it is not dispatchable by hand, so issue #295's guard does not apply), carrying the
-      owner PAT so the fix-bot dispatch carries the owner identity; the reactor skips its own
-      workflow's completion to avoid re-triggering itself.
-- [x] 5. `tests/test_run_failure_reactor.py` wired into `test-unit`; fake `gh` on PATH, real
+- [x] 4. `.github/workflows/run-failure-reactor.yml`: `on: workflow_run: types: [completed]`, no
+      guard (it is not dispatchable by hand, so issue #295's guard does not apply), carrying the
+      owner PAT so the fix-bot dispatch carries the owner identity. `workflows:` names every
+      workflow this repository owns EXCEPT the reactor's own — GitHub requires the list and refuses
+      the file without it, and leaving itself out also makes a self-trigger loop impossible.
+- [x] 5. `scripts/check_workflows.py` + `tests/test_workflows_valid.py`: a new `workflow-run-refs`
+      rule fails `make check-workflows` on a `workflow_run` trigger with no `workflows:` list — the
+      refusal that reddened the reactor's own first two push runs, which the gate had missed.
+- [x] 6. `tests/test_run_failure_reactor.py` wired into `test-unit`; fake `gh` on PATH, real
       script, real argv asserted. Covers: red main -> one issue, same head sha -> nothing (dedupe),
       same-repo PR -> dispatch, fork PR -> no dispatch, occupied PR -> left alone, crashed decision
       -> loud.
-- [x] 6. Verify: `make test-unit` (4691 passed), `make openspec-validate NAME=run-failure-reactor`,
+- [x] 7. Verify: `make test-unit`, `make openspec-validate NAME=run-failure-reactor`,
       `make lint`, `make check-wiring`, `make check-workflows`, `make check-dispatch-forms`,
       `make check-docs`, `make check-pr-hygiene`, `make openspec-tasks-check`.
-- [ ] 7. The full `make loop` gate is GREEN (LOOP_EXIT=0, every stage passes).
+- [x] 8. The full `make loop` gate is GREEN (LOOP_EXIT=0, every stage passes).

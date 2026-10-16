@@ -23,10 +23,11 @@ read a run's conclusion. A merge that broke `main` sat red until a human noticed
   the issue-bot picks it up. It never repairs/commits/pushes/merges in Route B — it files.
 - **`make run-failure-reactor`** (REPO=; RUN_ID=; DRY=1 previews) + `.PHONY` + `make help` +
   README.
-- **`.github/workflows/run-failure-reactor.yml`** — `on: workflow_run: types: [completed]` over the
-  repo's own workflows, guard-free (it is not dispatchable by hand, so issue #295's guard does not
-  apply), carrying the owner PAT so the fix-bot dispatch carries the owner identity. The reactor
-  skips its own workflow's completion to avoid re-triggering itself.
+- **`.github/workflows/run-failure-reactor.yml`** — `on: workflow_run: types: [completed]` with a
+  `workflows:` list naming every workflow this repo owns except the reactor's own, guard-free (it is
+  not dispatchable by hand, so issue #295's guard does not apply), carrying the owner PAT so the
+  fix-bot dispatch carries the owner identity. Leaving itself out of the list is what makes a
+  self-trigger loop structurally impossible.
 - **`tests/test_run_failure_reactor.py`** (new, in `make test-unit`) — fake `gh` on PATH, real
   script, real argv asserted. 9 cases: red main → one issue, same head sha → nothing (dedupe),
   same-repo PR → dispatch, fork PR → no dispatch, occupied PR → left alone, crashed decision →
@@ -39,6 +40,21 @@ read a run's conclusion. A merge that broke `main` sat red until a human noticed
   `make check-workflows`, `make check-dispatch-forms`, `make check-docs`, `make check-pr-hygiene`,
   `make openspec-tasks-check`.
 - `make loop` GREEN (LOOP_EXIT=0, every stage passes).
+
+## The refused trigger, and the gate gap it exposed (PR #347)
+
+The first push of this branch reddened two runs of the new file — `38881240747` and `38881791437` —
+each `status=completed`, `conclusion=failure`, **0 jobs**, `name` equal to the FILE PATH, and
+`gh run view --log-failed` → `log not found`. That is the #330 signature, and the run page named the
+cause: `` Invalid workflow file: `.github/workflows/run-failure-reactor.yml#L1` — `on.workflow_run`
+does not reference any workflows ``. GitHub REQUIRES a `workflows:` list on a `workflow_run` trigger
+and refuses the whole file without one — silently.
+
+`make check-workflows` passed the broken file, so this was also a gate gap: the guard validated an
+unchanged `on.workflow_run` block but never the list GitHub needs there. Both are fixed in this
+change — the trigger names every workflow this repository owns except the reactor's own, and
+`check_workflows.py` grew a `workflow-run-refs` rule that fails the gate on a `workflow_run` with no
+`workflows:` list, pinned in both directions by `tests/test_workflows_valid.py`.
 
 ## Note
 

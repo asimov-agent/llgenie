@@ -176,6 +176,53 @@ def test_a_missing_workflow_name_is_a_violation(tmp_path: Path):
     assert "workflow-name" in keys
 
 
+def test_a_workflow_run_without_a_workflows_list_is_a_violation(tmp_path: Path):
+    """GitHub refuses a `workflow_run` trigger that names no workflows — the file is never read."""
+
+    # Given a workflow whose workflow_run lists nothing to react to
+    root = _tree(tmp_path, a_bot=(
+        "name: a-bot — reacts to a run\n"
+        "on:\n"
+        "  workflow_run:\n"
+        "    types: [completed]\n"
+        "\n"
+        "jobs:\n"
+        "  go:\n"
+        "    runs-on: ubuntu-latest\n"
+        "    steps:\n"
+        "      - run: echo hi\n"))
+
+    # When  the gate reads it
+    keys = _keys(root)
+
+    # Then  the missing workflows list is reported
+    assert "workflow-run-refs" in keys
+
+
+def test_a_workflow_run_that_names_workflows_is_accepted(tmp_path: Path):
+    """The shape this repository ships must not be a false positive."""
+
+    # Given a workflow_run that names the workflows it reacts to
+    root = _tree(tmp_path, a_bot=(
+        "name: a-bot — reacts to a run\n"
+        "on:\n"
+        "  workflow_run:\n"
+        "    workflows: [CI, pipeline]\n"
+        "    types: [completed]\n"
+        "\n"
+        "jobs:\n"
+        "  go:\n"
+        "    runs-on: ubuntu-latest\n"
+        "    steps:\n"
+        "      - run: echo hi\n"))
+
+    # When  the gate reads it
+    keys = _keys(root)
+
+    # Then  nothing is reported
+    assert keys == []
+
+
 def test_the_gate_reads_every_yaml_file_not_only_the_workflows(tmp_path: Path):
     """A top-level YAML file is read too — the rule is about every YAML file, not just `.github`."""
 

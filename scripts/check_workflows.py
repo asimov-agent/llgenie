@@ -17,7 +17,13 @@ So this guard reads every YAML file in the repository and reports:
 * `workflow-expression`  a `${{ ... }}` that does not parse — the class GitHub rejects a file for;
 * `workflow-newline`     a YAML file that does not end with a newline (the repo's lint spec);
 * `workflow-name`        a `.github/workflows/*.yml` with no top-level `name:` — which is what makes a
-                         startup failure present itself as a path instead of a workflow.
+                         startup failure present itself as a path instead of a workflow;
+* `workflow-run-refs`    an `on.workflow_run` trigger with no `workflows:` list. GitHub REQUIRES the
+                         list and REFUSES the whole file without it (`on.workflow_run` does not
+                         reference any workflows), silently: 0 jobs, `conclusion=failure`, `name`
+                         = the file path, no log. Measured on run-failure-reactor.yml, whose two
+                         push runs (`38881240747`, `38881791437`) were refused exactly that way while
+                         this guard passed — the gap this rule closes.
 
 The expression check is a real recursive-descent parser over GitHub's expression grammar (`||`, `&&`,
 comparisons, `+ - * / %`, unary `! -`, property access `.x` / `.*` / `[...]`, function calls, numbers,
@@ -48,6 +54,10 @@ YAML_SUFFIXES = (".yml", ".yaml")
 EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.S)
 #: A top-level YAML key (column zero), used for the `name:` rule without a YAML library.
 TOP_LEVEL_KEY = re.compile(r"^([A-Za-z_][\w.-]*):", re.M)
+#: An `on.workflow_run:` trigger, at any indentation (never a `run:` block's script text).
+WORKFLOW_RUN_KEY = re.compile(r"^(?P<indent>[ \t]*)workflow_run:\s*(?P<rest>.*)$")
+#: The `workflows:` list a `workflow_run` trigger must carry to be read at all.
+WORKFLOWS_KEY = re.compile(r"^(?P<indent>[ \t]*)workflows:\s*(?P<rest>.*)$")
 
 _WS = " \t\r\n"
 _OPERATORS = ("==", "!=", "<=", ">=", "&&", "||", "<", ">", "!", "*", "/", "%", "+", "-",
@@ -319,13 +329,62 @@ def check_workflow_names(root: Path = REPO_ROOT) -> list[dict]:
     return out
 
 
+def _indented_block(lines: list[str], start: int, indent: int) -> list[str]:
+    """The lines a mapping key at `indent` owns: deeper-indented, up to the next peer.
+
+    Blank lines and comments are skipped rather than read as a dedent, so a commented `workflows:`
+    never counts and an interleaved blank line never truncates the block early.
+    """
+    out: list[str] = []
+    for line in lines[start + 1:]:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if len(line) - len(line.lstrip(" \t")) <= indent:
+            break
+        out.append(line)
+    return out
+
+
+def check_workflow_run_refs(root: Path = REPO_ROOT) -> list[dict]:
+    """An `on.workflow_run` trigger must carry a `workflows:` list, or GitHub refuses the file."""
+    out: list[dict] = []
+    for path in workflow_files(root):
+        where = str(path.relative_to(root))
+        lines = path.read_text().splitlines()
+        for i, line in enumerate(lines):
+            m = WORKFLOW_RUN_KEY.match(line)
+            if m is None:
+                continue
+            body = _indented_block(lines, i, len(m.group("indent")))
+            if any(WORKFLOWS_KEY.match(b) for b in body):
+                continue
+            out.append({
+                "key": f"workflow-run-refs/{where}:{i + 1}",
+                "title": f"ci: {where}:{i + 1} declares `workflow_run` with no `workflows:` list",
+                "evidence": (
+                    f"`{where}` line {i + 1} declares `on.workflow_run` without a `workflows:` list. "
+                    f"GitHub requires one and REFUSES the whole file without it — the run page says "
+                    f"`Invalid workflow file: `on.workflow_run` does not reference any workflows` — and "
+                    f"the refusal is silent: the run arrives with 0 jobs, `conclusion=failure`, a `name` "
+                    f"equal to the file path and no log (the #330 signature). Measured on "
+                    f"run-failure-reactor.yml, whose two push runs were refused that way while this "
+                    f"guard passed. Name every workflow this repo owns, and never the file itself — a "
+                    f"self-reference would make the trigger re-fire on its own completion."
+                ),
+                "where": where,
+            })
+    return out
+
+
 def findings(root: Path = REPO_ROOT) -> list[dict]:
-    return check_expressions(root) + check_newlines(root) + check_workflow_names(root)
+    return (check_expressions(root) + check_newlines(root) + check_workflow_names(root)
+            + check_workflow_run_refs(root))
 
 
 def render(items: list[dict]) -> str:
     if not items:
-        return "[workflows] OK: every YAML file parses, ends with a newline, and names its workflow"
+        return ("[workflows] OK: every YAML file parses, ends with a newline, names its workflow, "
+                "and every `workflow_run` names the workflows it reacts to")
     lines = [f"[workflows] {len(items)} violation(s)"]
     for f in items:
         lines += ["", f"- {f['title']}", f"  where: {f['where']}", f"  {f['evidence']}"]
@@ -340,7 +399,7 @@ def report(root: Path = REPO_ROOT) -> str:
         f"[workflows] {len(files)} YAML file(s), {total} `${{{{ ... }}}}` expression(s) validated, "
         f"{len(workflow_files(root))} workflow file(s)",
         "[workflows] rule: every expression parses; every file ends with a newline; every workflow "
-        "declares a top-level `name:`",
+        "declares a top-level `name:`; every `workflow_run` trigger names the workflows it reacts to",
     ]
     for f in findings(root):
         lines += ["", f"- {f['title']}", f"  where: {f['where']}"]
