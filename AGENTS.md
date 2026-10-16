@@ -236,6 +236,38 @@ git merge-base --is-ancestor origin/main HEAD 2>/dev/null \
    - Even when asked to "merge", "ship" or "push to main", the agent stops at the
      open, reviewable PR and says it is waiting for an approval.
 
+## Every PR body and commit message carries the issue, the fix and the benefit (MANDATORY, durable)
+
+A commit and a PR are read on their own. A reviewer, a `git log`, a `git bisect` must learn from
+them what the **issue** was, how the change **solves** it and what the **benefit** is, without
+opening the issue. An empty, placeholder or subject-only message is a defect, never a shortcut.
+
+- **NEVER an empty or placeholder message.** Not a commit `-m "update"` / `-m "fix"` / `-m ""` /
+  `-m "wip"`, and never a PR opened with no `--body`, `--body ""` or `--body "-"`. A body that says
+  nothing is the same defect as no body at all.
+- **The subject is a typed Conventional Commit:** `type(scope): imperative summary`. It is the index
+  entry, not the explanation — it does not replace the body.
+- **The body carries three labelled parts, in this order:**
+  - `Issue:` — the problem or goal, naming its number (`#313`). State the measured symptom, not the
+    ticket title.
+  - `Fix:` — the mechanism that solves it: what changed, and why that change addresses the cause
+    rather than the symptom.
+  - `Benefit:` — what the change buys, and what it prevents from now on.
+- **Then the technical extension** as a `Technical:` part: the files, functions, make targets, tests
+  and gates the change touches, plus any measured number that proves the claim — the detail a
+  reviewer needs to verify the work without re-deriving it.
+- **A PR body ends with `closes #<issue id>`** (required above); the commit references the issue, the
+  PR closes it. Both exist for every change, both carry the three parts.
+- **The in-repo producers follow the same rule.** `engine-bump.yml`, `issue-bot.yml` and
+  `registry-sync.yml` build their commit message and PR body this way — a bot's commit is read by the
+  same reviewer as a human's.
+
+`make check-pr-hygiene` (`scripts/check_pr_hygiene.py`, run by `ci-unit`) is the gate: it reads every
+producer the repository owns and fails on a commit with no message, a placeholder message, a subject
+that is not a typed Conventional Commit or no body, on a PR opened with an empty or placeholder body,
+and on an `AGENTS.md` that no longer carries this section. `make pr-hygiene-report` prints what it
+reads.
+
 ## PR review comments — check them and reply yourself (MANDATORY, durable)
 
 When a feature branch has an OPEN PR, review commentary is a first-class source

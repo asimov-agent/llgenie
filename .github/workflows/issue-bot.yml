@@ -187,7 +187,8 @@ jobs:
             echo "pushed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          git commit -m "feat(issue-bot): implement #${{ steps.dispatch.outputs.issue }}"
+          msg=$(printf 'Issue: #%s was chosen as actionable by the issue-bot (make issue-bot-verdict).\n\nFix: implemented the issue on this branch by the issue-implementer (Hermes, with AGENTS.md and the whole issue thread in context), then re-ran the repository gates in this job.\n\nBenefit: the issue lands as a reviewable pull request instead of waiting for a human to start it.\n\nTechnical: the change was produced by make implement-issue; the PR body, the claim comment and the closes marker are written by make issue-bot-open-pr (scripts/issue_implementer.py).' "${{ steps.dispatch.outputs.issue }}")
+          git commit -m "feat(issue-bot): implement #${{ steps.dispatch.outputs.issue }}" -m "$msg"
           git push -u origin "$BRANCH"
           echo "pushed=true" >> "$GITHUB_OUTPUT"
 

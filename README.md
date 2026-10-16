@@ -1149,6 +1149,8 @@ make fix-bot-sweep | fix-loop | fix-loop-image | fix-bot-report  # the PR fix-bo
 make agent-image | agent-image-pull | agent-image-ref | publish-agent-image  # the Hermes agent image: pull, CI pull, ref, publish
 make check-docs        # fail when a user-facing make target is not documented here, or a work record names no issue (issue #257)
 make docs-report       # show every user-facing target: documented, missing, or a recorded exception
+make check-pr-hygiene  # fail when a producer's commit message or PR body is empty, a placeholder, a subject with no body, or when AGENTS.md lost the mandate (issue #313)
+make pr-hygiene-report # show every producer the PR/commit-message guard reads, and its verdict
 make test-clean        # prune stopped orphaned test containers (always)
 ```
 
@@ -1330,6 +1332,33 @@ README's matching section and update the `agent-wiki/` entry in the same commit,
 the PR is ready. `make check-docs` catches a target the README never learned about;
 the reviewer reads the rest. `make docs-report` shows the whole picture (documented,
 missing, recorded exceptions, and each work record's references).
+
+### Every PR and commit message states the issue, the fix and the benefit (issue #313)
+
+A commit and a PR are read on their own — by a reviewer, by `git log`, by a `git bisect`. They must
+therefore carry, in their own text, **what the issue was**, **how the change solves it** and **what
+the benefit is**, plus a **technical** extension (the files, targets, tests and gates the change
+touches, and any measured number that proves it). A subject-only commit or an empty PR body fails a
+reviewer exactly as an empty one does, so neither is allowed.
+
+- The **subject** is a typed Conventional Commit (`type(scope): summary`); it indexes the change, it
+  does not explain it.
+- The **body** carries the three labelled parts — `Issue:` (with `#N`), `Fix:`, `Benefit:` — then
+  `Technical:`. A PR body ends with `closes #<issue id>`.
+- Never `-m "update"` / `-m "fix"` / `-m ""`, and never a PR opened with no `--body`, `--body ""` or
+  `--body "-"`.
+
+`make check-pr-hygiene` (`scripts/check_pr_hygiene.py`, in the `ci-unit` job) is the gate: it reads
+every producer the repository owns — the `.github/workflows/*.yml` steps, the `Makefile`, and
+`scripts/**` (both shell invocations and the argv list the `_gh` helper builds) — and fails on a
+commit that has no message, a placeholder message, a subject that is not a typed Conventional Commit
+or no body; on a PR opened with no body or a placeholder body; and on an `AGENTS.md` that no longer
+carries the mandate section. `make pr-hygiene-report` prints every producer it reads and the verdict,
+so the guard's scope is visible rather than assumed.
+
+The in-repo producers follow the same rule: `engine-bump.yml`, `issue-bot.yml` and `registry-sync.yml`
+build their commit message (and PR body) as a subject plus the `Issue:`/`Fix:`/`Benefit:`/`Technical:`
+body, so a bot's commit reads like a human's.
 
 ### No-fallback rule
 
