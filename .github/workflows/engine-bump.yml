@@ -133,8 +133,13 @@ jobs:
           HARD_FAIL: ${{ steps.bump.outputs.hard_fail }}
           DEPS: ${{ steps.bump.outputs.deps }}
         run: |
-          git config user.name "$(gh api user --jq .login)"
-          git config user.email "$(gh api user --jq .id)+$(gh api user --jq .login)@users.noreply.github.com"
+          # Authored as one of the two identities a PR's commits may carry (`Asimov Agent`,
+          # issue #345). The PUSH/PR still use BUMP_TOKEN, so the PR is opened by a real account and
+          # CI starts (issue #136) — only the git AUTHOR is pinned, because `gh api user` would
+          # otherwise stamp the token owner's LOGIN (e.g. `asimov-agent`), which is not an allowed
+          # spelling and fails `make check-pr-authors` on this very PR.
+          git config user.name "Asimov Agent"
+          git config user.email "support@docondee.com"
           branch="chore/engine-bump-${ID}"
           git switch -C "$branch"
           git add skills/engines/${ID}/SKILL.md containers/engines/params/${ID}.json containers/engines/dockerfiles/${ID}/ tests/ README.md data/strata_models.json

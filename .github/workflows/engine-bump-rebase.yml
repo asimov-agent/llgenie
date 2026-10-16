@@ -85,8 +85,12 @@ jobs:
           GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
           DRY_INPUT: ${{ inputs.dry }}   # empty on a scheduled run; "true"/"false" by hand
         run: |
-          git config user.name "$(gh api user --jq .login)"
-          git config user.email "$(gh api user --jq .id)+$(gh api user --jq .login)@users.noreply.github.com"
+          # A forward-merge preserves the commits it replays and stamps only the merge commit, so
+          # this decides the identity of that commit — one of the two a PR's commits may carry
+          # (`Asimov Agent`, issue #345). `gh api user` would stamp the token owner's LOGIN, which is
+          # not an allowed spelling.
+          git config user.name "Asimov Agent"
+          git config user.email "support@docondee.com"
           # `dry` is OFF unless a dispatcher ticks the box: the daily cron REBASES each open
           # chore/engine-bump-* PR onto main and force-with-lease pushes it. Spelled out rather than
           # folded into one expression, so the mode this run took is readable in the log. (The

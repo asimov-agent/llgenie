@@ -1159,6 +1159,8 @@ make check-docs        # fail when a user-facing make target is not documented h
 make docs-report       # show every user-facing target: documented, missing, or a recorded exception
 make check-pr-hygiene  # fail when a producer's commit message or PR body is empty, a placeholder, a subject with no body, or when AGENTS.md lost the mandate (issue #313)
 make pr-hygiene-report # show every producer the PR/commit-message guard reads, and its verdict
+make check-pr-authors  # fail when a PR commit is authored by anyone but Andy Holst or Asimov Agent, when a Co-authored-by trailer names anyone else, or when a producer commits off the allowlist (issue #345)
+make pr-authors-report # show every commit in the range with its author verdict, and the identity each producer assigns
 make check-workflows   # fail when a YAML file's GitHub expression does not parse, a YAML file lacks a trailing newline, or a workflow has no top-level name (issue #330)
 make workflows-report  # show every YAML file the workflow gate reads, how many expressions it validated, and its verdict
 make test-clean        # prune stopped orphaned test containers (always)
@@ -1369,6 +1371,40 @@ so the guard's scope is visible rather than assumed.
 The in-repo producers follow the same rule: `engine-bump.yml`, `issue-bot.yml` and `registry-sync.yml`
 build their commit message (and PR body) as a subject plus the `Issue:`/`Fix:`/`Benefit:`/`Technical:`
 body, so a bot's commit reads like a human's.
+
+### A PR's commits are authored by Andy Holst or Asimov Agent — no one else (issue #345)
+
+A commit's author is the attribution every reader trusts — `git log`, `git blame` and `git bisect`
+all answer "who wrote this" from it. Only two identities may author a PR's commits:
+
+```
+Andy Holst <andy.holst@protonmail.com>
+Asimov Agent <support@docondee.com>
+```
+
+The name must match **exactly** and carry the address that belongs to it, so `Andy`, `andyholst`,
+`Mr. Asimov`, `github-actions[bot]`, `llgenie fix-bot` and `Hermes Agent` all fail — including
+`Andy Holst <someone@else.example>`. A `Co-authored-by:` trailer naming anyone else fails too.
+
+`make check-pr-authors` (`scripts/check_pr_authors.py`, in the `ci-unit` job) is the gate. It reads
+the commits a PR **adds** (`git rev-list --no-merges <base>..<head>`, default `origin/main..HEAD`):
+
+- a **merge commit** is skipped — its author is the merge machinery, not the PR's — which is why the
+  merge commit GitHub writes on `main` (authored `GitHub <noreply@github.com>`) never trips it;
+- a commit already **reachable from the base branch** is someone else's landed work, so history on
+  `main` is out of scope;
+- every `Co-authored-by:` trailer in every commit is read, under its own finding key;
+- the repository's own **producers** are read too — a workflow that stamps a literal off-allowlist
+  identity fails, which is why `fix-bot.yml`, `issue-bot.yml`, `rebase-bot.yml`, `engine-bump.yml`,
+  `engine-bump-rebase.yml` and `registry-sync.yml` commit as `Asimov Agent` (their push/PR still use
+  `BUMP_TOKEN`, so the PR is opened by a real account and CI starts — issue #136);
+- `AGENTS.md` must still carry the rule, so deleting it is a red gate rather than a silent edit.
+
+`make pr-authors-report` prints every commit in the range with its verdict and the identity each
+producer assigns. `PR_BASE` / `PR_HEAD` bound the range (`ci-unit` runs it with no range on a push to
+`main`, where the static half still applies). A branch that is already off the allowlist is fixed with
+`git config user.name "Andy Holst"` / `git config user.email andy.holst@protonmail.com`, then
+`git rebase --reset-author` and a `--force-with-lease` push to its own PR branch.
 
 ### Every workflow file is validated before it can merge (issue #330)
 

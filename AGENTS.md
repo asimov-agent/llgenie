@@ -283,6 +283,43 @@ that is not a typed Conventional Commit or no body, on a PR opened with an empty
 and on an `AGENTS.md` that no longer carries this section. `make pr-hygiene-report` prints what it
 reads.
 
+## A PR's commits are authored by Andy Holst or Asimov Agent — no one else
+
+A commit's author is the attribution every reader trusts: `git log`, `git blame` and `git bisect` all
+answer "who wrote this" from it. Two identities may author a PR's commits, and no others:
+
+```
+Andy Holst <andy.holst@protonmail.com>
+Asimov Agent <support@docondee.com>
+```
+
+- **The name matches EXACTLY and the email must be the one that belongs to it.** `Andy`, `andyholst`
+  and `Mr. Asimov` are the same two people under other spellings, and they FAIL — a reader of
+  `git log` cannot tell whether `Andy`, `Andy Holst` and `andyholst` are one person or three.
+  `Andy Holst <someone@else.example>` fails too: the name must carry its own address.
+- **Every bot identity fails.** `github-actions[bot]`, `llgenie fix-bot`, `Hermes Agent`,
+  `asimov-agent` and `llama-ai-agent` are outside the allowlist; the repo's own workflows therefore
+  commit as `Asimov Agent` (`fix-bot.yml`, `issue-bot.yml`, `rebase-bot.yml`, `engine-bump.yml`,
+  `engine-bump-rebase.yml`, `registry-sync.yml`). An automation that stamps the token owner's LOGIN
+  (`gh api user --jq .login` → `asimov-agent`) is a violation, which is why those workflows pin the
+  identity even though the PUSH and the PR still use `BUMP_TOKEN` (issue #136).
+- **The scope is the commits a PR ADDS** (`git rev-list --no-merges <base>..<head>`). A merge commit
+  is skipped — its author is the merge machinery, not the PR's — and a commit already reachable from
+  the base branch is someone else's landed work. So the merge commit GitHub writes on `main` (authored
+  `GitHub <noreply@github.com>`) never trips the gate, and neither does history on `main`.
+- **A `Co-authored-by:` trailer is attribution too.** A commit whose author is allowed but whose
+  trailer names anyone else fails, under its own finding key.
+- **Remediation for a branch that is already off the allowlist:** set the identity
+  (`git config user.name "Andy Holst"` / `git config user.email andy.holst@protonmail.com`), then
+  `git rebase --reset-author` (or `git commit --amend --reset-author`) and
+  `git push --force-with-lease` on your OWN PR branch (AGENTS.md allows the force-push there).
+
+`make check-pr-authors` (`scripts/check_pr_authors.py`, run by `ci-unit`) is the gate: it reads the
+PR's commit range, every `Co-authored-by:` trailer, the repository's producers, and the presence of
+this section (so the rule cannot be deleted silently). `make pr-authors-report` prints every commit in
+the range with its verdict. `PR_BASE` / `PR_HEAD` bound the range (defaults `origin/main` / `HEAD`);
+`ci-unit` runs it with no range on a push to `main`, where the static half still applies.
+
 ## Every workflow file is validated before it can merge (MANDATORY, durable)
 
 GitHub REFUSES a whole workflow file whose `${{ ... }}` expression it cannot parse, and the refusal is

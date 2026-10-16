@@ -749,31 +749,39 @@ def _pr_step(workflow: str, job: str) -> str:
 def test_bump_pr_uses_owner_pat():
     """The bump job checks out, pushes and opens the PR as the token owner.
 
-    A github-actions[bot] PR holds CI for approval (run 38113858713)."""
+    A github-actions[bot] PR holds CI for approval (run 38113858713). The git AUTHOR is pinned to an
+    allowed identity (issue #345): `gh api user` would stamp the token owner's LOGIN
+    (e.g. `asimov-agent`), which `make check-pr-authors` reads as an off-allowlist author, so the
+    bump PR would fail the gate it lands under. BUMP_TOKEN still drives the push and the PR."""
 
     # Given the bump workflow
     text = _pr_step("engine-bump.yml", "bump")
 
     # When the job checks out and opens the PR
-    # Then those steps use the owner PAT and the commit is not the bot's
+    # Then those steps use the owner PAT and the commit carries an allowed author identity
     assert "secrets.BUMP_TOKEN" in text
     assert "secrets.GITHUB_TOKEN" not in text
     assert "github-actions[bot]" not in text
-    assert "gh api user" in text
+    assert "Asimov Agent" in text
+    assert "support@docondee.com" in text
 
 
 def test_sync_pr_uses_owner_pat():
-    """The sync job checks out, pushes and opens the PR as the token owner."""
+    """The sync job checks out, pushes and opens the PR as the token owner.
+
+    Same split as the bump job: BUMP_TOKEN pushes and opens the PR, while the git AUTHOR is pinned to
+    an allowed identity (issue #345) so the sync PR passes `make check-pr-authors`."""
 
     # Given the registry-sync workflow
     text = _pr_step("registry-sync.yml", "sync")
 
     # When the job checks out and opens the PR
-    # Then those steps use the owner PAT and the commit is not the bot's
+    # Then those steps use the owner PAT and the commit carries an allowed author identity
     assert "secrets.BUMP_TOKEN" in text
     assert "secrets.GITHUB_TOKEN" not in text
     assert "github-actions[bot]" not in text
-    assert "gh api user" in text
+    assert "Asimov Agent" in text
+    assert "support@docondee.com" in text
 
 
 def test_guard_keeps_default_token():

@@ -185,8 +185,10 @@ jobs:
         env:
           BRANCH: ${{ steps.dispatch.outputs.branch }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Authored as one of the two identities a PR's commits may carry (`Asimov Agent`,
+          # issue #345); a github-actions[bot] branch is also held for approval on its PR.
+          git config user.name "Asimov Agent"
+          git config user.email "support@docondee.com"
           git checkout -b "$BRANCH"
           git add -A
           git reset -q -- issue.md 2>/dev/null || true

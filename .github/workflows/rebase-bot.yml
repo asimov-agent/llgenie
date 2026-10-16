@@ -134,10 +134,13 @@ jobs:
           PR: ${{ steps.sweep.outputs.pr }}
           HEAD_BRANCH: ${{ steps.sweep.outputs.branch }}
           HEAD_REPO: ${{ steps.sweep.outputs.headrepo }}
-          GIT_AUTHOR_NAME: github-actions[bot]
-          GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
-          GIT_COMMITTER_NAME: github-actions[bot]
-          GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          # A rebase preserves the author of the commits it replays and re-stamps the COMMITTER, so
+          # this only decides who a conflict resolution is authored/committed as — one of the two
+          # identities a PR's commits may carry (`Asimov Agent`, issue #345).
+          GIT_AUTHOR_NAME: Asimov Agent
+          GIT_AUTHOR_EMAIL: support@docondee.com
+          GIT_COMMITTER_NAME: Asimov Agent
+          GIT_COMMITTER_EMAIL: support@docondee.com
         run: |
           set +e
           make rebase-bot REPO="$REPO" PR="$PR" HEAD_BRANCH="$HEAD_BRANCH" HEAD_REPO="$HEAD_REPO"
