@@ -34,14 +34,14 @@ import os
 import re
 import subprocess
 import sys
-import urllib.request
-import urllib.error
 from pathlib import Path
 
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO / "tests"))
 sys.path.insert(0, str(REPO / "scripts"))
+import hub_probe  # noqa: E402  (the one live-Hub link probe, issue #256)
 import engine_skill_gap as gap_mod  # noqa: E402
 import engine_skills as es  # noqa: E402
 import hf_auth  # noqa: E402
@@ -220,8 +220,9 @@ def test_pick_matrix_real_quant_links_exist(model_id, arch, vram=24, ram=64):
             # the pick must come from the real committed catalog (a real quant link)
             assert u in catalog_urls, \
                 f"{model_id}/{cell['engine']['id']} on {arch}: {u} is not in the quant catalog"
-            assert _url_exists(u), \
-                f"{model_id}/{cell['engine']['id']} on {arch}: real file missing (HTTP): {u}"
+            hit = hub_probe.probe(u)
+            assert hit.exists, \
+                f"{model_id}/{cell['engine']['id']} on {arch}: real file missing: {u} — {hit.detail}"
 
 
 # === per-engine supported quants: the real quant catalog llgenie can pick ==========
@@ -341,16 +342,6 @@ def test_pick_matrix_offers_only_engines_the_gap_says_have_an_image():
         seen = {r["model"]["id"] for r in res["permutations"]} | {s["model"] for s in res["skipped"]}
         assert seen == fits, arch
         assert all(s["why"] for s in res["skipped"]), arch
-
-
-def _url_exists(url: str) -> bool:
-    req = urllib.request.Request(url, method="GET",
-                                 headers={"Range": "bytes=0-0", "User-Agent": "llgenie-test"})
-    try:
-        with urllib.request.urlopen(req, timeout=20) as r:
-            return r.status in (200, 206)
-    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError):
-        return False
 
 
 # === PARAMETRIZED edge cases: (arch, model, vram, ram) -> expected quant ============

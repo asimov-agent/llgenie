@@ -203,7 +203,15 @@ asserts the table is well-formed and its committed fixture
 (`tests/fixtures/trending-quant-catalog.json`) exactly matches it — a link change or a
 dropped section is a caught regression — and the system pick-matrix test asserts every
 pick is a real catalog link. Nothing in the suite downloads a model — it only checks
-links exist. The **golden edge-case suite** (`test_pick_matrix_edge_case_golden`, 525
+links exist, and it does that through **ONE shared probe** (`tests/hub_probe.py`, issue #256): a
+ranged GET that retries the Hub's transient set (429, 500/502/503/504, a stalled connection) on a
+bounded 1+2+4+8 s ladder and returns the status it saw, so a transient gateway error no longer
+reddens the lane as "real file missing (HTTP)" — a definitive answer (HTTP 404) is still one
+request and still fails. Once three probes have exhausted the budget the Hub counts as degraded
+(one attempt per link) so a sustained outage cannot multiply 15 s across the thousands of links
+these suites verify; every unverified link still fails, loudly. `tests/test_hub_probe.py` locks
+the retry, the ladder, the no-retry-on-404 rule and the breaker against a real loopback server.
+The **golden edge-case suite** (`test_pick_matrix_edge_case_golden`, 525
 cases, + `test_pick_matrix_edge_case_golden_ram`, 17) asserts every trending model ×
 engine × arch × VRAM ladder (8/16/24/32/64) and the RAM-sensitive engines' RAM ladder
 (16/32/48/60/64) as explicit `(arch, model, engine, vram, ram) -> expected quant`

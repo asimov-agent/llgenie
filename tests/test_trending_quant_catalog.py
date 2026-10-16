@@ -20,14 +20,14 @@ import json
 import os
 import re
 import sys
-import urllib.request
-import urllib.error
 from pathlib import Path
 
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO / "tests"))
 sys.path.insert(0, str(REPO / "scripts"))
+import hub_probe  # noqa: E402  (the one live-Hub link probe, issue #256)
 import model_engine_pick as mp  # noqa: E402
 
 CATALOG = REPO / "data" / "trending-quant-catalog.json"       # canonical (llgenie reads this)
@@ -131,11 +131,12 @@ def test_bounded_sample_of_real_links_exist_http_200():
     assert sample
     ok, missing = 0, 0
     for u in sample:
-        if _url_exists(u):
+        hit = hub_probe.probe(u)
+        if hit.exists:
             ok += 1
         else:
             missing += 1
-            print(f"  missing: {u}")
+            print(f"  missing: {u} — {hit.detail}")
     assert ok >= len(sample) * 0.9, f"{missing}/{len(sample)} of the sample links did not answer HTTP 200"
 
 
@@ -163,11 +164,4 @@ def test_every_registry_model_has_a_catalog_entry_or_a_documented_skip():
         assert mid in d["files"], f"{mid}: no catalog entry for a servable model"
 
 
-def _url_exists(url: str) -> bool:
-    req = urllib.request.Request(url, method="GET",
-                                 headers={"Range": "bytes=0-0", "User-Agent": "llgenie-test"})
-    try:
-        with urllib.request.urlopen(req, timeout=20) as r:
-            return r.status in (200, 206)
-    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError):
-        return False
+
