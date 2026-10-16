@@ -84,7 +84,14 @@ jobs:
         run: |
           set +e
           out=$(make issue-refiner-pick REPO="$REPO")
+          rc=$?
           echo "$out"
+          # A crashed decision is NOT "nothing to pick" (issue #314): the pick died, so the run
+          # must go red instead of writing action=unknown and reporting a green no-op.
+          if [ "$rc" != "0" ]; then
+            echo "::error::the refiner's pick failed (make issue-refiner-pick rc=$rc); refusing to treat a crashed decision as 'nothing to pick'"
+            exit 1
+          fi
           action=$(printf '%s\n' "$out" | sed -n 's/^action=//p' | tail -1)
           issue=$(printf '%s\n' "$out" | sed -n 's/^issue=//p' | tail -1)
           echo "action=${action:-unknown}" >> "$GITHUB_OUTPUT"

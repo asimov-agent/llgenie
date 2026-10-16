@@ -148,8 +148,13 @@ def _candidates(gh: str, repo: str) -> list[dict]:
 
 
 def _thread(gh: str, repo: str, num: int) -> dict:
-    """The issue WITH its comments - where the claim protocol lives (scripts/bot_claims.py)."""
-    return json.loads(_gh(gh, ["issue", "view", str(num), "--repo", repo, "--comments",
+    """The issue WITH its comments - where the claim protocol lives (scripts/bot_claims.py).
+
+    The bodies come from the `comments` JSON field ALONE: `gh` refuses `--comments` together with
+    `--json` ("specify only one of --comments or --json"), so asking for both is a hard error that
+    killed the pick on every run (issue #314, the #268 class fixed for the implementer).
+    """
+    return json.loads(_gh(gh, ["issue", "view", str(num), "--repo", repo,
                                "--json", "number,title,body,state,author,labels,comments"]) or "{}")
 
 

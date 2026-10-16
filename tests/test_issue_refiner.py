@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
@@ -55,6 +56,9 @@ elif args[:2] == ["issue", "list"]:
 elif args[:2] == ["search", "prs"]:
     print(json.dumps([{{"number": n}} for n in PRS]))
 elif args[:2] == ["issue", "view"]:
+    if "--comments" in args and "--json" in args:
+        sys.stderr.write('specify only one of --comments or --json\\n')
+        sys.exit(1)                      # exactly what the real `gh issue view` does (#314)
     print(json.dumps(VIEWS.get(args[2], {{"number": int(args[2]), "title": "t", "body": "b",
                                           "state": "open", "author": {{"login": "a"}},
                                           "labels": [], "comments": [],
@@ -294,3 +298,40 @@ def test_the_refiner_gates_the_run_on_jev():
     mk = (repo / "Makefile").read_text()
     recipe = mk[mk.index("issue-refiner:"):mk.index("_issue-refiner:")]
     assert "TYPESAFE_API_KEY" in recipe, "the key must reach the container at run time"
+
+
+def test_the_thread_read_never_combines_comments_with_json(tmp_path):
+    """Issue #314: `gh` refuses `--comments` with `--json`, and the fake refuses it too, so a
+    regression fails HERE instead of silently no-oping the whole bot in CI."""
+
+    # Given an issue the refiner has to read a thread from
+    gh, log = _fake_gh(tmp_path, {"issues": [{"number": 7, "title": "t",
+                                              "createdAt": "2026-01-01T00:00:00Z", "labels": []}]})
+
+    # When the thread is read
+    thread = ir._thread(str(gh), f"{OWNER}/{NAME}", 7)
+
+    # Then it succeeded, no gh call combined --comments with --json, and the bodies came from --json
+    assert isinstance(thread, dict) and thread.get("number") == 7, thread
+    calls = [json.loads(l) for l in log.read_text().splitlines() if l.strip()]
+    assert not [c for c in calls if "--comments" in c and "--json" in c], calls
+    views = [c for c in calls if c[:2] == ["issue", "view"]]
+    assert views and "comments" in views[0][views[0].index("--json") + 1].split(","), views
+
+
+def test_the_pick_step_fails_loudly_when_the_pick_fails():
+    """Issue #314: the pick step swallowed a crash as `action=unknown` and a green run, hiding a
+    refiner that had never refined anything."""
+
+    # Given the issue-refiner workflow
+    wf = yaml.safe_load((REPO / ".github/workflows/issue-refiner.yml").read_text())
+    step = next(s for s in wf["jobs"]["refine"]["steps"]
+                if "issue-refiner-pick" in (s.get("run") or ""))
+
+    # When the pick step's run block is read
+    run = step["run"]
+
+    # Then it captures the pick's exit code and exits non-zero on a failure
+    assert "rc=$?" in run
+    assert 'if [ "$rc" != "0" ]' in run, run
+    assert "exit 1" in run, run
