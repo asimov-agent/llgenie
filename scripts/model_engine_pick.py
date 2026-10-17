@@ -8,7 +8,11 @@ per model, measured t/s per engine (`engines[].tps`) plus post engagement.
 
   rank_engines(model)  engines that can run `model` ON THIS HOST (an image
                        variant for the host backend, cpu fallback), best first:
-                       highest reported t/s, then trending engagement.
+                       a figure measured on this host's kind of hardware AND on
+                       a card of this host's class (issue #225), then a
+                       same-backend figure from a bigger/unknown card, then
+                       another backend, then a datacenter figure, then
+                       supported-only; by t/s, then trending engagement.
   rank_models()        registry models that fit the card (vram_tier <= card),
                        each with its best engine, best first by t/s.
   recommend()          what plain `llgenie` offers (issue #105): the upstream README
@@ -183,6 +187,84 @@ _AMD_GPU = re.compile(
     r"|\b(?:8065s|8060s|8050s|890m|880m|780m|760m|680m|660m)\b|\bgfx\d{3,4}\b|\binstinct\b|\bmi\d{3}x?\b"
     r"|\br9700\b|\bw7[89]00\b|\brdna\s?\d|\bnavi\s?\d|\bamd\s+(?:gpu|graphics)\b", re.I)
 HOST_TO_MEASURED = {"cuda": "CUDA", "rocm": "ROCm", "vulkan": "ROCm", "metal": "Metal", "cpu": "CPU"}
+# A host whose hardware IS a card: only here can a figure be compared to THIS
+# host's card. Apple Silicon (unified memory) and a CPU host have no card class.
+CARD_ARCHES = ("cuda", "rocm", "vulkan")
+
+# ---- card class (mirrors trending-local-llms update_trending.py) --------------
+# A backend (CUDA vs ROCm) is not a card class: a 2x RTX 4090 (48 GB) box and a
+# 6 GB laptop card are both "CUDA", and a figure from the bigger one does not
+# predict throughput on the smaller one — what it needed there is unknown. So a
+# figure is comparable only when the card it ran on is no bigger than this
+# host's. The strings and the VRAM numbers are upstream's (_CARD_VRAM,
+# hardware_vram_gb, _DATACENTER_HW), so llgenie and the README agree on what a
+# hardware string means.
+# Consumer/workstation cards -> total VRAM (GB). Laptop variants first (more
+# specific), then bare model numbers; a bare AMD number needs the 'rx ' prefix so
+# a host CPU such as 'Ryzen 5 7600' is never read as an RX 7600 (8 GB).
+_CARD_VRAM = (
+    ("5090 laptop", 24), ("4090 laptop", 16), ("5080 laptop", 16), ("4080 laptop", 12),
+    ("5090", 32), ("5080", 16), ("5070 ti", 16), ("5070", 12), ("5060 ti", 16), ("5060", 8),
+    ("4090", 24), ("4080", 16), ("4070 ti super", 16), ("4070 ti", 12), ("4070", 12),
+    ("4060 ti", 16), ("4060", 8), ("3090", 24), ("3080 ti", 12), ("3080", 10),
+    ("3070", 8), ("3060 ti", 8), ("3060", 12), ("a6000", 48), ("l40", 48),
+    ("7900 xtx", 24), ("7900 xt", 20), ("7900 gre", 16), ("7800 xt", 16), ("7700 xt", 12),
+    ("7600 xt", 16), ("rx 7600", 8), ("9070 xt", 16), ("rx 9070", 16), ("9060 xt", 16),
+    ("rx 9060", 8), ("6950 xt", 16), ("6900 xt", 16), ("6800 xt", 16), ("rx 6800", 16),
+    ("6750 xt", 12), ("6700 xt", 12), ("6650 xt", 8), ("6600 xt", 8), ("rx 6600", 8),
+    ("5700 xt", 8), ("vega 64", 8), ("vega 56", 8), ("r9700", 32), ("w7900", 48), ("w7800", 32),
+)
+# Datacenter parts never count (upstream: "datacenter parts never count"). Every
+# SKU family, so one spelling cannot slip through.
+_DATACENTER_HW = ("h100", "h200", "h800", "a100", "a800", "b100", "b200", "b300", "gb200", "gb300",
+                  "mi210", "mi250", "mi300", "mi308", "mi325", "mi355", "tpu", "gaudi")
+_GB_IN_TEXT = re.compile(r"(\d+(?:\.\d+)?)\s*gb", re.I)
+_CARD_MULT = re.compile(r"(?<![\w.])(\d{1,2})\s*[x\u00d7]\s*(?=[a-z0-9])")
+
+
+def measurement_card_gb(hardware: str) -> float | None:
+    """The card the measurement ran on: an explicit 'NN GB' wins, else a known
+    card model, else None (a host that is not a card, a cluster, a bare 'GPU').
+    '2x RTX 3090' multiplies. Mirrors upstream's hardware_vram_gb()."""
+    h = re.sub(r"\brx\s*-?(?=\d)", "rx ", (hardware or "").lower())  # 'RX7900' -> 'rx 7900'
+    # '2x RTX 3090' multiplies; a 1-2 digit count only, so the 'x' of an AMD
+    # suffix ('7900 xtx', '9070 xt') is never read as a count.
+    mult_m = _CARD_MULT.search(h)
+    mult = int(mult_m.group(1)) if mult_m else 1
+    m = _GB_IN_TEXT.search(h)
+    if m:
+        return float(m.group(1)) * mult
+    for card, gb in _CARD_VRAM:
+        if card in h:
+            return float(gb * mult)
+    return None
+
+
+def datacenter_hardware(hardware: str) -> bool:
+    """True when the hardware names a datacenter part (H100/A100/B300/MI300...):
+    a figure measured on one never describes a card a reader owns."""
+    h = (hardware or "").lower()
+    return any(k in h for k in _DATACENTER_HW) or re.search(r"\binstinct\b", h) is not None
+
+
+def tps_label(e: dict) -> str:
+    """The one place a ranked row's t/s becomes text, so the list the user reads
+    and the tests that lock it can never disagree:
+      '124 t/s'                          a figure from this host's card class
+      '96 t/s (ROCm)'                    another backend
+      '300 t/s (CUDA, 48 GB card)'       this backend, a bigger card
+      '67 t/s (CUDA, card unknown)'      this backend, the hardware names no card
+      '21000 t/s (CUDA, datacenter)'     a datacenter part: never a fit for a card
+      'supported'                        no figure (engines[].tps absent)
+    """
+    if not e.get("measured_on"):
+        return "supported"
+    lbl = f"{e['tps']:.0f} t/s"
+    if e.get("same_hw"):
+        return lbl
+    why = {"bigger": f"{e['card_gb']:.0f} GB card" if e.get("card_gb") else "bigger card",
+           "unknown": "card unknown", "datacenter": "datacenter"}.get(e.get("card_class") or "")
+    return f"{lbl} ({e['measured_on']}{', ' + why if why else ''})"
 
 
 def measurement_backend(e: dict) -> str:
@@ -232,18 +314,48 @@ def _engagement(e: dict) -> int:
     return int(e.get("likes") or 0) * 3 + int(e.get("reshares") or 0) * 5 + int(e.get("views") or 0) // 100
 
 
-def rank_engines(model: dict, arch: str | None = None, ids: dict | None = None) -> list[dict]:
+def rank_engines(model: dict, arch: str | None = None, ids: dict | None = None,
+                 gb: float | None = None) -> list[dict]:
     """Engines that have an image for this host and are known to run `model` (a
     measurement in the registry, or `supported_engines`), best first:
-      1. a figure measured on this host's kind of hardware (same_hw), highest t/s;
-      2. a figure from other hardware (ROCm / CPU / Metal), labelled by measured_on;
-      3. listed as supported without a figure (tps 0, measured_on "").
-    Mapping: registry engine name -> engine id (containers/engines/params) ->
-    image variant (host backend, else cpu, never a disabled #103 variant)."""
+      1. a figure measured on this host's kind of hardware AND on a card of this
+         host's class or smaller — the only figure PROVEN to describe this card
+         (`same_hw`, issue #225);
+      2. a figure from this host's kind of hardware measured on a BIGGER card, or
+         on hardware that names no card at all: it does not describe this card
+         (`card_class` says which, the t/s label says so too);
+      3. a figure from other hardware (ROCm / CPU / Metal), labelled by measured_on;
+      4. a datacenter figure (H100/A100/B300/MI300 ...): never a fit for a card;
+      5. listed as supported without a figure (tps 0, measured_on "").
+    Within a rank: highest t/s, then trending engagement.
+
+    `gb` is this host's card size. `None`/0 = unknown or not a card host (Apple
+    Silicon, CPU, or no card detected): no card class applies and only the
+    backend rule separates the ranks. Mapping: registry engine name ->
+    engine id (containers/engines/params) -> image variant (host backend, else
+    cpu, never a disabled #103 variant)."""
     arch = arch or host_arch()
     ids = ids if ids is not None else engine_ids()
     want = HOST_TO_MEASURED.get(arch, "CPU")
+    # The card class is applied only where the host hardware IS a card: an Apple
+    # Silicon or CPU host is judged by unified memory / RAM, never by a card tier.
+    host_card = card_class_gb(gb) if (gb and gb > 0 and arch in CARD_ARCHES) else 0.0
     best: dict[str, dict] = {}
+
+    def card_rank(mb, card, datacenter):
+        """0 proven on this card class, 1 bigger card, 2 no card known,
+        3 another backend, 4 datacenter, 5 no figure — see the docstring."""
+        if datacenter:
+            return 4      # a datacenter part never counts, whatever backend ran it
+        if mb and mb != want:
+            return 3
+        if not mb:
+            return 5
+        if not host_card:
+            return 0  # no card class on this host: the backend match is all we know
+        if card is None:
+            return 2
+        return 0 if card <= host_card else 1
 
     def add(name, tps, engagement, mb, hardware):
         info = ids.get(name)
@@ -253,10 +365,14 @@ def rank_engines(model: dict, arch: str | None = None, ids: dict | None = None) 
             None if arch == "metal" else ("cpu" if "cpu" in info["variants"] else None))
         if not variant:
             return
-        rank = 0 if mb == want else (1 if mb else 2)
+        card = measurement_card_gb(hardware)
+        datacenter = datacenter_hardware(hardware)
+        rank = card_rank(mb, card, datacenter)
+        kind = "" if not mb else "datacenter" if datacenter else \
+            {0: "proven", 1: "bigger", 2: "unknown"}.get(rank, "")
         row = {"engine": name, "id": info["id"], "variant": variant, "tps": tps, "engagement": engagement,
                "same_hw": rank == 0, "measured_on": mb, "rank": rank, "hardware": hardware,
-               "formats": info.get("formats", [])}
+               "card_gb": card, "card_class": kind, "formats": info.get("formats", [])}
         cur = best.get(info["id"])
         if not cur or (-row["rank"], row["tps"], row["engagement"]) > (-cur["rank"], cur["tps"], cur["engagement"]):
             best[info["id"]] = row
@@ -312,7 +428,7 @@ def rank_models(registry: dict, arch: str | None = None, gb: float | None = None
     ids = engine_ids()
     rows = []
     for m in trend_list(registry, gb):
-        engines = rank_engines(m, arch, ids)
+        engines = rank_engines(m, arch, ids, gb)
         if engines:
             rows.append({"model": m, "engines": engines, "tps": engines[0]["tps"]})
     return rows
@@ -330,7 +446,7 @@ def recommend(registry: dict, arch: str | None = None, gb: float | None = None,
     ids = engine_ids()
     rows = []
     for m in trend_list(registry, gb):
-        everything = rank_engines(m, arch, ids)
+        everything = rank_engines(m, arch, ids, gb)
         engines = [e for e in everything if fmt is None or fmt in e.get("formats", [])]
         if engines:
             why = ""
@@ -1071,7 +1187,7 @@ def matrix(registry: dict, gb: float | None = None, ram_gb: float | None = None,
     gb = card_gb() if gb is None else gb
     permutations, skipped = [], []
     for m in trend_list(registry, gb):
-        engines = rank_engines(m, arch)
+        engines = rank_engines(m, arch, gb=gb)
         if not engines:
             names = sorted({e["engine"] for e in m.get("engines") or []} | set(m.get("supported_engines") or []))
             skipped.append({"model": m["id"], "why": f"no {arch} engine image ({', '.join(names)})"})

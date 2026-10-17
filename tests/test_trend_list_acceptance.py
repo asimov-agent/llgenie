@@ -13,14 +13,16 @@ the README says this week:
   AC3  engine = every offered engine runs on this host: the host's own variant
                (metal = native) or a cpu image, never a disabled #103 image, never a
                variant of another backend (no metal on linux, no cuda on a mac);
-  AC4  order  = engines ranked: measured on this host's hardware first, then other
-               hardware, then supported-only, then by t/s within a rank;
+  AC4  order  = engines ranked: a figure proven on this host's card class first
+               (issue #225), then a same-backend figure from a bigger/unknown card,
+               then other hardware, then a datacenter figure, then supported-only,
+               then by t/s within a rank;
   AC5  fit    = every engine has a local copy or a download plan that fits the
                host's weight budget (TensorFold: its own checkpoint, Strata: its
                setup.py files);
   AC6  why    = a row that cannot be served states a non-empty reason and has no engine;
-  AC7  label  = the t/s label has no "(Backend)" suffix exactly when the figure was
-               measured on this host's kind of hardware;
+  AC7  label  = the t/s label is `model_engine_pick.tps_label` (issue #225): bare
+               t/s only for a figure proven on this host's card class;
   AC8  header = the printed header names the detected backend and card size.
 
 The list is checked without the prompt (`llgenie --trend` prints the same rows the
@@ -161,7 +163,10 @@ def test_ac4_engines_are_ranked_same_hardware_then_other_then_supported(tmp_path
         # Then it is sorted by rank, then t/s descending; rank 0 == measured on this hardware
         assert keys == sorted(keys), r["model"]["name"]
         for e in r["engines"]:
-            assert e["same_hw"] == (e["measured_on"] == mp.HOST_TO_MEASURED[backend])
+            # A rank 0 row is one proven on this host: its backend matches AND (on a card
+            # host) the figure ran on a card of this host's class or smaller (issue #225)
+            assert e["same_hw"] == (e["measured_on"] == mp.HOST_TO_MEASURED[backend]
+                                    and e["card_class"] == "proven")
 
 
 @pytest.mark.parametrize("platform,backend,gb", HOSTS, ids=IDS)
@@ -224,15 +229,11 @@ def test_ac2_ac7_ac8_printed_list_numbering_labels_and_header(tmp_path, platform
         n += 1
         assert mark == f"{n}."
 
-        # And the t/s label carries "(Backend)" only for other hardware (AC7)
+        # And the t/s label is the ONE label rule: bare t/s only for a figure proven
+        # on this host's card class, otherwise the card / backend it came from (AC7, #225)
         e = row["engines"][0]
         assert e["engine"] in ln
-        if e["same_hw"]:
-            assert f"{e['tps']:.0f} t/s" in ln and f"t/s ({e['measured_on']})" not in ln
-        elif e["measured_on"]:
-            assert f"t/s ({e['measured_on']})" in ln
-        else:
-            assert "supported" in ln
+        assert mp.tps_label(e) in ln
 
 
 @pytest.mark.parametrize("platform,backend,gb", [h for h in HOSTS if h[2] in (16, 48)],

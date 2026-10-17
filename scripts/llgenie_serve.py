@@ -1608,9 +1608,9 @@ def _main_engines(args):
     rows = _registry_match(mp.rank_models(mp.load_registry()), args.model)
     if not rows:
         raise SystemExit(f"[llgenie] no local or registry model matches {args.model!r}")
-    print(f"Engines for {rows[0]['model']['name']} on this host, best reported t/s first:")
+    print(f"Engines for {rows[0]['model']['name']} on this host, best fit first:")
     for e in rows[0]["engines"]:
-        print(f"  {e['id']:<28} {e['engine']:<34} [{e['variant']}] {e['tps']:>6.0f} t/s")
+        print(f"  {e['id']:<28} {e['engine']:<34} [{e['variant']}] {_tps_label(e):>28}")
 
 
 def _main_local_engine(args, path):
@@ -1624,10 +1624,9 @@ def _main_local_engine(args, path):
 
 
 def _tps_label(e):
-    """'124 t/s' (this host's hardware), '96 t/s (ROCm)', or 'supported' (no figure)."""
-    if not e.get("measured_on"):
-        return "supported"
-    return f"{e['tps']:.0f} t/s" + ("" if e["same_hw"] else f" ({e['measured_on']})")
+    """The row's t/s text — ONE rule, `model_engine_pick.tps_label` (issue #225):
+    '124 t/s', '96 t/s (ROCm)', '300 t/s (CUDA, 48 GB card)', 'supported'."""
+    return _pick_mp().tps_label(e)
 
 
 def _ask(rows, prompt):

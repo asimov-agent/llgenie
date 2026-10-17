@@ -5,9 +5,12 @@
 `llgenie --matrix --vram V --ram R --arch A`. Models stay in the README
 "Most loved" order (buzz + log2 of the fastest consumer t/s). A model whose
 VRAM column is above the card is absent. The server on a row is the first
-engine `matrix` returns: highest t/s on this architecture, and only when a
-quant of that engine fits this VRAM and RAM. A model that fits the card but
-has no such engine is kept, with the reason.
+engine `matrix` returns: the best fit for this card on this architecture
+(issue #225 — a figure proven on a card of this VRAM class or smaller, then a
+bigger card's figure, then another backend, then a datacenter figure; see
+`model_engine_pick.rank_engines`), and only when a quant of that engine fits
+this VRAM and RAM. A model that fits the card but has no such engine is kept,
+with the reason.
 
 The committed copy is tests/fixtures/trend-list-matrix.json. `make
 render-trend-list-matrix` rewrites it after a registry sync. The unit test
@@ -32,7 +35,9 @@ RAMS = (8, 32, 60, 64)
 CASES = [(arch, vram, ram) for arch in ARCHS for vram in VRAMS for ram in RAMS]
 CASES.append(("cuda", 15.9921875, 62))
 ORDER = ("README weighted trend (buzz + log2 of consumer t/s). "
-         "The server is the highest t/s engine on this arch with a quant that fits this vram and ram.")
+         "The server is the best fit for this card on this arch with a quant that fits this vram and ram "
+         "(a figure proven on a card of this vram class or smaller first, then a bigger card's figure, "
+         "then another backend, then a datacenter figure; issue #225).")
 
 
 def case_key(arch: str, vram: float, ram: float) -> str:

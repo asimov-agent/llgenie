@@ -102,10 +102,18 @@ scratch git repository.
    every model whose README VRAM column fits this card (a 16 GB card is 16 GB even though
    `nvidia-smi` reports 15.99 GiB). Every model you can run here is numbered, downloaded or not
    (`[local]` = already in `~/models`); one that cannot run here stays in the list as `--` with the reason.
-2. **Engines** for the chosen model, each with the format llgenie fetches for it: figures
-   measured on this host's kind of hardware first (RTX for cuda, Radeon/Strix Halo for rocm/vulkan,
-   Apple Silicon for metal, CPU for cpu), then figures from other hardware labelled
-   `(CUDA)` / `(ROCm)` / `(CPU)` / `(Metal)`, then engines the registry lists as supported without a figure.
+2. **Engines** for the chosen model, each with the format llgenie fetches for it. A figure is
+   compared to **this host's card**, not just its backend (issue #225): first the figures measured
+   on this host's kind of hardware (RTX for cuda, Radeon/Strix Halo for rocm/vulkan, Apple Silicon
+   for metal, CPU for cpu) **and on a card of this card's class or smaller** — the only figures
+   proven to describe this card; then a same-backend figure measured on a **bigger card** or on
+   hardware that names no card (labelled `(CUDA, 48 GB card)` / `(CUDA, card unknown)`); then
+   figures from other hardware (`(ROCm)` / `(CPU)` / `(Metal)`); then a **datacenter** figure
+   (`(CUDA, datacenter)`, never a fit for a card); then engines the registry lists as supported
+   without a figure. On a 16 GB card that means the 108 t/s `RTX 5060 Ti 16GB` figure leads, not
+   the 300 t/s one from a `2x RTX 4090` box. A card size that cannot be detected (an Apple-Silicon
+   or CPU host) leaves the backend rule alone. The t/s text comes from ONE rule
+   (`model_engine_pick.tps_label`), so the printed list and its tests cannot disagree.
 3. **Download** when missing, in the engine's format:
    - `gguf`: the registry's GGUF repo, else the most-downloaded `<name>-GGUF` repo; the largest GGUF
      within 80% of the card minus 1 GiB (16 GB -> 11.8 GB). MoE models add system RAM minus 4 GiB

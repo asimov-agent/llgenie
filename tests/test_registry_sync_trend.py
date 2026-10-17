@@ -32,8 +32,11 @@ def _load(path: Path) -> dict:
     return json.loads(path.read_text())
 
 
-def _same_hw(model: dict, arch: str = "cuda") -> dict | None:
-    rows = [r for r in mp.rank_engines(model, arch) if r["same_hw"]]
+def _same_hw(model: dict, arch: str = "cuda", gb: float | None = None) -> dict | None:
+    """The engine this host's own hardware proves for `model` (rank 0): same backend
+    AND a card of this card's class or smaller (issue #225). `gb` is the card, so it
+    must be the card the listing used."""
+    rows = [r for r in mp.rank_engines(model, arch, gb=gb) if r["same_hw"]]
     return rows[0] if rows else None
 
 
@@ -78,8 +81,11 @@ def live_sync(tmp_path_factory):
     return {"reg": reg, "readme": readme, "dest": dest}
 
 
-def test_october_5_fixture_ranks_qwen38_27b_on_sglang():
-    """The frozen list, before the sync: 16 GB CUDA still shows the old servers."""
+def test_october_5_fixture_prefers_a_known_card_over_a_card_less_box():
+    """The frozen list, before the sync: 16 GB CUDA shows the servers the card class
+    justifies. Qwen3.8-27B's fastest CUDA figure in this snapshot is 44.0 t/s on a
+    DGX Spark — a box that names no card — so the 43.7 t/s figure measured on an
+    RTX 5090 Laptop 24GB is the pick (issue #225)."""
 
     # Given the 2026-10-05 models and the README they were copied with
     reg = _load(BEFORE_MODELS)
@@ -97,8 +103,9 @@ def test_october_5_fixture_ranks_qwen38_27b_on_sglang():
         "RavenX-Conjecture-Qwen3-8B-MLX", "Qwen3.6-35B-A3B", "Qwen3 8B",
         "Gemma 4 12B", "Qwen3 14B", "Gemma 4 E2B", "Llama 3.1 8B",
         "DeepSeek R1 1.5B"]
-    assert by_id["qwen3.8-27b"][2:6] == ("SGLang", "sglang", 44.0, "CUDA")
+    assert by_id["qwen3.8-27b"][2:6] == ("llama.cpp", "llama.cpp", 43.7, "CUDA")
     assert by_id["qwen3.8-flash-next-125b"][2] == "Strata"
+    # And the README's own best-per-backend column is untouched by that pick
     assert best["Qwen3.8-27B"] == "DFlash2"
     assert best["Qwen3.8-Flash-Next 125B"] == "Strata"
 
@@ -193,14 +200,14 @@ def test_live_sync_adopts_a_higher_skilled_tps_for_models_that_fit_48gb(live_syn
     added = [m["id"] for m in fitting if m["id"] not in {row["id"] for row in old["models"]}]
     assert added, "the live list must add models that fit a 48 GB card"
 
-    # And at least one shipped engine got a higher same-hardware t/s, Qwen3.8-27B included
+    # And at least one shipped engine got a higher card-class t/s, Qwen3.8-27B included
     old_by_id = {m["id"]: m for m in old["models"]}
     increases = []
     for model in new["models"]:
         if model["id"] not in old_by_id:
             continue
-        previous = _same_hw(old_by_id[model["id"]])
-        current = _same_hw(model)
+        previous = _same_hw(old_by_id[model["id"]], "cuda", 48)
+        current = _same_hw(model, "cuda", 48)
         if previous and current and current["tps"] > previous["tps"]:
             increases.append((model["id"], previous, current))
     assert increases, f"before {before}\nafter {after}"
@@ -267,7 +274,7 @@ def test_rank_follows_the_given_vram_ram_and_arch(live_sync):
             # Then the list is the README rows that fit this card and have an image here
             assert [r["model"]["id"] for r in recommended] == [r["model"]["id"] for r in rows]
             for model in reg["models"]:
-                engines = mp.rank_engines(model, arch)
+                engines = mp.rank_engines(model, arch, gb=vram)
                 listed = next((r for r in rows if r["model"]["id"] == model["id"]), None)
                 if not _fits_card(model, vram) or not engines:
                     assert listed is None
@@ -291,23 +298,22 @@ def test_rank_follows_the_given_vram_ram_and_arch(live_sync):
         else:
             assert moe == dense + max(0.0, ram - 4)
 
-    # And the October 5 server follows the architecture, not one global pick
+    # And the October 5 server follows the architecture and the card class, not one global pick
     assert (pinned[("cuda", 16)]["id"], pinned[("cuda", 16)]["tps"],
-            pinned[("cuda", 16)]["variant"]) == ("sglang", 44.0, "cuda")
-    assert pinned[("cuda", 15.9921875)]["id"] == "sglang"
+            pinned[("cuda", 16)]["variant"]) == ("llama.cpp", 43.7, "cuda")
+    assert pinned[("cuda", 15.9921875)]["id"] == "llama.cpp"
     assert pinned[("cuda", 8)] is None
     assert (pinned[("metal", 48)]["id"], pinned[("metal", 48)]["tps"],
             pinned[("metal", 48)]["variant"]) == ("tensorfold", 189.0, "metal")
     assert (pinned[("rocm", 48)]["id"], pinned[("rocm", 48)]["variant"],
-            pinned[("rocm", 48)]["measured_on"]) == (
-                "llama.cpp-laurentzuijdwijk", "rocm", "ROCm")
+            pinned[("rocm", 48)]["measured_on"]) == ("llama.cpp", "rocm", "ROCm")
     assert (pinned[("vulkan", 24)]["id"], pinned[("vulkan", 24)]["variant"]) == (
-        "llama.cpp-laurentzuijdwijk", "vulkan")
+        "llama.cpp", "vulkan")
     assert pinned[("cpu", 16)]["id"] == "mlx"
     assert all(e["id"] != "tensorfold" for e in mp.rank_engines(qwen_old, "cpu"))
     assert {pinned[("cuda", 16)]["id"], pinned[("metal", 48)]["id"],
             pinned[("rocm", 48)]["id"], pinned[("cpu", 16)]["id"]} == {
-                "sglang", "tensorfold", "llama.cpp-laurentzuijdwijk", "mlx"}
+                "llama.cpp", "tensorfold", "mlx"}
 
     # And RAM changes the CUDA MoE budget and the Strata quant, not the Metal or CPU budget
     assert mp.weight_budget_gb(16, True, 8, "cuda") < mp.weight_budget_gb(16, True, 64, "cuda")
@@ -317,12 +323,17 @@ def test_rank_follows_the_given_vram_ram_and_arch(live_sync):
     assert mp.strata_choice(8)[1] == mp.strata_choice(59)[1] == "Q2_0"
     assert mp.strata_choice(60)[1] == mp.strata_choice(64)[1] == "IQ3_XXS"
 
-    # And the live CUDA figure for Qwen3.8-27B is the higher one at 16 GB and at 48 GB
-    previous = _same_hw(qwen_old, "cuda")
+    # And the live card-aware top engine for Qwen3.8-27B is faster than the snapshot's,
+    # at 16 GB and at 48 GB (issue #225: the card class decides, not raw t/s)
+    def top(reg, mid, gb):
+        m = next(x for x in reg["models"] if x["id"] == mid)
+        return mp.rank_engines(m, "cuda", gb=gb)[0]
+
     for vram in (16, 48):
         shown = next(r for r in mp.rank_models(new, "cuda", vram)
                      if r["model"]["id"] == "qwen3.8-27b")
-        current = _same_hw(qwen_new, "cuda")
+        current = top(new, "qwen3.8-27b", vram)
+        previous = top(old, "qwen3.8-27b", vram)
         assert shown["engines"][0]["engine"] == current["engine"]
         assert shown["engines"][0]["tps"] == current["tps"] > previous["tps"]
         assert shown["engines"][0]["measured_on"] == "CUDA"

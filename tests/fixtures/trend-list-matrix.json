@@ -1,6 +1,6 @@
 {
   "generated_utc": "2026-10-13T14:31:40Z",
-  "order": "README weighted trend (buzz + log2 of consumer t/s). The server is the highest t/s engine on this arch with a quant that fits this vram and ram.",
+  "order": "README weighted trend (buzz + log2 of consumer t/s). The server is the best fit for this card on this arch with a quant that fits this vram and ram (a figure proven on a card of this vram class or smaller first, then a bigger card's figure, then another backend, then a datacenter figure; issue #225).",
   "cases": [
     {
       "arch": "cuda",
@@ -421,8 +421,8 @@
       "rows": [
         {
           "model": "Qwen3.8-27B",
-          "server": "vLLM",
-          "tps": 300.0,
+          "server": "llama.cpp",
+          "tps": 108.3,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -572,8 +572,8 @@
       "rows": [
         {
           "model": "Qwen3.8-27B",
-          "server": "vLLM",
-          "tps": 300.0,
+          "server": "llama.cpp",
+          "tps": 108.3,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -723,8 +723,8 @@
       "rows": [
         {
           "model": "Qwen3.8-27B",
-          "server": "vLLM",
-          "tps": 300.0,
+          "server": "llama.cpp",
+          "tps": 108.3,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -732,7 +732,7 @@
         {
           "model": "Qwen3.8-Flash-Next 125B",
           "server": "Strata",
-          "tps": 140.0,
+          "tps": 97.3,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -874,8 +874,8 @@
       "rows": [
         {
           "model": "Qwen3.8-27B",
-          "server": "vLLM",
-          "tps": 300.0,
+          "server": "llama.cpp",
+          "tps": 108.3,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -883,7 +883,7 @@
         {
           "model": "Qwen3.8-Flash-Next 125B",
           "server": "Strata",
-          "tps": 140.0,
+          "tps": 97.3,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -1025,8 +1025,8 @@
       "rows": [
         {
           "model": "Qwen3.8-27B",
-          "server": "vLLM",
-          "tps": 300.0,
+          "server": "llama.cpp",
+          "tps": 108.3,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -1200,8 +1200,8 @@
       "rows": [
         {
           "model": "Qwen3.8-27B",
-          "server": "vLLM",
-          "tps": 300.0,
+          "server": "llama.cpp",
+          "tps": 108.3,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -1375,8 +1375,8 @@
       "rows": [
         {
           "model": "Qwen3.8-27B",
-          "server": "vLLM",
-          "tps": 300.0,
+          "server": "llama.cpp",
+          "tps": 108.3,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -1550,8 +1550,8 @@
       "rows": [
         {
           "model": "Qwen3.8-27B",
-          "server": "vLLM",
-          "tps": 300.0,
+          "server": "llama.cpp",
+          "tps": 108.3,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -2869,8 +2869,8 @@
       "rows": [
         {
           "model": "Qwen3.8-27B",
-          "server": "llama.cpp (LaurentZuijdwijk fork)",
-          "tps": 65.0,
+          "server": "llama.cpp",
+          "tps": 45.0,
           "measured_on": "ROCm",
           "variant": "rocm",
           "why": ""
@@ -3020,8 +3020,8 @@
       "rows": [
         {
           "model": "Qwen3.8-27B",
-          "server": "llama.cpp (LaurentZuijdwijk fork)",
-          "tps": 65.0,
+          "server": "llama.cpp",
+          "tps": 45.0,
           "measured_on": "ROCm",
           "variant": "rocm",
           "why": ""
@@ -3171,8 +3171,8 @@
       "rows": [
         {
           "model": "Qwen3.8-27B",
-          "server": "llama.cpp (LaurentZuijdwijk fork)",
-          "tps": 65.0,
+          "server": "llama.cpp",
+          "tps": 45.0,
           "measured_on": "ROCm",
           "variant": "rocm",
           "why": ""
@@ -3322,8 +3322,8 @@
       "rows": [
         {
           "model": "Qwen3.8-27B",
-          "server": "llama.cpp (LaurentZuijdwijk fork)",
-          "tps": 65.0,
+          "server": "llama.cpp",
+          "tps": 45.0,
           "measured_on": "ROCm",
           "variant": "rocm",
           "why": ""
@@ -3473,8 +3473,8 @@
       "rows": [
         {
           "model": "Qwen3.8-27B",
-          "server": "llama.cpp (LaurentZuijdwijk fork)",
-          "tps": 65.0,
+          "server": "llama.cpp",
+          "tps": 45.0,
           "measured_on": "ROCm",
           "variant": "rocm",
           "why": ""
@@ -3648,8 +3648,8 @@
       "rows": [
         {
           "model": "Qwen3.8-27B",
-          "server": "llama.cpp (LaurentZuijdwijk fork)",
-          "tps": 65.0,
+          "server": "llama.cpp",
+          "tps": 45.0,
           "measured_on": "ROCm",
           "variant": "rocm",
           "why": ""
@@ -3823,8 +3823,8 @@
       "rows": [
         {
           "model": "Qwen3.8-27B",
-          "server": "llama.cpp (LaurentZuijdwijk fork)",
-          "tps": 65.0,
+          "server": "llama.cpp",
+          "tps": 45.0,
           "measured_on": "ROCm",
           "variant": "rocm",
           "why": ""
@@ -3998,8 +3998,8 @@
       "rows": [
         {
           "model": "Qwen3.8-27B",
-          "server": "llama.cpp (LaurentZuijdwijk fork)",
-          "tps": 65.0,
+          "server": "llama.cpp",
+          "tps": 45.0,
           "measured_on": "ROCm",
           "variant": "rocm",
           "why": ""
@@ -4173,8 +4173,8 @@
       "rows": [
         {
           "model": "Qwen3.8-27B",
-          "server": "llama.cpp (LaurentZuijdwijk fork)",
-          "tps": 65.0,
+          "server": "llama.cpp",
+          "tps": 51.8,
           "measured_on": "ROCm",
           "variant": "rocm",
           "why": ""
@@ -4356,8 +4356,8 @@
       "rows": [
         {
           "model": "Qwen3.8-27B",
-          "server": "llama.cpp (LaurentZuijdwijk fork)",
-          "tps": 65.0,
+          "server": "llama.cpp",
+          "tps": 51.8,
           "measured_on": "ROCm",
           "variant": "rocm",
           "why": ""
@@ -4539,8 +4539,8 @@
       "rows": [
         {
           "model": "Qwen3.8-27B",
-          "server": "llama.cpp (LaurentZuijdwijk fork)",
-          "tps": 65.0,
+          "server": "llama.cpp",
+          "tps": 51.8,
           "measured_on": "ROCm",
           "variant": "rocm",
           "why": ""
@@ -4722,8 +4722,8 @@
       "rows": [
         {
           "model": "Qwen3.8-27B",
-          "server": "llama.cpp (LaurentZuijdwijk fork)",
-          "tps": 65.0,
+          "server": "llama.cpp",
+          "tps": 51.8,
           "measured_on": "ROCm",
           "variant": "rocm",
           "why": ""
@@ -5317,8 +5317,8 @@
       "rows": [
         {
           "model": "Qwen3.8-27B",
-          "server": "llama.cpp (LaurentZuijdwijk fork)",
-          "tps": 65.0,
+          "server": "llama.cpp",
+          "tps": 45.0,
           "measured_on": "ROCm",
           "variant": "vulkan",
           "why": ""
@@ -5468,8 +5468,8 @@
       "rows": [
         {
           "model": "Qwen3.8-27B",
-          "server": "llama.cpp (LaurentZuijdwijk fork)",
-          "tps": 65.0,
+          "server": "llama.cpp",
+          "tps": 45.0,
           "measured_on": "ROCm",
           "variant": "vulkan",
           "why": ""
@@ -5619,8 +5619,8 @@
       "rows": [
         {
           "model": "Qwen3.8-27B",
-          "server": "llama.cpp (LaurentZuijdwijk fork)",
-          "tps": 65.0,
+          "server": "llama.cpp",
+          "tps": 45.0,
           "measured_on": "ROCm",
           "variant": "vulkan",
           "why": ""
@@ -5770,8 +5770,8 @@
       "rows": [
         {
           "model": "Qwen3.8-27B",
-          "server": "llama.cpp (LaurentZuijdwijk fork)",
-          "tps": 65.0,
+          "server": "llama.cpp",
+          "tps": 45.0,
           "measured_on": "ROCm",
           "variant": "vulkan",
           "why": ""
@@ -5921,8 +5921,8 @@
       "rows": [
         {
           "model": "Qwen3.8-27B",
-          "server": "llama.cpp (LaurentZuijdwijk fork)",
-          "tps": 65.0,
+          "server": "llama.cpp",
+          "tps": 45.0,
           "measured_on": "ROCm",
           "variant": "vulkan",
           "why": ""
@@ -6096,8 +6096,8 @@
       "rows": [
         {
           "model": "Qwen3.8-27B",
-          "server": "llama.cpp (LaurentZuijdwijk fork)",
-          "tps": 65.0,
+          "server": "llama.cpp",
+          "tps": 45.0,
           "measured_on": "ROCm",
           "variant": "vulkan",
           "why": ""
@@ -6271,8 +6271,8 @@
       "rows": [
         {
           "model": "Qwen3.8-27B",
-          "server": "llama.cpp (LaurentZuijdwijk fork)",
-          "tps": 65.0,
+          "server": "llama.cpp",
+          "tps": 45.0,
           "measured_on": "ROCm",
           "variant": "vulkan",
           "why": ""
@@ -6446,8 +6446,8 @@
       "rows": [
         {
           "model": "Qwen3.8-27B",
-          "server": "llama.cpp (LaurentZuijdwijk fork)",
-          "tps": 65.0,
+          "server": "llama.cpp",
+          "tps": 45.0,
           "measured_on": "ROCm",
           "variant": "vulkan",
           "why": ""
@@ -6621,8 +6621,8 @@
       "rows": [
         {
           "model": "Qwen3.8-27B",
-          "server": "llama.cpp (LaurentZuijdwijk fork)",
-          "tps": 65.0,
+          "server": "llama.cpp",
+          "tps": 51.8,
           "measured_on": "ROCm",
           "variant": "vulkan",
           "why": ""
@@ -6804,8 +6804,8 @@
       "rows": [
         {
           "model": "Qwen3.8-27B",
-          "server": "llama.cpp (LaurentZuijdwijk fork)",
-          "tps": 65.0,
+          "server": "llama.cpp",
+          "tps": 51.8,
           "measured_on": "ROCm",
           "variant": "vulkan",
           "why": ""
@@ -6987,8 +6987,8 @@
       "rows": [
         {
           "model": "Qwen3.8-27B",
-          "server": "llama.cpp (LaurentZuijdwijk fork)",
-          "tps": 65.0,
+          "server": "llama.cpp",
+          "tps": 51.8,
           "measured_on": "ROCm",
           "variant": "vulkan",
           "why": ""
@@ -7170,8 +7170,8 @@
       "rows": [
         {
           "model": "Qwen3.8-27B",
-          "server": "llama.cpp (LaurentZuijdwijk fork)",
-          "tps": 65.0,
+          "server": "llama.cpp",
+          "tps": 51.8,
           "measured_on": "ROCm",
           "variant": "vulkan",
           "why": ""
@@ -12249,8 +12249,8 @@
       "rows": [
         {
           "model": "Qwen3.8-27B",
-          "server": "vLLM",
-          "tps": 300.0,
+          "server": "llama.cpp",
+          "tps": 108.3,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -12258,7 +12258,7 @@
         {
           "model": "Qwen3.8-Flash-Next 125B",
           "server": "Strata",
-          "tps": 140.0,
+          "tps": 97.3,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""

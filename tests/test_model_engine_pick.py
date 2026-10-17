@@ -43,7 +43,7 @@ def test_engines_ranked_by_tps_then_trending_for_this_host(reg):
     assert all(r["measured_on"] == "Metal" for r in rows if "Apple" in r["hardware"])
     assert rows[0]["same_hw"] and rows[0]["measured_on"] == "CUDA"
     lz = next(r for r in rows if r["id"] == "llama.cpp-laurentzuijdwijk")  # Strix Halo figure only
-    assert lz["measured_on"] == "ROCm" and lz["rank"] == 1
+    assert lz["measured_on"] == "ROCm" and lz["rank"] == 3
     ranks = [r["rank"] for r in rows]
     assert ranks == sorted(ranks) and ranks[0] == 0  # every CUDA-measured engine before any other
 

@@ -322,8 +322,9 @@ def test_measurement_hardware_maps_to_a_backend(hardware, want):
     assert mp.measurement_backend({"hardware": hardware}) == want
 
 
-def test_engine_order_same_hw_then_other_hw_then_supported_only():
-    # Given a model measured on CUDA (A), ROCm (B), Apple (C) and listed-only (D)
+def test_engine_order_proven_then_other_hw_then_supported_only():
+    # Given a model measured on CUDA (A), ROCm (B), Apple (C) and listed-only (D),
+    # on a host with no card class known (gb left out: rank 0 = the backend match)
     m = {"id": "t", "name": "t", "engines": [
         {"engine": "Ollama", "tps": "50", "hardware": "RX 7900 XTX"},
         {"engine": "llama.cpp", "tps": "20", "hardware": "RTX 3060"},
@@ -331,9 +332,9 @@ def test_engine_order_same_hw_then_other_hw_then_supported_only():
         "supported_engines": ["vLLM"]}
     rows = mp.rank_engines(m, "cuda")
     # Then CUDA figure first, then other hardware by t/s (ROCm 50 > Metal... no: by rank then t/s),
-    # supported-without-figure last
+    # supported-without-figure last: ranks are 0 proven / 3 another backend / 5 no figure
     assert [r["id"] for r in rows] == ["llama.cpp", "mlx", "ollama", "vllm"]
-    assert [r["rank"] for r in rows] == [0, 1, 1, 2]
+    assert [r["rank"] for r in rows] == [0, 3, 3, 5]
     assert rows[1]["measured_on"] == "Metal" and rows[2]["measured_on"] == "ROCm"
     assert rows[3]["tps"] == 0 and rows[3]["measured_on"] == ""
 
@@ -520,7 +521,7 @@ def test_engine_tps_comes_from_the_hosts_hardware_first():
     rows = {r["id"]: r for r in mp.rank_engines(m, "cuda")}
     # Then llama.cpp uses the highest CUDA figure, not an older or AMD one
     assert cuda_figs and rows["llama.cpp"]["tps"] == max(cuda_figs) and rows["llama.cpp"]["same_hw"]
-    assert not rows["llama.cpp-laurentzuijdwijk"]["same_hw"] and rows["llama.cpp-laurentzuijdwijk"]["rank"] == 1
+    assert not rows["llama.cpp-laurentzuijdwijk"]["same_hw"] and rows["llama.cpp-laurentzuijdwijk"]["rank"] == 3
     order = [r["id"] for r in mp.rank_engines(m, "cuda")]
     assert order.index("llama.cpp-laurentzuijdwijk") > order.index("llama.cpp")
     # and for a rocm host the AMD figures come first
