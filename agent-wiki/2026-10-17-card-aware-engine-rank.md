@@ -78,4 +78,4 @@ Not covered here: the model-list filter itself (#227) — the list still uses th
 coarse `vram_tier` in `fits()`, and upstream's card-fit evidence ladder
 (`ran-on` / `weights-only` / `declared`, `vram_min`) belongs to that change.
 
-Issue: #225. OpenSpec change: `card-aware-engine-rank`. PR: #<pr>.
+Issue: #225. OpenSpec change: `card-aware-engine-rank`. PR: #354.
