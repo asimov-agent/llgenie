@@ -9,4 +9,4 @@
 - [x] 7. `tests/fixtures/trend-list-matrix.json` regenerated with `make render-trend-list-matrix`, and the diff reviewed row by row
 - [x] 8. `README.md`: the engine-ranking and t/s-label sections describe the card-aware rule, and `agent-wiki/2026-10-17-card-aware-engine-rank.md` records the change (issue #225, PR)
 - [x] 9. Verification: `make lint` green, `make ci-unit` green (4756 passed, `check-trend-list-matrix` OK, `check-registry`/`skills-validate`/`check-wiring`/`check-docs` OK), `make openspec-validate NAME=card-aware-engine-rank` exits 0, and every scenario's `- **Test:**` file/case resolves and passes — plus the GPU-path health proof (the `-cuda` image with `--device nvidia.com/gpu=all` served the 0.5B model, 394.7 tok/s eval)
-- [ ] 10. PR opened against upstream `main` with `closes #225` and its CI checks monitored green
+- [x] 10. PR **#354** opened against upstream `main` with `closes #225` (`https://github.com/asimov-agent/llgenie/pull/354`), from `andyholst:feat/card-aware-engine-rank`, and its CI checks monitored to green
