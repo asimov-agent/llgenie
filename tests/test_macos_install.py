@@ -25,7 +25,7 @@ import scripts.engine_image as ei  # noqa: E402
 import scripts.install_engine_launchers as il  # noqa: E402
 
 LLAMA = "[engine-runner] llama.cpp/cpu: installed version: 0.5.0-dev (build 11382, commit 11fe02151)"
-PRISM = "[engine-runner] llama.cpp-prism/cpu: installed version: 0.2.0-dev (build 10754, commit e8fd209c5)"
+PRISM = "[engine-runner] llama.cpp-prism/cpu: installed version: 0.2.0-dev (build 10754, commit 118091845)"
 DOCKER_PLATFORM_WARN = ("WARNING: The requested image's platform (linux/amd64) does not match the "
                         "detected host platform (linux/arm64/v8) and no specific platform was requested")
 NERDCTL_CLEANUP_WARN = ('time="2026-10-07T19:56:10+02:00" level=warning msg="force cleanup timed out for '

@@ -6,8 +6,8 @@ id: llama.cpp-prism
 repo: https://github.com/PrismML-Eng/llama.cpp
 ref: prism
 ref_kind: branch
-pinned: e8fd209c975c80aa7fb36a8423571ff3b1b7e955
-verified: "2026-10-12"
+pinned: 11809184898113482c2f510fd13da669aaba1052
+verified: "2026-10-19"
 license: MIT
 servable: true
 backends: [cuda, rocm, vulkan, metal, cpu]
