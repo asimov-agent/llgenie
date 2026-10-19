@@ -534,7 +534,6 @@ implement-issue: ## Implement issue.md with Hermes INSIDE the agent image (AGENT
 
 hermes-smoke: ## One real Hermes call through the alias the implementer uses, inside the agent image (die in seconds, not after 20 min); the transcript is REDACTED before it prints (issue #359)
 	@python3 scripts/require_env.py NOUS_API_KEY
-	test -n "$$NOUS_API_KEY" || { echo "NOUS_API_KEY unset - refusing to spend time on a dead key"; exit 1; }
 	python3 scripts/ci_images.py ensure agent
 	$(call scrubbed_run,$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo -e NOUS_API_KEY \
 	  -e TYPESAFE_API_KEY -e HERMES_NERVE_PROVIDER -e NERVE_REQUIRE \
