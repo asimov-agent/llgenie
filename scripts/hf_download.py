@@ -2,14 +2,21 @@
 """Download a GGUF into a tiered models folder with live progress + auto-resume/retry.
 
 Usage: hf_download.py <repo_id> <filename> <dest_dir> <label> [refresh] [expected_bytes]
+       hf_download.py <repo_id> -          <dest_dir> <label>   ...  whole-repo snapshot
 refresh: "1" -> ALWAYS consult the Hub (etag/hash) so a same-name file that was
 updated upstream (or a corrupt local copy) is re-fetched, not skipped. Leave a
 fully-fresh local file untouched (hf no-ops on matching etag).
+`-` in place of the filename fetches the WHOLE repo (config.json + safetensors, an
+MLX/safetensors model) into <dest_dir> — the same CLI, fast path, resume and retry
+rules as the single-file path, so a caller never needs a second downloader (issue #385).
 Sends HF_TOKEN (env, else ~/.zshrc or ~/.bashrc) on the hf CLI and the tree
 lookup. Append progress to <dest_dir>/<label>.progress.log
 Uses HF_XET_HIGH_PERFORMANCE=1 (hf-xet chunked parallel) for speed — never
 HF_HUB_DISABLE_XET (would force slow single-stream download).
 Auto-retries on connection drop (rc!=0 while final .gguf absent), resuming the partial.
+Hub throttle (issue #385): an attempt that fails while the Hub is rate-limiting (429)
+waits the seconds the Hub's own answer names, so one exhausted 5-minute window is
+survived instead of reddening the job that downloaded through it.
 Xet fallback (issue #105): hf-xet writes its chunks outside <dest>/.cache, and on
 some networks it makes no progress at all (0 bytes for minutes on xet-backed repos
 such as unsloth/*). After a stall the retries run with HF_HUB_DISABLE_XET=1 (plain
@@ -23,6 +30,26 @@ import subprocess, sys, os, time, shutil
 MAX_RETRY = 20
 DEFAULT_STALL_SECONDS = 90
 DEFAULT_RETRY_PAUSE = 5
+SNAPSHOT = "-"  # the filename that means "the whole repo", never a file named "-"
+
+
+def _present(final_path, snapshot: bool) -> bool:
+    """Is the download already on disk?
+
+    A directory is only "present" when it holds a real file: the destination directory is
+    created before the first attempt, and the downloader's own progress log (and any
+    `.`-prefixed sidecar) lives inside it, so neither may be mistaken for a completed
+    download (issue #385).
+    """
+    if not snapshot:
+        return os.path.exists(final_path)
+    if not os.path.isdir(final_path):
+        return False
+    for root, dirs, files in os.walk(final_path):
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        if any(not f.startswith(".") and not f.endswith(".progress.log") for f in files):
+            return True
+    return False
 
 
 def _stall_decision(total, last_bytes, last_advancing, now):
@@ -89,6 +116,7 @@ def _resolve_expected_bytes(repo, filename, label, expected_bytes):
 def main(argv=None):
     argv = list(argv if argv is not None else sys.argv[1:])
     repo, filename, dest = argv[0], argv[1], argv[2]
+    snapshot = filename in (SNAPSHOT, "", None)  # the whole repo, not one file
     label = argv[3]
     refresh = (argv[4] if len(argv) > 4 else "0") == "1"
     expected_bytes = int(argv[5]) if len(argv) > 5 and str(argv[5]).isdigit() else None
@@ -97,9 +125,9 @@ def main(argv=None):
     log = os.path.join(dest, f"{label}.progress.log")
     env = dict(os.environ)
     try:
-        from hf_auth import apply_env
+        from hf_auth import apply_env, throttle_wait
     except ImportError:
-        from scripts.hf_auth import apply_env  # type: ignore
+        from scripts.hf_auth import apply_env, throttle_wait  # type: ignore
     apply_env(env)
 
     def write_log(msg):
@@ -116,19 +144,21 @@ def main(argv=None):
     if not HF_BIN or not os.path.isfile(HF_BIN):
         print(f"[{label}] ERROR: 'hf' CLI not found on PATH (no fallback).", file=sys.stderr)
         return 2
-    cmd = [HF_BIN, "download", repo, filename,
-           "--local-dir", dest, "--max-workers", "4"]
+    cmd = [HF_BIN, "download", repo] + ([] if snapshot else [filename]) + \
+          ["--local-dir", dest, "--max-workers", "4"]
     if os.environ.get("HF_REVISION"):  # a pinned commit (Strata's files): never the moving main
         cmd += ["--revision", os.environ["HF_REVISION"]]
-    final_path = os.path.join(dest, filename)
+    final_path = dest if snapshot else os.path.join(dest, filename)
 
-    TOTAL_BYTES = _resolve_expected_bytes(repo, filename, label, expected_bytes)
+    TOTAL_BYTES = None if snapshot else _resolve_expected_bytes(repo, filename, label, expected_bytes)
     stall_threshold = float(os.environ.get("HF_STALL_SECONDS", str(DEFAULT_STALL_SECONDS)))
     poll_interval = float(os.environ.get("HF_POLL_SECONDS", "3"))
     retry_pause = float(os.environ.get("HF_RETRY_PAUSE", str(DEFAULT_RETRY_PAUSE)))
     max_retry = int(os.environ.get("HF_MAX_RETRY", str(MAX_RETRY)))
 
-    write_log(f"MODE download {repo} :: {filename} @ {os.environ.get('HF_REVISION') or 'main'} -> {dest}\nSTART {time.ctime()} | max_retry={MAX_RETRY}\n")
+    write_log(f"MODE download {repo} :: {filename if not snapshot else '* (whole repo)'} "
+              f"@ {os.environ.get('HF_REVISION') or 'main'} -> {dest}\n"
+              f"START {time.ctime()} | max_retry={MAX_RETRY}\n")
 
     t_total = time.time()
     attempt = 1
@@ -139,7 +169,7 @@ def main(argv=None):
         # fast if the local file's content hash still matches; if the file was
         # UPDATED upstream (even same filename + same size), the etag differs and hf
         # re-fetches just that file. A mere existence check would mask that update.
-        if (not refresh) and os.path.exists(final_path):
+        if (not refresh) and _present(final_path, snapshot):
             break  # already done
         write_log(f"\n=== attempt {attempt} ({time.ctime()}) {('refresh' if refresh else 'plain')} ===")
         t0 = time.time()
@@ -195,6 +225,7 @@ def main(argv=None):
             last_bytes = total
             time.sleep(poll_interval)
         # process ended
+        out = ""
         try:
             out = proc.stdout.read() if proc.stdout else ""
             if out:
@@ -204,14 +235,20 @@ def main(argv=None):
         rc = proc.wait()
         write_log(f"--- attempt {attempt} ended rc={rc} {time.ctime()}, "
                   f"disk={tree_bytes(dest, final_path)/1e9:.2f} GB ---")
-        if rc == 0 and os.path.exists(final_path):
+        if rc == 0 and _present(final_path, snapshot):
             write_log(f"\nDONE {time.ctime()} (attempt {attempt}, total {attempt} runs) final_file={final_path}")
             print(f"[{label}] COMPLETE rc=0 attempt={attempt} final_file={final_path}", flush=True)
             break
-        # rc != 0 => connection likely dropped OR we stall-terminated; retry (resumes partial)
-        write_log(f"--- rc={rc}; retrying to resume partial ---")
+        # rc != 0 => connection likely dropped, we stall-terminated, OR the Hub throttled us.
+        # A throttle names its own wait: spend it instead of the short pause, or the next
+        # attempt lands in the same closed window (issue #385).
+        wait = throttle_wait(out) or retry_pause
+        if wait > retry_pause:
+            print(f"[{label}] Hub throttle: waiting {wait:.0f}s (the Hub's own answer) "
+                  f"before attempt {attempt + 1} of {max_retry}", flush=True)
+        write_log(f"--- rc={rc}; retrying in {wait:.0f}s to resume partial ---")
         attempt += 1
-        time.sleep(retry_pause)
+        time.sleep(wait)
     else:
         write_log(f"\nFAILED after {max_retry} attempts {time.ctime()} disk={tree_bytes(dest, final_path)/1e9:.2f} GB")
         print(f"[{label}] FAILED after {max_retry} attempts; disk={tree_bytes(dest, final_path)/1e9:.2f} GB log={log}", flush=True)

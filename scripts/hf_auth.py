@@ -83,6 +83,24 @@ def rate_limit_wait(err: urllib.error.HTTPError) -> int:
 
 _rate_limited = 0  # consecutive Hub 429s across calls; a non-429 resets it
 
+# The `hf` CLI speaks the Hub's own answer on a throttle, in text rather than in a
+# header ("429 Too Many Requests ... Retry after 202 seconds"). Same policy as the
+# header form: the stated seconds, else the 5-minute window, capped at 10 minutes.
+_THROTTLE_SAYS = re.compile(r"Retry after\s+(\d+)\s*second", re.I)
+_THROTTLE_TEXT = re.compile(r"\b429\b|Too Many Requests", re.I)
+
+
+def throttle_wait(text: str) -> int:
+    """Seconds to wait when a failed attempt's OUTPUT names a Hub throttle, else 0.
+
+    0 means the text names no throttle, so the caller keeps its own (short) pause.
+    """
+    if not text or not _THROTTLE_TEXT.search(text):
+        return 0
+    match = _THROTTLE_SAYS.search(text)
+    seconds = int(match.group(1)) if match else RATE_LIMIT_WINDOW
+    return min(RATE_LIMIT_WAIT_CAP, max(0, seconds))
+
 
 def hub_open(req: urllib.request.Request, timeout: float = 30):
     """Open a Hub URL. A 429 waits `rate_limit_wait` and is retried twice.

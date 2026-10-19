@@ -50,15 +50,22 @@ def free_port() -> int:
 
 
 def fetch_model(fmt: str) -> str:
-    """Download the tiny model for `fmt` with the hf CLI; return file or dir."""
+    """Fetch the tiny model for `fmt` through the ONE downloader; return file or dir.
+
+    `scripts/hf_download.py` is the repository's single model-download path (the `hf`
+    CLI plus the resume/retry loop and the throttle wait). The smoke calls it exactly
+    like `scripts/download_test_model.py` does, so a Hub 429 during the CI matrix waits
+    its window out instead of reddening the engine job (issue #385). `-` in place of a
+    filename asks for the whole repo (the safetensors/MLX snapshot).
+    """
     repo, filename = TEST_MODELS[fmt]
     dest = MODELS_DIR / repo.replace("/", "__")
-    hf = os.environ.get("HF_BIN") or "hf"
-    cmd = [hf, "download", repo, "--local-dir", str(dest)]
-    if filename:
-        cmd.insert(3, filename)
+    downloader = Path(__file__).resolve().parent / "hf_download.py"
+    cmd = [sys.executable, str(downloader), repo, filename or "-", str(dest), fmt]
     print("[smoke] $", " ".join(cmd), flush=True)
-    subprocess.run(cmd, check=True)
+    rc = subprocess.call(cmd)
+    if rc:
+        raise SystemExit(f"[smoke] FAIL {fmt}: the model download exited {rc}")
     return str(dest / filename) if filename else str(dest)
 
 

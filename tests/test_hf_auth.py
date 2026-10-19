@@ -196,3 +196,41 @@ def test_workflows_pass_the_secret_into_reusable_workflows():
     # Then each one inherits the secret
     for job in ("linux", "macos", "linux-published"):
         assert ci[job]["secrets"] == "inherit", job
+
+
+def test_throttle_wait_reads_the_seconds_the_hub_names_in_text():
+    """The `hf` CLI prints the Hub's answer, whose number IS the wait (issue #385)."""
+
+    # Given the throttle text the CLI prints during a CI engine matrix
+    text = ("Error: Local entry not found.\n"
+            "429 Too Many Requests: you have reached your 'api' rate limit.\n"
+            "Retry after 202 seconds (0/1000 requests remaining in current 300s window).\n")
+
+    # When the text is turned into a wait
+    # Then it is the Hub's own number
+    assert auth.throttle_wait(text) == 202
+
+
+def test_throttle_wait_defaults_and_caps_like_the_header_form():
+    """No number -> the 5-minute window; an absurd number -> the 10-minute cap."""
+
+    # Given a throttle with no retry hint, and one naming an absurd wait
+    bare = "429 Too Many Requests: you have reached your 'api' rate limit.\n"
+    absurd = "429 Too Many Requests. Retry after 99999 seconds."
+
+    # When each is turned into a wait
+    # Then they follow the shared window/cap policy
+    assert auth.throttle_wait(bare) == auth.RATE_LIMIT_WINDOW
+    assert auth.throttle_wait(absurd) == auth.RATE_LIMIT_WAIT_CAP
+
+
+def test_throttle_wait_ignores_text_that_names_no_throttle():
+    """A dropped connection keeps the caller's own short pause."""
+
+    # Given an attempt that failed for another reason
+    text = "ConnectionResetError: [Errno 104] Connection reset by peer"
+
+    # When the text is turned into a wait
+    # Then it names no throttle (0), so the downloader keeps its short pause
+    assert auth.throttle_wait(text) == 0
+    assert auth.throttle_wait("") == 0

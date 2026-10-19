@@ -1024,7 +1024,10 @@ published image on a fresh runner, checks digest and version, starts the contain
 llama.cpp-prism/cuda and llama.cpp-prism/rocm. They are not built, installed or offered; on
 cuda/rocm hosts `prism-server` uses the Prism cpu image meanwhile. Do not build the arch matrix on a
 laptop: push and follow it with `make ci-engine-images` (`WATCH=1` polls until the run completes).
-`engine-smoke-mac` installs ollama and mlx natively on macos-14 Metal.
+`engine-smoke-mac` installs ollama and mlx natively on macos-14 Metal. The smoke stage's tiny
+model is fetched through `scripts/hf_download.py` — the one downloader — so a Hub 429 during the
+parallel matrix waits the window out instead of failing the job that happened to run in it
+(issue #385).
 
 Every servable launch exposes the model as `llm-local` on the image's port 11434 (by flag,
 `ollama create` / `litert-lm import`, a config alias, or a symlinked model dir when the
@@ -1036,9 +1039,12 @@ how to add an engine: [`skills/engines/README.md`](skills/engines/README.md).
 
 ```bash
 python3 scripts/hf_download.py <repo_id> <filename> <dest_dir> <label>
+python3 scripts/hf_download.py <repo_id> -          <dest_dir> <label>   # whole-repo snapshot
 ```
 
 - Every Hub call (API, resolve, the `hf` CLI, and engine containers) sends `HF_TOKEN` from the environment, or from `~/.zshrc` / `~/.bashrc` when the environment is empty. CI sets that environment from the `HF_TOKEN` Actions secret (`secrets: inherit` into `pipeline.yml` and `published.yml`). The token is never stored in the repo. API GETs prefer IPv4 and retry a timed-out read with a new request; a transport failure is not remembered as an empty file tree (issue #161). A Hub 429 waits out the rate-limit window through `scripts/hf_auth.py` (`rate_limit_wait`: the `RateLimit` header's `t`, else 5 minutes, capped at 10) and is retried twice; a later success resets that count (issue #163). The size lookup, the ranged chunk download and the preflight probe open the Hub through `hub_open` in that same module, so a download waits out the same window instead of calling `urlopen` itself.
+- `-` in place of the filename fetches the **whole repo** (config.json + safetensors, an MLX/safetensors model) into the destination — same CLI, same fast path, resume and retry rules, so a caller never needs a second downloader (issue #385).
+- When an attempt fails while the Hub is rate-limiting it, the retry waits the seconds the Hub's own answer names (`429 Too Many Requests ... Retry after N seconds`, via `scripts/hf_auth.py::throttle_wait`; no number → the 5-minute window, capped at 10) instead of the fixed short pause (issue #385). The engine images' smoke stage fetches its tiny model through this downloader for exactly that reason.
 - Sets `HF_HUB_ENABLE_HF_TRANSFER=1 HF_HUB_DISABLE_XET=1` for speed.
 - Auto-retries (up to 20 attempts), resuming the partial file on dropped connections.
 - Appends a `.progress.log` next to the destination for live monitoring.
