@@ -563,6 +563,24 @@ the log stream, so a transformed value (base64, a URL, a slice) sails past it, a
 a log a job uploads itself. `make secret-output-report` shows which files name a secret and whether any
 of them prints it.
 
+### A committed credential VALUE is scanned for too (#360)
+
+The rules above read the *shapes a script prints*; they cannot see a key written in another provider's
+shape (a PAT, a JWT, an AWS-style key, a bearer inside a URL). gitleaks runs in its own pinned image for
+that, and CI runs it in the linux job before the gates:
+
+```bash
+make secret-scan            # working tree (the finding is redacted; the file and rule are named)
+make secret-scan-history    # git history — refuses a worktree, where .git is a file
+make secret-scan-self-test  # plants a fake credential; the scan MUST catch it (a scanner that
+                            # silently does nothing is a false green)
+```
+
+A finding is removed and its key rotated — never allowlisted. `.gitleaks.toml` extends gitleaks'
+default rule set (a config without `[extend] useDefault = true` scans *nothing*) and allowlists only
+documented non-live fixtures, each named by path so a reviewer sees the decision. `make secret-scan`
+needs a container engine, so it runs on Linux; macOS runs the rest of the loop.
+
 ## The credential reaches the AGENT's shell (#358)
 
 Every key the bots use also has to survive **Hermes's own terminal filter**. Hermes strips provider

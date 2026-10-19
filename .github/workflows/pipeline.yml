@@ -49,6 +49,15 @@ jobs:
         run: make test-env
       - name: make ci-lint
         run: make ci-lint
+      # No credential VALUE may reach the repo, and the scanner must be proven able to catch one
+      # (issue #360). Linux only: the scan runs gitleaks in its own image, and the macOS job has no
+      # container engine here.
+      - name: make secret-scan (a committed credential VALUE fails the build)
+        if: runner.os == 'Linux'
+        run: make secret-scan
+      - name: make secret-scan-self-test (the planted credential is caught)
+        if: runner.os == 'Linux'
+        run: make secret-scan-self-test
       - name: Prune orphaned test containers
         if: always()
         run: make test-clean

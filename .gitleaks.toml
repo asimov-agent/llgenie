@@ -1,0 +1,34 @@
+# gitleaks config for llgenie (issue #360).
+#
+# The scanner is the second half of "no secret reaches the repo": `make check-secret-output`
+# reads the SHAPES a script prints (a value in a log, argv, env dump, xtrace), and gitleaks reads
+# the VALUE a human or a bot committed. Both run in CI; neither replaces the other.
+#
+# `useDefault = true` keeps gitleaks' own rule set (GitHub PATs, cloud keys, private-key blocks,
+# generic high-entropy assignments). Overriding the config WITHOUT it would scan nothing — the
+# failure mode this whole change is about.
+[extend]
+useDefault = true
+
+# Allowlists are ONLY for non-live shapes this repository deliberately carries: the guard's own
+# patterns and the fixtures that prove the guard. A real value is never allowlisted — remove it
+# and rotate the key instead (AGENTS.md).
+[[allowlists]]
+description = "the secret-output guard's own pattern literals and their proof fixtures"
+paths = [
+  '''scripts/check_secret_output\.py$''',
+  '''tests/test_secret_output\.py$''',
+  '''tests/test_scrub_log\.py$''',
+  '''tests/test_secret_scan\.py$''',
+  # The JEV preflight's tests write fake provider values (`jev-okkey-…`) into a temp HERMES_HOME
+  # to prove the preflight reports; none of them is a live credential, and the file is a fixture
+  # generator, not a place a real key is pasted.
+  '''tests/test_agent_nerve\.py$''',
+]
+
+[[allowlists]]
+description = "documented example shapes in docs (never a live value)"
+regexes = [
+  '''SENTINEL[a-zA-Z0-9]*''',            # the sentinels the bot-log tests inject
+  '''jev-NEVER-PRINT-THIS[a-zA-Z0-9-]*''',  # the JEV preflight fixture's marker
+]
