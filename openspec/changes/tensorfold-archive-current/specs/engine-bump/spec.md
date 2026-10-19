@@ -109,3 +109,29 @@ THEN it asserts the invariants, whatever install kind the skill declares.
 - **Then** the only image is cuda and CI builds it; metal is a native install that is
   non-empty, is the skill's declared steps, never elevates, and never pipes `curl` to a shell
 - **Test:** `tests/test_mac_trend_pick.py::test_tensorfold_image_is_cuda_only_and_built_by_linux_ci`
+
+### Requirement: the derived skill drops a pip prerequisite its steps no longer call
+
+The release-archive derivation MUST remove `uv`/`pip`/`pip3` from the skill's `prereqs` when no
+derived step names it, keeping every other documented tool and every backend entry. A leftover pip
+prerequisite is a false precondition: `engine_skills.check(mode="native")` refuses the engine with
+`missing prerequisite: uv` on a host that has no uv, for an install that never invokes it.
+
+WHEN the release-archive derivation runs
+THEN each `prereqs` flow list inside the block keeps only the tools its backends' steps still call.
+
+#### Scenario: the pip tool leaves prereqs, the tools the steps call stay
+
+- **Given** a skill whose `prereqs` name `uv` (common and cuda) and `curl`/`nvidia-smi`
+- **When** the bump applies a release whose archives the steps download with `curl`
+- **Then** `prereqs.common` no longer names `uv`
+- **And** the backend entry keeps `curl` and `nvidia-smi`
+- **Test:** `tests/test_engine_bump.py::test_apply_release_archive_replaces_pip_install`
+
+#### Scenario: no uv required for the archive install, and the pip kind still demands one
+
+- **Given** a Mac whose PATH has the skill's external tools but no `uv`
+- **When** llgenie ensures TensorFold for the pick
+- **Then** the release-archive kind installs and reaches the pinned release
+- **And** the pip kind is still refused with `missing prerequisite: uv`
+- **Test:** `tests/test_tensorfold_seamless.py::test_a_host_without_uv_only_blocks_the_pip_install`

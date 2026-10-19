@@ -9,3 +9,4 @@
 - [x] 7. README documents the derived shape (the `{prefix}/current` link and the `{prefix}/current/bin/{id}` binary) where the engine skills / native installs are described
 - [x] 8. `agent-wiki/2026-10-19-tensorfold-archive-current.md` records the work, referencing issue #386
 - [x] 9. Verified with the real suite: `make test-unit`, `make lint`, `make check-engine-params`, `make check-wiring`, `make check-docs` and `make openspec-validate NAME=tensorfold-archive-current` all exit 0
+- [x] 10. `scripts/engine_bump.py::_drop_pip_prereqs` removes `uv`/`pip`/`pip3` from the skill's `prereqs` when no derived step names it (only inside the `prereqs` block, per backend, keeping every other tool), and `tests/test_engine_bump.py` + `tests/test_tensorfold_seamless.py` lock it both on the derivation and on a host with no `uv` on PATH

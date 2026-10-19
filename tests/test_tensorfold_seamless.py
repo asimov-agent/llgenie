@@ -77,8 +77,10 @@ servable: true
 backends: [metal, cuda]
 os: [darwin, linux]
 formats: [mlx-safetensors]
+# The derivation drops the pip tool from prereqs when the archive steps do not call it
+# (issue #386): a leftover `uv` would block the install on a host that has none.
 prereqs:
-  common: [uv]
+  cuda: [nvidia-smi, nvcc]
 install:
   metal:
 {_ARCHIVE_INSTALL}
@@ -208,6 +210,7 @@ def host(tmp_path, monkeypatch):
     class Host:
         bindir = home / "bin"
         calls = log
+        tool_dir = tools
         tmp = tmp_path
 
         def install(self, version):
@@ -429,6 +432,44 @@ def test_a_failed_install_fails_loudly_and_writes_no_start_script(host, monkeypa
     assert rc != 0
     assert "FAIL tensorfold/metal" in capsys.readouterr().out
     assert not (host.bindir / "llgenie-engine-tensorfold").exists()
+
+
+@pytest.mark.parametrize("tf", [LIVE, ARCHIVE], indirect=True)
+def test_a_host_without_uv_only_blocks_the_pip_install(host, monkeypatch, capsys, tf):
+    """The release-archive install needs no uv, so it must not be refused without one.
+
+    The derivation drops the pip tool from `prereqs` when its steps do not call it
+    (issue #386). A leftover `uv` is a false precondition: `check(mode="native")` would
+    refuse an install that never invokes uv. The pip kind must still demand it.
+    """
+    import shutil as _shutil
+
+    # Given a Mac whose PATH carries the skill's external tools but no uv. Every entry
+    # that provides uv is dropped; the rest is KEPT, so sysctl (/usr/sbin), tar and the
+    # rest of the host still resolve — a PATH of "just the fakes" brakes hardware
+    # detection on macOS, not the install.
+    novu = host.tmp / "novu"
+    novu.mkdir()
+    for name in ("curl", "shasum", "tar"):
+        (novu / name).symlink_to(host.tool_dir / name)
+    rest = [d for d in os.environ.get("PATH", "").split(os.pathsep)
+            if d and not (Path(d) / "uv").exists() and Path(d).resolve() != host.tool_dir.resolve()]
+    monkeypatch.setenv("PATH", os.pathsep.join([str(novu), *rest]))
+    assert _shutil.which("uv") is None, "this test needs a PATH without uv"
+
+    # When llgenie ensures TensorFold for the pick
+    rc = iel.ensure_native(host.bindir, "tensorfold")
+    captured = capsys.readouterr()
+    out = captured.out + captured.err   # blockers are printed on stderr
+
+    # Then the archive kind installs (curl/tar only), and the pip kind still demands uv
+    if tf["kind"] == ARCHIVE:
+        assert rc == 0, out
+        assert host.version() == tf["pinned"]
+        assert "missing prerequisite" not in out, out
+    else:
+        assert rc != 0, out
+        assert "missing prerequisite: uv" in out, out
 
 
 def test_detect_finds_a_uv_tool_install_outside_path(host, monkeypatch):

@@ -56,3 +56,22 @@ in `_version_line`; the cause is the path, not the parser.
   `make openspec-validate NAME=tensorfold-archive-current` exit 0.
 
 Implements #386. The TensorFold `v1.1.1` pin itself is #373 (out of scope here).
+
+## Follow-up in the same change: the pip prerequisite the archive install abandoned
+
+Reproduced while verifying: with the archive-shaped skill and `uv` **absent** from PATH,
+
+```
+prereqs: {'common': ['uv'], 'cuda': ['nvidia-smi', 'nvcc']}
+install uses uv: False   install uses pip: False   install uses curl/tar: True
+blockers (native): ['missing prerequisite: uv']
+```
+
+— the derivation left the pip-era prerequisite behind, so `engine_skills.check(mode="native")`
+refused an install whose steps never call `uv` (a Mac without uv could not run TensorFold 1.1.1 at
+all). `_drop_pip_prereqs` now filters each `prereqs` flow list inside that block, per backend, and
+drops `uv`/`pip`/`pip3` only when no derived step names them; `prereqs.common` is dropped only when
+no backend's steps call it. Verified on the real skill text (`common: [uv]` → `common: []`,
+`cuda: [nvidia-smi, nvcc]` kept) and by
+`tests/test_tensorfold_seamless.py::test_a_host_without_uv_only_blocks_the_pip_install`, which also
+proves the pip kind IS still refused without uv — the check was narrowed, not removed.

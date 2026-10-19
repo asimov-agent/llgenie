@@ -871,6 +871,9 @@ def test_apply_release_archive_replaces_pip_install(tmp_path):
         "    - \"uv tool install --force 'engine @ git+{repo}.git@v{version}'\"\n"
         "  cuda:\n"
         "    - \"uv pip install --system 'engine @ git+{repo}.git@v{version}'\"\n"
+        "prereqs:\n"
+        "  common: [uv]\n"
+        "  cuda: [curl, nvidia-smi, uv]\n"
         "binary: \"engine\"\n"
         "---\n"
         "# body\n"))
@@ -904,6 +907,11 @@ def test_apply_release_archive_replaces_pip_install(tmp_path):
     assert skill["binary"] == "{prefix}/current/bin/{id}"
     assert skill["detect"] == "{binary} --version"
     assert skill["binary_flags"] == ["--version"]
+    # And the pip-era prerequisite is gone (no derived step calls uv), while a tool
+    # the steps DO call (curl) and the hardware floor are kept: a leftover `uv` would
+    # make check(mode="native") refuse the engine on a host that has none (issue #386)
+    assert skill["prereqs"]["common"] == []
+    assert skill["prereqs"]["cuda"] == ["curl", "nvidia-smi"]
 
 
 # A bump's only stand-ins are files for the two external systems: a local git
