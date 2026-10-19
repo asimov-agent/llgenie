@@ -18,7 +18,8 @@ requires:
   min_compute_cap:
     cuda: "8.9"
 prereqs:
-  common: [uv]
+  # the release-archive install calls curl/tar only — uv went away with the pip install
+  common: []
   cuda: [nvidia-smi, nvcc]
 install:
   metal:
