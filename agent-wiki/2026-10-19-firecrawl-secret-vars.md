@@ -1,6 +1,6 @@
 # The Firecrawl key joins the ONE credential list
 
-Issue #379 (follows the parent #357 and #362/#369). OpenSpec change: `firecrawl-secret-vars`.
+Issue #379 (follows the parent #357 and #362/#369). PR #383. OpenSpec change: `firecrawl-secret-vars`.
 
 ## What was wrong
 
