@@ -545,7 +545,12 @@ Every key this repo uses travels the same way: a CI secret, `docker run -e VAR` 
 `VAR=value`), and a guard that echoes only the variable's name when it is missing. `make
 check-secret-output` (in the `ci-unit` job) keeps that true for **all** of them — `NOUS_API_KEY` /
 `NOUS_PORTAL_API_TOKEN`, `GH_TOKEN` / `BUMP_TOKEN` / `GITHUB_TOKEN`, `HF_TOKEN`, `TYPESAFE_API_KEY`,
-`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`:
+`FIRECRAWL_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`:
+
+The list is ONE (`scripts/check_secret_output.py::SECRET_VARS`) and it is the same list the transcript
+redactor reads, so a key cannot be half-covered. `tests/test_secret_output.py` compares it against both
+the `secrets.<NAME>` a workflow reads **and** the Makefile's `AGENT_SHELL_KEYS` (the credentials the
+agent image receives), so a newly forwarded key that is missing here reds `make test-unit` (#379):
 
 | rule | what it fails on |
 |---|---|

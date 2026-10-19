@@ -311,12 +311,15 @@ def test_the_guard_is_wired_into_the_repo():
 def test_the_secret_list_matches_the_repo_secrets():
     """Issue #311: SECRET_VARS named two provider keys the repo does not define, so the guard scanned
     for a leak of a variable that can never carry a value. The list must be the credential variables
-    this repo actually uses."""
+    this repo actually uses — both the ones a workflow reads and the ones the Makefile forwards to the
+    agent (`AGENT_SHELL_KEYS`). Issue #379: FIRECRAWL_API_KEY was forwarded to the agent but absent
+    here, so a printed value was green and the redactor did not mask it."""
 
     # Given the secret-output guard's list
     # When it is read
     # Then it drops the unused provider keys ...
     assert "TYPESAFE_API_KEY" in cso.SECRET_VARS, cso.SECRET_VARS
+    assert "FIRECRAWL_API_KEY" in cso.SECRET_VARS, cso.SECRET_VARS
     assert "OPENROUTER_API_KEY" not in cso.SECRET_VARS, cso.SECRET_VARS
     assert "OPENCODE_API_KEY" not in cso.SECRET_VARS, cso.SECRET_VARS
 
@@ -326,5 +329,25 @@ def test_the_secret_list_matches_the_repo_secrets():
         text = "\n".join(line for line in path.read_text().splitlines()
                           if not line.strip().startswith("#"))
         named |= set(re.findall(r"secrets\.([A-Za-z_][A-Za-z0-9_]*)", text))
+
+    # ... and every credential the Makefile FORWARDS to the agent is too: the forwarded list is what
+    # the agent's shell receives, and the guard/redactor are the only thing that scans it.
+    mk = "\n".join(line for line in (REPO / "Makefile").read_text().splitlines()
+                   if not line.strip().startswith("#"))
+    m = re.search(r"^AGENT_SHELL_KEYS\s*:?=\s*(.+)$", mk, re.MULTILINE)
+    assert m, "AGENT_SHELL_KEYS is gone from the Makefile — the forwarding seam expects it"
+    named |= set(m.group(1).split())
+
     missing = sorted(n for n in named if n not in cso.SECRET_VARS)
-    assert not missing, f"workflows read {missing}, which the secret-output guard does not scan"
+    assert not missing, f"the repo names {missing}, which the secret-output guard does not scan"
+
+
+def test_a_printed_firecrawl_value_is_a_finding(tmp_path):
+    """Issue #379: FIRECRAWL_API_KEY is forwarded to the agent, so printing it must be a finding."""
+
+    # Given a script that prints the Firecrawl key's value
+    root = _tree(tmp_path, {"s.sh": '#!/usr/bin/env bash\necho "key: $FIRECRAWL_API_KEY"\n'})
+
+    # When  the guard scans it
+    # Then  the printed value is the violation the other credentials already get
+    assert _rules(root) == ["prints-secret-value"], cso.violations(root)

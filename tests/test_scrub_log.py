@@ -70,6 +70,33 @@ def test_every_spelling_of_a_value_is_redacted():
     assert count >= len(spellings) + 1, count
 
 
+def test_the_firecrawl_value_is_redacted_in_every_spelling():
+    """Issue #379: FIRECRAWL_API_KEY is forwarded to the agent (#362) but was absent from
+    SECRET_VARS, so the redactor masked it only when its generic SHAPE happened to match
+    (`Bearer …`) and let it through raw, in a URL or in a JSON body."""
+
+    import base64
+    import sys
+    import urllib.parse
+
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import scrub_log
+
+    # Given a Firecrawl-shaped value in the redactor's environment, raw, URL-encoded and base64
+    value = "fc-" + "b" * 28
+    spellings = [value, urllib.parse.quote(value, safe=""),
+                 base64.b64encode(value.encode()).decode()]
+    text = "\n".join(f"line {i}: {s}" for i, s in enumerate(spellings))
+
+    # When  the stream is redacted
+    clean, count = scrub_log.redact(text, environ={"FIRECRAWL_API_KEY": value})
+
+    # Then  no spelling survives and the count reports what was replaced
+    for s in spellings:
+        assert s not in clean, f"a spelling of the Firecrawl value survived: {s[:8]}…"
+    assert count >= len(spellings), count
+
+
 def test_a_short_value_is_left_alone():
     import sys
 

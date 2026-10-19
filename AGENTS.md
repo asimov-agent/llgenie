@@ -1075,6 +1075,10 @@ nothing is masked in a log a job uploads itself. So no leg prints its stream raw
   every raw / URL-encoded / base64 spelling, plus credential SHAPES (`ghp_…`, `hf_…`, `sk-…`,
   `Bearer …`) that never entered its environment, and prints a COUNT — never a value, never a prefix.
   A missing input is exit 2: a stream that cannot be read must never look like a clean run.
+- **That one list carries every credential the agent RECEIVES.** A name in the Makefile's
+  `AGENT_SHELL_KEYS` must be in `SECRET_VARS`; `tests/test_secret_output.py` compares the two (and the
+  workflow `secrets.<NAME>` roster) and reds `make test-unit` when one is missing, because a forwarded
+  key that is absent there is neither scanned when printed nor masked in the transcript (#379).
 - **A leg that calls `hermes` outside the macro is a defect**, and so is a workflow that uploads the
   raw `$(HERMES_LOG)` — the raw file holds the unredacted stream by construction.
 
