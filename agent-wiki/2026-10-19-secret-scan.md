@@ -1,6 +1,7 @@
 # 2026-10-19 — a committed credential VALUE is scanned, and the scanner is tested (#360)
 
-Implements [#360](https://github.com/asimov-agent/llgenie/issues/360), a child of the bot-fleet parent
+Implements [#360](https://github.com/asimov-agent/llgenie/issues/360) (PR [#368](https://github.com/asimov-agent/llgenie/pull/368)),
+a child of the bot-fleet parent
 [#357](https://github.com/asimov-agent/llgenie/issues/357). OpenSpec change: `openspec/changes/secret-scan`.
 
 ## What was wrong (measured)
