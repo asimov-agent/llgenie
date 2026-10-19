@@ -563,9 +563,9 @@ def test_official_upstream_images_are_used_as_bases(skills):
 
     # When their FROM lines are read
     # Then the official image is the base and nothing is installed on top
-    assert "FROM vllm/vllm-openai:v0.31.0" in df("vllm", "cuda")
-    assert "FROM vllm/vllm-openai-cpu:v0.31.0" in df("vllm", "cpu")
-    assert "FROM vllm/vllm-openai-rocm:v0.31.0" in df("vllm", "rocm")
+    assert "FROM vllm/vllm-openai:v0.32.0" in df("vllm", "cuda")
+    assert "FROM vllm/vllm-openai-cpu:v0.32.0" in df("vllm", "cpu")
+    assert "FROM vllm/vllm-openai-rocm:v0.32.0" in df("vllm", "rocm")
     assert "FROM ollama/ollama:0.40.6-rocm" in df("ollama", "rocm")
     assert "FROM lmsysorg/sglang:v0.5.21" in df("sglang", "cuda")
     assert "FROM nvcr.io/nvidia/tensorrt-llm/release:1.2.1" in df("tensorrt-llm", "cuda")

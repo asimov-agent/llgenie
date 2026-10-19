@@ -4,11 +4,11 @@ description: "Use when building the vLLM engine image (CUDA wheel matching the i
 engine: "vLLM"
 id: vllm
 repo: https://github.com/vllm-project/vllm
-ref: v0.31.0
+ref: v0.32.0
 ref_kind: tag
-version: v0.31.0
-pinned: db9527a46873454610df6dbedf79a36d6bf1a7f6
-verified: "2026-10-05"
+version: v0.32.0
+pinned: 5df63a7203cdb9328d824a27b682e77c7b9928be
+verified: "2026-10-19"
 license: Apache-2.0
 servable: true
 backends: [cuda, rocm, cpu]

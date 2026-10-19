@@ -317,7 +317,7 @@ def test_bump_rewrites_hardcoded_pin_asserts(tmp_path, monkeypatch):
         'assert "FROM ollama/ollama:0.40.6-rocm" in df("ollama", "rocm")\n'
         f'assert tag.startswith("llgenie/ollama:{old[:8]}-")\n'
         f'assert pinned == "{old}"\n'
-        'assert "v0.31.0" in other  # another engine, must survive\n'
+        'assert "v0.32.0" in other  # another engine, must survive\n'
     )
     (tmp_path / "README.md").write_text(f"tag `llgenie/ollama:{old[:8]}-<hash>-cuda`\n")
     record = tmp_path / "openspec" / "changes" / "old"
@@ -340,7 +340,7 @@ def test_bump_rewrites_hardcoded_pin_asserts(tmp_path, monkeypatch):
     assert "0.41.0-rocm" in got and "0.40.6-rocm" not in got
     assert f"llgenie/ollama:{new[:8]}-" in got
     assert f'pinned == "{new}"' in got
-    assert "v0.31.0" in got
+    assert "v0.32.0" in got
     assert f"llgenie/ollama:{new[:8]}-" in (tmp_path / "README.md").read_text()
     assert (record / "spec.md").read_text() == "pinned at v0.40.6\n"
 
