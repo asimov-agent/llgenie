@@ -1,15 +1,27 @@
 """Seamless TensorFold on a Mac (issue #114): picking TensorFold in `llgenie` makes it
-ready whatever is on the host. Missing -> installed with its skill's install script
-(`uv tool install --force 'tensorfold @ git+...@v<pinned>'`), installed at another
-version -> updated to the pinned release, installed at the pinned release -> reused,
-then served through its native start script.
+ready whatever is on the host. Missing -> installed with its skill's install
+script, installed at another version -> updated to the pinned release, installed
+at the pinned release -> reused, then served through its native start script.
 
-The REAL skill code runs (engine_skills.install / detect / native_status rendering the
-real skills/engines/tensorfold/SKILL.md, install_engine_launchers.ensure_native, the
-`llgenie --select` path). Only the two host executables the skill calls, `uv` and
-`tensorfold`, are stand-ins on PATH: they record every call and keep the installed
+The module is INSTALL-KIND AGNOSTIC (issue #386): it drives whatever install the
+skill declares. On main the tensorfold skill is a pip/uv install
+(`uv tool install --force 'tensorfold @ git+...@v<pinned>'`); after the
+release-archive bump (engine_bump._apply_release_archive) it is
+mkdir/curl/shasum/tar/ln steps unpacking into {prefix}/{version} with
+{prefix}/current -> {version}. Both reach missing / outdated / current through
+the REAL engine_skills.native_status and install_engine_launchers.ensure_native,
+and the picker labels hold for both. The tests run the "live" skill (pip on main,
+archive after a bump) and a synthesized archive-kind skill side by side, so the
+archive shape is proven even while main's skill is still pip.
+
+The REAL skill code runs (engine_skills.install / detect / native_status rendering
+the real skills/engines/tensorfold/SKILL.md, install_engine_launchers.ensure_native,
+the `llgenie --select` path). Only the host executables the skill shells out to
+(`uv`, `tensorfold`/`tensorfold-native`, and for the archive kind `curl`, `shasum`,
+`tar`) are stand-ins on PATH: they record every call, log it, and keep the installed
 version in a state file, so the whole install / update / reuse cycle runs hermetically
-without network or a 21 GB model."""
+without network or a 21 GB model. No product code is mocked; no test is skipped.
+"""
 from __future__ import annotations
 
 import os
@@ -25,18 +37,86 @@ sys.path.insert(0, str(REPO / "scripts"))
 import engine_skills as es  # noqa: E402
 import hf_auth  # noqa: E402
 import install_engine_launchers as iel  # noqa: E402
+import llgenie_serve  # noqa: E402
 
 SERVE = REPO / "scripts" / "llgenie_serve.py"
 PINNED = es.pinned_version(es.get_skill("tensorfold"))
 HUB_CACHE = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache")
 
+LIVE, ARCHIVE = "live", "archive"
+# The release-archive shape engine_bump rewrites the skill to (issue #386): the
+# binary goes through {prefix}/current (a symlink to the unpacked release) so
+# detect asks the INSTALLED binary its version, and binary_flags documents both
+# --help and --version.
+ARCHIVE_PINNED = "1.1.1"
+_ARCHIVE_INSTALL = "\n".join(
+    '    - "' + step.replace('"', '\\"') + '"'
+    for step in (
+        "mkdir -p {prefix}/{version}",
+        "curl -fsSL -o {prefix}/tensorfold-{version}-macos-arm64.tar.gz {repo}/releases/download/v{version}/tensorfold-{version}-macos-arm64.tar.gz",
+        "curl -fsSL -o {prefix}/tensorfold-{version}-macos-arm64.tar.gz.sha256 {repo}/releases/download/v{version}/tensorfold-{version}-macos-arm64.tar.gz.sha256",
+        "cd {prefix} && shasum -a 256 -c tensorfold-{version}-macos-arm64.tar.gz.sha256",
+        "tar -xzf {prefix}/tensorfold-{version}-macos-arm64.tar.gz -C {prefix}/{version} --strip-components=1",
+        'exe=$(find {prefix}/{version}/bin -maxdepth 1 -type f -perm -111); set -- $exe; ln -sfn "$1" {prefix}/{version}/bin/{id}',
+        "ln -sfn {prefix}/{version} {prefix}/current",
+    )
+)
+ARCHIVE_SKILL = f"""---
+name: engine-tensorfold
+description: "Use when installing TensorFold from a release archive (issue #386)"
+engine: "TensorFold"
+id: tensorfold
+repo: https://github.com/ashhart/TensorFold
+ref: v{ARCHIVE_PINNED}
+ref_kind: tag
+version: v{ARCHIVE_PINNED}
+pinned: 609ca419abecebdc5a059498a613680bd3aa847f
+verified: "2026-10-05"
+license: Apache-2.0
+servable: true
+backends: [metal, cuda]
+os: [darwin, linux]
+formats: [mlx-safetensors]
+prereqs:
+  common: [uv]
+install:
+  metal:
+{_ARCHIVE_INSTALL}
+  cuda:
+    - "mkdir -p {{prefix}}/{{version}}"
+    - "curl -fsSL -o {{prefix}}/tensorfold-{{version}}-linux-x86_64.tar.gz {{repo}}/releases/download/v{{version}}/tensorfold-{{version}}-linux-x86_64.tar.gz"
+    - "curl -fsSL -o {{prefix}}/tensorfold-{{version}}-linux-x86_64.tar.gz.sha256 {{repo}}/releases/download/v{{version}}/tensorfold-{{version}}-linux-x86_64.tar.gz.sha256"
+    - "cd {{prefix}} && sha256sum -c tensorfold-{{version}}-linux-x86_64.tar.gz.sha256"
+    - "tar -xzf {{prefix}}/tensorfold-{{version}}-linux-x86_64.tar.gz -C {{prefix}}/{{version}} --strip-components=1"
+    - 'exe=$(find {{prefix}}/{{version}}/bin -maxdepth 1 -type f -perm -111); set -- $exe; ln -sfn "$1" {{prefix}}/{{version}}/bin/{{id}}'
+    - "ln -sfn {{prefix}}/{{version}} {{prefix}}/current"
+binary: "{{prefix}}/current/bin/{{id}}"
+binary_flags: ["--help", "--version"]
+detect: "{{binary}} --version"
+launch:
+  common: "{{binary}} serve {{model}} --host {{host}} --port {{port}} --name {{alias}}"
+  metal: "{{context_flag}}"
+env:
+  metal:
+    TENSORFOLD_MEMORY_LIMIT_GB: "{{ram_gib}}"
+health: "GET /v1/models"
+alias_mode: flag
+container:
+  cuda:
+    base: "nvcr.io/nvidia/pytorch:26.07-py3"
+---
+
+# body
+"""
+
 # `uv`: `uv tool install --force 'tensorfold @ git+<repo>.git@v<X>'` installs version X
 # into the state file and drops a `tensorfold` executable into ~/.local/bin;
 # `uv tool list` prints `tensorfold v<X>` like real uv. Every call is logged.
+# Any failing external tool respects FAKE_INSTALL_FAIL (the failed-install test).
 FAKE_UV = r"""#!/usr/bin/env bash
 echo "uv $*" >> "$FAKE_LOG"
 if [ "$1 $2" = "tool install" ]; then
-  [ -n "${FAKE_UV_FAIL:-}" ] && { echo "error: network down" >&2; exit 2; }
+  [ -n "${FAKE_INSTALL_FAIL:-}" ] && { echo "error: network down" >&2; exit 2; }
   ver="$(printf '%s' "$*" | sed -E 's/.*@v([0-9.]+).*/\1/')"
   printf '%s' "$ver" > "$FAKE_STATE"
   mkdir -p "$HOME/.local/bin"
@@ -47,27 +127,79 @@ elif [ "$1 $2" = "tool list" ]; then
 fi
 exit 0
 """
+# `tensorfold` (pip kind) and `tensorfold-native` (archive kind) are the SAME script:
+# --help prints usage (the pip skill's detect asks it), --version prints the release
+# recorded in the shared state file (the archive skill's detect and native_status ask
+# it). A copy is dropped into the install layout by fake uv / fake tar.
 FAKE_TF = r"""#!/usr/bin/env bash
 echo "tensorfold $*" >> "$FAKE_LOG"
-case "${1:-}" in --help) echo "usage: tensorfold serve MODEL"; exit 0 ;; esac
+case "${1:-}" in
+  --help) echo "usage: tensorfold serve MODEL"; exit 0 ;;
+  --version) [ -s "$FAKE_STATE" ] && cat "$FAKE_STATE"; echo; exit 0 ;;
+esac
 exit 0
 """
+# The archive install downloads into `-o <file>` (curl -fsSL -o <file> <url>).
+FAKE_CURL = r"""#!/usr/bin/env bash
+echo "curl $*" >> "$FAKE_LOG"
+[ -n "${FAKE_INSTALL_FAIL:-}" ] && { echo "error: download failed" >&2; exit 7; }
+out=""
+prev=""
+for arg in "$@"; do
+  [ "$prev" = "-o" ] && out="$arg"
+  prev="$arg"
+done
+[ -n "$out" ] && : > "$out"
+exit 0
+"""
+FAKE_SHASUM = r"""#!/usr/bin/env bash
+echo "shasum $*" >> "$FAKE_LOG"
+[ -n "${FAKE_INSTALL_FAIL:-}" ] && { echo "checksum mismatch" >&2; exit 1; }
+exit 0
+"""
+# `tar -xzf <archive> -C <dir> --strip-components=1` unpacks bin/tensorfold-native
+# (upstream's name, a copy of the fake ~tensorfold~ script) plus VERSION, and records
+# the release in the shared state file so the installed binary's `--version` answers
+# the release that was actually unpacked (what native_status asks).
+FAKE_TAR = r"""#!/usr/bin/env bash
+echo "tar $*" >> "$FAKE_LOG"
+d=""
+prev=""
+for arg in "$@"; do
+  [ "$prev" = "-C" ] && d="$arg"
+  prev="$arg"
+done
+if [ -n "$d" ]; then
+  mkdir -p "$d/bin"
+  cp "$FAKE_TF" "$d/bin/tensorfold-native"; chmod +x "$d/bin/tensorfold-native"
+  ver="$(printf '%s' "$*" | sed -E 's/.*tensorfold-([0-9.]+)-macos.*/\1/')"
+  [ -n "$ver" ] && printf '%s' "$ver" > "$FAKE_STATE"
+  printf '%s' "${ver:-unknown}" > "$d/VERSION"
+fi
+exit 0
+"""
+
+_TOOL_FAKES = {"uv": FAKE_UV, "curl": FAKE_CURL, "shasum": FAKE_SHASUM, "tar": FAKE_TAR}
 
 
 @pytest.fixture
 def host(tmp_path, monkeypatch):
-    """A Mac home with fake `uv` on PATH; `installed=` seeds an existing install."""
+    """A Mac home with the skill's external tools on PATH; `installed=` seeds an install."""
     home, tools = tmp_path / "home", tmp_path / "tools"
+    engines = tmp_path / "engines"
     tools.mkdir(parents=True)
     (home / ".local" / "bin").mkdir(parents=True)
     log, state = tmp_path / "calls.log", tmp_path / "tf.version"
     log.write_text("")
-    for name, body in (("uv", FAKE_UV), ("tf-template", FAKE_TF)):
+    for name, body in _TOOL_FAKES.items():
         p = tools / name
         p.write_text(body)
         p.chmod(p.stat().st_mode | stat.S_IEXEC)
+    tf_template = tools / "tf-template"
+    tf_template.write_text(FAKE_TF)
+    tf_template.chmod(tf_template.stat().st_mode | stat.S_IEXEC)
     env = {"HOME": str(home), "FAKE_LOG": str(log), "FAKE_STATE": str(state),
-           "FAKE_TF": str(tools / "tf-template"),
+           "FAKE_TF": str(tf_template), "LLGENIE_ENGINES": str(engines),
            "PATH": f"{tools}:/usr/bin:/bin:/usr/sbin:/sbin", "LLAMA_BACKEND": "metal"}
     for k, v in env.items():
         monkeypatch.setenv(k, v)
@@ -76,24 +208,63 @@ def host(tmp_path, monkeypatch):
     class Host:
         bindir = home / "bin"
         calls = log
+        tmp = tmp_path
 
         def install(self, version):
-            """TensorFold already on the host at `version`."""
+            """TensorFold already on the host at `version`, reachable by BOTH
+            install kinds: ~/.local/bin/tensorfold (pip/uv) and the {prefix}/current
+            layout the archive install uses. The version they report comes from the
+            one shared state file."""
             state.write_text(version)
             tf = home / ".local" / "bin" / "tensorfold"
             tf.write_text(FAKE_TF)
             tf.chmod(0o755)
+            prefix = engines / "tensorfold"
+            verdir = prefix / version
+            (verdir / "bin").mkdir(parents=True, exist_ok=True)
+            native = verdir / "bin" / "tensorfold-native"
+            native.write_text(FAKE_TF)
+            native.chmod(0o755)
+            (verdir / "VERSION").write_text(version)
+            (verdir / "bin" / "tensorfold").symlink_to("tensorfold-native")
+            cur = prefix / "current"
+            if cur.is_symlink() or cur.exists():
+                cur.unlink()
+            cur.symlink_to(verdir, target_is_directory=True)
 
         def version(self):
             return state.read_text() if state.exists() else None
 
         def installs(self):
-            return [ln for ln in log.read_text().splitlines() if ln.startswith("uv tool install")]
+            """How many real install batches ran, whatever the install kind: each
+            ensure_native install runs the skill's steps, which is one `uv tool
+            install` (pip) or one `tar -xzf` (archive)."""
+            lines = log.read_text().splitlines() if log.exists() else []
+            steps = " ".join(str(x) for x in es._flatten((es.get_skill("tensorfold").get("install") or {})))
+            return [ln for ln in lines
+                    if ln.startswith("tar -xzf" if "tar -xzf" in steps else "uv tool install")]
 
         def env(self):
             return {**os.environ}
 
     return Host()
+
+
+@pytest.fixture
+def tf(host, monkeypatch, request):
+    """`(kind, pinned)` for the skill the state-machine tests drive: `live` runs the
+    real repo skill (pip on main, archive after a bump); `archive` rewrites the skill
+    to the release-archive shape so that shape is proven even while main is pip."""
+    kind = request.param
+    if kind == ARCHIVE:
+        d = host.tmp / "skills" / "engines" / "tensorfold"
+        d.mkdir(parents=True)
+        (d / "SKILL.md").write_text(ARCHIVE_SKILL)
+        monkeypatch.setattr(es, "SKILLS_DIR", d.parent)
+        pinned = ARCHIVE_PINNED
+    else:
+        pinned = PINNED
+    return {"kind": kind, "pinned": pinned}
 
 
 # ---------------------------------------------------------------------------
@@ -151,58 +322,62 @@ def test_pinned_version_comes_from_the_skill():
     assert es.pinned_version(lc) is None
 
 
-@pytest.mark.parametrize("seed,state", [(None, "missing"), ("0.6.4", "outdated"), (PINNED, "current")])
-def test_native_status_missing_outdated_current(host, seed, state):
+@pytest.mark.parametrize("seed,state", [(None, "missing"), ("0.6.4", "outdated"), ("current-seed", "current")])
+@pytest.mark.parametrize("tf", [LIVE, ARCHIVE], indirect=True)
+def test_native_status_missing_outdated_current(host, tf, seed, state):
     # Given TensorFold absent, at an older release, or at the pinned release
     if seed:
-        host.install(seed)
+        host.install(tf["pinned"] if seed == "current-seed" else seed)
 
     # When its native state is read through the skill's real detect
     st = iel.native_state("tensorfold")
 
     # Then it is missing / outdated / current, with the installed and wanted versions
-    assert st == {"state": state, "installed": seed, "wanted": PINNED}
+    want_installed = {"missing": None, "outdated": "0.6.4", "current": tf["pinned"]}[state]
+    assert st == {"state": state, "installed": want_installed, "wanted": tf["pinned"]}
 
 
 # ---------------------------------------------------------------------------
 # ensure_native: install / update / reuse through the skill's install script
 # ---------------------------------------------------------------------------
-def test_missing_tensorfold_is_installed_with_its_skill_install_script(host, capsys):
+@pytest.mark.parametrize("tf", [LIVE, ARCHIVE], indirect=True)
+def test_missing_tensorfold_is_installed_with_its_skill_install_script(host, capsys, tf):
     # Given a Mac without TensorFold
     assert host.version() is None
 
     # When llgenie ensures TensorFold for the pick
     rc = iel.ensure_native(host.bindir, "tensorfold")
 
-    # Then it ran the skill's exact install step, the pinned tag, once
+    # Then it ran the skill's install steps once, and TensorFold is at the pinned release
     out = capsys.readouterr().out
     assert rc == 0, out
-    assert host.installs() == [
-        f"uv tool install --force tensorfold @ git+https://github.com/ashhart/TensorFold.git@v{PINNED}"]
+    assert len(host.installs()) == 1
     assert "not installed -> installing" in out
 
     # And TensorFold is now current and its native start script exists
-    assert host.version() == PINNED
+    assert host.version() == tf["pinned"]
     script = host.bindir / "llgenie-engine-tensorfold"
     assert os.access(script, os.X_OK) and "serve tensorfold --backend metal" in script.read_text()
 
 
-def test_outdated_tensorfold_is_updated_to_the_pinned_release(host, capsys):
+@pytest.mark.parametrize("tf", [LIVE, ARCHIVE], indirect=True)
+def test_outdated_tensorfold_is_updated_to_the_pinned_release(host, capsys, tf):
     # Given TensorFold installed at an older release
     host.install("0.6.4")
 
     # When llgenie ensures TensorFold
     rc = iel.ensure_native(host.bindir, "tensorfold")
 
-    # Then it reinstalls the pinned release with the same skill step
+    # Then it reinstalls the pinned release with the skill's steps
     out = capsys.readouterr().out
     assert rc == 0, out
-    assert f"installed 0.6.4 != pinned {PINNED} -> updating" in out
-    assert len(host.installs()) == 1 and host.installs()[0].endswith(f"@v{PINNED}")
-    assert host.version() == PINNED
+    assert f"installed 0.6.4 != pinned {tf['pinned']} -> updating" in out
+    assert len(host.installs()) == 1
+    assert host.version() == tf["pinned"]
 
 
-def test_newer_unpinned_tensorfold_is_brought_back_to_the_pinned_release(host):
+@pytest.mark.parametrize("tf", [LIVE, ARCHIVE], indirect=True)
+def test_newer_unpinned_tensorfold_is_brought_back_to_the_pinned_release(host, tf):
     """A newer release than the skill pins is not what CI tested: llgenie installs the pin."""
 
     # Given TensorFold installed at a newer, untested release
@@ -212,12 +387,13 @@ def test_newer_unpinned_tensorfold_is_brought_back_to_the_pinned_release(host):
     rc = iel.ensure_native(host.bindir, "tensorfold")
 
     # Then it is back at the pinned release
-    assert rc == 0 and host.version() == PINNED
+    assert rc == 0 and host.version() == tf["pinned"]
 
 
-def test_current_tensorfold_is_reused_without_reinstalling(host, capsys):
+@pytest.mark.parametrize("tf", [LIVE, ARCHIVE], indirect=True)
+def test_current_tensorfold_is_reused_without_reinstalling(host, capsys, tf):
     # Given TensorFold at the pinned release
-    host.install(PINNED)
+    host.install(tf["pinned"])
 
     # When llgenie ensures TensorFold twice
     assert iel.ensure_native(host.bindir, "tensorfold") == 0
@@ -229,20 +405,22 @@ def test_current_tensorfold_is_reused_without_reinstalling(host, capsys):
     assert (host.bindir / "llgenie-engine-tensorfold").exists()
 
 
-def test_install_then_reuse_installs_exactly_once(host):
+@pytest.mark.parametrize("tf", [LIVE, ARCHIVE], indirect=True)
+def test_install_then_reuse_installs_exactly_once(host, tf):
     # Given a Mac without TensorFold
 
     # When llgenie ensures it three times (first pick, then later picks)
     for _ in range(3):
         assert iel.ensure_native(host.bindir, "tensorfold") == 0
 
-    # Then the skill's install step ran exactly once
+    # Then the skill's install steps ran exactly once
     assert len(host.installs()) == 1
 
 
-def test_a_failed_install_fails_loudly_and_writes_no_start_script(host, monkeypatch, capsys):
+@pytest.mark.parametrize("tf", [LIVE, ARCHIVE], indirect=True)
+def test_a_failed_install_fails_loudly_and_writes_no_start_script(host, monkeypatch, capsys, tf):
     # Given a Mac without TensorFold whose install fails (e.g. no network)
-    monkeypatch.setenv("FAKE_UV_FAIL", "1")
+    monkeypatch.setenv("FAKE_INSTALL_FAIL", "1")
 
     # When llgenie ensures TensorFold
     rc = iel.ensure_native(host.bindir, "tensorfold")
@@ -279,6 +457,35 @@ def _llgenie(host, tmp_path, *args):
     return subprocess.run([sys.executable, str(SERVE), *args], env=env, stdin=subprocess.DEVNULL,
                           capture_output=True, text=True,
                           timeout=hf_auth.TOP_TIER_DRY_RUN_TIMEOUT)
+
+
+def _state_label(state: str, installed: str | None, wanted: str | None) -> str:
+    """The picker's Engine-line tail for a metal engine, from the product's own
+    `llgenie_serve._STATE_LABEL` (never a copy that could drift from it). The
+    subprocess pick tests below lock the same string end to end."""
+    return llgenie_serve._STATE_LABEL[state].format(
+        installed=installed or "", wanted=wanted or "latest").rstrip()
+
+
+@pytest.mark.parametrize("tf", [LIVE, ARCHIVE], indirect=True)
+@pytest.mark.parametrize("seed,state", [(None, "missing"), ("0.6.4", "outdated"), ("current-seed", "current")])
+def test_archive_kind_picker_labels(host, tf, seed, state):
+    """The picker label for every native state holds for the archive kind too
+    (the subprocess pick tests below lock it for the live/pip kind)."""
+    # Given TensorFold absent / outdated / current under the release-archive skill
+    if seed:
+        host.install(tf["pinned"] if seed == "current-seed" else seed)
+
+    # When its native state is read the way the picker shows it
+    st = iel.native_state("tensorfold")
+
+    # Then the label says install / update / reuse, exactly like the pip kind
+    want_installed = {"missing": None, "outdated": "0.6.4", "current": tf["pinned"]}[state]
+    wanted_tail = {"missing": f"(installs {tf['pinned']} on pick)",
+                   "outdated": f"(installed 0.6.4 -> updates to {tf['pinned']} on pick)",
+                   "current": f"(installed {tf['pinned']})"}[state]
+    assert _state_label(st["state"], st["installed"], st["wanted"]) == f"  {wanted_tail}"
+    assert st == {"state": state, "installed": want_installed, "wanted": tf["pinned"]}
 
 
 @pytest.mark.parametrize("seed,label", [

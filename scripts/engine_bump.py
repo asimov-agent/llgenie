@@ -313,6 +313,10 @@ def release_archive_install(skill: dict, assets: list[dict]) -> dict | None:
         # share one path. No pipe: the runner uses bash -o pipefail.
         link = ("exe=$(find {prefix}/{version}/bin -maxdepth 1 -type f -perm -111); "
                 "set -- $exe; ln -sfn \"$1\" {prefix}/{version}/bin/{id}")
+        # A pinned version in the binary path would bake {version} into detect,
+        # so native_status could only ever say missing/current (issue #386).
+        # Point {prefix}/current at the release and detect the INSTALLED binary
+        # through it, so `binary --version` can report an older/newer release.
         steps_for[backend] = [
             "mkdir -p {prefix}/{version}",
             "curl -fsSL -o {prefix}/" + asset_tmpl + " {repo}/releases/download/v{version}/" + asset_tmpl,
@@ -320,6 +324,7 @@ def release_archive_install(skill: dict, assets: list[dict]) -> dict | None:
             "cd {prefix} && " + check + " " + asset_tmpl + ".sha256",
             "tar -xzf {prefix}/" + asset_tmpl + " -C {prefix}/{version} --strip-components=1",
             link,
+            "ln -sfn {prefix}/{version} {prefix}/current",
         ]
     return steps_for
 
@@ -354,10 +359,20 @@ def _apply_release_archive(text: str, steps_for: dict) -> str:
     block = _dump_install(steps_for)
     # keep the newline that separated install from the next key
     text = text[:a] + block + text[b:]
-    # The unpacked executable is linked to {id}. detect used to ask pip or
-    # `uv tool` for a package the archive does not install.
-    text = _set_scalar(text, "binary", '"{prefix}/{version}/bin/{id}"')
+    # The unpacked executable is linked to {id}, and {prefix}/current points at
+    # the release it was unpacked into. detect goes through the symlink so it
+    # asks the INSTALLED binary its version — a pinned version baked into the
+    # path would let native_status only ever say missing/current (issue #386).
+    text = _set_scalar(text, "binary", '"{prefix}/current/bin/{id}"')
     text = _set_scalar(text, "detect", '"{binary} --version"')
+    # The release-archive binary answers --version (the detect and native_status
+    # ask it): keep the documented binary flags honest, adding --version to any
+    # --help the pip-era skill already documented.
+    flags = _block_span(text, "binary_flags")
+    has_help = bool(flags) and '"--help"' in text[flags[0]:flags[1]]
+    want = ["--help", "--version"] if has_help else ["--version"]
+    text = _set_scalar(text, "binary_flags",
+                       "[" + ", ".join(f'"{f}"' for f in want) + "]")
     return text
 
 

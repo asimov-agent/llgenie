@@ -896,12 +896,14 @@ def test_apply_release_archive_replaces_pip_install(tmp_path):
     assert "sha256sum -c" in text
     assert "shasum -a 256 -c" in text
     assert "--strip-components=1" in text
-    assert "ln -sfn" in text
+    assert "ln -sfn {prefix}/{version} {prefix}/current" in text
     skill = es.load_skill(p)
     assert skill["install"]["cuda"][0].startswith("mkdir -p")
-    assert skill["install"]["cuda"][-1].startswith("exe=$(find ")
-    assert skill["binary"] == "{prefix}/{version}/bin/{id}"
+    assert skill["install"]["cuda"][-2].startswith("exe=$(find ")
+    assert skill["install"]["cuda"][-1] == "ln -sfn {prefix}/{version} {prefix}/current"
+    assert skill["binary"] == "{prefix}/current/bin/{id}"
     assert skill["detect"] == "{binary} --version"
+    assert skill["binary_flags"] == ["--version"]
 
 
 # A bump's only stand-ins are files for the two external systems: a local git
@@ -1132,14 +1134,15 @@ def test_bump_reads_the_destination_release(tmp_path, monkeypatch):
     assert f"pinned: {new}" in text
     assert "ref: v9.2.0" in text
     got = es.load_skill(path)
-    assert got["binary"] == "{prefix}/{version}/bin/{id}"
+    assert got["binary"] == "{prefix}/current/bin/{id}"
     assert got["detect"] == "{binary} --version"
     assert "sha256sum -c" in got["install"]["cuda"][3]
     assert "shasum -a 256 -c" in got["install"]["metal"][3]
-    link = got["install"]["cuda"][-1]
+    link = got["install"]["cuda"][-2]
     assert link.startswith("exe=$(find ")
     assert "{prefix}/{version}/bin/{id}" in link
     assert "|" not in link
+    assert got["install"]["cuda"][-1] == "ln -sfn {prefix}/{version} {prefix}/current"
     _assert_pins_rewritten(checkout, old, new, "v9.1.0", "v9.2.0")
     assert not (checkout / "data" / "strata_models.json").exists()
 
@@ -1261,10 +1264,11 @@ def test_each_failed_bump_engine_keeps_its_install_kind(tmp_path, monkeypatch, e
         assert "ref: v9.2.0" in text
         assert f"pinned: {new}" in text
         got = es.load_skill(path)
-        assert got["binary"] == "{prefix}/{version}/bin/{id}"
+        assert got["binary"] == "{prefix}/current/bin/{id}"
         assert got["detect"] == "{binary} --version"
         assert "tensorfold-{version}-linux-x86_64.tar.gz" in text
         assert "tensorfold-{version}-macos-arm64.tar.gz" in text
+        assert "ln -sfn {prefix}/{version} {prefix}/current" in text
         _assert_pins_rewritten(checkout, old, new, "v9.1.0", "v9.2.0")
         return
 

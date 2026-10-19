@@ -116,11 +116,15 @@ def test_linux_hosts_never_get_a_metal_variant():
 
 
 def test_tensorfold_image_is_cuda_only_and_built_by_linux_ci():
-    """Metal cannot run in a container: TensorFold's image is the CUDA one, built and
-    published by the Linux CI matrix; on a Mac it runs natively (uv tool install)."""
+    """Metal cannot run in a container: TensorFold's image is the CUDA one, built
+    and published by the Linux CI matrix; on a Mac it runs natively through its
+    skill's declared install, WHATEVER KIND that is (pip/uv on main, a release
+    archive after a bump, issue #386). Only the invariants are asserted, never a
+    hardcoded pip step list."""
 
-    # Given the generated TensorFold params and the CI image matrix
+    # Given the generated TensorFold params and its declared native install
     params = es.generate_params(es.get_skill("tensorfold"))
+    skill = es.get_skill("tensorfold")
 
     # When the CI matrix is computed
     ci = {(r["engine"], r["variant"]) for r in ei.matrix(ci=True)}
@@ -128,8 +132,16 @@ def test_tensorfold_image_is_cuda_only_and_built_by_linux_ci():
     # Then the only image is cuda and CI builds it; metal is a native install
     assert set(params["variants"]) == {"cuda"}
     assert ("tensorfold", "cuda") in ci and ("tensorfold", "metal") not in ci
-    assert es._per_backend(es.get_skill("tensorfold")["install"], "metal") == [
-        "uv tool install --force 'tensorfold @ git+{repo}.git@v{version}'"]
+
+    # And the metal install is a real set of steps this Mac runs natively:
+    # non-empty, exactly the skill's declared steps, never elevated, never a
+    # `curl | sh` pipe (the archive shape downloads then unpacks).
+    declared = skill["install"]["metal"]
+    metal = es._per_backend(skill["install"], "metal")
+    assert metal == declared and metal
+    joined = " ".join(str(x) for x in metal)
+    assert "sudo" not in joined
+    assert "| sh" not in joined and "|bash" not in joined and "| bash" not in joined
 
 
 # ---------------------------------------------------------------------------

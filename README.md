@@ -132,7 +132,11 @@ cannot run in a container. **Picking a Metal engine makes it ready by itself, in
 not:** missing → llgenie runs the skill's install script (TensorFold: `uv tool install
 --force 'tensorfold @ git+…@v<pinned>'`; the MLX wheels ship their Metal kernels
 precompiled); installed at another version than the skill pins → it updates to the pin;
-at the pin → it is reused. The engine list says which: `(installs 0.6.5 on pick)`,
+at the pin → it is reused. When a release ships native archives instead of a pip package,
+the bump rewrites the install to download/checksum/unpack into `{prefix}/{version}` and
+point `{prefix}/current` at it, so the binary is `{prefix}/current/bin/{id}` and the
+installed version is still detected truthfully (issue #386). The engine list says which:
+`(installs 0.6.5 on pick)`,
 `(installed 0.6.4 -> updates to 0.6.5 on pick)` or `(installed 0.6.5)`. Then llgenie
 downloads the model's TensorFold checkpoint if missing, writes a native
 `~/bin/llgenie-engine-<id>` (no docker) and serves. TensorFold gets a **65,536-token window**
