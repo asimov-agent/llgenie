@@ -101,6 +101,14 @@ jobs:
         if: steps.pick.outputs.picked == 'true'
         run: make agent-jev-preflight NERVE_REQUIRE=1
 
+      # Hermes strips provider credentials from its terminal tool, so `-e NOUS_API_KEY`
+      # reaches the container while the AGENT's shell reads it EMPTY — a bot that then does
+      # nothing while this run stays green (issue #358). Prove the agent can see what this
+      # job forwards, and stop in seconds instead of after a 120-minute run.
+      - name: Prove the agent's shell can see this job's credentials (issue #358)
+        if: steps.pick.outputs.picked == 'true'
+        run: make agent-shell-keys-check AGENT_SHELL_CHECK_KEYS="NOUS_API_KEY TYPESAFE_API_KEY"
+
       - name: Review the issue (Hermes reads refine-in.md and writes refine.md)
         id: review
         if: steps.pick.outputs.picked == 'true'

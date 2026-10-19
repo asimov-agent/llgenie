@@ -1024,6 +1024,33 @@ chains them all.
 - `hf_dl.py` reads `HF_TOKEN` from `~/.zshrc` at runtime — never store a token in
   the repo or commit one. Prefer documented example shapes in docs/tests.
 
+## A bot's credential must reach the AGENT's shell, never a log (MANDATORY, durable)
+
+A bot leg that forwards a key the agent's own shell cannot read gives you a run that
+**does nothing and reports green**: the container has the key, the step log shows the
+name (GitHub masks a registered value to `***`), and the agent's shell reads it EMPTY.
+Measured on this host against the real Hermes (issue #358) — plain names read
+`agent-shell=EMPTY` (exit 1), the forced twin reads `agent-shell=set` (exit 0).
+
+- **Hermes strips provider credentials from its terminal tool on purpose**
+  (`tools/environments/local_env_policy.py::_STATIC_PROVIDER_ENV_BLOCKLIST`: `NOUS_API_KEY`,
+  `GH_TOKEN`, `FIRECRAWL_API_KEY`, `HF_TOKEN` …), and `env_passthrough` can never re-allow a
+  blocklisted name. The one sanctioned way through is `_HERMES_FORCE_<NAME>`, which its
+  terminal env builder unwraps back to `<NAME>`.
+- **ONE list, one seam, in the Makefile.** `AGENT_SHELL_KEYS` names every credential a
+  container receives; on the host `make` exports `_HERMES_FORCE_<NAME>` from `<NAME>` by
+  reference (the value is never on a command line, in a recipe or in a log — `ps` cannot see
+  it) and only when `<NAME>` is set; every agent leg carries `$(AGENT_SHELL_FORWARD)`. A leg
+  that spells out `-e <NAME>` without the forced twin is the defect, not a shortcut.
+- **Prove it, do not assume it.** `make agent-shell-keys-check` drives Hermes's REAL terminal
+  environment (`LocalEnvironment`) inside the agent image and fails — naming the variable, never
+  printing a value — when a container credential reads empty in the agent's shell. Every bot job
+  that starts the agent image runs it, with `AGENT_SHELL_CHECK_KEYS=` narrowed to the keys that
+  job actually sets (a key the job legitimately lacks must not fail the check).
+- **A missing credential is LOUD, never a skip.** An unset key, or a Hermes that cannot be found
+  where the check runs, exits 2; `--allow-unconfigured` is the only opt-out, it says so, and no
+  workflow may use it.
+
 ## Record of work
 
 Track progress in `agent-wiki/` as dated `YYYY-MM-DD-<name>.md` entries (what was

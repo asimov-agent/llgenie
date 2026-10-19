@@ -382,6 +382,7 @@ make issue-bot-open-pr REPO=<repo> ISSUE=<n> BRANCH=agent/issue-<n>-<slug>  # dr
 make implement-issue      # the shared Hermes agent step: read issue.md + AGENTS.md, implement, run gates, push nothing
 make issue-bot-image      # build/pull the agent image the bot runs in (same image as the fix-bot)
 make hermes-smoke          # one real Hermes call through the implementer alias (die in seconds)
+make agent-shell-keys-check  # prove the credential is visible in the AGENT's shell (issue #358)
 make issue-bot-triage     # step 1: Hermes REVIEWS the issue.md thread (body + every comment) and writes triage.md
 make issue-bot-verdict ISSUE=<n>   # step 2: apply that verdict — implement | refine | close
 ```
@@ -559,6 +560,43 @@ GitHub masks a registered secret in its own logs, and that is **not** enough: ma
 the log stream, so a transformed value (base64, a URL, a slice) sails past it, and nothing is masked in
 a log a job uploads itself. `make secret-output-report` shows which files name a secret and whether any
 of them prints it.
+
+## The credential reaches the AGENT's shell (#358)
+
+Every key the bots use also has to survive **Hermes's own terminal filter**. Hermes strips provider
+credentials from the terminal tool on purpose (`NOUS_API_KEY`, `GH_TOKEN`, `FIRECRAWL_API_KEY`,
+`HF_TOKEN` … are on its blocklist, and `env_passthrough` can never re-allow one), so a key forwarded
+as `-e NOUS_API_KEY` reaches the container and the Hermes process while the **agent's own shell reads
+it EMPTY** — the bot then does nothing and the run stays green. Measured on a host with the real
+Hermes, with sentinel values only:
+
+```console
+$ NOUS_API_KEY=SENTINEL python3 scripts/agent_shell_keys_check.py NOUS_API_KEY
+[agent-shell-keys] NOUS_API_KEY: container=set agent-shell=EMPTY (MISMATCH; _HERMES_FORCE_NOUS_API_KEY NOT forced; value never printed)
+rc=1
+$ NOUS_API_KEY=SENTINEL _HERMES_FORCE_NOUS_API_KEY=SENTINEL python3 scripts/agent_shell_keys_check.py NOUS_API_KEY
+[agent-shell-keys] OK: 1 credential(s) visible in the agent's shell.
+rc=0
+```
+
+The one sanctioned way through is the `_HERMES_FORCE_<NAME>` form. The Makefile keeps **one list** —
+`AGENT_SHELL_KEYS` (`NOUS_API_KEY`, `GH_TOKEN`, `HF_TOKEN`, `TYPESAFE_API_KEY`) — exports
+`_HERMES_FORCE_<NAME>` from `<NAME>` **by reference** on the host (the value is never on a command
+line, in a recipe or in a log, so `ps` cannot see it), and every agent leg carries
+`$(AGENT_SHELL_FORWARD)`, so the plain name and its forced twin always travel together.
+
+```bash
+make agent-shell-keys-check                                    # prove it, inside the agent image
+make agent-shell-keys-check AGENT_SHELL_CHECK_KEYS="NOUS_API_KEY TYPESAFE_API_KEY"
+                                                               # narrow it to the keys this job has
+```
+
+The check drives Hermes's **real** terminal environment (`LocalEnvironment`, the code the agent's
+`terminal` tool uses) inside the agent image, prints lengths only (never a value or a prefix), and
+fails closed: a key that is missing from the container, or a Hermes that cannot be found, exits 2 —
+`--allow-unconfigured` is the sole local opt-out and no workflow uses it. `issue-bot.yml`,
+`fix-bot.yml`, `issue-refiner.yml` and `rebase-bot.yml` each run it before their agent work, so a job
+whose credential cannot reach the agent stops in seconds instead of after a 120-180-minute run.
 
 ## The code-review bot (issue #269)
 

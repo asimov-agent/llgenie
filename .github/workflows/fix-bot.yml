@@ -148,6 +148,13 @@ jobs:
 
       - name: Prove the JEV engine is active — the loop does not start without it (issue #238)
         run: make agent-jev-preflight NERVE_REQUIRE=1
+
+      # Hermes strips provider credentials from its terminal tool, so `-e NOUS_API_KEY`
+      # reaches the container while the AGENT's shell reads it EMPTY — a bot that then does
+      # nothing while this run stays green (issue #358). Prove the agent can see what this
+      # job forwards, and stop in seconds instead of after a 180-minute run.
+      - name: Prove the agent's shell can see this job's credentials (issue #358)
+        run: make agent-shell-keys-check AGENT_SHELL_CHECK_KEYS="NOUS_API_KEY GH_TOKEN TYPESAFE_API_KEY"
       - name: Sync the PR's branch with latest upstream main before repairing it (issue #303)
         id: sync
         run: |

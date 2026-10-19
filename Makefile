@@ -64,12 +64,42 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	queued-alarm issue-cleaner-scan issue-cleaner-apply fix-loop fix-loop-image fix-bot-sweep fix-bot-report agent-image-ref issue-bot-dispatch issue-bot-open-pr issue-bot-image \
 	issue-bot-triage issue-bot-verdict implement-issue hermes-smoke agent-jev-preflight code-review-scan code-review-file rebase-bot-sweep rebase-bot \
 	run-failure-reactor rebase-bot-agent check-docs docs-report check-pr-hygiene pr-hygiene-report check-pr-authors pr-authors-report check-workflows workflows-report issue-refiner-pick issue-refiner issue-refiner-apply check-dispatch-forms dispatch-forms-report \
+	agent-shell-keys-check \
 	engine-bump-rebase generate-engine-params check-engine-params build-engine run-engine stop-engine list-engine-images ci-lint ci-unit ci-agents-read \
 	ci-openspec ci-cpu-health ci-top-tier ci-install ci-install-dry-args ci-free-disk test-engine-stage bot-sync-main bot-sync-branch
 
 # ---- container runtime: docker -------------------------------------------
 RUNTIME ?= docker
 OS_IMG := llgenie/openspec:latest
+
+# ---- credentials the AGENT's shell must see (issue #358) --------------------
+# Hermes STRIPS provider credentials from its terminal tool on purpose
+# (`tools/environments/local_env_policy.py::_STATIC_PROVIDER_ENV_BLOCKLIST`):
+# NOUS_API_KEY, GH_TOKEN, FIRECRAWL_API_KEY and HF_TOKEN are on it, and
+# `env_passthrough` can never re-allow a blocklisted name. So a key forwarded as
+# `-e NOUS_API_KEY` reaches the container and the Hermes process — while the
+# agent's own shell reads it EMPTY, which is how a bot does nothing while its step
+# log shows the name. The one sanctioned way through is `_HERMES_FORCE_<NAME>`,
+# which Hermes's terminal env builder unwraps back to `<NAME>`. Measured on this
+# host against the real Hermes: plain names -> `agent-shell=EMPTY` (exit 1),
+# forced names -> `agent-shell=set`.
+#
+# ONE list: every credential a container receives. On the HOST, make exports
+# `_HERMES_FORCE_<NAME>` from `<NAME>` BY REFERENCE (the value is never on a
+# command line, in a recipe or in a log — so `ps` cannot see it), and only when
+# `<NAME>` is set. Inside a container (`/.dockerenv`) nothing is re-created, so
+# `make agent-shell-keys-check` proves what `docker run` forwarded, never what an
+# inner make invented. IN_CONTAINER is overridable for the tests only.
+AGENT_SHELL_KEYS := NOUS_API_KEY GH_TOKEN HF_TOKEN TYPESAFE_API_KEY
+AGENT_FORCE_PREFIX := _HERMES_FORCE_
+IN_CONTAINER ?= $(if $(wildcard /.dockerenv),1,)
+ifeq ($(IN_CONTAINER),)
+$(foreach k,$(AGENT_SHELL_KEYS),$(if $(value $(k)),$(eval export $(AGENT_FORCE_PREFIX)$(k) = $$($(k)))))
+endif
+AGENT_SHELL_FORWARD := $(foreach k,$(AGENT_SHELL_KEYS),-e $(AGENT_FORCE_PREFIX)$(k))
+# The plain names too: `docker run` does not inherit the host env, so the container only has
+# a key it was explicitly given (the check needs it set in the container to prove anything).
+AGENT_SHELL_FORWARD_PLAIN := $(foreach k,$(AGENT_SHELL_KEYS),-e $(k))
 
 all: bash-check install
 
@@ -279,6 +309,7 @@ rebase-bot-agent: ## Ask Hermes to resolve a stopped rebase (the conflict prompt
 	  -e NOUS_API_KEY -e HERMES_REASONING \
 	  -e TYPESAFE_API_KEY \
 	  -e HERMES_NERVE_PROVIDER -e NERVE_REQUIRE \
+	  $(AGENT_SHELL_FORWARD) \
 	  $(AGENT_IMAGE) bash -lc 'make _rebase-bot-agent'
 
 _rebase-bot-agent: # (internal) the host recipe: read the conflict prompt on stdin, resolve, stage
@@ -297,6 +328,7 @@ issue-refiner: ## Hermes REVIEWS the picked issue (reads refine-in.md: the threa
 	  -e NOUS_API_KEY -e HERMES_REASONING -e REPO \
 	  -e TYPESAFE_API_KEY \
 	  -e HERMES_NERVE_PROVIDER -e NERVE_REQUIRE \
+	  $(AGENT_SHELL_FORWARD) \
 	  $(AGENT_IMAGE) bash -lc 'make _issue-refiner'
 _issue-refiner: # (internal) the host recipe the agent image runs: the review, not the code
 	hermes -z "Load AGENTS.md for rules. Read refine-in.md at the repo root: it carries an issue, its WHOLE comment thread (oldest first), and the review instruction. Follow that instruction and write your verdict to refine.md at the repo root in exactly the required shape (a REFINE: line plus the RESTATED:/REASON: blocks the chosen verdict requires). HARD RULES: this is a REVIEW, not an implementation - do NOT write any code, do NOT create a branch, do NOT push, do NOT open a PR, do NOT comment on the issue yourself, and do NOT modify any file other than refine.md. If the thread leaves a decision open, name it as a question in the restatement instead of deciding it." $(nous-alias) --reasoning $(HERMES_REASONING) --yolo
@@ -337,6 +369,7 @@ issue-bot-triage: ## Hermes REVIEWS the issue (issue.md: body + the whole commen
 	@python3 scripts/ci_images.py ensure agent
 	@$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo \
 	  -e NOUS_API_KEY -e HERMES_REASONING -e REPO \
+	  $(AGENT_SHELL_FORWARD) \
 	  $(AGENT_IMAGE) bash -lc 'make _issue-bot-triage'
 
 _issue-bot-triage: # (internal) the host recipe the agent image runs: the decision, not the code
@@ -364,11 +397,32 @@ bot-sync-main: ## Fetch upstream main and reset the working tree to it, so a NEW
 bot-sync-branch: ## Fetch upstream main and rebase the checked-out PR branch onto it before repairing (issue #303); exit 2 means the rebase conflicts and is left to the rebase-bot
 	@bash scripts/bot_sync_main.sh rebase
 
+# The AGENT's shell sees every credential this container receives (issue #358).
+# Hermes strips provider credentials from its terminal tool, so a key forwarded as
+# `-e NOUS_API_KEY` reaches the container and the Hermes process while the agent's
+# own shell reads it EMPTY — a bot that then does nothing, green. The plain name and
+# the `_HERMES_FORCE_` twin both travel; the probe drives Hermes's REAL terminal
+# environment inside the image, so what is asserted is what the agent gets, not what
+# `docker run` forwarded. The default list is AGENT_SHELL_KEYS; a job that only
+# receives some of them narrows it with AGENT_SHELL_CHECK_KEYS, so the check never
+# fails on a key that job legitimately does not have.
+AGENT_SHELL_CHECK_KEYS ?= $(AGENT_SHELL_KEYS)
+_agent-shell-keys-check: # (internal) the probe, run INSIDE the agent image by the public target
+	python3 scripts/agent_shell_keys_check.py $(AGENT_SHELL_CHECK_KEYS)
+
+agent-shell-keys-check: ## Prove every credential a container receives is visible in the AGENT's shell (Hermes strips provider keys from its terminal tool, issue #358); AGENT_SHELL_CHECK_KEYS= narrows it to the keys this job has
+	@python3 scripts/ci_images.py ensure agent
+	@$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo \
+	  $(AGENT_SHELL_FORWARD_PLAIN) $(AGENT_SHELL_FORWARD) \
+	  -e AGENT_SHELL_CHECK_KEYS="$(AGENT_SHELL_CHECK_KEYS)" \
+	  $(AGENT_IMAGE) bash -lc 'make _agent-shell-keys-check AGENT_SHELL_CHECK_KEYS="$(AGENT_SHELL_CHECK_KEYS)"'
+
 agent-jev-preflight: ## Prove the JEV engine is active in the agent image; every bot workflow runs it with NERVE_REQUIRE=1, so a job whose engine is off does not start. NERVE_GATE_SKIP_PROVIDER=1 skips the live provider call
 	@python3 scripts/ci_images.py ensure agent
 	@$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo \
 	  -e TYPESAFE_API_KEY \
 	  -e HERMES_NERVE_PROVIDER -e NERVE_REQUIRE -e NERVE_GATE_SKIP_PROVIDER \
+	  $(AGENT_SHELL_FORWARD) \
 	  $(AGENT_IMAGE) bash -lc 'make _agent-jev-preflight'
 # The code-review bot (issue #269): it reads the TREE and the PIPELINES and files what is
 # actually wrong. Its whole output is issues — analysis, never implementation (AGENTS.md,
@@ -399,6 +453,7 @@ implement-issue: ## Implement issue.md with Hermes INSIDE the agent image (AGENT
 	  -e NOUS_API_KEY -e GH_TOKEN -e HERMES_REASONING -e REPO \
 	  -e TYPESAFE_API_KEY \
 	  -e HERMES_NERVE_PROVIDER -e NERVE_REQUIRE \
+	  $(AGENT_SHELL_FORWARD) \
 	  $(AGENT_IMAGE) bash -lc 'make _implement-issue'
 
 hermes-smoke: ## One real Hermes call through the alias the implementer uses, inside the agent image (die in seconds, not after 20 min)
@@ -406,6 +461,7 @@ hermes-smoke: ## One real Hermes call through the alias the implementer uses, in
 	@python3 scripts/ci_images.py ensure agent
 	@$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo -e NOUS_API_KEY \
 	  -e TYPESAFE_API_KEY -e HERMES_NERVE_PROVIDER -e NERVE_REQUIRE \
+	  $(AGENT_SHELL_FORWARD) \
 	  $(AGENT_IMAGE) bash -lc 'make _hermes-smoke'
 
 # Inside the image: the JEV preflight first, so the run knows whether the decision layer is
@@ -446,6 +502,7 @@ fix-loop-image: ## Run the fix-bot loop inside the agent image (the same image t
 	$(RUNTIME) run --rm --init -v "$$PWD:/repo" -w /repo \
 	  -e NOUS_API_KEY -e GH_TOKEN -e FIX_CHECK -e FIX_ROUNDS \
 	  -e TYPESAFE_API_KEY -e HERMES_NERVE_PROVIDER -e NERVE_REQUIRE \
+	  $(AGENT_SHELL_FORWARD) \
 	  "$$img" bash -lc 'scripts/agent_jev_preflight.sh && scripts/fix_loop.sh' 2>&1 | tee "$(if $(LOG),$(LOG),/tmp/fix-loop.log)"
 
 fix-bot-sweep: ## Which red PR the fix-bot should repair, and dispatch it (DRY=1 previews; needs gh)
@@ -757,7 +814,7 @@ test-clean: ## Remove left-over/stopped orphaned containers of the test image (i
 	echo "Pruned stopped orphaned $(TEST_IMG) containers."
 
 test-unit: ## Hermetic unit tests (containerized) — includes the lint regression + openspec-tasks-check tests
-	$(TEST_RUN) python -m pytest tests/test_issue_cleaner.py tests/test_llgenie_serve.py tests/test_hf_auth.py tests/test_hf_download_stall.py tests/test_hf_download_retry.py tests/test_hub_probe.py tests/test_lint_linefeeds.py tests/test_engine_bump_sync.py tests/test_engine_bump_rebase.py tests/test_check_openspec_tasks.py tests/test_remove_watchloop.py tests/test_ci_variant_matrix.py tests/test_serve_variant.py tests/test_ensure_user_path.py tests/test_engine_skills.py tests/test_engine_bump.py tests/test_engine_bump_pr_body.py tests/test_detect_server.py tests/test_model_engine_pick.py tests/test_trend_pick.py tests/test_card_aware_rank.py tests/test_registry_sync_trend.py tests/test_trend_list_matrix.py tests/test_registry_keys.py tests/test_engine_skill_gap.py tests/test_strata_download.py tests/test_macos_install.py tests/test_ci_images.py tests/test_mac_trend_pick.py tests/test_trend_list_acceptance.py tests/test_tensorfold_seamless.py tests/test_pick_matrix.py tests/test_pick_matrix_arch_perms.py tests/test_pick_full_registry.py tests/test_trending_quant_catalog.py tests/test_engine_supported_quants.py tests/test_quant_generator_edges.py tests/test_check_python_uv.py tests/test_engine_image_matrix.py tests/test_agents_worktree.py tests/test_agents_debt_analysis.py tests/test_bot_sync.py tests/test_wiring.py tests/test_agent_nerve.py tests/test_secret_output.py tests/test_kv_quant_bytes.py tests/test_queued_run_alarm.py tests/test_rename_llgenie_serve.py tests/test_fix_loop.py tests/test_fix_bot_sweep.py tests/test_issue_implementer.py tests/test_bot_time_budget.py tests/test_code_review.py tests/test_bot_pipeline_isolation.py tests/test_ci_concurrency.py tests/test_loop_test_stage.py tests/test_rebase_bot_sweep.py tests/test_bot_claims.py tests/test_check_docs.py tests/test_issue_refiner.py tests/test_dispatch_forms.py tests/test_workflow_guards.py tests/test_pr_hygiene.py tests/test_pr_authors.py tests/test_workflows_valid.py tests/test_bot_decision_loudness.py tests/test_run_failure_reactor.py -p no:cacheprovider -q -k 'not test_derive_reports_the_live_release_archives and not test_tensorfold_v1_0_5_release_is_native_archives and not test_tensorfold_release_archive_unpacks_and_runs'
+	$(TEST_RUN) python -m pytest tests/test_issue_cleaner.py tests/test_llgenie_serve.py tests/test_hf_auth.py tests/test_hf_download_stall.py tests/test_hf_download_retry.py tests/test_hub_probe.py tests/test_lint_linefeeds.py tests/test_engine_bump_sync.py tests/test_engine_bump_rebase.py tests/test_check_openspec_tasks.py tests/test_remove_watchloop.py tests/test_ci_variant_matrix.py tests/test_serve_variant.py tests/test_ensure_user_path.py tests/test_engine_skills.py tests/test_engine_bump.py tests/test_engine_bump_pr_body.py tests/test_detect_server.py tests/test_model_engine_pick.py tests/test_trend_pick.py tests/test_card_aware_rank.py tests/test_registry_sync_trend.py tests/test_trend_list_matrix.py tests/test_registry_keys.py tests/test_engine_skill_gap.py tests/test_strata_download.py tests/test_macos_install.py tests/test_ci_images.py tests/test_mac_trend_pick.py tests/test_trend_list_acceptance.py tests/test_tensorfold_seamless.py tests/test_pick_matrix.py tests/test_pick_matrix_arch_perms.py tests/test_pick_full_registry.py tests/test_trending_quant_catalog.py tests/test_engine_supported_quants.py tests/test_quant_generator_edges.py tests/test_check_python_uv.py tests/test_engine_image_matrix.py tests/test_agents_worktree.py tests/test_agents_debt_analysis.py tests/test_bot_sync.py tests/test_wiring.py tests/test_agent_nerve.py tests/test_secret_output.py tests/test_kv_quant_bytes.py tests/test_queued_run_alarm.py tests/test_rename_llgenie_serve.py tests/test_fix_loop.py tests/test_fix_bot_sweep.py tests/test_issue_implementer.py tests/test_bot_time_budget.py tests/test_code_review.py tests/test_bot_pipeline_isolation.py tests/test_ci_concurrency.py tests/test_loop_test_stage.py tests/test_rebase_bot_sweep.py tests/test_bot_claims.py tests/test_check_docs.py tests/test_issue_refiner.py tests/test_dispatch_forms.py tests/test_workflow_guards.py tests/test_pr_hygiene.py tests/test_pr_authors.py tests/test_workflows_valid.py tests/test_bot_decision_loudness.py tests/test_run_failure_reactor.py tests/test_agent_shell_keys.py -p no:cacheprovider -q -k 'not test_derive_reports_the_live_release_archives and not test_tensorfold_v1_0_5_release_is_native_archives and not test_tensorfold_release_archive_unpacks_and_runs'
 
 # Live GitHub release reads. Linux only: the macOS runner cannot reach
 # api.github.com, and TensorFold publishes no macos-x86_64 archive.
