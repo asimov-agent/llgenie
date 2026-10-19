@@ -1,7 +1,7 @@
 # 2026-10-19 — the credential reaches the AGENT's shell (issue #358)
 
-Implements [#358](https://github.com/asimov-agent/llgenie/issues/358), the first child of the
-bot-fleet parent [#357](https://github.com/asimov-agent/llgenie/issues/357). OpenSpec change:
+Implements [#358](https://github.com/asimov-agent/llgenie/issues/358) (PR [#365](https://github.com/asimov-agent/llgenie/pull/365)),
+the first child of the bot-fleet parent [#357](https://github.com/asimov-agent/llgenie/issues/357). OpenSpec change:
 `openspec/changes/agent-shell-keys`.
 
 ## What was wrong (measured, this host)
