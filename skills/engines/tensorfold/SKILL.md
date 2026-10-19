@@ -28,6 +28,7 @@ install:
     - "cd {prefix} && shasum -a 256 -c tensorfold-{version}-macos-arm64.tar.gz.sha256"
     - "tar -xzf {prefix}/tensorfold-{version}-macos-arm64.tar.gz -C {prefix}/{version} --strip-components=1"
     - "exe=$(find {prefix}/{version}/bin -maxdepth 1 -type f -perm -111); set -- $exe; ln -sfn \"$1\" {prefix}/{version}/bin/{id}"
+    - "ln -sfn {prefix}/{version} {prefix}/current"
   cuda:
     - "mkdir -p {prefix}/{version}"
     - "curl -fsSL -o {prefix}/tensorfold-{version}-linux-x86_64.tar.gz {repo}/releases/download/v{version}/tensorfold-{version}-linux-x86_64.tar.gz"
@@ -35,8 +36,9 @@ install:
     - "cd {prefix} && sha256sum -c tensorfold-{version}-linux-x86_64.tar.gz.sha256"
     - "tar -xzf {prefix}/tensorfold-{version}-linux-x86_64.tar.gz -C {prefix}/{version} --strip-components=1"
     - "exe=$(find {prefix}/{version}/bin -maxdepth 1 -type f -perm -111); set -- $exe; ln -sfn \"$1\" {prefix}/{version}/bin/{id}"
-binary: "{prefix}/{version}/bin/{id}"
-binary_flags: ["--help"]   # tensorfold answers --help (detect proves it on metal + cuda)
+    - "ln -sfn {prefix}/{version} {prefix}/current"
+binary: "{prefix}/current/bin/{id}"
+binary_flags: ["--help", "--version"]   # the archive binary answers both (its --version is the installed release)
 detect: "{binary} --version"
 launch:
   common: "{binary} serve {model} --host {host} --port {port} --name {alias}"

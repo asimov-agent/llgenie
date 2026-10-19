@@ -223,9 +223,10 @@
     },
     "tensorfold": {
       "cuda": {
-        "binary": "tensorfold",
+        "binary": "/opt/llgenie/engines/tensorfold/current/bin/tensorfold",
         "flags": [
-          "--help"
+          "--help",
+          "--version"
         ],
         "probe": "flags"
       }
