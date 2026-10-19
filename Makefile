@@ -475,6 +475,7 @@ agent-shell-keys-check: ## Prove every credential a container receives is visibl
 # returning an empty result a run reports as success.
 agent-fetch: ## Fetch one URL with the masked Firecrawl key and write its text to OUT=path (URL= required; runs INSIDE the agent image)
 	@test -n "$(URL)" || { echo "Usage: make agent-fetch URL=<https://…> [OUT=fetched.md]"; exit 1; }
+	@python3 scripts/require_env.py NOUS_API_KEY FIRECRAWL_API_KEY
 	@python3 scripts/ci_images.py ensure agent
 	$(call scrubbed_run,$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo \
 	  $(AGENT_SHELL_FORWARD_PLAIN) $(AGENT_SHELL_FORWARD) \
@@ -485,6 +486,7 @@ _agent-fetch: # (internal) the host recipe the agent image runs: one fetch, key 
 	hermes -z "Load AGENTS.md for rules. Fetch exactly this URL: $(URL) . Use the Firecrawl scrape API: POST https://api.firecrawl.dev/v1/scrape with header 'Authorization: Bearer $$FIRECRAWL_API_KEY' and body {\"url\":\"$(URL)\",\"formats\":[\"markdown\"]}. \`$$FIRECRAWL_API_KEY\` is the NAME of the environment variable that holds the key: read its VALUE from the environment and put it in that header, and never print, echo, write or copy the value anywhere — not in the output, not in $(OUT), not in a comment. Write the returned markdown to $(OUT) at the repo root. If the API answers 401/402/403, say <v>HTTP <code> for the key</v> and exit non-zero; do not retry with another key and do not invent content. HARD RULES: touch no file other than $(OUT), do not create a branch, do not push." $(nous-alias) --reasoning $(HERMES_REASONING) --yolo
 
 search-smoke: ## Prove the masked web reach works: one real Firecrawl request with a hard budget, loud on 401/402/403 — never an empty result (BUDGET= chars, default 4000)
+	@python3 scripts/require_env.py FIRECRAWL_API_KEY
 	@python3 scripts/ci_images.py ensure agent
 	$(call scrubbed_run,$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo \
 	  $(AGENT_SHELL_FORWARD_PLAIN) $(AGENT_SHELL_FORWARD) \

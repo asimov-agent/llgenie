@@ -22,6 +22,9 @@ agent image had been pulled and started, on a job with a 120-180 minute timeout.
 - `tests/test_require_env.py` derives the roster from the Makefile and asserts both the behaviour and
   the ordering (guard before the pull), so a leg added without one reds the suite (#349/#301 are the
   same defect this repo has filed twice).
+- After #369 (the masked web reach) merged, the merged tree had two unguarded legs — `agent-fetch`
+  and `search-smoke` both start the agent image. Both now run `scripts/require_env.py` before
+  `scripts/ci_images.py ensure agent`; the file-derived roster is what caught it, which is the point.
 
 ## Verified
 

@@ -662,6 +662,7 @@ bounded response, and fails with the HTTP code on 401/402/403 or on a 200 that c
 
 `search-smoke` needs the `FIRECRAWL_API_KEY` repository secret, which this repo does not define yet, so
 it is a human-run target for now (`tests/fixtures/host-only-wiring.json` records that decision, #362).
+
 ## A bot leg refuses to start on a missing key (#363)
 
 A leg that forwards a key its job never set used to spend the runner first — pull the agent image,
@@ -675,7 +676,9 @@ make require-env KEYS="NOUS_API_KEY TYPESAFE_API_KEY"   # name-only, exit 2 when
 `scripts/require_env.py` prints the variable's name, never a value, and exits 2 — a missing secret is
 a loud failure, never a skipped check. The suite derives the roster from the Makefile (every target
 that starts the agent image must run the guard before `scripts/ci_images.py ensure agent`), so a new
-leg without one fails `make test-unit` instead of costing a run.
+leg without one fails `make test-unit` instead of costing a run. That includes the web-reach legs
+(`agent-fetch` keys on `NOUS_API_KEY` + `FIRECRAWL_API_KEY`, `search-smoke` on `FIRECRAWL_API_KEY`),
+which landed while this change was open (#362/#369).
 
 ## The code-review bot (issue #269)
 
