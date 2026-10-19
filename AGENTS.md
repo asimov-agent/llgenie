@@ -1051,6 +1051,24 @@ Measured on this host against the real Hermes (issue #358) — plain names read
   where the check runs, exits 2; `--allow-unconfigured` is the only opt-out, it says so, and no
   workflow may use it.
 
+## A bot's transcript is redacted before it prints (MANDATORY, durable)
+
+A bot's agent stream IS the job's console output, and GitHub's masking is a filter over the stream,
+not a property of the content: a transformed value (URL-encoded, base64, a slice) sails past it, and
+nothing is masked in a log a job uploads itself. So no leg prints its stream raw.
+
+- **Every public agent leg runs through ONE seam**, `$(call scrubbed_run,…)`: the command's stream is
+  captured to `$(HERMES_LOG)` (gitignored — never printed, never uploaded), the console gets only the
+  redactor's bounded tail (`$(HERMES_LOG_TAIL)`), and `$(HERMES_LOG_SCRUBBED)` is what a workflow
+  uploads. The command runs in a subshell and its own exit status survives, so a red leg stays red.
+- **`scripts/scrub_log.py` is the only thing that prints.** It reads the secret VALUES **by name**
+  from its environment (the list lives once, in `scripts/check_secret_output.py::SECRET_VARS`), masks
+  every raw / URL-encoded / base64 spelling, plus credential SHAPES (`ghp_…`, `hf_…`, `sk-…`,
+  `Bearer …`) that never entered its environment, and prints a COUNT — never a value, never a prefix.
+  A missing input is exit 2: a stream that cannot be read must never look like a clean run.
+- **A leg that calls `hermes` outside the macro is a defect**, and so is a workflow that uploads the
+  raw `$(HERMES_LOG)` — the raw file holds the unredacted stream by construction.
+
 ## Record of work
 
 Track progress in `agent-wiki/` as dated `YYYY-MM-DD-<name>.md` entries (what was

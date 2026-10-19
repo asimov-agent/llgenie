@@ -63,6 +63,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	engine-skill-gap engine-skill-gap-md spawn-engine-skill-issues sync-strata-models check-strata-models check-wiring wiring-report check-secret-output secret-output-report \
 	queued-alarm issue-cleaner-scan issue-cleaner-apply fix-loop fix-loop-image fix-bot-sweep fix-bot-report agent-image-ref issue-bot-dispatch issue-bot-open-pr issue-bot-image \
 	issue-bot-triage issue-bot-verdict implement-issue hermes-smoke agent-jev-preflight code-review-scan code-review-file rebase-bot-sweep rebase-bot \
+	scrub-log \
 	run-failure-reactor rebase-bot-agent check-docs docs-report check-pr-hygiene pr-hygiene-report check-pr-authors pr-authors-report check-workflows workflows-report issue-refiner-pick issue-refiner issue-refiner-apply check-dispatch-forms dispatch-forms-report \
 	agent-shell-keys-check \
 	engine-bump-rebase generate-engine-params check-engine-params build-engine run-engine stop-engine list-engine-images ci-lint ci-unit ci-agents-read \
@@ -303,14 +304,14 @@ spawn-engine-skill-issues: ## Open one tracking issue per NEW unskilled registry
 rebase-bot-sweep: ## Which ONE open PR needs rebasing (BEHIND/DIRTY against main): prints action/pr/head_* and the reason for every pass-over
 	python3 scripts/rebase_bot_sweep.py --repo $(if $(REPO),$(REPO),asimov-agent/llgenie) $(if $(OWN_FORK),--own-fork $(OWN_FORK),)
 
-rebase-bot-agent: ## Ask Hermes to resolve a stopped rebase (the conflict prompt arrives on STDIN); runs INSIDE the agent image
-	@python3 scripts/ci_images.py ensure agent
-	@$(RUNTIME) run --rm -i --init -v "$(CURDIR):/repo" -w /repo \
+rebase-bot-agent: ## Ask Hermes to resolve a stopped rebase (the conflict prompt arrives on STDIN); runs INSIDE the agent image; the transcript is REDACTED before it prints (issue #359)
+	python3 scripts/ci_images.py ensure agent
+	$(call scrubbed_run,$(RUNTIME) run --rm -i --init -v "$(CURDIR):/repo" -w /repo \
 	  -e NOUS_API_KEY -e HERMES_REASONING \
 	  -e TYPESAFE_API_KEY \
 	  -e HERMES_NERVE_PROVIDER -e NERVE_REQUIRE \
 	  $(AGENT_SHELL_FORWARD) \
-	  $(AGENT_IMAGE) bash -lc 'make _rebase-bot-agent'
+	  $(AGENT_IMAGE) bash -lc 'make _rebase-bot-agent')
 
 _rebase-bot-agent: # (internal) the host recipe: read the conflict prompt on stdin, resolve, stage
 	hermes -z "$$(cat)" $(nous-alias) --reasoning medium --yolo
@@ -323,13 +324,13 @@ rebase-bot: ## Rebase ONE PR onto main (agent-resolved conflicts), verify the st
 # (issue #263). One issue per run, ONE comment + the `agent:refined` label, and never a PR.
 issue-refiner-pick: ## Spare capacity (the implementer's cap is spent)? -> the oldest issue that is not decided, claimed or already PR'd -> refine-in.md (DRY=1 previews; REPO= picks the repo)
 	python3 scripts/issue_refiner.py pick --repo $(if $(REPO),$(REPO),asimov-agent/llgenie) $(if $(DRY),--dry,)
-issue-refiner: ## Hermes REVIEWS the picked issue (reads refine-in.md: the thread + the review instruction) and writes its verdict to refine.md. No branch, no PR, nothing else touched; runs INSIDE the agent image
-	@$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo \
+issue-refiner: ## Hermes REVIEWS the picked issue (reads refine-in.md: the thread + the review instruction) and writes its verdict to refine.md. No branch, no PR, nothing else touched; runs INSIDE the agent image; the transcript is REDACTED before it prints (issue #359)
+	$(call scrubbed_run,$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo \
 	  -e NOUS_API_KEY -e HERMES_REASONING -e REPO \
 	  -e TYPESAFE_API_KEY \
 	  -e HERMES_NERVE_PROVIDER -e NERVE_REQUIRE \
 	  $(AGENT_SHELL_FORWARD) \
-	  $(AGENT_IMAGE) bash -lc 'make _issue-refiner'
+	  $(AGENT_IMAGE) bash -lc 'make _issue-refiner')
 _issue-refiner: # (internal) the host recipe the agent image runs: the review, not the code
 	hermes -z "Load AGENTS.md for rules. Read refine-in.md at the repo root: it carries an issue, its WHOLE comment thread (oldest first), and the review instruction. Follow that instruction and write your verdict to refine.md at the repo root in exactly the required shape (a REFINE: line plus the RESTATED:/REASON: blocks the chosen verdict requires). HARD RULES: this is a REVIEW, not an implementation - do NOT write any code, do NOT create a branch, do NOT push, do NOT open a PR, do NOT comment on the issue yourself, and do NOT modify any file other than refine.md. If the thread leaves a decision open, name it as a question in the restatement instead of deciding it." $(nous-alias) --reasoning $(HERMES_REASONING) --yolo
 issue-refiner-apply: ## Apply the review in refine.md: ONE comment on the issue + the agent:refined label (never a PR; refuses a `refined` verdict with no RESTATED block)
@@ -360,17 +361,48 @@ HERMES_REASONING ?= low
 # `ensure` pulls the published image of these inputs, or builds the same Dockerfile locally, and
 # tags it under this name either way — so this works on a dev host and on a runner. The tag hash
 # pins it to the exact Dockerfile THIS commit carries.
+# ---- the agent's own transcript is REDACTED before anything prints it (issue #359) ----
+# A bot's agent stream IS the job's console output: `make implement-issue` writes whatever
+# the agent printed straight into the step log. GitHub masks the secret values it REGISTERS,
+# and that is a filter over the stream, not a property of the content — a transformed one
+# (URL-encoded, base64, a slice) sails past, and nothing is masked in a log a job uploads
+# itself. So every leg captures its stream to $(HERMES_LOG) and prints only the redactor's
+# bounded tail; the REDACTED whole log is $(HERMES_LOG_SCRUBBED) (what a workflow uploads as
+# its artifact). `scripts/scrub_log.py` reads the secret values BY NAME from this process's
+# environment — the runner passes them with `env:`, and the docker call forwards the NAMES —
+# so a value the agent printed, in any spelling, never reaches the console.
+# ONE seam: the PUBLIC leg recipes below all go through `$(call scrubbed_run,…)`, so a leg
+# cannot forget it (the internal recipes run INSIDE the container; their stdout is what the
+# public leg captures). Both log files are gitignored.
+HERMES_LOG ?= hermes-run.log
+HERMES_LOG_SCRUBBED ?= hermes-run.scrubbed.log
+HERMES_LOG_TAIL ?= 60
+# `$(call scrubbed_run,<command>)`: run it into $(HERMES_LOG), print only the redactor's
+# bounded tail, and keep the command's own exit status (a red run must stay red). The command
+# runs in a SUBSHELL: a leg that (accidentally) calls `exit` would otherwise skip the redaction
+# and leave the raw stream on the console.
+define scrubbed_run
+	@rc=0; ( $(1) ) > $(HERMES_LOG) 2>&1 || rc=$$?; \
+	python3 scripts/scrub_log.py --in $(HERMES_LOG) --out $(HERMES_LOG_SCRUBBED) --tail $(HERMES_LOG_TAIL) || true; \
+	exit $$rc
+endef
+
+scrub-log: ## Redact a captured agent log and print its bounded tail (LOG=<path>, OUT=<redacted path>, TAIL=<lines>) — the same redactor every agent leg runs (issue #359)
+	@test -n "$(LOG)" || { echo "Usage: make scrub-log LOG=<captured log> [OUT=<redacted path>] [TAIL=60]"; exit 1; }
+	python3 scripts/scrub_log.py --in "$(LOG)" $(if $(OUT),--out "$(OUT)",) --tail $(if $(TAIL),$(TAIL),$(HERMES_LOG_TAIL))
+
+
 AGENT_IMAGE := llgenie/agent:latest
 
 issue-bot-image: ## Build/pull the agent image the issue-bot runs in (the same image the fix-bot uses; alias of agent-image)
 	python3 scripts/ci_images.py ensure agent
 
-issue-bot-triage: ## Hermes REVIEWS the issue (issue.md: body + the whole comment thread + the decision block) and writes its verdict to triage.md (implement | refine | close). No PR, nothing else touched; runs INSIDE the agent image
-	@python3 scripts/ci_images.py ensure agent
-	@$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo \
+issue-bot-triage: ## Hermes REVIEWS the issue (issue.md: body + the whole comment thread + the decision block) and writes its verdict to triage.md (implement | refine | close). No PR, nothing else touched; runs INSIDE the agent image; the transcript is REDACTED before it prints (issue #359)
+	python3 scripts/ci_images.py ensure agent
+	$(call scrubbed_run,$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo \
 	  -e NOUS_API_KEY -e HERMES_REASONING -e REPO \
 	  $(AGENT_SHELL_FORWARD) \
-	  $(AGENT_IMAGE) bash -lc 'make _issue-bot-triage'
+	  $(AGENT_IMAGE) bash -lc 'make _issue-bot-triage')
 
 _issue-bot-triage: # (internal) the host recipe the agent image runs: the decision, not the code
 	hermes -z "Load AGENTS.md for rules. Read issue.md at the repo root: it carries the issue, its WHOLE comment thread (oldest first), and the decision instruction. Follow that instruction and decide ONE verdict - implement, refine or close - then write it to triage.md at the repo root in exactly the required shape (a TRIAGE: line, plus REFINED:/EVIDENCE:/REASON: blocks as that verdict requires). HARD RULES: do NOT implement anything, do NOT modify any file other than triage.md, do NOT create a branch, do NOT push, do NOT comment on the issue yourself. A close without an EVIDENCE: block is refused by the next step, so cite what you checked. If a decision is still open in the thread, that is a refine, not a guess." $(nous-alias) --reasoning $(HERMES_REASONING) --yolo
@@ -423,7 +455,7 @@ agent-jev-preflight: ## Prove the JEV engine is active in the agent image; every
 	  -e TYPESAFE_API_KEY \
 	  -e HERMES_NERVE_PROVIDER -e NERVE_REQUIRE -e NERVE_GATE_SKIP_PROVIDER \
 	  $(AGENT_SHELL_FORWARD) \
-	  $(AGENT_IMAGE) bash -lc 'make _agent-jev-preflight'
+	  $(AGENT_IMAGE) bash -lc 'make _agent-jev-preflight')
 # The code-review bot (issue #269): it reads the TREE and the PIPELINES and files what is
 # actually wrong. Its whole output is issues — analysis, never implementation (AGENTS.md,
 # #231) — so it never edits a file, never opens a PR and never merges; each issue carries the
@@ -447,22 +479,22 @@ run-failure-reactor: ## Route a failed CI run to a remedy (issue #286): a pushab
 	@test -n "$(RUN_ID)" || { echo "Usage: make run-failure-reactor REPO=<owner/repo> RUN_ID=<run> [DRY=1]"; exit 1; }
 	python3 scripts/run_failure_reactor.py --repo "$(REPO)" --run-id "$(RUN_ID)" $(if $(DRY),--dry,)
 
-implement-issue: ## Implement issue.md with Hermes INSIDE the agent image (AGENTS.md is the authority; NOUS_API_KEY/GH_TOKEN from secrets; runs the gates; pushes nothing)
-	@python3 scripts/ci_images.py ensure agent
-	@$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo \
+implement-issue: ## Implement issue.md with Hermes INSIDE the agent image (AGENTS.md is the authority; NOUS_API_KEY/GH_TOKEN from secrets; runs the gates; pushes nothing); the transcript is REDACTED before it prints (issue #359)
+	python3 scripts/ci_images.py ensure agent
+	$(call scrubbed_run,$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo \
 	  -e NOUS_API_KEY -e GH_TOKEN -e HERMES_REASONING -e REPO \
 	  -e TYPESAFE_API_KEY \
 	  -e HERMES_NERVE_PROVIDER -e NERVE_REQUIRE \
 	  $(AGENT_SHELL_FORWARD) \
-	  $(AGENT_IMAGE) bash -lc 'make _implement-issue'
+	  $(AGENT_IMAGE) bash -lc 'make _implement-issue')
 
-hermes-smoke: ## One real Hermes call through the alias the implementer uses, inside the agent image (die in seconds, not after 20 min)
-	@test -n "$$NOUS_API_KEY" || { echo "NOUS_API_KEY unset - refusing to spend time on a dead key"; exit 1; }
-	@python3 scripts/ci_images.py ensure agent
-	@$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo -e NOUS_API_KEY \
+hermes-smoke: ## One real Hermes call through the alias the implementer uses, inside the agent image (die in seconds, not after 20 min); the transcript is REDACTED before it prints (issue #359)
+	test -n "$$NOUS_API_KEY" || { echo "NOUS_API_KEY unset - refusing to spend time on a dead key"; exit 1; }
+	python3 scripts/ci_images.py ensure agent
+	$(call scrubbed_run,$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo -e NOUS_API_KEY \
 	  -e TYPESAFE_API_KEY -e HERMES_NERVE_PROVIDER -e NERVE_REQUIRE \
 	  $(AGENT_SHELL_FORWARD) \
-	  $(AGENT_IMAGE) bash -lc 'make _hermes-smoke'
+	  $(AGENT_IMAGE) bash -lc 'make _hermes-smoke')
 
 # Inside the image: the JEV preflight first, so the run knows whether the decision layer is
 # there. It reports; it never blocks.
@@ -496,14 +528,8 @@ issue-cleaner-apply: ## Close the issues a merged PR implemented but left open, 
 queued-alarm: ## Report jobs stuck in `queued` far too long (a runner that never picks them up, issue #254); COMMENT=1 delivers the report, DRY=1 previews it
 	python3 scripts/queued_run_alarm.py --repo $(if $(REPO),$(REPO),asimov-agent/llgenie) --minutes $(if $(MINUTES),$(MINUTES),30) $(if $(COMMENT),--comment,) $(if $(DRY),--dry,)
 
-fix-loop-image: ## Run the fix-bot loop inside the agent image (the same image the workflow uses); AGENT_IMAGE overrides the resolved ref, LOG=path tees the output
-	@img=$$(if [ -n "$(AGENT_IMAGE)" ]; then echo "$(AGENT_IMAGE)"; else python3 scripts/ci_images.py ref agent; fi); \
-	echo "agent image: $$img"; \
-	$(RUNTIME) run --rm --init -v "$$PWD:/repo" -w /repo \
-	  -e NOUS_API_KEY -e GH_TOKEN -e FIX_CHECK -e FIX_ROUNDS \
-	  -e TYPESAFE_API_KEY -e HERMES_NERVE_PROVIDER -e NERVE_REQUIRE \
-	  $(AGENT_SHELL_FORWARD) \
-	  "$$img" bash -lc 'scripts/agent_jev_preflight.sh && scripts/fix_loop.sh' 2>&1 | tee "$(if $(LOG),$(LOG),/tmp/fix-loop.log)"
+fix-loop-image: ## Run the fix-bot loop inside the agent image (the same image the workflow uses); AGENT_IMAGE overrides the resolved ref, LOG=path also receives the REDACTED log (issue #359)
+	$(call scrubbed_run,img=$$(if [ -n "$(AGENT_IMAGE)" ]; then echo "$(AGENT_IMAGE)"; else python3 scripts/ci_images.py ref agent; fi); echo "agent image: $$img"; $(RUNTIME) run --rm --init -v "$$PWD:/repo" -w /repo -e NOUS_API_KEY -e GH_TOKEN -e FIX_CHECK -e FIX_ROUNDS -e TYPESAFE_API_KEY -e HERMES_NERVE_PROVIDER -e NERVE_REQUIRE $(AGENT_SHELL_FORWARD) "$$img" bash -lc 'scripts/agent_jev_preflight.sh && scripts/fix_loop.sh'; $(if $(LOG),cp -f $(HERMES_LOG_SCRUBBED) $(LOG),true))
 
 fix-bot-sweep: ## Which red PR the fix-bot should repair, and dispatch it (DRY=1 previews; needs gh)
 	python3 scripts/fix_bot_sweep.py --repo $(if $(REPO),$(REPO),asimov-agent/llgenie) --check "$(if $(CHECK),$(CHECK),make ci-unit)" --max-attempts $(if $(ATTEMPTS),$(ATTEMPTS),3) $(if $(DRY),--dry,)
@@ -815,6 +841,7 @@ test-clean: ## Remove left-over/stopped orphaned containers of the test image (i
 
 test-unit: ## Hermetic unit tests (containerized) — includes the lint regression + openspec-tasks-check tests
 	$(TEST_RUN) python -m pytest tests/test_issue_cleaner.py tests/test_llgenie_serve.py tests/test_hf_auth.py tests/test_hf_download_stall.py tests/test_hf_download_retry.py tests/test_hub_probe.py tests/test_lint_linefeeds.py tests/test_engine_bump_sync.py tests/test_engine_bump_rebase.py tests/test_check_openspec_tasks.py tests/test_remove_watchloop.py tests/test_ci_variant_matrix.py tests/test_serve_variant.py tests/test_ensure_user_path.py tests/test_engine_skills.py tests/test_engine_bump.py tests/test_engine_bump_pr_body.py tests/test_detect_server.py tests/test_model_engine_pick.py tests/test_trend_pick.py tests/test_card_aware_rank.py tests/test_registry_sync_trend.py tests/test_trend_list_matrix.py tests/test_registry_keys.py tests/test_engine_skill_gap.py tests/test_strata_download.py tests/test_macos_install.py tests/test_ci_images.py tests/test_mac_trend_pick.py tests/test_trend_list_acceptance.py tests/test_tensorfold_seamless.py tests/test_pick_matrix.py tests/test_pick_matrix_arch_perms.py tests/test_pick_full_registry.py tests/test_trending_quant_catalog.py tests/test_engine_supported_quants.py tests/test_quant_generator_edges.py tests/test_check_python_uv.py tests/test_engine_image_matrix.py tests/test_agents_worktree.py tests/test_agents_debt_analysis.py tests/test_bot_sync.py tests/test_wiring.py tests/test_agent_nerve.py tests/test_secret_output.py tests/test_kv_quant_bytes.py tests/test_queued_run_alarm.py tests/test_rename_llgenie_serve.py tests/test_fix_loop.py tests/test_fix_bot_sweep.py tests/test_issue_implementer.py tests/test_bot_time_budget.py tests/test_code_review.py tests/test_bot_pipeline_isolation.py tests/test_ci_concurrency.py tests/test_loop_test_stage.py tests/test_rebase_bot_sweep.py tests/test_bot_claims.py tests/test_check_docs.py tests/test_issue_refiner.py tests/test_dispatch_forms.py tests/test_workflow_guards.py tests/test_pr_hygiene.py tests/test_pr_authors.py tests/test_workflows_valid.py tests/test_bot_decision_loudness.py tests/test_run_failure_reactor.py tests/test_agent_shell_keys.py -p no:cacheprovider -q -k 'not test_derive_reports_the_live_release_archives and not test_tensorfold_v1_0_5_release_is_native_archives and not test_tensorfold_release_archive_unpacks_and_runs'
+	$(TEST_RUN) python -m pytest tests/test_issue_cleaner.py tests/test_llgenie_serve.py tests/test_hf_auth.py tests/test_hf_download_stall.py tests/test_hf_download_retry.py tests/test_hub_probe.py tests/test_lint_linefeeds.py tests/test_engine_bump_sync.py tests/test_engine_bump_rebase.py tests/test_check_openspec_tasks.py tests/test_remove_watchloop.py tests/test_ci_variant_matrix.py tests/test_serve_variant.py tests/test_ensure_user_path.py tests/test_engine_skills.py tests/test_engine_bump.py tests/test_engine_bump_pr_body.py tests/test_detect_server.py tests/test_model_engine_pick.py tests/test_trend_pick.py tests/test_card_aware_rank.py tests/test_registry_sync_trend.py tests/test_trend_list_matrix.py tests/test_registry_keys.py tests/test_engine_skill_gap.py tests/test_strata_download.py tests/test_macos_install.py tests/test_ci_images.py tests/test_mac_trend_pick.py tests/test_trend_list_acceptance.py tests/test_tensorfold_seamless.py tests/test_pick_matrix.py tests/test_pick_matrix_arch_perms.py tests/test_pick_full_registry.py tests/test_trending_quant_catalog.py tests/test_engine_supported_quants.py tests/test_quant_generator_edges.py tests/test_check_python_uv.py tests/test_engine_image_matrix.py tests/test_agents_worktree.py tests/test_agents_debt_analysis.py tests/test_bot_sync.py tests/test_wiring.py tests/test_agent_nerve.py tests/test_secret_output.py tests/test_kv_quant_bytes.py tests/test_queued_run_alarm.py tests/test_rename_llgenie_serve.py tests/test_fix_loop.py tests/test_fix_bot_sweep.py tests/test_issue_implementer.py tests/test_bot_time_budget.py tests/test_code_review.py tests/test_bot_pipeline_isolation.py tests/test_ci_concurrency.py tests/test_loop_test_stage.py tests/test_rebase_bot_sweep.py tests/test_bot_claims.py tests/test_check_docs.py tests/test_issue_refiner.py tests/test_dispatch_forms.py tests/test_workflow_guards.py tests/test_pr_hygiene.py tests/test_pr_authors.py tests/test_workflows_valid.py tests/test_bot_decision_loudness.py tests/test_run_failure_reactor.py tests/test_scrub_log.py -p no:cacheprovider -q -k 'not test_derive_reports_the_live_release_archives and not test_tensorfold_v1_0_5_release_is_native_archives and not test_tensorfold_release_archive_unpacks_and_runs'
 
 # Live GitHub release reads. Linux only: the macOS runner cannot reach
 # api.github.com, and TensorFold publishes no macos-x86_64 archive.

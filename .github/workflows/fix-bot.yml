@@ -185,6 +185,15 @@ jobs:
           echo "exit=$?" >> "$GITHUB_OUTPUT"
 
       # ------------------------------------------------------------- publish
+      # The whole point of the redaction seam (issue #359): the job publishes the REDACTED
+      # transcript, never the raw capture (which holds the unredacted stream by construction).
+      - name: Upload the REDACTED agent transcript
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-transcript-redacted
+          path: hermes-run.scrubbed.log
+          if-no-files-found: ignore
       - name: The tree must not be left dirty without a commit
         if: steps.pr.outputs.branch != '' && steps.loop.outcome == 'success'
         run: |

@@ -598,6 +598,27 @@ fails closed: a key that is missing from the container, or a Hermes that cannot 
 `fix-bot.yml`, `issue-refiner.yml` and `rebase-bot.yml` each run it before their agent work, so a job
 whose credential cannot reach the agent stops in seconds instead of after a 120-180-minute run.
 
+## The agent's transcript is redacted before it prints (#359)
+
+A bot's agent stream is the job's console output, and GitHub's masking is a filter over the stream —
+a transformed value (URL-encoded, base64, a slice) sails past it, and nothing is masked in a log a job
+uploads itself. So every public agent leg (`issue-refiner`, `issue-bot-triage`, `implement-issue`,
+`hermes-smoke`, `rebase-bot-agent`, `agent-jev-preflight`, `fix-loop-image`) runs through ONE seam:
+the command's stream is captured to `hermes-run.log` (gitignored, never printed, never uploaded), the
+console prints only the redactor's bounded tail, and `hermes-run.scrubbed.log` is what the bot
+workflows upload as the `agent-transcript-redacted` artifact.
+
+```bash
+make scrub-log LOG=hermes-run.log OUT=hermes-run.scrubbed.log   # redact a captured stream by hand
+make fix-loop-image LOG=/tmp/fix-loop.redacted.log   # LOG= now receives the REDACTED copy
+```
+
+`scripts/scrub_log.py` reads the secret values **by name** from the environment (the list lives once,
+in `scripts/check_secret_output.py::SECRET_VARS`), masks every raw / URL-encoded / base64 spelling of
+each, plus credential shapes (`ghp_…`, `hf_…`, `sk-…`, `Bearer …`) it never had in its environment,
+and prints a redaction COUNT — never a value, never a prefix. A missing input exits 2: a stream that
+cannot be read must never read as a clean run. `make scrub-log LOG=… TAIL=120` (or `HERMES_LOG_TAIL=120` for a leg) widens the printed tail.
+
 ## The code-review bot (issue #269)
 
 A bot that reads the **tree and the pipelines** and files issues for what is actually wrong. It is

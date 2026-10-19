@@ -187,6 +187,15 @@ jobs:
           if [ "$rc" != "0" ]; then echo "implemented=false" >> "$GITHUB_OUTPUT"; else echo "implemented=true" >> "$GITHUB_OUTPUT"; fi
           exit 0
 
+      # The whole point of the redaction seam (issue #359): the job publishes the REDACTED
+      # transcript, never the raw capture (which holds the unredacted stream by construction).
+      - name: Upload the REDACTED agent transcript
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-transcript-redacted
+          path: hermes-run.scrubbed.log
+          if-no-files-found: ignore
       - name: Commit + push the feature branch
         id: push
         if: steps.verdict.outputs.verdict == 'implement' && steps.impl.outputs.implemented == 'true'

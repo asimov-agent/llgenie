@@ -53,3 +53,9 @@ issue.md
 refine-in.md
 refine.md
 comment.md
+
+# A bot leg's captured agent stream (the `$(call scrubbed_run,…)` seam, issue #359) and its
+# REDACTED copy. The raw file is never printed and never uploaded — the scrubbed one is the
+# run artifact — and neither belongs in the tree.
+hermes-run.log
+hermes-run.scrubbed.log
