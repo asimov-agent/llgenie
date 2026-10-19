@@ -47,7 +47,7 @@ NON_CREDENTIAL_ENV = {
 #: The bot jobs that start the agent image: (workflow, the keys that job actually sets).
 BOT_JOBS = {
     "fix-bot.yml": ("NOUS_API_KEY", "GH_TOKEN", "TYPESAFE_API_KEY"),
-    "issue-bot.yml": ("NOUS_API_KEY", "TYPESAFE_API_KEY"),
+    "issue-bot.yml": ("NOUS_API_KEY", "GH_TOKEN", "TYPESAFE_API_KEY"),  # #364: the leg forwards it, so the job must set it
     "issue-refiner.yml": ("NOUS_API_KEY", "TYPESAFE_API_KEY"),
     "rebase-bot.yml": ("NOUS_API_KEY", "TYPESAFE_API_KEY"),
 }
@@ -228,3 +228,114 @@ def test_the_check_is_wired_to_a_make_target_ci_runs():
 
     # And this suite is named by the unit gate (nothing dead)
     assert "tests/test_agent_shell_keys.py" in mk, "this suite is in no make target"
+
+
+# ---------------------------------------------------------------------------
+# every key a leg forwards is SET by the job that calls it (#364)
+# ---------------------------------------------------------------------------
+def _jobs(text: str) -> dict[str, str]:
+    """{job name: job source} for a workflow — a job starts at a two-space key under `jobs:`."""
+    body = text.split("\njobs:\n", 1)[1] if "\njobs:\n" in text else text
+    jobs, name, buf = {}, None, []
+    for line in body.splitlines():
+        m = re.match(r"^  ([a-z0-9_-]+):\s*$", line)
+        if m:
+            if name:
+                jobs[name] = "\n".join(buf)
+            name, buf = m.group(1), [line]
+        elif name:
+            buf.append(line)
+    if name:
+        jobs[name] = "\n".join(buf)
+    return jobs
+
+
+def _leg_keys(target: str) -> set[str]:
+    """The credential NAMEs a make target forwards with `-e` (the forced twins excluded)."""
+    mk = (ROOT / "Makefile").read_text()
+    body = _agent_legs_body(mk, target)
+    keys = {k for k in re.findall(r"-e\s+([A-Z][A-Z0-9_]*)\b", body)}
+    return keys - set(NON_CREDENTIAL_ENV) - {k[len(FORCE):] for k in keys if k.startswith(FORCE)}
+
+
+def _agent_legs_body(mk: str, target: str) -> str:
+    i = mk.index("\n" + target + ":") + 1
+    head_end = mk.index("\n", i) + 1          # start of the recipe, past the target header
+    nxt = re.search(r"(?m)^[a-z0-9][a-z0-9._-]*:", mk[head_end:])
+    return mk[head_end:head_end + (nxt.start() if nxt else len(mk) - head_end)]
+
+
+def _steps(job_text: str) -> list[str]:
+    """The step blocks of a job (a step starts at `      - `)."""
+    out, buf = [], []
+    for line in job_text.splitlines():
+        if re.match(r"^      - ", line):
+            if buf:
+                out.append("\n".join(buf))
+            buf = [line]
+        elif buf is not None:
+            buf.append(line)
+    if buf:
+        out.append("\n".join(buf))
+    return out
+
+
+def _job_env(job_text: str) -> str:
+    """The job-level `env:` block only — a SIBLING step's env does not apply to this step."""
+    head = job_text.split("    steps:", 1)[0]
+    m = re.search(r"(?ms)^    env:\n(.*)", head)
+    return m.group(1) if m else ""
+
+
+def _step_sets_key(job_text: str, trigger: str, name: str) -> bool:
+    """True when the step that runs `trigger` sees `name` — job env or that step's own env.
+
+    A different step's env does NOT count: that was exactly the #364 defect (the push step exported
+    `GH_TOKEN: secrets.BUMP_TOKEN`, the implement step exported nothing, and the leg's `-e GH_TOKEN`
+    forwarded an empty value).
+    """
+    pat = re.compile(rf"(?m)^\s+{name}:\s*\$\{{\{{")
+    if pat.search(_job_env(job_text)):
+        return True
+    for step in _steps(job_text):
+        if trigger in step and pat.search(step):
+            return True
+    return False
+
+
+def test_the_leg_a_workflow_calls_gets_its_keys_from_that_job():
+    """The #364 defect: `-e GH_TOKEN` was forwarded into a job that never set GH_TOKEN."""
+    checked = 0
+    # (workflow, what the workflow actually runs, the leg whose keys that run needs)
+    entries = (("fix-bot.yml", "make fix-loop-image", "fix-loop-image"),
+               ("issue-bot.yml", "make implement-issue", "implement-issue"),
+               ("issue-refiner.yml", "make issue-refiner", "issue-refiner"),
+               # the rebase job runs the script, which invokes `make rebase-bot-agent` on the host
+               ("rebase-bot.yml", "make rebase-bot ", "rebase-bot-agent"))
+    for workflow, trigger, leg in entries:
+        text = (WORKFLOWS / workflow).read_text()
+        jobs = _jobs(text)
+        calling = {n: b for n, b in jobs.items() if trigger in b}
+        assert calling, f"{workflow} no longer runs `{trigger.strip()}`"
+        for job_name, job in calling.items():
+            for key in _leg_keys(leg):
+                assert _step_sets_key(job, trigger, key), (
+                    f"{workflow}:{job_name} runs `make {leg}`, which forwards -e {key}, but the job "
+                    f"never sets {key} — the container gets an EMPTY value that looks wired (#364)")
+                checked += 1
+    assert checked >= 5, f"expected the bot jobs to be checked, got {checked}"
+
+
+def test_the_detector_actually_detects():
+    """A sibling step's env must NOT count as this step's credential (#364's exact shape)."""
+    sibling = ("  implement:\n    steps:\n"
+               "      - run: make implement-issue\n"
+               "      - name: push\n        env:\n          GH_TOKEN: ${{ secrets.BUMP_TOKEN }}\n"
+               "        run: git push\n")
+    assert not _step_sets_key(sibling, "make implement-issue", "GH_TOKEN")
+    same = ("  implement:\n    steps:\n      - run: make implement-issue\n"
+            "        env:\n          GH_TOKEN: ${{ github.token }}\n")
+    assert _step_sets_key(same, "make implement-issue", "GH_TOKEN")
+    job_env = ("  implement:\n    env:\n      GH_TOKEN: ${{ github.token }}\n    steps:\n"
+               "      - run: make implement-issue\n")
+    assert _step_sets_key(job_env, "make implement-issue", "GH_TOKEN")

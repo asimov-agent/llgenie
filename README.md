@@ -680,6 +680,14 @@ leg without one fails `make test-unit` instead of costing a run. That includes t
 (`agent-fetch` keys on `NOUS_API_KEY` + `FIRECRAWL_API_KEY`, `search-smoke` on `FIRECRAWL_API_KEY`),
 which landed while this change was open (#362/#369).
 
+## The implementer's step exports `GH_TOKEN` (#364)
+
+`make implement-issue` forwards `-e GH_TOKEN`, and the issue-bot job now exports it on the step that
+runs the leg (`github.token`; the PUSH keeps the owner PAT). The suite enforces the general rule — for
+every bot workflow, the step that runs a leg must export each key that leg forwards, and a sibling
+step's `env:` does not count — so a leg whose token the job never sets fails `make test-unit` instead
+of forwarding an empty value that looks wired.
+
 ## The code-review bot (issue #269)
 
 A bot that reads the **tree and the pipelines** and files issues for what is actually wrong. It is
