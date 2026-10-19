@@ -4,11 +4,11 @@ description: "Use when installing TensorFold (MLX on Apple Silicon, or CUDA sm_8
 engine: "TensorFold"
 id: tensorfold
 repo: https://github.com/ashhart/TensorFold
-ref: v0.6.5
+ref: v1.1.1
 ref_kind: tag
-version: v0.6.5
-pinned: 609ca419abecebdc5a059498a613680bd3aa847f
-verified: "2026-10-05"
+version: v1.1.1
+pinned: 92d71a3cf4fd1d566d71f443874cf5345a226aba
+verified: "2026-10-19"
 license: Apache-2.0
 servable: true
 backends: [metal, cuda]
@@ -22,15 +22,22 @@ prereqs:
   cuda: [nvidia-smi, nvcc]
 install:
   metal:
-    - "uv tool install --force 'tensorfold @ git+{repo}.git@v{version}'"
+    - "mkdir -p {prefix}/{version}"
+    - "curl -fsSL -o {prefix}/tensorfold-{version}-macos-arm64.tar.gz {repo}/releases/download/v{version}/tensorfold-{version}-macos-arm64.tar.gz"
+    - "curl -fsSL -o {prefix}/tensorfold-{version}-macos-arm64.tar.gz.sha256 {repo}/releases/download/v{version}/tensorfold-{version}-macos-arm64.tar.gz.sha256"
+    - "cd {prefix} && shasum -a 256 -c tensorfold-{version}-macos-arm64.tar.gz.sha256"
+    - "tar -xzf {prefix}/tensorfold-{version}-macos-arm64.tar.gz -C {prefix}/{version} --strip-components=1"
+    - "exe=$(find {prefix}/{version}/bin -maxdepth 1 -type f -perm -111); set -- $exe; ln -sfn \"$1\" {prefix}/{version}/bin/{id}"
   cuda:
-    - "uv pip install --system --break-system-packages torch triton"
-    - "uv pip install --system --break-system-packages 'tensorfold @ git+{repo}.git@v{version}'"
-binary: "tensorfold"
+    - "mkdir -p {prefix}/{version}"
+    - "curl -fsSL -o {prefix}/tensorfold-{version}-linux-x86_64.tar.gz {repo}/releases/download/v{version}/tensorfold-{version}-linux-x86_64.tar.gz"
+    - "curl -fsSL -o {prefix}/tensorfold-{version}-linux-x86_64.tar.gz.sha256 {repo}/releases/download/v{version}/tensorfold-{version}-linux-x86_64.tar.gz.sha256"
+    - "cd {prefix} && sha256sum -c tensorfold-{version}-linux-x86_64.tar.gz.sha256"
+    - "tar -xzf {prefix}/tensorfold-{version}-linux-x86_64.tar.gz -C {prefix}/{version} --strip-components=1"
+    - "exe=$(find {prefix}/{version}/bin -maxdepth 1 -type f -perm -111); set -- $exe; ln -sfn \"$1\" {prefix}/{version}/bin/{id}"
+binary: "{prefix}/{version}/bin/{id}"
 binary_flags: ["--help"]   # tensorfold answers --help (detect proves it on metal + cuda)
-detect:
-  metal: "{binary} --help > /dev/null && uv tool list | grep '^tensorfold '"
-  cuda: "{binary} --help > /dev/null && python3 -c 'import importlib.metadata as m; print(m.version(\"tensorfold\"))'"
+detect: "{binary} --version"
 launch:
   common: "{binary} serve {model} --host {host} --port {port} --name {alias}"
   # Metal: a {context}-token window (LLGENIE_CONTEXT, default 65536 = Hermes Agent's 64K
