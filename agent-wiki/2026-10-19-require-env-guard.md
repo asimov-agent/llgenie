@@ -1,6 +1,7 @@
 # 2026-10-19 — every bot leg refuses to start on a missing key (#363)
 
-Implements [#363](https://github.com/asimov-agent/llgenie/issues/363), a child of the bot-fleet parent
+Implements [#363](https://github.com/asimov-agent/llgenie/issues/363) (PR [#370](https://github.com/asimov-agent/llgenie/pull/370)),
+a child of the bot-fleet parent
 [#357](https://github.com/asimov-agent/llgenie/issues/357). OpenSpec change:
 `openspec/changes/require-env-guard`.
 
