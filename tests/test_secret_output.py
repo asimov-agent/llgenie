@@ -123,6 +123,115 @@ def test_a_secret_expression_on_the_command_line_is_a_violation(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# rule: secrets-in-run-block, GitHub's own token (issue #361)
+# ---------------------------------------------------------------------------
+def test_github_token_in_a_run_block_is_a_violation(tmp_path):
+    expr = "$" + "{{ github.token }}"
+    root = _tree(tmp_path, {".github/workflows/a.yml": f"""
+name: a
+on:
+  workflow_dispatch:
+jobs:
+  a:
+    steps:
+      - run: |
+          gh api /user -H "Authorization: Bearer {expr}"
+"""})
+    assert _rules(root) == ["secrets-in-run-block"], cso.violations(root)
+
+
+def test_bracketed_github_token_in_a_run_block_is_a_violation(tmp_path):
+    expr = "$" + "{{ github['token'] }}"
+    root = _tree(tmp_path, {".github/workflows/a.yml": f"""
+name: a
+on:
+  workflow_dispatch:
+jobs:
+  a:
+    steps:
+      - run: |
+          curl -H "Authorization: {expr}" https://example.invalid
+"""})
+    assert _rules(root) == ["secrets-in-run-block"], cso.violations(root)
+
+
+def test_github_token_passed_through_env_is_not_a_violation(tmp_path):
+    expr = "$" + "{{ github.token }}"
+    root = _tree(tmp_path, {".github/workflows/a.yml": f"""
+name: a
+on:
+  workflow_dispatch:
+jobs:
+  a:
+    steps:
+      - env:
+          GH_TOKEN: {expr}
+        run: gh api /user
+"""})
+    assert cso.violations(root) == []
+
+
+# ---------------------------------------------------------------------------
+# rule: whole-stdout-into-output-file (issue #361)
+# ---------------------------------------------------------------------------
+def test_a_pipeline_into_github_output_is_a_violation(tmp_path):
+    root = _tree(tmp_path, {".github/workflows/a.yml": """
+name: a
+on:
+  workflow_dispatch:
+jobs:
+  a:
+    steps:
+      - id: x
+        run: make plan | python3 -c 'import sys' >> "$GITHUB_OUTPUT"
+"""})
+    assert _rules(root) == ["whole-stdout-into-output-file"], cso.violations(root)
+
+
+def test_a_substitution_into_github_output_is_a_violation(tmp_path):
+    root = _tree(tmp_path, {".github/workflows/a.yml": """
+name: a
+on:
+  workflow_dispatch:
+jobs:
+  a:
+    steps:
+      - id: x
+        run: $(make plan) >> "$GITHUB_OUTPUT"
+"""})
+    assert _rules(root) == ["whole-stdout-into-output-file"], cso.violations(root)
+
+
+def test_a_quoted_computed_key_value_is_not_a_violation(tmp_path):
+    """The safe shape: the pipe is INSIDE the quoted argument, so the file gets one literal."""
+    root = _tree(tmp_path, {".github/workflows/a.yml": """
+name: a
+on:
+  workflow_dispatch:
+jobs:
+  a:
+    steps:
+      - id: x
+        run: |
+          echo "matrix=$(make plan | python3 -c 'import json,sys;print(json.dumps(json.load(sys.stdin)))')" >> "$GITHUB_OUTPUT"
+"""})
+    assert cso.violations(root) == []
+
+
+# ---------------------------------------------------------------------------
+# rule: whole-stdout-into-log (issue #361)
+# ---------------------------------------------------------------------------
+def test_tee_into_the_job_log_is_a_violation(tmp_path):
+    root = _tree(tmp_path, {"s.sh": "#!/usr/bin/env bash\nmake run | tee /dev/stderr\n"})
+    assert _rules(root) == ["whole-stdout-into-log"], cso.violations(root)
+
+
+def test_tee_into_a_file_is_not_a_violation(tmp_path):
+    root = _tree(tmp_path, {"s.sh": "#!/usr/bin/env bash\nmake run | tee /tmp/out.log\n"})
+    assert cso.violations(root) == []
+
+
+# ---------------------------------------------------------------------------
 # rule: env-dump
 # ---------------------------------------------------------------------------
 def test_a_bare_environment_dump_is_a_violation(tmp_path):

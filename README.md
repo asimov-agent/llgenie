@@ -549,12 +549,14 @@ check-secret-output` (in the `ci-unit` job) keeps that true for **all** of them 
 
 | rule | what it fails on |
 |---|---|
-| `secrets-in-run-block` | `${{ secrets.X }}` interpolated **inside** a `run:` block — it becomes part of the script text and of its output; pass it through `env:` |
+| `secrets-in-run-block` | `${{ secrets.X }}` — or GitHub's own `${{ github.token }}` / `${{ github['token'] }}` — interpolated **inside** a `run:` block: it becomes part of the script text and of its output; pass it through `env:` |
 | `prints-secret-value` | a printing command that expands a secret's value, e.g. an echo of a token variable. Printing the variable's *name*, and redirecting a value into a `chmod 600` file, are not violations |
 | `xtrace-with-secrets` | `set -x` in a file that also reads a secret: xtrace prints every expansion |
 | `value-in-argv` | `-e VAR=$VAR` / `--build-arg VAR=$VAR`: the value lands in the process list, not only in the environment |
 | `env-dump` | a bare `env` / `printenv` whose output reaches the log |
 | `key-shaped-literal` | something that looks like a live credential, committed (a deliberate test value carries `secret-output: test value` in its file) |
+| `whole-stdout-into-output-file` | a command's whole stdout redirected into `$GITHUB_OUTPUT` (`cmd | … >> "$GITHUB_OUTPUT"`, `$(cmd) >> "$GITHUB_OUTPUT"`): the file must hold `key=value` only — `make` echoes its recipe line, which is enough to fail the step with `Invalid format` after the work is done. The quoted form `echo "k=$(…)" >> "$GITHUB_OUTPUT"` is correct and stays green |
+| `whole-stdout-into-log` | `… \| tee /dev/stderr`: the whole stream copied into the job log, where only *registered* values are masked, so a transformed one sails past. `tee <file>` is fine |
 
 GitHub masks a registered secret in its own logs, and that is **not** enough: masking is a filter over
 the log stream, so a transformed value (base64, a URL, a slice) sails past it, and nothing is masked in
