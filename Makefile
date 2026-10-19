@@ -442,16 +442,16 @@ AGENT_SHELL_CHECK_KEYS ?= $(AGENT_SHELL_KEYS)
 _agent-shell-keys-check: # (internal) the probe, run INSIDE the agent image by the public target
 	python3 scripts/agent_shell_keys_check.py $(AGENT_SHELL_CHECK_KEYS)
 
-agent-shell-keys-check: ## Prove every credential a container receives is visible in the AGENT's shell (Hermes strips provider keys from its terminal tool, issue #358); AGENT_SHELL_CHECK_KEYS= narrows it to the keys this job has
-	@python3 scripts/ci_images.py ensure agent
-	@$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo \
+agent-shell-keys-check: ## Prove every credential a container receives is visible in the AGENT's shell (Hermes strips provider keys from its terminal tool, issue #358); AGENT_SHELL_CHECK_KEYS= narrows it to the keys this job has; the report is REDACTED before it prints (issue #359)
+	python3 scripts/ci_images.py ensure agent
+	$(call scrubbed_run,$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo \
 	  $(AGENT_SHELL_FORWARD_PLAIN) $(AGENT_SHELL_FORWARD) \
 	  -e AGENT_SHELL_CHECK_KEYS="$(AGENT_SHELL_CHECK_KEYS)" \
-	  $(AGENT_IMAGE) bash -lc 'make _agent-shell-keys-check AGENT_SHELL_CHECK_KEYS="$(AGENT_SHELL_CHECK_KEYS)"'
+	  $(AGENT_IMAGE) bash -lc 'make _agent-shell-keys-check AGENT_SHELL_CHECK_KEYS="$(AGENT_SHELL_CHECK_KEYS)"')
 
-agent-jev-preflight: ## Prove the JEV engine is active in the agent image; every bot workflow runs it with NERVE_REQUIRE=1, so a job whose engine is off does not start. NERVE_GATE_SKIP_PROVIDER=1 skips the live provider call
-	@python3 scripts/ci_images.py ensure agent
-	@$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo \
+agent-jev-preflight: ## Prove the JEV engine is active in the agent image; every bot workflow runs it with NERVE_REQUIRE=1, so a job whose engine is off does not start. NERVE_GATE_SKIP_PROVIDER=1 skips the live provider call; the report is REDACTED before it prints (issue #359)
+	python3 scripts/ci_images.py ensure agent
+	$(call scrubbed_run,$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo \
 	  -e TYPESAFE_API_KEY \
 	  -e HERMES_NERVE_PROVIDER -e NERVE_REQUIRE -e NERVE_GATE_SKIP_PROVIDER \
 	  $(AGENT_SHELL_FORWARD) \
