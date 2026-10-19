@@ -1,6 +1,7 @@
 # 2026-10-19 — the agent's transcript is redacted before it prints (issue #359)
 
-Implements [#359](https://github.com/asimov-agent/llgenie/issues/359), the second child of the
+Implements [#359](https://github.com/asimov-agent/llgenie/issues/359) (PR [#366](https://github.com/asimov-agent/llgenie/pull/366)),
+the second child of the
 bot-fleet parent [#357](https://github.com/asimov-agent/llgenie/issues/357). OpenSpec change:
 `openspec/changes/agent-log-redaction`.
 
