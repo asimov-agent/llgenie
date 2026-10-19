@@ -103,7 +103,7 @@ jobs:
         run: make ci-free-disk
       - uses: ./.github/actions/docker
         if: runner.os == 'Linux'  # macOS: make install in the 3.11 venv, no Colima
-      - name: make ci-install (environment, then make install, llgenie --dry, make uninstall)
+      - name: make ci-install (waits for the images it pulls, then installs, llgenie --dry, uninstall)
         run: make ci-install
       - name: Prune orphaned test containers
         if: always()

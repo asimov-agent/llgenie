@@ -38,6 +38,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -231,6 +232,84 @@ def cuda_cdi_ready() -> bool:
     return bool(r and r.returncode == 0 and "nvidia.com/gpu=all" in r.stdout)
 
 
+def install_plan(arch: str, only: list[str] | None = None) -> list[dict]:
+    """The images `install` resolves for this backend — the ONE place that list is built.
+
+    One entry per engine: `variant` + the exact published `tag` install pulls, or
+    `variant=None` with a `why` when the engine is unknown or has no image for this
+    backend (install reports it and skips it). `wait_published` waits for exactly these
+    tags, so the gate can never wait for something install would not pull (issue #169).
+    """
+    every = sorted(json.loads(pf.read_text())["id"] for pf in PARAMS.glob("*.json"))
+    wanted = every if only == ["all"] else (only or CORE_ENGINES)
+    plan = []
+    for engine in wanted:
+        if engine not in every:
+            plan.append({"engine": engine, "variant": None, "tag": "",
+                         "why": f"unknown engine (have {', '.join(every)})"})
+            continue
+        p = json.loads((PARAMS / f"{engine}.json").read_text())
+        variant = variant_for(engine, arch)
+        if not variant:
+            plan.append({"engine": engine, "variant": None, "tag": "",
+                         "why": f"no {arch}/cpu image (has {', '.join(p.get('variants') or {})})"})
+            continue
+        plan.append({"engine": p["id"], "variant": variant,
+                     "tag": ei.resolve(p["id"], None, variant)["tag"], "why": ""})
+    return plan
+
+
+# The engine-image jobs of the same CI run build and push these images in parallel
+# with the install job, so a first run of a new pin used to fail `not published`
+# (issue #169). The gate polls the registry manifest until each tag shows up.
+PUBLISH_WAIT_TIMEOUT_S = 30 * 60
+PUBLISH_WAIT_POLL_S = 20
+
+
+def wait_published(arch: str, only: list[str] | None = None,
+                   timeout_s: int = PUBLISH_WAIT_TIMEOUT_S,
+                   poll_s: int = PUBLISH_WAIT_POLL_S) -> int:
+    """Wait until every image `install` pulls for this backend is published (issue #169).
+
+    No pull, no build, no fallback: a manifest lookup per tag, retried until the tag
+    appears or the deadline passes. A tag that never appears fails loudly and is named.
+    """
+    if not ei.REGISTRY:
+        print("[install] FAIL LLGENIE_REGISTRY is not set: there is nothing to wait for")
+        return 1
+    want = [(e["engine"], e["variant"], f"{ei.REGISTRY}/{e['tag']}")
+            for e in install_plan(arch, only) if e["variant"]]
+    if not want:
+        print(f"[install] backend {arch}: no engine image to wait for")
+        return 0
+    print(f"[install] waiting for {len(want)} published image(s) for backend {arch}: "
+          + ", ".join(f"{e}/{v}" for e, v, _ in want), flush=True)
+    deadline = time.monotonic() + timeout_s
+    missing, reason = list(want), {}
+    while missing:
+        still = []
+        for engine, variant, ref in missing:
+            digest, err = ei._digest_http(ref)
+            if digest:
+                print(f"[install] published {ref}", flush=True)
+            else:
+                reason[ref] = err
+                still.append((engine, variant, ref))
+        missing = still
+        if not missing:
+            print(f"[install] every image install pulls is published", flush=True)
+            return 0
+        if time.monotonic() >= deadline:
+            break
+        print(f"[install] not published yet: {', '.join(ref for _, _, ref in missing)}; "
+              f"waiting {poll_s}s", flush=True)
+        time.sleep(poll_s)
+    for engine, variant, ref in missing:
+        print(f"[install] FAIL {engine}/{variant}: {ref} was never published "
+              f"(last registry error: {reason.get(ref, '')})")
+    return 1
+
+
 def install(bindir: Path, arch: str, build: bool, only: list[str] | None = None) -> int:
     if arch == "cuda" and not os.environ.get("LLGENIE_NO_GPU") and not cuda_cdi_ready():
         print("[install] FAIL cuda host without the NVIDIA CDI spec: the engine containers could not "
@@ -240,35 +319,34 @@ def install(bindir: Path, arch: str, build: bool, only: list[str] | None = None)
     bindir.mkdir(parents=True, exist_ok=True)
     models = os.environ.get("LLGENIE_MODELS_DIR", str(Path.home() / "models"))
     written, failed = {}, []
-    every = sorted(json.loads(pf.read_text())["id"] for pf in PARAMS.glob("*.json"))
-    wanted = every if only == ["all"] else (only or CORE_ENGINES)
-    print(f"[install] backend {arch}: {', '.join(wanted)}"
+    plan = install_plan(arch, only)
+    print(f"[install] backend {arch}: {', '.join(e['engine'] for e in plan)}"
           f"{'' if build else ' (pull published images only)'}")
-    for engine in wanted:
-        if engine not in every:
-            failed.append(engine)
-            print(f"[install] FAIL {engine}: unknown engine (have {', '.join(every)})")
+    for entry in plan:
+        engine = entry["engine"]
+        if not entry["variant"]:
+            if entry["why"].startswith("unknown"):
+                failed.append(engine)
+                print(f"[install] FAIL {engine}: {entry['why']}")
+            else:
+                print(f"[install] {engine}: {entry['why']} - skipped")
             continue
-        p = json.loads((PARAMS / f"{engine}.json").read_text())
-        variant = variant_for(engine, arch)
-        if not variant:
-            print(f"[install] {engine}: no {arch}/cpu image (has {', '.join(p.get('variants') or {})}) - skipped")
-            continue
-        tag = ensure_image(p["id"], variant, build)
+        variant, tag = entry["variant"], entry["tag"]
+        tag = ensure_image(engine, variant, build)
         if not tag:
-            failed.append(p["id"])
+            failed.append(engine)
             why = "the build failed" if build else f"not published in {ei.REGISTRY or '(no LLGENIE_REGISTRY)'}"
             if not ei.runtime_answers(ei.RUNTIME):
                 # a CLI with no engine behind it (docker CLI next to Colima's containerd,
                 # a stopped VM) is not an unpublished image (issue #112)
                 why = RUNTIME_DOWN.format(rt=ei.RUNTIME)
-            print(f"[install] FAIL {p['id']}/{variant}: {why}")
+            print(f"[install] FAIL {engine}/{variant}: {why}")
             continue
-        out = bindir / script_name(p["id"])
+        out = bindir / script_name(engine)
         plat = ei.image_platform(tag)  # run the image as what it is (no amd64-on-arm64 warning)
-        out.write_text(launcher(p["id"], variant, tag, models, plat))
+        out.write_text(launcher(engine, variant, tag, models, plat))
         out.chmod(0o755)
-        written[p["id"]] = (variant, tag, plat)
+        written[engine] = (variant, tag, plat)
         print(f"[install] {out} -> {tag}")
     # one shim per llama.cpp tree, named after its server (issue #98):
     #   ~/bin/llama-server  -> stock llama.cpp image (ggml-org, /app/llama-server)
@@ -459,8 +537,14 @@ def main(argv=None) -> int:
     ap.add_argument("--engines", default="", help="comma-separated engine ids, or 'all' (default: llama.cpp + Prism)")
     ap.add_argument("--uninstall", action="store_true", help="remove what install wrote, stop engine containers")
     ap.add_argument("--purge-images", action="store_true", help="with --uninstall: also remove the engine images")
+    ap.add_argument("--wait-published", action="store_true",
+                    help="wait until every image install pulls for this backend is published (issue #169)")
     a = ap.parse_args(argv)
     bindir = Path(a.bin).expanduser()
+    if a.wait_published:
+        # no container, no pull: a registry manifest lookup per tag (issue #169)
+        return wait_published(a.arch or detected_arch(),
+                              [e for e in a.engines.split(",") if e] or None)
     # Intel macOS (macos-15-intel) has no native Metal engines and no container
     # image is pulled for it. The default install (no --ensure) writes nothing,
     # test-built-engine has nothing to version-test, and uninstall has nothing

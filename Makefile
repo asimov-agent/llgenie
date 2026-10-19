@@ -69,7 +69,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	agent-shell-keys-check \
 	agent-fetch search-smoke require-env \
 	engine-bump-rebase generate-engine-params check-engine-params build-engine run-engine stop-engine list-engine-images ci-lint ci-unit ci-agents-read \
-	ci-openspec ci-cpu-health ci-top-tier ci-install ci-install-dry-args ci-free-disk test-engine-stage bot-sync-main bot-sync-branch
+	ci-openspec ci-cpu-health ci-top-tier ci-install ci-install-dry-args ci-free-disk test-engine-stage bot-sync-main bot-sync-branch ci-wait-engine-images
 
 # ---- container runtime: docker -------------------------------------------
 RUNTIME ?= docker
@@ -922,7 +922,7 @@ test-clean: ## Remove left-over/stopped orphaned containers of the test image (i
 	echo "Pruned stopped orphaned $(TEST_IMG) containers."
 
 test-unit: ## Hermetic unit tests (containerized) — includes the lint regression + openspec-tasks-check tests
-	$(TEST_RUN) python -m pytest tests/test_issue_cleaner.py tests/test_llgenie_serve.py tests/test_hf_auth.py tests/test_hf_download_stall.py tests/test_hf_download_retry.py tests/test_hf_download_throttle.py tests/test_hub_probe.py tests/test_lint_linefeeds.py tests/test_engine_bump_sync.py tests/test_engine_bump_rebase.py tests/test_check_openspec_tasks.py tests/test_remove_watchloop.py tests/test_ci_variant_matrix.py tests/test_serve_variant.py tests/test_ensure_user_path.py tests/test_engine_skills.py tests/test_engine_smoke_fetch.py tests/test_engine_bump.py tests/test_engine_bump_pr_body.py tests/test_detect_server.py tests/test_model_engine_pick.py tests/test_trend_pick.py tests/test_card_aware_rank.py tests/test_registry_sync_trend.py tests/test_trend_list_matrix.py tests/test_registry_keys.py tests/test_engine_skill_gap.py tests/test_strata_download.py tests/test_macos_install.py tests/test_ci_images.py tests/test_mac_trend_pick.py tests/test_trend_list_acceptance.py tests/test_tensorfold_seamless.py tests/test_pick_matrix.py tests/test_pick_matrix_arch_perms.py tests/test_pick_full_registry.py tests/test_trending_quant_catalog.py tests/test_engine_supported_quants.py tests/test_quant_generator_edges.py tests/test_check_python_uv.py tests/test_engine_image_matrix.py tests/test_agents_worktree.py tests/test_agents_debt_analysis.py tests/test_bot_sync.py tests/test_wiring.py tests/test_agent_nerve.py tests/test_secret_output.py tests/test_kv_quant_bytes.py tests/test_queued_run_alarm.py tests/test_rename_llgenie_serve.py tests/test_fix_loop.py tests/test_fix_bot_sweep.py tests/test_issue_implementer.py tests/test_bot_time_budget.py tests/test_code_review.py tests/test_bot_pipeline_isolation.py tests/test_ci_concurrency.py tests/test_loop_test_stage.py tests/test_rebase_bot_sweep.py tests/test_bot_claims.py tests/test_check_docs.py tests/test_issue_refiner.py tests/test_dispatch_forms.py tests/test_workflow_guards.py tests/test_pr_hygiene.py tests/test_pr_authors.py tests/test_workflows_valid.py tests/test_bot_decision_loudness.py tests/test_run_failure_reactor.py tests/test_agent_shell_keys.py tests/test_scrub_log.py tests/test_secret_scan.py tests/test_agent_web_reach.py tests/test_require_env.py -p no:cacheprovider -q -k 'not test_derive_reports_the_live_release_archives and not test_tensorfold_v1_0_5_release_is_native_archives and not test_tensorfold_release_archive_unpacks_and_runs'
+	$(TEST_RUN) python -m pytest tests/test_issue_cleaner.py tests/test_llgenie_serve.py tests/test_hf_auth.py tests/test_hf_download_stall.py tests/test_hf_download_retry.py tests/test_hf_download_throttle.py tests/test_hub_probe.py tests/test_lint_linefeeds.py tests/test_engine_bump_sync.py tests/test_engine_bump_rebase.py tests/test_check_openspec_tasks.py tests/test_remove_watchloop.py tests/test_ci_variant_matrix.py tests/test_serve_variant.py tests/test_ensure_user_path.py tests/test_engine_skills.py tests/test_engine_smoke_fetch.py tests/test_engine_bump.py tests/test_engine_bump_pr_body.py tests/test_detect_server.py tests/test_model_engine_pick.py tests/test_trend_pick.py tests/test_card_aware_rank.py tests/test_registry_sync_trend.py tests/test_trend_list_matrix.py tests/test_registry_keys.py tests/test_engine_skill_gap.py tests/test_strata_download.py tests/test_macos_install.py tests/test_ci_images.py tests/test_mac_trend_pick.py tests/test_trend_list_acceptance.py tests/test_tensorfold_seamless.py tests/test_pick_matrix.py tests/test_pick_matrix_arch_perms.py tests/test_pick_full_registry.py tests/test_trending_quant_catalog.py tests/test_engine_supported_quants.py tests/test_quant_generator_edges.py tests/test_check_python_uv.py tests/test_engine_image_matrix.py tests/test_agents_worktree.py tests/test_agents_debt_analysis.py tests/test_bot_sync.py tests/test_wiring.py tests/test_agent_nerve.py tests/test_secret_output.py tests/test_kv_quant_bytes.py tests/test_queued_run_alarm.py tests/test_rename_llgenie_serve.py tests/test_fix_loop.py tests/test_fix_bot_sweep.py tests/test_issue_implementer.py tests/test_bot_time_budget.py tests/test_code_review.py tests/test_bot_pipeline_isolation.py tests/test_ci_concurrency.py tests/test_loop_test_stage.py tests/test_rebase_bot_sweep.py tests/test_bot_claims.py tests/test_check_docs.py tests/test_issue_refiner.py tests/test_dispatch_forms.py tests/test_workflow_guards.py tests/test_pr_hygiene.py tests/test_pr_authors.py tests/test_workflows_valid.py tests/test_bot_decision_loudness.py tests/test_run_failure_reactor.py tests/test_agent_shell_keys.py tests/test_scrub_log.py tests/test_secret_scan.py tests/test_ci_publish_order.py tests/test_agent_web_reach.py tests/test_require_env.py -p no:cacheprovider -q -k 'not test_derive_reports_the_live_release_archives and not test_tensorfold_v1_0_5_release_is_native_archives and not test_tensorfold_release_archive_unpacks_and_runs'
 
 # Live GitHub release reads. Linux only: the macOS runner cannot reach
 # api.github.com, and TensorFold publishes no macos-x86_64 archive.
@@ -1154,8 +1154,19 @@ ci-cpu-health: bash-check ## CI job cpu-health: Linux answers "hi" through the l
 ci-top-tier: bash-check ## CI job top-tier: same targets on both OSes (venv on macOS, test image on Linux)
 	$(MAKE) test-top-tier-ci && $(MAKE) test-top-tier-serve-ci && $(MAKE) test-top-tier-cli-ci
 
-ci-install: bash-check ## CI job install: prepare the environment, then test make install, the installed llgenie dry run, and make uninstall as separate steps. macOS never runs a container.
+# The gate below branches on $(HOST_OS), so it lives AFTER `HOST_OS := $(shell uname -s)`:
+# make evaluates ifeq while it parses the file, and a conditional placed before that line
+# would see an empty HOST_OS and take the Linux branch on macOS too.
+ci-wait-engine-images: bash-check ## CI gate (issue #169): wait until every image `make install` pulls for ARCH is published; names and fails on a tag that never appears. macOS pulls no engine image (issue #120), so it has nothing to wait for.
+ifeq ($(HOST_OS),Darwin)
+	@echo "ci-wait-engine-images: macOS pulls no engine image (issue #120), nothing to wait for"
+else
+	python3 scripts/install_engine_launchers.py --wait-published $(if $(ARCH),--arch $(ARCH),) $(if $(ENGINES),--engines $(ENGINES),)
+endif
+
+ci-install: bash-check ## CI job install: prepare the environment, wait for the images install pulls, then test make install, the installed llgenie dry run, and make uninstall as separate steps. macOS never runs a container.
 	$(MAKE) test-env
+	$(MAKE) ci-wait-engine-images ARCH=cpu
 	$(MAKE) ci-install-run
 	$(MAKE) ci-install-dry
 	$(MAKE) ci-install-dry-args

@@ -985,9 +985,12 @@ def test_macos_make_test_stages_run_in_the_311_venv_not_a_container():
     # Given the Makefile
     mk = (REPO / "Makefile").read_text()
 
-    # When the Darwin and Linux branches of the test runners are read
-    darwin = mk.split("ifeq ($(HOST_OS),Darwin)\n", 1)[1].split("\nelse\n", 1)[0]
-    linux = mk.split("ifeq ($(HOST_OS),Darwin)\n", 1)[1].split("\nelse\n", 1)[1].split("\nendif", 1)[0]
+    # When the test runner's own OS conditional is read. It is picked by CONTENT, not by
+    # position: any target may branch on the OS, so the first ifeq in the file is not
+    # necessarily the test runner's.
+    blocks = re.findall(r"ifeq \(\$\(HOST_OS\),Darwin\)\n(.*?)\nendif", mk, re.S)
+    runner = next(b for b in blocks if "TEST_RUN :=" in b)
+    darwin, linux = runner.split("\nelse\n", 1)
     env = mk.split("\ntest-env:", 1)[1].split("\n\n", 1)[0]
 
     # Then macOS uses the venv python (no docker run, no test image) and Linux the 3.11 test image

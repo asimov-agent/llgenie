@@ -395,6 +395,7 @@ def test_every_pipeline_job_runs_one_ci_make_target():
     # macOS never runs those inside a container.
     recipe = mk.split("\nci-install:", 1)[1].split("\n\n", 1)[0]
     assert "$(MAKE) test-env" in recipe
+    assert "$(MAKE) ci-wait-engine-images ARCH=cpu" in recipe.split("$(MAKE) ci-install-run")[0]
     assert "$(MAKE) ci-install-run" in recipe and "$(MAKE) ci-install-dry" in recipe
     assert "$(MAKE) ci-install-uninstall" in recipe and "test-install-ci" not in recipe
     run = mk.split("\nci-install-run:", 1)[1].split("\n\n", 1)[0]

@@ -539,7 +539,10 @@ No engine is compiled or pip-installed on the host.
      `docker run <image> version`).
   3. `make push-engine` publishes to the repo's GHCR (`ghcr.io/<owner>/llgenie/<name>`)
      on EVERY push run (feature branches too, default for now, #101) and ONLY after
-     build + tests passed. `pull_request` runs (read-only token) never push.
+     build + tests passed. It is also an unconditional step of every `engine-image-*`
+     job, so a same-repo `pull_request` run publishes what it built and tested
+     (measured: run 38121659510 pushed `llama-cpp:23b0202a-021e11d2-cuda`); a fork PR
+     (read-only token against the base registry) must fail loudly, not pass silently.
   4. The separate `engine-published-test` matrix (jobs `test-published-<engine>-<arch>`) (every push run, after all builds) pulls
      every image back from GHCR with no build and no cache, checks the digest, checks
      the binary version, STARTS the container and chats "hi" on
@@ -557,6 +560,16 @@ No engine is compiled or pip-installed on the host.
   `llgenie`), then runs `make test-built-engine`: every start script must print its
   engine version via its image. Only Metal (Apple-Silicon, cannot run in a container)
   is exempt.
+- **The CI `install` job waits for the images it pulls (issue #169).** `make ci-install`
+  runs `make ci-wait-engine-images ARCH=cpu` BEFORE `make ci-install-run`: the gate resolves
+  exactly the tags `install` pulls (`install_engine_launchers.install_plan` is the one place
+  that list is built) and polls the registry manifest until each is published, naming and
+  failing on a tag that never appears. It never builds an image, never pulls a different tag,
+  and never skips an engine. The gate is a make prerequisite, not a workflow step, so the job
+  keeps running exactly one `make ci-<job>` target, and the OS branch lives in the gate
+  target itself (`ci-install` stays OS-neutral — macOS pulls no engine image, #120). Without
+  it, the first run of a new pin fails `[install] FAIL llama.cpp/cpu: not published` while
+  its own `engine-image-*` job is still pushing that tag.
 - **Native Metal engines (issue #114) — the one exception to "only in images".** On an
   Apple-Silicon Mac (`host_arch()` = `metal`) the engines whose skill has a `metal`
   install (TensorFold first) run natively, because Metal cannot reach a container. They
@@ -960,6 +973,9 @@ chains them all.
   script prints its engine version through its image).
 - `make test-built-engine` — run every installed `llgenie-engine-*` start script with
   `--version` (docker run of its image); fails unless each prints a version.
+- `make ci-wait-engine-images ARCH=<backend>` — CI gate (issue #169): wait until every
+  image `make install` pulls for that backend is published; names and fails on a tag that
+  never appears (no build, no pull, no fallback).
 - `make generate-engine-params` — skills -> frozen params + Dockerfiles (the ONLY
   step that reads skills). `make check-engine-params` fails when they are stale.
 - `make build-engine ENGINE=<id> ARCH=<arch>` / `make build-engine-<id>-<arch>` /
