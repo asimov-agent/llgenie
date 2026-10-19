@@ -1,6 +1,7 @@
 # 2026-10-19 — the implementer leg's GH_TOKEN is set, and the rule that catches the next one (#364)
 
-Implements [#364](https://github.com/asimov-agent/llgenie/issues/364), a child of the bot-fleet parent
+Implements [#364](https://github.com/asimov-agent/llgenie/issues/364) (PR [#371](https://github.com/asimov-agent/llgenie/pull/371)),
+a child of the bot-fleet parent
 [#357](https://github.com/asimov-agent/llgenie/issues/357). OpenSpec change:
 `openspec/changes/issue-bot-ghtoken`.
 
