@@ -1,6 +1,7 @@
 # 2026-10-19 — the agent's masked web reach (#362)
 
-Implements [#362](https://github.com/asimov-agent/llgenie/issues/362), a child of the bot-fleet parent
+Implements [#362](https://github.com/asimov-agent/llgenie/issues/362) (PR [#369](https://github.com/asimov-agent/llgenie/pull/369)),
+a child of the bot-fleet parent
 [#357](https://github.com/asimov-agent/llgenie/issues/357). OpenSpec change:
 `openspec/changes/agent-web-reach`.
 
