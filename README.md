@@ -639,6 +639,30 @@ each, plus credential shapes (`ghp_…`, `hf_…`, `sk-…`, `Bearer …`) it ne
 and prints a redaction COUNT — never a value, never a prefix. A missing input exits 2: a stream that
 cannot be read must never read as a clean run. `make scrub-log LOG=… TAIL=120` (or `HERMES_LOG_TAIL=120` for a leg) widens the printed tail.
 
+## The agent's masked web reach (#362)
+
+Hermes ships a bundled `browser-firecrawl` plugin keyed by `FIRECRAWL_API_KEY`, so the capability is
+already in the agent image — what was missing is a sanctioned leg that uses it with the key never
+printed, and a smoke that dies in seconds when the key is dead instead of returning an empty result a
+run reports as success.
+
+```bash
+make agent-fetch URL=https://example.com OUT=fetched.md   # one URL -> its markdown, INSIDE the image
+make search-smoke                                         # one real request, hard budget, loud on 401/402/403
+make search-smoke BUDGET=4000                             # how much markdown to keep/print
+```
+
+The key travels through the #358 seam: `FIRECRAWL_API_KEY` is in the Makefile's ONE `AGENT_SHELL_KEYS`
+list, forwarded by NAME plus its `_HERMES_FORCE_` twin, so `make agent-shell-keys-check` proves the
+**agent's own shell** can see it (Hermes strips provider credentials from its terminal tool). The
+prompt reads the value from the environment, states that it is never printed, echoed or written, and
+writes only the fetched text. `scripts/fetch_smoke.py` reads the key by name, makes one request with a
+bounded response, and fails with the HTTP code on 401/402/403 or on a 200 that carries no
+`data.markdown` — "no results" is never healthy. A missing key is exit 2 with the variable's name.
+
+`search-smoke` needs the `FIRECRAWL_API_KEY` repository secret, which this repo does not define yet, so
+it is a human-run target for now (`tests/fixtures/host-only-wiring.json` records that decision, #362).
+
 ## The code-review bot (issue #269)
 
 A bot that reads the **tree and the pipelines** and files issues for what is actually wrong. It is

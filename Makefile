@@ -67,6 +67,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	scrub-log \
 	run-failure-reactor rebase-bot-agent check-docs docs-report check-pr-hygiene pr-hygiene-report check-pr-authors pr-authors-report check-workflows workflows-report issue-refiner-pick issue-refiner issue-refiner-apply check-dispatch-forms dispatch-forms-report \
 	agent-shell-keys-check \
+	agent-fetch search-smoke \
 	engine-bump-rebase generate-engine-params check-engine-params build-engine run-engine stop-engine list-engine-images ci-lint ci-unit ci-agents-read \
 	ci-openspec ci-cpu-health ci-top-tier ci-install ci-install-dry-args ci-free-disk test-engine-stage bot-sync-main bot-sync-branch
 
@@ -92,7 +93,7 @@ OS_IMG := llgenie/openspec:latest
 # `<NAME>` is set. Inside a container (`/.dockerenv`) nothing is re-created, so
 # `make agent-shell-keys-check` proves what `docker run` forwarded, never what an
 # inner make invented. IN_CONTAINER is overridable for the tests only.
-AGENT_SHELL_KEYS := NOUS_API_KEY GH_TOKEN HF_TOKEN TYPESAFE_API_KEY
+AGENT_SHELL_KEYS := NOUS_API_KEY GH_TOKEN HF_TOKEN TYPESAFE_API_KEY FIRECRAWL_API_KEY
 AGENT_FORCE_PREFIX := _HERMES_FORCE_
 IN_CONTAINER ?= $(if $(wildcard /.dockerenv),1,)
 ifeq ($(IN_CONTAINER),)
@@ -449,6 +450,31 @@ agent-shell-keys-check: ## Prove every credential a container receives is visibl
 	  $(AGENT_SHELL_FORWARD_PLAIN) $(AGENT_SHELL_FORWARD) \
 	  -e AGENT_SHELL_CHECK_KEYS="$(AGENT_SHELL_CHECK_KEYS)" \
 	  $(AGENT_IMAGE) bash -lc 'make _agent-shell-keys-check AGENT_SHELL_CHECK_KEYS="$(AGENT_SHELL_CHECK_KEYS)"')
+
+# ---- the agent's web reach: one masked fetch leg (issue #362) ----------------
+# A bot cannot verify what it cannot read. Hermes ships a bundled `browser-firecrawl` plugin keyed
+# by FIRECRAWL_API_KEY, so the capability is in the image; what was missing is a sanctioned way to
+# use it with the key never printed. ONE leg: the key is read from the ENVIRONMENT inside the
+# prompt (never interpolated into it, never echoed), the fetched text is written to a file, and the
+# leg's transcript is redacted by #359's seam. A dead key fails the smoke in seconds instead of
+# returning an empty result a run reports as success.
+agent-fetch: ## Fetch one URL with the masked Firecrawl key and write its text to OUT=path (URL= required; runs INSIDE the agent image)
+	@test -n "$(URL)" || { echo "Usage: make agent-fetch URL=<https://…> [OUT=fetched.md]"; exit 1; }
+	@python3 scripts/ci_images.py ensure agent
+	$(call scrubbed_run,$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo \
+	  $(AGENT_SHELL_FORWARD_PLAIN) $(AGENT_SHELL_FORWARD) \
+	  -e URL -e OUT \
+	  $(AGENT_IMAGE) bash -lc 'make _agent-fetch URL="$$URL" OUT="$$OUT"')
+
+_agent-fetch: # (internal) the host recipe the agent image runs: one fetch, key by name, never printed
+	hermes -z "Load AGENTS.md for rules. Fetch exactly this URL: $(URL) . Use the Firecrawl scrape API: POST https://api.firecrawl.dev/v1/scrape with header 'Authorization: Bearer $$FIRECRAWL_API_KEY' and body {\"url\":\"$(URL)\",\"formats\":[\"markdown\"]}. \`$$FIRECRAWL_API_KEY\` is the NAME of the environment variable that holds the key: read its VALUE from the environment and put it in that header, and never print, echo, write or copy the value anywhere — not in the output, not in $(OUT), not in a comment. Write the returned markdown to $(OUT) at the repo root. If the API answers 401/402/403, say <v>HTTP <code> for the key</v> and exit non-zero; do not retry with another key and do not invent content. HARD RULES: touch no file other than $(OUT), do not create a branch, do not push." $(nous-alias) --reasoning $(HERMES_REASONING) --yolo
+
+search-smoke: ## Prove the masked web reach works: one real Firecrawl request with a hard budget, loud on 401/402/403 — never an empty result (BUDGET= chars, default 4000)
+	@python3 scripts/ci_images.py ensure agent
+	$(call scrubbed_run,$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo \
+	  $(AGENT_SHELL_FORWARD_PLAIN) $(AGENT_SHELL_FORWARD) \
+	  -e BUDGET \
+	  $(AGENT_IMAGE) bash -lc 'python3 scripts/fetch_smoke.py --budget "$${BUDGET:-4000}"')
 
 agent-jev-preflight: ## Prove the JEV engine is active in the agent image; every bot workflow runs it with NERVE_REQUIRE=1, so a job whose engine is off does not start. NERVE_GATE_SKIP_PROVIDER=1 skips the live provider call; the report is REDACTED before it prints (issue #359)
 	python3 scripts/ci_images.py ensure agent
@@ -876,7 +902,7 @@ test-clean: ## Remove left-over/stopped orphaned containers of the test image (i
 	echo "Pruned stopped orphaned $(TEST_IMG) containers."
 
 test-unit: ## Hermetic unit tests (containerized) — includes the lint regression + openspec-tasks-check tests
-	$(TEST_RUN) python -m pytest tests/test_issue_cleaner.py tests/test_llgenie_serve.py tests/test_hf_auth.py tests/test_hf_download_stall.py tests/test_hf_download_retry.py tests/test_hub_probe.py tests/test_lint_linefeeds.py tests/test_engine_bump_sync.py tests/test_engine_bump_rebase.py tests/test_check_openspec_tasks.py tests/test_remove_watchloop.py tests/test_ci_variant_matrix.py tests/test_serve_variant.py tests/test_ensure_user_path.py tests/test_engine_skills.py tests/test_engine_bump.py tests/test_engine_bump_pr_body.py tests/test_detect_server.py tests/test_model_engine_pick.py tests/test_trend_pick.py tests/test_card_aware_rank.py tests/test_registry_sync_trend.py tests/test_trend_list_matrix.py tests/test_registry_keys.py tests/test_engine_skill_gap.py tests/test_strata_download.py tests/test_macos_install.py tests/test_ci_images.py tests/test_mac_trend_pick.py tests/test_trend_list_acceptance.py tests/test_tensorfold_seamless.py tests/test_pick_matrix.py tests/test_pick_matrix_arch_perms.py tests/test_pick_full_registry.py tests/test_trending_quant_catalog.py tests/test_engine_supported_quants.py tests/test_quant_generator_edges.py tests/test_check_python_uv.py tests/test_engine_image_matrix.py tests/test_agents_worktree.py tests/test_agents_debt_analysis.py tests/test_bot_sync.py tests/test_wiring.py tests/test_agent_nerve.py tests/test_secret_output.py tests/test_kv_quant_bytes.py tests/test_queued_run_alarm.py tests/test_rename_llgenie_serve.py tests/test_fix_loop.py tests/test_fix_bot_sweep.py tests/test_issue_implementer.py tests/test_bot_time_budget.py tests/test_code_review.py tests/test_bot_pipeline_isolation.py tests/test_ci_concurrency.py tests/test_loop_test_stage.py tests/test_rebase_bot_sweep.py tests/test_bot_claims.py tests/test_check_docs.py tests/test_issue_refiner.py tests/test_dispatch_forms.py tests/test_workflow_guards.py tests/test_pr_hygiene.py tests/test_pr_authors.py tests/test_workflows_valid.py tests/test_bot_decision_loudness.py tests/test_run_failure_reactor.py tests/test_agent_shell_keys.py tests/test_scrub_log.py tests/test_secret_scan.py -p no:cacheprovider -q -k 'not test_derive_reports_the_live_release_archives and not test_tensorfold_v1_0_5_release_is_native_archives and not test_tensorfold_release_archive_unpacks_and_runs'
+	$(TEST_RUN) python -m pytest tests/test_issue_cleaner.py tests/test_llgenie_serve.py tests/test_hf_auth.py tests/test_hf_download_stall.py tests/test_hf_download_retry.py tests/test_hub_probe.py tests/test_lint_linefeeds.py tests/test_engine_bump_sync.py tests/test_engine_bump_rebase.py tests/test_check_openspec_tasks.py tests/test_remove_watchloop.py tests/test_ci_variant_matrix.py tests/test_serve_variant.py tests/test_ensure_user_path.py tests/test_engine_skills.py tests/test_engine_bump.py tests/test_engine_bump_pr_body.py tests/test_detect_server.py tests/test_model_engine_pick.py tests/test_trend_pick.py tests/test_card_aware_rank.py tests/test_registry_sync_trend.py tests/test_trend_list_matrix.py tests/test_registry_keys.py tests/test_engine_skill_gap.py tests/test_strata_download.py tests/test_macos_install.py tests/test_ci_images.py tests/test_mac_trend_pick.py tests/test_trend_list_acceptance.py tests/test_tensorfold_seamless.py tests/test_pick_matrix.py tests/test_pick_matrix_arch_perms.py tests/test_pick_full_registry.py tests/test_trending_quant_catalog.py tests/test_engine_supported_quants.py tests/test_quant_generator_edges.py tests/test_check_python_uv.py tests/test_engine_image_matrix.py tests/test_agents_worktree.py tests/test_agents_debt_analysis.py tests/test_bot_sync.py tests/test_wiring.py tests/test_agent_nerve.py tests/test_secret_output.py tests/test_kv_quant_bytes.py tests/test_queued_run_alarm.py tests/test_rename_llgenie_serve.py tests/test_fix_loop.py tests/test_fix_bot_sweep.py tests/test_issue_implementer.py tests/test_bot_time_budget.py tests/test_code_review.py tests/test_bot_pipeline_isolation.py tests/test_ci_concurrency.py tests/test_loop_test_stage.py tests/test_rebase_bot_sweep.py tests/test_bot_claims.py tests/test_check_docs.py tests/test_issue_refiner.py tests/test_dispatch_forms.py tests/test_workflow_guards.py tests/test_pr_hygiene.py tests/test_pr_authors.py tests/test_workflows_valid.py tests/test_bot_decision_loudness.py tests/test_run_failure_reactor.py tests/test_agent_shell_keys.py tests/test_scrub_log.py tests/test_secret_scan.py tests/test_agent_web_reach.py -p no:cacheprovider -q -k 'not test_derive_reports_the_live_release_archives and not test_tensorfold_v1_0_5_release_is_native_archives and not test_tensorfold_release_archive_unpacks_and_runs'
 
 # Live GitHub release reads. Linux only: the macOS runner cannot reach
 # api.github.com, and TensorFold publishes no macos-x86_64 archive.

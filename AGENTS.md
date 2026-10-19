@@ -1047,6 +1047,11 @@ Measured on this host against the real Hermes (issue #358) — plain names read
   printing a value — when a container credential reads empty in the agent's shell. Every bot job
   that starts the agent image runs it, with `AGENT_SHELL_CHECK_KEYS=` narrowed to the keys that
   job actually sets (a key the job legitimately lacks must not fail the check).
+- **A web reach is one leg, keyed by name.** `make agent-fetch` is the ONLY place a bot fetches a
+  URL: `FIRECRAWL_API_KEY` is in `AGENT_SHELL_KEYS` (so the agent's shell is proven to see it), the
+  prompt reads the value from the environment and never prints, echoes or writes it, and the fetched
+  text — nothing else — lands in `OUT`. A second hand-rolled fetch is a defect; `make search-smoke`
+  is the loud proof that the key works (401/402/403 and an empty 200 both fail).
 - **A missing credential is LOUD, never a skip.** An unset key, or a Hermes that cannot be found
   where the check runs, exits 2; `--allow-unconfigured` is the only opt-out, it says so, and no
   workflow may use it.

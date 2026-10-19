@@ -35,6 +35,10 @@
     "test-install-ci": {
       "reason": "The full install acceptance in ONE container: REAL make install with the engine images through the HOST docker socket, 'hi' through the container llama-server, the trend pick, uninstall. CI's install job runs the same flow as separate `make ci-install-*` stages (test-env, install-run, install-dry, install-dry-args, install-uninstall) and macOS runs no container at all, so no job runs THIS target (issue #239). Its help line no longer claims the pipelines run it; wire it into ci-install if a single-container acceptance is ever wanted in CI.",
       "decided": "2026-10-15"
+    },
+    "search-smoke": {
+      "reason": "Proves the masked web reach with one real request. It cannot run in CI until the FIRECRAWL_API_KEY repo secret is defined for asimov-agent/llgenie (a missing key is exit 2 by design, so wiring it now would fail every job). Its help line does not claim CI coverage.",
+      "decided": "2026-10-19"
     }
   }
 }

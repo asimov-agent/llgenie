@@ -41,6 +41,8 @@ CREDENTIALS = ("NOUS_API_KEY", "GH_TOKEN", "HF_TOKEN", "TYPESAFE_API_KEY")
 NON_CREDENTIAL_ENV = {
     "HERMES_REASONING", "REPO", "FIX_CHECK", "FIX_ROUNDS", "AGENT_SHELL_CHECK_KEYS",
     "HERMES_NERVE_PROVIDER", "NERVE_REQUIRE", "NERVE_GATE_SKIP_PROVIDER",
+    # the fetch leg's inputs (#362): a URL, an output path and a byte budget — knobs, not secrets
+    "URL", "OUT", "BUDGET",
 }
 #: The bot jobs that start the agent image: (workflow, the keys that job actually sets).
 BOT_JOBS = {
