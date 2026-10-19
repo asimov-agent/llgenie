@@ -1,0 +1,67 @@
+name: search-smoke — one real Firecrawl request proves the masked web reach
+
+# Issue #381 (follow-up of #362 / the parent #357). FIRECRAWL_API_KEY reaches the agent image by
+# NAME only (the Makefile's ONE `AGENT_SHELL_KEYS` list plus the `_HERMES_FORCE_<NAME>` seam,
+# issue #358), and `make search-smoke` proves the masked fetch with ONE real request. While the
+# repository secret did not exist the target was human-run only and recorded in
+# `tests/fixtures/host-only-wiring.json`; that entry is DELETED with this change, because
+# check-wiring fails a recorded exception CI now reaches.
+#
+# Trigger surface: schedule daily 07:11 UTC (`11 7 * * *`, an odd minute, its own slot — issue #275),
+#                  and workflow_dispatch (owner/collaborator).
+# dispatch: no inputs — the smoke takes no target: it always proves the same leg with one request.
+# Flow: guard (owner/collaborator, BEFORE any secret is read) -> make agent-shell-keys-check
+#       AGENT_SHELL_CHECK_KEYS=FIRECRAWL_API_KEY (the AGENT's own shell must see the key, issue #358)
+#       -> make search-smoke (one bounded request; 401/402/403 and an empty 200 are LOUD failures).
+# Never: never merges, never pushes, never prints the key — the leg reads it from the environment and
+#        scripts/scrub_log.py redacts the transcript.
+on:
+  schedule:
+    - cron: "11 7 * * *"   # daily 07:11 UTC (an odd minute, its own slot, issue #275)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: search-smoke
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Owner / collaborator trigger guard
+        env:
+          ACTOR: ${{ github.actor }}
+          TRIGGER: ${{ github.triggering_actor }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for u in "$ACTOR" "$TRIGGER"; do
+            if [ "$u" = "$OWNER" ]; then continue; fi
+            perm=$(gh api "repos/$REPO/collaborators/$u/permission" --jq .permission 2>/dev/null || echo none)
+            case "$perm" in
+              admin|maintain|write) echo "Collaborator $u has $perm - allowed." ;;
+              *) echo "Refused: $u is not the owner or a collaborator with write access (permission: ${perm:-none})."; exit 1 ;;
+            esac
+          done
+          echo "Allowed: actor=$ACTOR triggering_actor=$TRIGGER"
+  smoke:
+    needs: [guard]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # Both keys travel by NAME into the container (`docker run -e`), never on a command line and
+    # never baked into the image; the `_HERMES_FORCE_<NAME>` twin is exported by the Makefile.
+    env:
+      NOUS_API_KEY: ${{ secrets.NOUS_PORTAL_API_TOKEN }}
+      FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: The agent's own shell must see the key before the smoke spends it (issue #358)
+        run: make agent-shell-keys-check AGENT_SHELL_CHECK_KEYS=FIRECRAWL_API_KEY
+      - name: One real request, hard budget, loud on 401/402/403 — never an empty result
+        run: make search-smoke

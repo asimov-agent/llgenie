@@ -665,8 +665,13 @@ writes only the fetched text. `scripts/fetch_smoke.py` reads the key by name, ma
 bounded response, and fails with the HTTP code on 401/402/403 or on a 200 that carries no
 `data.markdown` — "no results" is never healthy. A missing key is exit 2 with the variable's name.
 
-`search-smoke` needs the `FIRECRAWL_API_KEY` repository secret, which this repo does not define yet, so
-it is a human-run target for now (`tests/fixtures/host-only-wiring.json` records that decision, #362).
+`search-smoke` runs on the repository secret: the `search-smoke.yml` workflow (issue #381) fires daily
+at 07:11 UTC (and on a hand dispatch by the owner/collaborators), where
+`make agent-shell-keys-check AGENT_SHELL_CHECK_KEYS=FIRECRAWL_API_KEY` proves the **agent's own shell**
+sees the key *before* `make search-smoke` spends it. The key travels by NAME (`docker run -e`) and never
+on a command line. While the secret did not exist the target was human-run only and recorded in
+`tests/fixtures/host-only-wiring.json`; that record is deleted, because `make check-wiring` fails a
+recorded exception CI now reaches.
 
 ## A bot leg refuses to start on a missing key (#363)
 
@@ -768,6 +773,7 @@ The table below is generated from the workflows by `make dispatch-forms-report` 
 them by `make check-dispatch-forms`, so the documentation you read before dispatching cannot drift
 from the pipeline that will run.
 <!-- dispatch-forms:begin -->
+
 | workflow | what the run does | dispatch inputs |
 |---|---|---|
 | `code-review-bot.yml` | reviews the tree and the pipelines and files one issue per finding (never edits code) | `dry` (optional, default `false`) — Preview the issues it would file (owner only) |
@@ -780,6 +786,8 @@ from the pipeline that will run.
 | `queued-alarm.yml` | reports CI jobs queued far too long, once per affected run | `minutes` (optional, default `30`) — report jobs queued longer than this many minutes |
 | `rebase-bot.yml` | keeps every open PR current with main, ONE PR per run (never merges) | none — the bot decides by itself which ONE PR to take (scripts/rebase_bot_sweep.py); |
 | `registry-sync.yml` | syncs the vendored registry and regenerates the derived tables, then opens the PR | none — the sync has no modes: it always fetches the upstream registry, regenerates |
+| `search-smoke.yml` | one real Firecrawl request proves the masked web reach | none — the smoke takes no target: it always proves the same leg with one request. |
+
 <!-- dispatch-forms:end -->
 
 ## Which llama.cpp build is used (card-size rule, issue #84)

@@ -169,7 +169,10 @@ def test_every_guard_step_is_byte_identical():
     assert len(groups) == 1, (
         "the guard is not byte-identical everywhere — these bodies differ:\n"
         + "\n".join(f"  {', '.join(sorted(names))}" for names in groups.values()))
-    assert len(next(iter(groups.values()))) == 11, next(iter(groups.values()))
+    # The count is DERIVED from the workflow files (every dispatchable workflow + `ci.yml`, which is
+    # guarded though no human dispatches it): a hand-listed count is the roster defect of issue #301,
+    # one new workflow later.
+    assert len(next(iter(groups.values()))) == len(_dispatchable()) + 1, next(iter(groups.values()))
 
 
 def test_the_guard_actually_gates_the_work():

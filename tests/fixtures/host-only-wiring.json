@@ -1,9 +1,9 @@
 {
-  "note": "Documents that a human runs by hand and that no CI job reaches, on purpose (issue #237), and targets whose `##` help line claims CI coverage that no CI job delivers (issue #239). `make check-wiring` fails when a document is named only by a target CI never calls and no entry here records why \u2014 an omission has to be a dated decision, not an accident. An entry that CI starts reaching is STALE and must be deleted, so this file cannot rot either. A target entry records a help line that was corrected instead of wired: it is stale the moment CI starts reaching it.",
+  "note": "Documents that a human runs by hand and that no CI job reaches, on purpose (issue #237), and targets whose `##` help line claims CI coverage that no CI job delivers (issue #239). `make check-wiring` fails when a document is named only by a target CI never calls and no entry here records why — an omission has to be a dated decision, not an accident. An entry that CI starts reaching is STALE and must be deleted, so this file cannot rot either. A target entry records a help line that was corrected instead of wired: it is stale the moment CI starts reaching it.",
   "decided_utc": "2026-10-15",
   "documents": {
     "tests/test_health.py": {
-      "reason": "The INSTALLED launcher serves the 0.5B model on this host's real backend (Metal on an Apple-Silicon Mac, the host docker on Linux) \u2014 hardware, not a gate. A CI runner has neither, and the cpu-health stage answers \"hi\" through the engine image instead (make test-health).",
+      "reason": "The INSTALLED launcher serves the 0.5B model on this host's real backend (Metal on an Apple-Silicon Mac, the host docker on Linux) — hardware, not a gate. A CI runner has neither, and the cpu-health stage answers \"hi\" through the engine image instead (make test-health).",
       "target": "test-health-host",
       "decided": "2026-10-14",
       "issue": 237
@@ -15,7 +15,7 @@
       "issue": 237
     },
     "tests/test_native_engine_light.py": {
-      "reason": "Same Metal-only scope as test_native_engine_real.py: it serves the lightest TensorFold model through the native start script, or proves the budget refusal on a host too small for it \u2014 both need real Metal.",
+      "reason": "Same Metal-only scope as test_native_engine_real.py: it serves the lightest TensorFold model through the native start script, or proves the budget refusal on a host too small for it — both need real Metal.",
       "target": "test-native-engine-light",
       "decided": "2026-10-14",
       "issue": 237
@@ -29,16 +29,12 @@
   },
   "targets": {
     "agent-image-pull": {
-      "reason": "Convenience wrapper for a human: pull the published agent image and fail loudly when it is not there. No CI job calls it \u2014 publish-agent-image.yml PUSHES and reaches GHCR through scripts/ci_images.py directly \u2014 and its help line no longer claims otherwise. Kept because 'pull back what was published' is exactly what a human needs after a failed publish.",
+      "reason": "Convenience wrapper for a human: pull the published agent image and fail loudly when it is not there. No CI job calls it — publish-agent-image.yml PUSHES and reaches GHCR through scripts/ci_images.py directly — and its help line no longer claims otherwise. Kept because 'pull back what was published' is exactly what a human needs after a failed publish.",
       "decided": "2026-10-15"
     },
     "test-install-ci": {
       "reason": "The full install acceptance in ONE container: REAL make install with the engine images through the HOST docker socket, 'hi' through the container llama-server, the trend pick, uninstall. CI's install job runs the same flow as separate `make ci-install-*` stages (test-env, install-run, install-dry, install-dry-args, install-uninstall) and macOS runs no container at all, so no job runs THIS target (issue #239). Its help line no longer claims the pipelines run it; wire it into ci-install if a single-container acceptance is ever wanted in CI.",
       "decided": "2026-10-15"
-    },
-    "search-smoke": {
-      "reason": "Proves the masked web reach with one real request. It cannot run in CI until the FIRECRAWL_API_KEY repo secret is defined for asimov-agent/llgenie (a missing key is exit 2 by design, so wiring it now would fail every job). Its help line does not claim CI coverage.",
-      "decided": "2026-10-19"
     }
   }
 }

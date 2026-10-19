@@ -107,6 +107,47 @@ def test_the_leg_is_a_make_target_and_the_smoke_is_reachable():
 
 
 # ---------------------------------------------------------------------------
+# the deployment (issue #381): the smoke runs on the repository secret
+# ---------------------------------------------------------------------------
+def test_the_smoke_runs_in_a_monitored_job_on_the_repository_secret():
+    """A leg nobody schedules is not a check: the smoke runs daily, on the secret, by NAME."""
+
+    # Given the workflow that runs the smoke
+    text = (WORKFLOWS / "search-smoke.yml").read_text()
+
+    # When  it is read
+    # Then  it is scheduled on its own slot and dispatchable, and it declares its trigger surface
+    assert re.search(r'(?m)^\s*- cron: "11 7 \* \* \*"', text), text[:400]
+    assert "workflow_dispatch:" in text
+    for key in ("# Trigger surface:", "# Flow:", "# Never:"):
+        assert key in text, f"{key} missing from the header block"
+
+    # And the key arrives by NAME, never as a value on a command line or in a run block
+    assert "FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}" in text, text[:400]
+    assert "secrets.FIRECRAWL_API_KEY }}" in text
+    assert not re.search(r"-e\s+FIRECRAWL_API_KEY=", text), "the key travels as a value, not a name"
+    assert not re.search(r"FIRECRAWL_API_KEY=\$", text), "the key is interpolated into the workflow"
+
+    # And the agent's own shell is proven to see it BEFORE the smoke spends it
+    assert "make agent-shell-keys-check AGENT_SHELL_CHECK_KEYS=FIRECRAWL_API_KEY" in text
+    assert "make search-smoke" in text
+    assert text.index("run: make agent-shell-keys-check") < text.index("run: make search-smoke")
+
+
+def test_the_host_only_exception_for_the_smoke_is_gone():
+    """check-wiring fails a recorded exception CI reaches, so the record is the proof of the wiring."""
+
+    import json
+
+    # Given the dated host-only decisions
+    data = json.loads((REPO / "tests" / "fixtures" / "host-only-wiring.json").read_text())
+
+    # Then no entry claims the smoke is human-run any more, and the workflow it names exists
+    assert "search-smoke" not in (data.get("targets") or {}), data.get("targets")
+    assert (WORKFLOWS / "search-smoke.yml").exists()
+
+
+# ---------------------------------------------------------------------------
 # the smoke: real client, local server
 # ---------------------------------------------------------------------------
 def test_a_missing_key_is_loud_and_names_the_variable():
