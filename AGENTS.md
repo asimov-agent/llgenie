@@ -1052,6 +1052,10 @@ Measured on this host against the real Hermes (issue #358) — plain names read
   prompt reads the value from the environment and never prints, echoes or writes it, and the fetched
   text — nothing else — lands in `OUT`. A second hand-rolled fetch is a defect; `make search-smoke`
   is the loud proof that the key works (401/402/403 and an empty 200 both fail).
+- **Before the image, not inside it.** Every leg runs `python3 scripts/require_env.py <KEYS>` as its
+  first recipe line, ahead of `scripts/ci_images.py ensure agent`, with the keys that leg forwards —
+  so a missing secret costs seconds instead of a 120-180 minute run. The suite derives the roster
+  from the Makefile; a leg added without the guard reds `make test-unit`.
 - **A missing credential is LOUD, never a skip.** An unset key, or a Hermes that cannot be found
   where the check runs, exits 2; `--allow-unconfigured` is the only opt-out, it says so, and no
   workflow may use it.
