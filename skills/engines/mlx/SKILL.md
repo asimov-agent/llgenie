@@ -4,11 +4,11 @@ description: "Use when building the MLX + mlx-lm engine image (CUDA via mlx[cuda
 engine: "MLX"
 id: mlx
 repo: https://github.com/ml-explore/mlx-lm
-ref: v0.32.0
+ref: v0.32.2
 ref_kind: tag
-version: v0.32.0
-pinned: a9bd8af5c02118882af735cef60705d2efce9fd0
-verified: "2026-10-05"
+version: v0.32.2
+pinned: 93e6d4a6447b3080861985947f0820e76fcb957d
+verified: "2026-10-19"
 license: MIT
 servable: true
 backends: [metal, cuda, cpu]
