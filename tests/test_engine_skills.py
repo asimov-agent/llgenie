@@ -351,7 +351,7 @@ def test_ollama_tarball_is_checksum_verified_before_extract(skills):
 
     # Then the checksum runs before extraction, from the pinned release
     assert check_i < extract_i
-    assert "releases/download/v0.40.3/ollama-linux-amd64.tar.zst" in " ".join(steps)
+    assert "releases/download/v0.40.6/ollama-linux-amd64.tar.zst" in " ".join(steps)
     assert "install.sh" not in " ".join(steps)
 
 
@@ -566,7 +566,7 @@ def test_official_upstream_images_are_used_as_bases(skills):
     assert "FROM vllm/vllm-openai:v0.31.0" in df("vllm", "cuda")
     assert "FROM vllm/vllm-openai-cpu:v0.31.0" in df("vllm", "cpu")
     assert "FROM vllm/vllm-openai-rocm:v0.31.0" in df("vllm", "rocm")
-    assert "FROM ollama/ollama:0.40.3-rocm" in df("ollama", "rocm")
+    assert "FROM ollama/ollama:0.40.6-rocm" in df("ollama", "rocm")
     assert "FROM lmsysorg/sglang:v0.5.21" in df("sglang", "cuda")
     assert "FROM nvcr.io/nvidia/tensorrt-llm/release:1.2.1" in df("tensorrt-llm", "cuda")
     for b in ("cpu", "cuda", "rocm", "vulkan"):
@@ -1779,21 +1779,21 @@ def test_detect_accepts_a_version_when_the_daemon_is_down(monkeypatch, capsys):
     class _R:
         returncode = 1
         stdout = "Warning: could not connect to a running Ollama instance\n"
-        stderr = "ollama version is 0.40.3\n"
+        stderr = "ollama version is 0.40.6\n"
 
     monkeypatch.setattr(es.subprocess, "run", lambda *a, **k: _R)
-    skill = {"id": "ollama", "version": "v0.40.3", "backends": ["metal"]}
+    skill = {"id": "ollama", "version": "v0.40.6", "backends": ["metal"]}
 
     # When detect and native_status read it (plan/env are not needed)
     monkeypatch.setattr(es, "plan", lambda *a, **k: {"detect": "ollama --version", "env": {}})
     rc, line = es._detect_run(skill, "metal", {"backend": "metal"}, quiet=True)
     status = es.native_status(skill, "metal", {"backend": "metal"})
 
-    # Then the engine is installed at 0.40.3, not missing
+    # Then the engine is installed at 0.40.6, not missing
     assert rc == 0
-    assert "0.40.3" in line
+    assert "0.40.6" in line
     assert status["state"] == "current"
-    assert status["installed"] == "0.40.3"
+    assert status["installed"] == "0.40.6"
     # And a non-zero exit with no version line is still missing
     _R.stdout = "Warning: could not connect to a running Ollama instance\n"
     _R.stderr = ""

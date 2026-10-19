@@ -4,11 +4,11 @@ description: "Use when installing or launching Ollama (checksum-verified release
 engine: "Ollama"
 id: ollama
 repo: https://github.com/ollama/ollama
-ref: v0.40.3
+ref: v0.40.6
 ref_kind: tag
-version: v0.40.3
-pinned: eab97e9f92b9a25c2d52d2cc6c1b1c99bd9fae21
-verified: "2026-10-11"
+version: v0.40.6
+pinned: 2476d5ead197abe04629651028f83d48dc75d2b2
+verified: "2026-10-19"
 license: MIT
 servable: true
 backends: [cuda, rocm, vulkan, metal, cpu]
