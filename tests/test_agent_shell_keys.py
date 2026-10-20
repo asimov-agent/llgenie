@@ -51,7 +51,7 @@ NON_CREDENTIAL_ENV = {
 BOT_JOBS = {
     "fix-bot.yml": ("NOUS_API_KEY", "GH_TOKEN", "TYPESAFE_API_KEY"),
     "issue-bot.yml": ("NOUS_API_KEY", "GH_TOKEN", "TYPESAFE_API_KEY"),  # #364: the leg forwards it, so the job must set it
-    "issue-refiner.yml": ("NOUS_API_KEY", "TYPESAFE_API_KEY"),
+    "issue-refiner.yml": ("NOUS_API_KEY", "TYPESAFE_API_KEY", "FIRECRAWL_API_KEY"),  # #380: the leg pre-fetches, so the job must set it
     "rebase-bot.yml": ("NOUS_API_KEY", "TYPESAFE_API_KEY"),
 }
 
@@ -200,8 +200,13 @@ def test_every_bot_job_proves_the_agent_shell():
     for workflow, keys in BOT_JOBS.items():
         text = (WORKFLOWS / workflow).read_text()
 
-        # Then the job runs the check with exactly the keys that job sets
-        steps = [l for l in text.splitlines() if "make agent-shell-keys-check" in l]
+        # Then the job runs the check with exactly the keys that job sets. Only STEP lines count:
+        # a comment naming the target is not a second check, and the dispatch-form guard REQUIRES a
+        # workflow's `Flow:` header to name the targets its run takes (`make check-dispatch-forms`),
+        # so prose would otherwise trip this count. The repo's other guards strip comments the same
+        # way (check_wiring, check_secret_output) — read the decision, not the prose.
+        steps = [l for l in text.splitlines()
+                 if "make agent-shell-keys-check" in l and not l.lstrip().startswith("#")]
         assert len(steps) == 1, f"{workflow} does not prove the agent's shell exactly once: {steps}"
         want = 'AGENT_SHELL_CHECK_KEYS="' + " ".join(keys) + '"'
         assert want in steps[0], f"{workflow} proves the wrong key set: {steps[0]}"

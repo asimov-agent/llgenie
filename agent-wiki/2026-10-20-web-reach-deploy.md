@@ -1,6 +1,6 @@
 # The masked web reach is deployed: a bot leg uses it, and the URLs are checked
 
-Issue #380 (follow-up of #357 / #362). OpenSpec change: `web-reach-deploy`.
+Issue #380 (follow-up of #357 / #362). OpenSpec change: `web-reach-deploy`. PR: #402.
 
 ## What was wrong
 
