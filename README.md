@@ -275,7 +275,8 @@ make engine-skill-gap-md       # the same gap as MARKDOWN, for a PR/issue body (
 make spawn-engine-skill-issues # open one tracking issue per NEW unskilled engine (the sync does this)
 make check-wiring              # CI: fail when a test/script is wired to no make target, or only to
                                # one CI never runs (tests/fixtures/host-only-wiring.json records the
-                               # deliberate ones), or a workflow calls a make target that does not exist
+                               # deliberate ones), a workflow calls a make target that does not exist,
+                               # or a target is not declared .PHONY
 make wiring-report            # show how every test/script is wired (which target, whether CI runs it)
 ```
 
@@ -293,6 +294,18 @@ stale and the gate says to delete it. The same check covers the code inside thos
 a top-level definition whose name appears exactly once in the tree is its own `def` line and
 nothing else — dead — so a helper that loses its last caller is named instead of sitting
 there.
+
+### Every target is declared `.PHONY` (issue #392)
+
+`make` runs a recipe when no **file** carries the target's name, so a target that produces no such
+file must be in the `.PHONY:` block — otherwise any file named after it (a left-over scratch file, a
+checkout on a case-insensitive filesystem) shadows it and make prints `make: 'test-env' is up to
+date.` while running nothing. That is a green run that verified nothing, so `make check-wiring` now
+compares the `.PHONY` blocks of `Makefile` and `tools/Makefile` against every target they define and
+fails naming each undeclared one; `make wiring-report` prints the declared / recorded / undeclared
+counts. A target that genuinely writes a file of its own name is exempt — but only as a dated decision
+under `not_phony` in `tests/fixtures/host-only-wiring.json`, which is refused without a reason and
+reported stale once the target is declared or gone.
 
 
 The `registry-sync` workflow runs `make sync-registry` weekly (cron `17 5 * * 1`,

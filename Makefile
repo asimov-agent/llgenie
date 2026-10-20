@@ -69,7 +69,10 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	agent-shell-keys-check \
 	agent-fetch search-smoke require-env \
 	engine-bump-rebase generate-engine-params check-engine-params build-engine run-engine stop-engine list-engine-images ci-lint ci-unit ci-agents-read \
-	ci-openspec ci-cpu-health ci-top-tier ci-install ci-install-dry-args ci-free-disk test-engine-stage bot-sync-main bot-sync-branch ci-wait-engine-images
+	ci-openspec ci-cpu-health ci-top-tier ci-install ci-install-dry-args ci-free-disk test-engine-stage bot-sync-main bot-sync-branch ci-wait-engine-images \
+	ci-install-dry ci-install-run ci-install-uninstall test-env test-top-tier test-top-tier-ci test-top-tier-cli-ci test-top-tier-serve test-top-tier-serve-ci \
+	test-engine-bump-live test-native-engines test-native-engine-light test-variant-image \
+	bash-check engine-bump engine-bump-daily engine-bump-plan engine-derive generate-requirements openspec-tasks-check check-registry-keys ci-engines
 
 # ---- container runtime: docker -------------------------------------------
 RUNTIME ?= docker

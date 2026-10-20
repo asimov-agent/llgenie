@@ -8,8 +8,9 @@ a `tests/test_*.py` that no target names ran in NO gate while the PR stayed gree
 from the real files:
 
   check_wiring.py report    print what is wired how, and the host-only exceptions
-  check_wiring.py check     exit 1 on an unwired document, a stale exception, or a
-                            workflow that calls a make target that does not exist
+  check_wiring.py check     exit 1 on an unwired document, a stale exception, a workflow
+                            that calls a make target that does not exist, or a target that
+                            is not declared `.PHONY`
 
 What "wired" means — one graph, no guessing:
 
@@ -31,7 +32,13 @@ What "wired" means — one graph, no guessing:
   when ...", "(CI pipelines)") must be reached by a CI job, transitively through the
   targets a workflow calls. A help line that promises coverage nothing delivers is the
   same lie as an unwired document, read by a human at `make help` time: correct the line,
-  wire the target, or record the decision under `"targets"` in the same file (issue #239).
+  wire the target, or record the decision under `"targets"` in the same file (issue #239);
+- an **undeclared `.PHONY` target** is an ERROR (issue #392): `make` runs a recipe when no
+  file carries the target's name, so a target that produces no such file MUST be in the
+  `.PHONY:` block — otherwise any file named after it (a scratch file, a checkout on a
+  case-insensitive filesystem) shadows it and the target reports success having run
+  nothing. A target that genuinely produces a file of its own name is recorded under
+  `"not_phony"` in the same decisions file instead.
 
 Stdlib only.
 """
@@ -77,6 +84,32 @@ def _recipes(root: Path) -> tuple[dict[str, str], dict[str, set]]:
         prereqs[name] = set(re.findall(r"[a-z0-9][a-z0-9._-]*", header.split(":", 1)[1]))
         prereqs[name].discard(name)
     return out, prereqs
+
+
+def _phony_targets(root: Path) -> set[str]:
+    """Every name declared `.PHONY` in the Makefiles (issue #392).
+
+    The declaration is one hand-written list with line continuations, so read the raw text:
+    a line ending in `\\` continues the same `.PHONY:` block. A name in `.PHONY` that is not
+    a target is harmless to make, so only the targets are compared against it.
+    """
+    out: set[str] = set()
+    for rel in MAKEFILES:
+        path = root / rel
+        if not path.exists():
+            continue
+        lines = path.read_text().splitlines()
+        for i, line in enumerate(lines):
+            if not line.startswith(".PHONY:"):
+                continue
+            chunk = [line.split(":", 1)[1]]
+            j = i
+            while chunk[-1].rstrip().endswith("\\") and j + 1 < len(lines):
+                j += 1
+                chunk.append(lines[j])
+            out |= set(re.findall(r"[A-Za-z0-9][A-Za-z0-9._-]*",
+                                  " ".join(c.rstrip().rstrip("\\") for c in chunk)))
+    return out
 
 
 def _workflow_steps(root: Path) -> dict[str, str]:
@@ -240,6 +273,7 @@ def graph(root: Path = REPO) -> dict:
         "scripts": [d for d in docs if d.startswith("scripts/")],
         "workflow_targets": workflow_targets, "ci_targets": ci_targets,
         "aggregated": aggregated, "aggregator_errors": agg_errors,
+        "phony": sorted(_phony_targets(root)),
         # wired at all (any target, any workflow) vs reached by the CI workflows
         "reachable": _close(root, docs, recipes, calls, recipes.keys(), workflow_docs, extra_named=aggregated),
         "ci_reachable": _close(root, docs, recipes, calls, ci_targets, workflow_docs, extra_named=aggregated),
@@ -247,12 +281,15 @@ def graph(root: Path = REPO) -> dict:
 
 
 def load_exceptions(path: Path) -> dict:
-    """The dated decisions: host-only documents (`{doc: {reason, target, decided}}`) and targets
-    whose help line claims CI coverage nothing delivers (`{target: {reason, decided}}`)."""
+    """The dated decisions: host-only documents (`{doc: {reason, target, decided}}`), targets
+    whose help line claims CI coverage nothing delivers (`{target: {reason, decided}}`), and
+    targets that genuinely produce a file of their own name (`{target: {reason, decided}}`,
+    issue #392)."""
     if not path.exists():
-        return {"path": str(path), "documents": {}, "targets": {}}
+        return {"path": str(path), "documents": {}, "targets": {}, "not_phony": {}}
     data = json.loads(path.read_text())
     docs, tgts = data.get("documents"), data.get("targets") or {}
+    not_phony = data.get("not_phony") or {}
     if not isinstance(docs, dict):
         raise SystemExit(f"[check-wiring] {path}: 'documents' must be an object")
     for doc, e in docs.items():
@@ -261,17 +298,24 @@ def load_exceptions(path: Path) -> dict:
                 raise SystemExit(f"[check-wiring] {path}: {doc!r} lacks {k}")
     if not isinstance(tgts, dict):
         raise SystemExit(f"[check-wiring] {path}: 'targets' must be an object")
+    if not isinstance(not_phony, dict):
+        raise SystemExit(f"[check-wiring] {path}: 'not_phony' must be an object")
+    for tgt, e in not_phony.items():
+        for k in ("reason", "decided"):
+            if not e.get(k):
+                raise SystemExit(f"[check-wiring] {path}: not_phony {tgt!r} lacks {k}")
     for tgt, e in tgts.items():
         for k in ("reason", "decided"):
             if not e.get(k):
                 raise SystemExit(f"[check-wiring] {path}: target {tgt!r} lacks {k}")
-    return {"path": str(path), "documents": docs, "targets": tgts}
+    return {"path": str(path), "documents": docs, "targets": tgts, "not_phony": not_phony}
 
 
 def check(g: dict, exceptions: dict) -> list[str]:
     """Errors: a document wired to nothing, a document only a non-CI target reaches and no
     dated exception records, a stale exception, a workflow that calls a make target which
-    does not exist (a typo in a `run:` block is a silent no-op)."""
+    does not exist (a typo in a `run:` block is a silent no-op), and a target that is not
+    declared `.PHONY` (a file with that name makes the target a green no-op, issue #392)."""
     recorded = exceptions.get("documents") or {}
     errors = list(g.get("aggregator_errors") or [])
     for w, targets in g["workflow_targets"].items():
@@ -308,6 +352,27 @@ def check(g: dict, exceptions: dict) -> list[str]:
             errors.append(f"{exceptions['path']}: target {tgt!r} is not a make target — delete the entry")
         elif tgt in ci_reaches:
             errors.append(f"{exceptions['path']}: `make {tgt}` is reached by CI now — delete the entry")
+
+    # The .PHONY half (issue #392): make decides to run a recipe by looking for a FILE with the
+    # target's name, so a target that produces no such file must be declared `.PHONY` or any file
+    # carrying that name (a scratch file, a checkout on a case-insensitive filesystem) shadows it —
+    # `make: 'test-env' is up to date.` and no recipe runs. Green, and nothing ran.
+    phony = set(g.get("phony") or ())
+    recorded_p = exceptions.get("not_phony") or {}
+    for target in sorted(g["recipes"]):
+        if target in phony or target in recorded_p:
+            continue
+        errors.append(f"`make {target}` is not declared .PHONY: a file named {target!r} in the "
+                      f"checkout shadows it and the target runs NOTHING while reporting success "
+                      f"(add it to the `.PHONY:` block, or record a target that produces a file of "
+                      f"its own name under \"not_phony\" in {exceptions['path']})")
+    for target in sorted(recorded_p):
+        if target not in g["recipes"]:
+            errors.append(f"{exceptions['path']}: not_phony {target!r} is not a make target — "
+                          f"delete the entry")
+        elif target in phony:
+            errors.append(f"{exceptions['path']}: `make {target}` is declared .PHONY now — "
+                          f"delete the not_phony entry")
     return errors
 
 
@@ -330,6 +395,13 @@ def report(g: dict, exceptions: dict) -> str:
     reached = set(g.get("ci_target_closure") or ())
     lines.append(f"  {len(claims)} target(s) claim CI coverage in their help line, "
                  f"{len([t for t in claims if t in reached])} are reached by CI")
+    phony = set(g.get("phony") or ())
+    not_phony = exceptions.get("not_phony") or {}
+    unphony = sorted(set(g["recipes"]) - phony - set(not_phony))
+    lines.append(f"  {len(phony)} target(s) declared .PHONY, {len(not_phony)} recorded as producing a "
+                 f"file of their own name, {len(unphony)} undeclared")
+    for tgt in unphony:
+        lines.append(f"  NOT .PHONY: make {tgt}")
     for tgt in sorted(set(claims) - reached):
         lines.append(f"  CLAIMS CI, NOT REACHED: make {tgt}")
     for doc in docs:

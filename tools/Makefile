@@ -12,7 +12,7 @@ REQTXT  := requirements.txt
 DEVREQIN  := requirements-dev.in
 DEVREQTXT := requirements-dev.txt
 
-.PHONY: all build-image generate-requirements generate-requirements-venv venv create-venv venv-install venv-dev-install generate-requirements-dev clean version
+.PHONY: all build-image generate-requirements generate-requirements-venv generate-requirements-dev-venv venv create-venv venv-install venv-dev-install generate-requirements-dev clean version
 
 all: generate-requirements venv-install
 
