@@ -157,7 +157,10 @@ The list is tested without the prompt (`llgenie --trend` prints exactly the rows
 prompt asks from): `tests/test_mac_trend_pick.py` (Mac),
 `tests/test_trend_list_acceptance.py` (acceptance criteria AC1–AC8 on linux
 cuda/rocm/vulkan/cpu and mac metal) and `tests/test_tensorfold_seamless.py`
-(install / update / reuse on pick), all in `make test-unit`. On an Apple-Silicon Mac,
+(install / update / reuse on pick), all in `make test-unit`. That seam is **install-kind
+agnostic** (issue #389): it drives the kind the skill declares — a synthesized pip skill and a
+synthesized release-archive skill — so a bump that moves TensorFold from a pip package to its
+native archives does not redden the very lane that proves the archive shape. On an Apple-Silicon Mac,
 `make test-native-engine` runs the REAL TensorFold install script through the pick
 (missing → install, older → update, current → reuse; isolated uv tool dir; there is no CI
 job for it, GitHub's macOS runners have no usable Metal GPU), and `make test-native-engine-serve` adds the real

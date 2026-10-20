@@ -111,6 +111,56 @@ container:
 # body
 """
 
+PIP = "pip"
+# The pip shape a release-archive bump starts FROM (and the shape main's skill still
+# has). It is SYNTHESIZED for the same reason the archive one is: a test that needs "the
+# pip kind" must not depend on which kind the repo's own skill happens to declare, or it
+# starts failing the moment a bump moves TensorFold to its archives (issue #389).
+PIP_PINNED = "0.6.5"
+PIP_SKILL = f"""---
+name: engine-tensorfold
+description: "Use when installing TensorFold from a pip package (issue #389)"
+engine: "TensorFold"
+id: tensorfold
+repo: https://github.com/ashhart/TensorFold
+ref: v{PIP_PINNED}
+ref_kind: tag
+version: v{PIP_PINNED}
+pinned: 609ca419abecebdc5a059498a613680bd3aa847f
+verified: "2026-10-05"
+license: Apache-2.0
+servable: true
+backends: [metal, cuda]
+os: [darwin, linux]
+formats: [mlx-safetensors]
+prereqs:
+  common: [uv]
+  cuda: [nvidia-smi, nvcc]
+install:
+  metal:
+    - "uv tool install --force 'tensorfold @ git+{{repo}}.git@v{{version}}'"
+  cuda:
+    - "uv pip install --system --break-system-packages 'tensorfold @ git+{{repo}}.git@v{{version}}'"
+binary: "tensorfold"
+binary_flags: ["--help"]
+detect: "{{binary}} --help > /dev/null && uv tool list | grep '^tensorfold '"
+launch:
+  common: "{{binary}} serve {{model}} --host {{host}} --port {{port}} --name {{alias}}"
+  metal: "{{context_flag}}"
+env:
+  metal:
+    TENSORFOLD_MEMORY_LIMIT_GB: "{{ram_gib}}"
+health: "GET /v1/models"
+alias_mode: flag
+container:
+  cuda:
+    base: "nvcr.io/nvidia/pytorch:26.07-py3"
+---
+
+# body
+"""
+
+
 # `uv`: `uv tool install --force 'tensorfold @ git+<repo>.git@v<X>'` installs version X
 # into the state file and drops a `tensorfold` executable into ~/.local/bin;
 # `uv tool list` prints `tensorfold v<X>` like real uv. Every call is logged.
@@ -255,16 +305,19 @@ def host(tmp_path, monkeypatch):
 
 @pytest.fixture
 def tf(host, monkeypatch, request):
-    """`(kind, pinned)` for the skill the state-machine tests drive: `live` runs the
-    real repo skill (pip on main, archive after a bump); `archive` rewrites the skill
-    to the release-archive shape so that shape is proven even while main is pip."""
+    """`(kind, pinned)` for the skill the tests drive.
+
+    `live` runs the real repo skill (pip on main, archive after a bump); `archive` and
+    `pip` rewrite it to a SYNTHESIZED skill of that kind, so both kinds are proven
+    whatever main's skill currently declares (issue #389).
+    """
     kind = request.param
-    if kind == ARCHIVE:
+    if kind in (ARCHIVE, PIP):
         d = host.tmp / "skills" / "engines" / "tensorfold"
         d.mkdir(parents=True)
-        (d / "SKILL.md").write_text(ARCHIVE_SKILL)
+        (d / "SKILL.md").write_text(ARCHIVE_SKILL if kind == ARCHIVE else PIP_SKILL)
         monkeypatch.setattr(es, "SKILLS_DIR", d.parent)
-        pinned = ARCHIVE_PINNED
+        pinned = ARCHIVE_PINNED if kind == ARCHIVE else PIP_PINNED
     else:
         pinned = PINNED
     return {"kind": kind, "pinned": pinned}
@@ -434,7 +487,7 @@ def test_a_failed_install_fails_loudly_and_writes_no_start_script(host, monkeypa
     assert not (host.bindir / "llgenie-engine-tensorfold").exists()
 
 
-@pytest.mark.parametrize("tf", [LIVE, ARCHIVE], indirect=True)
+@pytest.mark.parametrize("tf", [PIP, ARCHIVE], indirect=True)
 def test_a_host_without_uv_only_blocks_the_pip_install(host, monkeypatch, capsys, tf):
     """The release-archive install needs no uv, so it must not be refused without one.
 
@@ -573,9 +626,10 @@ def test_llgenie_pick_installs_tensorfold_then_execs_its_start_script(host, tmp_
     # When the user picks model 1 with TensorFold (port not served: the fake exits at once)
     r = _llgenie(host, tmp_path, "--select", "1", "--engine", "tensorfold", "--port", "18999")
 
-    # Then TensorFold was installed with the skill's step, at the pinned tag
-    assert host.installs() == [
-        f"uv tool install --force tensorfold @ git+https://github.com/ashhart/TensorFold.git@v{PINNED}"], r.stdout + r.stderr
+    # Then TensorFold was installed once, by the step its skill declares, at the pinned tag
+    # (the skill's declared step, not a hardcoded command: a bump may have moved it to a
+    # release archive — issue #389)
+    assert len(host.installs()) == 1, r.stdout + r.stderr
     assert host.version() == PINNED
 
     # And llgenie exec'd the native start script, which launched `tensorfold serve` on the local checkpoint
@@ -627,9 +681,9 @@ def test_interactive_llgenie_lists_pick_qwen38_27b_then_tensorfold_which_install
     assert models, p.out[-3000:]
     assert variant == "metal" and tail.rstrip().endswith(f"(installs {PINNED} on pick)"), tail
 
-    # And the pick installed the pinned TensorFold with the skill's step
-    assert host.installs() == [
-        f"uv tool install --force tensorfold @ git+https://github.com/ashhart/TensorFold.git@v{PINNED}"], p.out[-3000:]
+    # And the pick installed the pinned TensorFold with the step its skill declares
+    # (kind-agnostic: a bump may have moved the install to a release archive — issue #389)
+    assert len(host.installs()) == 1, p.out[-3000:]
 
     # And served Qwen3.8-27B's TensorFold checkpoint through the native start script
     calls = host.calls.read_text()

@@ -1775,12 +1775,24 @@ def test_tensorfold_v1_0_5_release_is_native_archives():
     assert ("linux", "x86_64") in found
     assert ("macos", "arm64") in found
     assert found[("linux", "x86_64")].endswith(".tar.gz")
-    skill = es.get_skill("tensorfold")
-    steps = eb.release_archive_install(
-        {**skill, "ref": "v1.0.5", "version": "v1.0.5"}, assets)
+    # The derivation's input contract is a skill that pip-installs from git, so the
+    # fixture is that skill — NOT es.get_skill("tensorfold"), which is already the
+    # archive shape after a bump and correctly derives nothing (issue #389)
+    pip_skill = {"id": "tensorfold", "engine": "TensorFold",
+                 "repo": "https://github.com/ashhart/TensorFold",
+                 "ref": "v1.0.5", "version": "v1.0.5", "backends": ["metal", "cuda"],
+                 "install": {"metal": ["uv tool install --force 'tensorfold @ git+{repo}.git@v{version}'"],
+                             "cuda": ["uv pip install --system 'tensorfold @ git+{repo}.git@v{version}'"]}}
+    steps = eb.release_archive_install(pip_skill, assets)
     assert steps is not None
     assert "tensorfold-{version}-linux-x86_64.tar.gz" in steps["cuda"][1]
     assert "tensorfold-{version}-macos-arm64.tar.gz" in steps["metal"][1]
+
+    # And the repo's own skill, whatever kind it declares, is never a git+ pip skill
+    # once a bump has moved it to the archive: the derivation has nothing to derive
+    live = es.get_skill("tensorfold")
+    if not eb._pip_install(es._per_backend(live["install"], "metal")):
+        assert eb.release_archive_install(live, assets) is None
 
 
 def test_tensorfold_release_archive_unpacks_and_runs(tmp_path):
