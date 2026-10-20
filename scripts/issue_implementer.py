@@ -46,8 +46,17 @@ from pathlib import Path
 
 import bot_claims  # the shared claim protocol (scripts/bot_claims.py)
 
-# Author the PRs count as from the bot; a human's work is never counted toward the cap.
+# How the cap recognises the bot's OWN PRs (issue #409). The author alone is not it:
+# `make issue-bot-open-pr` runs `gh` with the owner PAT, so the PR is authored by the PAT's
+# account (`asimov-agent`), never `github-actions[bot]` — counting by that login read 0 on a
+# day the bot opened 7 PRs, so the 3-per-day cap never tripped. The dispatcher's branch shape
+# (`agent/issue-<n>-<slug>`) is what it actually creates, so that is the primary signal; the
+# author is still counted when it happens to be the bot's.
 BOT_AUTHOR = "github-actions[bot]"
+BOT_BRANCH_PREFIX = "agent/issue-"
+
+#: How many PRs `gh pr list` may return before the count can be wrong (a day never reaches this).
+PR_LIST_LIMIT = 200
 MAX_PER_DAY = 3
 SLUG_LEN = 40
 
@@ -82,12 +91,26 @@ def _today() -> str:
 
 
 def count(gh: str, repo: str, bot: str, today: str | None = None) -> int:
-    """PRs the bot already opened in the current UTC day — the cap numerator, from GitHub."""
+    """PRs the bot already opened in the current UTC day — the cap numerator, from GitHub.
+
+    A PR counts when it was created today AND it is the bot's: its head branch carries the
+    dispatcher's `agent/issue-` prefix, or its author is `bot`. The prefix is the signal that
+    works — the bot's PRs are opened with the owner PAT, so their author is the PAT's account
+    (`asimov-agent`), and counting by `github-actions[bot]` returned 0 every day (issue #409).
+    A human's PR is never counted, whatever its author.
+    """
     d = today or _today()
-    out = _gh(gh, ["search", "prs", "--repo", repo, "--author", bot,
-                   "--created", f">={d} 00:00Z", "--json", "number", "--limit", "100"])
-    items = json.loads(out or "[]")
-    return len(items or [])
+    out = _gh(gh, ["pr", "list", "--repo", repo, "--state", "all", "--limit", str(PR_LIST_LIMIT),
+                   "--json", "headRefName,author,createdAt"])
+    n = 0
+    for pr in json.loads(out or "[]") or []:
+        if str(pr.get("createdAt") or "")[:10] != d:
+            continue
+        branch = str(pr.get("headRefName") or "")
+        author = str((pr.get("author") or {}).get("login") or "")
+        if branch.startswith(BOT_BRANCH_PREFIX) or author == bot:
+            n += 1
+    return n
 
 
 def _slug(title: str) -> str:

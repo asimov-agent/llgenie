@@ -511,9 +511,11 @@ has a PR it is not waiting for anyone and the next hourly run proceeds. Hermes d
 explicit acceptance criteria, scope in/out, the surfaces it would touch, and any open decision
 **named as a question** rather than decided. It never rewrites an issue body and never merges.
 
-- **Cap**: at 3 PRs already opened today (counted from GitHub with
-  `gh search prs --author <bot> --created ">=today 00:00Z"`), the run logs
-  `cap reached: N/3 today, next issue tomorrow`, exits 0 and changes nothing.
+- **Cap**: at 3 PRs already opened today, the run logs `cap reached: N/3 today, next issue
+  tomorrow`, exits 0 and changes nothing. The numerator counts the bot's own PRs by the branch
+  shape the dispatcher creates (`agent/issue-<n>-<slug>`, read with `gh pr list --json
+  headRefName,author,createdAt`), never by a login: the bot opens its PRs with the owner PAT, so
+  they are authored `asimov-agent`, and counting `github-actions[bot]` read 0 every day (issue #409).
   Never a batch.
 - **Pick**: exactly ONE issue — labelled `agent:implement` first (oldest label
   first), else the oldest open `agent:ready`. When you want a specific issue

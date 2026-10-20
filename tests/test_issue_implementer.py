@@ -62,7 +62,11 @@ VIEW = {json.dumps(view)}
 PR_URL = {json.dumps(pr_url)}
 with open({str(log)!r}, "a") as fh:
     fh.write(json.dumps(args) + "\\n")
-if args[:2] == ["search", "prs"]:
+if args[:2] == ["pr", "list"]:
+    print(json.dumps([{{"number": n, "headRefName": f"agent/issue-{{n}}-fix",
+                        "author": {{"login": "asimov-agent"}},
+                        "createdAt": "2026-10-14T09:00:00Z"}} for n in PRS]))
+elif args[:2] == ["search", "prs"]:
     print(json.dumps([{{"number": n}} for n in PRS]))
 elif args[:2] == ["issue", "list"] and "--label" in args:
     lab = args[args.index("--label") + 1]
@@ -97,14 +101,27 @@ def test_dispatcher_exists_and_is_a_real_subprocess(tmp_path):
 
 
 def test_count_prs_opened_today_matches_the_cap_numerator(tmp_path):
-    """count == number of PRs the bot opened in the current UTC day (from GitHub)."""
+    """count == number of PRs the BOT opened today — recognised by its branch, not a login.
+
+    Measured (issue #409): the bot opens its PRs with the owner PAT, so they are authored
+    `asimov-agent`; counting `--author github-actions[bot]` read 0 on a day it opened 7. The
+    dispatcher's `agent/issue-<n>-<slug>` branch is the signal that actually identifies them.
+    """
     gh, log = _fake_gh(tmp_path, {"prs": [1, 2, 3]})
     n = ii.count(str(gh), f"{OWNER}/{REPO_NAME}", ii.BOT_AUTHOR, today="2026-10-14")
     assert n == 3
-    q = [c for c in _calls(log) if c[:2] == ["search", "prs"]][0]
-    assert "--author" in q and ii.BOT_AUTHOR in q
-    assert "--created" in q and ">=2026-10-14 00:00Z" in q
+    q = [c for c in _calls(log) if c[:2] == ["pr", "list"]][0]
+    assert "--json" in q and any("headRefName" in a for a in q), "the branch shape is the signal"
     assert "--repo" in q and f"{OWNER}/{REPO_NAME}" in q
+    assert ii.BOT_BRANCH_PREFIX == "agent/issue-"
+
+
+def test_count_ignores_a_humans_pr_and_a_pr_from_another_day(tmp_path):
+    """A human's PR never counts, and yesterday's bot PR belongs to yesterday."""
+    gh, _log = _fake_gh(tmp_path, {"prs": [7]})
+    # the fake answers bot-shaped PRs on 2026-10-14 only
+    assert ii.count(str(gh), f"{OWNER}/{REPO_NAME}", ii.BOT_AUTHOR, today="2026-10-14") == 1
+    assert ii.count(str(gh), f"{OWNER}/{REPO_NAME}", ii.BOT_AUTHOR, today="2026-10-15") == 0
 
 
 def test_cap_reached_at_three_exits_zero_and_changes_nothing(tmp_path, capsys):
