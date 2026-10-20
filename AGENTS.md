@@ -967,6 +967,16 @@ with no corresponding `make` target to drive it is a defect; a CI job that calls
 Each verification step is an independent target; `make loop`/`loop-harness`
 chains them all.
 
+**Every target that produces no file of its own name MUST be in the `.PHONY:` block
+(issue #392).** `make` runs a recipe when no file carries the target's name, so a target
+that is not `.PHONY` and is shadowed by a file of that name (a left-over scratch file, a
+checkout on a case-insensitive filesystem) prints `make: '<target>' is up to date.` and
+runs nothing — a green run that verified nothing. `make check-wiring` (inside `ci-unit`)
+fails on any parsed target that is neither declared in `Makefile`/`tools/Makefile`'s
+`.PHONY:` block nor recorded under `not_phony` in `tests/fixtures/host-only-wiring.json`
+(for a target that genuinely writes a file of its own name; the entry needs a reason and
+is stale once the target is declared or gone). `make wiring-report` prints the counts.
+
 ### The unit suite is aggregated, never enumerated (mandatory, durable)
 
 `make test-unit` does NOT name its test files. It runs `scripts/unit_tests.py`,
