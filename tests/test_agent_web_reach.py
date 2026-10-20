@@ -223,3 +223,136 @@ def test_the_budget_bounds_what_is_read():
     assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
     m = re.search(r"(\d+) markdown char\(s\) \(budget 100\)", r.stdout)
     assert m and int(m.group(1)) <= 101, r.stdout
+
+
+# ---------------------------------------------------------------------------
+# the reach DEPLOYED (issue #380): a bot leg pre-fetches, and the legs' URLs are checked
+# ---------------------------------------------------------------------------
+def test_a_bot_leg_reaches_agent_fetch():
+    """#362 shipped the leg and no bot called it, so the reach was unreachable from a run. The
+    assertion is DERIVED from the workflow files and the Makefile's call graph — never a hand list."""
+
+    sys.path.insert(0, str(REPO / "scripts"))
+    import check_wiring as cw
+
+    # Given the wiring graph of the real tree
+    g = cw.graph(REPO)
+
+    # When  the targets the CI workflows call are closed over the Makefile's own call graph
+    seen, frontier = set(g["ci_targets"]), set(g["ci_targets"])
+    while frontier:
+        frontier = {c for t in frontier for c in g["calls"].get(t, set())} - seen
+        seen |= frontier
+
+    # Then  the fetch leg is REACHED by a job, not merely declared ...
+    assert "agent-fetch" in seen, (
+        "no CI-reached target calls `make agent-fetch` — the masked web reach is unreachable from a "
+        f"run again (issue #380). Reached: {sorted(seen)}")
+
+    # ... through the bot leg that pre-fetches evidence, and that leg is itself reached
+    assert "issue-evidence" in seen, "the pre-fetch leg is not reached by CI"
+    assert "issue-refiner" in g["workflow_targets"].get("issue-refiner.yml", set()), \
+        "the refiner leg is not the consumer the workflow runs"
+
+
+def test_the_bot_leg_forwards_the_key_by_name_and_gates_first():
+    """The leg's first gate proves the AGENT's shell sees the key (#358), and the key travels as a
+    NAME — a leg that spends a fetch without that gate is green while doing nothing."""
+
+    mk = (REPO / "Makefile").read_text()
+    refiner = mk.split("\nissue-refiner:", 1)[1].split("\n\n", 1)[0]
+
+    # Then the credential is proven visible before anything is fetched ...
+    assert "agent-shell-keys-check AGENT_SHELL_CHECK_KEYS=FIRECRAWL_API_KEY" in refiner, refiner
+    assert refiner.index("agent-shell-keys-check") < refiner.index("issue-evidence"), \
+        "the fetch leg runs before its credential is proven visible"
+
+    # ... and the workflow forwards the key by NAME only
+    wf = (WORKFLOWS / "issue-refiner.yml").read_text()
+    assert "FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}" in wf, "the job never sets the key"
+    assert "FIRECRAWL_API_KEY" in wf.split("run: make agent-shell-keys-check", 1)[1][:200], \
+        "the job's keys check does not cover the new credential"
+    assert not re.search(r"-e\s+FIRECRAWL_API_KEY=", wf), "the key travels as a value, not a name"
+
+
+def test_the_candidates_are_extracted_from_prose():
+    """An issue names URLs inside prose; the extractor must find them and drop the noise."""
+
+    sys.path.insert(0, str(REPO / "scripts"))
+    import web_evidence as we
+
+    # Given prose that wraps URLs in punctuation and repeats one
+    text = ("see https://github.com/ggml-org/llama.cpp, and (https://huggingface.co/models). "
+            "again https://github.com/ggml-org/llama.cpp#readme and a dead loop "
+            "http://localhost:8080/x .")
+
+    # When  the candidates are extracted
+    got = we.candidates(text)
+
+    # Then  each URL appears once, without its trailing punctuation or fragment, and loopback is gone
+    assert got == ["https://github.com/ggml-org/llama.cpp", "https://huggingface.co/models"], got
+
+
+def test_a_dead_url_is_reported_and_fails_the_coverage_check():
+    """`make web-coverage` must be loud on a dead link — it is the URL a bot run depends on."""
+
+    sys.path.insert(0, str(REPO / "scripts"))
+    import web_evidence as we
+
+    # Given a real server that 404s one path and serves another
+    class _H(_Handler):
+        def do_GET(self):  # noqa: N802 — the stdlib's name
+            self.send_response(200 if self.path.endswith("/ok") else 404)
+            self.end_headers()
+
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{srv.server_port}"
+
+    try:
+        # When  both are checked (the real client, a real server)
+        rows, dead = we.check([f"{base}/ok", f"{base}/gone"], timeout=10)
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+    # Then  the dead one is counted and its status is visible
+    assert [s for _, s in rows] == [200, 404], rows
+    assert dead == 1, rows
+
+
+def test_the_coverage_fixture_names_urls_and_gated_urls_are_not_dead():
+    """The fixture is the declared dependency list, and a credential-gated URL is reachable, not dead."""
+
+    sys.path.insert(0, str(REPO / "scripts"))
+    import web_evidence as we
+
+    # Given the checked-in fixture, and a real server that refuses with 403
+    urls = we.candidates((REPO / "tests" / "fixtures" / "bot-facing-urls.md").read_text())
+
+    class _Gated(_Handler):
+        def do_GET(self):  # noqa: N802 — the stdlib's name
+            self.send_response(403)
+            self.end_headers()
+
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Gated)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        # When  the fixture and the gated URL are checked
+        rows, dead = we.check([f"http://127.0.0.1:{srv.server_port}/gated"], timeout=10)
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+    # Then  the fixture names real destinations ...
+    assert len(urls) >= 3, urls
+    assert all(u.startswith("https://") for u in urls), urls
+
+    # ... and a 403 is REACHABLE (the resource exists; the bot simply has no credential for it)
+    assert rows == [(f"http://127.0.0.1:{srv.server_port}/gated", 403)], rows
+    assert dead == 0, rows
+    assert we.is_dead(403) is False and we.is_dead(401) is False
+    # ... while a 404, a 500 and a failed read ARE dead
+    assert we.is_dead(404) is True and we.is_dead(500) is True
+    assert we.is_dead("TimeoutError") is True
+    assert we.is_dead(200) is False and we.is_dead(302) is False

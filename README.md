@@ -716,6 +716,27 @@ on a command line. While the secret did not exist the target was human-run only 
 `tests/fixtures/host-only-wiring.json`; that record is deleted, because `make check-wiring` fails a
 recorded exception CI now reaches.
 
+### The reach is deployed: a bot leg uses it, and the URLs are checked (issue #380)
+
+#362 built the leg and the smoke, and **no bot leg called either** — so the capability was unreachable
+from a run, and nothing said which URLs the bots depend on. That half is now wired:
+
+```bash
+make web-coverage                                    # one line per URL with its HTTP status; non-zero on a dead one
+make web-coverage ISSUE_FILE=refine-in.md            # ... for the URLs a given issue names
+make issue-evidence ISSUE_FILE=refine-in.md OUTDIR=fetched MAX=3   # pre-fetch them for the agent
+```
+
+`make issue-refiner` (the bot leg) runs, in order: `make agent-shell-keys-check` with
+`AGENT_SHELL_CHECK_KEYS=FIRECRAWL_API_KEY` (the key must reach the **agent's** shell first, #358), then
+`make issue-evidence`, which extracts the URLs the picked issue names and pre-fetches each with the
+**real** `make agent-fetch` leg (capped at 3 — each fetch is a model call), writing `fetched/index.md`.
+The review prompt reads that index as evidence, and a URL it could not fetch is recorded as UNKNOWN,
+never as false. `make web-coverage` is deterministic — no model call and no key: a 404 is dead for a bot
+too, and a `401/403` is **reachable** (the resource exists; the bot simply has no credential), which is
+a different problem from a link nobody can read. `tests/fixtures/bot-facing-urls.md` is the declared
+list it checks when no issue names a URL, and `search-smoke.yml` runs it on the same daily schedule.
+
 ## A bot leg refuses to start on a missing key (#363)
 
 A leg that forwards a key its job never set used to spend the runner first — pull the agent image,

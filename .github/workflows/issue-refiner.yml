@@ -13,8 +13,11 @@
 # Trigger surface: its own schedule (hourly, `43 * * * *`) and `workflow_dispatch` by hand
 #                  (owner/collaborator).
 # Flow: guard (owner/collaborator, BEFORE any secret is read) -> make issue-refiner-pick (the oldest
-#       eligible issue, or none) -> make issue-refiner (the agent reads the issue + its whole thread
-#       and writes refine.md) -> make issue-refiner-apply (ONE comment + the `agent:refined` label).
+#       eligible issue, or none) -> make issue-refiner (its first step is make agent-shell-keys-check
+#       for FIRECRAWL_API_KEY, then make issue-evidence pre-fetches the URLs the issue names with the
+#       masked fetch leg (issue #380); then the agent reads the issue + its whole thread + that
+#       evidence and writes refine.md) -> make issue-refiner-apply (ONE comment + the `agent:refined`
+#       label).
 # Never: never opens a PR, never creates a branch, never edits an issue body, never merges, never
 #        decides an open question for a human, never takes an issue the implementer has claimed.
 # dispatch: no inputs — the bot decides by itself which ONE issue to review (scripts/issue_refiner.py);
@@ -67,6 +70,10 @@ jobs:
     env:
       NOUS_API_KEY: ${{ secrets.NOUS_PORTAL_API_TOKEN }}
       TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+      # The masked web reach (issue #380): the review leg pre-fetches the URLs the picked issue
+      # names, so the agent reads what the outside world says instead of guessing. Forwarded by
+      # NAME only — `make agent-fetch` carries the `_HERMES_FORCE_` twin, never a value.
+      FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
       REPO: ${{ github.repository }}
     steps:
       - name: "Checkout main (read-only for this bot - it pushes nothing)"
@@ -107,7 +114,7 @@ jobs:
       # job forwards, and stop in seconds instead of after a 120-minute run.
       - name: Prove the agent's shell can see this job's credentials (issue #358)
         if: steps.pick.outputs.picked == 'true'
-        run: make agent-shell-keys-check AGENT_SHELL_CHECK_KEYS="NOUS_API_KEY TYPESAFE_API_KEY"
+        run: make agent-shell-keys-check AGENT_SHELL_CHECK_KEYS="NOUS_API_KEY TYPESAFE_API_KEY FIRECRAWL_API_KEY"
 
       - name: Review the issue (Hermes reads refine-in.md and writes refine.md)
         id: review

@@ -12,7 +12,8 @@ name: search-smoke — one real Firecrawl request proves the masked web reach
 # dispatch: no inputs — the smoke takes no target: it always proves the same leg with one request.
 # Flow: guard (owner/collaborator, BEFORE any secret is read) -> make agent-shell-keys-check
 #       AGENT_SHELL_CHECK_KEYS=FIRECRAWL_API_KEY (the AGENT's own shell must see the key, issue #358)
-#       -> make search-smoke (one bounded request; 401/402/403 and an empty 200 are LOUD failures).
+#       -> make search-smoke (one bounded request; 401/402/403 and an empty 200 are LOUD failures)
+#       -> make web-coverage (the URLs a bot run depends on must resolve, issue #380).
 # Never: never merges, never pushes, never prints the key — the leg reads it from the environment and
 #        scripts/scrub_log.py redacts the transcript.
 on:
@@ -65,3 +66,5 @@ jobs:
         run: make agent-shell-keys-check AGENT_SHELL_CHECK_KEYS=FIRECRAWL_API_KEY
       - name: One real request, hard budget, loud on 401/402/403 — never an empty result
         run: make search-smoke
+      - name: The URLs a bot run depends on must resolve (issue #380) — no model call, no key
+        run: make web-coverage

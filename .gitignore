@@ -59,3 +59,8 @@ comment.md
 # run artifact — and neither belongs in the tree.
 hermes-run.log
 hermes-run.scrubbed.log
+
+# The host pre-fetch's evidence for the picked issue (issue #380): fetched/index.md plus the text of
+# each URL. Written by the refiner leg before the agent runs, read by the agent, never committed —
+# it is a snapshot of the outside world at one moment, not a fact about this repository.
+fetched/

@@ -67,7 +67,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	scrub-log \
 	run-failure-reactor rebase-bot-agent check-docs docs-report check-pr-hygiene pr-hygiene-report check-pr-authors pr-authors-report check-workflows workflows-report issue-refiner-pick issue-refiner issue-refiner-apply check-dispatch-forms dispatch-forms-report \
 	agent-shell-keys-check \
-	agent-fetch search-smoke require-env \
+	agent-fetch search-smoke require-env web-coverage issue-evidence \
 	engine-bump-rebase generate-engine-params check-engine-params build-engine run-engine stop-engine list-engine-images ci-lint ci-unit ci-agents-read \
 	ci-openspec ci-cpu-health ci-top-tier ci-install ci-install-dry-args ci-free-disk test-engine-stage bot-sync-main bot-sync-branch ci-wait-engine-images \
 	ci-install-dry ci-install-run ci-install-uninstall test-env test-top-tier test-top-tier-ci test-top-tier-cli-ci test-top-tier-serve test-top-tier-serve-ci \
@@ -343,6 +343,8 @@ issue-refiner-pick: ## Spare capacity (the implementer's cap is spent)? -> the o
 	python3 scripts/issue_refiner.py pick --repo $(if $(REPO),$(REPO),asimov-agent/llgenie) $(if $(DRY),--dry,)
 issue-refiner: ## Hermes REVIEWS the picked issue (reads refine-in.md: the thread + the review instruction) and writes its verdict to refine.md. No branch, no PR, nothing else touched; runs INSIDE the agent image; the transcript is REDACTED before it prints (issue #359)
 	@python3 scripts/require_env.py NOUS_API_KEY
+	@$(MAKE) --no-print-directory agent-shell-keys-check AGENT_SHELL_CHECK_KEYS=FIRECRAWL_API_KEY
+	@$(MAKE) --no-print-directory issue-evidence ISSUE_FILE=refine-in.md OUTDIR=fetched MAX=$(if $(MAX),$(MAX),3)
 	$(call scrubbed_run,$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo \
 	  -e NOUS_API_KEY -e HERMES_REASONING -e REPO \
 	  -e TYPESAFE_API_KEY \
@@ -350,7 +352,7 @@ issue-refiner: ## Hermes REVIEWS the picked issue (reads refine-in.md: the threa
 	  $(AGENT_SHELL_FORWARD) \
 	  $(AGENT_IMAGE) bash -lc 'make _issue-refiner')
 _issue-refiner: # (internal) the host recipe the agent image runs: the review, not the code
-	hermes -z "Load AGENTS.md for rules. Read refine-in.md at the repo root: it carries an issue, its WHOLE comment thread (oldest first), and the review instruction. Follow that instruction and write your verdict to refine.md at the repo root in exactly the required shape (a REFINE: line plus the RESTATED:/REASON: blocks the chosen verdict requires). HARD RULES: this is a REVIEW, not an implementation - do NOT write any code, do NOT create a branch, do NOT push, do NOT open a PR, do NOT comment on the issue yourself, and do NOT modify any file other than refine.md. If the thread leaves a decision open, name it as a question in the restatement instead of deciding it." $(nous-alias) --reasoning $(HERMES_REASONING) --yolo
+	hermes -z "Load AGENTS.md for rules. Read refine-in.md at the repo root: it carries an issue, its WHOLE comment thread (oldest first), and the review instruction. Evidence the host pre-fetched for this issue (issue #380) is in fetched/index.md - read it and use it: it is what the outside world actually says, and a URL listed there as COULD NOT BE FETCHED is UNKNOWN, not false. Follow that instruction and write your verdict to refine.md at the repo root in exactly the required shape (a REFINE: line plus the RESTATED:/REASON: blocks the chosen verdict requires). HARD RULES: this is a REVIEW, not an implementation - do NOT write any code, do NOT create a branch, do NOT push, do NOT open a PR, do NOT comment on the issue yourself, and do NOT modify any file other than refine.md. If the thread leaves a decision open, name it as a question in the restatement instead of deciding it." $(nous-alias) --reasoning $(HERMES_REASONING) --yolo
 issue-refiner-apply: ## Apply the review in refine.md: ONE comment on the issue + the agent:refined label (never a PR; refuses a `refined` verdict with no RESTATED block)
 	@test -n "$(ISSUE)" || { echo "Usage: make issue-refiner-apply ISSUE=<n> [REPO=<owner/repo>]"; exit 1; }
 	python3 scripts/issue_refiner.py apply refine.md --repo $(if $(REPO),$(REPO),asimov-agent/llgenie) --issue $(ISSUE)
@@ -495,6 +497,19 @@ search-smoke: ## Prove the masked web reach works: one real Firecrawl request wi
 	  $(AGENT_SHELL_FORWARD_PLAIN) $(AGENT_SHELL_FORWARD) \
 	  -e BUDGET \
 	  $(AGENT_IMAGE) bash -lc 'python3 scripts/fetch_smoke.py --budget "$${BUDGET:-4000}"')
+
+# ---- the reach, DEPLOYED: what a bot run actually depends on (issue #380) ------------------
+# #362 built the leg and the smoke; no bot leg called either, so the capability was unreachable from
+# a run and nothing said which URLs the bots need. `scripts/web_evidence.py` closes that half:
+# `web-coverage` reports each URL's HTTP status (no model, no key — a 404 is dead for a bot too), and
+# `issue-evidence` pre-fetches the URLs an issue names with the REAL `agent-fetch` leg, so the agent
+# reviews against fetched text instead of guessing. `issue-refiner` is the first consumer.
+web-coverage: ## Which URLs a bot run depends on, and do they resolve (a fixture list, or ISSUE_FILE=); non-zero on a dead one — no model call, no key
+	python3 scripts/web_evidence.py check $(if $(ISSUE_FILE),$(ISSUE_FILE),tests/fixtures/bot-facing-urls.md) $(if $(URLS),--urls $(URLS),)
+
+issue-evidence: ## Pre-fetch the URLs an issue names so the agent reviews against real text: drives the ONE `agent-fetch` leg, capped, never fatal (ISSUE_FILE=, OUTDIR=fetched, MAX=3)
+	@test -n "$(ISSUE_FILE)" || { echo "Usage: make issue-evidence ISSUE_FILE=<path> [OUTDIR=fetched] [MAX=3]"; exit 1; }
+	@python3 scripts/web_evidence.py fetch $(ISSUE_FILE) --outdir $(if $(OUTDIR),$(OUTDIR),fetched) --max $(if $(MAX),$(MAX),3)
 
 agent-jev-preflight: ## Prove the JEV engine is active in the agent image; every bot workflow runs it with NERVE_REQUIRE=1, so a job whose engine is off does not start. NERVE_GATE_SKIP_PROVIDER=1 skips the live provider call; the report is REDACTED before it prints (issue #359)
 	@python3 scripts/require_env.py TYPESAFE_API_KEY
