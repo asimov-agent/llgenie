@@ -251,12 +251,29 @@ llgenie --local                        # pick among local files, llama.cpp
 
 The registry is `data/models.json` (with the README it was generated with, `data/trending-README.md`), a verbatim copy of
 [trending-local-llms](https://github.com/andyholst/trending-local-llms) `data/models.json`
-(no live fetch at run time; `LLGENIE_REGISTRY_SRC=<file|url>` overrides it):
+(no live fetch at run time; `LLGENIE_REGISTRY_SRC=<file|url>` overrides it).
+
+Each model also states **what its run needs**, per upstream's `data/MODEL_CONTRACT.md` (issue #414):
+
+| field | llgenie reads it as |
+|---|---|
+| `weight_gb` | the weight budget *before* any context is allocated (`5.95GB Q4_K_M` → 5.95 GB); preferred over a Hub file-size guess in the "does not fit" reason |
+| `context_tokens` | the window the KV cache is sized for (`131072`, `128K`, `1M`) |
+| `system_ram_min` | a hard floor: a host below it does not fit, however much VRAM it has |
+| `storage_offload` | the model runs by streaming weights from storage (MoE); named in the reason |
+| `engine_min_version` | the engine build / flags the figure needs, carried on the engine row |
+
+They may sit on the model **or** on one `engines[]` measurement ("the footprint of that run"); the
+measurement's own value wins for that engine, and a field the store does not state is a reported data
+gap — never invented. `weight_gb`, `context_tokens` and `system_ram_min` are **grow-only** in
+`make check-registry-keys`, like a t/s or an engagement counter.
 
 ```bash
 make sync-registry    # download upstream data/models.json + README.md into data/ (validated: the
                       # registry must be the README "Most loved" list in README order)
 make check-registry   # validate the vendored files (CI)
+make check-registry-keys  # CI: additive only — a removed model/key/measurement, a lowered t/s,
+                      # counter, weight_gb, context_tokens or system_ram_min fails the sync
 make sync-quant-catalog   # regenerate the HF class table data/trending-quant-catalog.json + its test
                           # fixture (model -> engine -> arch + real quant plans with per-quant links)
                           # from the registry + live Hub; validates the newly-added links vs the prior table

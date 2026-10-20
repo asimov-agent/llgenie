@@ -43,6 +43,11 @@ KEY_UNION_LISTS = ("engines", "seen_posts", "formats")
 # Scalar lists that may only ever grow.
 GROW_ONLY_LISTS = ("backends", "supported_engines")
 
+# Stated footprint scalars that may only ever grow (MODEL_CONTRACT.md): the weight bytes
+# before any context is allocated, the context the KV cache is sized for, and the system
+# RAM a partial offload needs. A lowered value shrinks what llgenie budgets for.
+GROW_ONLY_SCALARS = ("weight_gb", "context_tokens", "system_ram_min")
+
 COUNTERS = ("likes", "comments", "reshares", "views", "interactions")
 
 REPORT_LIMIT = 25
@@ -73,6 +78,34 @@ def _missing_key_paths(prev, cur, path=()):
             yield path + (key,)
 
 
+def _first_number(value) -> float | None:
+    """The first numeric token of a stated footprint ('5.95GB Q4_K_M' -> 5.95,
+    '131072' -> 131072, '128K' -> 128). None when the value states no number."""
+    m = _NUM.search(str(value if value is not None else ""))
+    return float(m.group()) if m else None
+
+
+def _scalar_losses(prev_model: dict, cur_model: dict, where: str = "") -> list[str]:
+    """Stated footprints that may only grow: the budget a run needs.
+
+    `MODEL_CONTRACT.md` defines `weight_gb`, `context_tokens` and `system_ram_min` as the
+    footprint of a run — the weight bytes before any context is allocated, the context the
+    KV cache is sized for, and the system RAM a partial offload needs. Lowering one of them
+    silently shrinks what llgenie budgets for, exactly like a lowered t/s or engagement
+    counter shrinks the trend rank, so the same additive-only rule applies. A value that
+    RESTATES the same number in another unit ('5.95GB' -> '5.95 GB') is not a loss.
+    """
+    out: list[str] = []
+    for field in GROW_ONLY_SCALARS:
+        was = _first_number(prev_model.get(field))
+        now = _first_number(cur_model.get(field))
+        if was is None or now is None:
+            continue  # absent on either side: an addition or a removal already reported above
+        if now < was:
+            out.append(f"{where}{field} lowered {prev_model.get(field)!r} -> {cur_model.get(field)!r}")
+    return out
+
+
 def _by_engine_hw(measurements) -> dict:
     """Group measurements by (engine, hardware) — the pairing the README rows and
     the trend matrix are built from."""
@@ -97,6 +130,8 @@ def compare(prev: dict, cur: dict) -> list[str]:
 
         for path in _missing_key_paths(pm, cm):
             findings.append(f"{model_id}: key '{'.'.join(str(p) for p in path)}' is gone")
+
+        findings.extend(_scalar_losses(pm, cm, f"{model_id}: "))
 
         for field in GROW_ONLY_LISTS:
             lost = [x for x in pm.get(field) or [] if x not in (cm.get(field) or [])]
@@ -125,6 +160,15 @@ def compare(prev: dict, cur: dict) -> list[str]:
                 now = sum(e.get(counter, 0) or 0 for e in after[key])
                 if now < was:
                     findings.append(f"{model_id}: {label} {counter} lowered {was} -> {now}")
+            # The measurement's own stated footprint (MODEL_CONTRACT.md: "a measurement may
+            # also carry the footprint of that run"). Compare against the row the store
+            # merged it into — the group's best (highest stated weight wins, so a run whose
+            # footprint was dropped is only a finding when NO row still states it).
+            for field in GROW_ONLY_SCALARS:
+                was = max((_first_number(e.get(field)) or 0.0) for e in before[key])
+                now = max((_first_number(e.get(field)) or 0.0) for e in after[key])
+                if was and now < was:
+                    findings.append(f"{model_id}: {label} {field} lowered {was:g} -> {now:g}")
 
     lost_engines = [e for e in (prev.get("engines") or {})
                     if e not in (cur.get("engines") or {})]

@@ -357,7 +357,7 @@ def rank_engines(model: dict, arch: str | None = None, ids: dict | None = None,
             return 2
         return 0 if card <= host_card else 1
 
-    def add(name, tps, engagement, mb, hardware):
+    def add(name, tps, engagement, mb, hardware, measurement=None):
         info = ids.get(name)
         if not info:
             return  # no container image (Metal-only / browser-only / no-skill engines)
@@ -372,13 +372,15 @@ def rank_engines(model: dict, arch: str | None = None, ids: dict | None = None,
             {0: "proven", 1: "bigger", 2: "unknown"}.get(rank, "")
         row = {"engine": name, "id": info["id"], "variant": variant, "tps": tps, "engagement": engagement,
                "same_hw": rank == 0, "measured_on": mb, "rank": rank, "hardware": hardware,
-               "card_gb": card, "card_class": kind, "formats": info.get("formats", [])}
+               "card_gb": card, "card_class": kind, "formats": info.get("formats", []),
+               "footprint": footprint(model, measurement)}
         cur = best.get(info["id"])
         if not cur or (-row["rank"], row["tps"], row["engagement"]) > (-cur["rank"], cur["tps"], cur["engagement"]):
             best[info["id"]] = row
 
     for e in model.get("engines") or []:
-        add(e["engine"], _num(e.get("tps")), _engagement(e), measurement_backend(e), e.get("hardware", ""))
+        add(e["engine"], _num(e.get("tps")), _engagement(e), measurement_backend(e),
+            e.get("hardware", ""), e)
     for name in model.get("supported_engines") or []:
         add(name, 0.0, 0, "", "")
     # An own-checkpoint engine (TensorFold) is only a real recommendation when the
@@ -400,9 +402,83 @@ def card_class_gb(gb: float) -> float:
     return float(round(gb)) if gb > 0 else gb
 
 
-def fits(model: dict, gb: float) -> bool:
-    """README VRAM column (vram_tier) <= the card's nominal size."""
-    return gb <= 0 or _num(model.get("vram_tier")) <= card_class_gb(gb)
+def fits(model: dict, gb: float, ram_gb: float | None = None) -> bool:
+    """README VRAM column (vram_tier) <= the card's nominal size — and, when the store
+    states one, the model's `system_ram_min` <= this host's RAM.
+
+    `system_ram_min` is the contract's optional system-RAM requirement (`MODEL_CONTRACT.md`:
+    "the CPU and Metal tables are RAM-bound … partial offload keeps the un-offloaded layers +
+    KV cache in system RAM"). It is a hard floor, never derived from `vram_min`, so a host
+    below it cannot run the model at the stated quality however much VRAM it has. Absent
+    (the common case) keeps the previous behaviour exactly.
+    """
+    if gb > 0 and _num(model.get("vram_tier")) > card_class_gb(gb):
+        return False
+    needs_ram = stated_gb(model.get("system_ram_min"))
+    return not (needs_ram and ram_gb and ram_gb < needs_ram)
+
+
+# ---- the contract's stated footprint (MODEL_CONTRACT.md, issue #414) ----------------------
+# `data/models.json` states what a run needs: `weight_gb` (weight bytes before any context),
+# `context_tokens` (the window the KV cache is sized for), `system_ram_min`, `storage_offload`
+# and `engine_min_version`. They may sit on the model OR on one `engines[]` measurement ("the
+# footprint of that run"), and the measurement's own value wins for that engine.
+FOOTPRINT_FIELDS = ("weight_gb", "context_tokens", "system_ram_min", "storage_offload",
+                    "engine_min_version")
+_GB = re.compile(r"(\d+(?:\.\d+)?)\s*(gb|gib|mb|mib)?", re.IGNORECASE)
+_TOKENS = re.compile(r"(\d+(?:\.\d+)?)\s*([kKmM])?\b")
+
+
+def stated_gb(value) -> float | None:
+    """A stated size as GB: '5.95GB Q4_K_M' -> 5.95, '640GB NVMe, experts on SSD' -> 640,
+    '16GB' -> 16, '800MB' -> 0.78. None when no number is stated (never invented)."""
+    if value is None or isinstance(value, bool):
+        return None
+    m = _GB.search(str(value))
+    if not m:
+        return None
+    n = float(m.group(1))
+    unit = (m.group(2) or "gb").lower()
+    return round(n / 1024, 2) if unit.startswith("m") else n
+
+
+def stated_context(value) -> int | None:
+    """A stated context window in tokens: '131072' -> 131072, '128K' -> 131072,
+    '1M' -> 1048576, '32 768' -> 32768. None when the value states no number."""
+    if value is None or isinstance(value, bool):
+        return None
+    m = _TOKENS.search(str(value).replace(",", " "))
+    if not m:
+        return None
+    n = float(m.group(1))
+    unit = (m.group(2) or "").lower()
+    if unit == "k":
+        n *= 1024
+    elif unit == "m":
+        n *= 1024 * 1024
+    return int(n)
+
+
+def footprint(model: dict, measurement: dict | None = None) -> dict:
+    """The stated footprint for `model`, or for one engine `measurement` of it.
+
+    The measurement's own value wins (the store states it for THAT run); the model's covers
+    the rest. Only stated fields appear — an absent field is a reported data gap, never a
+    fabricated default.
+    """
+    out: dict = {}
+    for field in FOOTPRINT_FIELDS:
+        value = (measurement or {}).get(field)
+        if value in (None, "", [], {}):
+            value = model.get(field)
+        if value not in (None, "", [], {}):
+            out[field] = value
+    return out
+
+
+def stated_budget_gb(model: dict, measurement: dict | None = None) -> float | None:
+    """The stated weight footprint of a run, as GB (None when the store states none)."""
+    return stated_gb(footprint(model, measurement).get("weight_gb"))
 
 
 def registry_today(registry: dict):
@@ -415,12 +491,13 @@ def registry_today(registry: dict):
         return None
 
 
-def trend_list(registry: dict, gb: float | None = None) -> list[dict]:
+def trend_list(registry: dict, gb: float | None = None, ram_gb: float | None = None) -> list[dict]:
     """The upstream README "Most loved" list, in its order, that fits this card
-    (vram_tier <= card RAM). data/models.json is stored in exactly that order
+    (vram_tier <= card RAM, and the stated `system_ram_min` <= this host's RAM when the
+    store states one). data/models.json is stored in exactly that order
     (update_trending.py sorts it: band -> trend score -> posts -> peak t/s)."""
     gb = card_gb() if gb is None else gb
-    return [m for m in registry.get("models") or [] if fits(m, gb)]
+    return [m for m in registry.get("models") or [] if fits(m, gb, ram_gb)]
 
 
 def rank_models(registry: dict, arch: str | None = None, gb: float | None = None, today=None) -> list[dict]:
@@ -438,14 +515,15 @@ DOWNLOADABLE = ("gguf", "litertlm", "mlx-safetensors", "safetensors")  # formats
 
 
 def recommend(registry: dict, arch: str | None = None, gb: float | None = None,
-              fmt: str | None = None, limit: int | None = None, today=None, all_rows: bool = False) -> list[dict]:
+              fmt: str | None = None, limit: int | None = None, today=None, all_rows: bool = False,
+              ram_gb: float | None = None) -> list[dict]:
     """The README trend list that fits this card, in README order, with each model's
     engines here (no Hub lookups). fmt narrows the engines to readers of that
     format; `why` = "" when an engine is left, else the reason. all_rows=False
     keeps only rows with an engine."""
     ids = engine_ids()
     rows = []
-    for m in trend_list(registry, gb):
+    for m in trend_list(registry, gb, ram_gb):
         everything = rank_engines(m, arch, ids, gb)
         engines = [e for e in everything if fmt is None or fmt in e.get("formats", [])]
         if engines:
@@ -457,7 +535,8 @@ def recommend(registry: dict, arch: str | None = None, gb: float | None = None,
             why = f"no {arch or host_arch()} engine image ({', '.join(names)})"
         if why and not all_rows:
             continue
-        rows.append({"model": m, "engines": engines, "tps": engines[0]["tps"] if engines else 0.0, "why": why})
+        rows.append({"model": m, "engines": engines, "tps": engines[0]["tps"] if engines else 0.0, "why": why,
+                     "footprint": footprint(m)})
     return rows[:limit] if limit else rows
 
 
@@ -474,7 +553,7 @@ def offer(registry: dict, arch: str | None = None, gb: float | None = None,
     issue #114), so it gets its own plan / local copy too."""
     arch = arch or host_arch()
     gb = card_gb() if gb is None else gb
-    rows = recommend(registry, arch, gb, all_rows=True)
+    rows = recommend(registry, arch, gb, all_rows=True, ram_gb=ram_gb)
     own = ("strata", "tensorfold")  # engines that read only their own checkpoints
     for r in rows:
         r["local"] = resolve_local(r["model"], root)
@@ -535,9 +614,22 @@ def engine_local(row: dict, eng: dict) -> Path | None:
 def _no_fit_reason(model: dict, fmts: list[str], gb: float, arch: str, ram_gb,
                    own_missed: list[str] | None = None) -> str:
     """Why no engine is left: the smallest download of each engine that could run it
-    against what this host holds (TensorFold: its own smallest checkpoint)."""
+    against what this host holds (TensorFold: its own smallest checkpoint).
+
+    The store's own stated footprint comes first, because it is a measurement of a run rather
+    than an estimate of a file: a `system_ram_min` above this host's RAM means no download can
+    fix it, and a stated `weight_gb` above the budget says the run cannot be repeated here.
+    """
+    stated = footprint(model)
+    needs_ram = stated_gb(stated.get("system_ram_min"))
+    if needs_ram and ram_gb and ram_gb < needs_ram:
+        return (f"needs {needs_ram:g} GB system RAM, this host has {ram_gb:.0f} GB "
+                f"(stated in the registry)")
     budget = weight_budget_gb(gb, is_moe(model), ram_gb, arch)
     parts = []
+    stated_weight = stated_gb(stated.get("weight_gb"))
+    if stated_weight and stated_weight > budget:
+        parts.append(f"stated weights are {stated_weight:g} GB")
     if "tensorfold" in (own_missed or []):
         s = tensorfold_smallest(model)
         parts.append(f"smallest TensorFold MLX is {s['size'] / 2**30:.0f} GB" if s
@@ -547,7 +639,10 @@ def _no_fit_reason(model: dict, fmts: list[str], gb: float, arch: str, ram_gb,
         if ws:
             parts.append(f"smallest GGUF is {ws[0]['size'] / 2**30:.0f} GB")
     if parts:
-        return f"{', '.join(parts)} > {budget:.0f} GB this host can hold"
+        reason = f"{', '.join(parts)} > {budget:.0f} GB this host can hold"
+        if stated.get("storage_offload"):
+            reason += f"; the registry states it runs off storage ({stated['storage_offload']})"
+        return reason
     return f"no {'/'.join(fmts) or 'supported'} download of it fits this host"
 
 
