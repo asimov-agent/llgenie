@@ -822,11 +822,19 @@ def test_model_pick_reprompts_on_invalid_input(tmp_path):
 
 
 def test_hub_json_retries_a_timed_out_read(monkeypatch, tmp_path):
-    """A timed-out Hub GET is retried with a new request."""
+    """A timed-out Hub GET is retried with a new request — by the SHARED budget.
+
+    The retry belongs to `hf_auth.hub_open` (issue #339); `_hub_json` is a caller
+    with no ladder of its own. The fake is installed as the TRANSPORT the shared
+    budget opens with, not as `_hub_open`: patching `_hub_open` would replace the
+    seam the budget lives behind and prove nothing.
+    """
 
     # Given the first open times out and the second returns a JSON list
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
     monkeypatch.setattr(mp, "HUB_CACHE_TTL", 3600)
+    monkeypatch.setattr(hf_auth, "HUB_BASE_PAUSE", 0.0)
+    monkeypatch.setattr(hf_auth, "_rate_limited", 0)
     seen = []
 
     class _Body:
@@ -845,8 +853,8 @@ def test_hub_json_retries_a_timed_out_read(monkeypatch, tmp_path):
             raise TimeoutError("timed out")
         return _Body()
 
-    monkeypatch.setattr(mp, "_hub_open", _open)
-    monkeypatch.setattr("time.sleep", lambda _s: None)
+    monkeypatch.setattr(mp, "_ipv4_urlopen", _open)
+    monkeypatch.setattr(hf_auth.time, "sleep", lambda _s: None)
 
     # When the listing is fetched
     got = mp._hub_json("https://huggingface.co/api/models/example/tree/main")
@@ -857,7 +865,12 @@ def test_hub_json_retries_a_timed_out_read(monkeypatch, tmp_path):
 
 
 def test_hub_json_waits_out_a_429_using_the_shared_wait(monkeypatch, tmp_path):
-    """A listing 429 sleeps exactly what scripts/hf_auth.rate_limit_wait says."""
+    """A listing 429 sleeps exactly what scripts/hf_auth.rate_limit_wait says.
+
+    The wait belongs to the shared budget in `hf_auth.hub_open` (issue #339), so the
+    fake is the TRANSPORT under it — patching `_hub_open` would stand in for the very
+    code whose wait this proves.
+    """
 
     # Given a 429 carrying RateLimit t=12, then a JSON list
     from email.message import Message
@@ -865,6 +878,7 @@ def test_hub_json_waits_out_a_429_using_the_shared_wait(monkeypatch, tmp_path):
     import urllib.error
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
     monkeypatch.setattr(mp, "HUB_CACHE_TTL", 0)
+    monkeypatch.setattr(hf_auth, "_rate_limited", 0)
     hdrs = Message()
     hdrs["RateLimit"] = '"api";r=0;t=12'
     err = urllib.error.HTTPError("https://huggingface.co/api/models", 429, "err", hdrs, io.BytesIO(b""))
@@ -885,8 +899,8 @@ def test_hub_json_waits_out_a_429_using_the_shared_wait(monkeypatch, tmp_path):
             raise err
         return _Body()
 
-    monkeypatch.setattr(mp, "_hub_open", _open)
-    monkeypatch.setattr("time.sleep", lambda s: slept.append(s))
+    monkeypatch.setattr(mp, "_ipv4_urlopen", _open)
+    monkeypatch.setattr(hf_auth.time, "sleep", lambda s: slept.append(s))
 
     # When the listing is fetched
     got = mp._hub_json("https://huggingface.co/api/models/example/tree/main")
