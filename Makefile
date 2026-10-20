@@ -605,16 +605,29 @@ secret-output-report: ## Show which files name a secret-shaped variable, and whe
 GITLEAKS_IMAGE := ghcr.io/gitleaks/gitleaks:v8.30.1
 GITLEAKS_RUN := $(RUNTIME) run --rm -v "$$PWD":/repo -w /repo $(GITLEAKS_IMAGE)
 
-_secret-scan: # (internal) the working-tree scan; `secret-scan` wraps it with the remediation text
-	$(GITLEAKS_RUN) dir /repo --config /repo/.gitleaks.toml --redact --no-banner --exit-code 1
+# The working-tree scan reads the COMMITTABLE set, not the whole filesystem (issue #382): `gitleaks
+# dir` honours no .gitignore, so pointing it at the checkout reported findings inside
+# `tests/__pycache__/*.pyc` — gitignored bytecode carrying the suites' own sentinels — and printed the
+# "rotate the key" remediation for files nobody can commit. `scripts/secret_scan.py` exports
+# `git ls-files -c -o --exclude-standard` (what `git add` would take) and runs the same pinned image
+# and config against that tree.
+_secret-scan: # (internal) the working-tree scan over the committable set; `secret-scan` wraps it with the remediation text
+	python3 scripts/secret_scan.py --runtime $(RUNTIME)
 
 secret-scan: ## CI: fail when a credential VALUE is committed in the working tree (gitleaks, its own pinned image; a finding means remove it and rotate the key — never allowlist it)
-	@$(MAKE) --no-print-directory _secret-scan || { \
+	@python3 scripts/secret_scan.py --runtime $(RUNTIME); rc=$$?; \
+	if [ $$rc -eq 1 ]; then \
 		echo "SECRET SCAN FAILED: a credential shape is present in the working tree."; \
 		echo "Remove the value, rotate the key in the provider AND in the GitHub secret, and only"; \
 		echo "then push. Never add it to .gitleaks.toml to make the scan pass — an allowlist is"; \
 		echo "for a documented PLACEHOLDER, never for a real value."; \
-		exit 1; }
+		exit 1; \
+	elif [ $$rc -ne 0 ]; then \
+		echo "SECRET SCAN COULD NOT RUN (exit $$rc): the scanner produced NO verdict. This is not a"; \
+		echo "clean tree and not a finding — read the message above and fix the scan itself. Never"; \
+		echo "report a scan that could not run as clean (issue #382)."; \
+		exit $$rc; \
+	fi
 
 _secret-scan-history: # (internal) the history scan; refuses a worktree, where .git is a file
 	@if [ -f .git ]; then \

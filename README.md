@@ -606,6 +606,16 @@ default rule set (a config without `[extend] useDefault = true` scans *nothing*)
 documented non-live fixtures, each named by path so a reviewer sees the decision. `make secret-scan`
 needs a container engine, so it runs on Linux; macOS runs the rest of the loop.
 
+`make secret-scan` reads the **committable set**, not the whole filesystem (issue #382):
+`scripts/secret_scan.py` exports `git ls-files -c -o --exclude-standard` — the tracked files plus the
+untracked files that are not ignored, i.e. exactly what `git add` would take — and points the same
+pinned image and config at that export. gitleaks' own `dir` mode honours no `.gitignore`, so scanning
+the checkout directly reported findings inside `tests/__pycache__/*.pyc` (gitignored bytecode carrying
+the test suites' own sentinels) on a tree with no uncommitted change, and printed the "rotate the key"
+remediation for files nobody can commit. `make secret-scan` also separates the two non-zero exits: `1`
+means the scanner **found** something, anything else means the scan **could not run** and says so —
+a scanner with no verdict is never reported as a clean tree or as a credential.
+
 ## The credential reaches the AGENT's shell (#358)
 
 Every key the bots use also has to survive **Hermes's own terminal filter**. Hermes strips provider
