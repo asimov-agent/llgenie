@@ -967,6 +967,22 @@ with no corresponding `make` target to drive it is a defect; a CI job that calls
 Each verification step is an independent target; `make loop`/`loop-harness`
 chains them all.
 
+### The unit suite is aggregated, never enumerated (mandatory, durable)
+
+`make test-unit` does NOT name its test files. It runs `scripts/unit_tests.py`,
+which **discovers** every `tests/test_*.py` minus the deliberate exclusions in
+`tests/fixtures/unit-suite.json` (each with a reason, an issue, a date and the
+target that runs it instead). A new test file is in the gate the moment it
+exists — there is no shared line to edit and no conflict to resolve. Keeping a
+file OUT of the gate is a dated decision, not an omission. De-selection inside a
+selected file is by exact `--deselect file::test` node id, never a `-k`
+expression (`-k` matches substrings, so a new test whose name CONTAINS a
+deselected test's name would be silently dropped). `make check-wiring` asks the
+aggregator what it selects, so a discovered file is wired through the target
+that runs it; `make unit-suite-report` shows the selection and the roster. This
+mirrors the sibling repo `trending-local-llms`, whose unit entry is one
+aggregating call with the network/hardware checks in their own targets.
+
 - `make install` — build gguf venv, pull/build every engine image for this host,
   write `~/bin/llgenie`, `~/bin/llgenie-engine-<id>` start scripts and the
   `~/bin/llama-server` container shim, then `make test-built-engine` (each start

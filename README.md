@@ -1306,7 +1306,9 @@ make ci-<job>          # one CI pipeline job (ci-lint, ci-unit,
                        # (the INSTALLED launcher's argument surface over the mocked arch x vram x ram
                        # grid, issue #236) -> ci-install-uninstall
 make lint              # linefeed/editorconfig lint (fail-closed)
-make test-unit         # hermetic unit tests (all files, incl. openspec-tasks-check)
+make test-unit         # hermetic unit tests — the suite is DISCOVERED by scripts/unit_tests.py (every
+                       # tests/test_*.py minus the dated exclusions in tests/fixtures/unit-suite.json),
+                       # never a hand-written list in the recipe (issue #393)
 make test-agents-read  # AGENTS.md threat-pattern guard + its tests, in a make-built Python 3.12
                        # venv (~/.cache/llgenie/agents-read-venv: hermes-agent==0.19.0 + pytest;
                        # needs python3.12)
