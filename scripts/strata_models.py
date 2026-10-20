@@ -74,11 +74,24 @@ def extract(src: Path) -> dict:
     s = load_setup(src)
     fams = {}
     for name, fam in s.FAMILIES.items():
-        m = HF_URL.match(fam["hf"])
+        hf = fam.get("hf")
+        if hf is None:
+            # A family with no Hub URL is legitimate — a vendor-hosted or download-free family
+            # (Strata's `nvfp4` carries mmproj_sha256 / ready instead). Demanding an `hf` here
+            # made EVERY Strata bump die on `KeyError: 'hf'` the moment upstream added one
+            # (issue #416). Describe it as not Hub-downloadable, so the runtime can skip it.
+            fams[name] = {"title": fam.get("title", name), "hub": False,
+                          "file": fam.get("file"), "shards": fam.get("shards", 2),
+                          "experimental": bool(fam.get("experimental"))}
+            continue
+        m = HF_URL.match(str(hf))
         if not m:
-            raise SystemExit(f"[strata-models] FAMILIES[{name}].hf is not a pinned Hub URL: {fam['hf']}")
-        fams[name] = {"title": fam["title"], "repo": m["repo"], "revision": m["rev"], "subdir": m["sub"],
-                      "file": fam["file"], "shards": fam.get("shards", 2),
+            raise SystemExit(f"[strata-models] FAMILIES[{name}].hf is not a pinned Hub URL: {hf}")
+        # The key order is the committed file's order: `check` compares TEXT, so a reordering
+        # would red `make check-strata-models` at the current pin for no data reason.
+        fams[name] = {"title": fam.get("title", name), "repo": m["repo"], "revision": m["rev"],
+                      "subdir": m["sub"], "file": fam.get("file"),
+                      "shards": fam.get("shards", 2),
                       "experimental": bool(fam.get("experimental"))}
     models = {}
     for size, d in s.MODELS.items():

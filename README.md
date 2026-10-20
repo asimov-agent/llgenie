@@ -1446,6 +1446,9 @@ make download-test-model  # fetch Qwen2.5-0.5B into ~/models/Qwen/8GB (via `hf` 
 make lint-fix          # append a missing trailing newline to tracked text files (containerized)
 make check-registry-keys     # fail when the vendored registry dropped a key, model or measurement vs the committed copy
 make check-strata-models     # fail when data/strata_models.json differs from Strata's setup.py at the pinned commit
+                             # A FAMILIES entry with no Hub URL (e.g. the vendor-hosted `nvfp4`) is vendored as
+                             # "hub": false with no repo — it is not downloadable here, and it no longer breaks the
+                             # vendor step (a family with a URL keeps the committed shape byte for byte; issue #416)
 make queued-alarm      # report CI jobs stuck in `queued` too long (a runner that never picks them up, issue #254);
                        # COMMENT=1 delivers it to the run's pull request (else ONE deduped issue per stuck runner
                        # label, for runs no PR tracks) and a delivery that fails is exit 3, never silent; DRY=1 previews

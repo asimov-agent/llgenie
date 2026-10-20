@@ -906,10 +906,11 @@ def strata_map() -> dict:
 
 def strata_serves(model: dict) -> bool:
     """True when `model` is the one Strata runs: its Hub name is in Strata's default
-    family's repo (Qwen/Qwen3.8-Flash-Next -> ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF)."""
+    family's repo (Qwen/Qwen3.8-Flash-Next -> ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF).
+    A family the store marks `hub: false` (no Hub URL, e.g. `nvfp4`) has no repo to match."""
     name = str(model.get("hf") or "").rsplit("/", 1)[-1].lower()
     fam = next(iter(strata_map()["families"].values()))
-    return bool(name) and name in fam["repo"].lower()
+    return bool(name) and bool(fam.get("repo")) and name in fam["repo"].lower()
 
 
 def strata_choice(ram_gb: float) -> tuple[str, str]:
@@ -924,9 +925,14 @@ def strata_choice(ram_gb: float) -> tuple[str, str]:
 
 
 def strata_files(family: str, size: str) -> list[str]:
-    """Repo paths of every shard of a Strata choice (setup.py model_file / model_shards)."""
+    """Repo paths of every shard of a Strata choice (setup.py model_file / model_shards).
+
+    A family the store marks `hub: false` has no repo/subdir to build a path in, so a caller
+    asking for its files is a caller that must be told, not given a URL built from None."""
     s = strata_map()
     fam, d = s["families"][family], s["models"][size]
+    if not fam.get("repo"):
+        raise ValueError(f"[strata] family {family!r} is not Hub-downloadable (no repo)")
     pattern, shards = d.get("file", fam["file"]), d.get("shards", fam["shards"])
     sub = fam["subdir"].format(q=size)
     return [sub + pattern.format(q=size, i=i) for i in range(1, shards + 1)]
@@ -937,6 +943,8 @@ def strata_first_shards() -> dict[str, tuple[str, str]]:
     s = strata_map()
     out = {}
     for f in s["families"]:
+        if not s["families"][f].get("repo"):
+            continue  # not Hub-downloadable: it has no first shard to map
         for m, d in s["models"].items():
             if f in d["families"]:
                 out.setdefault(Path(strata_files(f, m)[0]).name, (f, m))
