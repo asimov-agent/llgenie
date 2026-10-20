@@ -69,7 +69,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	agent-shell-keys-check \
 	agent-fetch search-smoke require-env \
 	engine-bump-rebase generate-engine-params check-engine-params build-engine run-engine stop-engine list-engine-images ci-lint ci-unit ci-agents-read \
-	ci-openspec ci-cpu-health ci-top-tier ci-install ci-install-dry-args ci-free-disk test-engine-stage bot-sync-main bot-sync-branch
+	ci-openspec ci-cpu-health ci-top-tier ci-install ci-install-dry-args ci-free-disk test-engine-stage bot-sync-main bot-sync-branch ci-wait-engine-images
 
 # ---- container runtime: docker -------------------------------------------
 RUNTIME ?= docker
@@ -1154,8 +1154,19 @@ ci-cpu-health: bash-check ## CI job cpu-health: Linux answers "hi" through the l
 ci-top-tier: bash-check ## CI job top-tier: same targets on both OSes (venv on macOS, test image on Linux)
 	$(MAKE) test-top-tier-ci && $(MAKE) test-top-tier-serve-ci && $(MAKE) test-top-tier-cli-ci
 
-ci-install: bash-check ## CI job install: prepare the environment, then test make install, the installed llgenie dry run, and make uninstall as separate steps. macOS never runs a container.
+# The gate below branches on $(HOST_OS), so it lives AFTER `HOST_OS := $(shell uname -s)`:
+# make evaluates ifeq while it parses the file, and a conditional placed before that line
+# would see an empty HOST_OS and take the Linux branch on macOS too.
+ci-wait-engine-images: bash-check ## CI gate (issue #169): wait until every image `make install` pulls for ARCH is published; names and fails on a tag that never appears. macOS pulls no engine image (issue #120), so it has nothing to wait for.
+ifeq ($(HOST_OS),Darwin)
+	@echo "ci-wait-engine-images: macOS pulls no engine image (issue #120), nothing to wait for"
+else
+	python3 scripts/install_engine_launchers.py --wait-published $(if $(ARCH),--arch $(ARCH),) $(if $(ENGINES),--engines $(ENGINES),)
+endif
+
+ci-install: bash-check ## CI job install: prepare the environment, wait for the images install pulls, then test make install, the installed llgenie dry run, and make uninstall as separate steps. macOS never runs a container.
 	$(MAKE) test-env
+	$(MAKE) ci-wait-engine-images ARCH=cpu
 	$(MAKE) ci-install-run
 	$(MAKE) ci-install-dry
 	$(MAKE) ci-install-dry-args

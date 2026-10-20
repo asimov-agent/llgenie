@@ -1309,6 +1309,8 @@ make lint              # linefeed/editorconfig lint (fail-closed)
 make test-unit         # hermetic unit tests — the suite is DISCOVERED by scripts/unit_tests.py (every
                        # tests/test_*.py minus the dated exclusions in tests/fixtures/unit-suite.json),
                        # never a hand-written list in the recipe (issue #393)
+make openspec-tasks-check  # every ACTIVE OpenSpec change has no unchecked `- [ ]` task box — the
+                       # completion half of the openspec gate (the loop's last stage, and ci-openspec)
 make test-agents-read  # AGENTS.md threat-pattern guard + its tests, in a make-built Python 3.12
                        # venv (~/.cache/llgenie/agents-read-venv: hermes-agent==0.19.0 + pytest;
                        # needs python3.12)

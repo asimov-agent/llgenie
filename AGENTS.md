@@ -979,7 +979,9 @@ selected file is by exact `--deselect file::test` node id, never a `-k`
 expression (`-k` matches substrings, so a new test whose name CONTAINS a
 deselected test's name would be silently dropped). `make check-wiring` asks the
 aggregator what it selects, so a discovered file is wired through the target
-that runs it; `make unit-suite-report` shows the selection and the roster. This
+that runs it. `scripts/unit_tests.py excluded` lists what is kept out of the
+suite and by which target, and `make test-unit` prints the selection before
+pytest runs. This
 mirrors the sibling repo `trending-local-llms`, whose unit entry is one
 aggregating call with the network/hardware checks in their own targets.
 
