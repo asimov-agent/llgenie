@@ -406,6 +406,38 @@ make issue-bot-triage     # step 1: Hermes REVIEWS the issue.md thread (body + e
 make issue-bot-verdict ISSUE=<n>   # step 2: apply that verdict — implement | refine | close
 ```
 
+#### The model the bots call (issue #405)
+
+Every bot leg — `issue-bot`, `fix-bot`, `issue-refiner`, `rebase-bot`, `agent-fetch` — runs the
+Hermes CLI inside the agent image and calls **one pinned snapshot** through the custom provider alias
+`nous-deepseek`:
+
+```
+deepseek/deepseek-v4.1-flash-1017        (alias nous-deepseek, provider=custom,
+                                          base_url=https://inference-api.nousresearch.com/v1,
+                                          key_env=NOUS_API_KEY,
+                                          max_tokens=16000, context_window=1048576)
+```
+
+The `-1017` suffix is the **snapshot** (2026-10-17). Dropping it changes the model: the unsuffixed
+`deepseek/deepseek-v4.1-flash` resolves to `canonical_slug …-20260910` (the previous release, served
+by Impala), and it also answers `200` — so a bot job cannot tell the two apart. That is exactly what
+happened before #405: the bots ran the September snapshot while the host ran the October one, and the
+only test on the pin asserted the family *prefix*, which any newer id satisfies.
+
+```bash
+make model-pin-report     # the pinned snapshot, every place that declares it, and each finding
+make check-agent-model    # the gate (stdlib only, no network, no key) — run by ci-unit
+```
+
+The pin lives in **one module**, `scripts/agent_model_pin.py` (`MODEL_ID`, `MAX_TOKENS`,
+`CONTEXT_WINDOW`), and `make check-agent-model` compares it with the two files that carry it: the
+agent Dockerfile's `ARG HERMES_MODEL_ID` default and the install script's `MODEL_ID` default. Both are
+build inputs of the image hash, and the build itself asserts the alias landed with the model id, its
+`max_tokens` and its `context_window` — so a half-written alias fails the build, not a 120-minute run.
+**To move the pin:** change the three values in `scripts/agent_model_pin.py` and the two defaults,
+then `make check-agent-model` (it names any place still behind).
+
 **The bot decides before it implements.** It reads the issue *and its whole comment thread*
 (`gh issue view <n> --json number,title,body,state,author,labels,comments` — the comments come with the
 JSON, and `gh` **refuses** `--comments` together with `--json`, which is what broke every dispatch

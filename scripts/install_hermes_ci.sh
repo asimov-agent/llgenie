@@ -36,19 +36,35 @@ command -v hermes >/dev/null 2>&1 || { echo "[hermes-ci] hermes is still not on 
 echo "[hermes-ci] installed: $(command -v hermes)"
 
 # The alias the bots call by name. Every value is a documented default and every one is
-# overridable, because the model id is a pin that moves.
+# overridable, because the model id is a pin that moves — but a pin that moves must move in
+# every file at once, which is why `make check-agent-model` compares this default with the
+# Dockerfile's (scripts/agent_model_pin.py, issue #405).
 ALIAS="${HERMES_ALIAS:-nous-deepseek}"
-MODEL_ID="${HERMES_MODEL_ID:-deepseek/deepseek-v4.1-flash}"   # provider-prefixed (the endpoint 404s a bare id)
+MODEL_ID="${HERMES_MODEL_ID:-deepseek/deepseek-v4.1-flash-1017}"   # provider-prefixed; `-1017` is the SNAPSHOT (2026-10-17) — the unsuffixed id is the older, different model
 BASE_URL="${HERMES_BASE_URL:-https://inference-api.nousresearch.com/v1}"
+# The snapshot's published budget (context_length 1048576, max_completion_tokens 943718). Written
+# literally on purpose: these belong to the MODEL, not to a deployment choice, and leaving them
+# unset makes Hermes budget the run from models.dev, which has no entry for this snapshot id.
+MAX_TOKENS="${HERMES_MAX_TOKENS:-16000}"
+CONTEXT_WINDOW="${HERMES_CONTEXT_WINDOW:-1048576}"
 
 hermes config set "model.aliases.${ALIAS}.model" "$MODEL_ID"
 hermes config set "model.aliases.${ALIAS}.provider" custom
 hermes config set "model.aliases.${ALIAS}.base_url" "$BASE_URL"
 hermes config set "model.aliases.${ALIAS}.key_env" NOUS_API_KEY
+hermes config set "model.aliases.${ALIAS}.max_tokens" "16000"
+hermes config set "model.aliases.${ALIAS}.context_window" "1048576"
 
 # Loud if the alias did not land: a bot whose alias is missing fails at run time, far from here.
-if ! hermes config get "model.aliases.${ALIAS}.key_env" 2>/dev/null | grep -q NOUS_API_KEY; then
-  echo "[hermes-ci] the alias ${ALIAS} was not configured: the bots would fail at run time" >&2
-  exit 1
-fi
-echo "[hermes-ci] alias ${ALIAS} -> ${MODEL_ID} via ${BASE_URL} (key_env=NOUS_API_KEY)"
+# All three values are checked — a present alias with the wrong model, or with no budget, is the
+# half-written state this exists to catch.
+for kv in "model=${MODEL_ID}" "key_env=NOUS_API_KEY" "max_tokens=${MAX_TOKENS}" \
+          "context_window=${CONTEXT_WINDOW}"; do
+  key="${kv%%=*}"; want="${kv#*=}"
+  got="$(hermes config get "model.aliases.${ALIAS}.${key}" 2>/dev/null || true)"
+  if [ "$got" != "$want" ]; then
+    echo "[hermes-ci] alias ${ALIAS}.${key} is '${got}', expected '${want}': the bots would fail at run time" >&2
+    exit 1
+  fi
+done
+echo "[hermes-ci] alias ${ALIAS} -> ${MODEL_ID} via ${BASE_URL} (max_tokens=${MAX_TOKENS}, context_window=${CONTEXT_WINDOW}, key_env=NOUS_API_KEY)"

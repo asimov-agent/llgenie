@@ -71,6 +71,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	engine-bump-rebase generate-engine-params check-engine-params build-engine run-engine stop-engine list-engine-images ci-lint ci-unit ci-agents-read \
 	ci-openspec ci-cpu-health ci-top-tier ci-install ci-install-dry-args ci-free-disk test-engine-stage bot-sync-main bot-sync-branch ci-wait-engine-images \
 	ci-install-dry ci-install-run ci-install-uninstall test-env test-top-tier test-top-tier-ci test-top-tier-cli-ci test-top-tier-serve test-top-tier-serve-ci \
+	check-agent-model model-pin-report \
 	test-engine-bump-live test-native-engines test-native-engine-light test-variant-image \
 	bash-check engine-bump engine-bump-daily engine-bump-plan engine-derive generate-requirements openspec-tasks-check check-registry-keys ci-engines
 
@@ -308,6 +309,21 @@ spawn-engine-skill-issues: ## Open one tracking issue per NEW unskilled registry
 # to the PR's OWN head remote (a fork PR goes to the fork). It never merges.
 rebase-bot-sweep: ## Which ONE open PR needs rebasing (BEHIND/DIRTY against main): prints action/pr/head_* and the reason for every pass-over
 	python3 scripts/rebase_bot_sweep.py --repo $(if $(REPO),$(REPO),asimov-agent/llgenie) $(if $(OWN_FORK),--own-fork $(OWN_FORK),)
+
+# ---- the model pin the bots call (issue #405) --------------------------------
+# The bots run the Hermes CLI in the agent image against ONE pinned snapshot through the alias
+# `nous-deepseek`. That pin lives in two build inputs (the Dockerfile's ARG default and the
+# install script's MODEL_ID default), and both used to name `deepseek/deepseek-v4.1-flash` —
+# the OLDER, different model behind `canonical_slug …-20260910` — while the owner's host alias
+# ran the `-1017` snapshot. Nothing compared them, and the one test asserted a substring any
+# newer id satisfies. `scripts/agent_model_pin.py` is now the referee: stdlib only, no network,
+# no key, and it names the file and the value it read when they disagree.
+check-agent-model: ## CI: fail when the agent image's model pin (Dockerfile ARG, install script) is not the one snapshot scripts/agent_model_pin.py declares — or the alias's budget is missing (issue #405)
+	python3 scripts/agent_model_pin.py check
+
+model-pin-report: ## Print the bots' pinned model snapshot, where each place declares it, and every finding (issue #405)
+	python3 scripts/agent_model_pin.py report
+
 
 # ---- a leg refuses to start on a missing key (issue #363) --------------------
 # A leg that forwards a key its job never set spends the runner first: it pulls the image,
@@ -1172,6 +1188,7 @@ ci-unit: bash-check ## CI job unit: hermetic unit tests + registry / skill / Str
 	$(MAKE) check-pr-hygiene
 	$(MAKE) check-pr-authors
 	$(MAKE) check-workflows
+	$(MAKE) check-agent-model
 
 ci-agents-read: bash-check ## CI job agents-read: make test-agents-read (Python 3.12 venv -> AGENTS.md scan -> guard tests)
 	$(MAKE) test-agents-read

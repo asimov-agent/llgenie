@@ -19,13 +19,17 @@
 # ADDED: the Nous model wiring, as build args with the live defaults, so the pin is
 # visible here instead of buried in the install script:
 #     --build-arg HERMES_ALIAS=nous-deepseek
-#     --build-arg HERMES_MODEL_ID=deepseek/deepseek-v4.1-flash   (provider-prefixed)
+#     --build-arg HERMES_MODEL_ID=deepseek/deepseek-v4.1-flash-1017   (provider-prefixed)
 #     --build-arg HERMES_BASE_URL=https://inference-api.nousresearch.com/v1
+# The `-1017` suffix is the SNAPSHOT (2026-10-17). The unsuffixed `deepseek/deepseek-v4.1-flash`
+# is a DIFFERENT, older model (`canonical_slug …-20260910`, served by Impala) that also answers
+# 200 — so dropping the suffix silently runs the bots on the previous release (issue #405).
+# The pin lives in ONE place too: scripts/agent_model_pin.py, gated by `make check-agent-model`.
 # Hermes's bundled `nous` provider is OAuth-only — a bare NOUS_API_KEY is IGNORED and
 # `--provider nous` fails with "not logged into Nous Portal" — so the install script writes
-# a CUSTOM provider alias (provider=custom, the base_url above, key_env=NOUS_API_KEY) and the
-# build asserts the alias landed. The alias is why every bot call is `hermes -z ... -m
-# nous-deepseek`.
+# a CUSTOM provider alias (provider=custom, the base_url above, key_env=NOUS_API_KEY), with the
+# snapshot's published budget (max_tokens, context_window), and the build asserts every key.
+# The alias is why every bot call is `hermes -z ... -m nous-deepseek`.
 #
 # ADDED: the Nerve plugin and its settings, installed at build time by
 # scripts/install_nerve_ci.sh (issue #238). The host runs Hermes with Nerve enabled — its JEV
@@ -56,8 +60,14 @@ ARG HERMES_PACKAGE="hermes-agent"
 # The model pin and its provider alias (see the header). The model id must stay
 # provider-prefixed: the Nous endpoint 404s a bare id.
 ARG HERMES_ALIAS="nous-deepseek"
-ARG HERMES_MODEL_ID="deepseek/deepseek-v4.1-flash"
+ARG HERMES_MODEL_ID="deepseek/deepseek-v4.1-flash-1017"
 ARG HERMES_BASE_URL="https://inference-api.nousresearch.com/v1"
+# The alias's budget: the pinned snapshot publishes context_length 1048576 and
+# max_completion_tokens 943718, so this is a deliberate sub-limit pair (the same one the host's
+# alias uses). Left unset, Hermes budgets the bot run from models.dev, which has no entry for this
+# snapshot id (issue #405).
+ARG HERMES_MAX_TOKENS="16000"
+ARG HERMES_CONTEXT_WINDOW="1048576"
 # The Nerve plugin pin and the provider it supervises through (see the header, issue #238).
 ARG HERMES_NERVE_PLUGIN="keeltrace/hermes-nerve"
 ARG HERMES_NERVE_REF="3de7d94982b7a2cb87c829e4b2366ced927d8fed"   # keeltrace/hermes-nerve v0.3.1
@@ -90,6 +100,7 @@ COPY install_nerve_ci.sh /usr/local/bin/install_nerve_ci.sh
 COPY agent_jev_preflight.sh /usr/local/bin/agent_jev_preflight.sh
 ENV HERMES_INSTALL_URL=${HERMES_INSTALL_URL} HERMES_PACKAGE=${HERMES_PACKAGE} \
     HERMES_ALIAS=${HERMES_ALIAS} HERMES_MODEL_ID=${HERMES_MODEL_ID} HERMES_BASE_URL=${HERMES_BASE_URL} \
+    HERMES_MAX_TOKENS=${HERMES_MAX_TOKENS} HERMES_CONTEXT_WINDOW=${HERMES_CONTEXT_WINDOW} \
     HERMES_NERVE_PLUGIN=${HERMES_NERVE_PLUGIN} HERMES_NERVE_REF=${HERMES_NERVE_REF} \
     HERMES_NERVE_PROVIDER=${HERMES_NERVE_PROVIDER} \
     HERMES_NERVE_PROFILE=${HERMES_NERVE_PROFILE} \
@@ -102,11 +113,15 @@ RUN chmod +x /usr/local/bin/install_hermes_ci.sh \
     && export PATH="/root/.local/bin:$PATH" \
     && hermes --version \
     # The install script writes the alias; prove it right here so a bad pin fails the BUILD
-    # (an image whose alias is missing or stale only fails later, inside a bot run).
+    # (an image whose alias is missing or stale only fails later, inside a bot run). All four
+    # keys, not just the name: an alias without its budget is budgeted from models.dev, which
+    # has no entry for this snapshot id (issue #405).
     && test "$(hermes config get "model.aliases.${HERMES_ALIAS}.model")" = "${HERMES_MODEL_ID}" \
     && test "$(hermes config get "model.aliases.${HERMES_ALIAS}.provider")" = "custom" \
     && test "$(hermes config get "model.aliases.${HERMES_ALIAS}.key_env")" = "NOUS_API_KEY" \
-    && echo "[agent-image] alias ${HERMES_ALIAS} -> ${HERMES_MODEL_ID} (key_env=NOUS_API_KEY, key supplied at run time)"
+    && test "$(hermes config get "model.aliases.${HERMES_ALIAS}.max_tokens")" = "${HERMES_MAX_TOKENS}" \
+    && test "$(hermes config get "model.aliases.${HERMES_ALIAS}.context_window")" = "${HERMES_CONTEXT_WINDOW}" \
+    && echo "[agent-image] alias ${HERMES_ALIAS} -> ${HERMES_MODEL_ID} (max_tokens=${HERMES_MAX_TOKENS}, context_window=${HERMES_CONTEXT_WINDOW}, key supplied at run time)"
 
 # The supervisory layer (issue #238). HERMES_HOME is explicit because the plugin, its settings
 # and the run-time gate must all agree on which home is "this" home — plugins are per-home, and
