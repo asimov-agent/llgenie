@@ -24,6 +24,7 @@ import scripts.engine_bump as eb
 import scripts.engine_deps as engine_deps
 import scripts.engine_params_derive as epd
 import scripts.engine_skills as es
+import scripts.unit_tests as ut
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -1868,14 +1869,17 @@ def test_unit_recipe_keeps_the_image_build_out():
     cannot turn that job red.
     """
 
-    # Given the test-unit recipe
-    recipe = (REPO / "Makefile").read_text().split("\ntest-unit:", 1)[1].split("\n\n", 1)[0]
+    # Given the unit suite the aggregator computes and the roster that keeps files out
+    suite = set(ut.select(REPO))
 
-    # When its pytest file list is read
-    # Then the bump tests run and the image build does not
-    assert "tests/test_engine_bump.py" in recipe
-    assert "tests/test_engine_bump_build.py" not in recipe
-    assert "test_tensorfold_release_archive_unpacks_and_runs" in recipe
+    # When the selection and the roster are read
+    # Then the bump tests run in the unit gate and the image build is not in the suite
+    assert "tests/test_engine_bump.py" in suite
+    assert "tests/test_engine_bump_build.py" not in suite
+
+    # And the live release reads are de-selected by exact node id, not silently run
+    deselect = ut.load_roster(REPO)["deselect"].get("tests/test_engine_bump.py", {})
+    assert "test_tensorfold_release_archive_unpacks_and_runs" in deselect
     live = (REPO / "Makefile").read_text().split("\ntest-engine-bump-live:", 1)[1].split("\n\n", 1)[0]
     assert "test_tensorfold_release_archive_unpacks_and_runs" in live
     unit = yaml.safe_load((REPO / ".github" / "workflows" / "pipeline.yml").read_text())["jobs"]["unit"]
@@ -1883,26 +1887,22 @@ def test_unit_recipe_keeps_the_image_build_out():
     assert live_step.get("if") == "runner.os == 'Linux'"
 
 
-def _pytest_k_selects(expr: str, name: str) -> bool:
-    """pytest `-k`: a bare word is true when it is a substring of the test name."""
-    def repl(m):
-        word = m.group(0)
-        if word in ("and", "or", "not"):
-            return word
-        return "True" if word.lower() in name.lower() else "False"
-    return bool(eval(re.sub(r"[A-Za-z_][A-Za-z0-9_]*", repl, expr)))  # noqa: S307
+def _pytest_deselects(argv: list[str], node: str) -> bool:
+    """The suite de-selects a test by EXACT node id (`--deselect file::test`), never `-k`."""
+    return any(argv[i] == "--deselect" and argv[i + 1] == node
+               for i in range(len(argv) - 1))
 
 
 def test_unit_recipe_runs_the_destination_release_cases():
     """make test-unit runs the hermetic destination-tag cases and not the live release reads.
 
-    The unit job calls this recipe. The three GitHub-release tests stay on
-    `make test-engine-bump-live` (Linux only).
+    The unit job calls the aggregator (`scripts/unit_tests.py`); the three GitHub-release
+    tests are de-selected by exact node id and stay on `make test-engine-bump-live` (Linux only).
     """
 
-    # Given the test-unit pytest invocation
-    recipe = (REPO / "Makefile").read_text().split("\ntest-unit:", 1)[1].split("\n\n", 1)[0]
-    expr = recipe.split("-k '", 1)[1].split("'", 1)[0]
+    # Given the invocation the unit suite runs, and the roster's de-selections
+    argv = ut.argv(REPO)
+    roster = ut.load_roster(REPO)
     hermetic = (
         "test_derive_release_lookup_uses_the_passed_tag",
         "test_bump_reads_the_destination_release",
@@ -1923,18 +1923,20 @@ def test_unit_recipe_runs_the_destination_release_cases():
         "test_two_moved_pins_list_both_engines",
         "test_a_non_image_file_change_stays_the_placeholder",
     )
-    assert "tests/test_engine_image_matrix.py" in recipe
     live = (
         "test_derive_reports_the_live_release_archives",
         "test_tensorfold_v1_0_5_release_is_native_archives",
         "test_tensorfold_release_archive_unpacks_and_runs",
     )
 
-    # When the -k expression is applied to each name
-    # Then the hermetic cases run inside test-unit, and the live ones do not
-    assert "tests/test_engine_bump.py" in recipe
-    assert all(_pytest_k_selects(expr, name) for name in hermetic)
-    assert not any(_pytest_k_selects(expr, name) for name in live)
+    # When the invocation and the roster are read
+    # Then the hermetic cases run inside test-unit, and the live ones are de-selected from it
+    assert "tests/test_engine_bump.py" in ut.select(REPO)
+    for name in hermetic:
+        assert not _pytest_deselects(argv, f"tests/test_engine_bump.py::{name}"), name
+    for name in live:
+        assert _pytest_deselects(argv, f"tests/test_engine_bump.py::{name}"), name
+        assert name in roster["deselect"]["tests/test_engine_bump.py"]
 
 
 def _dep_skill(tmp_path, repo, old, install, container):

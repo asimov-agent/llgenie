@@ -40,6 +40,8 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO / "scripts"))
+import unit_tests as ut  # noqa: E402  (the unit-suite aggregator, issue #393)
 INSTALL = REPO / "scripts" / "install_nerve_ci.sh"
 PREFLIGHT = REPO / "scripts" / "agent_jev_preflight.sh"
 DOCKERFILE = REPO / "containers" / "agent" / "Dockerfile"
@@ -673,8 +675,8 @@ def test_the_preflight_is_documented_for_the_reader():
     assert "fewer LLM calls" in readme
     assert "never blocks" in readme or "never stops a run" in readme
 
-    # And the test file itself is wired into the unit gate (a test no target names runs nowhere)
-    assert "tests/test_agent_nerve.py" in mk.split("\ntest-unit:", 1)[1].split("\n\n", 1)[0]
+    # And the test file itself is in the unit suite the aggregator computes (issue #393)
+    assert "tests/test_agent_nerve.py" in ut.select(REPO)
 
 
 def test_every_bot_workflow_arms_the_jev_gate():

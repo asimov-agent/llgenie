@@ -18,6 +18,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
 import check_secret_output as cso  # noqa: E402
+import unit_tests as ut  # noqa: E402  (the unit-suite aggregator, issue #393)
 
 
 def _tree(tmp_path: Path, files: dict[str, str]) -> Path:
@@ -305,7 +306,7 @@ def test_the_guard_is_wired_into_the_repo():
     assert "make check-secret-output" in mk.split("\nhelp:", 1)[1]
     ci_unit = mk.split("\nci-unit:", 1)[1].split("\n\n", 1)[0]
     assert "check-secret-output" in ci_unit, "ci-unit must run the guard"
-    assert "tests/test_secret_output.py" in mk.split("\ntest-unit:", 1)[1].split("\n\n", 1)[0]
+    assert "tests/test_secret_output.py" in ut.select(REPO)
 
 
 def test_the_secret_list_matches_the_repo_secrets():

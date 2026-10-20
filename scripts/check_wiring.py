@@ -41,6 +41,7 @@ import argparse
 import ast
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -48,6 +49,8 @@ REPO = Path(__file__).resolve().parent.parent
 MAKEFILES = ("Makefile", "tools/Makefile")
 WORKFLOW_DIR = ".github/workflows"
 EXCEPTIONS = "tests/fixtures/host-only-wiring.json"
+#: The unit-suite aggregator (issue #393): a target that runs it runs the files it selects.
+AGGREGATOR = "scripts/unit_tests.py"
 
 #: A `##` help line CLAIMS CI coverage when it says so in one of the ways the tree actually does.
 CI_CLAIM_RE = re.compile(r"^\s*CI\b|\bCI job\b|\bCI pipelines\b|\(CI\b|\bFails CI\b")
@@ -113,6 +116,34 @@ def _imports(path: Path) -> tuple[set[str], set[str]]:
     return modules, paths
 
 
+def _aggregated(root: Path, recipes: dict[str, str], docs: list[str]) -> tuple[dict[str, set], list[str]]:
+    """`{target: the documents it runs through the unit-suite aggregator}` (issue #393), and any
+    error reading it.
+
+    `make test-unit` runs `scripts/unit_tests.py`, which computes the hermetic suite from the tree
+    (every `tests/test_*.py` minus the dated exclusions in `tests/fixtures/unit-suite.json`). The
+    recipe text no longer names those files — that is the whole point — so naming-in-recipe cannot
+    be the only evidence a document runs. The aggregator IS the namer: a document in its selection
+    is named by every target whose recipe runs it. The selection is read from the script in the
+    tree being checked, so there is ONE definition of the suite and no second list to rot."""
+    script = root / AGGREGATOR
+    if not script.exists():
+        return {}, []
+    runners = {t for t, r in recipes.items() if AGGREGATOR in r}
+    if not runners:
+        return {}, []
+    try:
+        proc = subprocess.run([sys.executable, str(script), "list", "--root", str(root)],
+                              capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.SubprocessError) as exc:  # a broken aggregator is a finding
+        return {}, [f"{AGGREGATOR} could not list the unit suite ({exc})"]
+    if proc.returncode != 0:
+        last = proc.stderr.strip().splitlines()[-1] if proc.stderr.strip() else ""
+        return {}, [f"{AGGREGATOR} failed to list the unit suite (rc={proc.returncode}): {last}"]
+    selection = {d.strip() for d in proc.stdout.splitlines() if d.strip() and d.strip() in set(docs)}
+    return {t: selection for t in runners}, []
+
+
 def documents(root: Path = REPO) -> list[str]:
     """Every tracked document that must be wired, root-relative."""
     return sorted(f"tests/{p.name}" for p in (root / "tests").glob("test_*.py")) + \
@@ -121,9 +152,13 @@ def documents(root: Path = REPO) -> list[str]:
 
 
 def _close(root: Path, docs: list[str], recipes: dict[str, str], calls: dict[str, set],
-           target_seeds, doc_seeds=frozenset()) -> dict[str, set]:
+           target_seeds, doc_seeds: set[str] | frozenset[str] = frozenset(),
+           extra_named: dict[str, set] | None = None) -> dict[str, set]:
     """Who reaches which document: seed targets (+ workflow-named docs), following target
-    calls and prerequisites, then python dependencies (a wired module/file wires it)."""
+    calls and prerequisites, then python dependencies (a wired module/file wires it).
+
+    `extra_named` is the discovery seam (issue #393): documents a target runs through the
+    unit-suite aggregator without its recipe naming them."""
     reach: dict[str, set] = {d: set() for d in docs}
     stack, seen = list(target_seeds), set()
     while stack:
@@ -134,6 +169,9 @@ def _close(root: Path, docs: list[str], recipes: dict[str, str], calls: dict[str
         for d in DOC_RE.findall(recipes[t]):
             if d in reach:
                 reach[d].add(f"make {t}")
+        for d in (extra_named or {}).get(t, ()):
+            if d in reach:
+                reach[d].add(f"make {t} (unit-suite discovery)")
         stack += sorted(calls.get(t, ()))
     for d in doc_seeds:
         if d in reach:
@@ -182,6 +220,12 @@ def graph(root: Path = REPO) -> dict:
     workflow_docs = {d for t in steps.values() for d in DOC_RE.findall(t) if d in docs}
     ci_targets = sorted({t for targets in workflow_targets.values() for t in targets if t in recipes})
 
+    # the discovery seam (issue #393): a target that runs the unit-suite aggregator names every
+    # document the aggregator selects, though its recipe lists none of them.
+    aggregated, agg_errors = _aggregated(root, recipes, docs)
+    for t, selection in aggregated.items():
+        named_by_target.setdefault(t, set()).update(selection)
+
     # the target half of the claim (issue #239): what each `##` help line promises, and which
     # targets CI actually reaches — directly, or through the targets a CI target calls.
     claims = {t: h for t, h in _help_lines(root).items() if CI_CLAIM_RE.search(h)}
@@ -195,9 +239,10 @@ def graph(root: Path = REPO) -> dict:
         "tests": [d for d in docs if d.startswith("tests/")],
         "scripts": [d for d in docs if d.startswith("scripts/")],
         "workflow_targets": workflow_targets, "ci_targets": ci_targets,
+        "aggregated": aggregated, "aggregator_errors": agg_errors,
         # wired at all (any target, any workflow) vs reached by the CI workflows
-        "reachable": _close(root, docs, recipes, calls, recipes.keys(), workflow_docs),
-        "ci_reachable": _close(root, docs, recipes, calls, ci_targets, workflow_docs),
+        "reachable": _close(root, docs, recipes, calls, recipes.keys(), workflow_docs, extra_named=aggregated),
+        "ci_reachable": _close(root, docs, recipes, calls, ci_targets, workflow_docs, extra_named=aggregated),
     }
 
 
@@ -228,7 +273,7 @@ def check(g: dict, exceptions: dict) -> list[str]:
     dated exception records, a stale exception, a workflow that calls a make target which
     does not exist (a typo in a `run:` block is a silent no-op)."""
     recorded = exceptions.get("documents") or {}
-    errors = []
+    errors = list(g.get("aggregator_errors") or [])
     for w, targets in g["workflow_targets"].items():
         for t in sorted(targets):
             if t not in g["recipes"]:
@@ -276,6 +321,11 @@ def report(g: dict, exceptions: dict) -> str:
     for doc in sorted(recorded):
         e = recorded[doc]
         lines.append(f"  host-only: {doc} — {e['reason']} (run: make {e['target']})")
+    aggregated = g.get("aggregated") or {}
+    if aggregated:
+        for tgt in sorted(aggregated):
+            lines.append(f"  discovery: `make {tgt}` runs {len(aggregated[tgt])} file(s) through "
+                         f"{AGGREGATOR} without naming them in its recipe")
     claims = g.get("claim_targets") or {}
     reached = set(g.get("ci_target_closure") or ())
     lines.append(f"  {len(claims)} target(s) claim CI coverage in their help line, "

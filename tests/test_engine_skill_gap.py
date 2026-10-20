@@ -32,6 +32,7 @@ sys.path.insert(0, str(REPO / "scripts"))
 import engine_skill_gap as gap_mod  # noqa: E402
 import engine_skills as es  # noqa: E402
 import model_engine_pick as mp  # noqa: E402
+import unit_tests as ut  # noqa: E402  (the unit-suite aggregator, issue #393)
 
 REGISTRY = REPO / "data" / "models.json"
 MANIFEST = REPO / "data" / "unsupported-engines.json"
@@ -544,13 +545,12 @@ def test_the_weekly_sync_regenerates_the_gap_and_spawns_a_tracking_issue():
 def test_the_gap_test_file_runs_in_the_unit_gate():
     """A new tests/test_*.py that no target names runs in NO gate."""
 
-    # Given the Makefile's unit target
-    mk = (REPO / "Makefile").read_text()
-    unit = mk.split("\ntest-unit:", 1)[1].split("\n\n", 1)[0]
+    # Given the unit suite the aggregator computes from the tree (issue #393)
+    suite = set(ut.select(REPO))
 
-    # When it is read
-    # Then this test file is named in it, so the gate actually runs it
-    assert "tests/test_engine_skill_gap.py" in unit
+    # When the selection is read
+    # Then this test file is in it, so the gate actually runs it
+    assert "tests/test_engine_skill_gap.py" in suite
 
 
 def test_skills_validate_uses_the_decisions_file_instead_of_a_global_flag():

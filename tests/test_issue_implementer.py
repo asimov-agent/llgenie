@@ -25,6 +25,7 @@ import pytest
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
 import issue_implementer as ii  # noqa: E402
+import unit_tests as ut  # noqa: E402  (the unit-suite aggregator, issue #393)
 
 OWNER = "asimov-agent"
 REPO_NAME = "llgenie"
@@ -225,9 +226,8 @@ def test_the_dispatcher_and_tests_are_wired():
     """A new script/test must be reachable from make, never dead (AGENTS.md wiring rule)."""
     mk = (REPO / "Makefile").read_text()
     assert "issue-bot-dispatch:" in mk and "issue-bot-open-pr:" in mk and "implement-issue:" in mk
-    # The test file is named by make test-unit so it actually runs in the gate.
-    unit = mk.split("\ntest-unit:", 1)[1].split("\n\n", 1)[0]
-    assert "tests/test_issue_implementer.py" in unit
+    # The test file is in the unit suite the aggregator computes (issue #393), so it runs in the gate.
+    assert "tests/test_issue_implementer.py" in ut.select(REPO)
     # The workflow calls only real make targets.
     wf = (REPO / ".github" / "workflows" / "issue-bot.yml").read_text()
     for target in ("implement-issue", "issue-bot-dispatch", "issue-bot-open-pr"):

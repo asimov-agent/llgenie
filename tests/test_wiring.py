@@ -23,6 +23,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
 import check_wiring as cw  # noqa: E402
+import unit_tests as ut  # noqa: E402  (the unit-suite aggregator, issue #393)
 
 CLI = REPO / "scripts" / "check_wiring.py"
 EXCEPTIONS = REPO / "tests" / "fixtures" / "host-only-wiring.json"
@@ -224,10 +225,10 @@ def test_the_guard_runs_in_ci_unit_and_this_file_runs_in_test_unit():
     # Given the Makefile
     mk = (REPO / "Makefile").read_text()
 
-    # When the ci-unit job and the unit target are read
-    # Then ci-unit runs the wiring check, and this test file is in the unit target
+    # When the ci-unit job and the unit suite are read
+    # Then ci-unit runs the wiring check, and this test file is in the discovered suite
     assert "$(MAKE) check-wiring" in mk.split("\nci-unit:", 1)[1].split("\n\n", 1)[0]
-    assert "tests/test_wiring.py" in mk.split("\ntest-unit:", 1)[1].split("\n\n", 1)[0]
+    assert "tests/test_wiring.py" in ut.select(REPO)
     assert "check-wiring:" in mk and "wiring-report:" in mk
 
     # And the removed dead test file is gone for good

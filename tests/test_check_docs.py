@@ -22,6 +22,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
 import check_docs as cd  # noqa: E402
+import unit_tests as ut  # noqa: E402  (the unit-suite aggregator, issue #393)
 
 CLI = REPO / "scripts" / "check_docs.py"
 README = REPO / "README.md"
@@ -232,9 +233,9 @@ def test_the_guard_runs_in_ci_unit_and_this_file_runs_in_test_unit():
     ci_unit = mk.split("\nci-unit:", 1)[1].split("\n\n", 1)[0]
     test_unit = mk.split("\ntest-unit:", 1)[1].split("\n\n", 1)[0]
 
-    # Then ci-unit runs the docs check, and this test file is in the unit target
+    # Then ci-unit runs the docs check, and this test file is in the discovered unit suite
     assert "$(MAKE) check-docs" in ci_unit
-    assert "tests/test_check_docs.py" in test_unit
+    assert "tests/test_check_docs.py" in ut.select(REPO)
     assert "check-docs:" in mk and "docs-report:" in mk
 
     # And both targets are declared phony, so a file named `check-docs` cannot shadow them
