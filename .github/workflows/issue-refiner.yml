@@ -85,7 +85,11 @@ jobs:
       - name: Decide (spare capacity? -> the oldest eligible issue -> refine-in.md)
         id: pick
         env:
-          GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
+          # The job's own `permissions:` grants the write; the owner PAT never could —
+          # `secrets.BUMP_TOKEN` carries no Issues write, so every scheduled run died here with
+          # "GraphQL: Resource not accessible by personal access token (addComment)" (issue #412).
+          # github.token is scoped to this repo and this job, which is exactly the write being made.
+          GH_TOKEN: ${{ github.token }}
         run: |
           set +e
           out=$(make issue-refiner-pick REPO="$REPO")
@@ -140,7 +144,11 @@ jobs:
         id: apply
         if: steps.pick.outputs.picked == 'true'
         env:
-          GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
+          # The job's own `permissions:` grants the write; the owner PAT never could —
+          # `secrets.BUMP_TOKEN` carries no Issues write, so every scheduled run died here with
+          # "GraphQL: Resource not accessible by personal access token (addComment)" (issue #412).
+          # github.token is scoped to this repo and this job, which is exactly the write being made.
+          GH_TOKEN: ${{ github.token }}
           ISSUE: ${{ steps.pick.outputs.issue }}
         run: |
           set +e
@@ -153,7 +161,11 @@ jobs:
       - name: Report the outcome on the issue
         if: always() && steps.pick.outputs.picked == 'true'
         env:
-          GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
+          # The job's own `permissions:` grants the write; the owner PAT never could —
+          # `secrets.BUMP_TOKEN` carries no Issues write, so every scheduled run died here with
+          # "GraphQL: Resource not accessible by personal access token (addComment)" (issue #412).
+          # github.token is scoped to this repo and this job, which is exactly the write being made.
+          GH_TOKEN: ${{ github.token }}
           ISSUE: ${{ steps.pick.outputs.issue }}
         run: |
           {

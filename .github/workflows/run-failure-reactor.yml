@@ -65,7 +65,11 @@ jobs:
           # The owner PAT: the reactor dispatches the fix-bot, whose own guard refuses a
           # `github-actions[bot]` actor — so the dispatch must carry the owner identity, and the
           # same token files the issue.
-          GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
+          # The job's own `permissions:` grants the write; the owner PAT never could —
+          # `secrets.BUMP_TOKEN` carries no Issues write, so every scheduled run died here with
+          # "GraphQL: Resource not accessible by personal access token (addComment)" (issue #412).
+          # github.token is scoped to this repo and this job, which is exactly the write being made.
+          GH_TOKEN: ${{ github.token }}
           RUN_ID: ${{ github.event.workflow_run.id }}
           REPO: ${{ github.repository }}
         run: |

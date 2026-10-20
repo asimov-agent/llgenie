@@ -276,7 +276,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Sweep the open PRs for one the fix-bot should repair
         env:
-          GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
+          # `gh workflow run` needs Actions write, which this job declares — and which the
+          # owner PAT does not carry: every dispatch was refused with 403
+          # "Resource not accessible by personal access token" (issue #412).
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           make fix-bot-sweep REPO="${{ github.repository }}" CHECK="make ci-unit" ATTEMPTS=3

@@ -1722,6 +1722,21 @@ producer assigns. `PR_BASE` / `PR_HEAD` bound the range (`ci-unit` runs it with 
 `git config user.name "Andy Holst"` / `git config user.email andy.holst@protonmail.com`, then
 `git rebase --reset-author` and a `--force-with-lease` push to its own PR branch.
 
+### Which token makes which write (issue #412)
+
+A bot step writes with the credential that can actually make the write:
+
+| the step does | the token | why |
+|---|---|---|
+| comments on / labels an **issue** (refiner claim + verdict, issue-bot verdict, reactor, alarm) | `${{ github.token }}` | the job already declares `issues: write`; the owner PAT carries no Issues write, which is why `issue-refiner` was red on **every** run (`Resource not accessible by personal access token (addComment)`) |
+| **dispatches** another workflow (fix-bot sweep, reactor) | `${{ github.token }}` | the job declares `actions: write`; the PAT is refused `403 … /dispatches` |
+| **pushes** a branch / opens a PR | `secrets.BUMP_TOKEN` | a `github.token` push does not re-trigger CI (issue #136) |
+
+`tests/test_bot_write_tokens.py` locks the split: it reads each workflow's writing steps, asserts the
+step's `GH_TOKEN`, and that the job declares the permission the write needs. A push is checked against
+the PAT wherever the job carries it (step env, job env, or the `actions/checkout` token that `git push`
+actually uses).
+
 ### Every workflow file is validated before it can merge (issue #330)
 
 GitHub **refuses a whole workflow file** whose `${{ ... }}` expression it cannot parse, and the refusal

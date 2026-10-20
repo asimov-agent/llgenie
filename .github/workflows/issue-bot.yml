@@ -168,7 +168,11 @@ jobs:
         id: verdict
         if: steps.dispatch.outputs.dispatch == 'true' && steps.triage.outputs.rc == '0'
         env:
-          GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
+          # The job's own `permissions:` grants the write; the owner PAT never could —
+          # `secrets.BUMP_TOKEN` carries no Issues write, so every scheduled run died here with
+          # "GraphQL: Resource not accessible by personal access token (addComment)" (issue #412).
+          # github.token is scoped to this repo and this job, which is exactly the write being made.
+          GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           ISSUE: ${{ steps.dispatch.outputs.issue }}
         run: |
