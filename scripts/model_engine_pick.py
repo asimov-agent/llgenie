@@ -43,9 +43,9 @@ import urllib.request
 from pathlib import Path
 
 try:
-    from .hf_auth import authorize, hub_open, rate_limit_wait
+    from .hf_auth import TRANSIENT_HTTP, authorize, hub_open, rate_limit_wait
 except ImportError:  # run as a script
-    from hf_auth import authorize, hub_open, rate_limit_wait  # type: ignore
+    from hf_auth import TRANSIENT_HTTP, authorize, hub_open, rate_limit_wait  # type: ignore
 
 REPO = Path(__file__).resolve().parent.parent
 PARAMS = REPO / "containers" / "engines" / "params"
@@ -594,8 +594,13 @@ def _hub_ipv4(host: str, port: int) -> list:
         return []
 
 
-def _hub_open(req: urllib.request.Request, timeout: float):
-    """Open a Hub URL over IPv4. Fall back to the default lookup when there is no A record."""
+def _ipv4_urlopen(req: urllib.request.Request, timeout: float):
+    """urlopen over IPv4 where an A record exists (the transport, not the policy).
+
+    macOS GitHub runners hang on huggingface.co's IPv6 address; the default lookup
+    is used when there is no A record. The retry budget around this lives in
+    `hf_auth.hub_open` (issue #339), which `_hub_open` passes this to.
+    """
     import socket
     orig = socket.create_connection
 
@@ -629,16 +634,19 @@ def _hub_open(req: urllib.request.Request, timeout: float):
         socket.create_connection = orig
 
 
-_rate_limited = 0  # consecutive Hub 429s across calls; a non-429 resets it
+def _hub_open(req: urllib.request.Request, timeout: float):
+    """Open a Hub API URL: IPv4 transport, ONE shared transient budget (issue #339)."""
+    return hub_open(req, timeout=timeout, opener=_ipv4_urlopen)
 
 
-def _hub_json(url: str, attempts: int = 3):
+def _hub_json(url: str):
     """GET a Hub API URL as JSON. Answers are cached on disk for HUB_CACHE_TTL.
 
-    A 429 waits for the window reset (`rate_limit_wait` in `hf_auth`) and is
-    retried twice. Any response that is not a 429 resets that count. 5xx and
-    transport errors keep a short backoff. A missing repo (HTTP 4xx) is not
-    retried.
+    The transient budget is the shared one (`hf_auth.hub_open`, issue #339): a 429
+    waits the Hub's own window (twice at most), 5xx and transport errors retry on the
+    doubling ladder, and a definitive status — a missing or gated repo — raises on the
+    first answer. This used to be a second ladder of its own (3 tries), which is how
+    the macos unit lane turned one exhausted 429 into "this repo has no files".
     """
     import hashlib
     import time
@@ -648,33 +656,9 @@ def _hub_json(url: str, attempts: int = 3):
             return json.loads(cache.read_text())
         except ValueError:
             pass
-    global _rate_limited
-    data = None
-    for i in range(attempts):
-        # A new request each attempt: a timed-out Request is not reusable, and
-        # macOS GitHub runners hang on huggingface.co's IPv6 address.
-        req = authorize(urllib.request.Request(url, headers={"User-Agent": "llgenie"}))
-        try:
-            with _hub_open(req, 30) as r:
-                data = json.load(r)
-            _rate_limited = 0
-            break
-        except urllib.error.HTTPError as e:
-            if e.code == 429:
-                _rate_limited += 1
-                if _rate_limited > 2 or i + 1 == attempts:
-                    raise
-                time.sleep(rate_limit_wait(e))
-                continue
-            _rate_limited = 0
-            if e.code not in (500, 502, 503, 504) or i + 1 == attempts:
-                raise
-            time.sleep(2 ** (i + 1))
-        except (urllib.error.URLError, TimeoutError):
-            _rate_limited = 0
-            if i + 1 == attempts:
-                raise
-            time.sleep(2 ** (i + 1))
+    req = authorize(urllib.request.Request(url, headers={"User-Agent": "llgenie"}))
+    with _hub_open(req, 30) as r:
+        data = json.load(r)
     if HUB_CACHE_TTL and data is not None:
         try:
             cache.parent.mkdir(parents=True, exist_ok=True)
@@ -697,7 +681,14 @@ def _tree(repo: str, revision: str = "main") -> list[dict]:
     if key not in _TREE_CACHE:
         try:
             files = _hub_json(f"{HF}/api/models/{repo}/tree/{revision}?recursive=true")
-        except urllib.error.HTTPError:  # missing or gated repo: no files
+        except urllib.error.HTTPError as e:
+            # A definitive answer (a missing or gated repo) is not a blip — but a
+            # throttle or a 5xx is, and caching an empty tree for it would turn one
+            # failed GET into "this repo has no files" for the whole process: the
+            # macos unit lane failed exactly that way (issue #339). The shared budget
+            # in `hf_auth.hub_open` has already waited the window out by now.
+            if e.code in TRANSIENT_HTTP:
+                return []
             _TREE_CACHE[key] = []
             return []
         except (urllib.error.URLError, TimeoutError, OSError):

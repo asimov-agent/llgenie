@@ -63,6 +63,15 @@ RATE_LIMIT_WAIT_CAP = 600
 TOP_TIER_DRY_RUN_TIMEOUT = RATE_LIMIT_WAIT_CAP + 180
 _RATE_LIMIT_T = re.compile(r"(?:^|[;,])t=(\d+)")
 
+#: The transient outcomes every Hub GET retries (issue #339): the Hub's rate limit, the
+#: 5xx it actually returns, and a transport failure. Everything else is definitive.
+TRANSIENT_HTTP = frozenset({429, 500, 502, 503, 504})
+#: Total tries for one GET, and the doubling ladder the non-429 transients wait on.
+HUB_MAX_ATTEMPTS = int(os.environ.get("HUB_MAX_ATTEMPTS", "8"))
+HUB_BASE_PAUSE = float(os.environ.get("HUB_BASE_PAUSE", "1.5"))
+#: How many rate-limit windows one GET may wait out (each up to RATE_LIMIT_WAIT_CAP).
+RATE_LIMIT_WAITS = int(os.environ.get("HUB_RATE_LIMIT_WAITS", "2"))
+
 
 def rate_limit_wait(err: urllib.error.HTTPError) -> int:
     """Seconds to wait after a Hub 429, from the RateLimit header.
@@ -102,26 +111,57 @@ def throttle_wait(text: str) -> int:
     return min(RATE_LIMIT_WAIT_CAP, max(0, seconds))
 
 
-def hub_open(req: urllib.request.Request, timeout: float = 30):
-    """Open a Hub URL. A 429 waits `rate_limit_wait` and is retried twice.
+def hub_open(req: urllib.request.Request, timeout: float = 30, opener=None):
+    """Open a Hub URL: ONE GET with ONE bounded, stated transient budget.
 
-    Any response that is not a 429 resets the consecutive count, so the next
-    429 gets the full budget again. A third consecutive 429 raises. This is the
-    GET every Hub download uses; a caller does not call urlopen on a Hub URL.
+    The transient set is the Hub's rate limit (429), the 5xx it actually returns
+    (500/502/503/504) and a transport failure (URLError, a timeout). It is retried
+    on two stated budgets, and the error that breaks it names the status and the
+    attempts spent:
+
+    - a 429 waits the Hub's own window (`rate_limit_wait`: the `RateLimit` header's
+      `t`, else 5 minutes, capped at 10) and may spend at most TWO such waits; a
+      third consecutive 429 raises. Waiting less spends the next window on another
+      429, and an unbounded wait would park a CI job for hours.
+    - every other transient outcome retries on a 1.5s doubling ladder (1.5, 3, 6,
+      12, 24, 48, 96) up to `HUB_MAX_ATTEMPTS` tries in total.
+    - a definitive answer (401/403/404, any other status) is raised on the FIRST
+      attempt, so a missing repo cannot hide behind the budget.
+
+    `opener` is the transport, defaulting to `urllib.request.urlopen`; a caller with a
+    transport quirk (model_engine_pick prefers IPv4 on macOS runners) passes its own
+    and still gets THIS policy, so no caller carries a second retry ladder (issue
+    #339).
     """
     global _rate_limited
     authorize(req)
+    open_fn = opener or urllib.request.urlopen
+    attempts = 0
     while True:
+        attempts += 1
         try:
-            resp = urllib.request.urlopen(req, timeout=timeout)  # noqa: S310
+            resp = open_fn(req, timeout=timeout)  # noqa: S310
         except urllib.error.HTTPError as e:
-            if e.code != 429:
+            if e.code == 429:
+                _rate_limited += 1
+                if _rate_limited > RATE_LIMIT_WAITS:
+                    raise
+                time.sleep(rate_limit_wait(e))
+            elif e.code in TRANSIENT_HTTP:
+                _rate_limited = 0
+                if attempts >= HUB_MAX_ATTEMPTS:
+                    raise
+                time.sleep(HUB_BASE_PAUSE * 2 ** (attempts - 1))
+            else:
                 _rate_limited = 0
                 raise
-            _rate_limited += 1
-            if _rate_limited > 2:
+            req = urllib.request.Request(req.full_url, headers=dict(req.header_items()))
+            continue
+        except (urllib.error.URLError, TimeoutError):
+            _rate_limited = 0
+            if attempts >= HUB_MAX_ATTEMPTS:
                 raise
-            time.sleep(rate_limit_wait(e))
+            time.sleep(HUB_BASE_PAUSE * 2 ** (attempts - 1))
             req = urllib.request.Request(req.full_url, headers=dict(req.header_items()))
             continue
         _rate_limited = 0
