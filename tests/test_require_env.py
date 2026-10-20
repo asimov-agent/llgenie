@@ -20,11 +20,14 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 SCRIPT = REPO / "scripts" / "require_env.py"
 MAKEFILE = REPO / "Makefile"
+sys.path.insert(0, str(REPO / "scripts"))
+import unit_tests as ut  # noqa: E402  (the unit-suite aggregator, issue #393)
 
 # secret-output: test value — a sentinel, never a credential.
 SENTINEL = "SENTINELvalue0123456789abcdef"
@@ -126,5 +129,5 @@ def test_the_guard_is_one_code_path():
     assert 'test -n "$$NOUS_API_KEY"' not in mk, "a second guard survived"
     assert mk.count("python3 scripts/require_env.py") >= 7, "fewer guards than agent legs"
 
-    # And this suite is named by the unit gate (nothing dead)
-    assert "tests/test_require_env.py" in mk
+    # And this suite is in the discovered unit suite (issue #393), so it runs in the gate
+    assert "tests/test_require_env.py" in ut.select(REPO)

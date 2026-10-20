@@ -26,9 +26,12 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "scripts"))
+import unit_tests as ut  # noqa: E402  (the unit-suite aggregator, issue #393)
 SCRIPT = ROOT / "scripts" / "agent_shell_keys_check.py"
 WORKFLOWS = ROOT / ".github" / "workflows"
 
@@ -226,8 +229,8 @@ def test_the_check_is_wired_to_a_make_target_ci_runs():
     phony = mk[:mk.index("\n\nall:")] if "\n\nall:" in mk else mk
     assert re.search(r"(?m)^\tagent-shell-keys-check(\s|\\|$)", phony), "agent-shell-keys-check is not .PHONY"
 
-    # And this suite is named by the unit gate (nothing dead)
-    assert "tests/test_agent_shell_keys.py" in mk, "this suite is in no make target"
+    # And this suite is in the discovered unit suite (issue #393), so it runs in the gate
+    assert "tests/test_agent_shell_keys.py" in ut.select(ROOT), "this suite is in no gate"
 
 
 # ---------------------------------------------------------------------------

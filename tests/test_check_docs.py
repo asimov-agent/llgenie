@@ -229,9 +229,8 @@ def test_the_guard_runs_in_ci_unit_and_this_file_runs_in_test_unit():
     # Given the Makefile
     mk = (REPO / "Makefile").read_text()
 
-    # When the ci-unit job and the unit target are read
+    # When the ci-unit job and the unit suite are read
     ci_unit = mk.split("\nci-unit:", 1)[1].split("\n\n", 1)[0]
-    test_unit = mk.split("\ntest-unit:", 1)[1].split("\n\n", 1)[0]
 
     # Then ci-unit runs the docs check, and this test file is in the discovered unit suite
     assert "$(MAKE) check-docs" in ci_unit

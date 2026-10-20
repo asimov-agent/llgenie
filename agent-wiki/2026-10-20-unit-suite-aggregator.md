@@ -29,10 +29,12 @@ kept out of the gate (native-Metal engines, the installed-launcher checks) were 
 - **`tests/test_unit_suite.py`** covers the spec's scenarios against the real tree and real scratch
   trees: discovery, the roster's staleness in every direction, the exact `--deselect` node-id
   invocation, `run` refusing to start on a broken roster.
-- **The 7 self-wiring assertions** (`test_agent_nerve.py`, `test_check_docs.py`, `test_engine_bump.py`,
-  `test_engine_skill_gap.py`, `test_issue_implementer.py`, `test_secret_output.py`, `test_wiring.py`)
-  now read the aggregator's selection instead of the recipe line, so they keep proving the file runs
-  after this change.
+- **The 9 self-wiring assertions** (`test_agent_nerve.py`, `test_agent_shell_keys.py`,
+  `test_check_docs.py`, `test_engine_bump.py`, `test_engine_skill_gap.py`, `test_issue_implementer.py`,
+  `test_require_env.py`, `test_secret_output.py`, `test_wiring.py`) now read the aggregator's
+  selection instead of the recipe line, so they keep proving the file runs after this change. The
+  first full-suite run found the last two (`test_agent_shell_keys.py`, `test_require_env.py`): they
+  asserted the file name anywhere in the Makefile text, which the discovery change removes.
 
 ## Why exact node ids, never `-k`
 
