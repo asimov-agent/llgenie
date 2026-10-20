@@ -230,13 +230,23 @@ def test_a_crashed_decision_goes_loud(tmp_path):
 # ---------------------------------------------------------------------------
 def test_the_workflow_calls_the_reactor_through_a_make_target():
     """The route decision lives in code, not in a job `if:` (issue #107): the workflow's reactor
-    step invokes `make run-failure-reactor` and carries the owner PAT (so the fix-bot dispatch
-    carries the owner identity, and the issue it files is labelled for the issue-bot)."""
+    step invokes `make run-failure-reactor`.
+
+    The credential is `github.token`, not the owner PAT (issue #412): the step files ONE issue and
+    dispatches the fix-bot, which need `issues: write` + `actions: write` — both declared by this
+    workflow — while `secrets.BUMP_TOKEN` carries neither (it is the push credential). Handing the
+    PAT to this step made every dispatch `HTTP 403 … Resource not accessible by personal access
+    token`.
+    """
     import yaml
     wf = yaml.safe_load((REPO / ".github" / "workflows" / "run-failure-reactor.yml").read_text())
     steps = {s.get("name"): s for s in wf["jobs"]["react"]["steps"]}
     reactor_step = steps["Route the failed run to a fix or a deduped issue"]
     assert "make run-failure-reactor" in reactor_step["run"]
     assert reactor_step.get("env", {}).get("GH_TOKEN"), reactor_step
-    assert reactor_step["env"]["GH_TOKEN"] == "${{ secrets.BUMP_TOKEN }}"
+    assert reactor_step["env"]["GH_TOKEN"] == "${{ github.token }}", (
+        "the issue/dispatch writes need the repository-scoped token (issue #412)"
+    )
+    perms = wf["permissions"]
+    assert perms["issues"] == "write" and perms["actions"] == "write", perms
     assert "RUN_ID" in reactor_step["env"] and "REPO" in reactor_step["env"]
