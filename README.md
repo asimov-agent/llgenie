@@ -1329,6 +1329,10 @@ make ci-<job>          # one CI pipeline job (ci-lint, ci-unit,
                        # (the INSTALLED launcher's argument surface over the mocked arch x vram x ram
                        # grid, issue #236) -> ci-install-uninstall
 make lint              # linefeed/editorconfig lint (fail-closed)
+make test              # the loop's fast stage: the hermetic files in ONE named group the roster records
+                       # (`groups.fast` in tests/fixtures/unit-suite.json, issue #403), run through
+                       # scripts/unit_tests.py — the recipe names no test file; then the install
+                       # assertions run on the host where ~/bin/llgenie + ~/models live
 make test-unit         # hermetic unit tests — the suite is DISCOVERED by scripts/unit_tests.py (every
                        # tests/test_*.py minus the dated exclusions in tests/fixtures/unit-suite.json),
                        # never a hand-written list in the recipe (issue #393)

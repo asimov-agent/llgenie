@@ -158,23 +158,40 @@ def _aggregated(root: Path, recipes: dict[str, str], docs: list[str]) -> tuple[d
     recipe text no longer names those files — that is the whole point — so naming-in-recipe cannot
     be the only evidence a document runs. The aggregator IS the namer: a document in its selection
     is named by every target whose recipe runs it. The selection is read from the script in the
-    tree being checked, so there is ONE definition of the suite and no second list to rot."""
+    tree being checked, so there is ONE definition of the suite and no second list to rot.
+
+    A recipe that runs a NAMED GROUP (`run --group fast`, issue #403) is attributed only that
+    group's files, not the whole selection — `make test` runs the fast subset and must not claim to
+    run the ~20-minute suite."""
     script = root / AGGREGATOR
     if not script.exists():
         return {}, []
     runners = {t for t, r in recipes.items() if AGGREGATOR in r}
     if not runners:
         return {}, []
-    try:
-        proc = subprocess.run([sys.executable, str(script), "list", "--root", str(root)],
-                              capture_output=True, text=True, timeout=120)
-    except (OSError, subprocess.SubprocessError) as exc:  # a broken aggregator is a finding
-        return {}, [f"{AGGREGATOR} could not list the unit suite ({exc})"]
-    if proc.returncode != 0:
-        last = proc.stderr.strip().splitlines()[-1] if proc.stderr.strip() else ""
-        return {}, [f"{AGGREGATOR} failed to list the unit suite (rc={proc.returncode}): {last}"]
-    selection = {d.strip() for d in proc.stdout.splitlines() if d.strip() and d.strip() in set(docs)}
-    return {t: selection for t in runners}, []
+    docs_set = set(docs)
+    out: dict[str, set] = {}
+    for t in runners:
+        group = _aggregator_group(recipes[t])
+        cmd = [sys.executable, str(script), "list", "--root", str(root)]
+        if group:
+            cmd += ["--group", group]
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        except (OSError, subprocess.SubprocessError) as exc:  # a broken aggregator is a finding
+            return {}, [f"{AGGREGATOR} could not list the unit suite ({exc})"]
+        if proc.returncode != 0:
+            last = proc.stderr.strip().splitlines()[-1] if proc.stderr.strip() else ""
+            return {}, [f"{AGGREGATOR} failed to list the unit suite (rc={proc.returncode}): {last}"]
+        out[t] = {d.strip() for d in proc.stdout.splitlines() if d.strip() and d.strip() in docs_set}
+    return out, []
+
+
+def _aggregator_group(recipe: str) -> str:
+    """The named group a recipe runs (`scripts/unit_tests.py run --group fast` -> `fast`), or `''`
+    when it runs the whole selection. The flag takes the next token, or an `=`: both are valid."""
+    m = re.search(r"unit_tests\.py\b[^\n]*?--group[ =]([a-z0-9][a-z0-9_-]*)", recipe)
+    return m.group(1) if m else ""
 
 
 def documents(root: Path = REPO) -> list[str]:

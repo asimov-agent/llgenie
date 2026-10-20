@@ -995,6 +995,17 @@ pytest runs. This
 mirrors the sibling repo `trending-local-llms`, whose unit entry is one
 aggregating call with the network/hardware checks in their own targets.
 
+A target that runs a SUBSET of the suite — the loop's fast stage, `make test` —
+does NOT name its files either. The subset is a **named group** in the same
+roster (`groups.fast`, issue #403) and the target runs
+`scripts/unit_tests.py run --group <name>`. So a new test that belongs to the
+subset is added in the roster alone; there is no second shared line. A group
+names a file the roster excludes, names a file that is gone, names no file, or
+carries no reason/issue/date is a finding, and a group a recipe asks for that
+the roster does not record is fatal — a target cannot silently run nothing.
+`make check-wiring` attributes only the group's files to that target, so
+`make test` never claims to run the whole ~20-minute suite.
+
 - `make install` — build gguf venv, pull/build every engine image for this host,
   write `~/bin/llgenie`, `~/bin/llgenie-engine-<id>` start scripts and the
   `~/bin/llama-server` container shim, then `make test-built-engine` (each start

@@ -1095,8 +1095,9 @@ endif
 test: ## Full fast suite (unit + install; hermetic files in the container, install artifacts on the host)
 	# tests/test_install.py asserts the REAL ~/bin/llgenie + ~/models, which a `--rm` container with
 	# HOME=/root can never hold: in the container those six assertions can only ever fail (#317). The
-	# hermetic files run here; the install assertions run on the host, where the artifacts live.
-	$(TEST_RUN) python -m pytest tests/test_llgenie_serve.py tests/test_lint_linefeeds.py tests/test_kv_quant_bytes.py tests/test_rename_llgenie_serve.py tests/test_fix_loop.py tests/test_fix_bot_sweep.py -p no:cacheprovider -q
+	# hermetic files run here — the `fast` group the roster records (issue #403), so this recipe
+	# names no test file; the install assertions run on the host, where the artifacts live.
+	$(TEST_RUN) python scripts/unit_tests.py run --group fast
 	$(MAKE) test-install-host
 
 download-test-model: ## Fetch the lightweight (0.5B Q4 ~340MB) model into container ~/models/Qwen/8GB

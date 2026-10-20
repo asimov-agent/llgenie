@@ -248,3 +248,132 @@ def test_the_wiring_guard_sees_the_aggregator_selection():
 
     # And the guard's own check passes on the real tree
     assert cw.check(graph, cw.load_exceptions(REPO / cw.EXCEPTIONS)) == []
+
+
+# ---------------------------------------------------------------------------
+# the fast group: `make test` names no file either (issue #403)
+# ---------------------------------------------------------------------------
+def test_the_fast_group_is_recorded_and_make_test_names_no_file():
+    """The last hand-list in the test surface: `make test` used to name its six files on one line."""
+
+    # Given the real roster and the real Makefile
+    roster = ut.load_roster(REPO)
+    recipes = ut._make_recipes(REPO)
+    recipe = recipes["test"]
+
+    # When the fast group and the recipe are read
+    # Then the group exists with a reason, an issue and a date, and its files are the six
+    group = ut.groups(REPO)["fast"]
+    for field in ("reason", "issue", "decided", "files"):
+        assert group.get(field), f"the fast group lacks {field}"
+    assert len(group["reason"]) > 40
+    assert group["files"] == [
+        "tests/test_llgenie_serve.py", "tests/test_lint_linefeeds.py",
+        "tests/test_kv_quant_bytes.py", "tests/test_rename_llgenie_serve.py",
+        "tests/test_fix_loop.py", "tests/test_fix_bot_sweep.py"]
+
+    # And the recipe runs the group and names no test file at all
+    assert "--group fast" in recipe
+    for doc in group["files"]:
+        assert doc not in recipe, doc
+    assert "test_llgenie_serve.py" not in recipe
+
+    # And the invocation the group builds carries exactly the group's files
+    args = ut.argv(REPO, group="fast")
+    for doc in group["files"]:
+        assert doc in args, doc
+    assert "tests/test_wiring.py" not in args
+
+
+def test_a_group_naming_a_gone_or_excluded_file_fails(tmp_path):
+    """A group cannot run a file that is gone, and it cannot run what the roster keeps out."""
+
+    # Given a roster whose group names a file that does not exist
+    makefile = "test: ## x\n\tpython3 scripts/unit_tests.py run --group fast\n"
+    tests = {"test_b.py": "def test_b():\n    assert True\n"}
+    roster = {"excluded": {}, "deselect": {},
+              "groups": {"fast": {"reason": "A fast subset long enough to pass the reason floor.",
+                                  "issue": 403, "decided": "2026-10-20",
+                                  "files": ["tests/test_gone.py"]}}}
+    root = _tree(tmp_path, makefile, tests, roster)
+
+    # When the roster is checked
+    r = _run(root, "check")
+
+    # Then it exits non-zero and names the gone file
+    assert r.returncode == 1, r.stdout
+    assert "tests/test_gone.py" in r.stderr and "does not exist" in r.stderr
+
+    # And a group naming a file the roster excludes fails too — a group runs no excluded file
+    roster2 = {"excluded": {"tests/test_b.py": _entry(target="test-a")}, "deselect": {},
+               "groups": {"fast": {"reason": "A fast subset long enough to pass the reason floor.",
+                                   "issue": 403, "decided": "2026-10-20",
+                                   "files": ["tests/test_b.py"]}}}
+    root2 = _tree(tmp_path / "b", makefile, tests, roster2)
+    r2 = _run(root2, "check")
+    assert r2.returncode == 1
+    assert "tests/test_b.py" in r2.stderr and "excludes" in r2.stderr
+
+
+def test_a_group_with_no_file_or_no_reason_fails(tmp_path):
+    """A group that runs nothing must never look green, and it must say what it is for."""
+
+    # Given a group with no files, and one with no reason
+    makefile = "test: ## x\n\tpython3 scripts/unit_tests.py run --group fast\n"
+    tests = {"test_b.py": "def test_b():\n    assert True\n"}
+    root = _tree(tmp_path, makefile, tests,
+                 {"excluded": {}, "deselect": {},
+                  "groups": {"fast": {"reason": "A fast subset long enough to pass the reason floor.",
+                                      "issue": 403, "decided": "2026-10-20", "files": []}}})
+    r = _run(root, "check")
+    assert r.returncode == 1, r.stdout
+    assert "names no file" in r.stderr
+
+    root2 = _tree(tmp_path / "b", makefile, tests,
+                  {"excluded": {}, "deselect": {},
+                   "groups": {"fast": {"issue": 403, "decided": "2026-10-20",
+                                       "files": ["tests/test_b.py"]}}})
+    r2 = _run(root2, "check")
+    assert r2.returncode == 1
+    assert "reason" in r2.stderr
+
+
+def test_an_unknown_group_is_fatal(tmp_path):
+    """A target asking for a group nobody recorded must not silently run nothing."""
+
+    # Given a checkout whose recipe asks for a group the roster does not record
+    makefile = "test: ## x\n\tpython3 scripts/unit_tests.py run --group fast\n"
+    tests = {"test_b.py": "def test_b():\n    assert True\n"}
+    root = _tree(tmp_path, makefile, tests, {"excluded": {}, "deselect": {}})
+
+    # When the group is computed and `run` is asked to start the gate
+    r = _run(root, "list", "--group", "fast")
+    run = _run(root, "run", "--group", "fast")
+
+    # Then both refuse, naming the group
+    assert r.returncode != 0 and "fast" in r.stderr
+    assert run.returncode == 2 and "no group" in run.stderr
+
+
+def test_the_wiring_guard_attributes_only_the_fast_group_to_make_test():
+    """`make test` runs the fast subset; the guard must not attribute the whole ~20-min suite to it."""
+
+    # Given the real checkout
+    import check_wiring as cw  # noqa: E402
+
+    graph = cw.graph(REPO)
+
+    # When the discovery seam is read
+    # Then `make test` is attributed exactly the fast group's files, not the whole selection
+    assert "test" in graph["aggregated"], sorted(graph["aggregated"])
+    assert "test-unit" in graph["aggregated"], sorted(graph["aggregated"])
+    assert set(graph["aggregated"]["test"]) == set(ut.groups(REPO)["fast"]["files"])
+    assert "tests/test_wiring.py" not in graph["aggregated"]["test"]
+    assert "tests/test_wiring.py" in graph["aggregated"]["test-unit"]
+
+    # And each fast-group document is reachable through `make test`
+    for doc in graph["aggregated"]["test"]:
+        assert any("test" in w for w in graph["ci_reachable"][doc]), (doc, graph["ci_reachable"][doc])
+
+    # And the guard's own check passes on the real tree
+    assert cw.check(graph, cw.load_exceptions(REPO / cw.EXCEPTIONS)) == []

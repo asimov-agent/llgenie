@@ -4,7 +4,8 @@
 `make test-unit` used to name its pytest files by hand: 74 of them on ONE recipe line, so two
 PRs that added unrelated tests conflicted on the same line and a name lost while resolving that
 conflict silently stopped running. Measured on `main` (`f91d82f`): the file list changed in 63
-of the last 300 commits.
+of the last 300 commits. `make test` kept a smaller hand-list of its own until issue #403, when
+its fast subset moved into the roster as the named group `fast`.
 
 This is the ONE place the suite is computed:
 
@@ -13,6 +14,12 @@ This is the ONE place the suite is computed:
     python3 scripts/unit_tests.py argv       the exact pytest invocation `run` execs
     python3 scripts/unit_tests.py check      the roster is consistent (exit 1 with each finding)
     python3 scripts/unit_tests.py run        check, then exec pytest
+
+`--group NAME` computes a NAMED SUBSET the roster records (`groups.fast`, issue #403) instead of
+the whole selection: `make test` asks for its fast subset this way, so no target names a test
+file and the roster stays the ONE place one is named. A group's files must each be in the
+hermetic selection — a group cannot run what the roster keeps out — and an unknown group is
+fatal, so a target asking for a group nobody recorded cannot silently run nothing.
 
 **Discovery, fail-closed.** The selection is every `tests/test_*.py` MINUS the files
 `tests/fixtures/unit-suite.json` records as deliberately not hermetic (each with its reason, its
@@ -49,6 +56,7 @@ TEST_GLOB = "tests/test_*.py"
 MAKEFILE = "Makefile"
 
 REQUIRED_FIELDS = ("reason", "issue", "decided", "target")
+REQUIRED_GROUP_FIELDS = ("reason", "issue", "decided")
 MIN_REASON = 40
 
 
@@ -59,9 +67,10 @@ def _root(root: str | Path | None = None) -> Path:
 
 
 def load_roster(root: str | Path | None = None) -> dict:
-    """The roster: `excluded` (`{file: {reason, issue, decided, target}}`) and `deselect`
-    (`{file: {test: why}}`). A missing or malformed file is fatal: the exclusions are decisions,
-    and a decision that cannot be read is not one."""
+    """The roster: `excluded` (`{file: {reason, issue, decided, target}}`), `deselect`
+    (`{file: {test: why}}`) and, when present, `groups`
+    (`{name: {reason, issue, decided, files}}`, issue #403). A missing or malformed file is fatal:
+    the exclusions are decisions, and a decision that cannot be read is not one."""
     path = _root(root) / ROSTER
     if not path.exists():
         raise SystemExit(f"[unit-suite] {ROSTER} is missing — an exclusion from the unit suite has "
@@ -70,6 +79,8 @@ def load_roster(root: str | Path | None = None) -> dict:
     for key in ("excluded", "deselect"):
         if not isinstance(data.get(key), dict):
             raise SystemExit(f"[unit-suite] {ROSTER}: {key!r} must be an object")
+    if "groups" in data and not isinstance(data["groups"], dict):
+        raise SystemExit(f"[unit-suite] {ROSTER}: 'groups' must be an object")
     return data
 
 
@@ -89,6 +100,23 @@ def select(root: str | Path | None = None) -> list[str]:
     return [t for t in all_tests(root) if t not in out]
 
 
+def groups(root: str | Path | None = None) -> dict:
+    """The roster's named subsets — `{name: {reason, issue, decided, files}}` (issue #403). A
+    group is a POSITIVE selection a target runs instead of the whole suite; every file in it must
+    be in the hermetic selection, so a group can never run what the roster keeps out."""
+    return load_roster(root).get("groups") or {}
+
+
+def select_group(root: str | Path | None = None, name: str = "") -> list[str]:
+    """The files a named group runs. An unknown group is fatal: a target that asks for a group
+    nobody recorded must not silently run nothing."""
+    entry = groups(root).get(name)
+    if not isinstance(entry, dict):
+        raise SystemExit(f"[unit-suite] {ROSTER} records no group {name!r} — a target asking for "
+                         f"one must name a group that exists")
+    return list(entry.get("files") or [])
+
+
 def deselected(root: str | Path | None = None) -> list[str]:
     """The exact pytest node ids the suite de-selects (`deselect` in the roster), sorted."""
     roster = load_roster(root)
@@ -96,9 +124,12 @@ def deselected(root: str | Path | None = None) -> list[str]:
             for name in sorted(tests)]
 
 
-def argv(root: str | Path | None = None, python: str | None = None) -> list[str]:
-    """The pytest invocation: the discovered files, then one `--deselect` per recorded node id."""
-    args = [python or sys.executable, "-m", "pytest", *select(root), "-p", "no:cacheprovider", "-q"]
+def argv(root: str | Path | None = None, python: str | None = None,
+         group: str | None = None) -> list[str]:
+    """The pytest invocation: the discovered files (or, with `group`, exactly that group's files),
+    then one `--deselect` per recorded node id."""
+    files = select_group(root, group) if group else select(root)
+    args = [python or sys.executable, "-m", "pytest", *files, "-p", "no:cacheprovider", "-q"]
     for node in deselected(root):
         args += ["--deselect", node]
     return args
@@ -142,6 +173,8 @@ def check(root: str | Path | None = None) -> list[str]:
       file (the roster cannot claim a runner that does not run it);
     - a deselection naming a file that is excluded or gone, a test the file does not define, or
       carrying no reason;
+    - a group that names no file, names a file that is gone or excluded, or carries no
+      reason/issue/date (issue #403);
     - an empty selection (a suite that runs nothing must never look green).
     """
     root = _root(root)
@@ -184,6 +217,30 @@ def check(root: str | Path | None = None) -> list[str]:
                 errors.append(f"{ROSTER}: {doc}::{name} is deselected but no test of that name exists "
                               f"in the file — delete the entry")
 
+    for name, entry in sorted((roster.get("groups") or {}).items()):
+        if not isinstance(entry, dict):
+            errors.append(f"{ROSTER}: group {name!r} must be an object")
+            continue
+        for field in REQUIRED_GROUP_FIELDS:
+            if not entry.get(field):
+                errors.append(f"{ROSTER}: group {name!r} lacks {field}")
+        if entry.get("reason") and len(entry["reason"]) < MIN_REASON:
+            errors.append(f"{ROSTER}: group {name!r} records no real reason ({entry['reason']!r}) — "
+                          f"say what the subset is for and why it cannot be the whole suite")
+        files = entry.get("files")
+        if not isinstance(files, list) or not files:
+            errors.append(f"{ROSTER}: group {name!r} names no file — a group that runs nothing must "
+                          f"never look green")
+            continue
+        if len(set(files)) != len(files):
+            errors.append(f"{ROSTER}: group {name!r} names a file twice")
+        for doc in files:
+            if doc not in tests:
+                errors.append(f"{ROSTER}: group {name!r} names {doc!r}, which does not exist")
+            elif doc in roster["excluded"]:
+                errors.append(f"{ROSTER}: group {name!r} names {doc!r}, which the roster excludes "
+                              f"from the hermetic suite — a group cannot run what is kept out")
+
     if not select(root):
         errors.append("the selection is empty — discovery found no hermetic test at all")
     return errors
@@ -191,30 +248,43 @@ def check(root: str | Path | None = None) -> list[str]:
 
 def _summary(root: str | Path | None = None) -> str:
     return (f"{len(select(root))} of {len(all_tests(root))} {TEST_GLOB} selected by discovery; "
-            f"{len(excluded(root))} excluded by {ROSTER}; {len(deselected(root))} node de-selected")
+            f"{len(excluded(root))} excluded by {ROSTER}; {len(deselected(root))} node de-selected; "
+            f"{len(groups(root))} named group(s)")
 
 
 def report(root: str | Path | None = None) -> str:
-    """The whole picture: the counts, then every exclusion with the target that runs it instead."""
+    """The whole picture: the counts, then every exclusion with the target that runs it instead,
+    then every named group and the files it runs."""
     lines = [f"[unit-suite] {_summary(root)}"]
     for doc, entry in sorted(excluded(root).items()):
         lines.append(f"  excluded: {doc} — {entry.get('reason', '')[:110]} (run: make {entry.get('target')})")
     for node in deselected(root):
         lines.append(f"  de-selected: {node}")
+    for name, entry in sorted(groups(root).items()):
+        lines.append(f"  group: {name} — {len(entry.get('files') or [])} file(s): "
+                     f"{', '.join(entry.get('files') or [])}")
     return "\n".join(lines)
 
 
-def run(root: str | Path | None = None, python: str | None = None) -> int:
-    """Check the roster, then exec pytest on the discovered suite. A broken roster is exit 2
-    BEFORE pytest runs: a gate must not start from an exclusion record nobody can trust."""
+def run(root: str | Path | None = None, python: str | None = None,
+        group: str | None = None) -> int:
+    """Check the roster, then exec pytest on the discovered suite (or, with `group`, on exactly
+    that group's files). A broken roster is exit 2 BEFORE pytest runs: a gate must not start from
+    an exclusion record nobody can trust. An unknown group is exit 2 for the same reason."""
     errors = check(root)
     if errors:
         for e in errors:
             print(f"[unit-suite] {e}", file=sys.stderr)
         print(f"[unit-suite] refusing to start pytest: fix {ROSTER} above", file=sys.stderr)
         return 2
-    args = argv(root, python)
+    if group and group not in groups(root):
+        print(f"[unit-suite] refusing to start pytest: {ROSTER} records no group {group!r}",
+              file=sys.stderr)
+        return 2
+    args = argv(root, python, group)
     print(f"[unit-suite] {_summary(root)}")
+    if group:
+        print(f"[unit-suite] group {group}: {' '.join(select_group(root, group))}")
     print(f"[unit-suite] {' '.join(args)}", flush=True)
     return subprocess.call(args)
 
@@ -223,16 +293,19 @@ def main(argv_: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="The aggregated hermetic unit suite (issue #393)")
     ap.add_argument("cmd", choices=("list", "excluded", "argv", "check", "report", "run"))
     ap.add_argument("--root", default=None, help="the checkout to read (default: this repo)")
+    ap.add_argument("--group", default=None,
+                    help="a named group from the roster (e.g. `fast`, issue #403) instead of the "
+                         "whole selection")
     a = ap.parse_args(argv_)
     if a.cmd == "list":
-        for doc in select(a.root):
+        for doc in (select_group(a.root, a.group) if a.group else select(a.root)):
             print(doc)
         return 0
     if a.cmd == "excluded":
         print(report(a.root))
         return 0
     if a.cmd == "argv":
-        print(" ".join(argv(a.root)))
+        print(" ".join(argv(a.root, group=a.group)))
         return 0
     if a.cmd == "check":
         errors = check(a.root)
@@ -245,7 +318,7 @@ def main(argv_: list[str] | None = None) -> int:
     if a.cmd == "report":
         print(report(a.root))
         return 0
-    return run(a.root)
+    return run(a.root, group=a.group)
 
 
 if __name__ == "__main__":

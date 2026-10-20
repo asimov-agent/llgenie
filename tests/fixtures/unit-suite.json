@@ -99,5 +99,20 @@
       "test_tensorfold_v1_0_5_release_is_native_archives": "Asserts the live TensorFold v1.0.5 release's archive set upstream — network, so it is not hermetic. `make test-engine-bump-live` runs it.",
       "test_tensorfold_release_archive_unpacks_and_runs": "Unpacks and runs the REAL TensorFold release archive (multi-GB download + a native serve). `make test-engine-bump-live` runs it."
     }
+  },
+  "groups": {
+    "fast": {
+      "reason": "The loop's stage-6 'full fast suite' subset: the six hermetic files that carry the install/loop/launcher seam cheaply enough to run as the local 'done' check, while the whole discovered suite takes ~20 minutes. `make test` asks the aggregator for this group so its recipe names no test file — the hand-list it used to keep was the last shared line in the test surface (issue #403).",
+      "issue": 403,
+      "decided": "2026-10-20",
+      "files": [
+        "tests/test_llgenie_serve.py",
+        "tests/test_lint_linefeeds.py",
+        "tests/test_kv_quant_bytes.py",
+        "tests/test_rename_llgenie_serve.py",
+        "tests/test_fix_loop.py",
+        "tests/test_fix_bot_sweep.py"
+      ]
+    }
   }
 }
