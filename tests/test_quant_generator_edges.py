@@ -113,7 +113,7 @@ def test_check_passes_when_committed_matches_generated(monkeypatch, tmp_path):
     _stub_generator(monkeypatch, [_A, _B])
     dst = tmp_path / "trending-quant-catalog.json"
     monkeypatch.setattr(sys, "argv", ["gen_trending_quant_catalog.py", "-o", str(dst)])
-    monkeypatch.setattr(gen, "_probe_exists", lambda u: True)
+    monkeypatch.setattr(gen, "_probe_status", lambda u, timeout=20.0: gen.PROBE_OK)
     assert gen.main() == 0                      # writes the committed table (healthy)
 
     # When check-quant-catalog runs against the identical generator + committed file
@@ -131,7 +131,8 @@ def test_sync_fails_when_a_new_link_is_dead(monkeypatch, tmp_path):
     dst = tmp_path / "trending-quant-catalog.json"
     dst.write_text(json.dumps(_payload([_A]), indent=2) + "\n")
     monkeypatch.setattr(sys, "argv", ["gen_trending_quant_catalog.py", "-o", str(dst)])
-    monkeypatch.setattr(gen, "_probe_exists", lambda u: u != _B)
+    monkeypatch.setattr(gen, "_probe_status",
+                        lambda u, timeout=20.0: gen.PROBE_OK if u != _B else gen.PROBE_DEAD)
 
     # When the sync runs and the newly-added link does not resolve
     rc = gen.main()
@@ -152,7 +153,7 @@ def test_sync_writes_canonical_and_fixture_together(monkeypatch, tmp_path):
     monkeypatch.setattr(gen, "OUT", dst)
     monkeypatch.setattr(gen, "FIXTURE", fx)
     monkeypatch.setattr(sys, "argv", ["gen_trending_quant_catalog.py"])  # default -o = OUT
-    monkeypatch.setattr(gen, "_probe_exists", lambda u: True)
+    monkeypatch.setattr(gen, "_probe_status", lambda u, timeout=20.0: gen.PROBE_OK)
 
     # When the sync runs
     rc = gen.main()
@@ -162,3 +163,58 @@ def test_sync_writes_canonical_and_fixture_together(monkeypatch, tmp_path):
     assert dst.exists() and fx.exists()
     assert dst.read_text() == fx.read_text()
     assert _row_urls(dst.read_text()) == {_A, _B}
+
+
+# ---- edge case 8: a gated file exists — it is not a dead link (issue #418) -------
+def test_probe_status_classifies_gated_apart_from_dead(monkeypatch):
+    """200/206 readable, 401/403 gated (present, not readable), 404 dead — measured shapes."""
+    import io
+    import urllib.error
+
+    class Response:
+        """The two attributes the probe reads: `status`, and the context-manager protocol."""
+        def __init__(self, status):
+            self.status = status
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def answer(code):
+        def urlopen(req, timeout=20.0):
+            if code in (200, 206):
+                return Response(200)
+            raise urllib.error.HTTPError(req.full_url, code, "no", {}, io.BytesIO(b""))
+        monkeypatch.setattr("urllib.request.urlopen", urlopen)
+        monkeypatch.setattr("urllib.request.Request", lambda *a, **k: type("R", (), {"full_url": "u"})())
+        return gen._probe_status("https://huggingface.co/x/resolve/main/y.gguf")
+
+    # Given the statuses a Hub link can answer with
+    # When  each is probed
+    # Then  only 404 is dead, and a gated file is reported as such
+    assert answer(200) == gen.PROBE_OK
+    assert answer(401) == gen.PROBE_GATED
+    assert answer(403) == gen.PROBE_GATED
+    assert answer(404) == gen.PROBE_DEAD
+
+
+def test_a_gated_new_link_does_not_red_the_sync(monkeypatch, tmp_path, capsys):
+    """The Meta gated file that failed run 39240829581 must not block the whole refresh."""
+    # Given a committed table (A) and a refresh whose NEW link B is gated (401)
+    _stub_generator(monkeypatch, [_A, _B])
+    dst = tmp_path / "trending-quant-catalog.json"
+    dst.write_text(json.dumps(_payload([_A]), indent=2) + "\n")
+    monkeypatch.setattr(sys, "argv", ["gen_trending_quant_catalog.py", "-o", str(dst)])
+    monkeypatch.setattr(gen, "_probe_status",
+                        lambda u, timeout=20.0: gen.PROBE_OK if u != _B else gen.PROBE_GATED)
+
+    # When the sync runs
+    rc = gen.main()
+
+    # Then it succeeds, writes the table, and says the link was gated (visible, not fatal)
+    assert rc == 0
+    assert _row_urls(dst.read_text()) == {_A, _B}
+    out = capsys.readouterr()
+    assert "gated=1" in out.out or "gated (exists" in out.out

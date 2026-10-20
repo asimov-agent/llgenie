@@ -139,8 +139,21 @@ def _model_catalog(m):
     return out
 
 
-def _probe_exists(url, timeout=20.0) -> bool:
-    """A 1-byte ranged GET returns 200/206 — the real file exists (never a download)."""
+#: The outcome of probing one link. Only DEAD fails a sync: a gated file EXISTS and this token may
+#: not read it, which is a repository-access setting rather than a broken link (issue #418).
+PROBE_OK, PROBE_GATED, PROBE_DEAD = "ok", "gated", "dead"
+
+
+def _probe_status(url, timeout=20.0) -> str:
+    """Probe a link with a 1-byte ranged GET (never a download) and classify it.
+
+    ``ok``     — 200/206: the file is there and readable with the credential we have.
+    ``gated``  — 401/403: the file is there and this credential may not read it. The repo already
+                 treats this as REACHABLE, not dead (`make web-coverage`, OpenSpec agent-web-reach:
+                 "a credential-gated URL is not a dead one"), and reading it as dead reds the whole
+                 weekly sync on a file that exists (issue #418: `meta-models/Muse-Spark-Open-…`).
+    ``dead``   — anything else (404/410, a 5xx, a transport error): the link cannot be verified.
+    """
     import urllib.error
     import urllib.request
     try:
@@ -151,9 +164,16 @@ def _probe_exists(url, timeout=20.0) -> bool:
         url, method="GET", headers={"Range": "bytes=0-0", "User-Agent": "llgenie-catalog"}))
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
-            return r.status in (200, 206)
-    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError):
-        return False
+            return PROBE_OK if r.status in (200, 206) else PROBE_DEAD
+    except urllib.error.HTTPError as e:
+        return PROBE_GATED if e.code in (401, 403) else PROBE_DEAD
+    except (urllib.error.URLError, TimeoutError, OSError):
+        return PROBE_DEAD
+
+
+def _probe_exists(url, timeout=20.0) -> bool:
+    """True when the file is really there (readable, or gated but present)."""
+    return _probe_status(url, timeout) != PROBE_DEAD
 
 
 def _all_urls(cat: dict) -> set:
@@ -207,15 +227,19 @@ def main():
     if not args.check and not args.skip_link_check:
         prior = json.loads(dest.read_text()) if dest.exists() else None
         probes = links_to_validate(new_urls, prior)
-        dead = [u for u in probes if not _probe_exists(u)]
+        status = {u: _probe_status(u) for u in probes}
+        dead = [u for u, s in status.items() if s == PROBE_DEAD]
+        gated = [u for u, s in status.items() if s == PROBE_GATED]
         if dead:
             print(f"FAIL: {len(dead)} newly-generated link(s) do not resolve (HTTP):", file=sys.stderr)
             for u in dead[:20]:
                 print(f"  {u}", file=sys.stderr)
             return 1
         print(f"[sync] validated {len(probes)} link(s) on the live Hub "
-              f"(new-vs-old={len(new_urls - _all_urls(prior)) if prior else 'first-run, all'}); "
-              f"{len(new_urls)} total in the table")
+              f"(new-vs-old={len(new_urls - _all_urls(prior)) if prior else 'first-run, all'}; "
+              f"gated={len(gated)}); {len(new_urls)} total in the table")
+        for u in gated[:10]:
+            print(f"[sync]   gated (exists, this token may not read it): {u}")
 
     if args.check:
         if not dest.exists():

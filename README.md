@@ -278,6 +278,10 @@ make sync-quant-catalog   # regenerate the HF class table data/trending-quant-ca
                           # fixture (model -> engine -> arch + real quant plans with per-quant links)
                           # from the registry + live Hub; validates the newly-added links vs the prior table
 make check-quant-catalog  # CI: fail if the committed quant catalog differs from the generator's output
+                          # A NEWLY-generated link is probed on the live Hub: readable (200/206) is fine,
+                          # GATED (401/403 — the file exists, the token may not read it) is reported as
+                          # `gated=N` and does not fail the sync, and only a DEAD link (404/410, 5xx, a
+                          # failed read) reds it (issue #418)
 make render-trend-list-matrix  # rewrite tests/fixtures/trend-list-matrix.json: the trending
                               # list for every arch x vram x ram, from `llgenie --matrix`
 make check-trend-list-matrix   # CI: fail if that file differs from a fresh matrix() call
