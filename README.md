@@ -338,6 +338,26 @@ size, and RAM size, in README order, with the server `llgenie --matrix` would pu
 first. A sync that updates `data/models.json` and leaves the fixture stale fails
 `make test-unit`.
 
+#### The unit gate is hermetic: live-Hub work has its own target (issue #438)
+
+`make test-unit` is the gate every change runs, so nothing in it may leave the machine. Two tests used
+to: one answered every link in the README's trend table, the other downloaded a model's full GGUF from
+the Hub. On 2026-10-21 a run sat inside that download for five minutes while pytest's
+`faulthandler_timeout` printed a stack dump — and still reported `4911 passed`, because a dump is not a
+verdict — and the link test later went red on a Hub `429` while the tree was fine.
+
+Those two node ids are now **de-selected** from the gate by exact node id (the `deselect` roster in
+`tests/fixtures/unit-suite.json`, a dated decision with a reason and its owning target — never a `-k`
+expression) and run by:
+
+```bash
+make test-hub-live    # the README's trend links answer, and a missing model really downloads
+```
+
+`tests/test_hub_live_target.py` pins both halves: the node ids are out of the gate, the target names
+exactly them (and is `.PHONY`), every de-selection still names a test that exists, and each reason names
+the target that runs it.
+
 An upstream engine with no llgenie skill is left out of the startup list (no
 image). That omission has to be a **decision**: `data/unsupported-engines.json`
 records, per engine, `decision` (`not-shipped` | `deferred`), the `decided` date,
@@ -362,6 +382,8 @@ make engine-bump ENGINE=<id>          # pin + derive + apply + regen (no push)
 make engine-bump-daily [DRY=1]        # plan -> bump every moved engine; DRY=1 prints only
 make test-engine-bump-live            # the TensorFold v1.0.5 release archive as a live end-to-end: list,
                                       # classify, checksum and RUN it (the archive path an engine bump takes)
+make test-hub-live                    # the two live-Hub checks kept OUT of `make test-unit` (issue #438):
+                                      # the README's trend links answer, and a missing model really downloads
 ```
 
 The `engine-bump-rebase` workflow (daily cron `41 5 * * *`, issue #208) keeps
