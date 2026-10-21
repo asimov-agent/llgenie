@@ -47,6 +47,15 @@ def test_default_registry_is_the_vendored_file(monkeypatch):
     # Then it is data/models.json and it validates
     assert reg == json.loads(VENDORED.read_text())
     assert sr.validate(VENDORED.read_bytes())["models"]
+    # (the live link check is `test_the_vendored_registry_links_all_answer`, kept OUT of the
+    #  hermetic gate by `make test-hub-live` — issue #438)
+
+
+def test_the_vendored_registry_links_all_answer():
+    """Every README link in the vendored registry answers — network, so `make test-hub-live` runs it."""
+    # Given the vendored registry and the README links it carries
+    # When  each link is checked against the Hub / GitHub
+    # Then  none is dead (a 429 or 5xx is a failure: the check retries the transient ones)
     assert sr.check(VENDORED) == 0
 
 

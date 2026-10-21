@@ -340,18 +340,18 @@ first. A sync that updates `data/models.json` and leaves the fixture stale fails
 
 #### The unit gate is hermetic: live-Hub work has its own target (issue #438)
 
-`make test-unit` is the gate every change runs, so nothing in it may leave the machine. Two tests used
-to: one answered every link in the README's trend table, the other downloaded a model's full GGUF from
-the Hub. On 2026-10-21 a run sat inside that download for five minutes while pytest's
+`make test-unit` is the gate every change runs, so nothing in it may leave the machine. Three tests
+used to: two answered every link in the README's trend table and in the vendored registry, the third
+downloaded a model's full GGUF from the Hub. On 2026-10-21 a run sat inside that download for five minutes while pytest's
 `faulthandler_timeout` printed a stack dump — and still reported `4911 passed`, because a dump is not a
 verdict — and the link test later went red on a Hub `429` while the tree was fine.
 
-Those two node ids are now **de-selected** from the gate by exact node id (the `deselect` roster in
+Those three node ids are now **de-selected** from the gate by exact node id (the `deselect` roster in
 `tests/fixtures/unit-suite.json`, a dated decision with a reason and its owning target — never a `-k`
 expression) and run by:
 
 ```bash
-make test-hub-live    # the README's trend links answer, and a missing model really downloads
+make test-hub-live    # the trend/registry links answer, and a missing model really downloads
 ```
 
 `tests/test_hub_live_target.py` pins both halves: the node ids are out of the gate, the target names

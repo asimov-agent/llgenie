@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """The hermetic unit gate carries no live-Hub work (issue #438).
 
-`make test-unit` is the gate every change runs. Two of its tests leave the machine: one answers every
-link in the README's trend table, the other downloads a model's full GGUF from the Hub. On 2026-10-21 a
+`make test-unit` is the gate every change runs. Three of its tests left the machine: two answer every link in the README's trend table and
+in the vendored registry, the third downloads a model's full GGUF from the Hub. On 2026-10-21 a
 run sat inside the download for five minutes while pytest's `faulthandler_timeout` printed a stack dump
 — and the run still reported `4911 passed`, because a dump is not a verdict. Minutes later the link test
 went red on a Hub `429 Too Many Requests` while the tree was fine.
@@ -26,6 +26,7 @@ import unit_tests as ut  # noqa: E402  (the aggregator the gate runs)
 MAKEFILE = (REPO / "Makefile").read_text()
 
 LIVE_NODES = (
+    "tests/test_trend_pick.py::test_the_vendored_registry_links_all_answer",
     "tests/test_trend_pick.py::test_readme_links_answer_and_a_broken_copy_is_caught",
     "tests/test_trend_pick.py::test_select_downloads_a_missing_model_for_real",
 )

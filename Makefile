@@ -977,7 +977,7 @@ test-unit: ## Hermetic unit tests (containerized) — the suite is DISCOVERED, n
 # Live GitHub release reads. Linux only: the macOS runner cannot reach
 # api.github.com, and TensorFold publishes no macos-x86_64 archive.
 test-hub-live: ## The live-Hub checks kept OUT of the hermetic gate (issue #438): the README's trend links answer, and a missing model really downloads — network + a multi-hundred-MB fetch
-	$(TEST_RUN) python -m pytest tests/test_trend_pick.py::test_readme_links_answer_and_a_broken_copy_is_caught tests/test_trend_pick.py::test_select_downloads_a_missing_model_for_real -p no:cacheprovider -q
+	$(TEST_RUN) python -m pytest tests/test_trend_pick.py::test_the_vendored_registry_links_all_answer tests/test_trend_pick.py::test_readme_links_answer_and_a_broken_copy_is_caught tests/test_trend_pick.py::test_select_downloads_a_missing_model_for_real -p no:cacheprovider -q
 test-engine-bump-live: ## TensorFold v1.0.5 release archive: list, classify, checksum, run
 	$(TEST_RUN) python -m pytest tests/test_engine_bump.py::test_derive_reports_the_live_release_archives tests/test_engine_bump.py::test_tensorfold_v1_0_5_release_is_native_archives tests/test_engine_bump.py::test_tensorfold_release_archive_unpacks_and_runs -p no:cacheprovider -q
 

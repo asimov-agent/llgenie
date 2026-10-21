@@ -2,11 +2,13 @@
 
 ## Why
 
-`make test-unit` is the gate every change runs, on Linux and macOS, in CI and on a laptop. Two of its
-tests leave the machine:
+`make test-unit` is the gate every change runs, on Linux and macOS, in CI and on a laptop. Three of its
+tests left the machine:
 
 - `tests/test_trend_pick.py::test_readme_links_answer_and_a_broken_copy_is_caught` — answers every link
   in the README's trend table over the live Hub and GitHub;
+- `tests/test_trend_pick.py::test_the_vendored_registry_links_all_answer` — checks every link the
+  vendored registry carries against the live Hub;
 - `tests/test_trend_pick.py::test_select_downloads_a_missing_model_for_real` — downloads the picked
   model's full GGUF from the Hub (hundreds of MB) and asserts it lands on disk.
 
@@ -31,10 +33,10 @@ a network flake reds a hermetic gate, and a green gate can hide a hang (issue #4
 
 ## What Changes
 
-- **`tests/fixtures/unit-suite.json`** — the two live checks are de-selected from the hermetic suite by
+- **`tests/fixtures/unit-suite.json`** — the three live checks are de-selected from the hermetic suite by
   **exact node id** (the roster's `deselect`, a dated decision with a reason naming the owning target;
   never a `-k` expression), so `make test-unit` no longer contains a Hub download or a link crawl.
-- **`make test-hub-live`** — the target that owns them: it runs exactly those two node ids in the test
+- **`make test-hub-live`** — the target that owns them: it runs exactly those three node ids in the test
   image, `.PHONY`, documented in the README's command list.
 - **`tests/test_hub_live_target.py` (new)** — pins both halves: the node ids are out of the gate
   (`unit_tests.deselected`), the target names exactly them and is phony, every de-selection in the

@@ -101,7 +101,8 @@
   },
   "tests/test_trend_pick.py": {
    "test_readme_links_answer_and_a_broken_copy_is_caught": "Answers every link in the README's trend table over the live Hub and GitHub (network). A 429 from the Hub reds the hermetic gate while nothing is wrong with the tree, so `make test-hub-live` runs it instead (issue #438).",
-   "test_select_downloads_a_missing_model_for_real": "Downloads the FULL GGUF of the picked model from the Hub for real (hundreds of MB) and asserts it lands on disk. In the hermetic gate it stalled for five minutes without failing it (the pytest faulthandler dump is not a verdict), and it needs network; `make test-hub-live` runs it (issue #438)."
+   "test_select_downloads_a_missing_model_for_real": "Downloads the FULL GGUF of the picked model from the Hub for real (hundreds of MB) and asserts it lands on disk. In the hermetic gate it stalled for five minutes without failing it (the pytest faulthandler dump is not a verdict), and it needs network; `make test-hub-live` runs it (issue #438).",
+   "test_the_vendored_registry_links_all_answer": "Checks every link in the vendored registry's README against the live Hub and GitHub (network). A 429 reds the hermetic gate while the tree is fine; `make test-hub-live` runs it (issue #438)."
   }
  },
  "groups": {

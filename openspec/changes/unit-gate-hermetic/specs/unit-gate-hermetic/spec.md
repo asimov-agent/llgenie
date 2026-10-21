@@ -9,7 +9,7 @@ tests SHALL be de-selected by exact node id in the roster (`tests/fixtures/unit-
 — a dated decision with a reason, never a `-k` expression — and SHALL be run by `make test-hub-live`.
 
 WHEN the gate's selection is computed
-THEN the two live-Hub node ids SHALL be absent from it, and `make test-hub-live` SHALL run exactly them.
+THEN the three live-Hub node ids SHALL be absent from it, and `make test-hub-live` SHALL run exactly them.
 
 #### Scenario: the live checks are out of the gate
 
@@ -23,7 +23,7 @@ Then  both live-Hub node ids are `--deselect`ed, so no unit run touches the netw
 
 Given the `test-hub-live` recipe
 When  its pytest invocation is read
-Then  it names exactly the two node ids, with `-p no:cacheprovider` and no `-k`, and it is `.PHONY`.
+Then  it names exactly the three node ids, with `-p no:cacheprovider` and no `-k`, and it is `.PHONY`.
 
 - **Test:** `tests/test_hub_live_target.py::test_the_hub_live_target_runs_exactly_those_nodes`
 
@@ -36,10 +36,10 @@ Then  it is still defined, and its reason names the target that runs it — a re
 
 - **Test:** `tests/test_hub_live_target.py::test_every_deselection_names_a_test_that_really_exists`
 
-#### Scenario: the de-selection is about these two tests
+#### Scenario: the de-selection is about these three tests
 
 Given `tests/test_trend_pick.py`
-When  the two live checks are looked for
+When  the three live checks are looked for
 Then  both are defined exactly as the roster and the target name them, so a rename moves the decision
       with it.
 
