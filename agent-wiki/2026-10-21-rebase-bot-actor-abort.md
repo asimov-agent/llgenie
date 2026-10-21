@@ -25,5 +25,5 @@ carry it (`git show origin/main:scripts/rebase_bot.sh | grep -c abort_rebase` â†
 
 ## Status
 
-Issue #464; PR from `feat/rebase-bot-actor-abort` against `asimov-agent/llgenie:main`. Waiting for
+Issue #464; PR #465 from `feat/rebase-bot-actor-abort` against `asimov-agent/llgenie:main`. Waiting for
 review â€” the agent never merges.
