@@ -339,3 +339,50 @@ jobs:
     secrets: inherit
     with:
       runner: ubuntu-latest
+
+  # ------------------------------------------------------------------
+  # auto-merge (issue #482): a green, conflict-free, same-repo, non-draft PR is squash-merged by CI,
+  # without waiting for a human. The shape is trending-local-llms' `auto-merge` job in qa-validate.yml,
+  # which is the model for all of this file's bot handling.
+  #
+  #   * `needs:` every PR-relevant job, so it cannot run early. `always() && !failure() && !cancelled()`
+  #     because `engine-published-test` is push-only and SKIPPED on a PR — a skipped job in `needs:`
+  #     skips the dependent job unless the condition tolerates it.
+  #   * `mergeStateStatus: CLEAN` is the whole "green and no merge conflicts" rule: DIRTY is a conflict,
+  #     BEHIND is a stale branch, BLOCKED is a required check or review still pending.
+  #   * `--match-head-commit` pins the merge to the commit THIS run validated: a push after the run
+  #     started leaves the PR open for the newer run.
+  #   * the owner PAT (`secrets.BUMP_TOKEN`), never the job token: a merge made with the job token starts
+  #     no workflows, so the post-merge run on `main` (which publishes the engine images) would never run.
+  #   * `do-not-merge` is the human hold: the job prints it and exits 0.
+  #   * every branch that is not "green and clean" is DEFERRED (exit 0 with the reason), never failed.
+  #
+  # `make auto-merge` is the decision (scripts/auto_merge.py reads one `gh pr view` and merges only when
+  # every condition holds); `make verify-closure` then proves the body's `closes #n` actually closed.
+  # ------------------------------------------------------------------
+  auto-merge:
+    needs: [guard, ci-images, linux, macos, engine-base, engine-matrix, engine-image, linux-published]
+    if: >-
+      always() && !failure() && !cancelled() &&
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.head_ref != 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: read
+    concurrency:
+      group: auto-merge-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: make auto-merge (merge only a green, conflict-free PR; everything else defers to a human)
+        env:
+          GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: make auto-merge PR="$PR" REPO="$REPO" HEAD_SHA="$HEAD_SHA"

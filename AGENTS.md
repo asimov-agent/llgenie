@@ -235,20 +235,34 @@ git merge-base --is-ancestor origin/main HEAD 2>/dev/null \
      issue's state stop being evidence about the code.
 6. Keep each PR to one change/OpenSpec change. Rebase or merge `main` in when the
    PR goes stale; never force-push shared branches.
-7. **Merging needs an approval — the agent NEVER merges (MANDATORY, durable).**
-   - A PR is merged into `main` only after a human reviewer has **approved** it
-     (`gh pr view <n> --json reviewDecision` == `APPROVED`). Green CI alone is not
-     enough.
-   - The agent never runs `gh pr merge` (no squash, no rebase, no merge commit,
-     no `--admin`, no auto-merge) and never pushes to `main`. When the work is done
-     it pushes the branch, updates the PR body, requests review, and **stops**,
-     reporting the PR URL and what it waits for.
+7. **CI merges a green, conflict-free PR; the agent never merges it by hand
+   (MANDATORY, durable).**
+   - The `auto-merge` job in `.github/workflows/ci.yml` squash-merges a pull
+     request that is **green and conflict-free**, with the branch deleted, no
+     human click required. Green means every PR-relevant job of that run passed;
+     conflict-free means `mergeStateStatus == CLEAN` — so a `DIRTY` (conflicting),
+     `BEHIND` (stale), `BLOCKED` (required check or review pending) or draft PR is
+     left alone, as is any PR whose head moved after the run started
+     (`--match-head-commit`).
+   - **The scope is narrow on purpose:** `pull_request` events only, a non-draft
+     PR, a **same-repo** head, and a head branch that is not `main`. A fork PR is
+     never auto-merged (the PAT cannot delete a fork branch).
+   - **`do-not-merge` is the human hold.** A reviewer who is mid-read labels the
+     PR and CI defers to them; the job prints the hold and exits 0, it is never a
+     red run. An unbound `closes #n` is the other failure mode and it is loud:
+     after the merge `make verify-closure PR=<n> REPO=<repo>` reads the PR's own
+     closing references and fails, naming the issue, when one is still open.
+   - The agent still never runs `gh pr merge` itself (no squash, no rebase, no
+     merge commit, no `--admin`, no `--auto`) and never pushes to `main`. When the
+     work is done it pushes the branch, updates the PR body, drives the PR green,
+     and **stops**, reporting the PR URL: the CI job lands it, or a human does.
    - "Push to mainstream" means: the PR targets `asimov-agent/llgenie:main` and is
-     ready for review. The merge itself is the reviewer's action.
-   - Images reach GHCR only through that path: after the approved PR is merged,
-     the CI run on `main` builds, tests and then pushes each engine image.
-   - Even when asked to "merge", "ship" or "push to main", the agent stops at the
-     open, reviewable PR and says it is waiting for an approval.
+     green and mergeable. Landing it is CI's action (or the reviewer's, when the
+     job defers).
+   - Images reach GHCR only through that path: after the merge, the CI run on
+     `main` builds, tests and then pushes each engine image. The merge is made with
+     the owner PAT for exactly that reason — a merge made with the job token starts
+     no workflows, so that run would never happen.
 
 ## Every PR body and commit message carries the issue, the fix and the benefit (MANDATORY, durable)
 
@@ -403,33 +417,33 @@ to paste the comment into chat.
    file → non-zero → job RED; fixed → zero → job GREEN) and confirm the
    re-push triggers CI. Report the actual CI job result, not an assumption.
 
-6. **An APPROVED PR is merged.** When the PR for the current branch is reviewed
-   and **approved** (a reviewer's `APPROVED` review, or an explicit human
-   approval phrase), do NOT leave it sitting open — merge it to `main` once the
-   merge prerequisites hold, and clean up the branch:
-   ```bash
-   # prerequisites first — loop gate green, all jobs on the PR pass, no
-   # unresolved review threads:
-   make loop
-   gh pr checks <N>                       # every job must be green
-   # merge (squash or merge as the repo policy prefers) then delete both branches:
-   gh pr merge <N> --merge --delete-branch
-   git branch -D feat/<branch>           # local clean-up
-   ```
-   The local clean-up is `make worktree-prune`, not a hand-typed `git branch -D`
-   (issue #431): it removes the worktree **and** the branch only for a branch whose
-   PR is MERGED **and** whose merge commit is on `origin/main`, because this repo
-   squash-merges and a squashed branch tip is never an ancestor of `main`. Anything
-   else — an OPEN or CLOSED PR, no PR at all, a merge commit off the base, a dirty
-   worktree, a detached worktree, the main checkout — is kept with its reason
-   printed. `make worktree-prune DRY=1` prints the plan and mutates nothing.
-   Do NOT merge a red PR, a PR with open/unresolved review threads, or a PR whose
-   CI is still running — approval is a green light, not a waiver of the gate.
-   Verify the merge landed on `main` (e.g. `git fetch origin && git log origin/main -1`)
-   and report the merge commit sha. If the reviewer engaged but did NOT approve,
-   keep resolving threads (see above); only a genuine approval triggers the merge.
-   This mirrors the obsidian-timestamp-utility B32 (review-approved squash +
-   finalise): "once a reviewer has approved, the agent may finalise".
+6. **The PR lands without the agent merging it.** Merging is CI's action now
+   (rule 7 under "Git workflow"): the `auto-merge` job in `.github/workflows/ci.yml`
+   squash-merges the PR the moment the run is green **and** the PR is conflict-free
+   (`mergeStateStatus == CLEAN`), non-draft, same-repo, and carries no `do-not-merge`
+   label. So there is nothing to wait for at a keyboard — and nothing for you to run:
+
+   - **Never run `gh pr merge`** (no `--squash`, `--merge`, `--rebase`, `--auto`,
+     `--admin`). A hand merge bypasses the one place that checks the merge state and
+     pins the head commit, and a merge made with the job token starts no workflows —
+     the post-merge run on `main` (which publishes the engine images) would never run.
+   - What you DO own: drive the PR green (`make loop`, then `gh pr checks <N>`), reply
+     to review threads, and keep the branch current (`rebase-bot` does this every six
+     hours). If the job defers the merge, it printed why — `DIRTY` (conflicts),
+     `BEHIND` (stale), `BLOCKED` (a required check or review), a draft, a fork, or
+     `do-not-merge` — and that reason is the work item, not a reason to merge by hand.
+   - A reviewer who wants to hold the PR labels it `do-not-merge`; remove the label
+     when the review is done and the next green run merges it. An approval is no
+     longer a precondition for landing, and it is no longer a licence to merge.
+   - After it lands, prune the branch **and** the worktree with `make worktree-prune`
+     (issue #431), never a hand-typed `git branch -D`: it removes them only for a
+     branch whose PR is MERGED **and** whose merge commit is on `origin/main` (this
+     repo squash-merges, so a squashed branch tip is never an ancestor of `main`).
+     `make worktree-prune DRY=1` prints the plan and mutates nothing.
+   - Verify what landed (`git fetch origin && git log origin/main -1`) and report the
+     merge commit sha, exactly as before. `make verify-closure PR=<N> REPO=<repo>`
+     proves the body's `closes #<n>` actually closed; CI runs it right after the
+     merge, and you can run it yourself on any merged PR.
 
 ## Analysis: every change surfaces gaps → issues, never implementation (MANDATORY, durable)
 
@@ -838,10 +852,11 @@ is not done at "code written":
    owns its own PR's CI, including flaky-looking stages it can reproduce.
 4. **Merge is a squash merge with a proper Conventional Commit message** (the
    PR title/body carry the issue reference), so history stays one commit per
-   change. Where the repo's CI owns the merge (e.g. trending-local-llms'
-   `auto-merge` job), the agent drives the PR to green and lets that job land it
-   — it never merges a red PR, a draft, or one with unresolved review threads,
-   and it never merges a PR a human reviewer is still working on.
+   change. The repo's `auto-merge` job owns the merge (rule 7 above, the shape
+   `trending-local-llms` uses in `qa-validate.yml`): the agent drives the PR to
+   green and lets that job land it. It never merges a red PR, a draft, or one with
+   unresolved review threads, and it never merges a PR a human reviewer is still
+   working on — `do-not-merge` is how a human says so.
 
 ### EVERY spec scenario must have Given / When / Then (mandatory, durable)
 
