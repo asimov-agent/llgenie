@@ -53,7 +53,7 @@ Because every bot leg runs the smoke before it spends agent time, no bot could d
   stopped at `no transcript at /root/.hermes/state.db`.
 - Gates for this change, all exit 0: `make check-wiring`, `make check-docs`, `make lint`,
   `make openspec-validate NAME=hermes-smoke-fresh-store`, `make openspec-tasks-check`,
-  `make check-pr-hygiene`, `make check-pr-authors`, `make test-unit`.
+  `make check-pr-hygiene`, `make check-pr-authors`, `make test-unit` (**4966 passed, 6 deselected, 1015 s**).
 
 ## Related
 
