@@ -142,12 +142,12 @@ def evaluate(conn: sqlite3.Connection, session_id: str, expected: str) -> list[s
 
 def run(hermes: str, alias: str, reasoning: str, db: Path, timeout: float,
         keep_token: bool = False) -> int:
-    """The proof: write the nonce, run the agent, judge the session it created."""
-    if not db.exists():
-        print(f"[hermes-smoke] FAIL: no transcript at {db} - Hermes wrote no session, so there is "
-              f"nothing to prove (check HERMES_HOME)", file=sys.stderr)
-        return 1
+    """The proof: write the nonce, run the agent, judge the session it created.
 
+    The store is what a successful run CREATES (`$HERMES_HOME/state.db`), so its absence before the
+    call is normal — the fresh agent image ships without one. Only the store the run leaves behind is
+    judged: absent, unreadable, or without a new session are each a loud, named failure (issue #471).
+    """
     workdir = Path(tempfile.mkdtemp(prefix="hermes-smoke-"))
     token_path = workdir / "token"
     nonce = secrets.token_hex(12)
@@ -156,25 +156,40 @@ def run(hermes: str, alias: str, reasoning: str, db: Path, timeout: float,
     prompt = prompt_for(str(token_path))
 
     try:
+        # The snapshot a new session is measured against: empty when this run is the first one.
+        before: set[str] = set()
+        if db.exists():
+            with closing(connect(db)) as conn:
+                try:
+                    before = session_ids(conn)
+                except sqlite3.Error as exc:
+                    print(f"[hermes-smoke] FAIL: {db} has no readable sessions store ({exc}), so the "
+                          f"run's tool use cannot be proven", file=sys.stderr)
+                    return 1
+
+        argv = [hermes, "-z", prompt, "-m", alias, "--reasoning", reasoning, "--yolo"]
+        print(f"[hermes-smoke] running the alias the bots use: {alias} (reasoning {reasoning})")
+        proc = subprocess.run(argv, capture_output=True, text=True)
+        if proc.stdout.strip():
+            print(proc.stdout.rstrip())
+        if proc.returncode != 0:
+            print(f"[hermes-smoke] FAIL: hermes exited {proc.returncode}", file=sys.stderr)
+            if proc.stderr.strip():
+                print(proc.stderr.rstrip(), file=sys.stderr)
+            return 1
+
+        if not db.exists():
+            print(f"[hermes-smoke] FAIL: hermes exited 0 but wrote no transcript at {db}, so there is "
+                  f"nothing to prove (check HERMES_HOME)", file=sys.stderr)
+            return 1
+
         with closing(connect(db)) as conn:
             try:
-                before = session_ids(conn)
+                session = wait_for_session(conn, before, expected, time.time() + timeout)
             except sqlite3.Error as exc:
                 print(f"[hermes-smoke] FAIL: {db} has no readable sessions store ({exc}), so the "
                       f"run's tool use cannot be proven", file=sys.stderr)
                 return 1
-            argv = [hermes, "-z", prompt, "-m", alias, "--reasoning", reasoning, "--yolo"]
-            print(f"[hermes-smoke] running the alias the bots use: {alias} (reasoning {reasoning})")
-            proc = subprocess.run(argv, capture_output=True, text=True)
-            if proc.stdout.strip():
-                print(proc.stdout.rstrip())
-            if proc.returncode != 0:
-                print(f"[hermes-smoke] FAIL: hermes exited {proc.returncode}", file=sys.stderr)
-                if proc.stderr.strip():
-                    print(proc.stderr.rstrip(), file=sys.stderr)
-                return 1
-
-            session = wait_for_session(conn, before, expected, time.time() + timeout)
             if not session:
                 print(f"[hermes-smoke] FAIL: the run left no new session in {db}, so its tool use "
                       f"cannot be proven", file=sys.stderr)

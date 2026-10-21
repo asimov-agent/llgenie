@@ -154,21 +154,82 @@ def test_a_missing_transcript_is_a_named_failure(tmp_path):
     assert "no readable sessions store" in proc.stderr, proc.stderr
 
 
-def test_a_nonexistent_state_db_is_a_named_failure(tmp_path):
-    """A run that writes no session at all cannot be mistaken for a green smoke."""
+def _hermes_stub(tmp_path: Path, *, writes_store: bool) -> Path:
+    """A real `hermes` executable: it writes the session a passing smoke needs, or nothing at all.
 
-    # Given a state.db path that does not exist
-    missing = tmp_path / "nope.db"
+    The nonce is read from the token file the PROMPT names (argv), so the stub proves the same rule
+    the real model faces: the value can only come from that file (issue #471).
+    """
+    db = tmp_path / "home" / "state.db"
+    script = tmp_path / "hermes"
+    script.write_text(
+        "#!/usr/bin/env python3\n"
+        "import os, re, sqlite3, sys\n"
+        f"DB = {str(db)!r}\n"
+        "WRITES = " + ("True" if writes_store else "False") + "\n"
+        "prompt = sys.argv[sys.argv.index('-z') + 1]\n"
+        "m = re.search(r'(\\S*/hermes-smoke-[^/]+/token)', prompt)\n"
+        "nonce = open(m.group(1)).read().strip() if m else 'no-nonce-found'\n"
+        "if not WRITES:\n"
+        "    print('answered without a transcript')\n"
+        "    sys.exit(0)\n"
+        "os.makedirs(os.path.dirname(DB), exist_ok=True)\n"
+        "c = sqlite3.connect(DB)\n"
+        "c.executescript('CREATE TABLE sessions (id TEXT PRIMARY KEY, started_at REAL,"
+        " tool_call_count INTEGER); CREATE TABLE messages (id INTEGER PRIMARY KEY, session_id TEXT,"
+        " role TEXT, tool_name TEXT, content TEXT);')\n"
+        "c.execute('INSERT INTO sessions VALUES (?, ?, ?)', ('sess-fresh', 1.0, 1))\n"
+        "rows = [('user', None, 'run the command'), ('assistant', None, None),\n"
+        "        ('tool', 'terminal', '{\"output\": \"smoke-ok:' + nonce + '\"}'),\n"
+        "        ('assistant', None, 'smoke-ok:' + nonce)]\n"
+        "for i, r in enumerate(rows, start=1):\n"
+        "    c.execute('INSERT INTO messages VALUES (?, ?, ?, ?, ?)', (i, 'sess-fresh', *r))\n"
+        "c.commit(); c.close()\n"
+        "print('smoke-ok:' + nonce)\n"
+    )
+    script.chmod(0o755)
+    return script
 
-    # When  the smoke runs against it
+
+def test_a_fresh_home_with_no_store_passes_when_the_session_proves_the_call(tmp_path):
+    """The image ships without a state.db; the run creates it, and only what it leaves is judged."""
+
+    # Given a fresh HERMES_HOME (no state.db at all) and a hermes that writes the proving session
+    db = tmp_path / "home" / "state.db"
+    assert not db.exists()
+    stub = _hermes_stub(tmp_path, writes_store=True)
+
+    # When  the smoke runs against that store path
     proc = subprocess.run(
-        [sys.executable, str(SCRIPT), "run", "--state-db", str(missing), "--timeout", "1"],
+        [sys.executable, str(SCRIPT), "run", "--state-db", str(db), "--hermes", str(stub),
+         "--timeout", "5"],
         capture_output=True, text=True, timeout=60,
     )
 
-    # Then  it fails, naming the missing transcript
+    # Then  it passes, having run the agent, and the store exists because the run wrote it
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "OK: session sess-fresh" in proc.stdout, proc.stdout
+    assert db.exists(), "the smoke must accept the store its own run created"
+
+
+def test_a_run_that_writes_no_store_is_a_named_failure(tmp_path):
+    """A run that exits 0 and writes nothing is still a failure, and it names the store."""
+
+    # Given a fresh HERMES_HOME and a hermes that writes no store
+    db = tmp_path / "home" / "state.db"
+    stub = _hermes_stub(tmp_path, writes_store=False)
+
+    # When  the smoke runs
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT), "run", "--state-db", str(db), "--hermes", str(stub),
+         "--timeout", "2"],
+        capture_output=True, text=True, timeout=60,
+    )
+
+    # Then  it exits non-zero, naming the transcript the run did not write
     assert proc.returncode != 0, proc.stdout + proc.stderr
-    assert "no transcript at" in proc.stderr, proc.stderr
+    assert "wrote no transcript at" in proc.stderr, proc.stderr
+    assert str(db) in proc.stderr
 
 
 def test_the_prompt_names_the_command_and_never_the_value(tmp_path):
