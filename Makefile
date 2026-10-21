@@ -64,6 +64,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	secret-scan secret-scan-history secret-scan-self-test \
 	queued-alarm issue-cleaner-scan issue-cleaner-apply worktree-prune fix-loop fix-loop-image fix-bot-sweep fix-bot-report agent-image-ref issue-bot-dispatch issue-bot-open-pr issue-bot-image \
 	issue-bot-triage issue-bot-verdict implement-issue hermes-smoke agent-jev-preflight code-review-scan code-review-file rebase-bot-sweep rebase-bot \
+	architecture-bot-brief architecture-bot-doc architecture-bot-publish architecture-bot \
 	scrub-log \
 	run-failure-reactor rebase-bot-agent check-docs docs-report check-pr-hygiene pr-hygiene-report check-pr-authors pr-authors-report check-workflows workflows-report issue-refiner-pick issue-refiner issue-refiner-apply check-dispatch-forms dispatch-forms-report \
 	agent-shell-keys-check \
@@ -547,6 +548,41 @@ code-review-scan: ## The code-review bot's checks: tree + pipelines -> findings 
 code-review-file: ## File ONE issue per NEW code-review finding, capped per run (REPO=; CAP= issues per run, default 3; DRY=1 previews) — never edits code, never merges
 	@test -n "$(REPO)" || { echo "Usage: make code-review-file REPO=<owner/repo> [CAP=3] [DRY=1]"; exit 1; }
 	python3 scripts/code_review.py file --repo "$(REPO)" $(if $(CAP),--cap $(CAP),) $(if $(DRY),--dry,)
+
+# ---- the architecture bot (issue #449) ---------------------------------------
+# `docs/ARCHITECTURE.md` is the map of the shipped path, and it ages the moment the tree moves.
+# This bot re-derives it every 6 hours: a deterministic brief from real `git` state (no model),
+# ONE Hermes leg that may write only that doc, and a deterministic publish that files ONE issue
+# and ONE linked PR. A run with no drift files nothing, and no run ever merges.
+DOC ?= docs/ARCHITECTURE.md
+ARCH_BRIEF ?= architecture-brief.md
+STAMP ?= $(shell date -u +%Y%m%dT%H%M)
+
+architecture-bot-brief: ## Derive the architecture doc's brief from the real tree and the drift since the doc's last commit (DOC= path, OUT= path; no model, writes only the brief — issue #449)
+	python3 scripts/architecture_bot.py brief --doc "$(DOC)" --out "$(ARCH_BRIEF)"
+
+architecture-bot-doc: ## Rewrite the architecture doc with Hermes INSIDE the agent image from the brief (DOC=; the doc is the ONLY writable file); the transcript is REDACTED (issue #449)
+	@python3 scripts/require_env.py NOUS_API_KEY
+	@test -f "$(ARCH_BRIEF)" || { echo "Run 'make architecture-bot-brief' first: $(ARCH_BRIEF) is missing"; exit 1; }
+	python3 scripts/ci_images.py ensure agent
+	$(call scrubbed_run,$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo \
+	  -e NOUS_API_KEY -e HERMES_REASONING -e DOC -e ARCH_BRIEF \
+	  -e TYPESAFE_API_KEY -e HERMES_NERVE_PROVIDER -e NERVE_REQUIRE \
+	  $(AGENT_SHELL_FORWARD) \
+	  $(AGENT_IMAGE) bash -lc 'make _architecture-bot-doc DOC="$$DOC" ARCH_BRIEF="$$ARCH_BRIEF"')
+
+_architecture-bot-doc: # (internal) the host recipe the agent image runs: only the doc is writable
+	$(MAKE) _agent-jev-preflight
+	hermes -z "Load AGENTS.md for rules. The brief is $(ARCH_BRIEF) at the repo root: read it FIRST. It carries the current $(DOC), the git drift since that doc was last committed, and the real code surface (tracked layout, scripts modules, public make targets, workflows and crons, data/skills/containers/tests). Rewrite $(DOC) so it describes that tree as it is now: the shipped path end to end (install -> backend/hardware detection -> trend list -> engine skill -> engine image -> launcher), the data files, the CI jobs, the bots with their cron slots, and the test/gate layout. Name real files and targets; never invent a module, target, workflow, cron or image the brief does not list. Keep what is still true; fix or delete what moved. HARD RULES: (1) modify NO file except $(DOC); (2) do not create a branch, do not commit, do not push, do not open an issue or a PR - the deterministic publish step does that; (3) never touch main." $(nous-alias) --reasoning $(HERMES_REASONING) --yolo
+
+architecture-bot-publish: ## File ONE issue + ONE linked PR for the doc change (REPO=; DOC=; STAMP=; DRY=1 previews) — nothing without drift, never merges (issue #449)
+	@test -n "$(REPO)" || { echo "Usage: make architecture-bot-publish REPO=<owner/repo> [DOC=docs/ARCHITECTURE.md] [DRY=1]"; exit 1; }
+	python3 scripts/architecture_bot.py publish --repo "$(REPO)" --doc "$(DOC)" --stamp "$(STAMP)" $(if $(DRY),--dry,)
+
+architecture-bot: ## Run the architecture bot locally end to end: brief -> doc -> issue + PR (needs NOUS_API_KEY and REPO=; DRY=1 stops at the preview)
+	@$(MAKE) architecture-bot-brief DOC="$(DOC)"
+	@$(MAKE) architecture-bot-doc DOC="$(DOC)"
+	@$(MAKE) architecture-bot-publish REPO="$(REPO)" DOC="$(DOC)" $(if $(DRY),DRY=1,)
 
 # The run-failure reactor (issue #286): a bot that reacts to a FAILED CI run — any run, not just
 # a PR check — and routes it to a remedy. The route decision lives in scripts/run_failure_reactor.py

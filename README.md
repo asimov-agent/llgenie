@@ -399,6 +399,7 @@ queues behind its scheduled run instead of overlapping it. The current slots:
 | `engine-bump-rebase` | `41 5 * * *` | daily 05:41 |
 | `registry-sync` | `19 5 * * 1` | Monday 05:19 |
 | `engine-bump` | `53 6 * * 1` | Monday 06:53 |
+| `architecture-bot` | `47 */6 * * *` | every 6 hours at :47 (issue #449) |
 
 `tests/test_bot_pipeline_isolation.py` (in `make test-unit`) expands every scheduled
 workflow's cron into its `(minute, weekday)` slots and fails if any two bots share one, or if
@@ -880,6 +881,42 @@ key it has already filed, and a cap (3 per run) bounds a bad run — a weekly ru
 files nothing and stays quiet. The two API-backed checks need a token with admin to read the secret
 list; without one they warn loudly and skip rather than filing a claim they cannot support.
 
+## The architecture bot — `docs/ARCHITECTURE.md` follows the code (issue #449)
+
+The repository's other recurring readers (issue-bot, code-review, registry-sync, engine-bump)
+each own one kind of drift; architecture had no bot and no document. `architecture-bot` runs
+**every 6 hours** (`47 */6 * * *`, its own slot) and on `workflow_dispatch`, re-reads the real
+tree and rewrites `docs/ARCHITECTURE.md` to match it. The refresh lands as **ONE linked issue +
+ONE reviewable PR**; it never merges and never pushes to `main`.
+
+```bash
+make architecture-bot REPO=asimov-agent/llgenie          # brief -> doc -> issue + PR
+make architecture-bot REPO=asimov-agent/llgenie DRY=1    # ... stopping at the preview
+make architecture-bot-brief                              # real tree + git drift -> architecture-brief.md
+make architecture-bot-doc                                # Hermes rewrites the doc (agent image)
+make architecture-bot-publish REPO=asimov-agent/llgenie  # ONE issue + ONE PR, nothing without drift
+```
+
+- **The deterministic half decides.** `scripts/architecture_bot.py brief` derives the surface
+  (tracked layout, `scripts/` modules with their docstring, public make targets, workflows and
+  crons, `data/`, `skills/`, `containers/`, `tests/`) and the drift: the commit that last wrote
+  the doc, the commits after it, and the paths that changed. No model call, and it writes only
+  the brief. A doc with no history is a **full rebuild**.
+- **One agent leg, one writable file.** `make architecture-bot-doc` runs Hermes inside the
+  pinned agent image with a prompt that may modify `docs/ARCHITECTURE.md` and nothing else — no
+  branch, no commit, no push, no issue. Its transcript goes through the `scrubbed_run` seam and
+  the workflow uploads `hermes-run.scrubbed.log`, never the raw capture.
+- **Quiet unless the tree moved.** `publish` re-checks the working tree: an unchanged doc files
+  nothing, a doc shorter than 200 characters is refused, and an already-open
+  `agent/architecture-*` PR makes the run `action=pending` (no second issue every 6 hours).
+- **What it files.** One issue (Issue / Fix / Benefit / Technical), one branch
+  `agent/architecture-<UTC stamp>`, one commit carrying only the doc, authored
+  `Asimov Agent <support@docondee.com>`, and one PR to `asimov-agent/llgenie:main` whose body
+  ends with `closes #<issue>`.
+- **Who may run it.** The trigger guard runs first, before any secret: the repository owner, or
+  a collaborator with `admin`/`maintain`/`write` — which is also how a bot identity with write
+  access starts it. A stranger cannot dispatch it.
+
 ## The run-failure reactor (issue #286)
 
 A bot that reacts to a **failed CI run** — any run, not just a PR check — and routes it to a remedy.
@@ -926,6 +963,7 @@ from the pipeline that will run.
 
 | workflow | what the run does | dispatch inputs |
 |---|---|---|
+| `architecture-bot.yml` | rewrites docs/ARCHITECTURE.md from the tree and opens a linked issue + PR (never merges) | `dry` (optional, default `false`) — Preview the issue and PR bodies this run would file, filing nothing<br>`doc` (optional, default `docs/ARCHITECTURE.md`) — Repository-relative markdown document to refresh |
 | `code-review-bot.yml` | reviews the tree and the pipelines and files one issue per finding (never edits code) | `dry` (optional, default `false`) — Preview the issues it would file (owner only) |
 | `engine-bump-rebase.yml` | rebases every open engine-bump PR onto the latest main | `dry` (optional, default `false`) — print the PRs it would rebase and push nothing (no branch is touched) |
 | `engine-bump.yml` | bumps pinned engines to their newest upstream release and opens the PR | `engine` (optional) — Only bump this engine (id); empty = all |

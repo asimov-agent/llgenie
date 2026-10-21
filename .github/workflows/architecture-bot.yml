@@ -1,0 +1,174 @@
+name: architecture-bot — rewrites docs/ARCHITECTURE.md from the tree and opens a linked issue + PR (never merges)
+
+# ARCHITECTURE — reads the real tree and the real git drift every 6 hours, rewrites
+# `docs/ARCHITECTURE.md` to match it, and leaves the refresh as ONE issue + ONE reviewable PR
+# (issue #449). It is the same shape as the repository's other readers (issue-bot, code-review,
+# registry-sync): a deterministic decision, one bounded agent leg, and a publish step that never
+# merges.
+#
+# Trigger surface: a 6-hourly schedule (minute :47, its own slot) and workflow_dispatch for the
+#                  owner/collaborators/bots with write access (`dry` previews the bodies, `doc`
+#                  picks the markdown file to refresh).
+# Flow: guard (owner/collaborator, BEFORE any secret is read) -> make architecture-bot-brief
+#       (real git: the doc's last commit, the drift since it, and the code surface; no model)
+#       -> make architecture-bot-doc (Hermes INSIDE the agent image; the doc is the only
+#       writable file) -> make architecture-bot-publish (ONE issue, ONE branch, ONE PR that
+#       closes it; nothing at all when the doc already matches HEAD)
+# Never: never merges, never pushes to `main`, never commits a file other than the doc, never
+#        files a second issue while its own architecture PR is open.
+on:
+  schedule:
+    - cron: "47 */6 * * *"
+  workflow_dispatch:
+    inputs:
+      dry:
+        description: "Preview the issue and PR bodies this run would file, filing nothing"
+        required: false
+        default: "false"
+      doc:
+        description: "Repository-relative markdown document to refresh"
+        required: false
+        default: "docs/ARCHITECTURE.md"
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  actions: read
+
+concurrency:
+  group: architecture-bot
+  cancel-in-progress: false
+
+jobs:
+  # Before anything touches a secret: only the owner or a collaborator with write/maintain/admin
+  # may run this bot (it spends the Nous key, writes issues and pushes a branch). A stranger can
+  # never start it, by dispatch or by schedule.
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Owner / collaborator trigger guard
+        env:
+          ACTOR: ${{ github.actor }}
+          TRIGGER: ${{ github.triggering_actor }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for u in "$ACTOR" "$TRIGGER"; do
+            if [ "$u" = "$OWNER" ]; then continue; fi
+            perm=$(gh api "repos/$REPO/collaborators/$u/permission" --jq .permission 2>/dev/null || echo none)
+            case "$perm" in
+              admin|maintain|write) echo "Collaborator $u has $perm - allowed." ;;
+              *) echo "Refused: $u is not the owner or a collaborator with write access (permission: ${perm:-none})."; exit 1 ;;
+            esac
+          done
+          echo "Allowed: actor=$ACTOR triggering_actor=$TRIGGER"
+
+  architecture:
+    needs: guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      NOUS_API_KEY: ${{ secrets.NOUS_PORTAL_API_TOKEN }}
+      TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+      # The owner PAT: the commit and the push must be able to re-trigger CI, and a branch pushed
+      # with the default job token would not. Issues use the job's own scoped token (below).
+      GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
+      DOC: ${{ inputs.doc || 'docs/ARCHITECTURE.md' }}
+      REPO: ${{ github.repository }}
+    steps:
+      - name: Checkout main with the owner PAT (so the pushed branch re-triggers CI)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.BUMP_TOKEN }}
+
+      - name: Sync with latest upstream main (the branch must start from its tip - issue #303)
+        run: make bot-sync-main
+
+      - name: Resolve the agent image for this commit (hash of the Dockerfile + install script)
+        id: agent
+        run: |
+          set -euo pipefail
+          image=$(make agent-image-ref)
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          echo "agent image: $image"
+
+      - name: Prove the JEV engine is active - the run does not start without it (issue #238)
+        run: make agent-jev-preflight NERVE_REQUIRE=1
+
+      # Hermes strips provider credentials from its terminal tool, so `-e NOUS_API_KEY` reaches the
+      # container while the AGENT's shell reads it EMPTY (issue #358). Prove it in seconds instead
+      # of discovering it after a 90-minute run that changed nothing.
+      - name: Prove the agent's shell can see this job's credentials (issue #358)
+        run: make agent-shell-keys-check AGENT_SHELL_CHECK_KEYS="NOUS_API_KEY GH_TOKEN TYPESAFE_API_KEY"
+
+      - name: Hermes routing smoke (die in seconds, not after 20 min — issue #407)
+        run: make hermes-smoke
+
+      # The deterministic half: real git decides what changed since the doc's last commit. No model
+      # call, no GitHub write, and the only file it produces is the brief.
+      - name: Derive the brief from the tree and the drift
+        run: make architecture-bot-brief DOC="$DOC"
+
+      # The one model leg. It may write ONLY the doc; every branch/commit/push/PR decision stays in
+      # the deterministic step below.
+      - name: Rewrite the doc with Hermes inside the agent image
+        id: doc
+        env:
+          AGENT_IMAGE: ${{ steps.agent.outputs.image }}
+        run: make architecture-bot-doc DOC="$DOC" AGENT_IMAGE="$AGENT_IMAGE"
+
+      # The whole point of the redaction seam (issue #359): the job publishes the REDACTED transcript,
+      # never the raw capture (which holds the unredacted stream by construction).
+      - name: Upload the REDACTED agent transcript
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-transcript-redacted
+          path: hermes-run.scrubbed.log
+          if-no-files-found: ignore
+
+      # ONE issue, ONE branch, ONE PR - and nothing at all when the doc matches HEAD or an
+      # architecture PR is already open. The publish step is the only writer of issues/branches.
+      - name: Publish the refresh as one issue + one linked PR (never merges)
+        id: publish
+        env:
+          DRY_INPUT: ${{ inputs.dry }}
+          # The job's own scoped token, which carries the issues/pull-requests write this step
+          # needs; the owner PAT is for the push (and `secrets.BUMP_TOKEN` carries no Issues write,
+          # issue #412).
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "${DRY_INPUT}" = "true" ]; then
+            echo "==> DRY RUN: printing the issue and PR bodies; filing nothing"
+            out=$(make architecture-bot-publish REPO="$REPO" DOC="$DOC" STAMP="$(date -u +%Y%m%dT%H%M)" DRY=1)
+          else
+            out=$(make architecture-bot-publish REPO="$REPO" DOC="$DOC" STAMP="$(date -u +%Y%m%dT%H%M)")
+          fi
+          printf '%s\n' "$out"
+          action=$(printf '%s\n' "$out" | sed -n 's/^action=//p' | tail -1)
+          pr=$(printf '%s\n' "$out" | sed -n 's/^pr_url=//p' | tail -1)
+          branch=$(printf '%s\n' "$out" | sed -n 's/^branch=//p' | tail -1)
+          echo "action=${action:-unknown}" >> "$GITHUB_OUTPUT"
+          echo "pr_url=$pr" >> "$GITHUB_OUTPUT"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+
+      - name: Report
+        if: always()
+        run: |
+          {
+            echo "### architecture-bot"
+            echo ""
+            echo "- doc: \`$DOC\`"
+            echo "- action: ${{ steps.publish.outputs.action || 'not reached' }}"
+            echo "- branch: ${{ steps.publish.outputs.branch || 'none' }}"
+            echo "- PR: ${{ steps.publish.outputs.pr_url || 'none' }}"
+            echo ""
+            echo "A run with no drift files nothing. The bot never merges and never pushes to \`main\`."
+          } >> "$GITHUB_STEP_SUMMARY"
