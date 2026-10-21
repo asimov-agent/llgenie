@@ -387,7 +387,8 @@ issue-bot-open-pr: ## Open the draft-free PR linking ISSUE from BRANCH (never me
 # secret. The image's install script writes a custom-provider alias instead (provider=custom,
 # base_url=the Nous OpenAI-compatible endpoint, key_env=NOUS_API_KEY) and this is the model
 # name every call uses. `-m` is the MODEL flag (a bare `-m "text"` sets the model to text).
-nous-alias := -m nous-deepseek
+nous-model := nous-deepseek
+nous-alias := -m $(nous-model)
 HERMES_REASONING ?= low
 # The bots run INSIDE the agent image (issues #222/#238/#248): Hermes, git, gh and the docker
 # CLI are installed when the image is built, so a runner never installs the agent on the fly —
@@ -568,7 +569,7 @@ implement-issue: ## Implement issue.md with Hermes INSIDE the agent image (AGENT
 	  $(AGENT_SHELL_FORWARD) \
 	  $(AGENT_IMAGE) bash -lc 'make _implement-issue')
 
-hermes-smoke: ## One real Hermes call through the alias the implementer uses, inside the agent image (die in seconds, not after 20 min); the transcript is REDACTED before it prints (issue #359)
+hermes-smoke: ## Prove the alias the bots use can CALL A TOOL, inside the agent image: a terminal call that prints a per-run nonce, asserted from the session transcript (die in seconds, not after 20 min); the transcript is REDACTED before it prints (issues #359, #407)
 	@python3 scripts/require_env.py NOUS_API_KEY
 	python3 scripts/ci_images.py ensure agent
 	$(call scrubbed_run,$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo -e NOUS_API_KEY \
@@ -587,10 +588,10 @@ _implement-issue: # (internal) the host recipe: implement issue.md with Hermes. 
 # inside the agent image by the public `implement-issue` target.
 	$(MAKE) _agent-jev-preflight
 	hermes -z "Load AGENTS.md for rules. The issue to implement is issue.md at the repo root - read it FIRST (and the linked OpenSpec change if present) and implement exactly its acceptance criteria; do not widen the scope. HARD RULES: (1) run every gate through the Makefile and fix what they report; (2) never weaken or mock a test to get green; (3) a test or script you add must be named by a make target (nothing dead); (4) follow the repo's issue -> branch -> OpenSpec -> code -> PR lifecycle. Do not push, do not merge, do not touch main." $(nous-alias) --reasoning $(HERMES_REASONING) --yolo
-_hermes-smoke: # (internal) one real Hermes call. Invoked inside the agent image by
-# the public `hermes-smoke` target.
+_hermes-smoke: # (internal) one real Hermes call that MUST use its terminal tool. Invoked inside
+# the agent image by the public `hermes-smoke` target.
 	@python3 scripts/require_env.py NOUS_API_KEY
-	hermes -z "Reply with exactly: ok" $(nous-alias) --reasoning low --yolo
+	python3 scripts/hermes_smoke.py run --alias $(nous-model) --reasoning low
 sync-strata-models: ## Write data/strata_models.json from Strata's setup.py at the skill's pinned commit (the GGUF files Strata runs)
 	python3 scripts/strata_models.py sync
 check-strata-models: ## CI: fail when data/strata_models.json differs from Strata's setup.py at the pinned commit

@@ -421,7 +421,7 @@ make issue-bot-dispatch REPO=asimov-agent/llgenie   # cap -> pick -> claim -> is
 make issue-bot-open-pr REPO=<repo> ISSUE=<n> BRANCH=agent/issue-<n>-<slug>  # draft-free PR, never merges
 make implement-issue      # the shared Hermes agent step: read issue.md + AGENTS.md, implement, run gates, push nothing
 make issue-bot-image      # build/pull the agent image the bot runs in (same image as the fix-bot)
-make hermes-smoke          # one real Hermes call through the implementer alias (die in seconds)
+make hermes-smoke          # prove the alias can CALL A TOOL (a terminal call that prints a per-run nonce), die in seconds
 make agent-shell-keys-check  # prove the credential is visible in the AGENT's shell (issue #358)
 make issue-bot-triage     # step 1: Hermes REVIEWS the issue.md thread (body + every comment) and writes triage.md
 make issue-bot-verdict ISSUE=<n>   # step 2: apply that verdict — implement | refine | close
@@ -458,6 +458,37 @@ build inputs of the image hash, and the build itself asserts the alias landed wi
 `max_tokens` and its `context_window` — so a half-written alias fails the build, not a 120-minute run.
 **To move the pin:** change the three values in `scripts/agent_model_pin.py` and the two defaults,
 then `make check-agent-model` (it names any place still behind).
+
+#### What `make hermes-smoke` proves (issue #407)
+
+The smoke used to ask for the sentence `ok` and assert it came back — and a model whose tool calling is
+broken, disabled, or unsupported on the current snapshot answers `ok` too. Every leg it guards is a
+tool-using agent (`implement-issue` runs `make` gates through its terminal tool, the fix loop hands the
+agent a failing check, the refiner writes `refine.md`), so the smoke proved the one capability it did
+not need and missed the one it did.
+
+It now proves the tool call, with a value the model cannot produce without one:
+
+```bash
+make hermes-smoke     # inside the agent image: nonce file -> terminal call -> transcript verdict
+python3 scripts/hermes_smoke.py run --alias nous-deepseek    # the same proof, from the host
+python3 scripts/hermes_smoke.py prompt --token-path /tmp/x   # just the prompt it would send
+```
+
+1. it writes a random `smoke-ok:<nonce>` into a token file; the prompt names the **file**, never the value;
+2. the agent is told to run one exact command with its terminal tool —
+   `printf 'smoke-ok:%s\n' "$(cat <file>)"` — and to reply with only that output;
+3. the run passes only when the session it created (read from `$HERMES_HOME/state.db`, the store
+   `hermes sessions list` reads) carries a `role='tool'`, `tool_name='terminal'` result containing the
+   nonce **and** the final answer carries it too.
+
+Every other outcome fails in seconds with a named reason: no new session / no readable transcript, a
+tool call to anything but `terminal`, a terminal call that did not print the nonce, or an answer that
+does not carry it. A `tool_call_count` above zero is not evidence — only the transcript is. So a model
+whose `tools` were dropped, disabled or broken by a snapshot change reds the smoke before the
+120-minute step it protects, which is the whole reason the smoke exists. `issue-bot.yml` runs
+`make hermes-smoke` in the same place as before; `tests/test_hermes_smoke.py` locks the prompt, the
+four verdicts and the wiring (`make test-unit`), so a future edit cannot turn it back into a sentence.
 
 **The bot decides before it implements.** It reads the issue *and its whole comment thread*
 (`gh issue view <n> --json number,title,body,state,author,labels,comments` — the comments come with the

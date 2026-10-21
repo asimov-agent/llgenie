@@ -227,7 +227,8 @@ def test_the_internal_hermes_calls_are_inside_a_leg_that_redacts():
         start = m.end()
         nxt = re.search(r"(?m)^[a-z0-9_][a-z0-9._-]*:", mk[start:])
         bodies[m.group(1)] = mk[start:start + (nxt.start() if nxt else len(mk) - start)]
-    hermes_inside = [name for name, body in bodies.items() if "hermes -z" in body]
+    hermes_inside = [name for name, body in bodies.items()
+                     if "hermes -z" in body or "scripts/hermes_smoke.py" in body]
     for name in ("_rebase-bot-agent", "_issue-refiner", "_issue-bot-triage", "_implement-issue", "_hermes-smoke"):
         assert name in hermes_inside, f"{name} no longer runs hermes — the roster changed"
 

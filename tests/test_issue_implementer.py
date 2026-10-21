@@ -321,13 +321,22 @@ def test_the_agent_call_uses_the_image_alias_not_a_bogus_flag():
     does not exist. The working form is `-z <prompt> -m <alias> --reasoning <level> --yolo`.
     """
     makefile = (REPO / "Makefile").read_text()
-    assert "nous-alias := -m nous-deepseek" in makefile
-    assert "--alias nous-deepseek" not in makefile, "`--alias` is not a hermes flag"
+    # The alias name lives once, and the flag form is derived from it (issue #407).
+    assert "nous-model := nous-deepseek" in makefile
+    assert "nous-alias := -m $(nous-model)" in makefile
     assert "--max-steps" not in makefile, "`--max-steps` is not a hermes flag"
-    smoke = [l for l in makefile.splitlines() if l.strip().startswith("hermes -z")]
-    assert smoke, "the smoke must be a one-shot (-z), not an interactive start"
-    assert any('hermes -z "Reply with exactly: ok"' in l for l in smoke), smoke
-    assert any("--yolo" in l and "$(nous-alias)" in l for l in smoke), smoke
+
+    hermes_lines = [line for line in makefile.splitlines() if "hermes -z" in line]
+    assert hermes_lines, "the one-shot (-z) form is the only way a leg calls the model"
+    # `--alias` is not a hermes flag: the smoke script has its own `--alias`, a hermes line may not.
+    assert not [line for line in hermes_lines if "--alias" in line], hermes_lines
+    assert all("$(nous-alias)" in line for line in hermes_lines), hermes_lines
+    assert all("--yolo" in line for line in hermes_lines), hermes_lines
+
+    # The smoke proves a tool call instead of asserting a sentence (issue #407).
+    smoke_script = (REPO / "scripts" / "hermes_smoke.py").read_text()
+    assert "scripts/hermes_smoke.py run" in makefile
+    assert '"--yolo"' in smoke_script, "the script keeps the working invocation"
 
 
 def test_the_image_wires_the_nous_token_as_a_custom_provider_alias():
