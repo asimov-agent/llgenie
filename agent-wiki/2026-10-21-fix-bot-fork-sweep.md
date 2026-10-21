@@ -26,5 +26,5 @@ The sibling `rebase-bot-sweep` already solved it with `--own-fork`.
 
 ## Status
 
-Issue #340; PR from `feat/fix-bot-fork-sweep` against `asimov-agent/llgenie:main`. Waiting for
+Issue #340; PR #477 from `feat/fix-bot-fork-sweep` against `asimov-agent/llgenie:main`. Waiting for
 review — the agent never merges.
