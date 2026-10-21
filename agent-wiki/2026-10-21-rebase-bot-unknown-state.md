@@ -34,6 +34,11 @@ read) never posted.
   computation.
 - A read-only run of the real `sweep()` against `asimov-agent/llgenie` returns
   `action=rebase pr=445 state=DIRTY` — the exact PR the old code passed over as `UNKNOWN`.
+- End-to-end retest with three real dispatches of the (unfixed, `main`) workflow:
+  #445 and #447 now read `MERGEABLE` (both had been passed over as `UNKNOWN`); #446 picked,
+  the agent could not resolve its conflict, nothing was pushed, and the report comment failed
+  with `[rebase-bot] could not comment` — the second half of this fix, still unmerged.
+- `make test-unit` -> 4943 passed, 6 deselected, exit 0.
 
 ## Status
 
