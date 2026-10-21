@@ -1012,8 +1012,9 @@ conflict-free, and deletes the branch. The shape is `trending-local-llms`' `auto
 `qa-validate.yml`, which is the model for every bot in this repo.
 
 ```bash
-make auto-merge PR=<n> REPO=asimov-agent/llgenie [HEAD_SHA=<sha>] [DRY=1]   # the decision + the merge
-make verify-closure PR=<n> REPO=asimov-agent/llgenie                        # did `closes #n` actually close?
+make auto-merge PR=<n> REPO=asimov-agent/llgenie [HEAD_SHA=<sha>] [APPROVE=1] [DRY=1]  # the decision + the merge
+make auto-merge-explain PR=<n> REPO=asimov-agent/llgenie     # why it was (or was not) merged — writes nothing
+make verify-closure PR=<n> REPO=asimov-agent/llgenie         # did `closes #n` actually close?
 ```
 
 What it will and will not touch:
@@ -1031,6 +1032,16 @@ The merge runs with the owner PAT (`secrets.BUMP_TOKEN`), never the job token: a
 images — would never happen. Right after merging, `make verify-closure` reads the PR's own
 `closingIssuesReferences` and **fails, naming the issue**, when a claimed `closes #n` did not bind, so an
 unbound keyword is a red run instead of an issue left open on the board.
+
+Two things make a deferral honest rather than silent (issue #491):
+
+- **A green PR blocked only by a required review is approved by the other allowed identity and merged.** The
+  state must be `mergeable: MERGEABLE` + `mergeStateStatus: BLOCKED` + `reviewDecision: REVIEW_REQUIRED`
+  (the workflow's `needs:` gate has already proved every needed job succeeded), the PR's author must be a
+  **different** account from the merge token's — GitHub refuses a self-approval — and the author must be one
+  of this repo's two identities (`andyholst`, `asimov-agent`). Any other review-blocked PR waits for a person.
+- **Every deferral posts one comment per head SHA** with the reason and what would unblock it, so the PR
+  answers "why is this not merged?" itself. `make auto-merge-explain` prints the same verdict at any time.
 
 The agent still never runs `gh pr merge` itself (AGENTS.md rule 7): it pushes, drives the PR green and
 stops — CI lands it, or a human does when the job defers.

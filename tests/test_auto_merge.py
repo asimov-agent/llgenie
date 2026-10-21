@@ -35,32 +35,48 @@ def _state(**kw) -> dict:
     """A `gh pr view` answer with every field the decision reads."""
     base = {"state": "OPEN", "isDraft": False, "mergeable": "MERGEABLE",
             "mergeStateStatus": "CLEAN", "headRefOid": HEAD, "labels": [],
-            "headRepository": {"nameWithOwner": "o/r"}}
+            "headRepository": {"nameWithOwner": "o/r"},
+            "author": {"login": "andyholst"}, "reviewDecision": None,
+            "comments": []}
     base.update(kw)
     return base
 
 
-def _fake_gh(tmp_path: Path, pr: dict, issues: dict | None = None):
-    """A `gh` that answers `pr view` / `issue view` from fixtures and records every argv."""
+def _fake_gh(tmp_path: Path, pr: dict, issues: dict | None = None, token_login: str = "asimov-agent"):
+    """A `gh` answering `pr view` / `pr review` / `pr merge` / `issue view` / `api user`.
+
+    It records every argv (the assertion surface) and flips the PR's state through marker files, so a test
+    can prove an approval happened BEFORE a merge and that the post-approval state is re-read.
+    """
+    tmp_path.mkdir(parents=True, exist_ok=True)
     log = tmp_path / "gh.log"
     gh = tmp_path / "gh"
     gh.write_text(f'''#!{sys.executable}
-import json, sys
+import json, os, sys
 args = sys.argv[1:]
 with open({str(log)!r}, "a") as fh:
     fh.write(json.dumps(args) + "\\n")
 PR = json.loads({json.dumps(pr)!r})
 ISSUES = json.loads({json.dumps(issues or {})!r})
-import os
+TOKEN = {token_login!r}
+if os.path.exists({str(log)!r} + ".approved"):
+    PR = dict(PR, reviewDecision="APPROVED", mergeStateStatus="CLEAN")
 if os.path.exists({str(log)!r} + ".merged"):
     PR = dict(PR, state="MERGED")
+if args[:3] == ["api", "user", "--jq"]:
+    print(TOKEN); sys.exit(0)
 if args[:2] == ["pr", "view"]:
     print(json.dumps(PR)); sys.exit(0)
+if args[:2] == ["pr", "review"]:
+    open({str(log)!r} + ".approved", "w").write("1")
+    print("approved"); sys.exit(0)
 if args[:2] == ["issue", "view"]:
     print(json.dumps({{"state": ISSUES.get(args[2], "OPEN")}})); sys.exit(0)
 if args[:2] == ["pr", "merge"]:
     open({str(log)!r} + ".merged", "w").write("1")
     print("merged"); sys.exit(0)
+if args[:2] == ["pr", "comment"]:
+    print("commented"); sys.exit(0)
 print("unexpected: " + " ".join(args)); sys.exit(1)
 ''')
     gh.chmod(0o755)
@@ -310,3 +326,143 @@ def test_agents_md_states_the_new_policy():
         assert needle in AGENTS, needle
     assert "Merging needs an approval — the agent NEVER merges" not in AGENTS
     assert "gh pr merge <N> --merge --delete-branch" not in AGENTS
+
+
+# ---- a review-blocked green PR: approve with the other identity, then merge (issue #491) ------
+
+def _review_blocked(author: str = "andyholst", **kw) -> dict:
+    return _state(mergeStateStatus="BLOCKED", reviewDecision="REVIEW_REQUIRED",
+                  author={"login": author}, **kw)
+
+
+def test_a_review_blocked_green_pr_is_approved_then_merged(tmp_path):
+    """The one procedural block a bot may clear: an approval from the OTHER allowed identity."""
+
+    # Given a green, mergeable PR blocked only by a required review, authored by andyholst
+    gh = _fake_gh(tmp_path, _review_blocked(), {"491": "CLOSED"})
+
+    # When  the job runs with approval enabled
+    rc = am.run(str(gh), "o/r", 482, HEAD, approve_when_review_required=True)
+
+    # Then  it approves first (as the well-known token account), re-reads, then merges
+    kinds = [c[:2] for c in _calls(tmp_path / "gh.log")]
+    assert rc == 0, rc
+    assert kinds.index(["pr", "review"]) < kinds.index(["pr", "merge"]), kinds
+    review = [c for c in _calls(tmp_path / "gh.log") if c[:2] == ["pr", "review"]][0]
+    assert "--approve" in review, review
+    body = review[review.index("--body") + 1]
+    assert "auto-merge" in body and "491" in body, body
+
+
+def test_a_same_account_pr_is_never_self_approved(tmp_path):
+    """GitHub refuses a self-approval, so a PR authored by the token's own account defers."""
+
+    # Given a review-blocked PR whose author IS the merge token's account
+    gh = _fake_gh(tmp_path, _review_blocked(author="asimov-agent"), token_login="asimov-agent")
+
+    # When  the job runs with approval enabled
+    rc = am.run(str(gh), "o/r", 482, HEAD, approve_when_review_required=True)
+
+    # Then  it never approves, never merges, and says so on the PR
+    kinds = [c[:2] for c in _calls(tmp_path / "gh.log")]
+    assert rc == 0
+    assert ["pr", "review"] not in kinds and ["pr", "merge"] not in kinds, kinds
+    assert ["pr", "comment"] in kinds, kinds
+
+
+def test_a_non_allowlisted_author_is_not_approved(tmp_path):
+    """A bot does not approve a stranger's PR, however green it is."""
+
+    # Given a review-blocked PR from an author outside the repo's identities
+    gh = _fake_gh(tmp_path, _review_blocked(author="somebody-else"))
+
+    # When  the job runs with approval enabled
+    rc = am.run(str(gh), "o/r", 482, HEAD, approve_when_review_required=True)
+
+    # Then  no approval is posted and the PR is deferred
+    kinds = [c[:2] for c in _calls(tmp_path / "gh.log")]
+    assert rc == 0
+    assert ["pr", "review"] not in kinds and ["pr", "merge"] not in kinds, kinds
+
+
+def test_no_approval_for_any_other_blocker(tmp_path):
+    """Only the review state is actionable this way: conflicts and staleness are not."""
+
+    # Given a PR with conflicts, and one behind main
+    for state in (_state(mergeStateStatus="DIRTY"), _state(mergeStateStatus="BEHIND")):
+        calls_before = None
+        gh = _fake_gh(tmp_path / state["mergeStateStatus"], state)
+
+        # When  the job runs with approval enabled
+        rc = am.run(str(gh), "o/r", 482, HEAD, approve_when_review_required=True)
+
+        # Then  it never approves
+        kinds = [c[:2] for c in _calls(tmp_path / state["mergeStateStatus"] / "gh.log")]
+        assert rc == 0
+        assert ["pr", "review"] not in kinds, kinds
+
+
+def test_a_deferral_is_commented_once_per_head(tmp_path):
+    """The reason is on the PR, and not repeated run after run for the same head."""
+
+    # Given a conflicted PR and the job running twice for the same head
+    gh = _fake_gh(tmp_path, _state(mergeStateStatus="DIRTY"))
+    am.run(str(gh), "o/r", 482, HEAD)
+    first = [c for c in _calls(tmp_path / "gh.log") if c[:2] == ["pr", "comment"]]
+
+    # A second run on the same head: the fake answers `pr view` with the same empty comment list, so the
+    # dedupe is asserted on the marker the product builds rather than on a re-read fixture.
+    marker = am.DEFERRAL_MARKER.format(HEAD[:40])
+    assert len(first) == 1, first
+    body = first[0][first[0].index("--body") + 1]
+    assert marker in body and "Not auto-merged" in body, body
+
+    # When  the PR already carries that marker, nothing new is posted
+    already = _fake_gh(tmp_path / "again", _state(mergeStateStatus="DIRTY",
+                                                  comments=[{"body": marker + "\nold"}]))
+    am.run(str(already), "o/r", 482, HEAD)
+
+    # Then  no second comment is posted
+    assert not [c for c in _calls(tmp_path / "again" / "gh.log") if c[:2] == ["pr", "comment"]]
+
+
+def test_explain_prints_the_verdict_and_writes_nothing(tmp_path, capsys):
+    """The same decision, for a human, with no writes at all."""
+
+    # Given a complete PR state
+    gh = _fake_gh(tmp_path, _state())
+
+    # When  explain runs
+    rc = am.explain(str(gh), "o/r", 482)
+
+    # Then  it prints the verdict and calls nothing that writes
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "verdict: would merge" in out, out
+    assert not [c for c in _calls(tmp_path / "gh.log") if c[:2] in (["pr", "merge"], ["pr", "review"],
+                                                                   ["pr", "comment"])]
+
+
+def test_the_workflow_enables_the_approval_with_the_pat():
+    """The job turns the approval on, and still merges with the owner PAT."""
+
+    # Given the auto-merge job's merge step
+    block = CI.split("  auto-merge:", 1)[1]
+
+    # When  its env is read
+    # Then  approval is enabled and the token is the PAT
+    assert 'APPROVE: "1"' in block, block[:1200]
+    assert "GH_TOKEN: ${{ secrets.BUMP_TOKEN }}" in block, block[:1200]
+
+
+def test_the_explain_target_is_phony_and_documented():
+    """`auto-merge-explain` exists, is phony, and is in the README."""
+
+    # Given the Makefile and the README
+    phony = MAKEFILE.split(".PHONY:", 1)[1].split("\n\n", 1)[0]
+
+    # When  the target is looked for
+    # Then  it is declared, has a recipe, and the README documents it
+    assert "\nauto-merge-explain:" in MAKEFILE
+    assert "auto-merge-explain" in phony
+    assert "auto-merge-explain" in README
