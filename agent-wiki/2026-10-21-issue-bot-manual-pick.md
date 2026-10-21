@@ -49,7 +49,7 @@ path; a maintainer could not.
 - `tests/test_issue_bot_manual_pick.py` — 4 passed in `llgenie/test:latest`.
 - `make check-dispatch-forms`, `make check-wiring`, `make check-docs`, `make lint`,
   `make openspec-validate NAME=issue-bot-manual-pick`, `make openspec-tasks-check`,
-  `make check-pr-hygiene`, `make check-pr-authors`, `make test-unit` — exit 0.
+  `make check-pr-hygiene`, `make check-pr-authors`, `make test-unit` (**4969 passed, 6 deselected, 1036 s**) — exit 0.
 - The before-state is measured, not assumed: the same command against `main` returns the HTTP 422
   above. A dispatch from this branch cannot be exercised before merge — `workflow_dispatch --ref` only
   accepts a ref that exists in the upstream repo, and this branch lives on the fork. After merge,
