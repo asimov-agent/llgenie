@@ -26,7 +26,8 @@ Issue: [#449](https://github.com/asimov-agent/llgenie/issues/449).
     `closes #<issue>`. It refuses an empty doc, refuses when nothing changed, and skips
     when an `agent/architecture-*` PR is already open (no issue spam every 6 hours), and
   refuses to publish from any branch other than `main` (a refresh must never ride on another
-  branch's PR).
+  branch's PR), and refuses when the run changed a tracked file other than the doc (the agent's
+  write boundary is enforced, not just prompted).
 - **New make targets**: `architecture-bot-brief`, `architecture-bot-doc` (the one Hermes
   leg, inside the agent image, transcript redacted by the existing `scrubbed_run` seam),
   `architecture-bot-publish`, and the `architecture-bot` chain for a manual local run.

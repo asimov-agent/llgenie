@@ -82,6 +82,13 @@ THEN one issue is filed, one branch carries the doc change, and one PR closes th
 - **Then** it reports `action=pending`, names the open PR, and files nothing
 - **Test:** `tests/test_architecture_bot.py::test_publish_skips_when_an_architecture_pr_is_open`
 
+#### Scenario: a run that edited the code is refused
+- **Given** a changed doc and a tracked source file the agent modified
+- **When** `publish` runs
+- **Then** it exits non-zero naming the stray file, and files nothing
+- **And** an untracked run artifact (the brief) is not treated as a stray edit
+- **Test:** `tests/test_architecture_bot.py::test_publish_refuses_when_the_agent_edited_the_code`
+
 #### Scenario: a refresh never starts from a feature branch
 - **Given** a repository checked out on `feat/other-work` with a changed doc
 - **When** `publish` runs

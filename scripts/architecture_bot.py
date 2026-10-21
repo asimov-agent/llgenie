@@ -116,6 +116,24 @@ def current_branch(root: Path = REPO_ROOT) -> str:
     return git(root, "rev-parse", "--abbrev-ref", "HEAD").strip()
 
 
+def stray_changes(root: Path, doc: str) -> list[str]:
+    """Tracked files the run modified besides `doc` — the agent's write boundary.
+
+    Untracked files are ignored on purpose: the brief and the redacted transcript are run
+    artifacts, not edits. A TRACKED file other than the doc changed means the agent crossed the
+    line the prompt draws, and the refresh must not be published on top of it.
+    """
+    out = git(root, "status", "--porcelain", "--untracked-files=no")
+    stray: list[str] = []
+    for line in out.splitlines():
+        path = line[3:].strip()
+        if " -> " in path:                       # a rename: both sides are edits
+            path = path.split(" -> ", 1)[1]
+        if path and path != doc:
+            stray.append(path)
+    return stray
+
+
 def doc_is_dirty(root: Path, doc: str) -> bool:
     """True when the working tree's doc differs from HEAD (staged, unstaged, or untracked)."""
     if _git_rc(root, "cat-file", "-e", f"HEAD:{doc}") != 0:
@@ -383,6 +401,13 @@ def publish(root: Path, repo: str, doc: str = DOC_DEFAULT, stamp: str = "",
                          "refusing to publish a stub")
     if not doc_is_dirty(root, doc):
         return {"action": "none", "reason": f"{doc} is identical to HEAD — no drift to publish"}
+
+    # The agent may write ONLY the doc. A tracked file changed anywhere else means it crossed that
+    # line, and publishing would carry an unreviewed code edit inside an "architecture refresh".
+    stray = stray_changes(root, doc)
+    if stray:
+        raise ValueError(f"the run changed files other than {doc}: {', '.join(stray)} — "
+                         "refusing to publish an architecture refresh that edits the product")
 
     # The commit must start from `main`: publishing from a feature branch would attach the doc to
     # somebody else's PR (`git checkout -b` would branch off that PR's head, not the base).

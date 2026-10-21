@@ -14,7 +14,9 @@ reviewable PR. It never merges and never pushes to `main`.
   writable file. Credentials travel through `AGENT_SHELL_FORWARD`; the transcript is redacted by
   the existing `scrubbed_run` seam.
 - `make architecture-bot-publish` — checks the working tree (`git diff HEAD`), refuses a doc
-  under 200 characters, defers when an `agent/architecture-*` PR is open, and otherwise files
+  under 200 characters, refuses from any branch but `main`, refuses when a tracked file other
+  than the doc changed (the agent's write boundary is enforced), defers when an
+  `agent/architecture-*` PR is open, and otherwise files
   one issue (Issue/Fix/Benefit/Technical), commits only the doc as `Asimov Agent`, pushes
   `agent/architecture-<UTC stamp>`, and opens one PR ending `closes #<issue>`.
 - `make architecture-bot` chains the three for a local run (`DRY=1` previews).

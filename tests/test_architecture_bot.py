@@ -280,6 +280,35 @@ def test_publish_refuses_an_empty_doc(tmp_path, monkeypatch):
     assert "missing or empty" in raised
 
 
+def test_publish_refuses_when_the_agent_edited_the_code(tmp_path, monkeypatch):
+    """The refresh may only carry the doc; a stray tracked edit is a loud refusal."""
+
+    # Given a dirty doc AND a tracked source file the agent touched
+    root = _repo(tmp_path)
+    _dirty_doc(root)
+    (root / "scripts" / "foo.py").write_text('"""Foo module: tampered."""\n')
+    gh, log = _fake_gh(tmp_path)
+    monkeypatch.setenv("GH_LOG", str(log))
+
+    # When publish runs
+    try:
+        ab.publish(root, "owner/repo", DOC, stamp="20261021T1200", gh=str(gh))
+        raised = ""
+    except ValueError as exc:
+        raised = str(exc)
+
+    # Then it refused, named the stray file, and filed nothing
+    assert "changed files other than" in raised
+    assert "scripts/foo.py" in raised
+    assert log.read_text() == ""
+
+    # And the untracked brief is NOT treated as a stray edit
+    (root / "scripts" / "foo.py").write_text('"""Foo module: serves foo."""\n')
+    (root / "architecture-brief.md").write_text("run artifact\n")
+    result = ab.publish(root, "owner/repo", DOC, stamp="20261021T1200", gh=str(gh))
+    assert result["action"] == "published"
+
+
 def test_publish_refuses_to_commit_on_a_feature_branch(tmp_path, monkeypatch):
     """A refresh only starts from main; anything else would ride on another branch's PR."""
 
