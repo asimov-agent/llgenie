@@ -319,15 +319,69 @@ def dispatch(gh: str, repo: str, bot: str, dry: bool = False, today: str | None 
     return {"action": "dispatch", "count": n, "issue": num, "title": title, "branch": branch}
 
 
-def open_pr(gh: str, repo: str, num: int, branch: str, title: str, body: str,
-            wants: str, dry: bool = False) -> str:
-    """Open a draft-free PR linking the issue. Never merges; reports the URL."""
-    pr_title = f"{title} (implements #{num})"
+#: The four labelled parts every bot PR body carries (AGENTS.md: the issue, the fix, the benefit, the
+#: technical extension). The bot builds the body from the run's OWN material — the agent writes
+#: `pr-body.md` as part of the implementation — because a fixed string is exactly what made the empty
+#: PR #424 look like a description (issue #429).
+PR_BODY_FILE = "pr-body.md"
+PR_PARTS = ("Issue:", "Fix:", "Benefit:", "Technical:")
+
+
+def pr_title(title: str, num: int) -> str:
+    """The PR subject: the issue's own typed Conventional Commit, else a typed prefix. Never a fixed
+    string like `issue-bot implementation` (issue #429)."""
+    subject = (title or "").strip() or f"implement #{num}"
+    if not re.match(r"^[a-z]+(\([\w./-]+\))?!?: ", subject):
+        subject = f"feat: {subject}"
+    return f"{subject} (#{num})"
+
+
+def render_pr_body(text: str, num: int, diffstat: str) -> str:
+    """Validate the agent's PR body and compose it with the commit's own file list.
+
+    Refuses — loudly, naming what is missing — rather than opening a PR whose description says nothing.
+    """
+    problems = []
+    for part in PR_PARTS:
+        m = re.search(rf"(?m)^{re.escape(part)}[ \t]*(.*)$", text or "")
+        if not m:
+            problems.append(f"`{part}` is missing")
+        elif not m.group(1).strip():
+            problems.append(f"`{part}` states nothing")
+    if problems:
+        raise SystemExit(f"[issue-implementer] {PR_BODY_FILE} cannot become a PR body: "
+                         + "; ".join(problems))
+    if f"#{num}" not in text:
+        raise SystemExit(f"[issue-implementer] {PR_BODY_FILE} must name the issue it implements "
+                         f"(`#{num}`) in its `Issue:` part")
+    stat = diffstat.strip() or "(the pushed commit's file list is unavailable)"
+    return f"{text.strip()}\n\nFiles changed:\n\n```\n{stat}\n```\n\ncloses #{num}\n"
+
+
+def diffstat(git: str = "git") -> str:
+    """The files the pushed commit touched — read from git, never from the agent's prose."""
+    r = subprocess.run([git, "show", "--stat", "--format=", "HEAD"], capture_output=True, text=True)
+    return r.stdout if r.returncode == 0 else ""
+
+
+def open_pr(gh: str, repo: str, num: int, branch: str, title: str, body_file: str = PR_BODY_FILE,
+            dry: bool = False, git: str = "git") -> str:
+    """Open a draft-free PR linking the issue, built from the run's material. Never merges."""
+    if not title:
+        title = str(_thread(gh, repo, num).get("title") or "")
+    pr_title_text = pr_title(title, num)
+    path = Path(body_file)
+    if not path.exists():
+        raise SystemExit(f"[issue-implementer] {path} is missing: the implement step must write the "
+                         f"PR body ({', '.join(PR_PARTS)}) at the repo root; refusing to open a PR "
+                         f"whose description says nothing (issue #429)")
+    body = render_pr_body(path.read_text(), num, diffstat(git))
     if dry:
-        print(f"[issue-implementer] would open #implements{num} from {branch} -> main")
+        print(f"[issue-implementer] would open {pr_title_text} from {branch} -> main")
+        print(body)
         return ""
     out = _gh(gh, ["pr", "create", "--repo", repo, "--base", "main", "--head", branch,
-                   "--title", pr_title, "--body", f"{body}\n\ncloses #{num}\n{wants}"])
+                   "--title", pr_title_text, "--body", body])
     url = out.strip().splitlines()[-1] if out.strip() else ""
     print(f"[issue-implementer] opened {url}")
     # `done` with the kind `pr-open`: implemented, NOT yet approved. It keeps occupying the issue -
@@ -435,9 +489,9 @@ def main(argv=None) -> int:
     o.add_argument("--repo", required=True)
     o.add_argument("--issue", type=int, required=True)
     o.add_argument("--branch", required=True)
-    o.add_argument("--title", default="issue-bot implementation")
-    o.add_argument("--body", default="")
-    o.add_argument("--wants", default="Verification notes land on the PR as CI runs it.")
+    o.add_argument("--title", default="", help="the issue title (fetched when empty)")
+    o.add_argument("--body-file", default=PR_BODY_FILE,
+                   help="the agent's four-part PR body (default pr-body.md)")
     o.add_argument("--dry", action="store_true")
 
     args = p.parse_args(argv)
@@ -458,8 +512,8 @@ def main(argv=None) -> int:
     elif args.cmd == "changed":
         print(f"changed={'true' if changed(args.root, args.git) else 'false'}")
     elif args.cmd == "open-pr":
-        url = open_pr(args.gh, args.repo, args.issue, args.branch, args.title, args.body,
-                      args.wants, args.dry)
+        url = open_pr(args.gh, args.repo, args.issue, args.branch, args.title,
+                      args.body_file, args.dry)
         print(f"pr_url={url}")
     else:
         p.error("need a command: count | dispatch | apply-verdict | changed | open-pr")

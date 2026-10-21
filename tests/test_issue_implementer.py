@@ -180,16 +180,21 @@ def test_it_falls_back_to_the_oldest_ready_issue(tmp_path):
 def test_open_pr_links_the_issue_and_never_merges(tmp_path):
     """pr create targets main from the bot branch, links the issue, and returns the URL."""
     gh, log = _fake_gh(tmp_path, {"pr_url": "https://github.com/acme/llgenie/pull/99"})
+    body_file = tmp_path / ii.PR_BODY_FILE
+    body_file.write_text("Issue: #11 — the thing\n\nFix: changed x\n\nBenefit: less drift\n\n"
+                         "Technical: scripts/x.py\n")
     url = ii.open_pr(str(gh), f"{OWNER}/{REPO_NAME}", 11, f"agent/issue-11-{SLUG}",
-                     "Fix the thing", "Implements X", "")
+                     "fix(issue-bot): the thing", str(body_file))
     assert url == "https://github.com/acme/llgenie/pull/99"
     creates = [c for c in _calls(log) if c[:2] == ["pr", "create"]]
     assert len(creates) == 1
     assert creates[0][creates[0].index("--base") + 1] == "main"
     assert f"agent/issue-11-{SLUG}" in creates[0]
-    assert creates[0][creates[0].index("--title") + 1] == "Fix the thing (implements #11)"
+    assert creates[0][creates[0].index("--title") + 1] == "fix(issue-bot): the thing (#11)"
     body = creates[0][creates[0].index("--body") + 1]
     assert "#11" in body and "closes #11" in body
+    assert all(part in body for part in ii.PR_PARTS), body
+    assert "Files changed:" in body, body
     # The bot never emits `pr merge`.
     assert not any(c[:2] == ["pr", "merge"] for c in _calls(log))
 
@@ -506,10 +511,12 @@ def test_a_decided_issue_is_still_skipped_before_any_thread_is_read(monkeypatch)
     assert ii._pick_free("gh", "o/r", cands) is None
 
 
-def test_opening_the_pr_records_a_pr_open_done(monkeypatch):
+def test_opening_the_pr_records_a_pr_open_done(monkeypatch, tmp_path):
     calls = []
     monkeypatch.setattr(ii, "_gh", lambda gh, args: calls.append(args) or "https://x.invalid/pull/9")
-    url = ii.open_pr("gh", "o/r", 11, "agent/issue-11-s", "t", "b", "wants", dry=False)
+    body_file = tmp_path / ii.PR_BODY_FILE
+    body_file.write_text("Issue: #11 — x\n\nFix: y\n\nBenefit: z\n\nTechnical: scripts/x.py\n")
+    url = ii.open_pr("gh", "o/r", 11, "agent/issue-11-s", "fix(x): t", str(body_file), dry=False)
     assert url.endswith("/pull/9")
     done = [c for c in calls if c[:2] == ["issue", "comment"]]
     assert done, "no done comment was posted"

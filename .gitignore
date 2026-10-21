@@ -46,13 +46,15 @@ env/
 
 # --- Artifacts the bots write at the repo root ---------------------------
 # The dispatcher writes issue.md for the agent to read, the refiner writes
-# refine-in.md / refine.md, and the workflows write comment.md / the PR body. They are
-# run inputs, never repo content: `git add -A` in a bot run (or in an agent session)
-# otherwise commits them, which the workflows have to undo with `git reset -- issue.md`.
+# refine-in.md / refine.md, the implementer writes pr-body.md (the PR description it owes),
+# and the workflows write comment.md. They are run inputs, never repo content: `git add -A`
+# in a bot run (or in an agent session) otherwise commits them, which the workflows have to
+# undo with `git reset -- issue.md`.
 issue.md
 refine-in.md
 refine.md
 comment.md
+pr-body.md
 
 # A bot leg's captured agent stream (the `$(call scrubbed_run,…)` seam, issue #359) and its
 # REDACTED copy. The raw file is never printed and never uploaded — the scrubbed one is the

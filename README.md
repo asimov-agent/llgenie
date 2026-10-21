@@ -561,6 +561,23 @@ changed` step runs `make issue-bot-changed`, which answers from
 requires `changed=true`, and the "fail loudly" step fires when the agent failed **or** the tree changed
 nothing — so a no-op run pushes nothing, opens no PR, and reds the job naming the issue. A `git` that
 cannot read the tree exits 2: an unreadable tree must never look like a green run.
+
+#### A bot PR's description comes from the run (issue #429)
+
+The PR body used to be a fixed string — `--title "issue-bot implementation"` plus
+`--wants "Verification notes land on the PR as CI runs it."` — so every bot PR opened with the same
+three lines and no description of the issue, the fix or the benefit, while carrying `closes #<n>`.
+
+Now the implement step writes `pr-body.md` (a run input, ignored like `issue.md`) with the four AGENTS.md
+parts, and `make issue-bot-open-pr` builds the PR from it:
+
+* the subject is the issue's own typed Conventional Commit (else `feat: <title>`) plus `(#<n>)`;
+* `Issue:` must name `#<n>`, and `Issue:` / `Fix:` / `Benefit:` / `Technical:` must each carry real
+  content — otherwise the command **refuses before it calls `gh`**, naming what is missing;
+* the pushed commit's own file list (`git show --stat`) is appended, then `closes #<n>`.
+
+`tests/test_bot_pr_body.py` is the rendered check `make check-pr-hygiene` cannot be: it runs the real
+renderer, so a body that says nothing fails `make test-unit` instead of reaching a reviewer.
 make rebase-bot-sweep     # which ONE open PR needs rebasing (BEHIND/DIRTY against main), with the reason for every pass-over
 make rebase-bot PR=<n> HEAD_BRANCH=<b> HEAD_REPO=<owner>   # rebase it (agent resolves a conflict), verify, push --force-with-lease
 make rebase-bot-agent     # the conflict hand-off: it asks Hermes to resolve a stopped rebase (the conflict prompt arrives on STDIN) and runs INSIDE the agent image
