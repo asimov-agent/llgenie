@@ -23,5 +23,5 @@ never has the test image `lint` runs in.
 
 ## Status
 
-Issue #455; PR from `feat/rebase-bot-real-gates` against `asimov-agent/llgenie:main`. Waiting for
+Issue #455; PR #484 from `feat/rebase-bot-real-gates` against `asimov-agent/llgenie:main`. Waiting for
 review — the agent never merges.
