@@ -36,7 +36,12 @@ PR; the agent never runs `gh pr merge` itself; `do-not-merge` is the human hold.
   `make auto-merge … DRY=1` on a `DIRTY` fixture prints the conflict reason.
 - `make lint`, `make check-docs`, `make check-wiring`, `make check-workflows`,
   `make check-pr-hygiene`, `make openspec-validate NAME=auto-merge-green-prs` — green.
-- `make test-unit` — green (numbers in the PR).
+- `make test-unit` — `4995 passed, 6 deselected in 872.16s (0:14:32)`, exit 0. The first run was red on
+  `tests/test_ci_images.py::test_no_ci_step_or_job_is_skipped` (its job-level `if:` whitelist), fixed by
+  recording the auto-merge job as one documented scenario-scoped exception; `pytest tests/test_ci_images.py`
+  → 26 passed and `pytest tests/test_auto_merge.py` → 14 passed after it.
+- The `do-not-merge` label exists on the repo (`gh label list --search do-not-merge` → colour `#B60205`),
+  so a reviewer can hold a PR the moment this lands.
 
 ## Notes
 
