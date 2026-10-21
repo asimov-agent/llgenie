@@ -30,12 +30,13 @@ Then  it prints the state, merges nothing, and exits 0 — a deferral is not a f
 
 - **Test:** `tests/test_auto_merge.py::test_only_a_clean_merge_state_is_merged`
 
-#### Scenario: the job waits for every PR-relevant job
+#### Scenario: the job waits for every PR-relevant job, and each must have SUCCEEDED
 
 Given `ci.yml`'s job graph
 When  the `auto-merge` job is read
 Then  it `needs:` guard, ci-images, linux, macos, engine-base, engine-matrix, engine-image and
-      linux-published, and its condition tolerates the push-only job being skipped but never a failure.
+      linux-published, it requires `needs.<job>.result == 'success'` for every one of them — a SKIPPED
+      job is not a passed job — and the push-only `engine-published-test` is deliberately not in `needs:`.
 
 - **Test:** `tests/test_auto_merge.py::test_the_job_needs_every_pr_relevant_job`
 

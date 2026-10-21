@@ -345,9 +345,11 @@ jobs:
   # without waiting for a human. The shape is trending-local-llms' `auto-merge` job in qa-validate.yml,
   # which is the model for all of this file's bot handling.
   #
-  #   * `needs:` every PR-relevant job, so it cannot run early. `always() && !failure() && !cancelled()`
-  #     because `engine-published-test` is push-only and SKIPPED on a PR — a skipped job in `needs:`
-  #     skips the dependent job unless the condition tolerates it.
+  #   * `needs:` every PR-relevant job, so it cannot run early, and EACH need must be `success` — a job
+  #     that was SKIPPED is not a job that passed, and merging on "nothing failed" would land a PR whose
+  #     `linux` or `macos` job never ran. `always() && !failure() && !cancelled()` is still required
+  #     because `engine-published-test` is push-only and skipped on a PR (it is deliberately NOT in
+  #     `needs:`; the needs below are exactly the jobs a PR run must complete).
   #   * `mergeStateStatus: CLEAN` is the whole "green and no merge conflicts" rule: DIRTY is a conflict,
   #     BEHIND is a stale branch, BLOCKED is a required check or review still pending.
   #   * `--match-head-commit` pins the merge to the commit THIS run validated: a push after the run
@@ -364,6 +366,10 @@ jobs:
     needs: [guard, ci-images, linux, macos, engine-base, engine-matrix, engine-image, linux-published]
     if: >-
       always() && !failure() && !cancelled() &&
+      needs.guard.result == 'success' && needs.ci-images.result == 'success' &&
+      needs.linux.result == 'success' && needs.macos.result == 'success' &&
+      needs.engine-base.result == 'success' && needs.engine-matrix.result == 'success' &&
+      needs.engine-image.result == 'success' && needs.linux-published.result == 'success' &&
       github.event_name == 'pull_request' &&
       github.event.pull_request.draft == false &&
       github.event.pull_request.head.repo.full_name == github.repository &&

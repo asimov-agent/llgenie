@@ -238,6 +238,12 @@ def test_fork_draft_and_main_are_excluded_and_a_failure_blocks_the_merge():
                    "github.head_ref != 'main'"):
         assert needle in cond, (needle, cond)
 
+    # And "green" means every need SUCCEEDED: a skipped job is not a passed job, and merging on
+    # "nothing failed" would land a PR whose linux or macos job never ran.
+    for job in ("guard", "ci-images", "linux", "macos", "engine-base", "engine-matrix",
+                "engine-image", "linux-published"):
+        assert f"needs.{job}.result == 'success'" in cond, (job, cond)
+
 
 def test_the_merge_uses_the_owner_pat_and_a_make_target():
     """The PAT, so the post-merge run on main happens; and CI runs a make target, not a script."""
