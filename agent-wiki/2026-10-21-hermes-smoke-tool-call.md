@@ -3,8 +3,8 @@
 - Issue: #407 (`ci(bots): hermes-smoke proves text generation, not the tool calling every bot depends on`)
 - OpenSpec change: `hermes-smoke-tool-call`
 - Branch: `feat/hermes-smoke-tool-call`
-- PR: opened against `asimov-agent/llgenie:main` from `andyholst:feat/hermes-smoke-tool-call` (this entry
-  is amended with the number as soon as it exists)
+- PR: [#439](https://github.com/asimov-agent/llgenie/pull/439) — `asimov-agent/llgenie:main` from
+  `andyholst:feat/hermes-smoke-tool-call`
 
 ## What was wrong
 
