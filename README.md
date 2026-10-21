@@ -88,6 +88,10 @@ A bot never works from a stale base:
 - Both fail loudly if `main` cannot be reached — a bot that cannot sync must not start. The
   fix-bot pushes with `--force-with-lease` afterwards, because a sync rewrites history; if another
   bot pushed meanwhile the push is rejected instead of clobbering it.
+- The **fix-bot** repairs a PR whose head is the base repository **or the fork its token may push
+  to** (`make fix-bot-sweep OWN_FORK=andyholst`, issue #340). Every llgenie PR is opened from the
+  fork, so without the allowlist the scheduled sweep passed over every PR and repaired nothing;
+  the branch is now checked out from — and pushed to — the PR's own head remote.
 
 Driven by `scripts/bot_sync_main.sh`; `tests/test_bot_sync.py` runs the rules through a real
 scratch git repository.
@@ -999,6 +1003,37 @@ The checks, and the two limits they are held to:
 key it has already filed, and a cap (3 per run) bounds a bad run — a weekly run on an unchanged tree
 files nothing and stays quiet. The two API-backed checks need a token with admin to read the secret
 list; without one they warn loudly and skip rather than filing a claim they cannot support.
+
+## A green, conflict-free PR is merged by CI (issue #482)
+
+Landing a PR no longer waits at a keyboard. The `auto-merge` job in
+`.github/workflows/ci.yml` squash-merges a pull request the moment its run is green **and** the PR is
+conflict-free, and deletes the branch. The shape is `trending-local-llms`' `auto-merge` job in
+`qa-validate.yml`, which is the model for every bot in this repo.
+
+```bash
+make auto-merge PR=<n> REPO=asimov-agent/llgenie [HEAD_SHA=<sha>] [DRY=1]   # the decision + the merge
+make verify-closure PR=<n> REPO=asimov-agent/llgenie                        # did `closes #n` actually close?
+```
+
+What it will and will not touch:
+
+| condition | result |
+|---|---|
+| every PR-relevant job **succeeded** + `mergeStateStatus: CLEAN` | **merged** (squash, branch deleted, head pinned by `--match-head-commit`) |
+| `DIRTY` (conflicts), `BEHIND` (stale), `BLOCKED` (check/review pending) | deferred to a human, job prints the reason, exits 0 |
+| draft PR, a **third-party** fork (only `andyholst/llgenie` is trusted), head branch `main` | never merged |
+| head moved after the run started | deferred: the newer run decides |
+| `do-not-merge` label | **held** — the human escape hatch; remove it and the next green run merges |
+
+The merge runs with the owner PAT (`secrets.BUMP_TOKEN`), never the job token: a merge made with
+`GITHUB_TOKEN` starts no workflows, so the post-merge run on `main` — the one that publishes the engine
+images — would never happen. Right after merging, `make verify-closure` reads the PR's own
+`closingIssuesReferences` and **fails, naming the issue**, when a claimed `closes #n` did not bind, so an
+unbound keyword is a red run instead of an issue left open on the board.
+
+The agent still never runs `gh pr merge` itself (AGENTS.md rule 7): it pushes, drives the PR green and
+stops — CI lands it, or a human does when the job defers.
 
 ## The architecture bot — `docs/ARCHITECTURE.md` follows the code (issue #449)
 

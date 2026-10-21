@@ -433,7 +433,7 @@ _PUSH_WAIT = (
 
 
 def _job_if_allowed(cond):
-    """A job if: may only wait for its needs, or skip the none placeholder row."""
+    """A job if: may only wait for its needs, skip the none row, or scope the auto-merge job to a PR."""
 
     flat = cond.replace(" ", "")
     if flat in _PUSH_WAIT:
@@ -442,8 +442,17 @@ def _job_if_allowed(cond):
     if flat == "${{matrix.engine!='none'}}":
         return True
     # engine-published-test: push + the image job succeeded (the none row is a step if:)
-    return (flat.startswith("${{!cancelled()&&github.event_name=='push'")
-            and "needs.engine-image.result=='success'" in flat)
+    if (flat.startswith("${{!cancelled()&&github.event_name=='push'")
+            and "needs.engine-image.result=='success'" in flat):
+        return True
+    # auto-merge (issue #482): scenario-scoped ON PURPOSE — it merges a PR, and a push to main has no
+    # PR to merge, so GitHub must decide the scope before any step runs (make cannot see the event's
+    # PR number to branch on). It tolerates a SKIPPED need (engine-published-test is push-only) but
+    # never a failure or a cancellation, and it is the only job whose scope is the event itself.
+    body = flat.removeprefix("${{").removesuffix("}}")
+    return ("github.event_name=='pull_request'" in body
+            and "!failure()" in body and "!cancelled()" in body
+            and "github.event.pull_request.draft==false" in body)
 
 
 def test_no_ci_step_or_job_is_skipped():

@@ -125,16 +125,47 @@ jobs:
             ""|main|master) echo "No open PR branch resolved (or it is $branch) — nothing to fix; the bot never touches main."; exit 0 ;;
           esac
           echo "PR #$num -> branch '$branch'"
+          # The head repository decides which remote the repair is pushed to (issue #340): every
+          # llgenie PR comes from the fork, and pushing it to `origin` would leave a stray branch.
+          read -r headowner headrepo < <(gh pr view "$num" --repo "$REPO" \
+            --json headRepositoryOwner,headRepository \
+            -q '.headRepositoryOwner.login, .headRepository.nameWithOwner' | paste -sd' ' -)
+          echo "head owner: ${headowner:-?} repo: ${headrepo:-?}"
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
           echo "number=$num" >> "$GITHUB_OUTPUT"
+          echo "headowner=$headowner" >> "$GITHUB_OUTPUT"
+          echo "headrepo=$headrepo" >> "$GITHUB_OUTPUT"
 
-      - name: Checkout the PR branch with the owner PAT (so the push re-triggers CI)
+      - name: Checkout with the owner PAT (so the push re-triggers CI)
         if: steps.pr.outputs.branch != ''
         uses: actions/checkout@v4
         with:
-          ref: ${{ steps.pr.outputs.branch }}
+          ref: main
           token: ${{ secrets.BUMP_TOKEN }}
           fetch-depth: 0
+
+      # The PR's branch may live on the fork this bot may push to (`--own-fork`, issue #340). The
+      # base checkout above is on `main`; this fetches the branch from its OWN remote and checks it
+      # out, and records which remote the push must target.
+      - name: Check the PR branch out from its head remote
+        if: steps.pr.outputs.branch != ''
+        env:
+          BUMP_TOKEN: ${{ secrets.BUMP_TOKEN }}
+          HEAD_REPO_NAME: ${{ steps.pr.outputs.headrepo }}
+          BRANCH: ${{ steps.pr.outputs.branch }}
+          BASE_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ -z "$HEAD_REPO_NAME" ] || [ "${HEAD_REPO_NAME,,}" = "${BASE_REPO,,}" ]; then
+            echo "REMOTE=origin" >> "$GITHUB_ENV"
+            git checkout -B "$BRANCH" "origin/$BRANCH"
+          else
+            git remote add fork "https://x-access-token:${BUMP_TOKEN}@github.com/${HEAD_REPO_NAME}.git" 2>/dev/null || \
+              git remote set-url fork "https://x-access-token:${BUMP_TOKEN}@github.com/${HEAD_REPO_NAME}.git"
+            git fetch fork "$BRANCH" --quiet
+            git checkout -B "$BRANCH" "fork/$BRANCH"
+            echo "REMOTE=fork" >> "$GITHUB_ENV"
+          fi
 
       # ------------------------------------------------------------- the loop
       - name: Resolve the agent image for this commit (hash of the Dockerfile + install script)
@@ -225,7 +256,9 @@ jobs:
           nothing was mocked, weakened or skipped."
           # the sync may have rewritten history (a rebase), so the push is guarded: if another bot
           # pushed meanwhile, this is REJECTED loudly instead of clobbering it (issue #303).
-          git push --force-with-lease origin "HEAD:${BRANCH}"
+          # REMOTE is the PR's OWN head remote (fork or origin), set when the branch was checked
+          # out: pushing a fork PR to origin would leave a stray branch (issue #340).
+          git push --force-with-lease "${REMOTE:-origin}" "HEAD:${BRANCH}"
           echo "pushed=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
         env:
           BRANCH: ${{ steps.pr.outputs.branch }}
@@ -282,4 +315,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          make fix-bot-sweep REPO="${{ github.repository }}" CHECK="make ci-unit" ATTEMPTS=3
+          make fix-bot-sweep REPO="${{ github.repository }}" CHECK="make ci-unit" ATTEMPTS=3 OWN_FORK=andyholst

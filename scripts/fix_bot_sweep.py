@@ -5,7 +5,8 @@ that a CI job must not carry a condition that skips it — the decision belongs 
 fix-bot is not dispatched by a conditional job inside `ci.yml`; a scheduled sweep asks this
 module which PR deserves the bot, under the caps, and only then dispatches:
 
-  * open, non-draft PRs whose head is in THIS repository (a fork branch cannot be pushed to),
+  * open, non-draft PRs whose head is this repository OR the allowlisted fork (`--own-fork`), which
+    is the only other remote the bot's token can push to (issue #340),
   * not `main`,
   * at least one failing check,
   * fewer than `--max-attempts` (default 3) `fix(bot):` commits already on the branch,
@@ -119,16 +120,19 @@ def claim(repo: str, pr: dict) -> None:
                                   run_id=os.environ.get("GITHUB_RUN_ID"))])
 
 
-def eligible(repo: str, pr: dict, max_attempts: int = 3) -> tuple[bool, str]:
+def eligible(repo: str, pr: dict, max_attempts: int = 3, own_fork: str | None = None) -> tuple[bool, str]:
     """(would the bot run for this PR, why not). Every rule is a plain reason string."""
     head = pr.get("headRepositoryOwner") or {}
     owner = head.get("login") if isinstance(head, dict) else str(head)
     repo_owner = repo.split("/")[0]
+    pushable = {repo_owner.lower()}
+    if own_fork:
+        pushable.add(own_fork.lower())
     if pr.get("isDraft"):
         return False, "draft"
     if pr.get("headRefName") in ("main", "master"):
         return False, "the base branch"
-    if owner and owner.lower() != repo_owner.lower():
+    if owner and owner.lower() not in pushable:
         return False, f"a fork ({owner})"
     if not failing_checks(repo, pr["number"]):
         return False, "no failing check"
@@ -141,12 +145,13 @@ def eligible(repo: str, pr: dict, max_attempts: int = 3) -> tuple[bool, str]:
     return True, f"{tries + 1}/{max_attempts}: {', '.join(failing_checks(repo, pr['number']))}"
 
 
-def choose(repo: str, max_attempts: int = 3) -> tuple[dict | None, list[tuple[dict, str]]]:
+def choose(repo: str, max_attempts: int = 3,
+           own_fork: str | None = None) -> tuple[dict | None, list[tuple[dict, str]]]:
     """The first eligible PR (oldest-updated first) and the reasons the others were skipped."""
     prs = sorted(open_prs(repo), key=lambda p: p.get("updatedAt") or "")
     skipped: list[tuple[dict, str]] = []
     for pr in prs:
-        ok, why = eligible(repo, pr, max_attempts)
+        ok, why = eligible(repo, pr, max_attempts, own_fork)
         if ok:
             return pr, skipped
         skipped.append((pr, why))
@@ -158,10 +163,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--repo", required=True, help="owner/name")
     ap.add_argument("--max-attempts", type=int, default=3, help="fix(bot): commits per PR")
     ap.add_argument("--check", default="make ci-unit", help="the check the bot drives")
+    ap.add_argument("--own-fork", default=None,
+                    help="the fork owner this bot may push to (e.g. andyholst)")
     ap.add_argument("--dry", action="store_true", help="decide and print; dispatch nothing")
     a = ap.parse_args(argv)
 
-    pr, skipped = choose(a.repo, a.max_attempts)
+    pr, skipped = choose(a.repo, a.max_attempts, a.own_fork)
     if pr is not None and not a.dry:
         # Say we are starting, on the PR itself, before the loop runs (issue #279): the other
         # bots read every claim before they pick anything.

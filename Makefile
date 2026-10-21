@@ -66,7 +66,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	issue-bot-triage issue-bot-changed issue-bot-verdict implement-issue hermes-smoke agent-jev-preflight code-review-scan code-review-file rebase-bot-sweep rebase-bot rebase-bot-abort \
 	architecture-bot-brief architecture-bot-doc architecture-bot-publish architecture-bot \
 	scrub-log \
-	run-failure-reactor rebase-bot-agent check-docs docs-report check-pr-hygiene pr-hygiene-report check-pr-authors pr-authors-report check-workflows workflows-report issue-refiner-pick issue-refiner issue-refiner-apply check-dispatch-forms dispatch-forms-report \
+	run-failure-reactor rebase-bot-agent check-docs docs-report check-pr-hygiene pr-hygiene-report auto-merge verify-closure check-pr-authors pr-authors-report check-workflows workflows-report issue-refiner-pick issue-refiner issue-refiner-apply check-dispatch-forms dispatch-forms-report \
 	agent-shell-keys-check \
 	agent-fetch search-smoke require-env web-coverage issue-evidence \
 	engine-bump-rebase generate-engine-params check-engine-params build-engine run-engine stop-engine list-engine-images ci-lint ci-unit ci-agents-read \
@@ -658,7 +658,7 @@ fix-loop-image: ## Run the fix-bot loop inside the agent image (the same image t
 	$(call scrubbed_run,img=$$(if [ -n "$(AGENT_IMAGE)" ]; then echo "$(AGENT_IMAGE)"; else python3 scripts/ci_images.py ref agent; fi); echo "agent image: $$img"; $(RUNTIME) run --rm --init -v "$$PWD:/repo" -w /repo -e NOUS_API_KEY -e GH_TOKEN -e FIX_CHECK -e FIX_ROUNDS -e TYPESAFE_API_KEY -e HERMES_NERVE_PROVIDER -e NERVE_REQUIRE $(AGENT_SHELL_FORWARD) "$$img" bash -lc 'scripts/agent_jev_preflight.sh && scripts/fix_loop.sh'; $(if $(LOG),cp -f $(HERMES_LOG_SCRUBBED) $(LOG),true))
 
 fix-bot-sweep: ## Which red PR the fix-bot should repair, and dispatch it (DRY=1 previews; needs gh)
-	python3 scripts/fix_bot_sweep.py --repo $(if $(REPO),$(REPO),asimov-agent/llgenie) --check "$(if $(CHECK),$(CHECK),make ci-unit)" --max-attempts $(if $(ATTEMPTS),$(ATTEMPTS),3) $(if $(DRY),--dry,)
+	python3 scripts/fix_bot_sweep.py --repo $(if $(REPO),$(REPO),asimov-agent/llgenie) --check "$(if $(CHECK),$(CHECK),make ci-unit)" --max-attempts $(if $(ATTEMPTS),$(ATTEMPTS),3) $(if $(OWN_FORK),--own-fork $(OWN_FORK),) $(if $(DRY),--dry,)
 
 fix-bot-report: ## Render the fix-bot's failure report from the loop's report file (REPORT=<path>; the same command the workflow uses to comment)
 	python3 scripts/fix_bot_report.py "$(if $(REPORT),$(REPORT),/tmp/fix-report.txt)" --command "$(if $(CHECK),$(CHECK),make ci-unit)"
@@ -729,6 +729,12 @@ check-docs: ## CI: fail when a user-facing (## help) make target is not document
 	python3 scripts/check_docs.py check
 docs-report: ## Show every user-facing make target as documented / missing / a recorded exception, and each agent-wiki/ work record's issue references
 	python3 scripts/check_docs.py report
+auto-merge: ## Merge a PR ONLY when this run is green and the PR is conflict-free: state OPEN, mergeable MERGEABLE, mergeStateStatus CLEAN (no conflicts, not behind, not blocked), head pinned to HEAD_SHA, no do-not-merge label; then verify what it closed (PR= REPO= HEAD_SHA= from ci.yml; DRY=1 prints the decision)
+	@test -n "$(PR)" && test -n "$(REPO)" || { echo "Usage: make auto-merge PR=<n> REPO=<owner/repo> [HEAD_SHA=<sha>] [DRY=1]"; exit 1; }
+	python3 scripts/auto_merge.py auto-merge --repo "$(REPO)" --pr $(PR) $(if $(HEAD_SHA),--head-sha $(HEAD_SHA),) $(if $(DRY),--dry,)
+verify-closure: ## Prove a merged PR closed what its body claims: prints every closing reference and its state, and fails naming an issue that is still OPEN (PR= REPO=)
+	@test -n "$(PR)" && test -n "$(REPO)" || { echo "Usage: make verify-closure PR=<n> REPO=<owner/repo>"; exit 1; }
+	python3 scripts/verify_closure.py verify --repo "$(REPO)" --pr $(PR)
 check-pr-hygiene: ## CI: fail when a producer's commit message or PR body is empty, a placeholder, a subject with no body, or when AGENTS.md lost the mandate (issue #313)
 	python3 scripts/check_pr_hygiene.py check
 pr-hygiene-report: ## Show every producer the PR/commit-message guard reads, and its verdict
