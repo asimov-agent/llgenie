@@ -582,6 +582,20 @@ parts, and `make issue-bot-open-pr` builds the PR from it:
 
 `tests/test_bot_pr_body.py` is the rendered check `make check-pr-hygiene` cannot be: it runs the real
 renderer, so a body that says nothing fails `make test-unit` instead of reaching a reviewer.
+
+#### Each write uses the token that can perform it (issue #430)
+
+The PR step makes two different writes and needs two different tokens. `GH_TOKEN: ${{ github.token }}`
+(`issues: write`) posts the comment that claims the issue and the `pr-open` marker;
+`PR_TOKEN: ${{ secrets.BUMP_TOKEN }}` (the PAT) opens the PR, because a PR opened with `github.token`
+does not trigger CI. One token for both is how a run created PR #424 and then died on
+`addComment` — red after the side effect, with the issue looking unclaimed.
+
+`open_pr()` therefore takes a per-call token (`_gh(…, token=)` sets `GH_TOKEN` for that child process
+only) and posts the **comment before the PR**, so a token that cannot comment costs a comment attempt
+and never a PR nobody has claimed. `tests/test_bot_pr_tokens.py` runs a real fake `gh` that records the
+token it actually received, per call.
+
 make rebase-bot-sweep     # which ONE open PR needs rebasing (BEHIND/DIRTY against main), with the reason for every pass-over
 make rebase-bot PR=<n> HEAD_BRANCH=<b> HEAD_REPO=<owner>   # rebase it (agent resolves a conflict), verify, push --force-with-lease
 make rebase-bot-abort     # abort a stopped rebase and return the tree to main (the run loops over many PRs)

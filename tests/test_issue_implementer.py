@@ -513,15 +513,20 @@ def test_a_decided_issue_is_still_skipped_before_any_thread_is_read(monkeypatch)
 
 def test_opening_the_pr_records_a_pr_open_done(monkeypatch, tmp_path):
     calls = []
-    monkeypatch.setattr(ii, "_gh", lambda gh, args: calls.append(args) or "https://x.invalid/pull/9")
+    monkeypatch.setattr(ii, "_gh",
+                        lambda gh, args, token=None: calls.append(args) or "https://x.invalid/pull/9")
     body_file = tmp_path / ii.PR_BODY_FILE
     body_file.write_text("Issue: #11 — x\n\nFix: y\n\nBenefit: z\n\nTechnical: scripts/x.py\n")
     url = ii.open_pr("gh", "o/r", 11, "agent/issue-11-s", "fix(x): t", str(body_file), dry=False)
     assert url.endswith("/pull/9")
-    done = [c for c in calls if c[:2] == ["issue", "comment"]]
-    assert done, "no done comment was posted"
-    body = " ".join(done[0])
-    assert "bot-done: implementer" in body and "pr-open" in body, body
+    comments = [c for c in calls if c[:2] == ["issue", "comment"]]
+    assert comments, "no comment was posted"
+    # The first comment announces the PR (issue #430: the write that can be denied runs first); the
+    # one carrying the `pr-open` marker is posted once the PR exists.
+    marked = [" ".join(c) for c in comments if "bot-done: implementer" in " ".join(c)]
+    assert marked, comments
+    body = marked[0]
+    assert "pr-open" in body, body
     assert "never merges" in body
 
 

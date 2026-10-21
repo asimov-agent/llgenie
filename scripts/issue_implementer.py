@@ -97,11 +97,26 @@ def changed(root: str = ".", git: str = "git") -> bool:
     return False
 
 
-def _gh(gh: str, args: list[str]) -> str:
-    r = subprocess.run([gh, *args], capture_output=True, text=True)
+def _gh(gh: str, args: list[str], token: "str | None" = None) -> str:
+    """Run `gh` with the token that can perform THIS write (issue #430).
+
+    One token for both writes is the defect: `secrets.BUMP_TOKEN` opens a PR but carries no Issues
+    write, so the claim comment failed AFTER the PR already existed (run 39513850754). The caller
+    passes `GH_TOKEN` for a comment and `PR_TOKEN` for `pr create`; `None` inherits the leg's own env.
+    """
+    env = dict(os.environ)
+    if token:
+        env["GH_TOKEN"] = token
+    r = subprocess.run([gh, *args], capture_output=True, text=True, env=env)
     if r.returncode != 0:
         raise SystemExit(f"[issue-implementer] {gh} {' '.join(args)} failed ({r.returncode}): {r.stderr.strip()}")
     return r.stdout
+
+
+#: The token that opens the PR. The PAT when the leg supplies one (so CI runs on the PR), else the
+#: job's own token — never the other way round, which is what shipped a PR no bot had claimed.
+def pr_token() -> "str | None":
+    return os.environ.get("PR_TOKEN") or None
 
 
 
@@ -380,8 +395,14 @@ def open_pr(gh: str, repo: str, num: int, branch: str, title: str, body_file: st
         print(f"[issue-implementer] would open {pr_title_text} from {branch} -> main")
         print(body)
         return ""
+    # The comment runs BEFORE the PR, with the issues-scoped token: a denied write then costs a
+    # comment attempt, not a PR nobody has claimed, and it is the failure the log names.
+    _gh(gh, ["issue", "comment", str(num), "--repo", repo, "--body",
+             f"Opening the PR for `{branch}`; this bot never merges."],
+        token=os.environ.get("GH_TOKEN"))
     out = _gh(gh, ["pr", "create", "--repo", repo, "--base", "main", "--head", branch,
-                   "--title", pr_title_text, "--body", body])
+                   "--title", pr_title_text, "--body", body],
+              token=pr_token())
     url = out.strip().splitlines()[-1] if out.strip() else ""
     print(f"[issue-implementer] opened {url}")
     # `done` with the kind `pr-open`: implemented, NOT yet approved. It keeps occupying the issue -
@@ -390,7 +411,8 @@ def open_pr(gh: str, repo: str, num: int, branch: str, title: str, body_file: st
     _gh(gh, ["issue", "comment", str(num), "--repo", repo, "--body",
              bot_claims.done_comment(bot_claims.IMPLEMENTER, datetime.now(timezone.utc), "pr-open")
              + f"\n\nImplemented on `{branch}`" + (f": {url}" if url else "") +
-               ". Awaiting review; this bot never merges."])
+               ". Awaiting review; this bot never merges."],
+        token=os.environ.get("GH_TOKEN"))
     return url
 
 

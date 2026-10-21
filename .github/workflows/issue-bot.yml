@@ -247,7 +247,13 @@ jobs:
         id: pr
         if: steps.push.outputs.pushed == 'true'
         env:
-          GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
+          # Two writes, two tokens (issue #430). The comments need `issues: write`, which the job's
+          # own token has and `secrets.BUMP_TOKEN` does not — the earlier revision died here with
+          # "GraphQL: Resource not accessible by personal access token (addComment)" AFTER the PR
+          # had been created. The PR itself needs the PAT, because a PR opened with github.token
+          # does not trigger CI (issue #420).
+          GH_TOKEN: ${{ github.token }}
+          PR_TOKEN: ${{ secrets.BUMP_TOKEN }}
           BRANCH: ${{ steps.dispatch.outputs.branch }}
           ISSUE: ${{ steps.dispatch.outputs.issue }}
           REPO: ${{ github.repository }}
