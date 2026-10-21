@@ -29,7 +29,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import subprocess
 import time
 import datetime as dt
@@ -37,8 +36,10 @@ from datetime import datetime, timezone
 
 import bot_claims
 
-#: Marks this bot's own comments, so its records are found without inventing a label.
-MARKER = "rebase-bot"
+#: The `bot-done` kind that means "this PR really was rebased today". A claim, a `gave-up`, and
+#: any other kind do NOT count: reading "any comment that names the bot" is what turned a failed
+#: attempt into a whole day of doing nothing (issue #457).
+REBASED_KIND = "rebased"
 #: PRs one bot may rebase in a UTC day (each 6-hourly run handles one).
 #: How long this bot's own claim holds. A rebase is minutes, and its actor releases the claim from
 #: the comment it posts, so this is only the floor for a run that dies without a word - short on
@@ -107,14 +108,12 @@ def _today() -> str:
 
 
 def rebased_today(gh: str, repo: str, today: str) -> list[int]:
-    """PR numbers carrying this bot's marker for today (its own audit trail, no label).
+    """PR numbers this bot really REBASED today — read from its `bot-done` marker, nothing else.
 
-    `gh search prs` exposes no comment BODIES — `comments` is not one of its fields (only
-    `commentsCount`), so asking for it is a hard CLI error. The marker therefore comes from each
-    candidate PR's comments through `_comments()` (`gh pr view <n> --json comments`), the one call
-    that carries them. The search is deliberately NOT filtered by author: the marker itself
-    identifies this bot's record, and the bot comments as the owner PAT, never
-    `github-actions[bot]` — a `--commenter` guess returns nothing (issue #309).
+    The daily record is the only bound on rebasing a PR twice, so it must not be guessed from
+    prose: a claim (`bot-claim: … rebase …`), a failure (`gave-up`), another bot's marker and
+    another day's marker all leave the PR a candidate (issue #457). The marker comes from each
+    candidate PR's comments, because `gh search prs` exposes no comment bodies (issue #309).
     """
     out = _gh(gh, ["search", "prs", "--repo", repo, "--updated", f">={today}",
                    "--json", "number", "--limit", "50"])
@@ -123,10 +122,25 @@ def rebased_today(gh: str, repo: str, today: str) -> list[int]:
         num = pr.get("number")
         if num is None:
             continue
-        body = json.dumps(_comments(gh, repo, num))
-        if re.search(rf"{MARKER}[^0-9]{{0,40}}{re.escape(today)}", body):
+        if _rebased_marker(_comments(gh, repo, num), today):
             done.append(num)
     return done
+
+
+def _rebased_marker(comments: list[dict], today: str) -> bool:
+    """Does this thread carry THIS bot's `rebased` done marker for `today`?"""
+    for comment in comments or []:
+        m = bot_claims.DONE_RE.search(comment.get("body") or "")
+        if not m:
+            continue
+        if m.group("bot").lower() != bot_claims.REBASER:
+            continue
+        if not m.group("at").startswith(today):
+            continue
+        if (m.group("what") or "").strip().lower() != REBASED_KIND:
+            continue
+        return True
+    return False
 
 
 def _comments(gh: str, repo: str, num: int) -> list[dict]:

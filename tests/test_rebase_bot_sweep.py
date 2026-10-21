@@ -96,8 +96,14 @@ def _marker_today(num, today="2026-10-14"):
 
 
 def _marker_comments(nums, today="2026-10-14"):
-    """The `comments_by_pr` fixture carrying this bot's marker for `today`."""
-    return {str(n): [{"body": f"rebased. <!-- rebase-bot: {today} -->"}] for n in nums}
+    """The `comments_by_pr` fixture carrying this bot's `rebased` DONE marker for `today`.
+
+    The real marker shape matters: `rebased_today` reads `bot_claims.DONE_RE`, and the old fixture
+    wrote `<!-- rebase-bot: <date> -->` (the shape the regex matched), which is exactly what kept
+    a claim or a failure counting as a completed rebase (issue #457).
+    """
+    return {str(n): [{"body": f"rebased. <!-- bot-done: rebase-bot {today}T00:00:00Z rebased -->"}]
+            for n in nums}
 
 
 def test_the_sweep_picks_one_pr_and_states_a_reason_for_every_pass_over(tmp_path):
@@ -462,3 +468,85 @@ def test_the_cli_passes_the_unknown_state_bounds(tmp_path, capsys):
     assert rc == 0
     assert "action=none" in out
     assert "deferred to the next run" in out
+
+
+# ------------------------------------ "already rebased today" reads the DONE marker (issue #457)
+
+
+def _claim_body(today="2026-10-14"):
+    """The claim the sweep itself posts before a rebase starts."""
+    return (f"<!-- bot-claim: rebase-bot {today}T06:22:00Z rebase ttl=30m run=123 -->\n"
+            "`rebase-bot` is rebaseing this now. Other bots: leave it alone for the next 30 minutes.")
+
+
+def _done_body(kind, today="2026-10-14"):
+    return f"an outcome. <!-- bot-done: rebase-bot {today}T06:30:00Z {kind} -->"
+
+
+def test_a_claim_is_not_a_rebase_record(tmp_path):
+    """The bot's own claim must not count as a completed rebase for the day."""
+
+    # Given a DIRTY PR whose only bot comment is the claim it posted before starting
+    gh, _log = _fake_gh(tmp_path, {"search": [_marker_today(9)],
+                                   "comments_by_pr": {"9": [{"body": _claim_body()}]},
+                                   "prs": [_pr(9, "DIRTY")]})
+
+    # When the sweep runs
+    res = rb.sweep(str(gh), f"{OWNER}/{NAME}", today="2026-10-14", own_fork="andyholst",
+                   unknown_delay=0)
+
+    # Then the claim is not the record, and the PR is picked again
+    assert res["action"] == "rebase" and res["pr"] == 9, res
+    assert "already rebased today" not in " | ".join(res["reasons"])
+
+
+def test_a_rebased_done_marker_is_the_record(tmp_path):
+    """A `rebased` DONE marker dated today keeps the PR out of the day's work."""
+
+    # Given a PR whose thread carries today's `rebased` marker
+    gh, _log = _fake_gh(tmp_path, {"search": [_marker_today(7)],
+                                   "comments_by_pr": {"7": [{"body": _done_body("rebased")}]},
+                                   "prs": [_pr(7, "BEHIND")]})
+
+    # When the sweep runs
+    res = rb.sweep(str(gh), f"{OWNER}/{NAME}", today="2026-10-14", own_fork="andyholst",
+                   unknown_delay=0)
+
+    # Then it is passed over as already rebased
+    assert res["action"] == "none", res
+    assert "#7 was already rebased today" in " | ".join(res["reasons"])
+
+
+def test_a_gave_up_marker_does_not_record_the_day(tmp_path):
+    """A failed attempt records `gave-up`, so the PR stays eligible for a retry today."""
+
+    # Given a PR whose thread carries today's `gave-up` marker
+    gh, _log = _fake_gh(tmp_path, {"search": [_marker_today(9)],
+                                   "comments_by_pr": {"9": [{"body": _done_body("gave-up")}]},
+                                   "prs": [_pr(9, "DIRTY")]})
+
+    # When the sweep runs
+    res = rb.sweep(str(gh), f"{OWNER}/{NAME}", today="2026-10-14", own_fork="andyholst",
+                   unknown_delay=0)
+
+    # Then the failure is not the record, and the PR is picked
+    assert res["action"] == "rebase" and res["pr"] == 9, res
+
+
+def test_the_actor_records_rebased_only_on_success():
+    """The script writes kind `rebased` on the push path and `gave-up` on every failure path."""
+
+    # Given the rebase actor's shell script
+    script = (REPO / "scripts" / "rebase_bot.sh").read_text()
+
+    # When its comment helper and its outcome lines are read
+    # Then the helper defaults to gave-up, and the success call passes rebased explicitly
+    assert 'local kind="${2:-gave-up}"' in script
+    success = [l for l in script.splitlines() if l.startswith('comment "$OUTCOME')]
+    assert success and success[0].rstrip().endswith(" rebased")
+
+    # And no failure path claims to have rebased
+    failures = [l for l in script.splitlines()
+                if l.lstrip().startswith("comment \"The rebase bot")]
+    assert failures, "the failure paths should comment"
+    assert not any(l.rstrip().endswith(" rebased") for l in failures)

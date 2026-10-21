@@ -45,15 +45,19 @@ run() {
 }
 
 comment() {
+  # $2 is the `bot-done` KIND: `rebased` only when this run really pushed, `gave-up` on every
+  # failure path. The sweep counts a PR as "already rebased today" from that marker alone
+  # (issues #453/#457), so recording a failure as `rebased` blocks the retry for the rest of the day.
+  local kind="${2:-gave-up}"
   if [ -n "$DRY" ]; then
-    echo "[rebase-bot] DRY: gh pr comment $PR --body <the outcome>"
+    echo "[rebase-bot] DRY: gh pr comment $PR --body <the outcome; kind=$kind>"
   else
     # Every comment this bot posts ALSO releases its claim (scripts/bot_claims.py, issues #279/#285).
     # The reader ages a claim by its own TTL (4h for a repair), so a run that ended has to say so -
     # on every path, which is why the release lives in this one helper rather than at the exits.
     local done_marker
-    done_marker=$(PYTHONPATH="$(dirname "$0")" python3 -c \
-      'import datetime as dt, bot_claims; print(bot_claims.done_comment(bot_claims.REBASER, dt.datetime.now(dt.timezone.utc), "rebased"))' 2>/dev/null)
+    done_marker=$(PYTHONPATH="$(dirname "$0")" KIND="$kind" python3 -c \
+      'import datetime as dt, os, bot_claims; print(bot_claims.done_comment(bot_claims.REBASER, dt.datetime.now(dt.timezone.utc), os.environ["KIND"]))' 2>/dev/null)
     gh pr comment "$PR" --repo "$REPO" --body "$1
 ${done_marker}" >/dev/null || echo "[rebase-bot] could not comment" >&2
   fi
@@ -116,5 +120,5 @@ elif ! bash -o pipefail -c "$GATES"; then
 fi
 
 run git push --force-with-lease "$REMOTE" "HEAD:$HEAD_BRANCH"
-comment "$OUTCOME. The structural checks (\`make -n ci-unit\`, \`make lint\`, \`make check-wiring\`) pass on the result; CI runs the full suite on this push. Nothing was merged. <!-- $MARKER: $TODAY -->"
+comment "$OUTCOME. The structural checks (\`make -n ci-unit\`, \`make lint\`, \`make check-wiring\`) pass on the result; CI runs the full suite on this push. Nothing was merged. <!-- $MARKER: $TODAY -->" rebased
 echo "[rebase-bot] pushed $HEAD_BRANCH to $REMOTE"
