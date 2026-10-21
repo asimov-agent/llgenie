@@ -167,7 +167,7 @@ def _checks(gh: str, repo: str, num: int) -> tuple[bool, bool]:
 
 def sweep(gh: str, repo: str, today: str | None = None, max_per_day: int = MAX_PER_DAY,
           own_fork: str | None = None, unknown_attempts: int = UNKNOWN_ATTEMPTS,
-          unknown_delay: float = UNKNOWN_DELAY_S) -> dict:
+          unknown_delay: float = UNKNOWN_DELAY_S, skip: list[int] | None = None) -> dict:
     """Pick the one PR to rebase, or explain why none is."""
     d = today or _today()
     done = rebased_today(gh, repo, d)
@@ -187,8 +187,12 @@ def sweep(gh: str, repo: str, today: str | None = None, max_per_day: int = MAX_P
             reasons.append(f"#{num} is a draft"); continue
         if (pr.get("baseRefName") or "main") != "main":
             reasons.append(f"#{num} targets {pr.get('baseRefName')}, not main"); continue
-        if num in done:
-            reasons.append(f"#{num} was already rebased today"); continue
+        # `done` (today's markers) bounds the daily cap, NOT the eligibility: a PR rebased this
+        # morning and re-dirtied by a later merge still needs the rebase, and after a successful
+        # one the PR reads CLEAN so it cannot be picked again (issue #467). Only the PRs this run
+        # already handled are passed over by number.
+        if skip and num in skip:
+            reasons.append(f"#{num} was already rebased in this run"); continue
         if head_repo not in (owner, (own_fork or "").lower()):
             reasons.append(f"#{num} lives on {head_repo or 'an unknown repo'} (not pushable here)")
             continue
@@ -249,9 +253,12 @@ def main(argv=None) -> int:
                    help="re-queries for a PR whose merge state GitHub has not computed yet")
     p.add_argument("--unknown-delay", type=float, default=UNKNOWN_DELAY_S,
                    help="seconds between those re-queries")
+    p.add_argument("--skip", default="",
+                   help="comma-separated PR numbers this run already rebased (never picked twice)")
     a = p.parse_args(argv)
+    skip = [int(n) for n in (a.skip or "").replace(" ", "").split(",") if n]
     res = sweep(a.gh, a.repo, a.today, a.max_per_day, a.own_fork,
-                a.unknown_attempts, a.unknown_delay)
+                a.unknown_attempts, a.unknown_delay, skip)
     for r in res["reasons"]:
         print(f"[rebase-bot] pass-over: {r}")
     print(f"[rebase-bot] {res['reason']}")

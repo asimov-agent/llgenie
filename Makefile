@@ -309,7 +309,7 @@ spawn-engine-skill-issues: ## Open one tracking issue per NEW unskilled registry
 # is handed to the agent; the result is verified structurally and pushed with --force-with-lease
 # to the PR's OWN head remote (a fork PR goes to the fork). It never merges.
 rebase-bot-sweep: ## Which ONE open PR needs rebasing (BEHIND/DIRTY against main): prints action/pr/head_* and the reason for every pass-over
-	python3 scripts/rebase_bot_sweep.py --repo $(if $(REPO),$(REPO),asimov-agent/llgenie) $(if $(OWN_FORK),--own-fork $(OWN_FORK),)
+	python3 scripts/rebase_bot_sweep.py --repo $(if $(REPO),$(REPO),asimov-agent/llgenie) $(if $(OWN_FORK),--own-fork $(OWN_FORK),) $(if $(SKIP),--skip "$(SKIP)",)
 
 # ---- the model pin the bots call (issue #405) --------------------------------
 # The bots run the Hermes CLI in the agent image against ONE pinned snapshot through the alias

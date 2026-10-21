@@ -593,9 +593,11 @@ rebase fails is aborted (`make rebase-bot-abort`), reported, and the run carries
   <n> --json mergeStateStatus` (bounded: `UNKNOWN_ATTEMPTS` re-queries, `--unknown-attempts` /
   `--unknown-delay`); a PR that stays `UNKNOWN` is reported as **deferred to the next run**,
   never silently counted as "needs nothing" (issue #453). It states a reason for every PR it
-  passes over, skips a PR it already rebased **today** (its own `<!-- bot-done: rebase-bot … rebased -->`
-  marker comment is the record — a claim or a `gave-up` from a failed attempt is not, issue #457 —
-  so no label is invented and no PR is rebased twice in a day), and skips a fork it cannot push to.
+  passes over, never picks the same PR twice in one run (`SKIP=`, issue #467), and counts today's
+  `<!-- bot-done: rebase-bot … rebased -->` markers toward the daily cap **without** treating them
+  as a bar: a PR that a later merge re-dirtied is rebased again the same day. A claim or a
+  `gave-up` from a failed attempt is never the record (issues #457/#467) — so no label is invented
+  and no PR is rebased in a loop — and it skips a fork it cannot push to.
 - **It keeps out of the other bots' way.** It skips a PR with checks **in flight** (rebasing
   would cancel the run deciding it), and leaves a **red, merely-behind** PR to the fix-bot — a
   rebase fixes staleness, not a failing test — while still taking a **conflicted** red PR, since a

@@ -122,15 +122,15 @@ def test_the_sweep_picks_one_pr_and_states_a_reason_for_every_pass_over(tmp_path
     assert "#3 targets release/1" in joined
 
 
-def test_a_pr_already_rebased_today_is_left_alone(tmp_path):
-    """The marker comment is the record: no label needed, and no rebase loop."""
+def test_a_pr_rebased_today_but_clean_is_left_alone(tmp_path):
+    """Today's marker bounds the daily cap; a CLEAN PR needs nothing either way."""
     gh, log = _fake_gh(tmp_path, {"search": [_marker_today(7)], "comments_by_pr": _marker_comments([7]),
                                   "prs": [
-        _pr(7, "BEHIND", created="2026-09-01T00:00:00Z"),
+        _pr(7, "CLEAN", created="2026-09-01T00:00:00Z"),
         _pr(8, "BEHIND", created="2026-09-02T00:00:00Z")]})
     res = rb.sweep(str(gh), f"{OWNER}/{NAME}", today="2026-10-14", own_fork="andyholst")
     assert res["pr"] == 8, res
-    assert any("already rebased today" in r for r in res["reasons"])
+    assert any("#7 is CLEAN" in r for r in res["reasons"])
     q = [c for c in [json.loads(l) for l in log.read_text().splitlines()] if c[:2] == ["search", "prs"]][0]
     assert "--updated" in q and ">=2026-10-14" in q
     assert "comments" not in q[q.index("--json") + 1].split(","), q   # search has no bodies (#309)
@@ -170,7 +170,7 @@ def test_the_sweep_never_asks_search_prs_for_a_field_the_cli_lacks(tmp_path):
 
     # Given a repo with a PR the sweep must consider
     gh, log = _fake_gh(tmp_path, {"search": [_marker_today(7)], "comments_by_pr": _marker_comments([7]),
-                                  "prs": [_pr(7, "BEHIND", created="2026-09-01T00:00:00Z")]})
+                                  "prs": [_pr(7, "CLEAN", created="2026-09-01T00:00:00Z")]})
 
     # When the sweep runs
     res = rb.sweep(str(gh), f"{OWNER}/{NAME}", today="2026-10-14", own_fork="andyholst")
@@ -500,21 +500,22 @@ def test_a_claim_is_not_a_rebase_record(tmp_path):
     assert "already rebased today" not in " | ".join(res["reasons"])
 
 
-def test_a_rebased_done_marker_is_the_record(tmp_path):
-    """A `rebased` DONE marker dated today keeps the PR out of the day's work."""
+def test_a_rebased_done_marker_is_the_days_record(tmp_path):
+    """A `rebased` DONE marker dated today is the daily-cap record (not a bar to a needed rebase)."""
 
-    # Given a PR whose thread carries today's `rebased` marker
+    # Given a PR whose thread carries today's `rebased` marker, and it is behind again
     gh, _log = _fake_gh(tmp_path, {"search": [_marker_today(7)],
                                    "comments_by_pr": {"7": [{"body": _done_body("rebased")}]},
                                    "prs": [_pr(7, "BEHIND")]})
 
-    # When the sweep runs
+    # When the record is read and the sweep runs
+    done = rb.rebased_today(str(gh), f"{OWNER}/{NAME}", "2026-10-14")
     res = rb.sweep(str(gh), f"{OWNER}/{NAME}", today="2026-10-14", own_fork="andyholst",
                    unknown_delay=0)
 
-    # Then it is passed over as already rebased
-    assert res["action"] == "none", res
-    assert "#7 was already rebased today" in " | ".join(res["reasons"])
+    # Then the marker counts for the cap, and the re-dirtied PR is still picked
+    assert done == [7]
+    assert res["action"] == "rebase" and res["pr"] == 7, res
 
 
 def test_a_gave_up_marker_does_not_record_the_day(tmp_path):
@@ -655,3 +656,52 @@ def test_the_abort_target_resets_the_tree_to_main():
     assert "git checkout -q main" in body
     assert "rebase-bot-abort" in phony
     assert "rebase-bot-abort" in readme
+
+
+# ------------------- a rebase this morning must not block a rebase this afternoon (issue #467)
+
+
+def test_a_pr_rebased_today_that_main_re_dirtied_is_picked_again(tmp_path):
+    """The marker bounds the daily cap, not eligibility: main moving re-dirties the PR."""
+
+    # Given a PR carried today's `rebased` marker and it is CONFLICTING again
+    gh, _log = _fake_gh(tmp_path, {"search": [_marker_today(7)],
+                                   "comments_by_pr": _marker_comments([7]),
+                                   "prs": [_pr(7, "DIRTY", created="2026-09-01T00:00:00Z")]})
+
+    # When the sweep runs later the same day
+    res = rb.sweep(str(gh), f"{OWNER}/{NAME}", today="2026-10-14", own_fork="andyholst",
+                   unknown_delay=0)
+
+    # Then the PR is picked again instead of waiting for the date to roll over
+    assert res["action"] == "rebase" and res["pr"] == 7, res
+    assert not any("already rebased today" in r for r in res["reasons"])
+
+
+def test_the_run_skips_the_prs_it_already_rebased_in_this_run(tmp_path):
+    """One run must not pick the same PR twice — that is what `--skip` is for."""
+
+    # Given two DIRTY PRs, one of which this run already rebased
+    gh, _log = _fake_gh(tmp_path, {"search": [], "prs": [
+        _pr(7, "DIRTY", created="2026-09-01T00:00:00Z"),
+        _pr(8, "DIRTY", created="2026-09-02T00:00:00Z")]})
+
+    # When the sweep is told to skip #7
+    res = rb.sweep(str(gh), f"{OWNER}/{NAME}", today="2026-10-14", own_fork="andyholst",
+                   unknown_delay=0, skip=[7])
+
+    # Then it picks the other one, and says why
+    assert res["action"] == "rebase" and res["pr"] == 8, res
+    assert any("#7 was already rebased in this run" in r for r in res["reasons"])
+
+
+def test_the_loop_passes_the_prs_it_already_did():
+    """The workflow's loop tells the sweep which PRs it handled, so no PR repeats in one run."""
+
+    # Given the drain step's script
+    script = _drain_step()["run"]
+
+    # Then it starts empty, passes SKIP to the sweep, and appends each successful PR
+    assert 'skip=""' in script
+    assert 'SKIP="$skip"' in script
+    assert 'skip="${skip:+$skip,}$pr"' in script

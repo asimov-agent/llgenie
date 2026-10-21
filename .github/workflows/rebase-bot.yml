@@ -139,8 +139,9 @@ jobs:
           MAX_PR="${MAX_PR:-10}"
           rebased=0
           failed=0
+          skip=""
           for i in $(seq 1 "$MAX_PR"); do
-            out=$(make rebase-bot-sweep REPO="$REPO" OWN_FORK=andyholst)
+            out=$(make rebase-bot-sweep REPO="$REPO" OWN_FORK=andyholst SKIP="$skip")
             rc=$?
             printf '%s\n' "$out"
             # A crashed decision is NOT "nothing to do" (issue #309): go red instead of reporting
@@ -160,6 +161,9 @@ jobs:
             echo "==> rebasing #$pr ($branch) [$i/$MAX_PR]"
             if make rebase-bot REPO="$REPO" PR="$pr" HEAD_BRANCH="$branch" HEAD_REPO="$headrepo"; then
               rebased=$((rebased + 1))
+              # Never pick the same PR twice in one run: today's marker bounds the daily cap, not
+              # eligibility (a later merge can re-dirty a PR rebased this morning — issue #467).
+              skip="${skip:+$skip,}$pr"
             else
               failed=$((failed + 1))
               echo "::warning title=Rebase failed::#$pr ($branch) was not rebased; aborting it so the next decision runs on a clean tree"
