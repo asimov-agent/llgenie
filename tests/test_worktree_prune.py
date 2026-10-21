@@ -291,6 +291,25 @@ def test_a_worktree_that_cannot_be_removed_keeps_its_branch_and_exits_nonzero(tm
     assert "could not remove worktree" in result.stderr
 
 
+def test_the_worktree_the_run_is_in_is_never_removed(tmp_path):
+    """git cannot remove the directory it is standing in, so that worktree is reported, not attempted."""
+
+    # Given a merged-PR branch whose worktree is where the prune will run from
+    work = _repo(tmp_path)
+    squash = _merged_branch(work, "feat/self")
+    tree = tmp_path / "wt-self"
+    _git(work, "worktree", "add", str(tree), "feat/self")
+
+    # When  the prune runs FROM that worktree
+    result = _run(tmp_path, tree, [_pr(16, "feat/self", "MERGED", squash)])
+
+    # Then  it exits 0, keeps the worktree and the branch, and says why
+    assert result.returncode == 0, result.stderr
+    assert tree.is_dir()
+    assert "feat/self" in _git(work, "for-each-ref", "--format=%(refname:short)", "refs/heads")
+    assert "is the worktree this run is executing in" in result.stdout
+
+
 def test_a_failed_pr_lookup_prunes_nothing_and_exits_nonzero(tmp_path):
     """A failing `gh` is a loud failure, never a run that prunes from a partial answer."""
 

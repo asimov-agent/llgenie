@@ -45,13 +45,14 @@ with its stated reason.
 - **Then** the branch survives and the reason says the merge commit is not on the base
 - **Test:** `tests/test_worktree_prune.py::test_a_merge_commit_off_the_base_is_kept`
 
-### Requirement: the main checkout and detached worktrees are untouchable
+### Requirement: the main checkout, the running worktree and detached worktrees are untouchable
 
-The prune MUST NOT remove the repository's main checkout, and MUST NOT remove a worktree whose HEAD
-is detached — a detached worktree holds no branch, so no merge can license deleting it.
+The prune MUST NOT remove the repository's main checkout, MUST NOT remove the worktree the run is
+executing in (git refuses to remove the directory it stands in), and MUST NOT remove a worktree whose
+HEAD is detached — a detached worktree holds no branch, so no merge can license deleting it.
 
-WHEN the worktree list contains the main checkout or a detached worktree
-THEN neither is a candidate, whatever its commit's history says.
+WHEN the worktree list contains the main checkout, the current worktree or a detached worktree
+THEN none of them is a candidate, whatever its commit's history says.
 
 #### Scenario: the main checkout survives a prune
 
@@ -59,6 +60,14 @@ THEN neither is a candidate, whatever its commit's history says.
 - **When** the prune runs with every branch on that checkout's history merged
 - **Then** the main checkout still exists and is still on its branch
 - **Test:** `tests/test_worktree_prune.py::test_the_main_checkout_is_never_removed`
+
+#### Scenario: the worktree the run is in is reported, not removed
+
+- **Given** a merged-PR branch whose own worktree is where the prune is executed
+- **When** the prune runs from inside that worktree
+- **Then** it exits 0, the worktree and the branch survive, and the reason says the worktree is the
+  one the run is executing in
+- **Test:** `tests/test_worktree_prune.py::test_the_worktree_the_run_is_in_is_never_removed`
 
 #### Scenario: a detached worktree is never removed
 

@@ -189,8 +189,20 @@ def _merged(entries: list[dict]) -> dict | None:
     return None
 
 
-def plan(base: str, branches: list[str], trees: list[Worktree], prs: dict[str, list[dict]], cwd: str | None = None) -> list[Decision]:
-    """Decide, with a printed reason, what happens to every local branch. Mutates nothing."""
+def plan(
+    base: str,
+    branches: list[str],
+    trees: list[Worktree],
+    prs: dict[str, list[dict]],
+    cwd: str | None = None,
+    current: str | None = None,
+) -> list[Decision]:
+    """Decide, with a printed reason, what happens to every local branch. Mutates nothing.
+
+    `current` is the worktree this run is executing in: git refuses to remove the directory it is
+    standing in, so it is never a candidate — running the prune from a merged branch's own worktree
+    must report that instead of failing on it.
+    """
     main_checkout = trees[0].path if trees else None
     tree_by_branch = {t.branch: t for t in trees if t.branch}
     decisions: list[Decision] = []
@@ -223,6 +235,9 @@ def plan(base: str, branches: list[str], trees: list[Worktree], prs: dict[str, l
         tree = tree_by_branch.get(branch)
         if tree is not None and main_checkout is not None and tree.path == main_checkout:
             decisions.append(Decision(branch, "keep", "checked out in the repository's main checkout", pr=number))
+            continue
+        if tree is not None and current is not None and tree.path == current:
+            decisions.append(Decision(branch, "keep", "is the worktree this run is executing in", pr=number, path=tree.path))
             continue
         if tree is not None and is_dirty(tree.path, cwd=cwd):
             decisions.append(Decision(branch, "keep", f"worktree {tree.path} holds uncommitted changes", pr=number, path=tree.path))
@@ -283,7 +298,7 @@ def prune(*, repo: str, base: str = DEFAULT_BASE, dry: bool = False, cwd: str | 
     root = repo_root(cwd)
     trees = worktrees(cwd)
     prs = pull_requests(repo, cwd)
-    decisions = plan(base, local_branches(cwd), trees, prs, cwd=cwd)
+    decisions = plan(base, local_branches(cwd), trees, prs, cwd=cwd, current=root)
     if dry:
         return Outcome(decisions=decisions)
     return apply(decisions, cwd=root)

@@ -8,3 +8,4 @@
 - [x] 6. `AGENTS.md` — the cleanup step names `make worktree-prune`
 - [x] 7. `agent-wiki/2026-10-21-worktree-prune.md` — the work record, referencing issue #431 and its PR
 - [x] 8. Verified: `make test-unit` green with the new file, `make check-wiring`, `make check-docs`, `make lint`, `make check-pr-hygiene`, `make openspec-validate NAME=worktree-prune` all exit 0 (`make test-unit`: 4912 passed, 3 deselected in 755 s; the first run reddened on an unrelated live-Hub HTTP 429 in `test_readme_links_answer_and_a_broken_copy_is_caught`, filed as #435)
+- [x] 9. Review fix: the worktree the run is executing in is never a candidate (git refuses to remove the directory it stands in), with its own spec scenario and test — plus the rebase onto `origin/main` `cbb1ff4` and a full gate re-run

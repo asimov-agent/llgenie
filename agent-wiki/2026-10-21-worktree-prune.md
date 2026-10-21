@@ -35,9 +35,24 @@ Three facts compounded:
   `gh` stubbed on `PATH`: prune, dirty, CLOSED/PR-less, merge-commit-off-base, main checkout,
   detached worktree, dry run, failing lookup, and the Makefile/README wiring.
 
+## Review fix (PR #436)
+
+Rebased onto `origin/main` `cbb1ff4` (#439) and hardened one real edge the first cut got wrong: when
+the prune runs **from inside** a merged branch's own worktree, that worktree was a candidate and
+`git worktree remove` failed with `fatal: validation failed, cannot remove working tree` — an exit-2
+failure for a run that could not do what it announced. The running worktree is now never a candidate
+and is reported (`is the worktree this run is executing in`), with a spec scenario and
+`tests/test_worktree_prune.py::test_the_worktree_the_run_is_in_is_never_removed`. The file is now 11
+tests.
+
+CI on the first push was red only on `macos / top-tier`: a live-Hub `TimeoutError: The read operation
+timed out` in `test_top_tier_acceptance.py` — the open #399 (the dry-run acceptance test blocks on Hub
+latency), unrelated to this change. `linux|macos / openspec` were red earlier for one commit because
+task 8 was still unticked at that commit (`openspec-tasks-check`), fixed in `7ac25fc`.
+
 ## Verified
 
-- `tests/test_worktree_prune.py` — 9 passed in `llgenie/test:latest` (run as the invoking uid).
+- `tests/test_worktree_prune.py` — 11 passed in `llgenie/test:latest` (run as the invoking uid).
 - The live dry run against the real checkout, after the hand prune of the same day (92 merged
   branches and 69 worktrees removed, `955 MB → 184 MB`): every remaining branch was kept with its
   reason — the 36 PR-less duplicates, the 2 CLOSED-PR branches (`ci/bot-schedule-gaps` #281,
