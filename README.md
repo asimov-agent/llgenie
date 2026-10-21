@@ -587,7 +587,10 @@ It runs **every 6 hours** and handles **ONE PR per run**, oldest first:
 - `make rebase-bot` does the work: rebase with `rerere` **off** (a recorded resolution from an
   earlier rebase is not trustworthy), and on a conflict hand the stopped rebase to Hermes with what
   each side means plus the hard rules (preserve both sides, never weaken a test, keep a recipe's
-  TAB). Then it checks the result structurally — `make -n ci-unit` parses, `make lint`, and the
+  TAB). The agent is reached through a **snapshot of `Makefile` taken before the checkout**
+  (`make -f <snapshot> rebase-bot-agent`) and the container runs Hermes directly, because a conflict
+  can be *in* `Makefile` and `make` cannot parse a file that is mid-rebase (issue #460). Then it
+  checks the result structurally — `make -n ci-unit` parses, `make lint`, and the
   wiring guard — and pushes with **`--force-with-lease`** to the **PR's own head remote**: a fork
   PR goes to the fork, never to `origin`. It never merges, and a resolution it cannot finish is
   reported on the PR and left for a human. The step that runs it exports `GH_TOKEN`, because the

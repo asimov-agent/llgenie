@@ -550,3 +550,40 @@ def test_the_actor_records_rebased_only_on_success():
                 if l.lstrip().startswith("comment \"The rebase bot")]
     assert failures, "the failure paths should comment"
     assert not any(l.rstrip().endswith(" rebased") for l in failures)
+
+
+# --------------------------- the conflict agent is reachable mid-rebase (issue #460)
+
+
+def test_the_agent_is_invoked_through_a_pre_checkout_makefile_snapshot():
+    """A conflicted Makefile must not stop `make` from reaching the agent."""
+
+    # Given the rebase actor's shell script
+    script = (REPO / "scripts" / "rebase_bot.sh").read_text()
+
+    # When the snapshot and the command that uses it are located
+    snap = script.index('MK_SNAPSHOT="$(mktemp)"')
+    copy = script.index('cp Makefile "$MK_SNAPSHOT"')
+    checkout = script.index('run git checkout -B "$HEAD_BRANCH"')
+
+    # Then the Makefile is snapshotted BEFORE the conflicted checkout …
+    assert snap < checkout and copy < checkout, "the snapshot must precede the checkout"
+
+    # … and the agent leg is reached through it, so `make` has a file that parses
+    assert 'AGENT_CMD="${AGENT_CMD:-make -f $MK_SNAPSHOT rebase-bot-agent}"' in script
+
+
+def test_the_agent_recipe_runs_hermes_directly_inside_the_image():
+    """The container must not re-read the conflicted Makefile to launch the agent."""
+
+    # Given the Makefile's rebase agent leg
+    mk = (REPO / "Makefile").read_text()
+    recipe = mk.split("rebase-bot-agent:", 1)[1].split("\nrebase-bot:", 1)[0]
+
+    # Then it runs Hermes inline, inside the redacting public leg
+    assert "hermes -z" in recipe
+    assert "$(call scrubbed_run," in recipe
+
+    # And no nested make target exists (it would parse the conflicted file)
+    assert "bash -lc 'make _rebase-bot-agent'" not in recipe
+    assert "\n_rebase-bot-agent:" not in mk

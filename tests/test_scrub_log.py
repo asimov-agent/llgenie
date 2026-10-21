@@ -229,13 +229,21 @@ def test_the_internal_hermes_calls_are_inside_a_leg_that_redacts():
         bodies[m.group(1)] = mk[start:start + (nxt.start() if nxt else len(mk) - start)]
     hermes_inside = [name for name, body in bodies.items()
                      if "hermes -z" in body or "scripts/hermes_smoke.py" in body]
-    for name in ("_rebase-bot-agent", "_issue-refiner", "_issue-bot-triage", "_implement-issue", "_hermes-smoke"):
+    for name in ("_issue-refiner", "_issue-bot-triage", "_implement-issue", "_hermes-smoke"):
         assert name in hermes_inside, f"{name} no longer runs hermes — the roster changed"
 
     # …and every one of them runs under a public leg that goes through the macro
     public = {t for t, _ in _public_agent_legs()}
     for name in hermes_inside:
         assert public, f"the public legs disappeared while {name} still calls hermes"
+
+    # `rebase-bot-agent` calls hermes INLINE (issue #460): a nested `make _rebase-bot-agent` would
+    # re-read the conflicted Makefile the agent is being asked to resolve, so that leg has no
+    # internal target — and its call still has to sit inside the redacting public leg.
+    legs = dict(_public_agent_legs())
+    assert "rebase-bot-agent" in legs, "the rebase agent leg disappeared"
+    assert "hermes -z" in legs["rebase-bot-agent"], "the rebase agent leg no longer calls hermes"
+    assert "_rebase-bot-agent" not in bodies, "the in-container make leg is back (issue #460)"
 
 
 def test_the_workflows_publish_only_the_redacted_log():

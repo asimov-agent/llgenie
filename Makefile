@@ -345,10 +345,9 @@ rebase-bot-agent: ## Ask Hermes to resolve a stopped rebase (the conflict prompt
 	  -e TYPESAFE_API_KEY \
 	  -e HERMES_NERVE_PROVIDER -e NERVE_REQUIRE \
 	  $(AGENT_SHELL_FORWARD) \
-	  $(AGENT_IMAGE) bash -lc 'make _rebase-bot-agent')
-
-_rebase-bot-agent: # (internal) the host recipe: read the conflict prompt on stdin, resolve, stage
-	hermes -z "$$(cat)" $(nous-alias) --reasoning medium --yolo
+	  $(AGENT_IMAGE) bash -lc 'hermes -z "$$(cat)" -m nous-deepseek --reasoning medium --yolo')
+# Hermes runs directly there, NOT through `make _rebase-bot-agent`: the container's /repo/Makefile
+# is the conflicted file the agent was asked to resolve, and make cannot parse it (issue #460).
 
 rebase-bot: ## Rebase ONE PR onto main (agent-resolved conflicts), verify the structure, then push --force-with-lease to the PR's head remote. Never merges. Needs PR=/HEAD_BRANCH= [HEAD_REPO=] [DRY=1]
 	@test -n "$(PR)" && test -n "$(HEAD_BRANCH)" || { echo "Usage: make rebase-bot PR=<n> HEAD_BRANCH=<branch> [HEAD_REPO=<owner>] [REPO=] [DRY=1]"; exit 1; }

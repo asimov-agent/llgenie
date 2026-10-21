@@ -24,7 +24,13 @@ REPO="${REPO:?REPO is required}"
 OWNER="${REPO%%/*}"
 ORIGIN="${ORIGIN:-origin}"
 FORK_REMOTE="${FORK_REMOTE:-fork}"
-AGENT_CMD="${AGENT_CMD:-make rebase-bot-agent}"
+# `make` must PARSE the Makefile before it can run any target — and the conflict may BE in
+# `Makefile` ("Makefile:628: *** missing separator", run 39566967551 on PR #446). So the agent leg
+# is reached through a snapshot taken BEFORE the checkout: same target, from a file that still
+# parses while the tree is mid-rebase (issue #460).
+MK_SNAPSHOT="$(mktemp)"
+cp Makefile "$MK_SNAPSHOT"
+AGENT_CMD="${AGENT_CMD:-make -f $MK_SNAPSHOT rebase-bot-agent}"
 GATES="${GATES:-make -n ci-unit; make lint; make check-wiring}"
 MARKER="${MARKER:-rebase-bot}"
 TODAY="${TODAY:-$(date -u +%Y-%m-%d)}"
