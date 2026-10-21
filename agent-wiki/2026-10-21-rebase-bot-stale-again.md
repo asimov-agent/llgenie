@@ -27,6 +27,9 @@ state, so a PR that needed another rebase waited for the UTC date to roll over.
 - `pytest tests/test_rebase_bot_sweep.py tests/test_bot_decision_loudness.py` 40 passed: a
   re-dirtied PR is picked, `--skip` is respected, the loop forwards the list, and a `rebased`
   marker still counts toward the cap while a claim/`gave-up` does not.
+- Read against the LIVE repo with the fixed code: `sweep(skip=[])` -> `action=rebase pr=447
+  state=DIRTY` (the PR the 07:06Z run passed over), and `sweep(skip=[447])` ->
+  `pr=448` with `#447 was already rebased in this run` — the drain behaviour, measured.
 - Structural gates and the full suite recorded in the PR.
 
 ## Status
