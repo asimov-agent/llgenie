@@ -445,14 +445,10 @@ def _job_if_allowed(cond):
     if (flat.startswith("${{!cancelled()&&github.event_name=='push'")
             and "needs.engine-image.result=='success'" in flat):
         return True
-    # auto-merge (issue #482): scenario-scoped ON PURPOSE — it merges a PR, and a push to main has no
-    # PR to merge, so GitHub must decide the scope before any step runs (make cannot see the event's
-    # PR number to branch on). It tolerates a SKIPPED need (engine-published-test is push-only) but
-    # never a failure or a cancellation, and it is the only job whose scope is the event itself.
-    body = flat.removeprefix("${{").removesuffix("}}")
-    return ("github.event_name=='pull_request'" in body
-            and "!failure()" in body and "!cancelled()" in body
-            and "github.event.pull_request.draft==false" in body)
+    # auto-merge is no longer a job in ci.yml (issue #493): a `pull_request` run from a fork receives no
+    # repository secrets, so the job reported green while merging nothing (#481). It is a `workflow_run`
+    # workflow now (`.github/workflows/auto-merge.yml`), and no job here is scenario-scoped any more.
+    return False
 
 
 def test_no_ci_step_or_job_is_skipped():

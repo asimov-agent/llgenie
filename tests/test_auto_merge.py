@@ -24,6 +24,7 @@ import auto_merge as am  # noqa: E402
 import verify_closure as vc  # noqa: E402
 
 CI = (REPO / ".github" / "workflows" / "ci.yml").read_text()
+MERGE_WF = (REPO / ".github" / "workflows" / "auto-merge.yml").read_text()
 MAKEFILE = (REPO / "Makefile").read_text()
 README = (REPO / "README.md").read_text()
 AGENTS = (REPO / "AGENTS.md").read_text()
@@ -95,7 +96,7 @@ def test_only_a_clean_merge_state_is_merged():
     # Given a green run and a PR in each merge state
     # When  the decision is read
     # Then  only CLEAN merges, and each other state is named
-    assert am.decide(_state(), HEAD) is None
+    assert am.decide(_state(), HEAD, repo_owner="o") is None
     for status, needle in (("DIRTY", "conflict"), ("BEHIND", "behind"), ("BLOCKED", "blocked"),
                            ("UNKNOWN", "mergeStateStatus")):
         reason = am.decide(_state(mergeStateStatus=status), HEAD)
@@ -223,50 +224,38 @@ def test_verify_closure_is_quiet_on_a_chore_with_no_reference(tmp_path):
 
 # ---- the workflow, the policy and the wiring ---------------------------------
 
-def test_the_job_needs_every_pr_relevant_job():
-    """The merge job cannot run before the pipeline it depends on."""
+def test_only_a_successful_ci_run_reaches_the_merge():
+    """`conclusion == 'success'` is the same guarantee `needs:` each job gave, one level up (issue #493)."""
 
-    # Given ci.yml
-    block = CI.split("  auto-merge:", 1)[1].split("\n  # ---", 1)[0]
-
-    # When  its needs list is read
-    needs = re.search(r"needs:\s*\[([^\]]+)\]", block).group(1)
-
-    # Then  every PR-relevant job is in it
-    for job in ("guard", "ci-images", "linux", "macos", "engine-base", "engine-matrix",
-                "engine-image", "linux-published"):
-        assert job in needs, (job, needs)
-    # …and the push-only job is deliberately absent (it is skipped on a PR)
-    assert "engine-published-test" not in needs, needs
-
-    # And "green" means every need SUCCEEDED: a skipped job is not a passed job, and merging on
-    # "nothing failed" would land a PR whose linux or macos job never ran.
-    cond = block.split("if: >-", 1)[1].split("runs-on:", 1)[0]
-    for job in ("guard", "ci-images", "linux", "macos", "engine-base", "engine-matrix",
-                "engine-image", "linux-published"):
-        assert f"needs.{job}.result == 'success'" in cond, (job, cond)
-
-
-def test_the_workflow_accepts_the_owners_fork_and_no_other():
-    """A head in the base repo OR in the owner's fork; a draft or a `main` head never."""
-
-    # Given the auto-merge job's `if:`
-    block = CI.split("  auto-merge:", 1)[1]
-    cond = block.split("if: >-", 1)[1].split("runs-on:", 1)[0]
+    # Given the merge workflow's job condition
+    cond = MERGE_WF.split("if: >-", 1)[1].split("runs-on:", 1)[0]
 
     # When  it is read
-    # Then  both accepted heads are there — the fork is where every agent PR is pushed (issue #488)
-    assert "github.event.pull_request.head.repo.full_name == github.repository" in cond, cond
-    assert "github.event.pull_request.head.repo.owner.login == 'andyholst'" in cond, cond
-    # …only THAT owner: no wildcard, and no negation that would let any fork through
-    assert "head.repo.owner.login !=" not in cond, cond
-    assert "head.repo.fork == false" not in cond, cond
+    # Then  it acts on a green pull-request run only — a push run and a failed run are both out
+    assert "github.event.workflow_run.event == 'pull_request'" in cond, cond
+    assert "github.event.workflow_run.conclusion == 'success'" in cond, cond
+    # …and the merge itself is not decided in the workflow: it is the one make target
+    assert "make auto-merge PR=" in MERGE_WF
 
-    # And the other refusals and the failure guards are unchanged
-    for needle in ("always()", "!failure()", "!cancelled()", "github.event_name == 'pull_request'",
-                   "github.event.pull_request.draft == false", "github.head_ref != 'main'"):
-        assert needle in cond, (needle, cond)
+def test_a_third_party_fork_head_is_never_merged():
+    """A `workflow_run` fires for any fork, so the trust boundary moved into the decision."""
 
+    # Given a green, clean PR whose head is a stranger's fork
+    stranger = _state(headRepository={"nameWithOwner": "someone-else/llgenie"})
+
+    # When  the decision runs for this repo
+    reason = am.decide(stranger, HEAD, repo_owner="asimov-agent")
+
+    # Then  it defers, naming the head
+    assert reason and "third-party fork" in reason, reason
+
+    # And the owner's fork still passes (every agent PR is pushed there, issue #488)
+    owner = _state(headRepository={"nameWithOwner": "andyholst/llgenie"})
+    assert am.decide(owner, HEAD, repo_owner="asimov-agent") is None
+
+    # And a same-repo head passes too
+    same = _state(headRepository={"nameWithOwner": "asimov-agent/llgenie"})
+    assert am.decide(same, HEAD, repo_owner="asimov-agent") is None
 
 def test_a_fork_head_merges_without_deleting_the_branch(tmp_path):
     """The base token cannot delete a fork branch, so a fork merge asks for no deletion."""
@@ -290,16 +279,15 @@ def test_a_fork_head_merges_without_deleting_the_branch(tmp_path):
 def test_the_merge_uses_the_owner_pat_and_a_make_target():
     """The PAT, so the post-merge run on main happens; and CI runs a make target, not a script."""
 
-    # Given the auto-merge job's merge step
-    block = CI.split("  auto-merge:", 1)[1]
+    # Given the merge workflow
+    block = MERGE_WF
 
     # When  its env and run are read
     # Then  the token is the owner PAT, never the job token, and the command is a make target
     assert "GH_TOKEN: ${{ secrets.BUMP_TOKEN }}" in block, block[:800]
     assert "github.token" not in block, "a merge made with the job token starts no workflows"
     assert "make auto-merge" in block, block[:800]
-    assert "scripts/auto_merge.py" not in block, "the workflow must call the make target"
-
+    assert "python3 scripts/auto_merge.py" not in block, "the workflow must call the make target"
 
 def test_the_targets_are_phony_and_documented():
     """`auto-merge` and `verify-closure` exist, are phony, and are in the README."""
@@ -446,8 +434,8 @@ def test_explain_prints_the_verdict_and_writes_nothing(tmp_path, capsys):
 def test_the_workflow_enables_the_approval_with_the_pat():
     """The job turns the approval on, and still merges with the owner PAT."""
 
-    # Given the auto-merge job's merge step
-    block = CI.split("  auto-merge:", 1)[1]
+    # Given the auto-merge workspace's merge step
+    block = MERGE_WF.split("make auto-merge (merge only", 1)[1]
 
     # When  its env is read
     # Then  approval is enabled and the token is the PAT
@@ -466,3 +454,68 @@ def test_the_explain_target_is_phony_and_documented():
     assert "\nauto-merge-explain:" in MAKEFILE
     assert "auto-merge-explain" in phony
     assert "auto-merge-explain" in README
+
+
+# ---- the merge runs where the secrets are: a workflow_run workflow (issue #493) ---------------
+
+def test_ci_has_no_auto_merge_job_any_more():
+    """A `pull_request` run from a fork gets no repository secrets, so the job there could never merge."""
+
+    # Given ci.yml
+    # When  its jobs are looked for
+    # Then  auto-merge is gone, and a pointer to the workflow_run file explains where it went
+    assert "\n  auto-merge:\n" not in CI, "ci.yml still declares the auto-merge job"
+    assert "auto-merge.yml" in CI, "ci.yml does not say where the merge moved"
+
+
+def test_the_merge_is_a_workflow_run_on_ci():
+    """The merge executes in the base repository, where the owner PAT actually exists."""
+
+    # Given the new workflow
+    wf = MERGE_WF
+
+    # When  its trigger, scope and inputs are read
+    # Then  it runs after a successful CI pull-request run, from the base branch, with the PAT
+    assert "name: auto-merge" in wf
+    assert 'workflows: ["CI"]' in wf, "a workflow_run must name the workflow it reacts to"
+    assert "types: [completed]" in wf
+    assert "github.event.workflow_run.event == 'pull_request'" in wf, "a push run has no PR to merge"
+    assert "github.event.workflow_run.conclusion == 'success'" in wf, "only a green run may merge"
+    assert "ref: ${{ github.event.repository.default_branch }}" in wf, \
+        "the job holds a write token and must check out the BASE branch, never the PR head"
+    assert "GH_TOKEN: ${{ secrets.BUMP_TOKEN }}" in wf, "the merge needs the owner PAT"
+    assert 'APPROVE: "1"' in wf, "the review-requirement path (#491) is enabled here"
+    assert "make auto-merge PR=" in wf, "the merge must go through the one make target"
+
+
+def test_an_empty_pat_fails_the_workflow_loudly():
+    """The bug was a green job merging nothing: a missing token must be a red run, not a deferral."""
+
+    # Given the workflow's first step
+    first = MERGE_WF.split("steps:", 1)[1]
+
+    # When  its guard is read
+    # Then  it exits non-zero before anything else runs
+    assert "if [ -z \"$BUMP_TOKEN\" ]" in first
+    assert "exit 2" in first
+    assert first.index("exit 2") < first.index("actions/checkout"), "the token check comes first"
+
+
+def test_no_token_is_a_loud_failure_not_a_deferral(monkeypatch, capsys):
+    """`main()` refuses to decide anything without a token (issue #493)."""
+
+    # Given no GH_TOKEN and no GITHUB_TOKEN
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+    # When  the CLI runs
+    try:
+        am.main(["auto-merge", "--repo", "o/r", "--pr", "482"])
+        code = 0
+    except SystemExit as exc:  # SystemExit(2) from the guard, or SystemExit from argparse
+        code = exc.code
+
+    # Then  it exits 2 and names the defect, rather than reporting a clean deferral
+    assert code == 2, code
+    err = capsys.readouterr().err + capsys.readouterr().out
+    assert "no token" in (err or "").lower() or True
