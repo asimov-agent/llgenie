@@ -649,7 +649,9 @@ rebase fails is aborted (`make rebase-bot-abort`), reported, and the run carries
   the one `$(nous-alias)` model pin), because a conflict
   can be *in* `Makefile` and `make` cannot parse a file that is mid-rebase (issue #460). Then it
   checks the result structurally — `make -n ci-unit` parses, `make lint`, and the
-  wiring guard — and pushes with **`--force-with-lease`** to the **PR's own head remote**: a fork
+  wiring guard — every gate chained with `&&`, so ANY failure blocks the push (`;` used to report
+  only the last one), and the runner provides the test image `make lint` runs in (issue #455) —
+  and pushes with **`--force-with-lease`** to the **PR's own head remote**: a fork
   PR goes to the fork, never to `origin`. It never merges, and a resolution it cannot finish is
   reported on the PR and left for a human — with its stopped rebase **aborted**, so the run's next
   decision still has a parseable `Makefile` (issues #460/#464). The step that runs it exports

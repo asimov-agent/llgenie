@@ -31,7 +31,9 @@ FORK_REMOTE="${FORK_REMOTE:-fork}"
 MK_SNAPSHOT="$(mktemp)"
 cp Makefile "$MK_SNAPSHOT"
 AGENT_CMD="${AGENT_CMD:-make -f $MK_SNAPSHOT rebase-bot-agent}"
-GATES="${GATES:-make -n ci-unit; make lint; make check-wiring}"
+# `&&`, not `;`: a `;` list reports only the LAST command's status, so a failing `make lint`
+# was swallowed while `make check-wiring` passed and the branch was pushed anyway (issue #455).
+GATES="${GATES:-make -n ci-unit && make lint && make check-wiring}"
 MARKER="${MARKER:-rebase-bot}"
 TODAY="${TODAY:-$(date -u +%Y-%m-%d)}"
 DRY="${DRY:-}"

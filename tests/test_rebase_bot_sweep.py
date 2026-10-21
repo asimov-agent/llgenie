@@ -715,3 +715,36 @@ def test_the_loop_passes_the_prs_it_already_did():
     assert 'skip=""' in script
     assert 'SKIP="$skip"' in script
     assert script.count('skip="${skip:+$skip,}$pr"') == 2, script
+
+
+# ------------------------------ the structural gate really gates the push (issue #455)
+
+
+def test_the_structural_gate_fails_closed(tmp_path):
+    """A failing gate must block the push — the `;` list used to swallow it."""
+    work, remote, env = _scratch_repo(tmp_path)
+    before = subprocess.run(["git", "--git-dir", str(remote), "rev-parse", "feat/conflict"],
+                            capture_output=True, text=True, check=True).stdout.strip()
+
+    # Given a rebase that applies cleanly but a structural gate that fails
+    r = _run_actor(tmp_path, work, env, "true", gates="false")
+
+    # Then the run stops, and nothing is published
+    assert r.returncode != 0, r.stdout + r.stderr
+    after = subprocess.run(["git", "--git-dir", str(remote), "rev-parse", "feat/conflict"],
+                           capture_output=True, text=True, check=True).stdout.strip()
+    assert before == after, "a failing gate must not publish the branch"
+
+
+def test_the_default_gate_chain_and_the_pull_it_needs():
+    """The default gates are chained with &&, and the workflow pulls the image lint runs in."""
+    script = (REPO / "scripts" / "rebase_bot.sh").read_text()
+    wf = (REPO / ".github" / "workflows" / "rebase-bot.yml").read_text()
+
+    # Then every gate is required, not just the last one
+    line = next(l for l in script.splitlines() if l.startswith('GATES="${GATES:-'))
+    assert "make -n ci-unit && make lint && make check-wiring" in line, line
+
+    # And the runner pulls the test image before the drain step needs it
+    assert "make test-image" in wf
+    assert wf.index("make test-image") < wf.index("Rebase every eligible PR")

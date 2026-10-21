@@ -117,6 +117,12 @@ jobs:
       - name: Prove the agent's shell can see this job's credentials (issue #358)
         run: make agent-shell-keys-check AGENT_SHELL_CHECK_KEYS="NOUS_API_KEY TYPESAFE_API_KEY"
 
+      # The structural gate runs `make lint`, which executes inside the pinned test image. The
+      # runner never builds it (issue #117), so pull it first; without this the gate fails for a
+      # reason that has nothing to do with the rebase (issue #455).
+      - name: Provide the test image the structural gate runs in (issue #455)
+        run: make test-image
+
       # ONE run drains the backlog (issue #462): the decision is re-asked after every rebase, so
       # "already rebased today" stays honest, and the loop stops when the sweep says none/cap.
       - name: Rebase every eligible PR, up to max_prs (never merges)
