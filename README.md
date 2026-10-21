@@ -1516,6 +1516,15 @@ make issue-cleaner-apply  # the same decision, then: an evidence comment on the 
                           # completed. An issue the PR's own `Not covered` section names is a tracked
                           # remainder and is left open; REPO= picks the repo
 make workflows-report  # show every YAML file the workflow gate reads, how many expressions it validated, and its verdict
+make worktree-prune    # remove the worktrees and local branches whose PR already merged, so the checkout stops
+                       # accumulating debris (issue #431). Eligibility is the PR, never a name pattern or an
+                       # ancestry guess: this repo squash-merges, so a merged branch's tip is NEVER an ancestor
+                       # of main and `git branch --merged` calls landed work unmerged forever. A branch is
+                       # pruned only when it is a MERGED PR's head AND that PR's merge commit is on the base
+                       # (origin/main; BASE= overrides). Kept, with its reason printed: an OPEN/CLOSED PR, no
+                       # PR at all, a merge commit off the base, a dirty worktree, a detached worktree, and the
+                       # main checkout. DRY=1 prints the plan and mutates nothing; SLUG= picks the owner/name
+                       # gh reads (default asimov-agent/llgenie — REPO is the checkout path, which gh rejects)
 make test-clean        # prune stopped orphaned test containers (always)
 ```
 

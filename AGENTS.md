@@ -416,6 +416,13 @@ to paste the comment into chat.
    gh pr merge <N> --merge --delete-branch
    git branch -D feat/<branch>           # local clean-up
    ```
+   The local clean-up is `make worktree-prune`, not a hand-typed `git branch -D`
+   (issue #431): it removes the worktree **and** the branch only for a branch whose
+   PR is MERGED **and** whose merge commit is on `origin/main`, because this repo
+   squash-merges and a squashed branch tip is never an ancestor of `main`. Anything
+   else — an OPEN or CLOSED PR, no PR at all, a merge commit off the base, a dirty
+   worktree, a detached worktree, the main checkout — is kept with its reason
+   printed. `make worktree-prune DRY=1` prints the plan and mutates nothing.
    Do NOT merge a red PR, a PR with open/unresolved review threads, or a PR whose
    CI is still running — approval is a green light, not a waiver of the gate.
    Verify the merge landed on `main` (e.g. `git fetch origin && git log origin/main -1`)
