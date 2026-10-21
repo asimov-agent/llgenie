@@ -88,6 +88,10 @@ A bot never works from a stale base:
 - Both fail loudly if `main` cannot be reached — a bot that cannot sync must not start. The
   fix-bot pushes with `--force-with-lease` afterwards, because a sync rewrites history; if another
   bot pushed meanwhile the push is rejected instead of clobbering it.
+- The **fix-bot** repairs a PR whose head is the base repository **or the fork its token may push
+  to** (`make fix-bot-sweep OWN_FORK=andyholst`, issue #340). Every llgenie PR is opened from the
+  fork, so without the allowlist the scheduled sweep passed over every PR and repaired nothing;
+  the branch is now checked out from — and pushed to — the PR's own head remote.
 
 Driven by `scripts/bot_sync_main.sh`; `tests/test_bot_sync.py` runs the rules through a real
 scratch git repository.

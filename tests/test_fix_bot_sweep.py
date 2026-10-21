@@ -181,3 +181,42 @@ def test_the_sweep_does_not_claim_when_it_dry_runs(tmp_path):
     log = gh_stub(tmp_path, red, checks={"21": [{"name": "unit", "state": "failure", "bucket": "fail"}]}, commits={})
     run_sweep(tmp_path, ["--repo", f"{OWNER}/llgenie", "--dry"])
     assert "pr comment" not in log.read_text(), "a dry run must not claim anything"
+
+
+# ------------------------------------------- the repository's own fork (issue #340)
+
+
+def test_a_pr_on_the_allowlisted_fork_is_chosen(tmp_path):
+    """Every llgenie PR comes from the fork; with --own-fork the sweep must take it."""
+    log = gh_stub(tmp_path, [pr(253, owner="andyholst")], {"253": RED}, {"253": []})
+    r = run_sweep(tmp_path, ["--repo", f"{OWNER}/llgenie", "--own-fork", "andyholst"])
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "dispatched the fix-bot" in r.stdout and "253" in r.stdout
+    dispatch = [l for l in log.read_text().splitlines() if l.startswith("workflow run")]
+    assert len(dispatch) == 1 and "pr_number=253" in dispatch[0]
+
+
+def test_another_fork_is_still_skipped(tmp_path):
+    """A fork this bot cannot push to stays out, even with an allowlist."""
+    log = gh_stub(tmp_path, [pr(254, owner="stranger")], {"254": RED}, {"254": []})
+    r = run_sweep(tmp_path, ["--repo", f"{OWNER}/llgenie", "--own-fork", "andyholst"])
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "nothing to fix" in r.stdout
+    assert "a fork (stranger)" in r.stdout
+    assert not [l for l in log.read_text().splitlines() if l.startswith("workflow run")]
+
+
+def test_the_repair_pushes_to_the_pr_head_remote():
+    """The workflow checks the branch out from its head remote and pushes there."""
+    wf = (REPO / ".github" / "workflows" / "fix-bot.yml").read_text()
+
+    # The decision is told which fork it may push to
+    assert "OWN_FORK=andyholst" in wf
+
+    # The resolve step records the head repository the push has to target
+    assert "headrepo=$headrepo" in wf
+
+    # The branch is fetched from that remote, and the push uses it rather than a blind `origin`
+    assert "git fetch fork \"$BRANCH\"" in wf
+    assert 'echo "REMOTE=fork" >> "$GITHUB_ENV"' in wf
+    assert 'git push --force-with-lease "${REMOTE:-origin}"' in wf
