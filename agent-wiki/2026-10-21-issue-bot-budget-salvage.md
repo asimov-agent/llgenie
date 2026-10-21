@@ -23,5 +23,5 @@ work dies with the runner, and no branch or PR exists.
 
 ## Status
 
-Issue #476; PR from `feat/issue-bot-budget-salvage` against `asimov-agent/llgenie:main`. Waiting
+Issue #476; PR #486 from `feat/issue-bot-budget-salvage` against `asimov-agent/llgenie:main`. Waiting
 for review — the agent never merges.
