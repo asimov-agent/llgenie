@@ -34,5 +34,5 @@ recipe then ran `make _rebase-bot-agent` inside the container against the same f
 
 ## Status
 
-OpenSpec change `fix-rebase-bot-make-snapshot`; issue #460; PR from `feat/rebase-bot-make-snapshot`
+OpenSpec change `fix-rebase-bot-make-snapshot`; issue #460; PR #461 from `feat/rebase-bot-make-snapshot`
 against `asimov-agent/llgenie:main`. Waiting for review — the agent never merges.
