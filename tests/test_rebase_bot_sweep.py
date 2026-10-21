@@ -701,7 +701,9 @@ def test_the_loop_passes_the_prs_it_already_did():
     # Given the drain step's script
     script = _drain_step()["run"]
 
-    # Then it starts empty, passes SKIP to the sweep, and appends each successful PR
+    # Then it starts empty, passes SKIP to the sweep, and appends every PR it handled — the
+    # successful ones AND the failed ones (a failure is still DIRTY, so re-picking it in the same
+    # loop would spend another model call on the same conflict).
     assert 'skip=""' in script
     assert 'SKIP="$skip"' in script
-    assert 'skip="${skip:+$skip,}$pr"' in script
+    assert script.count('skip="${skip:+$skip,}$pr"') == 2, script

@@ -168,6 +168,10 @@ jobs:
               failed=$((failed + 1))
               echo "::warning title=Rebase failed::#$pr ($branch) was not rebased; aborting it so the next decision runs on a clean tree"
               make rebase-bot-abort || true
+              # The PR is still DIRTY, so without this the next iteration would pick it again and
+              # spend another model call on the same conflict. It is reported and retried on the
+              # NEXT run, not in this loop.
+              skip="${skip:+$skip,}$pr"
             fi
           done
           echo "rebased=$rebased failed=$failed"

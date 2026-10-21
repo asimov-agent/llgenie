@@ -28,5 +28,5 @@ THEN the same day's next run rebases it again, and one run never picks it twice.
 #### Scenario: the loop forwards the PRs it handled
 - **Given** the workflow's drain step
 - **When** its script is read
-- **Then** it starts with an empty skip list, passes `SKIP=` to the sweep, and appends each successful PR
+- **Then** it starts with an empty skip list, passes `SKIP=` to the sweep, and appends every PR it handled — rebased or failed
 - **Test:** `tests/test_rebase_bot_sweep.py::test_the_loop_passes_the_prs_it_already_did`
