@@ -193,7 +193,20 @@ jobs:
           make implement-issue
           rc=$?
           echo "rc=$rc" >> "$GITHUB_OUTPUT"
-          if [ "$rc" != "0" ]; then echo "implemented=false" >> "$GITHUB_OUTPUT"; else echo "implemented=true" >> "$GITHUB_OUTPUT"; fi
+          exit 0
+
+      # The TREE is the evidence, not the process (issue #428): Hermes exits 0 even when what it
+      # reports was written outside this checkout (run 39513850754 "committed" a file inside a
+      # container worktree that `--rm` deleted). The next step decides from the files.
+      - name: Detect what the implementation changed
+        id: diff
+        if: steps.dispatch.outputs.dispatch == 'true' && steps.verdict.outputs.verdict == 'implement'
+        run: |
+          set +e
+          out=$(make issue-bot-changed)
+          echo "$out"
+          c=$(printf '%s\n' "$out" | sed -n 's/^changed=//p' | tail -1)
+          echo "changed=${c:-unknown}" >> "$GITHUB_OUTPUT"
           exit 0
 
       # The whole point of the redaction seam (issue #359): the job publishes the REDACTED
@@ -207,7 +220,7 @@ jobs:
           if-no-files-found: ignore
       - name: Commit + push the feature branch
         id: push
-        if: steps.verdict.outputs.verdict == 'implement' && steps.impl.outputs.implemented == 'true'
+        if: steps.verdict.outputs.verdict == 'implement' && steps.diff.outputs.changed == 'true'
         env:
           BRANCH: ${{ steps.dispatch.outputs.branch }}
         run: |
@@ -250,7 +263,8 @@ jobs:
           ISSUE: ${{ steps.dispatch.outputs.issue }}
           BRANCH: ${{ steps.dispatch.outputs.branch }}
           PR_URL: ${{ steps.pr.outputs.pr_url }}
-          IMPLEMENTED: ${{ steps.impl.outputs.implemented }}
+          CHANGED: ${{ steps.diff.outputs.changed }}
+          IMPL_RC: ${{ steps.impl.outputs.rc }}
           VERDICT: ${{ steps.verdict.outputs.verdict }}
         run: |
           {
@@ -264,7 +278,7 @@ jobs:
             elif [ "${VERDICT}" = "close" ]; then
               echo "- outcome: closed as no longer applicable, with the evidence cited above."
             else
-              echo "- implementation: ${IMPLEMENTED:-not started}"
+              echo "- implementation: changed=${CHANGED:-unknown} (make implement-issue rc=${IMPL_RC:-unknown})"
             fi
             echo "- PR: ${PR_URL:-none opened}"
             echo ""
@@ -275,8 +289,10 @@ jobs:
 
       - name: Fail loudly when the implementation did not happen
         # Only a verdict of `implement` owes a PR: a refine or a close ends the run on purpose,
-        # so it must not be reported as a failure.
-        if: always() && steps.dispatch.outputs.dispatch == 'true' && steps.verdict.outputs.verdict == 'implement' && steps.impl.outputs.implemented != 'true'
+        # so it must not be reported as a failure. `implement` owes a CHANGE (issue #428):
+        # a non-zero agent and a tree that changed nothing are both failures, and neither is
+        # inferred from the agent's exit code alone.
+        if: always() && steps.dispatch.outputs.dispatch == 'true' && steps.verdict.outputs.verdict == 'implement' && (steps.impl.outputs.rc != '0' || steps.diff.outputs.changed != 'true')
         run: |
-          echo "::error::issue-bot produced no implementation for #${{ steps.dispatch.outputs.issue }} (verdict=implement, make implement-issue rc=${{ steps.impl.outputs.rc }})."
+          echo "::error::issue-bot changed nothing for #${{ steps.dispatch.outputs.issue }} (verdict=implement, make implement-issue rc=${{ steps.impl.outputs.rc }}, make issue-bot-changed=${{ steps.diff.outputs.changed }})."
           exit 1

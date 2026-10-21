@@ -561,3 +561,84 @@ def test_no_gh_call_combines_comments_with_json(tmp_path):
     assert calls, "the dispatch built no argv at all"
     for call in calls:
         assert not ("--comments" in call and "--json" in call), call
+
+
+# ---- the implementation is measured from the tree, not from the exit code (issue #428) --------
+
+def _git_repo(path: Path) -> Path:
+    """A real repository, one commit deep: `changed()` reads it with the real git binary."""
+    path.mkdir(parents=True, exist_ok=True)
+    for argv in (["init", "-q"], ["config", "user.email", "smoke@example.com"],
+                 ["config", "user.name", "Smoke Test"]):
+        subprocess.run(["git", "-C", str(path), *argv], check=True, capture_output=True)
+    (path / "README.md").write_text("one\n")
+    subprocess.run(["git", "-C", str(path), "add", "-A"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(path), "commit", "-qm", "init"], check=True, capture_output=True)
+    return path
+
+
+def test_changed_is_false_when_only_a_run_input_appeared(tmp_path):
+    """A run that wrote its verdict and touched nothing else has implemented nothing."""
+
+    # Given a clean repository and an implement step that only wrote the triage verdict
+    repo = _git_repo(tmp_path / "repo")
+    (repo / "triage.md").write_text("TRIAGE: implement\n")
+
+    # When  the tree is inspected for a change
+    result = ii.changed(str(repo))
+
+    # Then  there is none: the run input is not an implementation
+    assert result is False
+
+
+def test_changed_is_true_for_a_real_edit(tmp_path):
+    """A real edit, and a real new file, are both changes."""
+
+    # Given a repository with one edited tracked file and one new source file
+    repo = _git_repo(tmp_path / "repo")
+    (repo / "README.md").write_text("one\ntwo\n")
+    (repo / "scripts").mkdir()
+    (repo / "scripts" / "new_thing.py").write_text("print('hi')\n")
+
+    # When  the tree is inspected
+    result = ii.changed(str(repo))
+
+    # Then  the change is reported
+    assert result is True
+
+
+def test_changed_fails_loudly_outside_a_git_tree(tmp_path):
+    """A tree git cannot read is exit 2, never a green run."""
+
+    # Given a directory that is not a git repository
+    plain = tmp_path / "plain"
+    plain.mkdir()
+
+    # When  the changed check runs there, through the Makefile's own entry point
+    proc = subprocess.run([sys.executable, str(REPO / "scripts" / "issue_implementer.py"),
+                           "changed", "--root", str(plain)],
+                          capture_output=True, text=True, timeout=60)
+
+    # Then  it exits 2 and names what it could not read
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert "status failed" in proc.stderr, proc.stderr
+
+
+def test_the_workflow_gates_push_and_failure_on_the_tree():
+    """The workflow asks the tree, and gates both the push and the loud failure on it."""
+
+    # Given the issue-bot workflow
+    workflow = (REPO / ".github" / "workflows" / "issue-bot.yml").read_text()
+
+    # When  the implement, detect, push and failure steps are read
+    assert "make issue-bot-changed" in workflow, "the workflow must measure the tree"
+    assert "steps.diff.outputs.changed == 'true'" in workflow, "the push must require a change"
+    assert "implemented=true" not in workflow, "the outcome is no longer derived from the exit code"
+    assert "steps.impl.outputs.rc != '0' || steps.diff.outputs.changed != 'true'" in workflow, \
+        "the loud failure must cover a failed agent AND a tree that changed nothing"
+
+    # Then  the Makefile target exists, is phony, and reaches the subcommand
+    makefile = (REPO / "Makefile").read_text()
+    assert "\nissue-bot-changed:" in makefile
+    assert "issue-bot-changed" in makefile.split(".PHONY:", 1)[1].split("\n\n", 1)[0]
+    assert "scripts/issue_implementer.py changed" in makefile

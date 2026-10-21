@@ -26,6 +26,7 @@ Commands (stdlib only, no LLM):
   count                  PRs the bot already opened today (the cap numerator)
   dispatch [--dry]       cap -> pick one issue -> claim -> write issue.md (body + thread) + branch
   apply-verdict FILE     act on the agent's TRIAGE verdict (implement|refine|close)
+  changed                did the implement step change the tree? (run inputs excluded; tree, not rc)
   open-pr                open a draft-free PR linking the issue (never merges)
 
 The GitHub API is reached ONLY through a `gh` on PATH (or `--gh`): every test
@@ -59,6 +60,41 @@ BOT_BRANCH_PREFIX = "agent/issue-"
 PR_LIST_LIMIT = 200
 MAX_PER_DAY = 3
 SLUG_LEN = 40
+
+
+#: The files the bot itself writes into the working tree it inspects. They are run inputs, never a
+#: change: an earlier revision shipped `triage.md` (`TRIAGE: implement`) as the "implementation" of an
+#: issue because `git add -A` staged it (issue #427), and reading the tree must not repeat that
+#: (issue #428).
+RUN_INPUTS = ("issue.md", "triage.md", "refine-in.md", "refine.md", "comment.md")
+
+
+def changed(root: str = ".", git: str = "git") -> bool:
+    """Whether the working tree carries a change that is not one of the bot's own run inputs.
+
+    The TREE is the evidence, not the process: Hermes exits 0 even when what it reports was written
+    outside this checkout (a deleted container worktree did exactly that, run 39513850754). A `git`
+    that cannot read the tree is a loud SystemExit — an unreadable tree must never look like a run
+    that changed something, or like a green one.
+    """
+    r = subprocess.run([git, "-C", root, "status", "--porcelain", "--untracked-files=all"],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        # Exit 2, the same contract `scripts/require_env.py` uses: an unreadable tree is a plumbing
+        # failure, not a verdict about the implementation.
+        print(f"[issue-implementer] {git} status failed ({r.returncode}) in {root}: {r.stderr.strip()}",
+              file=sys.stderr)
+        raise SystemExit(2)
+    for line in r.stdout.splitlines():
+        if not line.strip():
+            continue
+        path = line[3:].strip()
+        if " -> " in path:  # a rename lists both sides; the destination is what changed
+            path = path.split(" -> ", 1)[1]
+        if path.strip('"') in RUN_INPUTS:
+            continue
+        return True
+    return False
 
 
 def _gh(gh: str, args: list[str]) -> str:
@@ -390,6 +426,10 @@ def main(argv=None) -> int:
     a.add_argument("--issue", type=int, required=True)
     a.add_argument("--dry", action="store_true")
 
+    ch = sub.add_parser("changed")
+    ch.add_argument("--root", default=".")
+    ch.add_argument("--git", default="git")
+
     o = sub.add_parser("open-pr")
     o.add_argument("--gh", default="gh")
     o.add_argument("--repo", required=True)
@@ -415,12 +455,14 @@ def main(argv=None) -> int:
         text = Path(args.verdict_file).read_text() if Path(args.verdict_file).exists() else ""
         v = apply_verdict(args.gh, args.repo, args.issue, text, args.dry)
         print(f"verdict={v['verdict']}")
+    elif args.cmd == "changed":
+        print(f"changed={'true' if changed(args.root, args.git) else 'false'}")
     elif args.cmd == "open-pr":
         url = open_pr(args.gh, args.repo, args.issue, args.branch, args.title, args.body,
                       args.wants, args.dry)
         print(f"pr_url={url}")
     else:
-        p.error("need a command: count | dispatch | apply-verdict | open-pr")
+        p.error("need a command: count | dispatch | apply-verdict | changed | open-pr")
     return 0
 
 

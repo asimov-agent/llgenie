@@ -63,7 +63,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	engine-skill-gap engine-skill-gap-md spawn-engine-skill-issues sync-strata-models check-strata-models check-wiring wiring-report check-secret-output secret-output-report \
 	secret-scan secret-scan-history secret-scan-self-test \
 	queued-alarm issue-cleaner-scan issue-cleaner-apply worktree-prune fix-loop fix-loop-image fix-bot-sweep fix-bot-report agent-image-ref issue-bot-dispatch issue-bot-open-pr issue-bot-image \
-	issue-bot-triage issue-bot-verdict implement-issue hermes-smoke agent-jev-preflight code-review-scan code-review-file rebase-bot-sweep rebase-bot \
+	issue-bot-triage issue-bot-changed issue-bot-verdict implement-issue hermes-smoke agent-jev-preflight code-review-scan code-review-file rebase-bot-sweep rebase-bot \
 	architecture-bot-brief architecture-bot-doc architecture-bot-publish architecture-bot \
 	scrub-log \
 	run-failure-reactor rebase-bot-agent check-docs docs-report check-pr-hygiene pr-hygiene-report check-pr-authors pr-authors-report check-workflows workflows-report issue-refiner-pick issue-refiner issue-refiner-apply check-dispatch-forms dispatch-forms-report \
@@ -446,6 +446,8 @@ issue-bot-triage: ## Hermes REVIEWS the issue (issue.md: body + the whole commen
 _issue-bot-triage: # (internal) the host recipe the agent image runs: the decision, not the code
 	hermes -z "Load AGENTS.md for rules. Read issue.md at the repo root: it carries the issue, its WHOLE comment thread (oldest first), and the decision instruction. Follow that instruction and decide ONE verdict - implement, refine or close - then write it to triage.md at the repo root in exactly the required shape (a TRIAGE: line, plus REFINED:/EVIDENCE:/REASON: blocks as that verdict requires). HARD RULES: do NOT implement anything, do NOT modify any file other than triage.md, do NOT create a branch, do NOT push, do NOT comment on the issue yourself. A close without an EVIDENCE: block is refused by the next step, so cite what you checked. If a decision is still open in the thread, that is a refine, not a guess." $(nous-alias) --reasoning $(HERMES_REASONING) --yolo
 
+issue-bot-changed: ## Did the implement step actually change the tree? Prints changed=true|false, the bot's own run inputs excluded; exit 2 when git cannot read the tree (issue #428)
+	python3 scripts/issue_implementer.py changed
 issue-bot-verdict: ## Apply the agent's TRIAGE verdict from triage.md: implement -> nothing (the PR path runs), refine -> ONE comment + agent:refined (no PR), close -> comment with the cited evidence + agent:closed (refused without EVIDENCE)
 	@test -n "$(ISSUE)" || { echo "Usage: make issue-bot-verdict ISSUE=<n> [REPO=<owner/repo>]"; exit 1; }
 	python3 scripts/issue_implementer.py apply-verdict triage.md --repo $(if $(REPO),$(REPO),asimov-agent/llgenie) --issue $(ISSUE)

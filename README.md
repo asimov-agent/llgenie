@@ -448,6 +448,7 @@ make hermes-smoke          # prove the alias can CALL A TOOL (a terminal call th
 make agent-shell-keys-check  # prove the credential is visible in the AGENT's shell (issue #358)
 make issue-bot-triage     # step 1: Hermes REVIEWS the issue.md thread (body + every comment) and writes triage.md
 make issue-bot-verdict ISSUE=<n>   # step 2: apply that verdict — implement | refine | close
+make issue-bot-changed    # did the implement step change the tree? changed=true|false (run inputs excluded)
 ```
 
 #### The model the bots call (issue #405)
@@ -549,6 +550,17 @@ ls: cannot access '../llgenie-wt/probe': No such file or directory
 The job — not the agent — commits and pushes, and `make issue-bot-changed` measures `/repo`, so work
 done elsewhere is a loud failure rather than a silent one. `tests/test_bot_in_place.py` pins the prompt
 rule and the single mount.
+
+#### "Implemented" is measured from the tree (issue #428)
+
+Hermes exits 0 whenever the conversation ends — including a run whose work was written outside the
+checkout (run 39513850754 "committed" a file inside a container worktree that `--rm` deleted). The
+workflow therefore never infers the outcome from the exit code: a `Detect what the implementation
+changed` step runs `make issue-bot-changed`, which answers from
+`git status --porcelain --untracked-files=all` with the bot's own run inputs excluded. The push step
+requires `changed=true`, and the "fail loudly" step fires when the agent failed **or** the tree changed
+nothing — so a no-op run pushes nothing, opens no PR, and reds the job naming the issue. A `git` that
+cannot read the tree exits 2: an unreadable tree must never look like a green run.
 make rebase-bot-sweep     # which ONE open PR needs rebasing (BEHIND/DIRTY against main), with the reason for every pass-over
 make rebase-bot PR=<n> HEAD_BRANCH=<b> HEAD_REPO=<owner>   # rebase it (agent resolves a conflict), verify, push --force-with-lease
 make rebase-bot-agent     # the conflict hand-off: it asks Hermes to resolve a stopped rebase (the conflict prompt arrives on STDIN) and runs INSIDE the agent image
