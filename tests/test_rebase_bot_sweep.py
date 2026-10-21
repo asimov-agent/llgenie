@@ -610,6 +610,7 @@ def test_the_run_drains_every_eligible_pr_up_to_the_bound():
     # When the loop, its bound and its stop condition are read
     # Then it loops up to MAX_PR, asking the sweep each time
     assert 'for i in $(seq 1 "$MAX_PR")' in script
+    assert 'MAX_PR="${MAX_PR:-10}"' in script, "the step must bound itself when run alone"
     assert 'make rebase-bot-sweep REPO="$REPO" OWN_FORK=andyholst' in script
     assert 'make rebase-bot REPO="$REPO" PR="$pr" HEAD_BRANCH="$branch" HEAD_REPO="$headrepo"' in script
 

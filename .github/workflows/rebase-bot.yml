@@ -134,6 +134,9 @@ jobs:
           GIT_COMMITTER_EMAIL: support@docondee.com
         run: |
           set -uo pipefail
+          # The job env sets MAX_PR; defaulting here keeps the step honest when it is run alone
+          # (and makes the bound a property of the step, not only of the workflow's env block).
+          MAX_PR="${MAX_PR:-10}"
           rebased=0
           failed=0
           for i in $(seq 1 "$MAX_PR"); do
