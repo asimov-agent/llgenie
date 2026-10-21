@@ -32,10 +32,10 @@ read) never posted.
   deferred by name; the actor step carries the token; the CLI passes the bounds. The fake `gh`
   now answers `pr view --json mergeStateStatus` from a per-PR state sequence, modelling the lazy
   computation.
-- A read-only run of the real `sweep()` against `asimov-agent/llgenie` picks the oldest PR that is
-  actually DIRTY instead of passing it over (recorded in the PR body).
+- A read-only run of the real `sweep()` against `asimov-agent/llgenie` returns
+  `action=rebase pr=445 state=DIRTY` — the exact PR the old code passed over as `UNKNOWN`.
 
 ## Status
 
-OpenSpec change `fix-rebase-bot-unknown-state`; issue #453; PR from `feat/rebase-bot-unknown`
+OpenSpec change `fix-rebase-bot-unknown-state`; issue #453; PR #454 from `feat/rebase-bot-unknown`
 against `asimov-agent/llgenie:main`. Waiting for review — the agent never merges.
