@@ -1,9 +1,13 @@
-# The rebase bot (issue #246): keep every open PR on the latest `main`, ONE PR per run.
+# The rebase bot (issue #246): keep every open PR on the latest `main`, EVERY eligible PR per run.
 #
 # Triggered every 6 hours (and by hand). AGENTS.md's own rule is that a PR behind `main` cannot
 # be merged, so a stale PR silently blocks itself until someone rebases it — that is what this
 # bot exists to prevent. It runs as ONE job that always runs: the decision ("which PR, or none")
 # lives in scripts/rebase_bot_sweep.py, because issue #107 forbids a CI job that can skip itself.
+#
+# One run drains the backlog (issue #462): the decision is RE-ASKED after every rebase and acted
+# on until it says none/cap, bounded by `max_prs`. A PR whose rebase fails is aborted, counted,
+# left for a human, and the run continues; the step exits non-zero at the end.
 #
 # A conflict is handed to the agent, whose resolution is checked structurally (a recipe's TAB,
 # the wiring guard, lint) before the branch is force-with-leased back to the PR's OWN head remote
@@ -22,22 +26,26 @@
 #     it created is fresh (never BEHIND/DIRTY) by construction;
 #   * the refiner never touches a branch at all (comments and a label only).
 # Trigger surface: its own schedule (every 6 hours, `29 */6 * * *`) and `workflow_dispatch` by hand
-#                  (owner/collaborator).
-# Flow: guard (owner/collaborator, BEFORE any secret is read) -> make rebase-bot-sweep (decide which ONE
+#                  (owner/collaborator, optionally bounded by `max_prs`).
+# Flow: guard (owner/collaborator, BEFORE any secret is read) -> make rebase-bot-sweep (decide which
 #       PR, or none) -> make rebase-bot PR=.. HEAD_BRANCH=.. HEAD_REPO=.. (fetch, forward-merge `main`,
 #       hand a conflict to make rebase-bot-agent, verify, push --force-with-lease to the PR's OWN head
-#       remote) -> the outcome comment on the PR.
+#       remote) -> repeat until none/cap or `max_prs`; a failure calls make rebase-bot-abort and the
+#       run carries on.
 # Never: never merges, never pushes to `main`, never clobbers another bot's push (the lease rejects
-#        instead), never rebases a PR whose checks are still running.
-# dispatch: no inputs — the bot decides by itself which ONE PR to take (scripts/rebase_bot_sweep.py);
-# a hand dispatch means "run that decision now", never "rebase this one specific PR".
-name: rebase-bot — keeps every open PR current with main, ONE PR per run (never merges)
+#        instead), never rebases a PR whose checks are still running, never exceeds `max_prs`.
+name: rebase-bot — keeps every open PR current with main, every eligible PR per run (never merges)
 
 on:
   schedule:
     - cron: "29 */6 * * *"   # every 6 hours, at an odd minute — :29, its OWN slot (issue #301:
                              # :23 is issue-bot's, and sharing it meant both started at 06:23 UTC)
   workflow_dispatch:
+    inputs:
+      max_prs:
+        description: "Most PRs this run may rebase (the sweep's daily cap still applies on top)"
+        required: false
+        default: "10"
 
 permissions:
   contents: write
@@ -73,13 +81,14 @@ jobs:
   rebase:
     needs: guard
     runs-on: ubuntu-latest
-    # One agent-resolved rebase plus the structural checks. Same 120-minute budget as the other
-    # bots: nothing inside bounds a round (no step timeout, no per-command cap).
+    # Several agent-resolved rebases plus the structural checks. The loop is bounded by `max_prs`,
+    # and the job keeps the 120-minute budget the other bots use.
     timeout-minutes: 120
     env:
       NOUS_API_KEY: ${{ secrets.NOUS_PORTAL_API_TOKEN }}
       TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
       REPO: ${{ github.repository }}
+      MAX_PR: ${{ inputs.max_prs || '10' }}
     steps:
       - name: "Checkout (full history - a rebase needs it, and the PAT re-triggers CI on push)"
         uses: actions/checkout@v4
@@ -98,32 +107,6 @@ jobs:
           git remote add fork "https://x-access-token:${BUMP_TOKEN}@github.com/andyholst/llgenie.git" 2>/dev/null || \
             git remote set-url fork "https://x-access-token:${BUMP_TOKEN}@github.com/andyholst/llgenie.git"
 
-      - name: Which ONE PR needs rebasing (decision in code, never a skipping job)
-        id: sweep
-        env:
-          GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
-        run: |
-          set +e
-          out=$(make rebase-bot-sweep REPO="$REPO" OWN_FORK=andyholst)
-          rc=$?
-          echo "$out"
-          # A crashed decision is NOT "nothing to do" (issue #309): the sweep died, so the run
-          # must go red instead of writing action=unknown and reporting a green no-op.
-          if [ "$rc" != "0" ]; then
-            echo "::error::the rebase sweep failed (make rebase-bot-sweep rc=$rc); refusing to treat a crashed decision as 'nothing to do'"
-            exit 1
-          fi
-          action=$(printf '%s\n' "$out" | sed -n 's/^action=//p' | tail -1)
-          pr=$(printf '%s\n' "$out" | sed -n 's/^pr=//p' | tail -1)
-          branch=$(printf '%s\n' "$out" | sed -n 's/^head_branch=//p' | tail -1)
-          headrepo=$(printf '%s\n' "$out" | sed -n 's/^head_repo=//p' | tail -1)
-          echo "action=${action:-unknown}" >> "$GITHUB_OUTPUT"
-          echo "pr=$pr" >> "$GITHUB_OUTPUT"
-          echo "branch=$branch" >> "$GITHUB_OUTPUT"
-          echo "headrepo=$headrepo" >> "$GITHUB_OUTPUT"
-          [ "$action" = "rebase" ] && echo "go=true" >> "$GITHUB_OUTPUT" || echo "go=false" >> "$GITHUB_OUTPUT"
-          exit 0
-
       - name: Prove the JEV engine is active — the rebase does not start without it (issue #238)
         run: make agent-jev-preflight NERVE_REQUIRE=1
 
@@ -134,17 +117,13 @@ jobs:
       - name: Prove the agent's shell can see this job's credentials (issue #358)
         run: make agent-shell-keys-check AGENT_SHELL_CHECK_KEYS="NOUS_API_KEY TYPESAFE_API_KEY"
 
-      - name: Rebase it (agent resolves a conflict; verified, then force-with-leased to its own remote)
-        id: go
-        if: steps.sweep.outputs.go == 'true'
+      # ONE run drains the backlog (issue #462): the decision is re-asked after every rebase, so
+      # "already rebased today" stays honest, and the loop stops when the sweep says none/cap.
+      - name: Rebase every eligible PR, up to max_prs (never merges)
+        id: drain
         env:
-          PR: ${{ steps.sweep.outputs.pr }}
-          HEAD_BRANCH: ${{ steps.sweep.outputs.branch }}
-          HEAD_REPO: ${{ steps.sweep.outputs.headrepo }}
-          # The outcome comment (and the `done` marker inside it) is written by
-          # scripts/rebase_bot.sh through `gh`. Without this token the push succeeded while every
-          # comment failed — `[rebase-bot] could not comment` in run 39553726935 — so the sweep's
-          # daily record and the other bots' claim readers never saw the result (issue #453).
+          # The token that posts the outcome comment and its `done` marker (issue #453), and the
+          # one the sweep uses to read PRs.
           GH_TOKEN: ${{ github.token }}
           # A rebase preserves the author of the commits it replays and re-stamps the COMMITTER, so
           # this only decides who a conflict resolution is authored/committed as — one of the two
@@ -154,11 +133,43 @@ jobs:
           GIT_COMMITTER_NAME: Asimov Agent
           GIT_COMMITTER_EMAIL: support@docondee.com
         run: |
-          set +e
-          make rebase-bot REPO="$REPO" PR="$PR" HEAD_BRANCH="$HEAD_BRANCH" HEAD_REPO="$HEAD_REPO"
-          rc=$?
-          echo "rc=$rc" >> "$GITHUB_OUTPUT"
-          exit 0
+          set -uo pipefail
+          rebased=0
+          failed=0
+          for i in $(seq 1 "$MAX_PR"); do
+            out=$(make rebase-bot-sweep REPO="$REPO" OWN_FORK=andyholst)
+            rc=$?
+            printf '%s\n' "$out"
+            # A crashed decision is NOT "nothing to do" (issue #309): go red instead of reporting
+            # a green no-op after a sweep that died.
+            if [ "$rc" != "0" ]; then
+              echo "::error::the rebase sweep failed (make rebase-bot-sweep rc=$rc); refusing to treat a crashed decision as 'nothing to do'"
+              exit 1
+            fi
+            action=$(printf '%s\n' "$out" | sed -n 's/^action=//p' | tail -1)
+            pr=$(printf '%s\n' "$out" | sed -n 's/^pr=//p' | tail -1)
+            branch=$(printf '%s\n' "$out" | sed -n 's/^head_branch=//p' | tail -1)
+            headrepo=$(printf '%s\n' "$out" | sed -n 's/^head_repo=//p' | tail -1)
+            if [ "$action" != "rebase" ]; then
+              echo "stop: the sweep answered '${action:-unknown}' after $rebased rebase(s)"
+              break
+            fi
+            echo "==> rebasing #$pr ($branch) [$i/$MAX_PR]"
+            if make rebase-bot REPO="$REPO" PR="$pr" HEAD_BRANCH="$branch" HEAD_REPO="$headrepo"; then
+              rebased=$((rebased + 1))
+            else
+              failed=$((failed + 1))
+              echo "::warning title=Rebase failed::#$pr ($branch) was not rebased; aborting it so the next decision runs on a clean tree"
+              make rebase-bot-abort || true
+            fi
+          done
+          echo "rebased=$rebased failed=$failed"
+          echo "rebased=$rebased" >> "$GITHUB_OUTPUT"
+          echo "failed=$failed" >> "$GITHUB_OUTPUT"
+          if [ "$failed" != "0" ]; then
+            echo "::error::$failed PR(s) were picked and not rebased; each carries the reason on the PR and the rest were processed."
+            exit 1
+          fi
 
       # The whole point of the redaction seam (issue #359): the job publishes the REDACTED
       # transcript, never the raw capture (which holds the unredacted stream by construction).
@@ -169,8 +180,15 @@ jobs:
           name: agent-transcript-redacted
           path: hermes-run.scrubbed.log
           if-no-files-found: ignore
-      - name: Fail loudly when a picked PR was not rebased
-        if: always() && steps.sweep.outputs.go == 'true' && steps.go.outputs.rc != '0'
+      - name: Report
+        if: always()
         run: |
-          echo "::error::rebase-bot picked #${{ steps.sweep.outputs.pr }} but did not rebase it (make rebase-bot rc=${{ steps.go.outputs.rc }}); the PR carries the reason."
-          exit 1
+          {
+            echo "### rebase-bot"
+            echo ""
+            echo "- rebased: ${{ steps.drain.outputs.rebased || 0 }}"
+            echo "- failed: ${{ steps.drain.outputs.failed || 0 }}"
+            echo "- bound: $MAX_PR"
+            echo ""
+            echo "The bot never merges and never pushes to \`main\`."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -563,10 +563,13 @@ nothing — so a no-op run pushes nothing, opens no PR, and reds the job naming 
 cannot read the tree exits 2: an unreadable tree must never look like a green run.
 make rebase-bot-sweep     # which ONE open PR needs rebasing (BEHIND/DIRTY against main), with the reason for every pass-over
 make rebase-bot PR=<n> HEAD_BRANCH=<b> HEAD_REPO=<owner>   # rebase it (agent resolves a conflict), verify, push --force-with-lease
+make rebase-bot-abort     # abort a stopped rebase and return the tree to main (the run loops over many PRs)
 make rebase-bot-agent     # the conflict hand-off: it asks Hermes to resolve a stopped rebase (the conflict prompt arrives on STDIN) and runs INSIDE the agent image
 **Every open PR is kept on `main` by a third bot** (`rebase-bot.yml`, issue #246), because
 AGENTS.md's rule is that a branch behind `main` cannot be merged — so a stale PR blocks itself.
-It runs **every 6 hours** and handles **ONE PR per run**, oldest first:
+It runs **every 6 hours** and drains the backlog: **every eligible PR per run**, oldest first,
+bounded by the `max_prs` dispatch input (default 10) and by the sweep's daily cap. A PR whose
+rebase fails is aborted (`make rebase-bot-abort`), reported, and the run carries on.
 - `make rebase-bot-sweep` decides *which* PR — an open, non-draft PR against `main` whose merge
   state is `BEHIND` (a clean rebase) or `DIRTY` (conflicts). GitHub computes mergeability
   **lazily**, so a PR the list reports as `UNKNOWN` is re-asked through `gh pr view
@@ -1036,7 +1039,7 @@ from the pipeline that will run.
 | `issue-refiner.yml` | reviews ONE not-yet-implemented issue, never opens a PR | none — the bot decides by itself which ONE issue to review (scripts/issue_refiner.py); |
 | `publish-agent-image.yml` | builds + pushes the Hermes agent image when its hash is not on GHCR yet | `force` (optional, default `false`) — Rebuild + push even if the hash tag is already on GHCR |
 | `queued-alarm.yml` | reports CI jobs queued far too long, once per affected run | `minutes` (optional, default `30`) — report jobs queued longer than this many minutes |
-| `rebase-bot.yml` | keeps every open PR current with main, ONE PR per run (never merges) | none — the bot decides by itself which ONE PR to take (scripts/rebase_bot_sweep.py); |
+| `rebase-bot.yml` | keeps every open PR current with main, every eligible PR per run (never merges) | `max_prs` (optional, default `10`) — Most PRs this run may rebase (the sweep's daily cap still applies on top) |
 | `registry-sync.yml` | syncs the vendored registry and regenerates the derived tables, then opens the PR | none — the sync has no modes: it always fetches the upstream registry, regenerates |
 | `search-smoke.yml` | one real Firecrawl request proves the masked web reach | none — the smoke takes no target: it always proves the same leg with one request. |
 

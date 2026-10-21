@@ -63,7 +63,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	engine-skill-gap engine-skill-gap-md spawn-engine-skill-issues sync-strata-models check-strata-models check-wiring wiring-report check-secret-output secret-output-report \
 	secret-scan secret-scan-history secret-scan-self-test \
 	queued-alarm issue-cleaner-scan issue-cleaner-apply worktree-prune fix-loop fix-loop-image fix-bot-sweep fix-bot-report agent-image-ref issue-bot-dispatch issue-bot-open-pr issue-bot-image \
-	issue-bot-triage issue-bot-changed issue-bot-verdict implement-issue hermes-smoke agent-jev-preflight code-review-scan code-review-file rebase-bot-sweep rebase-bot \
+	issue-bot-triage issue-bot-changed issue-bot-verdict implement-issue hermes-smoke agent-jev-preflight code-review-scan code-review-file rebase-bot-sweep rebase-bot rebase-bot-abort \
 	architecture-bot-brief architecture-bot-doc architecture-bot-publish architecture-bot \
 	scrub-log \
 	run-failure-reactor rebase-bot-agent check-docs docs-report check-pr-hygiene pr-hygiene-report check-pr-authors pr-authors-report check-workflows workflows-report issue-refiner-pick issue-refiner issue-refiner-apply check-dispatch-forms dispatch-forms-report \
@@ -348,6 +348,11 @@ rebase-bot-agent: ## Ask Hermes to resolve a stopped rebase (the conflict prompt
 	  $(AGENT_IMAGE) bash -lc 'hermes -z "$$(cat)" $(nous-alias) --reasoning medium --yolo')
 # Hermes runs directly there, NOT through `make _rebase-bot-agent`: the container's /repo/Makefile
 # is the conflicted file the agent was asked to resolve, and make cannot parse it (issue #460).
+
+rebase-bot-abort: ## Abort a stopped rebase and return the tree to main, so the next decision in the same run starts clean (issue #462)
+	@git rebase --abort >/dev/null 2>&1 || true
+	@git checkout -q main >/dev/null 2>&1 || true
+	@echo "[rebase-bot] abort: tree back on main"
 
 rebase-bot: ## Rebase ONE PR onto main (agent-resolved conflicts), verify the structure, then push --force-with-lease to the PR's head remote. Never merges. Needs PR=/HEAD_BRANCH= [HEAD_REPO=] [DRY=1]
 	@test -n "$(PR)" && test -n "$(HEAD_BRANCH)" || { echo "Usage: make rebase-bot PR=<n> HEAD_BRANCH=<branch> [HEAD_REPO=<owner>] [REPO=] [DRY=1]"; exit 1; }

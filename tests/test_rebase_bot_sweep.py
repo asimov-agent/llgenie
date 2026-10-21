@@ -216,7 +216,7 @@ def test_the_sweep_step_fails_loudly_when_the_sweep_fails():
 
     # Given the rebase-bot workflow
     wf = yaml.safe_load((REPO / ".github/workflows/rebase-bot.yml").read_text())
-    step = next(s for s in wf["jobs"]["rebase"]["steps"] if s.get("id") == "sweep")
+    step = next(s for s in wf["jobs"]["rebase"]["steps"] if s.get("id") == "drain")
 
     # When the sweep step's run block is read
     run = step["run"]
@@ -446,7 +446,7 @@ def test_the_rebase_step_exports_gh_token(tmp_path):
     steps = wf["jobs"]["rebase"]["steps"]
 
     # When the step that runs the actor is found
-    actor = next(s for s in steps if str(s.get("name", "")).startswith("Rebase it"))
+    actor = next(s for s in steps if str(s.get("name", "")).startswith("Rebase every eligible PR"))
 
     # Then it exports the job token, so `gh pr comment` can post the done marker
     assert actor["env"]["GH_TOKEN"] == "${{ github.token }}"
@@ -588,3 +588,69 @@ def test_the_agent_recipe_runs_hermes_directly_inside_the_image():
     # And no nested make target exists (it would parse the conflicted file)
     assert "bash -lc 'make _rebase-bot-agent'" not in recipe
     assert "\n_rebase-bot-agent:" not in mk
+
+
+# ------------------------------- one run drains the backlog (issue #462)
+
+
+def _drain_step() -> dict:
+    wf = yaml.safe_load((REPO / ".github" / "workflows" / "rebase-bot.yml").read_text())
+    return next(s for s in wf["jobs"]["rebase"]["steps"]
+                if str(s.get("name", "")).startswith("Rebase every eligible PR"))
+
+
+def test_the_run_drains_every_eligible_pr_up_to_the_bound():
+    """The run re-asks the sweep after each rebase instead of stopping after one PR."""
+
+    # Given the rebase workflow's drain step
+    script = _drain_step()["run"]
+    wf = yaml.safe_load((REPO / ".github" / "workflows" / "rebase-bot.yml").read_text())
+    on = wf.get("on") or wf.get(True)
+
+    # When the loop, its bound and its stop condition are read
+    # Then it loops up to MAX_PR, asking the sweep each time
+    assert 'for i in $(seq 1 "$MAX_PR")' in script
+    assert 'make rebase-bot-sweep REPO="$REPO" OWN_FORK=andyholst' in script
+    assert 'make rebase-bot REPO="$REPO" PR="$pr" HEAD_BRANCH="$branch" HEAD_REPO="$headrepo"' in script
+
+    # And it stops as soon as the sweep no longer says rebase
+    assert 'if [ "$action" != "rebase" ]' in script and "break" in script
+
+    # And `max_prs` is a documented dispatch input with a default
+    spec = on["workflow_dispatch"]["inputs"]["max_prs"]
+    assert len(spec["description"]) >= 10 and "default" in spec
+
+
+def test_a_failed_rebase_is_aborted_and_reported_without_stopping_the_loop():
+    """One bad PR is aborted, counted, and the rest are still processed; the run ends red."""
+
+    # Given the drain step
+    script = _drain_step()["run"]
+
+    # When a `make rebase-bot` invocation fails
+    # Then the tree is reset for the next decision, the failure counted, and the loop continues
+    assert "make rebase-bot-abort" in script
+    assert "failed=$((failed + 1))" in script
+    assert "::warning title=Rebase failed::" in script
+
+    # And the step exits non-zero at the end, naming the failures
+    assert 'if [ "$failed" != "0" ]' in script
+    assert script.rstrip().endswith("fi")
+
+
+def test_the_abort_target_resets_the_tree_to_main():
+    """`make rebase-bot-abort` is a documented, phony target that leaves the tree on main."""
+
+    # Given the Makefile, README and .PHONY block
+    mk = (REPO / "Makefile").read_text()
+    readme = (REPO / "README.md").read_text()
+    phony = mk.split(".PHONY:", 1)[1].split("\n\n", 1)[0]
+
+    # When the abort target is read
+    body = mk.split("rebase-bot-abort:", 1)[1].split("\nrebase-bot:", 1)[0]
+
+    # Then it aborts a stopped rebase and returns to main, and it is wired like every other target
+    assert "git rebase --abort" in body
+    assert "git checkout -q main" in body
+    assert "rebase-bot-abort" in phony
+    assert "rebase-bot-abort" in readme
