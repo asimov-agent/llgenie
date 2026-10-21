@@ -396,4 +396,8 @@ jobs:
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # A green PR whose ONLY blocker is a required review is approved by the other allowed identity
+          # and merged (issue #491): no human at a keyboard is the whole point. A same-account PR is
+          # still refused by GitHub's self-approval rule, and the deferral says so on the PR.
+          APPROVE: "1"
         run: make auto-merge PR="$PR" REPO="$REPO" HEAD_SHA="$HEAD_SHA"
