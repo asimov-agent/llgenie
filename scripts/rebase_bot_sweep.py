@@ -31,6 +31,7 @@ import json
 import os
 import re
 import subprocess
+import time
 import datetime as dt
 from datetime import datetime, timezone
 
@@ -47,6 +48,11 @@ REBASE_CLAIM_TTL = dt.timedelta(minutes=30)
 MAX_PER_DAY = 5
 #: Merge states that mean "this branch has to come back onto main".
 NEEDS = ("BEHIND", "DIRTY")
+#: GitHub computes mergeability lazily: a `pr list` right after a push/comment can report
+#: `UNKNOWN` for every PR. Treating that as "no rebase needed" is what left #445-#447 stale
+#: (issue #453), so a PR reported UNKNOWN is re-queried — bounded, never an unbounded poll.
+UNKNOWN_ATTEMPTS = 4
+UNKNOWN_DELAY_S = 3.0
 
 
 def _gh(gh: str, args: list[str]) -> str:
@@ -54,6 +60,28 @@ def _gh(gh: str, args: list[str]) -> str:
     if r.returncode != 0:
         raise SystemExit(f"[rebase-bot] {gh} {' '.join(args)} failed ({r.returncode}): {r.stderr.strip()}")
     return r.stdout
+
+
+def resolve_state(gh: str, repo: str, num: int, state: str,
+                  attempts: int = UNKNOWN_ATTEMPTS, delay: float = UNKNOWN_DELAY_S) -> str:
+    """The PR's merge state, re-asked while GitHub has not computed it yet (issue #453).
+
+    `UNKNOWN` is not an answer: it means the mergeability computation has not finished, and it is
+    what a fresh `pr list` returns right after a push or a comment. The single-PR read
+    (`gh pr view`) is the cheap way to get the computed value, and a few re-queries turn a
+    transient UNKNOWN into the real BEHIND/DIRTY. A state that never resolves is returned as
+    UNKNOWN so the caller can DEFER the PR by name instead of pretending it needs nothing.
+    """
+    if state and state != "UNKNOWN":
+        return state
+    for attempt in range(1, attempts + 1):
+        time.sleep(delay)
+        out = _gh(gh, ["pr", "view", str(num), "--repo", repo, "--json", "mergeStateStatus"])
+        state = (json.loads(out or "{}").get("mergeStateStatus") or "").upper()
+        if state and state != "UNKNOWN":
+            print(f"[rebase-bot] #{num}: merge state resolved to {state} on re-query {attempt}")
+            return state
+    return "UNKNOWN"
 
 
 
@@ -124,18 +152,20 @@ def _checks(gh: str, repo: str, num: int) -> tuple[bool, bool]:
 
 
 def sweep(gh: str, repo: str, today: str | None = None, max_per_day: int = MAX_PER_DAY,
-          own_fork: str | None = None) -> dict:
+          own_fork: str | None = None, unknown_attempts: int = UNKNOWN_ATTEMPTS,
+          unknown_delay: float = UNKNOWN_DELAY_S) -> dict:
     """Pick the one PR to rebase, or explain why none is."""
     d = today or _today()
     done = rebased_today(gh, repo, d)
     if len(done) >= max_per_day:
-        return {"action": "cap", "pr": None, "reasons": [],
+        return {"action": "cap", "pr": None, "reasons": [], "deferred": [],
                 "reason": f"already rebased {len(done)}/{max_per_day} PRs today"}
     owner = repo.split("/")[0].lower()
     prs = json.loads(_gh(gh, ["pr", "list", "--repo", repo, "--state", "open", "--limit", "100",
                               "--json", "number,title,isDraft,mergeStateStatus,headRefName,"
                                         "headRepositoryOwner,createdAt,baseRefName"]) or "[]") or []
     reasons = []
+    deferred: list[int] = []
     for pr in sorted(prs, key=lambda p: p.get("createdAt") or ""):
         num = pr.get("number")
         head_repo = ((pr.get("headRepositoryOwner") or {}).get("login") or "").lower()
@@ -149,8 +179,17 @@ def sweep(gh: str, repo: str, today: str | None = None, max_per_day: int = MAX_P
             reasons.append(f"#{num} lives on {head_repo or 'an unknown repo'} (not pushable here)")
             continue
         state = (pr.get("mergeStateStatus") or "").upper()
+        if state == "UNKNOWN":
+            # Never decide from an uncomputed merge state (issue #453): re-ask the PR itself.
+            state = resolve_state(gh, repo, num, state, unknown_attempts, unknown_delay)
         if state not in NEEDS:
-            reasons.append(f"#{num} is {state or 'unknown'} against main"); continue
+            if state == "UNKNOWN":
+                deferred.append(num)
+                reasons.append(f"#{num} has no computed merge state (UNKNOWN) after "
+                               f"{unknown_attempts} re-queries — deferred to the next run")
+            else:
+                reasons.append(f"#{num} is {state or 'unknown'} against main")
+            continue
         # --- coexistence with the other bots: never invalidate a run, never race the fix-bot ---
         # A claim is how the other bot says "I am on this branch" (issue #285): a fix-bot repair
         # spends up to 180 minutes in the agent with nothing in flight and no commit yet, so the
@@ -178,8 +217,10 @@ def sweep(gh: str, repo: str, today: str | None = None, max_per_day: int = MAX_P
         return {"action": "rebase", "pr": num, "head_branch": pr.get("headRefName"),
                 "head_repo": head_repo or owner, "state": state, "title": pr.get("title"),
                 "fingerprint": f"{head_repo}:{pr.get('headRefName')}",
-                "reasons": reasons, "reason": f"#{num} is {state} against main"}
-    return {"action": "none", "pr": None, "reasons": reasons, "reason": "no open PR needs rebasing"}
+                "reasons": reasons, "deferred": deferred,
+                "reason": f"#{num} is {state} against main"}
+    return {"action": "none", "pr": None, "reasons": reasons, "deferred": deferred,
+            "reason": "no open PR needs rebasing"}
 
 
 def main(argv=None) -> int:
@@ -190,8 +231,13 @@ def main(argv=None) -> int:
     p.add_argument("--max-per-day", type=int, default=MAX_PER_DAY)
     p.add_argument("--own-fork", default=None,
                    help="the owner whose fork this bot may push to (e.g. andyholst)")
+    p.add_argument("--unknown-attempts", type=int, default=UNKNOWN_ATTEMPTS,
+                   help="re-queries for a PR whose merge state GitHub has not computed yet")
+    p.add_argument("--unknown-delay", type=float, default=UNKNOWN_DELAY_S,
+                   help="seconds between those re-queries")
     a = p.parse_args(argv)
-    res = sweep(a.gh, a.repo, a.today, a.max_per_day, a.own_fork)
+    res = sweep(a.gh, a.repo, a.today, a.max_per_day, a.own_fork,
+                a.unknown_attempts, a.unknown_delay)
     for r in res["reasons"]:
         print(f"[rebase-bot] pass-over: {r}")
     print(f"[rebase-bot] {res['reason']}")

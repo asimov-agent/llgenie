@@ -37,6 +37,7 @@ def _fake_gh(tmp_path: Path, opts: dict | None = None):
     (tmp_path / "prs.json").write_text(json.dumps(opts.get("prs", [])))
     (tmp_path / "checks.json").write_text(json.dumps(opts.get("checks_by_pr", {})))
     (tmp_path / "comments.json").write_text(json.dumps(opts.get("comments_by_pr", {})))
+    (tmp_path / "states.json").write_text(json.dumps(opts.get("states_by_pr", {})))
     gh = tmp_path / "gh"
     gh.write_text(f'''#!{sys.executable}
 import json, sys, pathlib
@@ -53,9 +54,19 @@ if args[:2] == ["search", "prs"]:
 elif args[:2] == ["pr", "list"]:
     print((here / "prs.json").read_text())
 elif args[:2] == ["pr", "view"]:
-    f = here / "comments.json"
-    by_pr = json.loads(f.read_text()) if f.exists() else {{}}
-    print(json.dumps({{"comments": by_pr.get(args[2], [])}}))
+    fields = args[args.index("--json") + 1] if "--json" in args else ""
+    if "mergeStateStatus" in fields:
+        f = here / "states.json"
+        by_pr = json.loads(f.read_text()) if f.exists() else {{}}
+        seq = by_pr.get(args[2], [])
+        state = seq.pop(0) if seq else "UNKNOWN"      # a sequence models the lazy computation
+        by_pr[args[2]] = seq
+        f.write_text(json.dumps(by_pr))
+        print(json.dumps({{"mergeStateStatus": state}}))
+    else:
+        f = here / "comments.json"
+        by_pr = json.loads(f.read_text()) if f.exists() else {{}}
+        print(json.dumps({{"comments": by_pr.get(args[2], [])}}))
 elif args[:2] == ["pr", "checks"]:
     f = here / "checks.json"
     by_pr = json.loads(f.read_text()) if f.exists() else {{}}
@@ -379,3 +390,75 @@ def test_a_red_pr_that_is_only_behind_is_left_to_the_fix_bot(tmp_path):
     # the conflicted one is taken even though it is red: the rebase is the precondition
     assert res["pr"] == 2, res
     assert any("the fix-bot owns that" in r for r in res["reasons"])
+
+
+# --------------------------------------------------- an UNKNOWN merge state (issue #453)
+
+
+def test_an_unknown_state_is_re_resolved_and_the_pr_is_taken(tmp_path):
+    """GitHub's lazy mergeability must be re-asked, not read as "needs nothing"."""
+
+    # Given an open PR the list reports as UNKNOWN, whose own read resolves to DIRTY
+    gh, log = _fake_gh(tmp_path, {"search": [], "prs": [_pr(9, "UNKNOWN")],
+                                  "states_by_pr": {"9": ["UNKNOWN", "DIRTY"]}})
+
+    # When the sweep runs
+    res = rb.sweep(str(gh), f"{OWNER}/{NAME}", today="2026-10-14", own_fork="andyholst",
+                   unknown_delay=0)
+
+    # Then it re-asked that PR and took it with the resolved state
+    assert res["action"] == "rebase" and res["pr"] == 9, res
+    assert res["state"] == "DIRTY"
+    assert res["deferred"] == []
+    asked = [json.loads(line) for line in log.read_text().splitlines()]
+    assert any(a[:2] == ["pr", "view"] and "--json" in a for a in asked), asked
+
+
+def test_a_pr_that_stays_unknown_is_deferred_not_ignored(tmp_path):
+    """A PR that never resolves is named as deferred — never filed as "no rebase needed"."""
+
+    # Given an open PR whose own read keeps reporting UNKNOWN
+    gh, _log = _fake_gh(tmp_path, {"search": [], "prs": [_pr(9, "UNKNOWN")]})
+
+    # When the sweep runs with a bounded number of re-queries
+    res = rb.sweep(str(gh), f"{OWNER}/{NAME}", today="2026-10-14", own_fork="andyholst",
+                   unknown_attempts=2, unknown_delay=0)
+
+    # Then nothing is picked, and the PR is reported as deferred with the next-run retry
+    assert res["action"] == "none", res
+    assert res["deferred"] == [9]
+    joined = " | ".join(res["reasons"])
+    assert "#9 has no computed merge state (UNKNOWN)" in joined
+    assert "deferred to the next run" in joined
+
+
+def test_the_rebase_step_exports_gh_token(tmp_path):
+    """The step that posts the outcome comment (and its done marker) carries GH_TOKEN."""
+
+    # Given the rebase bot's workflow file
+    wf = yaml.safe_load((REPO / ".github" / "workflows" / "rebase-bot.yml").read_text())
+    steps = wf["jobs"]["rebase"]["steps"]
+
+    # When the step that runs the actor is found
+    actor = next(s for s in steps if str(s.get("name", "")).startswith("Rebase it"))
+
+    # Then it exports the job token, so `gh pr comment` can post the done marker
+    assert actor["env"]["GH_TOKEN"] == "${{ github.token }}"
+    assert "make rebase-bot" in actor["run"]
+
+
+def test_the_cli_passes_the_unknown_state_bounds(tmp_path, capsys):
+    """The dispatcher can tighten the re-query bound (the workflow keeps the default)."""
+
+    # Given a PR that stays UNKNOWN and an explicit bound on the command line
+    gh, _log = _fake_gh(tmp_path, {"search": [], "prs": [_pr(9, "UNKNOWN")]})
+
+    # When the CLI runs with one attempt and no delay
+    rc = rb.main(["--gh", str(gh), "--repo", f"{OWNER}/{NAME}", "--today", "2026-10-14",
+                  "--own-fork", "andyholst", "--unknown-attempts", "1", "--unknown-delay", "0"])
+
+    # Then it exits 0, reports the deferral, and files no rebase
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "action=none" in out
+    assert "deferred to the next run" in out

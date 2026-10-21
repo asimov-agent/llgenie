@@ -141,6 +141,11 @@ jobs:
           PR: ${{ steps.sweep.outputs.pr }}
           HEAD_BRANCH: ${{ steps.sweep.outputs.branch }}
           HEAD_REPO: ${{ steps.sweep.outputs.headrepo }}
+          # The outcome comment (and the `done` marker inside it) is written by
+          # scripts/rebase_bot.sh through `gh`. Without this token the push succeeded while every
+          # comment failed — `[rebase-bot] could not comment` in run 39553726935 — so the sweep's
+          # daily record and the other bots' claim readers never saw the result (issue #453).
+          GH_TOKEN: ${{ github.token }}
           # A rebase preserves the author of the commits it replays and re-stamps the COMMITTER, so
           # this only decides who a conflict resolution is authored/committed as — one of the two
           # identities a PR's commits may carry (`Asimov Agent`, issue #345).

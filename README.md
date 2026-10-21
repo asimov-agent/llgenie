@@ -556,7 +556,11 @@ make rebase-bot-agent     # the conflict hand-off: it asks Hermes to resolve a s
 AGENTS.md's rule is that a branch behind `main` cannot be merged — so a stale PR blocks itself.
 It runs **every 6 hours** and handles **ONE PR per run**, oldest first:
 - `make rebase-bot-sweep` decides *which* PR — an open, non-draft PR against `main` whose merge
-  state is `BEHIND` (a clean rebase) or `DIRTY` (conflicts). It states a reason for every PR it
+  state is `BEHIND` (a clean rebase) or `DIRTY` (conflicts). GitHub computes mergeability
+  **lazily**, so a PR the list reports as `UNKNOWN` is re-asked through `gh pr view
+  <n> --json mergeStateStatus` (bounded: `UNKNOWN_ATTEMPTS` re-queries, `--unknown-attempts` /
+  `--unknown-delay`); a PR that stays `UNKNOWN` is reported as **deferred to the next run**,
+  never silently counted as "needs nothing" (issue #453). It states a reason for every PR it
   passes over, skips a PR it already rebased **today** (its own marker comment is the record, so
   no label is invented and no PR is rebased twice in a day), and skips a fork it cannot push to.
 - **It keeps out of the other bots' way.** It skips a PR with checks **in flight** (rebasing
@@ -573,7 +577,9 @@ It runs **every 6 hours** and handles **ONE PR per run**, oldest first:
   TAB). Then it checks the result structurally — `make -n ci-unit` parses, `make lint`, and the
   wiring guard — and pushes with **`--force-with-lease`** to the **PR's own head remote**: a fork
   PR goes to the fork, never to `origin`. It never merges, and a resolution it cannot finish is
-  reported on the PR and left for a human.
+  reported on the PR and left for a human. The step that runs it exports `GH_TOKEN`, because the
+  outcome comment (and the `done` marker inside it) is a `gh` write: without it the push landed
+  and every comment failed (issue #453).
 make issue-refiner-pick   # keep the backlog implementable: spare capacity -> the oldest issue that is not decided/claimed
 make issue-refiner        # step 1: Hermes REVIEWS that issue (refine-in.md) and writes its verdict to refine.md
 make issue-refiner-apply ISSUE=<n>  # step 2: ONE comment + the agent:refined label (never a PR)
