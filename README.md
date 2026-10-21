@@ -507,6 +507,25 @@ picks ONE verdict, written to `triage.md`:
 
 An issue labelled `agent:refined` or `agent:closed` is never picked again, so neither verdict can
 loop, and neither opens a PR — so it does not consume the 3/day PR cap.
+
+#### The implementer edits `/repo` in place (issue #426)
+
+`make implement-issue` runs Hermes in a `--rm` container with **one writable mount** —
+`-v "$(CURDIR):/repo" -w /repo` — so the leg tells the agent, as a hard rule, that `/repo` is the only
+tree it can write and the tree the job commits: edit it in place, **no git worktree**. AGENTS.md's
+worktree rule is for a host agent with a real filesystem; inside this container `../llgenie-wt` is
+`/llgenie-wt`, outside the mount, and it is deleted with the container — measured:
+
+```
+$ docker run --rm -v "$PWD":/repo -w /repo alpine:3 sh -c 'mkdir -p ../llgenie-wt/probe && echo lost > ../llgenie-wt/probe/f'
+inside the container it exists: lost
+$ ls ../llgenie-wt/probe
+ls: cannot access '../llgenie-wt/probe': No such file or directory
+```
+
+The job — not the agent — commits and pushes, and `make issue-bot-changed` measures `/repo`, so work
+done elsewhere is a loud failure rather than a silent one. `tests/test_bot_in_place.py` pins the prompt
+rule and the single mount.
 make rebase-bot-sweep     # which ONE open PR needs rebasing (BEHIND/DIRTY against main), with the reason for every pass-over
 make rebase-bot PR=<n> HEAD_BRANCH=<b> HEAD_REPO=<owner>   # rebase it (agent resolves a conflict), verify, push --force-with-lease
 make rebase-bot-agent     # the conflict hand-off: it asks Hermes to resolve a stopped rebase (the conflict prompt arrives on STDIN) and runs INSIDE the agent image
