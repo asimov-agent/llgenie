@@ -1033,6 +1033,14 @@ images — would never happen. Right after merging, `make verify-closure` reads 
 `closingIssuesReferences` and **fails, naming the issue**, when a claimed `closes #n` did not bind, so an
 unbound keyword is a red run instead of an issue left open on the board.
 
+**The merge runs in `.github/workflows/auto-merge.yml`, a `workflow_run` workflow — not a job in `ci.yml`**
+(issue #493). A `pull_request` run **from a fork** receives no repository secrets, so the job that used to live
+in `ci.yml` saw `secrets.BUMP_TOKEN` as the empty string: #481's run was green and the job `succeeded` while
+merging nothing. A `workflow_run` workflow executes in the base repository with the base repository's secrets,
+acts only on a pull-request run that concluded `success`, checks out the **base** branch (it holds a write
+token, so it never runs PR code), resolves the PR from the run, and calls the same `make auto-merge`. A missing
+token is a red run (exit 2), never a silent deferral.
+
 Two things make a deferral honest rather than silent (issue #491):
 
 - **A green PR blocked only by a required review is approved by the other allowed identity and merged.** The

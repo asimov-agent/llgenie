@@ -1,0 +1,87 @@
+name: auto-merge
+
+# WHY THIS IS NOT A JOB IN ci.yml (issue #493).
+#
+# A `pull_request` run **from a fork** receives NO repository secrets — GitHub withholds them on purpose.
+# #481 is a fork PR (`andyholst/llgenie`), so in ci.yml's auto-merge job `secrets.BUMP_TOKEN` resolved to the
+# empty string: the job reported `success` while merging nothing, and the only trace was an empty
+# `GH_TOKEN:` line in its log. Every agent PR in this repository is pushed to the fork, so every one of them
+# was stuck behind a human click.
+#
+# A `workflow_run` workflow executes in the BASE repository with the BASE repository's secrets, so the owner
+# PAT exists here — and it still only merges what CI has already built and tested: `conclusion == 'success'`
+# means every job of the CI run passed, and `scripts/auto_merge.py` re-reads the PR (state, mergeability,
+# head SHA, hold label, review requirement) before it touches anything.
+#
+# `trending-local-llms` never needed this because its bots push branches inside the repo; llgenie pushes to
+# the fork by design.
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: auto-merge-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  merge:
+    # A PR run that finished green, and nothing else: a push run on main has no pull request to merge.
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Require the owner PAT (an empty token must fail, never defer)
+        env:
+          BUMP_TOKEN: ${{ secrets.BUMP_TOKEN }}
+        run: |
+          if [ -z "$BUMP_TOKEN" ]; then
+            echo "::error::secrets.BUMP_TOKEN is empty in the base repository - this workflow cannot merge, and must not pretend otherwise"
+            exit 2
+          fi
+
+      # The BASE branch, never the PR head: this job holds a write token, so it runs trusted code only.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Resolve the pull request the finished run belongs to
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          HEAD_OWNER: ${{ github.event.workflow_run.head_repository.owner.login }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          set -euo pipefail
+          number=$(gh api "repos/$REPO/actions/runs/$RUN_ID/pull_requests" --jq '.[0].number // empty')
+          if [ -z "$number" ]; then
+            number=$(gh pr list --repo "$REPO" --head "$HEAD_OWNER:$HEAD_BRANCH" --state open --json number --jq '.[0].number // empty')
+          fi
+          if [ -z "$number" ]; then
+            echo "::error::no open pull request for run $RUN_ID (head $HEAD_OWNER:$HEAD_BRANCH) - nothing to merge, and a green PR must never be silently dropped"
+            exit 1
+          fi
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+          echo "resolved PR #$number for run $RUN_ID (head $HEAD_OWNER:$HEAD_BRANCH)"
+
+      - name: make auto-merge (merge only a green, conflict-free PR; everything else defers to a human)
+        env:
+          GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ steps.pr.outputs.number }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          # A green PR whose ONLY blocker is a required review is approved by the other allowed identity
+          # and merged (issue #491). A same-account PR is still refused by GitHub's self-approval rule, and
+          # the deferral comment says so on the PR.
+          APPROVE: "1"
+        run: make auto-merge PR="$PR" REPO="$REPO" HEAD_SHA="$HEAD_SHA"

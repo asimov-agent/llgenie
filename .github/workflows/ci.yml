@@ -341,63 +341,9 @@ jobs:
       runner: ubuntu-latest
 
   # ------------------------------------------------------------------
-  # auto-merge (issue #482): a green, conflict-free, same-repo, non-draft PR is squash-merged by CI,
-  # without waiting for a human. The shape is trending-local-llms' `auto-merge` job in qa-validate.yml,
-  # which is the model for all of this file's bot handling.
-  #
-  #   * `needs:` every PR-relevant job, so it cannot run early, and EACH need must be `success` — a job
-  #     that was SKIPPED is not a job that passed, and merging on "nothing failed" would land a PR whose
-  #     `linux` or `macos` job never ran. `always() && !failure() && !cancelled()` is still required
-  #     because `engine-published-test` is push-only and skipped on a PR (it is deliberately NOT in
-  #     `needs:`; the needs below are exactly the jobs a PR run must complete).
-  #   * `mergeStateStatus: CLEAN` is the whole "green and no merge conflicts" rule: DIRTY is a conflict,
-  #     BEHIND is a stale branch, BLOCKED is a required check or review still pending.
-  #   * `--match-head-commit` pins the merge to the commit THIS run validated: a push after the run
-  #     started leaves the PR open for the newer run.
-  #   * the head may be THIS repo or the owner's fork (`andyholst/llgenie`) — every agent PR is pushed
-  #     there, and a same-repo-only condition (copied from trending-local-llms, where the bots push in the
-  #     repo) skipped every PR this repository opens (issue #488). A fork head merges WITHOUT
-  #     `--delete-branch`: the base token cannot delete a branch in the fork.
-  #   * the owner PAT (`secrets.BUMP_TOKEN`), never the job token: a merge made with the job token starts
-  #     no workflows, so the post-merge run on `main` (which publishes the engine images) would never run.
-  #   * `do-not-merge` is the human hold: the job prints it and exits 0.
-  #   * every branch that is not "green and clean" is DEFERRED (exit 0 with the reason), never failed.
-  #
-  # `make auto-merge` is the decision (scripts/auto_merge.py reads one `gh pr view` and merges only when
-  # every condition holds); `make verify-closure` then proves the body's `closes #n` actually closed.
+  # auto-merge is NOT a job here (issue #493). A `pull_request` run from a fork receives NO repository
+  # secrets, so `secrets.BUMP_TOKEN` was the empty string: this job reported `success` while merging
+  # nothing (#481), and every agent PR in this repository is pushed to the fork. It lives in
+  # `.github/workflows/auto-merge.yml`, a `workflow_run` workflow, which runs in the BASE repository with
+  # the base repository's secrets and merges only a CI run that concluded `success`.
   # ------------------------------------------------------------------
-  auto-merge:
-    needs: [guard, ci-images, linux, macos, engine-base, engine-matrix, engine-image, linux-published]
-    if: >-
-      always() && !failure() && !cancelled() &&
-      needs.guard.result == 'success' && needs.ci-images.result == 'success' &&
-      needs.linux.result == 'success' && needs.macos.result == 'success' &&
-      needs.engine-base.result == 'success' && needs.engine-matrix.result == 'success' &&
-      needs.engine-image.result == 'success' && needs.linux-published.result == 'success' &&
-      github.event_name == 'pull_request' &&
-      github.event.pull_request.draft == false &&
-      (github.event.pull_request.head.repo.full_name == github.repository ||
-       github.event.pull_request.head.repo.owner.login == 'andyholst') &&
-      github.head_ref != 'main'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: write
-      pull-requests: write
-      issues: read
-    concurrency:
-      group: auto-merge-${{ github.event.pull_request.number }}
-      cancel-in-progress: false
-    steps:
-      - uses: actions/checkout@v4
-      - name: make auto-merge (merge only a green, conflict-free PR; everything else defers to a human)
-        env:
-          GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
-          REPO: ${{ github.repository }}
-          PR: ${{ github.event.pull_request.number }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          # A green PR whose ONLY blocker is a required review is approved by the other allowed identity
-          # and merged (issue #491): no human at a keyboard is the whole point. A same-account PR is
-          # still refused by GitHub's self-approval rule, and the deferral says so on the PR.
-          APPROVE: "1"
-        run: make auto-merge PR="$PR" REPO="$REPO" HEAD_SHA="$HEAD_SHA"
