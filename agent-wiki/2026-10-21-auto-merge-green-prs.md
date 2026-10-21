@@ -49,5 +49,10 @@ PR; the agent never runs `gh pr merge` itself; `do-not-merge` is the human hold.
   `trending-local-llms`.
 - The `do-not-merge` label is the escape hatch: a reviewer labels a PR while reading it, and the next
   green run merges once the label is gone.
+- **"Green" means every needed job SUCCEEDED**, not that none failed: the job requires
+  `needs.<job>.result == 'success'` for all eight PR-relevant jobs, because a SKIPPED job (a matrix that
+  collapsed, a job cancelled by a concurrency group) satisfies `!failure()` and would otherwise let the
+  merge land a change the pipeline never ran. `pytest tests/test_auto_merge.py` asserts every one of
+  those guards, and `make check-workflows` keeps the YAML parseable.
 - The job's merge state read is one `gh pr view` call (`--json
   state,isDraft,mergeable,mergeStateStatus,headRefOid,labels`), so a deferred run costs one API call.

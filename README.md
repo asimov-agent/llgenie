@@ -1016,7 +1016,7 @@ What it will and will not touch:
 
 | condition | result |
 |---|---|
-| run green + `mergeStateStatus: CLEAN` | **merged** (squash, branch deleted, head pinned by `--match-head-commit`) |
+| every PR-relevant job **succeeded** + `mergeStateStatus: CLEAN` | **merged** (squash, branch deleted, head pinned by `--match-head-commit`) |
 | `DIRTY` (conflicts), `BEHIND` (stale), `BLOCKED` (check/review pending) | deferred to a human, job prints the reason, exits 0 |
 | draft PR, fork PR (head in another repo), head branch `main` | never merged |
 | head moved after the run started | deferred: the newer run decides |
