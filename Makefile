@@ -566,10 +566,10 @@ architecture-bot-doc: ## Rewrite the architecture doc with Hermes INSIDE the age
 	@test -f "$(ARCH_BRIEF)" || { echo "Run 'make architecture-bot-brief' first: $(ARCH_BRIEF) is missing"; exit 1; }
 	python3 scripts/ci_images.py ensure agent
 	$(call scrubbed_run,$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo \
-	  -e NOUS_API_KEY -e HERMES_REASONING -e DOC -e ARCH_BRIEF \
+	  -e NOUS_API_KEY -e HERMES_REASONING \
 	  -e TYPESAFE_API_KEY -e HERMES_NERVE_PROVIDER -e NERVE_REQUIRE \
 	  $(AGENT_SHELL_FORWARD) \
-	  $(AGENT_IMAGE) bash -lc 'make _architecture-bot-doc DOC="$$DOC" ARCH_BRIEF="$$ARCH_BRIEF"')
+	  $(AGENT_IMAGE) bash -lc 'make _architecture-bot-doc DOC="$(DOC)" ARCH_BRIEF="$(ARCH_BRIEF)"')
 
 _architecture-bot-doc: # (internal) the host recipe the agent image runs: only the doc is writable
 	$(MAKE) _agent-jev-preflight

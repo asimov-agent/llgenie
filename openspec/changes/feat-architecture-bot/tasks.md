@@ -25,7 +25,7 @@
 
 ## 5. Verification
 
-- [ ] 5.1 `tests/test_architecture_bot.py` covers every scenario in `specs/architecture-bot/spec.md`
+- [x] 5.1 `tests/test_architecture_bot.py` covers every scenario in `specs/architecture-bot/spec.md`
 - [ ] 5.2 `make test-unit` green with the new test file discovered
-- [ ] 5.3 `make check-wiring`, `make check-docs`, `make check-dispatch-forms`, `make check-workflows` green
+- [x] 5.3 `make check-wiring`, `make check-docs`, `make check-dispatch-forms`, `make check-workflows` green
 - [ ] 5.4 `make openspec-validate NAME=feat-architecture-bot` exits 0 and every task above is ticked

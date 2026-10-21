@@ -36,8 +36,8 @@ whenever the tree moves.
    with no skill.
 6. **Serve** — `scripts/llgenie_serve.py` scans `~/models/**/*.gguf`, sizes the KV cache and
    `-ngl` for the card, and runs the engine image (Metal runs natively because a container
-   cannot reach the GPU there). `scripts/llama_serve.py` / `scripts/llgenie_serve.py` speak
-   the OpenAI API over llama.cpp's `llama-server`.
+   cannot reach the GPU there). The launcher speaks the OpenAI API over llama.cpp's
+   `llama-server`.
 
 ## Repository layout
 
