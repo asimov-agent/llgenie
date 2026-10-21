@@ -41,5 +41,5 @@ including the failure paths — so a failed attempt recorded the whole UTC day a
 
 ## Status
 
-OpenSpec change `fix-rebase-bot-done-marker`; issue #457; PR from `feat/rebase-bot-marker`
+OpenSpec change `fix-rebase-bot-done-marker`; issue #457; PR #458 from `feat/rebase-bot-marker`
 against `asimov-agent/llgenie:main`. Waiting for review — the agent never merges.
