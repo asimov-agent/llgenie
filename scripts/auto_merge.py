@@ -44,7 +44,7 @@ def _gh(gh: str, args: list[str]) -> str:
 def pr_state(gh: str, repo: str, pr: int) -> dict:
     """What GitHub says about this PR right now: the merge decision is read from here, in one call."""
     out = _gh(gh, ["pr", "view", str(pr), "--repo", repo, "--json",
-                   "state,isDraft,mergeable,mergeStateStatus,headRefOid,labels"])
+                   "state,isDraft,mergeable,mergeStateStatus,headRefOid,labels,headRepository"])
     return json.loads(out or "{}")
 
 
@@ -71,10 +71,17 @@ def decide(state: dict, head_sha: str, hold_label: str = HOLD_LABEL) -> "str | N
     return None
 
 
-def merge(gh: str, repo: str, pr: int, head_sha: str) -> str:
-    """Squash-merge exactly the validated commit and delete the branch."""
-    return _gh(gh, ["pr", "merge", str(pr), "--repo", repo, "--squash", "--delete-branch",
-                    "--match-head-commit", head_sha])
+def merge(gh: str, repo: str, pr: int, head_sha: str, delete_branch: bool = True) -> str:
+    """Squash-merge exactly the validated commit; delete the branch only when it is in THIS repo.
+
+    A head in the owner's fork (issue #488) is a normal case here — every agent PR is pushed there — but the
+    base token cannot delete a branch in the fork, and asking it to would fail a run whose merge succeeded.
+    """
+    argv = ["pr", "merge", str(pr), "--repo", repo, "--squash"]
+    if delete_branch:
+        argv.append("--delete-branch")
+    argv += ["--match-head-commit", head_sha]
+    return _gh(gh, argv)
 
 
 def run(gh: str, repo: str, pr: int, head_sha: str, dry: bool = False) -> int:
@@ -85,11 +92,14 @@ def run(gh: str, repo: str, pr: int, head_sha: str, dry: bool = False) -> int:
     if reason:
         print(f"[auto-merge] PR #{pr} deferred to a human: {reason}")
         return 0
+    head_repo = ((state.get("headRepository") or {}).get("nameWithOwner") or "").lower()
+    same_repo = not head_repo or head_repo == repo.lower()
+    keeps_branch = " (its branch stays in the fork)" if not same_repo else ""
     if dry:
-        print(f"[auto-merge] would squash-merge PR #{pr} at {(head_sha or '')[:8]} and delete its branch")
+        print(f"[auto-merge] would squash-merge PR #{pr} at {(head_sha or '')[:8]}{keeps_branch}")
         return 0
-    print(f"[auto-merge] merging PR #{pr} at {head_sha[:8]} (green + CLEAN)")
-    print(merge(gh, repo, pr, head_sha).strip())
+    print(f"[auto-merge] merging PR #{pr} at {head_sha[:8]} (green + CLEAN){keeps_branch}")
+    print(merge(gh, repo, pr, head_sha, delete_branch=same_repo).strip())
     return verify_closure.verify(gh, repo, pr)
 
 

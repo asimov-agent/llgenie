@@ -1022,7 +1022,7 @@ What it will and will not touch:
 |---|---|
 | every PR-relevant job **succeeded** + `mergeStateStatus: CLEAN` | **merged** (squash, branch deleted, head pinned by `--match-head-commit`) |
 | `DIRTY` (conflicts), `BEHIND` (stale), `BLOCKED` (check/review pending) | deferred to a human, job prints the reason, exits 0 |
-| draft PR, fork PR (head in another repo), head branch `main` | never merged |
+| draft PR, a **third-party** fork (only `andyholst/llgenie` is trusted), head branch `main` | never merged |
 | head moved after the run started | deferred: the newer run decides |
 | `do-not-merge` label | **held** — the human escape hatch; remove it and the next green run merges |
 

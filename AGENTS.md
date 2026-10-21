@@ -245,8 +245,11 @@ git merge-base --is-ancestor origin/main HEAD 2>/dev/null \
      left alone, as is any PR whose head moved after the run started
      (`--match-head-commit`).
    - **The scope is narrow on purpose:** `pull_request` events only, a non-draft
-     PR, a **same-repo** head, and a head branch that is not `main`. A fork PR is
-     never auto-merged (the PAT cannot delete a fork branch).
+     PR, a head that is **this repository or the owner's fork**
+     (`andyholst/llgenie` — the branch every agent PR is pushed to), and a head
+     branch that is not `main`. Any other fork stays manual. A fork head is merged
+     **without** `--delete-branch`: the base token cannot delete a branch in the
+     fork, so its branch is kept (and printed in the log), which is not an error.
    - **`do-not-merge` is the human hold.** A reviewer who is mid-read labels the
      PR and CI defers to them; the job prints the hold and exits 0, it is never a
      red run. An unbound `closes #n` is the other failure mode and it is loud:
@@ -420,7 +423,8 @@ to paste the comment into chat.
 6. **The PR lands without the agent merging it.** Merging is CI's action now
    (rule 7 under "Git workflow"): the `auto-merge` job in `.github/workflows/ci.yml`
    squash-merges the PR the moment the run is green **and** the PR is conflict-free
-   (`mergeStateStatus == CLEAN`), non-draft, same-repo, and carries no `do-not-merge`
+   (`mergeStateStatus == CLEAN`), non-draft, a head in this repository or in the
+   owner's fork (`andyholst/llgenie`), and carries no `do-not-merge`
    label. So there is nothing to wait for at a keyboard — and nothing for you to run:
 
    - **Never run `gh pr merge`** (no `--squash`, `--merge`, `--rebase`, `--auto`,

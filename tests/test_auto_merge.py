@@ -34,7 +34,8 @@ HEAD = "1234567890abcdef1234567890abcdef12345678"
 def _state(**kw) -> dict:
     """A `gh pr view` answer with every field the decision reads."""
     base = {"state": "OPEN", "isDraft": False, "mergeable": "MERGEABLE",
-            "mergeStateStatus": "CLEAN", "headRefOid": HEAD, "labels": []}
+            "mergeStateStatus": "CLEAN", "headRefOid": HEAD, "labels": [],
+            "headRepository": {"nameWithOwner": "o/r"}}
     base.update(kw)
     return base
 
@@ -222,27 +223,52 @@ def test_the_job_needs_every_pr_relevant_job():
     # …and the push-only job is deliberately absent (it is skipped on a PR)
     assert "engine-published-test" not in needs, needs
 
+    # And "green" means every need SUCCEEDED: a skipped job is not a passed job, and merging on
+    # "nothing failed" would land a PR whose linux or macos job never ran.
+    cond = block.split("if: >-", 1)[1].split("runs-on:", 1)[0]
+    for job in ("guard", "ci-images", "linux", "macos", "engine-base", "engine-matrix",
+                "engine-image", "linux-published"):
+        assert f"needs.{job}.result == 'success'" in cond, (job, cond)
 
-def test_fork_draft_and_main_are_excluded_and_a_failure_blocks_the_merge():
-    """The job's own condition: pull_request only, non-draft, same repo, not main, no failure."""
+
+def test_the_workflow_accepts_the_owners_fork_and_no_other():
+    """A head in the base repo OR in the owner's fork; a draft or a `main` head never."""
 
     # Given the auto-merge job's `if:`
     block = CI.split("  auto-merge:", 1)[1]
     cond = block.split("if: >-", 1)[1].split("runs-on:", 1)[0]
 
     # When  it is read
-    # Then  every exclusion is there, and a failed or cancelled job blocks the merge
+    # Then  both accepted heads are there — the fork is where every agent PR is pushed (issue #488)
+    assert "github.event.pull_request.head.repo.full_name == github.repository" in cond, cond
+    assert "github.event.pull_request.head.repo.owner.login == 'andyholst'" in cond, cond
+    # …only THAT owner: no wildcard, and no negation that would let any fork through
+    assert "head.repo.owner.login !=" not in cond, cond
+    assert "head.repo.fork == false" not in cond, cond
+
+    # And the other refusals and the failure guards are unchanged
     for needle in ("always()", "!failure()", "!cancelled()", "github.event_name == 'pull_request'",
-                   "github.event.pull_request.draft == false",
-                   "github.event.pull_request.head.repo.full_name == github.repository",
-                   "github.head_ref != 'main'"):
+                   "github.event.pull_request.draft == false", "github.head_ref != 'main'"):
         assert needle in cond, (needle, cond)
 
-    # And "green" means every need SUCCEEDED: a skipped job is not a passed job, and merging on
-    # "nothing failed" would land a PR whose linux or macos job never ran.
-    for job in ("guard", "ci-images", "linux", "macos", "engine-base", "engine-matrix",
-                "engine-image", "linux-published"):
-        assert f"needs.{job}.result == 'success'" in cond, (job, cond)
+
+def test_a_fork_head_merges_without_deleting_the_branch(tmp_path):
+    """The base token cannot delete a fork branch, so a fork merge asks for no deletion."""
+
+    # Given a green, clean PR whose head is the owner's fork
+    fork = _state(headRepository={"nameWithOwner": "andyholst/llgenie"})
+    gh = _fake_gh(tmp_path, fork, {"482": "CLOSED"})
+
+    # When  the merge runs
+    rc = am.run(str(gh), "o/r", 482, HEAD)
+
+    # Then  it merges the same-squash, head-pinned way, without --delete-branch
+    merges = [c for c in _calls(tmp_path / "gh.log") if c[:2] == ["pr", "merge"]]
+    assert rc == 0, rc
+    assert len(merges) == 1, merges
+    argv = merges[0]
+    assert "--squash" in argv and "--delete-branch" not in argv, argv
+    assert argv[argv.index("--match-head-commit") + 1] == HEAD, argv
 
 
 def test_the_merge_uses_the_owner_pat_and_a_make_target():

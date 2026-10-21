@@ -354,6 +354,10 @@ jobs:
   #     BEHIND is a stale branch, BLOCKED is a required check or review still pending.
   #   * `--match-head-commit` pins the merge to the commit THIS run validated: a push after the run
   #     started leaves the PR open for the newer run.
+  #   * the head may be THIS repo or the owner's fork (`andyholst/llgenie`) — every agent PR is pushed
+  #     there, and a same-repo-only condition (copied from trending-local-llms, where the bots push in the
+  #     repo) skipped every PR this repository opens (issue #488). A fork head merges WITHOUT
+  #     `--delete-branch`: the base token cannot delete a branch in the fork.
   #   * the owner PAT (`secrets.BUMP_TOKEN`), never the job token: a merge made with the job token starts
   #     no workflows, so the post-merge run on `main` (which publishes the engine images) would never run.
   #   * `do-not-merge` is the human hold: the job prints it and exits 0.
@@ -372,7 +376,8 @@ jobs:
       needs.engine-image.result == 'success' && needs.linux-published.result == 'success' &&
       github.event_name == 'pull_request' &&
       github.event.pull_request.draft == false &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
+      (github.event.pull_request.head.repo.full_name == github.repository ||
+       github.event.pull_request.head.repo.owner.login == 'andyholst') &&
       github.head_ref != 'main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
