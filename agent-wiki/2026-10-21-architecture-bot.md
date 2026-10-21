@@ -33,8 +33,8 @@ reviewable PR. It never merges and never pushes to `main`.
 
 ## Status
 
-OpenSpec change `feat-architecture-bot`; branch `feat/architecture-bot`; issue #449; PR opened
-from this branch against `asimov-agent/llgenie:main`. Waiting for review — the agent never merges.
+OpenSpec change `feat-architecture-bot`; branch `feat/architecture-bot`; issue #449; PR #451
+against `asimov-agent/llgenie:main`. Waiting for review — the agent never merges.
 
 ## Related
 
