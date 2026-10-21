@@ -57,7 +57,8 @@ task 8 was still unticked at that commit (`openspec-tasks-check`), fixed in `7ac
   branches and 69 worktrees removed, `955 MB → 184 MB`): every remaining branch was kept with its
   reason — the 36 PR-less duplicates, the 2 CLOSED-PR branches (`ci/bot-schedule-gaps` #281,
   `fix/workflow-file-valid` #334) — and nothing was removed.
-- The gate set for this change, all exit 0: `make test-unit` (**4912 passed, 3 deselected, 755 s**),
+- The gate set for this change, all exit 0, re-run on the rebased branch (`cbb1ff4`): `make test-unit`
+  (**4922 passed, 3 deselected, 740 s**),
   `make check-wiring`, `make check-docs`, `make lint`, `make check-pr-hygiene`, `make check-pr-authors`,
   `make openspec-validate NAME=worktree-prune`.
 - `make test-unit` was red once before that, on `test_readme_links_answer_and_a_broken_copy_is_caught`:
