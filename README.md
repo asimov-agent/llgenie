@@ -440,6 +440,10 @@ per run, at most **3 per UTC day**, one at a time, each left as a draft-free
 reviewable PR that is **never merged**. It replaces the old host watch-loop
 in CI (that loop was removed in #210).
 
+The implement step has its **own 90-minute budget** inside the job's 120 (issue #476), so a leg
+that runs long fails by name while time remains; the change detection and the commit+push run with
+`always()`, so whatever the agent wrote is salvaged into the branch and opened as a PR.
+
 The **dispatcher** is deterministic (no LLM, stdlib only) and is the
 unit-testable core — `scripts/issue_implementer.py`:
 

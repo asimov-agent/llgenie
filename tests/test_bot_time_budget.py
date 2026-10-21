@@ -113,3 +113,41 @@ def test_the_fix_loop_imposes_no_hidden_per_round_cap():
         "scripts/fix_loop.sh caps a round with `timeout`; the workflow budget is then not "
         "the effective one"
     )
+
+
+# ------------------------- the implement leg has its own budget and salvages (#476)
+
+
+def _issue_bot() -> dict:
+    return _load(WF / "issue-bot.yml")
+
+
+def test_the_implement_step_has_a_budget_below_the_job():
+    """A leg that can outlive the job needs its own, smaller ceiling."""
+    wf = _issue_bot()
+    job = wf["jobs"]["implement"]
+    step = next(s for s in job["steps"] if s.get("id") == "impl")
+
+    # Then it declares a budget that leaves time to salvage the tree afterwards
+    assert "timeout-minutes" in step, "the implement step has no budget of its own"
+    budget = int(step["timeout-minutes"])
+    assert FLOOR_MINUTES <= budget < int(job["timeout-minutes"]), (budget, job["timeout-minutes"])
+
+
+def test_a_timed_out_implementation_still_salvages_the_tree():
+    """Detection and the push must run even when the implementation failed or timed out."""
+    steps = {s.get("id"): s for s in _issue_bot()["jobs"]["implement"]["steps"] if s.get("id")}
+
+    # Then both the change detection and the push are unconditional-on-outcome
+    assert "always()" in str(steps["diff"].get("if", "")), steps["diff"].get("if")
+    assert "always()" in str(steps["push"].get("if", "")), steps["push"].get("if")
+
+
+def test_the_budget_failure_is_named():
+    """The run says it ran out of budget, and what survived, instead of dying at the job cap."""
+    steps = _issue_bot()["jobs"]["implement"]["steps"]
+    named = [s for s in steps if "impl.outcome" in str(s.get("if", ""))]
+    assert named, "no step names the implement step's outcome"
+    body = "\n".join(str(s.get("run", "")) for s in named)
+    assert "budget" in body.lower() and "90" in body
+    assert "pushed" in body and "tree=" in body

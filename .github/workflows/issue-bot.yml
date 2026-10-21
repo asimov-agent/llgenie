@@ -187,8 +187,12 @@ jobs:
           if [ "$rc" != "0" ]; then echo "verdict=error" >> "$GITHUB_OUTPUT"; fi
           exit 0
 
+      # The leg gets its OWN budget, below the job's 120 minutes (issue #476): when it runs out the
+      # step fails with its own name while 30 minutes remain to salvage the tree (detect, commit,
+      # push, open the PR), instead of GitHub killing the job and discarding the work.
       - name: Implement the issue (Hermes reads issue.md + AGENTS.md)
         id: impl
+        timeout-minutes: 90
         if: steps.dispatch.outputs.dispatch == 'true' && steps.verdict.outputs.verdict == 'implement'
         run: |
           set +e
@@ -202,7 +206,8 @@ jobs:
       # container worktree that `--rm` deleted). The next step decides from the files.
       - name: Detect what the implementation changed
         id: diff
-        if: steps.dispatch.outputs.dispatch == 'true' && steps.verdict.outputs.verdict == 'implement'
+        # `always()`: a timed-out or failed implementation still has a tree worth salvaging (#476).
+        if: always() && steps.dispatch.outputs.dispatch == 'true' && steps.verdict.outputs.verdict == 'implement'
         run: |
           set +e
           out=$(make issue-bot-changed)
@@ -222,7 +227,7 @@ jobs:
           if-no-files-found: ignore
       - name: Commit + push the feature branch
         id: push
-        if: steps.verdict.outputs.verdict == 'implement' && steps.diff.outputs.changed == 'true'
+        if: always() && steps.verdict.outputs.verdict == 'implement' && steps.diff.outputs.changed == 'true'
         env:
           BRANCH: ${{ steps.dispatch.outputs.branch }}
         run: |
@@ -296,6 +301,16 @@ jobs:
             echo "#222 repairs it when a check goes red."
           } > comment.md
           gh issue comment "$ISSUE" --body-file comment.md
+
+      - name: Name the budget when the implementation ran out or failed
+        if: always() && (steps.impl.outcome == 'failure' || steps.impl.outcome == 'cancelled')
+        env:
+          BRANCH: ${{ steps.dispatch.outputs.branch }}
+          CHANGED: ${{ steps.diff.outputs.changed }}
+          PUSHED: ${{ steps.push.outputs.pushed }}
+          DECLARED: ${{ steps.impl.outputs.rc }}
+        run: |
+          echo "::error title=Implementation budget::${{ steps.impl.outcome }} after the leg's 90-minute budget (the job allows 120). tree=$CHANGED branch=$BRANCH pushed=${PUSHED:-false} rc=${DECLARED:-?}; any change the agent made was salvaged above."
 
       - name: Fail loudly when the implementation did not happen
         # Only a verdict of `implement` owes a PR: a refine or a close ends the run on purpose,
