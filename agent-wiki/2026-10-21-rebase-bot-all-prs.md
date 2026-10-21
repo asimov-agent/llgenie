@@ -32,5 +32,5 @@ Right after run 39581262100 (which rebased #446 to `MERGEABLE`):
 
 ## Status
 
-OpenSpec change `fix-rebase-bot-all-prs`; issue #462; PR from `feat/rebase-bot-all-prs` against
+OpenSpec change `fix-rebase-bot-all-prs`; issue #462; PR #463 from `feat/rebase-bot-all-prs` against
 `asimov-agent/llgenie:main`. Waiting for review — the agent never merges.
