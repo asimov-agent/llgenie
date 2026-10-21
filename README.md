@@ -566,6 +566,19 @@ requires `changed=true`, and the "fail loudly" step fires when the agent failed 
 nothing — so a no-op run pushes nothing, opens no PR, and reds the job naming the issue. A `git` that
 cannot read the tree exits 2: an unreadable tree must never look like a green run.
 
+#### A bot's run inputs are never repo content (issue #427)
+
+Every leg writes its run input at the repo root: `issue.md` (the dispatcher), `triage.md` (the verdict),
+`refine-in.md` / `refine.md` (the refiner), `pr-body.md` (the implementer), `comment.md` (the outcome
+comment). They are **run inputs, not a change**, and `.gitignore` carries the whole set — so the push
+step's `git add -A` stages repository content only and a run that implemented nothing stages nothing.
+
+That is enforced, not remembered: `tests/test_bot_scratch_ignored.py` asks **real git** whether each
+name is ignored, cross-checks the roster against the files that write them, and fails if a workflow
+answers a missing entry with a `git reset -- <file>` exclude — that denylist is what committed
+`triage.md` (`TRIAGE: implement`) as the "implementation" of #407 in PR #424. A new run input therefore
+needs its `.gitignore` line (and the roster), not a wider `git reset`.
+
 #### A bot PR's description comes from the run (issue #429)
 
 The PR body used to be a fixed string — `--title "issue-bot implementation"` plus

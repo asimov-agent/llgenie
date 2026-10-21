@@ -45,12 +45,18 @@ env/
 .ci-home/
 
 # --- Artifacts the bots write at the repo root ---------------------------
-# The dispatcher writes issue.md for the agent to read, the refiner writes
+# Every bot leg writes its run input here: the dispatcher writes issue.md for the agent
+# to read, the triage leg writes triage.md (its verdict), the refiner writes
 # refine-in.md / refine.md, the implementer writes pr-body.md (the PR description it owes),
-# and the workflows write comment.md. They are run inputs, never repo content: `git add -A`
-# in a bot run (or in an agent session) otherwise commits them, which the workflows have to
-# undo with `git reset -- issue.md`.
+# and the outcome step writes comment.md. They are run inputs, never repo content, and
+# `git add -A` in a bot run (or in an agent session) would otherwise commit them.
+#
+# This list is the WHOLE set, and it is enforced with real git by
+# tests/test_bot_scratch_ignored.py: a new run input without a line here reds
+# `make test-unit`. Do not answer the gap with a `git reset -- <file>` in a workflow —
+# that denylist is what shipped a triage verdict as an "implementation" (issue #427).
 issue.md
+triage.md
 refine-in.md
 refine.md
 comment.md

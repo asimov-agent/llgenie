@@ -231,8 +231,10 @@ jobs:
           git config user.name "Asimov Agent"
           git config user.email "support@docondee.com"
           git checkout -b "$BRANCH"
+          # The bot's own run inputs (issue.md, triage.md, refine*.md, comment.md) are in
+          # .gitignore, so this stages repository content only: there is no per-file exclude
+          # to drift, and a run whose implementation is missing stages nothing (issue #427).
           git add -A
-          git reset -q -- issue.md 2>/dev/null || true
           if git diff --cached --quiet; then
             echo "The implementation produced no file changes - nothing to push."
             echo "pushed=false" >> "$GITHUB_OUTPUT"
