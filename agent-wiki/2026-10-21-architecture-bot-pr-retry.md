@@ -24,5 +24,5 @@ PR.
 
 ## Status
 
-Issue #479; PR from `feat/architecture-bot-pr-retry` against `asimov-agent/llgenie:main`. Waiting
+Issue #479; PR #481 from `feat/architecture-bot-pr-retry` against `asimov-agent/llgenie:main`. Waiting
 for review — the agent never merges.
