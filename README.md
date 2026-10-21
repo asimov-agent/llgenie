@@ -597,7 +597,9 @@ rebase fails is aborted (`make rebase-bot-abort`), reported, and the run carries
   checks the result structurally — `make -n ci-unit` parses, `make lint`, and the
   wiring guard — and pushes with **`--force-with-lease`** to the **PR's own head remote**: a fork
   PR goes to the fork, never to `origin`. It never merges, and a resolution it cannot finish is
-  reported on the PR and left for a human. The step that runs it exports `GH_TOKEN`, because the
+  reported on the PR and left for a human — with its stopped rebase **aborted**, so the run's next
+  decision still has a parseable `Makefile` (issues #460/#464). The step that runs it exports
+  `GH_TOKEN`, because the
   outcome comment (and the `done` marker inside it) is a `gh` write: without it the push landed
   and every comment failed (issue #453).
 make issue-refiner-pick   # keep the backlog implementable: spare capacity -> the oldest issue that is not decided/claimed

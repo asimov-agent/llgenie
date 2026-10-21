@@ -50,6 +50,16 @@ run() {
   if [ -n "$DRY" ]; then echo "[rebase-bot] DRY: $*"; else echo "[rebase-bot] $*"; "$@"; fi
 }
 
+# Leave NO stopped rebase behind on a failure path: the caller's next `make` must be able to parse
+# Makefile, and a conflict there can be in the Makefile itself (issues #460/#462). `git rebase
+# --abort` is a no-op when nothing is in progress.
+abort_rebase() {
+  if [ -d .git/rebase-merge ] || [ -d .git/rebase-apply ]; then
+    echo "[rebase-bot] aborting the stopped rebase so the tree is clean" >&2
+    git rebase --abort >/dev/null 2>&1 || true
+  fi
+}
+
 comment() {
   # $2 is the `bot-done` KIND: `rebased` only when this run really pushed, `gave-up` on every
   # failure path. The sweep counts a PR as "already rebased today" from that marker alone
@@ -101,15 +111,15 @@ else
     echo "[rebase-bot] DRY: <agent> <$(wc -l <"$PROMPT")-line conflict prompt"
   elif ! bash -o pipefail -c "$AGENT_CMD" <"$PROMPT"; then
     comment "The rebase bot could not get the agent to resolve the conflict with \`main\`; leaving it for a human. <!-- $MARKER: $TODAY -->"
-    echo "[rebase-bot] agent failed" >&2; exit 1
+    echo "[rebase-bot] agent failed" >&2; abort_rebase; exit 1
   fi
   if ! run env GIT_EDITOR=true git -c rerere.enabled=false rebase --continue; then
     comment "The rebase bot's conflict resolution did not complete; leaving it for a human. <!-- $MARKER: $TODAY -->"
-    echo "[rebase-bot] rebase --continue failed" >&2; exit 1
+    echo "[rebase-bot] rebase --continue failed" >&2; abort_rebase; exit 1
   fi
   if grep -rIl '^<<<<<<< \|^>>>>>>> ' --exclude-dir=.git . >/dev/null 2>&1; then
     comment "The rebase bot stopped: conflict markers remain. Not pushed. <!-- $MARKER: $TODAY -->"
-    echo "[rebase-bot] conflict markers remain" >&2; exit 1
+    echo "[rebase-bot] conflict markers remain" >&2; abort_rebase; exit 1
   fi
   OUTCOME="rebased onto \`main\` with \`$(wc -l <"$LOG")\` conflicted file(s) resolved by the agent"
 fi

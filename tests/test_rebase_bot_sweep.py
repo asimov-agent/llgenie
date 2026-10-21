@@ -316,6 +316,14 @@ def test_a_failing_agent_stops_the_run_without_pushing(tmp_path):
                            capture_output=True, text=True, check=True).stdout.strip()
     assert before == after, "a failed resolution must not publish anything"
 
+    # And the tree is left with NO stopped rebase: the next `make` in the same run has to parse
+    # Makefile, which is exactly the file a failed conflict can leave broken (issues #460/#462).
+    mid_rebase = subprocess.run(["git", "-C", str(work), "rev-parse", "-q", "--verify", "REBASE_HEAD"],
+                                capture_output=True, text=True)
+    assert mid_rebase.returncode != 0, "a failed rebase was left half-done for the next step"
+    assert not (work / ".git" / "rebase-merge").exists()
+    assert not (work / ".git" / "rebase-apply").exists()
+
 
 def test_it_does_not_rebase_while_the_pr_has_checks_in_flight(tmp_path):
     """A rebase would cancel the very run that is deciding the PR (and can race the fix-bot)."""
