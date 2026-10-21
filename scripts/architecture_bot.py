@@ -111,6 +111,11 @@ def changed_since(root: Path, sha: str, doc: str) -> list[str]:
     return paths
 
 
+def current_branch(root: Path = REPO_ROOT) -> str:
+    """The branch checked out right now (`HEAD` when detached)."""
+    return git(root, "rev-parse", "--abbrev-ref", "HEAD").strip()
+
+
 def doc_is_dirty(root: Path, doc: str) -> bool:
     """True when the working tree's doc differs from HEAD (staged, unstaged, or untracked)."""
     if _git_rc(root, "cat-file", "-e", f"HEAD:{doc}") != 0:
@@ -378,6 +383,13 @@ def publish(root: Path, repo: str, doc: str = DOC_DEFAULT, stamp: str = "",
                          "refusing to publish a stub")
     if not doc_is_dirty(root, doc):
         return {"action": "none", "reason": f"{doc} is identical to HEAD — no drift to publish"}
+
+    # The commit must start from `main`: publishing from a feature branch would attach the doc to
+    # somebody else's PR (`git checkout -b` would branch off that PR's head, not the base).
+    branch_now = current_branch(root)
+    if branch_now != "main":
+        raise ValueError(f"refusing to publish from branch {branch_now!r}: the refresh must start "
+                         "from `main`, or it would ride on another branch's PR")
 
     pending = open_architecture_pr(gh, repo)
     if pending:

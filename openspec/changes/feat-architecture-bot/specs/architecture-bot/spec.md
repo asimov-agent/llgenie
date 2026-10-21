@@ -82,6 +82,12 @@ THEN one issue is filed, one branch carries the doc change, and one PR closes th
 - **Then** it reports `action=pending`, names the open PR, and files nothing
 - **Test:** `tests/test_architecture_bot.py::test_publish_skips_when_an_architecture_pr_is_open`
 
+#### Scenario: a refresh never starts from a feature branch
+- **Given** a repository checked out on `feat/other-work` with a changed doc
+- **When** `publish` runs
+- **Then** it exits non-zero naming the branch, and files nothing
+- **Test:** `tests/test_architecture_bot.py::test_publish_refuses_to_commit_on_a_feature_branch`
+
 #### Scenario: an empty or truncated doc is refused
 - **Given** a doc shorter than 200 characters, or a missing doc
 - **When** `publish` runs

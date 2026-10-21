@@ -280,6 +280,28 @@ def test_publish_refuses_an_empty_doc(tmp_path, monkeypatch):
     assert "missing or empty" in raised
 
 
+def test_publish_refuses_to_commit_on_a_feature_branch(tmp_path, monkeypatch):
+    """A refresh only starts from main; anything else would ride on another branch's PR."""
+
+    # Given a repository checked out on a feature branch with a dirty doc
+    root = _repo(tmp_path)
+    _git(root, "checkout", "-q", "-b", "feat/other-work")
+    _dirty_doc(root)
+    gh, log = _fake_gh(tmp_path)
+    monkeypatch.setenv("GH_LOG", str(log))
+
+    # When publish runs
+    try:
+        ab.publish(root, "owner/repo", DOC, stamp="20261021T1200", gh=str(gh))
+        raised = ""
+    except ValueError as exc:
+        raised = str(exc)
+
+    # Then it refused, named the branch, and made no GitHub call
+    assert "refusing to publish from branch 'feat/other-work'" in raised
+    assert log.read_text() == ""
+
+
 # ------------------------------------------------------------------ the agent leg
 
 
