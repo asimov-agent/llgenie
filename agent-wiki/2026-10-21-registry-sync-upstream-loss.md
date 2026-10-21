@@ -25,5 +25,5 @@ the guard was not widened.
 
 ## Status
 
-Blocked on the upstream fix. Once #525 is resolved, the next Monday `registry-sync` run should open
+Recorded in llgenie by PR #487. Blocked on the upstream fix. Once #525 is resolved, the next Monday `registry-sync` run should open
 its PR normally; nothing on the llgenie side needs to change.
