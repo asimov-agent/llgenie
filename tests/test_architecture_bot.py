@@ -28,14 +28,15 @@ DOC = "docs/ARCHITECTURE.md"
 LONG_DOC = "# Architecture\n\n" + ("This repository serves GGUF models through engine images. " * 8)
 
 FAKE_GH = '''#!/usr/bin/env python3
-import os, sys
+import os, pathlib, sys
 args = sys.argv[1:]
 # Only the program, the verb and the FLAGS are recorded: a body is content, and recording it would
 # make an assertion about the command read the prose inside the body instead.
 with open(os.environ["GH_LOG"], "a", encoding="utf-8") as fh:
     fh.write(" ".join([args[0], args[1], *[a for a in args if a.startswith("--")]]) + "\\n")
 if args[:2] == ["pr", "list"]:
-    print(os.environ.get("GH_PR_LIST", "[]"))
+    # `--head` asks "is there a PR on this branch" (the recovery after a lost create, issue #479).
+    print(os.environ.get("GH_PR_FOR_BRANCH" if "--head" in args else "GH_PR_LIST", "[]"))
     raise SystemExit(0)
 if args[:2] == ["issue", "create"]:
     sys.stdin.read()
@@ -43,6 +44,13 @@ if args[:2] == ["issue", "create"]:
     raise SystemExit(0)
 if args[:2] == ["pr", "create"]:
     sys.stdin.read()
+    # GH_PR_FAILS makes the first N creates a GitHub 504, so the retry path is exercised for real.
+    counter = pathlib.Path(os.environ["GH_LOG"]).with_suffix(".fails")
+    n = int(counter.read_text()) if counter.exists() else 0
+    if n < int(os.environ.get("GH_PR_FAILS", "0")):
+        counter.write_text(str(n + 1))
+        sys.stderr.write("pull request create failed: HTTP 504: 504 Gateway Timeout" + chr(10))
+        raise SystemExit(1)
     print("https://github.com/owner/repo/pull/9")
     raise SystemExit(0)
 print("unexpected gh call: " + " ".join(args), file=sys.stderr)
@@ -380,3 +388,68 @@ def test_targets_and_doc_are_wired_into_the_gates():
     assert len(doc) > 2000
     assert "install_engine_launchers.py" in doc
     assert "architecture-bot.yml" in doc
+
+
+# ------------------------- a lost PR-create answer is retried, not lost (issue #479)
+
+
+def test_a_transient_504_on_pr_create_is_retried(tmp_path, monkeypatch):
+    """GitHub's gateway 504 is not a refusal: the create is retried and the PR is published."""
+
+    # Given a repository with a changed doc and a `gh` whose first two creates answer 504
+    root = _repo(tmp_path)
+    _dirty_doc(root)
+    gh, log = _fake_gh(tmp_path)
+    monkeypatch.setenv("GH_LOG", str(log))
+    monkeypatch.setenv("GH_PR_FAILS", "2")
+
+    # When publish runs
+    result = ab.publish(root, "owner/repo", DOC, stamp="20261021T1200", gh=str(gh))
+
+    # Then it retried and published the PR
+    assert result["action"] == "published"
+    assert result["pr_url"].endswith("/pull/9")
+    attempts = [l for l in log.read_text().splitlines() if l.startswith("pr create")]
+    assert len(attempts) == 3, log.read_text()
+
+
+def test_a_lost_create_response_is_recovered_from_the_open_pr(tmp_path, monkeypatch):
+    """A create whose answer never arrived is found again by branch, instead of failing the run."""
+
+    # Given every create answers 504, but a PR exists on the branch
+    root = _repo(tmp_path)
+    _dirty_doc(root)
+    gh, log = _fake_gh(tmp_path)
+    monkeypatch.setenv("GH_LOG", str(log))
+    monkeypatch.setenv("GH_PR_FAILS", "99")
+    monkeypatch.setenv("GH_PR_FOR_BRANCH", json.dumps([
+        {"number": 9, "url": "https://github.com/owner/repo/pull/9"}]))
+
+    # When publish runs
+    result = ab.publish(root, "owner/repo", DOC, stamp="20261021T1200", gh=str(gh))
+
+    # Then the existing PR is the result, and the issue it closes is the one this run made
+    assert result["action"] == "published"
+    assert result["pr_url"] == "https://github.com/owner/repo/pull/9"
+
+
+def test_a_real_pr_create_failure_names_the_orphans(tmp_path, monkeypatch):
+    """When no PR exists either, the failure names the issue and branch it already made."""
+
+    # Given every create answers 504 and there is no PR on the branch
+    root = _repo(tmp_path)
+    _dirty_doc(root)
+    gh, log = _fake_gh(tmp_path)
+    monkeypatch.setenv("GH_LOG", str(log))
+    monkeypatch.setenv("GH_PR_FAILS", "99")
+
+    # When publish runs
+    try:
+        ab.publish(root, "owner/repo", DOC, stamp="20261021T1200", gh=str(gh))
+        raised = ""
+    except RuntimeError as exc:
+        raised = str(exc)
+
+    # Then it fails loudly, naming the issue and branch a human must finish
+    assert "issue #7" in raised and "agent/architecture-20261021T1200" in raised
+    assert "no PR exists for that branch" in raised

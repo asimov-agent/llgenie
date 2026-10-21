@@ -1025,6 +1025,10 @@ make architecture-bot-publish REPO=asimov-agent/llgenie  # ONE issue + ONE PR, n
   pinned agent image with a prompt that may modify `docs/ARCHITECTURE.md` and nothing else — no
   branch, no commit, no push, no issue. Its transcript goes through the `scrubbed_run` seam and
   the workflow uploads `hermes-run.scrubbed.log`, never the raw capture.
+- **A lost GitHub answer is not a failure.** `publish` retries `gh pr create` on a transient
+  502/503/504 or timeout, and if the create's answer never arrives it adopts the open PR on the
+  branch it pushed; only a real failure exits non-zero, naming the issue and branch it made so a
+  human can finish it (issue #479).
 - **Quiet unless the tree moved.** `publish` re-checks the working tree: an unchanged doc files
   nothing, a doc shorter than 200 characters is refused, and an already-open
   `agent/architecture-*` PR makes the run `action=pending` (no second issue every 6 hours).

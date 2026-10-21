@@ -34,6 +34,7 @@ import json
 import re
 import shutil
 import subprocess
+import time
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -365,6 +366,39 @@ def _gh(gh: str, *args: str, stdin: str | None = None) -> str:
     return proc.stdout.strip()
 
 
+#: What a GitHub write can fail with when the answer was lost rather than the write refused: a 502
+#: or 504 from the API gateway, or a timeout. Retried, then recovered by looking for the PR the
+#: create may in fact have made (issue #479).
+TRANSIENT = re.compile(r"50[234]|gateway timeout|timed out|timeout", re.I)
+
+
+def _gh_retry(gh: str, *args: str, stdin: str | None = None, attempts: int = 3,
+              delay: float = 1.0) -> str:
+    """`_gh`, retried a bounded number of times on a transient gateway failure."""
+    last: RuntimeError | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return _gh(gh, *args, stdin=stdin)
+        except RuntimeError as exc:
+            last = exc
+            if not TRANSIENT.search(str(exc)):
+                raise
+            if attempt < attempts:
+                time.sleep(delay)
+    assert last is not None
+    raise last
+
+
+def open_pr_for_branch(gh: str, repo: str, branch: str) -> str:
+    """The URL of an OPEN PR whose head is `branch`, or "" — the recovery after a lost create."""
+    out = _gh(gh, "pr", "list", "--repo", repo, "--head", branch, "--state", "open",
+              "--json", "number,url")
+    for row in json.loads(out or "[]"):
+        if row.get("url"):
+            return str(row["url"])
+    return ""
+
+
 def open_architecture_pr(gh: str, repo: str) -> str:
     """The head branch of an already-open architecture PR, or "" when none is open.
 
@@ -444,8 +478,17 @@ def publish(root: Path, repo: str, doc: str = DOC_DEFAULT, stamp: str = "",
     git(root, "commit", "-m", _title(stamp), "-m", issue_body)
     commit = git(root, "rev-parse", "HEAD").strip()
     git(root, "push", "-u", "origin", branch)
-    pr_url = _gh(gh, "pr", "create", "--repo", repo, "--base", "main", "--head", branch,
-                 "--title", _title(stamp), "--body", pr_body)
+    # A GitHub 502/504 here means the answer was lost, not that the PR was refused: retry, then look
+    # for the PR the create may have made, and only then fail (issue #479).
+    try:
+        pr_url = _gh_retry(gh, "pr", "create", "--repo", repo, "--base", "main", "--head", branch,
+                           "--title", _title(stamp), "--body", pr_body)
+    except RuntimeError as exc:
+        pr_url = open_pr_for_branch(gh, repo, branch)
+        if not pr_url:
+            raise RuntimeError(
+                f"{exc} — issue #{issue_num} and branch {branch} were created; no PR exists for "
+                "that branch, so a human has to open it or the next run will try again") from exc
 
     result = {"action": "published", "doc": doc, "branch": branch, "commit": commit,
               "issue": issue_num, "issue_url": issue_url, "pr_url": pr_url,
