@@ -700,3 +700,38 @@ def test_the_publish_job_proves_the_push_before_it_builds():
     assert "agent-image-push-check" in mk.split("\n.PHONY:", 1)[1].split("\n\n", 1)[0]
     assert re.search(r"^agent-image-push-check:.*\n.*\n\tpython3 scripts/ci_images\.py pushcheck agent",
                      mk, re.M)
+
+
+def test_the_agent_publish_logs_in_with_the_credential_its_push_check_proves():
+    """One credential, named once (issue #413).
+
+    `publish-agent-image.yml` used to log in with `secrets.BUMP_TOKEN` while proving the push with the
+    same PAT — and that PAT carries no `write:packages`, so the job's own pre-flight refused it
+    (`403 DENIED … does not match expected scopes`, run 39420414201). The sibling path that DOES publish
+    (`ci.yml::ci-images` → `llgenie/test`) logs in with `secrets.GITHUB_TOKEN` and `packages: write`.
+
+    This locks the pair: whatever secret the login step names, the push-check step is handed the same
+    one, and it is the credential the working publish path uses — never the owner PAT.
+    """
+
+    # Given the publish workflow's login and pre-flight steps
+    steps = _jobs("publish-agent-image.yml")["publish"]["steps"]
+    login = next(st for st in steps if "docker login ghcr.io" in (st.get("run", "") or ""))
+    check = next(st for st in steps if "make agent-image-push-check" in (st.get("run", "") or ""))
+
+    # When  the secret each one names is read
+    login_secret = re.search(r"secrets\.([A-Z_]+)", login["run"]).group(1)
+    check_secret = re.search(r"\$\{\{\s*secrets\.([A-Z_]+)\s*\}\}", check["env"]["GHCR_TOKEN"]).group(1)
+
+    # Then  the login and the check agree, and it is GITHUB_TOKEN (the credential ci.yml publishes with)
+    assert login_secret == check_secret, (
+        f"the job logs in with secrets.{login_secret} but proves secrets.{check_secret}"
+    )
+    assert login_secret == "GITHUB_TOKEN", (
+        "the owner PAT has no write:packages; ci.yml publishes llgenie/test with GITHUB_TOKEN"
+    )
+    assert "github.actor" in login["run"], "log in as the account the token belongs to (ci.yml's shape)"
+
+    # And the job declares the permission that credential needs
+    workflow = yaml.safe_load((WF / "publish-agent-image.yml").read_text())
+    assert workflow["permissions"]["packages"] == "write"

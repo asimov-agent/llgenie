@@ -1657,10 +1657,12 @@ make publish-agent-image  # build + push ONLY the agent image (linux/amd64) when
 ```
 
 `publish-agent-image.yml` is `workflow_dispatch`-only, re-checks that the actor is the
-owner/a collaborator with write before any secret is read, and pushes with the owner PAT
-(the default `GITHUB_TOKEN` is denied "Create organization package" for a brand-new
-package). It is `linux/amd64` only: building Hermes under arm64 emulation times out. The
-image is hash-tagged, so re-running it is a no-op unless its inputs changed.
+owner/a collaborator with write before any secret is read, and pushes with `secrets.GITHUB_TOKEN`
+plus `packages: write` — the same credential, account and shape `.github/workflows/ci.yml`'s
+`ci-images` job publishes `llgenie/test` and `llgenie/openspec` with (issue #413: the owner PAT it
+used before carries no `write:packages`, so its own `agent-image-push-check` refused it with
+`403 DENIED … does not match expected scopes`). It is `linux/amd64` only: building Hermes under arm64
+emulation times out. The image is hash-tagged, so re-running it is a no-op unless its inputs changed.
 
 The fix-bot (`fix-bot.yml`: hourly `schedule` + `workflow_dispatch`) repairs the branch,
 re-checks and stops — it **never merges**; a human reviews the result:

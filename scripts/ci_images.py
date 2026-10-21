@@ -247,10 +247,11 @@ def pushcheck(name: str) -> int:
     secret = os.environ.get("GHCR_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
     if not secret:
         print("[ci-images] push-check: no credential — set GHCR_TOKEN to the token the publish logs "
-              "in with (publish-agent-image.yml uses the owner PAT, secrets.BUMP_TOKEN)", file=sys.stderr)
+              "in with (publish-agent-image.yml uses secrets.GITHUB_TOKEN, packages: write — issue #413)",
+              file=sys.stderr)
         return 1
-    # The account whose PAT does the pushing: `publish-agent-image.yml` logs in as the repository owner,
-    # so that is the default here too — GHCR_USER overrides it.
+    # The account that pushes: `publish-agent-image.yml` logs in as `github.actor`, so that is the
+    # default here too (GITHUB_ACTOR is set by the runner) — GHCR_USER overrides it.
     user = (os.environ.get("GHCR_USER") or os.environ.get("GITHUB_ACTOR")
             or registry_parts()[2])
     service = base.split("://", 1)[-1]
