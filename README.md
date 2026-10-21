@@ -440,6 +440,10 @@ The **dispatcher** is deterministic (no LLM, stdlib only) and is the
 unit-testable core — `scripts/issue_implementer.py`:
 
 ```bash
+gh workflow run issue-bot.yml          # by hand, with NO issue number: the bot picks the oldest
+                                       # agent:implement issue itself (then agent:ready), one per run —
+                                       # the same pick the daily schedule makes (issue #472). Pass
+                                       # -f issue_number=<n> only to pin one exact issue.
 make issue-bot-dispatch REPO=asimov-agent/llgenie   # cap -> pick -> claim -> issue.md + branch
 make issue-bot-open-pr REPO=<repo> ISSUE=<n> BRANCH=agent/issue-<n>-<slug>  # draft-free PR, never merges
 make implement-issue      # the shared Hermes agent step: read issue.md + AGENTS.md, implement, run gates, push nothing
@@ -1044,7 +1048,6 @@ The table below is generated from the workflows by `make dispatch-forms-report` 
 them by `make check-dispatch-forms`, so the documentation you read before dispatching cannot drift
 from the pipeline that will run.
 <!-- dispatch-forms:begin -->
-
 | workflow | what the run does | dispatch inputs |
 |---|---|---|
 | `architecture-bot.yml` | rewrites docs/ARCHITECTURE.md from the tree and opens a linked issue + PR (never merges) | `dry` (optional, default `false`) — Preview the issue and PR bodies this run would file, filing nothing<br>`doc` (optional, default `docs/ARCHITECTURE.md`) — Repository-relative markdown document to refresh |
@@ -1052,14 +1055,13 @@ from the pipeline that will run.
 | `engine-bump-rebase.yml` | rebases every open engine-bump PR onto the latest main | `dry` (optional, default `false`) — print the PRs it would rebase and push nothing (no branch is touched) |
 | `engine-bump.yml` | bumps pinned engines to their newest upstream release and opens the PR | `engine` (optional) — Only bump this engine (id); empty = all |
 | `fix-bot.yml` | repairs a failing PR branch until its checks pass (never merges) | `pr_number` (optional) — PR number whose branch should be repaired<br>`branch` (optional) — PR head branch (used when pr_number is empty)<br>`check` (optional, default `make ci-unit`) — the deterministic check to drive the loop<br>`rounds` (optional, default `3`) — repair attempts (default 3) |
-| `issue-bot.yml` | implements ONE issue per run as a reviewable PR (never merges) | `issue_number` (required) — Issue to implement (owner only) |
+| `issue-bot.yml` | implements ONE issue per run as a reviewable PR (never merges) | `issue_number` (optional) — Issue to implement (owner only). Leave BLANK and the bot picks the oldest agent:implement issue itself - one issue per run, exactly like the schedule |
 | `issue-refiner.yml` | reviews ONE not-yet-implemented issue, never opens a PR | none — the bot decides by itself which ONE issue to review (scripts/issue_refiner.py); |
 | `publish-agent-image.yml` | builds + pushes the Hermes agent image when its hash is not on GHCR yet | `force` (optional, default `false`) — Rebuild + push even if the hash tag is already on GHCR |
 | `queued-alarm.yml` | reports CI jobs queued far too long, once per affected run | `minutes` (optional, default `30`) — report jobs queued longer than this many minutes |
 | `rebase-bot.yml` | keeps every open PR current with main, every eligible PR per run (never merges) | `max_prs` (optional, default `10`) — Most PRs this run may rebase (the sweep's daily cap still applies on top) |
 | `registry-sync.yml` | syncs the vendored registry and regenerates the derived tables, then opens the PR | none — the sync has no modes: it always fetches the upstream registry, regenerates |
 | `search-smoke.yml` | one real Firecrawl request proves the masked web reach | none — the smoke takes no target: it always proves the same leg with one request. |
-
 <!-- dispatch-forms:end -->
 
 ## Which llama.cpp build is used (card-size rule, issue #84)
