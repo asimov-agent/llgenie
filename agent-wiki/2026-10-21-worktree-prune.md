@@ -1,7 +1,6 @@
 # `make worktree-prune` — remove the worktrees and branches whose PR already merged
 
-Issue #431. OpenSpec change: `worktree-prune`. PR: see the branch `feat/worktree-prune`
-(referenced in the issue's timeline and in the PR body with `closes #431`).
+Issue #431. OpenSpec change: `worktree-prune`. PR: [#436](https://github.com/asimov-agent/llgenie/pull/436).
 
 Side issues this change deliberately did NOT absorb: #432 (the fork's stale heads),
 #433 (containerized stages leaving root-owned files in a worktree) and #434 (`issue-cleaner-scan` /
@@ -43,5 +42,9 @@ Three facts compounded:
   branches and 69 worktrees removed, `955 MB → 184 MB`): every remaining branch was kept with its
   reason — the 36 PR-less duplicates, the 2 CLOSED-PR branches (`ci/bot-schedule-gaps` #281,
   `fix/workflow-file-valid` #334) — and nothing was removed.
-- The gate set for this change: `make check-wiring`, `make check-docs`, `make lint`,
-  `make check-pr-hygiene`, `make openspec-validate NAME=worktree-prune`, `make test-unit`.
+- The gate set for this change, all exit 0: `make test-unit` (**4912 passed, 3 deselected, 755 s**),
+  `make check-wiring`, `make check-docs`, `make lint`, `make check-pr-hygiene`, `make check-pr-authors`,
+  `make openspec-validate NAME=worktree-prune`.
+- `make test-unit` was red once before that, on `test_readme_links_answer_and_a_broken_copy_is_caught`:
+  15 Hugging Face links answering HTTP 429. The test passes alone in 15 s, it touches no link, registry
+  data or downloader, and the flake is filed as **#435** (same class as #339/#180/#256).

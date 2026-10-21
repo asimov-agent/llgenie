@@ -7,4 +7,4 @@
 - [x] 5. `README.md` — the command, the eligibility rule and why a squash merge needs the PR's merge commit
 - [x] 6. `AGENTS.md` — the cleanup step names `make worktree-prune`
 - [x] 7. `agent-wiki/2026-10-21-worktree-prune.md` — the work record, referencing issue #431 and its PR
-- [ ] 8. Verified: `make test-unit` green with the new file, `make check-wiring`, `make check-docs`, `make lint`, `make check-pr-hygiene`, `make openspec-validate NAME=worktree-prune` all exit 0
+- [x] 8. Verified: `make test-unit` green with the new file, `make check-wiring`, `make check-docs`, `make lint`, `make check-pr-hygiene`, `make openspec-validate NAME=worktree-prune` all exit 0 (`make test-unit`: 4912 passed, 3 deselected in 755 s; the first run reddened on an unrelated live-Hub HTTP 429 in `test_readme_links_answer_and_a_broken_copy_is_caught`, filed as #435)
