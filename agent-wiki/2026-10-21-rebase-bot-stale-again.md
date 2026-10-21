@@ -31,5 +31,5 @@ state, so a PR that needed another rebase waited for the UTC date to roll over.
 
 ## Status
 
-Issue #467; PR from `feat/rebase-bot-stale-again` against `asimov-agent/llgenie:main`. Waiting for
+Issue #467; PR #468 from `feat/rebase-bot-stale-again` against `asimov-agent/llgenie:main`. Waiting for
 review — the agent never merges.
