@@ -580,8 +580,9 @@ def test_the_agent_recipe_runs_hermes_directly_inside_the_image():
     mk = (REPO / "Makefile").read_text()
     recipe = mk.split("rebase-bot-agent:", 1)[1].split("\nrebase-bot:", 1)[0]
 
-    # Then it runs Hermes inline, inside the redacting public leg
+    # Then it runs Hermes inline, inside the redacting public leg, with the model pin's one alias
     assert "hermes -z" in recipe
+    assert "$(nous-alias)" in recipe
     assert "$(call scrubbed_run," in recipe
 
     # And no nested make target exists (it would parse the conflicted file)

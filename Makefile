@@ -345,7 +345,7 @@ rebase-bot-agent: ## Ask Hermes to resolve a stopped rebase (the conflict prompt
 	  -e TYPESAFE_API_KEY \
 	  -e HERMES_NERVE_PROVIDER -e NERVE_REQUIRE \
 	  $(AGENT_SHELL_FORWARD) \
-	  $(AGENT_IMAGE) bash -lc 'hermes -z "$$(cat)" -m nous-deepseek --reasoning medium --yolo')
+	  $(AGENT_IMAGE) bash -lc 'hermes -z "$$(cat)" $(nous-alias) --reasoning medium --yolo')
 # Hermes runs directly there, NOT through `make _rebase-bot-agent`: the container's /repo/Makefile
 # is the conflicted file the agent was asked to resolve, and make cannot parse it (issue #460).
 

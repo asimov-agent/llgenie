@@ -588,7 +588,8 @@ It runs **every 6 hours** and handles **ONE PR per run**, oldest first:
   earlier rebase is not trustworthy), and on a conflict hand the stopped rebase to Hermes with what
   each side means plus the hard rules (preserve both sides, never weaken a test, keep a recipe's
   TAB). The agent is reached through a **snapshot of `Makefile` taken before the checkout**
-  (`make -f <snapshot> rebase-bot-agent`) and the container runs Hermes directly, because a conflict
+  (`make -f <snapshot> rebase-bot-agent`) and the container runs Hermes directly (still through
+  the one `$(nous-alias)` model pin), because a conflict
   can be *in* `Makefile` and `make` cannot parse a file that is mid-rebase (issue #460). Then it
   checks the result structurally — `make -n ci-unit` parses, `make lint`, and the
   wiring guard — and pushes with **`--force-with-lease`** to the **PR's own head remote**: a fork
