@@ -1,6 +1,6 @@
 # The rebase gate mounts the checkout
 
-Issue: #505. PR: opened from `fix/rebase-gate-mount`.
+Issue: #505. PR: #506.
 
 Run `39727049030` resolved #498's conflict and then aborted. `make lint` expanded to
 `docker run -v "asimov-agent/llgenie":/repo`, and docker refused the slug as a volume name. The job
