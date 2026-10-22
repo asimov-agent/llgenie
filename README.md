@@ -634,7 +634,9 @@ rebase fails is aborted (`make rebase-bot-abort`), reported, and the run carries
   never silently counted as "needs nothing" (issue #453). It states a reason for every PR it
   passes over, never picks the same PR twice in one run (`SKIP=`, issue #467), and counts today's
   `<!-- bot-done: rebase-bot … rebased -->` markers toward the daily cap **without** treating them
-  as a bar: a PR that a later merge re-dirtied is rebased again the same day. A claim or a
+  as a bar: a PR that a later merge re-dirtied is rebased again the same day. A **plain comment
+  holds nothing** — a status note on the PR does not stop a rebase of a branch that is behind
+  `main`. Only a `bot-claim` marker from another bot does, and only while it is fresh. A claim or a
   `gave-up` from a failed attempt is never the record (issues #457/#467) — so no label is invented
   and no PR is rebased in a loop — and it skips a fork it cannot push to.
 - **It keeps out of the other bots' way.** It skips a PR with checks **in flight** (rebasing

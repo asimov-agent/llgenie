@@ -197,6 +197,8 @@ def _decide(comments: list[dict] | None, bot: str, now: dt.datetime | None = Non
         if marker and marker.group("bot").lower() == mine:
             continue                      # my own claim: my subject
         dm = DONE_RE.search(c.get("body") or "")
+        if not marker and not dm:
+            continue                      # a plain comment holds nothing: only a claim marker does
         if newest is None or at >= newest["at"]:
             newest = {"at": at, "done": bool(dm),
                       "kind": (dm.group("what") or "").strip().lower() if dm else "",

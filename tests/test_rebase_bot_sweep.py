@@ -340,7 +340,7 @@ def _stamp(minutes_ago: int) -> str:
     return ts.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _claim(bot="fixer", when=None, work="repair"):
+def _claim(bot="fix-bot", when=None, work="fix"):
     when = when or _stamp(5)
     body = "<!-- bot-claim: " + bot + " " + when + " " + work + " -->\n`" + bot + "` is " + work + "ing this now."
     return {"body": body, "createdAt": when, "author": {"login": "github-actions[bot]"}}
@@ -349,6 +349,24 @@ def _done(bot="fixer", when=None, what="repaired"):
     when = when or _stamp(1)
     return {"body": "<!-- bot-done: " + bot + " " + when + " " + what + " -->", "createdAt": when,
             "author": {"login": "github-actions[bot]"}}
+
+
+def test_a_plain_comment_does_not_hold_a_pr_that_is_behind(tmp_path):
+    """A status note is not a claim. A PR behind main is rebased anyway."""
+
+    # Given a PR that is BEHIND, carrying a person's recent note and no claim marker
+    note = {"body": "Local gate: make test-unit passed.", "createdAt": _stamp(90),
+            "author": {"login": "andyholst"}}
+    gh, _log = _fake_gh(tmp_path, {"prs": [_pr(498, "BEHIND", head="andyholst",
+                                               created="2026-09-07T00:00:00Z")],
+                                   "comments_by_pr": {"498": [note]}})
+
+    # When  the sweep runs
+    res = rb.sweep(str(gh), f"{OWNER}/{NAME}", today="2026-10-14", own_fork="andyholst")
+
+    # Then  the note does not hold it, and it is selected for rebase
+    assert res["action"] == "rebase" and res["pr"] == 498, res
+    assert not any("held by another bot" in r for r in res["reasons"]), res["reasons"]
 
 
 def test_a_pr_the_other_bot_has_claimed_is_left_alone(tmp_path):
