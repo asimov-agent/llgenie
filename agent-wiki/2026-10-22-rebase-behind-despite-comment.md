@@ -1,6 +1,6 @@
 # A comment is not a claim
 
-Issue: #501. PR: opened from `fix/rebase-behind-despite-comment`.
+Issue: #501. PR: #502.
 
 The rebase sweep skipped #498 while it was behind `main` and conflicting, because a person's status
 comment (`make test-unit passed`) was read as another bot holding the PR. Run `39719126900` printed
