@@ -1,6 +1,6 @@
 # The merge job finds a fork PR
 
-Issue: #503. PR: opened from `fix/auto-merge-resolve-pr`.
+Issue: #503. PR: #504.
 
 #502's CI run `39721034188` finished green. Auto-merge run `39724035827` died at the lookup:
 `gh api repos/.../actions/runs/39721034188/pull_requests` returned 404, and `set -e` exited before the
