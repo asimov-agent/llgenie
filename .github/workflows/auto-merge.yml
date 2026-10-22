@@ -84,4 +84,7 @@ jobs:
           # and merged (issue #491). A same-account PR is still refused by GitHub's self-approval rule, and
           # the deferral comment says so on the PR.
           APPROVE: "1"
-        run: make auto-merge PR="$PR" REPO="$REPO" HEAD_SHA="$HEAD_SHA"
+          # Who triggered the CI run. A bot-authored PR is merged only when this is the owner, a write
+          # collaborator, or the bot — the same gate ci.yml's guard already applied to the run.
+          ACTOR: ${{ github.event.workflow_run.actor.login }}
+        run: make auto-merge PR="$PR" REPO="$REPO" HEAD_SHA="$HEAD_SHA" APPROVE=1 ACTOR="$ACTOR"

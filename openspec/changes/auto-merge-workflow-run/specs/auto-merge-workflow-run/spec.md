@@ -37,6 +37,25 @@ Then  there is no `auto-merge` job, and a comment names `auto-merge.yml` as wher
 
 - **Test:** `tests/test_auto_merge.py::test_ci_has_no_auto_merge_job_any_more`
 
+### Requirement: Only the owner, a write collaborator, or the bot is merged
+
+The merge SHALL refuse a pull request whose author is not the repository owner, a collaborator with write (or
+more), or the bot — the same gate `ci.yml`'s `guard` job applies to a run. A bot-authored pull request SHALL
+be authorised by the actor who triggered the CI run, because the bot's own permission endpoint answers
+nothing useful.
+
+WHEN a green, clean pull request is opened by someone who is none of those
+THEN the merge defers, posts the reason, and never calls `gh pr merge`.
+
+#### Scenario: a write collaborator and a bot PR merge, a stranger does not
+
+Given a green, clean PR opened by a collaborator with write, and one opened by the bot whose CI run was
+triggered by the owner, and one opened by a stranger even from the trusted fork
+When  the merge runs
+Then  the first two merge and the stranger's is deferred without a merge.
+
+- **Test:** `tests/test_auto_merge.py::test_a_write_collaborator_a_bot_and_the_owner_may_merge_a_stranger_may_not`
+
 ### Requirement: A run that cannot merge fails loudly
 
 When no token is available, the merge SHALL fail (exit 2) naming the defect rather than deferring with exit 0,

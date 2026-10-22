@@ -43,15 +43,19 @@ def _state(**kw) -> dict:
     return base
 
 
-def _fake_gh(tmp_path: Path, pr: dict, issues: dict | None = None, token_login: str = "asimov-agent"):
-    """A `gh` answering `pr view` / `pr review` / `pr merge` / `issue view` / `api user`.
+def _fake_gh(tmp_path: Path, pr: dict, issues: dict | None = None, token_login: str = "asimov-agent",
+             permissions: dict | None = None):
+    """A `gh` answering `pr view` / `pr review` / `pr merge` / `issue view` / `api user` / permission.
 
     It records every argv (the assertion surface) and flips the PR's state through marker files, so a test
-    can prove an approval happened BEFORE a merge and that the post-approval state is re-read.
+    can prove an approval happened BEFORE a merge and that the post-approval state is re-read. The permission
+    map answers `repos/<repo>/collaborators/<login>/permission`; a login absent from it is a 404, which is
+    what GitHub returns for a stranger and for the bot.
     """
     tmp_path.mkdir(parents=True, exist_ok=True)
     log = tmp_path / "gh.log"
     gh = tmp_path / "gh"
+    perms = permissions if permissions is not None else {"andyholst": "admin", "asimov-agent": "admin"}
     gh.write_text(f'''#!{sys.executable}
 import json, os, sys
 args = sys.argv[1:]
@@ -59,6 +63,7 @@ with open({str(log)!r}, "a") as fh:
     fh.write(json.dumps(args) + "\\n")
 PR = json.loads({json.dumps(pr)!r})
 ISSUES = json.loads({json.dumps(issues or {})!r})
+PERMS = json.loads({json.dumps(perms)!r})
 TOKEN = {token_login!r}
 if os.path.exists({str(log)!r} + ".approved"):
     PR = dict(PR, reviewDecision="APPROVED", mergeStateStatus="CLEAN")
@@ -66,6 +71,11 @@ if os.path.exists({str(log)!r} + ".merged"):
     PR = dict(PR, state="MERGED")
 if args[:3] == ["api", "user", "--jq"]:
     print(TOKEN); sys.exit(0)
+if len(args) >= 2 and args[0] == "api" and "/collaborators/" in args[1] and args[1].endswith("/permission"):
+    login = args[1].split("/collaborators/")[1].split("/")[0]
+    if login not in PERMS:
+        print("not found", file=sys.stderr); sys.exit(1)
+    print(PERMS[login]); sys.exit(0)
 if args[:2] == ["pr", "view"]:
     print(json.dumps(PR)); sys.exit(0)
 if args[:2] == ["pr", "review"]:
@@ -274,6 +284,48 @@ def test_a_fork_head_merges_without_deleting_the_branch(tmp_path):
     argv = merges[0]
     assert "--squash" in argv and "--delete-branch" not in argv, argv
     assert argv[argv.index("--match-head-commit") + 1] == HEAD, argv
+
+
+def test_a_write_collaborator_a_bot_and_the_owner_may_merge_a_stranger_may_not(tmp_path):
+    """The merge gate is who opened the PR: owner, write collaborator, or the bot. Nobody else."""
+
+    # Given a green, clean PR opened by a collaborator with write
+    writer = _state(author={"login": "ada"}, authorAssociation="COLLABORATOR",
+                    headRepository={"nameWithOwner": "asimov-agent/llgenie"})
+    gh = _fake_gh(tmp_path / "w", writer, {"482": "CLOSED"}, permissions={"ada": "write"})
+
+    # When  the merge runs against this repo
+    rc = am.run(str(gh), "asimov-agent/llgenie", 482, HEAD)
+
+    # Then  it merges: write is enough, exactly as ci.yml's guard allows write
+    assert rc == 0
+    assert [c for c in _calls(tmp_path / "w" / "gh.log") if c[:2] == ["pr", "merge"]]
+
+    # Given the same PR opened by the bot, and the CI run triggered by the owner
+    bot = _state(author={"login": "app/github-actions"}, authorAssociation="NONE",
+                 headRepository={"nameWithOwner": "asimov-agent/llgenie"})
+    gh = _fake_gh(tmp_path / "b", bot, {"482": "CLOSED"})
+
+    # When  the merge runs with that actor
+    rc = am.run(str(gh), "asimov-agent/llgenie", 482, HEAD, actor="asimov-agent")
+
+    # Then  the bot PR merges, because the actor is the owner
+    assert rc == 0
+    assert [c for c in _calls(tmp_path / "b" / "gh.log") if c[:2] == ["pr", "merge"]]
+
+    # Given a green, clean PR opened by a stranger, even from the trusted fork
+    stranger = _state(author={"login": "mallory"}, authorAssociation="CONTRIBUTOR",
+                      headRepository={"nameWithOwner": "andyholst/llgenie"})
+    gh = _fake_gh(tmp_path / "s", stranger, permissions={})
+
+    # When  the merge runs
+    rc = am.run(str(gh), "asimov-agent/llgenie", 482, HEAD)
+
+    # Then  it defers and never merges: a trusted fork is not a trusted author
+    assert rc == 0
+    calls = _calls(tmp_path / "s" / "gh.log")
+    assert not [c for c in calls if c[:2] == ["pr", "merge"]]
+    assert any(c[:2] == ["pr", "comment"] for c in calls)
 
 
 def test_the_merge_uses_the_owner_pat_and_a_make_target():
@@ -486,6 +538,7 @@ def test_the_merge_is_a_workflow_run_on_ci():
     assert "GH_TOKEN: ${{ secrets.BUMP_TOKEN }}" in wf, "the merge needs the owner PAT"
     assert 'APPROVE: "1"' in wf, "the review-requirement path (#491) is enabled here"
     assert "make auto-merge PR=" in wf, "the merge must go through the one make target"
+    assert "ACTOR=" in wf, "a bot PR is authorised by who triggered the CI run"
 
 
 def test_an_empty_pat_fails_the_workflow_loudly():

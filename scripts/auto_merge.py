@@ -49,6 +49,11 @@ ALLOWED_AUTHORS = ("andyholst", "asimov-agent")
 #: Owners whose fork may supply a head. Every agent PR is pushed to `andyholst/llgenie`; a third-party fork
 #: is somebody else's code and is never merged by this job, however green its run looks.
 TRUSTED_HEAD_OWNERS = ("andyholst",)
+#: Who may OPEN a PR this job merges: the repo owner, a collaborator with write (or more), or the bot.
+#: This is the same gate `ci.yml`'s `guard` job applies to a run (issue #122). A green PR from anyone else
+#: stays manual, even when its head happens to live in a trusted fork.
+WRITE_PERMISSIONS = ("admin", "maintain", "write")
+BOT_LOGINS = ("github-actions[bot]", "app/github-actions")
 #: One deferral comment per head SHA — re-posted only when the head moves.
 DEFERRAL_MARKER = "<!-- auto-merge: deferred {} -->"
 
@@ -64,8 +69,56 @@ def pr_state(gh: str, repo: str, pr: int) -> dict:
     """What GitHub says about this PR right now: the merge decision is read from here, in one call."""
     out = _gh(gh, ["pr", "view", str(pr), "--repo", repo, "--json",
                    "state,isDraft,mergeable,mergeStateStatus,headRefOid,labels,headRepository,"
-                   "author,reviewDecision"])
+                   "author,authorAssociation,reviewDecision"])
     return json.loads(out or "{}")
+
+
+def author_login(state: dict) -> str:
+    return ((state.get("author") or {}).get("login") or "").strip()
+
+
+def author_may_merge(gh: str, repo: str, state: dict, actor: str = "") -> "str | None":
+    """None when the opener is the owner, a write collaborator, or the bot; else the reason.
+
+    A bot PR is opened by `app/github-actions` (or `github-actions[bot]`), whose permission endpoint
+    answers nothing useful. The CI run's actor is the person or bot that pushed the branch, so that is
+    what this checks for a bot author — the same two names `ci.yml`'s guard already checked before the
+    run was allowed to finish green.
+    """
+    login = author_login(state)
+    association = (state.get("authorAssociation") or "").upper()
+    owner = repo.split("/")[0]
+    if login.lower() in BOT_LOGINS or (association == "NONE" and login.lower().endswith("[bot]")):
+        who = (actor or "").strip()
+        if not who:
+            return (f"PR author `{login}` is a bot, and this run did not say who triggered it "
+                    f"(ACTOR is empty) — a bot PR is merged only for the owner, a write collaborator, "
+                    f"or the bot itself")
+        return _permission_allows(gh, repo, who, owner, kind="actor")
+    who = login or (actor or "").strip()
+    if not who:
+        return "PR has no author and this run named no actor — nothing to authorise a merge against"
+    return _permission_allows(gh, repo, who, owner, kind="author")
+
+
+def _permission_allows(gh: str, repo: str, login: str, owner: str, kind: str) -> "str | None":
+    if login.lower() == owner.lower() or login.lower() in BOT_LOGINS:
+        return None
+    perm = _permission(gh, repo, login)
+    if perm in WRITE_PERMISSIONS:
+        return None
+    return (f"the {kind} `{login}` is not the owner, a write collaborator, or the bot "
+            f"(permission: {perm or 'none'}) — this job merges only those")
+
+
+def _permission(gh: str, repo: str, login: str) -> str:
+    """The collaborator permission, or empty when GitHub has none (a bot, a stranger)."""
+    r = subprocess.run(
+        [gh, "api", f"repos/{repo}/collaborators/{login}/permission", "--jq", ".permission"],
+        capture_output=True, text=True)
+    if r.returncode != 0:
+        return ""
+    return (r.stdout or "").strip().lower()
 
 
 def decide(state: dict, head_sha: str, hold_label: str = HOLD_LABEL,
@@ -187,10 +240,14 @@ def _merge(gh: str, repo: str, pr: int, head_sha: str, state: dict, dry: bool) -
 
 
 def run(gh: str, repo: str, pr: int, head_sha: str, dry: bool = False,
-        approve_when_review_required: bool = False) -> int:
+        approve_when_review_required: bool = False, actor: str = "") -> int:
     state = pr_state(gh, repo, pr)
     fields = ("state", "isDraft", "mergeable", "mergeStateStatus", "reviewDecision", "headRefOid")
     print(f"[auto-merge] PR #{pr}: " + json.dumps({k: state.get(k) for k in fields}))
+    refused = author_may_merge(gh, repo, state, actor=actor)
+    if refused:
+        defer(gh, repo, pr, head_sha, refused, dry=dry)
+        return 0
     reason = decide(state, head_sha, repo_owner=repo.split("/")[0])
     if reason and approve_when_review_required and review_blocked(state):
         blocked = try_approve(gh, repo, pr, state, dry=dry)
@@ -256,6 +313,8 @@ def main(argv: list[str] | None = None) -> int:
     m.add_argument("--dry", action="store_true", help="print the decision, merge nothing")
     m.add_argument("--approve-when-review-required", action="store_true",
                    help="approve a green, review-blocked PR with the other allowed identity, then merge")
+    m.add_argument("--actor", default="",
+                   help="who triggered the CI run; authorises a bot-authored PR (owner, write collaborator, or the bot)")
     e = sub.add_parser("explain", help="print the merge verdict for a PR; writes nothing")
     e.add_argument("--repo", required=True)
     e.add_argument("--pr", type=int, required=True)
@@ -265,7 +324,8 @@ def main(argv: list[str] | None = None) -> int:
     _require_token()
     if args.cmd == "explain":
         return explain(args.gh, args.repo, args.pr, args.head_sha)
-    return run(args.gh, args.repo, args.pr, args.head_sha, args.dry, args.approve_when_review_required)
+    return run(args.gh, args.repo, args.pr, args.head_sha, args.dry,
+               args.approve_when_review_required, args.actor)
 
 
 if __name__ == "__main__":
