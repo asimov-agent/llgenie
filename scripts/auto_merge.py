@@ -56,6 +56,15 @@ WRITE_PERMISSIONS = ("admin", "maintain", "write")
 BOT_LOGINS = ("github-actions[bot]", "app/github-actions")
 #: One deferral comment per head SHA — re-posted only when the head moves.
 DEFERRAL_MARKER = "<!-- auto-merge: deferred {} -->"
+#: Every field the decision reads, in the ONE `gh pr view` call it is built from.
+#:
+#: `gh pr view --json` refuses the WHOLE call on a name it does not have ("Unknown JSON field:
+#: \"authorAssociation\"", exit 1), so this list may only carry names `gh` lists. #511 asked for
+#: `authorAssociation`, which `gh` has never had, so every auto-merge run died before `decide()` and no
+#: PR was ever merged (issue #513). `tests/test_auto_merge.py` locks this list against `gh`'s own
+#: allowlist in `tests/fixtures/gh-pr-view-fields.json`.
+PR_VIEW_FIELDS = ("state", "isDraft", "mergeable", "mergeStateStatus", "headRefOid", "labels",
+                  "headRepository", "author", "reviewDecision")
 
 
 def _gh(gh: str, args: list[str]) -> str:
@@ -67,14 +76,22 @@ def _gh(gh: str, args: list[str]) -> str:
 
 def pr_state(gh: str, repo: str, pr: int) -> dict:
     """What GitHub says about this PR right now: the merge decision is read from here, in one call."""
-    out = _gh(gh, ["pr", "view", str(pr), "--repo", repo, "--json",
-                   "state,isDraft,mergeable,mergeStateStatus,headRefOid,labels,headRepository,"
-                   "author,authorAssociation,reviewDecision"])
+    out = _gh(gh, ["pr", "view", str(pr), "--repo", repo, "--json", ",".join(PR_VIEW_FIELDS)])
     return json.loads(out or "{}")
 
 
 def author_login(state: dict) -> str:
     return ((state.get("author") or {}).get("login") or "").strip()
+
+
+def is_bot_login(login: str) -> bool:
+    """A GitHub App or bot opener, from the login alone (the only field `gh pr view` offers).
+
+    `gh pr view --json` has no author-association field (issue #513), so this must not depend on one:
+    every bot account GitHub can put on a PR is named `…[bot]` or lives under `app/`.
+    """
+    name = (login or "").strip().lower()
+    return name in BOT_LOGINS or name.endswith("[bot]") or name.startswith("app/")
 
 
 def author_may_merge(gh: str, repo: str, state: dict, actor: str = "") -> "str | None":
@@ -86,9 +103,8 @@ def author_may_merge(gh: str, repo: str, state: dict, actor: str = "") -> "str |
     run was allowed to finish green.
     """
     login = author_login(state)
-    association = (state.get("authorAssociation") or "").upper()
     owner = repo.split("/")[0]
-    if login.lower() in BOT_LOGINS or (association == "NONE" and login.lower().endswith("[bot]")):
+    if is_bot_login(login):
         who = (actor or "").strip()
         if not who:
             return (f"PR author `{login}` is a bot, and this run did not say who triggered it "

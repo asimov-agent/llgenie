@@ -1073,6 +1073,15 @@ Two things make a deferral honest rather than silent (issue #491):
 - **Every deferral posts one comment per head SHA** with the reason and what would unblock it, so the PR
   answers "why is this not merged?" itself. `make auto-merge-explain` prints the same verdict at any time.
 
+**The decision asks `gh` only for fields it has** (issue #513). `scripts/auto_merge.py` reads the PR in ONE
+`gh pr view --json` call, and `gh` refuses the **whole** call on a name it does not know
+(`Unknown JSON field: "authorAssociation"`, exit 1). #511 asked for exactly that invented field, so every
+`auto-merge` run died before the decision and **no PR had ever been auto-merged** — every merge in the log is
+`mergedBy=andyholst`. The field list is now the single `PR_VIEW_FIELDS` constant, `is_bot_login()` decides the
+bot rule from the login alone (`…[bot]`, `app/…`), and
+`tests/fixtures/gh-pr-view-fields.json` — captured from the real CLI — locks the list: a unit test fails on any
+name `gh` does not have, and the fake `gh` in the suite refuses an unknown field the way the real one does.
+
 The agent still never runs `gh pr merge` itself (AGENTS.md rule 7): it pushes, drives the PR green and
 stops — CI lands it, or a human does when the job defers.
 

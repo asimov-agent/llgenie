@@ -32,6 +32,9 @@ AGENTS = (REPO / "AGENTS.md").read_text()
 HEAD = "1234567890abcdef1234567890abcdef12345678"
 
 
+GH_FIELDS = json.loads((REPO / "tests" / "fixtures" / "gh-pr-view-fields.json").read_text())
+
+
 def _state(**kw) -> dict:
     """A `gh pr view` answer with every field the decision reads."""
     base = {"state": "OPEN", "isDraft": False, "mergeable": "MERGEABLE",
@@ -62,6 +65,7 @@ args = sys.argv[1:]
 with open({str(log)!r}, "a") as fh:
     fh.write(json.dumps(args) + "\\n")
 PR = json.loads({json.dumps(pr)!r})
+ALLOWED = json.loads({json.dumps(GH_FIELDS["fields"])!r})
 ISSUES = json.loads({json.dumps(issues or {})!r})
 PERMS = json.loads({json.dumps(perms)!r})
 TOKEN = {token_login!r}
@@ -77,6 +81,15 @@ if len(args) >= 2 and args[0] == "api" and "/collaborators/" in args[1] and args
         print("not found", file=sys.stderr); sys.exit(1)
     print(PERMS[login]); sys.exit(0)
 if args[:2] == ["pr", "view"]:
+    if "--json" in args:
+        want = args[args.index("--json") + 1].split(",")
+        bad = [f for f in want if f not in ALLOWED]
+        if bad:
+            print("Unknown JSON field: " + json.dumps(bad[0]), file=sys.stderr)
+            print("Available fields:", file=sys.stderr)
+            for name in sorted(ALLOWED):
+                print("  " + name, file=sys.stderr)
+            sys.exit(1)
     print(json.dumps(PR)); sys.exit(0)
 if args[:2] == ["pr", "review"]:
     open({str(log)!r} + ".approved", "w").write("1")
@@ -290,7 +303,7 @@ def test_a_write_collaborator_a_bot_and_the_owner_may_merge_a_stranger_may_not(t
     """The merge gate is who opened the PR: owner, write collaborator, or the bot. Nobody else."""
 
     # Given a green, clean PR opened by a collaborator with write
-    writer = _state(author={"login": "ada"}, authorAssociation="COLLABORATOR",
+    writer = _state(author={"login": "ada"},
                     headRepository={"nameWithOwner": "asimov-agent/llgenie"})
     gh = _fake_gh(tmp_path / "w", writer, {"482": "CLOSED"}, permissions={"ada": "write"})
 
@@ -302,7 +315,7 @@ def test_a_write_collaborator_a_bot_and_the_owner_may_merge_a_stranger_may_not(t
     assert [c for c in _calls(tmp_path / "w" / "gh.log") if c[:2] == ["pr", "merge"]]
 
     # Given the same PR opened by the bot, and the CI run triggered by the owner
-    bot = _state(author={"login": "app/github-actions"}, authorAssociation="NONE",
+    bot = _state(author={"login": "app/github-actions"},
                  headRepository={"nameWithOwner": "asimov-agent/llgenie"})
     gh = _fake_gh(tmp_path / "b", bot, {"482": "CLOSED"})
 
@@ -314,7 +327,7 @@ def test_a_write_collaborator_a_bot_and_the_owner_may_merge_a_stranger_may_not(t
     assert [c for c in _calls(tmp_path / "b" / "gh.log") if c[:2] == ["pr", "merge"]]
 
     # Given a green, clean PR opened by a stranger, even from the trusted fork
-    stranger = _state(author={"login": "mallory"}, authorAssociation="CONTRIBUTOR",
+    stranger = _state(author={"login": "mallory"},
                       headRepository={"nameWithOwner": "andyholst/llgenie"})
     gh = _fake_gh(tmp_path / "s", stranger, permissions={})
 
@@ -326,6 +339,38 @@ def test_a_write_collaborator_a_bot_and_the_owner_may_merge_a_stranger_may_not(t
     calls = _calls(tmp_path / "s" / "gh.log")
     assert not [c for c in calls if c[:2] == ["pr", "merge"]]
     assert any(c[:2] == ["pr", "comment"] for c in calls)
+
+
+def test_the_one_pr_view_call_asks_only_for_fields_gh_has():
+    """`gh pr view --json` refuses the WHOLE call on a name it does not have, so the list is locked.
+
+    #511 asked for `authorAssociation`, which `gh` has never had: every auto-merge run died with
+    `Unknown JSON field` before the decision was reached, and no PR was ever merged (issue #513).
+    """
+
+    # Given gh's own field allowlist, captured from the real CLI
+    allowed = set(GH_FIELDS["fields"])
+
+    # When  the field list the decision reads is inspected
+    unknown = sorted(set(am.PR_VIEW_FIELDS) - allowed)
+
+    # Then  every name is one gh accepts, and the invented one is gone
+    assert unknown == [], f"gh pr view has no such field: {unknown}"
+    assert "authorAssociation" not in am.PR_VIEW_FIELDS
+    assert "comments" in allowed, "pr_comments asks for it too"
+
+
+def test_a_bot_login_is_recognised_from_the_login_alone():
+    """#511's bot rule (a bot PR needs the owner/collaborator/bot actor) needs no association field."""
+
+    # Given the bot logins GitHub can put on a PR, and two human ones
+    bots = ("github-actions[bot]", "app/github-actions", "dependabot[bot]", "llgenie fix-bot[bot]")
+    humans = ("andyholst", "asimov-agent", "ada")
+
+    # When  the bot test is read
+    # Then  every bot account is one, and no human is (this is what the author gate branches on)
+    assert all(am.is_bot_login(login) for login in bots)
+    assert not any(am.is_bot_login(login) for login in humans)
 
 
 def test_the_merge_uses_the_owner_pat_and_a_make_target():
