@@ -926,6 +926,7 @@ openspec-shell: ## Interactive shell into the repo with the openspec CLI
 # asimov-agent/llgenie: includes invalid characters for a local volume name`). A mount needs a path.
 # `override` ignores the environment; the slug stays available to the bot targets through $(REPO).
 override ROOT := $(shell pwd)
+TEST_IMG := llgenie/test:latest
 # A git WORKTREE stores its metadata in the PARENT repo's .git/worktrees/<name>
 # dir; mounting only the worktree at /repo leaves `git ls-files` broken inside
 # the container (it can't resolve the gitdir), which fails the hermetic lint

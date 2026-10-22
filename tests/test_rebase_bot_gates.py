@@ -27,6 +27,7 @@ def test_the_lint_gate_mounts_the_checkout_when_repo_is_the_slug():
     # Then  the volume source is this checkout, and the slug is not a mount
     assert f'-v "{REPO}":/repo:rw' in out, out
     assert '-v "asimov-agent/llgenie"' not in out, out
+    assert "llgenie/test:latest" in out, "the image name must survive the mount change"
 
 
 def test_the_sweep_still_receives_the_slug():
