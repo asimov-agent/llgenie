@@ -33,7 +33,7 @@ args = sys.argv[1:]
 # Only the program, the verb and the FLAGS are recorded: a body is content, and recording it would
 # make an assertion about the command read the prose inside the body instead.
 with open(os.environ["GH_LOG"], "a", encoding="utf-8") as fh:
-    fh.write(" ".join([args[0], args[1], *[a for a in args if a.startswith("--")]]) + "\\n")
+    fh.write(" ".join([args[0], args[1], *[a for a in args if a.startswith("--")]]) + " token=" + os.environ.get("GH_TOKEN", "<none>") + "\\n")
 if args[:2] == ["pr", "list"]:
     print(os.environ.get("GH_PR_LIST", "[]"))
     raise SystemExit(0)
@@ -380,3 +380,42 @@ def test_targets_and_doc_are_wired_into_the_gates():
     assert len(doc) > 2000
     assert "install_engine_launchers.py" in doc
     assert "architecture-bot.yml" in doc
+
+
+# ------------------------------------------------------- the PR token (issue #497)
+
+def test_the_pr_is_opened_with_its_own_token_so_ci_runs(tmp_path, monkeypatch):
+    """A PR opened with the job token starts no workflows: it arrives with zero checks (PR #495)."""
+
+    # Given a changed doc, a recorded `gh`, a job token and a separate PR token
+    root = _repo(tmp_path)
+    _dirty_doc(root)
+    gh, log = _fake_gh(tmp_path)
+    monkeypatch.setenv("GH_LOG", str(log))
+    monkeypatch.setenv("GH_TOKEN", "job-token")
+    monkeypatch.setenv("PR_TOKEN", "owner-pat")
+
+    # When  publish runs
+    ab.publish(root, "owner/repo", DOC, stamp="20261021T1200", gh=str(gh))
+
+    # Then  the issue uses the job token and the PR uses the owner PAT
+    calls = log.read_text().splitlines()
+    issue = [c for c in calls if c.startswith("issue create")]
+    pr = [c for c in calls if c.startswith("pr create")]
+    assert len(issue) == 1 and len(pr) == 1, calls
+    assert issue[0].endswith("token=job-token"), issue[0]
+    assert pr[0].endswith("token=owner-pat"), pr[0]
+
+
+def test_the_publish_step_carries_both_tokens():
+    """The workflow must hand the script both tokens; one GH_TOKEN cannot both file and trigger."""
+
+    # Given the architecture bot's workflow
+    text = WORKFLOW.read_text()
+
+    # When  the publish step's env is read
+    step = text.split("id: publish", 1)[1].split("- name:", 1)[0]
+
+    # Then  the issue token is the job's and the PR token is the owner PAT
+    assert "GH_TOKEN: ${{ github.token }}" in step, step[:600]
+    assert "PR_TOKEN: ${{ secrets.BUMP_TOKEN }}" in step, step[:600]

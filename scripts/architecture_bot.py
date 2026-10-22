@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -358,8 +359,18 @@ def _run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True, **kwargs)
 
 
-def _gh(gh: str, *args: str, stdin: str | None = None) -> str:
-    proc = _run([gh, *args], input=stdin)
+def _gh(gh: str, *args: str, stdin: str | None = None, token: str | None = None) -> str:
+    """Run `gh`, optionally with its OWN token.
+
+    A PR created with the workflow's `GITHUB_TOKEN` starts no workflows at all (GitHub's anti-recursion
+    rule), so `gh pr create` must authenticate as the owner PAT while the ISSUE needs the job token
+    (`secrets.BUMP_TOKEN` carries no Issues write, issue #412). One env var cannot do both, so the token
+    is per call (issue #497).
+    """
+    env = None
+    if token is not None:
+        env = {**os.environ, "GH_TOKEN": token}
+    proc = _run([gh, *args], input=stdin, env=env)
     if proc.returncode != 0:
         raise RuntimeError(f"gh {' '.join(args)} failed ({proc.returncode}): {proc.stderr.strip()}")
     return proc.stdout.strip()
@@ -387,7 +398,7 @@ def _safe_doc(doc: str) -> str:
 
 
 def publish(root: Path, repo: str, doc: str = DOC_DEFAULT, stamp: str = "",
-            dry: bool = False, gh: str | None = None) -> dict:
+            dry: bool = False, gh: str | None = None, pr_token: str | None = None) -> dict:
     """Issue + branch + commit + PR for a real doc change; nothing at all otherwise."""
     doc = _safe_doc(doc)
     stamp = stamp or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M")
@@ -444,8 +455,14 @@ def publish(root: Path, repo: str, doc: str = DOC_DEFAULT, stamp: str = "",
     git(root, "commit", "-m", _title(stamp), "-m", issue_body)
     commit = git(root, "rev-parse", "HEAD").strip()
     git(root, "push", "-u", "origin", branch)
+    # The PR, not the issue, must carry the owner PAT: a PR opened with the job token triggers no
+    # workflows, so it would arrive with zero checks and could never be merged (issue #497, PR #495).
+    pr_token = pr_token if pr_token is not None else os.environ.get("PR_TOKEN", "")
+    if not pr_token.strip():
+        print("architecture-bot: PR_TOKEN is empty — the PR will be opened with the job token and no CI "
+              "will run for it (issue #497)", file=sys.stderr)
     pr_url = _gh(gh, "pr", "create", "--repo", repo, "--base", "main", "--head", branch,
-                 "--title", _title(stamp), "--body", pr_body)
+                 "--title", _title(stamp), "--body", pr_body, token=pr_token.strip() or None)
 
     result = {"action": "published", "doc": doc, "branch": branch, "commit": commit,
               "issue": issue_num, "issue_url": issue_url, "pr_url": pr_url,

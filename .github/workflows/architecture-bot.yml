@@ -139,10 +139,13 @@ jobs:
         id: publish
         env:
           DRY_INPUT: ${{ inputs.dry }}
-          # The job's own scoped token, which carries the issues/pull-requests write this step
-          # needs; the owner PAT is for the push (and `secrets.BUMP_TOKEN` carries no Issues write,
-          # issue #412).
+          # TWO tokens, because ONE cannot do both (issues #412, #497):
+          #   * the ISSUE needs the job's scoped token (`secrets.BUMP_TOKEN` carries no Issues write);
+          #   * the PR needs the owner PAT, because a pull request opened with the job token starts NO
+          #     workflows — it arrives with zero checks and can never be merged (PR #495: "no checks
+          #     reported on the 'agent/architecture-...' branch").
           GH_TOKEN: ${{ github.token }}
+          PR_TOKEN: ${{ secrets.BUMP_TOKEN }}
         run: |
           set -euo pipefail
           if [ "${DRY_INPUT}" = "true" ]; then

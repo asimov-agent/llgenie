@@ -1073,6 +1073,12 @@ make architecture-bot-publish REPO=asimov-agent/llgenie  # ONE issue + ONE PR, n
   `agent/architecture-<UTC stamp>`, one commit carrying only the doc, authored
   `Asimov Agent <support@docondee.com>`, and one PR to `asimov-agent/llgenie:main` whose body
   ends with `closes #<issue>`.
+- **Two tokens, because one cannot do both** (issue #497). The **issue** is filed with the job's own
+  token (`secrets.BUMP_TOKEN` carries no Issues write, #412); the **PR** is opened with
+  `secrets.BUMP_TOKEN`, because a pull request created with `GITHUB_TOKEN` starts **no workflows** — it
+  arrives with zero checks and can never be green or merged (PR #495). The publish step therefore sets
+  both `GH_TOKEN` and `PR_TOKEN`, and `scripts/architecture_bot.py::publish()` uses the second only for
+  `gh pr create`.
 - **Who may run it.** The trigger guard runs first, before any secret: the repository owner, or
   a collaborator with `admin`/`maintain`/`write` — which is also how a bot identity with write
   access starts it. A stranger cannot dispatch it.
