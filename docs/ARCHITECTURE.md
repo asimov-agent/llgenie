@@ -23,8 +23,7 @@ whenever the tree moves.
    `scripts/engine_runner.py` runs an engine's install / detect / serve steps from that
    engine's frozen params file (backend included). `LLAMA_BACKEND` (or `ARCH=`) overrides the
    detected backend, which is how CI exercises a backend on a GPU-less runner.
-3. **Install** — `make install` chains `bash-check -> venv-install -> engine-launchers ->
-   link -> test-built-engine -> smoke`. `scripts/install_engine_launchers.py` builds the
+3. **Install** — `make install` chains `bash-check -> venv-install -> engine-launchers -> link -> test-built-engine -> smoke`. `scripts/install_engine_launchers.py` builds the
    install plan: the engine images this backend needs, pulled from `LLGENIE_REGISTRY`
    (default `ghcr.io/asimov-agent`). It pulls only and never builds (`BUILD=1` is the
    explicit exception); the default plan is the core llama.cpp set, `ENGINES=all` pulls
@@ -35,6 +34,9 @@ whenever the tree moves.
    `~/bin/prism-server` (Prism) shims. `link` writes `~/bin/llgenie` and symlinks
    `~/bin/llgenie.py` to this repo's `scripts/llgenie_serve.py`.
    `make test-built-engine` then runs every start script with `--version` through its image.
+   The same plan is what `make ci-wait-engine-images ARCH=<backend>` polls GHCR for before
+   the CI `install` job runs (`scripts/install_engine_launchers.py --wait-published`), so a
+   tag that is not published yet fails by name instead of racing the `engine-image` jobs.
 4. **Trend list** — `scripts/model_engine_pick.py` reads `data/models.json`, filters models
    to the ones whose VRAM tier fits this card, and ranks them (`recommend` for plain
    `llgenie`: the upstream README "Most loved" order, with a stated reason on rows that
@@ -126,42 +128,58 @@ keeps those PRs current.
 
 ## CI
 
-`.github/workflows/ci.yml` is the entry: `guard`, `ci-images` (publish the test and OpenSpec
-images on a new hash, never rebuild per job), `engine-base`, `engine-matrix`,
-`engine-image` (one parallel job per engine x backend), `engine-published-test`, and
-`linux` / `macos`, which call `pipeline.yml` — the reusable per-OS verification pipeline.
-`pipeline.yml` runs one job per `make ci-<job>` target (`ci-lint`, `ci-unit`,
-`ci-agents-read`, `ci-openspec`, `ci-cpu-health`, `ci-top-tier`, `ci-install`), the same
-jobs and asserts on both OSes; only the runner label differs. `linux-published` calls
-`published.yml`, which runs `make ci-engines BACKEND=<b>` for `cpu`, `cuda`, `rocm` and
-`vulkan` against the images the `engine-image` jobs published. `publish-agent-image.yml`
-publishes the Hermes agent image (guarded to owner/collaborators, amd64 only).
-`run-failure-reactor.yml` routes a failed run to a fix or a deduped issue.
+`.github/workflows/ci.yml` is the entry (`pull_request` and `push`). `guard` runs first and
+admits the owner, a collaborator with write/maintain/admin, or `github-actions[bot]` **only**
+when the run's head is a branch in this repository (a same-repo head can only be produced by
+a token with write access, so a bot acting on a foreign head is still refused). Then
+`ci-images` (publish the test and OpenSpec images on a new hash, never rebuild per job),
+`engine-base`, `engine-matrix`, `engine-image` (one parallel job per engine x backend),
+`engine-published-test`, and `linux` / `macos`, which call `pipeline.yml` — the reusable
+per-OS verification pipeline. `pipeline.yml` runs one job per `ci-<job>` target
+(`ci-lint`, `ci-unit`, `ci-agents-read`, `ci-openspec`, `ci-cpu-health`, `ci-top-tier`,
+`ci-install`), the same jobs and asserts on both OSes; only the runner label differs.
+`linux-published` calls `published.yml`, which runs `make ci-engines BACKEND=<b>` for `cpu`,
+`cuda`, `rocm` and `vulkan` against the images the `engine-image` jobs published.
+`publish-agent-image.yml` publishes the Hermes agent image (guarded to owner/collaborators,
+amd64 only). `run-failure-reactor.yml` routes a failed run to a fix or a deduped issue.
 
-The structural gates are make targets, so the same command runs locally and in CI:
+**auto-merge is not a job in `ci.yml`.** It lives in `.github/workflows/auto-merge.yml`, a
+`workflow_run` workflow on `CI` completed, because a `pull_request` run from a fork receives
+no repository secrets — the job token resolved empty and the old in-`ci.yml` job reported
+success while merging nothing. A `workflow_run` executes in the base repository with the
+base repository's secrets. It maps the finished run back to its PR with
+`scripts/resolve_run_pr.py` (a 404/error body is "no answer", never a PR number, so the
+fork-head search still runs), asks `scripts/auto_merge.py` for the verdict, and only then
+merges. See "Bots" below for the merge policy.
+
+The structural gates are Makefile targets, so the same command runs locally and in CI:
 `make check-workflows` (GitHub expressions parse, trailing newlines, every workflow has a
 `name:`), `make check-dispatch-forms` (a dispatchable workflow documents its inputs and
 stages), `make check-wiring` (every script/test reachable from a target CI runs),
-`make check-docs` (every `##` make target is in `README.md`, every `agent-wiki/` entry
+`make check-docs` (every `##` target is in `README.md`, every `agent-wiki/` entry
 names its issue and PR), `make check-pr-hygiene`, `make check-pr-authors`,
-`make check-secret-output`, `make secret-scan` / `make secret-scan-self-test`, plus
-`make bash-check` (`scripts/check_bash.py`, the bash-5 parity check that resolves the
-Makefile's shell) and `scripts/check_python.py`, which `tools/Makefile` runs to keep the
-gguf venv on Python 3.11.
+`make check-agent-model` (the agent image's model pin matches
+`scripts/agent_model_pin.py`), `make check-secret-output`, `make secret-scan` /
+`make secret-scan-self-test`, plus `make bash-check` (`scripts/check_bash.py`, the bash-5
+parity check that resolves the Makefile's shell) and `scripts/check_python.py`, which
+`tools/Makefile` runs to keep the gguf venv on Python 3.11. `make ci-unit` runs
+`test-unit` and then those gates together with the data gates
+(`skills-validate`, `check-registry`, `check-strata-models`, `check-quant-catalog`,
+`check-trend-list-matrix`, `check-engine-skill-gap`, `check-engine-params`).
 
 ## Bots
 
 Every bot is a workflow with its own cron slot, its own `concurrency:` group, an
 owner/collaborator guard before any secret is read, and a transcript redacted by
-`scripts/scrub_log.py` before any of it prints. None of them merges; a human approves the
-PR. A bot's run inputs (`issue.md`, `triage.md`, `refine-in.md`, `refine.md`, `comment.md`)
-are git-ignored: they are scratch a run writes, never repo content.
+`scripts/scrub_log.py` before any of it prints. A bot's run inputs (`issue.md`, `triage.md`,
+`refine-in.md`, `refine.md`, `comment.md`) are git-ignored: they are scratch a run writes,
+never repo content.
 
 | Workflow | Cron | What it does |
 |---|---|---|
-| `issue-bot.yml` | `23 6 * * *` | implements ONE labeled/ready issue per run as a reviewable PR; a manual dispatch with no issue number picks one itself, the implementation is measured from the changed tree (not the exit code), and the PR body is built from the run's `pr-body.md` |
-| `fix-bot.yml` | `17 * * * *` | repairs a red PR branch, re-runs the gate, pushes only when green |
-| `rebase-bot.yml` | `29 */6 * * *` | drains every eligible PR onto `main` in one run, bounded by `max_prs`; decides from a computed merge state, counts a rebase from its `bot-done` marker, aborts a stopped rebase so the tree returns to `main` |
+| `issue-bot.yml` | `23 6 * * *` | implements ONE labeled/ready issue per run as a reviewable PR; a manual dispatch with no issue number picks one itself, the implementation is measured from the changed tree (not the exit code), and the PR body is built from the run's `pr-body.md`. The implement leg has its own 90-minute budget inside the 120-minute job, so a run that hits it still has time to detect, commit and push what the agent changed (#476) |
+| `fix-bot.yml` | `17 * * * *` | repairs a red PR branch, re-runs the gate, pushes only when green; a PR whose head is the repository's own fork is checked out from that fork and pushed back to it, never to `origin` (#340) |
+| `rebase-bot.yml` | `29 */6 * * *` | drains every eligible PR onto `main` in one run, bounded by `max_prs`; decides from a computed merge state, counts a rebase from its `bot-done` marker, aborts a stopped rebase so the tree returns to `main`; takes a merely-BEHIND PR even when someone has commented on it (#502); its conflict resolution is checked by the structural gates, chained with `&&` in the mounted checkout (#455, #506) |
 | `issue-refiner.yml` | `43 * * * *` | reviews one issue and refines or closes it with cited evidence |
 | `code-review-bot.yml` | `31 7 * * 1` | files issues for findings in the tree and the pipelines |
 | `registry-sync.yml` | `19 5 * * 1` | byte-copies the upstream registry, regenerates the derived tables, opens a PR |
@@ -169,8 +187,19 @@ are git-ignored: they are scratch a run writes, never repo content.
 | `engine-bump-rebase.yml` | `41 5 * * *` | keeps the engine-bump PRs current |
 | `queued-alarm.yml` | `7,37 * * * *` | reports jobs stuck in `queued` |
 | `search-smoke.yml` | `11 7 * * *` | proves the masked web reach works |
-| `architecture-bot.yml` | `47 */6 * * *` | rewrites `docs/ARCHITECTURE.md` and opens one linked issue + PR |
+| `architecture-bot.yml` | `47 */6 * * *` | rewrites `docs/ARCHITECTURE.md` and opens one linked issue + PR; a lost PR create is retried rather than stranding the refresh (#481) |
+| `auto-merge.yml` | — (`workflow_run` on `CI` completed) | merges a green, conflict-free PR with no human click |
 | `run-failure-reactor.yml` | — (dispatch / `workflow_run`) | routes a failed run to the fix-bot or one deduped issue |
+
+`auto-merge` is the one bot that merges. It merges only a non-draft PR whose CI run
+concluded `success` and whose merge state is `CLEAN` (no conflicts, not behind, not blocked),
+with the head pinned to the sha that run tested (`--match-head-commit`), and only when the
+head is this repository or the owner's fork. A `do-not-merge` label is the human hold. Every
+deferral (`DIRTY`, `BEHIND`, `BLOCKED`, a draft, a moved head, a hold) leaves the PR alone and
+posts one comment per head sha naming the reason; a review-blocked green PR may be approved
+by the other allowed identity. A merge made with the job token starts no workflows, so the
+owner PAT performs it, and `scripts/verify_closure.py` then proves the body's `closes #n`
+actually closed.
 
 Bots run inside the pinned agent image (`containers/agent`), call the model pinned once in
 `scripts/agent_model_pin.py` (alias `nous-deepseek`,
@@ -193,12 +222,10 @@ fails loudly. On an Apple-Silicon host `make test-health` is the real GPU/Metal 
 launches `~/bin/llgenie` against the host's Metal `llama-server`; on Linux it answers "hi"
 through the llama.cpp engine image.
 
-`make loop` (`scripts/loop_harness.py`) chains image -> download -> lint -> agents-read ->
-unit -> install -> health -> top-tier -> top-tier-serve -> test -> openspec ->
-openspec-tasks -> clean. `make check-docs`, `make check-pr-hygiene`,
-`make check-pr-authors`, `make check-workflows`, `make check-dispatch-forms` and
-`make check-wiring` are the repository's structural gates. The data gates
-(`check-registry`, `check-registry-keys`, `check-quant-catalog`,
+`make loop` (`scripts/loop_harness.py`) chains image -> download -> lint -> agents-read -> unit -> install -> health -> top-tier -> top-tier-serve -> test -> openspec -> openspec-tasks -> clean. `make check-docs`, `make check-pr-hygiene`,
+`make check-pr-authors`, `make check-workflows`, `make check-dispatch-forms`,
+`make check-agent-model` and `make check-wiring` are the repository's structural gates. The
+data gates (`check-registry`, `check-registry-keys`, `check-quant-catalog`,
 `check-trend-list-matrix`, `check-engine-skill-gap`, `check-strata-models`,
 `check-engine-params`, `skills-validate`) run inside `make ci-unit`.
 
@@ -208,5 +235,6 @@ An issue is the root; the branch, the OpenSpec change (`openspec/changes/<name>/
 code and the PR all trace back to it. Work happens in its own git worktree cut from
 `origin/main`. The OpenSpec change is written before the code, each task is ticked when
 verified, the README and an `agent-wiki/` entry land in the same commit, and the PR targets
-`asimov-agent/llgenie:main`, closes the issue, and waits for a human approval — the agent
-never merges and never pushes to `main`.
+`asimov-agent/llgenie:main` and closes the issue. The agent drives the PR green and stops:
+the `auto-merge` job lands a green, conflict-free PR, and the agent never merges by hand and
+never pushes to `main`.
