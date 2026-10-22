@@ -49,6 +49,10 @@ def _fake_gh(tmp_path: Path, opts: dict | None = None):
     labeled = opts.get("labeled", [])
     ready = opts.get("ready", [])
     view = opts.get("view", {"number": 11, "title": f"Fix the thing #{11}", "body": "body"})
+    #: issue number -> {"state", "labels"} for the `--json state,labels` lookup a close verdict makes
+    #: of every reference it cites (issue #521). A number absent here answers non-zero, the way a PR
+    #: number, a typo or a deleted issue does.
+    issues = opts.get("issues", {})
     pr_url = opts.get("pr_url", "https://github.com/acme/llgenie/pull/99")
 
     gh = tmp_path / "gh"
@@ -59,6 +63,7 @@ PRS = {json.dumps(prs)}
 LABELED = {json.dumps(labeled)}
 READY = {json.dumps(ready)}
 VIEW = {json.dumps(view)}
+ISSUES = {json.dumps(issues)}
 PR_URL = {json.dumps(pr_url)}
 with open({str(log)!r}, "a") as fh:
     fh.write(json.dumps(args) + "\\n")
@@ -72,7 +77,13 @@ elif args[:2] == ["issue", "list"] and "--label" in args:
     lab = args[args.index("--label") + 1]
     print(json.dumps(LABELED) if lab == "agent:implement" else json.dumps(READY))
 elif args[:2] == ["issue", "view"]:
-    print(json.dumps(VIEW))
+    if "--json" in args and args[args.index("--json") + 1] == "state,labels":
+        n = args[2]
+        if n not in ISSUES:
+            print("not found", file=sys.stderr); sys.exit(1)
+        print(json.dumps(ISSUES[n]))
+    else:
+        print(json.dumps(VIEW))
 elif args[:2] == ["issue", "comment"]:
     print("Comment created.")
 elif args[:2] == ["pr", "create"]:
@@ -476,6 +487,89 @@ def test_a_close_cites_evidence_then_closes_and_labels(tmp_path):
     edit = [c for c in calls if c[:2] == ["issue", "edit"]][0]
     assert "agent:closed" in edit and "agent:implement" in edit
     assert not [c for c in calls if c[:2] == ["pr", "create"]]
+
+
+def test_a_close_queues_the_canonical_issue_it_cites(tmp_path):
+    """Closing a duplicate must queue the real work item, or the defect is never implemented.
+
+    Measured (issue #521): #400 was closed as a duplicate of the unlabelled #254, and two days later
+    #440 was closed as a duplicate of the unlabelled #399 — the picker only lists `agent:implement` /
+    `agent:ready`, so neither canonical issue was ever queued.
+    """
+
+    # Given an open canonical issue with no agent label, cited by a duplicate's close verdict
+    gh, log = _fake_gh(tmp_path, {"issues": {"399": {"state": "OPEN", "labels": []}}})
+
+    # When  the duplicate is closed
+    ii.apply_verdict(str(gh), f"{OWNER}/{REPO_NAME}", 440,
+                     "TRIAGE: close\n"
+                     "EVIDENCE: Open issue #399 tracks this exact failure, same job and assertion\n"
+                     "REASON: Duplicate of open #399\n")
+
+    # Then  the canonical issue is queued, and the duplicate is still closed and labelled
+    calls = _calls(log)
+    edits = [c for c in calls if c[:2] == ["issue", "edit"]]
+    canonical = [c for c in edits if "399" in c]
+    assert canonical, edits
+    assert "agent:implement" in canonical[0]
+    assert [c for c in edits if "440" in c and "agent:closed" in c], edits
+    assert [c for c in calls if c[:2] == ["issue", "close"] and "440" in c], calls
+
+
+def test_a_close_leaves_a_closed_decided_or_already_queued_reference_alone(tmp_path):
+    """Only an open, agent-label-free issue is queued: a closed, decided or queued one is untouched."""
+
+    # Given references that are closed, decided, already queued, and the issue itself
+    gh, log = _fake_gh(tmp_path, {"issues": {
+        "254": {"state": "CLOSED", "labels": []},
+        "466": {"state": "OPEN", "labels": [{"name": "agent:implement"}]},
+        "470": {"state": "OPEN", "labels": [{"name": "agent:refined"}]},
+        "440": {"state": "OPEN", "labels": [{"name": "agent:implement"}]},
+    }})
+
+    # When  the close verdict cites all of them
+    ii.apply_verdict(str(gh), f"{OWNER}/{REPO_NAME}", 440,
+                     "TRIAGE: close\n"
+                     "EVIDENCE: #254 was closed as a flake; #466 and #470 already carry this; see #440\n"
+                     "REASON: duplicate\n")
+
+    # Then  no reference is re-labelled — the only edit is the duplicate's own agent:closed
+    others = [c for c in _calls(log) if c[:2] == ["issue", "edit"] and "440" not in c]
+    assert others == [], others
+
+
+def test_a_close_citing_a_pr_number_or_typo_queues_nothing_and_still_closes(tmp_path):
+    """A cited number that is not a readable issue is skipped with a line — never a crash."""
+
+    # Given a verdict citing numbers that are not issues (an empty map answers 404 for both)
+    gh, log = _fake_gh(tmp_path, {"issues": {}})
+
+    # When  the duplicate is closed
+    ii.apply_verdict(str(gh), f"{OWNER}/{REPO_NAME}", 440,
+                     "TRIAGE: close\nEVIDENCE: PR #999 already did this; #1234 does not exist\n"
+                     "REASON: already implemented\n")
+
+    # Then  it still closes, and nothing outside this issue is edited
+    calls = _calls(log)
+    assert [c for c in calls if c[:2] == ["issue", "close"] and "440" in c], calls
+    assert [c for c in calls if c[:2] == ["issue", "edit"] and "440" not in c] == []
+
+
+def test_a_dry_close_would_queue_and_write_nothing(tmp_path):
+    """`--dry` shows the queueing decision and performs no request at all."""
+
+    # Given an open canonical issue and a dry run
+    gh, log = _fake_gh(tmp_path, {"issues": {"399": {"state": "OPEN", "labels": []}}})
+
+    # When  the close verdict is applied in dry mode
+    ii.apply_verdict(str(gh), f"{OWNER}/{REPO_NAME}", 440,
+                     "TRIAGE: close\nEVIDENCE: duplicate of #399\nREASON: duplicate\n", dry=True)
+
+    # Then  it reads the cited issue but comments, closes and labels nothing
+    mutations = [c for c in _calls(log)
+                 if c[:2] in (["issue", "comment"], ["issue", "close"], ["issue", "edit"])]
+    assert mutations == [], mutations
+    assert [c for c in _calls(log) if c[:2] == ["issue", "view"]], "the decision was worked out"
 
 
 def test_a_close_without_evidence_is_refused_and_mutates_nothing(tmp_path):

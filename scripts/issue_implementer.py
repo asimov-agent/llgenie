@@ -22,6 +22,14 @@ loudly, because "hard" or "vague" is `refine`, and "already done / superseded / 
 not a code change" is what closing is for. An issue labelled `agent:refined` or
 `agent:closed` is never picked again, so neither verdict can loop.
 
+A close QUEUES what it cites (issue #521). The picker only lists `agent:implement` /
+`agent:ready`, and the canonical issue a duplicate points at is usually filed without either —
+so retiring the copy used to leave the real work queued nowhere: #400 was closed as a duplicate
+of the unlabelled #254, and two days later #440 was closed as a duplicate of the unlabelled
+#399, with the defect never once implemented. Every open, agent-label-free issue a close verdict
+cites now gets `agent:implement`, so the next run implements the canonical issue instead of
+closing the next copy.
+
 Commands (stdlib only, no LLM):
   count                  PRs the bot already opened today (the cap numerator)
   dispatch [--dry]       cap -> pick one issue -> claim -> write issue.md (body + thread) + branch
@@ -172,6 +180,11 @@ def _slug(title: str) -> str:
 VERDICTS = ("implement", "refine", "close")
 #: An issue carrying either label has already been decided this way and is never picked again.
 DECIDED_LABELS = ("agent:refined", "agent:closed")
+#: The labels that put an issue in front of the picker (`dispatch()`), in priority order.
+QUEUE_LABELS = ("agent:implement", "agent:ready")
+#: An issue reference in a verdict's prose: `#399`. The lookup decides whether it is an issue at all
+#: (a PR number, a typo or a deleted issue answers nothing and is skipped with a line).
+ISSUE_REF = re.compile(r"(?<![\w/])#(\d+)\b")
 
 #: The instruction block inside issue.md. The verdict format is machine-read by
 #: `apply-verdict`, so the agent is told the exact lines to emit rather than asked for prose.
@@ -435,6 +448,65 @@ def parse_verdict(text: str) -> dict:
             "reason": block("REASON").splitlines()[0].strip() if block("REASON") else ""}
 
 
+def cited_issues(text: str, own: int = 0) -> list[int]:
+    """Every distinct `#<n>` a verdict cites, in order, never the issue being decided."""
+    seen: list[int] = []
+    for raw in ISSUE_REF.findall(text or ""):
+        ref = int(raw)
+        if ref == own or ref in seen:
+            continue
+        seen.append(ref)
+    return seen
+
+
+def _issue_meta(gh: str, repo: str, ref: int) -> dict | None:
+    """`state` and `labels` for one cited reference, or None when it is not a readable issue.
+
+    A verdict may cite a PR number, a typo, or a deleted issue; `gh issue view` answers non-zero for
+    those, and that is "not an issue to queue" — never a crash after the close already happened.
+    """
+    r = subprocess.run([gh, "issue", "view", str(ref), "--repo", repo, "--json", "state,labels"],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        return None
+    return json.loads(r.stdout or "{}")
+
+
+def queue_canonical(gh: str, repo: str, refs: list[int], dry: bool = False) -> list[int]:
+    """Put the canonical issue(s) a close verdict cites in front of the picker (issue #521).
+
+    Without this a duplicate close retires the COPY while the canonical issue stays unlabelled, so
+    the picker never lists it and the defect is never implemented: #400 pointed at #254, #440 pointed
+    at #399, and neither canonical issue carried an agent label. An issue already decided
+    (`agent:refined`/`agent:closed`) or already queued is left exactly as it is.
+    """
+    queued: list[int] = []
+    for ref in refs:
+        meta = _issue_meta(gh, repo, ref)
+        if meta is None:
+            print(f"[issue-implementer] #{ref}: not a readable issue (a PR, a typo, or gone) — not queued")
+            continue
+        state = (meta.get("state") or "").strip().lower()
+        names = [l.get("name") for l in (meta.get("labels") or []) if l.get("name")]
+        if state != "open":
+            print(f"[issue-implementer] #{ref}: {state or 'unknown'} — not queued")
+            continue
+        decided = [n for n in names if n in DECIDED_LABELS]
+        if decided:
+            print(f"[issue-implementer] #{ref}: already decided ({', '.join(decided)}) — not queued")
+            continue
+        if any(n in QUEUE_LABELS for n in names):
+            print(f"[issue-implementer] #{ref}: already queued")
+            continue
+        if dry:
+            print(f"[issue-implementer] would queue #{ref} as the canonical issue")
+        else:
+            _gh(gh, ["issue", "edit", str(ref), "--repo", repo, "--add-label", "agent:implement"])
+            print(f"[issue-implementer] queued #{ref} as the canonical issue (agent:implement)")
+        queued.append(ref)
+    return queued
+
+
 def apply_verdict(gh: str, repo: str, num: int, text: str, dry: bool = False) -> dict:
     """Act on the verdict: nothing (implement), one comment + label (refine), or comment +
     close + label (close). A close without EVIDENCE is refused: that rule is the whole point."""
@@ -465,14 +537,18 @@ def apply_verdict(gh: str, repo: str, num: int, text: str, dry: bool = False) ->
                          "'hard', 'large' or 'vague' is a refine, and already-done / superseded / "
                          "duplicate / not-a-code-change is what closing is for")
     body = f"Closing this issue. {v['reason'] or ''}".rstrip() + f"\n\n**Evidence**\n\n{v['evidence']}\n"
+    # What the verdict cites is the canonical work item; queue it so closing the copy cannot orphan it.
+    refs = cited_issues(f"{v['reason']}\n{v['evidence']}", own=num)
     if dry:
         print(f"[issue-implementer] would close #{num} (comment + close + agent:closed)")
+        queue_canonical(gh, repo, refs, dry=True)
         return v
     _gh(gh, ["issue", "comment", str(num), "--repo", repo, "--body", body])
     _gh(gh, ["issue", "close", str(num), "--repo", repo, "--reason", "not planned"])
     _gh(gh, ["issue", "edit", str(num), "--repo", repo,
              "--add-label", "agent:closed", "--remove-label", "agent:implement"])
     print(f"[issue-implementer] closed #{num} with cited evidence; labelled agent:closed")
+    queue_canonical(gh, repo, refs)
     return v
 
 

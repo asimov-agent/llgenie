@@ -563,6 +563,15 @@ picks ONE verdict, written to `triage.md`:
 An issue labelled `agent:refined` or `agent:closed` is never picked again, so neither verdict can
 loop, and neither opens a PR — so it does not consume the 3/day PR cap.
 
+**A `close` queues what it cites** (issue #521). The picker only lists `agent:implement` (then
+`agent:ready`), and the canonical issue a duplicate points at usually carries neither — so retiring
+the copy left the real work queued nowhere. Measured: #400 was closed as a duplicate of the
+unlabelled #254, and two days later #440 was closed as a duplicate of the unlabelled #399, with the
+defect never once implemented. `apply-verdict` now reads the `EVIDENCE:`/`REASON:` blocks, and every
+cited issue that is **open** and carries **no** agent label gets `agent:implement`, so the next run
+implements the canonical issue. A cited PR number, typo or closed issue is printed and skipped, and
+the issue being closed is never re-labelled.
+
 #### The implementer edits `/repo` in place (issue #426)
 
 `make implement-issue` runs Hermes in a `--rm` container with **one writable mount** —
