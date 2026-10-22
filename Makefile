@@ -920,7 +920,12 @@ openspec-shell: ## Interactive shell into the repo with the openspec CLI
 # /repo and llama-server is resolved via $LLAMA_SERVER (host LLAMA_BIN or CI
 # build). Bare `run` (like the openspec targets) avoids compose's `--tty`
 # console requirement under non-interactive make.
-TEST_IMG := llgenie/test:latest
+# The checkout, as a path. A bot job exports REPO as the slug (`asimov-agent/llgenie`) for the sweep
+# and the push, and Make treats that environment variable as an override of `REPO :=` above — so a
+# gate that mounts $(REPO) hands docker the slug and docker refuses it (run 39727049030: `create
+# asimov-agent/llgenie: includes invalid characters for a local volume name`). A mount needs a path.
+# `override` ignores the environment; the slug stays available to the bot targets through $(REPO).
+override ROOT := $(shell pwd)
 # A git WORKTREE stores its metadata in the PARENT repo's .git/worktrees/<name>
 # dir; mounting only the worktree at /repo leaves `git ls-files` broken inside
 # the container (it can't resolve the gitdir), which fails the hermetic lint
@@ -931,7 +936,7 @@ TEST_IMG := llgenie/test:latest
 GIT_WORKTREE_PARENT := $(shell sed -nE 's|^gitdir: +||p' .git 2>/dev/null | sed 's|/.git/worktrees/.*||')
 WORKTREE_MOUNT := $(if $(GIT_WORKTREE_PARENT),-v "$(GIT_WORKTREE_PARENT)":$(GIT_WORKTREE_PARENT):rw,)
 # Token names only. docker copies the values from the environment; they stay off argv.
-TEST_OPTS := --rm -u root -v "$(REPO)":/repo:rw -w /repo -e HOME=/root -e HF_TOKEN -e GITHUB_TOKEN -e GH_TOKEN $(WORKTREE_MOUNT)
+TEST_OPTS := --rm -u root -v "$(ROOT)":/repo:rw -w /repo -e HOME=/root -e HF_TOKEN -e GITHUB_TOKEN -e GH_TOKEN $(WORKTREE_MOUNT)
 # Install/health tests start engine images through the HOST docker. The install
 # HOME lives inside the repo mount at the SAME path on host and in the container,
 # so bind mounts the container asks the host docker for (-v <models>:/models)
@@ -950,12 +955,12 @@ ENGINE_TEST_RUN := $(call engine_test,)
 CI_HOME_CLEAN := rm -rf "$(CI_HOME)"
 else
 ENGINE_TEST_ARGS := $(RUNTIME) run --rm -u root --network host \
-	-v /var/run/docker.sock:/var/run/docker.sock -v "$(REPO)":"$(REPO)":rw -w "$(REPO)" \
+	-v /var/run/docker.sock:/var/run/docker.sock -v "$(ROOT)":"$(ROOT)":rw -w "$(ROOT)" \
 	-e HOME="$(CI_HOME)" -e LLGENIE_REGISTRY -e HF_TOKEN -e GITHUB_TOKEN -e GH_TOKEN -e RUNTIME=docker $(WORKTREE_MOUNT)
 engine_test = $(ENGINE_TEST_ARGS) $(foreach v,$(1),-e $(v)) $(TEST_IMG)
 ENGINE_TEST_RUN := $(call engine_test,)
 # .ci-home is written by root inside the container: remove it from a container too.
-CI_HOME_CLEAN := $(RUNTIME) run --rm -v "$(REPO)":/r $(TEST_IMG) rm -rf /r/.ci-home
+CI_HOME_CLEAN := $(RUNTIME) run --rm -v "$(ROOT)":/r $(TEST_IMG) rm -rf /r/.ci-home
 TEST_RUN := $(RUNTIME) run $(TEST_OPTS) $(TEST_IMG)
 endif
 
