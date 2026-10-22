@@ -63,9 +63,13 @@ jobs:
           HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
         run: |
           set -euo pipefail
-          number=$(gh api "repos/$REPO/actions/runs/$RUN_ID/pull_requests" --jq '.[0].number // empty')
+          # The runs endpoint 404s for a fork pull_request run with this token, and `set -e` would kill the
+          # step before the fallback. A 404 is "no answer", not a failure.
+          number=$(gh api "repos/$REPO/actions/runs/$RUN_ID/pull_requests" --jq '.[0].number // empty' || true)
           if [ -z "$number" ]; then
-            number=$(gh pr list --repo "$REPO" --head "$HEAD_OWNER:$HEAD_BRANCH" --state open --json number --jq '.[0].number // empty')
+            # `--head owner:branch` matches a same-repo branch only. A fork head needs the search qualifier,
+            # which is how `gh pr list` finds andyholst:fix/rebase-behind-despite-comment (#502).
+            number=$(gh pr list --repo "$REPO" --search "head:$HEAD_BRANCH" --state open --json number,headRepositoryOwner --jq ".[] | select(.headRepositoryOwner.login==\"$HEAD_OWNER\") | .number" | head -1)
           fi
           if [ -z "$number" ]; then
             echo "::error::no open pull request for run $RUN_ID (head $HEAD_OWNER:$HEAD_BRANCH) - nothing to merge, and a green PR must never be silently dropped"

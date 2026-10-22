@@ -1044,7 +1044,10 @@ unbound keyword is a red run instead of an issue left open on the board.
 in `ci.yml` saw `secrets.BUMP_TOKEN` as the empty string: #481's run was green and the job `succeeded` while
 merging nothing. A `workflow_run` workflow executes in the base repository with the base repository's secrets,
 acts only on a pull-request run that concluded `success`, checks out the **base** branch (it holds a write
-token, so it never runs PR code), resolves the PR from the run, and calls the same `make auto-merge`. A missing
+token, so it never runs PR code), resolves the PR from the run, and calls the same `make auto-merge`. The
+runs endpoint 404s for a fork run, so that lookup falls through (`|| true`) and the fallback searches by
+`head:<branch>` — `gh pr list --head owner:branch` matches a same-repo branch only and found nothing for
+#502. A missing
 token is a red run (exit 2), never a silent deferral. It merges a PR only when its author is the repository
 owner, a collaborator with write access, or the bot (a bot PR is authorised by who triggered the CI run) —
 the same gate `ci.yml`'s `guard` job applies to a run. A stranger's green PR is deferred, even from the

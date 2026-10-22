@@ -543,6 +543,19 @@ def test_the_merge_is_a_workflow_run_on_ci():
     assert "ACTOR=" in wf, "a bot PR is authorised by who triggered the CI run"
 
 
+def test_a_fork_run_is_resolved_by_search():
+    """A 404 from the runs endpoint must not kill the step, and a fork head is found by search."""
+
+    # Given the resolve step
+    step = MERGE_WF.split("Resolve the pull request", 1)[1].split("make auto-merge", 1)[0]
+
+    # When  its lookups are read
+    # Then  the runs endpoint's 404 falls through, and the fallback searches by branch, not by a same-repo head
+    assert "|| true" in step, step
+    assert '--search "head:$HEAD_BRANCH"' in step, step
+    assert '--head "$HEAD_OWNER:$HEAD_BRANCH"' not in step, "that qualifier never matches a fork head"
+
+
 def test_an_empty_pat_fails_the_workflow_loudly():
     """The bug was a green job merging nothing: a missing token must be a red run, not a deferral."""
 
