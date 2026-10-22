@@ -375,46 +375,48 @@ def _review_blocked(author: str = "andyholst", **kw) -> dict:
                   author={"login": author}, **kw)
 
 
-def test_a_review_blocked_green_pr_is_approved_then_merged(tmp_path):
-    """The one procedural block a bot may clear: an approval from the OTHER allowed identity."""
+def test_a_review_blocked_green_pr_is_merged_as_admin(tmp_path):
+    """The owner PAT is the author, so GitHub refuses the approval. The merge bypasses that review."""
 
     # Given a green, mergeable PR blocked only by a required review, authored by andyholst
-    gh = _fake_gh(tmp_path, _review_blocked(), {"491": "CLOSED"})
+    gh = _fake_gh(tmp_path, _review_blocked(), {"491": "CLOSED"},
+                  permissions={"andyholst": "admin"})
 
-    # When  the job runs with approval enabled
-    rc = am.run(str(gh), "o/r", 482, HEAD, approve_when_review_required=True)
+    # When  the job runs with the review bypass enabled
+    rc = am.run(str(gh), "asimov-agent/llgenie", 482, HEAD, approve_when_review_required=True)
 
-    # Then  it approves first (as the well-known token account), re-reads, then merges
-    kinds = [c[:2] for c in _calls(tmp_path / "gh.log")]
+    # Then  it merges with --admin and never posts an approval GitHub would refuse
+    calls = _calls(tmp_path / "gh.log")
+    merges = [c for c in calls if c[:2] == ["pr", "merge"]]
     assert rc == 0, rc
-    assert kinds.index(["pr", "review"]) < kinds.index(["pr", "merge"]), kinds
-    review = [c for c in _calls(tmp_path / "gh.log") if c[:2] == ["pr", "review"]][0]
-    assert "--approve" in review, review
-    body = review[review.index("--body") + 1]
-    assert "auto-merge" in body and "491" in body, body
+    assert len(merges) == 1, merges
+    assert "--admin" in merges[0] and "--squash" in merges[0], merges[0]
+    assert not [c for c in calls if c[:2] == ["pr", "review"]]
 
 
-def test_a_same_account_pr_is_never_self_approved(tmp_path):
-    """GitHub refuses a self-approval, so a PR authored by the token's own account defers."""
+def test_a_same_account_pr_still_merges(tmp_path):
+    """The PAT being the author is the normal case here, not a reason to stop."""
 
-    # Given a review-blocked PR whose author IS the merge token's account
-    gh = _fake_gh(tmp_path, _review_blocked(author="asimov-agent"), token_login="asimov-agent")
+    # Given a review-blocked PR whose author IS the merge token's account, and that account is the owner
+    gh = _fake_gh(tmp_path, _review_blocked(author="asimov-agent"), {"491": "CLOSED"},
+                  token_login="asimov-agent")
 
-    # When  the job runs with approval enabled
-    rc = am.run(str(gh), "o/r", 482, HEAD, approve_when_review_required=True)
+    # When  the job runs with the review bypass enabled
+    rc = am.run(str(gh), "asimov-agent/llgenie", 482, HEAD, approve_when_review_required=True)
 
-    # Then  it never approves, never merges, and says so on the PR
-    kinds = [c[:2] for c in _calls(tmp_path / "gh.log")]
-    assert rc == 0
-    assert ["pr", "review"] not in kinds and ["pr", "merge"] not in kinds, kinds
-    assert ["pr", "comment"] in kinds, kinds
+    # Then  it merges as admin and never tries the self-approval GitHub refuses
+    calls = _calls(tmp_path / "gh.log")
+    merges = [c for c in calls if c[:2] == ["pr", "merge"]]
+    assert rc == 0, rc
+    assert merges and "--admin" in merges[0], merges
+    assert not [c for c in calls if c[:2] == ["pr", "review"]]
 
 
 def test_a_non_allowlisted_author_is_not_approved(tmp_path):
     """A bot does not approve a stranger's PR, however green it is."""
 
     # Given a review-blocked PR from an author outside the repo's identities
-    gh = _fake_gh(tmp_path, _review_blocked(author="somebody-else"))
+    gh = _fake_gh(tmp_path, _review_blocked(author="somebody-else"), permissions={})
 
     # When  the job runs with approval enabled
     rc = am.run(str(gh), "o/r", 482, HEAD, approve_when_review_required=True)

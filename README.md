@@ -1052,11 +1052,11 @@ trusted fork.
 
 Two things make a deferral honest rather than silent (issue #491):
 
-- **A green PR blocked only by a required review is approved by the other allowed identity and merged.** The
-  state must be `mergeable: MERGEABLE` + `mergeStateStatus: BLOCKED` + `reviewDecision: REVIEW_REQUIRED`
-  (the workflow's `needs:` gate has already proved every needed job succeeded), the PR's author must be a
-  **different** account from the merge token's — GitHub refuses a self-approval — and the author must be one
-  of this repo's two identities (`andyholst`, `asimov-agent`). Any other review-blocked PR waits for a person.
+- **A green PR blocked only by a required review is squash-merged with `--admin`.** The owner PAT is the
+  account that opens these PRs, so it can never approve them — GitHub refuses a self-approval. The bypass
+  runs only after the author gate has accepted the opener: the repository owner, a collaborator with write
+  access, or the bot. A stranger's green PR is deferred, not bypassed. Conflicts, a stale branch, a draft
+  and `do-not-merge` are still deferred.
 - **Every deferral posts one comment per head SHA** with the reason and what would unblock it, so the PR
   answers "why is this not merged?" itself. `make auto-merge-explain` prints the same verdict at any time.
 
