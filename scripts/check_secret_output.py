@@ -57,8 +57,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 #: The variables that carry a credential in this repo (by name — the values never appear here).
 SECRET_VARS = (
     "NOUS_API_KEY", "NOUS_PORTAL_API_TOKEN", "GH_TOKEN", "GITHUB_TOKEN", "BUMP_TOKEN",
-    "HF_TOKEN", "HUGGING_FACE_HUB_TOKEN", "TYPESAFE_API_KEY", "FIRECRAWL_API_KEY",
-    "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+    "APPROVER_TOKEN", "HF_TOKEN", "HUGGING_FACE_HUB_TOKEN", "TYPESAFE_API_KEY",
+    "FIRECRAWL_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
 )
 SECRET_ALT = "|".join(SECRET_VARS)
 

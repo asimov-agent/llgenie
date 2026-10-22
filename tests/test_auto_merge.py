@@ -44,7 +44,7 @@ def _state(**kw) -> dict:
 
 
 def _fake_gh(tmp_path: Path, pr: dict, issues: dict | None = None, token_login: str = "asimov-agent",
-             permissions: dict | None = None):
+             permissions: dict | None = None, tokens: dict | None = None, merge_rc: int = 0):
     """A `gh` answering `pr view` / `pr review` / `pr merge` / `issue view` / `api user` / permission.
 
     It records every argv (the assertion surface) and flips the PR's state through marker files, so a test
@@ -65,12 +65,14 @@ PR = json.loads({json.dumps(pr)!r})
 ISSUES = json.loads({json.dumps(issues or {})!r})
 PERMS = json.loads({json.dumps(perms)!r})
 TOKEN = {token_login!r}
+TOKENS = json.loads({json.dumps(tokens or {})!r})
+MERGE_RC = {merge_rc!r}
 if os.path.exists({str(log)!r} + ".approved"):
     PR = dict(PR, reviewDecision="APPROVED", mergeStateStatus="CLEAN")
 if os.path.exists({str(log)!r} + ".merged"):
     PR = dict(PR, state="MERGED")
 if args[:3] == ["api", "user", "--jq"]:
-    print(TOKEN); sys.exit(0)
+    print(TOKENS.get(os.environ.get("GH_TOKEN", ""), TOKEN)); sys.exit(0)
 if len(args) >= 2 and args[0] == "api" and "/collaborators/" in args[1] and args[1].endswith("/permission"):
     login = args[1].split("/collaborators/")[1].split("/")[0]
     if login not in PERMS:
@@ -84,6 +86,10 @@ if args[:2] == ["pr", "review"]:
 if args[:2] == ["issue", "view"]:
     print(json.dumps({{"state": ISSUES.get(args[2], "OPEN")}})); sys.exit(0)
 if args[:2] == ["pr", "merge"]:
+    if MERGE_RC:
+        print("GraphQL: At least 1 approving review is required by reviewers with write access.",
+              file=sys.stderr)
+        sys.exit(MERGE_RC)
     open({str(log)!r} + ".merged", "w").write("1")
     print("merged"); sys.exit(0)
 if args[:2] == ["pr", "comment"]:
@@ -434,12 +440,20 @@ def test_agents_md_states_the_new_policy():
 # ---- a review-blocked green PR: approve with the other identity, then merge (issue #491) ------
 
 def _review_blocked(author: str = "andyholst", **kw) -> dict:
-    return _state(mergeStateStatus="BLOCKED", reviewDecision="REVIEW_REQUIRED",
-                  author={"login": author}, **kw)
+    base = {"mergeStateStatus": "BLOCKED", "reviewDecision": "REVIEW_REQUIRED",
+            "author": {"login": author},
+            # the repo under test, so the post-approval decision reads a trusted head
+            "headRepository": {"nameWithOwner": "asimov-agent/llgenie"}}
+    base.update(kw)
+    return _state(**base)
 
 
-def test_a_review_blocked_green_pr_is_merged_as_admin(tmp_path):
-    """The owner PAT is the author, so GitHub refuses the approval. The merge bypasses that review."""
+def test_a_review_blocked_green_pr_is_approved_by_the_other_identity_then_merged(tmp_path):
+    """The legitimate path (issue #524): approve as the identity that is NOT the author, then merge.
+
+    `--admin` is NOT used. GitHub refuses it wherever the review rule is enforced for admins, which is why
+    #491's bypass never merged anything (measured: PR #523, run 39816912388).
+    """
 
     # Given a green, mergeable PR blocked only by a required review, authored by andyholst
     gh = _fake_gh(tmp_path, _review_blocked(), {"491": "CLOSED"},
@@ -448,31 +462,74 @@ def test_a_review_blocked_green_pr_is_merged_as_admin(tmp_path):
     # When  the job runs with the review bypass enabled
     rc = am.run(str(gh), "asimov-agent/llgenie", 482, HEAD, approve_when_review_required=True)
 
-    # Then  it merges with --admin and never posts an approval GitHub would refuse
+    # Then  it approves as the merge token, re-reads the PR, and merges WITHOUT --admin
     calls = _calls(tmp_path / "gh.log")
+    kinds = [c[:2] for c in calls]
     merges = [c for c in calls if c[:2] == ["pr", "merge"]]
     assert rc == 0, rc
+    assert ["pr", "review"] in kinds, kinds
     assert len(merges) == 1, merges
-    assert "--admin" in merges[0] and "--squash" in merges[0], merges[0]
-    assert not [c for c in calls if c[:2] == ["pr", "review"]]
+    assert "--admin" not in merges[0] and "--squash" in merges[0], merges[0]
+    assert kinds.index(["pr", "review"]) < kinds.index(["pr", "merge"]), kinds
 
 
-def test_a_same_account_pr_still_merges(tmp_path):
-    """The PAT being the author is the normal case here, not a reason to stop."""
+def test_a_same_account_pr_falls_back_to_admin(tmp_path):
+    """A PR authored by the merge token's own account cannot be approved: --admin is the fallback."""
 
-    # Given a review-blocked PR whose author IS the merge token's account, and that account is the owner
+    # Given a review-blocked PR whose author IS the merge token's account, and no APPROVER_TOKEN
     gh = _fake_gh(tmp_path, _review_blocked(author="asimov-agent"), {"491": "CLOSED"},
                   token_login="asimov-agent")
 
     # When  the job runs with the review bypass enabled
     rc = am.run(str(gh), "asimov-agent/llgenie", 482, HEAD, approve_when_review_required=True)
 
-    # Then  it merges as admin and never tries the self-approval GitHub refuses
+    # Then  it never posts a self-approval, and falls back to the admin merge
+    calls = _calls(tmp_path / "gh.log")
+    assert rc == 0, rc
+    assert not [c for c in calls if c[:2] == ["pr", "review"]]
+    assert [c for c in calls if c[:2] == ["pr", "merge"] and "--admin" in c], calls
+
+
+def test_a_same_account_pr_is_approved_with_the_approver_token(tmp_path, monkeypatch):
+    """A bot PR (author = the merge account) is approved by the second identity when one is supplied.
+
+    The token travels in the ENVIRONMENT, never in argv (AGENTS.md credential rule): the fake `gh` reads
+    `GH_TOKEN` to answer `api user`, so a mismatch there would surface as the wrong login.
+    """
+
+    # Given a review-blocked PR authored by the merge token's account, and an approver token for andyholst
+    gh = _fake_gh(tmp_path, _review_blocked(author="asimov-agent"), {"491": "CLOSED"},
+                  token_login="asimov-agent", tokens={"ghp_other": "andyholst"})
+    monkeypatch.setenv("APPROVER_TOKEN", "ghp_other")
+
+    # When  the job runs
+    rc = am.run(str(gh), "asimov-agent/llgenie", 482, HEAD, approve_when_review_required=True)
+
+    # Then  the approval is posted with that token and the merge is NOT the admin bypass
     calls = _calls(tmp_path / "gh.log")
     merges = [c for c in calls if c[:2] == ["pr", "merge"]]
     assert rc == 0, rc
-    assert merges and "--admin" in merges[0], merges
-    assert not [c for c in calls if c[:2] == ["pr", "review"]]
+    assert ["pr", "review"] in [c[:2] for c in calls], calls
+    assert merges and "--admin" not in merges[0], merges
+    assert not any("ghp_other" in " ".join(c) for c in calls), "the token must never reach argv"
+
+
+def test_a_refused_merge_defers_with_the_reason_on_the_pr(tmp_path):
+    """A merge GitHub refuses says why ON the PR and exits 0 — never a bare red run (#513, #524)."""
+
+    # Given a review-blocked PR authored by the merge account, and a merge GitHub refuses
+    gh = _fake_gh(tmp_path, _review_blocked(author="asimov-agent"), {"491": "CLOSED"},
+                  token_login="asimov-agent", merge_rc=1)
+
+    # When  the job runs
+    rc = am.run(str(gh), "asimov-agent/llgenie", 482, HEAD, approve_when_review_required=True)
+
+    # Then  it exits 0 and posts one comment naming the refusal
+    calls = _calls(tmp_path / "gh.log")
+    comments = [c for c in calls if c[:2] == ["pr", "comment"]]
+    assert rc == 0, rc
+    assert comments, calls
+    assert "admin merge was refused" in " ".join(comments[0])
 
 
 def test_a_non_allowlisted_author_is_not_approved(tmp_path):

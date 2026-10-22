@@ -27,6 +27,13 @@ the caller (a merge with the job's own token starts no workflows), and `--delete
 head (the base token cannot delete a branch in the fork). Afterwards `scripts/verify_closure.py` proves the
 body's `closes #n` bound.
 
+The ORDER a review block takes is the point (issue #524): approve as the identity that is NOT the author, then
+merge normally — the path `trending-local-llms` gets for free because its `master` carries no review rule.
+`--admin` is only the last resort, for a PR whose author IS the merge token's account: GitHub refuses both the
+self-approval and the bypass wherever the rule is enforced for admins (measured on PR #523, run 39816912388).
+An optional `APPROVER_TOKEN` supplies the other identity for those bot-authored PRs; without it the run defers
+with the reason ON the PR instead of dying red.
+
 Commands (stdlib only, the GitHub API only through a `gh` on PATH):
   auto-merge --repo R --pr N --head-sha S [--dry] [--approve-when-review-required] [--gh gh]
   explain    --repo R --pr N [--head-sha S] [--gh gh]      print the verdict, write nothing
@@ -35,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 
@@ -68,8 +76,13 @@ PR_VIEW_COMMENT_FIELDS = ("comments",)
 PR_VIEW_FIELDS = PR_VIEW_STATE_FIELDS + PR_VIEW_COMMENT_FIELDS
 
 
-def _gh(gh: str, args: list[str]) -> str:
-    r = subprocess.run([gh, *args], capture_output=True, text=True)
+def _gh(gh: str, args: list[str], token: str = "") -> str:
+    """Run `gh`. A `token` is passed through the ENVIRONMENT only — never on the command line, where
+    `ps` and a run log would carry it (the credential rule in AGENTS.md)."""
+    env = None
+    if token:
+        env = {**os.environ, "GH_TOKEN": token}
+    r = subprocess.run([gh, *args], capture_output=True, text=True, env=env)
     if r.returncode != 0:
         raise SystemExit(f"[auto-merge] {gh} {' '.join(args)} failed ({r.returncode}): {r.stderr.strip()}")
     return r.stdout
@@ -176,25 +189,40 @@ def review_blocked(state: dict) -> bool:
             and (state.get("reviewDecision") or "").upper() == "REVIEW_REQUIRED")
 
 
-def token_login(gh: str) -> str:
-    """The account the merge token belongs to — GitHub refuses a pull request approving its own author."""
-    return _gh(gh, ["api", "user", "--jq", ".login"]).strip()
+def token_login(gh: str, token: str = "") -> str:
+    """The account a token belongs to — GitHub refuses a pull request approving its own author."""
+    return _gh(gh, ["api", "user", "--jq", ".login"], token=token).strip()
 
 
-def approve(gh: str, repo: str, pr: int) -> str:
+def approve(gh: str, repo: str, pr: int, token: str = "") -> str:
     body = ("Approved by the repo's `auto-merge` job (issue #491): the run is green and the only thing "
             "missing was a required review. It merges immediately if the state becomes CLEAN; "
             "`do-not-merge` holds a PR at any time.")
-    return _gh(gh, ["pr", "review", str(pr), "--repo", repo, "--approve", "--body", body])
+    return _gh(gh, ["pr", "review", str(pr), "--repo", repo, "--approve", "--body", body], token=token)
 
 
-def try_approve(gh: str, repo: str, pr: int, state: dict, dry: bool = False) -> "str | None":
-    """Approve a review-blocked green PR with the other allowed identity; None on success, else the reason."""
+def try_approve(gh: str, repo: str, pr: int, state: dict, dry: bool = False,
+                approver_token: str = "") -> "str | None":
+    """Approve a review-blocked green PR with the OTHER allowed identity; None on success, else the reason.
+
+    GitHub refuses a pull request approving its own author, so the identity that approves must differ from
+    the one that opened the PR. That is the normal case here (`andyholst` opens, the `asimov-agent` PAT
+    approves); when the PR author IS the merge token's account — every bot PR — an optional second token
+    (`APPROVER_TOKEN`) supplies the other identity. Without one, the caller falls back to the admin bypass.
+    """
     author = ((state.get("author") or {}).get("login") or "").strip()
     me = token_login(gh)
+    token = ""
     if author and author.lower() == me.lower():
-        return (f"a required review is missing, and the PR's author (`{author}`) is the merge token's own "
-                f"account — GitHub refuses a self-approval, so a human must approve it")
+        if not approver_token:
+            return (f"a required review is missing, and the PR's author (`{author}`) is the merge token's own "
+                    f"account — GitHub refuses a self-approval, so a human must approve it "
+                    f"(or set APPROVER_TOKEN to the other allowed identity)")
+        me = token_login(gh, token=approver_token)
+        token = approver_token
+        if author.lower() == me.lower():
+            return (f"a required review is missing, and both tokens belong to `{me}` — GitHub refuses a "
+                    f"self-approval, so a human must approve it")
     if author.lower() not in ALLOWED_AUTHORS:
         return (f"a required review is missing, and the author `{author or 'unknown'}` is not one of this "
                 f"repo's identities ({', '.join(ALLOWED_AUTHORS)}) — a bot does not approve a stranger's PR")
@@ -203,7 +231,7 @@ def try_approve(gh: str, repo: str, pr: int, state: dict, dry: bool = False) -> 
         return None
     print(f"[auto-merge] PR #{pr} is green but blocked by a required review — approving as `{me}` "
           f"(authored by `{author}`)")
-    print(approve(gh, repo, pr).strip())
+    print(approve(gh, repo, pr, token=token).strip())
     return None
 
 
@@ -268,6 +296,40 @@ def _merge(gh: str, repo: str, pr: int, head_sha: str, state: dict, dry: bool,
     return verify_closure.verify(gh, repo, pr)
 
 
+def _clear_review(gh: str, repo: str, pr: int, head_sha: str, state: dict, dry: bool) -> int:
+    """Clear the one procedural block a bot may clear: a required review (issue #524).
+
+    Order matters, and it is the order `trending-local-llms` gets for free: approve as the identity that is
+    NOT the author, then merge the validated commit normally. `--admin` is the last resort, because GitHub
+    refuses it wherever the review rule is enforced for admins — which is why #491's bypass has never
+    merged anything (measured: PR #523, run 39816912388).
+    """
+    why = try_approve(gh, repo, pr, state, dry=dry,
+                      approver_token=(os.environ.get("APPROVER_TOKEN") or "").strip())
+    if why is None:
+        if dry:
+            return 0
+        state = pr_state(gh, repo, pr)          # reviewDecision flips to APPROVED
+        reason = decide(state, head_sha, repo_owner=repo.split("/")[0])
+        if reason is None:
+            return _merge(gh, repo, pr, head_sha, state, dry)
+        print(f"[auto-merge] PR #{pr}: approved, but the merge state is still {reason}")
+    else:
+        print(f"[auto-merge] PR #{pr} cannot be approved: {why}")
+    if dry:
+        print(f"[auto-merge] would fall back to --admin for PR #{pr}")
+        return 0
+    print(f"[auto-merge] PR #{pr}: falling back to --admin (the review cannot be cleared legitimately)")
+    try:
+        print(merge(gh, repo, pr, head_sha, delete_branch=_same_repo(state, repo), admin=True).strip())
+    except SystemExit as exc:
+        # A refusal here is a policy deferral, not a broken gate: say so ON the PR (the #491 rule) and
+        # never let a run that could not merge look like one that chose not to (#513).
+        defer(gh, repo, pr, head_sha, f"{why}; the admin merge was refused too: {exc}", dry=dry)
+        return 0
+    return verify_closure.verify(gh, repo, pr)
+
+
 def run(gh: str, repo: str, pr: int, head_sha: str, dry: bool = False,
         approve_when_review_required: bool = False, actor: str = "") -> int:
     state = pr_state(gh, repo, pr)
@@ -279,12 +341,7 @@ def run(gh: str, repo: str, pr: int, head_sha: str, dry: bool = False,
         return 0
     reason = decide(state, head_sha, repo_owner=repo.split("/")[0])
     if reason and approve_when_review_required and review_blocked(state):
-        # The owner PAT opens these PRs, so it can never approve them. The author gate above has already
-        # refused anyone who is not the owner, a write collaborator, or the bot, so the review block is a
-        # policy this job is allowed to pass.
-        print(f"[auto-merge] PR #{pr} is green and blocked only by a required review — merging as admin "
-              f"(the owner PAT is the author, and GitHub refuses that self-approval)")
-        return _merge(gh, repo, pr, head_sha, state, dry, admin=True)
+        return _clear_review(gh, repo, pr, head_sha, state, dry)
     if reason:
         defer(gh, repo, pr, head_sha, reason, dry=dry)
         return 0

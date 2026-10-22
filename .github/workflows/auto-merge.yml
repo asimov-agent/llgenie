@@ -77,6 +77,12 @@ jobs:
           # and merged (issue #491). A same-account PR is still refused by GitHub's self-approval rule, and
           # the deferral comment says so on the PR.
           APPROVE: "1"
+          # The OTHER allowed identity, used only when the PR author IS the merge token's account (every
+          # bot PR): GitHub refuses a self-approval, so the job approves with this token and then merges
+          # (issue #524). Optional — unset falls back to the --admin bypass, which GitHub refuses wherever
+          # the review rule is enforced for admins. The value is read from the environment by
+          # scripts/auto_merge.py and never reaches argv.
+          APPROVER_TOKEN: ${{ secrets.APPROVER_TOKEN }}
           # Who triggered the CI run. A bot-authored PR is merged only when this is the owner, a write
           # collaborator, or the bot — the same gate ci.yml's guard already applied to the run.
           ACTOR: ${{ github.event.workflow_run.actor.login }}

@@ -1093,11 +1093,15 @@ own allowlist — a unit test fails on any name that is not in it, so the next i
 
 Two things make a deferral honest rather than silent (issue #491):
 
-- **A green PR blocked only by a required review is squash-merged with `--admin`.** The owner PAT is the
-  account that opens these PRs, so it can never approve them — GitHub refuses a self-approval. The bypass
-  runs only after the author gate has accepted the opener: the repository owner, a collaborator with write
-  access, or the bot. A stranger's green PR is deferred, not bypassed. Conflicts, a stale branch, a draft
-  and `do-not-merge` are still deferred.
+- **A green PR blocked only by a required review is approved by the OTHER identity, then merged**
+  (issue #524). GitHub refuses a pull request approving its own author, so the job approves as the account
+  that did *not* open the PR and then merges the pinned head with a plain `gh pr merge` — the path
+  `trending-local-llms` gets for free because its `master` carries no review rule. `--admin` is only the
+  last resort, for a PR whose author *is* the merge token's account; GitHub refuses that bypass wherever the
+  review rule is enforced for admins (measured: PR #523, run 39816912388), so such a PR defers with the
+  reason on itself. Setting the optional `APPROVER_TOKEN` secret to the other allowed identity's PAT lets
+  those bot-authored PRs be approved and merged too. A stranger's green PR is never approved. Conflicts, a
+  stale branch, a draft and `do-not-merge` are still deferred.
 - **Every deferral posts one comment per head SHA** with the reason and what would unblock it, so the PR
   answers "why is this not merged?" itself. `make auto-merge-explain` prints the same verdict at any time.
 
