@@ -1,6 +1,6 @@
 # The guard admits the repository's own bot on a same-repo head
 
-Issue: #510. PR: (opened with this change).
+Issue: #510. PR: #511.
 
 PR #495 — the architecture bot's own refresh, head `asimov-agent:agent/architecture-20261021T1814`,
 author `app/github-actions` — has one run, `39650944430`, and it died in `guard` before any job could
