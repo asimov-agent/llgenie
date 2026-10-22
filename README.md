@@ -1112,9 +1112,10 @@ make architecture-bot-publish REPO=asimov-agent/llgenie  # ONE issue + ONE PR, n
   `agent/architecture-<UTC stamp>`, one commit carrying only the doc, authored
   `Asimov Agent <support@docondee.com>`, and one PR to `asimov-agent/llgenie:main` whose body
   ends with `closes #<issue>`.
-- **Who may run it.** The trigger guard runs first, before any secret: the repository owner, or
-  a collaborator with `admin`/`maintain`/`write` — which is also how a bot identity with write
-  access starts it. A stranger cannot dispatch it.
+- **Who may run it.** The trigger guard runs first, before any secret: the repository owner, a
+  collaborator with `admin`/`maintain`/`write`, or the repository's own bot when the run's head is a
+  branch in this repository (a bot-opened PR is such a head, issue #510). A stranger cannot dispatch
+  it.
 
 ## The run-failure reactor (issue #286)
 
@@ -2163,15 +2164,22 @@ MIT — see [LICENSE](LICENSE).
 
 Every workflow a human can dispatch with `Run workflow` — the four bots, the engine bump + rebase, the
 registry sync, the code review, the queued-run alarm and the agent-image publish — starts with the **same
-`guard`** job: it refuses anyone who is not the repo owner or a collaborator with **write** access, and it
-checks **both** `github.actor` and `github.triggering_actor` (the actor who started it, so a re-run by
-someone else is re-checked too). The refusal is the step's non-zero exit, and every job that touches a
+`guard`** job: it refuses anyone who is not the repo owner, the repository's **own bot**, or a collaborator
+with **write** access, and it checks **both** `github.actor` and `github.triggering_actor` (the actor who
+started it, so a re-run by someone else is re-checked too). `github-actions[bot]` is an App login and never
+a collaborator — the permission read answers `none` — so it is admitted **only** when the run's
+`HEAD_REPO` (`github.event.pull_request.head.repo.full_name`) is this repository: a same-repo head can only
+be produced by a token with write access, while the bot as the actor of a **foreign** head (a bot comment on
+a stranger's fork PR) is still refused, as is a bot actor on a non-PR event with no head at all (issue #510
+— the architecture bot's own PR #495 was refused by this, run `39650944430`). The refusal is the step's non-zero exit, and every job that touches a
 secret, a branch or GHCR needs the guard, directly or transitively. GitHub itself already refuses
 `workflow_dispatch` from a user without write access; the guard is the second line, and it is what covers
 the paths that are not a dispatch (`issues: [labeled]`, a fork-side run). `ci.yml` carries the guard for the
 publish jobs that run on `pull_request`/`push`. `tests/test_workflow_guards.py` holds all of it to one
 shape: an any-collaborator `curl` check, an actor-only check, a guard nothing depends on, or a declared
-guard output nobody reads (issue #295) all fail `make test-unit`. The guard is the same step — name, `env`
+guard output nobody reads (issue #295) all fail `make test-unit` — and it **runs** the real guard script
+under bash against a real fake `gh`, so the bot allowance (same-repo head yes, foreign or missing head no)
+is executed rather than read off the YAML (issue #510). The guard is the same step — name, `env`
 and script — byte-for-byte in all eleven places, so a fix to the rule cannot miss a copy of it. The
 accepted **permission set** is read from the guard's own `case` arm, not matched as substrings, so an arm
 that also accepts `read`/`triage` (or a bare `*`) fails the suite and names the workflow (issue #306).

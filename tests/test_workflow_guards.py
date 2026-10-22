@@ -15,7 +15,10 @@ dispatchable workflows plus `ci.yml`, which is guarded though no human dispatche
 """
 from __future__ import annotations
 
+import os
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 import yaml
@@ -259,3 +262,129 @@ def test_no_workflow_reads_an_undefined_secret():
     # ... and the workflows still read the secrets the repo DOES define
     assert "TYPESAFE_API_KEY" in named, refs
     assert "NOUS_PORTAL_API_TOKEN" in named, refs
+
+
+# ---------------------------------------------------------------------------
+# The guard's DECISION, executed: the real script, a real bash, a real fake `gh`.
+# ---------------------------------------------------------------------------
+
+BOT = "github-actions[bot]"
+
+
+def _guard_step(path: Path) -> dict:
+    """The guard step of ONE workflow (its run text is the script under test)."""
+    for job in (_load(path).get("jobs") or {}).values():
+        if not isinstance(job, dict):
+            continue
+        for step in job.get("steps") or []:
+            if isinstance(step, dict) and _is_guard(str(step.get("run") or "")):
+                return step
+    raise AssertionError(f"{path.name} carries no guard step")
+
+
+def _fake_gh(tmp_path: Path, write_logins: tuple[str, ...] = ("andyholst", "collaborator")) -> str:
+    """A `gh` answering the collaborator permission read; anything else is a 404, as GitHub answers."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    gh = tmp_path / "gh"
+    gh.write_text(f'#!{sys.executable}\n'
+                  f'import sys\n'
+                  f'a = sys.argv[1:]\n'
+                  f'if len(a) >= 2 and a[0] == "api" and "/collaborators/" in a[1] and a[1].endswith("/permission"):\n'
+                  f'    login = a[1].split("/collaborators/")[1].rsplit("/", 1)[0]\n'
+                  f'    if login in {write_logins!r}:\n'
+                  f'        print("write")\n'
+                  f'        raise SystemExit(0)\n'
+                  f'sys.stderr.write("gh: Not Found (HTTP 404)\\n")\n'
+                  f'raise SystemExit(1)\n')
+    gh.chmod(0o755)
+    return str(tmp_path)
+
+
+def _run_guard(workflow: Path, tmp_path: Path, **env_overrides: str) -> subprocess.CompletedProcess:
+    """Run the REAL guard script from `workflow` with the given `github.*` values."""
+    step = _guard_step(workflow)
+    script = tmp_path / "guard.sh"
+    script.write_text(step["run"])
+    env = {
+        "PATH": _fake_gh(tmp_path / "bin") + ":" + os.environ.get("PATH", "/usr/bin:/bin"),
+        "HOME": str(tmp_path),
+        "ACTOR": "someone",
+        "TRIGGER": "someone",
+        "OWNER": "asimov-agent",
+        "REPO": "asimov-agent/llgenie",
+        "HEAD_REPO": "",
+    }
+    env.update(env_overrides)
+    return subprocess.run(["bash", str(script)], capture_output=True, text=True, env=env)
+
+
+def test_the_repository_bot_passes_on_a_same_repo_head(tmp_path):
+    """Issue #510: the architecture bot's own PR (run 39650944430) was refused by the guard."""
+
+    # Given the real guard and the bot as the run's actor, on a branch in THIS repository
+    done = _run_guard(REPO / ".github" / "workflows" / "ci.yml", tmp_path,
+                      ACTOR=BOT, TRIGGER="andyholst", HEAD_REPO="asimov-agent/llgenie")
+
+    # Then  it is allowed, and the log says why
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "Repository bot" in done.stdout, done.stdout
+
+
+def test_the_bot_is_refused_on_a_foreign_head(tmp_path):
+    """A bot can also be the actor of a stranger's PR (a comment or a label); that must stay refused."""
+
+    # Given the bot as the actor, on a head that lives in someone else's fork
+    done = _run_guard(REPO / ".github" / "workflows" / "ci.yml", tmp_path,
+                      ACTOR=BOT, TRIGGER="andyholst", HEAD_REPO="stranger/llgenie")
+
+    # Then  it is refused
+    assert done.returncode == 1, done.stdout + done.stderr
+    assert "Refused" in done.stdout, done.stdout
+
+
+def test_the_bot_is_refused_when_no_head_repo_exists(tmp_path):
+    """A non-PR event (push, dispatch, schedule) has no head repository: the bot gets no allowance."""
+
+    # Given the bot as the actor and no head repository at all
+    done = _run_guard(REPO / ".github" / "workflows" / "ci.yml", tmp_path, ACTOR=BOT, HEAD_REPO="")
+
+    # Then  it is refused, never allowed by an empty comparison
+    assert done.returncode == 1, done.stdout + done.stderr
+
+
+def test_a_stranger_is_refused_even_on_a_same_repo_head(tmp_path):
+    """The bot allowance is for the BOT; a login with no permission is refused whatever the head is."""
+
+    # Given a login with no collaborator permission, on a same-repo head
+    done = _run_guard(REPO / ".github" / "workflows" / "ci.yml", tmp_path,
+                      ACTOR="stranger", TRIGGER="stranger", HEAD_REPO="asimov-agent/llgenie")
+
+    # Then  it is refused
+    assert done.returncode == 1, done.stdout + done.stderr
+    assert "permission: none" in done.stdout, done.stdout
+
+
+def test_the_owner_and_a_write_collaborator_still_pass(tmp_path):
+    """The allowance must not cost the two identities that already passed."""
+
+    # Given the owner as the actor, and a write collaborator
+    owner = _run_guard(REPO / ".github" / "workflows" / "ci.yml", tmp_path,
+                       ACTOR="asimov-agent", TRIGGER="asimov-agent", HEAD_REPO="")
+    collab = _run_guard(REPO / ".github" / "workflows" / "ci.yml", tmp_path,
+                        ACTOR="collaborator", TRIGGER="collaborator", HEAD_REPO="")
+
+    # Then  both are allowed
+    assert owner.returncode == 0, owner.stdout + owner.stderr
+    assert collab.returncode == 0, collab.stdout + collab.stderr
+    assert "has write" in collab.stdout, collab.stdout
+
+
+def test_every_guard_site_declares_the_head_repo():
+    """The script needs `HEAD_REPO`; a site that forgets it would refuse every bot PR again."""
+
+    # Given every guard site in the tree
+    missing = [path.name for path, step in _guard_steps()
+               if "HEAD_REPO" not in (step.get("env") or {})]
+
+    # Then  every one of them passes it
+    assert not missing, f"these guard sites do not declare HEAD_REPO: {missing}"
