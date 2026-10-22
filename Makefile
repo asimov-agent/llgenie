@@ -73,7 +73,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	ci-openspec ci-cpu-health ci-top-tier ci-install ci-install-dry-args ci-free-disk test-engine-stage bot-sync-main bot-sync-branch ci-wait-engine-images \
 	ci-install-dry ci-install-run ci-install-uninstall test-env test-top-tier test-top-tier-ci test-top-tier-cli-ci test-top-tier-serve test-top-tier-serve-ci \
 	check-agent-model model-pin-report \
-	test-hub-live test-engine-bump-live test-native-engines test-native-engine-light test-variant-image \
+	test-hub-live test-strata-live test-engine-bump-live test-native-engines test-native-engine-light test-variant-image \
 	bash-check engine-bump engine-bump-daily engine-bump-plan engine-derive generate-requirements openspec-tasks-check check-registry-keys ci-engines
 
 # ---- container runtime: docker -------------------------------------------
@@ -1045,6 +1045,8 @@ test-unit: ## Hermetic unit tests (containerized) — the suite is DISCOVERED, n
 # api.github.com, and TensorFold publishes no macos-x86_64 archive.
 test-hub-live: ## The live-Hub checks kept OUT of the hermetic gate (issue #438): the README's trend links answer, and a missing model really downloads — network + a multi-hundred-MB fetch
 	$(TEST_RUN) python -m pytest tests/test_trend_pick.py::test_the_vendored_registry_links_all_answer tests/test_trend_pick.py::test_readme_links_answer_and_a_broken_copy_is_caught tests/test_trend_pick.py::test_select_downloads_a_missing_model_for_real -p no:cacheprovider -q
+test-strata-live: ## The Strata download/serve checks kept OUT of the hermetic gate (issue #437): Strata's pinned commit is fetched over git, its GGUF choices come from the live Hub, and its real server answers — network + a real install
+	$(TEST_RUN) python -m pytest tests/test_strata_download.py -p no:cacheprovider -q
 test-engine-bump-live: ## TensorFold v1.0.5 release archive: list, classify, checksum, run
 	$(TEST_RUN) python -m pytest tests/test_engine_bump.py::test_derive_reports_the_live_release_archives tests/test_engine_bump.py::test_tensorfold_v1_0_5_release_is_native_archives tests/test_engine_bump.py::test_tensorfold_release_archive_unpacks_and_runs -p no:cacheprovider -q
 

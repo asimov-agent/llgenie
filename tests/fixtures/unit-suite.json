@@ -1,15 +1,15 @@
 {
- "note": "The deliberate EXCLUSIONS from the hermetic unit suite (issue #393) and the node de-selections inside it. `make test-unit` computes its files by discovery (`scripts/unit_tests.py`): every `tests/test_*.py` is in the gate UNLESS it is recorded here with a reason, the issue that decided it, the date and the target that runs it instead. This is the mirror of tests/fixtures/host-only-wiring.json: a file kept OUT of the gate has to be a dated decision, not an omission — and the record goes stale loudly when the file, the reason or the target stops being true. An entry whose `target` recipe does not name the file (directly, or through a script the recipe runs) is refused.",
+ "note": "The deliberate EXCLUSIONS from the hermetic unit suite (issue #393) and the node de-selections inside it. `make test-unit` computes its files by discovery (`scripts/unit_tests.py`): every `tests/test_*.py` is in the gate UNLESS it is recorded here with a reason, the issue that decided it, the date and the target that runs it instead. This is the mirror of tests/fixtures/host-only-wiring.json: a file kept OUT of the gate has to be a dated decision, not an omission \u2014 and the record goes stale loudly when the file, the reason or the target stops being true. An entry whose `target` recipe does not name the file (directly, or through a script the recipe runs) is refused.",
  "decided_utc": "2026-10-20",
  "excluded": {
   "tests/test_agents_read.py": {
-   "reason": "The AGENTS.md threat-pattern guard runs in its OWN Python 3.12 venv (`hermes-agent==0.19.0`, built by `make agents-read-venv`) because hermes-agent needs >= 3.11 while the test image pins 3.11 — it cannot run inside llgenie/test, and the guard would refuse a hermes module imported from the repo.",
+   "reason": "The AGENTS.md threat-pattern guard runs in its OWN Python 3.12 venv (`hermes-agent==0.19.0`, built by `make agents-read-venv`) because hermes-agent needs >= 3.11 while the test image pins 3.11 \u2014 it cannot run inside llgenie/test, and the guard would refuse a hermes module imported from the repo.",
    "issue": 356,
    "decided": "2026-10-20",
    "target": "test-agents-read"
   },
   "tests/test_cli_dry_run_matrix.py": {
-   "reason": "The INSTALLED launcher's argument surface over the mocked (arch, vram, ram) grid, in dry run — it needs `make install` artifacts (~/bin/llgenie) that the hermetic image does not have; CI runs it as its own stage in the install job.",
+   "reason": "The INSTALLED launcher's argument surface over the mocked (arch, vram, ram) grid, in dry run \u2014 it needs `make install` artifacts (~/bin/llgenie) that the hermetic image does not have; CI runs it as its own stage in the install job.",
    "issue": 236,
    "decided": "2026-10-20",
    "target": "ci-install-dry-args"
@@ -27,7 +27,7 @@
    "target": "test-engine-image"
   },
   "tests/test_health.py": {
-   "reason": "The INSTALLED launcher serves the 0.5B model on this host's real backend (Metal on an Apple-Silicon Mac, the host docker on Linux) — hardware, not a gate. A CI runner has neither, and the cpu-health stage answers \"hi\" through the engine image instead.",
+   "reason": "The INSTALLED launcher serves the 0.5B model on this host's real backend (Metal on an Apple-Silicon Mac, the host docker on Linux) \u2014 hardware, not a gate. A CI runner has neither, and the cpu-health stage answers \"hi\" through the engine image instead.",
    "issue": 237,
    "decided": "2026-10-20",
    "target": "test-health-host"
@@ -39,7 +39,7 @@
    "target": "test-install"
   },
   "tests/test_install_published.py": {
-   "reason": "The real `make install` path on a clean runner against the engine images CI just PUBLISHED — network + GHCR + docker, so it runs after the publish job, per mocked backend.",
+   "reason": "The real `make install` path on a clean runner against the engine images CI just PUBLISHED \u2014 network + GHCR + docker, so it runs after the publish job, per mocked backend.",
    "issue": 102,
    "decided": "2026-10-20",
    "target": "test-install-published"
@@ -57,7 +57,7 @@
    "target": "test-interactive-tensorfold"
   },
   "tests/test_native_engine_light.py": {
-   "reason": "Serves the lightest TensorFold model through the native start script, or proves the budget refusal on a host too small for it — both need real Metal, which no CI runner has.",
+   "reason": "Serves the lightest TensorFold model through the native start script, or proves the budget refusal on a host too small for it \u2014 both need real Metal, which no CI runner has.",
    "issue": 114,
    "decided": "2026-10-20",
    "target": "test-native-engine-light"
@@ -69,7 +69,7 @@
    "target": "test-native-engine"
   },
   "tests/test_native_engines.py": {
-   "reason": "`make install` for EACH native-Metal engine in its own uv environment — Apple-Silicon hardware only, so the host runs it by hand.",
+   "reason": "`make install` for EACH native-Metal engine in its own uv environment \u2014 Apple-Silicon hardware only, so the host runs it by hand.",
    "issue": 120,
    "decided": "2026-10-20",
    "target": "test-native-engines"
@@ -80,6 +80,12 @@
    "decided": "2026-10-20",
    "target": "test-published-engine"
   },
+  "tests/test_strata_download.py": {
+   "reason": "Fetches Strata's pinned commit over git, reads the live Hub at its pinned revisions, pip-installs the engine's requirements and runs Strata's real serve/server.py \u2014 network and a real install, so the hermetic gate cannot carry it; `make test-strata-live` runs it (issue #437: a git fetch exit 128 on the macOS runner red-ed `make test-unit` while the tree was fine).",
+   "issue": 437,
+   "decided": "2026-10-22",
+   "target": "test-strata-live"
+  },
   "tests/test_top_tier_acceptance.py": {
    "reason": "Acceptance for --download-top-tier with the REAL system: live Hugging Face API, the real downloader and the real card's memory. Network + model download; the hermetic suite cannot carry it, and the macOS/CI variants run the non-network half.",
    "issue": 49,
@@ -87,7 +93,7 @@
    "target": "test-top-tier"
   },
   "tests/test_top_tier_serve.py": {
-   "reason": "Host end-to-end serve of a downloaded top-tier model: after the real download, it must LOAD and SERVE on the host's backend — hardware + network, so a human runs it by hand.",
+   "reason": "Host end-to-end serve of a downloaded top-tier model: after the real download, it must LOAD and SERVE on the host's backend \u2014 hardware + network, so a human runs it by hand.",
    "issue": 49,
    "decided": "2026-10-20",
    "target": "test-top-tier-serve"
@@ -96,7 +102,7 @@
  "deselect": {
   "tests/test_engine_bump.py": {
    "test_derive_reports_the_live_release_archives": "Reads the LIVE TensorFold release archive listing upstream (network + the real release). The hermetic gate cannot carry it; `make test-engine-bump-live` runs it.",
-   "test_tensorfold_v1_0_5_release_is_native_archives": "Asserts the live TensorFold v1.0.5 release's archive set upstream — network, so it is not hermetic. `make test-engine-bump-live` runs it.",
+   "test_tensorfold_v1_0_5_release_is_native_archives": "Asserts the live TensorFold v1.0.5 release's archive set upstream \u2014 network, so it is not hermetic. `make test-engine-bump-live` runs it.",
    "test_tensorfold_release_archive_unpacks_and_runs": "Unpacks and runs the REAL TensorFold release archive (multi-GB download + a native serve). `make test-engine-bump-live` runs it."
   },
   "tests/test_trend_pick.py": {
@@ -107,7 +113,7 @@
  },
  "groups": {
   "fast": {
-   "reason": "The loop's stage-6 'full fast suite' subset: the six hermetic files that carry the install/loop/launcher seam cheaply enough to run as the local 'done' check, while the whole discovered suite takes ~20 minutes. `make test` asks the aggregator for this group so its recipe names no test file — the hand-list it used to keep was the last shared line in the test surface (issue #403).",
+   "reason": "The loop's stage-6 'full fast suite' subset: the six hermetic files that carry the install/loop/launcher seam cheaply enough to run as the local 'done' check, while the whole discovered suite takes ~20 minutes. `make test` asks the aggregator for this group so its recipe names no test file \u2014 the hand-list it used to keep was the last shared line in the test surface (issue #403).",
    "issue": 403,
    "decided": "2026-10-20",
    "files": [

@@ -362,6 +362,22 @@ make test-hub-live    # the trend/registry links answer, and a missing model rea
 exactly them (and is `.PHONY`), every de-selection still names a test that exists, and each reason names
 the target that runs it.
 
+`tests/test_strata_download.py` is the same class of work and is kept out the same way (issue #437: the
+macOS runner's `git fetch` of Strata's pinned commit exited 128 and turned the gate red with nine errors
+while the tree was fine). It fetches that commit over git, pip-installs the engine's requirements, reads
+the live Hub and runs Strata's real `serve/server.py`, so the whole file is recorded in the roster's
+`excluded` — a dated decision with its reason, issue, date and owning target — and run by:
+
+```bash
+make test-strata-live    # Strata's pinned commit is fetched, its GGUF choices come from the live Hub,
+                         # and its real server answers "hi" on /v1/chat/completions
+```
+
+`tests/test_strata_live_target.py` pins that boundary hermetically: the file is out of the gate the
+aggregator computes, `make test-strata-live` names it and is `.PHONY`, the roster entry names issue #437
+and its target, and the file still carries the live work the decision describes.
+
+
 An upstream engine with no llgenie skill is left out of the startup list (no
 image). That omission has to be a **decision**: `data/unsupported-engines.json`
 records, per engine, `decision` (`not-shipped` | `deferred`), the `decided` date,
@@ -388,6 +404,9 @@ make test-engine-bump-live            # the TensorFold v1.0.5 release archive as
                                       # classify, checksum and RUN it (the archive path an engine bump takes)
 make test-hub-live                    # the two live-Hub checks kept OUT of `make test-unit` (issue #438):
                                       # the README's trend links answer, and a missing model really downloads
+make test-strata-live                 # the Strata download/serve checks kept OUT of `make test-unit`
+                                      # (issue #437): the pinned commit is fetched over git, the GGUF
+                                      # choices come from the live Hub, and Strata's real server answers
 ```
 
 The `engine-bump-rebase` workflow (daily cron `41 5 * * *`, issue #208) keeps
