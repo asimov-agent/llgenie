@@ -1063,6 +1063,15 @@ owner, a collaborator with write access, or the bot (a bot PR is authorised by w
 the same gate `ci.yml`'s `guard` job applies to a run. A stranger's green PR is deferred, even from the
 trusted fork.
 
+**The decision asks `gh pr view` only for fields `gh` actually has (issue #513).** `gh` refuses the whole
+`--json` call on an unknown name, so an invented field (`authorAssociation`) killed every run before the
+decision — no PR was ever auto-merged. The requested names now live in one constant
+(`PR_VIEW_STATE_FIELDS` / `PR_VIEW_FIELDS` in `scripts/auto_merge.py`), the bot rule reads `author.login`
+alone (an `app/github-actions` or `…[bot]` opener is allowed only when the run's ACTOR is the owner, a write
+collaborator, or the bot), and `tests/fixtures/gh-pr-view-fields.json` records `gh pr view --json __probe__`'s
+own allowlist — a unit test fails on any name that is not in it, so the next invented field is a red
+`make test-unit` instead of a silent exit 2 in the merge workflow.
+
 Two things make a deferral honest rather than silent (issue #491):
 
 - **A green PR blocked only by a required review is squash-merged with `--admin`.** The owner PAT is the

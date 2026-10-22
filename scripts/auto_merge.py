@@ -56,6 +56,16 @@ WRITE_PERMISSIONS = ("admin", "maintain", "write")
 BOT_LOGINS = ("github-actions[bot]", "app/github-actions")
 #: One deferral comment per head SHA — re-posted only when the head moves.
 DEFERRAL_MARKER = "<!-- auto-merge: deferred {} -->"
+#: Every `gh pr view --json` field name this module requests, in ONE place (issue #513).
+#: `authorAssociation` is deliberately absent: `gh pr view` has no such field, and asking for it made
+#: every run die with `Unknown JSON field: "authorAssociation"` before `decide()` was ever reached.
+#: `tests/test_auto_merge.py` asserts every name here is in `tests/fixtures/gh-pr-view-fields.json`,
+#: which is captured from gh's own `gh pr view --json __probe__` allowlist.
+PR_VIEW_STATE_FIELDS = ("state", "isDraft", "mergeable", "mergeStateStatus", "headRefOid", "labels",
+                        "headRepository", "author", "reviewDecision")
+#: Requested separately, only for the one-comment-per-head deferral dedupe.
+PR_VIEW_COMMENT_FIELDS = ("comments",)
+PR_VIEW_FIELDS = PR_VIEW_STATE_FIELDS + PR_VIEW_COMMENT_FIELDS
 
 
 def _gh(gh: str, args: list[str]) -> str:
@@ -68,8 +78,7 @@ def _gh(gh: str, args: list[str]) -> str:
 def pr_state(gh: str, repo: str, pr: int) -> dict:
     """What GitHub says about this PR right now: the merge decision is read from here, in one call."""
     out = _gh(gh, ["pr", "view", str(pr), "--repo", repo, "--json",
-                   "state,isDraft,mergeable,mergeStateStatus,headRefOid,labels,headRepository,"
-                   "author,authorAssociation,reviewDecision"])
+                   ",".join(PR_VIEW_STATE_FIELDS)])
     return json.loads(out or "{}")
 
 
@@ -77,18 +86,27 @@ def author_login(state: dict) -> str:
     return ((state.get("author") or {}).get("login") or "").strip()
 
 
+def _is_bot(login: str) -> bool:
+    """True for a bot opener: an App login (`app/github-actions`) or any `…[bot]` login.
+
+    The login is the whole test because `gh pr view` has no `authorAssociation` field (issue #513):
+    the old read of that invented field is what killed every run before this decision was reached.
+    """
+    who = (login or "").strip().lower()
+    return who in BOT_LOGINS or who.endswith("[bot]")
+
+
 def author_may_merge(gh: str, repo: str, state: dict, actor: str = "") -> "str | None":
     """None when the opener is the owner, a write collaborator, or the bot; else the reason.
 
-    A bot PR is opened by `app/github-actions` (or `github-actions[bot]`), whose permission endpoint
+    A bot PR is opened by `app/github-actions` (or a `…[bot]` login), whose permission endpoint
     answers nothing useful. The CI run's actor is the person or bot that pushed the branch, so that is
     what this checks for a bot author — the same two names `ci.yml`'s guard already checked before the
     run was allowed to finish green.
     """
     login = author_login(state)
-    association = (state.get("authorAssociation") or "").upper()
     owner = repo.split("/")[0]
-    if login.lower() in BOT_LOGINS or (association == "NONE" and login.lower().endswith("[bot]")):
+    if _is_bot(login):
         who = (actor or "").strip()
         if not who:
             return (f"PR author `{login}` is a bot, and this run did not say who triggered it "
@@ -102,7 +120,7 @@ def author_may_merge(gh: str, repo: str, state: dict, actor: str = "") -> "str |
 
 
 def _permission_allows(gh: str, repo: str, login: str, owner: str, kind: str) -> "str | None":
-    if login.lower() == owner.lower() or login.lower() in BOT_LOGINS:
+    if login.lower() == owner.lower() or _is_bot(login):
         return None
     perm = _permission(gh, repo, login)
     if perm in WRITE_PERMISSIONS:
@@ -190,7 +208,8 @@ def try_approve(gh: str, repo: str, pr: int, state: dict, dry: bool = False) -> 
 
 
 def pr_comments(gh: str, repo: str, pr: int) -> list[str]:
-    out = _gh(gh, ["pr", "view", str(pr), "--repo", repo, "--json", "comments"])
+    out = _gh(gh, ["pr", "view", str(pr), "--repo", repo, "--json",
+                   ",".join(PR_VIEW_COMMENT_FIELDS)])
     return [str(c.get("body") or "") for c in (json.loads(out or "{}").get("comments") or [])]
 
 

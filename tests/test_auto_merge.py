@@ -290,7 +290,7 @@ def test_a_write_collaborator_a_bot_and_the_owner_may_merge_a_stranger_may_not(t
     """The merge gate is who opened the PR: owner, write collaborator, or the bot. Nobody else."""
 
     # Given a green, clean PR opened by a collaborator with write
-    writer = _state(author={"login": "ada"}, authorAssociation="COLLABORATOR",
+    writer = _state(author={"login": "ada"},
                     headRepository={"nameWithOwner": "asimov-agent/llgenie"})
     gh = _fake_gh(tmp_path / "w", writer, {"482": "CLOSED"}, permissions={"ada": "write"})
 
@@ -302,7 +302,7 @@ def test_a_write_collaborator_a_bot_and_the_owner_may_merge_a_stranger_may_not(t
     assert [c for c in _calls(tmp_path / "w" / "gh.log") if c[:2] == ["pr", "merge"]]
 
     # Given the same PR opened by the bot, and the CI run triggered by the owner
-    bot = _state(author={"login": "app/github-actions"}, authorAssociation="NONE",
+    bot = _state(author={"login": "app/github-actions"},
                  headRepository={"nameWithOwner": "asimov-agent/llgenie"})
     gh = _fake_gh(tmp_path / "b", bot, {"482": "CLOSED"})
 
@@ -314,7 +314,7 @@ def test_a_write_collaborator_a_bot_and_the_owner_may_merge_a_stranger_may_not(t
     assert [c for c in _calls(tmp_path / "b" / "gh.log") if c[:2] == ["pr", "merge"]]
 
     # Given a green, clean PR opened by a stranger, even from the trusted fork
-    stranger = _state(author={"login": "mallory"}, authorAssociation="CONTRIBUTOR",
+    stranger = _state(author={"login": "mallory"},
                       headRepository={"nameWithOwner": "andyholst/llgenie"})
     gh = _fake_gh(tmp_path / "s", stranger, permissions={})
 
@@ -326,6 +326,69 @@ def test_a_write_collaborator_a_bot_and_the_owner_may_merge_a_stranger_may_not(t
     calls = _calls(tmp_path / "s" / "gh.log")
     assert not [c for c in calls if c[:2] == ["pr", "merge"]]
     assert any(c[:2] == ["pr", "comment"] for c in calls)
+
+
+# ---- only fields `gh pr view` actually has (issue #513) ----------------------
+
+def test_every_requested_field_is_in_ghs_own_allowlist():
+    """A field name `gh` does not have kills the run before the decision, so the list is locked."""
+
+    # Given the allowlist captured from a real `gh pr view --json __probe__`
+    fixture = json.loads((REPO / "tests" / "fixtures" / "gh-pr-view-fields.json").read_text())
+
+    # When  the module's requested field names are read
+    # Then  every one of them exists in gh, and the invented field is gone from both
+    allow = set(fixture["fields"])
+    assert fixture["command"] == "gh pr view --json __probe__", fixture
+    assert fixture["gh_version"].startswith("gh version "), fixture
+    assert "authorAssociation" not in allow, "the fixture was not captured from gh"
+    for field in am.PR_VIEW_FIELDS:
+        assert field in allow, f"`gh pr view --json {field}` does not exist: {sorted(allow)}"
+
+
+def test_pr_state_requests_exactly_the_locked_field_list(tmp_path):
+    """`pr_state` is the one call every decision reads; its argv carries only allowlisted names."""
+
+    # Given a fake gh and a complete PR state
+    gh = _fake_gh(tmp_path, _state())
+
+    # When  the state is read
+    am.pr_state(str(gh), "o/r", 482)
+
+    # Then  the requested names are the constant, and `authorAssociation` is nowhere in the argv
+    views = [c for c in _calls(tmp_path / "gh.log") if c[:2] == ["pr", "view"]]
+    assert len(views) == 1, views
+    requested = views[0][views[0].index("--json") + 1].split(",")
+    assert requested == list(am.PR_VIEW_STATE_FIELDS), requested
+    assert "authorAssociation" not in requested, requested
+
+
+def test_a_bot_author_is_recognised_by_its_login_alone(tmp_path):
+    """The bot rule reads `author.login` — a field that exists — never `authorAssociation`."""
+
+    # Given a PR opened by GitHub's App bot, and a `…[bot]` opener, with no actor named
+    app_bot = _state(author={"login": "app/github-actions"},
+                     headRepository={"nameWithOwner": "o/r"})
+    dependabot = _state(author={"login": "dependabot[bot]"},
+                        headRepository={"nameWithOwner": "o/r"})
+
+    # When  the author gate is read without an actor
+    for state in (app_bot, dependabot):
+        refused = am.author_may_merge(sys.executable, "o/r", state, actor="")
+
+        # Then  it refuses, naming the bot and the missing actor — not a missing JSON field
+        assert refused and "is a bot" in refused and "ACTOR is empty" in refused, refused
+
+    # Given the same bot PR and a run triggered by the owner
+    gh = _fake_gh(tmp_path, app_bot, {"513": "CLOSED"})
+
+    # When  the job runs with ACTOR set to the owner
+    rc = am.run(str(gh), "o/r", 513, HEAD, actor="o")
+
+    # Then  the bot PR merges, because the actor is the owner — and only allowlisted fields were asked for
+    kinds = [c[:2] for c in _calls(tmp_path / "gh.log")]
+    assert rc == 0, rc
+    assert ["pr", "merge"] in kinds, kinds
 
 
 def test_the_merge_uses_the_owner_pat_and_a_make_target():
