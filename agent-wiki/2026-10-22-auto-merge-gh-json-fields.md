@@ -44,5 +44,11 @@ requested field names, so an invented name was invisible to the whole unit suite
   human — PR is MERGED` (before the fix this command died on the field name).
 - `make test-unit`, `make lint`, `make check-docs`, `make check-workflows`,
   `make openspec-validate NAME=auto-merge-gh-json-fields` → results recorded in the PR.
-- **The proof the gate works:** the next green PR run's `auto-merge` job is green and lands the PR with no human
-  click — the acceptance criterion of #513, and of #482 before it.
+- **The proof the gate works is post-landing, and it is recorded here rather than assumed.** This PR cannot
+  merge itself: a `workflow_run` workflow always executes the copy of `auto-merge.yml` on the **default
+  branch**. Measured on this very PR — run
+  [`39777664674`](https://github.com/asimov-agent/llgenie/actions/runs/39777664674), fired by the green CI run
+  `39772468297` — the job's `GH_TOKEN` is a real PAT (`***`), the PR resolved to 514, and it still dies on
+  `Unknown JSON field: "authorAssociation"`, because `main` carries the old script. So the fix lands by one
+  manual merge, and the acceptance evidence is the **next** green PR run after that: its `auto-merge` job
+  executes the fixed script and merges with no human click.
