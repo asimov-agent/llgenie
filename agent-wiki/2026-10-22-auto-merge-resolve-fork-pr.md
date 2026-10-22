@@ -1,6 +1,6 @@
 # A finished fork run is resolved back to its PR
 
-Issue: #508. PR: (opened with this change).
+Issue: #508. PR: #509.
 
 Auto-merge run `39735179724` (triggered by CI run `39732261968`, fork PR #506) failed in "Resolve the pull
 request the finished run belongs to" before `make auto-merge` ever ran:
