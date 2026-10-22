@@ -61,22 +61,11 @@ jobs:
           RUN_ID: ${{ github.event.workflow_run.id }}
           HEAD_OWNER: ${{ github.event.workflow_run.head_repository.owner.login }}
           HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
-        run: |
-          set -euo pipefail
-          # The runs endpoint 404s for a fork pull_request run with this token, and `set -e` would kill the
-          # step before the fallback. A 404 is "no answer", not a failure.
-          number=$(gh api "repos/$REPO/actions/runs/$RUN_ID/pull_requests" --jq '.[0].number // empty' || true)
-          if [ -z "$number" ]; then
-            # `--head owner:branch` matches a same-repo branch only. A fork head needs the search qualifier,
-            # which is how `gh pr list` finds andyholst:fix/rebase-behind-despite-comment (#502).
-            number=$(gh pr list --repo "$REPO" --search "head:$HEAD_BRANCH" --state open --json number,headRepositoryOwner --jq ".[] | select(.headRepositoryOwner.login==\"$HEAD_OWNER\") | .number" | head -1)
-          fi
-          if [ -z "$number" ]; then
-            echo "::error::no open pull request for run $RUN_ID (head $HEAD_OWNER:$HEAD_BRANCH) - nothing to merge, and a green PR must never be silently dropped"
-            exit 1
-          fi
-          echo "number=$number" >> "$GITHUB_OUTPUT"
-          echo "resolved PR #$number for run $RUN_ID (head $HEAD_OWNER:$HEAD_BRANCH)"
+        # The logic lives in scripts/resolve_run_pr.py (make auto-merge-resolve, tested in
+        # tests/test_resolve_run_pr.py): a fork run 404s on the runs endpoint and `gh api` prints the
+        # error BODY on stdout, so a value is a PR number only when it is digits — otherwise the step
+        # wrote the JSON blob to $GITHUB_OUTPUT and died with `Invalid format` (run 39735179724, #508).
+        run: make auto-merge-resolve REPO="$REPO" RUN_ID="$RUN_ID" HEAD_OWNER="$HEAD_OWNER" HEAD_BRANCH="$HEAD_BRANCH"
 
       - name: make auto-merge (merge only a green, conflict-free PR; everything else defers to a human)
         env:

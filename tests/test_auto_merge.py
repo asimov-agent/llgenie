@@ -546,14 +546,21 @@ def test_the_merge_is_a_workflow_run_on_ci():
 def test_a_fork_run_is_resolved_by_search():
     """A 404 from the runs endpoint must not kill the step, and a fork head is found by search."""
 
-    # Given the resolve step
-    step = MERGE_WF.split("Resolve the pull request", 1)[1].split("make auto-merge", 1)[0]
+    # Given the resolve step and the resolver it must call
+    step = MERGE_WF.split("Resolve the pull request", 1)[1].split(
+        "- name: make auto-merge (merge only", 1)[0]
+    resolver = (REPO / "scripts" / "resolve_run_pr.py").read_text()
 
     # When  its lookups are read
-    # Then  the runs endpoint's 404 falls through, and the fallback searches by branch, not by a same-repo head
-    assert "|| true" in step, step
-    assert '--search "head:$HEAD_BRANCH"' in step, step
-    assert '--head "$HEAD_OWNER:$HEAD_BRANCH"' not in step, "that qualifier never matches a fork head"
+    # Then  the step is the one make target, carrying no inline gh request of its own (issue #508)
+    assert "make auto-merge-resolve" in step, step
+    assert "number=$(" not in step, step
+
+    # And   the resolver searches by head branch AND head owner, never by a same-repo head qualifier
+    #       (the 404 fall-through itself is pinned in tests/test_resolve_run_pr.py)
+    assert '"--search", f"head:{head_branch}"' in resolver, resolver
+    assert "headRepositoryOwner.login" in resolver, resolver
+    assert 'f"--head {' not in resolver, "that qualifier never matches a fork head"
 
 
 def test_an_empty_pat_fails_the_workflow_loudly():
