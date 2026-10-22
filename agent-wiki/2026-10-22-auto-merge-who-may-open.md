@@ -1,6 +1,6 @@
 # Auto-merge: who may open the PR
 
-Issue: #499. PR: opened from `feat/auto-merge-from-base`.
+Issue: #499. PR: #500.
 
 Measured on `main` at `677ffee`: every open PR (#481, #492, #495, #498) was `MERGEABLE` with every check
 `success` and still `BLOCKED` / `REVIEW_REQUIRED`. The `auto-merge` job in `ci.yml` ran on the
