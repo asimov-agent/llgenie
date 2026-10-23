@@ -24,6 +24,7 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 import scripts.hf_auth as hf_auth  # noqa: E402
 import scripts.llgenie_serve as llgenie_serve  # noqa: E402
+from top_tier_dry_run import run_dry_run  # noqa: E402  (issue #399: bounded retry)
 
 pytestmark = pytest.mark.acceptance
 
@@ -397,11 +398,13 @@ def test_cli_download_top_tier_dry_run_detailed():
     # host/CI-runner, exercising the ranked-preview branch (not the no-fit branch).
     env = dict(os.environ)
     env["LLAMA_RAM_BYTES"] = str(48 * 1024 ** 3)
-    out = subprocess.run([sys.executable, str(REPO / "scripts/llgenie_serve.py"),
-                          "--download-top-tier", "--dry", "--count", "2"],
-                         capture_output=True, text=True,
-                         timeout=hf_auth.TOP_TIER_DRY_RUN_TIMEOUT, env=env)
-    assert out.returncode == 0, f"dry run must exit 0; stderr:\n{out.stderr[-800:]}"
+    out, attempts = run_dry_run(
+        [sys.executable, str(REPO / "scripts/llgenie_serve.py"),
+         "--download-top-tier", "--dry", "--count", "2"],
+        env=env, timeout=hf_auth.TOP_TIER_DRY_RUN_TIMEOUT)
+    assert out.returncode == 0, (
+        f"dry run must exit 0 within {attempts} attempt(s) — a transient Hub failure is "
+        f"retried once (#399), a genuine failure is returned at once; stderr:\n{out.stderr[-800:]}")
     s = out.stdout
     assert "detecting memory on the actual card" in s, s[-800:]
     assert "total RAM" in s, "dry run must print the dynamic total-RAM readout"
@@ -446,12 +449,13 @@ def test_family_dry_run_known_lowend_one_provider():
     env = dict(os.environ)
     env["LLAMA_RAM_BYTES"] = str(8 * 1024 ** 3)
     env["LLAMA_HEADROOM_BYTES"] = str(1 * 1024 ** 3)
-    out = subprocess.run([sys.executable, str(REPO / "scripts/llgenie_serve.py"),
-                          "--download-top-tier", "--family", "qwen",
-                          "--count", "1", "--dry"],
-                         capture_output=True, text=True,
-                         timeout=hf_auth.TOP_TIER_DRY_RUN_TIMEOUT, env=env)
-    assert out.returncode == 0, f"dry run must exit 0; stderr:\n{out.stderr[-800:]}"
+    out, attempts = run_dry_run(
+        [sys.executable, str(REPO / "scripts/llgenie_serve.py"),
+         "--download-top-tier", "--family", "qwen", "--count", "1", "--dry"],
+        env=env, timeout=hf_auth.TOP_TIER_DRY_RUN_TIMEOUT)
+    assert out.returncode == 0, (
+        f"dry run must exit 0 within {attempts} attempt(s) — a transient Hub failure is "
+        f"retried once (#399), a genuine failure is returned at once; stderr:\n{out.stderr[-800:]}")
     s = out.stdout
     # family readout + dynamic memory readout
     assert "[family] qwen" in s, f"must print the [family] qwen readout; got:\n{s[-800:]}"

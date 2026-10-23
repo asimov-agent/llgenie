@@ -1762,6 +1762,28 @@ fed into the **same** pipeline, not a second implementation:
 Without `--family` the command behaves byte-identically to before (all existing
 top-tier tests pass unmodified).
 
+### The dry-run retry bound (`--dry` in the PR-blocking `top-tier` job)
+
+The `--dry` acceptance cases (`make test-top-tier-cli-ci`, run by `make ci-top-tier`
+from the `top-tier` job in `.github/workflows/pipeline.yml`) talk to the **live** Hub,
+so a slow read used to decide a PR's `macos / top-tier` and `linux / top-tier` result
+(run 39381961586: the same tree failed `TimeoutError: The read operation timed out`,
+then passed on an unchanged re-run). Those cases now shell out through
+`tests/top_tier_dry_run.py::run_dry_run`, which retries the whole dry run **once**
+(`TOP_TIER_DRY_RUN_ATTEMPTS = 2`, the run plus one retry) when it failed on the Hub's
+transport — the CLI's `[ERROR] HF API still failing after N attempts` line,
+`TimeoutError`, `URLError`, connection resets/errors, `SSLError`, resolution failures,
+or a transient 429/502/503/504. Inside the process, `_hf_get` already retries a
+read-phase timeout on `HF_GET_MAX_ATTEMPTS` (issue #549), so the job's conclusion rests
+on a stated number of attempts instead of on one read at one minute.
+
+A failure that is **not** the Hub's transport (a bad argument, a bug in the discovery
+code) is returned on the first attempt — a regression is never retried into a green. A
+Hub that stays unreachable spends the bound and still exits non-zero with the CLI's
+named cause: the case fails loudly, it is never skipped and never softened. The seam is
+locked by `tests/test_top_tier_dry_run_retry.py` (real child processes, no mocked
+subprocess) inside `make test-unit` (issue #399).
+
 ---
 
 ## Verification, loop & CI (containerized — same everywhere)
