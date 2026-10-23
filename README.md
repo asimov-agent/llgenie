@@ -92,6 +92,13 @@ A bot never works from a stale base:
   to** (`make fix-bot-sweep OWN_FORK=andyholst`, issue #340). Every llgenie PR is opened from the
   fork, so without the allowlist the scheduled sweep passed over every PR and repaired nothing;
   the branch is now checked out from — and pushed to — the PR's own head remote.
+- **The fix-bot is woken by the failure it repairs** (issue #538). `fix-bot.yml` runs on `workflow_run` for
+  `CI` when a `pull_request` run concluded `failure`, resolves that run's PR with `make auto-merge-resolve`,
+  captures the failed run's log, and dispatches the repair for **that** PR (`make fix-bot-sweep PR=<n>`). The
+  hourly sweep stays as a fallback. Up to **5** attempts per head (`FIX_ROUNDS`/`rounds`, counted by the PR's
+  `fix(bot):` commits); a failure this runner cannot reproduce (a macOS-only job, a GPU-only image test) is
+  repaired from the captured log and marked **UNVERIFIED** — CI re-runs and re-triggers, so a real flake is
+  retried instead of being dropped because a Linux check was green.
 
 Driven by `scripts/bot_sync_main.sh`; `tests/test_bot_sync.py` runs the rules through a real
 scratch git repository.

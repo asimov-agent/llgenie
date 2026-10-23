@@ -172,14 +172,27 @@ def choose(repo: str, max_attempts: int = 3,
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--repo", required=True, help="owner/name")
-    ap.add_argument("--max-attempts", type=int, default=3, help="fix(bot): commits per PR")
+    ap.add_argument("--max-attempts", type=int, default=5, help="fix(bot): commits per PR")
     ap.add_argument("--check", default="make ci-unit", help="the check the bot drives")
     ap.add_argument("--own-fork", default=None,
                     help="the fork owner this bot may push to (e.g. andyholst)")
+    ap.add_argument("--pr", type=int, default=None,
+                    help="repair exactly this PR (a failed CI run pointed at it, issue #538)")
+    ap.add_argument("--report-file", default="",
+                    help="the failed run's captured log, handed to the loop as repair context")
     ap.add_argument("--dry", action="store_true", help="decide and print; dispatch nothing")
     a = ap.parse_args(argv)
 
-    pr, skipped = choose(a.repo, a.max_attempts, a.own_fork)
+    if a.pr is not None:
+        # A `workflow_run` names the PR: evaluate THAT one, never "the oldest eligible" (issue #538).
+        match = next((p for p in open_prs(a.repo) if p["number"] == a.pr), None)
+        if match is None:
+            print(f"[sweep] #{a.pr} is not an open PR — nothing to repair", file=sys.stderr)
+            return 1
+        ok, why = eligible(a.repo, match, a.max_attempts, a.own_fork)
+        pr, skipped = (match, []) if ok else (None, [(match, why)])
+    else:
+        pr, skipped = choose(a.repo, a.max_attempts, a.own_fork)
     if pr is not None and not a.dry:
         # Say we are starting, on the PR itself, before the loop runs (issue #279): the other
         # bots read every claim before they pick anything.
@@ -195,7 +208,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     r = subprocess.run(["gh", "workflow", "run", "fix-bot.yml", "--repo", a.repo,
                         "-f", f"pr_number={pr['number']}", "-f", f"branch={pr['headRefName']}",
-                        "-f", f"check={a.check}", "-f", f"rounds={a.max_attempts}"],
+                        "-f", f"check={a.check}", "-f", f"rounds={a.max_attempts}",
+                        "-f", f"report_file={a.report_file}"],
                        capture_output=True, text=True)
     if r.returncode != 0:
         print(f"[sweep] dispatch failed: {r.stderr.strip()}", file=sys.stderr, flush=True)

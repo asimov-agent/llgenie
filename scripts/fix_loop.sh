@@ -10,7 +10,7 @@
 #
 # Env:
 #   FIX_CHECK       the deterministic check command (default: make ci-unit)
-#   FIX_ROUNDS      maximum repair attempts (default: 3)
+#   FIX_ROUNDS      maximum repair attempts (default: 5)
 #   FIX_AGENT_CMD   how to run the agent; the prompt is fed on STDIN (default: hermes)
 #   FIX_RULES       the rules file handed to the agent (default: scripts/fix_bot_rules.md)
 #   FIX_REPORT      the command's captured output (default: /tmp/fix-report.txt)
@@ -18,7 +18,7 @@
 #   FIX_TAIL_LINES  how much of the report to hand the agent (default: 400)
 set -uo pipefail
 
-ROUNDS="${FIX_ROUNDS:-3}"
+ROUNDS="${FIX_ROUNDS:-5}"
 CHECK="${FIX_CHECK:-make ci-unit}"
 # The prompt arrives on STDIN, so the default reads it into the one-shot `-z` flag and names
 # the image's custom-provider alias (`-m` is the MODEL flag; `--provider nous` cannot work with
@@ -26,6 +26,11 @@ CHECK="${FIX_CHECK:-make ci-unit}"
 AGENT_CMD="${FIX_AGENT_CMD:-hermes -z \"\$(cat)\" -m ${FIX_AGENT_ALIAS:-nous-deepseek} --reasoning ${FIX_AGENT_REASONING:-medium} --yolo}"
 RULES="${FIX_RULES:-scripts/fix_bot_rules.md}"
 REPORT="${FIX_REPORT:-/tmp/fix-report.txt}"
+# A captured failure log from the RUN that failed (a `workflow_run` trigger, issue #538): the local
+# check may not be able to reproduce that failure at all (a macOS-only job, a GPU-only image test), so
+# when one is supplied the loop repairs from it and pushes the attempt WITHOUT claiming it is green —
+# CI re-runs and re-triggers the bot, up to ROUNDS attempts.
+REPORT_FILE="${FIX_REPORT_FILE:-}"
 PROMPT="${FIX_PROMPT:-/tmp/fix-prompt.txt}"
 TAIL_LINES="${FIX_TAIL_LINES:-400}"
 
@@ -35,6 +40,13 @@ case "$ROUNDS" in ''|*[!0-9]*) echo "[fix-loop] FIX_ROUNDS must be a positive in
 command -v "${AGENT_CMD%% *}" >/dev/null 2>&1 || { echo "[fix-loop] agent command '$AGENT_CMD' not found on PATH" >&2; exit 2; }
 
 echo "[fix-loop] check: $CHECK (up to $ROUNDS repair attempt(s), agent: $AGENT_CMD)"
+
+UNVERIFIED=0
+if [ -n "$REPORT_FILE" ] && [ -s "$REPORT_FILE" ]; then
+  cp "$REPORT_FILE" "$REPORT"
+  UNVERIFIED=1
+  echo "[fix-loop] repairing from the run's captured failure log ($REPORT_FILE); this runner cannot verify that failure"
+fi
 
 run_check() {
   # shellcheck disable=SC2086  # the check is intentionally a command line
@@ -63,6 +75,19 @@ run_agent() {
 }
 
 for ((round = 1; round <= ROUNDS + 1; round++)); do
+  # A failure captured from the RUN cannot be reproduced here (a macOS-only job, a GPU-only image
+  # test), so one agent attempt is made from that log and pushed for CI to verify — the attempt
+  # counter in the PR's `fix(bot):` commits is what bounds the loop across runs (issue #538).
+  if [ "$UNVERIFIED" -eq 1 ]; then
+    if [ "$round" -gt "$ROUNDS" ]; then break; fi
+    build_prompt
+    if run_agent "$round"; then
+      echo "[fix-loop] UNVERIFIED: attempt $round/$ROUNDS was prepared from the run's log; CI re-runs to verify"
+      exit 0
+    fi
+    echo "[fix-loop] the agent exited non-zero on attempt $round" >&2
+    break
+  fi
   if run_check; then
     if [ "$round" -eq 1 ]; then
       echo "[fix-loop] GREEN on the first check — nothing to repair"

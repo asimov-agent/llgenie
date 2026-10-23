@@ -85,7 +85,7 @@ def test_a_red_same_repo_pr_is_chosen_and_dispatched(tmp_path):
     assert "252" in r.stdout and "dispatched the fix-bot" in r.stdout
     dispatch = [l for l in log.read_text().splitlines() if l.startswith("workflow run")]
     assert len(dispatch) == 1 and "pr_number=252" in dispatch[0] and "branch=feat/x" in dispatch[0]
-    assert "rounds=3" in dispatch[0] and "fix-bot.yml" in dispatch[0]
+    assert "rounds=5" in dispatch[0] and "fix-bot.yml" in dispatch[0]
 
 
 def test_a_fork_draft_or_main_pr_is_refused_with_a_reason(tmp_path):
@@ -106,7 +106,7 @@ def test_a_green_pr_is_refused(tmp_path):
 def test_the_attempt_cap_is_respected_and_reported(tmp_path):
     """Three `fix(bot):` commits already on the branch: the bot does not run again."""
     gh_stub(tmp_path, [pr(11)], {"11": RED}, {"11": ["fix(bot): one", "fix(bot): two", "fix(bot): three"]})
-    r = run_sweep(tmp_path, ["--repo", f"{OWNER}/llgenie"])
+    r = run_sweep(tmp_path, ["--repo", f"{OWNER}/llgenie", "--max-attempts", "3"])
     assert "the cap (3/3 attempts)" in r.stdout and "nothing to fix" in r.stdout
 
 
@@ -248,3 +248,38 @@ def test_the_repair_pushes_to_the_pr_head_remote():
     assert "git fetch fork \"$BRANCH\"" in wf
     assert 'echo "REMOTE=fork" >> "$GITHUB_ENV"' in wf
     assert 'git push --force-with-lease "${REMOTE:-origin}"' in wf
+
+
+# ---- re-triggered by a failed CI run (issue #538) ----
+
+def test_a_failed_run_repairs_its_own_pr_with_five_attempts(tmp_path):
+    """A `workflow_run` names the PR: repair THAT one, not the oldest eligible, up to 5 attempts."""
+
+    # Given two red same-repo PRs, the OLDEST one first by updatedAt
+    older = pr(21, "b1", updated="2026-10-01T00:00:00Z")
+    newer = pr(22, "b2", updated="2026-10-05T00:00:00Z")
+    log = gh_stub(tmp_path, [older, newer],
+                  checks={"21": RED, "22": RED}, commits={})
+
+    # When  the sweep is pointed at #22 (the PR the failed run belonged to)
+    r = run_sweep(tmp_path, ["--repo", f"{OWNER}/llgenie", "--pr", "22", "--max-attempts", "5"])
+
+    # Then  it dispatches #22 only, with 5 rounds
+    calls = log.read_text()
+    dispatch = [l for l in calls.splitlines() if l.startswith("workflow run")]
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert len(dispatch) == 1, dispatch
+    assert "pr_number=22" in dispatch[0], dispatch
+    assert "rounds=5" in dispatch[0], dispatch
+    assert "pr_number=21" not in dispatch[0]
+
+
+def test_a_workflow_run_trigger_is_wired_to_the_ci_workflow():
+    """The bot is woken by the failure it repairs, and its own default is five attempts."""
+
+    wf = (REPO / ".github" / "workflows" / "fix-bot.yml").read_text()
+
+    assert "workflow_run:" in wf and 'workflows: ["CI"]' in wf, "CI failures must wake the bot"
+    assert "conclusion == 'failure'" in wf, "only a failed run may dispatch a repair"
+    assert "ATTEMPTS=5" in wf, "the sweep cap is five"
+    assert 'default: "5"' in wf, "a manual dispatch defaults to five rounds"

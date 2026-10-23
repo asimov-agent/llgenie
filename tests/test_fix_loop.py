@@ -96,12 +96,13 @@ def test_it_repairs_twice_when_the_first_round_does_not_stick(tmp_path):
     assert "GREEN after 2 repair attempt(s)" in r.stdout
 
 
-def test_it_gives_up_loudly_after_three_rounds(tmp_path):
+def test_it_gives_up_loudly_after_five_rounds(tmp_path):
+    """Issue #538: the default is five attempts, not three."""
     stub_agent(tmp_path)                      # never fixes anything
     r = run_loop(tmp_path, "false")
     assert r.returncode == 1
-    assert calls(tmp_path).count("__CALL__") == 3, "the default is three attempts"
-    assert "still RED after 3 repair attempt(s)" in r.stdout
+    assert calls(tmp_path).count("__CALL__") == 5, "the default is five attempts"
+    assert "still RED after 5 repair attempt(s)" in r.stdout
     assert "leaving the PR for a human" in r.stdout
 
 
@@ -136,7 +137,7 @@ def test_an_empty_round_count_means_the_default(tmp_path):
     stub_agent(tmp_path)
     r = run_loop(tmp_path, "false", env={"FIX_ROUNDS": ""})
     assert r.returncode == 1
-    assert calls(tmp_path).count("__CALL__") == 3, "empty must fall back to the default"
+    assert calls(tmp_path).count("__CALL__") == 5, "empty must fall back to the default (5)"
 
 
 def test_a_missing_agent_binary_is_a_loud_misconfiguration(tmp_path):
@@ -278,3 +279,20 @@ def test_the_default_agent_command_reads_the_prompt_through_z():
     assert "--yolo" in script
     cmd_line = next(l for l in script.splitlines() if l.startswith("AGENT_CMD="))
     assert "--provider nous" not in cmd_line, "OAuth-only: a key cannot satisfy it"
+
+
+def test_a_captured_run_log_is_repaired_and_marked_unverified(tmp_path):
+    """A failure taken from the RUN cannot be re-checked here: one attempt, marked UNVERIFIED (#538)."""
+
+    # Given the failed run's captured log (a check this runner cannot reproduce)
+    stub_agent(tmp_path)
+    log = tmp_path / "failed.log"
+    log.write_text("FAILED tests/test_engine_skills.py::test_digest… — AssertionError\n")
+
+    # When  the loop runs with that report
+    r = run_loop(tmp_path, "true", env={"FIX_REPORT_FILE": str(log), "FIX_ROUNDS": "2"})
+
+    # Then  it repairs from the log, pushes nothing itself, and says the result is unverified
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "UNVERIFIED" in r.stdout, r.stdout
+    assert "captured failure log" in r.stdout, r.stdout

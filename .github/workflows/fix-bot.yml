@@ -40,6 +40,13 @@ on:
   # trigger than workflow_run for anything a bot can push to.
   schedule:
     - cron: "17 * * * *"
+  # Re-triggered by the failure it exists to repair (issue #538): a `pull_request` CI run that
+  # concluded `failure` hands this bot that run's PR and its failed job's log, so a red PR is acted
+  # on within minutes instead of waiting for the next hourly sweep (GitHub delivers ~9 of those in
+  # 36 hours, measured). `workflow_run` executes on the default branch with its secrets.
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       pr_number:
@@ -55,9 +62,13 @@ on:
         required: false
         default: "make ci-unit"
       rounds:
-        description: "repair attempts (default 3)"
+        description: "repair attempts (default 5)"
         required: false
-        default: "3"
+        default: "5"
+      report_file:
+        description: "path to the failed run's captured log (repair context; empty = run the check locally)"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -86,6 +97,8 @@ jobs:
       TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
       FIX_ROUNDS: ${{ inputs.rounds || '3' }}
       FIX_CHECK: ${{ inputs.check || 'make ci-unit' }}
+      # The failed run's log, when a `workflow_run` triggered this (issue #538).
+      FIX_REPORT_FILE: ${{ inputs.report_file }}
     steps:
       # ---------------------------------------------------------------- guards
       - name: Owner / collaborator trigger guard
@@ -309,7 +322,11 @@ jobs:
   # It dispatches the `fix` job above for the winner and does nothing otherwise.
   # ------------------------------------------------------------------
   sweep:
-    if: github.event_name == 'schedule'
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.event == 'pull_request' &&
+       github.event.workflow_run.conclusion == 'failure')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -318,12 +335,50 @@ jobs:
       actions: write
     steps:
       - uses: actions/checkout@v4
+      # A `workflow_run` gives us a RUN, not a PR (issue #538). `make auto-merge-resolve` is the
+      # tested resolution the merge gate already uses: it reads the run's own pull_requests, falls
+      # back to a head search, treats a 404's JSON body as "no answer", and fails loudly when nothing
+      # resolves. The owner PAT is needed because a fork head's branch is invisible to the job token.
+      - name: Resolve the PR the failed run belongs to
+        if: github.event_name == 'workflow_run'
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          HEAD_OWNER: ${{ github.event.workflow_run.head_repository.owner.login }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: make auto-merge-resolve REPO="$REPO" RUN_ID="$RUN_ID" HEAD_OWNER="$HEAD_OWNER" HEAD_BRANCH="$HEAD_BRANCH"
+
+      # The repair context: the failed job's own log, so the loop can attempt a fix for a check it
+      # cannot reproduce on this runner (a macOS-only failure, a GPU-only image test) instead of
+      # discarding the attempt because the local check is green.
+      - name: Capture the failed run's log
+        if: github.event_name == 'workflow_run'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          gh run view "$RUN_ID" --repo "${{ github.repository }}" --log-failed \
+            > "$RUNNER_TEMP/failed.log" 2>/dev/null || true
+          if [ -s "$RUNNER_TEMP/failed.log" ]; then
+            echo "captured $(wc -l < "$RUNNER_TEMP/failed.log") line(s) of the failed run"
+          else
+            echo "::warning::the failed run's log is empty — the loop will use its local check"
+          fi
+
       - name: Sweep the open PRs for one the fix-bot should repair
         env:
           # `gh workflow run` needs Actions write, which this job declares — and which the
           # owner PAT does not carry: every dispatch was refused with 403
           # "Resource not accessible by personal access token" (issue #412).
           GH_TOKEN: ${{ github.token }}
+          # Empty on a schedule (the sweep chooses), set when a failed run pointed at its PR.
+          PR: ${{ steps.pr.outputs.number }}
         run: |
           set -euo pipefail
-          make fix-bot-sweep REPO="${{ github.repository }}" CHECK="make ci-unit" ATTEMPTS=3 OWN_FORK=andyholst
+          REPORT="$RUNNER_TEMP/failed.log"
+          make fix-bot-sweep REPO="${{ github.repository }}" CHECK="make ci-unit" ATTEMPTS=5 OWN_FORK=andyholst \
+            PR="$PR" \
+            REPORT_FILE="$([ -s "$REPORT" ] && echo "$REPORT")"
