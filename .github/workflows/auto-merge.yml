@@ -23,8 +23,14 @@ on:
   # A deferral is exit 0 by design, so nothing retries it: this sweep re-runs the same decision for the PRs
   # the gate itself deferred at the head they still have (issue #545). Every 30 minutes; by hand with
   # `make auto-merge-recheck REPO=…` or a re-run of the last sweep.
+  #
+  # ODD MINUTES ONLY (issue #560). This cron was `*/30 * * * *` — minutes :00 and :30 — and produced ZERO
+  # runs (0 `schedule` of 66 runs, measured 2026-10-23) while queued-alarm (:07/:37), fix-bot (:17),
+  # issue-refiner (:43) and rebase-bot (:29) fired normally on the same repository. `*/30` was the only cron
+  # in this tree expanding to even minutes, and this repo already recorded why that is fatal: queued-alarm's
+  # comment says `an odd minute; GitHub drops top-of-hour runs` (#275, #301). Same cadence, odd minutes.
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "3,33 * * * *"
 
 permissions:
   contents: write
@@ -98,10 +104,11 @@ jobs:
     # The retry half of the same gate (issue #545): only the PRs whose deferral marker names their CURRENT
     # head are re-evaluated, through the same make target.
     #
-    # It runs on EVERY CI completion as well as on the cron (issue #558): the scheduled trigger has never
-    # fired for this workflow in this repository (measured: 0 `schedule` runs, while issue-refiner.yml's
-    # hourly cron runs fine), so a deferral used to wait for a push that may never come. `always()` is what
-    # makes it run after the merge job whether that job merged, deferred or was skipped.
+    # It runs on EVERY CI completion as well as on the cron (issue #558): the scheduled trigger produced no
+    # runs at all while it sat on :00/:30 (measured: 0 `schedule` runs, while issue-refiner.yml's hourly cron
+    # runs fine), so a deferral used to wait for a push that may never come. `always()` is what makes it run
+    # after the merge job whether that job merged, deferred or was skipped. The cron itself moved to odd
+    # minutes in issue #560 — it is the only retry for a deferral that clears with no push, so it must fire.
     needs: [merge]
     if: always()
     runs-on: ubuntu-latest

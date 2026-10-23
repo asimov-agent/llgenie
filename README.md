@@ -452,11 +452,22 @@ queues behind its scheduled run instead of overlapping it. The current slots:
 | `registry-sync` | `19 5 * * 1` | Monday 05:19 |
 | `engine-bump` | `53 6 * * 1` | Monday 06:53 |
 | `architecture-bot` | `47 */6 * * *` | every 6 hours at :47 (issue #449) |
+| `auto-merge` (recheck sweep) | `3,33 * * * *` | twice hourly (:03, :33 — issue #560) |
 
 `tests/test_bot_pipeline_isolation.py` (in `make test-unit`) expands every scheduled
 workflow's cron into its `(minute, weekday)` slots and fails if any two bots share one, or if
 a bot declares no concurrency group — so a future bot that lands on a used slot goes red at
 `ci-unit` instead of silently racing.
+
+**Every minute is odd, and that is enforced (issue #560).** GitHub drops the top-of-hour and
+half-hour slots under load — this repository measured it: `auto-merge.yml`'s `*/30 * * * *`
+(`:00`, `:30`) produced **0** `schedule` runs of 66 while `queued-alarm` (:07/:37, 53 runs),
+`fix-bot` (:17, 48), `issue-refiner` (:43, 45) and `rebase-bot` (:29, 30) all fired normally in
+the same window. `every-cron-minute-is-odd` is now part of the same guard: a cron whose minute
+field expands to any even minute fails `make test-unit`, naming the workflow and the minute, so
+`*/N`-at-zero cannot come back. A second guard, `the-auto-merge-sweep-stays-scheduled`, keeps the
+sweep's schedule in place: the always()-on-every-CI-completion retry (#558) cannot retry a
+deferral that clears with no push at all, and only the cron can.
 
 ## The issue-implementer (issue #248)
 
@@ -1154,7 +1165,9 @@ Two things make a deferral honest rather than silent (issue #491):
   that never converges defers with the state it stayed stuck in, never an empty reason.
 - **Every deferral posts one comment per head SHA** with the reason and what would unblock it, so the PR
   answers "why is this not merged?" itself. `make auto-merge-explain` prints the same verdict at any time. **A deferral is retried, not parked**
-(issue #545): `make auto-merge-recheck` (on every `CI` completion, and on a 30-minute cron backstop) re-runs the same
+(issue #545): `make auto-merge-recheck` (on every `CI` completion, and on a 30-minute cron backstop at **odd
+minutes**, `3,33 * * * *` — issue #560: the `:00`/`:30` cron it replaced produced 0 runs of 66, while every
+odd-minute cron in this repo fires) re-runs the same
 decision for every open PR whose deferral marker names its current head, so a blocker that clears without a push — a secret added, a review
 posted, `do-not-merge` removed, a pending check finished — is finished by the next sweep. A read that answers `mergeable: UNKNOWN` — GitHub computes it asynchronously right after a run — is **waited for** (`settle_mergeable`, bounded 6 × 5 s) instead of being treated as a verdict (issue #558).
 

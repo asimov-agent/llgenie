@@ -215,5 +215,71 @@ def test_the_hourly_bots_minutes_are_not_reused():
                 )
 
 
+def _even_minutes(cron: str) -> list[int]:
+    """The minutes a cron fires at that are NOT odd — the slots GitHub drops (issue #560).
+
+    `queued-alarm.yml` recorded the reason first: `an odd minute; GitHub drops top-of-hour runs`
+    (#275, #301). Measured 2026-10-23: `auto-merge.yml`'s `*/30 * * * *` produced 0 `schedule` runs
+    of 66 while every odd-minute cron in the same repository fired normally.
+    """
+    return sorted(m for m in _expand(cron.split()[0], _MINUTES) if m % 2 == 0)
+
+
+def test_every_cron_minute_is_odd():
+    """No bot is scheduled on an even minute, because GitHub drops those slots (issue #560)."""
+    # Given every cron in the tree, expanded to the minute values it fires at
+    seen: list[str] = []
+    offenders: list[str] = []
+
+    # When each one is checked for an even minute
+    for name in BOT_WORKFLOWS:
+        for cron in _schedules(_load(name)):
+            seen.append(cron)
+            even = _even_minutes(cron)
+            if even:
+                offenders.append(f"{name}: {cron!r} fires at minute(s) {even}")
+
+    # Then the guard is not vacuous, and the helper rejects the shape it exists to catch
+    assert seen, "no cron found in any workflow — the guard would verify nothing"
+    assert _even_minutes("*/30 * * * *") == [0, 30], (
+        "the guard must catch `*/30 * * * *`: :00/:30 is the slot auto-merge's sweep sat on for 0 runs"
+    )
+
+    # And no workflow in the tree lands on one
+    assert not offenders, (
+        "cron minute(s) are even, and GitHub drops those slots (issue #560). "
+        "Pick an odd minute:\n  " + "\n  ".join(offenders)
+    )
+
+
+def test_the_auto_merge_sweep_stays_scheduled():
+    """`auto-merge`'s recheck sweep keeps a working schedule (issue #560).
+
+    The always()-on-CI-completion retry (#558) is not a substitute: a deferral that clears with no
+    push at all — an approving review, a `do-not-merge` label removed, a secret added — is retried by
+    the cron and by nothing else.
+    """
+    # Given the auto-merge workflow, its schedule and its source
+    name = "auto-merge.yml"
+    workflow = _load(name)
+    text = (WF / name).read_text()
+    crons = _schedules(workflow)
+
+    # Then it is still scheduled, twice an hour, on odd minutes
+    assert crons, f"{name} declares no schedule: the recheck sweep would never retry a deferral"
+    assert len(crons) == 1, f"{name} should own exactly one cron, found {crons}"
+    minutes = sorted(_expand(crons[0].split()[0], _MINUTES))
+    assert len(minutes) == 2, f"{name}: expected a 30-minute cadence, got {crons[0]!r}"
+    assert not _even_minutes(crons[0]), (
+        f"{name}: {crons[0]!r} lands on an even minute — that slot produced 0 runs (issue #560)"
+    )
+
+    # And the scheduled run drives the ONE sweep entry point, through the merge gate's own job
+    assert "\n  recheck:" in text, f"{name}: the schedule must drive the `recheck` job"
+    assert 'make auto-merge-recheck REPO="$REPO"' in text, (
+        f"{name}: the sweep must go through `make auto-merge-recheck`, never a second merge path"
+    )
+
+
 if __name__ == "__main__":  # pragma: no cover - manual probe
     print(json.dumps({n: _schedules(_load(n)) for n in BOT_WORKFLOWS}, indent=2))
