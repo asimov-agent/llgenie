@@ -181,10 +181,14 @@ repository with the base repository's secrets, it resolves the PR from the finis
 merge only for a non-draft PR that is `OPEN`, `MERGEABLE`, `CLEAN`, whose head is still the
 run's sha, carries no `do-not-merge` label, and comes from this repository or the owner's
 fork. A review-blocked green PR is approved with the other allowed identity and then
-merged (`APPROVE=1`); everything else is deferred with the reason posted on the PR, never a
-red run. After the merge `scripts/verify_closure.py` (`make verify-closure`) proves the
-body's `closes #n` actually closed. `make auto-merge-explain` prints the verdict and writes
-nothing.
+merged (`APPROVE=1`); the approval is followed by a bounded wait — `wait_for_merge_state()`
+re-reads the PR up to six times, five seconds apart, until `mergeStateStatus` is `CLEAN` —
+because GitHub computes that field asynchronously and a read taken the same instant as the
+approval still says `BLOCKED` (issue #531). Everything else is deferred with the reason
+posted on the PR, never a red run; a PR that never converges keeps the `--admin` fallback
+and a deferral that names the last observed state. After the merge
+`scripts/verify_closure.py` (`make verify-closure`) proves the body's `closes #n` actually
+closed. `make auto-merge-explain` prints the verdict and writes nothing.
 
 The structural gates are make targets, so the same command runs locally and in CI:
 `make check-workflows` (GitHub expressions parse, trailing newlines, every workflow has a
@@ -212,7 +216,7 @@ git-ignored: they are scratch a run writes, never repo content.
 | Workflow | Cron | What it does |
 |---|---|---|
 | `issue-bot.yml` | `23 6 * * *` | implements ONE labeled/ready issue per run as a reviewable PR; a manual dispatch with no issue number picks one itself, the implementation is measured from the changed tree (not the exit code), the PR body is built from the run's `pr-body.md`, and a close verdict queues the canonical issue it cites (`scripts/issue_implementer.py`, issue #521) |
-| `fix-bot.yml` | `17 * * * *` | repairs a red PR branch — including one whose head is the repository's own fork — re-runs the gate, pushes only when green |
+| `fix-bot.yml` | `17 * * * *` | repairs a red PR branch — including one whose head is the repository's own fork — re-runs the gate, pushes only when green; its sweep (`scripts/fix_bot_sweep.py`) treats a PR with no checks at all as not-red rather than a crash, so one unvalidated PR no longer aborts the sweep (issue #496) |
 | `rebase-bot.yml` | `29 */6 * * *` | drains every eligible PR onto `main` in one run, bounded by `max_prs`; decides from a computed merge state, hands a conflict to the agent and checks the resolution structurally (a recipe's TAB, the wiring guard, lint) against the checkout it mounted, aborts a stopped rebase so the tree returns to `main`, and pushes `--force-with-lease` to the PR's own head remote |
 | `issue-refiner.yml` | `43 * * * *` | reviews one issue and refines or closes it with cited evidence |
 | `code-review-bot.yml` | `31 7 * * 1` | files issues for findings in the tree and the pipelines |
@@ -223,7 +227,7 @@ git-ignored: they are scratch a run writes, never repo content.
 | `search-smoke.yml` | `11 7 * * *` | proves the masked web reach works |
 | `architecture-bot.yml` | `47 */6 * * *` | rewrites `docs/ARCHITECTURE.md` and opens one linked issue + PR |
 | `run-failure-reactor.yml` | — (dispatch / `workflow_run`) | routes a failed run to the fix-bot or one deduped issue |
-| `auto-merge.yml` | — (`workflow_run` on `CI`) | squash-merges the PR a green run belongs to when it is conflict-free; approves first as the other allowed identity; defers loudly otherwise |
+| `auto-merge.yml` | — (`workflow_run` on `CI`) | squash-merges the PR a green run belongs to when it is conflict-free; approves first as the other allowed identity, waits for that approval to register, and defers loudly otherwise |
 
 Bots run inside the pinned agent image (`containers/agent`), call the model pinned once in
 `scripts/agent_model_pin.py` (alias `nous-deepseek`,
@@ -257,8 +261,8 @@ Apple-Silicon host `make test-health` is the real GPU/Metal proof — it launche
 the llama.cpp engine image.
 
 `make loop` (`scripts/loop_harness.py`) chains image -> download -> lint -> agents-read ->
-unit -> install -> health -> top-tier -> top-tier-serve -> test -> openspec ->
-openspec-tasks -> clean, failing closed on any stage. `make check-docs`,
+unit -> install (`test-install-host`) -> health -> top-tier -> top-tier-serve -> test ->
+openspec -> openspec-tasks -> clean, failing closed on any stage. `make check-docs`,
 `make check-pr-hygiene`, `make check-pr-authors`, `make check-workflows`,
 `make check-dispatch-forms`, `make check-wiring`, `make check-secret-output` and
 `make check-agent-model` are the repository's structural gates. The data gates
