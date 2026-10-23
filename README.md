@@ -560,8 +560,12 @@ picks ONE verdict, written to `triage.md`:
   the bot comments the reason **with the evidence it checked** and closes the issue. A close
   whose verdict carries no evidence is **refused**, because "hard" or "vague" is a refine.
 
-An issue labelled `agent:refined` or `agent:closed` is never picked again, so neither verdict can
-loop, and neither opens a PR — so it does not consume the 3/day PR cap.
+An issue labelled `agent:closed` is never picked again, so a close cannot loop, and it opens no PR — so
+it does not consume the 3/day PR cap. **`agent:refined` is a marker, not a decision (issue #522):** the
+restatement makes an issue *more* implementable, so a refined issue stays in the picker and the refine
+verdict also adds `agent:ready` when the issue carries no queue label. While `agent:refined` sat in
+`DECIDED_LABELS`, every issue the hourly refiner touched became invisible to the implementer — a refine was
+a one-way door.
 
 **Every agent leg is unattended, and its prompt says so** (issue #543). `--yolo` auto-approves shell
 commands and `--accept-hooks` auto-approves hooks, but neither answers the agent's own `clarify` tool: a

@@ -19,7 +19,7 @@ comment that says "only for CPU builds" is a different issue. It then decides ON
 
 Closing requires evidence: a close whose verdict carries no `EVIDENCE:` block is refused
 loudly, because "hard" or "vague" is `refine`, and "already done / superseded / duplicate /
-not a code change" is what closing is for. An issue labelled `agent:refined` or
+not a code change" is what closing is for. An issue labelled `agent:closed` or
 `agent:closed` is never picked again, so neither verdict can loop.
 
 A close QUEUES what it cites (issue #521). The picker only lists `agent:implement` /
@@ -179,7 +179,12 @@ def _slug(title: str) -> str:
 
 VERDICTS = ("implement", "refine", "close")
 #: An issue carrying either label has already been decided this way and is never picked again.
-DECIDED_LABELS = ("agent:refined", "agent:closed")
+#: Only a CLOSE is a decision (issue #522). `agent:refined` is a marker that a restatement exists: a
+#: refined issue is *more* implementable than before, so it must stay in the picker's queue. While it was
+#: in this tuple, every issue the hourly refiner touched became permanently invisible to the implementer.
+DECIDED_LABELS = ("agent:closed",)
+#: The label that records "a restatement exists" — never a decision, never a block.
+REFINED_LABEL = "agent:refined"
 #: The labels that put an issue in front of the picker (`dispatch()`), in priority order.
 QUEUE_LABELS = ("agent:implement", "agent:ready")
 #: An issue reference in a verdict's prose: `#399`. The lookup decides whether it is an issue at all
@@ -261,7 +266,7 @@ def _thread(gh: str, repo: str, num: int) -> dict:
 
 
 def _pick(cands: list[dict]) -> dict | None:
-    """The oldest candidate that has not already been decided (refined or closed)."""
+    """The oldest candidate that has not already been decided (closed) — a refined one is still open work."""
     for issue in sorted(cands, key=lambda i: i.get("createdAt") or ""):
         names = [l.get("name") for l in (issue.get("labels") or []) if l.get("name")]
         if any(n in DECIDED_LABELS for n in names):
@@ -324,7 +329,7 @@ def dispatch(gh: str, repo: str, bot: str, dry: bool = False, today: str | None 
             issue = _pick_free(gh, repo, _issue_list(gh, repo, "agent:ready"))
         if issue is None:
             print("[issue-implementer] no issue labelled agent:implement or agent:ready left "
-                  "(decided issues carry agent:refined / agent:closed and are skipped)")
+                  "(closed issues carry agent:closed and are skipped; a refined one is still queued)")
             return {"action": "none", "count": n, "issue": None}
         num = issue["number"]
         title = issue["title"]
@@ -478,7 +483,7 @@ def queue_canonical(gh: str, repo: str, refs: list[int], dry: bool = False) -> l
     Without this a duplicate close retires the COPY while the canonical issue stays unlabelled, so
     the picker never lists it and the defect is never implemented: #400 pointed at #254, #440 pointed
     at #399, and neither canonical issue carried an agent label. An issue already decided
-    (`agent:refined`/`agent:closed`) or already queued is left exactly as it is.
+    (`agent:closed`) or already queued is left exactly as it is.
     """
     queued: list[int] = []
     for ref in refs:
@@ -523,12 +528,26 @@ def apply_verdict(gh: str, repo: str, num: int, text: str, dry: bool = False) ->
                 f"{v['refined']}\n")
         if v["reason"]:
             body += f"\n**Still open:** {v['reason']}\n"
+        # The restatement must leave the issue QUEUEABLE (issue #522). This is checked BEFORE the comment:
+        # a second refine of the same issue would repeat the comment and park nothing, so it is refused.
+        meta = json.loads(_gh(gh, ["issue", "view", str(num), "--repo", repo, "--json", "labels"]) or "{}")
+        names = [l.get("name") for l in (meta.get("labels") or []) if l.get("name")]
+        if REFINED_LABEL in names:
+            raise SystemExit(f"[issue-implementer] #{num} already carries {REFINED_LABEL} — a second "
+                             "refine would repeat the comment; only a close or a new issue is a next step")
         if dry:
-            print(f"[issue-implementer] would refine #{num} (comment + agent:refined, no PR)")
+            print(f"[issue-implementer] would refine #{num} (comment + agent:refined" +
+                  ("" if any(n in QUEUE_LABELS for n in names) else " + agent:ready") + ", no PR)")
             return v
         _gh(gh, ["issue", "comment", str(num), "--repo", repo, "--body", body])
-        _gh(gh, ["issue", "edit", str(num), "--repo", repo, "--add-label", "agent:refined"])
-        print(f"[issue-implementer] refined #{num}: one comment, labelled agent:refined, no PR")
+        # `agent:refined` records that a refine happened; a queue label puts the improved specification
+        # in front of the next run, so the restatement is never a one-way door (issue #522).
+        _gh(gh, ["issue", "edit", str(num), "--repo", repo, "--add-label", REFINED_LABEL])
+        if not any(n in QUEUE_LABELS for n in names):
+            _gh(gh, ["issue", "edit", str(num), "--repo", repo, "--add-label", "agent:ready"])
+            print(f"[issue-implementer] refined #{num}: comment + {REFINED_LABEL} + agent:ready (queued), no PR")
+        else:
+            print(f"[issue-implementer] refined #{num}: comment + {REFINED_LABEL}, already queued, no PR")
         return v
 
     # close: evidence or nothing

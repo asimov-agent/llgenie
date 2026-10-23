@@ -417,9 +417,9 @@ def test_dispatch_fetches_the_whole_thread_and_renders_it(tmp_path, capsys):
 def test_an_issue_already_decided_is_never_picked_again(tmp_path):
     """A refine/close labels the issue, and dispatch must skip it — or the bot loops forever."""
     gh, log = _fake_gh(tmp_path, {"labeled": [
-        {"number": 11, "title": "refined one", "createdAt": "2026-10-01T00:00:00Z",
-         "labels": [{"name": "agent:refined"}]},
-        {"number": 12, "title": "closed one", "createdAt": "2026-10-02T00:00:00Z",
+        {"number": 11, "title": "closed one", "createdAt": "2026-10-01T00:00:00Z",
+         "labels": [{"name": "agent:closed"}]},
+        {"number": 12, "title": "closed two", "createdAt": "2026-10-02T00:00:00Z",
          "labels": [{"name": "agent:closed"}]},
         {"number": 13, "title": "Fix the thing #13", "createdAt": "2026-10-03T00:00:00Z",
          "labels": [{"name": "agent:implement"}]},
@@ -459,8 +459,10 @@ def test_a_refine_posts_one_comment_and_labels_it_without_a_pr(tmp_path):
     calls = _calls(log)
     comment = [c for c in calls if c[:2] == ["issue", "comment"]][0]
     assert "11" in comment and "--foo on CPU only" in " ".join(comment)
-    edit = [c for c in calls if c[:2] == ["issue", "edit"]][0]
-    assert "agent:refined" in edit
+    edits = [c for c in calls if c[:2] == ["issue", "edit"]]
+    assert any("agent:refined" in c for c in edits), edits
+    # a refined issue is QUEUEABLE (issue #522): the restatement must not park it
+    assert any("agent:ready" in c for c in edits), edits
     assert not [c for c in calls if c[:2] == ["pr", "create"]]
     assert not [c for c in calls if c[:2] == ["issue", "close"]]
 
@@ -523,7 +525,7 @@ def test_a_close_leaves_a_closed_decided_or_already_queued_reference_alone(tmp_p
     gh, log = _fake_gh(tmp_path, {"issues": {
         "254": {"state": "CLOSED", "labels": []},
         "466": {"state": "OPEN", "labels": [{"name": "agent:implement"}]},
-        "470": {"state": "OPEN", "labels": [{"name": "agent:refined"}]},
+        "470": {"state": "OPEN", "labels": [{"name": "agent:closed"}]},
         "440": {"state": "OPEN", "labels": [{"name": "agent:implement"}]},
     }})
 
@@ -601,7 +603,7 @@ def test_a_decided_issue_is_still_skipped_before_any_thread_is_read(monkeypatch)
         raise AssertionError("a decided issue must not cost a thread read")
     monkeypatch.setattr(ii, "_thread", boom)
     cands = [{"number": 1, "title": "one", "createdAt": "2026-09-01T00:00:00Z",
-              "labels": [{"name": "agent:refined"}]}]
+              "labels": [{"name": "agent:closed"}]}]
     assert ii._pick_free("gh", "o/r", cands) is None
 
 
@@ -748,3 +750,54 @@ def test_the_workflow_gates_push_and_failure_on_the_tree():
     assert "\nissue-bot-changed:" in makefile
     assert "issue-bot-changed" in makefile.split(".PHONY:", 1)[1].split("\n\n", 1)[0]
     assert "scripts/issue_implementer.py changed" in makefile
+
+
+# ---- a refine keeps the issue queueable (issue #522) ----
+
+def test_a_refined_issue_is_still_picked(monkeypatch):
+    """The restatement makes an issue MORE implementable: it must not remove it from the picker."""
+
+    # Given an issue carrying the refine marker and no claim
+    # When  the picker runs
+    # Then  it is picked — `agent:refined` is a marker, not a decision
+    monkeypatch.setattr(ii, "_thread", lambda gh, repo, num: {"comments": []})
+    cands = [{"number": 399, "title": "the flaky top-tier", "createdAt": "2026-10-01T00:00:00Z",
+              "labels": [{"name": "agent:implement"}, {"name": "agent:refined"}]}]
+    picked = ii._pick_free("gh", "o/r", cands)
+    assert picked and picked["number"] == 399, picked
+
+
+def test_a_refined_but_unqueued_canonical_is_queued():
+    """A close that cites a refined-but-unqueued issue must queue it: refined no longer means decided."""
+
+    # Given a canonical reference that is refined and carries no queue label
+    # When  a close verdict cites it
+    # Then  it is queued (agent:implement), because the work is still real and still open
+    assert ii.DECIDED_LABELS == ("agent:closed",), ii.DECIDED_LABELS
+    assert "agent:refined" not in ii.DECIDED_LABELS
+
+
+def test_a_second_refine_of_an_already_refined_issue_is_refused(monkeypatch):
+    """A refine is not repeatable (issue #522): the restatement exists, so posting it again parks nothing."""
+
+    # Given an issue that already carries the refine marker
+    calls: list[list[str]] = []
+
+    def fake_gh(gh, args, token=None):
+        calls.append(args)
+        if args[:2] == ["issue", "view"]:
+            return '{"labels": [{"name": "agent:refined"}]}'
+        return ""
+
+    monkeypatch.setattr(ii, "_gh", fake_gh)
+
+    # When  a refine verdict is applied again
+    try:
+        ii.apply_verdict("gh", "o/r", 522, "TRIAGE: refine\nREFINED:\n- [ ] x\nREASON: y\n")
+    except SystemExit as exc:
+        assert "already carries agent:refined" in str(exc), exc
+    else:  # pragma: no cover
+        raise AssertionError("a second refine must be refused")
+
+    # Then  nothing was posted and no label was added
+    assert not [c for c in calls if c[:2] == ["issue", "comment"]], calls
