@@ -624,7 +624,12 @@ def test_the_key_reaches_the_container_through_make_targets():
     # And the fix loop runs the preflight before it repairs anything
     fix_loop = mk.split("fix-loop-image:", 1)[1].split("\n\n", 1)[0]
     assert f"-e {KEY_VAR}" in fix_loop
-    assert "scripts/agent_jev_preflight.sh && scripts/fix_loop.sh" in fix_loop
+    # The invariant is ORDER — the preflight runs before anything is repaired — not the exact
+    # adjacency of two words in one shell line. Pinning the contiguous string made a legitimate
+    # change (passing FIX_REPORT_FILE into the loop, issue #538) red both unit jobs on PR #539
+    # while the preflight still ran first.
+    assert "scripts/agent_jev_preflight.sh" in fix_loop
+    assert fix_loop.index("scripts/agent_jev_preflight.sh") < fix_loop.index("scripts/fix_loop.sh")
 
     # And the implementer's internal recipe reports first (the bot path cannot skip it)
     impl = mk.split("_implement-issue:", 1)[1].split("\n\n", 1)[0]

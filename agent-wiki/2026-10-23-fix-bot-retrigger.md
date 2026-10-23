@@ -41,3 +41,12 @@ The fix-bot could not repair the PRs that needed it:
 unit` was green. The fix-bot's check is `make ci-unit` (Linux), so it could not reproduce it; and the sweep had
 not run since 01:28Z. With this change that failure wakes the bot within minutes, hands it the macOS job log,
 and allows up to 5 attempts, each verified by CI.
+
+## The red the fix-bot left behind (run 39921364286)
+
+Both unit jobs went red on the branch: `tests/test_agent_nerve.py::test_the_key_reaches_the_container_through_make_targets`
+asserted the CONTIGUOUS string `scripts/agent_jev_preflight.sh && scripts/fix_loop.sh`. Passing
+`FIX_REPORT_FILE="$(REPORT_FILE)"` into the loop put a word between them, so the assertion failed
+(`1 failed, 5034 passed` on linux, the same on macos) while the preflight still ran first — the behaviour
+was right and the test pinned the spelling. The assertion now reads the invariant it means: both commands
+are in the `fix-loop-image` recipe and the preflight's position is before the loop's.
