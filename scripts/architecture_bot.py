@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -359,8 +360,10 @@ def _run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True, **kwargs)
 
 
-def _gh(gh: str, *args: str, stdin: str | None = None) -> str:
-    proc = _run([gh, *args], input=stdin)
+def _gh(gh: str, *args: str, stdin: str | None = None, token: str = "") -> str:
+    """Run `gh`. A `token` override travels in the child's ENVIRONMENT only (never argv)."""
+    env = {**os.environ, "GH_TOKEN": token} if token else None
+    proc = _run([gh, *args], input=stdin, env=env)
     if proc.returncode != 0:
         raise RuntimeError(f"gh {' '.join(args)} failed ({proc.returncode}): {proc.stderr.strip()}")
     return proc.stdout.strip()
@@ -373,12 +376,12 @@ TRANSIENT = re.compile(r"50[234]|gateway timeout|timed out|timeout", re.I)
 
 
 def _gh_retry(gh: str, *args: str, stdin: str | None = None, attempts: int = 3,
-              delay: float = 1.0) -> str:
+              delay: float = 1.0, token: str = "") -> str:
     """`_gh`, retried a bounded number of times on a transient gateway failure."""
     last: RuntimeError | None = None
     for attempt in range(1, attempts + 1):
         try:
-            return _gh(gh, *args, stdin=stdin)
+            return _gh(gh, *args, stdin=stdin, token=token)
         except RuntimeError as exc:
             last = exc
             if not TRANSIENT.search(str(exc)):
@@ -480,9 +483,14 @@ def publish(root: Path, repo: str, doc: str = DOC_DEFAULT, stamp: str = "",
     git(root, "push", "-u", "origin", branch)
     # A GitHub 502/504 here means the answer was lost, not that the PR was refused: retry, then look
     # for the PR the create may have made, and only then fail (issue #479).
+    #
+    # The PR is opened with the OWNER PAT, never the job token: a pull request created with
+    # `GITHUB_TOKEN` starts NO workflows, so it would carry zero checks and could never become green
+    # (issue #497). The issue keeps the job token — the only one of the two with Issues write (#412).
+    pr_token = (os.environ.get("PR_TOKEN") or "").strip()
     try:
         pr_url = _gh_retry(gh, "pr", "create", "--repo", repo, "--base", "main", "--head", branch,
-                           "--title", _title(stamp), "--body", pr_body)
+                           "--title", _title(stamp), "--body", pr_body, token=pr_token)
     except RuntimeError as exc:
         pr_url = open_pr_for_branch(gh, repo, branch)
         if not pr_url:

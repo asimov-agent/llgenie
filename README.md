@@ -1153,6 +1153,13 @@ make architecture-bot-publish REPO=asimov-agent/llgenie  # ONE issue + ONE PR, n
   `agent/architecture-<UTC stamp>`, one commit carrying only the doc, authored
   `Asimov Agent <support@docondee.com>`, and one PR to `asimov-agent/llgenie:main` whose body
   ends with `closes #<issue>`.
+- **The PR is opened with the owner PAT, the issue with the job token** (issue #497). A pull request
+  created with `GITHUB_TOKEN` starts **no** workflows, so it would carry zero checks and could never be
+  green — `gh pr checks` on such a PR answers "no checks reported". `publish` therefore reads `PR_TOKEN`
+  (the workflow sets it from `secrets.BUMP_TOKEN`) for `gh pr create` only, while `gh issue create` keeps
+  `github.token`, the only one of the two with Issues write (#412). Both travel in the child's
+  environment, never on a command line. A PR authored by this repo's own bot is approvable by the
+  auto-merge job's other identity (#529).
 - **Who may run it.** The trigger guard runs first, before any secret: the repository owner, a
   collaborator with `admin`/`maintain`/`write`, or the repository's own bot when the run's head is a
   branch in this repository (a bot-opened PR is such a head, issue #510). A stranger cannot dispatch

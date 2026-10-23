@@ -223,9 +223,10 @@ def try_approve(gh: str, repo: str, pr: int, state: dict, dry: bool = False,
         if author.lower() == me.lower():
             return (f"a required review is missing, and both tokens belong to `{me}` — GitHub refuses a "
                     f"self-approval, so a human must approve it")
-    if author.lower() not in ALLOWED_AUTHORS:
+    if author.lower() not in ALLOWED_AUTHORS and not _is_bot(author):
         return (f"a required review is missing, and the author `{author or 'unknown'}` is not one of this "
-                f"repo's identities ({', '.join(ALLOWED_AUTHORS)}) — a bot does not approve a stranger's PR")
+                f"repo's identities ({', '.join(ALLOWED_AUTHORS)}) or its own bot — a bot does not approve "
+                f"a stranger's PR")
     if dry:
         print(f"[auto-merge] would approve PR #{pr} as `{me}` (a required review is the only blocker)")
         return None

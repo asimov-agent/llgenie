@@ -154,6 +154,10 @@ jobs:
           # needs; the owner PAT is for the push (and `secrets.BUMP_TOKEN` carries no Issues write,
           # issue #412).
           GH_TOKEN: ${{ github.token }}
+          # The PR is opened with the OWNER PAT, not the job token: a pull request created with
+          # `GITHUB_TOKEN` starts NO workflows, so it would carry zero checks and could never be
+          # green (issue #497). The issue keeps `github.token`; only the PR create uses this.
+          PR_TOKEN: ${{ secrets.BUMP_TOKEN }}
         run: |
           set -euo pipefail
           if [ "${DRY_INPUT}" = "true" ]; then

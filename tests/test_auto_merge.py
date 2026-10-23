@@ -532,6 +532,29 @@ def test_a_refused_merge_defers_with_the_reason_on_the_pr(tmp_path):
     assert "admin merge was refused" in " ".join(comments[0])
 
 
+def test_a_bot_authored_pr_is_approved_by_the_merge_token(tmp_path):
+    """`app/github-actions` is this repo's own bot, not a stranger: the other identity may approve it.
+
+    Issue #529: the author gate admits the bot (`BOT_LOGINS`) while the approval gate did not, so a
+    workflow PR could never clear the required review and `--admin` is refused.
+    """
+
+    # Given a green PR opened as the Actions app, blocked only by the required review
+    gh = _fake_gh(tmp_path, _review_blocked(author="app/github-actions"), {"529": "CLOSED"},
+                  permissions={"asimov-agent": "admin"})
+
+    # When  the job runs with review clearance enabled, for a run the owner triggered
+    rc = am.run(str(gh), "asimov-agent/llgenie", 482, HEAD, approve_when_review_required=True,
+                actor="asimov-agent")
+
+    # Then  the merge token approves it and merges without the admin bypass
+    calls = _calls(tmp_path / "gh.log")
+    merges = [c for c in calls if c[:2] == ["pr", "merge"]]
+    assert rc == 0, rc
+    assert ["pr", "review"] in [c[:2] for c in calls], calls
+    assert merges and "--admin" not in merges[0], merges
+
+
 def test_a_non_allowlisted_author_is_not_approved(tmp_path):
     """A bot does not approve a stranger's PR, however green it is."""
 

@@ -33,7 +33,12 @@ args = sys.argv[1:]
 # Only the program, the verb and the FLAGS are recorded: a body is content, and recording it would
 # make an assertion about the command read the prose inside the body instead.
 with open(os.environ["GH_LOG"], "a", encoding="utf-8") as fh:
-    fh.write(" ".join([args[0], args[1], *[a for a in args if a.startswith("--")]]) + "\\n")
+    fh.write(" ".join([args[0], args[1], *[a for a in args if a.startswith("--")]]) + chr(10))
+# Which credential each call carried — the fixture VALUE, so a test can tell the job token from the
+# owner PAT (issue #497: the PR must be created with the PAT so its workflows run, the issue keeps the
+# job token). These are test values, never a real credential.
+with open(os.environ["GH_LOG"] + ".token", "a", encoding="utf-8") as tf:
+    tf.write(args[0] + " " + args[1] + " " + os.environ.get("GH_TOKEN", "<none>") + chr(10))
 if args[:2] == ["pr", "list"]:
     # `--head` asks "is there a PR on this branch" (the recovery after a lost create, issue #479).
     print(os.environ.get("GH_PR_FOR_BRANCH" if "--head" in args else "GH_PR_LIST", "[]"))
@@ -185,6 +190,30 @@ def test_brief_treats_an_uncommitted_doc_as_a_full_rebuild(tmp_path):
 
 
 # -------------------------------------------------------------------- publishing
+
+
+def test_the_pr_is_created_with_the_owner_pat_so_its_workflows_run(tmp_path, monkeypatch):
+    """A PR opened with the job token starts NO workflows, so it could never be green (issue #497)."""
+
+    # Given a dirty doc, the job token in GH_TOKEN, and the owner PAT in PR_TOKEN
+    root = _repo(tmp_path)
+    _dirty_doc(root)
+    gh, log = _fake_gh(tmp_path)
+    monkeypatch.setenv("GH_LOG", str(log))
+    monkeypatch.setenv("GH_TOKEN", "job-token-value")
+    monkeypatch.setenv("PR_TOKEN", "owner-pat-value")
+
+    # When  publish runs
+    ab.publish(root, "owner/repo", DOC, stamp="20261022T1200", gh=str(gh))
+
+    # Then  the PR create carried the PAT, and the issue create kept the job token
+    tokens = Path(str(log) + ".token").read_text().splitlines()
+    assert "pr create owner-pat-value" in tokens, tokens
+    assert "issue create job-token-value" in tokens, tokens
+
+    # And neither token reached the command line
+    assert "owner-pat-value" not in log.read_text()
+    assert "job-token-value" not in log.read_text()
 
 
 def test_publish_opens_one_linked_issue_and_pr(tmp_path, monkeypatch):
