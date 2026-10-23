@@ -630,6 +630,11 @@ def test_the_key_reaches_the_container_through_make_targets():
     # while the preflight still ran first.
     assert "scripts/agent_jev_preflight.sh" in fix_loop
     assert fix_loop.index("scripts/agent_jev_preflight.sh") < fix_loop.index("scripts/fix_loop.sh")
+    # ... and they are chained in ONE shell command, so the loop cannot run in a container the
+    # preflight never touched (the report file is passed as an assignment on the loop's own command).
+    shell_line = fix_loop.split("bash -lc '", 1)[1].split("';", 1)[0]
+    assert "scripts/agent_jev_preflight.sh" in shell_line
+    assert "scripts/fix_loop.sh" in shell_line
 
     # And the implementer's internal recipe reports first (the bot path cannot skip it)
     impl = mk.split("_implement-issue:", 1)[1].split("\n\n", 1)[0]
