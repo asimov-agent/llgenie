@@ -65,9 +65,12 @@ This document is the map of the shipped path and the machinery around it. It is 
    `<pinned-hash>-<arch>` and `:<arch>`.
 7. **Serve** — `scripts/llgenie_serve.py` scans `~/models/**/*.gguf`, sizes the KV cache and
    `-ngl` for the card, resolves `llama-server` to the container shim (Prism on cards of
-   24 GB or less, like `detect_server`), and serves the OpenAI API as `llm-local`. Metal
-   runs natively through the skill's install because a container cannot reach the GPU there;
-   picking a native engine installs it at the skill's pin through
+   24 GB or less, like `detect_server`), and serves the OpenAI API as `llm-local`. Its Hub
+   read (`_hf_get`) retries both failure shapes: a connect-phase `URLError` **and** a
+   read-phase socket timeout, which arrives as the builtin `TimeoutError` and used to kill a
+   download mid-body with no retry (issue #549).
+   Metal runs natively through the skill's install because a container cannot reach the GPU
+   there; picking a native engine installs it at the skill's pin through
    `scripts/install_engine_launchers.py` (`ensure_native`) and then starts it from `~/bin`.
 
 ## Launcher
@@ -117,10 +120,13 @@ picks which start script or image to run.
 `skills/engines/*/SKILL.md` is the source; `make generate-engine-params` is the only step
 that reads it, and it writes the frozen params plus one Dockerfile per engine x arch. CI
 builds `make build-engine ENGINE=<id> ARCH=<arch>`, tests the image
-(`make test-engine` / `make test-engine-image`) and `make push-engine` publishes it. A
-published image is pulled back with no build and no cache by `make test-published-engine`,
-which checks the digest, the binary version and — for CPU images and GPU images with a CPU
-fallback — serves the tiny model and answers "hi".
+(`make test-engine` / `make test-engine-image`) and `make push-engine` publishes it. The CI
+`engine-image` job drives that post-build test through ONE step for every image,
+`make test-engine-stage ENGINE=<id> ARCH=<arch> TEST=serve|detect`, which dispatches to
+`test-engine` (the OpenAI API answers) or `test-engine-image` (the binary prints its
+version). A published image is pulled back with no build and no cache by
+`make test-published-engine`, which checks the digest, the binary version and — for CPU
+images and GPU images with a CPU fallback — serves the tiny model and answers "hi".
 
 `scripts/engine_image.py` owns the tags, the CI matrix and the `DISABLED` set (an engine x
 arch image that cannot finish in CI is disabled with its tracking issue, never left as a
@@ -184,11 +190,23 @@ fork. A review-blocked green PR is approved with the other allowed identity and 
 merged (`APPROVE=1`); the approval is followed by a bounded wait — `wait_for_merge_state()`
 re-reads the PR up to six times, five seconds apart, until `mergeStateStatus` is `CLEAN` —
 because GitHub computes that field asynchronously and a read taken the same instant as the
-approval still says `BLOCKED` (issue #531). Everything else is deferred with the reason
-posted on the PR, never a red run; a PR that never converges keeps the `--admin` fallback
-and a deferral that names the last observed state. After the merge
-`scripts/verify_closure.py` (`make verify-closure`) proves the body's `closes #n` actually
-closed. `make auto-merge-explain` prints the verdict and writes nothing.
+approval still says `BLOCKED` (issue #531). A PR whose mergeability GitHub has not computed
+yet is likewise polled until it has an answer instead of being deferred on `UNKNOWN`
+(issue #558). Everything else is deferred with the reason posted on the PR, never a red
+run; a PR that never converges keeps the `--admin` fallback and a deferral that names the
+last observed state.
+
+A deferral is exit 0 by design, so nothing retries it and a blocker that clears without a
+push would wait forever. The workflow's second job, `recheck`, is that retry: it runs after
+every CI completion (`needs: [merge]`, `if: always()`) and on its own schedule, and calls
+`make auto-merge-recheck` (`scripts/auto_merge.py recheck`, `MAX=5`), which re-evaluates
+only the PRs whose deferral marker `<!-- auto-merge: deferred <sha> -->` names their
+**current** head (issue #545). Its cron is `3,33 * * * *`: the sweep sat on `*/30` and
+produced zero scheduled runs while every other cron in this tree fired, so it moved to odd
+minutes — the same rule queued-alarm and the bots follow (issues #275, #560).
+After the merge `scripts/verify_closure.py` (`make verify-closure`) proves the body's
+`closes #n` actually closed. `make auto-merge-explain` prints the verdict and writes
+nothing.
 
 The structural gates are make targets, so the same command runs locally and in CI:
 `make check-workflows` (GitHub expressions parse, trailing newlines, every workflow has a
@@ -210,15 +228,20 @@ owner/collaborator guard before any secret is read, and a transcript redacted by
 `scripts/scrub_log.py` before any of it prints. No bot merges: the bots move branches,
 comment and open PRs, and `.github/workflows/auto-merge.yml` is what lands a green,
 conflict-free one (a reviewer holds a PR with the `do-not-merge` label). A bot's run inputs
-(`issue.md`, `triage.md`, `refine-in.md`, `refine.md`, `comment.md`, `pr-body.md`) are
-git-ignored: they are scratch a run writes, never repo content.
+written at the repo root — `issue.md`, `triage.md`, `refine-in.md`, `refine.md`,
+`comment.md`, `pr-body.md` (plus the captured `hermes-run.log`) — are git-ignored, and
+`tests/test_bot_scratch_ignored.py` holds that list to real `git`: they are scratch a run
+writes, never repo content. The dedupe sweep's `dedup-in.md` / `dedup.md` are the same kind
+of scratch from `scripts/issue_dedup.py`; that workflow pushes and commits nothing, so they
+never reach a tree.
 
 | Workflow | Cron | What it does |
 |---|---|---|
-| `issue-bot.yml` | `23 6 * * *` | implements ONE labeled/ready issue per run as a reviewable PR; a manual dispatch with no issue number picks one itself, the implementation is measured from the changed tree (not the exit code), the PR body is built from the run's `pr-body.md`, and a close verdict queues the canonical issue it cites (`scripts/issue_implementer.py`, issue #521) |
-| `fix-bot.yml` | `17 * * * *` | repairs a red PR branch — including one whose head is the repository's own fork — re-runs the gate, pushes only when green; its sweep (`scripts/fix_bot_sweep.py`) treats a PR with no checks at all as not-red rather than a crash, so one unvalidated PR no longer aborts the sweep (issue #496) |
+| `issue-bot.yml` | `23 6 * * *` | implements ONE labeled/ready issue per run as a reviewable PR; a manual dispatch with no issue number picks one itself, the implementation is measured from the changed tree (not the exit code), the PR body is built from the run's `pr-body.md`, and a close verdict queues the canonical issue it cites (`scripts/issue_implementer.py`, issue #521). Only a CLOSE is a decision: `agent:refined` is a marker that a restatement exists, so a refined issue stays in the picker's queue instead of becoming invisible to the implementer (issue #522) |
+| `issue-refiner.yml` | `43 * * * *` | reviews one issue and refines or closes it with cited evidence (`scripts/issue_refiner.py`) |
+| `issue-dedupe.yml` | `51 */6 * * *` | four times a day: picks ONE pair of similar **unclaimed** open issues, older as canonical (`scripts/issue_dedup.py`), has the agent decide `DUPLICATE: #<older>` with `EVIDENCE:`, and retires the copy with that comment + `agent:duplicate` while queueing the canonical — never touches a claimed issue, never opens a PR (issue #553) |
+| `fix-bot.yml` | `17 * * * *` | repairs a red PR branch — including one whose head is the repository's own fork — re-runs the gate, pushes only when green; its sweep (`scripts/fix_bot_sweep.py`) treats a PR with no checks at all as not-red rather than a crash (issue #496). A `workflow_run` on a failed `CI` `pull_request` run makes the `sweep` job resolve that run to its PR (`make auto-merge-resolve`) and capture the failed job's log, then dispatch the repair — so a red PR is acted on in minutes rather than at the next hourly sweep (issue #538); `rounds` defaults to 5 and the job allows 260 minutes (issue #539) |
 | `rebase-bot.yml` | `29 */6 * * *` | drains every eligible PR onto `main` in one run, bounded by `max_prs`; decides from a computed merge state, hands a conflict to the agent and checks the resolution structurally (a recipe's TAB, the wiring guard, lint) against the checkout it mounted, aborts a stopped rebase so the tree returns to `main`, and pushes `--force-with-lease` to the PR's own head remote |
-| `issue-refiner.yml` | `43 * * * *` | reviews one issue and refines or closes it with cited evidence |
 | `code-review-bot.yml` | `31 7 * * 1` | files issues for findings in the tree and the pipelines |
 | `registry-sync.yml` | `19 5 * * 1` | byte-copies the upstream registry, regenerates the derived tables, opens a PR |
 | `engine-bump.yml` | `53 6 * * 1` | pins every engine skill to its upstream release |
@@ -226,8 +249,8 @@ git-ignored: they are scratch a run writes, never repo content.
 | `queued-alarm.yml` | `7,37 * * * *` | reports jobs stuck in `queued` |
 | `search-smoke.yml` | `11 7 * * *` | proves the masked web reach works |
 | `architecture-bot.yml` | `47 */6 * * *` | rewrites `docs/ARCHITECTURE.md` and opens one linked issue + PR |
-| `run-failure-reactor.yml` | — (dispatch / `workflow_run`) | routes a failed run to the fix-bot or one deduped issue |
-| `auto-merge.yml` | — (`workflow_run` on `CI`) | squash-merges the PR a green run belongs to when it is conflict-free; approves first as the other allowed identity, waits for that approval to register, and defers loudly otherwise |
+| `run-failure-reactor.yml` | — (`workflow_run`) | reacts to a failed run of any workflow it lists and routes it: a PR it can push (this repository, or the owner's fork) becomes a fix-bot dispatch, made with the owner PAT because that bot's guard refuses a bot actor (issues #555, #556); anything else becomes ONE marker-deduped issue labelled `agent:implement` (`scripts/run_failure_reactor.py`, issue #286) |
+| `auto-merge.yml` | `3,33 * * * *` + `workflow_run` on `CI` | squash-merges the PR a green run belongs to when it is conflict-free; approves first as the other allowed identity, waits for that approval and for GitHub's mergeability to settle, and its `recheck` job retries a deferral without a push at the head it still has |
 
 Bots run inside the pinned agent image (`containers/agent`), call the model pinned once in
 `scripts/agent_model_pin.py` (alias `nous-deepseek`,
@@ -243,7 +266,8 @@ agent transcript.
 Coordination lives in the tree, not in the workflows: `scripts/bot_claims.py` says which bot
 is already working a subject, `scripts/rebase_bot_sweep.py` and
 `scripts/fix_bot_sweep.py` decide the one PR a sweep acts on, `scripts/issue_cleaner.py`
-finds an open issue a merged PR already implemented, and `scripts/worktree_prune.py`
+finds an open issue a merged PR already implemented, `scripts/issue_dedup.py` decides which
+pair of issues the dedupe sweep compares, and `scripts/worktree_prune.py`
 (`make worktree-prune`, `DRY=1` to preview) removes the worktree and local branch of a
 branch whose PR is merged.
 
