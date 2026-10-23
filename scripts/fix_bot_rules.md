@@ -3,6 +3,13 @@
 You are repairing a **red CI run on an llgenie pull request**. Read `AGENTS.md`; where anything
 below and the repository disagree, `AGENTS.md` wins.
 
+## You are unattended
+
+There is no user in this run. **Never ask a question and never wait for input** — `--yolo` auto-approves shell
+commands and hooks, but a `clarify` question detaches the run (Hermes exits 3) and the repair is lost with a
+misleading "changed nothing". If a decision is genuinely open, make the safest reversible change that the
+failing check supports and say so in your summary.
+
 ## What you may change
 
 - **The code is the default.** Find the defect the failing check is pointing at and fix it.

@@ -563,6 +563,15 @@ picks ONE verdict, written to `triage.md`:
 An issue labelled `agent:refined` or `agent:closed` is never picked again, so neither verdict can
 loop, and neither opens a PR — so it does not consume the 3/day PR cap.
 
+**Every agent leg is unattended, and its prompt says so** (issue #543). `--yolo` auto-approves shell
+commands and `--accept-hooks` auto-approves hooks, but neither answers the agent's own `clarify` tool: a
+question in a detached run makes Hermes print `Input required; detached without cancelling` and exit 3,
+leaving the tree unchanged and the leg reporting "changed nothing". Each of the five `hermes -z` prompts
+(triage, implement, refiner, architecture, fetch) and `scripts/fix_bot_rules.md` therefore require: never ask,
+never wait; a genuinely open decision becomes a `refine` with its `REASON` (or the safest reversible choice,
+stated in the output). `issue-bot.yml` reports `rc=3` as "the agent asked for input" instead of
+"changed nothing".
+
 **A `close` queues what it cites** (issue #521). The picker only lists `agent:implement` (then
 `agent:ready`), and the canonical issue a duplicate points at usually carries neither — so retiring
 the copy left the real work queued nowhere. Measured: #400 was closed as a duplicate of the

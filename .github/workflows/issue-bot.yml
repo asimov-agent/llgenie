@@ -330,5 +330,11 @@ jobs:
         # inferred from the agent's exit code alone.
         if: always() && steps.dispatch.outputs.dispatch == 'true' && steps.verdict.outputs.verdict == 'implement' && (steps.impl.outputs.rc != '0' || steps.diff.outputs.changed != 'true')
         run: |
+          # Exit 3 is Hermes detaching because the agent asked for input (issue #543): a question in an
+          # unattended leg is not "changed nothing", and saying so sends the reader after the wrong cause.
+          if [ "${{ steps.impl.outputs.rc }}" = "3" ]; then
+            echo "::error::the agent asked for input for #${{ steps.dispatch.outputs.issue }} (Hermes detached, rc=3) — an unattended leg must decide without a user; see the UNATTENDED rule in the prompt."
+            exit 1
+          fi
           echo "::error::issue-bot changed nothing for #${{ steps.dispatch.outputs.issue }} (verdict=implement, make implement-issue rc=${{ steps.impl.outputs.rc }}, make issue-bot-changed=${{ steps.diff.outputs.changed }})."
           exit 1
