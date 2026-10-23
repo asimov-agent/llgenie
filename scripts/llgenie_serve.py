@@ -796,6 +796,14 @@ def _hf_get(url, timeout=30):
     errors keep a short backoff with the same attempt budget. 401/403/404 fail
     on the first try.
 
+    A transport error here is `URLError` **or `TimeoutError`** (issue #549). A
+    connect-phase failure arrives wrapped in `URLError`, but a READ-phase socket
+    timeout arrives as the builtin `TimeoutError` from inside `http.client`/`ssl`
+    — and it is not a `URLError` subclass, so catching only `URLError` let one
+    slow read escape the loop entirely: the CLI died with an `ssl.py` traceback
+    and redded `macos / top-tier` (run 39918511555) instead of retrying. The
+    sibling seam, `hf_auth.hub_open`, already catches both.
+
     The top-tier discovery fan-out issues one API call per repo tree (hundreds
     in family mode). An unretried 429 on a single call previously dropped that
     repo from the family list, and a 429 on the search call itself hard-exited
@@ -823,7 +831,11 @@ def _hf_get(url, timeout=30):
                 if attempt == HF_GET_MAX_ATTEMPTS:
                     break
                 pause = HF_GET_BASE_PAUSE * (2 ** (attempt - 1))
-        except urllib.error.URLError:
+        except (urllib.error.URLError, TimeoutError):
+            # A connect-phase failure is a URLError; a read-phase socket timeout is
+            # the builtin TimeoutError (socket.timeout since 3.10) and NOT a
+            # URLError, so both must be named or one slow read escapes the budget
+            # (issue #549, run 39918511555).
             _rate_limited = 0
             if attempt == HF_GET_MAX_ATTEMPTS:
                 break

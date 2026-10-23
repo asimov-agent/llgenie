@@ -2429,6 +2429,84 @@ def test_hf_get_resets_the_429_count_after_success(monkeypatch):
     assert llgenie_serve._rate_limited == 0
 
 
+def test_hf_get_retries_a_read_phase_timeout(monkeypatch):
+    """Story: a Hub connection that ACCEPTS and then stalls is retried, not fatal.
+
+    Root cause of run 39918511555 (`macos / top-tier` red on `main`): `_hf_get`'s retry loop caught
+    `urllib.error.HTTPError` and `urllib.error.URLError`, but a READ-phase socket timeout arrives as the
+    builtin `TimeoutError` from inside `http.client`/`ssl` — and `TimeoutError` is not a `URLError`
+    subclass (`issubclass(TimeoutError, urllib.error.URLError)` is False). One slow read therefore left the
+    loop uncaught: the family dry run died with an `ssl.py` traceback and exit 1, and the acceptance test
+    reported "dry run must exit 0". The sibling seam `hf_auth.hub_open` already catches both.
+
+    No transport is monkeypatched: a REAL local HTTP server accepts the connection and then answers
+    nothing, so the client's own socket timeout is what raises.
+    """
+    import json as _json
+    import threading
+    import time
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    state = {"hits": 0, "stalls": 0}
+
+    class _Stalling(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def log_message(self, format, *args):   # noqa: A002 (http.server's signature)
+            return                              # keep the test output clean
+
+        def do_GET(self):                    # noqa: N802 (http.server's spelling)
+            state["hits"] += 1
+            if state["stalls"] > 0:
+                state["stalls"] -= 1
+                time.sleep(4)                # far past the 1s read timeout below
+                return                       # never a response line
+            body = _json.dumps({"ok": True}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), _Stalling)
+    srv.daemon_threads = True
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{srv.server_address[1]}/api/models?x=1"
+
+    monkeypatch.setattr(llgenie_serve, "HF_GET_MAX_ATTEMPTS", 3)
+    monkeypatch.setattr(llgenie_serve, "HF_GET_BASE_PAUSE", 0.0)
+    monkeypatch.setattr(llgenie_serve, "_rate_limited", 0)
+
+    try:
+        # Given a first request that stalls past the read timeout
+        state["stalls"] = 1
+
+        # When  the top-tier GET runs
+        got = llgenie_serve._hf_get(url, timeout=1)
+
+        # Then  the stall was retried, the retry's answer came back, and nothing raised
+        assert got == {"ok": True}
+        assert state["hits"] == 2, f"expected the stalled read to be retried, saw {state['hits']} hits"
+
+        # Given a Hub that accepts and never answers, for every attempt
+        state["stalls"] = 99
+        state["hits"] = 0
+        monkeypatch.setattr(llgenie_serve, "HF_GET_MAX_ATTEMPTS", 2)
+
+        # When  the budget is spent
+        with pytest.raises(SystemExit) as e:
+            llgenie_serve._hf_get(url, timeout=1)
+
+        # Then  it fails with the retry loop's own message after exactly the budget's
+        #       attempts — a TimeoutError never escapes as a traceback
+        assert state["hits"] == 2
+        assert "still failing after 2 attempts" in str(e.value), str(e.value)
+        assert "TimeoutError" not in str(e.value)
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
 def test_family_scope_mocked(monkeypatch):
     """Story: `--family qwen` downloads the top providers of ONE family.
 
