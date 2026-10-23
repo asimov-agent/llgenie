@@ -1,6 +1,6 @@
 # 2026-10-23 — the auto-merge sweep's cron was never going to fire (#560)
 
-**Issue:** [#560](https://github.com/asimov-agent/llgenie/issues/560) · **PR:** the PR that closes it
+**Issue:** [#560](https://github.com/asimov-agent/llgenie/issues/560) · **PR:** [#562](https://github.com/asimov-agent/llgenie/pull/562)
 
 ## What was wrong
 
