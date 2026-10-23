@@ -45,7 +45,7 @@ def _state(**kw) -> dict:
 
 def _fake_gh(tmp_path: Path, pr: dict, issues: dict | None = None, token_login: str = "asimov-agent",
              permissions: dict | None = None, tokens: dict | None = None, merge_rc: int = 0,
-             settle_after: int = 0):
+             settle_after: int = 0, prs: list | None = None, views: dict | None = None):
     """A `gh` answering `pr view` / `pr review` / `pr merge` / `issue view` / `api user` / permission.
 
     It records every argv (the assertion surface) and flips the PR's state through marker files, so a test
@@ -69,6 +69,8 @@ TOKEN = {token_login!r}
 TOKENS = json.loads({json.dumps(tokens or {})!r})
 MERGE_RC = {merge_rc!r}
 SETTLE = {settle_after!r}
+PRS = json.loads({json.dumps(prs or [])!r})
+VIEWS = json.loads({json.dumps(views or {})!r})
 if os.path.exists({str(log)!r} + ".approved"):
     PR = dict(PR, reviewDecision="APPROVED", mergeStateStatus="CLEAN")
 if os.path.exists({str(log)!r} + ".merged"):
@@ -80,6 +82,10 @@ if len(args) >= 2 and args[0] == "api" and "/collaborators/" in args[1] and args
     if login not in PERMS:
         print("not found", file=sys.stderr); sys.exit(1)
     print(PERMS[login]); sys.exit(0)
+if args[:2] == ["pr", "list"]:
+    print(json.dumps(PRS)); sys.exit(0)
+if args[:2] == ["pr", "view"] and len(args) > 2 and args[2] in VIEWS:
+    print(json.dumps(VIEWS[args[2]])); sys.exit(0)
 if args[:2] == ["pr", "view"]:
     if SETTLE and os.path.exists({str(log)!r} + ".approved"):
         counter = pathlib.Path({str(log)!r} + ".views")
@@ -783,3 +789,82 @@ def test_no_token_is_a_loud_failure_not_a_deferral(monkeypatch, capsys):
     assert code == 2, code
     err = capsys.readouterr().err + capsys.readouterr().out
     assert "no token" in (err or "").lower() or True
+
+
+# ---- a deferral is retried by the recheck sweep (issue #545) ----
+
+def _deferred_view(pr: dict, head: str, **kw) -> dict:
+    """A PR carrying the gate's own deferral marker for `head`."""
+    marker = am.DEFERRAL_MARKER.format(head[:40])
+    view = dict(pr)
+    view["comments"] = [{"body": f"{marker}\n\nNot auto-merged."}]
+    view.update(kw)
+    return view
+
+
+def test_a_deferred_pr_is_retried_and_merged_when_the_blocker_cleared(tmp_path):
+    """#541: the secret was added, nothing about the PR changed — the sweep must finish the job."""
+
+    # Given a green, clean PR carrying a deferral marker for its CURRENT head
+    trust = {"nameWithOwner": "asimov-agent/llgenie"}
+    view = _deferred_view(_state(reviewDecision="APPROVED", headRepository=trust), HEAD)
+    gh = _fake_gh(tmp_path, _state(reviewDecision="APPROVED", headRepository=trust),
+                  prs=[{"number": 541, "headRefOid": HEAD}], views={"541": view})
+
+    # When  the recheck sweep runs
+    rc = am.recheck(str(gh), "asimov-agent/llgenie", max_prs=5)
+
+    # Then  it merges it, through the one decision (no --admin)
+    calls = _calls(tmp_path / "gh.log")
+    merges = [c for c in calls if c[:2] == ["pr", "merge"]]
+    assert rc == 0, rc
+    assert merges and "--admin" not in merges[0], merges
+
+
+def test_a_marker_for_another_head_is_not_retried(tmp_path):
+    """That verdict described a different tree; the current head has its own run."""
+
+    # Given a deferral marker for an OLD head, on a PR whose head has since moved
+    trust = {"nameWithOwner": "asimov-agent/llgenie"}
+    view = _deferred_view(_state(headRepository=trust), "0ld" * 13 + "ab")
+    gh = _fake_gh(tmp_path, _state(headRepository=trust),
+                  prs=[{"number": 541, "headRefOid": HEAD}], views={"541": view})
+
+    # When  the sweep runs
+    rc = am.recheck(str(gh), "asimov-agent/llgenie")
+
+    # Then  nothing is merged or approved
+    calls = _calls(tmp_path / "gh.log")
+    assert rc == 0
+    assert not [c for c in calls if c[:2] == ["pr", "merge"]]
+    assert not [c for c in calls if c[:2] == ["pr", "review"]]
+
+
+def test_a_pr_without_a_deferral_marker_is_not_touched(tmp_path):
+    """The sweep retries its OWN deferrals, not every open PR."""
+
+    # Given an open PR with no deferral marker
+    trust = {"nameWithOwner": "asimov-agent/llgenie"}
+    gh = _fake_gh(tmp_path, _state(headRepository=trust),
+                  prs=[{"number": 600, "headRefOid": HEAD}], views={"600": _state(headRepository=trust)})
+
+    # When  the sweep runs
+    rc = am.recheck(str(gh), "asimov-agent/llgenie")
+
+    # Then  it merges nothing
+    assert rc == 0
+    assert not [c for c in _calls(tmp_path / "gh.log") if c[:2] == ["pr", "merge"]]
+
+
+def test_the_recheck_is_scheduled_and_runs_the_make_target():
+    """A deferral is retried by a scheduled sweep, not only by a human re-run (issue #545)."""
+
+    # Given the merge workflow and the Makefile
+    # When  the schedule, the recheck job and the target are read
+    # Then  the workflow schedules it and the job calls the one make target
+    assert "schedule:" in MERGE_WF and "*/30 * * * *" in MERGE_WF, "the sweep must be scheduled"
+    assert "recheck:" in MERGE_WF, "a recheck job must exist"
+    assert "make auto-merge-recheck REPO=\"$REPO\"" in MERGE_WF
+    assert "APPROVER_TOKEN" in MERGE_WF, "the sweep needs the other identity to approve"
+    assert "\nauto-merge-recheck:" in MAKEFILE, "the target is the one entry point"
+    assert "scripts/auto_merge.py recheck" in MAKEFILE

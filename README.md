@@ -1061,6 +1061,7 @@ conflict-free, and deletes the branch. The shape is `trending-local-llms`' `auto
 ```bash
 make auto-merge PR=<n> REPO=asimov-agent/llgenie [HEAD_SHA=<sha>] [APPROVE=1] [DRY=1]  # the decision + the merge
 make auto-merge-explain PR=<n> REPO=asimov-agent/llgenie     # why it was (or was not) merged — writes nothing
+make auto-merge-recheck REPO=asimov-agent/llgenie [MAX=5] [DRY=1]  # retry the PRs the gate deferred at their current head
 make verify-closure PR=<n> REPO=asimov-agent/llgenie         # did `closes #n` actually close?
 make auto-merge-resolve REPO=<owner/repo> RUN_ID=<id> HEAD_OWNER=<owner> HEAD_BRANCH=<branch>  # run -> PR number
 ```
@@ -1124,7 +1125,10 @@ Two things make a deferral honest rather than silent (issue #491):
   re-read still says `BLOCKED` — the job polls for up to ~30 s and merges as soon as the PR is `CLEAN`. A PR
   that never converges defers with the state it stayed stuck in, never an empty reason.
 - **Every deferral posts one comment per head SHA** with the reason and what would unblock it, so the PR
-  answers "why is this not merged?" itself. `make auto-merge-explain` prints the same verdict at any time.
+  answers "why is this not merged?" itself. `make auto-merge-explain` prints the same verdict at any time. **A deferral is retried, not parked**
+(issue #545): `make auto-merge-recheck` (scheduled every 30 minutes) re-runs the same decision for every open PR
+whose deferral marker names its current head, so a blocker that clears without a push — a secret added, a review
+posted, `do-not-merge` removed, a pending check finished — is finished by the next sweep.
 
 The agent still never runs `gh pr merge` itself (AGENTS.md rule 7): it pushes, drives the PR green and
 stops — CI lands it, or a human does when the job defers.

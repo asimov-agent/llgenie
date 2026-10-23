@@ -382,6 +382,50 @@ def run(gh: str, repo: str, pr: int, head_sha: str, dry: bool = False,
     return _merge(gh, repo, pr, head_sha, state, dry)
 
 
+def deferred_for_head(gh: str, repo: str, pr: int, head_sha: str) -> bool:
+    """Whether this PR carries a deferral marker for exactly this head (issue #545)."""
+    if not head_sha:
+        return False
+    marker = DEFERRAL_MARKER.format(head_sha[:40])
+    return any(marker in body for body in pr_comments(gh, repo, pr))
+
+
+def recheck(gh: str, repo: str, max_prs: int = 5, dry: bool = False) -> int:
+    """Re-evaluate the PRs whose own deferral marker matches their CURRENT head (issue #545).
+
+    A deferral is exit 0 by design, so nothing retries it: the blocker can clear (a secret added, a review
+    posted, `do-not-merge` removed, a pending check finished) and the PR stays green and unmerged until a
+    push. This sweep closes that hole by running the SAME decision again — no second merge path — only for a
+    PR the gate itself deferred at the head it still has. A stale marker (the head moved) is skipped: that
+    verdict described a different tree.
+    """
+    out = _gh(gh, ["pr", "list", "--repo", repo, "--state", "open", "--limit", "100",
+                   "--json", "number,headRefOid"])
+    prs = json.loads(out or "[]")
+    seen = 0
+    for pr in prs:
+        num = int(pr["number"])
+        head = (pr.get("headRefOid") or "")
+        if not deferred_for_head(gh, repo, num, head):
+            print(f"[recheck] #{num}: no deferral marker for {(head or '?')[:8]} — not a retry")
+            continue
+        if seen >= max_prs:
+            print(f"[recheck] cap reached ({max_prs} PRs this sweep); the rest waits for the next one")
+            break
+        seen += 1
+        print(f"[recheck] #{num}: retrying the deferral at {head[:8]}")
+        if dry:
+            print(f"[recheck] #{num}: --dry, decision not run")
+            continue
+        # The sweep runs as the repository's own scheduled job, so the token's account is its actor: that is
+        # what authorises a bot-opened PR (a bot has no permission endpoint to ask).
+        run(gh, repo, num, head, dry=False, approve_when_review_required=True,
+            actor=token_login(gh))
+    if seen == 0:
+        print("[recheck] no deferred PR needs a retry")
+    return 0
+
+
 def explain(gh: str, repo: str, pr: int, head_sha: str = "") -> int:
     """The same decision, printed for a human. Writes nothing."""
     state = pr_state(gh, repo, pr)
@@ -436,8 +480,16 @@ def main(argv: list[str] | None = None) -> int:
     e.add_argument("--pr", type=int, required=True)
     e.add_argument("--head-sha", default="")
     e.add_argument("--gh", default="gh")
+    r = sub.add_parser("recheck", help="re-evaluate the PRs whose deferral marker matches their head")
+    r.add_argument("--repo", required=True)
+    r.add_argument("--max-prs", type=int, default=5)
+    r.add_argument("--gh", default="gh")
+    r.add_argument("--dry", action="store_true")
+
     args = p.parse_args(argv)
     _require_token()
+    if args.cmd == "recheck":
+        return recheck(args.gh, args.repo, args.max_prs, args.dry)
     if args.cmd == "explain":
         return explain(args.gh, args.repo, args.pr, args.head_sha)
     return run(args.gh, args.repo, args.pr, args.head_sha, args.dry,

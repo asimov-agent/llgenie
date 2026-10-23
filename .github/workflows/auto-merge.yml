@@ -20,6 +20,11 @@ on:
   workflow_run:
     workflows: ["CI"]
     types: [completed]
+  # A deferral is exit 0 by design, so nothing retries it: this sweep re-runs the same decision for the PRs
+  # the gate itself deferred at the head they still have (issue #545). Every 30 minutes, plus by hand.
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -34,6 +39,7 @@ jobs:
   merge:
     # A PR run that finished green, and nothing else: a push run on main has no pull request to merge.
     if: >-
+      github.event_name == 'workflow_run' &&
       github.event.workflow_run.event == 'pull_request' &&
       github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
@@ -87,3 +93,28 @@ jobs:
           # collaborator, or the bot — the same gate ci.yml's guard already applied to the run.
           ACTOR: ${{ github.event.workflow_run.actor.login }}
         run: make auto-merge PR="$PR" REPO="$REPO" HEAD_SHA="$HEAD_SHA" APPROVE=1 ACTOR="$ACTOR"
+
+  recheck:
+    # The retry half of the same gate (issue #545): only the PRs whose deferral marker names their CURRENT
+    # head are re-evaluated, through the same make target.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - name: Require the owner PAT (an empty token must fail, never defer)
+        env:
+          BUMP_TOKEN: ${{ secrets.BUMP_TOKEN }}
+        run: |
+          if [ -z "$BUMP_TOKEN" ]; then
+            echo "::error::secrets.BUMP_TOKEN is empty in the base repository - this workflow cannot merge, and must not pretend otherwise"
+            exit 2
+          fi
+      - name: Re-evaluate the deferred PRs (approve as the other identity, then merge)
+        env:
+          GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
+          APPROVER_TOKEN: ${{ secrets.APPROVER_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: make auto-merge-recheck REPO="$REPO"
