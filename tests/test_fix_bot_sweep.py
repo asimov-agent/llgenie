@@ -22,12 +22,14 @@ import fix_bot_sweep as sweep  # noqa: E402
 OWNER = "asimov-agent"
 
 
-def gh_stub(tmp_path: Path, prs, checks: dict, commits: dict, comments: dict | None = None) -> Path:
+def gh_stub(tmp_path: Path, prs, checks: dict, commits: dict, comments: dict | None = None,
+            no_checks: list | None = None) -> Path:
     """A `gh` that answers the three shapes the sweep uses, and logs a dispatch."""
     bin_dir = tmp_path / "bin"; bin_dir.mkdir(exist_ok=True)
     scenario = tmp_path / "scenario.json"
     scenario.write_text(json.dumps({"prs": prs, "checks": checks, "commits": commits,
-                                    "comments": comments or {}}))
+                                    "comments": comments or {},
+                                    "no_checks": no_checks or []}))
     log = tmp_path / "gh-calls"
     log.write_text("")
     gh = bin_dir / "gh"
@@ -40,6 +42,11 @@ with open("{log}", "a") as fh:
 if a[:2] == ["pr", "list"]:
     print(json.dumps(sc["prs"]))
 elif a[:2] == ["pr", "checks"]:
+    if a[2] in (sc.get("no_checks") or []):
+        # What GitHub answers for a branch whose workflows never ran (issue #496): non-zero, and this
+        # message on stderr, with nothing on stdout.
+        sys.stderr.write("no checks reported on the 'agent/x' branch")
+        sys.exit(1)
     print(json.dumps(sc["checks"].get(a[2], [])))
 elif a[:2] == ["pr", "view"]:
     print(json.dumps({{"commits": [{{"messageHeadline": m}} for m in sc["commits"].get(a[2], [])],
@@ -132,6 +139,27 @@ def test_the_cap_is_a_parameter(tmp_path):
     gh_stub(tmp_path, [pr(50)], {"50": RED}, {"50": ["fix(bot): a"]})
     r = run_sweep(tmp_path, ["--repo", f"{OWNER}/llgenie", "--max-attempts", "1"])
     assert "the cap (1/1 attempts)" in r.stdout
+
+
+def test_a_pr_with_no_checks_does_not_kill_the_sweep(tmp_path):
+    """A branch whose workflows never ran is not a red PR: `gh pr checks` exits non-zero (#496).
+
+    Measured on PR #527 (`app/github-actions`, opened with the job token): the sweep died with
+    `RuntimeError: gh pr checks 527 … no checks reported` before it could look at any other PR.
+    """
+
+    # Given one open PR whose branch has no checks at all
+    log = gh_stub(tmp_path, [pr(527, "agent/architecture-x")], checks={}, commits={},
+                  no_checks=["527"])
+
+    # When  the sweep runs
+    r = run_sweep(tmp_path, ["--repo", f"{OWNER}/llgenie"])
+
+    # Then  it exits cleanly, having read the checks and picked nothing
+    assert r.returncode == 0, f"sweep exited {r.returncode}: {r.stderr[-400:]}"
+    assert "pr checks 527" in log.read_text()
+    assert "no failing check" in r.stdout, r.stdout[-400:]
+    assert "nothing to fix" in r.stdout, r.stdout[-400:]
 
 
 # ---- the claim protocol on the fix-bot's side (issue #279) ----

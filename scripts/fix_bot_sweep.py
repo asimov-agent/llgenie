@@ -67,9 +67,20 @@ def open_prs(repo: str) -> list[dict]:
 
 
 def failing_checks(repo: str, pr: int) -> list[str]:
-    """The names of this PR's failing checks (empty = nothing red)."""
-    out = _gh(["pr", "checks", str(pr), "--repo", repo, "--json",
-               "name,state,bucket,workflow"]).strip()
+    """The names of this PR's failing checks (empty = nothing red).
+
+    A PR with NO checks at all is not a red PR: `gh pr checks` exits non-zero with "no checks reported on
+    the '<branch>' branch" for a branch whose workflows never ran (a PR opened with `GITHUB_TOKEN` starts
+    none). Treating that as a failed call killed the entire sweep — measured on PR #527, run 39884199020
+    (issue #496). Every other `gh` failure still raises.
+    """
+    try:
+        out = _gh(["pr", "checks", str(pr), "--repo", repo, "--json",
+                   "name,state,bucket,workflow"]).strip()
+    except RuntimeError as exc:
+        if "no checks reported" in str(exc).lower():
+            return []
+        raise
     if not out:
         return []
     rows = json.loads(out)
