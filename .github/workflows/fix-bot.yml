@@ -85,7 +85,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     # FIX_ROUNDS rounds x (check + agent); see the header for the measured arithmetic.
-    timeout-minutes: 180
+    timeout-minutes: 260
     env:
       NOUS_API_KEY: ${{ secrets.NOUS_PORTAL_API_TOKEN }}
       GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
@@ -98,7 +98,7 @@ jobs:
       FIX_ROUNDS: ${{ inputs.rounds || '3' }}
       FIX_CHECK: ${{ inputs.check || 'make ci-unit' }}
       # The failed run's log, when a `workflow_run` triggered this (issue #538).
-      FIX_REPORT_FILE: ${{ inputs.report_file }}
+      REPORT_FILE: ${{ inputs.report_file }}
     steps:
       # ---------------------------------------------------------------- guards
       - name: Owner / collaborator trigger guard
