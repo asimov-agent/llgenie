@@ -1110,7 +1110,10 @@ Two things make a deferral honest rather than silent (issue #491):
   review rule is enforced for admins (measured: PR #523, run 39816912388), so such a PR defers with the
   reason on itself. Setting the optional `APPROVER_TOKEN` secret to the other allowed identity's PAT lets
   those bot-authored PRs be approved and merged too. A stranger's green PR is never approved. Conflicts, a
-  stale branch, a draft and `do-not-merge` are still deferred.
+  stale branch, a draft and `do-not-merge` are still deferred. **The job then waits, bounded, for the
+  approval to take effect** (issue #531): GitHub computes `mergeStateStatus` asynchronously, so an instant
+  re-read still says `BLOCKED` — the job polls for up to ~30 s and merges as soon as the PR is `CLEAN`. A PR
+  that never converges defers with the state it stayed stuck in, never an empty reason.
 - **Every deferral posts one comment per head SHA** with the reason and what would unblock it, so the PR
   answers "why is this not merged?" itself. `make auto-merge-explain` prints the same verdict at any time.
 

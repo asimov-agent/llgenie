@@ -44,7 +44,8 @@ def _state(**kw) -> dict:
 
 
 def _fake_gh(tmp_path: Path, pr: dict, issues: dict | None = None, token_login: str = "asimov-agent",
-             permissions: dict | None = None, tokens: dict | None = None, merge_rc: int = 0):
+             permissions: dict | None = None, tokens: dict | None = None, merge_rc: int = 0,
+             settle_after: int = 0):
     """A `gh` answering `pr view` / `pr review` / `pr merge` / `issue view` / `api user` / permission.
 
     It records every argv (the assertion surface) and flips the PR's state through marker files, so a test
@@ -57,7 +58,7 @@ def _fake_gh(tmp_path: Path, pr: dict, issues: dict | None = None, token_login: 
     gh = tmp_path / "gh"
     perms = permissions if permissions is not None else {"andyholst": "admin", "asimov-agent": "admin"}
     gh.write_text(f'''#!{sys.executable}
-import json, os, sys
+import json, os, pathlib, sys
 args = sys.argv[1:]
 with open({str(log)!r}, "a") as fh:
     fh.write(json.dumps(args) + "\\n")
@@ -67,6 +68,7 @@ PERMS = json.loads({json.dumps(perms)!r})
 TOKEN = {token_login!r}
 TOKENS = json.loads({json.dumps(tokens or {})!r})
 MERGE_RC = {merge_rc!r}
+SETTLE = {settle_after!r}
 if os.path.exists({str(log)!r} + ".approved"):
     PR = dict(PR, reviewDecision="APPROVED", mergeStateStatus="CLEAN")
 if os.path.exists({str(log)!r} + ".merged"):
@@ -79,6 +81,13 @@ if len(args) >= 2 and args[0] == "api" and "/collaborators/" in args[1] and args
         print("not found", file=sys.stderr); sys.exit(1)
     print(PERMS[login]); sys.exit(0)
 if args[:2] == ["pr", "view"]:
+    if SETTLE and os.path.exists({str(log)!r} + ".approved"):
+        counter = pathlib.Path({str(log)!r} + ".views")
+        seen = int(counter.read_text()) if counter.exists() else 0
+        counter.write_text(str(seen + 1))
+        if seen < SETTLE:
+            print(json.dumps(dict(PR, reviewDecision="APPROVED", mergeStateStatus="BLOCKED")))
+            sys.exit(0)
     print(json.dumps(PR)); sys.exit(0)
 if args[:2] == ["pr", "review"]:
     open({str(log)!r} + ".approved", "w").write("1")
@@ -553,6 +562,43 @@ def test_a_bot_authored_pr_is_approved_by_the_merge_token(tmp_path):
     assert rc == 0, rc
     assert ["pr", "review"] in [c[:2] for c in calls], calls
     assert merges and "--admin" not in merges[0], merges
+def test_the_approval_is_waited_for_before_deciding(tmp_path, monkeypatch):
+    """GitHub reports BLOCKED for a moment after an approval; the job must wait, not give up (#531)."""
+
+    # Given a review-blocked green PR whose state stays BLOCKED for two reads after the approval
+    monkeypatch.setattr(am, "RECHECK_DELAY", 0.0)
+    monkeypatch.setattr(am, "RECHECK_ATTEMPTS", 4)
+    gh = _fake_gh(tmp_path, _review_blocked(), {"531": "CLOSED"}, settle_after=2)
+
+    # When  the job runs with review clearance enabled
+    rc = am.run(str(gh), "asimov-agent/llgenie", 482, HEAD, approve_when_review_required=True)
+
+    # Then  it merges on the polled read, without ever falling back to --admin
+    calls = _calls(tmp_path / "gh.log")
+    merges = [c for c in calls if c[:2] == ["pr", "merge"]]
+    assert rc == 0, rc
+    assert merges and "--admin" not in merges[0], merges
+    assert len([c for c in calls if c[:2] == ["pr", "view"]]) >= 3, calls
+
+
+def test_a_pr_that_never_settles_defers_naming_the_real_reason(tmp_path, monkeypatch):
+    """No `None` in the deferral: it says the approval landed and the state it stayed stuck in (#531)."""
+
+    # Given a PR that stays BLOCKED however long the job waits, and a merge GitHub refuses
+    monkeypatch.setattr(am, "RECHECK_DELAY", 0.0)
+    monkeypatch.setattr(am, "RECHECK_ATTEMPTS", 3)
+    gh = _fake_gh(tmp_path, _review_blocked(), {"531": "CLOSED"}, settle_after=99, merge_rc=1)
+
+    # When  the job runs
+    rc = am.run(str(gh), "asimov-agent/llgenie", 482, HEAD, approve_when_review_required=True)
+
+    # Then  it exits 0 and the comment names the wait, never "None"
+    comments = [c for c in _calls(tmp_path / "gh.log") if c[:2] == ["pr", "comment"]]
+    assert rc == 0, rc
+    assert comments, "a deferral must be visible on the PR"
+    body = " ".join(comments[0])
+    assert "did not become mergeable within the wait" in body, body
+    assert "None;" not in body, body
 
 
 def test_a_non_allowlisted_author_is_not_approved(tmp_path):

@@ -45,6 +45,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 
 import verify_closure
 
@@ -297,6 +298,35 @@ def _merge(gh: str, repo: str, pr: int, head_sha: str, state: dict, dry: bool,
     return verify_closure.verify(gh, repo, pr)
 
 
+#: GitHub computes `mergeStateStatus` asynchronously after a review, so the read taken the instant the
+#: approval lands still says BLOCKED (issue #531). Poll, bounded, before deciding.
+RECHECK_ATTEMPTS = 6
+RECHECK_DELAY = 5.0
+
+
+def wait_for_merge_state(gh: str, repo: str, pr: int, attempts: int = 0,
+                         delay: float = -1.0) -> dict:
+    """Re-read the PR until its merge state reflects the approval, or the attempts run out.
+
+    A single read right after `gh pr review --approve` reports the PRE-approval state: measured on PR #530
+    (run 39892494540) the job approved as `asimov-agent`, read `BLOCKED`, and abandoned the legitimate path
+    — while the PR was `APPROVED`/`CLEAN` seconds later (issue #531).
+    """
+    n = attempts or RECHECK_ATTEMPTS
+    wait = RECHECK_DELAY if delay < 0 else delay
+    state = pr_state(gh, repo, pr)
+    for attempt in range(1, n + 1):
+        if (state.get("mergeStateStatus") or "").upper() == REQUIRED_MERGE_STATE:
+            return state
+        if attempt == n:
+            break
+        print(f"[auto-merge] PR #{pr}: waiting for the approval to take effect "
+              f"(mergeStateStatus {state.get('mergeStateStatus') or 'UNKNOWN'}, {attempt}/{n})")
+        time.sleep(wait)
+        state = pr_state(gh, repo, pr)
+    return state
+
+
 def _clear_review(gh: str, repo: str, pr: int, head_sha: str, state: dict, dry: bool) -> int:
     """Clear the one procedural block a bot may clear: a required review (issue #524).
 
@@ -310,11 +340,14 @@ def _clear_review(gh: str, repo: str, pr: int, head_sha: str, state: dict, dry: 
     if why is None:
         if dry:
             return 0
-        state = pr_state(gh, repo, pr)          # reviewDecision flips to APPROVED
+        state = wait_for_merge_state(gh, repo, pr)      # bounded: the approval is not instant
         reason = decide(state, head_sha, repo_owner=repo.split("/")[0])
         if reason is None:
             return _merge(gh, repo, pr, head_sha, state, dry)
-        print(f"[auto-merge] PR #{pr}: approved, but the merge state is still {reason}")
+        # The approval DID land; say so, and name the state it was still stuck in — never `None`.
+        why = (f"the approval landed, but the PR did not become mergeable within the wait "
+               f"(mergeStateStatus {state.get('mergeStateStatus') or 'UNKNOWN'}: {reason})")
+        print(f"[auto-merge] PR #{pr}: {why}")
     else:
         print(f"[auto-merge] PR #{pr} cannot be approved: {why}")
     if dry:
