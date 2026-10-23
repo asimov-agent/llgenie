@@ -8,3 +8,4 @@
 - [x] 6. `README.md` + `agent-wiki/2026-10-23-fix-bot-retrigger.md`
 - [x] 7. Verified: `pytest tests/test_fix_bot_sweep.py tests/test_fix_loop.py` → 35 passed; `make lint`, `make check-docs`, `make check-wiring`, `make check-workflows`, `make openspec-validate NAME=fix-bot-retrigger`, `make openspec-tasks-check`; `make test-unit` in the PR checks
 - [x] 8. PR opened against `asimov-agent/llgenie:main` closing #538
+- [x] 9. Repaired the red the branch left behind (PR #539 run 39921364286, both unit jobs): `tests/test_agent_nerve.py` asserted the contiguous string `scripts/agent_jev_preflight.sh && scripts/fix_loop.sh`; it now asserts the ORDER (preflight position < loop position), so `FIX_REPORT_FILE="$(REPORT_FILE)"` between them is not a failure — 66 passed with `tests/test_fix_loop.py tests/test_fix_bot_sweep.py`

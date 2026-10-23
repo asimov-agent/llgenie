@@ -52,3 +52,23 @@ When  the loop runs with no `FIX_ROUNDS`
 Then  it makes five attempts, then gives up loudly for a human.
 
 - **Test:** `tests/test_fix_loop.py::test_it_gives_up_loudly_after_five_rounds`
+
+### Requirement: the provider preflight runs before the loop repairs anything
+
+The `fix-loop-image` recipe SHALL run `scripts/agent_jev_preflight.sh` before `scripts/fix_loop.sh` in the
+same command, so the provider key is wired into the agent home before the repair starts. The check that
+locks this SHALL assert that ORDER, not the exact textual adjacency of the two commands: passing
+`FIX_REPORT_FILE` into the loop (this change) legitimately puts an assignment between them, and a test that
+pins the spelling reds both unit jobs while the behaviour is correct (PR #539, run 39921364286).
+
+WHEN the `fix-loop-image` recipe is read
+THEN it names both the preflight and the loop, and the preflight's position precedes the loop's.
+
+#### Scenario: the preflight precedes the fix loop in the recipe
+
+Given the `fix-loop-image` target in the `Makefile`
+When  its recipe is read
+Then  it passes the provider key by NAME, names `scripts/agent_jev_preflight.sh` before `scripts/fix_loop.sh`,
+and a future argument added to either command does not fail the check.
+
+- **Test:** `tests/test_agent_nerve.py::test_the_key_reaches_the_container_through_make_targets`
