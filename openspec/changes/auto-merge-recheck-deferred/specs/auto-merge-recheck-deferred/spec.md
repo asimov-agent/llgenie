@@ -37,7 +37,7 @@ Then  it is not merged, approved or commented on.
 
 ### Requirement: The sweep is scheduled, bounded and runnable by hand
 
-`auto-merge.yml` SHALL run the recheck on a schedule (every 30 minutes) and by `workflow_dispatch`, with the
+`auto-merge.yml` SHALL run the recheck on a schedule (every 30 minutes), with the
 owner PAT and the optional `APPROVER_TOKEN`; the sweep SHALL process at most `MAX` PRs per run and print one
 line per PR.
 

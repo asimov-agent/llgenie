@@ -15,7 +15,7 @@ the merge only happened at 06:40Z because the run was re-executed by hand.
   open PRs and re-runs the SAME `run()` for each one the gate deferred at its current head — bounded by
   `--max-prs`, skipping a stale marker or a PR with none. New `recheck` subcommand.
 - `Makefile`: `make auto-merge-recheck REPO= [MAX=5] [DRY=1]`.
-- `auto-merge.yml`: `schedule: */30 * * * *` + `workflow_dispatch` and a `recheck` job using `BUMP_TOKEN` +
+- `auto-merge.yml`: `schedule: */30 * * * *` + a `recheck` job using `BUMP_TOKEN` +
   `APPROVER_TOKEN`; the `merge` job remains `workflow_run`-only.
 
 ## Verified

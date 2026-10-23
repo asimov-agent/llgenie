@@ -21,10 +21,10 @@ on:
     workflows: ["CI"]
     types: [completed]
   # A deferral is exit 0 by design, so nothing retries it: this sweep re-runs the same decision for the PRs
-  # the gate itself deferred at the head they still have (issue #545). Every 30 minutes, plus by hand.
+  # the gate itself deferred at the head they still have (issue #545). Every 30 minutes; by hand with
+  # `make auto-merge-recheck REPO=…` or a re-run of the last sweep.
   schedule:
     - cron: "*/30 * * * *"
-  workflow_dispatch:
 
 permissions:
   contents: write
@@ -97,7 +97,7 @@ jobs:
   recheck:
     # The retry half of the same gate (issue #545): only the PRs whose deferral marker names their CURRENT
     # head are re-evaluated, through the same make target.
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

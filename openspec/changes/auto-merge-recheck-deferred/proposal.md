@@ -25,7 +25,7 @@ The same hole covers a review posted later, `do-not-merge` removed, a pending ch
   identity → merge → verify closure). A marker for an older head is skipped — that verdict described another
   tree — and a PR with no marker is not touched.
 - **`make auto-merge-recheck REPO= [MAX=5] [DRY=1]`**, the one entry point.
-- **`auto-merge.yml` gains `schedule: */30 * * * *` and `workflow_dispatch`**, with a `recheck` job that uses
+- **`auto-merge.yml` gains `schedule: */30 * * * *`**, with a `recheck` job that uses
   the owner PAT and `APPROVER_TOKEN`; the existing `merge` job stays `workflow_run`-only.
 - **Bounded**: at most `MAX` PRs per sweep, one line each, and the re-deferral still comments on the PR.
 
