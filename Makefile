@@ -66,7 +66,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	issue-bot-triage issue-bot-changed issue-bot-verdict implement-issue hermes-smoke agent-jev-preflight code-review-scan code-review-file rebase-bot-sweep rebase-bot rebase-bot-abort \
 	architecture-bot-brief architecture-bot-doc architecture-bot-publish architecture-bot \
 	scrub-log \
-	run-failure-reactor rebase-bot-agent check-docs docs-report check-pr-hygiene pr-hygiene-report auto-merge auto-merge-resolve auto-merge-explain auto-merge-recheck verify-closure check-pr-authors pr-authors-report check-workflows workflows-report issue-refiner-pick issue-refiner issue-refiner-apply issue-dedup-pick issue-dedup issue-dedup-apply check-dispatch-forms dispatch-forms-report \
+	run-failure-reactor rebase-bot-agent check-docs docs-report check-pr-hygiene pr-hygiene-report auto-merge auto-merge-resolve auto-merge-explain auto-merge-recheck verify-closure check-pr-authors pr-authors-report check-workflows workflows-report issue-refiner-pick issue-refiner issue-refiner-apply issue-dedup-pick issue-dedup issue-dedup-apply check-dispatch-forms dispatch-forms-report check-agent-skills agent-skills-report \
 	agent-shell-keys-check \
 	agent-fetch search-smoke require-env web-coverage issue-evidence \
 	engine-bump-rebase generate-engine-params check-engine-params build-engine run-engine stop-engine list-engine-images ci-lint ci-unit ci-agents-read \
@@ -345,7 +345,7 @@ rebase-bot-agent: ## Ask Hermes to resolve a stopped rebase (the conflict prompt
 	  -e TYPESAFE_API_KEY \
 	  -e HERMES_NERVE_PROVIDER -e NERVE_REQUIRE \
 	  $(AGENT_SHELL_FORWARD) \
-	  $(AGENT_IMAGE) bash -lc 'hermes -z "$$(cat) UNATTENDED: this run has no user - NEVER ask a question and never wait for input. If a decision is genuinely open, take the path that needs none (a refine with its REFINED/REASON, or a close with cited EVIDENCE) or make the safest reversible choice and state it in your output; a question fails the run." $(nous-alias) --reasoning medium --yolo')
+	  $(AGENT_IMAGE) bash -lc 'hermes -z "$$(cat)" -s rebase-conflict,bot-unattended $(nous-alias) --reasoning medium --yolo')
 # Hermes runs directly there, NOT through `make _rebase-bot-agent`: the container's /repo/Makefile
 # is the conflicted file the agent was asked to resolve, and make cannot parse it (issue #460).
 
@@ -373,7 +373,7 @@ issue-refiner: ## Hermes REVIEWS the picked issue (reads refine-in.md: the threa
 	  $(AGENT_SHELL_FORWARD) \
 	  $(AGENT_IMAGE) bash -lc 'make _issue-refiner')
 _issue-refiner: # (internal) the host recipe the agent image runs: the review, not the code
-	hermes -z "Load AGENTS.md for rules. Read refine-in.md at the repo root: it carries an issue, its WHOLE comment thread (oldest first), and the review instruction. Evidence the host pre-fetched for this issue (issue #380) is in fetched/index.md - read it and use it: it is what the outside world actually says, and a URL listed there as COULD NOT BE FETCHED is UNKNOWN, not false. Follow that instruction and write your verdict to refine.md at the repo root in exactly the required shape (a REFINE: line plus the RESTATED:/REASON: blocks the chosen verdict requires). HARD RULES: this is a REVIEW, not an implementation - do NOT write any code, do NOT create a branch, do NOT push, do NOT open a PR, do NOT comment on the issue yourself, and do NOT modify any file other than refine.md. If the thread leaves a decision open, name it as a question in the restatement instead of deciding it. UNATTENDED: this run has no user - NEVER ask a question and never wait for input. If a decision is genuinely open, take the path that needs none (a refine with its REFINED/REASON, or a close with cited EVIDENCE) or make the safest reversible choice and state it in your output; a question fails the run." $(nous-alias) --reasoning $(HERMES_REASONING) --yolo
+	hermes -z "Follow the preloaded skill issue-refiner (with bot-unattended). Inputs: refine-in.md and fetched/index.md. Output: refine.md at the repo root, in the exact shape the skill requires." -s issue-refiner,bot-unattended $(nous-alias) --reasoning $(HERMES_REASONING) --yolo
 issue-refiner-apply: ## Apply the review in refine.md: ONE comment on the issue + the agent:refined label (never a PR; refuses a `refined` verdict with no RESTATED block)
 	@test -n "$(ISSUE)" || { echo "Usage: make issue-refiner-apply ISSUE=<n> [REPO=<owner/repo>]"; exit 1; }
 	python3 scripts/issue_refiner.py apply refine.md --repo $(if $(REPO),$(REPO),asimov-agent/llgenie) --issue $(ISSUE)
@@ -389,7 +389,7 @@ issue-dedup: ## Hermes decides whether the picked pair is the SAME defect (reads
 	  $(AGENT_SHELL_FORWARD) \
 	  $(AGENT_IMAGE) bash -lc 'make _issue-dedup')
 _issue-dedup: # (internal) the host recipe the agent image runs: the decision, not the change
-	hermes -z "Load AGENTS.md for rules. Read dedup-in.md at the repo root: it carries two open issues of this repository (an older candidate canonical and a newer candidate copy), the token similarity that paired them, and what to answer. Decide whether they describe the SAME defect. If they do, write dedup.md with a DUPLICATE: #<older> line and an EVIDENCE: block naming the shared behaviour (quote both titles/bodies; 'similar words' is not evidence). If they do not, write dedup.md with DISTINCT: and a REASON: block. HARD RULES: this is a TRIAGE, not an implementation - do NOT write code, do NOT create a branch, do NOT push, do NOT open a PR, do NOT comment on or close an issue yourself, and do NOT modify any file other than dedup.md. A duplicate close retires the COPY only; the older issue is queued by the host. UNATTENDED: this run has no user - NEVER ask a question and never wait for input; if the decision is genuinely open, choose DISTINCT (it changes nothing) and say why. A question fails the run." $(nous-alias) --reasoning $(HERMES_REASONING) --yolo
+	hermes -z "Follow the preloaded skill issue-dedup (with bot-unattended). Inputs: dedup-in.md. Output: dedup.md at the repo root, in the exact shape the skill requires." -s issue-dedup,bot-unattended $(nous-alias) --reasoning $(HERMES_REASONING) --yolo
 issue-dedup-apply: ## Apply dedup.md: retire the COPY with a comment citing the canonical + agent:duplicate, close it, and queue the canonical (COPY=<n>; never touches a claimed issue; refuses a duplicate without EVIDENCE)
 	@test -n "$(COPY)" || { echo "Usage: make issue-dedup-apply COPY=<n> [FILE=dedup.md] [REPO=<owner/repo>] [DRY=1]"; exit 1; }
 	python3 scripts/issue_dedup.py apply $(if $(FILE),$(FILE),dedup.md) --copy $(COPY) --repo $(if $(REPO),$(REPO),asimov-agent/llgenie) $(if $(DRY),--dry,)
@@ -450,6 +450,15 @@ scrub-log: ## Redact a captured agent log and print its bounded tail (LOG=<path>
 	python3 scripts/scrub_log.py --in "$(LOG)" $(if $(OUT),--out "$(OUT)",) --tail $(if $(TAIL),$(TAIL),$(HERMES_LOG_TAIL))
 
 
+# ---- each bot leg's contract is a project skill, not an inline string (issue #577) ----------
+# Every `hermes -z` leg below preloads the skill(s) that carry its contract with `-s`, and its
+# inline prompt is a pointer plus that run's parameters. The skills live in
+# `.hermes/skills/<name>/SKILL.md` (Hermes discovers them under the repo root), `bot-unattended`
+# holds the shared unattended contract ONCE, and `hermes -s <bot>,bot-unattended` loads both.
+# The image trusts `/repo` for project skills (`scripts/install_hermes_ci.sh`), and
+# `make check-agent-skills` (ci-unit) fails when a leg names no skill, a skill is missing /
+# misnamed / missing an Inputs|Output|Rules section, a prompt grows back into a rulebook, or a
+# second rules file (scripts/fix_bot_rules.md) returns.
 AGENT_IMAGE := llgenie/agent:latest
 
 issue-bot-image: ## Build/pull the agent image the issue-bot runs in (the same image the fix-bot uses; alias of agent-image)
@@ -464,7 +473,7 @@ issue-bot-triage: ## Hermes REVIEWS the issue (issue.md: body + the whole commen
 	  $(AGENT_IMAGE) bash -lc 'make _issue-bot-triage')
 
 _issue-bot-triage: # (internal) the host recipe the agent image runs: the decision, not the code
-	hermes -z "Load AGENTS.md for rules. Read issue.md at the repo root: it carries the issue, its WHOLE comment thread (oldest first), and the decision instruction. Follow that instruction and decide ONE verdict - implement, refine or close - then write it to triage.md at the repo root in exactly the required shape (a TRIAGE: line, plus REFINED:/EVIDENCE:/REASON: blocks as that verdict requires). HARD RULES: do NOT implement anything, do NOT modify any file other than triage.md, do NOT create a branch, do NOT push, do NOT comment on the issue yourself. A close without an EVIDENCE: block is refused by the next step, so cite what you checked. If a decision is still open in the thread, that is a refine, not a guess. UNATTENDED: this run has no user - NEVER ask a question and never wait for input. If a decision is genuinely open, take the path that needs none (a refine with its REFINED/REASON, or a close with cited EVIDENCE) or make the safest reversible choice and state it in your output; a question fails the run." $(nous-alias) --reasoning $(HERMES_REASONING) --yolo
+	hermes -z "Follow the preloaded skill issue-triage (with bot-unattended). Inputs: issue.md. Output: triage.md at the repo root, in the exact shape the skill requires." -s issue-triage,bot-unattended $(nous-alias) --reasoning $(HERMES_REASONING) --yolo
 
 issue-bot-changed: ## Did the implement step actually change the tree? Prints changed=true|false, the bot's own run inputs excluded; exit 2 when git cannot read the tree (issue #428)
 	python3 scripts/issue_implementer.py changed
@@ -528,7 +537,7 @@ agent-fetch: ## Fetch one URL with the masked Firecrawl key and write its text t
 	  $(AGENT_IMAGE) bash -lc 'make _agent-fetch URL="$$URL" OUT="$$OUT"')
 
 _agent-fetch: # (internal) the host recipe the agent image runs: one fetch, key by name, never printed
-	hermes -z "Load AGENTS.md for rules. Fetch exactly this URL: $(URL) . Use the Firecrawl scrape API: POST https://api.firecrawl.dev/v1/scrape with header 'Authorization: Bearer $$FIRECRAWL_API_KEY' and body {\"url\":\"$(URL)\",\"formats\":[\"markdown\"]}. \`$$FIRECRAWL_API_KEY\` is the NAME of the environment variable that holds the key: read its VALUE from the environment and put it in that header, and never print, echo, write or copy the value anywhere — not in the output, not in $(OUT), not in a comment. Write the returned markdown to $(OUT) at the repo root. If the API answers 401/402/403, say <v>HTTP <code> for the key</v> and exit non-zero; do not retry with another key and do not invent content. HARD RULES: touch no file other than $(OUT), do not create a branch, do not push. UNATTENDED: this run has no user - NEVER ask a question and never wait for input. If a decision is genuinely open, take the path that needs none (a refine with its REFINED/REASON, or a close with cited EVIDENCE) or make the safest reversible choice and state it in your output; a question fails the run." $(nous-alias) --reasoning $(HERMES_REASONING) --yolo
+	hermes -z "Follow the preloaded skill agent-fetch (with bot-unattended). Inputs: URL=$(URL), OUT=$(OUT). Output: the fetched markdown at $(OUT)." -s agent-fetch,bot-unattended $(nous-alias) --reasoning $(HERMES_REASONING) --yolo
 
 search-smoke: ## Prove the masked web reach works: one real Firecrawl request with a hard budget, loud on 401/402/403 — never an empty result (BUDGET= chars, default 4000)
 	@python3 scripts/require_env.py FIRECRAWL_API_KEY
@@ -595,7 +604,7 @@ architecture-bot-doc: ## Rewrite the architecture doc with Hermes INSIDE the age
 
 _architecture-bot-doc: # (internal) the host recipe the agent image runs: only the doc is writable
 	$(MAKE) _agent-jev-preflight
-	hermes -z "Load AGENTS.md for rules. The brief is $(ARCH_BRIEF) at the repo root: read it FIRST. It carries the current $(DOC), the git drift since that doc was last committed, and the real code surface (tracked layout, scripts modules, public make targets, workflows and crons, data/skills/containers/tests). Rewrite $(DOC) so it describes that tree as it is now: the shipped path end to end (install -> backend/hardware detection -> trend list -> engine skill -> engine image -> launcher), the data files, the CI jobs, the bots with their cron slots, and the test/gate layout. Name real files and targets; never invent a module, target, workflow, cron or image the brief does not list. Keep what is still true; fix or delete what moved. HARD RULES: (1) modify NO file except $(DOC); (2) do not create a branch, do not commit, do not push, do not open an issue or a PR - the deterministic publish step does that; (3) never touch main. UNATTENDED: this run has no user - NEVER ask a question and never wait for input. If a decision is genuinely open, take the path that needs none (a refine with its REFINED/REASON, or a close with cited EVIDENCE) or make the safest reversible choice and state it in your output; a question fails the run." $(nous-alias) --reasoning $(HERMES_REASONING) --yolo
+	hermes -z "Follow the preloaded skill architecture-doc (with bot-unattended). Inputs: the brief $(ARCH_BRIEF) and the current $(DOC). Output: the rewritten $(DOC), and no other file." -s architecture-doc,bot-unattended $(nous-alias) --reasoning $(HERMES_REASONING) --yolo
 
 architecture-bot-publish: ## File ONE issue + ONE linked PR for the doc change (REPO=; DOC=; STAMP=; DRY=1 previews) — nothing without drift, never merges (issue #449)
 	@test -n "$(REPO)" || { echo "Usage: make architecture-bot-publish REPO=<owner/repo> [DOC=docs/ARCHITECTURE.md] [DRY=1]"; exit 1; }
@@ -653,7 +662,7 @@ _agent-jev-preflight: # (internal) report whether the JEV layer is available in 
 _implement-issue: # (internal) the host recipe: implement issue.md with Hermes. Invoked
 # inside the agent image by the public `implement-issue` target.
 	$(MAKE) _agent-jev-preflight
-	hermes -z "Load AGENTS.md for rules. The issue to implement is issue.md at the repo root - read it FIRST (and the linked OpenSpec change if present) and implement exactly its acceptance criteria; do not widen the scope. HARD RULES: (1) run every gate through the Makefile and fix what they report; (2) never weaken or mock a test to get green; (3) a test or script you add must be named by a make target (nothing dead); (4) follow the repo's issue -> branch -> OpenSpec -> code -> PR lifecycle. (5) you are running INSIDE the agent container: the checkout at /repo is the ONLY writable tree and it IS the tree this job commits - edit /repo in place, and do NOT create a git worktree (AGENTS.md worktree rule is for a host agent, not this leg: a path like ../llgenie-wt resolves outside the mount and is deleted with the container). (6) before you finish, write pr-body.md at the repo root with exactly four labelled parts and real content in each - `Issue:` (the problem, naming the issue's number as issue.md gives it), `Fix:` (the mechanism you changed and why it addresses the cause), `Benefit:` (what it buys and what it prevents), `Technical:` (the files, targets and tests you touched); the job builds the PR body from that file and refuses to open the PR without it. Do not commit, do not push, do not merge, do not touch main. UNATTENDED: this run has no user - NEVER ask a question and never wait for input. If a decision is genuinely open, take the path that needs none (a refine with its REFINED/REASON, or a close with cited EVIDENCE) or make the safest reversible choice and state it in your output; a question fails the run." $(nous-alias) --reasoning $(HERMES_REASONING) --yolo
+	hermes -z "Follow the preloaded skills issue-implement and bot-unattended. Inputs: issue.md, the OpenSpec change it names, and AGENTS.md. Output: the implementation and pr-body.md at the repo root." -s issue-implement,bot-unattended $(nous-alias) --reasoning $(HERMES_REASONING) --yolo
 _hermes-smoke: # (internal) one real Hermes call that MUST use its terminal tool. Invoked inside
 # the agent image by the public `hermes-smoke` target.
 	@python3 scripts/require_env.py NOUS_API_KEY
@@ -753,6 +762,10 @@ check-docs: ## CI: fail when a user-facing (## help) make target is not document
 	python3 scripts/check_docs.py check
 docs-report: ## Show every user-facing make target as documented / missing / a recorded exception, and each agent-wiki/ work record's issue references
 	python3 scripts/check_docs.py report
+check-agent-skills: ## CI: fail when a `hermes -z` leg preloads no project skill, names a skill that is missing / misnamed / incomplete, carries a rulebook-sized inline prompt instead of a pointer, or a second rules file returns (issue #577)
+	python3 scripts/check_agent_skills.py check
+agent-skills-report: ## Show every bot leg's preloaded skills and prompt size against the pointer budget, and each project skill's directory/name/sections (issue #577)
+	python3 scripts/check_agent_skills.py report
 auto-merge: ## Merge a PR ONLY when this run is green and the PR is conflict-free: state OPEN, mergeable MERGEABLE, mergeStateStatus CLEAN (no conflicts, not behind, not blocked), head pinned to HEAD_SHA, no do-not-merge label; then verify what it closed (PR= REPO= HEAD_SHA= from ci.yml; APPROVE=1 approves a green review-blocked PR with the other allowed identity; DRY=1 prints the decision)
 	@test -n "$(PR)" && test -n "$(REPO)" || { echo "Usage: make auto-merge PR=<n> REPO=<owner/repo> [HEAD_SHA=<sha>] [APPROVE=1] [DRY=1]"; exit 1; }
 	python3 scripts/auto_merge.py auto-merge --repo "$(REPO)" --pr $(PR) $(if $(HEAD_SHA),--head-sha $(HEAD_SHA),) $(if $(APPROVE),--approve-when-review-required,) $(if $(ACTOR),--actor $(ACTOR),) $(if $(DRY),--dry,)
@@ -1286,6 +1299,7 @@ ci-unit: bash-check ## CI job unit: hermetic unit tests + registry / skill / Str
 	$(MAKE) check-wiring
 	$(MAKE) check-secret-output
 	$(MAKE) check-docs
+	$(MAKE) check-agent-skills
 	$(MAKE) check-dispatch-forms
 	$(MAKE) check-pr-hygiene
 	$(MAKE) check-pr-authors
@@ -1395,6 +1409,8 @@ help:
 	@echo "  make agent-jev-preflight           report whether the JEV decision layer is available in the agent image (never blocks a run; NERVE_REQUIRE=1 verifies the image instead) — issue #238"
 	@echo "  make check-docs                  CI: fail when a user-facing make target is not documented in README.md, a recorded exception is stale, or an agent-wiki/ work record references no issue"
 	@echo "  make docs-report                 show every user-facing make target (documented / missing / recorded exception) and each work record's issue references"
+	@echo "  make check-agent-skills          CI: fail when a bot leg preloads no project skill, a skill is missing/misnamed/incomplete, a prompt is over the 400-char pointer budget, or a second rules file returns (issue #577)"
+	@echo "  make agent-skills-report         show every bot leg's preloaded skills + prompt size, and each .hermes/skills/<bot> section (issue #577)"
 	@echo "  make check-pr-authors            CI: fail when a PR commit is authored by anyone but Andy Holst or Asimov Agent, when a Co-authored-by trailer names anyone else, or when a producer commits off the allowlist — PR_BASE/PR_HEAD bound the range (issue #345)"
 	@echo "  make pr-authors-report           show every commit in the range with its author verdict, and the identity each producer assigns"
 	@echo "  make build-engine ENGINE=<id> [ARCH=cpu|cuda|rocm|vulkan] [PUSH=1]   build from the generated Dockerfile"

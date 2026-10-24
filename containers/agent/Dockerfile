@@ -29,7 +29,8 @@
 # `--provider nous` fails with "not logged into Nous Portal" — so the install script writes
 # a CUSTOM provider alias (provider=custom, the base_url above, key_env=NOUS_API_KEY), with the
 # snapshot's published budget (max_tokens, context_window), and the build asserts every key.
-# The alias is why every bot call is `hermes -z ... -m nous-deepseek`.
+# The alias is why every bot call is `hermes -z ... -s <bot>,bot-unattended -m nous-deepseek`
+# (the project skill carries the bot's contract, issue #577; the build trusts /repo for them).
 #
 # ADDED: the Nerve plugin and its settings, installed at build time by
 # scripts/install_nerve_ci.sh (issue #238). The host runs Hermes with Nerve enabled — its JEV

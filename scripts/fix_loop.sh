@@ -11,8 +11,8 @@
 # Env:
 #   FIX_CHECK       the deterministic check command (default: make ci-unit)
 #   FIX_ROUNDS      maximum repair attempts (default: 5)
-#   FIX_AGENT_CMD   how to run the agent; the prompt is fed on STDIN (default: hermes)
-#   FIX_RULES       the rules file handed to the agent (default: scripts/fix_bot_rules.md)
+#   FIX_AGENT_CMD   how to run the agent; the prompt is fed on STDIN (default: hermes
+#                   with the project skills pr-fix,bot-unattended preloaded)
 #   FIX_REPORT      the command's captured output (default: /tmp/fix-report.txt)
 #   FIX_PROMPT      the assembled prompt (default: /tmp/fix-prompt.txt)
 #   FIX_TAIL_LINES  how much of the report to hand the agent (default: 400)
@@ -22,9 +22,10 @@ ROUNDS="${FIX_ROUNDS:-5}"
 CHECK="${FIX_CHECK:-make ci-unit}"
 # The prompt arrives on STDIN, so the default reads it into the one-shot `-z` flag and names
 # the image's custom-provider alias (`-m` is the MODEL flag; `--provider nous` cannot work with
-# a secret, see scripts/install_hermes_ci.sh).
-AGENT_CMD="${FIX_AGENT_CMD:-hermes -z \"\$(cat)\" -m ${FIX_AGENT_ALIAS:-nous-deepseek} --reasoning ${FIX_AGENT_REASONING:-medium} --yolo}"
-RULES="${FIX_RULES:-scripts/fix_bot_rules.md}"
+# a secret, see scripts/install_hermes_ci.sh). The repair contract is the repo's project skill
+# `.hermes/skills/pr-fix/SKILL.md` (issue #577) — preloaded with `-s`, never concatenated from a
+# second rules file; `bot-unattended` carries the shared unattended contract once.
+AGENT_CMD="${FIX_AGENT_CMD:-hermes -z \"\$(cat)\" -s pr-fix,bot-unattended -m ${FIX_AGENT_ALIAS:-nous-deepseek} --reasoning ${FIX_AGENT_REASONING:-medium} --yolo}"
 REPORT="${FIX_REPORT:-/tmp/fix-report.txt}"
 # A captured failure log from the RUN that failed (a `workflow_run` trigger, issue #538): the local
 # check may not be able to reproduce that failure at all (a macOS-only job, a GPU-only image test), so
@@ -36,7 +37,6 @@ TAIL_LINES="${FIX_TAIL_LINES:-400}"
 
 case "$ROUNDS" in ''|*[!0-9]*) echo "[fix-loop] FIX_ROUNDS must be a positive integer, got '$ROUNDS'" >&2; exit 2 ;; esac
 [ "$ROUNDS" -ge 1 ] || { echo "[fix-loop] FIX_ROUNDS must be >= 1" >&2; exit 2; }
-[ -f "$RULES" ] || { echo "[fix-loop] rules file '$RULES' not found (run from the repo root)" >&2; exit 2; }
 command -v "${AGENT_CMD%% *}" >/dev/null 2>&1 || { echo "[fix-loop] agent command '$AGENT_CMD' not found on PATH" >&2; exit 2; }
 
 echo "[fix-loop] check: $CHECK (up to $ROUNDS repair attempt(s), agent: $AGENT_CMD)"
@@ -55,8 +55,6 @@ run_check() {
 
 build_prompt() {
   {
-    cat "$RULES"
-    echo
     echo "## The failing check"
     echo
     echo '```'

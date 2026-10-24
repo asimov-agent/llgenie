@@ -68,3 +68,19 @@ for kv in "model=${MODEL_ID}" "key_env=NOUS_API_KEY" "max_tokens=${MAX_TOKENS}" 
   fi
 done
 echo "[hermes-ci] alias ${ALIAS} -> ${MODEL_ID} via ${BASE_URL} (max_tokens=${MAX_TOKENS}, context_window=${CONTEXT_WINDOW}, key_env=NOUS_API_KEY)"
+
+# Project skills (issue #577): every bot leg preloads `.hermes/skills/<bot>/SKILL.md` with `-s`.
+# Hermes discovers a checkout's project skills ONLY when that checkout's root is listed in
+# `skills.trusted_project_dirs` — an untrusted root loads nothing, and the leg's `-s <name>` would
+# then resolve no skill while the run continues. The bots run the checkout at /repo (the one
+# writable mount), so the image trusts exactly that path. A config write that did not land is
+# LOUD here, at build time, instead of a silently skill-less run later.
+TRUSTED_PROJECT_DIR="${HERMES_TRUSTED_PROJECT_DIR:-/repo}"
+hermes config set skills.trusted_project_dirs "[\"${TRUSTED_PROJECT_DIR}\"]"
+if ! hermes config get skills.trusted_project_dirs 2>/dev/null \
+     | grep -Eq "^[[:space:]]*-[[:space:]]*${TRUSTED_PROJECT_DIR}[[:space:]]*$"; then
+  echo "[hermes-ci] skills.trusted_project_dirs does not list ${TRUSTED_PROJECT_DIR}:" >&2
+  echo "[hermes-ci] the bot legs would preload no project skill (issue #577)" >&2
+  exit 1
+fi
+echo "[hermes-ci] project skills trusted at ${TRUSTED_PROJECT_DIR} (hermes -s <bot>,bot-unattended)"

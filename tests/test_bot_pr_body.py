@@ -145,16 +145,18 @@ def test_the_producer_passes_a_body_file_and_no_fixed_title():
 def test_the_implement_prompt_asks_for_the_body_before_it_finishes():
     """The agent is told to write the four-part body, so the PR never opens without one."""
 
-    # Given the implementer's prompt
+    # Given the implementer's prompt and the project skill it preloads (issue #577)
     lines = MAKEFILE.splitlines()
     start = next(i for i, line in enumerate(lines) if line.startswith("_implement-issue:"))
     prompt = "\n".join(l for l in lines[start:start + 6] if l.startswith("\t"))
+    skill = (REPO / ".hermes" / "skills" / "issue-implement" / "SKILL.md").read_text()
 
-    # When  its rules are read
-    # Then  it names pr-body.md and the four parts
-    assert "pr-body.md" in prompt, prompt
+    # When  its contract is read
+    # Then  the recipe points at the skill, and the skill names pr-body.md and the four parts
+    assert "-s issue-implement,bot-unattended" in prompt, prompt
+    assert "pr-body.md" in prompt and "pr-body.md" in skill, prompt
     for part in ii.PR_PARTS:
-        assert part in prompt, f"{part} is not named in the implementer's prompt"
+        assert part in skill, f"{part} is not named in the implementer's skill"
 
 
 def test_the_pr_body_is_an_ignored_run_input():

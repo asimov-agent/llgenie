@@ -308,9 +308,15 @@ def test_the_implementer_runs_inside_the_agent_image():
     assert "-e NOUS_API_KEY" in smoke
 
     host = recipe("_implement-issue")
-    assert "hermes -z" in host and "AGENTS.md" in host, "the host recipe is where the agent call lives"
-    for rule in ("(1)", "(2)", "(3)", "(4)"):
-        assert rule in host, f"the hard rules stay on the agent call ({rule})"
+    assert "hermes -z" in host and "issue-implement" in host, (
+        "the host recipe is where the agent call lives, preloading its project skill")
+    assert "-s issue-implement,bot-unattended" in host
+    skill = (REPO / ".hermes" / "skills" / "issue-implement" / "SKILL.md").read_text()
+    assert "AGENTS.md" in skill, "the skill keeps the rulebook as the authority"
+    for rule in ("Run every gate through the Makefile", "Never weaken or mock a test",
+                 "must be named by a make target", "issue -> OpenSpec change -> code -> PR",
+                 "`/repo` is the ONLY writable tree", "pr-body.md"):
+        assert rule in skill, f"the hard rule moved into the skill ({rule!r})"
 
     workflow = (REPO / ".github" / "workflows" / "issue-bot.yml").read_text()
     assert "make implement-issue" in workflow and "make hermes-smoke" in workflow
@@ -342,7 +348,10 @@ def test_the_agent_call_uses_the_image_alias_not_a_bogus_flag():
     assert "nous-alias := -m $(nous-model)" in makefile
     assert "--max-steps" not in makefile, "`--max-steps` is not a hermes flag"
 
-    hermes_lines = [line for line in makefile.splitlines() if "hermes -z" in line]
+    # Only COMMAND lines are legs: the comment block and the `##` help lines may name `hermes -z`
+    # without being an invocation (the project-skill seam adds such a comment, issue #577).
+    hermes_lines = [line for line in makefile.splitlines()
+                    if line.strip().startswith("hermes -z") or "bash -lc 'hermes" in line]
     assert hermes_lines, "the one-shot (-z) form is the only way a leg calls the model"
     # `--alias` is not a hermes flag: the smoke script has its own `--alias`, a hermes line may not.
     assert not [line for line in hermes_lines if "--alias" in line], hermes_lines

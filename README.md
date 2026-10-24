@@ -590,14 +590,15 @@ verdict also adds `agent:ready` when the issue carries no queue label. While `ag
 `DECIDED_LABELS`, every issue the hourly refiner touched became invisible to the implementer — a refine was
 a one-way door.
 
-**Every agent leg is unattended, and its prompt says so** (issue #543). `--yolo` auto-approves shell
-commands and `--accept-hooks` auto-approves hooks, but neither answers the agent's own `clarify` tool: a
-question in a detached run makes Hermes print `Input required; detached without cancelling` and exit 3,
-leaving the tree unchanged and the leg reporting "changed nothing". Each of the five `hermes -z` prompts
-(triage, implement, refiner, architecture, fetch) and `scripts/fix_bot_rules.md` therefore require: never ask,
-never wait; a genuinely open decision becomes a `refine` with its `REASON` (or the safest reversible choice,
-stated in the output). `issue-bot.yml` reports `rc=3` as "the agent asked for input" instead of
-"changed nothing".
+**Every agent leg is unattended, and the preloaded `bot-unattended` skill says so** (issues #543, #577).
+`--yolo` auto-approves shell commands and `--accept-hooks` auto-approves hooks, but neither answers the
+agent's own `clarify` tool: a question in a detached run makes Hermes print `Input required; detached
+without cancelling` and exit 3, leaving the tree unchanged and the leg reporting "changed nothing". The
+shared skill therefore requires: never ask, never wait; a genuinely open decision becomes a `refine` with its
+`REASON` (or the safest reversible choice, stated in the output). `issue-bot.yml` reports `rc=3` as "the
+agent asked for input" instead of "changed nothing". The contract lives once, in
+`.hermes/skills/bot-unattended/SKILL.md` — see [Every bot leg runs on a project
+skill](#every-bot-leg-runs-on-a-project-skill-issue-577).
 
 **A `close` queues what it cites** (issue #521). The picker only lists `agent:implement` (then
 `agent:ready`), and the canonical issue a duplicate points at usually carries neither — so retiring
@@ -2082,9 +2083,43 @@ make fix-bot-report     # render the loop's failure report (REPORT=<path>) — t
 ```
 
 The loop runs the failing check, hands the failure to Hermes and re-checks, up to
-`FIX_ROUNDS` (default 3). The loop itself never commits or pushes; the workflow pushes
+`FIX_ROUNDS` (default 5). The loop itself never commits or pushes; the workflow pushes
 the repaired tree as ONE commit with the owner PAT (so CI re-runs) only when the loop
-ends green.
+ends green. The repair contract is the project skill `pr-fix`, preloaded with
+`-s pr-fix,bot-unattended` — the loop no longer concatenates a rules file.
+
+### Every bot leg runs on a project skill (issue #577)
+
+A bot's contract is a **markdown file under `.hermes/skills/<name>/SKILL.md`**, preloaded by name
+with `hermes -s <bot>,bot-unattended`; the leg's inline prompt is a pointer plus that run's
+parameters, never the rulebook. The file is what the agent loads and what a reviewer reads.
+
+| leg | skill | writes |
+|---|---|---|
+| `issue-bot-triage` / `_issue-bot-triage` | `issue-triage` | `triage.md` (implement / refine / close) |
+| `issue-refiner` / `_issue-refiner` | `issue-refiner` | `refine.md` (one restatement) |
+| `issue-dedup` / `_issue-dedup` | `issue-dedup` | `dedup.md` (duplicate / distinct) |
+| `implement-issue` / `_implement-issue` | `issue-implement` | the change + `pr-body.md` |
+| `architecture-bot-doc` / `_architecture-bot-doc` | `architecture-doc` | `docs/ARCHITECTURE.md` |
+| `agent-fetch` / `_agent-fetch` | `agent-fetch` | `$(OUT)` |
+| `rebase-bot-agent` | `rebase-conflict` | the resolved, staged files |
+| `fix-loop` / `fix-loop-image` | `pr-fix` | the repaired working tree |
+| — (shared by every leg) | `bot-unattended` | the unattended contract, once |
+
+Every skill carries `## Inputs`, `## Output` and `## Rules`, and its frontmatter `name:` equals its
+directory name. The agent image trusts the checkout (`scripts/install_hermes_ci.sh` sets
+`skills.trusted_project_dirs` to `/repo`) because Hermes discovers a project's skills only under a
+trusted root; a runtime without that config would load no skill at all.
+
+```
+make check-agent-skills   # CI: a leg with no -s, a missing/misnamed/incomplete skill, a prompt over the 400-char budget, a duplicated unattended contract, or a returning rules file
+make agent-skills-report  # every leg, its prompt size against the budget, and each skill's sections
+```
+
+The gate runs in `ci-unit`; `tests/test_agent_skills.py` proves each failure shape red. The durable
+rule is recorded in `docs/AGENT-SKILLS.md` and belongs in `AGENTS.md` — which Hermes treats as a
+protected agent-instruction file, so an unattended run cannot write it. `make check-agent-skills`
+accepts either home.
 
 ### Documentation is part of the change (issue #257)
 
@@ -2277,6 +2312,8 @@ llgenie/
 │   ├── serve_variant.py    # serve a built native variant on a free port
 │   └── ...                 # helper scripts (see make help / AGENTS.md)
 ├── skills/engines/<id>/SKILL.md   # one skill per inference server (single source of truth)
+├── .hermes/skills/<bot>/SKILL.md  # one project skill per bot leg (issue #577), preloaded with hermes -s
+├── docs/AGENT-SKILLS.md           # the bot-skill seam and its gate (the rule, mirrored from AGENTS.md)
 ├── tests/
 │   ├── test_trend_pick.py            # trend pick: README list, engine ranking, real downloads
 │   ├── test_engine_skills.py         # skills -> image -> version/digest tests

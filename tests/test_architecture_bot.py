@@ -386,10 +386,12 @@ def test_doc_leg_is_one_scrubbed_container_call():
     assert "$(call scrubbed_run," in recipe
     assert "$(AGENT_SHELL_FORWARD)" in recipe
 
-    # And the agent may write only the doc, and may not branch/commit/push/merge
-    assert "modify NO file except $(DOC)" in prompt
-    assert "do not create a branch" in prompt
-    assert "do not commit" in prompt and "do not push" in prompt
+    # And the prompt is a pointer to the project skill, which carries the writable-file rules
+    assert "-s architecture-doc,bot-unattended" in prompt
+    skill = (REPO / ".hermes" / "skills" / "architecture-doc" / "SKILL.md").read_text()
+    assert "Modify NO file except `$(DOC)`" in skill
+    assert "Do not create a branch, commit, push" in skill
+    assert "Never touch `main`" in skill
 
 
 # ---------------------------------------------------------------------- the gates

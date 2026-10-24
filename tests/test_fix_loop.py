@@ -18,7 +18,8 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[1]
 LOOP = REPO / "scripts" / "fix_loop.sh"
-RULES = REPO / "scripts" / "fix_bot_rules.md"
+#: The repair contract is a project skill now (issue #577), preloaded with `-s pr-fix`.
+SKILL = REPO / ".hermes" / "skills" / "pr-fix" / "SKILL.md"
 
 sys.path.insert(0, str(REPO / "scripts"))
 import fix_bot_report  # noqa: E402
@@ -49,13 +50,12 @@ n=$(grep -c __CALL__ "{calls}" || true)
     return agent
 
 
-def run_loop(tmp_path: Path, check: str, env: dict | None = None, rules: Path | None = None):
+def run_loop(tmp_path: Path, check: str, env: dict | None = None):
     """Run the real loop in `tmp_path` with a stub agent first on PATH."""
     base = dict(os.environ)
     base["PATH"] = f"{tmp_path / 'bin'}:{base['PATH']}"
     base.update({
         "FIX_CHECK": check,
-        "FIX_RULES": str(rules or RULES),
         "FIX_REPORT": str(tmp_path / "report.txt"),
         "FIX_PROMPT": str(tmp_path / "prompt.txt"),
     })
@@ -113,15 +113,16 @@ def test_fix_rounds_is_honoured(tmp_path):
     assert calls(tmp_path).count("__CALL__") == 1
 
 
-def test_the_agent_gets_the_rules_and_the_failure_output(tmp_path):
+def test_the_agent_gets_the_failure_output_not_a_rules_file(tmp_path):
+    """The prompt carries THIS run's parameters; the contract arrives through `-s pr-fix`."""
     stub_agent(tmp_path)
     r = run_loop(tmp_path, "echo 'boom: assertion failed on line 7'; false")
     assert r.returncode == 1
-    sent = calls(tmp_path) + (tmp_path / "prompt.txt").read_text()
-    assert "Rules for the PR fix-bot agent" in sent, "the agent must receive the rules"
-    assert "never mock" in sent.lower() or "never" in sent
-    assert "boom: assertion failed on line 7" in sent, "and the actual failure"
-    assert "make ci-unit" in (tmp_path / "prompt.txt").read_text() or "echo 'boom" in sent
+    prompt = (tmp_path / "prompt.txt").read_text()
+    assert prompt.startswith("## The failing check")
+    assert "boom: assertion failed on line 7" in prompt, "the actual failure"
+    assert "Rules for the PR fix-bot agent" not in prompt, "no second rules file"
+    assert "Business logic is never mocked" not in prompt, "the rules live in the skill"
 
 
 def test_a_bad_round_count_is_a_loud_misconfiguration(tmp_path):
@@ -146,11 +147,14 @@ def test_a_missing_agent_binary_is_a_loud_misconfiguration(tmp_path):
     assert "not found on PATH" in r.stderr
 
 
-def test_a_missing_rules_file_is_refused(tmp_path):
+def test_the_loop_needs_no_rules_file_at_all(tmp_path):
+    """A second rules file cannot be reintroduced: the loop concatenates nothing but the output."""
     stub_agent(tmp_path)
-    r = run_loop(tmp_path, "false", rules=tmp_path / "nope.md")
-    assert r.returncode == 2
-    assert "rules file" in r.stderr
+    r = run_loop(tmp_path, "false")
+    assert r.returncode == 1
+    loop = LOOP.read_text()
+    assert "cat \"$RULES\"" not in loop and "fix_bot_rules.md" not in loop
+    assert "-s pr-fix,bot-unattended" in loop
 
 
 def test_a_non_zero_agent_exit_does_not_skip_the_recheck(tmp_path):
@@ -223,12 +227,12 @@ def test_the_bot_runs_in_the_agent_image_not_on_the_runner():
     )
 
 
-def test_the_rules_file_forbids_what_the_issue_forbids():
-    """The prompt is the contract with the agent; these are the lines it must carry."""
-    rules = RULES.read_text()
+def test_the_pr_fix_skill_forbids_what_the_issue_forbids():
+    """The skill is the contract with the agent; these are the lines it must carry."""
+    rules = SKILL.read_text()
     for required in ("Business logic is never mocked", "never", "Do not commit, push, merge",
                      "make check-wiring", "AGENTS.md"):
-        assert required in rules, f"the rules must state: {required}"
+        assert required in rules, f"the skill must state: {required}"
 
 
 def test_the_new_make_targets_run_the_exact_commands():
