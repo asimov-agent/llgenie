@@ -92,22 +92,14 @@ if run git -c rerere.enabled=false rebase "$ORIGIN/main"; then
 else
   echo "[rebase-bot] conflict: asking the agent to resolve it"
   git diff --name-only --diff-filter=U >"$LOG" 2>/dev/null || true
+  # The rules are the preloaded `rebase-conflict` skill (issue #577); this prompt carries only the
+  # facts of THIS conflict.
   {
-    echo "Resolve a git rebase conflict. The branch is rebasing onto origin/main (issues #246)."
+    echo "Follow the preloaded skills rebase-conflict and bot-unattended. Resolve the conflict below."
     echo
     echo "Conflicted files:"; cat "$LOG"
     echo
-    echo "The rebase stopped here. What each side means:"
-    echo "- HEAD is \`main\`: it may have merged a sibling PR that touched the same lines."
-    echo "- the replayed commit is the PR's own work."
-    echo
-    echo "HARD RULES: preserve BOTH sides' intent (a token-level union that drops one side is wrong);"
-    echo "never weaken, delete or xfail a test to make the rebase apply; keep a Makefile recipe's"
-    echo "leading TAB (\`make -n ci-unit\` must still parse); do not rewrite the PR's history beyond"
-    echo "resolving this conflict; leave no conflict markers anywhere."
-    echo
-    echo "When the resolution is complete, stage the files (\`git add\`) and stop: the rebase is"
-    echo "continued by the caller."
+    echo "The branch is rebasing onto origin/main; HEAD is \`main\`, the replayed commit is the PR's own work."
   } >"$PROMPT"
   if [ -n "$DRY" ]; then
     echo "[rebase-bot] DRY: <agent> <$(wc -l <"$PROMPT")-line conflict prompt"

@@ -308,9 +308,16 @@ def test_the_implementer_runs_inside_the_agent_image():
     assert "-e NOUS_API_KEY" in smoke
 
     host = recipe("_implement-issue")
-    assert "hermes -z" in host and "AGENTS.md" in host, "the host recipe is where the agent call lives"
-    for rule in ("(1)", "(2)", "(3)", "(4)"):
-        assert rule in host, f"the hard rules stay on the agent call ({rule})"
+    assert "hermes -z" in host and "-s issue-implement" in host, (
+        "the host recipe is where the agent call lives, and it preloads the implementer's skill")
+
+    # The hard rules moved into the skill the leg preloads (issue #577); the leg's inline prompt
+    # is a pointer plus this run's parameters.
+    skill = (REPO / ".hermes" / "skills" / "issue-implement" / "SKILL.md").read_text()
+    for rule in ("Every gate runs through the Makefile", "Never weaken, mock or skip a test",
+                 "must be named by a make target CI runs", "One OpenSpec change for the behaviour",
+                 "Do not commit, do not push, do not merge, do not touch `main`"):
+        assert rule in skill, f"the hard rules live in the implementer's skill ({rule})"
 
     workflow = (REPO / ".github" / "workflows" / "issue-bot.yml").read_text()
     assert "make implement-issue" in workflow and "make hermes-smoke" in workflow

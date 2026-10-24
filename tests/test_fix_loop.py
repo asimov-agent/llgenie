@@ -2,9 +2,10 @@
 
 The loop itself runs for real; only the *external* CLIs it drives are stubbed (the agent on
 PATH), the same allowance `tests/test_engine_skill_gap.py` uses for `gh`. What is asserted is
-the contract `fix-bot.yml` depends on: it checks, hands the agent the rules and the failure
-output, re-checks, stops as soon as it is green, gives up loudly after `FIX_ROUNDS`, and never
-commits, pushes, merges or touches `main`.
+the contract `fix-bot.yml` depends on: it checks, hands the agent the failure output under the
+preloaded `pr-fix`/`bot-unattended` skills (issue #577: the rules are a Hermes project skill, not a
+paragraph pasted into the prompt), re-checks, stops as soon as it is green, gives up loudly after
+`FIX_ROUNDS`, and never commits, pushes, merges or touches `main`.
 """
 from __future__ import annotations
 
@@ -18,7 +19,7 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[1]
 LOOP = REPO / "scripts" / "fix_loop.sh"
-RULES = REPO / "scripts" / "fix_bot_rules.md"
+RULES = REPO / ".hermes" / "skills" / "pr-fix" / "SKILL.md"
 
 sys.path.insert(0, str(REPO / "scripts"))
 import fix_bot_report  # noqa: E402
@@ -113,15 +114,21 @@ def test_fix_rounds_is_honoured(tmp_path):
     assert calls(tmp_path).count("__CALL__") == 1
 
 
-def test_the_agent_gets_the_rules_and_the_failure_output(tmp_path):
+def test_the_agent_gets_the_failure_output_under_the_preloaded_skills(tmp_path):
+    """The prompt carries the RUN; the rules are preloaded as a skill, never inlined again."""
+
+    # Given a failing check
+    # When  the loop asks the agent to repair it
+    # Then  the prompt points at the preloaded skills and carries the real failure text
     stub_agent(tmp_path)
     r = run_loop(tmp_path, "echo 'boom: assertion failed on line 7'; false")
     assert r.returncode == 1
-    sent = calls(tmp_path) + (tmp_path / "prompt.txt").read_text()
-    assert "Rules for the PR fix-bot agent" in sent, "the agent must receive the rules"
-    assert "never mock" in sent.lower() or "never" in sent
-    assert "boom: assertion failed on line 7" in sent, "and the actual failure"
-    assert "make ci-unit" in (tmp_path / "prompt.txt").read_text() or "echo 'boom" in sent
+    prompt = (tmp_path / "prompt.txt").read_text()
+    assert "Follow the preloaded skills pr-fix and bot-unattended" in prompt
+    assert "boom: assertion failed on line 7" in prompt, "the actual failure must be there"
+    # And the rules are NOT copied in: the skill file is the only copy
+    assert "Rules for the PR fix-bot agent" not in prompt
+    assert "Business logic is never mocked" not in prompt
 
 
 def test_a_bad_round_count_is_a_loud_misconfiguration(tmp_path):
@@ -146,11 +153,16 @@ def test_a_missing_agent_binary_is_a_loud_misconfiguration(tmp_path):
     assert "not found on PATH" in r.stderr
 
 
-def test_a_missing_rules_file_is_refused(tmp_path):
+def test_a_missing_contract_file_is_refused(tmp_path):
+    """A checkout without the skill must fail before a round is spent, not run blind."""
+
+    # Given FIX_RULES pointing at a file that is not there
+    # When  the loop starts
+    # Then  it exits 2 and names the missing contract
     stub_agent(tmp_path)
     r = run_loop(tmp_path, "false", rules=tmp_path / "nope.md")
     assert r.returncode == 2
-    assert "rules file" in r.stderr
+    assert "contract file" in r.stderr
 
 
 def test_a_non_zero_agent_exit_does_not_skip_the_recheck(tmp_path):
@@ -223,12 +235,14 @@ def test_the_bot_runs_in_the_agent_image_not_on_the_runner():
     )
 
 
-def test_the_rules_file_forbids_what_the_issue_forbids():
-    """The prompt is the contract with the agent; these are the lines it must carry."""
+def test_the_pr_fix_skill_forbids_what_the_issue_forbids():
+    """The preloaded skill is the contract with the agent; these are the lines it must carry."""
     rules = RULES.read_text()
-    for required in ("Business logic is never mocked", "never", "Do not commit, push, merge",
-                     "make check-wiring", "AGENTS.md"):
-        assert required in rules, f"the rules must state: {required}"
+    for required in ("mock", "never", "Do not commit, push, merge", "make check-wiring",
+                     "AGENTS.md"):
+        assert required in rules, f"the skill must state: {required}"
+    # And it is a real Hermes project skill, not a bare rules file
+    assert rules.startswith("---\nname: pr-fix\n"), "the contract must be a loadable skill"
 
 
 def test_the_new_make_targets_run_the_exact_commands():

@@ -96,6 +96,7 @@ RUN set -eux; \
 # The CI build context is FLAT (ci_images.context copies each input file to the
 # context root), so the COPY path is the file's name, not its repo path.
 COPY install_hermes_ci.sh /usr/local/bin/install_hermes_ci.sh
+COPY hermes_skills_register.py /usr/local/bin/hermes_skills_register.py
 COPY install_nerve_ci.sh /usr/local/bin/install_nerve_ci.sh
 COPY agent_jev_preflight.sh /usr/local/bin/agent_jev_preflight.sh
 ENV HERMES_INSTALL_URL=${HERMES_INSTALL_URL} HERMES_PACKAGE=${HERMES_PACKAGE} \

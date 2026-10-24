@@ -1105,6 +1105,35 @@ the roster does not record is fatal — a target cannot silently run nothing.
 - `hf_dl.py` reads `HF_TOKEN` from `~/.zshrc` at runtime — never store a token in
   the repo or commit one. Prefer documented example shapes in docs/tests.
 
+## A bot's behaviour lives in its project skill, not in a Makefile recipe (MANDATORY, durable)
+
+Every Hermes leg — the issue-bot's triage and implement steps, the refiner, the dedup, the
+architecture bot, the masked fetch, the rebase agent and the fix bot — runs under ONE **Hermes
+project skill**: `.hermes/skills/<name>/SKILL.md`, the layout Hermes discovers from a trusted
+checkout, preloaded with `hermes -s <name>` (issue #577). Measured before this rule: the same
+`UNATTENDED: …` paragraph inlined seven times, prompts of 1005-1629 characters, and every leg
+starting with "Load AGENTS.md" to learn what its own bot may do.
+
+- **A leg's inline prompt is a pointer plus the run's parameters** — the input file, the output
+  file, the values only that run knows. It never restates the contract: `make check-agent-skills`
+  fails a prompt over 400 characters, a leg with no `-s`, a name with no skill, a frontmatter name
+  that disagrees with its directory, a skill missing `## Inputs` / `## Output` / `## Rules`, and an
+  inlined unattended contract.
+- **`## Output` names the ONE file the leg may write.** The deterministic step after the agent does
+  every GitHub write (comment, label, issue, PR); an agent that writes elsewhere hands its edits to
+  the job as if a human had made them.
+- **`bot-unattended` carries the shared unattended contract once**, and every leg preloads it beside
+  its own skill. Never paste that paragraph into a recipe again.
+- **The agent image registers the checkout's skill dir** (`scripts/hermes_skills_register.py` from
+  `scripts/install_hermes_ci.sh`, `skills.external_dirs` → `/repo/.hermes/skills`): Hermes reads
+  skills only from its own home and from `external_dirs`, so an unregistered checkout makes
+  `-s <name>` resolve to nothing and the leg runs with NO contract while reporting success. The
+  build reads the value back, and `tests/test_agent_skills_live.py` proves the load through
+  Hermes's own preload path.
+- **A new bot leg means a new skill**, and its own `make` target names both. `skills/engines/` is a
+  different thing: those describe inference servers, are read by `generate-engine-params`, and are
+  never loaded by an agent.
+
 ## A bot's credential must reach the AGENT's shell, never a log (MANDATORY, durable)
 
 A bot leg that forwards a key the agent's own shell cannot read gives you a run that

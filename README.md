@@ -474,6 +474,66 @@ field expands to any even minute fails `make test-unit`, naming the workflow and
 sweep's schedule in place: the always()-on-every-CI-completion retry (#558) cannot retry a
 deferral that clears with no push at all, and only the cron can.
 
+## A bot's rules are a Hermes project skill, not a Makefile string (issue #577)
+
+Every agent leg runs under a skill in **`.hermes/skills/<name>/SKILL.md`** — Hermes's own layout —
+preloaded with `hermes -s <name>`, and the leg's inline prompt is a pointer plus that run's
+parameters:
+
+```make
+_issue-bot-triage: # (internal) the decision, not the change
+	hermes -z "Follow the preloaded skill issue-triage. Its Input is issue.md and its Output is triage.md." -s issue-triage,bot-unattended $(nous-alias) --reasoning $(HERMES_REASONING) --yolo
+```
+
+Measured before this (issue #577): prompts of 1005-1629 characters per leg, the same
+`UNATTENDED: …` paragraph seven times, and every leg starting with "Load AGENTS.md" to learn what its
+own bot may do.
+
+| skill | leg | what it decides |
+|---|---|---|
+| `bot-unattended` | every leg | the shared unattended contract (never ask, never wait) |
+| `issue-triage` | `make issue-bot-triage` | `implement` / `refine` / `close` → `triage.md` |
+| `issue-refiner` | `make issue-refiner` | restate the issue or say it is clear → `refine.md` |
+| `issue-dedup` | `make issue-dedup` | duplicate or distinct → `dedup.md` |
+| `issue-implement` | `make implement-issue` | the change + `pr-body.md` |
+| `architecture-doc` | `make architecture-bot-doc` | rewrite `docs/ARCHITECTURE.md` |
+| `agent-fetch` | `make agent-fetch` | one masked URL fetch → `$OUT` |
+| `rebase-conflict` | `make rebase-bot-agent` | resolve a stopped rebase |
+| `pr-fix` | `make fix-loop-image` | repair a red PR check |
+
+Each skill has three sections: `## Inputs` (the files the host prepared), `## Output` (the ONE file
+the leg may write — the deterministic step after the agent does every GitHub write) and `## Rules`
+(what it must not do). The fix bot's former `scripts/fix_bot_rules.md` is the `pr-fix` skill now;
+there is no second rules file.
+
+**How Hermes finds them.** It reads skills from its own home and from `skills.external_dirs`, so the
+agent image registers the checkout's directory once, at build time
+(`scripts/hermes_skills_register.py`, called by `scripts/install_hermes_ci.sh`:
+`skills.external_dirs` → `/repo/.hermes/skills`, the mount point every leg runs in) and reads the
+value back — a registration that did not land fails the build, not a bot run. The script writes a
+real YAML **list** because `hermes config set` takes a list on a newer CLI and silently stores a
+string on the pinned `hermes-agent==0.19.0`, which then resolves to no directory at all.
+
+```bash
+make check-agent-skills       # CI (ci-unit): every leg preloads a real skill, prompts stay pointers
+make agent-skills-report      # every leg with its prompt size + preloaded skills, every skill's frontmatter
+make hermes-skills-register   # register this checkout's .hermes/skills in a Hermes home (HOME_DIR=, DIR=, CHECK=1)
+make test-agent-skills-live   # prove Hermes LOADS each leg's skills (hermes-agent's own preload path)
+```
+
+`make check-agent-skills` (`scripts/check_agent_skills.py`) fails a leg with no `-s`, a name with no
+skill, a frontmatter `name` that disagrees with its directory, a skill missing one of the three
+sections, a prompt over the 400-character pointer budget, an inlined unattended contract, a skill no
+leg preloads, a `scripts/fix_bot_rules.md` that came back, or an `AGENTS.md` that no longer states the
+rule. `make test-agent-skills-live` is the load proof: it feeds each leg's `-s` list to
+`agent.skill_commands.build_preloaded_skills_prompt` — the function `hermes -z … -s <name>` calls
+before the model's first turn — against a home registered by the image's own script, and asserts every
+name resolved and each skill's content is in the prompt the model receives. It runs in the
+`agents-read` job's venv (hermes-agent pinned), so a missing agent is a loud failure, never a skip.
+
+`skills/engines/` is **not** this: those describe inference servers, are read by
+`make generate-engine-params`, and are never loaded by an agent.
+
 ## The issue-implementer (issue #248)
 
 Nothing takes an issue and produces its first PR — until now. The

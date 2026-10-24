@@ -88,14 +88,20 @@ def test_firecrawl_is_in_the_one_agent_shell_list():
 
 
 def test_the_fetch_prompt_reads_the_key_by_name_and_forbids_printing_it():
-    mk = (REPO / "Makefile").read_text()
-    recipe = next(l for l in mk.splitlines() if l.lstrip().startswith("hermes -z") and "Firecrawl" in l)
+    """The fetch contract is the `agent-fetch` skill, which the leg preloads (issue #577)."""
 
-    # Then the prompt names the VARIABLE (never a value) and states the no-print rule
-    assert "$$FIRECRAWL_API_KEY" in recipe, recipe[:300]
-    assert "never print, echo, write or copy the value" in recipe
-    # And one leg only: no second prompt hand-rolls the fetch
-    assert mk.count("api.firecrawl.dev") == 1
+    mk = (REPO / "Makefile").read_text()
+    recipe = next(l for l in mk.splitlines() if l.lstrip().startswith("hermes -z")
+                  and "-s agent-fetch" in l)
+    skill = (REPO / ".hermes" / "skills" / "agent-fetch" / "SKILL.md").read_text()
+
+    # Then the leg preloads the skill, which names the VARIABLE (never a value) and forbids printing
+    assert "-s agent-fetch" in recipe, recipe[:300]
+    assert "FIRECRAWL_API_KEY" in skill
+    assert "never appears anywhere" in skill or "never print" in skill.lower()
+    # And one place only: the API shape lives in the skill, in no recipe
+    assert mk.count("api.firecrawl.dev") == 0
+    assert skill.count("api.firecrawl.dev") == 1
 
 
 def test_the_leg_is_a_make_target_and_the_smoke_is_reachable():

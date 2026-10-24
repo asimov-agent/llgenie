@@ -12,7 +12,11 @@
 #   FIX_CHECK       the deterministic check command (default: make ci-unit)
 #   FIX_ROUNDS      maximum repair attempts (default: 5)
 #   FIX_AGENT_CMD   how to run the agent; the prompt is fed on STDIN (default: hermes)
-#   FIX_RULES       the rules file handed to the agent (default: scripts/fix_bot_rules.md)
+#   The leg preloads the project skills `pr-fix` and `bot-unattended`
+#                   (.hermes/skills/<name>/SKILL.md); FIX_AGENT_CMD replaces the whole call.
+#   FIX_RULES       the skill file whose presence is required, so a checkout without the
+#                   contract fails loudly before a round is spent (default:
+#                   .hermes/skills/pr-fix/SKILL.md; its content is PRELOADED, never inlined)
 #   FIX_REPORT      the command's captured output (default: /tmp/fix-report.txt)
 #   FIX_PROMPT      the assembled prompt (default: /tmp/fix-prompt.txt)
 #   FIX_TAIL_LINES  how much of the report to hand the agent (default: 400)
@@ -23,8 +27,8 @@ CHECK="${FIX_CHECK:-make ci-unit}"
 # The prompt arrives on STDIN, so the default reads it into the one-shot `-z` flag and names
 # the image's custom-provider alias (`-m` is the MODEL flag; `--provider nous` cannot work with
 # a secret, see scripts/install_hermes_ci.sh).
-AGENT_CMD="${FIX_AGENT_CMD:-hermes -z \"\$(cat)\" -m ${FIX_AGENT_ALIAS:-nous-deepseek} --reasoning ${FIX_AGENT_REASONING:-medium} --yolo}"
-RULES="${FIX_RULES:-scripts/fix_bot_rules.md}"
+AGENT_CMD="${FIX_AGENT_CMD:-hermes -z \"\$(cat)\" -s pr-fix,bot-unattended -m ${FIX_AGENT_ALIAS:-nous-deepseek} --reasoning ${FIX_AGENT_REASONING:-medium} --yolo}"
+RULES="${FIX_RULES:-.hermes/skills/pr-fix/SKILL.md}"
 REPORT="${FIX_REPORT:-/tmp/fix-report.txt}"
 # A captured failure log from the RUN that failed (a `workflow_run` trigger, issue #538): the local
 # check may not be able to reproduce that failure at all (a macOS-only job, a GPU-only image test), so
@@ -36,7 +40,7 @@ TAIL_LINES="${FIX_TAIL_LINES:-400}"
 
 case "$ROUNDS" in ''|*[!0-9]*) echo "[fix-loop] FIX_ROUNDS must be a positive integer, got '$ROUNDS'" >&2; exit 2 ;; esac
 [ "$ROUNDS" -ge 1 ] || { echo "[fix-loop] FIX_ROUNDS must be >= 1" >&2; exit 2; }
-[ -f "$RULES" ] || { echo "[fix-loop] rules file '$RULES' not found (run from the repo root)" >&2; exit 2; }
+[ -f "$RULES" ] || { echo "[fix-loop] contract file '$RULES' (the preloaded skill) not found (run from the repo root)" >&2; exit 2; }
 command -v "${AGENT_CMD%% *}" >/dev/null 2>&1 || { echo "[fix-loop] agent command '$AGENT_CMD' not found on PATH" >&2; exit 2; }
 
 echo "[fix-loop] check: $CHECK (up to $ROUNDS repair attempt(s), agent: $AGENT_CMD)"
@@ -55,7 +59,9 @@ run_check() {
 
 build_prompt() {
   {
-    cat "$RULES"
+    # The contract is a Hermes project skill the leg preloads with `-s`; inlining it again would
+    # be the second copy this change removed (issue #577). The prompt carries the run, not the rules.
+    echo "Follow the preloaded skills pr-fix and bot-unattended (their contract: ${RULES}). Repair the failing check below."
     echo
     echo "## The failing check"
     echo

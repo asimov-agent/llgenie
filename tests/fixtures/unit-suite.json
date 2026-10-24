@@ -97,6 +97,12 @@
    "issue": 49,
    "decided": "2026-10-20",
    "target": "test-top-tier-serve"
+  },
+  "tests/test_agent_skills_live.py": {
+   "reason": "Proves Hermes actually LOADS every bot leg's project skill, through hermes-agent's own preload path (`agent.skill_commands.build_preloaded_skills_prompt`, the function `hermes -z \u2026 -s <name>` calls). hermes-agent needs Python >= 3.11 and cannot be imported inside llgenie/test, so it runs in the agents-read venv (`make agents-read-venv`) as part of the agents-read job, and fails loudly there when hermes-agent is missing. The hermetic half is tests/test_agent_skills.py in the unit gate.",
+   "issue": 577,
+   "decided": "2026-10-24",
+   "target": "test-agent-skills-live"
   }
  },
  "deselect": {

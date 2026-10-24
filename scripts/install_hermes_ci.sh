@@ -68,3 +68,16 @@ for kv in "model=${MODEL_ID}" "key_env=NOUS_API_KEY" "max_tokens=${MAX_TOKENS}" 
   fi
 done
 echo "[hermes-ci] alias ${ALIAS} -> ${MODEL_ID} via ${BASE_URL} (max_tokens=${MAX_TOKENS}, context_window=${CONTEXT_WINDOW}, key_env=NOUS_API_KEY)"
+
+# The bots' contracts are Hermes PROJECT skills: `.hermes/skills/<name>/SKILL.md` in the checkout,
+# preloaded by each leg with `hermes -s <name>` (issue #577). Hermes reads skills from its own home
+# and from `skills.external_dirs`, so the checkout's directory is registered here, once, at build
+# time — every bot leg mounts the checkout at `/repo`, so that is the path registered.
+# The registration is written as a real YAML LIST (`scripts/hermes_skills_register.py`), because
+# `hermes config set` takes a list on a newer CLI and silently stores a string on the pinned
+# `hermes-agent==0.19.0` — a string that resolves to no directory at all. The read-back makes a
+# registration that did not land fail the BUILD instead of a bot run ninety minutes later.
+HERMES_SKILLS_DIR="${HERMES_SKILLS_DIR:-/repo/.hermes/skills}"
+HERMES_SKILLS_HOME="${HERMES_HOME:-$HOME/.hermes}"
+python3 /usr/local/bin/hermes_skills_register.py --home "$HERMES_SKILLS_HOME" --dir "$HERMES_SKILLS_DIR"
+python3 /usr/local/bin/hermes_skills_register.py --home "$HERMES_SKILLS_HOME" --dir "$HERMES_SKILLS_DIR" --check

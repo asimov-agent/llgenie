@@ -386,10 +386,11 @@ def test_doc_leg_is_one_scrubbed_container_call():
     assert "$(call scrubbed_run," in recipe
     assert "$(AGENT_SHELL_FORWARD)" in recipe
 
-    # And the agent may write only the doc, and may not branch/commit/push/merge
-    assert "modify NO file except $(DOC)" in prompt
-    assert "do not create a branch" in prompt
-    assert "do not commit" in prompt and "do not push" in prompt
+    # And the agent loads the doc skill, which may write only the doc and nothing else
+    assert "-s architecture-doc" in prompt
+    skill = (REPO / ".hermes" / "skills" / "architecture-doc" / "SKILL.md").read_text()
+    assert "Modify no file except `$(DOC)`" in skill
+    assert "No branch, no commit, no push" in skill
 
 
 # ---------------------------------------------------------------------- the gates

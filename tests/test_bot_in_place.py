@@ -39,15 +39,17 @@ def _target_body(name: str) -> str:
 def test_the_prompt_forbids_a_worktree_and_names_the_in_place_tree():
     """The agent is told which tree it can write, and that a worktree is not it."""
 
-    # Given the internal recipe that runs Hermes for the implementer leg
+    # Given the internal recipe that runs Hermes for the implementer leg, and its skill
     prompt = _target_body("_implement-issue")
+    skill = (REPO / ".hermes" / "skills" / "issue-implement" / "SKILL.md").read_text()
 
     # When  its hard rules are read
-    # Then  the container contract is explicit, and the host worktree rule is excluded by name
-    assert "/repo" in prompt, "the prompt must name the tree the agent edits"
-    assert "INSIDE the agent container" in prompt, prompt
-    assert "do NOT create a git worktree" in prompt, prompt
-    assert "in place" in prompt, prompt
+    # Then  the leg preloads the skill, which names the tree to edit in place and excludes a worktree
+    assert "-s issue-implement" in prompt, prompt
+    assert "/repo" in skill, "the skill must name the tree the agent edits"
+    assert "INSIDE the agent container" in skill, skill
+    assert "Never create a git worktree" in skill, skill
+    assert "in place" in skill, skill
 
 
 def test_the_leg_mounts_one_writable_tree():
@@ -69,11 +71,11 @@ def test_the_leg_mounts_one_writable_tree():
 def test_the_agent_still_does_not_commit_or_push():
     """The job owns the branch: the in-place edit is the whole of the agent's task."""
 
-    # Given the implementer's prompt
-    prompt = _target_body("_implement-issue")
+    # Given the implementer's preloaded skill
+    skill = (REPO / ".hermes" / "skills" / "issue-implement" / "SKILL.md").read_text()
 
     # When  its rules are read for the git actions the job owns
     # Then  the agent is still forbidden to commit, push or touch main
-    assert "Do not commit" in prompt, prompt
-    assert "do not push" in prompt, prompt
-    assert "do not touch main" in prompt, prompt
+    assert "Do not commit" in skill, skill
+    assert "do not push" in skill, skill
+    assert "do not touch `main`" in skill, skill
