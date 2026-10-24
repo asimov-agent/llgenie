@@ -111,13 +111,14 @@ picks which start script or image to run.
 | `skills/engines/` | one `SKILL.md` per engine (and a `README.md`), the source `generate-engine-params` reads |
 | `containers/engines/` | shared `base/` Dockerfiles, generated `dockerfiles/<id>/Dockerfile.<arch>`, frozen `params/`, `binaries.json`, `entrypoint.sh` |
 | `containers/test/` | the test image every Python gate runs in (`Dockerfile` only; no inference server inside it) |
-| `containers/agent/` | the pinned Hermes agent image (`Dockerfile`) every bot leg runs in |
+| `containers/agent/` | the pinned Hermes agent image (`Dockerfile`) every bot leg runs in: the Hermes CLI, the `nous-deepseek` model alias, the nerve plugin (installed, enabled and layered by `scripts/install_nerve_ci.sh`), the `.hermes/skills` registration and the `agent_jev_preflight.sh` entry gate |
+| `.hermes/skills/` | the bots' Hermes **project skills** — `issue-triage`, `issue-implement`, `issue-refiner`, `issue-dedup`, `pr-fix`, `rebase-conflict`, `architecture-doc`, `agent-fetch`, `bot-unattended` (plus a `README.md`) — each leg's contract, preloaded with `hermes -s <name>` and guarded by `make check-agent-skills` (issue #577) |
 | `containers/ci-variant/` | the CUDA-toolkit variant-build image (`make test-variant-image`) with its own `requirements.txt` / `requirements-dev.txt` |
 | `data/` | vendored registry, quant catalog, strata model map, engine-skill gap, unsupported engines, trending README |
 | `docs/` | this document |
-| `openspec/` | the change record: `config.yaml`, its `Dockerfile`, and `changes/<name>/{proposal.md,specs/**,tasks.md}` (191 changes) |
-| `agent-wiki/` | dated work record (156 entries), one per change, referencing its issue and PR |
-| `tests/` | 112 `tests/test_*.py` files, fixtures, shared test helpers (`tests/top_tier_dry_run.py`) and the live end-to-end gates, discovered by `scripts/unit_tests.py` |
+| `openspec/` | the change record: `config.yaml`, its `Dockerfile`, and `changes/<name>/{proposal.md,specs/**,tasks.md}` (193 changes) |
+| `agent-wiki/` | dated work record (158 entries), one per change, referencing its issue and PR |
+| `tests/` | 114 `tests/test_*.py` files, fixtures, shared test helpers (`tests/top_tier_dry_run.py`) and the live end-to-end gates, discovered by `scripts/unit_tests.py` |
 | `docker-compose-files/` | the compose definitions for the OpenSpec CLI (`openspec.yaml`) and the test image (`test.yaml`) |
 | `tools/` | pip-compile inputs (`requirements.in`, `requirements-dev.in`) and the venv targets |
 | `.github/workflows/` | CI (`ci.yml`, `pipeline.yml`, `published.yml`, `publish-agent-image.yml`, `auto-merge.yml`) and one workflow per bot |
@@ -131,15 +132,18 @@ group by what they exist for:
 | Group | Modules |
 |---|---|
 | Product path | `llgenie_serve.py` (launcher, model scan, serve), `model_engine_pick.py` (`recommend`, `rank_models`, `rank_engines`, `offer`), `trend_list_matrix.py`, `detect_server.py`, `install_engine_launchers.py` (install plan, start scripts, `ensure_native`), `engine_runner.py`, `engine_skills.py`, `engine_image.py`, `native_build_env.py`, `serve_variant.py`, `ensure_user_path.py`, `hf_auth.py`, `hf_download.py`, `download_test_model.py`, `strata_models.py`, `sync_registry.py`, `gen_trending_quant_catalog.py`, `registry_keys.py`, `engine_skill_gap.py`, `engine_params_derive.py`, `engine_deps.py`, `engine_bump.py`, `engine_bump_sync.py`, `engine_bump_rebase.py`, `engine_smoke.py`, `env_seam.py`, `loopback_server.py` |
-| Structural gates | `check_bash.py`, `check_python.py`, `check_docs.py`, `check_wiring.py`, `check_workflows.py`, `check_dispatch_forms.py`, `check_pr_authors.py`, `check_pr_hygiene.py`, `check_secret_output.py`, `check_openspec_tasks.py`, `secret_scan.py`, `secret_scan_self_test.py`, `scan_agents_md.py`, `module_name_guard.py`, `lint_linefeeds.py`, `unit_tests.py` (the suite aggregator) |
+| Structural gates | `check_bash.py`, `check_python.py`, `check_docs.py`, `check_wiring.py`, `check_workflows.py`, `check_dispatch_forms.py`, `check_pr_authors.py`, `check_pr_hygiene.py`, `check_secret_output.py`, `check_openspec_tasks.py`, `check_agent_skills.py` (a bot leg preloads its project skill, the skill exists and carries `Inputs`/`Output`/`Rules`, the prompt stays a pointer), `secret_scan.py`, `secret_scan_self_test.py`, `scan_agents_md.py`, `module_name_guard.py`, `lint_linefeeds.py`, `unit_tests.py` (the suite aggregator) |
 | CI entrypoints | `ci_engines.py` (`make ci-engines`), `ci_health.py`, `ci_images.py` (test/OpenSpec/agent image refs), `loop_harness.py` (`make loop`) |
-| Bots and automation | `agent_model_pin.py`, `agent_shell_keys_check.py`, `architecture_bot.py`, `auto_merge.py`, `bot_claims.py`, `code_review.py`, `fix_bot_report.py`, `fix_bot_sweep.py`, `hermes_smoke.py`, `issue_cleaner.py`, `issue_dedup.py`, `issue_implementer.py`, `issue_refiner.py`, `queued_run_alarm.py`, `rebase_bot_sweep.py`, `require_env.py`, `resolve_run_pr.py`, `run_failure_reactor.py`, `scrub_log.py`, `verify_closure.py`, `web_evidence.py`, `fetch_smoke.py`, `worktree_prune.py` |
+| Bots and automation | `agent_model_pin.py`, `agent_shell_keys_check.py`, `architecture_bot.py`, `auto_merge.py`, `bot_claims.py`, `code_review.py`, `fix_bot_report.py`, `fix_bot_sweep.py`, `hermes_skills_register.py` (writes the checkout's skill dir into Hermes's `skills.external_dirs` as a real YAML list, and reads it back), `hermes_smoke.py`, `issue_cleaner.py`, `issue_dedup.py`, `issue_implementer.py`, `issue_refiner.py`, `queued_run_alarm.py`, `rebase_bot_sweep.py`, `require_env.py`, `resolve_run_pr.py`, `run_failure_reactor.py`, `scrub_log.py`, `verify_closure.py`, `web_evidence.py`, `fetch_smoke.py`, `worktree_prune.py` |
 
 Two more pieces of `scripts/` are not Python: `scripts/tools/llgenie_harness.py` (the
 harness helper the loop uses) and the shell legs the bot workflows call —
-`agent_jev_preflight.sh`, `bot_sync_main.sh`, `build_llama_server.sh`, `fix_loop.sh`,
-`install_hermes_ci.sh`, `install_nerve_ci.sh`, `load_token_to_env.sh`, `rebase_bot.sh` — plus
-`scripts/fix_bot_rules.md`, the fix-bot's instruction sheet.
+`agent_jev_preflight.sh` (proves the Nerve JEV layer is live for THIS run, the first step of
+every bot job), `bot_sync_main.sh`, `build_llama_server.sh`, `fix_loop.sh`,
+`install_hermes_ci.sh` (installs the Hermes CLI and pins the `nous-deepseek` alias),
+`install_nerve_ci.sh` (installs, scopes, enables and wires the nerve plugin at image-build
+time), `load_token_to_env.sh`, `rebase_bot.sh` — plus `scripts/fix_bot_rules.md`, the
+fix-bot's instruction sheet.
 
 `scripts/module_name_guard.py` is the renamed-module guard: the CLI is
 `scripts/llgenie_serve.py`, and its old spelling is refused in every live text file, this
@@ -213,7 +217,12 @@ jobs and asserts on both OSes; only the runner label differs. `linux-published` 
 `cuda`, `rocm` and `vulkan` against the images the `engine-image` jobs published.
 `publish-agent-image.yml` publishes the Hermes agent image (guarded to owner/collaborators,
 amd64 only) — not the default job token: `ci-images` deliberately omits the agent image
-because a brand-new package is refused "Create organization package".
+because a brand-new package is refused "Create organization package". That image is built from
+`containers/agent/Dockerfile`, which installs the Hermes CLI and the `nous-deepseek` alias
+(`scripts/install_hermes_ci.sh`), registers `.hermes/skills`
+(`scripts/hermes_skills_register.py`), installs and wires the nerve plugin
+(`scripts/install_nerve_ci.sh`), and then asserts each of them back before the layer is
+committed.
 
 Merging is CI's action, not a job inside `ci.yml`.
 `.github/workflows/auto-merge.yml` is a `workflow_run` workflow on `CI`: a fork
@@ -253,7 +262,10 @@ stages), `make check-wiring` (every script/test reachable from a target CI runs)
 `make check-docs` (every `##` make target is in `README.md`, every `agent-wiki/` entry
 names its issue and PR), `make check-pr-hygiene`, `make check-pr-authors`,
 `make check-secret-output`, `make check-agent-model` (the agent image's model pin equals the
-one `scripts/agent_model_pin.py` declares), `make secret-scan` /
+one `scripts/agent_model_pin.py` declares), `make check-agent-skills` (every bot leg
+preloads `.hermes/skills/<name>`, the skill exists with `Inputs`/`Output`/`Rules`, and the
+inline prompt is a pointer — `make agent-skills-report` prints the legs and their skills),
+`make secret-scan` /
 `make secret-scan-self-test`, plus `make bash-check` (`scripts/check_bash.py`, the bash-5
 parity check that resolves the Makefile's shell) and `scripts/check_python.py`, which
 `tools/Makefile` runs to keep the gguf venv on Python 3.11. All of them run inside
@@ -294,6 +306,43 @@ Bots run inside the pinned agent image (`containers/agent`), call the model pinn
 `scripts/agent_model_pin.py` (alias `nous-deepseek`,
 `deepseek/deepseek-v4.1-flash-1017`) and are covered by
 `tests/test_bot_pipeline_isolation.py` (no shared cron slot, no shared concurrency group).
+
+Each leg's contract is a Hermes **project skill** (issue #577), not an inline rulebook:
+`.hermes/skills/<name>/SKILL.md` — `issue-triage`, `issue-implement`, `issue-refiner`,
+`issue-dedup`, `pr-fix`, `rebase-conflict`, `architecture-doc`, `agent-fetch` — preloaded with
+`hermes -s <name>,bot-unattended`, and the inline prompt is a pointer plus the run's
+parameters (the input file, the output file). `bot-unattended` carries the shared unattended
+contract once, and the deterministic step after the agent does every GitHub write, so a leg
+writes only the one file its skill names. `make check-agent-skills`
+(`scripts/check_agent_skills.py`, run by `make ci-unit`) fails a leg with no `-s`, a name with
+no skill, a frontmatter `name` that disagrees with its directory, a skill missing
+`Inputs` / `Output` / `Rules`, a prompt past the pointer budget, or the unattended contract
+inlined again; `make agent-skills-report` prints the legs and the skills, and
+`make test-agent-skills-live` proves the load through hermes-agent's own preload path in the
+`agents-read-venv`. Hermes reads skills only from its own home and from
+`skills.external_dirs`, so the image build registers the checkout's directory
+(`make hermes-skills-register`, `scripts/hermes_skills_register.py`, called from
+`scripts/install_hermes_ci.sh`): an unregistered checkout resolves `-s <name>` to nothing and
+the leg runs with no contract while reporting success.
+
+The agent image is also where the Nerve plugin is installed (#238, #585).
+`scripts/install_nerve_ci.sh` runs at build time in three steps —
+`hermes plugins install … --no-deps` (clone and record provenance without resolving), drop the
+plugin's OPTIONAL `laya` extra from the installed `pyproject.toml` (asserted: a pin that stops
+declaring it fails the build and names the decision), then `hermes plugins enable nerve`,
+which resolves a graph that now has a solution. The one-shot `--yes-deps` form made Hermes
+take a universal `uv lock` across every marker split, where `laya==0.3.3` → `torch>=2.0.0`
+publishes no wheels for `python_full_version >= '3.14'` or `sys_platform == 'android'`, so
+every image build failed; the extra is dead weight in this image because the bots run the
+plugin's default `jev` backend and the plugin imports `laya` lazily. The script then writes
+the host's flat `plugins.entries.nerve.settings.*` values, the `lean` profile sidecar through
+the plugin's own `save_profile`, quotes `gate_mode` (YAML 1.1 reads a bare `off` as boolean
+false, which turns the action gate ON), and proves through `hermes plugins list --json` that
+the pinned commit is enabled and no provider token sits in the config. At run time
+`make agent-jev-preflight` (`scripts/agent_jev_preflight.sh`) is the first step of every bot
+job, with `NERVE_REQUIRE=1`: a leg whose JEV layer is off does not start, and its report is
+redacted like every other agent stream.
+
 Every leg runs `scripts/require_env.py` before the image is built (a missing credential is
 loud, never a skip) and forwards credentials through the Makefile's `AGENT_SHELL_KEYS` /
 `$(AGENT_SHELL_FORWARD)` seam; `make hermes-smoke` proves the model can call a tool,
@@ -313,7 +362,7 @@ branch whose PR is merged.
 
 ## Tests and gates
 
-`make test-unit` discovers every `tests/test_*.py` through `scripts/unit_tests.py` (112
+`make test-unit` discovers every `tests/test_*.py` through `scripts/unit_tests.py` (114
 files today); a file is in the gate the moment it exists, and an exclusion is a dated entry
 in `tests/fixtures/unit-suite.json`. `make test` runs the named `groups.fast` subset from
 the same roster rather than a hand-kept list of files. The live gates are separate targets
@@ -341,8 +390,8 @@ non-zero with the CLI's named cause (issue #399, locked by
 unit -> install (`test-install-host`) -> health -> top-tier -> top-tier-serve -> test ->
 openspec -> openspec-tasks -> clean, failing closed on any stage. `make check-docs`,
 `make check-pr-hygiene`, `make check-pr-authors`, `make check-workflows`,
-`make check-dispatch-forms`, `make check-wiring`, `make check-secret-output` and
-`make check-agent-model` are the repository's structural gates. The data gates
+`make check-dispatch-forms`, `make check-wiring`, `make check-secret-output`,
+`make check-agent-model` and `make check-agent-skills` are the repository's structural gates. The data gates
 (`check-registry`, `check-registry-keys`, `check-quant-catalog`,
 `check-trend-list-matrix`, `check-engine-skill-gap`, `check-strata-models`,
 `check-engine-params`, `skills-validate`) run inside `make ci-unit` alongside the unit
