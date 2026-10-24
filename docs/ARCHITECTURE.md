@@ -107,20 +107,21 @@ picks which start script or image to run.
 | Path | Role |
 |---|---|
 | `Makefile` | the only entry point for every stage and gate; CI calls `make <target>` and nothing else |
-| `scripts/` | all logic: install, detection, pick, engine images/params, registry sync, bots, gates |
-| `skills/engines/` | one `SKILL.md` per engine, the source `generate-engine-params` reads |
+| `scripts/` | all logic: install, detection, pick, engine images/params, registry sync, bots, gates, plus the shell legs the bots run |
+| `skills/engines/` | one `SKILL.md` per engine (and a `README.md`), the source `generate-engine-params` reads |
 | `containers/engines/` | shared `base/` Dockerfiles, generated `dockerfiles/<id>/Dockerfile.<arch>`, frozen `params/`, `binaries.json`, `entrypoint.sh` |
-| `containers/test/` | the test image every Python gate runs in (no inference server inside it) |
-| `containers/agent/` | the pinned Hermes agent image every bot leg runs in |
-| `containers/ci-variant/` | the CUDA-toolkit variant-build image (`make test-variant-image`) |
+| `containers/test/` | the test image every Python gate runs in (`Dockerfile` only; no inference server inside it) |
+| `containers/agent/` | the pinned Hermes agent image (`Dockerfile`) every bot leg runs in |
+| `containers/ci-variant/` | the CUDA-toolkit variant-build image (`make test-variant-image`) with its own `requirements.txt` / `requirements-dev.txt` |
 | `data/` | vendored registry, quant catalog, strata model map, engine-skill gap, unsupported engines, trending README |
 | `docs/` | this document |
-| `openspec/` | the change record: `changes/<name>/{proposal.md,specs/**,tasks.md}` |
-| `agent-wiki/` | dated work record, one entry per change, referencing its issue and PR |
+| `openspec/` | the change record: `config.yaml`, its `Dockerfile`, and `changes/<name>/{proposal.md,specs/**,tasks.md}` (191 changes) |
+| `agent-wiki/` | dated work record (156 entries), one per change, referencing its issue and PR |
 | `tests/` | 112 `tests/test_*.py` files, fixtures, shared test helpers (`tests/top_tier_dry_run.py`) and the live end-to-end gates, discovered by `scripts/unit_tests.py` |
-| `docker-compose-files/` | the OpenSpec/test image compose definitions |
-| `tools/` | pip-compile inputs (`requirements.in`, `requirements-dev.in`) |
+| `docker-compose-files/` | the compose definitions for the OpenSpec CLI (`openspec.yaml`) and the test image (`test.yaml`) |
+| `tools/` | pip-compile inputs (`requirements.in`, `requirements-dev.in`) and the venv targets |
 | `.github/workflows/` | CI (`ci.yml`, `pipeline.yml`, `published.yml`, `publish-agent-image.yml`, `auto-merge.yml`) and one workflow per bot |
+| `.editorconfig`, `.gitleaks.toml`, `pytest.ini`, `.env.example` | editor line-ending rules, the secret scanner's config, pytest settings, and the documented shape of the credentials a bot leg expects (never a real value) |
 
 ## Scripts
 
@@ -130,9 +131,19 @@ group by what they exist for:
 | Group | Modules |
 |---|---|
 | Product path | `llgenie_serve.py` (launcher, model scan, serve), `model_engine_pick.py` (`recommend`, `rank_models`, `rank_engines`, `offer`), `trend_list_matrix.py`, `detect_server.py`, `install_engine_launchers.py` (install plan, start scripts, `ensure_native`), `engine_runner.py`, `engine_skills.py`, `engine_image.py`, `native_build_env.py`, `serve_variant.py`, `ensure_user_path.py`, `hf_auth.py`, `hf_download.py`, `download_test_model.py`, `strata_models.py`, `sync_registry.py`, `gen_trending_quant_catalog.py`, `registry_keys.py`, `engine_skill_gap.py`, `engine_params_derive.py`, `engine_deps.py`, `engine_bump.py`, `engine_bump_sync.py`, `engine_bump_rebase.py`, `engine_smoke.py`, `env_seam.py`, `loopback_server.py` |
-| Structural gates | `check_bash.py`, `check_python.py`, `check_docs.py`, `check_wiring.py`, `check_workflows.py`, `check_dispatch_forms.py`, `check_pr_authors.py`, `check_pr_hygiene.py`, `check_secret_output.py`, `check_openspec_tasks.py`, `secret_scan.py`, `secret_scan_self_test.py`, `scan_agents_md.py`, `lint_linefeeds.py`, `unit_tests.py` (the suite aggregator) |
+| Structural gates | `check_bash.py`, `check_python.py`, `check_docs.py`, `check_wiring.py`, `check_workflows.py`, `check_dispatch_forms.py`, `check_pr_authors.py`, `check_pr_hygiene.py`, `check_secret_output.py`, `check_openspec_tasks.py`, `secret_scan.py`, `secret_scan_self_test.py`, `scan_agents_md.py`, `module_name_guard.py`, `lint_linefeeds.py`, `unit_tests.py` (the suite aggregator) |
 | CI entrypoints | `ci_engines.py` (`make ci-engines`), `ci_health.py`, `ci_images.py` (test/OpenSpec/agent image refs), `loop_harness.py` (`make loop`) |
 | Bots and automation | `agent_model_pin.py`, `agent_shell_keys_check.py`, `architecture_bot.py`, `auto_merge.py`, `bot_claims.py`, `code_review.py`, `fix_bot_report.py`, `fix_bot_sweep.py`, `hermes_smoke.py`, `issue_cleaner.py`, `issue_dedup.py`, `issue_implementer.py`, `issue_refiner.py`, `queued_run_alarm.py`, `rebase_bot_sweep.py`, `require_env.py`, `resolve_run_pr.py`, `run_failure_reactor.py`, `scrub_log.py`, `verify_closure.py`, `web_evidence.py`, `fetch_smoke.py`, `worktree_prune.py` |
+
+Two more pieces of `scripts/` are not Python: `scripts/tools/llgenie_harness.py` (the
+harness helper the loop uses) and the shell legs the bot workflows call —
+`agent_jev_preflight.sh`, `bot_sync_main.sh`, `build_llama_server.sh`, `fix_loop.sh`,
+`install_hermes_ci.sh`, `install_nerve_ci.sh`, `load_token_to_env.sh`, `rebase_bot.sh` — plus
+`scripts/fix_bot_rules.md`, the fix-bot's instruction sheet.
+
+`scripts/module_name_guard.py` is the renamed-module guard: the CLI is
+`scripts/llgenie_serve.py`, and its old spelling is refused in every live text file, this
+doc included (issues #251, #573).
 
 ## Engine images
 
@@ -150,10 +161,14 @@ images and GPU images with a CPU fallback — serves the tiny model and answers 
 `scripts/engine_image.py` owns the tags, the CI matrix and the `DISABLED` set (an engine x
 arch image that cannot finish in CI is disabled with its tracking issue, never left as a
 red job). GPU images never contain a driver: the host driver is mounted through the
-container runtime (CDI for CUDA, `/dev/kfd` + `/dev/dri` for ROCm/Vulkan). The skills cover
-`llama.cpp`, `llama.cpp-prism`, `llama.cpp-laurentzuijdwijk`, `exllamav3-rocm`, `vllm`,
-`sglang`, `ollama`, `mlx`, `mlx-fast-bonsai2`, `tensorfold`, `strata`, `litert`,
-`tensorrt-llm`, `freetoken`, `webllm` and `dflash2`.
+container runtime (CDI for CUDA, `/dev/kfd` + `/dev/dri` for ROCm/Vulkan). Sixteen engine
+directories carry a skill, and thirteen of them produce a container image:
+`containers/engines/params/` and `containers/engines/dockerfiles/` each hold one entry per
+servable engine — `llama.cpp`, `llama.cpp-prism`, `llama.cpp-laurentzuijdwijk`,
+`exllamav3-rocm`, `vllm`, `sglang`, `ollama`, `mlx`, `strata`, `litert`, `tensorrt-llm`,
+`freetoken` and `tensorfold`. The remaining three skills have no image: `webllm` declares
+`servable: false` (a browser runtime) and `dflash2` / `mlx-fast-bonsai2` declare
+`servable: via`, driven through another engine.
 
 A weekly `engine-bump` pins each skill to its upstream release, derives the dependency
 delta (`scripts/engine_deps.py`) and regenerates the Dockerfiles; `engine-bump-rebase`
@@ -163,7 +178,8 @@ model in the loop.
 
 ## Data
 
-Six files, each generated or vendored, each with a make gate:
+`data/` holds six files, each generated or vendored, each with a make gate; the rendered
+trend matrix lives under `tests/fixtures/`:
 
 - `data/models.json` is a **verbatim** copy of trending-local-llms' registry, replaced
   wholesale by the weekly `registry-sync` PR. `scripts/registry_keys.py`
@@ -190,9 +206,9 @@ images on a new hash, never rebuild per job), `engine-base`, `engine-matrix`,
 `engine-image` (one parallel job per engine x backend), `engine-published-test`, and
 `linux` / `macos`, which call `pipeline.yml` — the reusable per-OS verification pipeline.
 `pipeline.yml` runs one job per `make ci-<job>` target — `lint` (`ci-lint`), `unit`
-(`ci-unit`), `agents-read` (`ci-agents-read`), `openspec` (`ci-openspec`), `cpu-health`
-(`ci-cpu-health`), `top-tier` (`ci-top-tier`) and `install` (`ci-install`) — the same jobs
-and asserts on both OSes; only the runner label differs. `linux-published` calls
+(`ci-unit`), `install` (`ci-install`), `agents-read` (`ci-agents-read`), `openspec`
+(`ci-openspec`), `cpu-health` (`ci-cpu-health`) and `top-tier` (`ci-top-tier`) — the same
+jobs and asserts on both OSes; only the runner label differs. `linux-published` calls
 `published.yml`, whose `install-published` job runs `make ci-engines BACKEND=<b>` for `cpu`,
 `cuda`, `rocm` and `vulkan` against the images the `engine-image` jobs published.
 `publish-agent-image.yml` publishes the Hermes agent image (guarded to owner/collaborators,
@@ -282,10 +298,10 @@ Every leg runs `scripts/require_env.py` before the image is built (a missing cre
 loud, never a skip) and forwards credentials through the Makefile's `AGENT_SHELL_KEYS` /
 `$(AGENT_SHELL_FORWARD)` seam; `make hermes-smoke` proves the model can call a tool,
 `make agent-shell-keys-check` proves every forwarded credential is visible in the agent's
-own shell, and `scripts/scrub_log.py` (`make scrub-log`) is the only thing that prints an
-agent transcript. The one web reach is `make agent-fetch` (Firecrawl key, text to `OUT`),
-with `make search-smoke` as its loud proof and `make web-coverage` /
-`make issue-evidence` reading it from the tree.
+own shell (through `scripts/agent_shell_keys_check.py`), and `scripts/scrub_log.py`
+(`make scrub-log`) is the only thing that prints an agent transcript. The one web reach is
+`make agent-fetch` (Firecrawl key, text to `OUT`), with `make search-smoke` as its loud
+proof and `make web-coverage` / `make issue-evidence` reading it from the tree.
 
 Coordination lives in the tree, not in the workflows: `scripts/bot_claims.py` says which bot
 is already working a subject, `scripts/rebase_bot_sweep.py` and
