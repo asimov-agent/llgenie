@@ -313,12 +313,17 @@ def run(spec: dict, model: str, port: int, name: str, models_dir: Path, wait: fl
     return 1
 
 
-# Proves one engine file: it exists, and it answers the flags its engine
-# documents (binaries.json), tried in that order. --help is the long form of -h
-# (strata, tensorfold, sglang). A .py file is the server itself (exllamav3
-# server.py) and is run with python3.
-# Exit codes: 0 = a flag answered, 1 = the file is missing, 2 = the file exists
-# but no flag answered (a CLI that needs its device; see probe: device).
+# Proves one engine file: it exists, and it answers EVERY flag the engine's manifest documents, plus
+# the standard trio (the flags a user actually types), tried one at a time (issue #580).
+#
+# WHY every flag and not the first: this probe used to `exit 0` on the first flag that answered, so a
+# release that dropped `--help` — or a binary that answers `--version` and nothing else — passed the
+# bump's CI and broke the first user who typed `-h`. The verdict is now the caller's, one line per
+# flag, so a dead flag is visible instead of masked.
+#
+# A `.py` file is the server itself (exllamav3 server.py) and is run with python3.
+# Exit codes: 0 = the file was found and every flag was tried (the verdict is in the LG-FLAG lines),
+#             1 = the file is missing.
 BINARY_PROBE = """
 bin=$1
 shift
@@ -339,30 +344,139 @@ if [ -z "$path" ] || [ ! -f "$path" ]; then
   echo "missing binary file: $bin" >&2
   exit 1
 fi
-try() {
-  if [ "${path##*.}" = py ]; then
-    $TO python3 "$path" "$1"
-  else
-    $TO "$path" "$1"
-  fi
-}
+echo "binary file: $path"
+i=0
 for flag in "$@"; do
-  if try "$flag" >/tmp/llgenie-bin.out 2>&1; then
-    echo "binary file $path accepts $flag"
-    exit 0
+  i=$((i+1))
+  out="/tmp/llgenie-bin.$i.out"
+  if [ "${path##*.}" = py ]; then
+    $TO python3 "$path" "$flag" >"$out" 2>&1
+  else
+    $TO "$path" "$flag" >"$out" 2>&1
   fi
+  rc=$?
+  # BSD `wc -c` pads its count with spaces ("      12") while GNU does not, so strip them here: a
+  # padded count broke the verdict parser on the macOS runner (issue #580, caught by macos / unit).
+  bytes=$(wc -c <"$out" 2>/dev/null | tr -d ' ' || true)
+  [ -n "$bytes" ] || bytes=0
+  # One verdict per flag: the caller decides, this probe never short-circuits.
+  echo "LG-FLAG $flag $rc $bytes"
+  echo "LG-OUT-BEGIN $flag"
+  tail -c 600 "$out" 2>/dev/null || true
+  echo "LG-OUT-END $flag"
 done
-echo "binary file $path exists but none of: $* answered" >&2
-if [ -f /tmp/llgenie-bin.out ]; then
-  tail -c 2000 /tmp/llgenie-bin.out >&2
-fi
-exit 2
+exit 0
 """
 
-# The standard trio a server binary is expected to answer. The engine's own
-# documented flags are tried first; this is the fallback, so a documented flag
-# that stopped answering shows up in the log instead of passing silently.
+#: The flags a user types at an engine binary. Probed ALWAYS, whatever the manifest documents, so the
+#: log shows a dead spelling instead of hiding it behind a working sibling (issue #580).
+TYPED_FLAGS = ("--version", "-h", "--help", "-V")
+
+#: The spellings that answer the "what version is this" and "show me the flags" questions. A release
+#: that drops a whole family is the regression this asserts; an engine that spells one member is fine.
+VERSION_FAMILY = ("--version", "-V")
+HELP_FAMILY = ("-h", "--help")
+
+# The standard trio a server binary is expected to answer, kept as the fallback for an engine whose
+# manifest documents nothing (issue #580). See TYPED_FLAGS for the always-probed set.
 FALLBACK_FLAGS = ("--version", "-h", "--help")
+
+#: One verdict line per flag, as BINARY_PROBE prints it. `\s+` on purpose: a platform's own `wc` may
+#: pad its count, and a probe whose parser only understands Linux spacing is a green Linux / red macOS.
+_LG_FLAG = re.compile(r"^LG-FLAG (\S+)\s+(-?\d+)\s+(\d+)$")
+_LG_OUT_BEGIN = re.compile(r"^LG-OUT-BEGIN (\S+)$")
+_LG_OUT_END = re.compile(r"^LG-OUT-END (\S+)$")
+
+
+def parse_probe(text: str) -> dict[str, dict]:
+    """{flag: {rc, bytes, output}} from the probe's own per-flag verdict lines (issue #580).
+
+    Pure: the probe's stdout in, a decision-ready mapping out. A flag with no verdict line is absent,
+    so "the probe never ran it" can never be read as "it answered".
+    """
+    verdicts: dict[str, dict] = {}
+    lines = (text or "").splitlines()
+    i = 0
+    while i < len(lines):
+        m = _LG_FLAG.match(lines[i])
+        if not m:
+            i += 1
+            continue
+        flag, rc, size = m.group(1), int(m.group(2)), int(m.group(3))
+        body: list[str] = []
+        j = i + 1
+        if j < len(lines):
+            begin = _LG_OUT_BEGIN.match(lines[j])
+            if begin and begin.group(1) == flag:
+                j += 1
+                while j < len(lines):
+                    end = _LG_OUT_END.match(lines[j])
+                    if end and end.group(1) == flag:
+                        break
+                    body.append(lines[j])
+                    j += 1
+        verdicts[flag] = {"rc": rc, "bytes": size, "output": "\n".join(body).strip()}
+        i = j + 1
+    return verdicts
+
+
+def _answered(verdicts: dict[str, dict], flag: str) -> bool:
+    """A flag answered when its own invocation exited 0 and printed something."""
+    v = verdicts.get(flag)
+    return bool(v) and v["rc"] == 0 and v["bytes"] > 0
+
+
+def decide(documented: list[str], verdicts: dict[str, dict], policy: str = "flags") -> dict:
+    """The verdict for one engine binary, from the per-flag results (issue #580).
+
+    Pure, so it can be tested without docker. Rules, in order:
+
+      * EVERY documented flag must answer on its own — one working flag never vouches for a dead one;
+      * the help family and the version family must each be answered by one of their spellings, which
+        is what survives engines that hyphenate help differently (six of them document `--help` only);
+      * an engine that documents nothing falls back to the trio and needs one answer;
+      * a `probe: device` variant whose flags ALL failed is contained: its CLI initialises the device
+        at startup, and the version is proven by the image's own `detect`.
+
+    Returns {"ok": bool, "failures": [lines], "note": str}.
+    """
+    failures: list[str] = []
+    note = ""
+
+    for flag in documented:
+        v = verdicts.get(flag)
+        if v is None:
+            failures.append(f"{flag}: documented but never probed")
+        elif not _answered(verdicts, flag):
+            tail = v["output"].splitlines()[-6:]
+            failures.append(f"{flag}: documented but did not answer (exit {v['rc']}, "
+                            f"{v['bytes']} byte(s) of output)"
+                            + ("\n" + "\n".join(tail) if tail else ""))
+
+    probed = [f for f in dict.fromkeys([*documented, *TYPED_FLAGS]) if f in verdicts]
+    if not any(_answered(verdicts, f) for f in probed):
+        if policy == "device":
+            return {"ok": True, "failures": [],
+                    "note": "its CLI needs its device (probe: device) -> version comes from the "
+                            "image's entrypoint detect"}
+        if documented:
+            failures.append(f"none of the documented flags answered: {' '.join(documented)}")
+        else:
+            failures.append(f"the manifest documents no flags and none of the probed flags answered: "
+                            f"{' '.join(probed)}")
+        return {"ok": False, "failures": failures, "note": note}
+
+    # A family is judged only over the members that were PROBED: `binary_file_works` always probes all
+    # of TYPED_FLAGS, so an absent member here is a caller that never ran it — not an engine failing.
+    help_probed = [f for f in HELP_FAMILY if f in verdicts]
+    if help_probed and not any(_answered(verdicts, f) for f in help_probed):
+        failures.append(f"the help family answers to neither {' nor '.join(help_probed)}: a user "
+                        "typing either gets nothing")
+    version_probed = [f for f in VERSION_FAMILY if f in verdicts]
+    if version_probed and not any(_answered(verdicts, f) for f in version_probed):
+        failures.append(f"the version family answers to neither {' nor '.join(version_probed)}")
+
+    return {"ok": not failures, "failures": failures, "note": note}
 
 
 def binary_manifest(engine: str, variant: str) -> dict:
@@ -394,14 +508,16 @@ def variant_flags(spec: dict) -> list[str]:
 
 
 def binary_file_works(spec: dict) -> int:
-    """The image contains the engine file, and that file answers a version/help flag.
+    """The image contains the engine file, and that file answers the flags a user types.
 
-    Runs inside the built image. A name on PATH is resolved to its file first, so
-    a missing file is not hidden by a later Python import. The engine's documented
-    flags are probed first; the standard trio is the fallback. A variant whose CLI
-    initialises its device at startup (`probe: device`, e.g. vllm cuda/rocm, CI #106)
-    must still CONTAIN the file - there the version proof is the image's own
-    `detect`, which `test_image` runs next.
+    Runs inside the built image. A name on PATH is resolved to its file first, so a missing file is
+    not hidden by a later Python import. EVERY flag the manifest documents must answer, and EACH of
+    the flags a user types (`--version`, `-h`, `--help`, `-V`) is executed, so a dead spelling is
+    named instead of masked by a working one (issue #580).
+
+    A variant whose CLI initialises its device at startup (`probe: device`, e.g. vllm cuda/rocm,
+    CI #106) must still CONTAIN the file; there the version proof is the image's own `detect`, which
+    `test_image` runs next.
     """
     tag = spec["tag"]
     entry = binary_manifest(spec["id"], spec["variant"])
@@ -411,22 +527,43 @@ def binary_file_works(spec: dict) -> int:
               f"{spec['id']}/{spec['variant']}")
         return 1
     documented = [str(f) for f in (entry.get("flags") or [])]
-    flags = list(documented) + [f for f in FALLBACK_FLAGS if f not in documented]
+    policy = str(entry.get("probe") or "flags")
+    # The documented flags first, then whatever a user types that was not already covered.
+    flags = [*documented, *[f for f in TYPED_FLAGS if f not in documented]]
+    if not documented:
+        flags = [*FALLBACK_FLAGS, *[f for f in TYPED_FLAGS if f not in FALLBACK_FLAGS]]
     r = subprocess.run(
         [RUNTIME, "run", "--rm", "--entrypoint", "bash", tag, "-c", BINARY_PROBE,
          "llgenie-binary", binary, *flags],
         capture_output=True, text=True)
-    out = ((r.stdout or "") + (r.stderr or "")).strip()
+    out = (r.stdout or "").strip()
+    if r.returncode != 0:
+        # The probe's only non-zero exit is "the binary file is missing" (issue #580 keeps the exit
+        # contract); nothing to parse.
+        print(f"[engine-image] FAIL {tag}: {binary} probed non-zero ({r.returncode})")
+        print(((r.stdout or "") + (r.stderr or "")).strip()[-2000:])
+        return 1
+    verdicts = parse_probe(out)
+    verdict = decide(documented, verdicts, policy)
     print(f"[engine-image] {spec['id']}/{spec['variant']} binary {binary} "
-          f"(documented: {' '.join(documented) or 'none'}, probe: {entry.get('probe') or 'flags'}): "
-          f"{out.splitlines()[-1:] or ['']}")
-    if r.returncode == 0:
+          f"(documented: {' '.join(documented) or 'none'}, policy: {policy}, "
+          f"probed: {' '.join(flags)})")
+    for flag in flags:
+        v = verdicts.get(flag)
+        if v is None:
+            continue
+        state = "answers" if _answered(verdicts, flag) else f"NO ANSWER (exit {v['rc']})"
+        print(f"[engine-image]   {flag}: {state}"
+              + (f" -> {v['output'].splitlines()[0][:120]}" if v["output"] else ""))
+    if verdict["note"]:
+        print(f"[engine-image] {spec['id']}/{spec['variant']}: {binary} IS in the image but "
+              f"{verdict['note']}")
+    if verdict["ok"]:
         return 0
-    if r.returncode == 2 and entry.get("probe") == "device":
-        print(f"[engine-image] {spec['id']}/{spec['variant']}: {binary} IS in the image but its CLI "
-              f"needs its device (probe: device) -> its version must come from entrypoint detect")
-        return 0
-    print(out[-2000:])
+    print(f"[engine-image] FAIL {spec['id']}/{spec['variant']} binary {binary}: "
+          f"{len(verdict['failures'])} flag problem(s)")
+    for line in verdict["failures"]:
+        print(f"[engine-image]   - {line}")
     return 1
 
 

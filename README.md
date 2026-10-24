@@ -1610,9 +1610,18 @@ registry layer cache (`--cache-from`/`--cache-to`). A tag that is already publis
 `/v1/models` lists `llm-local` and `/v1/chat/completions` answers "hi"), GPU images print their
 version (`make test-engine-image`). Only then `make push-engine` publishes the image to the
 repo's GHCR, on every push run (feature branches too, for now). The push runs that check again and does not tag or push unless the engine binary
-file exists in the image and answers the version/help flag that engine documents
-(`binary_flags` in its skill: `--version` for llama.cpp, ollama, vllm/cpu and freetoken;
-`--help` for sglang, strata, tensorfold, litert, mlx, exllamav3 and tensorrt-llm).
+file exists in the image and **answers every flag the engine documents, one at a time**
+(`binary_flags` in its skill: `--version` + `--help` for llama.cpp, ollama, vllm/cpu and freetoken and
+the llama.cpp forks; `--help` for sglang, strata, tensorfold, litert, mlx, exllamav3 and tensorrt-llm).
+**Every flag a user types is executed too** — `--version`, `-h`, `--help`, `-V` — and the help family
+(`-h` or `--help`) and the version family (`--version` or `-V`) must each get an answer, so a release
+that drops a whole spelling reds while an engine that only ever spelled it `--help` keeps passing
+(issue #580). The check used to pass on the FIRST flag that answered, which is exactly how a dropped
+`--help` shipped green; now each flag's own exit status and output are reported, and a flag that did
+not answer is named in the failure. The bump PR's CI runs this through
+`make test-engine-stage … TEST=detect` → `make test-engine-image` → `scripts/engine_image.py
+test-image` + `tests/test_engine_version.py`, so a binary that cannot answer `--help` is red before a
+human merges the bump.
 A Python import is not that check (issue #204). Those flags, and the file each image
 must contain, are generated into `containers/engines/binaries.json` with the params
 (`make generate-engine-params`, checked by `make check-engine-params`) and are NOT part

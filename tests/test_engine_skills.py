@@ -812,8 +812,12 @@ def _probe(binary: str, path_dir: str = "", flags: tuple = FLAGS):
         capture_output=True, text=True, env=env)
 
 
-def test_binary_probe_requires_the_file_and_a_flag(tmp_path):
-    """0 = a documented flag answered, 1 = no such file, 2 = file exists, no flag answered."""
+def test_binary_probe_reports_every_flag_and_fails_only_without_the_file(tmp_path):
+    """0 = the file was found and every flag was tried, 1 = no such file (issue #580).
+
+    The verdict moved out of the probe: it prints one `LG-FLAG <flag> <rc> <bytes>` line per flag so a
+    dead flag cannot hide behind a working sibling, and `scripts.engine_image.decide` rules on them.
+    """
 
     # Given an executable that answers --version, one that answers only -h,
     # a python file that answers -h, a file that answers neither, and no file
@@ -842,15 +846,20 @@ def test_binary_probe_requires_the_file_and_a_flag(tmp_path):
     assert _probe(script).returncode == 0
     assert _probe("namedbin", str(tmp_path)).returncode == 0
 
-    # And the documented flag is what is tried first: an engine documenting only
-    # --help passes on --help, and fails when its documented flag does not answer
-    assert _probe(long_help, flags=("--help",)).returncode == 0
-    assert _probe(long_help, flags=("--version",)).returncode == 2
+    # And every flag gets its OWN verdict: an engine documenting only --help reports --help as
+    # answered and --version as not, instead of one exit code for the whole probe
+    import scripts.engine_image as ei
+    long_help_verdicts = ei.parse_probe(_probe(long_help, flags=("--help", "--version")).stdout)
+    assert long_help_verdicts["--help"]["rc"] == 0
+    assert long_help_verdicts["--version"]["rc"] != 0
+    assert long_help_verdicts["--version"]["bytes"] == 0
 
-    # A file that answers nothing is 2 (the file IS there), a missing file is 1
+    # A file that answers nothing still exits 0 with a verdict line per flag (the file IS there),
+    # and only a missing file is the probe's own failure
     answered = _probe(silent)
-    assert answered.returncode == 2
-    assert "exists but" in answered.stderr
+    assert answered.returncode == 0
+    silent_verdicts = ei.parse_probe(answered.stdout)
+    assert silent_verdicts and all(v["rc"] != 0 for v in silent_verdicts.values()), silent_verdicts
     missing = _probe(tmp_path / "absent")
     assert missing.returncode == 1
     assert "missing binary file" in missing.stderr
@@ -930,22 +939,32 @@ def test_each_engine_documents_the_flags_its_binary_answers(skills):
         assert not used or all(f in flags for f in used), f"{sid}: detect uses {used}, docs say {flags}"
 
 
+def _probe_stdout(cmd: list[str], answer: tuple = ()) -> str:
+    """The probe's real stdout shape for a fake run: one LG-FLAG block per flag (issue #580)."""
+    flags = cmd[cmd.index("llgenie-binary") + 2:]
+    out = []
+    for flag in flags:
+        rc = 0 if flag in answer else 1
+        body = "usage text" if rc == 0 else ""
+        out += [f"LG-FLAG {flag} {rc} {len(body)}", f"LG-OUT-BEGIN {flag}", body, f"LG-OUT-END {flag}"]
+    return "\n".join(out)
+
+
 def test_a_device_cli_is_exempted_only_where_the_file_still_has_to_be_there(monkeypatch):
     """probe: device tolerates a CLI that cannot answer without its device, never a missing file."""
 
     import scripts.engine_image as ei
 
     # Given vllm's cuda image (its CLI probes the device at startup, CI #106)
-    def runner(rc: int, stderr: str):
+    def runner(rc: int, stderr: str, answer: tuple = ()):
         def run(cmd, **kw):
-            return subprocess.CompletedProcess(cmd, rc, "", stderr)
+            return subprocess.CompletedProcess(cmd, rc, _probe_stdout(cmd, answer) if rc == 0 else "", stderr)
         return run
 
     vllm_cuda = {"tag": "llgenie/vllm:x-cuda", "id": "vllm", "variant": "cuda"}
-    monkeypatch.setattr(ei.subprocess, "run",
-                        runner(2, "binary file vllm exists but none of: --version -h --help answered"))
+    monkeypatch.setattr(ei.subprocess, "run", runner(0, ""))
 
-    # When the file is there but its CLI needs the device
+    # When the file is there but its CLI needs the device (no flag answers)
     # Then the check passes, and the version proof is left to the image's detect
     assert ei.binary_file_works(vllm_cuda) == 0
 
@@ -954,8 +973,7 @@ def test_a_device_cli_is_exempted_only_where_the_file_still_has_to_be_there(monk
     assert ei.binary_file_works(vllm_cuda) == 1
 
     # A flags-policy image gets no exemption: its binary must answer a documented flag
-    monkeypatch.setattr(ei.subprocess, "run",
-                        runner(2, "binary file /app/llama-server exists but none answered"))
+    monkeypatch.setattr(ei.subprocess, "run", runner(0, ""))
     assert ei.binary_file_works({"tag": "llgenie/llama-cpp:x-cuda", "id": "llama.cpp", "variant": "cuda"}) == 1
 
 
@@ -970,7 +988,7 @@ def test_device_variant_still_probes_its_documented_flags(monkeypatch):
 
     def run(cmd, **kw):
         seen.append(cmd)
-        return subprocess.CompletedProcess(cmd, 2, "", "binary file vllm exists but none answered")
+        return subprocess.CompletedProcess(cmd, 0, _probe_stdout(cmd), "")
 
     monkeypatch.setattr(ei.subprocess, "run", run)
     vllm_cuda = {"tag": "llgenie/vllm:x-cuda", "id": "vllm", "variant": "cuda"}
@@ -1063,13 +1081,14 @@ def test_image_fails_when_the_binary_file_does_not_answer(monkeypatch):
     # When the image test runs
     rc = ei.test_image(spec)
 
-    # Then it fails, and the probe was the binary file with its documented flags
-    # (documented first, then the standard trio as the fallback)
+    # Then it fails, and the probe was the binary file with its documented flags FIRST and every
+    # flag a user types after them — each with its own verdict (issue #580)
     assert rc == 1
     probe = next(cmd for cmd in seen if "llgenie-binary" in cmd)
-    assert probe[probe.index("llgenie-binary") + 1:] == ["/app/llama-server", "--version", "--help", "-h"]
+    assert probe[probe.index("llgenie-binary") + 1:] == [
+        "/app/llama-server", "--version", "--help", "-h", "-V"]
     script = probe[probe.index("-c") + 1]
-    assert '"$@"' in script and "exit 2" in script
+    assert "LG-FLAG" in script and '"$@"' in script, "the probe must report per flag, not per run"
 
 
 def test_push_does_not_publish_an_unbuilt_image(monkeypatch):

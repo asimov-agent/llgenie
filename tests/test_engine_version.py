@@ -39,6 +39,45 @@ def test_engine_binary_reports_a_version():
     print(f"[version] {engine}/{arch}: {out.splitlines()[-1]}")
 
 
+def test_engine_binary_answers_the_flags_a_user_types():
+    """Every documented flag, and both flag families, answered by the built image's binary.
+
+    The `version` entrypoint above proves the IMAGE reports a version. This proves the BINARY answers
+    the flags a user actually types — and it names the flag that did not, instead of passing on
+    whichever spelling happened to work (issue #580).
+    """
+    engine = os.environ.get("LLGENIE_TEST_ENGINE", "")
+    arch = os.environ.get("LLGENIE_TEST_ARCH", "")
+    if not (engine and arch):
+        pytest.fail("LLGENIE_TEST_ENGINE/LLGENIE_TEST_ARCH are not set: run through "
+                    "`make test-engine-image ENGINE=<id> ARCH=<arch>`")
+
+    # Given the built image's manifest entry for this variant
+    spec = ei.resolve(engine, None, arch)
+    entry = ei.binary_manifest(spec["id"], spec["variant"])
+    binary = str(entry.get("binary") or "")
+    documented = [str(f) for f in (entry.get("flags") or [])]
+    policy = str(entry.get("probe") or "flags")
+    assert binary, f"{engine}/{arch}: binaries.json carries no binary"
+
+    # When  the shipped probe runs every flag a user types inside the image
+    flags = [*documented, *[f for f in ei.TYPED_FLAGS if f not in documented]]
+    r = subprocess.run([ei.RUNTIME, "run", "--rm", "--entrypoint", "bash", spec["tag"], "-c",
+                        ei.BINARY_PROBE, "llgenie-binary", binary, *flags],
+                       capture_output=True, text=True, timeout=600)
+    assert r.returncode == 0, f"{engine}/{arch} probe failed ({r.returncode}): " \
+                              f"{(r.stdout + r.stderr)[-2000:]}"
+
+    # Then  every documented flag and both families answered, and a miss names the flag
+    verdicts = ei.parse_probe(r.stdout)
+    verdict = ei.decide(documented, verdicts, policy)
+    assert verdict["ok"], f"{engine}/{arch} binary {binary} failed the flag check:\n" + \
+                          "\n".join(verdict["failures"])
+    for flag in flags:
+        answered = verdicts.get(flag, {}).get("rc") == 0
+        print(f"[flags] {engine}/{arch} {flag}: {'answers' if answered else 'no answer'}")
+
+
 def test_strata_engine_runs_on_avx2_cpus_and_setup_reuses_it():
     """Strata only: the engine compiled into the image must run on an AVX2 CPU without
     AVX-512 (Intel 12th-14th gen, the RTX 4090 laptop it crashed on). Built with ggml's
