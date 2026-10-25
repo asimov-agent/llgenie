@@ -195,14 +195,14 @@
         "flags": [
           "--help"
         ],
-        "probe": "flags"
+        "probe": "help"
       },
       "rocm": {
         "binary": "sglang",
         "flags": [
           "--help"
         ],
-        "probe": "flags"
+        "probe": "help"
       }
     },
     "strata": {
