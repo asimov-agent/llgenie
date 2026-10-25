@@ -70,11 +70,12 @@ previews). Nothing is published without drift, and the bot never merges.
    `llgenie/base-<backend>` toolchain image (llama.cpp is a source build in all four
    variants), `prebuilt: true` starts `FROM` an upstream image and adds only the llgenie
    entrypoint. `make build-engines` builds every engine x variant the parameters declare,
-   in parallel (`ENGINE=`, `ARCH=` and `JOBS=` narrow it); `make engine-build-matrix` is the
-   same `scripts/engine_image.py matrix` JSON. `make test-engine` (OpenAI API answers on a
-   tiny model) or `make test-engine-image` (version only, for GPU-only images) tests a
-   built image, and `make push-engine` publishes it to `ghcr.io/<owner>/llgenie/<name>` as
-   `<pinned-hash>-<arch>` and `:<arch>`.
+   in parallel (`ENGINE=`, `ARCH=`, `JOBS=` and `FORCE=` narrow it); `make
+   engine-build-matrix` is the same `scripts/engine_image.py matrix` JSON. `make test-engine`
+   (OpenAI API answers on a tiny model) or `make test-engine-image` (binary flags and
+   version only, for GPU-only images) tests a built image, `make engine-gate-report` prints
+   what each cell will actually prove before anything is built, and `make push-engine`
+   publishes a verified image to `ghcr.io/<owner>/llgenie/<name>` under three tags.
 7. **Serve** — `scripts/llgenie_serve.py` scans `~/models/**/*.gguf`, sizes the KV cache and
    `-ngl` for the card, resolves `llama-server` to the container shim (Prism on cards of
    24 GB or less, like `detect_server`), and serves the OpenAI API as `llm-local`. Its Hub
@@ -122,9 +123,9 @@ picks which start script or image to run.
 | `containers/ci-variant/` | the CUDA-toolkit variant-build image (`make test-variant-image`) with its own `requirements.txt` / `requirements-dev.txt` |
 | `data/` | vendored registry, quant catalog, strata model map, engine-skill gap, unsupported engines, trending README |
 | `docs/` | this document |
-| `openspec/` | the change record: `config.yaml`, its `Dockerfile`, and `changes/<name>/{proposal.md,specs/**,tasks.md}` (201 changes) |
-| `agent-wiki/` | dated work record (166 entries), one per change, referencing its issue and PR |
-| `tests/` | 120 `tests/test_*.py` files, fixtures, shared test helpers (`tests/top_tier_dry_run.py`) and the live end-to-end gates, discovered by `scripts/unit_tests.py` |
+| `openspec/` | the change record: `config.yaml`, its `Dockerfile`, and `changes/<name>/{proposal.md,specs/**,tasks.md}` (206 changes) |
+| `agent-wiki/` | dated work record (172 entries), one per change, referencing its issue and PR |
+| `tests/` | 123 `tests/test_*.py` files, fixtures, shared test helpers (`tests/top_tier_dry_run.py`) and the live end-to-end gates, discovered by `scripts/unit_tests.py` |
 | `docker-compose-files/` | the compose definitions for the OpenSpec CLI (`openspec.yaml`) and the test image (`test.yaml`) |
 | `tools/` | pip-compile inputs (`requirements.in`, `requirements-dev.in`) and the venv targets |
 | `.github/workflows/` | CI (`ci.yml`, `pipeline.yml`, `published.yml`, `publish-agent-image.yml`, `auto-merge.yml`), the on-demand engine sweep (`engine-build.yml`) and one workflow per bot |
@@ -138,9 +139,9 @@ group by what they exist for:
 | Group | Modules |
 |---|---|
 | Product path | `llgenie_serve.py` (launcher, model scan, serve), `model_engine_pick.py` (`recommend`, `rank_models`, `rank_engines`, `offer`), `trend_list_matrix.py`, `detect_server.py`, `install_engine_launchers.py` (install plan, start scripts, `ensure_native`), `engine_runner.py`, `engine_skills.py`, `engine_image.py`, `native_build_env.py`, `serve_variant.py`, `ensure_user_path.py`, `hf_auth.py`, `hf_download.py`, `download_test_model.py`, `strata_models.py`, `sync_registry.py`, `gen_trending_quant_catalog.py`, `registry_keys.py`, `engine_skill_gap.py`, `engine_params_derive.py`, `engine_params_review.py` (the documentation review of a bump's derived params: `brief`, `parse_proposals`, `validate`, `apply_accepted`, `section`), `engine_deps.py`, `engine_bump.py`, `engine_bump_sync.py`, `engine_bump_rebase.py`, `engine_smoke.py`, `env_seam.py`, `loopback_server.py` |
-| Structural gates | `check_bash.py`, `check_python.py`, `check_docs.py`, `check_wiring.py`, `check_workflows.py`, `check_dispatch_forms.py`, `check_pr_authors.py`, `check_pr_hygiene.py`, `check_secret_output.py`, `check_openspec_tasks.py`, `check_agent_skills.py` (a bot leg preloads its project skill, the skill exists and carries `Inputs`/`Output`/`Rules`, the prompt stays a pointer), `engine_source_guard.py` (a cell that says `prebuilt: false` must actually compile), `secret_scan.py`, `secret_scan_self_test.py`, `scan_agents_md.py`, `module_name_guard.py`, `lint_linefeeds.py`, `unit_tests.py` (the suite aggregator) |
+| Structural gates | `check_bash.py`, `check_python.py`, `check_docs.py`, `check_wiring.py`, `check_workflows.py`, `check_dispatch_forms.py`, `check_pr_authors.py`, `check_pr_hygiene.py`, `check_secret_output.py`, `check_openspec_tasks.py`, `check_agent_skills.py` (a bot leg preloads its project skill, the skill exists and carries `Inputs`/`Output`/`Rules`, the prompt stays a pointer, and a skill list that comes from a Makefile variable is expanded before it is read), `engine_source_guard.py` (a cell that says `prebuilt: false` must actually compile), `engine_gate_report.py` (the per-cell census behind `make engine-gate-report`: `flag-proven`, `device-exempt` with its `DEVICE_ONLY` reason, or `disabled`), `secret_scan.py`, `secret_scan_self_test.py`, `scan_agents_md.py`, `module_name_guard.py`, `lint_linefeeds.py`, `unit_tests.py` (the suite aggregator) |
 | CI entrypoints | `ci_engines.py` (`make ci-engines`), `ci_health.py`, `ci_images.py` (test/OpenSpec/agent image refs), `loop_harness.py` (`make loop`) |
-| Bots and automation | `agent_model_pin.py`, `agent_shell_keys_check.py`, `architecture_bot.py`, `auto_merge.py`, `bot_claims.py`, `code_review.py`, `fix_bot_report.py`, `fix_bot_sweep.py`, `hermes_skills_register.py` (writes the checkout's skill dir into Hermes's `skills.external_dirs` as a real YAML list, and reads it back), `hermes_smoke.py`, `issue_cleaner.py`, `issue_dedup.py`, `issue_implementer.py`, `issue_refiner.py`, `nerve_profile_check.py` (fails the agent build when a nerve setting targets a module the chosen profile does not register), `queued_run_alarm.py`, `rebase_bot_sweep.py`, `require_env.py`, `resolve_run_pr.py`, `run_failure_reactor.py`, `scrub_log.py`, `verify_closure.py`, `web_evidence.py`, `fetch_smoke.py`, `worktree_prune.py` |
+| Bots and automation | `agent_model_pin.py`, `agent_shell_keys_check.py`, `architecture_bot.py`, `auto_merge.py`, `bot_claims.py`, `code_review.py`, `fix_bot_report.py`, `fix_bot_sweep.py`, `hermes_skills_register.py` (writes the checkout's skill dir into Hermes's `skills.external_dirs` as a real YAML list, and reads it back), `hermes_smoke.py`, `issue_cleaner.py`, `issue_dedup.py`, `issue_implementer.py`, `issue_refiner.py`, `nerve_profile_check.py` (fails the agent build when a nerve setting targets a module the chosen profile does not register), `queued_run_alarm.py`, `rebase_bot_sweep.py`, `require_env.py`, `resolve_run_pr.py` (resolves the PR a finished run belongs to; `--allow-none` is the fix-bot's answer for a PR that already landed), `run_failure_reactor.py`, `scrub_log.py`, `verify_closure.py`, `web_evidence.py`, `fetch_smoke.py`, `worktree_prune.py` |
 
 Two more pieces of `scripts/` are not Python: `scripts/tools/llgenie_harness.py` (the
 harness helper the loop uses) and the shell legs the bot workflows call —
@@ -187,10 +188,23 @@ into `{flag: {rc, bytes, output}}` and `decide()` is the pure rule: every flag t
 (`TYPED_FLAGS`: `--version`, `-h`, `--help`, `-V`) is executed and reported, the help family
 (`-h`/`--help`) and the version family (`--version`/`-V`) must each be answered by one of
 their spellings, an engine documenting no flags still needs one answer from the fallback
-trio, and a `probe: device` variant whose flags all fail is contained because its version
-comes from the entrypoint `detect`. One working spelling no longer vouches for a dead one,
-so a release that drops a whole family reds on its own bump PR instead of at a user's
-terminal.
+trio, and at least one probed flag must exit 0 on every cell. One working spelling no longer
+vouches for a dead one, so a release that drops a whole family reds on its own bump PR
+instead of at a user's terminal.
+
+The device-only exemption is keyed by the CELL, not by the binary alone (issues #625, #632,
+#634/#637). `DEVICE_ONLY` is a dict keyed `(engine, variant)`, each entry carrying the
+measured reason (the `vllm` cuda/rocm CLIs, `tensorrt-llm` cuda, `mlx` cuda — all four raise
+at import without a device), so a cell that is not listed cannot be exempted, a listed cell's
+exemption applies to itself only, and `decide()` refuses a `policy="device"` call that
+arrives without `engine`/`variant` instead of silently answering "not exempt".
+`binary_file_works()` passes `spec["id"]` and `spec["variant"]` on every path, so an engine
+row decides through the product function with its cell's identity — the sweep's mlx/cuda row
+used to fail there while the same check passed inside `test_image`. `make engine-gate-report`
+(`scripts/engine_gate_report.py`) is the census a reviewer reads before a sweep: for every
+engine x variant in the committed params it prints `flag-proven`, `device-exempt` (with its
+`DEVICE_ONLY` reason) or `disabled` (with its `DISABLED` issue) plus the `detect` line, so
+green rows can no longer hide cells that proved nothing but a file's presence.
 
 `scripts/engine_image.py` owns the tags, the CI matrix, `CPU_FALLBACK` and the `DISABLED`
 set (an engine x arch image that cannot finish in CI is disabled with its tracking issue,
@@ -203,6 +217,22 @@ servable engine — `llama.cpp`, `llama.cpp-prism`, `llama.cpp-laurentzuijdwijk`
 `freetoken` and `tensorfold`. The remaining three skills have no image: `webllm` declares
 `servable: false` (a browser runtime) and `dflash2` / `mlx-fast-bonsai2` declare
 `servable: via`, driven through another engine.
+
+Publishing names every image three ways (`publish_refs()`): the immutable HASH tag
+(`<sha8>-<hash>-<variant>`), the moving `:<variant>` tag, and `:latest` — claimed by exactly
+one variant per engine (`engine_latest_variant()`: `cpu` when the engine has one, otherwise
+its only/first variant) so parallel publishing rows cannot race that tag. `pull_published()`
+checks the digest of all of them: a `:latest` that is not there yet is a printed NOTE rather
+than a failure, because it only exists once a run has published that engine, while a
+`:latest` that exists with a different digest still fails.
+
+`FORCE=1` is a real rebuild, not a skipped cache check (issue #638). `_buildx(force=True)`
+passes `--no-cache` and reads no registry cache (fresh layers are still written back),
+`build()` carries the flag through and forces its shared base too, `make build-engines`
+forwards it into every row, and the dispatched sweep's `force` input does the same for the
+whole matrix. Before that the sweep could only ever validate the layer cache — every row
+printed `available -> no rebuild` — so a base/toolchain change, a poisoned cache, or a GHCR
+tag that had to come from a clean build had no way to be republished.
 
 The committed params hold 31 engine x arch cells; `CI_VARIANTS` and `DISABLED` leave 27 of
 them as CI rows today, which is also what `make engine-build-matrix` emits. Of the 31 cells,
@@ -220,10 +250,11 @@ means deleting its entry. `make engine-source-report` prints the whole census an
 fails.
 
 `make build-engines` is the local parallel sweep over those rows: every engine x variant, or
-`ENGINE=` / `ARCH=` / both, `JOBS=` wide (default `nproc`), `VERIFY=1` also running each
-built image's binary test. In CI the same rows are built by `.github/workflows/engine-build.yml`,
-the independent whole-set sweep described under **CI** — `ci.yml` keeps its changed-images
-gate, so an unbuildable engine bump still cannot merge.
+`ENGINE=` / `ARCH=` / both, `JOBS=` wide (default `nproc`), `FORCE=1` rebuilding every row
+from scratch, `VERIFY=1` also running each built image's binary test. In CI the same rows are
+built by `.github/workflows/engine-build.yml`, the independent whole-set sweep described
+under **CI** — `ci.yml` keeps its changed-images gate, so an unbuildable engine bump still
+cannot merge.
 
 A weekly `engine-bump` pins each skill to its upstream release, derives the dependency
 delta (`scripts/engine_deps.py`) and regenerates the Dockerfiles; `engine-bump-rebase`
@@ -321,19 +352,23 @@ label differs. `linux-published` calls `published.yml`, whose `install-published
 `.github/workflows/engine-build.yml` is the independent whole-set sweep, and it is
 deliberately not part of `ci.yml`: `ci.yml` builds only what a PR changed, which is the right
 merge gate but means no run ever exercises the whole pinned set. The sweep is
-`workflow_dispatch` only (inputs `engine`, `arch`, `push`; nothing schedules it), never
-triggers on a pull request or a push, and never merges. `guard` runs first (owner or
+`workflow_dispatch` only (inputs `engine`, `arch`, `push`, `force`; nothing schedules it),
+never triggers on a pull request or a push, and never merges. `guard` runs first (owner or
 collaborator with write, before any secret is read), then `matrix` runs
 `make -s engine-build-matrix ENGINE=… ARCH=…` so the rows are the committed params and never
 a hand-written roster, then one `build` job per row (`max-parallel: 20`) runs
 `make build-engine`, `make test-engine-stage … TEST=<row.test>` in the row's own mode, and
 only when `push=true` `make push-engine` as its own gated step — build, verify, publish, in
-that order, so an image whose binary does not answer never reaches GHCR. Its `concurrency:`
-group is keyed by the selection for a build-and-verify run and shared by every publishing run,
-so a narrow dispatch runs alongside a full sweep instead of sitting behind it with zero jobs
-(issue #621), while two pushes cannot race on the same `:<arch>` tag; `cancel-in-progress` is
-false, so a sweep is never killed by a dispatch. The same scopes are available locally and in
-parallel from `make build-engines`.
+that order, so an image whose binary does not answer never reaches GHCR. `force=true` is
+passed to the build step only (`FORCE=1`), so a dispatch can rebuild the whole matrix from
+source instead of re-validating the layer cache; `force=true` with `push=true` is how every
+tag is republished from a clean build — the hash tag, the moving `:<arch>` tag, and
+`:latest` for each engine's canonical variant. Its `concurrency:` group is keyed by the
+selection for a build-and-verify run and shared by every publishing run, so a narrow dispatch
+runs alongside a full sweep instead of sitting behind it with zero jobs (issue #621), while
+two pushes cannot race on the same `:<arch>` tag; `cancel-in-progress` is false, so a sweep
+is never killed by a dispatch. The same scopes are available locally and in parallel from
+`make build-engines`.
 
 `publish-agent-image.yml` publishes the Hermes agent image (guarded to owner/collaborators,
 amd64 only) — not the default job token: `ci-images` deliberately omits the agent image
@@ -417,7 +452,7 @@ nothing, so they never reach a tree.
 | `issue-bot.yml` | `23 6 * * *` | implements ONE labeled/ready issue per run as a reviewable PR; a manual dispatch with no issue number picks one itself, the implementation is measured from the changed tree (not the exit code), the PR body is built from the run's `pr-body.md`, and a close verdict queues the canonical issue it cites (`scripts/issue_implementer.py`, issue #521). Only a CLOSE is a decision: `agent:refined` is a marker that a restatement exists, so a refined issue stays in the picker's queue instead of becoming invisible to the implementer (issue #522) |
 | `issue-refiner.yml` | `43 * * * *` | reviews one issue and refines or closes it with cited evidence (`scripts/issue_refiner.py`) |
 | `issue-dedupe.yml` | `51 */6 * * *` | four times a day: picks ONE pair of similar **unclaimed** open issues, older as canonical (`scripts/issue_dedup.py`), has the agent decide `DUPLICATE: #<older>` with `EVIDENCE:`, and retires the copy with that comment + `agent:duplicate` while queueing the canonical — never touches a claimed issue, never opens a PR (issue #553) |
-| `fix-bot.yml` | `17 * * * *` | repairs a red PR branch — including one whose head is the repository's own fork — re-runs the gate, pushes only when green; its sweep (`scripts/fix_bot_sweep.py`) treats a PR with no checks at all as not-red rather than a crash (issue #496). A `workflow_run` on a failed `CI` `pull_request` run makes the `sweep` job resolve that run to its PR (`make auto-merge-resolve`) and capture the failed job's log, then dispatch the repair — so a red PR is acted on in minutes rather than at the next hourly sweep (issue #538); `rounds` defaults to 5 and the job allows 260 minutes (issue #539) |
+| `fix-bot.yml` | `17 * * * *` | repairs a red PR branch — including one whose head is the repository's own fork — re-runs the gate, pushes only when green; its sweep (`scripts/fix_bot_sweep.py`) treats a PR with no checks at all as not-red rather than a crash (issue #496). A `workflow_run` on a failed `CI` `pull_request` run resolves that run to its PR with `make fix-bot-resolve` (the same resolver as the merge gate, asked with `--allow-none`: an empty `number=` is an answer, so a failure reported after its PR already merged or closed ends the job cleanly instead of red and does not become a reactor issue — issue #629) and captures the failed job's log, then dispatches the repair — so a red PR is acted on in minutes rather than at the next hourly sweep (issue #538); `rounds` defaults to 5 and the job allows 260 minutes (issue #539) |
 | `rebase-bot.yml` | `29 */6 * * *` | drains every eligible PR onto `main` in one run, bounded by `max_prs`; decides from a computed merge state, hands a conflict to the agent and checks the resolution structurally (a recipe's TAB, the wiring guard, lint) against the checkout it mounted, aborts a stopped rebase so the tree returns to `main`, and pushes `--force-with-lease` to the PR's own head remote |
 | `code-review-bot.yml` | `31 7 * * 1` | files issues for findings in the tree and the pipelines (`scripts/code_review.py`) |
 | `registry-sync.yml` | `19 5 * * 1` | byte-copies the upstream registry, regenerates the derived tables, opens a PR |
@@ -455,6 +490,16 @@ path in the `agents-read-venv`. Hermes reads skills only from its own home and f
 (`make hermes-skills-register`, `scripts/hermes_skills_register.py`, called from
 `scripts/install_hermes_ci.sh`): an unregistered checkout resolves `-s <name>` to nothing and
 the leg runs with no contract while reporting success.
+
+A leg's `-s` list may not carry a LITERAL comma, because a leg inlines its `hermes …`
+command inside `$(call scrubbed_run,…)` and make splits the call's arguments on commas in the
+unexpanded text (issue #641). `-s rebase-conflict,bot-unattended` therefore kept only
+`-s rebase-conflict`, the shell saw an unclosed quote, and the rebase-bot leg exited 2 before
+the agent started — every conflicted PR stayed `DIRTY` and reported "agent failed". The
+skills now come from `REBASE_BOT_SKILLS` in the Makefile, `scripts/check_agent_skills.py`
+expands Makefile variables before reading a leg's `-s` list (so it sees both skills rather
+than the variable's name), and `tests/test_agent_legs_quoting.py` expands every scrubbed leg
+with `make -n` and fails on an odd number of single quotes or a truncated skill list.
 
 The agent image is also where the Nerve plugin is installed (#238, #585).
 `scripts/install_nerve_ci.sh` runs at build time in three steps —
@@ -534,7 +579,7 @@ still a hard failure.
 
 ## Tests and gates
 
-`make test-unit` discovers every `tests/test_*.py` through `scripts/unit_tests.py` (120
+`make test-unit` discovers every `tests/test_*.py` through `scripts/unit_tests.py` (123
 files today); a file is in the gate the moment it exists, and an exclusion is a dated entry
 in `tests/fixtures/unit-suite.json`. `make test` runs the named `groups.fast` subset from
 the same roster rather than a hand-kept list of files. The live gates are separate targets
@@ -555,11 +600,21 @@ per-file cap inside the total budget, reports how many files it omitted, and ran
 `docs/BUILDING.md` ahead of prose — issue #597),
 `tests/test_engine_binary_flags.py` (every flag is probed, one working spelling never
 vouches for a dead one, and the families decide),
+`tests/test_engine_gate_strict.py` (no flag answered is red, the device exemption is a named
+list with a reason, and a version must look like a version — `0.0.0` and a log stamp are
+not one),
+`tests/test_engine_force_rebuild.py` (`FORCE=1` passes `--no-cache` and reads no registry
+cache, the shared base is forced too, `build-engines` forwards it into every row, and a
+publish carries the hash tag, `:<arch>` and a `:latest` claimed by one variant — with a
+missing `:latest` a note and a drifted one a failure),
 `tests/test_engine_build_workflow.py` (the sweep is dispatch-only, the guard runs first, the
 matrix comes from `make engine-build-matrix` and the committed params rather than a roster,
-every row is built and then verified, and publishing is opt-in),
+every row is built and then verified, publishing is opt-in, and `force` reaches the build
+step only),
 `tests/test_engine_source_guard.py` (a `prebuilt: false` cell with no build is a finding, and
-a tracked exception is reported rather than failing the gate), and
+a tracked exception is reported rather than failing the gate),
+`tests/test_agent_legs_quoting.py` (every scrubbed leg survives `make -n` with both quotes
+balanced and its whole `-s` list intact), and
 `tests/test_worktree_prune.py` (the detached-worktree match by HEAD, and a delete refusal
 that splits into a one-shot retry or a keep).
 
