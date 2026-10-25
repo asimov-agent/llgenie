@@ -26,9 +26,10 @@ def _cell(engine: str, arch: str, install: list[str], prebuilt: bool = False) ->
 def test_a_cmake_cell_passes():
     """llama.cpp's variant is a real source build: clone, cmake, make."""
 
-    # Given a cell that clones and compiles
+    # Given a cell that clones a pinned sha and compiles
     row = _cell("llama.cpp", "cpu", [
         "git clone --depth 1 https://github.com/ggml-org/llama.cpp /src",
+        "git -C /src checkout -q 74bca3950",
         "cmake -B /src/build -DLLAMA_CUDA=OFF -DCMAKE_BUILD_TYPE=Release",
         "cmake --build /src/build --target llama-server",
     ])
@@ -136,3 +137,55 @@ def test_the_manifest_of_a_converted_engine_is_a_source_build_after_generate():
     assert [r["arch"] for r in rows] == ["cuda", "rocm", "vulkan", "cpu"]
     assert not any(r["prebuilt"] for r in rows)
     assert guard.findings(rows) == []
+
+
+def test_an_unpinned_clone_is_a_finding():
+    """A source build must land on the pinned sha/tag; cloning `main` builds whatever is there today."""
+
+    # Given a cell that clones a branch and builds it
+    row = _cell("newengine", "cpu", [
+        "git clone --depth 1 https://example.invalid/newengine.git /src",
+        "cmake -B /src/build && cmake --build /src/build",
+    ])
+
+    # When  the guard looks at it
+    result = guard.findings([row])
+
+    # Then  the missing pin is the finding
+    assert len(result) == 1 and "unpinned reference" in result[0][1]
+
+
+def test_a_pinned_clone_passes():
+    """A sha or a version tag is a pin, and either one satisfies the guard."""
+
+    # Given a cell pinned by sha, and one pinned by tag
+    by_sha = _cell("a", "cpu", ["git clone https://x.invalid/a.git /s",
+                                "git -C /s checkout -q 5226de53a23fd5248658559b0eb876f6fc0c249a",
+                                "cmake -B /s/b && cmake --build /s/b"])
+    by_tag = _cell("b", "cpu", ["git clone -b v0.1.43 --depth 1 https://x.invalid/b.git /s",
+                                "cmake -B /s/b && cmake --build /s/b"])
+
+    # When  the guard looks at them
+    # Then  both build from a fixed reference and pass
+    assert guard.findings([by_sha, by_tag]) == []
+
+
+def test_a_cell_whose_image_is_built_from_its_own_upstream_image_is_a_finding(tmp_path, monkeypatch):
+    """The llama.cpp regression: `prebuilt: false` while the Dockerfile only starts FROM its image."""
+
+    # Given a generated Dockerfile that starts from the engine's official image
+    d = tmp_path / "containers" / "engines" / "dockerfiles" / "newengine"
+    d.mkdir(parents=True)
+    (d / "Dockerfile.cpu").write_text("FROM ghcr.io/newengine/newengine:latest AS build\n")
+    monkeypatch.setattr(guard, "REPO_ROOT", str(tmp_path))
+    row = _cell("newengine", "cpu", ["cmake -B b && cmake --build b"])
+
+    # When  the guard looks at it
+    result = guard.findings([row])
+
+    # Then  it names the upstream base
+    assert len(result) == 1 and "upstream build of it" in result[0][1]
+
+    # And a cell built on the shared llgenie base is fine
+    (d / "Dockerfile.cpu").write_text("FROM llgenie/base-cpu:abcd AS build\n")
+    assert guard.findings([row]) == []

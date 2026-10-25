@@ -87,6 +87,59 @@ def _violation(row: dict) -> str | None:
         if (any(re.search(sig, line) for sig in DOWNLOAD_SIGNALS)
                 and any(sfx in line for sfx in ARTEFACT_SUFFIXES)):
             return f"{where}: prebuilt=false but downloads a built artefact: {line.strip()[:140]}"
+    unpinned = _unpinned(row)
+    if unpinned:
+        return f"{where}: {unpinned}"
+    upstream = _upstream_engine_base(row)
+    if upstream:
+        return f"{where}: prebuilt=false but the image is built FROM an upstream build of it: {upstream}"
+    return None
+
+
+# A clone must land on a fixed reference: a full/short sha, or a tag/branch that is a version.
+PIN_SIGNALS = (
+    r"\b[0-9a-f]{7,40}\b",
+    r"--branch\s+\S+", r"(?:^|\s)-b\s+\S+",
+    r"git\b[^\n]*\bcheckout\s+(?:-q\s+)?(?:-B\s+)?\S+",
+    r"\btag\s+v?\d",
+)
+
+
+def _unpinned(row: dict) -> str | None:
+    """A source build must clone a PINNED reference, not whatever `main` is that day."""
+    clones = [line for line in row["install"] if "git clone" in line]
+    if not clones:
+        return None
+    for line in clones:
+        if any(re.search(sig, line) for sig in PIN_SIGNALS):
+            continue
+        if any(re.search(sig, "\n".join(row["install"])) for sig in PIN_SIGNALS):
+            continue
+        return f"prebuilt=false but clones an unpinned reference (no sha/tag): {line.strip()[:140]}"
+    return None
+
+
+def _upstream_engine_base(row: dict) -> str | None:
+    """The llama.cpp regression: `prebuilt: false` while the Dockerfile only pulls its image."""
+    path = os.path.join(REPO_ROOT, "containers", "engines", "dockerfiles",
+                        row["engine"], f"Dockerfile.{row['arch']}")
+    if not os.path.exists(path):
+        return None
+    first = next((line.strip() for line in open(path) if line.strip().upper().startswith("FROM")), "")
+    if not first:
+        return None
+    image = first.split()[1] if len(first.split()) > 1 else ""
+    repo = image.split("@", 1)[0].rsplit(":", 1)[0].lower()
+    if "llgenie/base" in repo or repo.startswith("llgenie-base"):
+        return None
+    # The engine's own name, minus backend words: `exllamav3-rocm` on `rocm/pytorch` is a
+    # toolchain base, not that engine's image.
+    arch_words = {"rocm", "cuda", "vulkan", "cpu", "metal", "gpu"}
+    tokens = {t for t in re.split(r"[^a-z0-9.]+", row["engine"].lower())
+              if len(t) > 4 and t not in arch_words}
+    tokens.add(row["engine"].lower().replace(".", "-"))
+    if any(tok and tok in repo for tok in tokens):
+        return first[:140]
     return None
 
 
