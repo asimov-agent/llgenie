@@ -556,7 +556,8 @@ def test_one_generated_dockerfile_per_engine_arch(skills):
 
 
 def test_official_upstream_images_are_used_as_bases(skills):
-    """Prefer the engine's own image: no rebuild of vLLM/Ollama/SGLang/TRT-LLM."""
+    """Prefer the engine's own image where one is used (vLLM/Ollama/SGLang/TRT-LLM).
+    llama.cpp is the exception since issue #615: it compiles from its pinned sha."""
 
     # Given the generated Dockerfiles
     df = lambda e, v: es.dockerfile_path(e, v).read_text()  # noqa: E731
@@ -569,9 +570,10 @@ def test_official_upstream_images_are_used_as_bases(skills):
     assert "FROM ollama/ollama:0.40.11-rocm" in df("ollama", "rocm")
     assert "FROM lmsysorg/sglang:v0.5.21" in df("sglang", "cuda")
     assert "FROM nvcr.io/nvidia/tensorrt-llm/release:1.2.1" in df("tensorrt-llm", "cuda")
+    # And llama.cpp is NOT prebuilt any more: every variant compiles the pinned sha
     for b in ("cpu", "cuda", "rocm", "vulkan"):
-        assert "FROM ghcr.io/ggml-org/llama.cpp:server" in df("llama.cpp", b) and "@sha256:" in df("llama.cpp", b)
-        assert "engine_runner.py install" not in df("llama.cpp", b)
+        assert "FROM ghcr.io/ggml-org/llama.cpp:server" not in df("llama.cpp", b)
+        assert "engine_runner.py install" in df("llama.cpp", b)
     assert "engine_runner.py install" not in df("vllm", "cpu")
 
 
@@ -1043,7 +1045,8 @@ def test_each_engine_binary_is_the_file_in_its_image():
 
     # When their image binaries are rendered
     # Then each one is that image's file, and the hashed params do not carry it
-    assert llama["binary"] == "/app/llama-server"
+    assert llama["binary"].startswith("/opt/llgenie/src/llama.cpp/build-cuda/bin/")
+    assert llama["binary"].endswith("/llama-server")
     assert prism["binary"].endswith("/bin/llama-server")
     assert prism["binary"].startswith("/")
     assert vllm["binary"] == "vllm"
@@ -1161,19 +1164,18 @@ def test_openai_sdk_harness_contract_pinned_in_dev_deps():
     assert smoke.count("harness_sdk_check") >= 1
 
 
-def test_ggml_official_base_sets_ld_library_path_for_impl_libs():
-    """The ggml-org server image's llama-server rpaths $ORIGIN=/app, but llgenie moves
-    WORKDIR to /opt/llgenie/app; the CPU CI smoke run failed with
-    'libllama-server-impl.so: cannot open shared object'. ENV LD_LIBRARY_PATH=/app on
-    the ggml-based images fixes it; no other engine gets it."""
+def test_no_image_carries_the_ggml_org_app_library_path_workaround():
+    """The ggml-org server image (issue #98) put llama-server's impl libs in /app, and llgenie
+    worked around its WORKDIR move with ENV LD_LIBRARY_PATH=/app. Since llama.cpp compiles from
+    source (issue #615) that prebuilt base is gone, so the workaround must be gone with it."""
 
     # Given the generated Dockerfiles
     # When their final ENV blocks are read
-    # Then the ggml-org llama.cpp variants carry LD_LIBRARY_PATH=/app
+    # Then no llama.cpp variant runs FROM the ggml-org image or carries the /app workaround
     for b in ("cpu", "cuda", "rocm", "vulkan"):
         df = es.dockerfile_path("llama.cpp", b).read_text()
-        assert "FROM ghcr.io/ggml-org/llama.cpp:server" in df
-        assert "LD_LIBRARY_PATH=/app" in df, b
+        assert "FROM ghcr.io/ggml-org/llama.cpp:server" not in df
+        assert "LD_LIBRARY_PATH=/app" not in df, b
 
     # And no other engine's image carries it (their binaries link normal /usr/lib)
     for eid in ("ollama", "vllm", "sglang", "tensorrt-llm"):
@@ -1576,7 +1578,8 @@ def test_llama_server_shim_uses_the_images_real_binary_path():
     import scripts.install_engine_launchers as il
     prism = il.server_binary("llama.cpp-prism", "cpu")
     assert prism.endswith("/build-cpu/bin/llama-server") and not prism.startswith("/app/")
-    assert il.server_binary("llama.cpp", "cpu") == "/app/llama-server"
+    assert il.server_binary("llama.cpp", "cpu").endswith("/build-cpu/bin/llama-server")
+    assert not il.server_binary("llama.cpp", "cpu").startswith("/app/")
     shim = il.llama_server_shim("t", "cpu", prism)
     assert f"--entrypoint {prism} " in shim
     assert f"LD_LIBRARY_PATH={prism.rsplit('/', 1)[0]} " in shim

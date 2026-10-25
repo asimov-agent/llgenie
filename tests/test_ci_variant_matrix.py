@@ -107,8 +107,8 @@ def test_variant_build_streams_its_log():
 
 
 def test_linux_variants_use_their_base_images():
-    """Upstream llama.cpp runs FROM the official ggml-org images; Prism compiles on the
-    shared CUDA base (nvidia/cuda devel) and ships on the CUDA runtime image."""
+    """Both llama.cpp variants compile on the shared CUDA base and ship on the CUDA runtime
+    image (issue #615: no prebuilt engine binary in any llama.cpp variant)."""
 
     import scripts.engine_skills as es
 
@@ -119,8 +119,10 @@ def test_linux_variants_use_their_base_images():
 
     # When their bases are read
     # Then each variant runs from its own base image
-    assert "FROM ghcr.io/ggml-org/llama.cpp:server-cuda@sha256:" in up
+    assert "FROM ghcr.io/ggml-org/llama.cpp:server-cuda" not in up
+    assert f"FROM {es.base_tag('cuda')} AS build" in up
     assert f"FROM {es.base_tag('cuda')} AS build" in prism
+    assert "FROM nvidia/cuda:13.0.2-runtime-ubuntu24.04" in up
     assert "FROM nvidia/cuda:13.0.2-runtime-ubuntu24.04" in prism
     assert base.splitlines()[3].startswith("FROM nvidia/cuda:")
 
