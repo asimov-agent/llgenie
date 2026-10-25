@@ -568,7 +568,7 @@ def test_official_upstream_images_are_used_as_bases(skills):
     assert "FROM vllm/vllm-openai-cpu:v0.32.0" in df("vllm", "cpu")
     assert "FROM vllm/vllm-openai-rocm:v0.32.0" in df("vllm", "rocm")
     assert "FROM ollama/ollama:0.40.11-rocm" in df("ollama", "rocm")
-    assert "FROM lmsysorg/sglang:v0.5.21" in df("sglang", "cuda")
+    assert "FROM lmsysorg/sglang:v0.5.22" in df("sglang", "cuda")
     assert "FROM nvcr.io/nvidia/tensorrt-llm/release:1.2.1" in df("tensorrt-llm", "cuda")
     # And llama.cpp is NOT prebuilt any more: every variant compiles the pinned sha
     for b in ("cpu", "cuda", "rocm", "vulkan"):

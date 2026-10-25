@@ -3,8 +3,8 @@
   "engine": "SGLang",
   "id": "sglang",
   "repo": "https://github.com/sgl-project/sglang",
-  "ref": "v0.5.21",
-  "pinned": "e00930c5489053f26d86b179cee0d087f846acbb",
+  "ref": "v0.5.22",
+  "pinned": "35ce313293052f8362e0829e7512bc9bc3d336c9",
   "native": {},
   "variants": {
     "cuda": {
@@ -12,7 +12,7 @@
       "engine": "SGLang",
       "backend": "cuda",
       "arch": "",
-      "base": "lmsysorg/sglang:v0.5.21",
+      "base": "lmsysorg/sglang:v0.5.22",
       "prebuilt": true,
       "runtime_base": "",
       "runtime_copy": [],
@@ -26,7 +26,7 @@
       "env": {
         "CUDA_HOME": "$(dirname $(dirname $(command -v nvcc)))"
       },
-      "detect": "sglang --help > /dev/null && python3 -c 'import importlib.metadata as m; v = m.version(\"sglang\"); print(\"sglang\", v if v not in (\"0.0.0\", \"\") else \"pin e00930c54890\")'",
+      "detect": "sglang --help > /dev/null && python3 -c 'import importlib.metadata as m; v = m.version(\"sglang\"); print(\"sglang\", v if v not in (\"0.0.0\", \"\") else \"pin 35ce31329305\")'",
       "pre_launch": null,
       "launch": "sglang serve --model-path {model} --host {host} --port {port} --served-model-name llm-local",
       "post_launch": null,
@@ -51,7 +51,8 @@
       "runtime_copy": [],
       "apt": [
         "rustc-1.91",
-        "cargo-1.91"
+        "cargo-1.91",
+        "wget"
       ],
       "build_args": {
         "CUDA_ARCH": "",
@@ -59,16 +60,16 @@
         "TORCH_BACKEND": "auto"
       },
       "install": [
-        "test -d /opt/llgenie/engines/sglang/src/.git || git clone -b v0.5.21 --depth 1 https://github.com/sgl-project/sglang.git /opt/llgenie/engines/sglang/src",
+        "test -d /opt/llgenie/engines/sglang/src/.git || git clone -b v0.5.22 --depth 1 https://github.com/sgl-project/sglang.git /opt/llgenie/engines/sglang/src",
         "cd /opt/llgenie/engines/sglang/src/python/sglang/kernels/aot && rm -f pyproject.toml && cp pyproject_rocm.toml pyproject.toml && AMDGPU_TARGET=gfx942 python3 setup_rocm.py install",
         "ln -sf /usr/bin/cargo-1.91 /usr/local/bin/cargo && ln -sf /usr/bin/rustc-1.91 /usr/local/bin/rustc",
         "pip list --format=freeze | grep -E '^(torch|triton)' > /tmp/sglang-constraints.txt",
-        "cd /opt/llgenie/engines/sglang/src && cp python/pyproject_other.toml python/pyproject.toml && SETUPTOOLS_SCM_PRETEND_VERSION=0.5.21 python3 -m pip install --no-cache-dir --no-build-isolation -c /tmp/sglang-constraints.txt -e 'python[srt_hip,diffusion_hip]'"
+        "cd /opt/llgenie/engines/sglang/src && cp python/pyproject_other.toml python/pyproject.toml && SETUPTOOLS_SCM_PRETEND_VERSION=0.5.22 python3 -m pip install --no-cache-dir --no-build-isolation -c /tmp/sglang-constraints.txt -e 'python[srt_hip,diffusion_hip]'"
       ],
       "env": {
         "SGLANG_USE_AITER": "1"
       },
-      "detect": "sglang --help > /dev/null && python3 -c 'import importlib.metadata as m; v = m.version(\"sglang\"); print(\"sglang\", v if v not in (\"0.0.0\", \"\") else \"pin e00930c54890\")'",
+      "detect": "sglang --help > /dev/null && python3 -c 'import importlib.metadata as m; v = m.version(\"sglang\"); print(\"sglang\", v if v not in (\"0.0.0\", \"\") else \"pin 35ce31329305\")'",
       "pre_launch": null,
       "launch": "sglang serve --model-path {model} --host {host} --port {port} --served-model-name llm-local",
       "post_launch": null,

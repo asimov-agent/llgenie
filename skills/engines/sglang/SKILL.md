@@ -4,11 +4,11 @@ description: "Use when building the SGLang engine image (CUDA 13 wheels; AMD sou
 engine: "SGLang"
 id: sglang
 repo: https://github.com/sgl-project/sglang
-ref: v0.5.21
+ref: v0.5.22
 ref_kind: tag
-version: v0.5.21
-pinned: e00930c5489053f26d86b179cee0d087f846acbb
-verified: "2026-10-05"
+version: v0.5.22
+pinned: 35ce313293052f8362e0829e7512bc9bc3d336c9
+verified: "2026-10-25"
 license: Apache-2.0
 servable: true
 backends: [cuda, rocm]
@@ -60,7 +60,7 @@ container:
     # rocm/pytorch:latest moved to a torch whose headers need C++20, while
     # kernels/aot/setup_rocm.py hard-codes -std=c++17 (CI #98)
     base: "rocm/pytorch:rocm7.2.4_ubuntu24.04_py3.12_pytorch_release_2.10.0@sha256:4449f856653602317e4101a76fce599c7fcd58ccec2e539951fce5f73083179e"
-    apt: [rustc-1.91, cargo-1.91]
+    apt: [rustc-1.91, cargo-1.91, wget]
 upstream_watch: [python/pyproject.toml, python/pyproject_other.toml, python/sglang/cli/serve.py, python/sglang/srt/arg_groups/field_order.py, docker/Dockerfile, docs/get-started/install.md]
 ---
 
