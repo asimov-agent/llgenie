@@ -1639,7 +1639,7 @@ make build-engine ENGINE=llama.cpp-prism ARCH=rocm       # one image per backend
 make build-engine-base BACKEND=cuda                      # shared toolchain base (CI publishes it)
 make build-engine-vllm-cuda                              # per engine x arch shortcut: build-engine-<engine>-<arch>
 make build-engine-llama.cpp-prism-rocm
-make build-engines                                        # EVERY engine x variant, in parallel (JOBS=, default nproc)
+make build-engines                                        # EVERY engine x variant, in parallel (JOBS=, default nproc; VERIFY=1 runs each built image's binary test)
 make build-engines ARCH=cuda                              # one arch, every engine
 make build-engines ENGINE=llama.cpp                       # one engine, every arch type
 make build-engines ENGINE=llama.cpp ARCH=cuda             # one engine x one arch

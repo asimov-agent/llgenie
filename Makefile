@@ -913,12 +913,12 @@ build-engine-%: ## Build one engine x arch image from its generated Dockerfile (
 	$(MAKE) build-engine ENGINE=$(patsubst %-$(lastword $(subst -, ,$*)),%,$*) ARCH=$(lastword $(subst -, ,$*))
 run-engine-%: ## Run one engine x arch image (run-engine-<engine>-<arch> MODEL=…)
 	$(MAKE) run-engine ENGINE=$(patsubst %-$(lastword $(subst -, ,$*)),%,$*) ARCH=$(lastword $(subst -, ,$*))
-build-engines: ## Build every engine x variant the committed params declare, in PARALLEL — all engines, or ENGINE=<id>, or ARCH=<backend>, or both (JOBS= parallel builds, default: nproc)
+build-engines: ## Build every engine x variant the committed params declare, in PARALLEL — all engines, or ENGINE=<id>, or ARCH=<backend>, or both (JOBS= parallel builds, default: nproc; VERIFY=1 also runs each built image's binary test)
 	@JOBS="$(if $(JOBS),$(JOBS),$$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4))"; \
 	rows=$$(python3 scripts/engine_image.py matrix --json --ci $(if $(ENGINE),--engine "$(ENGINE)",) $(if $(ARCH),--arch "$(ARCH)",)); \
 	printf '%s' "$$rows" \
 	  | python3 -c 'import json,sys; [print(r["engine"]+" "+r["variant"]) for r in json.load(sys.stdin)["include"] if r["engine"] != "none"]' \
-	  | xargs -r -P "$$JOBS" -n 2 sh -c '$(MAKE) build-engine ENGINE=$$0 ARCH=$$1 $(if $(PUSH),PUSH=1,)' || exit 1
+	  | xargs -r -P "$$JOBS" -n 2 sh -c '$(MAKE) build-engine ENGINE=$$0 ARCH=$$1 $(if $(PUSH),PUSH=1,) $(if $(VERIFY),&& $(MAKE) test-engine-image ENGINE=$$0 ARCH=$$1,)' || exit 1
 generate-build-engine-params: generate-engine-params ## Alias of generate-engine-params
 engine-bump-plan: ## Issue #107: which engines moved upstream (git ls-remote only; ENGINE=<id> to scope)
 	@$(PY) scripts/engine_bump.py plan $(if $(ENGINE),--engine $(ENGINE),)

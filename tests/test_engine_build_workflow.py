@@ -134,3 +134,5 @@ def test_one_make_command_answers_every_build_scope():
     recipe = MAKEFILE.split("\nbuild-engines:", 1)[1].split("\ngenerate-build-engine-params:", 1)[0]
     assert "--engine" in recipe and "--arch" in recipe
     assert "xargs -r -P" in recipe, "the local build must fan out, not run one row at a time"
+    # And the same rows can be verified as they are built, not only in CI
+    assert "VERIFY" in recipe and "test-engine-image" in recipe
