@@ -111,13 +111,13 @@ picks which start script or image to run.
 | `skills/engines/` | one `SKILL.md` per engine (and a `README.md`), the source `generate-engine-params` reads |
 | `containers/engines/` | shared `base/` Dockerfiles, generated `dockerfiles/<id>/Dockerfile.<arch>`, frozen `params/`, `binaries.json`, `entrypoint.sh` |
 | `containers/test/` | the test image every Python gate runs in (`Dockerfile` only; no inference server inside it) |
-| `containers/agent/` | the pinned Hermes agent image (`Dockerfile`) every bot leg runs in: the Hermes CLI, the `nous-deepseek` model alias, the nerve plugin (installed, enabled and layered by `scripts/install_nerve_ci.sh`), the `.hermes/skills` registration and the `agent_jev_preflight.sh` entry gate |
+| `containers/agent/` | the pinned Hermes agent image (`Dockerfile`) every bot leg runs in: the Hermes CLI, the `nous-deepseek` model alias, the nerve plugin (installed, enabled and layered by `scripts/install_nerve_ci.sh` under the host's `operator` profile), the profile/settings parity check the build runs (`scripts/nerve_profile_check.py`), the `.hermes/skills` registration and the `agent_jev_preflight.sh` entry gate |
 | `.hermes/skills/` | the bots' Hermes **project skills** — `issue-triage`, `issue-implement`, `issue-refiner`, `issue-dedup`, `pr-fix`, `rebase-conflict`, `architecture-doc`, `engine-params-review`, `agent-fetch`, `bot-unattended` (plus a `README.md`) — each leg's contract, preloaded with `hermes -s <name>` and guarded by `make check-agent-skills` (issue #577) |
 | `containers/ci-variant/` | the CUDA-toolkit variant-build image (`make test-variant-image`) with its own `requirements.txt` / `requirements-dev.txt` |
 | `data/` | vendored registry, quant catalog, strata model map, engine-skill gap, unsupported engines, trending README |
 | `docs/` | this document |
-| `openspec/` | the change record: `config.yaml`, its `Dockerfile`, and `changes/<name>/{proposal.md,specs/**,tasks.md}` (198 changes) |
-| `agent-wiki/` | dated work record (163 entries), one per change, referencing its issue and PR |
+| `openspec/` | the change record: `config.yaml`, its `Dockerfile`, and `changes/<name>/{proposal.md,specs/**,tasks.md}` (199 changes) |
+| `agent-wiki/` | dated work record (164 entries), one per change, referencing its issue and PR |
 | `tests/` | 116 `tests/test_*.py` files, fixtures, shared test helpers (`tests/top_tier_dry_run.py`) and the live end-to-end gates, discovered by `scripts/unit_tests.py` |
 | `docker-compose-files/` | the compose definitions for the OpenSpec CLI (`openspec.yaml`) and the test image (`test.yaml`) |
 | `tools/` | pip-compile inputs (`requirements.in`, `requirements-dev.in`) and the venv targets |
@@ -134,7 +134,7 @@ group by what they exist for:
 | Product path | `llgenie_serve.py` (launcher, model scan, serve), `model_engine_pick.py` (`recommend`, `rank_models`, `rank_engines`, `offer`), `trend_list_matrix.py`, `detect_server.py`, `install_engine_launchers.py` (install plan, start scripts, `ensure_native`), `engine_runner.py`, `engine_skills.py`, `engine_image.py`, `native_build_env.py`, `serve_variant.py`, `ensure_user_path.py`, `hf_auth.py`, `hf_download.py`, `download_test_model.py`, `strata_models.py`, `sync_registry.py`, `gen_trending_quant_catalog.py`, `registry_keys.py`, `engine_skill_gap.py`, `engine_params_derive.py`, `engine_params_review.py` (the documentation review of a bump's derived params: `brief`, `parse_proposals`, `validate`, `apply_accepted`, `section`), `engine_deps.py`, `engine_bump.py`, `engine_bump_sync.py`, `engine_bump_rebase.py`, `engine_smoke.py`, `env_seam.py`, `loopback_server.py` |
 | Structural gates | `check_bash.py`, `check_python.py`, `check_docs.py`, `check_wiring.py`, `check_workflows.py`, `check_dispatch_forms.py`, `check_pr_authors.py`, `check_pr_hygiene.py`, `check_secret_output.py`, `check_openspec_tasks.py`, `check_agent_skills.py` (a bot leg preloads its project skill, the skill exists and carries `Inputs`/`Output`/`Rules`, the prompt stays a pointer), `secret_scan.py`, `secret_scan_self_test.py`, `scan_agents_md.py`, `module_name_guard.py`, `lint_linefeeds.py`, `unit_tests.py` (the suite aggregator) |
 | CI entrypoints | `ci_engines.py` (`make ci-engines`), `ci_health.py`, `ci_images.py` (test/OpenSpec/agent image refs), `loop_harness.py` (`make loop`) |
-| Bots and automation | `agent_model_pin.py`, `agent_shell_keys_check.py`, `architecture_bot.py`, `auto_merge.py`, `bot_claims.py`, `code_review.py`, `fix_bot_report.py`, `fix_bot_sweep.py`, `hermes_skills_register.py` (writes the checkout's skill dir into Hermes's `skills.external_dirs` as a real YAML list, and reads it back), `hermes_smoke.py`, `issue_cleaner.py`, `issue_dedup.py`, `issue_implementer.py`, `issue_refiner.py`, `queued_run_alarm.py`, `rebase_bot_sweep.py`, `require_env.py`, `resolve_run_pr.py`, `run_failure_reactor.py`, `scrub_log.py`, `verify_closure.py`, `web_evidence.py`, `fetch_smoke.py`, `worktree_prune.py` |
+| Bots and automation | `agent_model_pin.py`, `agent_shell_keys_check.py`, `architecture_bot.py`, `auto_merge.py`, `bot_claims.py`, `code_review.py`, `fix_bot_report.py`, `fix_bot_sweep.py`, `hermes_skills_register.py` (writes the checkout's skill dir into Hermes's `skills.external_dirs` as a real YAML list, and reads it back), `hermes_smoke.py`, `issue_cleaner.py`, `issue_dedup.py`, `issue_implementer.py`, `issue_refiner.py`, `nerve_profile_check.py` (fails the agent build when a nerve setting targets a module the chosen profile does not register), `queued_run_alarm.py`, `rebase_bot_sweep.py`, `require_env.py`, `resolve_run_pr.py`, `run_failure_reactor.py`, `scrub_log.py`, `verify_closure.py`, `web_evidence.py`, `fetch_smoke.py`, `worktree_prune.py` |
 
 Two more pieces of `scripts/` are not Python: `scripts/tools/llgenie_harness.py` (the
 harness helper the loop uses) and the shell legs the bot workflows call —
@@ -142,7 +142,8 @@ harness helper the loop uses) and the shell legs the bot workflows call —
 every bot job), `bot_sync_main.sh`, `build_llama_server.sh`, `fix_loop.sh`,
 `install_hermes_ci.sh` (installs the Hermes CLI and pins the `nous-deepseek` alias),
 `install_nerve_ci.sh` (installs, scopes, enables and wires the nerve plugin at image-build
-time), `load_token_to_env.sh`, `rebase_bot.sh` — plus `scripts/fix_bot_rules.md`, the
+time, then proves its settings against the profile it selected), `load_token_to_env.sh`,
+`rebase_bot.sh` — plus `scripts/fix_bot_rules.md`, the
 fix-bot's instruction sheet.
 
 `scripts/module_name_guard.py` is the renamed-module guard: the CLI is
@@ -285,8 +286,12 @@ because a brand-new package is refused "Create organization package". That image
 `containers/agent/Dockerfile`, which installs the Hermes CLI and the `nous-deepseek` alias
 (`scripts/install_hermes_ci.sh`), registers `.hermes/skills`
 (`scripts/hermes_skills_register.py`), installs and wires the nerve plugin
-(`scripts/install_nerve_ci.sh`), and then asserts each of them back before the layer is
-committed.
+(`scripts/install_nerve_ci.sh`) on the `operator` profile, and then asserts each of them
+back before the layer is committed — including, as the nerve step's last act,
+`scripts/nerve_profile_check.py` against the installed plugin's own profile table, so a
+setting whose module the profile does not register fails the image instead of shipping
+inert (issue #611). `scripts/nerve_profile_check.py` is a hash input of that image, so a
+change to the rule moves the tag.
 
 Merging is CI's action, not a job inside `ci.yml`.
 `.github/workflows/auto-merge.yml` is a `workflow_run` workflow on `CI`: a fork
@@ -400,13 +405,38 @@ take a universal `uv lock` across every marker split, where `laya==0.3.3` → `t
 publishes no wheels for `python_full_version >= '3.14'` or `sys_platform == 'android'`, so
 every image build failed; the extra is dead weight in this image because the bots run the
 plugin's default `jev` backend and the plugin imports `laya` lazily. The script then writes
-the host's flat `plugins.entries.nerve.settings.*` values, the `lean` profile sidecar through
+the host's flat `plugins.entries.nerve.settings.*` values (`gate_mode: advisory`,
+`gate_scope: all`, `allow_tool_override false`, `context_engine_mode` /
+`context_curation_mode: apply`, `nervous_enabled`), the `operator` profile sidecar through
 the plugin's own `save_profile`, quotes `gate_mode` (YAML 1.1 reads a bare `off` as boolean
 false, which turns the action gate ON), and proves through `hermes plugins list --json` that
 the pinned commit is enabled and no provider token sits in the config. At run time
 `make agent-jev-preflight` (`scripts/agent_jev_preflight.sh`) is the first step of every bot
 job, with `NERVE_REQUIRE=1`: a leg whose JEV layer is off does not start, and its report is
 redacted like every other agent stream.
+
+The PROFILE and the SETTINGS are one decision, and the build now proves it (issue #611). For
+a NAMED profile the module set comes verbatim from the plugin's `hermes_nerve/profiles.py`
+(`modules = dict(PROFILES[name])`); the only later pass that reads settings can switch a
+module OFF, never on. So a setting written for a module the profile does not register is
+configured on paper and off in the run — which is what the image shipped: `lean` (no
+`action_gate`, no `context_governor`) carrying `gate_mode: advisory`,
+`context_engine_mode: apply` and `context_curation_mode: apply`, with nothing visibly
+broken. The image is now built on the host's `operator` profile (reflex, nervous,
+`action_gate`, `context_governor`, receipts, `local_learning`) with the gate in `advisory`,
+`nerve_profile` written in the settings as well as the sidecar, and
+`work_supervision_mode: shadow` because `operator` does not register that module.
+`scripts/nerve_profile_check.py` encodes the rule once — `gate_mode != off` needs
+`action_gate`, a `context_engine_mode` / `context_curation_mode` outside `shadow|off` needs
+`context_governor`, `work_supervision_mode != shadow` needs `work_supervision`,
+`nervous_enabled: true` needs `nervous` — and `scripts/install_nerve_ci.sh` runs it as its
+last step against the INSTALLED plugin's own `PROFILES` table (not a copy of it), printing
+the resolved module set and failing the image build when a setting and the profile disagree.
+`make nerve-profile-check` runs the same rule's both-directions self-test on two synthetic
+profile tables, so the rule is provable without a plugin install, and
+`tests/test_agent_nerve.py` — in `make test-unit` — holds the image's profile, gate and
+settings to the host's shape and checks that a `lean` table is rejected naming each inert
+setting.
 
 Every leg runs `scripts/require_env.py` before the image is built (a missing credential is
 loud, never a skip) and forwards credentials through the Makefile's `AGENT_SHELL_KEYS` /
