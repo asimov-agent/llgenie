@@ -149,3 +149,24 @@ def test_one_make_command_answers_every_build_scope():
     assert "xargs -r -P" in recipe, "the local build must fan out, not run one row at a time"
     # And the same rows can be verified as they are built, not only in CI
     assert "VERIFY" in recipe and "test-engine-image" in recipe
+
+
+def test_a_dispatch_with_no_selection_builds_every_container_cell():
+    """The default dispatch is "everything": empty engine AND empty arch = every CI cell, in parallel."""
+
+    # Given the dispatch inputs
+    text = workflow()
+    inputs = text.split("inputs:", 1)[1].split("permissions:", 1)[0]
+
+    # When  their defaults are read
+    # Then  engine and arch both default to empty, so the matrix is unfiltered
+    assert 'default: ""' in inputs
+    assert inputs.count('default: ""') >= 2, "engine and arch must both default to every/all"
+
+    # And the unfiltered matrix is every CI cell across every engine that ships an image
+    rows = json.loads(subprocess.run(["make", "-s", "engine-build-matrix"], cwd=REPO,
+                                     capture_output=True, text=True, check=True).stdout)["include"]
+    expected = [r for r in ei.matrix(ci=True) if r["engine"] != "none"]
+    assert len(rows) == len(expected) >= 20, (len(rows), len(expected))
+    assert {r["engine"] for r in rows} == {r["engine"] for r in expected}
+    assert len({r["engine"] for r in rows}) >= 10, "the sweep must span the engines, not one of them"
