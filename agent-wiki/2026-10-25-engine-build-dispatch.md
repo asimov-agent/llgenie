@@ -10,8 +10,9 @@ Related: [#615](https://github.com/asimov-agent/llgenie/issues/615) (every varia
 pinned set. `.github/workflows/engine-build.yml` is now the independent sweep: `workflow_dispatch`
 only (`engine`, `arch`, `push`), guard job first, a matrix from `make engine-build-matrix`, and one
 `build` job per row running `make build-engine` then `make test-engine-stage` in the row's mode
-(`serve` for cpu, `detect` for GPU). It never runs on a PR, a push or a schedule, and publishes only
-when `push=true`.
+(`serve` for cpu, `detect` for GPU). It never runs on a PR, a push or a schedule. Each row is built, **then verified, then**
+published — `make push-engine` is its own gated step that re-checks the binary's flags, so a
+failing binary never reaches GHCR.
 
 `scripts/engine_image.py matrix` gained `--engine` / `--arch`, and `make engine-build-matrix` wraps
 it, so the rows are `containers/engines/params/*.json` — 27 CI rows today — never a roster.

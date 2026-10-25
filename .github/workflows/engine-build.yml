@@ -14,11 +14,13 @@
 #                  `push` (publish the built images to GHCR; default false = build and verify only).
 # Flow: guard (owner / collaborator with write, BEFORE any secret is read) -> make engine-build-matrix
 #       (the committed params -> one row per engine x variant; the make target is the only list) ->
-#       per row: make build-engine ENGINE= ARCH= -> make test-engine-stage ENGINE= ARCH= TEST=<row.test>
-#       (serve: the cpu image answers on the OpenAI API; detect: the binary reports its version and
-#       answers the flags a user types).
-# Never: never merges, never pushes to `main`, never runs on a schedule, never publishes unless
-#        `push=true`, and never builds the `none` placeholder row.
+#       per row: make build-engine ENGINE= ARCH= (build only, never publishing) ->
+#       make test-engine-stage ENGINE= ARCH= TEST=<row.test> (serve: the cpu image answers on the
+#       OpenAI API; detect: the binary reports its version and answers the flags a user types) ->
+#       make push-engine ENGINE= ARCH= (ONLY when push=true, and only after that test passed;
+#       push-engine re-checks the binary's flags before it pushes).
+# Never: never merges, never pushes to `main`, never runs on a schedule, never publishes an image
+#        whose binary has not answered its test, and never builds the `none` placeholder row.
 name: engine-build — builds and verifies EVERY engine at its committed pin, in parallel (never merges)
 
 on:
@@ -113,7 +115,6 @@ jobs:
     name: engine-build-${{ matrix.engine }}-${{ matrix.variant }}
     env:
       LLGENIE_REGISTRY: ghcr.io/${{ github.repository_owner }}
-      PUBLISH: ${{ inputs.push == 'true' && '1' || '' }}
     steps:
       - uses: actions/checkout@v4
         if: ${{ matrix.engine != 'none' }}
@@ -127,7 +128,7 @@ jobs:
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
       - name: make build-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} (the committed params -> Dockerfile + params.json)
         if: ${{ matrix.engine != 'none' }}
-        run: make build-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} PUSH=$PUBLISH
+        run: make build-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}
       - name: Pull the test image (GHCR, published by ci-images; the post-build pytest stage runs in llgenie/test)
         if: ${{ matrix.engine != 'none' }}
         run: make test-image-pull
@@ -139,3 +140,6 @@ jobs:
       - name: "verify: make test-engine-stage ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} TEST=${{ matrix.test }} (serve: the cpu image answers on the OpenAI API; detect: the binary reports its version and answers the flags a user types)"
         if: ${{ matrix.engine != 'none' }}
         run: make test-engine-stage ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} TEST=${{ matrix.test }}
+      - name: make push-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} (ONLY after the test above passed; re-checks the binary's flags before publishing)
+        if: ${{ matrix.engine != 'none' && inputs.push == 'true' }}
+        run: make push-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}

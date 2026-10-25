@@ -51,6 +51,23 @@ other pipeline grows a full-sweep job.
 - **Then** `push` defaults to `false` and the publish path is gated on `inputs.push == 'true'`
 - **Test:** `tests/test_engine_build_workflow.py::test_it_publishes_only_when_the_dispatch_asks_for_it`
 
+### Requirement: an image is published only after its binary answered
+
+The sweep MUST build a row without publishing, verify it, and only then publish when the dispatch
+asked for it — `make push-engine` is its own step, gated on `push=true`, and re-checks the binary's
+flags before pushing. A build step that publishes is a defect: a failing binary would reach GHCR.
+
+WHEN a row is dispatched with `push=true`
+THEN the order is build → verify → push, and a failed verification stops before the push.
+
+#### Scenario: the order is build, verify, publish
+
+- **Given** the workflow's build job
+- **When** its steps are read
+- **Then** `run: make build-engine`, `run: make test-engine-stage` and `run: make push-engine`
+  appear in that order, the build carries no `PUSH=`, and the push step is gated on `inputs.push`
+- **Test:** `tests/test_engine_build_workflow.py::test_every_row_is_built_and_then_verified` and `::test_it_publishes_only_when_the_dispatch_asks_for_it`
+
 ### Requirement: the make target is the one list, and it is documented
 
 `make engine-build-matrix` MUST print the JSON matrix from `scripts/engine_image.py matrix`,

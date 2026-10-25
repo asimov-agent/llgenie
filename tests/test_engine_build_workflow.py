@@ -91,21 +91,34 @@ def test_every_row_is_built_and_then_verified():
     # Then  each row is built from its params and then tested in ITS mode (serve|detect)
     assert "make build-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}" in text
     assert "make test-engine-stage ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} TEST=${{ matrix.test }}" in text
+    # Nothing is published by the build: the push is its own step, AFTER the test
+    assert "PUSH=$PUBLISH" not in text, "the build must not publish before the test"
+    # The header comments name the same commands, so anchor on the `run:` lines of the steps
+    build_i = text.index("run: make build-engine")
+    test_i = text.index("run: make test-engine-stage")
+    push_i = text.index("run: make push-engine")
+    assert build_i < test_i < push_i, "order must be build -> verify -> publish"
     assert "matrix.engine != 'none'" in text, "the placeholder row must be skipped, not built"
     assert "max-parallel:" in text, "the sweep must fan out in parallel"
 
 
 def test_it_publishes_only_when_the_dispatch_asks_for_it():
-    """A verification sweep must not overwrite GHCR tags unless a human asked to publish."""
+    """A verification sweep must not overwrite GHCR tags unless a human asked to publish.
+
+    Publishing is its own step AFTER the binary test, gated on `push=true`; the build itself never
+    publishes, so a failing binary cannot reach GHCR.
+    """
 
     text = workflow()
 
     # Given the inputs and the publish wiring
-    # When  the default and the guard on the push step are read
-    # Then  publishing is off by default and gated on the input
+    # When  the default, the step order and the guards are read
+    # Then  publishing is off by default, is its own step, and comes after the test
     assert 'default: "false"' in text.split("inputs:", 1)[1].split("permissions:", 1)[0]
-    assert "PUSH=$PUBLISH" in text
+    assert "make push-engine" in text
     assert "inputs.push == 'true'" in text
+    assert text.index("make test-engine-stage") < text.index("make push-engine")
+    assert "PUSH=$PUBLISH" not in text, "the build step must not publish"
 
 
 def test_one_make_command_answers_every_build_scope():
