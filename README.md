@@ -392,6 +392,13 @@ rename or remeasure: the litertlm download plan pins the format and repo (not th
 the live-registry ranking case pins "the raw maximum is not the recommendation" (not that some engine is
 still unskilled) — both reddened every PR when upstream moved (issue #575).
 
+The Strata live tier derives what it expects from the pin it has just fetched, never from a list in the
+test: the families the pinned `setup.py` declares with no `hf` must equal the map's `hub: false` set
+(empty at v0.1.43, `nvfp4` at v0.2.4). The hermetic side locks the family SHAPE instead — Hub-hosted
+(`repo` + `revision` + `subdir`, no `hub` key) or explicitly not-Hub (`hub: false`, no repo), never
+both, never neither — because the v0.1.43 snapshot test red the *correct* v0.2.4 bump on
+`nvfp4 unexpectedly marked not-Hub` (PR #605).
+
 `tests/test_strata_live_target.py` pins that boundary hermetically: the file is out of the gate the
 aggregator computes, `make test-strata-live` names it and is `.PHONY`, the roster entry names issue #437
 and its target, and the file still carries the live work the decision describes.
@@ -2095,6 +2102,9 @@ make check-strata-models     # fail when data/strata_models.json differs from St
                              # A FAMILIES entry with no Hub URL (e.g. the vendor-hosted `nvfp4`) is vendored as
                              # "hub": false with no repo — it is not downloadable here, and it no longer breaks the
                              # vendor step (a family with a URL keeps the committed shape byte for byte; issue #416)
+                             # A map that breaks the family SHAPE — a family is Hub-hosted (repo + revision +
+                             # subdir, no `hub` key) or explicitly not-Hub (`hub: false`, no repo), never both,
+                             # never neither — is now reported by family and defect, not just as a diff
 make queued-alarm      # report CI jobs stuck in `queued` too long (a runner that never picks them up, issue #254);
                        # COMMENT=1 delivers it to the run's pull request (else ONE deduped issue per stuck runner
                        # label, for runs no PR tracks) and a delivery that fails is exit 3, never silent; DRY=1 previews

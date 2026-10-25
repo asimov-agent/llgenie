@@ -106,6 +106,39 @@ def extract(src: Path) -> dict:
             "hf_revisions": _plain(s.HF_REVISIONS), "families": fams, "models": models}
 
 
+def family_shape_problems(families: dict) -> list[str]:
+    """Every way a family table breaks "Hub-hosted unless explicitly not-Hub".
+
+    A family is either Hub-hosted — a `repo`, its `revision` and its `subdir`, and no `hub` key at
+    all — or explicitly not-Hub: `hub` is `False` and there is no repo/revision/subdir to build a
+    URL from. Never both, never neither. WHICH families land in the second shape is the pinned
+    setup.py's decision (`nvfp4` has no `hf` at v0.2.4 and none at v0.1.43), so the set is read from
+    the map, never from a list here. Returns the problems by family name; empty means well-formed.
+    """
+    problems = []
+    for name, fam in families.items():
+        if fam.get("hub") is False:
+            if fam.get("repo"):
+                problems.append(f"{name}: marked not-Hub (`hub: false`) but carries a repo")
+            for key in ("revision", "subdir"):
+                if key in fam:
+                    problems.append(f"{name}: marked not-Hub (`hub: false`) but carries `{key}`")
+        elif "hub" in fam:
+            problems.append(f"{name}: carries a `hub` key but is Hub-hosted "
+                            "(only `hub: false` is ever written)")
+        elif not fam.get("repo"):
+            problems.append(f"{name}: neither a repo nor `hub: false`")
+        else:
+            # `subdir` may be "" (a family published at the repo root — Strata's `swift` is) but
+            # it must be PRESENT: an absent one means the URL was never split.
+            for key in ("revision", "subdir"):
+                if key not in fam:
+                    problems.append(f"{name}: Hub-hosted but no `{key}`")
+            if not fam.get("revision"):
+                problems.append(f"{name}: Hub-hosted but its `revision` is empty")
+    return problems
+
+
 def _src(arg: str | None, tmp: str) -> Path:
     return Path(arg) if arg else checkout(Path(tmp) / "strata")
 
@@ -122,6 +155,18 @@ def main(argv=None) -> int:
     out = Path(a.out)
     have = out.read_text() if out.exists() else ""
     if a.cmd == "check":
+        # A hand-edited map is named by what is wrong with it, not left to a 100-line diff: the
+        # family shapes are the invariant every consumer relies on (#416 made one shape optional).
+        try:
+            problems = family_shape_problems(json.loads(have)["families"])
+        except (ValueError, KeyError, TypeError):
+            problems = [f"not a Strata map (cannot read `families` from {out})"]
+        if problems:
+            for p in problems:
+                print(f"[strata-models] FAIL {p}", file=sys.stderr)
+            print(f"[strata-models] FAIL {out} is malformed; run `make sync-strata-models`",
+                  file=sys.stderr)
+            return 1
         if have != want:
             print(f"[strata-models] FAIL {out} differs from Strata's setup.py at the pinned commit; "
                   "run `make sync-strata-models`", file=sys.stderr)

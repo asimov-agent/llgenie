@@ -102,7 +102,27 @@ def test_map_tables_equal_setup_py_tables(setup_py):
     assert list(s["models"]) == list(setup_py.MODELS)
     assert s["hf_revisions"] == setup_py.HF_REVISIONS
     for fam, d in s["families"].items():
-        assert setup_py.hf(d["repo"]) + d["subdir"] == setup_py.FAMILIES[fam]["hf"]
+        src = setup_py.FAMILIES[fam]
+        # A family the pin declares without `hf` (Strata's `nvfp4`, v0.2.4+) has no URL to build:
+        # the map says so instead, and this test must read that shape rather than crash on `repo`.
+        if "hf" not in src:
+            assert d.get("hub") is False and "repo" not in d, fam
+        else:
+            assert "hub" not in d and setup_py.hf(d["repo"]) + d["subdir"] == src["hf"], fam
+
+
+def test_the_not_hub_set_is_whatever_the_pinned_setup_py_declares(setup_py):
+    """Derived from the pin, so the next bump that adds a Hub-less family is not a red test."""
+    # Given the pin's own FAMILIES table and the map generated from it
+    s = mp.strata_map()
+
+    # When  each side's not-Hub set is read
+    want = {name for name, fam in setup_py.FAMILIES.items() if not fam.get("hf")}
+    have = {name for name, d in s["families"].items() if d.get("hub") is False}
+
+    # Then  they are the same set — whichever families the pin happens to declare that way
+    assert have == want
+    assert sm.family_shape_problems(s["families"]) == []
 
 
 # ---------------------------------------------------------------------------

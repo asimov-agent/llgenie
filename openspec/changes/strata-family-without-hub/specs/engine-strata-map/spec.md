@@ -35,7 +35,7 @@ Given the committed `data/strata_models.json`
 When  its families are read
 Then  every one is Hub-hosted and none carries the `hub: false` marker
 
-- **Test:** `tests/test_strata_missing_hf.py::test_the_committed_map_states_no_hub_flag_at_the_current_pin`
+- **Test:** superseded by `openspec/changes/strata-family-shape-invariant` — a snapshot of the v0.1.43 membership red the v0.2.4 bump; `tests/test_strata_missing_hf.py::test_the_committed_map_is_hub_hosted_or_explicitly_not_at_whatever_the_pin_is` locks the shape rule instead
 
 ### Requirement: A not-Hub-downloadable family is never planned as a download
 
