@@ -70,7 +70,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	run-failure-reactor rebase-bot-agent check-docs docs-report check-pr-hygiene pr-hygiene-report auto-merge auto-merge-resolve auto-merge-explain auto-merge-recheck verify-closure check-pr-authors pr-authors-report check-workflows workflows-report issue-refiner-pick issue-refiner issue-refiner-apply issue-dedup-pick issue-dedup issue-dedup-apply check-dispatch-forms dispatch-forms-report \
 	agent-shell-keys-check \
 	agent-fetch search-smoke require-env web-coverage issue-evidence \
-	engine-bump-rebase generate-engine-params check-engine-params build-engine run-engine stop-engine list-engine-images engine-build-matrix ci-lint ci-unit ci-agents-read \
+	engine-bump-rebase generate-engine-params check-engine-params check-engine-source engine-source-report build-engine run-engine stop-engine list-engine-images engine-build-matrix ci-lint ci-unit ci-agents-read \
 	ci-openspec ci-cpu-health ci-top-tier ci-install ci-install-dry-args ci-free-disk test-engine-stage bot-sync-main bot-sync-branch ci-wait-engine-images \
 	ci-install-dry ci-install-run ci-install-uninstall test-env test-top-tier test-top-tier-ci test-top-tier-cli-ci test-top-tier-serve test-top-tier-serve-ci \
 	check-agent-model model-pin-report check-agent-skills agent-skills-report test-agent-skills-live hermes-skills-register \
@@ -877,6 +877,10 @@ generate-engine-params: ## Regenerate containers/engines/params/*.json + binarie
 	python3 scripts/engine_skills.py params $(if $(ENGINE),--only $(ENGINE),)
 check-engine-params: ## CI: fail if committed engine params or the binaries manifest differ from what the skills generate
 	python3 scripts/engine_skills.py params --check
+check-engine-source: ## CI: fail if a cell claims a source build (prebuilt=false) but its install steps only download a wheel/archive
+	python3 scripts/engine_source_guard.py check
+engine-source-report: ## Print the source-vs-prebuilt census of every engine x arch cell, and every tracked exception
+	python3 scripts/engine_source_guard.py report
 build-engine-base: ## Build the shared toolchain base image for BACKEND (cpu|cuda|rocm|vulkan; PUSH=1 publishes + caches in LLGENIE_REGISTRY)
 	@test -n "$(BACKEND)" || { echo "Usage: make build-engine-base BACKEND=cpu|cuda|rocm|vulkan [PUSH=1]"; exit 1; }
 	python3 scripts/engine_image.py build-base "$(BACKEND)" $(if $(FORCE),--force,) $(if $(PUSH),--push,)
@@ -1333,6 +1337,7 @@ ci-unit: bash-check ## CI job unit: hermetic unit tests + registry / skill / Str
 	$(MAKE) skills-validate REGISTRY=data/models.json UNSUPPORTED=data/unsupported-engines.json
 	$(MAKE) check-engine-skill-gap
 	$(MAKE) check-engine-params
+	$(MAKE) check-engine-source
 	$(MAKE) check-wiring
 	$(MAKE) check-secret-output
 	$(MAKE) check-docs

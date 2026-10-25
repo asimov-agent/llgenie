@@ -1636,6 +1636,8 @@ Two steps that are never mixed:
 ```
 make generate-engine-params          # skills -> params/<engine>.json + dockerfiles/<engine>/Dockerfile.<arch> (commit them)
 make check-engine-params             # CI: fail if the committed params are stale
+make check-engine-source             # CI: fail if a cell says prebuilt=false but its install steps only download a wheel/archive
+make engine-source-report            # the census: source-built vs prebuilt cells, and every tracked exception
 make build-engine ENGINE=llama.cpp-prism                 # image for THIS machine's backend (cuda here)
 make build-engine ENGINE=llama.cpp-prism ARCH=rocm       # one image per backend: cpu | cuda | rocm | vulkan
 make build-engine-base BACKEND=cuda                      # shared toolchain base (CI publishes it)
