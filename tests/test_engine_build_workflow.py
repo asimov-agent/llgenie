@@ -170,3 +170,19 @@ def test_a_dispatch_with_no_selection_builds_every_container_cell():
     assert len(rows) == len(expected) >= 20, (len(rows), len(expected))
     assert {r["engine"] for r in rows} == {r["engine"] for r in expected}
     assert len({r["engine"] for r in rows}) >= 10, "the sweep must span the engines, not one of them"
+
+
+def test_a_serving_cell_still_probes_its_binary_first():
+    """TEST=serve must not skip the binary check: a cpu cell is proven by flags THEN by serving."""
+
+    # Given the stage target in the Makefile
+    stage = (REPO / "Makefile").read_text().split("\ntest-engine-stage:", 1)[1].split("\n\n", 1)[0]
+
+    # When  its serve branch is read
+    serve = stage.split("serve)", 1)[1].split(";;", 1)[0]
+
+    # Then  the binary test runs before the serve test, and a failure stops the stage
+    assert "test-engine-image" in serve
+    assert "test-engine " in serve
+    assert serve.index("test-engine-image") < serve.index("test-engine ")
+    assert "&&" in serve, "the serve branch must fail closed when the binary test fails"

@@ -481,7 +481,8 @@ def test_no_ci_step_or_job_is_skipped():
     mk = (REPO / "Makefile").read_text()
     assert re.search(r"^ci-free-disk:", mk, re.M) and re.search(r"^test-engine-stage:", mk, re.M)
     stage = mk.split("\ntest-engine-stage:", 1)[1].split("\n\n", 1)[0]
-    assert "serve)  $(MAKE) test-engine " in stage and "detect) $(MAKE) test-engine-image " in stage
+    assert "serve)  $(MAKE) test-engine-image " in stage and "detect) $(MAKE) test-engine-image " in stage
+    assert "$(MAKE) test-engine ENGINE=" in stage
 
 
 def test_the_agent_image_publishes_amd64_only(tmp_path):

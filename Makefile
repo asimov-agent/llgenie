@@ -1414,10 +1414,11 @@ ci-free-disk: ## CI: free runner disk for the large engine images (Linux runner:
 	else echo "[ci-free-disk] $$(uname -s) runner: nothing to free"; fi
 	@df -h /
 
-test-engine-stage: ## CI engine-image post-build test, ONE step for every image: TEST=serve -> make test-engine (OpenAI API answers), TEST=detect -> make test-engine-image (engine version)
+test-engine-stage: ## CI engine-image post-build test, ONE step for every image: TEST=serve -> binary flags (make test-engine-image) AND the OpenAI API answer (make test-engine); TEST=detect -> binary flags only (make test-engine-image)
 	@test -n "$(ENGINE)" -a -n "$(ARCH)" || { echo "Usage: make test-engine-stage ENGINE=<id> ARCH=<arch> TEST=serve|detect"; exit 1; }
 	@case "$(TEST)" in \
-	  serve)  $(MAKE) test-engine ENGINE="$(ENGINE)" ARCH="$(ARCH)" ;; \
+	  serve)  $(MAKE) test-engine-image ENGINE="$(ENGINE)" ARCH="$(ARCH)" && \
+	          $(MAKE) test-engine ENGINE="$(ENGINE)" ARCH="$(ARCH)" ;; \
 	  detect) $(MAKE) test-engine-image ENGINE="$(ENGINE)" ARCH="$(ARCH)" ;; \
 	  *) echo "[test-engine-stage] TEST must be serve or detect, got '$(TEST)'"; exit 1 ;; \
 	esac

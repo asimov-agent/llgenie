@@ -2204,7 +2204,9 @@ image → download → lint → unit → install → health → top-tier → top
   `runner.os` / matrix / event condition. OS- and matrix-specific work is decided in make:
   `make ci-free-disk` frees disk on a Linux runner and only reports on macOS, and
   `make test-engine-stage TEST=serve|detect` is the one post-build test step of every engine
-  image (serve: `make test-engine`, detect: `make test-engine-image`). The engine images are
+  image (serve: `make test-engine-image` first, so the binary must answer its flags, then
+  `make test-engine`; detect: `make test-engine-image` only). Every cell therefore has its
+  binary executed and probed, whether it serves a model on the runner or not. The engine images are
   built once (Linux containers), then `published.yml` (`make ci-engines BACKEND=<b>` ->
   `make test-install-published` per backend) installs them on Linux in every push run (macOS
   never runs an engine container, so it has no published-image stage).
