@@ -116,8 +116,8 @@ picks which start script or image to run.
 | `containers/ci-variant/` | the CUDA-toolkit variant-build image (`make test-variant-image`) with its own `requirements.txt` / `requirements-dev.txt` |
 | `data/` | vendored registry, quant catalog, strata model map, engine-skill gap, unsupported engines, trending README |
 | `docs/` | this document |
-| `openspec/` | the change record: `config.yaml`, its `Dockerfile`, and `changes/<name>/{proposal.md,specs/**,tasks.md}` (197 changes) |
-| `agent-wiki/` | dated work record (162 entries), one per change, referencing its issue and PR |
+| `openspec/` | the change record: `config.yaml`, its `Dockerfile`, and `changes/<name>/{proposal.md,specs/**,tasks.md}` (198 changes) |
+| `agent-wiki/` | dated work record (163 entries), one per change, referencing its issue and PR |
 | `tests/` | 116 `tests/test_*.py` files, fixtures, shared test helpers (`tests/top_tier_dry_run.py`) and the live end-to-end gates, discovered by `scripts/unit_tests.py` |
 | `docker-compose-files/` | the compose definitions for the OpenSpec CLI (`openspec.yaml`) and the test image (`test.yaml`) |
 | `tools/` | pip-compile inputs (`requirements.in`, `requirements-dev.in`) and the venv targets |
@@ -202,10 +202,27 @@ runs between the bump and the PR (issue #583), in three steps where the host sta
 writer:
 
 1. `make engine-params-review-brief ENGINE=<id>` (`scripts/engine_params_review.py brief`)
-   clones the engine's repo blobless and writes `params-review-in.md`: its documentation at
-   the pinned sha (`README*`, `docs/**`, `CMakeLists.txt`, the backend recipe Dockerfiles,
-   `.github/**/*.md`, bounded per file by `DOC_BUDGET`) plus the parameters this repo builds
-   with.
+   clones the engine's repo blobless and writes `params-review-in.md`: the parameters this
+   repo builds with, plus a **ranked, bounded selection** of that engine's documentation at
+   the pinned sha (issue #597). The selection is not the tree. `bench/`, `benchmarks/`,
+   `examples/`, `tests/`, `fixtures/`, `assets/` and `apps/` never enter — the noise rule wins
+   over the always-include rule, so a Dockerfile under `bench/results/…` is a bench artefact,
+   not build evidence. The flag-proving files (`CMakeLists.txt`, `Dockerfile*`,
+   `docker/**/Dockerfile*`) go first, root before nested, each cut at `ALWAYS_BUDGET` (60 KB)
+   and all together at `ALWAYS_TOTAL_BUDGET` (45 KB) so they cannot starve the prose that
+   explains the arch. Everything else (`README*`, `docs/*.md` / `docs/**/*.md`,
+   `.github/**/*.md`, and the same rst forms) is scored on the vocabulary of building an
+   engine (`option(`, `-D`, `CMAKE_`, `CUDA_ARCHITECTURES`, `GPU_TARGETS`, `cmake`, `cuda`,
+   `rocm`, `hip`, `torch`, `pip install`, `apt-get`, `build`, `install`, `compile`) and taken
+   highest first until `DOC_TOTAL_BUDGET` (80 KB) is spent. `docs/*.md` is listed explicitly
+   in `DOC_GLOBS` because `Path.match` does not let `**` cross zero directories, which once
+   hid `docs/BUILDING.md` — the page that documents the flags. The brief says what it did
+   (`N file(s) selected by build relevance; M omitted for the 80 KB budget. This is a
+   SELECTION of the tree, not all of it.`). The bounds are per file *and* in total because
+   the per-file cap alone handed the leg 1.8 MB / 424 sections of mostly benchmark logs on
+   `strata` v0.2.4 while the root `CMakeLists.txt` was cut below its `option(...)` lines;
+   measured after, the same brief is 81 KB / 8 sections carrying the root `Dockerfile`, two
+   `CMakeLists.txt`, three Dockerfiles and `docs/AMD_HIP.md` + `docs/DETAILS.md`.
 2. `make engine-params-review ENGINE=<id>` is the agent leg — the `engine-params-review`
    Hermes project skill beside `bot-unattended`, run inside the agent image through
    `$(call scrubbed_run,…)` — and it writes the one file it may write, `params-review.md`,
@@ -441,7 +458,10 @@ The engine seams are locked hermetically, without docker and without a model in 
 `tests/test_engine_params_review.py` (a documented per-arch flag is accepted and applied to
 its own backend only, `DRY=1` mutates nothing, and an undocumented, uncited, wrong-backend
 or already-present proposal is each refused with its reason, with the PR section reporting
-both sides and the workflow step non-fatal and ordered before the PR),
+both sides and the workflow step non-fatal and ordered before the PR; and the brief, on a
+real git fixture dominated by bench pages and prose, keeps the root `CMakeLists.txt` past the
+per-file cap inside the total budget, reports how many files it omitted, and ranks
+`docs/BUILDING.md` ahead of prose — issue #597),
 `tests/test_engine_binary_flags.py` (every flag is probed, one working spelling never
 vouches for a dead one, and the families decide), and `tests/test_worktree_prune.py` (the
 detached-worktree match by HEAD, and a delete refusal that splits into a one-shot retry or a
