@@ -1,13 +1,17 @@
 {
   "_generated_by": "make sync-strata-models (scripts/strata_models.py) - do not edit",
-  "source": "https://github.com/Niko1221/Strata/blob/16374b3e6dfe452a163c3a961ae5faa3b4aec84b/setup.py",
-  "ref": "v0.1.43",
-  "pinned": "16374b3e6dfe452a163c3a961ae5faa3b4aec84b",
+  "source": "https://github.com/Niko1221/Strata/blob/0303f6581c64b9bc5d42fdf286c78985a239a1b1/setup.py",
+  "ref": "v0.2.4",
+  "pinned": "0303f6581c64b9bc5d42fdf286c78985a239a1b1",
   "hf_revisions": {
     "ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF": "ed59f92082b1e93c0e96d60a8b11aab089b52f09",
-    "ukisai/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF": "b22d729eae29b5796f76fb70f91aef549b9fc52c",
+    "ukisai/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF": "99bb8f7f95c7aa7b24a36a7786a4f657b30f5d3d",
     "ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-Coder-GGUF": "5348543e0147355ac9cbcb031184a3546350988e",
-    "unsloth/Qwen3.8-Flash-Next-GGUF": "38bb39ee97821de2c9009abb7e93950eec396e66"
+    "unsloth/Qwen3.8-Flash-Next-GGUF": "38bb39ee97821de2c9009abb7e93950eec396e66",
+    "unsloth/Qwen3.6-35B-A3B-MTP-GGUF": "5bc3e238d916f48a861bac2f8a1990a0e9b7e98d",
+    "agentionai/Qwen3.8-Flash-Next-Gyro-GGUF": "1ada08422e404aca51ab9df665f089f34c419c6b",
+    "unsloth/DeepSeek-V4.1-Flash-1017-GGUF": "f924b94f19c1fea02c06a65c8475b0a45e2b88b1",
+    "ISTA-DASLab/DeepSeek-V4.1-Flash-1017-GSQ-RCO-GGUF": "cb02422c900df489cea5833e8a92171224059b3c"
   },
   "families": {
     "qwen": {
@@ -22,7 +26,7 @@
     "swift": {
       "title": "Swift 1.5",
       "repo": "ukisai/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF",
-      "revision": "b22d729eae29b5796f76fb70f91aef549b9fc52c",
+      "revision": "99bb8f7f95c7aa7b24a36a7786a4f657b30f5d3d",
       "subdir": "",
       "file": "Swift-Qwen3.8-Flash-Next-GSQ-RCO-{q}-0000{i}-of-00002.gguf",
       "shards": 2,
@@ -44,6 +48,22 @@
       "subdir": "{q}/",
       "file": "Qwen3.8-Flash-Next-{q}-0000{i}-of-00004.gguf",
       "shards": 4,
+      "experimental": false
+    },
+    "gyro": {
+      "title": "Qwen3.8-Flash-Next (Gyro)",
+      "repo": "agentionai/Qwen3.8-Flash-Next-Gyro-GGUF",
+      "revision": "1ada08422e404aca51ab9df665f089f34c419c6b",
+      "subdir": "",
+      "file": "Qwen3.8-Flash-Next-{q}.gguf",
+      "shards": 1,
+      "experimental": false
+    },
+    "nvfp4": {
+      "title": "Qwen3.8-Flash-Next (NVFP4)",
+      "hub": false,
+      "file": null,
+      "shards": 2,
       "experimental": false
     }
   },
@@ -91,14 +111,6 @@
       ],
       "experimental": false
     },
-    "UD-Q4_K_XL": {
-      "download_gb": 111.3,
-      "ram_gb": 48,
-      "families": [
-        "unsloth"
-      ],
-      "experimental": true
-    },
     "UD-IQ4_XS": {
       "download_gb": 93.7,
       "ram_gb": 48,
@@ -108,6 +120,88 @@
       "experimental": false,
       "file": "Qwen3.8-Flash-Next-{q}-0000{i}-of-00003.gguf",
       "shards": 3
+    },
+    "UD-Q4_K_XL": {
+      "download_gb": 111.3,
+      "ram_gb": 48,
+      "families": [
+        "unsloth"
+      ],
+      "experimental": false
+    },
+    "UD-Q5_K_XL": {
+      "download_gb": 158.3,
+      "ram_gb": 108,
+      "families": [
+        "unsloth"
+      ],
+      "experimental": false,
+      "file": "Qwen3.8-Flash-Next-{q}-0000{i}-of-00006.gguf",
+      "shards": 6
+    },
+    "UD-Q6_K_XL": {
+      "download_gb": 169.2,
+      "ram_gb": 118,
+      "families": [
+        "unsloth"
+      ],
+      "experimental": false,
+      "file": "Qwen3.8-Flash-Next-{q}-0000{i}-of-00006.gguf",
+      "shards": 6
+    },
+    "Q8_0": {
+      "download_gb": 188.2,
+      "ram_gb": 136,
+      "families": [
+        "unsloth"
+      ],
+      "experimental": false,
+      "file": "Qwen3.8-Flash-Next-{q}-0000{i}-of-00006.gguf",
+      "shards": 6
+    },
+    "Gyro-S": {
+      "download_gb": 58.5,
+      "ram_gb": 27.6,
+      "families": [
+        "gyro"
+      ],
+      "experimental": false,
+      "file": "Qwen3.8-Flash-Next-Gyro-S-TQ1_0.gguf",
+      "shards": 1
+    },
+    "Gyro-M": {
+      "download_gb": 92.0,
+      "ram_gb": 35.0,
+      "families": [
+        "gyro"
+      ],
+      "experimental": false,
+      "file": "Qwen3.8-Flash-Next-Gyro-M-TQ2_0.gguf",
+      "shards": 1
+    },
+    "NVFP4": {
+      "download_gb": 128.0,
+      "ram_gb": 80,
+      "families": [
+        "nvfp4"
+      ],
+      "experimental": false
+    },
+    "NVFP4-NVIDIA": {
+      "download_gb": 128.0,
+      "ram_gb": 80,
+      "families": [
+        "nvfp4"
+      ],
+      "experimental": false
+    },
+    "NVFP4-QAD": {
+      "download_gb": 102.2,
+      "ram_gb": 80,
+      "families": [
+        "nvfp4"
+      ],
+      "experimental": false
     }
   }
 }

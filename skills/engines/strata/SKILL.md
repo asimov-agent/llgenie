@@ -4,11 +4,11 @@ description: "Use when installing Strata (Qwen3.8-Flash-Next 125B MoE across GPU
 engine: "Strata"
 id: strata
 repo: https://github.com/Niko1221/Strata
-ref: v0.1.43
+ref: v0.2.4
 ref_kind: tag
-version: v0.1.43
-pinned: 16374b3e6dfe452a163c3a961ae5faa3b4aec84b
-verified: "2026-10-12"
+version: v0.2.4
+pinned: 0303f6581c64b9bc5d42fdf286c78985a239a1b1
+verified: "2026-10-25"
 license: MIT
 servable: true
 backends: [cuda, rocm]
@@ -51,10 +51,10 @@ health: "GET /health"
 alias_mode: config
 container:
   cuda:
-    apt: [libatomic1, libgomp1, python3-venv]
+    apt: [libatomic1, libgomp1, python3-venv, libnuma1, tini, zlib1g]
   rocm:
     base: "rocm/pytorch:rocm7.2.4_ubuntu24.04_py3.12_pytorch_release_2.10.0@sha256:4449f856653602317e4101a76fce599c7fcd58ccec2e539951fce5f73083179e"   # the shared rocm/dev 7.0 base has no HIP cmake package (CI #106)
-    apt: [libatomic1, libgomp1, python3-venv]
+    apt: [libatomic1, libgomp1, python3-venv, libnuma1, tini, zlib1g]
 upstream_watch: [setup.sh, setup.py, serve/server.py, docs/INSTALL.md, docs/DETAILS.md, Dockerfile, requirements.txt]
 ---
 

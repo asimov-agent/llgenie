@@ -919,7 +919,7 @@ def test_apply_release_archive_replaces_pip_install(tmp_path):
 # remote (git insteadOf, so plan/clone speak the skill's GitHub URL) and one
 # JSON file per release tag (urllib.request.urlopen). plan, derive, pin, apply,
 # the pin rewrite and the regen guard all run. Versions are the shape of the
-# bump PRs (vX.Y.Z, branch names) and are not the live pins: v1.1.4 and v0.1.43
+# bump PRs (vX.Y.Z, branch names) and are not the live pins: v1.1.4 and v0.2.4
 # are hardcoded in this checkout, and the fixture repo is the only tree the
 # rewrite is allowed to touch.
 _MAKEFILE = (
@@ -1252,7 +1252,7 @@ def test_each_failed_bump_engine_keeps_its_install_kind(tmp_path, monkeypatch, e
 
     The versions are the shape of those PRs, not the live pins. tensorfold is
     v9.1.0 -> v9.2.0, the v1.1.4 -> v1.0.7 git+ bump. strata is v8.1.0 ->
-    v8.2.0, the v0.1.43 -> v0.1.43 clone and cmake bump. llama.cpp stays on
+    v8.2.0, the v0.2.4 -> v0.2.4 clone and cmake bump. llama.cpp stays on
     master and llama.cpp-prism stays on prism.
 
     Each case runs plan, derive, pin and apply. The GitHub remote is a local
