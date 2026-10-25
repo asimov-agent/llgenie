@@ -29,9 +29,9 @@ WORKFLOW = REPO_ROOT / ".github/workflows/engine-bump.yml"
 # The env the step receives (mirrors `env:` on the step).
 _OS_ENV = {
     "ID": "ollama",
-    "OLD": "2476d5ead197abe04629651028f83d48dc75d2b2",
-    "NEW": "2476d5ead197abe04629651028f83d48dc75d2b2",
-    "REF": "v0.40.6",
+    "OLD": "675150d6ad2747df1e218ef59de9194bc4a7e538",
+    "NEW": "675150d6ad2747df1e218ef59de9194bc4a7e538",
+    "REF": "v0.40.11",
 }
 
 _REPO = "acme/llgenie"
@@ -40,10 +40,10 @@ _EXPECTED_BASE = (
     "Automated engine pin bump (issue #107).\n"
     "\n"
     "- **Engine:** `ollama`\n"
-    "- **Pin:** `2476d5ea` -> `2476d5ea` (`v0.40.6`)\n"
+    "- **Pin:** `675150d6` -> `675150d6` (`v0.40.11`)\n"
     "- **Compare:** https://github.com/acme/llgenie/compare/"
-    "2476d5ead197abe04629651028f83d48dc75d2b2..."
-    "2476d5ead197abe04629651028f83d48dc75d2b2\n"
+    "675150d6ad2747df1e218ef59de9194bc4a7e538..."
+    "675150d6ad2747df1e218ef59de9194bc4a7e538\n"
     "- CI builds and tests ONLY this engine's images. A red PR means the new "
     "commit needs a manual skill fix."
 )

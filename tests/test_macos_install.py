@@ -221,7 +221,7 @@ def test_pull_published_retries_a_tag_the_parallel_job_has_not_pushed_yet(monkey
     monkeypatch.setattr(ei, "_sh", fake_sh)
     monkeypatch.setattr(ei, "_have_runtime", lambda: True)
     monkeypatch.setattr(ei.time, "sleep", lambda s: None)
-    spec = {"tag": "llgenie/ollama:2476d5ea-de7798b2-cpu", "variant": "cpu"}
+    spec = {"tag": "llgenie/ollama:675150d6-de7798b2-cpu", "variant": "cpu"}
 
     # Given a tag the parallel job has not pushed yet
     # When it is pulled as published
