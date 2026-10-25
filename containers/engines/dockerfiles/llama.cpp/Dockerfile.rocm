@@ -3,25 +3,28 @@
 # Build: make build-engine ENGINE=llama.cpp ARCH=rocm
 # Run:   make run-engine ENGINE=llama.cpp ARCH=rocm MODEL=<model> PORT=11434
 #        -> OpenAI API at http://127.0.0.1:<PORT>/v1, model llm-local
-FROM ghcr.io/ggml-org/llama.cpp:server-rocm@sha256:46583bd112bf2d62881d6aeaae52e59238d61cbf5803296521cdf518548016e6
+FROM llgenie/base-rocm:17779d5326 AS build
 
 ENV DEBIAN_FRONTEND=noninteractive HF_HOME=/models/hf \
     PATH=/opt/llgenie/bin:/usr/local/cuda/bin:${PATH}
 ENV LLGENIE_GPU_TARGETS=gfx1030;gfx1100;gfx1101;gfx1102;gfx1151;gfx1200;gfx1201;gfx942
 
-# Official upstream image already contains the engine; add only what the
-# llgenie entrypoint needs (python3 + curl) when the base lacks it.
-RUN if ! command -v python3 >/dev/null || ! command -v curl >/dev/null; then \
-      apt-get update && apt-get install -y --no-install-recommends ca-certificates curl python3 \
-      && rm -rf /var/lib/apt/lists/*; fi
 
 WORKDIR /opt/llgenie/app
 COPY engine_runner.py entrypoint.sh params.json ./
-RUN chmod +x entrypoint.sh
+RUN chmod +x entrypoint.sh && python3 engine_runner.py install params.json && rm -rf /root/.cache
+
+FROM rocm/dev-ubuntu-24.04:7.0-complete
+ENV DEBIAN_FRONTEND=noninteractive HF_HOME=/models/hf
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates curl python3 libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=build /opt/llgenie/src/llama.cpp/build-rocm/bin /opt/llgenie/src/llama.cpp/build-rocm/bin
+COPY --from=build /opt/llgenie/app /opt/llgenie/app
+WORKDIR /opt/llgenie/app
 
 ENV LLGENIE_ENGINE=llama.cpp LLGENIE_BACKEND=rocm LLGENIE_VARIANT=rocm \
-    LLGENIE_HOST=0.0.0.0 LLGENIE_PORT=11434 \
-    LD_LIBRARY_PATH=/app
+    LLGENIE_HOST=0.0.0.0 LLGENIE_PORT=11434
 LABEL org.opencontainers.image.title="llgenie-llama.cpp:rocm" llgenie.engine="llama.cpp" \
       llgenie.variant="rocm" llgenie.pinned="74bca3950054eed1795f525cb9cf06bfe796492d" \
       llgenie.api="openai" llgenie.model="llm-local" llgenie.port="11434"

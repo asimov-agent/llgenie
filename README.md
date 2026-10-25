@@ -1413,6 +1413,7 @@ from the pipeline that will run.
 |---|---|---|
 | `architecture-bot.yml` | rewrites docs/ARCHITECTURE.md from the tree and opens a linked issue + PR (never merges) | `dry` (optional, default `false`) — Preview the issue and PR bodies this run would file, filing nothing<br>`doc` (optional, default `docs/ARCHITECTURE.md`) — Repository-relative markdown document to refresh |
 | `code-review-bot.yml` | reviews the tree and the pipelines and files one issue per finding (never edits code) | `dry` (optional, default `false`) — Preview the issues it would file (owner only) |
+| `engine-build.yml` | builds and verifies EVERY engine at its committed pin, in parallel (never merges) | `engine` (optional) — Engine id to sweep (e.g. llama.cpp); empty = every engine in the committed params<br>`arch` (optional) — One backend to sweep (cpu|cuda|rocm|vulkan); empty = every variant of each engine<br>`push` (optional, default `false`) — Publish the built images to GHCR (true) or build and verify only (false) |
 | `engine-bump-rebase.yml` | rebases every open engine-bump PR onto the latest main | `dry` (optional, default `false`) — print the PRs it would rebase and push nothing (no branch is touched) |
 | `engine-bump.yml` | bumps pinned engines to their newest upstream release and opens the PR | `engine` (optional) — Only bump this engine (id); empty = all |
 | `fix-bot.yml` | repairs a failing PR branch until its checks pass (never merges) | `pr_number` (optional) — PR number whose branch should be repaired<br>`branch` (optional) — PR head branch (used when pr_number is empty)<br>`check` (optional, default `make ci-unit`) — the deterministic check to drive the loop<br>`rounds` (optional, default `5`) — repair attempts (default 5)<br>`report_file` (optional) — path to the failed run's captured log (repair context; empty = run the check locally) |
@@ -1581,6 +1582,46 @@ Build parameters come from the hardware, never from one hard-coded GPU:
 | MLX-fast (Bonsai 2) | via tensorfold / mlx (benchmark harness) | metal |
 | WebLLM | no (browser-only) | — |
 
+### Build every engine at its pin on demand (`engine-build.yml`, issue #614)
+
+`ci.yml` builds only the images a PR **changed** (`CHANGED=<base>`) — that is the merge gate, and a
+PR that touches no engine params builds nothing. There was no way to ask "build and verify *every*
+engine at its committed pin, now" without pushing a commit that touched all of them.
+
+`engine-build.yml` is that sweep, and it is deliberately **not** part of `ci.yml`:
+
+```text
+workflow_dispatch inputs
+  engine  one engine id (e.g. llama.cpp); empty = every engine in the committed params
+  arch    one backend (cpu|cuda|rocm|vulkan); empty = every variant of each engine
+  push    true = publish the built images to GHCR; default false = build + verify only
+```
+
+- `guard` first (owner or collaborator with write, before any secret is read), then the matrix.
+- `matrix` runs `make engine-build-matrix ENGINE=… ARCH=…` — the rows are the **committed params**
+  (`containers/engines/params/*.json`), never a hand-written roster, so a new variant is in the sweep
+  the moment its params are committed. `make engine-build-matrix` is the same code
+  (`scripts/engine_image.py matrix`) the CI matrix reads, with `--engine` / `--arch` filters.
+- the same scopes are available locally from one target, in parallel — `make build-engines`
+  (every engine × variant), `make build-engines ARCH=cuda` (one arch, every engine),
+  `make build-engines ENGINE=llama.cpp` (one engine, every arch type), and
+  `make build-engines ENGINE=llama.cpp ARCH=cuda` (one engine × one arch). Each row carries its own
+  parameters, because they come from the engine's committed params for that backend.
+- one `build` job per row, `max-parallel: 20`: `make build-engine ENGINE=… ARCH=…` then
+  `make test-engine-stage ENGINE=… ARCH=… TEST=<row.test>` — `serve` for cpu (the image answers on
+  the OpenAI API), `detect` for GPU (the binary reports its version and answers the flags a user
+  types). Same make path as CI, so the verification is identical.
+- no `pull_request`, `push` or `schedule` trigger; publishing happens only when `push=true`.
+
+**Source or prebuilt is the params' decision, not this workflow's.** A variant with
+`prebuilt: false` compiles from its pinned sha in the generated Dockerfile; a variant with
+`prebuilt: true` starts `FROM` an upstream image and only adds the llgenie entrypoint. `llama.cpp` was converted to a source build in all four variants with this
+change (pinned sha checked out, `-DGGML_*` flags, `-DCMAKE_CUDA_ARCHITECTURES` / `-DGPU_TARGETS`
+passed to the compiler, only `build/bin` shipped on the slim runtime base). **12 variants are still
+prebuilt** — `ollama` ×4, `vllm` ×3, `sglang` cuda, `tensorrt-llm` cuda — and converting them is
+**issue #615**; this workflow builds whatever the params say, so a converted variant needs no
+workflow change.
+
 ### Engine container images (one per engine x hardware arch)
 
 **Plain make, no LLM.** The skills are read by one target only, `make generate-engine-params`.
@@ -1598,7 +1639,11 @@ make build-engine ENGINE=llama.cpp-prism ARCH=rocm       # one image per backend
 make build-engine-base BACKEND=cuda                      # shared toolchain base (CI publishes it)
 make build-engine-vllm-cuda                              # per engine x arch shortcut: build-engine-<engine>-<arch>
 make build-engine-llama.cpp-prism-rocm
-make build-engines ARCH=cuda                             # every engine for one arch
+make build-engines                                        # EVERY engine x variant, in parallel (JOBS=, default nproc)
+make build-engines ARCH=cuda                              # one arch, every engine
+make build-engines ENGINE=llama.cpp                       # one engine, every arch type
+make build-engines ENGINE=llama.cpp ARCH=cuda             # one engine x one arch
+make engine-build-matrix [ENGINE=] [ARCH=]                # the JSON matrix the dispatched sweep builds
 make run-engine ENGINE=vllm MODEL=Qwen/Qwen2.5-0.5B-Instruct PORT=11434
 make stop-engine ENGINE=vllm
 make list-engine-images              # every engine x arch variant

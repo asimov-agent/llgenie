@@ -1,0 +1,141 @@
+# ENGINE-BUILD — builds and verifies EVERY engine image at its committed pin, in parallel, on demand.
+#
+# Issue #614: ci.yml builds only the images a PR CHANGED (`CHANGED=<base>`), which is the right merge
+# gate but means no run ever exercises the whole pinned set — a stale-but-unbuildable pin, or an
+# image that drifted from its params, is only discovered when that engine is next touched. This
+# workflow is the independent whole-set sweep: one matrix row per engine x variant, straight from
+# `containers/engines/params/*.json`, built and tested through the same make targets CI uses.
+#
+# It is NOT part of ci.yml on purpose: a full sweep is minutes x 27 rows and belongs to a maintainer
+# asking "are all the pins good?", not to every pull request. ci.yml keeps its changed-images gate.
+#
+# Trigger surface: `workflow_dispatch` ONLY (owner/collaborator), nothing schedules it. Inputs narrow
+#                  the sweep: `engine` (one id, empty = all), `arch` (one backend, empty = all), and
+#                  `push` (publish the built images to GHCR; default false = build and verify only).
+# Flow: guard (owner / collaborator with write, BEFORE any secret is read) -> make engine-build-matrix
+#       (the committed params -> one row per engine x variant; the make target is the only list) ->
+#       per row: make build-engine ENGINE= ARCH= -> make test-engine-stage ENGINE= ARCH= TEST=<row.test>
+#       (serve: the cpu image answers on the OpenAI API; detect: the binary reports its version and
+#       answers the flags a user types).
+# Never: never merges, never pushes to `main`, never runs on a schedule, never publishes unless
+#        `push=true`, and never builds the `none` placeholder row.
+name: engine-build — builds and verifies EVERY engine at its committed pin, in parallel (never merges)
+
+on:
+  workflow_dispatch:
+    inputs:
+      engine:
+        description: "Engine id to sweep (e.g. llama.cpp); empty = every engine in the committed params"
+        required: false
+        default: ""
+      arch:
+        description: "One backend to sweep (cpu|cuda|rocm|vulkan); empty = every variant of each engine"
+        required: false
+        default: ""
+      push:
+        description: "Publish the built images to GHCR (true) or build and verify only (false)"
+        required: false
+        default: "false"
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: engine-build
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Owner / collaborator trigger guard
+        env:
+          ACTOR: ${{ github.actor }}
+          TRIGGER: ${{ github.triggering_actor }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.repository }}
+          # The run's head repository: empty for every non-PR event (issue #510).
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name || '' }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for u in "$ACTOR" "$TRIGGER"; do
+            if [ "$u" = "$OWNER" ]; then continue; fi
+            # The repository's own bot is a GitHub App login, so it is never a collaborator and the
+            # permission read below answers 404 -> `none`: every bot-opened PR was refused (run
+            # 39650944430, #495). It may pass ONLY when the run's head is a branch in THIS repository —
+            # a same-repo head can be produced only by a token with write access — while the bot as the
+            # actor of a FOREIGN head (a bot commenting on a stranger's PR) is still refused (#510).
+            if [ "$u" = "github-actions[bot]" ] && [ -n "${HEAD_REPO:-}" ] && [ "${HEAD_REPO:-}" = "$REPO" ]; then
+              echo "Repository bot $u on a same-repo head ($HEAD_REPO) - allowed."
+              continue
+            fi
+            perm=$(gh api "repos/$REPO/collaborators/$u/permission" --jq .permission 2>/dev/null || echo none)
+            case "$perm" in
+              admin|maintain|write) echo "Collaborator $u has $perm - allowed." ;;
+              *) echo "Refused: $u is not the owner or a collaborator with write access (permission: ${perm:-none})."; exit 1 ;;
+            esac
+          done
+          echo "Allowed: actor=$ACTOR triggering_actor=$TRIGGER"
+
+  matrix:
+    needs: [guard]
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"   # the repo's pinned Python (issue #120)
+      - id: m
+        env:
+          ENGINE: ${{ inputs.engine }}
+          ARCH: ${{ inputs.arch }}
+        # The list comes from the committed params, never from a hand-written roster: an engine that
+        # ships a new variant is in the sweep the moment its params are committed.
+        run: |
+          echo "matrix=$(make -s engine-build-matrix ENGINE="$ENGINE" ARCH="$ARCH")" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: [guard, matrix]
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix: ${{ fromJSON(needs.matrix.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    permissions:
+      contents: read
+      packages: write
+    name: engine-build-${{ matrix.engine }}-${{ matrix.variant }}
+    env:
+      LLGENIE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+      PUBLISH: ${{ inputs.push == 'true' && '1' || '' }}
+    steps:
+      - uses: actions/checkout@v4
+        if: ${{ matrix.engine != 'none' }}
+      - name: Free disk (CUDA/ROCm bases are large)
+        if: ${{ matrix.engine != 'none' }}
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
+      - uses: docker/setup-buildx-action@v3
+        if: ${{ matrix.engine != 'none' }}
+      - name: Log in to GHCR (only when this run publishes)
+        if: ${{ matrix.engine != 'none' && inputs.push == 'true' }}
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: make build-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} (the committed params -> Dockerfile + params.json)
+        if: ${{ matrix.engine != 'none' }}
+        run: make build-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} PUSH=$PUBLISH
+      - name: Pull the test image (GHCR, published by ci-images; the post-build pytest stage runs in llgenie/test)
+        if: ${{ matrix.engine != 'none' }}
+        run: make test-image-pull
+      - uses: astral-sh/setup-uv@v6
+        if: ${{ matrix.engine != 'none' }}
+      - name: hf CLI (tiny test model)
+        if: ${{ matrix.engine != 'none' }}
+        run: uv tool install "huggingface_hub[cli]>=0.30"
+      - name: "verify: make test-engine-stage ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} TEST=${{ matrix.test }} (serve: the cpu image answers on the OpenAI API; detect: the binary reports its version and answers the flags a user types)"
+        if: ${{ matrix.engine != 'none' }}
+        run: make test-engine-stage ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} TEST=${{ matrix.test }}

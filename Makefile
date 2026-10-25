@@ -70,7 +70,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	run-failure-reactor rebase-bot-agent check-docs docs-report check-pr-hygiene pr-hygiene-report auto-merge auto-merge-resolve auto-merge-explain auto-merge-recheck verify-closure check-pr-authors pr-authors-report check-workflows workflows-report issue-refiner-pick issue-refiner issue-refiner-apply issue-dedup-pick issue-dedup issue-dedup-apply check-dispatch-forms dispatch-forms-report \
 	agent-shell-keys-check \
 	agent-fetch search-smoke require-env web-coverage issue-evidence \
-	engine-bump-rebase generate-engine-params check-engine-params build-engine run-engine stop-engine list-engine-images ci-lint ci-unit ci-agents-read \
+	engine-bump-rebase generate-engine-params check-engine-params build-engine run-engine stop-engine list-engine-images engine-build-matrix ci-lint ci-unit ci-agents-read \
 	ci-openspec ci-cpu-health ci-top-tier ci-install ci-install-dry-args ci-free-disk test-engine-stage bot-sync-main bot-sync-branch ci-wait-engine-images \
 	ci-install-dry ci-install-run ci-install-uninstall test-env test-top-tier test-top-tier-ci test-top-tier-cli-ci test-top-tier-serve test-top-tier-serve-ci \
 	check-agent-model model-pin-report check-agent-skills agent-skills-report test-agent-skills-live hermes-skills-register \
@@ -913,10 +913,12 @@ build-engine-%: ## Build one engine x arch image from its generated Dockerfile (
 	$(MAKE) build-engine ENGINE=$(patsubst %-$(lastword $(subst -, ,$*)),%,$*) ARCH=$(lastword $(subst -, ,$*))
 run-engine-%: ## Run one engine x arch image (run-engine-<engine>-<arch> MODEL=…)
 	$(MAKE) run-engine ENGINE=$(patsubst %-$(lastword $(subst -, ,$*)),%,$*) ARCH=$(lastword $(subst -, ,$*))
-build-engines: ## Build every engine image for ARCH (cpu|cuda|rocm|vulkan) from the generated Dockerfiles
-	@test -n "$(ARCH)" || { echo "Usage: make build-engines ARCH=cpu|cuda|rocm|vulkan [PUSH=1]"; exit 1; }
-	@for e in $$(python3 scripts/engine_image.py matrix --json | python3 -c 'import json,sys;print(" ".join(r["engine"] for r in json.load(sys.stdin)["include"] if r["variant"]=="$(ARCH)"))'); do \
-		$(MAKE) build-engine ENGINE=$$e ARCH=$(ARCH) $(if $(PUSH),PUSH=1,) || exit 1; done
+build-engines: ## Build every engine x variant the committed params declare, in PARALLEL — all engines, or ENGINE=<id>, or ARCH=<backend>, or both (JOBS= parallel builds, default: nproc)
+	@JOBS="$(if $(JOBS),$(JOBS),$$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4))"; \
+	rows=$$(python3 scripts/engine_image.py matrix --json --ci $(if $(ENGINE),--engine "$(ENGINE)",) $(if $(ARCH),--arch "$(ARCH)",)); \
+	printf '%s' "$$rows" \
+	  | python3 -c 'import json,sys; [print(r["engine"]+" "+r["variant"]) for r in json.load(sys.stdin)["include"] if r["engine"] != "none"]' \
+	  | xargs -r -P "$$JOBS" -n 2 sh -c '$(MAKE) build-engine ENGINE=$$0 ARCH=$$1 $(if $(PUSH),PUSH=1,)' || exit 1
 generate-build-engine-params: generate-engine-params ## Alias of generate-engine-params
 engine-bump-plan: ## Issue #107: which engines moved upstream (git ls-remote only; ENGINE=<id> to scope)
 	@$(PY) scripts/engine_bump.py plan $(if $(ENGINE),--engine $(ENGINE),)
@@ -930,6 +932,8 @@ engine-bump-daily: ## Issue #107: plan -> bump every moved engine (DRY=1 prints 
 	@$(PY) scripts/engine_bump.py bump-daily $(if $(DRY),--dry,)
 list-engine-images: ## List every engine x arch variant (CI=1: only CI variants, JSON=1: GitHub matrix JSON; CHANGED=<ref> keeps only images whose tag differs from it)
 	@python3 scripts/engine_image.py matrix $(if $(CI),--ci,) $(if $(JSON),--json,) $(if $(CHANGED),--changed $(CHANGED),)
+engine-build-matrix: ## The JSON matrix the dispatched engine-build workflow builds: every engine x variant at its committed pin (ENGINE=<id>, ARCH=<backend> narrow it; CI variants only)
+	@python3 scripts/engine_image.py matrix --json --ci $(if $(ENGINE),--engine "$(ENGINE)",) $(if $(ARCH),--arch "$(ARCH)",)
 test-engine-image: ## GPU images on GPU-less CI: run tests/test_engine_version.py (entrypoint `version`; needs a GPU to serve)
 	@test -n "$(ENGINE)" || { echo "Usage: make test-engine-image ENGINE=<id> ARCH=cuda|rocm|vulkan"; exit 1; }
 	python3 scripts/engine_image.py test-image "$(ENGINE)" $(ARCH_ARGS)

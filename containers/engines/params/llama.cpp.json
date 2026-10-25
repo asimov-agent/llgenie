@@ -7,7 +7,7 @@
   "pinned": "74bca3950054eed1795f525cb9cf06bfe796492d",
   "native": {
     "cuda": {
-      "cmake_flags": "-DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON; -DLLAMA_BUILD_TESTS=OFF -DGGML_CUDA=ON -DGGML_METAL=OFF -DGGML_SYCL=OFF",
+      "cmake_flags": "-DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON -DLLAMA_BUILD_TESTS=OFF -DGGML_CUDA=ON -DGGML_METAL=OFF -DGGML_SYCL=OFF",
       "hw_flags": {
         "cuda_arch": "'-DCMAKE_CUDA_ARCHITECTURES={cuda_arch}'"
       },
@@ -16,7 +16,7 @@
       "build_dir": "build-cuda"
     },
     "rocm": {
-      "cmake_flags": "-DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON; -DLLAMA_BUILD_TESTS=OFF -DGGML_HIP=ON -DGGML_METAL=OFF -DGGML_CUDA=OFF",
+      "cmake_flags": "-DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON -DLLAMA_BUILD_TESTS=OFF -DGGML_HIP=ON -DGGML_METAL=OFF -DGGML_CUDA=OFF",
       "hw_flags": {
         "gpu_targets": "'-DGPU_TARGETS={gpu_targets}'"
       },
@@ -28,21 +28,21 @@
       "build_dir": "build-rocm"
     },
     "vulkan": {
-      "cmake_flags": "-DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON; -DLLAMA_BUILD_TESTS=OFF -DGGML_VULKAN=ON -DGGML_METAL=OFF -DGGML_CUDA=OFF",
+      "cmake_flags": "-DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON -DLLAMA_BUILD_TESTS=OFF -DGGML_VULKAN=ON -DGGML_METAL=OFF -DGGML_CUDA=OFF",
       "hw_flags": {},
       "env": {},
       "src_dir": "llama.cpp",
       "build_dir": "build-vulkan"
     },
     "metal": {
-      "cmake_flags": "-DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON; -DLLAMA_BUILD_TESTS=OFF -DGGML_METAL=ON -DGGML_CUDA=OFF -DGGML_SYCL=OFF",
+      "cmake_flags": "-DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON -DLLAMA_BUILD_TESTS=OFF -DGGML_METAL=ON -DGGML_CUDA=OFF -DGGML_SYCL=OFF",
       "hw_flags": {},
       "env": {},
       "src_dir": "llama.cpp",
       "build_dir": "build-metal"
     },
     "cpu": {
-      "cmake_flags": "-DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON; -DLLAMA_BUILD_TESTS=OFF -DGGML_METAL=OFF -DGGML_CUDA=OFF -DGGML_SYCL=OFF",
+      "cmake_flags": "-DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON -DLLAMA_BUILD_TESTS=OFF -DGGML_METAL=OFF -DGGML_CUDA=OFF -DGGML_SYCL=OFF",
       "hw_flags": {},
       "env": {},
       "src_dir": "llama.cpp",
@@ -55,21 +55,31 @@
       "engine": "llama.cpp",
       "backend": "cuda",
       "arch": "75;80;86;89;90;120",
-      "base": "ghcr.io/ggml-org/llama.cpp:server-cuda@sha256:ef08b5a98b1170f2b62177be0a4027c88a84043c55afbf190dd18b9e7cdcfebf",
-      "prebuilt": true,
-      "runtime_base": "",
-      "runtime_copy": [],
+      "base": "nvidia/cuda:13.0.2-devel-ubuntu24.04",
+      "prebuilt": false,
+      "runtime_base": "nvidia/cuda:13.0.2-runtime-ubuntu24.04",
+      "runtime_copy": [
+        "/opt/llgenie/src/llama.cpp/build-cuda/bin"
+      ],
       "apt": [],
       "build_args": {
         "CUDA_ARCH": "75;80;86;89;90;120",
         "GPU_TARGETS": "",
         "TORCH_BACKEND": "cu130"
       },
-      "install": [],
+      "install": [
+        "test -d /opt/llgenie/src/llama.cpp/.git || git clone -b master https://github.com/ggml-org/llama.cpp.git /opt/llgenie/src/llama.cpp",
+        "git config --global --add safe.directory /opt/llgenie/src/llama.cpp",
+        "git -C /opt/llgenie/src/llama.cpp fetch origin master",
+        "git -C /opt/llgenie/src/llama.cpp checkout -B master 74bca3950054eed1795f525cb9cf06bfe796492d",
+        "cmake -S /opt/llgenie/src/llama.cpp -B /opt/llgenie/src/llama.cpp/build-cuda -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON -DLLAMA_BUILD_TESTS=OFF -DGGML_CUDA=ON -DGGML_METAL=OFF -DGGML_SYCL=OFF '-DCMAKE_CUDA_ARCHITECTURES=75;80;86;89;90;120'",
+        "cmake --build /opt/llgenie/src/llama.cpp/build-cuda --config Release -j$(nproc) --target llama-server",
+        "/opt/llgenie/src/llama.cpp/build-cuda/bin/llama-server --help > /dev/null"
+      ],
       "env": {},
-      "detect": "/app/llama-server --version",
+      "detect": "/opt/llgenie/src/llama.cpp/build-cuda/bin/llama-server --version",
       "pre_launch": null,
-      "launch": "/app/llama-server -m {model} --host {host} --port {port} --alias llm-local --jinja",
+      "launch": "/opt/llgenie/src/llama.cpp/build-cuda/bin/llama-server -m {model} --host {host} --port {port} --alias llm-local --jinja",
       "post_launch": null,
       "health": "GET /health",
       "alias_mode": "flag",
@@ -86,24 +96,34 @@
       "engine": "llama.cpp",
       "backend": "rocm",
       "arch": "gfx1030;gfx1100;gfx1101;gfx1102;gfx1151;gfx1200;gfx1201;gfx942",
-      "base": "ghcr.io/ggml-org/llama.cpp:server-rocm@sha256:46583bd112bf2d62881d6aeaae52e59238d61cbf5803296521cdf518548016e6",
-      "prebuilt": true,
-      "runtime_base": "",
-      "runtime_copy": [],
+      "base": "rocm/dev-ubuntu-24.04:7.0-complete",
+      "prebuilt": false,
+      "runtime_base": "rocm/dev-ubuntu-24.04:7.0-complete",
+      "runtime_copy": [
+        "/opt/llgenie/src/llama.cpp/build-rocm/bin"
+      ],
       "apt": [],
       "build_args": {
         "CUDA_ARCH": "",
         "GPU_TARGETS": "gfx1030;gfx1100;gfx1101;gfx1102;gfx1151;gfx1200;gfx1201;gfx942",
         "TORCH_BACKEND": "auto"
       },
-      "install": [],
+      "install": [
+        "test -d /opt/llgenie/src/llama.cpp/.git || git clone -b master https://github.com/ggml-org/llama.cpp.git /opt/llgenie/src/llama.cpp",
+        "git config --global --add safe.directory /opt/llgenie/src/llama.cpp",
+        "git -C /opt/llgenie/src/llama.cpp fetch origin master",
+        "git -C /opt/llgenie/src/llama.cpp checkout -B master 74bca3950054eed1795f525cb9cf06bfe796492d",
+        "cmake -S /opt/llgenie/src/llama.cpp -B /opt/llgenie/src/llama.cpp/build-rocm -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON -DLLAMA_BUILD_TESTS=OFF -DGGML_HIP=ON -DGGML_METAL=OFF -DGGML_CUDA=OFF '-DGPU_TARGETS=gfx1030;gfx1100;gfx1101;gfx1102;gfx1151;gfx1200;gfx1201;gfx942'",
+        "cmake --build /opt/llgenie/src/llama.cpp/build-rocm --config Release -j$(nproc) --target llama-server",
+        "/opt/llgenie/src/llama.cpp/build-rocm/bin/llama-server --help > /dev/null"
+      ],
       "env": {
         "HIPCXX": "$(hipconfig -l)/clang",
         "HIP_PATH": "$(hipconfig -R)"
       },
-      "detect": "/app/llama-server --version",
+      "detect": "/opt/llgenie/src/llama.cpp/build-rocm/bin/llama-server --version",
       "pre_launch": null,
-      "launch": "/app/llama-server -m {model} --host {host} --port {port} --alias llm-local --jinja",
+      "launch": "/opt/llgenie/src/llama.cpp/build-rocm/bin/llama-server -m {model} --host {host} --port {port} --alias llm-local --jinja",
       "post_launch": null,
       "health": "GET /health",
       "alias_mode": "flag",
@@ -126,10 +146,12 @@
       "engine": "llama.cpp",
       "backend": "vulkan",
       "arch": "",
-      "base": "ghcr.io/ggml-org/llama.cpp:server-vulkan@sha256:431561ee79ee67b3980a02ff47ed9dc19496127643b75671d9789ef693ca57f9",
-      "prebuilt": true,
-      "runtime_base": "",
-      "runtime_copy": [],
+      "base": "ubuntu:24.04",
+      "prebuilt": false,
+      "runtime_base": "ubuntu:24.04",
+      "runtime_copy": [
+        "/opt/llgenie/src/llama.cpp/build-vulkan/bin"
+      ],
       "apt": [
         "glslc",
         "glslang-tools",
@@ -142,11 +164,19 @@
         "GPU_TARGETS": "",
         "TORCH_BACKEND": "cpu"
       },
-      "install": [],
+      "install": [
+        "test -d /opt/llgenie/src/llama.cpp/.git || git clone -b master https://github.com/ggml-org/llama.cpp.git /opt/llgenie/src/llama.cpp",
+        "git config --global --add safe.directory /opt/llgenie/src/llama.cpp",
+        "git -C /opt/llgenie/src/llama.cpp fetch origin master",
+        "git -C /opt/llgenie/src/llama.cpp checkout -B master 74bca3950054eed1795f525cb9cf06bfe796492d",
+        "cmake -S /opt/llgenie/src/llama.cpp -B /opt/llgenie/src/llama.cpp/build-vulkan -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON -DLLAMA_BUILD_TESTS=OFF -DGGML_VULKAN=ON -DGGML_METAL=OFF -DGGML_CUDA=OFF",
+        "cmake --build /opt/llgenie/src/llama.cpp/build-vulkan --config Release -j$(nproc) --target llama-server",
+        "/opt/llgenie/src/llama.cpp/build-vulkan/bin/llama-server --help > /dev/null"
+      ],
       "env": {},
-      "detect": "/app/llama-server --version",
+      "detect": "/opt/llgenie/src/llama.cpp/build-vulkan/bin/llama-server --version",
       "pre_launch": null,
-      "launch": "/app/llama-server -m {model} --host {host} --port {port} --alias llm-local --jinja",
+      "launch": "/opt/llgenie/src/llama.cpp/build-vulkan/bin/llama-server -m {model} --host {host} --port {port} --alias llm-local --jinja",
       "post_launch": null,
       "health": "GET /health",
       "alias_mode": "flag",
@@ -163,21 +193,31 @@
       "engine": "llama.cpp",
       "backend": "cpu",
       "arch": "",
-      "base": "ghcr.io/ggml-org/llama.cpp:server@sha256:559ac229adefe0f7e2d4e32f5222f26927b6bb8ba44b9db08e2544afebf41984",
-      "prebuilt": true,
-      "runtime_base": "",
-      "runtime_copy": [],
+      "base": "ubuntu:24.04",
+      "prebuilt": false,
+      "runtime_base": "ubuntu:24.04",
+      "runtime_copy": [
+        "/opt/llgenie/src/llama.cpp/build-cpu/bin"
+      ],
       "apt": [],
       "build_args": {
         "CUDA_ARCH": "",
         "GPU_TARGETS": "",
         "TORCH_BACKEND": "cpu"
       },
-      "install": [],
+      "install": [
+        "test -d /opt/llgenie/src/llama.cpp/.git || git clone -b master https://github.com/ggml-org/llama.cpp.git /opt/llgenie/src/llama.cpp",
+        "git config --global --add safe.directory /opt/llgenie/src/llama.cpp",
+        "git -C /opt/llgenie/src/llama.cpp fetch origin master",
+        "git -C /opt/llgenie/src/llama.cpp checkout -B master 74bca3950054eed1795f525cb9cf06bfe796492d",
+        "cmake -S /opt/llgenie/src/llama.cpp -B /opt/llgenie/src/llama.cpp/build-cpu -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON -DLLAMA_BUILD_TESTS=OFF -DGGML_METAL=OFF -DGGML_CUDA=OFF -DGGML_SYCL=OFF",
+        "cmake --build /opt/llgenie/src/llama.cpp/build-cpu --config Release -j$(nproc) --target llama-server",
+        "/opt/llgenie/src/llama.cpp/build-cpu/bin/llama-server --help > /dev/null"
+      ],
       "env": {},
-      "detect": "/app/llama-server --version",
+      "detect": "/opt/llgenie/src/llama.cpp/build-cpu/bin/llama-server --version",
       "pre_launch": null,
-      "launch": "/app/llama-server -m {model} --host {host} --port {port} --alias llm-local --jinja",
+      "launch": "/opt/llgenie/src/llama.cpp/build-cpu/bin/llama-server -m {model} --host {host} --port {port} --alias llm-local --jinja",
       "post_launch": null,
       "health": "GET /health",
       "alias_mode": "flag",

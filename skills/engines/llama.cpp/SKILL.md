@@ -23,7 +23,7 @@ prereqs:
   vulkan: [glslc]
   metal: [xcrun]
 cmake_flags:
-  common: "-DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON; -DLLAMA_BUILD_TESTS=OFF"
+  common: "-DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON -DLLAMA_BUILD_TESTS=OFF"
   cuda: "-DGGML_CUDA=ON -DGGML_METAL=OFF -DGGML_SYCL=OFF"
   rocm: "-DGGML_HIP=ON -DGGML_METAL=OFF -DGGML_CUDA=OFF"
   vulkan: "-DGGML_VULKAN=ON -DGGML_METAL=OFF -DGGML_CUDA=OFF"
@@ -53,23 +53,21 @@ detect: "{binary} --version"
 launch: "{binary} -m {model} --host {host} --port {port} --alias {alias} --jinja"
 health: "GET /health"
 alias_mode: flag
-container:                       # official upstream images (ggml-org), pinned by digest; llama-server at /app
-  cpu:
-    base: "ghcr.io/ggml-org/llama.cpp:server@sha256:559ac229adefe0f7e2d4e32f5222f26927b6bb8ba44b9db08e2544afebf41984"
-    prebuilt: true
-    binary: /app/llama-server
+container:                       # compile each backend from the pinned sha on the shared devel base,
+                                 # then ship only build/bin on the slim runtime base (issue #615:
+                                 # no prebuilt engine binary in any variant)
   cuda:
-    base: "ghcr.io/ggml-org/llama.cpp:server-cuda@sha256:ef08b5a98b1170f2b62177be0a4027c88a84043c55afbf190dd18b9e7cdcfebf"
-    prebuilt: true
-    binary: /app/llama-server
+    runtime: true
+    runtime_copy: ["{build}/bin"]
   rocm:
-    base: "ghcr.io/ggml-org/llama.cpp:server-rocm@sha256:46583bd112bf2d62881d6aeaae52e59238d61cbf5803296521cdf518548016e6"
-    prebuilt: true
-    binary: /app/llama-server
+    runtime: true
+    runtime_copy: ["{build}/bin"]
   vulkan:
-    base: "ghcr.io/ggml-org/llama.cpp:server-vulkan@sha256:431561ee79ee67b3980a02ff47ed9dc19496127643b75671d9789ef693ca57f9"
-    prebuilt: true
-    binary: /app/llama-server
+    runtime: true
+    runtime_copy: ["{build}/bin"]
+  cpu:
+    runtime: true
+    runtime_copy: ["{build}/bin"]
 upstream_watch: [CMakeLists.txt, ggml/CMakeLists.txt, ggml/src/ggml-cuda/CMakeLists.txt, ggml/src/ggml-hip/CMakeLists.txt, docs/build.md, tools/server/README.md, common/arg.cpp]
 derive:
   cmake:

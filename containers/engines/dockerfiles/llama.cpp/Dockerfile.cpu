@@ -3,24 +3,27 @@
 # Build: make build-engine ENGINE=llama.cpp ARCH=cpu
 # Run:   make run-engine ENGINE=llama.cpp ARCH=cpu MODEL=<model> PORT=11434
 #        -> OpenAI API at http://127.0.0.1:<PORT>/v1, model llm-local
-FROM ghcr.io/ggml-org/llama.cpp:server@sha256:559ac229adefe0f7e2d4e32f5222f26927b6bb8ba44b9db08e2544afebf41984
+FROM llgenie/base-cpu:d0eb107fa0 AS build
 
 ENV DEBIAN_FRONTEND=noninteractive HF_HOME=/models/hf \
     PATH=/opt/llgenie/bin:/usr/local/cuda/bin:${PATH}
 
-# Official upstream image already contains the engine; add only what the
-# llgenie entrypoint needs (python3 + curl) when the base lacks it.
-RUN if ! command -v python3 >/dev/null || ! command -v curl >/dev/null; then \
-      apt-get update && apt-get install -y --no-install-recommends ca-certificates curl python3 \
-      && rm -rf /var/lib/apt/lists/*; fi
 
 WORKDIR /opt/llgenie/app
 COPY engine_runner.py entrypoint.sh params.json ./
-RUN chmod +x entrypoint.sh
+RUN chmod +x entrypoint.sh && python3 engine_runner.py install params.json && rm -rf /root/.cache
+
+FROM ubuntu:24.04
+ENV DEBIAN_FRONTEND=noninteractive HF_HOME=/models/hf
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates curl python3 libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=build /opt/llgenie/src/llama.cpp/build-cpu/bin /opt/llgenie/src/llama.cpp/build-cpu/bin
+COPY --from=build /opt/llgenie/app /opt/llgenie/app
+WORKDIR /opt/llgenie/app
 
 ENV LLGENIE_ENGINE=llama.cpp LLGENIE_BACKEND=cpu LLGENIE_VARIANT=cpu \
-    LLGENIE_HOST=0.0.0.0 LLGENIE_PORT=11434 \
-    LD_LIBRARY_PATH=/app
+    LLGENIE_HOST=0.0.0.0 LLGENIE_PORT=11434
 LABEL org.opencontainers.image.title="llgenie-llama.cpp:cpu" llgenie.engine="llama.cpp" \
       llgenie.variant="cpu" llgenie.pinned="74bca3950054eed1795f525cb9cf06bfe796492d" \
       llgenie.api="openai" llgenie.model="llm-local" llgenie.port="11434"

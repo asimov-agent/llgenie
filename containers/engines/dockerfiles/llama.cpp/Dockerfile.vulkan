@@ -3,24 +3,27 @@
 # Build: make build-engine ENGINE=llama.cpp ARCH=vulkan
 # Run:   make run-engine ENGINE=llama.cpp ARCH=vulkan MODEL=<model> PORT=11434
 #        -> OpenAI API at http://127.0.0.1:<PORT>/v1, model llm-local
-FROM ghcr.io/ggml-org/llama.cpp:server-vulkan@sha256:431561ee79ee67b3980a02ff47ed9dc19496127643b75671d9789ef693ca57f9
+FROM llgenie/base-vulkan:a5119aa1b8 AS build
 
 ENV DEBIAN_FRONTEND=noninteractive HF_HOME=/models/hf \
     PATH=/opt/llgenie/bin:/usr/local/cuda/bin:${PATH}
 
-# Official upstream image already contains the engine; add only what the
-# llgenie entrypoint needs (python3 + curl) when the base lacks it.
-RUN if ! command -v python3 >/dev/null || ! command -v curl >/dev/null; then \
-      apt-get update && apt-get install -y --no-install-recommends ca-certificates curl python3 glslc glslang-tools libvulkan-dev spirv-headers mesa-vulkan-drivers \
-      && rm -rf /var/lib/apt/lists/*; fi
 
 WORKDIR /opt/llgenie/app
 COPY engine_runner.py entrypoint.sh params.json ./
-RUN chmod +x entrypoint.sh
+RUN chmod +x entrypoint.sh && python3 engine_runner.py install params.json && rm -rf /root/.cache
+
+FROM ubuntu:24.04
+ENV DEBIAN_FRONTEND=noninteractive HF_HOME=/models/hf
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates curl python3 libvulkan1 mesa-vulkan-drivers libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=build /opt/llgenie/src/llama.cpp/build-vulkan/bin /opt/llgenie/src/llama.cpp/build-vulkan/bin
+COPY --from=build /opt/llgenie/app /opt/llgenie/app
+WORKDIR /opt/llgenie/app
 
 ENV LLGENIE_ENGINE=llama.cpp LLGENIE_BACKEND=vulkan LLGENIE_VARIANT=vulkan \
-    LLGENIE_HOST=0.0.0.0 LLGENIE_PORT=11434 \
-    LD_LIBRARY_PATH=/app
+    LLGENIE_HOST=0.0.0.0 LLGENIE_PORT=11434
 LABEL org.opencontainers.image.title="llgenie-llama.cpp:vulkan" llgenie.engine="llama.cpp" \
       llgenie.variant="vulkan" llgenie.pinned="74bca3950054eed1795f525cb9cf06bfe796492d" \
       llgenie.api="openai" llgenie.model="llm-local" llgenie.port="11434"

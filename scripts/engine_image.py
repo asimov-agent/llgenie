@@ -785,7 +785,8 @@ def _current_tag(params: dict, variant: str, root=None) -> str:
     return f"llgenie/{params['id'].replace('.', '-')}:{str(params['pinned'])[:8]}-{digest}-{variant}"
 
 
-def matrix(ci: bool = False, changed: str = "", params_dir=None) -> list[dict]:
+def matrix(ci: bool = False, changed: str = "", params_dir=None,
+           engine: str = "", arch: str = "") -> list[dict]:
     out = []
     params_dir = params_dir or es.PARAMS_DIR
     # params live in <repo>/containers/engines/params: the repo root is two levels
@@ -793,7 +794,11 @@ def matrix(ci: bool = False, changed: str = "", params_dir=None) -> list[dict]:
     root = params_dir.parents[2]
     for path in sorted(params_dir.glob("*.json")):
         params = json.loads(path.read_text())
+        if engine and params["id"] != engine:
+            continue
         for key, v in params["variants"].items():
+            if arch and key != arch:
+                continue
             if ci and (key not in CI_VARIANTS or disabled(params["id"], key)):
                 continue
             if changed and _tag_at(changed, params["id"], key, root) == _current_tag(params, key, root):
@@ -868,6 +873,8 @@ def main(argv=None) -> int:
     m.add_argument("--json", action="store_true")
     m.add_argument("--ci", action="store_true", help="only the variants CI builds")
     m.add_argument("--changed", default="", help="ref: only images whose tag differs from it")
+    m.add_argument("--engine", default="", help="only this engine id (the dispatched sweep)")
+    m.add_argument("--arch", default="", help="only this backend/variant")
     a = ap.parse_args(argv)
 
     if a.cmd == "build-base":
@@ -877,7 +884,7 @@ def main(argv=None) -> int:
     if a.cmd == "ensure-env":
         return 0 if ensure_container_env() else 1
     if a.cmd == "matrix":
-        rows = matrix(a.ci, a.changed)
+        rows = matrix(a.ci, a.changed, engine=a.engine, arch=a.arch)
         print(json.dumps({"include": rows}) if a.json else
               "\n".join(f"{r['engine']:28} {r['variant']:18} {'smoke' if r['smoke'] else ''}" for r in rows))
         return 0

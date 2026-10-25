@@ -39,7 +39,7 @@
     },
     "llama.cpp": {
       "cuda": {
-        "binary": "/app/llama-server",
+        "binary": "/opt/llgenie/src/llama.cpp/build-cuda/bin/llama-server",
         "flags": [
           "--version",
           "--help"
@@ -47,7 +47,7 @@
         "probe": "flags"
       },
       "rocm": {
-        "binary": "/app/llama-server",
+        "binary": "/opt/llgenie/src/llama.cpp/build-rocm/bin/llama-server",
         "flags": [
           "--version",
           "--help"
@@ -55,7 +55,7 @@
         "probe": "flags"
       },
       "vulkan": {
-        "binary": "/app/llama-server",
+        "binary": "/opt/llgenie/src/llama.cpp/build-vulkan/bin/llama-server",
         "flags": [
           "--version",
           "--help"
@@ -63,7 +63,7 @@
         "probe": "flags"
       },
       "cpu": {
-        "binary": "/app/llama-server",
+        "binary": "/opt/llgenie/src/llama.cpp/build-cpu/bin/llama-server",
         "flags": [
           "--version",
           "--help"
