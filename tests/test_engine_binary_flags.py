@@ -101,7 +101,8 @@ def test_the_parser_accepts_a_padded_byte_count(tmp_path):
 
     # Then  the flag is recorded with its real numbers
     assert verdicts == {"--version": {"rc": 0, "bytes": 12, "output": "fake-engine 1.2.3"}}, verdicts
-    assert ei.decide([], verdicts, "device")["ok"]
+    assert ei.decide([], verdicts, "device", engine="mlx", variant="cuda")["ok"]  # an exempt cell
+    # (a device verdict without the identity is itself a failure — see test_engine_gate_strict.py)
 
 
 def test_a_missing_binary_file_is_still_the_probe_failure(tmp_path):

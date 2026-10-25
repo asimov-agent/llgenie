@@ -468,6 +468,15 @@ def decide(documented: list[str], verdicts: dict[str, dict], policy: str = "flag
                             + ("\n" + "\n".join(tail) if tail else ""))
 
     probed = [f for f in dict.fromkeys([*documented, *TYPED_FLAGS]) if f in verdicts]
+    # A device-policy verdict is only decidable WITH the cell's identity: the exemption is keyed by
+    # (engine, variant), so a caller that forgets them would silently get "not exempt" (measured: the
+    # engine-build mlx/cuda row, run 40215905868 job 121236921730, failed here while `test_image` passed).
+    if policy == "device" and not (engine and variant):
+        return {"ok": False,
+                "failures": ["decide() was called with policy='device' but no engine/variant: the "
+                             "DEVICE_ONLY exemption is keyed by the cell, so the verdict cannot be taken "
+                             "(pass engine=<id>, variant=<arch> — issue #625)"],
+                "note": note}
     if not any(_answered(verdicts, f) for f in probed):
         # #625: a `probe: device` cell is no longer a blanket pass. Only the cells measured into
         # DEVICE_ONLY may lean on `detect`, and even they must say why in the log.

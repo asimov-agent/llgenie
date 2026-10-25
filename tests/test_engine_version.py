@@ -70,7 +70,10 @@ def test_engine_binary_answers_the_flags_a_user_types():
 
     # Then  every documented flag and both families answered, and a miss names the flag
     verdicts = ei.parse_probe(r.stdout)
-    verdict = ei.decide(documented, verdicts, policy)
+    # The cell's identity decides whether the `DEVICE_ONLY` exemption applies (issue #625): without it,
+    # `decide()` sees engine="" and refuses every device-policy cell — which is how `mlx/cuda` failed here
+    # while `test_image` (which passes the identity) accepted it.
+    verdict = ei.decide(documented, verdicts, policy, engine=spec["id"], variant=spec["variant"])
     assert verdict["ok"], f"{engine}/{arch} binary {binary} failed the flag check:\n" + \
                           "\n".join(verdict["failures"])
     for flag in flags:

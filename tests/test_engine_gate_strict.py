@@ -222,3 +222,26 @@ def test_the_gate_report_shows_the_detect_that_will_prove_the_version():
     out = buf.getvalue()
     assert "detect:" in out
     assert "importlib.metadata" in out or 'grep -E' in out  # the two fixed detects are on screen
+
+
+def test_a_device_verdict_needs_the_cell_identity():
+    """`decide(policy='device')` without engine/variant is unanswerable, not "not exempt" (#625).
+
+    The engine-build `mlx/cuda` row failed on this: `tests/test_engine_version.py` called `decide()` with
+    three arguments, so the identity defaulted to empty, the `DEVICE_ONLY` lookup missed, and a cell that
+    `test_image` had just accepted was reported red (run 40215905868, job 121236921730).
+    """
+
+    # Given every probed flag failing, as on a GPU-less runner
+    failed = _verdicts(**{"--help": 1, "-h": 1})
+
+    # When  the verdict is taken with policy=device but no identity
+    verdict = ei.decide(["--help"], failed, "device")
+
+    # Then  it is red, and the message says the identity is what is missing (not that the cell is exempt)
+    assert verdict["ok"] is False, verdict
+    assert any("engine" in f and "variant" in f for f in verdict["failures"]), verdict["failures"]
+
+    # And  the same call WITH the identity of a listed cell is green
+    listed = ei.decide(["--help"], failed, "device", engine="mlx", variant="cuda")
+    assert listed["ok"] is True, listed
