@@ -6,8 +6,8 @@ id: llama.cpp
 repo: https://github.com/ggml-org/llama.cpp
 ref: master
 ref_kind: branch
-pinned: f174553e1621c6a22a64e7bfcbb58d3a5c49e6fb
-verified: "2026-10-19"
+pinned: 74bca3950054eed1795f525cb9cf06bfe796492d
+verified: "2026-10-25"
 license: MIT
 servable: true
 backends: [cuda, rocm, vulkan, metal, cpu]
