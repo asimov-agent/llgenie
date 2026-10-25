@@ -152,7 +152,7 @@
         "flags": [
           "--help"
         ],
-        "probe": "flags"
+        "probe": "help"
       }
     },
     "ollama": {

@@ -772,15 +772,18 @@ def documented_flags(skill: dict) -> list[str]:
 
 
 def probe_policy(skill: dict, backend: str) -> str:
-    """How this variant's binary is proven: "flags" (default) or "device".
+    """How this variant's binary is proven: "flags" (default), "device" or "help".
 
     `binary_probe: {cuda: device}` marks a backend whose CLI initialises the
     device at startup, so it cannot answer a flag on a device-less CI runner
     (vllm's cuda/rocm CLI, CI #106). Those variants still must CONTAIN the
     binary file; their version is proven by the image's own `detect`.
+    `binary_probe: {cpu: help}` marks a CLI whose parser has NO version flag at
+    all (argparse-only, e.g. mlx_lm.server): the help family must answer, and the
+    version is proven by `detect`.
     """
-    value = _per_backend(skill.get("binary_probe"), backend)
-    return "device" if str(value).strip() == "device" else "flags"
+    value = str(_per_backend(skill.get("binary_probe"), backend) or "").strip()
+    return value if value in ("device", "help") else "flags"
 
 
 def generate_params(skill: dict, manifest: dict | None = None) -> dict | None:

@@ -472,8 +472,11 @@ def decide(documented: list[str], verdicts: dict[str, dict], policy: str = "flag
     if help_probed and not any(_answered(verdicts, f) for f in help_probed):
         failures.append(f"the help family answers to neither {' nor '.join(help_probed)}: a user "
                         "typing either gets nothing")
+    # `probe: help` is for a CLI whose parser HAS no version flag at all (argparse-only, e.g.
+    # mlx_lm.server): the help family is still required, and the version is proven by the image's
+    # own `detect`. Any other policy must answer the version family (issue #580).
     version_probed = [f for f in VERSION_FAMILY if f in verdicts]
-    if version_probed and not any(_answered(verdicts, f) for f in version_probed):
+    if policy != "help" and version_probed and not any(_answered(verdicts, f) for f in version_probed):
         failures.append(f"the version family answers to neither {' nor '.join(version_probed)}")
 
     return {"ok": not failures, "failures": failures, "note": note}

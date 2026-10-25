@@ -185,6 +185,26 @@ def test_an_empty_manifest_still_requires_one_answer(tmp_path):
     assert any("documents no flags" in line for line in verdict["failures"]), verdict["failures"]
 
 
+def test_a_help_only_cli_is_not_failed_for_having_no_version_flag():
+    """mlx_lm.server is argparse: --help/-h only. `probe: help` requires the help family and
+    leaves the version to the image's `detect`, which prints the package version."""
+
+    # Given a CLI that answers help but exits 2 on every version spelling
+    verdicts = {"--help": {"rc": 0, "bytes": 40, "output": "usage"},
+                "-h": {"rc": 0, "bytes": 40, "output": "usage"},
+                "--version": {"rc": 2, "bytes": 10, "output": ""},
+                "-V": {"rc": 2, "bytes": 10, "output": ""}}
+
+    # When  the verdict is decided with the help policy, and with the default one
+    help_verdict = ei.decide(["--help"], verdicts, policy="help")
+    flags_verdict = ei.decide(["--help"], verdicts, policy="flags")
+
+    # Then  help passes (its detect proves the version) while the strict policy still names it
+    assert help_verdict["ok"], help_verdict
+    assert not flags_verdict["ok"]
+    assert "version family" in " ".join(flags_verdict["failures"])
+
+
 def test_a_device_probe_is_contained_not_failed(tmp_path):
     """vllm cuda/rocm cannot answer without its device; its version comes from `detect`."""
 

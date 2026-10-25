@@ -1714,7 +1714,10 @@ must contain, are generated into `containers/engines/binaries.json` with the par
 of the image-tag hash, so documenting them moves no published tag. A backend whose CLI
 initialises its device at startup (`binary_probe: device`: vllm cuda/rocm, mlx cuda,
 tensorrt-llm cuda, exllamav3 rocm) still has to CONTAIN the file; there the version comes
-from `entrypoint.sh detect` (CI #106).
+from `entrypoint.sh detect` (CI #106). A CLI whose parser has **no version flag at all**
+(`binary_probe: help`: mlx cpu — argparse `--help`/`-h` only) must answer the help family,
+and its version likewise comes from `detect`; without that policy the probe would fail an
+engine for a flag it never had (found by the dispatch sweep, issue #614).
 The second matrix `engine-published-test` (`test-published-<engine>-<arch>`) then pulls every
 published image on a fresh runner, checks digest and version, starts the container and chats
 "hi" (GPU images on CPU), and installs it from the registry only (issue #102). Finally
