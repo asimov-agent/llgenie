@@ -3,8 +3,8 @@
   "engine": "TensorFold",
   "id": "tensorfold",
   "repo": "https://github.com/ashhart/TensorFold",
-  "ref": "v1.1.1",
-  "pinned": "92d71a3cf4fd1d566d71f443874cf5345a226aba",
+  "ref": "v1.1.4",
+  "pinned": "585df8ba3e307d9e4bcea1d6c28a58c8dc1b5682",
   "native": {},
   "variants": {
     "cuda": {
@@ -23,13 +23,13 @@
         "TORCH_BACKEND": "cu130"
       },
       "install": [
-        "mkdir -p /opt/llgenie/engines/tensorfold/1.1.1",
-        "curl -fsSL -o /opt/llgenie/engines/tensorfold/tensorfold-1.1.1-linux-x86_64.tar.gz https://github.com/ashhart/TensorFold/releases/download/v1.1.1/tensorfold-1.1.1-linux-x86_64.tar.gz",
-        "curl -fsSL -o /opt/llgenie/engines/tensorfold/tensorfold-1.1.1-linux-x86_64.tar.gz.sha256 https://github.com/ashhart/TensorFold/releases/download/v1.1.1/tensorfold-1.1.1-linux-x86_64.tar.gz.sha256",
-        "cd /opt/llgenie/engines/tensorfold && sha256sum -c tensorfold-1.1.1-linux-x86_64.tar.gz.sha256",
-        "tar -xzf /opt/llgenie/engines/tensorfold/tensorfold-1.1.1-linux-x86_64.tar.gz -C /opt/llgenie/engines/tensorfold/1.1.1 --strip-components=1",
-        "exe=$(find /opt/llgenie/engines/tensorfold/1.1.1/bin -maxdepth 1 -type f -perm -111); set -- $exe; ln -sfn \"$1\" /opt/llgenie/engines/tensorfold/1.1.1/bin/tensorfold",
-        "ln -sfn /opt/llgenie/engines/tensorfold/1.1.1 /opt/llgenie/engines/tensorfold/current"
+        "mkdir -p /opt/llgenie/engines/tensorfold/1.1.4",
+        "curl -fsSL -o /opt/llgenie/engines/tensorfold/tensorfold-1.1.4-linux-x86_64.tar.gz https://github.com/ashhart/TensorFold/releases/download/v1.1.4/tensorfold-1.1.4-linux-x86_64.tar.gz",
+        "curl -fsSL -o /opt/llgenie/engines/tensorfold/tensorfold-1.1.4-linux-x86_64.tar.gz.sha256 https://github.com/ashhart/TensorFold/releases/download/v1.1.4/tensorfold-1.1.4-linux-x86_64.tar.gz.sha256",
+        "cd /opt/llgenie/engines/tensorfold && sha256sum -c tensorfold-1.1.4-linux-x86_64.tar.gz.sha256",
+        "tar -xzf /opt/llgenie/engines/tensorfold/tensorfold-1.1.4-linux-x86_64.tar.gz -C /opt/llgenie/engines/tensorfold/1.1.4 --strip-components=1",
+        "exe=$(find /opt/llgenie/engines/tensorfold/1.1.4/bin -maxdepth 1 -type f -perm -111); set -- $exe; ln -sfn \"$1\" /opt/llgenie/engines/tensorfold/1.1.4/bin/tensorfold",
+        "ln -sfn /opt/llgenie/engines/tensorfold/1.1.4 /opt/llgenie/engines/tensorfold/current"
       ],
       "env": {},
       "detect": "/opt/llgenie/engines/tensorfold/current/bin/tensorfold --version",

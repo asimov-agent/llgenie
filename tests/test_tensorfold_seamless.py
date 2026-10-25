@@ -48,7 +48,7 @@ LIVE, ARCHIVE = "live", "archive"
 # binary goes through {prefix}/current (a symlink to the unpacked release) so
 # detect asks the INSTALLED binary its version, and binary_flags documents both
 # --help and --version.
-ARCHIVE_PINNED = "1.1.1"
+ARCHIVE_PINNED = "1.1.4"
 _ARCHIVE_INSTALL = "\n".join(
     '    - "' + step.replace('"', '\\"') + '"'
     for step in (
