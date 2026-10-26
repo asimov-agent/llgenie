@@ -209,6 +209,7 @@
       "cuda": {
         "binary": "/opt/llgenie/engines/strata/src/engine/strata",
         "flags": [
+          "--version",
           "--help"
         ],
         "probe": "flags"
@@ -216,6 +217,7 @@
       "rocm": {
         "binary": "/opt/llgenie/engines/strata/src/engine/strata",
         "flags": [
+          "--version",
           "--help"
         ],
         "probe": "flags"
