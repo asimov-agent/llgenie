@@ -4,11 +4,11 @@ description: "Use when installing FreeToken (big MoE on small GPUs; CUDA 13 acce
 engine: "FreeToken"
 id: freetoken
 repo: https://github.com/FlashML-org/FreeToken
-ref: v0.2.0
+ref: v0.2.1
 ref_kind: tag
-version: v0.2.0
-pinned: 127aa0a920ce2ba3c3fedf66e8c31072990df1f6
-verified: "2026-10-25"
+version: v0.2.1
+pinned: ba31db2ea708b61d7313bccb3ee4adf9d11ecb90
+verified: "2026-10-26"
 license: Apache-2.0
 servable: true
 backends: [cuda, rocm]

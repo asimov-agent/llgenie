@@ -3,8 +3,8 @@
   "engine": "FreeToken",
   "id": "freetoken",
   "repo": "https://github.com/FlashML-org/FreeToken",
-  "ref": "v0.2.0",
-  "pinned": "127aa0a920ce2ba3c3fedf66e8c31072990df1f6",
+  "ref": "v0.2.1",
+  "pinned": "ba31db2ea708b61d7313bccb3ee4adf9d11ecb90",
   "native": {},
   "variants": {
     "cuda": {
@@ -23,7 +23,7 @@
         "TORCH_BACKEND": "cu130"
       },
       "install": [
-        "uv pip install --system --break-system-packages 'freetoken[accel]==0.2.0'"
+        "uv pip install --system --break-system-packages 'freetoken[accel]==0.2.1'"
       ],
       "env": {},
       "detect": "ft --version",
