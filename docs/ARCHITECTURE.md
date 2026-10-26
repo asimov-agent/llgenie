@@ -41,8 +41,14 @@ previews). Nothing is published without drift, and the bot never merges.
    `~/bin/prism-server` (Prism) shims. `link` writes `~/bin/llgenie` and symlinks
    `~/bin/llgenie.py` to this repo's `scripts/llgenie_serve.py`; `scripts/ensure_user_path.py`
    puts `~/bin` on the shell's path. `make test-built-engine` then runs every start script
-   with `--version` through its image. `make ci-wait-engine-images` is the CI gate that
+   with `--version` through its image, and `make ci-wait-engine-images` is the CI gate that
    waits for exactly those tags to appear in the registry before `install` runs (issue #169).
+   A single tree/backend can be installed on its own with `make install-prism-cpu`,
+   `make install-upstream-cpu`, `make install-prism-cuda` or `make install-upstream-cuda`; on
+   macOS the native forms are `make install-prism-metal` / `make install-upstream-metal`,
+   built by `make build-variant TREE=prism|upstream BACKEND=metal`. `make uninstall` reverses
+   all of it (launcher, start scripts, shims, engine containers; `PURGE_IMAGES=1` also drops
+   the images) and `make test-uninstalled` proves nothing of ours is left behind.
 4. **Trend list** — `scripts/model_engine_pick.py` reads `data/models.json`, filters models
    to the ones whose VRAM tier fits this card, and ranks them. `recommend` is what plain
    `llgenie` shows: the upstream README "Most loved" order, with a stated reason on rows
@@ -57,23 +63,32 @@ previews). Nothing is published without drift, and the bot never merges.
 5. **Engine skill** — `skills/engines/<id>/SKILL.md` is the one engine description: install
    steps, `container:` blocks per backend (`apt`, `cmake`, base image), the `detect`
    command, and the native `metal` path. `scripts/engine_skills.py` is the generic loader and
-   runner (no engine-specific code). `make generate-engine-params` is the only step that
-   reads the skills: it freezes each one into `containers/engines/params/<id>.json`
-   (one variant per backend x GPU arch) plus `containers/engines/binaries.json`, and writes
-   one Dockerfile per engine x arch under `containers/engines/dockerfiles/<id>/`. Registry
-   engines with no skill are tracked by `scripts/engine_skill_gap.py` through
+   runner (no engine-specific code); `make engine-list` lists the skills with their
+   servable/backends/fit, `make engine-hardware` shows the detected parameters a skill renders
+   against, `make engine-plan ENGINE=<id>` renders that engine's install and launch here,
+   `make engine-check` reports what blocks installing it, `make engine-install` runs the
+   skill, and `make engine-detect` asks whether it is already installed.
+   `make generate-engine-params` is the only step that reads the skills: it freezes each one
+   into `containers/engines/params/<id>.json` (one variant per backend x GPU arch) plus
+   `containers/engines/binaries.json`, and writes one Dockerfile per engine x arch under
+   `containers/engines/dockerfiles/<id>/` (`make generate-build-engine-params` is the alias).
+   Registry engines with no skill are tracked by `scripts/engine_skill_gap.py` through
    `make engine-skill-gap` / `make spawn-engine-skill-issues`
    (`data/engine-skill-gap.json`, `data/unsupported-engines.json`).
 6. **Engine image** — `make build-engine ENGINE=<id> ARCH=<arch>` builds strictly from the
-   generated params and Dockerfile with plain make. Whether a cell compiles or pulls is the
-   params' decision: `prebuilt: false` compiles from the pinned sha on the shared
-   `llgenie/base-<backend>` toolchain image (llama.cpp is a source build in all four
-   variants), `prebuilt: true` starts `FROM` an upstream image and adds only the llgenie
-   entrypoint. `make build-engines` builds every engine x variant the parameters declare,
-   in parallel (`ENGINE=`, `ARCH=`, `JOBS=` and `FORCE=` narrow it); `make
-   engine-build-matrix` is the same `scripts/engine_image.py matrix` JSON. `make test-engine`
+   generated params and Dockerfile with plain make; the shared toolchain layer under it is
+   `make build-engine-base BACKEND=<cpu|cuda|rocm|vulkan>` (`PUSH=1` publishes it).
+   Whether a cell compiles or pulls is the params' decision: `prebuilt: false` compiles from
+   the pinned sha on the shared `llgenie/base-<backend>` toolchain image (llama.cpp is a
+   source build in all four variants), `prebuilt: true` starts `FROM` an upstream image and
+   adds only the llgenie entrypoint. `make build-engines` builds every engine x variant the
+   parameters declare, in parallel (`ENGINE=`, `ARCH=`, `JOBS=` and `FORCE=` narrow it);
+   `make list-engine-images` prints the same cells (`CI=1` only the CI variants, `JSON=1` as
+   a GitHub matrix, `CHANGED=<ref>` only those whose tag differs), and
+   `make engine-build-matrix` is the matrix the dispatched sweep builds. `make test-engine`
    (OpenAI API answers on a tiny model) or `make test-engine-image` (binary flags and
-   version only, for GPU-only images) tests a built image, `make engine-gate-report` prints
+   version only, for GPU-only images) tests a built image, `make run-engine` serves one on
+   `127.0.0.1:$(PORT)/v1` and `make stop-engine` stops it, `make engine-gate-report` prints
    what each cell will actually prove before anything is built, and `make push-engine`
    publishes a verified image to `ghcr.io/<owner>/llgenie/<name>` under three tags.
 7. **Serve** — `scripts/llgenie_serve.py` scans `~/models/**/*.gguf`, sizes the KV cache and
@@ -110,6 +125,9 @@ picks which start script or image to run.
   install plan needs no second `make install`.
 
 ## Repository layout
+
+The tree is 1339 tracked files: `data/` 6, `skills/` 17 (16 engine directories plus their
+`README.md`), `containers/` 55, `tests/` 151, `openspec/` 802 and `agent-wiki/` 172.
 
 | Path | Role |
 |---|---|
@@ -150,8 +168,7 @@ every bot job), `bot_sync_main.sh`, `build_llama_server.sh`, `fix_loop.sh`,
 `install_hermes_ci.sh` (installs the Hermes CLI and pins the `nous-deepseek` alias),
 `install_nerve_ci.sh` (installs, scopes, enables and wires the nerve plugin at image-build
 time, then proves its settings against the profile it selected), `load_token_to_env.sh`,
-`rebase_bot.sh` — plus `scripts/fix_bot_rules.md`, the
-fix-bot's instruction sheet.
+`rebase_bot.sh`.
 
 `scripts/module_name_guard.py` is the renamed-module guard: the CLI is
 `scripts/llgenie_serve.py`, and its old spelling is refused in every live text file, this
@@ -177,6 +194,10 @@ container; a bare `python3 -m pytest` on the runner's own interpreter is what ma
 `test-published-*` jobs red with `No module named pytest` while every earlier step passed
 (issue #621), and `tests/test_make_pytest_seam.py` now fails any recipe line that runs pytest
 without a seam.
+
+`make engine-smoke` is the host entry point that installs one engine through its skill and
+serves a tiny model; CI's per-engine serve check is `make test-engine-stage TEST=serve` in
+the `engine-image` jobs, plus `make test-published-engine` on the published image.
 
 The binary proof is per flag, never per binary (issue #580). `make push-engine` gates the
 publish on `scripts/engine_image.py`'s `BINARY_PROBE`: the probe resolves the engine file
@@ -257,7 +278,11 @@ under **CI** — `ci.yml` keeps its changed-images gate, so an unbuildable engin
 cannot merge.
 
 A weekly `engine-bump` pins each skill to its upstream release, derives the dependency
-delta (`scripts/engine_deps.py`) and regenerates the Dockerfiles; `engine-bump-rebase`
+delta (`scripts/engine_deps.py`) and regenerates the Dockerfiles; the same work is available
+one step at a time as `make engine-bump-plan` (which engines moved upstream, from
+`git ls-remote` only), `make engine-derive ENGINE=<id> [SHA=]` (build params from the
+upstream tree, no model in the loop) and `make engine-bump ENGINE=<id>` (pin + derive +
+apply + regen), with `make engine-bump-daily` running the whole moved set. `engine-bump-rebase`
 keeps those PRs current. `scripts/engine_bump_sync.py` is the shared PR-sync logic and
 `scripts/engine_params_derive.py` derives build parameters from the upstream tree without a
 model in the loop.
@@ -317,10 +342,10 @@ agent cannot invent a parameter.
 trend matrix lives under `tests/fixtures/`:
 
 - `data/models.json` is a **verbatim** copy of trending-local-llms' registry, replaced
-  wholesale by the weekly `registry-sync` PR. `scripts/registry_keys.py`
-  (`make check-registry-keys`, part of `make check-registry`) fails a sync that loses a
-  model, a key, a measurement, a t/s or an engagement counter — the vendored copy is
-  additive only.
+  wholesale by the weekly `registry-sync` PR (`make sync-registry`, which writes only when
+  the upstream copy changed). `scripts/registry_keys.py` (`make check-registry-keys`, part
+  of `make check-registry`) fails a sync that loses a model, a key, a measurement, a t/s or
+  an engagement counter — the vendored copy is additive only.
 - `data/trending-quant-catalog.json` is generated from the real registry and the live Hub
   (`make sync-quant-catalog`) and checked by `make check-quant-catalog`.
 - `data/strata_models.json` is written from Strata's `setup.py` at the skill's pinned
@@ -348,6 +373,17 @@ and `top-tier` (`ci-top-tier`) — the same jobs and asserts on both OSes; only 
 label differs. `linux-published` calls `published.yml`, whose `install-published` job runs
 `make ci-engines BACKEND=<b>` for `cpu`, `cuda`, `rocm` and `vulkan` against the images the
 `engine-image` jobs published.
+
+The images themselves are hash-tagged artifacts, not per-job rebuilds: `make test-image`,
+`make openspec-image` and `make agent-image` pull the published hash of their Dockerfile
+(plus lockfiles, or the install script for the agent) and build it locally only when that
+hash is not on GHCR yet; the `-pull` forms (`test-image-pull`, `openspec-image-pull`,
+`agent-image-pull`) are what CI calls, and they fail rather than build.
+`make publish-ci-images` is the `ci-images` job (test + OpenSpec, amd64 + arm64, only the
+hashes not yet published), `make ci-image-refs` prints the three refs, and
+`make agent-image-push-check` proves the GHCR credential may write before a 60-minute agent
+build starts. `make ci-free-disk` frees the runner's disk for the large engine images, and
+`make test-clean` removes left-over or stopped test containers.
 
 `.github/workflows/engine-build.yml` is the independent whole-set sweep, and it is
 deliberately not part of `ci.yml`: `ci.yml` builds only what a PR changed, which is the right
@@ -421,16 +457,20 @@ stages), `make check-wiring` (every script/test reachable from a target CI runs)
 `make check-docs` (every `##` make target is in `README.md`, every `agent-wiki/` entry
 names its issue and PR), `make check-pr-hygiene`, `make check-pr-authors`,
 `make check-secret-output`, `make check-engine-source` (a `prebuilt: false` cell must run a
-real build, with its tracked exceptions reported — `make engine-source-report` prints the
-census), `make check-agent-model` (the agent image's model pin equals the
-one `scripts/agent_model_pin.py` declares), `make check-agent-skills` (every bot leg
-preloads `.hermes/skills/<name>`, the skill exists with `Inputs`/`Output`/`Rules`, and the
-inline prompt is a pointer — `make agent-skills-report` prints the legs and their skills),
-`make secret-scan` /
-`make secret-scan-self-test`, plus `make bash-check` (`scripts/check_bash.py`, the bash-5
-parity check that resolves the Makefile's shell) and `scripts/check_python.py`, which
-`tools/Makefile` runs to keep the gguf venv on Python 3.11. All of them run inside
-`make ci-unit`.
+real build, with its tracked exceptions reported), `make check-agent-model` (the agent
+image's model pin equals the one `scripts/agent_model_pin.py` declares),
+`make check-agent-skills` (every bot leg preloads `.hermes/skills/<name>`, the skill exists
+with `Inputs`/`Output`/`Rules`, and the inline prompt is a pointer), the
+`make secret-scan` / `make secret-scan-self-test` pair (`make secret-scan-history` is the
+same scanner over git history, host-only by design), plus `make bash-check`
+(`scripts/check_bash.py`, the bash-5 parity check that resolves the Makefile's shell) and
+`scripts/check_python.py`, which `tools/Makefile` runs to keep the gguf venv on Python 3.11.
+All of them run inside `make ci-unit`. Every gate has a report target that prints what it
+read without deciding anything — `make workflows-report`, `make wiring-report`,
+`make docs-report`, `make pr-hygiene-report`, `make pr-authors-report`,
+`make secret-output-report`, `make model-pin-report`, `make agent-skills-report`,
+`make engine-source-report`, `make dispatch-forms-report` — so a red gate can be read
+before it is edited.
 
 ## Bots
 
@@ -501,6 +541,21 @@ expands Makefile variables before reading a leg's `-s` list (so it sees both ski
 than the variable's name), and `tests/test_agent_legs_quoting.py` expands every scrubbed leg
 with `make -n` and fails on an odd number of single quotes or a truncated skill list.
 
+Every leg is split into ordinary make targets, so a run can be reproduced by hand.
+`make implement-issue` is the shared agent step (`issue-implement` skill), with
+`make issue-bot-dispatch` (cap -> pick -> claim -> `issue.md` + branch),
+`make issue-bot-triage` (`issue-triage` skill -> `triage.md`), `make issue-bot-verdict`
+(applies the verdict), `make issue-bot-changed` (did the tree actually change) and
+`make issue-bot-open-pr` (the PR, refusing a body with a missing part); `make issue-bot-image`
+is that leg's image alias. The refiner is `make issue-refiner-pick` / `make issue-refiner-apply`,
+the dedupe sweep `make issue-dedup-pick` / `make issue-dedup-apply`, the rebase leg
+`make rebase-bot-sweep` / `make rebase-bot` / `make rebase-bot-agent` /
+`make rebase-bot-abort`, the fix leg `make fix-bot-sweep` / `make fix-loop` /
+`make fix-loop-image` / `make fix-bot-report`, and the review bot `make code-review-scan` /
+`make code-review-file`. `make bot-sync-main` resets a new branch to latest `main` before
+work and `make bot-sync-branch` rebases a PR branch onto it before a repair (exit 2 means the
+rebase conflicts and is left to the rebase-bot).
+
 The agent image is also where the Nerve plugin is installed (#238, #585).
 `scripts/install_nerve_ci.sh` runs at build time in three steps —
 `hermes plugins install … --no-deps` (clone and record provenance without resolving), drop the
@@ -545,19 +600,21 @@ settings to the host's shape and checks that a `lean` table is rejected naming e
 setting.
 
 Every leg runs `scripts/require_env.py` before the image is built (a missing credential is
-loud, never a skip) and forwards credentials through the Makefile's `AGENT_SHELL_KEYS` /
-`$(AGENT_SHELL_FORWARD)` seam; `make hermes-smoke` proves the model can call a tool,
-`make agent-shell-keys-check` proves every forwarded credential is visible in the agent's
-own shell (through `scripts/agent_shell_keys_check.py`), and `scripts/scrub_log.py`
-(`make scrub-log`) is the only thing that prints an agent transcript. The one web reach is
-`make agent-fetch` (Firecrawl key, text to `OUT`), with `make search-smoke` as its loud
-proof and `make web-coverage` / `make issue-evidence` reading it from the tree.
+loud, never a skip; `make require-env KEYS="…"` is its target) and forwards credentials
+through the Makefile's `AGENT_SHELL_KEYS` / `$(AGENT_SHELL_FORWARD)` seam;
+`make hermes-smoke` proves the model can call a tool, `make agent-shell-keys-check` proves
+every forwarded credential is visible in the agent's own shell (through
+`scripts/agent_shell_keys_check.py`), and `scripts/scrub_log.py` (`make scrub-log`) is the
+only thing that prints an agent transcript. The one web reach is `make agent-fetch` (Firecrawl
+key, text to `OUT`), with `make search-smoke` as its loud proof and `make web-coverage` /
+`make issue-evidence` reading it from the tree.
 
 Coordination lives in the tree, not in the workflows: `scripts/bot_claims.py` says which bot
-is already working a subject, `scripts/rebase_bot_sweep.py` and
+is already working a subject, `scripts/rebase_bot_sweep.py` (`make rebase-bot-sweep`) and
 `scripts/fix_bot_sweep.py` decide the one PR a sweep acts on, `scripts/issue_cleaner.py`
-finds an open issue a merged PR already implemented, and `scripts/issue_dedup.py` decides
-which pair of issues the dedupe sweep compares.
+(`make issue-cleaner-scan` / `make issue-cleaner-apply`) finds an open issue a merged PR
+already implemented, and `scripts/issue_dedup.py` decides which pair of issues the dedupe
+sweep compares.
 
 `scripts/worktree_prune.py` (`make worktree-prune`, `DRY=1` prints the plan and mutates
 nothing) removes the worktree and local branch a merged PR left behind, and it decides from
@@ -588,7 +645,20 @@ the same roster rather than a hand-kept list of files. The live gates are separa
 `test-engine-bump-live`) and are never skipped: a missing prerequisite fails loudly. On an
 Apple-Silicon host `make test-health` is the real GPU/Metal proof — it launches
 `~/bin/llgenie` against the host's Metal `llama-server`; on Linux it answers "hi" through
-the llama.cpp engine image.
+the llama.cpp engine image. The native-Metal gates (`test-native-engines`,
+`test-native-engine-serve`, `test-native-engine-light`, `test-interactive-tensorfold`,
+`test-interactive-tensorfold-ci`) exist only on an Apple-Silicon host, where
+`make test-native-engines` installs each native-Metal engine (litert, mlx, ollama,
+tensorfold) in its own environment; every other host tests those engines in their images.
+
+`make loop` (`scripts/loop_harness.py`) runs the same stages, in this order, and fails
+closed: `image` (`make test-image`), `download` (`make download-test-model`), `lint`,
+`agents-read`, `unit`, `install` (`make test-install-host`), `health`, `top-tier`,
+`top-tier-serve`, `test`, `openspec` (`make openspec-validate NAME=<change>`),
+`openspec-tasks` (`make openspec-tasks-check`) and `clean` (`make test-clean`). The lint
+stage is linefeed lint (`make lint`, `scripts/lint_linefeeds.py`); `make lint-fix` appends
+the missing trailing newline reproducibly. The test environment is `make test-env` (Linux
+pulls the `llgenie/test` image; macOS builds the 3.11 gguf venv and puts `uv` on `PATH`).
 
 The engine seams are locked hermetically, without docker and without a model in the loop:
 `tests/test_engine_params_review.py` (a documented per-arch flag is accepted and applied to
@@ -638,13 +708,13 @@ retried into a green; a Hub that stays unreachable spends the bound and still ex
 non-zero with the CLI's named cause (issue #399, locked by
 `tests/test_top_tier_dry_run_retry.py`).
 
-`make loop` (`scripts/loop_harness.py`) chains image -> download -> lint -> agents-read ->
-unit -> install (`test-install-host`) -> health -> top-tier -> top-tier-serve -> test ->
-openspec -> openspec-tasks -> clean, failing closed on any stage. `make check-docs`,
-`make check-pr-hygiene`, `make check-pr-authors`, `make check-workflows`,
+`make check-docs`, `make check-pr-hygiene`, `make check-pr-authors`, `make check-workflows`,
 `make check-dispatch-forms`, `make check-wiring`, `make check-secret-output`,
 `make check-engine-source`, `make check-agent-model` and `make check-agent-skills` are the
-repository's structural gates. The data gates
+repository's structural gates, and each has its report target (`docs-report`,
+`pr-hygiene-report`, `pr-authors-report`, `workflows-report`, `dispatch-forms-report`,
+`wiring-report`, `secret-output-report`, `engine-source-report`, `model-pin-report`,
+`agent-skills-report`) that prints the same census without failing. The data gates
 (`check-registry`, `check-registry-keys`, `check-quant-catalog`,
 `check-trend-list-matrix`, `check-engine-skill-gap`, `check-strata-models`,
 `check-engine-params`, `skills-validate`) run inside `make ci-unit` alongside the unit
@@ -654,8 +724,10 @@ suite.
 
 An issue is the root; the branch, the OpenSpec change (`openspec/changes/<name>/`), the
 code and the PR all trace back to it. Work happens in its own git worktree cut from
-`origin/main`. The OpenSpec change is written before the code, each task is ticked when
-verified, the README and an `agent-wiki/` entry land in the same commit, and the PR targets
+`origin/main`. The OpenSpec change is written before the code
+(`make openspec-new NAME=<name>`, `make openspec-validate NAME=<name>`), each task is ticked
+when verified (`make openspec-tasks-check` asserts none is left unchecked), the README and an
+`agent-wiki/` entry land in the same commit, and the PR targets
 `asimov-agent/llgenie:main` and closes the issue. The agent drives the PR green and stops:
 `.github/workflows/auto-merge.yml` squash-merges it once the run is green and the PR is
 conflict-free. The agent never runs `gh pr merge` and never pushes to `main`; a reviewer
