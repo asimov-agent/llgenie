@@ -142,10 +142,19 @@ def test_choice_is_setup_py_default_for_the_ram(ram, want):
 def test_every_choice_file_name_is_what_setup_py_builds_and_maps_back(setup_py):
     """For every (family, size) setup.py offers: our shard names == setup.model_file(),
     our count == setup.model_shards(), and setup.gguf_choice(first shard) names the same
-    choice: the --family/--model llgenie passes the engine."""
+    choice: the --family/--model llgenie passes the engine.
+
+    A family the pinned setup.py declares WITHOUT an `hf` is vendor-hosted (`hub: false`, no repo):
+    it has no Hub path to build, so the contract is the opposite — `strata_files` must REFUSE it
+    by name rather than hand back a URL built from None (issue #643; `nvfp4` at v0.2.4)."""
     for fam, d in setup_py.FAMILIES.items():
         for size, md in setup_py.MODELS.items():
             if fam not in md.get("families", ("qwen", "swift")):
+                continue
+            if "hf" not in d:  # not Hub-downloadable at this pin: refusal is the contract
+                with pytest.raises(ValueError, match="not Hub-downloadable"):
+                    mp.strata_files(fam, size)
+                assert fam not in {f for f, _m in mp.strata_first_shards().values()}
                 continue
             files = mp.strata_files(fam, size)
             assert [Path(f).name for f in files] == [setup_py.model_file(d, size, i)
