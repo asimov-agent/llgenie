@@ -11,7 +11,7 @@ index, or when a row here names a note that does not exist.
 
 | Date | Change | Record | Issue / PR |
 |---|---|---|---|
-| 2026-10-26 | the registry link check asks the Hub's API, and a 429 is not a dead link | [2026-10-26-registry-link-check-hub.md](agent-wiki/2026-10-26-registry-link-check-hub.md) | #690 |
+| 2026-10-26 | the registry link check asks the Hub's API, and a 429 is not a dead link | [2026-10-26-registry-link-check-hub.md](agent-wiki/2026-10-26-registry-link-check-hub.md) | #690, #691 |
 | 2026-10-26 | the registry sync carries a NEW engine instead of dying on it | [2026-10-26-registry-sync-carries-new-engines.md](agent-wiki/2026-10-26-registry-sync-carries-new-engines.md) | #683, #685 |
 | 2026-10-26 | a dry run that outlives its deadline is retried, not raised out of the seam | [2026-10-26-top-tier-timeout-retry.md](agent-wiki/2026-10-26-top-tier-timeout-retry.md) | #676 |
 | 2026-10-26 | sglang's version fallback is the pin, never a commit sha | [2026-10-26-sglang-version-not-pin.md](agent-wiki/2026-10-26-sglang-version-not-pin.md) | #636, #650 |

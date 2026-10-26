@@ -1,6 +1,6 @@
 # 2026-10-26 — the link check asks the Hub's API, and a 429 is not a dead link
 
-Implements issue #690 (OpenSpec change `registry-link-check-hub`).
+Implements issue #690 (PR #691, OpenSpec change `registry-link-check-hub`).
 
 ## What was wrong (measured)
 
@@ -48,6 +48,6 @@ real blockers (#677/#687).
 
 ## Status
 
-Implementation complete on `feat/registry-link-hub-api`. Deferred, each its own linked issue: the 101
+Implementation complete on `feat/registry-link-hub-api` (PR #691). Deferred, each its own linked issue: the 101
 data-pinned tests that still red `test-unit` on the 2026-10-26 store (#677, #687), the 16 engines with
 no skill or dated decision (#673), and the `vram_tier`/list-order semantics (#669).
