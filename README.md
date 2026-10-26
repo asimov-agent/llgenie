@@ -610,7 +610,37 @@ make agent-shell-keys-check  # prove the credential is visible in the AGENT's sh
 make issue-bot-triage     # step 1: Hermes REVIEWS the issue.md thread (body + every comment) and writes triage.md
 make issue-bot-verdict ISSUE=<n>   # step 2: apply that verdict — implement | refine | close
 make issue-bot-changed    # did the implement step change the tree? changed=true|false (run inputs excluded)
+make issue-bot-gates      # re-check the FAST gates in order, stopping at the first failure and naming it
+make issue-bot-gates-check  # CI: fail when a ci-unit gate is classified nowhere, a fast gate is unwired, or the bot's gate step is not between the detection and the push
 ```
+
+#### The fast gates are re-checked before the push (issue #475)
+
+The implement leg's agent runs the *slow* gates while it writes the change, and nothing re-checked
+the *fast* ones between "the tree changed" and "the branch is pushed" — so CI found the bookkeeping
+reds. The run that implemented #407 opened six PRs (#443–#448) that were functionally green and red
+only on an unticked `- [ ]` in `tasks.md`, a stale README target list and a wiring count: each
+detectable in **seconds** on the host, each worth a CI round trip plus up to an hour of `fix-bot`.
+
+`make issue-bot-gates` runs, in order and failing on the first: `make lint`, `make check-workflows`,
+`make check-wiring`, `make check-docs`, `make check-pr-hygiene`, `make openspec-tasks-check`. It
+prints each gate as it starts and names the failing one (`FAIL `make check-docs``) so the fix is
+obvious; it never runs `test-unit` (the agent already did, and it takes 11–20 minutes). The
+issue-bot runs it as a step between `Detect what the implementation changed` and
+`Commit + push the feature branch`, conditioned on a changed tree: a red gate fails the job loudly
+*before* the branch exists, so nothing red reaches a reviewer and no `fix-bot` cycle is spent. A
+`make test-image` step runs first, because `lint` (one of the gates) executes in `llgenie/test`
+exactly as `ci-lint` does, and a fresh runner has no such tag — the check fails a workflow that
+forgets it.
+
+The gate list lives in **one** module, `scripts/issue_bot_gates.py`: `FAST_GATES` (what the target
+runs) and `DEFERRED` (every other gate `ci-unit` runs, with the reason it is not re-checked before
+the push). `make issue-bot-gates-check` — also a `ci-unit` step — reads the Makefile and the
+workflow and fails when a `ci-unit` gate is classified neither fast nor deferred (the lock that
+keeps a new fast gate from being silently skipped), when a `DEFERRED` entry goes stale, when a fast
+gate is not a `.PHONY` target or no `ci-*` job reaches it, when the target stops running the runner,
+or when the bot's step is missing, duplicated, unconditional on a change, or not between the
+detection and the push. `tests/test_issue_bot_gates.py` covers all of it and runs in `make test-unit`.
 
 #### The model the bots call (issue #405)
 

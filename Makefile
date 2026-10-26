@@ -63,7 +63,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	engine-gate-report engine-skill-gap engine-skill-gap-md spawn-engine-skill-issues sync-strata-models check-strata-models check-wiring wiring-report check-secret-output secret-output-report \
 	secret-scan secret-scan-history secret-scan-self-test \
 	queued-alarm issue-cleaner-scan issue-cleaner-apply worktree-prune fix-loop fix-loop-image fix-bot-sweep fix-bot-report agent-image-ref issue-bot-dispatch issue-bot-open-pr issue-bot-image \
-	issue-bot-triage issue-bot-changed issue-bot-verdict implement-issue hermes-smoke agent-jev-preflight nerve-profile-check code-review-scan code-review-file rebase-bot-sweep rebase-bot rebase-bot-abort \
+	issue-bot-triage issue-bot-changed issue-bot-verdict issue-bot-gates issue-bot-gates-check implement-issue hermes-smoke agent-jev-preflight nerve-profile-check code-review-scan code-review-file rebase-bot-sweep rebase-bot rebase-bot-abort \
 	engine-params-review-brief engine-params-review engine-params-review-apply \
 	architecture-bot-brief architecture-bot-doc architecture-bot-publish architecture-bot \
 	scrub-log \
@@ -515,6 +515,26 @@ issue-bot-changed: ## Did the implement step actually change the tree? Prints ch
 issue-bot-verdict: ## Apply the agent's TRIAGE verdict from triage.md: implement -> nothing (the PR path runs), refine -> ONE comment + agent:refined (no PR), close -> comment with the cited evidence + agent:closed (refused without EVIDENCE)
 	@test -n "$(ISSUE)" || { echo "Usage: make issue-bot-verdict ISSUE=<n> [REPO=<owner/repo>]"; exit 1; }
 	python3 scripts/issue_implementer.py apply-verdict triage.md --repo $(if $(REPO),$(REPO),asimov-agent/llgenie) --issue $(ISSUE)
+
+# ---- the fast gates run BEFORE the bot pushes (issue #475) -------------------
+# The implement leg's agent runs the slow gates while it writes the change, and nothing
+# re-checked the FAST ones between "the tree changed" and "the branch is pushed": CI then found
+# the bookkeeping reds, and the run that implemented #407 opened six PRs (#443-#448) that were
+# functionally green and red only on an unticked `- [ ]` in tasks.md, a stale README target list
+# and a wiring count. Each was detectable in seconds here, and each cost a CI round trip plus up
+# to an hour of the hourly fix-bot.
+#
+# ONE list, in `scripts/issue_bot_gates.py`: `FAST_GATES` (what this target runs, in order,
+# stopping at the first failure and naming it) and `DEFERRED` (every other gate ci-unit runs, with
+# the reason it is not re-checked here). `make test-unit` runs `scripts/issue_bot_gates.py check`,
+# which reads THIS file and `.github/workflows/issue-bot.yml` and fails on a ci-unit gate that is
+# classified nowhere, a stale classification, a fast gate no `ci-*` job reaches, a target that
+# stopped running the script, or a step that is not between the change detection and the push.
+issue-bot-gates: ## Run the FAST repository gates in order, stopping at the FIRST failure and naming it (lint, workflows, wiring, docs, PR hygiene, OpenSpec tasks): what the issue-bot runs after the implement step and BEFORE it pushes, so a bookkeeping red never reaches the PR (issue #475)
+	python3 scripts/issue_bot_gates.py run
+
+issue-bot-gates-check: ## CI: fail when a ci-unit gate is classified neither fast nor deferred, a fast gate is unwired or not .PHONY, or the issue-bot's gate step is not between the change detection and the push (issue #475)
+	python3 scripts/issue_bot_gates.py check
 
 # The JEV preflight (issue #238). The agent image carries the Nerve/JEV decision layer, which
 # is what makes a bot run cheaper and more correct: the layer answers "is this the right next
@@ -1372,6 +1392,8 @@ ci-unit: bash-check ## CI job unit: hermetic unit tests + registry / skill / Str
 	$(MAKE) check-workflows
 	$(MAKE) check-agent-skills
 	$(MAKE) check-agent-model
+	$(MAKE) issue-bot-gates
+	$(MAKE) issue-bot-gates-check
 
 ci-agents-read: bash-check ## CI job agents-read: make test-agents-read (Python 3.12 venv -> AGENTS.md scan -> guard tests)
 	$(MAKE) test-agents-read
@@ -1469,6 +1491,8 @@ help:
 	@echo "  make wiring-report               show how every test/script is wired (target + whether CI runs it) and the host-only exceptions"
 	@echo "  make issue-bot-dispatch          the issue-implementer dispatcher (issue #248): cap 3/day -> pick one labeled/ready issue -> claim -> write issue.md + branch"
 	@echo "  make issue-bot-open-pr          open the draft-free PR linking ISSUE from BRANCH (never merges)"
+	@echo "  make issue-bot-gates            re-check the FAST gates in order before the bot pushes (lint, workflows, wiring, docs, PR hygiene, OpenSpec tasks), stopping at the first failure and naming it (issue #475)"
+	@echo "  make issue-bot-gates-check      CI: fail when a ci-unit gate is classified nowhere, a fast gate is unwired, or the bot's gate step is not between the detection and the push (issue #475)"
 	@echo "  make code-review-scan           the code-review bot: read the tree + the pipelines -> findings (REPO=; STATIC=1 skips the checks that read the GitHub API; no model spend, files nothing)"
 	@echo "  make code-review-file           file ONE issue per NEW finding, capped per run (REPO=; CAP= per run, default 3; DRY=1 previews) — the bot's whole output is issues"
 	@echo "  make run-failure-reactor        route a failed CI run to a remedy (REPO=; RUN_ID=; DRY=1 previews): a pushable same-repo PR -> dispatch the fix-bot; else file ONE deduped issue labelled agent:implement (issue #286)"

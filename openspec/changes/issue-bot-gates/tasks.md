@@ -1,0 +1,10 @@
+# Tasks
+
+- [x] 1. `scripts/issue_bot_gates.py` owns the ONE gate list: `FAST_GATES` (six gates, in order) and `DEFERRED` (every other `ci-unit` gate with the reason it is not re-checked before the push); `run` executes them in order and stops at the first failure naming it
+- [x] 2. `check` reads the real `Makefile` and `.github/workflows/issue-bot.yml` and fails on an unclassified `ci-unit` gate, a stale or contradictory classification, a fast gate that is not a `.PHONY` target or that no `ci-*` job reaches, a `issue-bot-gates` target that stopped running the runner, and a gate step that is missing, duplicated, not conditioned on a change, or not strictly between the change detection and the push
+- [x] 3. Makefile: `issue-bot-gates` + `issue-bot-gates-check`, both in `.PHONY` and in the help text; `ci-unit` runs both
+- [x] 4. `.github/workflows/issue-bot.yml` runs `make issue-bot-gates` between `Detect what the implementation changed` and `Commit + push the feature branch`, conditioned on `changed == 'true'` and the `implement` verdict, after a `make test-image` step (the gates' `lint` runs in `llgenie/test`, which a fresh runner does not have)
+- [x] 5. `tests/test_issue_bot_gates.py` pins the six gates, the real tree, the target's recipe, the workflow position (real and a mis-ordered scratch tree), the classification lock, the stale entry, and "stops at the first failure" over real `make`; it is discovered by `make test-unit`
+- [x] 6. README documents the gate, the two targets and where the bot runs it; `agent-wiki/2026-10-26-issue-bot-gates.md` records the change against #475
+- [x] 7. Verified on the host: `make issue-bot-gates-check` exits 0, and the gates' own scripts (`lint_linefeeds.py`, `check_workflows.py check`, `check_wiring.py check`, `check_docs.py check`, `check_pr_hygiene.py check`, `check_openspec_tasks.py`) each exit 0 against this tree
+- [x] 8. `tests/test_issue_bot_gates.py` passes (8 passed; 32 with `tests/test_wiring.py` and `tests/test_workflows_valid.py`), and `scripts/unit_tests.py` selects it for `make test-unit`

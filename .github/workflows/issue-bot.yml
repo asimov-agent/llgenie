@@ -236,6 +236,23 @@ jobs:
           name: agent-transcript-redacted
           path: hermes-run.scrubbed.log
           if-no-files-found: ignore
+      - name: Prepare the test image the fast gates run in (Linux pulls llgenie/test)
+        # `make lint` (one of the fast gates) runs in llgenie/test, exactly as `ci-lint` does, and a
+        # fresh runner has no such tag: without this the gate would die on the runtime before it
+        # checked anything (measured on a host with no such image: `docker: Unable to find image`).
+        if: always() && steps.verdict.outputs.verdict == 'implement' && steps.diff.outputs.changed == 'true'
+        run: make test-image
+
+      - name: Re-check the fast gates BEFORE the branch is pushed (issue #475)
+        id: gates
+        # A red here fails the job before anything is published, naming the gate and the file, so
+        # the bookkeeping reds CI would otherwise find (an unticked `- [ ]` in tasks.md, a stale
+        # README target list, a wiring count) cost seconds instead of a CI round trip plus a
+        # fix-bot dispatch. `make issue-bot-gates` runs `scripts/issue_bot_gates.py`, whose gate
+        # list is the ONE source; it never runs test-unit (the agent already did).
+        if: always() && steps.verdict.outputs.verdict == 'implement' && steps.diff.outputs.changed == 'true'
+        run: make issue-bot-gates
+
       - name: Commit + push the feature branch
         id: push
         if: always() && steps.verdict.outputs.verdict == 'implement' && steps.diff.outputs.changed == 'true'
