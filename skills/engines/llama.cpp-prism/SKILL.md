@@ -6,8 +6,8 @@ id: llama.cpp-prism
 repo: https://github.com/PrismML-Eng/llama.cpp
 ref: prism
 ref_kind: branch
-pinned: 909f0cac9c3cbd5146af24cdfdbb830ac17a393c
-verified: "2026-10-25"
+pinned: c96baf4abe24d11a50f326e40b6223b687449d63
+verified: "2026-10-26"
 license: MIT
 servable: true
 backends: [cuda, rocm, vulkan, metal, cpu]
@@ -28,7 +28,7 @@ cmake_flags:
   rocm: "-DGGML_HIP=ON -DGGML_METAL=OFF -DGGML_CUDA=OFF"
   vulkan: "-DGGML_VULKAN=ON -DGGML_METAL=OFF -DGGML_CUDA=OFF"
   metal: "-DGGML_METAL=ON -DGGML_CUDA=OFF -DGGML_SYCL=OFF"
-  cpu: "-DGGML_METAL=OFF -DGGML_CUDA=OFF -DGGML_SYCL=OFF"
+  cpu: "-DGGML_METAL=OFF -DGGML_CUDA=OFF -DGGML_SYCL=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON"
 hw_flags:
   cuda:
     cuda_arch: "'-DCMAKE_CUDA_ARCHITECTURES={cuda_arch}'"
