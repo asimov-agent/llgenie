@@ -3,8 +3,8 @@
   "engine": "Strata",
   "id": "strata",
   "repo": "https://github.com/Niko1221/Strata",
-  "ref": "v0.2.4",
-  "pinned": "0303f6581c64b9bc5d42fdf286c78985a239a1b1",
+  "ref": "v0.2.6",
+  "pinned": "ff91dd77a13857ccc2f1bd67edc9a8ecd4ecdfa4",
   "native": {},
   "variants": {
     "cuda": {
@@ -30,8 +30,8 @@
         "TORCH_BACKEND": "cu130"
       },
       "install": [
-        "test -d /opt/llgenie/engines/strata/src/.git || git clone -b v0.2.4 --depth 1 https://github.com/Niko1221/Strata.git /opt/llgenie/engines/strata/src",
-        "git -C /opt/llgenie/engines/strata/src fetch --depth 1 origin tag v0.2.4 && git -C /opt/llgenie/engines/strata/src checkout -q v0.2.4",
+        "test -d /opt/llgenie/engines/strata/src/.git || git clone -b v0.2.6 --depth 1 https://github.com/Niko1221/Strata.git /opt/llgenie/engines/strata/src",
+        "git -C /opt/llgenie/engines/strata/src fetch --depth 1 origin tag v0.2.6 && git -C /opt/llgenie/engines/strata/src checkout -q v0.2.6",
         "python3 -m venv /opt/llgenie/engines/strata/src/py && /opt/llgenie/engines/strata/src/py/bin/pip install --no-cache-dir -r /opt/llgenie/engines/strata/src/requirements.txt",
         "cd /opt/llgenie/engines/strata/src && CUDA_ARCHITECTURES='75;80;86;89;90;120' py/bin/python -c 'import os,shutil,setup; llama=setup.get_llama_cpp(); nvcc,_=setup.find_nvcc(); arch=os.environ[\"CUDA_ARCHITECTURES\"]; setup.cmake_build(setup.ROOT, setup.ROOT/\"build\",\"strata\",[\"-DSTRATA_ENABLE_CUDA=ON\",\"-DSTRATA_BUILD_TESTS=OFF\",\"-DSTRATA_PORTABLE=ON\",\"-DCMAKE_CUDA_ARCHITECTURES=\"+arch,\"-DCMAKE_CUDA_COMPILER=\"+nvcc,\"-DSTRATA_GGML_DIR=\"+str(llama)],None,\"build-strata.bat\"); eng=setup.ROOT/\"engine\"; eng.mkdir(exist_ok=True); shutil.copy2(setup.ROOT/\"build\"/setup.EXE, eng/setup.EXE); import json; (eng/\"BUILD.json\").write_text(json.dumps(dict(source=\"local\", version=setup.source_version(), archs=sorted(int(x) for x in arch.split(\";\")), vision=\"none\", cuda_dirs=[d for d in (\"/usr/local/cuda/bin\",\"/usr/local/cuda/lib64\") if os.path.isdir(d)], src=setup.source_hash(setup.ENGINE_SOURCES), vision_src=None), indent=1))'"
       ],
@@ -73,8 +73,8 @@
         "TORCH_BACKEND": "auto"
       },
       "install": [
-        "test -d /opt/llgenie/engines/strata/src/.git || git clone -b v0.2.4 --depth 1 https://github.com/Niko1221/Strata.git /opt/llgenie/engines/strata/src",
-        "git -C /opt/llgenie/engines/strata/src fetch --depth 1 origin tag v0.2.4 && git -C /opt/llgenie/engines/strata/src checkout -q v0.2.4",
+        "test -d /opt/llgenie/engines/strata/src/.git || git clone -b v0.2.6 --depth 1 https://github.com/Niko1221/Strata.git /opt/llgenie/engines/strata/src",
+        "git -C /opt/llgenie/engines/strata/src fetch --depth 1 origin tag v0.2.6 && git -C /opt/llgenie/engines/strata/src checkout -q v0.2.6",
         "python3 -m venv /opt/llgenie/engines/strata/src/py && /opt/llgenie/engines/strata/src/py/bin/pip install --no-cache-dir -r /opt/llgenie/engines/strata/src/requirements.txt",
         "cd /opt/llgenie/engines/strata/src && GPU_TARGETS='gfx1030;gfx1100;gfx1101;gfx1102;gfx1151;gfx1200;gfx1201;gfx942' py/bin/python -c 'import os,shutil,setup; llama=setup.get_llama_cpp(); arch=os.environ[\"GPU_TARGETS\"]; setup.cmake_build(setup.ROOT, setup.ROOT/\"build\",\"strata\",[\"-DSTRATA_ENABLE_HIP=ON\",\"-DSTRATA_BUILD_TESTS=OFF\",\"-DSTRATA_PORTABLE=ON\",\"-DGPU_TARGETS=\"+arch,\"-DSTRATA_GGML_DIR=\"+str(llama)],None,\"build-strata.bat\"); eng=setup.ROOT/\"engine\"; eng.mkdir(exist_ok=True); shutil.copy2(setup.ROOT/\"build\"/setup.EXE, eng/setup.EXE); import json; (eng/\"BUILD.json\").write_text(json.dumps(dict(source=\"local\", backend=\"hip\", version=setup.source_version(), archs=sorted(arch.split(\";\") if \";\" in arch else arch.split()), vision=\"none\", src=setup.source_hash(setup.ENGINE_SOURCES), vision_src=None), indent=1))'"
       ],

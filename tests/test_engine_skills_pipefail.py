@@ -37,7 +37,7 @@ def test_strata_detect_uses_a_full_read():
     # When  each variant's detect is read
     detects = {a: v["detect"] for a, v in params["variants"].items()}
 
-    # Then  every one reads no pipe at all: the CLI answers --version itself (v0.2.4), so the read
+    # Then  every one reads no pipe at all: the CLI answers --version itself (v0.2.6), so the read
     #       cannot die of SIGPIPE and no early-exiting reader (`grep -q`) can creep back in
     for arch, detect in detects.items():
         assert "grep -q" not in detect, (arch, detect)

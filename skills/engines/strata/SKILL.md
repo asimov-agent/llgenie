@@ -4,11 +4,11 @@ description: "Use when installing Strata (Qwen3.8-Flash-Next 125B MoE across GPU
 engine: "Strata"
 id: strata
 repo: https://github.com/Niko1221/Strata
-ref: v0.2.4
+ref: v0.2.6
 ref_kind: tag
-version: v0.2.4
-pinned: 0303f6581c64b9bc5d42fdf286c78985a239a1b1
-verified: "2026-10-25"
+version: v0.2.6
+pinned: ff91dd77a13857ccc2f1bd67edc9a8ecd4ecdfa4
+verified: "2026-10-26"
 license: MIT
 servable: true
 backends: [cuda, rocm]

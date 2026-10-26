@@ -8,7 +8,7 @@ vendor-hosted / local one: it carries `name`, `tag`, `title`, `by`, `about`, `mm
 bump moved the pin past that commit, and every Strata bump died (run 39265221145).
 
 The OTHER half of that bug was a test asserting the file's literal contents at pin v0.1.43 ("every
-family is Hub-hosted"), so the first CORRECT bump that surfaced `nvfp4` (v0.2.4, #605) went red on
+family is Hub-hosted"), so the first CORRECT bump that surfaced `nvfp4` (v0.2.6, #605) went red on
 `nvfp4 unexpectedly marked not-Hub` — the bump did nothing wrong, the test described the previous
 pin. What is locked here is the invariant instead: a family is Hub-hosted (`repo` + `revision` +
 `subdir`, no `hub` key) or explicitly not-Hub (`hub: false`, no repo), never both, never neither,
@@ -117,10 +117,10 @@ NOT_HUB_SHAPE = {
 
 
 def test_the_committed_map_is_hub_hosted_or_explicitly_not_at_whatever_the_pin_is():
-    """The invariant, not a snapshot: v0.1.43 has no not-Hub family, v0.2.4 has exactly `nvfp4`.
+    """The invariant, not a snapshot: v0.1.43 has no not-Hub family, v0.2.6 has exactly `nvfp4`.
 
     A test that instead asserts "nothing is not-Hub" describes the pin it was written at and reds
-    the next correct bump (#605: v0.2.4's `nvfp4` has no `hf`, so `hub: false` is the right answer).
+    the next correct bump (#605: v0.2.6's `nvfp4` has no `hf`, so `hub: false` is the right answer).
     """
     # Given the committed data/strata_models.json
     committed = json.loads((ROOT / "data" / "strata_models.json").read_text())
@@ -138,11 +138,11 @@ def test_the_committed_map_is_hub_hosted_or_explicitly_not_at_whatever_the_pin_i
 
 
 def test_the_shape_rule_holds_at_both_pins_that_matter():
-    """v0.1.43 (all Hub) and v0.2.4 (`nvfp4` added, vendor-hosted) both satisfy the same rule."""
+    """v0.1.43 (all Hub) and v0.2.6 (`nvfp4` added, vendor-hosted) both satisfy the same rule."""
     root = {**HUB_SHAPE, "subdir": ""}  # `swift` at v0.1.43 is published at the repo root
     for label, families in (
         ("v0.1.43 — every family Hub-hosted", {"qwen": HUB_SHAPE, "swift": root}),
-        ("v0.2.4 — nvfp4 is vendor-hosted", {"qwen": HUB_SHAPE, "nvfp4": NOT_HUB_SHAPE}),
+        ("v0.2.6 — nvfp4 is vendor-hosted", {"qwen": HUB_SHAPE, "nvfp4": NOT_HUB_SHAPE}),
     ):
         # Given a family table in that pin's shape, When it is checked, Then nothing is wrong
         assert SM.family_shape_problems(families) == [], label
