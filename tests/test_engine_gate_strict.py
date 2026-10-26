@@ -37,7 +37,7 @@ def test_a_version_must_look_like_a_version():
     accepted = {
         "sglang 0.5.21": "0.5.21",
         "vllm/cpu: installed 0.32.0+cpu": "0.32.0",
-        "llama.cpp/cpu: installed version: 0.7.0-dev (build 11870, commit 74bca3950)": "0.7.0",
+        "llama.cpp/cpu: installed version: 0.7.0-dev (build 11870, commit 74b104c90)": "0.7.0",
         "installed pin 3c75be02f450": "pin 3c75be02f450",
         "tensorfold-native 1.1.4": "1.1.4",
         # measured on the published laurentzuijdwijk/cpu image: a log line, THEN the real version

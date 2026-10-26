@@ -1434,7 +1434,7 @@ def test_pull_published_refuses_a_local_build_and_a_digest_mismatch(monkeypatch)
     monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
     monkeypatch.setattr(ei, "_sh", fake_sh)
     monkeypatch.setattr(ei, "_have_runtime", lambda: True)
-    spec = {"tag": "llgenie/llama-cpp:74bca395-abc-cpu", "variant": "cpu"}
+    spec = {"tag": "llgenie/llama-cpp:74b104c9-abc-cpu", "variant": "cpu"}
 
     # Given matching digests
     digest = {"same": True}

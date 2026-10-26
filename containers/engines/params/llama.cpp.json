@@ -4,7 +4,7 @@
   "id": "llama.cpp",
   "repo": "https://github.com/ggml-org/llama.cpp",
   "ref": "master",
-  "pinned": "74bca3950054eed1795f525cb9cf06bfe796492d",
+  "pinned": "74b104c9ba5717116b7e65e0cd35397778653304",
   "native": {
     "cuda": {
       "cmake_flags": "-DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON -DLLAMA_BUILD_TESTS=OFF -DGGML_CUDA=ON -DGGML_METAL=OFF -DGGML_SYCL=OFF",
@@ -71,7 +71,7 @@
         "test -d /opt/llgenie/src/llama.cpp/.git || git clone -b master https://github.com/ggml-org/llama.cpp.git /opt/llgenie/src/llama.cpp",
         "git config --global --add safe.directory /opt/llgenie/src/llama.cpp",
         "git -C /opt/llgenie/src/llama.cpp fetch origin master",
-        "git -C /opt/llgenie/src/llama.cpp checkout -B master 74bca3950054eed1795f525cb9cf06bfe796492d",
+        "git -C /opt/llgenie/src/llama.cpp checkout -B master 74b104c9ba5717116b7e65e0cd35397778653304",
         "cmake -S /opt/llgenie/src/llama.cpp -B /opt/llgenie/src/llama.cpp/build-cuda -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON -DLLAMA_BUILD_TESTS=OFF -DGGML_CUDA=ON -DGGML_METAL=OFF -DGGML_SYCL=OFF '-DCMAKE_CUDA_ARCHITECTURES=75;80;86;89;90;120'",
         "cmake --build /opt/llgenie/src/llama.cpp/build-cuda --config Release -j$(nproc) --target llama-server",
         "/opt/llgenie/src/llama.cpp/build-cuda/bin/llama-server --help > /dev/null"
@@ -112,7 +112,7 @@
         "test -d /opt/llgenie/src/llama.cpp/.git || git clone -b master https://github.com/ggml-org/llama.cpp.git /opt/llgenie/src/llama.cpp",
         "git config --global --add safe.directory /opt/llgenie/src/llama.cpp",
         "git -C /opt/llgenie/src/llama.cpp fetch origin master",
-        "git -C /opt/llgenie/src/llama.cpp checkout -B master 74bca3950054eed1795f525cb9cf06bfe796492d",
+        "git -C /opt/llgenie/src/llama.cpp checkout -B master 74b104c9ba5717116b7e65e0cd35397778653304",
         "cmake -S /opt/llgenie/src/llama.cpp -B /opt/llgenie/src/llama.cpp/build-rocm -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON -DLLAMA_BUILD_TESTS=OFF -DGGML_HIP=ON -DGGML_METAL=OFF -DGGML_CUDA=OFF '-DGPU_TARGETS=gfx1030;gfx1100;gfx1101;gfx1102;gfx1151;gfx1200;gfx1201;gfx942'",
         "cmake --build /opt/llgenie/src/llama.cpp/build-rocm --config Release -j$(nproc) --target llama-server",
         "/opt/llgenie/src/llama.cpp/build-rocm/bin/llama-server --help > /dev/null"
@@ -168,7 +168,7 @@
         "test -d /opt/llgenie/src/llama.cpp/.git || git clone -b master https://github.com/ggml-org/llama.cpp.git /opt/llgenie/src/llama.cpp",
         "git config --global --add safe.directory /opt/llgenie/src/llama.cpp",
         "git -C /opt/llgenie/src/llama.cpp fetch origin master",
-        "git -C /opt/llgenie/src/llama.cpp checkout -B master 74bca3950054eed1795f525cb9cf06bfe796492d",
+        "git -C /opt/llgenie/src/llama.cpp checkout -B master 74b104c9ba5717116b7e65e0cd35397778653304",
         "cmake -S /opt/llgenie/src/llama.cpp -B /opt/llgenie/src/llama.cpp/build-vulkan -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON -DLLAMA_BUILD_TESTS=OFF -DGGML_VULKAN=ON -DGGML_METAL=OFF -DGGML_CUDA=OFF",
         "cmake --build /opt/llgenie/src/llama.cpp/build-vulkan --config Release -j$(nproc) --target llama-server",
         "/opt/llgenie/src/llama.cpp/build-vulkan/bin/llama-server --help > /dev/null"
@@ -209,7 +209,7 @@
         "test -d /opt/llgenie/src/llama.cpp/.git || git clone -b master https://github.com/ggml-org/llama.cpp.git /opt/llgenie/src/llama.cpp",
         "git config --global --add safe.directory /opt/llgenie/src/llama.cpp",
         "git -C /opt/llgenie/src/llama.cpp fetch origin master",
-        "git -C /opt/llgenie/src/llama.cpp checkout -B master 74bca3950054eed1795f525cb9cf06bfe796492d",
+        "git -C /opt/llgenie/src/llama.cpp checkout -B master 74b104c9ba5717116b7e65e0cd35397778653304",
         "cmake -S /opt/llgenie/src/llama.cpp -B /opt/llgenie/src/llama.cpp/build-cpu -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON -DGGML_CPU_ALL_VARIANTS=ON -DLLAMA_BUILD_TESTS=OFF -DGGML_METAL=OFF -DGGML_CUDA=OFF -DGGML_SYCL=OFF",
         "cmake --build /opt/llgenie/src/llama.cpp/build-cpu --config Release -j$(nproc) --target llama-server",
         "/opt/llgenie/src/llama.cpp/build-cpu/bin/llama-server --help > /dev/null"

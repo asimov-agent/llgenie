@@ -29,7 +29,7 @@ def test_a_cmake_cell_passes():
     # Given a cell that clones a pinned sha and compiles
     row = _cell("llama.cpp", "cpu", [
         "git clone --depth 1 https://github.com/ggml-org/llama.cpp /src",
-        "git -C /src checkout -q 74bca3950",
+        "git -C /src checkout -q 74b104c90",
         "cmake -B /src/build -DLLAMA_CUDA=OFF -DCMAKE_BUILD_TYPE=Release",
         "cmake --build /src/build --target llama-server",
     ])
