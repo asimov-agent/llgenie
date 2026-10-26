@@ -51,6 +51,29 @@ RAMS = (8, 64)
 # WRONG invocation is that the launcher falls through to the default path and starts
 # DOWNLOADING a model, so a run that does not answer promptly must fail, not wait.
 DRY_RUN_TIMEOUT = 30
+# The one-time cost of the FIRST launcher invocation on a cold runner (venv import, docker-context
+# probe, the registry read) is not what this file measures and must not eat the per-case budget: on
+# #647's install job the first 7 cases each hit the 30s bound while the remaining 41 answered in
+# ~0.2s. So one throwaway invocation pays that cost up front, with a bound wide enough for a cold
+# start and narrow enough that a genuine hang still fails loudly.
+WARMUP_TIMEOUT = 180
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _warm_the_installed_launcher(tmp_path_factory):
+    """Pay the cold-start cost once, outside the timed cases, through the real matrix path.
+
+    A launcher that falls through to a download must still fail fast (that is why the per-case
+    budget stays at 30s), so this fixture runs a complete, cheap matrix invocation and asserts
+    nothing about its output — it only has to answer inside WARMUP_TIMEOUT.
+    """
+    launcher = _launcher()
+    models = tmp_path_factory.mktemp("warmup") / "models"
+    models.mkdir(exist_ok=True)
+    env = _env("cpu", 8, 64, models)
+    subprocess.run([str(launcher), "--matrix", "--arch", "cpu", "--vram", "8", "--ram", "64"],
+                   capture_output=True, text=True, timeout=WARMUP_TIMEOUT, env=env, input="")
+    return launcher
 
 
 def _launcher() -> Path:
