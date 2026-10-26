@@ -63,7 +63,7 @@ def test_a_release_archive_cell_is_a_finding_even_with_a_build_present():
     # Given a cell that builds something and also downloads a release binary
     row = _cell("tensorfold", "cuda", [
         "cmake -B build", "cmake --build build",
-        "curl -fsSL -o /tmp/tf.tar.gz https://example.invalid/tensorfold-1.1.4-linux-x86_64.tar.gz",
+        "curl -fsSL -o /tmp/tf.tar.gz https://example.invalid/tensorfold-1.1.6-linux-x86_64.tar.gz",
     ])
 
     # When  the guard looks at it

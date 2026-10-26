@@ -149,12 +149,12 @@ llama.cpp, Prism, Ollama and LiteRT run **natively**, shown as `[metal]`, becaus
 cannot run in a container. **Picking a Metal engine makes it ready by itself, installed or
 not:** missing → llgenie runs the skill's install script (the MLX wheels ship their Metal
 kernels precompiled); installed at another version than the skill pins → it updates to the pin;
-at the pin → it is reused. TensorFold 1.1.4 has no pip package: its release ships native
+at the pin → it is reused. TensorFold 1.1.6 has no pip package: its release ships native
 archives, so the bump rewrites the install to download/checksum/unpack into `{prefix}/{version}`
 and point `{prefix}/current` at it, making the binary `{prefix}/current/bin/{id}` — the
 installed version is still detected truthfully (issue #386). The engine list says which:
-`(installs 1.1.4 on pick)`,
-`(installed 0.6.4 -> updates to 1.1.4 on pick)` or `(installed 1.1.4)`. Then llgenie
+`(installs 1.1.6 on pick)`,
+`(installed 0.6.4 -> updates to 1.1.6 on pick)` or `(installed 1.1.6)`. Then llgenie
 downloads the model's TensorFold checkpoint if missing, writes a native
 `~/bin/llgenie-engine-<id>` (no docker) and serves. TensorFold gets a **65,536-token window**
 (`--context`, the 64K Hermes Agent needs for tool use; `LLGENIE_CONTEXT=<n>` overrides, `0`
@@ -185,7 +185,7 @@ job for it, GitHub's macOS runners have no usable Metal GPU), and `make test-nat
 Metal serve with `context: 65536` + "hi". `make test-native-engine-light` serves the lightest
 model TensorFold runs (`mlx-community/Qwen3.5-9B-MLX-4bit`, 5.5 GiB) through the llgenie start
 script on Metal; on GitHub's 7 GB `macos-15` runner TensorFold's own budget check refuses it
-instead (smaller Qwen3.5 sizes tie their embeddings, which TensorFold 1.1.4 refuses).
+instead (smaller Qwen3.5 sizes tie their embeddings, which TensorFold 1.1.6 refuses).
 
 Without a terminal:
 
