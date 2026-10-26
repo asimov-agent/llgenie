@@ -13,15 +13,14 @@ import argparse
 import json
 import re
 import sys
-import time
 import urllib.error
 import urllib.request
 from pathlib import Path
 
 try:
-    from .hf_auth import authorize
+    from .hf_auth import authorize, hub_open
 except ImportError:
-    from hf_auth import authorize  # type: ignore
+    from hf_auth import authorize, hub_open  # type: ignore
 
 REPO = Path(__file__).resolve().parent.parent
 UPSTREAM = "https://raw.githubusercontent.com/andyholst/trending-local-llms/master/data/models.json"
@@ -114,31 +113,47 @@ def readme_links(readme: str) -> list[str]:
     return re.findall(r"\]\((https?://[^)]+)\)", section)
 
 
-def check_links(links: list[str], attempts: int = 5, backoff: float = 10.0) -> list[str]:
-    """The links that do not answer. A link answers when a GET request comes back
-    below 400 (only the status is read, not the body). GET, not HEAD: from GitHub
-    Actions runners github.com answers HEAD with 504s it does not give a browser GET.
-    A server error (5xx) or a network error is retried ``attempts`` times; a 4xx is
-    dead at once."""
+#: A Hub model page: `https://huggingface.co/<org>/<repo>` and nothing else.
+HUB_MODEL_PAGE = re.compile(r"^https?://(?:www\.)?huggingface\.co/([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+)/?$")
+
+
+def hub_api_url(url: str) -> str | None:
+    """The Hub API URL that answers for a Hub model page link, else None.
+
+    A model page is asked at `/api/models/<org>/<repo>`: the endpoint the token
+    authenticates, and the one that answers a plain 200/404. The page itself answers a
+    token-bearing GET with the Hub's 429 (measured 2026-10-26, issue #690). Any other
+    link — a non-Hub host, or a Hub collection/dataset/docs URL — is checked as written.
+    """
+    m = HUB_MODEL_PAGE.match(url.split("?", 1)[0].split("#", 1)[0])
+    return f"https://huggingface.co/api/models/{m.group(1)}/{m.group(2)}" if m else None
+
+
+def check_links(links: list[str], timeout: float = 30) -> list[str]:
+    """The links that do not answer. A link answers when a GET comes back below 400
+    (only the status is read, not the body). GET, not HEAD: from GitHub Actions runners
+    github.com answers HEAD with 504s it does not give a browser GET.
+
+    Each link is asked at the URL that answers its question: a Hub model page through
+    the Hub API (`hub_api_url`), everything else as written. Every request goes through
+    `hf_auth.hub_open` — the repo's ONE Hub policy — so a 429 waits the Hub's window
+    instead of reading as a dead link, a 5xx or transport failure retries on that
+    policy's ladder, and a 401/403/404 is definitive on the first attempt (issue #690).
+    `hub_open` attaches the token to a Hub endpoint only, so a non-Hub host is fetched
+    plainly."""
     dead = []
     for url in dict.fromkeys(links):  # order kept, duplicates dropped
-        req = authorize(urllib.request.Request(
-            url, method="GET", headers={"User-Agent": "llgenie-link-check"}))
-        for attempt in range(1, attempts + 1):
-            try:
-                with urllib.request.urlopen(req, timeout=30) as r:  # noqa: S310
-                    if r.status >= 400:
-                        dead.append(f"{url} -> {r.status}")
-                break
-            except urllib.error.HTTPError as e:
-                if e.code < 500 or attempt == attempts:
-                    dead.append(f"{url} -> {e}")
-                    break
-            except Exception as e:  # noqa: BLE001 - a dead link is a result, not a crash
-                if attempt == attempts:
-                    dead.append(f"{url} -> {e}")
-                    break
-            time.sleep(backoff * attempt)
+        target = hub_api_url(url) or url
+        try:
+            req = urllib.request.Request(
+                target, method="GET", headers={"User-Agent": "llgenie-link-check"})
+            with hub_open(req, timeout=timeout) as r:
+                if r.status >= 400:
+                    dead.append(f"{url} -> {r.status}")
+        except urllib.error.HTTPError as e:
+            dead.append(f"{url} -> {e}")
+        except Exception as e:  # noqa: BLE001 - a dead link is a result, not a crash
+            dead.append(f"{url} -> {e}")
     return dead
 
 

@@ -190,7 +190,8 @@ def test_link_check_retries_a_gateway_timeout_but_not_a_404(monkeypatch):
         return R()
 
     monkeypatch.setattr(sr.urllib.request, "urlopen", urlopen)
-    monkeypatch.setattr(sr.time, "sleep", lambda s: None)
+    # the retry ladder lives in the one Hub seam now (hf_auth.hub_open, issue #690)
+    monkeypatch.setattr(hf_auth.time, "sleep", lambda s: None)
 
     # When both links are checked
     dead = sr.check_links(["https://github.com/a/slow", "https://github.com/a/gone"])
@@ -198,6 +199,99 @@ def test_link_check_retries_a_gateway_timeout_but_not_a_404(monkeypatch):
     # Then the slow one answers on the third try and only the 404 is dead, after one try
     assert dead == ["https://github.com/a/gone -> HTTP Error 404: Not Found"]
     assert seen == {"https://github.com/a/slow": 3, "https://github.com/a/gone": 1}
+
+
+def test_check_links_asks_the_hub_api_not_the_model_page(monkeypatch):
+    """A Hub model page is asked at the Hub API with the token; every other link is
+    asked as written, with no token (issue #690: the page answers a token-bearing GET
+    with a 429)."""
+    import urllib.error
+
+    # Given a transport that records what it was asked, and a token to attach
+    seen = []
+
+    class R:
+        status = 200
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def urlopen(req, timeout):
+        seen.append((req.full_url, dict(req.header_items())))
+        return R()
+
+    monkeypatch.setattr(sr.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(hf_auth, "hf_token", lambda: "hf_testtoken")
+
+    # When a Hub model page, a GitHub repo and a Hub collection are checked
+    dead = sr.check_links(["https://huggingface.co/Qwen/Qwen3.8-27B",
+                           "https://github.com/Niko1221/Strata",
+                           "https://huggingface.co/collections/Qwen/qwen3"])
+
+    # Then the model page is asked at /api/models/... with the token, and the others as written
+    assert dead == []
+    assert [u for u, _ in seen] == ["https://huggingface.co/api/models/Qwen/Qwen3.8-27B",
+                                    "https://github.com/Niko1221/Strata",
+                                    "https://huggingface.co/collections/Qwen/qwen3"]
+    assert seen[0][1].get("Authorization") == "Bearer hf_testtoken"
+    assert "Authorization" not in seen[1][1] and "Authorization" not in seen[2][1]
+
+
+def test_check_links_waits_out_a_hub_429(monkeypatch):
+    """A Hub 429 is a throttle, not a verdict: the check waits the Hub's window and
+    retries instead of reporting the link dead (issue #690)."""
+    import email.message
+    import urllib.error
+
+    # Given a transport that is throttled once (the Hub states 3s left in its window),
+    # then answers 200
+    seen = []
+    slept = []
+    hdrs = email.message.Message()
+    hdrs["RateLimit"] = '"api";r=0;t=3'
+
+    class R:
+        status = 200
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def urlopen(req, timeout):
+        seen.append(req.full_url)
+        if len(seen) == 1:
+            raise urllib.error.HTTPError(req.full_url, 429, "Too Many Requests", hdrs, None)
+        return R()
+
+    monkeypatch.setattr(sr.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(hf_auth.time, "sleep", slept.append)
+    monkeypatch.setattr(hf_auth, "hf_token", lambda: "hf_testtoken")
+    hf_auth._rate_limited = 0
+
+    # When one Hub model page is checked
+    dead = sr.check_links(["https://huggingface.co/Qwen/Qwen3.8-27B"])
+
+    # Then it is retried after the stated wait and reported alive
+    assert dead == []
+    assert len(seen) == 2
+    assert slept == [3]
+
+
+def test_authorize_never_sends_the_token_to_a_hub_web_page(monkeypatch):
+    """The token goes to the Hub's endpoints, never to a Hub page — the page answers a
+    token-bearing GET with a 429 (measured 2026-10-26, issue #690)."""
+    import urllib.request
+
+    # Given a token and one request per URL shape
+    monkeypatch.setattr(hf_auth, "hf_token", lambda: "hf_testtoken")
+    urls = ["https://huggingface.co/Qwen/Qwen3.8-27B",
+            "https://huggingface.co/api/models/Qwen/Qwen3.8-27B",
+            "https://huggingface.co/Qwen/Qwen3.8-27B/resolve/main/x.gguf",
+            "https://raw.githubusercontent.com/andyholst/trending-local-llms/master/data/models.json"]
+
+    # When authorize is applied to each
+    headers = [hf_auth.authorize(urllib.request.Request(u)).header_items() for u in urls]
+
+    # Then only the API and the resolve endpoint carry it
+    assert [dict(h).get("Authorization") for h in headers] == [
+        None, "Bearer hf_testtoken", "Bearer hf_testtoken", None]
 
 
 def test_live_upstream_registry_is_the_live_readme_list():

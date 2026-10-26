@@ -43,9 +43,25 @@ def _hub_host(url: str) -> bool:
     return host == "huggingface.co" or host.endswith(".huggingface.co")
 
 
+#: The Hub endpoint paths that authenticate a token: the API (`/api/...`) and a file
+#: fetch (`/<repo>/resolve/...`). A Hub WEB PAGE is not one of them: measured
+#: 2026-10-26, the same model page answers 200 WITHOUT the token and 429 WITH it
+#: ("we had to rate limit your IP ... make sure you pass a HF_TOKEN"), because a
+#: token-bearing web-page GET is accounted against the API rate limit (issue #690).
+_HUB_ENDPOINT = re.compile(r"^/(?:api(?:/|$)|.*/resolve/)")
+
+
+def _hub_endpoint(url: str) -> bool:
+    """True when the URL is a Hub endpoint that authenticates a token, not a web page."""
+    return _hub_host(url) and bool(_HUB_ENDPOINT.match(urllib.parse.urlparse(url).path or "/"))
+
+
 def authorize(req: urllib.request.Request) -> urllib.request.Request:
-    """Attach `Authorization: Bearer` when the URL is the Hub and a token exists."""
-    if _hub_host(req.full_url):
+    """Attach `Authorization: *** when the URL is a Hub ENDPOINT and a token exists.
+
+    Never a Hub web page: the token there is what the Hub answers with a 429 (issue #690).
+    """
+    if _hub_endpoint(req.full_url):
         tok = hf_token()
         if tok:
             req.add_header("Authorization", f"Bearer {tok}")
