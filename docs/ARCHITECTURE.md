@@ -126,8 +126,8 @@ picks which start script or image to run.
 
 ## Repository layout
 
-The tree is 1339 tracked files: `data/` 6, `skills/` 17 (16 engine directories plus their
-`README.md`), `containers/` 55, `tests/` 151, `openspec/` 802 and `agent-wiki/` 172.
+The tree is 1370 tracked files: `data/` 6, `skills/` 17 (16 engine directories plus their
+`README.md`), `containers/` 55, `tests/` 153, `openspec/` 825 and `agent-wiki/` 178.
 
 | Path | Role |
 |---|---|
@@ -141,9 +141,9 @@ The tree is 1339 tracked files: `data/` 6, `skills/` 17 (16 engine directories p
 | `containers/ci-variant/` | the CUDA-toolkit variant-build image (`make test-variant-image`) with its own `requirements.txt` / `requirements-dev.txt` |
 | `data/` | vendored registry, quant catalog, strata model map, engine-skill gap, unsupported engines, trending README |
 | `docs/` | this document |
-| `openspec/` | the change record: `config.yaml`, its `Dockerfile`, and `changes/<name>/{proposal.md,specs/**,tasks.md}` (206 changes) |
-| `agent-wiki/` | dated work record (172 entries), one per change, referencing its issue and PR |
-| `tests/` | 123 `tests/test_*.py` files, fixtures, shared test helpers (`tests/top_tier_dry_run.py`) and the live end-to-end gates, discovered by `scripts/unit_tests.py` |
+| `openspec/` | the change record: `config.yaml`, its `Dockerfile`, and `changes/<name>/{proposal.md,specs/**,tasks.md}` (212 changes) |
+| `agent-wiki/` | dated work record (178 entries), one per change, referencing its issue and PR |
+| `tests/` | 125 `tests/test_*.py` files, fixtures, shared test helpers (`tests/top_tier_dry_run.py`) and the live end-to-end gates, discovered by `scripts/unit_tests.py` |
 | `docker-compose-files/` | the compose definitions for the OpenSpec CLI (`openspec.yaml`) and the test image (`test.yaml`) |
 | `tools/` | pip-compile inputs (`requirements.in`, `requirements-dev.in`) and the venv targets |
 | `.github/workflows/` | CI (`ci.yml`, `pipeline.yml`, `published.yml`, `publish-agent-image.yml`, `auto-merge.yml`), the on-demand engine sweep (`engine-build.yml`) and one workflow per bot |
@@ -159,7 +159,7 @@ group by what they exist for:
 | Product path | `llgenie_serve.py` (launcher, model scan, serve), `model_engine_pick.py` (`recommend`, `rank_models`, `rank_engines`, `offer`), `trend_list_matrix.py`, `detect_server.py`, `install_engine_launchers.py` (install plan, start scripts, `ensure_native`), `engine_runner.py`, `engine_skills.py`, `engine_image.py`, `native_build_env.py`, `serve_variant.py`, `ensure_user_path.py`, `hf_auth.py`, `hf_download.py`, `download_test_model.py`, `strata_models.py`, `sync_registry.py`, `gen_trending_quant_catalog.py`, `registry_keys.py`, `engine_skill_gap.py`, `engine_params_derive.py`, `engine_params_review.py` (the documentation review of a bump's derived params: `brief`, `parse_proposals`, `validate`, `apply_accepted`, `section`), `engine_deps.py`, `engine_bump.py`, `engine_bump_sync.py`, `engine_bump_rebase.py`, `engine_smoke.py`, `env_seam.py`, `loopback_server.py` |
 | Structural gates | `check_bash.py`, `check_python.py`, `check_docs.py`, `check_wiring.py`, `check_workflows.py`, `check_dispatch_forms.py`, `check_pr_authors.py`, `check_pr_hygiene.py`, `check_secret_output.py`, `check_openspec_tasks.py`, `check_agent_skills.py` (a bot leg preloads its project skill, the skill exists and carries `Inputs`/`Output`/`Rules`, the prompt stays a pointer, and a skill list that comes from a Makefile variable is expanded before it is read), `engine_source_guard.py` (a cell that says `prebuilt: false` must actually compile), `engine_gate_report.py` (the per-cell census behind `make engine-gate-report`: `flag-proven`, `device-exempt` with its `DEVICE_ONLY` reason, or `disabled`), `secret_scan.py`, `secret_scan_self_test.py`, `scan_agents_md.py`, `module_name_guard.py`, `lint_linefeeds.py`, `unit_tests.py` (the suite aggregator) |
 | CI entrypoints | `ci_engines.py` (`make ci-engines`), `ci_health.py`, `ci_images.py` (test/OpenSpec/agent image refs), `loop_harness.py` (`make loop`) |
-| Bots and automation | `agent_model_pin.py`, `agent_shell_keys_check.py`, `architecture_bot.py`, `auto_merge.py`, `bot_claims.py`, `code_review.py`, `fix_bot_report.py`, `fix_bot_sweep.py`, `hermes_skills_register.py` (writes the checkout's skill dir into Hermes's `skills.external_dirs` as a real YAML list, and reads it back), `hermes_smoke.py`, `issue_cleaner.py`, `issue_dedup.py`, `issue_implementer.py`, `issue_refiner.py`, `nerve_profile_check.py` (fails the agent build when a nerve setting targets a module the chosen profile does not register), `queued_run_alarm.py`, `rebase_bot_sweep.py`, `require_env.py`, `resolve_run_pr.py` (resolves the PR a finished run belongs to; `--allow-none` is the fix-bot's answer for a PR that already landed), `run_failure_reactor.py`, `scrub_log.py`, `verify_closure.py`, `web_evidence.py`, `fetch_smoke.py`, `worktree_prune.py` |
+| Bots and automation | `agent_model_pin.py`, `agent_shell_keys_check.py`, `architecture_bot.py`, `auto_merge.py`, `bot_claims.py`, `code_review.py`, `fix_bot_report.py`, `fix_bot_sweep.py`, `hermes_skills_register.py` (writes the checkout's skill dir into Hermes's `skills.external_dirs` as a real YAML list, and reads it back), `hermes_smoke.py`, `issue_cleaner.py`, `issue_dedup.py`, `issue_implementer.py`, `issue_refiner.py` (a `DRY=1` pick prints the issue it chose and writes nothing into the checkout it previews, issue #352), `nerve_profile_check.py` (fails the agent build when a nerve setting targets a module the chosen profile does not register), `queued_run_alarm.py`, `rebase_bot_sweep.py`, `require_env.py`, `resolve_run_pr.py` (resolves the PR a finished run belongs to; `--allow-none` is the fix-bot's answer for a PR that already landed), `run_failure_reactor.py`, `scrub_log.py`, `verify_closure.py`, `web_evidence.py`, `fetch_smoke.py`, `worktree_prune.py` |
 
 Two more pieces of `scripts/` are not Python: `scripts/tools/llgenie_harness.py` (the
 harness helper the loop uses) and the shell legs the bot workflows call —
@@ -171,8 +171,13 @@ time, then proves its settings against the profile it selected), `load_token_to_
 `rebase_bot.sh`.
 
 `scripts/module_name_guard.py` is the renamed-module guard: the CLI is
-`scripts/llgenie_serve.py`, and its old spelling is refused in every live text file, this
-doc included (issues #251, #573).
+`scripts/llgenie_serve.py`, and its old spelling is refused in every LIVE file, this doc
+included (issues #251, #573). "Live" is the tree walk minus the checkout's own `.gitignore`
+rules (`live_files()` / `is_ignored()`), because a guard that read everything judged files git
+never tracks — a bot's git-ignored working file reddened the local `make loop` while CI, on a
+fresh checkout, stayed green (issue #350). The matcher is deliberately minimal (a `dir/`
+prefix, a `*.ext` name, a literal path) and works where `git ls-files` does not, since the unit
+suite runs in the test image with `.git` pointing outside the mount.
 
 ## Engine images
 
@@ -212,6 +217,18 @@ their spellings, an engine documenting no flags still needs one answer from the 
 trio, and at least one probed flag must exit 0 on every cell. One working spelling no longer
 vouches for a dead one, so a release that drops a whole family reds on its own bump PR
 instead of at a user's terminal.
+
+The `detect` command is a checked claim too (issues #616, #605). `engine_runner` runs every
+step under `set -o pipefail`, so a reader that exits early (`grep -q`, `| head -1`) makes the
+writer take SIGPIPE and the pipeline report 141 — which declared a perfectly healthy
+`strata`/`rocm` binary "missing". `tests/test_engine_detect_safety.py` reads the COMMITTED
+params rather than the skill text, so a regeneration that drops the fix is caught as well: no
+cell's `detect` may pipe into an early-exiting reader, every cell that declares a binary must
+actually execute it (a `detect` that echoes the pin proves the pin, not the installation), and
+`strata`'s `detect` is `{binary} --version` against a flag its `binaries.json` documents — no
+pipe at all. The v0.2.4 pin (PR #605, `v0.2.4@0303f658`) is what exposed both halves: that
+CLI answers `--version` and `--help`, so the probe needs no device/policy exemption, and
+`tests/test_engine_skills_pipefail.py` holds the no-pipe form.
 
 The device-only exemption is keyed by the CELL, not by the binary alone (issues #625, #632,
 #634/#637). `DEVICE_ONLY` is a dict keyed `(engine, variant)`, each entry carrying the
@@ -349,7 +366,17 @@ trend matrix lives under `tests/fixtures/`:
 - `data/trending-quant-catalog.json` is generated from the real registry and the live Hub
   (`make sync-quant-catalog`) and checked by `make check-quant-catalog`.
 - `data/strata_models.json` is written from Strata's `setup.py` at the skill's pinned
-  commit (`make sync-strata-models`, checked by `make check-strata-models`).
+  commit (`make sync-strata-models`, checked by `make check-strata-models`; the pin is
+  `v0.2.4@0303f658` today, PR #605). A family is either Hub-hosted — `repo` + `revision` +
+  `subdir` and no `hub` key — or explicitly not-Hub: `hub: false` with no repo, never both
+  and never neither. `check` runs `family_shape_problems()` first, so a malformed map is
+  named by family and defect instead of surfacing as a 100-line diff; WHICH families are
+  not-Hub is the pinned `setup.py`'s decision (`nvfp4` at v0.2.4), never a list in a test.
+  `tests/test_strata_download.py` (the `make test-strata-live` tier) derives the expected
+  not-Hub set from the pin it just fetched and asserts `strata_files` REFUSES such a family
+  by name instead of building a URL from nothing, while `tests/test_strata_missing_hf.py`
+  locks the SHAPE hermetically — it used to assert the v0.1.43 contents, so it reddened the
+  *correct* v0.2.4 bump on `nvfp4` (issue #643, PR #605).
 - `data/engine-skill-gap.json` and `data/unsupported-engines.json` are the shipped /
   known-unsupported / new-and-unresolved engine picture (`make render-engine-skill-gap`,
   `make check-engine-skill-gap`; `make engine-skill-gap`, `make engine-skill-gap-md`,
@@ -370,7 +397,11 @@ and run `make test-published-engine` on it), and `linux` / `macos`, which call
 `make ci-<job>` target — `lint` (`ci-lint`), `unit` (`ci-unit`), `install` (`ci-install`),
 `agents-read` (`ci-agents-read`), `openspec` (`ci-openspec`), `cpu-health` (`ci-cpu-health`)
 and `top-tier` (`ci-top-tier`) — the same jobs and asserts on both OSes; only the runner
-label differs. `linux-published` calls `published.yml`, whose `install-published` job runs
+label differs. `ci-openspec` runs `make openspec-validate-all` and then
+`make openspec-tasks-check`: the structure of EVERY active change is validated, because the
+job used to name one hardcoded change (`NAME=ci-pipeline`), so the change a commit actually
+touched could land without its structure ever being checked (issue #156).
+`linux-published` calls `published.yml`, whose `install-published` job runs
 `make ci-engines BACKEND=<b>` for `cpu`, `cuda`, `rocm` and `vulkan` against the images the
 `engine-image` jobs published.
 
@@ -472,6 +503,16 @@ read without deciding anything — `make workflows-report`, `make wiring-report`
 `make engine-source-report`, `make dispatch-forms-report` — so a red gate can be read
 before it is edited.
 
+`make check-wiring` decides both directions from the same file. A recorded exception
+(`tests/fixtures/host-only-wiring.json`) is stale in one direction once CI reaches the
+document, and stale in the OTHER once the target's `##` help line stops claiming CI coverage:
+the `targets` half of that fixture exists only for a help line that was corrected instead of
+wired, so an entry whose claim survived — or vanished — is dead prose that hides the next
+drift, and the gate names it (`test-install-ci`'s entry said its help line no longer claimed
+the pipelines ran it while the help line still did, issue #239; the rule is locked by
+`tests/test_wiring.py`, issue #657). The gate's `json` subcommand emits `reachable`,
+`named_by_target` and `workflow_targets` as sorted lists, never a `set` (issue #395).
+
 ## Bots
 
 Every bot is a workflow with its own cron slot, its own `concurrency:` group, an
@@ -547,9 +588,10 @@ Every leg is split into ordinary make targets, so a run can be reproduced by han
 `make issue-bot-triage` (`issue-triage` skill -> `triage.md`), `make issue-bot-verdict`
 (applies the verdict), `make issue-bot-changed` (did the tree actually change) and
 `make issue-bot-open-pr` (the PR, refusing a body with a missing part); `make issue-bot-image`
-is that leg's image alias. The refiner is `make issue-refiner-pick` / `make issue-refiner-apply`,
-the dedupe sweep `make issue-dedup-pick` / `make issue-dedup-apply`, the rebase leg
-`make rebase-bot-sweep` / `make rebase-bot` / `make rebase-bot-agent` /
+is that leg's image alias. The refiner is `make issue-refiner-pick` / `make issue-refiner-apply`
+(its `DRY=1` pick prints the issue it chose and writes nothing into the checkout it previews,
+issue #352), the dedupe sweep `make issue-dedup-pick` / `make issue-dedup-apply`, the rebase
+leg `make rebase-bot-sweep` / `make rebase-bot` / `make rebase-bot-agent` /
 `make rebase-bot-abort`, the fix leg `make fix-bot-sweep` / `make fix-loop` /
 `make fix-loop-image` / `make fix-bot-report`, and the review bot `make code-review-scan` /
 `make code-review-file`. `make bot-sync-main` resets a new branch to latest `main` before
@@ -636,7 +678,7 @@ still a hard failure.
 
 ## Tests and gates
 
-`make test-unit` discovers every `tests/test_*.py` through `scripts/unit_tests.py` (123
+`make test-unit` discovers every `tests/test_*.py` through `scripts/unit_tests.py` (125
 files today); a file is in the gate the moment it exists, and an exclusion is a dated entry
 in `tests/fixtures/unit-suite.json`. `make test` runs the named `groups.fast` subset from
 the same roster rather than a hand-kept list of files. The live gates are separate targets
@@ -654,11 +696,14 @@ tensorfold) in its own environment; every other host tests those engines in thei
 `make loop` (`scripts/loop_harness.py`) runs the same stages, in this order, and fails
 closed: `image` (`make test-image`), `download` (`make download-test-model`), `lint`,
 `agents-read`, `unit`, `install` (`make test-install-host`), `health`, `top-tier`,
-`top-tier-serve`, `test`, `openspec` (`make openspec-validate NAME=<change>`),
-`openspec-tasks` (`make openspec-tasks-check`) and `clean` (`make test-clean`). The lint
-stage is linefeed lint (`make lint`, `scripts/lint_linefeeds.py`); `make lint-fix` appends
-the missing trailing newline reproducibly. The test environment is `make test-env` (Linux
-pulls the `llgenie/test` image; macOS builds the 3.11 gguf venv and puts `uv` on `PATH`).
+`top-tier-serve`, `test`, `openspec`, `openspec-tasks` (`make openspec-tasks-check`) and
+`clean` (`make test-clean`). The `openspec` stage validates EVERY active change
+(`make openspec-validate-all`) unless `NAME=<change>` names one, in which case it validates
+that one; the old default was a hardcoded change name, so the change a commit touched was
+never the one checked (issue #156, locked by `tests/test_openspec_gate.py`). The lint stage
+is linefeed lint (`make lint`, `scripts/lint_linefeeds.py`); `make lint-fix` appends the
+missing trailing newline reproducibly. The test environment is `make test-env` (Linux pulls
+the `llgenie/test` image; macOS builds the 3.11 gguf venv and puts `uv` on `PATH`).
 
 The engine seams are locked hermetically, without docker and without a model in the loop:
 `tests/test_engine_params_review.py` (a documented per-arch flag is accepted and applied to
@@ -670,6 +715,9 @@ per-file cap inside the total budget, reports how many files it omitted, and ran
 `docs/BUILDING.md` ahead of prose — issue #597),
 `tests/test_engine_binary_flags.py` (every flag is probed, one working spelling never
 vouches for a dead one, and the families decide),
+`tests/test_engine_detect_safety.py` (no committed cell's `detect` pipes into an
+early-exiting reader under `set -o pipefail`, every cell with a binary actually runs it, and
+`strata`'s detect is a documented `--version` with no pipe — issues #616, #605),
 `tests/test_engine_gate_strict.py` (no flag answered is red, the device exemption is a named
 list with a reason, and a version must look like a version — `0.0.0` and a log stamp are
 not one),
@@ -684,7 +732,13 @@ step only),
 `tests/test_engine_source_guard.py` (a `prebuilt: false` cell with no build is a finding, and
 a tracked exception is reported rather than failing the gate),
 `tests/test_agent_legs_quoting.py` (every scrubbed leg survives `make -n` with both quotes
-balanced and its whole `-s` list intact), and
+balanced and its whole `-s` list intact),
+`tests/test_wiring.py` (a target CI never runs needs a dated decision and that decision goes
+stale both ways, a help line that claims CI coverage is guarded, the `json` subcommand is
+valid JSON with its three keys, and every real target is declared `.PHONY` — issues #239,
+#392, #395, #657),
+`tests/test_openspec_gate.py` (`ci-openspec` runs the all-changes gate with no hardcoded
+name, and the loop does the same unless `NAME` names one — issue #156), and
 `tests/test_worktree_prune.py` (the detached-worktree match by HEAD, and a delete refusal
 that splits into a one-shot retry or a keep).
 
@@ -728,8 +782,10 @@ code and the PR all trace back to it. Work happens in its own git worktree cut f
 (`make openspec-new NAME=<name>`, `make openspec-validate NAME=<name>`), each task is ticked
 when verified (`make openspec-tasks-check` asserts none is left unchecked), the README and an
 `agent-wiki/` entry land in the same commit, and the PR targets
-`asimov-agent/llgenie:main` and closes the issue. The agent drives the PR green and stops:
-`.github/workflows/auto-merge.yml` squash-merges it once the run is green and the PR is
-conflict-free. The agent never runs `gh pr merge` and never pushes to `main`; a reviewer
-holds a PR with `do-not-merge`, and `make worktree-prune` removes the worktree and branch
-after the merge.
+`asimov-agent/llgenie:main` and closes the issue. `make openspec-validate-all` is the gate
+the loop and CI run — it checks the STRUCTURE of every active change, so the change a commit
+introduces cannot slip past a name someone forgot to update (issue #156). The agent drives
+the PR green and stops: `.github/workflows/auto-merge.yml` squash-merges it once the run is
+green and the PR is conflict-free. The agent never runs `gh pr merge` and never pushes to
+`main`; a reviewer holds a PR with `do-not-merge`, and `make worktree-prune` removes the
+worktree and branch after the merge.
