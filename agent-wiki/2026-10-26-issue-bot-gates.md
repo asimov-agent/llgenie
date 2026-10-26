@@ -53,3 +53,17 @@ gate step has no earlier `make test-image`/`make test-env`.
 No Docker daemon was reachable on this host, so the container-only gates (`test-unit` inside
 `llgenie/test:latest`, `make openspec-validate-all`) were not run here; the workflow's own CI runs
 them on the PR.
+
+## Follow-up (CI run 40330321787, `linux / openspec` + `macos / openspec`)
+
+`make openspec-validate-all` failed: the requirement *"the gate is wired into the pipeline it
+protects"* carried no `#### Scenario:`, and the claim in it — that `ci-unit` calls both
+`make issue-bot-gates` and `make issue-bot-gates-check` — was asserted by nothing: dropping either
+line from `ci-unit` left every test green while the runner became dead code. `check` now reports a
+target `ci-unit` no longer calls, and
+`tests/test_issue_bot_gates.py::test_a_runner_ci_unit_stopped_calling_is_a_finding` locks it. Both
+are the same defect from the two directions AGENTS.md names: a scenario with no test, and a test with
+no scenario.
+
+Verified after the fix (in `llgenie/test:latest`): `make openspec-validate NAME=issue-bot-gates` ->
+valid; `make openspec-validate-all` -> 213 passed; `tests/test_issue_bot_gates.py` -> 10 passed.

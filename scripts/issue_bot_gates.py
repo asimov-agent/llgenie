@@ -86,7 +86,8 @@ _MAKE_CALL = re.compile(r"(?:\$\(MAKE\)|\bmake)\s+(?:-(?!C\s)\S+\s+)*([a-z0-9][a
 #: The guard's OWN targets. `ci-unit` runs them too (that is how the check itself stays green), and
 #: they are not gates over the change: one runs FAST_GATES, the other asserts this file's wiring.
 #: Classifying them as fast or deferred would be a category error - they ARE the guard.
-SELF_TARGETS = frozenset({GATE_TARGET, "issue-bot-gates-check"})
+GATE_CHECK = "issue-bot-gates-check"
+SELF_TARGETS = frozenset({GATE_TARGET, GATE_CHECK})
 
 
 def _recipes(text: str) -> dict[str, str]:
@@ -216,6 +217,13 @@ def check(root: Path = REPO) -> list[str]:
         if not any(gate in targets for targets in ci_jobs.values()):
             errors.append(f"no `ci-*` job runs `make {gate}`: a gate the pipeline never reaches "
                           f"proves nothing (add it to ci-lint/ci-unit)")
+
+    # 2b. `ci-unit` reaches both the runner and its own check: a target nobody calls is dead code
+    #     that reports nothing, and the bot's gate would then be checked by no pipeline job at all.
+    for target in (GATE_TARGET, GATE_CHECK):
+        if target not in unit:
+            errors.append(f"`ci-unit` does not run `make {target}`: the bot's gate (or the check that "
+                          f"keeps it honest) is reached by no pipeline job, so it can rot unnoticed")
 
     # 3. The target still runs this script, and its help line says what it does.
     recipe = recipes.get(GATE_TARGET)

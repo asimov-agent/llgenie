@@ -118,3 +118,11 @@ its own check can become dead code.
 WHEN the Makefile is read
 THEN `ci-unit` calls both targets and `make issue-bot-gates-check` exits 0 on the real tree
 (otherwise `check-wiring` and `check-docs` fail the same job).
+
+#### Scenario: a target `ci-unit` stopped calling is a finding
+
+- **Given** a checkout whose `ci-unit` recipe no longer calls `make issue-bot-gates` (or
+  `make issue-bot-gates-check`)
+- **When** the static check runs
+- **Then** it fails, naming the target the pipeline no longer reaches
+- **Test:** `tests/test_issue_bot_gates.py::test_a_runner_ci_unit_stopped_calling_is_a_finding`

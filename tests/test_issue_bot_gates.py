@@ -100,6 +100,21 @@ def test_the_target_runs_the_gate_script():
     assert "scripts/issue_bot_gates.py run" in out.stdout
 
 
+def test_a_runner_ci_unit_stopped_calling_is_a_finding(tmp_path):
+    """The runner and its own check must be reached from `ci-unit`, or they are dead code."""
+    # Given checkouts whose ci-unit no longer calls one of the guard's own targets
+    for target in ("issue-bot-gates", "issue-bot-gates-check"):
+        text = (REPO / "Makefile").read_text().replace(f"\t$(MAKE) {target}\n", "", 1)
+        root = _real_tree(tmp_path / target)
+        (root / "Makefile").write_text(text)
+
+        # When  the static check runs
+        errors = issue_bot_gates.check(root)
+
+        # Then  it names the target `ci-unit` dropped
+        assert any(f"`make {target}`" in e and "ci-unit" in e for e in errors), (target, errors)
+
+
 def test_a_new_ci_unit_gate_nobody_classified_reds_the_check(tmp_path):
     """The requested lock: adding a gate to ci-unit must force a fast/deferred decision."""
     # Given a checkout whose ci-unit runs one more gate than the guard classifies
