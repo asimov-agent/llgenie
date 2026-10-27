@@ -57,16 +57,24 @@ previews). Nothing is published without drift, and the bot never merges.
    all of it (launcher, start scripts, shims, engine containers; `PURGE_IMAGES=1` also drops
    the images) and `make test-uninstalled` proves nothing of ours is left behind.
 4. **Trend list** — `scripts/model_engine_pick.py` reads `data/models.json`, filters models
-   to the ones whose VRAM tier fits this card, and ranks them. `recommend` is what plain
-   `llgenie` shows: the upstream README "Most loved" order, with a stated reason on rows
+   to the ones whose VRAM tier fits this card (`trend_list` also applies the store's own
+   `system_ram_min` floor when it states one, so a host without the RAM is never shown a
+   row), and ranks them. `recommend` is what plain `llgenie` shows: the upstream README
+   "Most loved" order, with a stated reason on rows
    that cannot be served here; `rank_models` keeps that README order for models that have a
    runnable engine here, while each row's engines come from `rank_engines`, which orders
    them by a figure measured on this host's kind of hardware and card class first, so the
    engine list is what the registry measures for this machine, not a hand-kept list.
-   `offer` is the interactive hardware -> trend list -> model -> engines -> engine walk.
+   A measurement is not a download: `engine_has_a_plan` drops an engine the committed HF
+   class table (`data/trending-quant-catalog.json`) has no cell for, because the table is
+   generated with the store and an engine without a plan fails at download time instead of
+   at pick time (issue #750); a model the table does not cover yet keeps live resolution,
+   so a freshly synced store is still served. `offer` is the interactive hardware -> trend
+   list -> model -> engines -> engine walk.
    `scripts/trend_list_matrix.py` renders the same list per `(arch, vram, ram)` into
    `tests/fixtures/trend-list-matrix.json`, which `make check-trend-list-matrix` guards and
-   `llgenie --matrix` reproduces for one `(vram, ram, arch)`.
+   `llgenie --matrix` reproduces for one `(vram, ram, arch)`; `trend_rows` asks `trend_list`
+   for the RAM gate too, so it never renders a row `matrix()` did not consider.
 5. **Engine skill** — `skills/engines/<id>/SKILL.md` is the one engine description: install
    steps, `container:` blocks per backend (`apt`, `cmake`, base image), the `detect`
    command, and the native `metal` path. `scripts/engine_skills.py` is the generic loader and
@@ -135,9 +143,9 @@ picks which start script or image to run.
 
 ## Repository layout
 
-The tree is 1544 tracked files: `data/` 9, `skills/` 17 (16 engine directories plus their
-`README.md`), `containers/` 59, `tests/` 169, `scripts/` 99, `openspec/` 925, `agent-wiki/`
-204 and `docs/` 7.
+The tree is 1550 tracked files: `data/` 9, `skills/` 17 (16 engine directories plus their
+`README.md`), `containers/` 59, `tests/` 169, `scripts/` 99, `openspec/` 929, `agent-wiki/`
+206 and `docs/` 7.
 
 | Path | Role |
 |---|---|
@@ -152,10 +160,10 @@ The tree is 1544 tracked files: `data/` 9, `skills/` 17 (16 engine directories p
 | `containers/ci-variant/` | the CUDA-toolkit variant-build image (`make test-variant-image`) with its own `requirements.txt` / `requirements-dev.txt` |
 | `data/` | vendored registry, the vendored model contract (schema + prose) it is validated against, quant catalog, strata model map, engine-skill gap, unsupported engines, trending README, and the scan failure/issue policy |
 | `docs/` | `ARCHITECTURE.md` (this map), `ENGINES.md` (per-engine build/serve), `BOTS.md` (automation, crons, credentials), `SCANS.md` (the scan pipeline), `SCANNERS.md` (scanner images), `SECURITY.md` (supply-chain pins), `RENOVATE.md` (dependency updates) |
-| `openspec/` | the change record: `config.yaml`, its `Dockerfile`, and `changes/<name>/{proposal.md,specs/**,tasks.md}` (237 changes) |
-| `agent-wiki/` | dated work record (204 entries), one per change, referencing its issue and PR |
+| `openspec/` | the change record: `config.yaml`, its `Dockerfile`, and `changes/<name>/{proposal.md,specs/**,tasks.md}` (238 changes) |
+| `agent-wiki/` | dated work record (206 entries), one per change, referencing its issue and PR |
 | `CHANGES.md` | the index of those notes, newest first; a note that is missing from it fails `make check-docs` (issue #678) |
-| `tests/` | 141 `tests/test_*.py` files, fixtures, shared test helpers (`tests/top_tier_dry_run.py`) and the live end-to-end gates, discovered by `scripts/unit_tests.py` |
+| `tests/` | 141 `tests/test_*.py` files, fixtures, shared test helpers (`tests/top_tier_dry_run.py` for the live Hub dry run, `tests/hub_probe.py` for a probe's verdict on one Hub file) and the live end-to-end gates, discovered by `scripts/unit_tests.py` |
 | `docker-compose-files/` | the compose definitions for the OpenSpec CLI (`openspec.yaml`) and the test image (`test.yaml`) |
 | `tools/` | pip-compile inputs (`requirements.in`, `requirements-dev.in`), the generated `security-floors.in` constraint file, and the venv targets |
 | `renovate.json` | the dependency / base-image update config Renovate acts on; its properties are a gate (`make check-renovate`), not a preference |
@@ -169,7 +177,7 @@ group by what they exist for:
 
 | Group | Modules |
 |---|---|
-| Product path | `llgenie_serve.py` (launcher, model scan, serve), `model_engine_pick.py` (`recommend`, `rank_models`, `rank_engines`, `offer`), `trend_list_matrix.py`, `detect_server.py`, `install_engine_launchers.py` (install plan, start scripts, `ensure_native`), `engine_runner.py`, `engine_skills.py`, `engine_image.py`, `native_build_env.py`, `serve_variant.py`, `ensure_user_path.py`, `hf_auth.py` (the ONE Hub request policy: token on Hub endpoints only, 429 waits the `RateLimit` window), `hf_download.py`, `download_test_model.py`, `strata_models.py`, `sync_registry.py` (vendor the store + its README + its contract, and `check` the store against that contract; the `FORMAT_VOCAB` the normaliser drops non-format names by), `gen_trending_quant_catalog.py`, `registry_keys.py` (additive-only guard; a format is compared by its vocabulary spelling), `engine_skill_gap.py`, `engine_params_derive.py`, `engine_params_review.py` (the documentation review of a bump's derived params: `brief`, `parse_proposals`, `validate`, `apply_accepted`, `section`), `engine_deps.py`, `engine_bump.py`, `engine_bump_sync.py`, `engine_bump_rebase.py`, `engine_smoke.py`, `env_seam.py`, `loopback_server.py` |
+| Product path | `llgenie_serve.py` (launcher, model scan, serve), `model_engine_pick.py` (`recommend`, `rank_models`, `rank_engines`, `engine_has_a_plan` — the catalog cell an engine must have before it is offered — `offer`), `trend_list_matrix.py` (`trend_rows`), `detect_server.py`, `install_engine_launchers.py` (install plan, start scripts, `ensure_native`), `engine_runner.py`, `engine_skills.py`, `engine_image.py`, `native_build_env.py`, `serve_variant.py`, `ensure_user_path.py`, `hf_auth.py` (the ONE Hub request policy: token on Hub endpoints only, 429 waits the `RateLimit` window), `hf_download.py`, `download_test_model.py`, `strata_models.py`, `sync_registry.py` (vendor the store + its README + its contract, and `check` the store against that contract; the `FORMAT_VOCAB` the normaliser drops non-format names by), `gen_trending_quant_catalog.py` (`_repos_for` applies `plan_download()`'s own repo rule to every planned cell), `registry_keys.py` (additive-only guard; a format is compared by its vocabulary spelling), `engine_skill_gap.py`, `engine_params_derive.py`, `engine_params_review.py` (the documentation review of a bump's derived params: `brief`, `parse_proposals`, `validate`, `apply_accepted`, `section`), `engine_deps.py`, `engine_bump.py`, `engine_bump_sync.py`, `engine_bump_rebase.py`, `engine_smoke.py`, `env_seam.py`, `loopback_server.py` |
 | Security pipeline | `security_scan.py` (`ref`, `sbom`, `scan`, `all`, `verdict`, `findings`, `check` — the ONE place a scanner is invoked, from the image `containers/scanners/digests.json` pins), `scanner_image.py` (`digest`, `ref`, `build`, `test`, `publish`, `write`, `check` for one immutable image per scanner), `security_issues.py` (findings -> tagged issues, keyed by `<!-- security-finding: <tool>:<advisory>:<package> -->`, updated in place), `security_bumps.py` (derive the floor per package, write `tools/security-floors.in`, regenerate the compiled pins, open ONE PR that closes the issues it fixes), `security_bot.py` (`select`, `plan`, `check` — one `auto-fixable` issue -> one green PR, or a comment when it cannot place the finding), `check_renovate.py`, `pin_actions.py` (`check`, `report`, `update`) |
 | Structural gates | `check_bash.py`, `check_python.py`, `check_docs.py` (user-facing target documented, README stays a user guide, every `agent-wiki/` note names an issue/PR and is indexed in `CHANGES.md`), `check_wiring.py`, `check_workflows.py`, `check_dispatch_forms.py`, `check_pr_authors.py`, `check_pr_hygiene.py`, `check_issue_body.py` (the issue-body gate over `issue_body.PRODUCERS`), `check_secret_output.py`, `check_openspec_tasks.py`, `check_agent_skills.py` (a bot leg preloads its project skill, the skill exists and carries `Inputs`/`Output`/`Rules`, the prompt stays a pointer, and a skill list that comes from a Makefile variable is expanded before it is read), `issue_bot_gates.py` (the FAST gates the issue-bot re-runs before it pushes, plus the static lock on which `ci-unit` gates are fast and where the step sits), `engine_source_guard.py` (a cell that says `prebuilt: false` must actually compile), `engine_gate_report.py` (the per-cell census behind `make engine-gate-report`: `flag-proven`, `device-exempt` with its `DEVICE_ONLY` reason, or `disabled`), `secret_scan.py`, `secret_scan_self_test.py`, `scan_agents_md.py`, `module_name_guard.py`, `lint_linefeeds.py` (trailing newline **and** a blank line before every markdown heading), `unit_tests.py` (the suite aggregator) |
 | CI entrypoints | `ci_engines.py` (`make ci-engines`), `ci_health.py`, `ci_images.py` (test/OpenSpec/agent image refs), `loop_harness.py` (`make loop`) |
@@ -488,9 +496,15 @@ repository depends on:
 `data/` holds nine files, each generated or vendored, each with a make gate; the rendered
 trend matrix lives under `tests/fixtures/`:
 
-- `data/models.json` is a **verbatim** copy of trending-local-llms' registry, replaced
-  wholesale by the weekly `registry-sync` PR (`make sync-registry`, which writes only when
-  the upstream copy changed). `scripts/registry_keys.py` (`make check-registry-keys`, part
+- `data/models.json` is a copy of trending-local-llms' registry, **normalised on the way in**
+  (issue #687) and replaced wholesale by the weekly `registry-sync` PR (`make sync-registry`,
+  which writes only when the upstream copy changed). `normalise()` keeps every upstream row —
+  upstream's `models[]` holds distinct entities (a base model, a finetune, an MLX conversion, a
+  run on one box) and its README lists each, so rows are never folded — restricts `formats` to
+  `FORMAT_VOCAB`, states the format a row's own repo/id names when nothing in the vocabulary is
+  left (upstream started writing model names into `formats[].name`, which no consumer can act
+  on), and drops a duplicated row id; every departure is printed by the sync. The 2026-10-27
+  store carries 112 models. `scripts/registry_keys.py` (`make check-registry-keys`, part
   of `make check-registry`) fails a sync that loses a model, a key, an engine with a
   measurement for that model, a list entry, a stated footprint or a tracked post — the
   vendored copy is additive only. Identity is what the PRODUCT consumes (issue #668): a
@@ -524,10 +538,16 @@ trend matrix lives under `tests/fixtures/`:
   silently skipped. The contract leaves `formats[].name` a free string, which is why the
   format rule above is the guard's own, not the schema's.
 - `data/trending-quant-catalog.json` is generated from the real registry and the live Hub
-  (`make sync-quant-catalog`) and checked by `make check-quant-catalog`. The check is only a
-  gate if its exit status reaches `make`, and it does (issue #701): the generator's
-  `__main__` raises `SystemExit(main())`, so a committed table that differs from what the
-  generator produces fails `ci-unit` and the `registry-sync` job instead of printing
+  (`make sync-quant-catalog`) and checked by `make check-quant-catalog`. Every planned cell
+  obeys `plan_download()`'s own repo rule (`_repos_for`): an `mlx-safetensors` cell comes only
+  from a repo whose name marks MLX, a `safetensors` cell only from one that does not, and an
+  own-checkpoint engine gets a cell only for the family it really serves (`strata_serves()`,
+  which is why Strata is not attached to every model it was measured on). Measured on the
+  2026-10-27 store, twelve cells across MLX, vLLM, Strata and llama.cpp pointed at a download
+  the engine cannot load, so the table offered what `plan_download()` refused (issue #750).
+  The check is only a gate if its exit status reaches `make`, and it does (issue #701): the
+  generator's `__main__` raises `SystemExit(main())`, so a committed table that differs from
+  what the generator produces fails `ci-unit` and the `registry-sync` job instead of printing
   `FAIL: … is stale` and exiting 0. `tests/test_script_exit_codes.py` holds the whole class
   by parsing every `scripts/*.py`: a `__main__` that calls `main()` bare while `main()`
   returns a value is a finding, and a `main()` that returns nothing is not.
@@ -561,7 +581,11 @@ trend matrix lives under `tests/fixtures/`:
 - `data/engine-skill-gap.json` and `data/unsupported-engines.json` are the shipped /
   known-unsupported / new-and-unresolved engine picture (`make render-engine-skill-gap`,
   `make check-engine-skill-gap`; `make engine-skill-gap`, `make engine-skill-gap-md`,
-  `make spawn-engine-skill-issues` report and file work from it).
+  `make spawn-engine-skill-issues` report and file work from it). On the 2026-10-27 store the
+  census is 42 engines, 16 skills: 16 shipped (4 with no image), 26 known-unsupported, 0
+  unresolved — the sync's 18 new engines each carry a dated, reasoned entry read from that
+  project's own README, so a new engine is a decision on the record rather than a silent gap
+  (issue #750).
 - `data/trending-README.md` is the vendored upstream README the "Most loved" order comes
   from. `make check-registry` also checks its links, and it asks the question the right way
   (issue #690): a Hub model page is checked at `/api/models/<org>/<repo>` — the endpoint the
@@ -997,7 +1021,16 @@ issue #701),
 `tests/test_trend_pick.py` (the sync vendors `model_contract.json` and `MODEL_CONTRACT.md`
 byte for byte beside the store and is idempotent, the check refuses a store with no vendored
 contract naming `make sync-registry`, and a row missing a contract key, a bad `id`, a backend
-outside the enum and a `formats[0]` with no `hf` are each refused by name — issue #694), and
+outside the enum and a `formats[0]` with no `hf` are each refused by name — issue #694),
+`tests/test_model_engine_pick.py` (an engine without a cell in the committed table is not
+offered for a model the table covers, and a model it does not cover keeps live resolution —
+issue #750),
+`tests/test_trend_list_matrix.py` (the committed matrix is the `(arch, vram, ram)` grid, and
+a listed row is either served or says why — never a blank server beside a blank reason, which
+is what the `system_ram_min` floor produced while `trend_rows` asked without the RAM — issues
+#669, #750),
+`tests/test_hub_probe.py` (401/403 is `gated`, i.e. the file exists but this credential may
+not read it, so a gated link verifies instead of reading as missing — issues #418, #750), and
 `tests/test_registry_review.py` (the review's real `selection()` over a real store in a
 temp dir names the highest-t/s server per card and fires on a wrong order, `brief()` answers
 `action=skip` for a missing, red or pending sync PR and `review` only when every check
