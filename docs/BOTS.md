@@ -182,8 +182,17 @@ it is about to be read with, a recorded decision is still honoured, and a **new*
 tracking issue per new engine, and `make check-engine-skill-gap` in `ci-unit` is what keeps the
 resulting sync PR red until each engine ships a skill or gets a dated decision. Measured before this
 (2026-10-26): upstream went 23 → 106 models and 8 → 40 engines, `skills-validate` exited 1 with 16
-new engines, and no sync PR had landed since 2026-10-13. The
-`engine-bump` workflow runs on its **own** cron (weekly,
+new engines, and no sync PR had landed since 2026-10-13.
+
+That spawn step runs with `if: always() && steps.diff.outputs.changed` (issue #758): a store naming an
+unshipped engine is exactly the store whose check step reds, so gating the spawn on that step's
+success used to suppress the one work item that explains how to un-red it (measured: run
+`40554900569` — check failed with `36 failed, 14486 passed`, the change issue ran, the spawn and the
+PR step had no log at all). Its recipe re-checks the store diff and exits before `make`, so a
+no-change run still files nothing, and `Open / update the sync PR` keeps its change-only condition: a
+file whose checks did not pass is never pushed.
+
+The `engine-bump` workflow runs on its **own** cron (weekly,
 Monday `23 6 * * 1`, separate from the registry sync) and pins every engine skill
 to the latest upstream commit, opening a PR per changed engine (issue #107):
 

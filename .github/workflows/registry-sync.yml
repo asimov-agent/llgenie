@@ -15,6 +15,9 @@ name: registry-sync — syncs the vendored registry and regenerates the derived 
 #       -> make render-engine-skill-gap -> (when something changed) make check-registry,
 #       check-quant-catalog, engine-skill-gap, skills-validate, test-unit -> make
 #       spawn-engine-skill-issues -> push `chore/registry-sync` and open or update its PR.
+#       The change issue and the per-engine spawn both run with `always()` (inside their `changed`
+#       guard), so a RED gate still leaves the work items that explain it; the PR step stays gated
+#       on the change alone (issue #758).
 # Never: never merges, never pushes to `main`, never pushes a file the checks did not pass on.
 # dispatch: no inputs — the sync has no modes: it always fetches the upstream registry, regenerates
 #           every derived table, and opens or updates the same PR only when a file changed.
@@ -122,11 +125,21 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
         run: make sync-change-issue REPO="${{ github.repository }}"
-      - name: Spawn one tracking issue per NEW unskilled engine
-        if: steps.diff.outputs.changed
+      - name: Spawn one tracking issue per NEW unskilled engine (runs even when a gate above is red)
+        # issue #758: a store that names an engine llgenie does not ship is EXACTLY the store whose
+        # check step reds, so gating this on the check step's success suppressed the one work item
+        # that explains how to un-red it. `always()` runs it whatever the gate above did; the
+        # `changed` term keeps a no-change run filing nothing, and the recipe re-checks the diff
+        # itself so the guard holds inside the step, not only in this condition.
+        if: always() && steps.diff.outputs.changed
         env:
           GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
-        run: make spawn-engine-skill-issues REPO="${{ github.repository }}"
+        run: |
+          if git diff --quiet -- data/models.json data/trending-README.md data/trending-quant-catalog.json tests/fixtures/trending-quant-catalog.json tests/fixtures/trend-list-matrix.json data/engine-skill-gap.json; then
+            echo "no registry change in the working tree - nothing to spawn"
+            exit 0
+          fi
+          make spawn-engine-skill-issues REPO="${{ github.repository }}"
       - name: Open / update the sync PR
         if: steps.diff.outputs.changed
         env:

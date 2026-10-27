@@ -20,6 +20,7 @@ NO-SKIP POLICY: a missing prerequisite is a LOUD FAILURE, never a skip.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -545,6 +546,78 @@ def test_the_weekly_sync_regenerates_the_gap_and_spawns_a_tracking_issue():
     assert "render-engine-skill-gap:" in mk and "check-engine-skill-gap:" in mk
     assert "engine-skill-gap:" in mk and "spawn-engine-skill-issues:" in mk
     assert "$(MAKE) check-engine-skill-gap" in mk.split("\nci-unit:", 1)[1].split("\n\n", 1)[0]
+
+
+def test_the_spawn_step_runs_even_when_a_gate_above_is_red():
+    """A red sync gate is exactly the run whose store names a new unskilled engine, so the
+    per-engine spawn must not be suppressed by that failure (issue #758)."""
+
+    # Given the registry-sync workflow's sync job
+    steps = _sync_steps()
+    spawn = next(s for s in steps if "spawn-engine-skill-issues" in s.get("run", ""))
+    pr_step = next(s for s in steps if "gh pr create" in s.get("run", ""))
+
+    # When  the spawn step's condition and its recipe are read
+    cond = str(spawn.get("if") or "")
+    run = spawn.get("run") or ""
+
+    # Then  it runs whatever a step above did, while still requiring a change
+    assert cond == "always() && steps.diff.outputs.changed", cond
+    assert "success()" not in cond and "steps.check" not in cond
+
+    # And the guard lives inside the recipe too: no diff, no filing, and `make` is never reached
+    assert "git diff --quiet" in run and "exit 0" in run
+    assert run.index("git diff --quiet") < run.index("make spawn-engine-skill-issues")
+
+    # And the PR step is NOT unconditional: a file the checks did not pass on is never pushed
+    assert str(pr_step.get("if") or "") == "steps.diff.outputs.changed"
+    assert "always()" not in str(pr_step.get("if") or "")
+
+
+def test_the_spawn_recipe_files_nothing_without_a_diff(tmp_path):
+    """`always()` must not turn a no-change run into a filing: the step's own recipe re-checks
+    the diff and exits before `make` (issue #758)."""
+
+    # Given the workflow's spawn recipe, run in a real git checkout of the watched files
+    spawn = next(s for s in _sync_steps() if "spawn-engine-skill-issues" in s.get("run", ""))
+    script = tmp_path / "spawn.sh"
+    # the runner substitutes `${{ … }}` before bash sees the recipe; do the same here
+    script.write_text(spawn["run"].replace("${{ github.repository }}", "acme/llgenie"))
+    repo = tmp_path / "repo"
+    (repo / "data").mkdir(parents=True)
+    (repo / "data" / "models.json").write_text('{"generated_utc": "2026-10-27T18:27:00Z"}\n')
+    for cmd in (["git", "init", "-q"],
+                ["git", "add", "-A"],
+                ["git", "-c", "user.name=T", "-c", "user.email=t@example.invalid",
+                 "commit", "-qm", "store"]):
+        subprocess.run(cmd, cwd=repo, check=True, capture_output=True, text=True)
+
+    # ...with a `make` that records being called (the external command the recipe drives)
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    marker = tmp_path / "make-was-called"
+    fake_make = bindir / "make"
+    fake_make.write_text(f'#!/bin/sh\necho "$@" >> "{marker}"\n')
+    fake_make.chmod(0o755)
+    env = {**os.environ, "PATH": f"{bindir}:{os.environ['PATH']}", "GH_TOKEN": ""}
+
+    # When  the store is unchanged
+    clean = subprocess.run(["bash", str(script)], cwd=repo, env=env,
+                           capture_output=True, text=True, timeout=120)
+
+    # Then  it says there is nothing to spawn and never runs the target
+    assert clean.returncode == 0, clean.stderr
+    assert "nothing to spawn" in clean.stdout
+    assert not marker.exists()
+
+    # When  the working tree carries a registry change
+    (repo / "data" / "models.json").write_text('{"generated_utc": "2026-11-03T05:19:00Z"}\n')
+    changed = subprocess.run(["bash", str(script)], cwd=repo, env=env,
+                             capture_output=True, text=True, timeout=120)
+
+    # Then  the target runs, so the guard skipped a no-change run and nothing else
+    assert changed.returncode == 0, changed.stderr
+    assert marker.exists() and "spawn-engine-skill-issues" in marker.read_text()
 
 
 def test_the_gap_test_file_runs_in_the_unit_gate():
