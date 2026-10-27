@@ -11,10 +11,15 @@ page is the reference for a reviewer reading a Renovate PR and for the person ch
 | Python pins | `tools/requirements.in` (compiled to `tools/requirements.txt`) | `pip_requirements` + `pip-compile` |
 | Container base images | `Dockerfile`, `docker-compose*.yml` (`containers/**`, root) | `dockerfile` / `docker-compose` |
 
-`tools/requirements.in` and `tools/requirements-dev.in` are the single sources of truth; the
-compiled `requirements*.txt` are **generated** (`make generate-requirements`). Renovate's
-`pip-compile` manager edits the `.in` and re-runs the compile, so a Renovate PR never
-hand-edits a compiled file — the rule AGENTS.md states for every other contributor.
+**Only the `.in` files are validated as sources.** `tools/requirements.in` and
+`tools/requirements-dev.in` are the single sources of truth; the compiled
+`tools/requirements*.txt` are **generated** (`make generate-requirements`) and are never a
+`pip_requirements` source. Renovate's `pip-compile` manager **regenerates** the `.txt` from the
+`.in` during a bump, so a bump PR shows the `.in` edit and its compiled output — the rule
+AGENTS.md states for every other contributor. `renovate.json` says so explicitly:
+`pip_requirements.fileMatch` matches only `requirements*.in`, and `pip-compile.fileMatch` matches
+only `requirements*.txt` as its OUTPUT. `make check-renovate` fails when a `pip_requirements`
+match names a `.txt` (a compiled file treated as a source) or when no `.in` source is matched.
 
 ## What it must never touch
 
