@@ -130,9 +130,9 @@ picks which start script or image to run.
 
 ## Repository layout
 
-The tree is 1451 tracked files: `data/` 8, `skills/` 17 (16 engine directories plus their
-`README.md`), `containers/` 55, `tests/` 158, `scripts/` 88, `openspec/` 881, `agent-wiki/`
-192 and `docs/` 3.
+The tree is 1467 tracked files: `data/` 8, `skills/` 17 (16 engine directories plus their
+`README.md`), `containers/` 55, `tests/` 160, `scripts/` 90, `openspec/` 889, `agent-wiki/`
+194 and `docs/` 3.
 
 | Path | Role |
 |---|---|
@@ -142,14 +142,14 @@ The tree is 1451 tracked files: `data/` 8, `skills/` 17 (16 engine directories p
 | `containers/engines/` | shared `base/` Dockerfiles, generated `dockerfiles/<id>/Dockerfile.<arch>`, frozen `params/`, `binaries.json`, `entrypoint.sh` |
 | `containers/test/` | the test image every Python gate runs in (`Dockerfile` only; no inference server inside it) |
 | `containers/agent/` | the pinned Hermes agent image (`Dockerfile`) every bot leg runs in: the Hermes CLI, the `nous-deepseek` model alias, the nerve plugin (installed, enabled and layered by `scripts/install_nerve_ci.sh` under the host's `operator` profile), the profile/settings parity check the build runs (`scripts/nerve_profile_check.py`), the `.hermes/skills` registration and the `agent_jev_preflight.sh` entry gate |
-| `.hermes/skills/` | the bots' Hermes **project skills** — `issue-triage`, `issue-implement`, `issue-refiner`, `issue-dedup`, `pr-fix`, `rebase-conflict`, `architecture-doc`, `engine-params-review`, `agent-fetch`, `bot-unattended` (plus a `README.md`) — each leg's contract, preloaded with `hermes -s <name>` and guarded by `make check-agent-skills` (issue #577) |
+| `.hermes/skills/` | the bots' Hermes **project skills** — `issue-triage`, `issue-implement`, `issue-refiner`, `issue-dedup`, `pr-fix`, `rebase-conflict`, `architecture-doc`, `engine-params-review`, `registry-sync-review`, `agent-fetch`, `bot-unattended` (plus a `README.md`) — each leg's contract, preloaded with `hermes -s <name>` and guarded by `make check-agent-skills` (issue #577) |
 | `containers/ci-variant/` | the CUDA-toolkit variant-build image (`make test-variant-image`) with its own `requirements.txt` / `requirements-dev.txt` |
 | `data/` | vendored registry, the vendored model contract (schema + prose) it is validated against, quant catalog, strata model map, engine-skill gap, unsupported engines, trending README |
 | `docs/` | `ARCHITECTURE.md` (this map), `ENGINES.md` (per-engine build/serve), `BOTS.md` (automation, crons, credentials) |
-| `openspec/` | the change record: `config.yaml`, its `Dockerfile`, and `changes/<name>/{proposal.md,specs/**,tasks.md}` (226 changes) |
-| `agent-wiki/` | dated work record (192 entries), one per change, referencing its issue and PR |
+| `openspec/` | the change record: `config.yaml`, its `Dockerfile`, and `changes/<name>/{proposal.md,specs/**,tasks.md}` (228 changes) |
+| `agent-wiki/` | dated work record (194 entries), one per change, referencing its issue and PR |
 | `CHANGES.md` | the index of those notes, newest first; a note that is missing from it fails `make check-docs` (issue #678) |
-| `tests/` | 130 `tests/test_*.py` files, fixtures, shared test helpers (`tests/top_tier_dry_run.py`) and the live end-to-end gates, discovered by `scripts/unit_tests.py` |
+| `tests/` | 132 `tests/test_*.py` files, fixtures, shared test helpers (`tests/top_tier_dry_run.py`) and the live end-to-end gates, discovered by `scripts/unit_tests.py` |
 | `docker-compose-files/` | the compose definitions for the OpenSpec CLI (`openspec.yaml`) and the test image (`test.yaml`) |
 | `tools/` | pip-compile inputs (`requirements.in`, `requirements-dev.in`) and the venv targets |
 | `.github/workflows/` | CI (`ci.yml`, `pipeline.yml`, `published.yml`, `publish-agent-image.yml`, `auto-merge.yml`), the on-demand engine sweep (`engine-build.yml`) and one workflow per bot |
@@ -165,7 +165,7 @@ group by what they exist for:
 | Product path | `llgenie_serve.py` (launcher, model scan, serve), `model_engine_pick.py` (`recommend`, `rank_models`, `rank_engines`, `offer`), `trend_list_matrix.py`, `detect_server.py`, `install_engine_launchers.py` (install plan, start scripts, `ensure_native`), `engine_runner.py`, `engine_skills.py`, `engine_image.py`, `native_build_env.py`, `serve_variant.py`, `ensure_user_path.py`, `hf_auth.py` (the ONE Hub request policy: token on Hub endpoints only, 429 waits the `RateLimit` window), `hf_download.py`, `download_test_model.py`, `strata_models.py`, `sync_registry.py` (vendor the store + its README + its contract, and `check` the store against that contract; the `FORMAT_VOCAB` the normaliser drops non-format names by), `gen_trending_quant_catalog.py`, `registry_keys.py` (additive-only guard; a format is compared by its vocabulary spelling), `engine_skill_gap.py`, `engine_params_derive.py`, `engine_params_review.py` (the documentation review of a bump's derived params: `brief`, `parse_proposals`, `validate`, `apply_accepted`, `section`), `engine_deps.py`, `engine_bump.py`, `engine_bump_sync.py`, `engine_bump_rebase.py`, `engine_smoke.py`, `env_seam.py`, `loopback_server.py` |
 | Structural gates | `check_bash.py`, `check_python.py`, `check_docs.py` (user-facing target documented, README stays a user guide, every `agent-wiki/` note names an issue/PR and is indexed in `CHANGES.md`), `check_wiring.py`, `check_workflows.py`, `check_dispatch_forms.py`, `check_pr_authors.py`, `check_pr_hygiene.py`, `check_secret_output.py`, `check_openspec_tasks.py`, `check_agent_skills.py` (a bot leg preloads its project skill, the skill exists and carries `Inputs`/`Output`/`Rules`, the prompt stays a pointer, and a skill list that comes from a Makefile variable is expanded before it is read), `issue_bot_gates.py` (the FAST gates the issue-bot re-runs before it pushes, plus the static lock on which `ci-unit` gates are fast and where the step sits), `engine_source_guard.py` (a cell that says `prebuilt: false` must actually compile), `engine_gate_report.py` (the per-cell census behind `make engine-gate-report`: `flag-proven`, `device-exempt` with its `DEVICE_ONLY` reason, or `disabled`), `secret_scan.py`, `secret_scan_self_test.py`, `scan_agents_md.py`, `module_name_guard.py`, `lint_linefeeds.py`, `unit_tests.py` (the suite aggregator) |
 | CI entrypoints | `ci_engines.py` (`make ci-engines`), `ci_health.py`, `ci_images.py` (test/OpenSpec/agent image refs), `loop_harness.py` (`make loop`) |
-| Bots and automation | `agent_model_pin.py`, `agent_shell_keys_check.py`, `architecture_bot.py`, `auto_merge.py`, `bot_claims.py`, `code_review.py`, `fix_bot_report.py`, `fix_bot_sweep.py`, `hermes_skills_register.py` (writes the checkout's skill dir into Hermes's `skills.external_dirs` as a real YAML list, and reads it back), `hermes_smoke.py`, `issue_cleaner.py`, `issue_dedup.py`, `issue_implementer.py`, `issue_refiner.py` (a `DRY=1` pick prints the issue it chose and writes nothing into the checkout it previews, issue #352), `nerve_profile_check.py` (fails the agent build when a nerve setting targets a module the chosen profile does not register), `queued_run_alarm.py`, `rebase_bot_sweep.py`, `require_env.py`, `resolve_run_pr.py` (resolves the PR a finished run belongs to; `--allow-none` is the fix-bot's answer for a PR that already landed), `run_failure_reactor.py`, `scrub_log.py`, `verify_closure.py`, `web_evidence.py`, `fetch_smoke.py`, `worktree_prune.py` |
+| Bots and automation | `agent_model_pin.py`, `agent_shell_keys_check.py`, `architecture_bot.py`, `auto_merge.py`, `bot_claims.py`, `code_review.py`, `fix_bot_report.py`, `fix_bot_sweep.py`, `hermes_skills_register.py` (writes the checkout's skill dir into Hermes's `skills.external_dirs` as a real YAML list, and reads it back), `hermes_smoke.py`, `issue_cleaner.py`, `issue_dedup.py`, `issue_implementer.py`, `issue_refiner.py` (a `DRY=1` pick prints the issue it chose and writes nothing into the checkout it previews, issue #352), `nerve_profile_check.py` (fails the agent build when a nerve setting targets a module the chosen profile does not register), `queued_run_alarm.py`, `rebase_bot_sweep.py`, `registry_change_issue.py` (states what a vendored store changed vs `HEAD` and files ONE issue keyed by its `generated_utc`), `registry_review.py` (the green-sync-PR review: `brief` renders the precondition plus the VRAM selection check from `trend_list()` / `rank_engines()`, `publish` files ONE `agent:implement` issue keyed by the same marker), `require_env.py`, `resolve_run_pr.py` (resolves the PR a finished run belongs to; `--allow-none` is the fix-bot's answer for a PR that already landed), `run_failure_reactor.py`, `scrub_log.py`, `verify_closure.py`, `web_evidence.py`, `fetch_smoke.py`, `worktree_prune.py` |
 
 Two more pieces of `scripts/` are not Python: `scripts/tools/llgenie_harness.py` (the
 harness helper the loop uses) and the shell legs the bot workflows call —
@@ -632,8 +632,9 @@ written at the repo root — `issue.md`, `triage.md`, `refine-in.md`, `refine.md
 `params-review.md` / `params-review-section.md` (plus the captured `hermes-run.log`) — are
 git-ignored, and `tests/test_bot_scratch_ignored.py` holds that list to real `git`: they are
 scratch a run writes, never repo content. The dedupe sweep's `dedup-in.md` / `dedup.md` are
-the same kind of scratch from `scripts/issue_dedup.py`; that workflow pushes and commits
-nothing, so they never reach a tree.
+the same kind of scratch from `scripts/issue_dedup.py`, and the registry review's
+`registry-review-in.md` / `registry-review.md` are the same from `scripts/registry_review.py`;
+those workflows push and commit nothing, so they never reach a tree.
 
 | Workflow | Cron | What it does |
 |---|---|---|
@@ -643,7 +644,8 @@ nothing, so they never reach a tree.
 | `fix-bot.yml` | `17 * * * *` | repairs a red PR branch — including one whose head is the repository's own fork — re-runs the gate, pushes only when green; its sweep (`scripts/fix_bot_sweep.py`) treats a PR with no checks at all as not-red rather than a crash (issue #496). A `workflow_run` on a failed `CI` `pull_request` run resolves that run to its PR with `make fix-bot-resolve` (the same resolver as the merge gate, asked with `--allow-none`: an empty `number=` is an answer, so a failure reported after its PR already merged or closed ends the job cleanly instead of red and does not become a reactor issue — issue #629) and captures the failed job's log, then dispatches the repair — so a red PR is acted on in minutes rather than at the next hourly sweep (issue #538); `rounds` defaults to 5 and the job allows 260 minutes (issue #539) |
 | `rebase-bot.yml` | `29 */6 * * *` | drains every eligible PR onto `main` in one run, bounded by `max_prs`; decides from a computed merge state, hands a conflict to the agent and checks the resolution structurally (a recipe's TAB, the wiring guard, lint) against the checkout it mounted, aborts a stopped rebase so the tree returns to `main`, and pushes `--force-with-lease` to the PR's own head remote |
 | `code-review-bot.yml` | `31 7 * * 1` | files issues for findings in the tree and the pipelines (`scripts/code_review.py`) |
-| `registry-sync.yml` | `19 5 * * 1` | byte-copies the upstream registry, its README and its model contract (`data/model_contract.json` + `MODEL_CONTRACT.md`), validates every engine skill with `ALLOW_NEW_ENGINES=1` so a store that first names an engine llgenie does not ship is CARRIED rather than fatal (issue #683), opens one tracking issue per new engine (`make spawn-engine-skill-issues`), regenerates the derived tables and opens a PR; `ci-unit`'s `make check-engine-skill-gap` keeps that PR red until each engine ships a skill or gets a dated decision |
+| `registry-sync.yml` | `19 5 * * 1` | byte-copies the upstream registry, its README and its model contract (`data/model_contract.json` + `MODEL_CONTRACT.md`), validates every engine skill with `ALLOW_NEW_ENGINES=1` so a store that first names an engine llgenie does not ship is CARRIED rather than fatal (issue #683), opens one tracking issue per new engine (`make spawn-engine-skill-issues`), states what the store changed in ONE issue even when a gate reds (`make sync-change-issue`, `scripts/registry_change_issue.py`, issue #704), regenerates the derived tables and opens a PR; `ci-unit`'s `make check-engine-skill-gap` keeps that PR red until each engine ships a skill or gets a dated decision |
+| `registry-sync-review.yml` | `55 * * * *` | reviews a **green** sync PR into ONE work item (issue #709): `make registry-review-brief` checks out the sync PR's head and, offline, decides `action=review|skip` from the PR's own check buckets and renders the VRAM selection table — per `(arch, vram, ram)`, the models the trend list shows and the server `rank_engines()` puts first with its t/s, with `slower-than-class` / `no-engine` / `unmeasured` / `empty-tier` findings. Only on `review` does it build the agent image, prove the shell keys and run the `registry-sync-review` leg (`make registry-sync-review` -> `registry-review.md`), then `make registry-review-publish` files ONE issue labelled `agent:implement` keyed by the store's `generated_utc`; an hourly run with no green PR costs nothing |
 | `engine-bump.yml` | `53 6 * * 1` | pins every engine skill to its upstream release (carrying the dependency delta's `DEPS` line and any hard-fail into the PR body), then reviews the derived build params against that engine's own documentation at the new pin (`make engine-params-review-brief` -> `make engine-params-review` -> `make engine-params-review-apply`) and appends the review section to the PR body; the review is `continue-on-error`, so a failed or empty review still opens the PR and says so (issues #583, #186) |
 | `engine-bump-rebase.yml` | `41 5 * * *` | keeps the engine-bump PRs current |
 | `queued-alarm.yml` | `7,37 * * * *` | reports jobs stuck in `queued` (`scripts/queued_run_alarm.py`) |
@@ -664,7 +666,8 @@ Bots run inside the pinned agent image (`containers/agent`), call the model pinn
 Each leg's contract is a Hermes **project skill** (issue #577), not an inline rulebook:
 `.hermes/skills/<name>/SKILL.md` — `issue-triage`, `issue-implement`, `issue-refiner`,
 `issue-dedup`, `pr-fix`, `rebase-conflict`, `architecture-doc`, `engine-params-review`,
-`agent-fetch` — preloaded with `hermes -s <name>,bot-unattended`, and the inline prompt is a
+`registry-sync-review`, `agent-fetch` — preloaded with `hermes -s <name>,bot-unattended`, and
+the inline prompt is a
 pointer plus the run's parameters (the input file, the output file). `bot-unattended`
 carries the shared unattended contract once, and the deterministic step after the agent does
 every GitHub write, so a leg writes only the one file its skill names.
@@ -712,8 +715,11 @@ is that leg's image alias. The refiner is `make issue-refiner-pick` / `make issu
 issue #352), the dedupe sweep `make issue-dedup-pick` / `make issue-dedup-apply`, the rebase
 leg `make rebase-bot-sweep` / `make rebase-bot` / `make rebase-bot-agent` /
 `make rebase-bot-abort`, the fix leg `make fix-bot-sweep` / `make fix-loop` /
-`make fix-loop-image` / `make fix-bot-report`, and the review bot `make code-review-scan` /
-`make code-review-file`. `make bot-sync-main` resets a new branch to latest `main` before
+`make fix-loop-image` / `make fix-bot-report`, the review bot `make code-review-scan` /
+`make code-review-file`, and the registry review `make registry-review-brief` (deterministic,
+`action=review|skip` + findings) / `make registry-sync-review` (the agent leg) /
+`make registry-review-publish` (the only GitHub writer, `DRY=1` previews). `make bot-sync-main`
+resets a new branch to latest `main` before
 work and `make bot-sync-branch` rebases a PR branch onto it before a repair (exit 2 means the
 rebase conflicts and is left to the rebase-bot).
 
@@ -797,7 +803,7 @@ still a hard failure.
 
 ## Tests and gates
 
-`make test-unit` discovers every `tests/test_*.py` through `scripts/unit_tests.py` (130
+`make test-unit` discovers every `tests/test_*.py` through `scripts/unit_tests.py` (132
 files today); a file is in the gate the moment it exists, and an exclusion is a dated entry
 in `tests/fixtures/unit-suite.json`. `make test` runs the named `groups.fast` subset from
 the same roster rather than a hand-kept list of files. The live gates are separate targets
@@ -879,6 +885,15 @@ issue #701),
 byte for byte beside the store and is idempotent, the check refuses a store with no vendored
 contract naming `make sync-registry`, and a row missing a contract key, a bad `id`, a backend
 outside the enum and a `formats[0]` with no `hf` are each refused by name — issue #694), and
+`tests/test_registry_review.py` (the review's real `selection()` over a real store in a
+temp dir names the highest-t/s server per card and fires on a wrong order, `brief()` answers
+`action=skip` for a missing, red or pending sync PR and `review` only when every check
+bucket is `pass`, `publish()` edits its own `<!-- registry-sync-review: <utc> -->` issue
+instead of filing a second one, and the workflow gates every secret-spending step on
+`action == 'review'` and its skill carries `Inputs`/`Output`/`Rules` — issue #709),
+`tests/test_bot_scratch_ignored.py` (every bot run input at the repo root, the registry
+review's `registry-review-in.md` / `registry-review.md` included, is git-ignored — it is
+scratch, not repo content),
 `tests/test_worktree_prune.py` (the detached-worktree match by HEAD, and a delete refusal
 that splits into a one-shot retry or a keep).
 
