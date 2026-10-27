@@ -1,0 +1,98 @@
+## ADDED Requirements
+
+### Requirement: Renovate may only automerge low-risk updates, through one merge path
+
+A package rule that sets `automerge: true` MUST set `automergeType: pr` and
+`platformAutomerge: false`, and MUST restrict itself to `matchUpdateTypes` drawn from
+`patch`, `pin`, `digest`. A top-level `automerge: true` MUST fail the gate. Container
+base-image bumps MUST NOT automerge.
+
+#### Scenario: a rule that automerges every update type fails
+
+Given a `packageRules` entry with `automerge: true` and no `matchUpdateTypes`,
+When   `make check-renovate` runs,
+Then   it exits non-zero and names the rule and the update types it would merge.
+
+- **Test:** `tests/test_renovate_config.py::test_automerge_of_a_minor_is_a_finding`
+
+#### Scenario: platform automerge is a second merge path
+
+Given an automerge rule that leaves `platformAutomerge` unset,
+When   `make check-renovate` runs,
+Then   it exits non-zero, because GitHub would land the PR before this repository's checks.
+
+- **Test:** `tests/test_renovate_config.py::test_platform_automerge_is_a_finding`
+
+#### Scenario: a top-level automerge merges majors
+
+Given `renovate.json` with `"automerge": true` at the top level,
+When   `make check-renovate` runs,
+Then   it exits non-zero.
+
+- **Test:** `tests/test_renovate_config.py::test_top_level_automerge_is_refused`
+
+### Requirement: Renovate never edits a generated or vendored file
+
+`ignorePaths` MUST carry `data/models.json`, `containers/engines/dockerfiles/**` and
+`containers/engines/params/**`. `pip-compile` MUST be enabled and a `pip_requirements` or
+`pip-compile` rule MUST exist, so a Python bump edits `tools/requirements.in` and recompiles the
+`.txt`. The `github-actions` manager MUST be disabled.
+
+#### Scenario: a dropped ignore path fails
+
+Given `ignorePaths` that omits the generated engine paths,
+When   `make check-renovate` runs,
+Then   it exits non-zero naming each missing path.
+
+- **Test:** `tests/test_renovate_config.py::test_a_missing_ignore_path_is_a_finding`
+
+#### Scenario: pip-compile turned off fails
+
+Given `"pip-compile": {"enabled": false}`,
+When   `make check-renovate` runs,
+Then   it exits non-zero, because a Python bump would hand-edit the compiled file.
+
+- **Test:** `tests/test_renovate_config.py::test_pip_compile_must_be_enabled`
+
+#### Scenario: Renovate owning the Actions fails
+
+Given a `packageRules` entry matching `github-actions` that is not `enabled: false`,
+When   `make check-renovate` runs,
+Then   it exits non-zero: pins move by `make update-actions` with a reviewed diff.
+
+- **Test:** `tests/test_renovate_config.py::test_github_actions_must_stay_disabled`
+
+### Requirement: A base-image bump reaches the image build
+
+`.github/workflows/ci.yml` MUST NOT filter its `pull_request` trigger by `paths:` or
+`paths-ignore:`, and MUST declare an `engine-image` job, so any dependency PR — Renovate's
+included — builds and post-build-tests the images.
+
+#### Scenario: a path-filtered pipeline fails the gate
+
+Given a `ci.yml` whose `pull_request` trigger carries a `paths:` filter,
+When   `make check-renovate` runs,
+Then   it exits non-zero and names the filter.
+
+- **Test:** `tests/test_renovate_config.py::test_a_path_filtered_ci_fails_the_gate`
+
+#### Scenario: the shipped config is clean
+
+Given this repository's `renovate.json` and `ci.yml`,
+When   `make check-renovate` runs,
+Then   it exits 0 with no finding.
+
+- **Test:** `tests/test_renovate_config.py::test_the_real_config_passes`
+
+### Requirement: A reader can see what each rule merges
+
+`make renovate-report` MUST print every package rule with its managers, its automerge state, its
+update types, and the ignored paths.
+
+#### Scenario: the report names each rule
+
+Given the shipped configuration,
+When   `make renovate-report` runs,
+Then   it prints each rule's managers and automerge state and exits 0 on a clean config.
+
+- **Test:** `tests/test_renovate_config.py::test_report_prints_each_rule_and_its_automerge_state`

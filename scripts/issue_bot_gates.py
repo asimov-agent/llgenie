@@ -65,6 +65,7 @@ FAST_GATES: tuple[str, ...] = (
 #: `ci-unit` that appears in NEITHER this mapping nor `FAST_GATES` is a finding (issue #475): a new
 #: gate has to be classified, so it cannot be silently skipped here.
 DEFERRED: dict[str, str] = {
+    "check-renovate": "a static read of renovate.json and ci.yml's trigger: a dependency-bot config change is not something the issue-bot's own PR can introduce",
     "test-unit": "the agent already ran the whole hermetic suite while writing the change (11-20 minutes); a second run would not fit the leg's budget",
     "skills-validate": "reads every engine skill against the registry; minutes, and the agent's test-unit run reads the same files",
     "check-registry": "re-validates the vendored registry shape; the agent's test-unit run covers the registry tests it drives",

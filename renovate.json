@@ -1,0 +1,64 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", ":dependencyDashboard", ":semanticCommits"],
+  "timezone": "Europe/Stockholm",
+  "schedule": ["before 5am on monday"],
+  "labels": ["dependencies"],
+  "rangeStrategy": "pin",
+  "rebaseWhen": "behind-base-branch",
+  "prConcurrentLimit": 5,
+  "prHourlyLimit": 2,
+  "lockFileMaintenance": {
+    "enabled": false
+  },
+  "pip-compile": {
+    "enabled": true
+  },
+  "packageRules": [
+    {
+      "description": "Python pins: tools/requirements.in compiles to tools/requirements.txt. Renovate edits the .in and re-runs pip-compile; it never hand-edits a compiled file (AGENTS.md).",
+      "matchManagers": ["pip_requirements", "pip-compile"],
+      "groupName": "python dependencies",
+      "labels": ["dependencies", "component:python"],
+      "rangeStrategy": "pin"
+    },
+    {
+      "description": "Container base images live in Dockerfiles; a bump must be one focused PR so the engine-image matrix shows exactly which image changed.",
+      "matchManagers": ["dockerfile", "docker-compose"],
+      "groupName": "container base images",
+      "labels": ["dependencies", "component:container"],
+      "separateMinorPatch": true
+    },
+    {
+      "description": "Conservative automerge: low-risk Python patches and pins only, after the PR's checks are green. CI's auto-merge job is still the single landing authority, so this never opens a second merge path.",
+      "matchManagers": ["pip_requirements", "pip-compile"],
+      "matchUpdateTypes": ["patch", "pin", "digest"],
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": false
+    },
+    {
+      "description": "A container base image bump is never auto-merged: it changes what every image is built from and its build is the review.",
+      "matchManagers": ["dockerfile", "docker-compose"],
+      "automerge": false
+    },
+    {
+      "description": "GitHub Actions are pinned to full commit SHAs by scripts/pin_actions.py and updated by `make update-actions`, with the tag diff reviewed (docs/SECURITY.md). Renovate must not move them.",
+      "matchManagers": ["github-actions"],
+      "enabled": false
+    },
+    {
+      "description": "Major and minor Python bumps are never automerged: a minor numpy/gguf bump changes behaviour and needs a human read.",
+      "matchManagers": ["pip_requirements", "pip-compile"],
+      "matchUpdateTypes": ["major", "minor"],
+      "automerge": false
+    }
+  ],
+  "ignorePaths": [
+    "data/models.json",
+    "containers/engines/dockerfiles/**",
+    "containers/engines/params/**",
+    "containers/scanners/digests.json",
+    "containers/ci-variant/**"
+  ]
+}

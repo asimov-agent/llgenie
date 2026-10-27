@@ -1,0 +1,153 @@
+#!/usr/bin/env python3
+"""Renovate's config is a gate, not a preference file (issue #718).
+
+`renovate.json` disappears from review the moment it lands: Renovate acts on it unattended, at
+its own schedule, against files this repository's rules say must not be hand-edited. So the two
+properties that matter are checked by `make ci-unit`, not trusted:
+
+* **no second merge path.** A rule that sets `automerge: true` must also set
+  `platformAutomerge: false` and `automergeType: pr`, so the PR goes through the repository's
+  required checks and CI's `auto-merge` job stays the only thing that lands a PR. Automerge is
+  restricted to `patch`/`pin`/`digest` update types.
+* **nothing generated or vendored is bumped.** `data/models.json` (a vendored copy),
+  `containers/engines/dockerfiles/**` and `containers/engines/params/**` (written only by
+  `make generate-engine-params`) and `containers/scanners/digests.json` (the scanner digests) are
+  in `ignorePaths`.
+* **the pinned files stay compiled.** `pip-compile` is enabled and a `pip_requirements`/
+  `pip-compile` rule exists, so a Python bump edits `tools/requirements.in` and recompiles the
+  `.txt` — never the reverse (AGENTS.md: never hand-edit the compiled files).
+* **a Dockerfile bump reaches an image build.** `ci.yml`'s `pull_request` trigger carries no
+  `paths:`/`paths-ignore:` filter and it declares an engine-image job, so a base-image PR builds
+  the engine images instead of skipping them.
+
+Commands:
+    check_renovate.py check     exit non-zero on any finding
+    check_renovate.py report    print the config the gate read
+
+Stdlib only (the workflow-expression + JSON parse), so `ci-unit` runs it on the host on Linux and
+macOS exactly as CI does.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+CONFIG = "renovate.json"
+CI = ".github/workflows/ci.yml"
+#: Paths Renovate must never touch: vendored data and generated files.
+REQUIRED_IGNORES = (
+    "data/models.json",
+    "containers/engines/dockerfiles/**",
+    "containers/engines/params/**",
+)
+#: The only update types that may automerge.
+LOW_RISK = {"patch", "pin", "digest"}
+
+
+def load(root: Path) -> dict:
+    path = root / CONFIG
+    if not path.is_file():
+        raise SystemExit(f"[check-renovate] {CONFIG} is missing")
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"[check-renovate] {CONFIG} does not parse: {exc}") from exc
+
+
+def findings(root: Path) -> list[str]:
+    """Every violation of the two properties `make ci-unit` must hold."""
+    out: list[str] = []
+    cfg = load(root)
+    if not cfg.get("$schema"):
+        out.append("no `$schema`: an editor and a reviewer cannot validate the file")
+    extends = cfg.get("extends") or []
+    if not any(str(e).startswith("config:") for e in extends):
+        out.append("`extends` names no `config:*` preset")
+    if cfg.get("automerge") is True:
+        out.append("top-level `automerge: true` would merge every update type")
+
+    rules = cfg.get("packageRules") or []
+    if not isinstance(rules, list):
+        out.append("`packageRules` is not a list")
+        rules = []
+    managers = {m for rule in rules for m in (rule.get("matchManagers") or [])}
+    for manager in ("pip_requirements", "pip-compile", "dockerfile"):
+        if manager not in managers and not (manager == "pip-compile" and cfg.get("pip-compile", {}).get("enabled")):
+            out.append(f"no packageRule matches manager `{manager}`")
+
+    for i, rule in enumerate(rules):
+        if rule.get("automerge") is not True:
+            continue
+        where = f"packageRules[{i}]"
+        if rule.get("platformAutomerge") is not False:
+            out.append(f"{where} automerges with `platformAutomerge` unset: that is a second merge path")
+        if rule.get("automergeType") != "pr":
+            out.append(f"{where} automerges without `automergeType: pr` (checks may not run)")
+        types = set(rule.get("matchUpdateTypes") or [])
+        if not types:
+            out.append(f"{where} automerges every update type; restrict it to {sorted(LOW_RISK)}")
+        elif not types <= LOW_RISK:
+            out.append(f"{where} automerges {sorted(types - LOW_RISK)}; only {sorted(LOW_RISK)} may automerge")
+
+    # A rule that matches a manager and sets automerge false is a deliberate hold, not a finding.
+    ignores = set(cfg.get("ignorePaths") or [])
+    for path in REQUIRED_IGNORES:
+        if path not in ignores:
+            out.append(f"`ignorePaths` does not carry {path}: Renovate would edit a vendored/generated file")
+
+    actions = [r for r in rules if "github-actions" in (r.get("matchManagers") or [])]
+    if not any(r.get("enabled") is False for r in actions):
+        out.append("GitHub Actions are not disabled: pins move by `make update-actions`, not by Renovate")
+
+    # The compiled-files rule: the .in exists and pip-compile is on.
+    if not (root / "tools" / "requirements.in").is_file():
+        out.append("tools/requirements.in is missing: there is nothing for pip-compile to compile")
+    if not cfg.get("pip-compile", {}).get("enabled"):
+        out.append("`pip-compile` is not enabled: a Python bump would hand-edit the compiled .txt")
+
+    ci_text = (root / CI).read_text(encoding="utf-8")
+    if "paths-ignore:" in ci_text or "\n    paths:" in ci_text:
+        out.append(f"{CI} filters `pull_request` by path: a base-image bump may skip the image build")
+    if "engine-image" not in ci_text:
+        out.append(f"{CI} declares no engine-image job: a Dockerfile bump would build nothing")
+    return out
+
+
+def check(root: Path) -> int:
+    found = findings(root)
+    if found:
+        print(f"[check-renovate] {len(found)} problem(s):")
+        for item in found:
+            print(f"  - {item}")
+        return 1
+    print("[check-renovate] OK: automerge is low-risk and single-path, generated/vendored files are "
+          "ignored, Python compiled via pip-compile, and ci.yml builds images on any PR")
+    return 0
+
+
+def report(root: Path) -> int:
+    cfg = load(root)
+    print(f"{CONFIG}: extends={cfg.get('extends')} schedule={cfg.get('schedule')}")
+    for i, rule in enumerate(cfg.get("packageRules") or []):
+        managers = ",".join(rule.get("matchManagers") or []) or "-"
+        print(f"  [{i}] managers={managers} automerge={rule.get('automerge', '(inherited)')} "
+              f"updateTypes={rule.get('matchUpdateTypes') or 'all'} "
+              f"description={str(rule.get('description', ''))[:60]}")
+    print(f"  ignorePaths: {', '.join(cfg.get('ignorePaths') or [])}")
+    return check(root)
+
+
+def main(argv: list[str]) -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("command", choices=("check", "report"))
+    ap.add_argument("--root", default=str(REPO))
+    args = ap.parse_args(argv)
+    root = Path(args.root)
+    return {"check": check, "report": report}[args.command](root)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
