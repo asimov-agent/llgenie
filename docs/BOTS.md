@@ -1131,6 +1131,26 @@ one-line verdict. A caller that has decided cross-repository heads are unaccepta
 form (`python3 scripts/pr_heads.py check --strict`), which is how the policy stays a decision rather than a
 default.
 
+### The merge intent is armed when the PR is created (issue #912)
+
+`allow_auto_merge` is on and `auto-merge.yml` can approve and merge a green PR, but a PR that nobody armed
+sits `MERGEABLE/BLOCKED` with `auto=none` until a human clicks. Measured on one night: **32 of 41** open PRs
+had to be armed by hand, after the fact. So arming is a producer default, not a sweep:
+
+```bash
+make arm-auto-merge AUTHOR=<login>        # arm every open PR that is not a draft and not already armed
+make arm-auto-merge DRY=1 AUTHOR=<login>  # print what would be armed, call nothing
+make arm-auto-merge-report                # the unarmed ones, with author and mergeable state
+```
+
+`scripts/arm_auto_merge.py` runs `gh pr merge <n> --auto --squash`. It never merges by itself — `--auto` only
+arms, and GitHub (or `auto-merge.yml`) performs the merge when the required checks pass. It skips a **draft**
+on purpose: arming one would queue a merge intent for something nobody can review, and drafts are banned
+outright (#873). It skips a PR that is **already armed**, so running it twice is a no-op rather than churn.
+
+A live `make arm-auto-merge-report` is the honest status line for this rule: `44 open PR(s): 11 unarmed, 33
+already armed or draft`.
+
 ## A green, conflict-free PR is merged by CI (issue #482)
 
 Landing a PR no longer waits at a keyboard. The `auto-merge` workflow

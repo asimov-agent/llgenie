@@ -79,6 +79,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	run-failure-reactor rebase-bot-agent check-docs docs-report changes-index changes-index-report check-pr-hygiene pr-hygiene-report auto-merge auto-merge-resolve fix-bot-resolve auto-merge-explain auto-merge-recheck verify-closure check-pr-authors pr-authors-report check-workflows workflows-report issue-refiner-pick issue-refiner issue-refiner-apply issue-dedup-pick issue-dedup issue-dedup-apply check-dispatch-forms dispatch-forms-report scanner-image test-scanner-image scanner-digests scanner-ref publish-scanner-images ci-scanner-images check-scanner-images \
 	run-failure-reactor rebase-bot-agent check-docs docs-report changes-index changes-index-report check-pr-hygiene pr-hygiene-report auto-merge auto-merge-resolve fix-bot-resolve auto-merge-explain auto-merge-recheck verify-closure check-pr-authors pr-authors-report check-workflows workflows-report issue-refiner-pick issue-refiner issue-refiner-apply issue-dedup-pick issue-dedup issue-dedup-apply check-dispatch-forms dispatch-forms-report check-actions actions-report update-actions \
 	run-failure-reactor rebase-bot-agent check-docs docs-report changes-index changes-index-report check-pr-hygiene pr-hygiene-report auto-merge auto-merge-resolve fix-bot-resolve auto-merge-explain auto-merge-recheck verify-closure check-pr-authors pr-authors-report check-workflows workflows-report issue-refiner-pick issue-refiner issue-refiner-apply issue-dedup-pick issue-dedup issue-dedup-apply check-dispatch-forms dispatch-forms-report check-renovate renovate-report \
+	arm-auto-merge arm-auto-merge-report \
 	security-bumps security-bumps-plan check-security-bumps \
 	agent-shell-keys-check \
 	agent-fetch search-smoke require-env web-coverage issue-evidence \
@@ -947,6 +948,10 @@ check-pr-heads: ## Warn (never fail) when an open PR's head lives in another rep
 	python3 scripts/pr_heads.py check
 pr-heads-report: ## Show every open PR grouped by head repository, with the same-repo rule and why it is the rule (issue #910)
 	python3 scripts/pr_heads.py report
+arm-auto-merge: ## Arm auto-merge on every open PR that is not a draft and not already armed (AUTHOR= limits it to one lane; DRY=1 calls nothing — issue #912)
+	python3 scripts/arm_auto_merge.py arm $(if $(AUTHOR),--author "$(AUTHOR)",) $(if $(DRY),--dry,)
+arm-auto-merge-report: ## Show the open PRs that carry no auto-merge intent yet, with their author and mergeable state (issue #912)
+	python3 scripts/arm_auto_merge.py report $(if $(AUTHOR),--author "$(AUTHOR)",)
 check-issue-bodies: ## CI: fail when a producer hand-builds an issue body, a body misses a section or puts `## Technical` anywhere but last, an acceptance criterion is absent, or AGENTS.md / the issue skills lost the rule (issue #745)
 	python3 scripts/check_issue_body.py check
 issue-bodies-report: ## Show every issue producer, whether it renders through the one seam, the section order and the verdict
