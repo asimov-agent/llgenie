@@ -45,6 +45,12 @@ only — a pre-existing advisory must never red a pull request or a push to `mai
 check-security-scan` refuses a workflow that puts those triggers back. Severity policy is data
 (`data/security-policy.json`), not a literal in a step.
 
+**A security fix is never a draft.** The fleet rule below is not a queue etiquette for this lane: a red
+pipeline or an unpatched advisory opened as a draft is an exposure that stays open while the board reads
+"blocked on approvals", and an advisory that looks like a queue item is worse than no advisory. Open
+ready-for-review, and if a run needs to prove itself first, say which run and which sha — a draft is not a
+waiting room, it is an invisible PR.
+
 **A finding carries the run id and the image digest that produced it.** Every claim in a security report names
 the run URL and the scanner refs (`containers/scanners/digests.json`) it was measured with, because "critical in
 certifi" without a run id is a claim about a database snapshot, not about this tree. A finding whose acceptance
@@ -61,4 +67,5 @@ file (#787), and the fix is to stop generating into the tree — not to edit the
 - **Every finding carries the sha it was measured at.** "X is broken" without a head is a claim about time, not about the branch.
 - **Assert behaviour, not text.** A test that rejects a correct implementation teaches the next person to edit code to match the test.
 - **Open every reply with:** `BOT <name> · working on #<id> · branch <ref> · since <hh:mmZ> · blocked on <x|none> · next <y>`. A report without an id, a branch or a run id is not a report.
+- **Never open a draft PR.** Open the PR ready-for-review, and if it is somehow draft, flip it (`gh pr ready`) before reporting. A draft is invisible to the merge queue, to auto-merge and to every reviewer scanning for work — three PRs sat as drafts tonight (#846, #838, #780) while the board was described as blocked on approvals.
 - **Your behaviour is versioned here.** Change `SOUL.md`/skills by issue and PR under `agents/<profile>/`, never by a private edit.
