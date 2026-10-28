@@ -59,6 +59,29 @@ def live_files():
             continue
 
 
+def test_the_cli_check_is_green_on_this_tree_and_still_refuses_a_live_file(tmp_path):
+    """`check` is the entry point a gate would call, and it was red on a clean tree (issue #812):
+    `main()` never passed the `exclude` its own library documents for the guard's own test. Both halves
+    are pinned here — green on this tree, and still refusing a planted file, so the exclusion did not
+    widen the rule."""
+
+    # Given this repository as it is checked out
+    # When  the CLI runs the way a make target would
+    code = guard.main(["check", "--root", str(REPO)])
+
+    # Then  it is green (it was 1 before SELF_EXCLUDED)
+    assert code == 0
+
+    # And a live file naming the old module is still refused
+    planted = tmp_path / "tree"
+    (planted / "scripts").mkdir(parents=True)
+    (planted / "scripts" / "probe.py").write_text("import llama_serve\n", encoding="utf-8")
+    assert guard.main(["check", "--root", str(planted)]) == 1
+
+    # And the exclusion is exactly one named file, never a pattern
+    assert guard.SELF_EXCLUDED == ("tests/test_rename_llgenie_serve.py",)
+
+
 def test_no_live_file_mentions_the_old_module_name():
     """The tree is clean — the same check the architecture bot runs before it publishes (#573)."""
 

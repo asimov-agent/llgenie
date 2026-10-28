@@ -40,6 +40,11 @@ SKIP_DIRS = {".git", "__pycache__", "node_modules", ".ci-home", ".venv"}
 ALLOWED_PREFIXES = ("scripts/llama_serve.py", "scripts/module_name_guard.py", "agent-wiki/",
                     "openspec/changes/")
 
+#: The guard's own test spells the forbidden name ON PURPOSE — that is its subject — and passes `exclude`
+#: itself. The CLI had no way to, so `check` was red on a clean tree and could never be wired into a gate
+#: (issue #812). One module-level exclusion, named and reasoned, rather than a hole in the rule.
+SELF_EXCLUDED: tuple[str, ...] = ("tests/test_rename_llgenie_serve.py",)
+
 #: Binary/media files are not text to a reader.
 SKIP_SUFFIXES = {".pyc", ".png", ".jpg", ".gif", ".woff", ".woff2", ".gz", ".bin"}
 
@@ -166,7 +171,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("paths", nargs="*", help="files to check instead of the whole tree")
     args = parser.parse_args(argv)
 
-    found = hits(Path(args.root), [Path(p) for p in args.paths] or None)
+    found = hits(Path(args.root), [Path(p) for p in args.paths] or None,
+                 exclude=[Path(p) for p in SELF_EXCLUDED])
     if found:
         print("[module-name] REFUSED: these live files name the retired CLI module:", file=sys.stderr)
         for rel in found:

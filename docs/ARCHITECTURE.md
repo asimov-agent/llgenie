@@ -197,9 +197,11 @@ every bot job), `bot_sync_main.sh`, `build_llama_server.sh`, `fix_loop.sh`,
 time, then proves its settings against the profile it selected), `load_token_to_env.sh`,
 `rebase_bot.sh`.
 
-`scripts/module_name_guard.py` is the renamed-module guard: the CLI is
-`scripts/llgenie_serve.py`, and its old spelling is refused in every LIVE file, this doc
-included (issues #251, #573). "Live" is the tree walk minus the checkout's own `.gitignore`
+`scripts/module_name_guard.py` is the renamed-module guard, run by `make check-module-names` inside
+`make ci-unit`: the CLI is `scripts/llgenie_serve.py`, and its old spelling is refused in every LIVE
+file, this doc included (issues #251, #573). The one file that spells the name on purpose — the guard's
+own test — is excluded by name (`SELF_EXCLUDED`), because the CLI had no way to pass the `exclude` the
+library documents and therefore refused its own test on a clean tree (issue #812). "Live" is the tree walk minus the checkout's own `.gitignore`
 rules (`live_files()` / `is_ignored()`), because a guard that read everything judged files git
 never tracks — a bot's git-ignored working file reddened the local `make loop` while CI, on a
 fresh checkout, stayed green (issue #350). The matcher is deliberately minimal (a `dir/`

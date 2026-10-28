@@ -65,6 +65,7 @@ FAST_GATES: tuple[str, ...] = (
 #: `ci-unit` that appears in NEITHER this mapping nor `FAST_GATES` is a finding (issue #475): a new
 #: gate has to be classified, so it cannot be silently skipped here.
 DEFERRED: dict[str, str] = {
+    "check-module-names": "a pure tree read (the retired CLI module name in live files, issue #812): it is fast, ci-unit already runs it on the bot's own PR, and FAST_GATES is the fixed #475 list — which that test pins, so widening it is #475's follow-up, not this one",
     "check-issue-bodies": "reads the seven issue producers and the issue skills plus AGENTS.md: a producer/rule change moves it, ci-unit already catches it on the bot's own PR, and FAST_GATES is the fixed #475 list (widening it is that issue's follow-up, not this one)",
     "check-security-bot": "reads the bot's select labels and pin sources against the issue roster: a security-tracker change moves it, not the issue-bot's own PR",
     "check-security-issues": "reads the issue label roster and the scan policy: a security-tracker change moves it, not the issue-bot's own PR",
