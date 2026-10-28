@@ -14,6 +14,10 @@ import pytest
 # Repo root = parent of this tests/ directory.
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
+# The ONE import root (issue #796): `scripts/` too, because the scripts import their siblings bare
+# (`scripts/auto_merge.py` does `import verify_closure`). A test file that inserted this itself was
+# working around a seam that belongs here, once, for the whole suite.
+sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 import scripts.llgenie_serve as llgenie_serve  # noqa: E402  (importable: gguf+numpy come from the venv)
 

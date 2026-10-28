@@ -17,9 +17,8 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO / "scripts"))
 
-import check_agent_skills as guard  # noqa: E402  (the real guard, never a copy)
+from scripts import check_agent_skills as guard
 
 AGENTS = "# AGENTS.md\n\n## A bot's behaviour lives in its project skill\n"
 

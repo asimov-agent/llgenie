@@ -19,9 +19,8 @@ from pathlib import Path
 import yaml
 
 REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO / "scripts"))
 
-import architecture_bot as ab  # noqa: E402
+from scripts import architecture_bot as ab
 
 WORKFLOW = REPO / ".github" / "workflows" / "architecture-bot.yml"
 DOC = "docs/ARCHITECTURE.md"

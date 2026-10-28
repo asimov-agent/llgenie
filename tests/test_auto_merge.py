@@ -19,10 +19,9 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
-import auto_merge as am  # noqa: E402
-import bot_verdict as bv  # noqa: E402
-import verify_closure as vc  # noqa: E402
+from scripts import auto_merge as am
+from scripts import bot_verdict as bv
+from scripts import verify_closure as vc
 
 CI = (REPO / ".github" / "workflows" / "ci.yml").read_text()
 MERGE_WF = (REPO / ".github" / "workflows" / "auto-merge.yml").read_text()
