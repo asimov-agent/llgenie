@@ -640,6 +640,15 @@ rebase fails is aborted (`make rebase-bot-abort`), reported, and the run carries
   never touches a branch. If the rebase bot and the fix-bot ever do collide, the fix-bot's plain
   fast-forward push and this bot's `--force-with-lease` mean the **second one is rejected loudly**:
   nothing is clobbered in either direction.
+- **A conflicted PR has NO checks, and that is an answer rather than a crash** (issue #801). A
+  `DIRTY` PR gets no CI run at all — GitHub cannot build a merge ref for it — so
+  `gh pr checks <n> --json state` exits **1** with `no checks reported on the '<branch>' branch`
+  for exactly the PR this bot exists to rebase. That one exit is read as "neither in flight nor
+  red"; every OTHER non-zero read is still a hard failure, and a failed read now **names the PR it
+  could not judge** (`error=#<n> (<branch>): …` on stdout, quoted by the run's `::error::` line)
+  instead of leaving a bare exit code with no PR attached — the shape that let a red run and the
+  dead PR never meet. The drain step's `failed_prs` lists every PR it picked and did not rebase, and
+  each of those carries the reason on the PR itself.
 - `make rebase-bot` does the work: rebase with `rerere` **off** (a recorded resolution from an
   earlier rebase is not trustworthy), and on a conflict hand the stopped rebase to Hermes with what
   each side means plus the hard rules (preserve both sides, never weaken a test, keep a recipe's

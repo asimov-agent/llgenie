@@ -38,6 +38,10 @@ def _fake_gh(tmp_path: Path, opts: dict | None = None):
     (tmp_path / "checks.json").write_text(json.dumps(opts.get("checks_by_pr", {})))
     (tmp_path / "comments.json").write_text(json.dumps(opts.get("comments_by_pr", {})))
     (tmp_path / "states.json").write_text(json.dumps(opts.get("states_by_pr", {})))
+    #: PRs whose `pr checks` answers the documented non-zero: "no checks reported" (issue #801).
+    (tmp_path / "nochecks.json").write_text(json.dumps(opts.get("no_checks_by_pr", [])))
+    #: PRs whose `pr view --json comments` read fails hard (a real crash, not a no-checks answer).
+    (tmp_path / "failcomments.json").write_text(json.dumps(opts.get("fail_comments_by_pr", [])))
     gh = tmp_path / "gh"
     gh.write_text(f'''#!{sys.executable}
 import json, sys, pathlib
@@ -64,10 +68,19 @@ elif args[:2] == ["pr", "view"]:
         f.write_text(json.dumps(by_pr))
         print(json.dumps({{"mergeStateStatus": state}}))
     else:
+        broke = here / "failcomments.json"
+        if broke.exists() and args[2] in [str(x) for x in json.loads(broke.read_text())]:
+            sys.stderr.write('GraphQL: Resource not accessible (addComment)\\n')
+            sys.exit(1)                  # a REAL read failure: still a hard error, never "no checks"
         f = here / "comments.json"
         by_pr = json.loads(f.read_text()) if f.exists() else {{}}
         print(json.dumps({{"comments": by_pr.get(args[2], [])}}))
 elif args[:2] == ["pr", "checks"]:
+    none = here / "nochecks.json"
+    if none.exists() and args[2] in [str(x) for x in json.loads(none.read_text())]:
+        # EXACTLY what the real `gh` does for a PR with no CI run (a DIRTY PR, issue #801).
+        sys.stderr.write("no checks reported on the 'feat/%s' branch\\n" % args[2])
+        sys.exit(1)
     f = here / "checks.json"
     by_pr = json.loads(f.read_text()) if f.exists() else {{}}
     states = by_pr.get(args[2], [])
@@ -766,3 +779,57 @@ def test_the_default_gate_chain_and_the_pull_it_needs():
     # And the runner pulls the test image before the drain step needs it
     assert "make test-image" in wf
     assert wf.index("make test-image") < wf.index("Rebase every eligible PR")
+
+
+def test_a_conflicted_pr_with_no_checks_is_a_decision_not_a_crash(tmp_path):
+    """Run 40700214889's failure: `gh pr checks` exits 1 "no checks reported" on the DIRTY PR.
+
+    A conflicted PR gets no CI run at all (GitHub builds no merge ref), so "no checks reported" is
+    the NORMAL answer for exactly the PR this bot exists to rebase. Reading that exit code as a
+    crash killed the sweep on its own target and left the PR with no checks forever (issue #801).
+    """
+
+    # Given a conflicted (DIRTY) PR with no checks at all, which makes `gh pr checks` exit 1
+    gh, _log = _fake_gh(tmp_path, {"search": [], "prs": [_pr(789, "DIRTY", head=OWNER)],
+                                   "no_checks_by_pr": ["789"]})
+
+    # When  the sweep judges the open PRs
+    res = rb.sweep(str(gh), f"{OWNER}/{NAME}", today="2026-10-14", own_fork="andyholst")
+
+    # Then  it answers with the rebase decision instead of dying on the checks read
+    assert res["action"] == "rebase", res
+    assert res["pr"] == 789
+
+
+def test_a_real_read_failure_names_the_pr_it_prevented(tmp_path, capsys):
+    """A crash must name the PR: a bare exit code hid the one PR that needed the rebase (#801)."""
+
+    # Given a PR whose comments read fails for a reason that is NOT "no checks reported"
+    gh, _log = _fake_gh(tmp_path, {"search": [], "prs": [_pr(812, "DIRTY", head=OWNER)],
+                                   "fail_comments_by_pr": ["812"]})
+
+    # When  the sweep judges the open PRs
+    res = rb.sweep(str(gh), f"{OWNER}/{NAME}", today="2026-10-14", own_fork="andyholst")
+
+    # Then  the decision is an error that names the PR, and no rebase is claimed from a partial scan
+    assert res["action"] == "error", res
+    assert any("#812" in c for c in res["crashed"]), res
+    assert "#812" in capsys.readouterr().out
+
+
+def test_the_cli_reports_the_named_failure_on_stdout_and_exits_non_zero(tmp_path, capsys):
+    """`make rebase-bot-sweep` must print what it could not read before the workflow goes red."""
+
+    # Given the same unreadable PR, driven through the CLI the workflow actually calls
+    gh, _log = _fake_gh(tmp_path, {"search": [], "prs": [_pr(812, "DIRTY", head=OWNER)],
+                                   "fail_comments_by_pr": ["812"]})
+
+    # When  the CLI runs
+    rc = rb.main(["--gh", str(gh), "--repo", f"{OWNER}/{NAME}", "--today", "2026-10-14",
+                  "--own-fork", "andyholst"])
+    out = capsys.readouterr().out
+
+    # Then  it prints the decision and the named failure, and exits non-zero
+    assert rc == 1
+    assert "action=error" in out, out
+    assert "error=#812" in out, out

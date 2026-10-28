@@ -156,6 +156,7 @@ jobs:
           MAX_PR="${MAX_PR:-10}"
           rebased=0
           failed=0
+          failed_prs=""
           skip=""
           for i in $(seq 1 "$MAX_PR"); do
             out=$(make rebase-bot-sweep REPO="$REPO" OWN_FORK=andyholst SKIP="$skip")
@@ -164,7 +165,10 @@ jobs:
             # A crashed decision is NOT "nothing to do" (issue #309): go red instead of reporting
             # a green no-op after a sweep that died.
             if [ "$rc" != "0" ]; then
-              echo "::error::the rebase sweep failed (make rebase-bot-sweep rc=$rc); refusing to treat a crashed decision as 'nothing to do'"
+              # Name what the crashed decision could not read (#801): a bare exit code left the PR
+              # that needed the rebase out of the log, so the red run and the dead PR never met.
+              why=$(printf '%s\n' "$out" | sed -n 's/^error=//p' | tr '\n' ';')
+              echo "::error::the rebase sweep failed (make rebase-bot-sweep rc=$rc)${why:+ reading $why}; refusing to treat a crashed decision as 'nothing to do'"
               exit 1
             fi
             action=$(printf '%s\n' "$out" | sed -n 's/^action=//p' | tail -1)
@@ -183,6 +187,7 @@ jobs:
               skip="${skip:+$skip,}$pr"
             else
               failed=$((failed + 1))
+              failed_prs="${failed_prs:+$failed_prs,}#$pr"
               echo "::warning title=Rebase failed::#$pr ($branch) was not rebased; aborting it so the next decision runs on a clean tree"
               make rebase-bot-abort || true
               # The PR is still DIRTY, so without this the next iteration would pick it again and
@@ -191,11 +196,12 @@ jobs:
               skip="${skip:+$skip,}$pr"
             fi
           done
-          echo "rebased=$rebased failed=$failed"
+          echo "rebased=$rebased failed=$failed failed_prs=$failed_prs"
           echo "rebased=$rebased" >> "$GITHUB_OUTPUT"
           echo "failed=$failed" >> "$GITHUB_OUTPUT"
+          echo "failed_prs=$failed_prs" >> "$GITHUB_OUTPUT"
           if [ "$failed" != "0" ]; then
-            echo "::error::$failed PR(s) were picked and not rebased; each carries the reason on the PR and the rest were processed."
+            echo "::error::$failed PR(s) were picked and not rebased ($failed_prs); each carries the reason on the PR and the rest were processed."
             exit 1
           fi
 
@@ -215,7 +221,7 @@ jobs:
             echo "### rebase-bot"
             echo ""
             echo "- rebased: ${{ steps.drain.outputs.rebased || 0 }}"
-            echo "- failed: ${{ steps.drain.outputs.failed || 0 }}"
+            echo "- failed: ${{ steps.drain.outputs.failed || 0 }}${{ steps.drain.outputs.failed_prs && format(' ({0})', steps.drain.outputs.failed_prs) || '' }}"
             echo "- bound: $MAX_PR"
             echo ""
             echo "The bot never merges and never pushes to \`main\`."

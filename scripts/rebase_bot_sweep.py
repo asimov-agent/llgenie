@@ -152,17 +152,60 @@ def _comments(gh: str, repo: str, num: int) -> list[dict]:
     return (json.loads(out or "{}") or {}).get("comments") or []
 
 
+#: What `gh pr checks` prints to stderr AND exits 1 with when the PR has no checks at all. That is
+#: the NORMAL answer for the PR this bot exists to rebase: a conflicted (`DIRTY`) PR gets no CI run,
+#: because GitHub cannot build a merge ref for it (issue #801). Reading the exit code as a crash made
+#: `make rebase-bot-sweep` die on exactly its own target — measured on run 40700214889:
+#:
+#:     [rebase-bot] gh pr checks 789 --repo asimov-agent/llgenie --json state failed (1):
+#:       no checks reported on the 'agent/issue-772-…' branch
+NO_CHECKS = "no checks reported"
+
+
 def _checks(gh: str, repo: str, num: int) -> tuple[bool, bool]:
     """(is anything still running, is anything red) for this PR, from its checks.
 
     Both matter for coexisting with the other bots: rebasing cancels an in-flight run, and a
     failing test is the fix-bot's business rather than something a rebase can fix.
+
+    A PR with NO checks is `(False, False)` — not an error. `gh pr checks` exits 1 saying "no checks
+    reported" for it, and a conflicted PR cannot have any (issue #801), so a crash there blocked the
+    one PR that needed the rebase. Every OTHER non-zero exit is still a hard failure: an unreadable
+    answer must never be read as "nothing in flight, nothing red".
     """
-    out = _gh(gh, ["pr", "checks", str(num), "--repo", repo, "--json", "state"])
-    states = [(c.get("state") or "").upper() for c in (json.loads(out or "[]") or [])]
+    r = subprocess.run([gh, "pr", "checks", str(num), "--repo", repo, "--json", "state"],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        if NO_CHECKS in (r.stderr or "").lower():
+            print(f"[rebase-bot] #{num}: no checks reported (a conflicted PR has no CI run); "
+                  f"reading it as neither in flight nor red")
+            return False, False
+        raise SystemExit(f"[rebase-bot] gh pr checks {num} --repo {repo} failed "
+                         f"({r.returncode}): {r.stderr.strip()}")
+    states = [(c.get("state") or "").upper() for c in (json.loads(r.stdout or "[]") or [])]
     running = any(s in ("PENDING", "IN_PROGRESS", "QUEUED", "EXPECTED", "WAITING") for s in states)
     red = any(s in ("FAILURE", "ERROR", "FAIL", "CANCELLED", "TIMED_OUT") for s in states)
     return running, red
+
+
+#: Sentinel: a `gh` read for ONE PR failed, so that PR could not be judged.
+_READ_FAILED = object()
+
+
+def _read_pr(crashed: list[str], label: str, fn, *args):
+    """Call a `gh` read, naming the PR it was about when it fails (issue #801).
+
+    A crashed read used to leave the run with a bare non-zero exit and no mention of the PR it
+    stopped, so the PR that needed the rebase was the one thing missing from the log. The failure is
+    collected here, printed with the PR, and the scan continues — the caller then reports ALL of
+    them and exits non-zero, because a partial scan is not a decision.
+    """
+    try:
+        return fn(*args)
+    except SystemExit as exc:
+        crashed.append(f"{label}: {exc}")
+        print(f"[rebase-bot] ERROR on {label}: {exc}")
+        return _READ_FAILED
 
 
 def sweep(gh: str, repo: str, today: str | None = None, max_per_day: int = MAX_PER_DAY,
@@ -180,8 +223,10 @@ def sweep(gh: str, repo: str, today: str | None = None, max_per_day: int = MAX_P
                                         "headRepositoryOwner,createdAt,baseRefName"]) or "[]") or []
     reasons = []
     deferred: list[int] = []
+    crashed: list[str] = []
     for pr in sorted(prs, key=lambda p: p.get("createdAt") or ""):
         num = pr.get("number")
+        label = f"#{num} ({pr.get('headRefName') or 'unknown branch'})"
         head_repo = ((pr.get("headRepositoryOwner") or {}).get("login") or "").lower()
         if pr.get("isDraft"):
             reasons.append(f"#{num} is a draft"); continue
@@ -199,7 +244,10 @@ def sweep(gh: str, repo: str, today: str | None = None, max_per_day: int = MAX_P
         state = (pr.get("mergeStateStatus") or "").upper()
         if state == "UNKNOWN":
             # Never decide from an uncomputed merge state (issue #453): re-ask the PR itself.
-            state = resolve_state(gh, repo, num, state, unknown_attempts, unknown_delay)
+            state = _read_pr(crashed, label, resolve_state, gh, repo, num, state,
+                             unknown_attempts, unknown_delay)
+            if not isinstance(state, str):
+                continue
         if state not in NEEDS:
             if state == "UNKNOWN":
                 deferred.append(num)
@@ -213,7 +261,9 @@ def sweep(gh: str, repo: str, today: str | None = None, max_per_day: int = MAX_P
         # spends up to 180 minutes in the agent with nothing in flight and no commit yet, so the
         # checks and the attempt counter both look idle. A claim from ANY other bot makes this PR
         # theirs; a `done` marker releases it, and a claim older than PR_CLAIM_TTL is ignored.
-        comments = _comments(gh, repo, num)
+        comments = _read_pr(crashed, label, _comments, gh, repo, num)
+        if not isinstance(comments, list):
+            continue
         held = bot_claims.occupied(comments, bot_claims.REBASER, ttl=bot_claims.PR_CLAIM_TTL,
                                    is_live=lambda rid: run_is_live(gh, rid))
         if held:
@@ -224,7 +274,10 @@ def sweep(gh: str, repo: str, today: str | None = None, max_per_day: int = MAX_P
         if gone:
             # #291: the PR is free because its holder is gone; say so instead of waiting silently.
             print(f"[rebase-bot] #{num}: {gone}")
-        running, red = _checks(gh, repo, num)
+        checks = _read_pr(crashed, label, _checks, gh, repo, num)
+        if not isinstance(checks, tuple):
+            continue
+        running, red = checks
         if running:
             reasons.append(f"#{num} has checks in flight; rebasing now would cancel that run")
             continue
@@ -232,11 +285,17 @@ def sweep(gh: str, repo: str, today: str | None = None, max_per_day: int = MAX_P
             reasons.append(f"#{num} is red and only behind: the fix-bot owns that, a rebase is not "
                            "the blocker (a conflicted PR is taken, since the rebase is one)")
             continue
+        if crashed:
+            break                            # a partial scan is not a decision (#801): report it
         return {"action": "rebase", "pr": num, "head_branch": pr.get("headRefName"),
                 "head_repo": head_repo or owner, "state": state, "title": pr.get("title"),
                 "fingerprint": f"{head_repo}:{pr.get('headRefName')}",
                 "reasons": reasons, "deferred": deferred,
                 "reason": f"#{num} is {state} against main"}
+    if crashed:
+        return {"action": "error", "pr": None, "reasons": reasons, "deferred": deferred,
+                "crashed": crashed,
+                "reason": f"could not read {len(crashed)} PR(s), so no decision was made"}
     return {"action": "none", "pr": None, "reasons": reasons, "deferred": deferred,
             "reason": "no open PR needs rebasing"}
 
@@ -277,6 +336,12 @@ def main(argv=None) -> int:
     for k in ("pr", "head_branch", "head_repo"):
         if res.get(k):
             print(f"{k}={res[k]}")
+    if res["action"] == "error":
+        # Red on stdout as well as the exit code: the workflow prints this before it decides, and a
+        # crash that does not name the PR it prevented is what #801 was about.
+        for line in res.get("crashed") or []:
+            print(f"error={line}")
+        return 1
     return 0
 
 
