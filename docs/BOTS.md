@@ -1575,6 +1575,41 @@ The loop runs the failing check, hands the failure to Hermes and re-checks, up t
 the repaired tree as ONE commit with the owner PAT (so CI re-runs) only when the loop
 ends green.
 
+### A docs-only PR runs two checks, not twenty-eight (issue #824)
+
+A pull request's stages are selected from the paths it changed. `make ci-scope`
+(`scripts/ci_scope.py`, stdlib, `git diff --name-only`) turns a diff into change classes — `docs`,
+`skills`, `workflows`, `scripts`, `tests`, `data`, `containers`, `engines`, `security` — and prints the
+jobs those classes select, with a reason beside every skipped one:
+
+```
+make ci-scope BASE=origin/main                       # selected and skipped jobs, each with a reason
+python3 scripts/ci_scope.py classify --paths x/y     # only the classes
+python3 scripts/ci_scope.py jobs --paths x/y --json  # the set, machine-readable
+```
+
+A path that matches no class makes the script exit 1, so an unclassifiable diff fails `scope` loudly
+rather than being read as "nothing to run".
+
+Selection happens at three levels, and they are deliberately kept apart:
+
+- **the trigger** carries the `docs` class only — `docs/**`, `agent-wiki/**`, `openspec/**`,
+  `README.md`, `CHANGES.md`. A diff made only of those paths skips `ci.yml` and runs `docs.yml`
+  instead, so a docs PR pays two checks (`scope`, `docs`) rather than twenty-eight. The list is the
+  **class**, not "every markdown file": `data/*.md`, `.hermes/skills/**/SKILL.md`,
+  `skills/engines/**/SKILL.md` and `tests/fixtures/**/*.md` are read by real gates
+  (`check-registry`, `check-agent-skills`, `check-engine-params`, unit), so a bare `**/*.md` would
+  skip the gate that proves them — `tests/test_ci_scope.py` fails if one is added to the list;
+- **the rows inside a family** stay with `CHANGED=<ref>` (`list-engine-images`,
+  `list-engine-base-images`), which compares rendered inputs — the class gate decides whether the
+  family runs, never which cells inside it;
+- **`push` to `main` is not filtered at all**: a merge keeps the whole matrix.
+
+Wildcard inputs (`Makefile`, `tools/**`, `.github/**`, `scripts/ci_*.py`, `scripts/engine_*.py`,
+`scripts/check_*.py`, `scripts/unit_tests.py`, `pytest.ini`, `.gitleaks.toml`, `renovate.json`,
+`AGENTS.md`) select every class on purpose: each can change what a gate proves, so a wrong skip there
+would hide a regression in the gate rather than in the product.
+
 ### Documentation is part of the change (issue #257)
 
 A change is not done until the docs the user reads describe it. Two rules, both

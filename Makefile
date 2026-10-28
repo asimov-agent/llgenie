@@ -79,7 +79,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	security-bumps security-bumps-plan check-security-bumps \
 	agent-shell-keys-check \
 	agent-fetch search-smoke require-env web-coverage issue-evidence \
-	engine-bump-rebase generate-engine-params check-engine-params check-engine-coverage engine-coverage-report check-engine-source engine-source-report build-engine run-engine stop-engine list-engine-images engine-build-matrix ci-lint ci-unit ci-agents-read \
+	engine-bump-rebase generate-engine-params check-engine-params check-engine-coverage engine-coverage-report check-engine-source engine-source-report build-engine run-engine stop-engine list-engine-images engine-build-matrix ci-lint ci-unit ci-agents-read ci-scope \
 	ci-openspec ci-cpu-health ci-top-tier ci-install ci-install-dry-args ci-free-disk test-engine-stage bot-sync-main bot-sync-branch ci-wait-engine-images \
 	ci-install-dry ci-install-run ci-install-uninstall test-env test-top-tier test-top-tier-ci test-top-tier-cli-ci test-top-tier-serve test-top-tier-serve-ci \
 	check-agent-model model-pin-report check-agent-skills agent-skills-report test-agent-skills-live hermes-skills-register \
@@ -1478,6 +1478,11 @@ uninstall: ## Undo make install: ~/bin/llgenie, llgenie.py, the llgenie-engine-*
 # CI pulls it first with `make test-image-pull` / `make openspec-image-pull`.
 ci-lint: bash-check ## CI job lint: make lint
 	$(MAKE) lint
+# Which CI jobs a diff selects (issue #824): the classifier the `scope` workflow runs, so the
+# applied set of stages is a stated decision on the PR instead of a silent absence.
+BASE ?= origin/main
+ci-scope: ## CI: print the change classes a diff touches and the jobs they select (BASE=<ref>, issue #824)
+	python3 scripts/ci_scope.py jobs --from "$(BASE)"
 
 ci-unit: bash-check ## CI job unit: hermetic unit tests + registry / skill / Strata / engine-param / quant-catalog checks
 	$(MAKE) test-unit
