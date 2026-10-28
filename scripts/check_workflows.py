@@ -534,16 +534,92 @@ def check_workflow_run_coverage(root: Path = REPO_ROOT) -> list[dict]:
     return out
 
 
+def _jobs_block(lines: list[str]) -> "tuple[int, list[str]] | None":
+    """The `jobs:` mapping and its indented body, read from lines so no YAML library is required.
+
+    Every gate in this file works without `pyyaml`, because this host has no site-package for it while CI
+    runs inside the test image: a check that silently returns nothing when the import fails would pass by
+    not looking, which is the very defect it exists to catch.
+    """
+    for i, line in enumerate(lines):
+        if re.match(r"^jobs:", line):
+            return i, _indented_block(lines, i, 0)
+    return None
+
+
+def check_uses_job_keys(root: Path = REPO_ROOT) -> list[dict]:
+    """A `uses:` job may not carry job-level keys: GitHub rejects the FILE, and no run ever has a job.
+
+    This is the worst shape of defect because it reads green everywhere. `timeout-minutes` on a job that
+    calls a reusable workflow makes the workflow fail to LOAD, so the run is `completed/failure` with
+    **0 jobs and 0 check-runs**: a rollup aggregating jobs sees nothing to report, `gh pr checks` has no
+    row, and no gate that reads conclusions can catch it. Measured on #882 (`b88e0c2`): two `uses:` jobs
+    carried `timeout-minutes`, and the only evidence in the whole system was a push run with zero jobs.
+
+    The ceilings belong INSIDE the called workflow's own jobs (`pipeline.yml`), which is also where a hang
+    is actually detectable. A file whose `jobs:` block holds no job is reported for the same reason.
+    """
+    out: list[dict] = []
+    #: Keys GitHub refuses on a job that delegates to a reusable workflow.
+    forbidden = ("timeout-minutes", "steps", "runs-on", "container", "services", "strategy", "env",
+                 "continue-on-error")
+    for path in workflow_files(root):
+        where = str(path.relative_to(root))
+        lines = path.read_text().splitlines()
+        found = _jobs_block(lines)
+        if found is None:
+            continue                        # no `jobs:` at all is another check's finding
+        start, body = found
+        job_starts = [i for i, line in enumerate(body) if re.match(r"^ {2}[A-Za-z0-9_-]+:\s*(#.*)?$", line)]
+        if not job_starts:
+            out.append({
+                "key": f"workflow-jobs/{where}",
+                "title": f"ci: {where} defines no job",
+                "evidence": (
+                    f"`{where}` has a `jobs:` block with no job under it, so a run of it can never contain "
+                    f"a job. A `completed/failure` run with 0 jobs is what a rejected workflow looks like "
+                    f"from the inside, and no rollup can see it (issue #882)."
+                ),
+                "where": where,
+            })
+            continue
+        for n, idx in enumerate(job_starts):
+            name = body[idx].strip().rstrip(":").strip()
+            chunk = body[idx + 1:job_starts[n + 1] if n + 1 < len(job_starts) else len(body)]
+            text = "\n".join(chunk)
+            if not re.search(r"^ {4}uses:", text, re.M):
+                continue
+            bad = [key for key in forbidden if re.search(rf"^ {{4}}{re.escape(key)}:", text, re.M)]
+            if not bad:
+                continue
+            out.append({
+                "key": f"uses-job-key/{where}#{name}",
+                "title": f"ci: {where} job `{name}` calls a reusable workflow and carries "
+                         + ", ".join(f"`{k}`" for k in bad),
+                "evidence": (
+                    f"`{name}` has both `uses:` and " + ", ".join(f"`{k}`" for k in bad) + ". GitHub rejects "
+                    f"the workflow at LOAD time: the run is `completed/failure` with 0 jobs and 0 check-runs, "
+                    f"so every rollup reads `fail=0` and the PR looks clean while it cannot run at all. Put "
+                    f"the ceiling on the jobs INSIDE the called workflow (e.g. `pipeline.yml`), or pass an "
+                    f"input the called workflow declares (issue #882)."
+                ),
+                "where": where,
+            })
+    return out
+
+
 def findings(root: Path = REPO_ROOT) -> list[dict]:
     return (check_expressions(root) + check_newlines(root) + check_workflow_names(root)
-            + check_workflow_run_refs(root) + check_workflow_run_coverage(root))
+            + check_workflow_run_refs(root) + check_workflow_run_coverage(root)
+            + check_uses_job_keys(root))
 
 
 def render(items: list[dict]) -> str:
     if not items:
         return ("[workflows] OK: every YAML file parses, ends with a newline, names its workflow, "
-                "every `workflow_run` names the workflows it reacts to, and every workflow's "
-                "completion is routed to a consumer")
+                "every `workflow_run` names the workflows it reacts to, every workflow's "
+                "completion is routed to a consumer, and no `uses:` job carries a job-level "
+                "key GitHub rejects at load time")
     lines = [f"[workflows] {len(items)} violation(s)"]
     for f in items:
         lines += ["", f"- {f['title']}", f"  where: {f['where']}", f"  {f['evidence']}"]

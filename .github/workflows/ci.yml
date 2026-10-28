@@ -267,6 +267,7 @@ jobs:
         run: make build-engine-base BACKEND=${{ matrix.backend }} PUSH=$PUBLISH
 
   engine-matrix:
+    timeout-minutes: 60
     needs: [guard]
     runs-on: ubuntu-latest
     outputs:

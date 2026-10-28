@@ -433,3 +433,64 @@ def test_check_exits_non_zero_on_a_violation_and_zero_on_this_repo(tmp_path: Pat
     # Then  the violation is non-zero and this tree is zero
     assert bad == 1
     assert good == 0
+
+
+# ---------------------------------------------------------------------------------------------------
+# issue #882: a `uses:` job with a job-level key makes GitHub reject the FILE, and the run then has no
+# jobs at all - which every rollup reads as "nothing failed".
+def _wf(tmp_path, name: str, body: str):
+    d = tmp_path / ".github" / "workflows"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / name).write_text(body, encoding="utf-8")
+    return tmp_path
+
+
+def test_a_uses_job_with_a_timeout_is_reported(tmp_path):
+    """The measured #882 shape: `uses:` + `timeout-minutes` → the workflow never produces a job."""
+    root = _wf(tmp_path, "ci.yml", """
+name: ci
+on: push
+jobs:
+  linux:
+    timeout-minutes: 150
+    uses: ./.github/workflows/pipeline.yml
+""")
+
+    items = cw.check_uses_job_keys(root)
+
+    assert [i["key"].split("/")[0] for i in items] == ["uses-job-key"], items
+    assert "linux" in items[0]["title"], items[0]
+    assert "0 jobs" in items[0]["evidence"], items[0]["evidence"]
+
+
+def test_a_uses_job_with_only_inputs_is_accepted(tmp_path):
+    """The legal shape: `uses:` plus `with:`/`permissions`/`secrets`, and nothing else."""
+    root = _wf(tmp_path, "ci.yml", """
+name: ci
+on: push
+jobs:
+  linux:
+    uses: ./.github/workflows/pipeline.yml
+    permissions:
+      contents: read
+    secrets: inherit
+    with:
+      runner: ubuntu-latest
+""")
+
+    assert cw.check_uses_job_keys(root) == []
+
+
+def test_a_workflow_with_no_jobs_is_reported(tmp_path):
+    """A file that parses to no job can never run — the same invisible failure, one step earlier."""
+    root = _wf(tmp_path, "empty.yml", "name: empty\non: push\njobs: {}\n")
+
+    items = cw.check_uses_job_keys(root)
+
+    assert [i["key"].split("/")[0] for i in items] == ["workflow-jobs"], items
+
+
+def test_every_committed_workflow_has_a_runnable_shape():
+    """The tree itself: every workflow parses into at least one job, and no `uses:` job carries a key
+    GitHub rejects at load time (the defect that made #882 unapprovable and invisible)."""
+    assert cw.check_uses_job_keys(REPO) == []
