@@ -327,7 +327,7 @@ def test_no_ci_job_builds_a_ci_image():
     # And every job that pulls a CI image needs ci-images, directly or through its caller
     pulls = {n for n, t in runs.items() if "make test-image-pull" in t or "make test-env" in t or "make openspec-image-pull" in t}
     assert pulls, "no job pulls the CI images"
-    callers = {"pipeline": ("linux", "macos"),
+    callers = {"pipeline": ("linux",),
                "published": ("linux-published",)}
     for name in pulls:
         wf, job = name.split("/", 1)
@@ -351,9 +351,12 @@ def _make_targets(job: dict) -> list[str]:
     return [m for r in _runs(job) for m in re.findall(r"make (ci-[a-z0-9-]+)", r)]
 
 
-def test_macos_runs_the_linux_pipeline_file_job_for_job():
-    """macOS runs the SAME pipeline file as Linux (issue #120: no combined jobs), so every
-    job, make ci-<job> target and assert is identical; only the runner label differs."""
+def test_only_linux_calls_the_pipeline_file_and_no_macos_runner_is_requested():
+    """CI is Linux-only (#870): the macOS group is GONE, not conditionally skipped.
+
+    `pipeline.yml` keeps its `runner` input, so macOS coverage can be restored by adding a caller
+    back - but while no caller passes a macOS label, no check on this repository exercises macOS.
+    """
 
     # Given ci.yml and the shared pipeline
     ci, linux = _jobs("ci.yml"), _jobs("pipeline.yml")
@@ -361,10 +364,13 @@ def test_macos_runs_the_linux_pipeline_file_job_for_job():
     # When the callers of the pipeline are read
     callers = {n: j for n, j in ci.items() if j.get("uses") == "./.github/workflows/pipeline.yml"}
 
-    # Then linux and macos call the one file, with only the runner (and optional) different
-    assert set(callers) == {"linux", "macos"}
+    # Then  exactly one caller remains, on ubuntu-latest ...
+    assert set(callers) == {"linux"}, callers
     assert callers["linux"]["with"] == {"runner": "ubuntu-latest"}
-    assert callers["macos"]["with"]["runner"] == "macos-15-intel"
+    # ... no macOS job survived in any form, and no macOS label is named anywhere in the workflow
+    assert not [n for n in ci if "macos" in n.lower()], list(ci)
+    assert "macos-15-intel" not in (REPO / ".github/workflows/ci.yml").read_text()
+    # ... and the shared file was not forked into a Linux-only copy
     assert not (REPO / ".github" / "workflows" / "pipeline-macos.yml").exists()
 
     # And each job runs one target, once (no combined job, nothing runs twice)

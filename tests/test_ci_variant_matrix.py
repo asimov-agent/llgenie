@@ -33,7 +33,7 @@ def _workflow() -> dict:
 
 
 def _pipeline() -> dict:
-    """The jobs the linux and macos pipelines both run (pipeline.yml)."""
+    """The jobs the Linux pipeline runs (pipeline.yml; there is no macOS caller since #870)."""
     loaded = yaml.safe_load(PIPELINE.read_text())
     assert isinstance(loaded, dict)
     return loaded

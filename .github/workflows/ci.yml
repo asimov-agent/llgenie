@@ -32,15 +32,22 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# Two pipelines run in parallel (issue #112): `linux` (ubuntu-latest) and `macos`
-# (macos-15-intel). Both run the same `make ci-<job>` commands and asserts:
-# both call pipeline.yml, one job per target (issue #120: no combined jobs). Linux sets
-# up Docker; macOS runs the same targets in the Python 3.11 venv and never runs a Docker
-# GitHub Action. Both must succeed for the run to be green.
-# macOS never runs an inference server in a container and its runners have no Metal
-# GPU (issue #120): there is no macOS published-image stage and no native-engine CI
-# job. Native Metal engines are verified on an Apple-Silicon host with
-# `make ci-engines BACKEND=metal`.
+# ONE pipeline runs: `linux` (ubuntu-latest), issue #112. There is no macOS group in CI any more
+# (#870, owner instruction "no more mac runners, disable the stages").
+#
+# Why, measured: the hosted macOS pool on this account is not reliably issued. Probe run
+# 40741670180 queued all three hosted macOS labels for 14 minutes each with `runner=NONE`, while the
+# repository holds 10 SUCCESSFUL macOS jobs in the same "GitHub Actions" runner group and 54 macOS
+# jobs were cancelled with no runner ever assigned.
+# The resource exists but is not issued in parallel, so any PR that depends on a macOS row depends
+# on a queue that may never reach it - measured on #767 (one documentation file): 26 green jobs,
+# zero failures, waiting two hours on `macos / unit` alone.
+#
+# Consequence, stated so it is not discovered later: **a macOS-path change now needs hand review.**
+# `pipeline.yml` is untouched and still capable of running on a macOS runner (it takes the label as
+# an input), so the coverage can be restored by adding a caller back - but nothing requests a macOS
+# runner today, which means no check on this repository exercises macOS. `make ci-engines
+# BACKEND=metal` and the native-engine targets remain verified on an Apple-Silicon host by hand.
 #
 # ci-images (issue #117) publishes the CI images (llgenie/test, llgenie/openspec) to GHCR
 # once per content hash; every other job PULLS them (make test-image-pull /
@@ -157,16 +164,6 @@ jobs:
     secrets: inherit
     with:
       runner: ubuntu-latest
-
-  macos:
-    needs: [ci-images]
-    uses: ./.github/workflows/pipeline.yml  # the SAME file as linux: one job per make ci-<job>, no combined jobs (issue #120)
-    permissions:
-      contents: read
-      packages: read
-    secrets: inherit
-    with:
-      runner: macos-15-intel   # required: a macOS failure fails the run, same as Linux
 
   # ------------------------------------------------------------------
   # engine-images (issue #98). Pure make, no LLM, nothing built on a laptop:

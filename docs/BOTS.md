@@ -1418,12 +1418,25 @@ image → download → lint → unit → install → health → top-tier → top
   `RUNTIME=<path to a docker CLI>` overrides it.
 - **A slow test is shown, not hidden:** `pytest.ini` sets `faulthandler_timeout = 300`, so a
   test running over 5 minutes prints every thread's stack into the log and keeps running.
-- **Required for merging into `main`** (branch protection): every Linux job and every
-  macOS job. A failure on either OS fails the run. That is `linux / *`, the four
-  `linux-published / install-published-*` installs and `macos / *`. No macOS job is
-  `continue-on-error`. macOS has no published-image stage and no native-engine job: it
-  never runs an inference server in a container, so there are no images to test there,
-  and GitHub's macOS runners have no Metal GPU to serve on.
+- **CI is Linux-only (issue #870).** `ci.yml` has **no `macos` group**: the seven macOS rows
+  (`lint`, `install`, `openspec`, `agents-read`, `cpu-health`, `unit`, `top-tier`) are gone from the
+  pull-request matrix, not conditionally skipped, so no macOS runner is ever requested. The trigger
+  is conservative on purpose — an absent row cannot starve.
+  **Why, measured:** the hosted macOS pool on this account is not reliably issued. Probe run
+  `40741670180` queued all three hosted macOS labels for 14 minutes each with `runner=NONE`, while
+  the repository holds 10 successful macOS jobs in the same `GitHub Actions` runner group and 54
+  macOS jobs were cancelled with **no runner ever assigned**. The recourse is not a label: it is not
+  depending on a macOS row in the PR path. Measured cost of depending on it: #767, a one-file
+  documentation PR, sat with 26 green jobs and **zero failures**, waiting two hours on one macOS row.
+  **The trade, stated so it is not discovered later:** a macOS-path change now needs **hand review**.
+  `pipeline.yml` is unchanged and still runs on a macOS runner when a caller passes that label, so
+  the coverage can be restored by adding a caller back; until then nothing in CI exercises macOS, and
+  the native-engine targets (`make ci-engines BACKEND=metal`) are verified on an Apple-Silicon host
+  by hand.
+- **Required for merging into `main`** (branch protection): the Linux jobs that remain. A failure
+  fails the run. That is `linux / *` and the four `linux-published / install-published-*` installs.
+  They have no published-image stage of their own and no native-engine job: `linux / cpu-health` and
+  `linux / top-tier` run a real model in a container, which is what a GPU-less runner can prove.
 - **One CI run per change, not per push:** `ci.yml` triggers on `pull_request` against
   `main` and on `push` to `main` (a merge, which additionally builds and publishes the
   engine images) — never on a bare feature-branch push. So a branch is vetted by its PR's

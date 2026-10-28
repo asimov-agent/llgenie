@@ -95,8 +95,12 @@ def test_the_install_job_runs_one_make_target():
     assert "ci-wait-engine-images" not in targets
 
 
-def test_macos_install_is_not_gated():
-    """macOS pulls no engine image, so the gate target skips the lookup (issue #120)."""
+def test_the_install_target_keeps_its_darwin_branch_for_host_use():
+    """CI no longer runs macOS (#870), but `make ci-install` still works on a Mac host.
+
+    The Darwin branch in the gate target is for a developer running the target locally, not for a CI
+    row - so it stays, and with no macOS caller in `ci.yml` nothing in CI exercises it.
+    """
 
     # Given ci-install's recipe and the gate target's recipe
     install, gate = _recipe("ci-install"), _recipe("ci-wait-engine-images")

@@ -610,12 +610,16 @@ being true. Its jobs are `guard`, `ci-images` (publish the test and OpenSpec ima
 hash, never rebuild per job), `scanner-images` (`make ci-scanner-images`), `engine-base`,
 `engine-matrix` (the committed params, filtered by `CHANGED=<base>` to the images a PR
 touched), `engine-image` (one parallel job per engine x backend), `engine-published-test`
-(pull each published image back and run `make test-published-engine` on it), and `linux` /
-`macos`, which call `pipeline.yml` — the reusable per-OS verification pipeline.
+(pull each published image back and run `make test-published-engine` on it), and `linux`,
+which calls `pipeline.yml` — the reusable verification pipeline. There is no macOS caller: issue
+#870 removed the group, because the hosted macOS pool on this account is not reliably issued
+(probe `40741670180` queued all three labels for 14 minutes each with `runner=NONE`; 54 macOS jobs
+were cancelled with no runner ever assigned), so a PR that depends on a macOS row depends on a queue
+that may never reach it. `pipeline.yml` keeps its `runner` input, so macOS can be restored by adding
+a caller back; until then a macOS-path change needs hand review.
 `pipeline.yml` runs one job per `make ci-<job>` target — `lint` (`ci-lint`), `unit`
 (`ci-unit`), `install` (`ci-install`), `agents-read` (`ci-agents-read`), `openspec`
-(`ci-openspec`), `cpu-health` (`ci-cpu-health`) and `top-tier` (`ci-top-tier`) — the same
-jobs and asserts on both OSes; only the runner label differs. `ci-openspec` runs
+(`ci-openspec`), `cpu-health` (`ci-cpu-health`) and `top-tier` (`ci-top-tier`). `ci-openspec` runs
 `make openspec-validate-all` and then `make openspec-tasks-check`: the structure of EVERY
 active change is validated, because the job used to name one hardcoded change
 (`NAME=ci-pipeline`), so the change a commit actually touched could land without its
