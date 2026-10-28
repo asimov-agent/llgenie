@@ -86,7 +86,27 @@ def check(agents: Path, name: str, dest: Path) -> int:
     return 0
 
 
-def write(agents: Path, name: str, dest: Path) -> int:
+#: A synced file smaller than this fraction of the live one is treated as a truncated seed, not an edit.
+#: The defect this exists for: a seed taken from an issue's excerpt stopped at an inner code fence, so
+#: `sync` would have replaced a 7,509-byte rulebook with 5,149 bytes of it, with every gate green.
+SHRINK_FLOOR = 0.75
+
+
+def shrinks(agents: Path, name: str, dest: Path) -> list[tuple[str, int, int]]:
+    """Every (relative path, tree size, live size) this sync would shrink past `SHRINK_FLOOR`."""
+    out: list[tuple[str, int, int]] = []
+    for path in profile_files(agents, name):
+        rel = _rel(path, agents / name)
+        target = dest / rel
+        if not target.exists():
+            continue
+        tree, live = path.stat().st_size, target.stat().st_size
+        if live and tree < live * SHRINK_FLOOR:
+            out.append((rel, tree, live))
+    return out
+
+
+def write(agents: Path, name: str, dest: Path, force: bool = False) -> int:
     """Copy each file in, then read every one back; a read-back mismatch is a failure."""
     files = profile_files(agents, name)
     if not files:
@@ -98,6 +118,14 @@ def write(agents: Path, name: str, dest: Path) -> int:
     except OSError as exc:
         print(f"[agent-profile] FAIL: cannot create {dest}: {exc}", file=sys.stderr)
         return 2
+    shrinking = shrinks(agents, name, dest)
+    if shrinking and not force:
+        for rel, tree, live in shrinking:
+            print(f"[agent-profile] REFUSED {agents.name}/{name}/{rel}: the tree has {tree} b, the live "
+                  f"profile has {live} b — a sync would replace {live} bytes of rulebook with {tree}. "
+                  f"That is a truncated seed, not an edit; fix the seed, or pass --force to mean it.",
+                  file=sys.stderr)
+        return 3
     written: list[str] = []
     for path in files:
         rel = _rel(path, agents / name)
@@ -126,6 +154,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="the profile's Hermes home (default: $HERMES_PROFILE_HOME, else "
                              "~/.hermes/profiles/<profile>)")
     parser.add_argument("--root", default=str(REPO_ROOT), help="tree to read (the tests use this)")
+    parser.add_argument("--force", action="store_true",
+                        help="allow a tree file that is smaller than the live one (a deliberate "
+                             "shortening); without it a truncated seed is refused")
     args = parser.parse_args(argv)
 
     root = Path(args.root).resolve()
@@ -149,7 +180,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"[agent-profile] {args.profile}: destination {dest} (from {source})")
     if args.check:
         return check(agents, args.profile, dest)
-    return write(agents, args.profile, dest)
+    return write(agents, args.profile, dest, force=args.force)
 
 
 if __name__ == "__main__":
