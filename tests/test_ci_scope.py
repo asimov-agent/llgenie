@@ -429,18 +429,30 @@ def test_the_reporting_check_survives_the_events_that_carry_no_pr():
     on = doc.get("on") if "on" in doc else doc.get(True)
 
     # Then  all three events are wired, and none of them filters by path - a filtered reporter
-    #       disappears exactly on the unusual diff, which is when a reader needs it most
-    assert set(on) == {"pull_request", "merge_group", "workflow_dispatch"}, sorted(on)
+    #       disappears exactly on the unusual diff, which is when a reader needs it most.
+    #       SUBSET, not equality: a fourth trigger is not a defect, and an exact-set assertion would
+    #       red on a correct workflow that later reported on, say, `schedule` - a false red teaches
+    #       the next lane to edit the code to match the test (issue #824 review).
+    assert {"pull_request", "merge_group", "workflow_dispatch"} <= set(on), sorted(on)
     for event, cfg in on.items():
         cfg = cfg or {}
         assert "paths" not in cfg and "paths-ignore" not in cfg, (event, cfg)
 
     # And the steps do not depend on `github.base_ref` existing: a dispatch and a merge-queue ref
-    # have none, and an empty ref makes `git diff <base>...HEAD` fail - a failing reporter is not a report
+    # have none, and an empty ref makes `git diff <base>...HEAD` fail - a failing reporter is not a report.
+    # Assert the BEHAVIOUR, not one spelling: `${{ github.base_ref || 'main' }}` and a shell default
+    # `${EVENT_BASE_REF:-main}` are both correct, and pinning either one alone false-reds the other
+    # implementation - the exact false red this assertion produced when first written.
     steps = doc["jobs"]["scope"]["steps"]
-    body = "\n".join(step.get("run", "") for step in steps)
-    assert "${EVENT_BASE_REF:-main}" in body, body
-    assert "No github.base_ref for event" in body, body
+    runs = [s for s in steps if "ci-scope" in (s.get("run") or "")]
+    assert runs, [s.get("name") for s in steps]
+    for step in runs:
+        body = step.get("run") or ""
+        env_blob = " ".join(str(v) for v in (step.get("env") or {}).values())
+        has_fallback = ("|| 'main'" in env_blob) or (":-main" in body) or (":-main" in env_blob)
+        assert has_fallback, (step.get("name"), env_blob, body[:200])
+        # … and it must be USED when fetching/diffing, not merely declared
+        assert "main" in body, (step.get("name"), body[:200])
 
 
 def test_a_blank_path_entry_is_the_same_as_no_diff_at_all(capsys):
