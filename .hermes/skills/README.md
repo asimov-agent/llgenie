@@ -5,8 +5,21 @@ One Hermes **project skill** per agent leg, in the layout Hermes itself discover
 contract each bot runs under: `Inputs` says what the host prepared, `Output` says the one file the
 leg may write, `Rules` says what it must not do.
 
-The repo's `skills/engines/` is a different thing: those describe inference servers and are read by
-`scripts/engine_skills.py` → `make generate-engine-params`, never by an agent.
+## Two trees, two kinds of agent — do not confuse them
+
+| tree | whose behaviour | what it is |
+|---|---|---|
+| `.hermes/skills/` | the **CI legs** — the bots a workflow runs in the agent image | a `hermes -s <name>` contract for one leg; gated by `make check-agent-skills` (issue #577) |
+| `agents/<profile>/` | the **host agents** — `llgenie-planner`, `llgenie-issse-implementer`, the Hermes profiles on the owner's machine | that profile's `SOUL.md` plus its `skills/`; gated by `make check-agent-profiles` and synced into the profile with `make sync-agent-profile PROFILE=<p>` (issue #791) |
+
+A skill for a CI leg belongs here and is preloaded by a `Makefile` recipe. A skill a **host agent**
+loads (or that profile's `SOUL.md`) belongs under `agents/<profile>/`: it is copied into
+`~/.hermes/profiles/<profile>/` by the sync target, never by hand, and a change to it is an issue
+plus a PR like any other. Nothing in this directory is copied into a profile, and nothing under
+`agents/` is preloaded by a leg.
+
+The repo's `skills/engines/` is a third, different thing: those describe inference servers and are
+read by `scripts/engine_skills.py` → `make generate-engine-params`, never by an agent.
 
 | skill | leg | what it decides |
 |---|---|---|
