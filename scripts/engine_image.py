@@ -884,8 +884,13 @@ CI_VARIANTS = ("cpu", "cuda", "rocm", "vulkan")   # one image per backend (fat G
 DISABLED = {
     ("llama.cpp-laurentzuijdwijk", "cuda"): "#103 build-time --help needs libcuda.so.1",
     ("exllamav3-rocm", "rocm"): "#103 cuda_shim needs torch >= 2.13 ROCm headers",
-    ("llama.cpp-prism", "cuda"): "#103 fat CUDA build runs > 50 min on hosted runners",
-    ("llama.cpp-prism", "rocm"): "#103 fat ROCm build runs > 50 min on hosted runners",
+    # Prism's CUDA cell is ENABLED: the only engine that reads Ternary Bonsai 2's PQ2_0/PTQ1_0
+    # tensor types had no runnable image on an NVIDIA host (the launcher fell back to its cpu
+    # image, and a ternary GGUF on stock llama.cpp dies with "invalid ggml type 142"). The old
+    # objection was build cost, not correctness: the sweep's job timeout is 240 min and it is
+    # dispatch-only, and a same-repo PR builds only the cell its params changed.
+    ("llama.cpp-prism", "rocm"): "#103 fat ROCm build runs > 50 min on hosted runners, and no AMD "
+                                 "host has verified the result yet",
 }
 
 

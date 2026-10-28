@@ -1698,11 +1698,23 @@ def _main_pick(args):
         reg = {**reg, "models": [r["model"] for r in _registry_match(
             [{"model": m} for m in reg.get("models") or []], args.model)]}
     if args.model_file:  # the given file decides the format
-        fmt = mp.model_format(Path(args.model_file).expanduser())
+        file_path = Path(args.model_file).expanduser()
+        fmt = mp.model_format(file_path)
         rows = mp.recommend(reg, fmt=fmt)
         for r in rows:
             r["local"], r["plans"] = None, {}
             r["engines"] = [{**e, "use_format": fmt} for e in r["engines"]]
+        if fmt == "gguf" and mp.gguf_needs_prism(file_path):
+            # The file's own tensor types decide the engine: a GGUF storing PQ2_0/PTQ1_0 is
+            # unreadable to stock llama.cpp ("invalid ggml type 142") and only the Prism build
+            # loads it, so every other engine is a guaranteed failed start.
+            for r in rows:
+                r["engines"] = [e for e in r["engines"] if e["id"] in mp.PRISM_ENGINES]
+            rows = [r for r in rows if r["engines"]]
+            if not rows:
+                raise SystemExit(f"[llgenie] {file_path.name} stores a Prism-only ggml tensor type "
+                                 f"(PQ2_0/PTQ1_0): it needs the llama.cpp-prism engine, which has no "
+                                 f"image for {mp.host_arch()} here")
     else:
         rows = mp.offer(reg, gb=gb, ram_gb=mp.system_ram_gb())
     if args.engine:  # only models the requested engine can run here

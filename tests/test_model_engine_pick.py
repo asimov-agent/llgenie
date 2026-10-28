@@ -214,3 +214,53 @@ def test_a_model_the_catalog_does_not_cover_keeps_its_engines(tmp_path, monkeypa
 
     # Then  nothing is refused for a model the table has not been rendered for
     assert {r["engine"] for r in rows} == {"llama.cpp", "MLX"}
+
+
+# ------------------------------- a fork-only quantisation picks the fork's engine
+# Ternary Bonsai 2's PQ2_0 file stores ggml type 142, which exists only in the Prism fork.
+# The picker used to go by the .gguf extension alone and offered stock llama.cpp, whose
+# server dies on load ("tensor 'output.weight' has invalid ggml type 142") — a guaranteed
+# failed start that only showed up after the container was gone.
+def _write_gguf(path, tensor_type: int) -> None:
+    """A minimal GGUF header: magic, version 3, one tensor of `tensor_type`, no metadata."""
+    import struct
+    name = b"output.weight"
+    path.write_bytes(
+        b"GGUF" + struct.pack("<I", 3) + struct.pack("<Q", 1) + struct.pack("<Q", 0)
+        + struct.pack("<Q", len(name)) + name + struct.pack("<I", 1) + struct.pack("<Q", 1)
+        + struct.pack("<I", tensor_type) + struct.pack("<Q", 0))
+
+
+def test_a_prism_only_tensor_type_narrows_the_engines_to_prism(tmp_path):
+    """The file's own tensor types decide the engine, not the extension."""
+
+    # Given a GGUF that stores the Prism-only PQ2_0 type and one that stores a stock type
+    prism = tmp_path / "ternary-PQ2_0.gguf"
+    plain = tmp_path / "plain-Q4_0.gguf"
+    _write_gguf(prism, 142)
+    _write_gguf(plain, 2)
+
+    # When  the header is read
+    assert mp.gguf_tensor_types(prism) == {142}
+    assert mp.gguf_needs_prism(prism) is True
+    assert mp.gguf_needs_prism(plain) is False
+
+    # Then  only the Prism engine is offered for the ternary file, and every engine stays
+    #       offered for the stock one
+    prism_ids = {e["id"] for e in mp.engines_for_file(prism, arch="cpu")}
+    plain_ids = {e["id"] for e in mp.engines_for_file(plain, arch="cpu")}
+    assert prism_ids == {"llama.cpp-prism"}, prism_ids
+    assert "llama.cpp" in plain_ids and len(plain_ids) > 1, plain_ids
+
+
+def test_an_unreadable_gguf_header_does_not_narrow_anything(tmp_path):
+    """A truncated file must not silently become 'needs prism'."""
+
+    # Given a file with the magic but nothing else
+    bad = tmp_path / "broken.gguf"
+    bad.write_bytes(b"GGUF")
+
+    # When  it is read
+    # Then  the types are unknown and no engine is excluded on that basis
+    assert mp.gguf_tensor_types(bad) == set()
+    assert mp.gguf_needs_prism(bad) is False

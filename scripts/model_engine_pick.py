@@ -139,10 +139,84 @@ def model_format(path: Path) -> str:
     return path.suffix.lstrip(".").lower()
 
 
+#: ggml tensor types that exist ONLY in the Prism fork (skills/engines/llama.cpp-prism:
+#: `GGML_TYPE_PQ2_0 = 142`, `GGML_TYPE_PTQ1_0 = 143`). Stock llama.cpp refuses such a file
+#: with `tensor 'output.weight' has invalid ggml type 142`, so a GGUF carrying one must be
+#: served by the Prism engine and nothing else — the picker used to offer stock llama.cpp
+#: for Ternary Bonsai 2's PQ2_0 file, which cannot load it at all.
+PRISM_GGML_TYPES = frozenset({142, 143})
+PRISM_ENGINES = frozenset({"llama.cpp-prism"})
+
+
+def gguf_tensor_types(path: Path) -> set[int]:
+    """The ggml tensor types a .gguf actually stores (empty when the header is unreadable).
+
+    A local model decided the engine by its file FORMAT alone, so every GGUF looked alike.
+    The tensor types are what tell a fork-specific quantisation apart: parsed straight from
+    the header (magic -> version -> counts -> KV block -> tensor infos), no dependency.
+    """
+    import struct
+
+    path = Path(path)
+    try:
+        with path.open("rb") as f:
+            if f.read(4) != b"GGUF":
+                return set()
+            ver = struct.unpack("<I", f.read(4))[0]
+            if ver < 2:
+                return set()
+            _n_tensors = struct.unpack("<Q", f.read(8))[0]
+            n_kv = struct.unpack("<Q", f.read(8))[0]
+
+            def rd_str() -> None:
+                n = struct.unpack("<Q", f.read(8))[0]
+                f.seek(n, 1)
+
+            # scalar/array sizes of the GGUF value types (skip them, we only need the infos)
+            fixed = {0: 1, 1: 1, 2: 2, 3: 2, 4: 4, 5: 4, 6: 4, 7: 1, 10: 8, 11: 8, 12: 8}
+            for _ in range(n_kv):
+                rd_str()
+                vt = struct.unpack("<I", f.read(4))[0]
+                if vt == 8:  # string
+                    rd_str()
+                elif vt == 9:  # array
+                    at = struct.unpack("<I", f.read(4))[0]
+                    n = struct.unpack("<Q", f.read(8))[0]
+                    if at == 8:
+                        for _ in range(n):
+                            rd_str()
+                    else:
+                        f.seek(fixed.get(at, 0) * n, 1)
+                else:
+                    f.seek(fixed.get(vt, 0), 1)
+            types: set[int] = set()
+            for _ in range(_n_tensors):
+                rd_str()
+                n_dims = struct.unpack("<I", f.read(4))[0]
+                f.seek(8 * n_dims, 1)
+                types.add(struct.unpack("<I", f.read(4))[0])
+                f.seek(8, 1)  # offset
+            return types
+    except (OSError, struct.error):
+        return set()
+
+
+def gguf_needs_prism(path: Path) -> bool:
+    """True when the file stores a tensor type only the Prism build defines."""
+    return bool(gguf_tensor_types(path) & PRISM_GGML_TYPES)
+
+
 def engines_for_file(path: Path, arch: str | None = None) -> list[dict]:
-    """Engines with an image for this host that read the model file's format."""
+    """Engines with an image for this host that read the model file's format.
+
+    A GGUF carrying a Prism-only tensor type is narrowed to the engines that can load it,
+    so the file's own bytes decide, not the extension.
+    """
     fmt = model_format(path)
-    return [e for e in host_engines(arch) if fmt in e["formats"]]
+    out = [e for e in host_engines(arch) if fmt in e["formats"]]
+    if fmt == "gguf" and gguf_needs_prism(path):
+        out = [e for e in out if e["id"] in PRISM_ENGINES]
+    return out
 
 
 def host_arch() -> str:
