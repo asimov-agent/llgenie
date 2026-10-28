@@ -92,17 +92,32 @@ def check(agents: Path, name: str, dest: Path) -> int:
 SHRINK_FLOOR = 0.75
 
 
-def shrinks(agents: Path, name: str, dest: Path) -> list[tuple[str, int, int]]:
-    """Every (relative path, tree size, live size) this sync would shrink past `SHRINK_FLOOR`."""
-    out: list[tuple[str, int, int]] = []
+def _rule_lines(text: str) -> list[str]:
+    """The non-blank lines, which is what a rulebook is made of — prose indentation is not the content."""
+    return [ln.strip() for ln in text.splitlines() if ln.strip()]
+
+
+def shrinks(agents: Path, name: str, dest: Path) -> list[tuple[str, int, int, int]]:
+    """Every file this sync would shrink: (relative path, tree bytes, live bytes, lines the live one loses).
+
+    Two signals, and the **content** one decides, because a size ratio alone cannot tell a truncated
+    seed from a reformatted file (rule from issue #791's review): if every non-blank line the tree has
+    also appears in the live file, and the live file has lines the tree does not, then the tree is a
+    SUBSET — a prefix, not a rewrite — and syncing it deletes rules while reporting success.
+    """
+    out: list[tuple[str, int, int, int]] = []
     for path in profile_files(agents, name):
         rel = _rel(path, agents / name)
         target = dest / rel
         if not target.exists():
             continue
+        tree_text, live_text = path.read_text(), target.read_text()
         tree, live = path.stat().st_size, target.stat().st_size
-        if live and tree < live * SHRINK_FLOOR:
-            out.append((rel, tree, live))
+        tree_lines, live_lines = _rule_lines(tree_text), _rule_lines(live_text)
+        subset = (tree_lines != live_lines and set(tree_lines) <= set(live_lines))
+        lost = len([ln for ln in live_lines if ln not in set(tree_lines)])
+        if subset or (live and tree < live * SHRINK_FLOOR):
+            out.append((rel, tree, live, lost))
     return out
 
 
@@ -120,11 +135,11 @@ def write(agents: Path, name: str, dest: Path, force: bool = False) -> int:
         return 2
     shrinking = shrinks(agents, name, dest)
     if shrinking and not force:
-        for rel, tree, live in shrinking:
+        for rel, tree, live, lost in shrinking:
             print(f"[agent-profile] REFUSED {agents.name}/{name}/{rel}: the tree has {tree} b, the live "
-                  f"profile has {live} b — a sync would replace {live} bytes of rulebook with {tree}. "
-                  f"That is a truncated seed, not an edit; fix the seed, or pass --force to mean it.",
-                  file=sys.stderr)
+                  f"profile has {live} b, and the tree's lines are a SUBSET of the live file's — a sync "
+                  f"would delete {lost} line(s) of rulebook. That is a truncated seed, not an edit; fix "
+                  f"the seed, or pass --force to mean it.", file=sys.stderr)
         return 3
     written: list[str] = []
     for path in files:
@@ -141,7 +156,13 @@ def write(agents: Path, name: str, dest: Path, force: bool = False) -> int:
               file=sys.stderr)
         return 1
     print(f"[agent-profile] {agents.name}/{name} -> {dest} ({len(written)} file(s))")
-    print(f"[agent-profile] verified: {len(written)} file(s) read back identical")
+    # Never say "identical" for a file whose content changed: that claim is about what was WRITTEN, not
+    # about what was THERE, and the difference is what shipped a 2,360-byte deletion (issue #791 review).
+    changed = [rel for rel in written
+               if not filecmp.cmp(agents / name / rel, dest / rel, shallow=False)]
+    rewritten = [rel for rel in written if (dest / rel).exists()]
+    print(f"[agent-profile] verified: {len(written)} copied and read back as written"
+          + (f", {len(rewritten)} replaced an existing file" if rewritten else ""))
     return 0
 
 
