@@ -29,7 +29,9 @@ match names a `.txt` (a compiled file treated as a source) or when no `.in` sour
 - `containers/engines/dockerfiles/**`, `containers/engines/params/**` — written only by
   `make generate-engine-params` from the skills. Editing one directly is a generated-file edit.
 - `containers/scanners/digests.json` — the scanner digests the scan workflow pins by digest.
-- `containers/ci-variant/**` — its requirements are inputs to the CI image hash.
+- `containers/ci-variant/**` — the variant-build image's directory, and now its `Dockerfile` alone:
+  the lockfiles it builds from are `tools/requirements*.txt`, copied in at build time (issue #787),
+  so a bump belongs on the `tools/` chain and never here.
 
 GitHub Actions are **disabled** for Renovate (`matchManagers: ["github-actions"]` →
 `enabled: false`). Actions move through `make update-actions` with a reviewed tag diff; see
