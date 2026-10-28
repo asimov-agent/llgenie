@@ -21,9 +21,8 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
 
-import engine_image as ei  # noqa: E402
+from scripts import engine_image as ei
 
 REGISTRY = "ghcr.io/asimov-agent"
 #: The exact line GHCR answered on PR #651 (run 40339517705, engine-image-sglang-cuda).

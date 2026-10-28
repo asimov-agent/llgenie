@@ -80,3 +80,25 @@ def test_the_cli_exit_codes_both_ways(tmp_path):
 
     dirty = tree(tmp_path / "b", {"tests/test_bad.py": "import hf_auth\n"})
     assert guard.main(["check", "--root", str(dirty)]) == 1
+
+
+def test_an_insert_inside_a_test_body_is_not_a_finding(tmp_path):
+    """A test that builds a temporary plugin tree inserts THAT path; removing it breaks the test, not the seam.
+
+    Measured on `tests/test_agent_nerve.py`: the migration stripped `sys.path.insert(0, str(home / "plugins"
+    / "nerve"))` from inside the test and the case failed with `No module named 'hermes_nerve'` — the rule
+    is about the module-level bootstrap, so the guard reads the AST and only flags module-level inserts.
+    """
+    root = tree(tmp_path, {"tests/test_plugin.py": (
+        "import sys\n"
+        "def test_x(tmp_path):\n"
+        "    sys.path.insert(0, str(tmp_path / 'plugins'))\n"
+        "    assert True\n")})
+    assert guard.findings(root) == []
+
+
+def test_a_module_level_insert_is_still_a_finding(tmp_path):
+    root = tree(tmp_path, {"tests/test_boot.py": "import sys\nsys.path.insert(0, 'scripts')\n"})
+    items = guard.findings(root)
+    assert [i["key"] for i in items] == ["sys-path"]
+    assert "module-level" in items[0]["detail"]

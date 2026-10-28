@@ -24,10 +24,8 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-import sys
 
-sys.path.insert(0, str(REPO / "scripts"))
-import issue_implementer as ii  # noqa: E402
+from scripts import issue_implementer as ii
 
 MAKEFILE = (REPO / "Makefile").read_text()
 

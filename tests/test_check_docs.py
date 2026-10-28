@@ -21,9 +21,8 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
-import check_docs as cd  # noqa: E402
-import unit_tests as ut  # noqa: E402  (the unit-suite aggregator, issue #393)
+from scripts import check_docs as cd
+from scripts import unit_tests as ut
 
 CLI = REPO / "scripts" / "check_docs.py"
 README = REPO / "README.md"

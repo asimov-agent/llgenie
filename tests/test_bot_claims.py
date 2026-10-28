@@ -8,12 +8,10 @@ issue verbs, the two PR verbs), the TTL a reader applies, and the release.
 from __future__ import annotations
 
 import datetime as dt
-import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
-import bot_claims  # noqa: E402
+from scripts import bot_claims
 
 # occupied() ages a claim against the wall clock and ignores a comment stamped in the future
 # (clock-skew tolerance), so the fixtures start half an hour ago.

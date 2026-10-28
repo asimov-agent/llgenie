@@ -26,12 +26,10 @@ from __future__ import annotations
 import os
 import re
 import subprocess
-import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "scripts"))
-import unit_tests as ut  # noqa: E402  (the unit-suite aggregator, issue #393)
+from scripts import unit_tests as ut
 SCRIPT = ROOT / "scripts" / "agent_shell_keys_check.py"
 WORKFLOWS = ROOT / ".github" / "workflows"
 

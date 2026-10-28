@@ -21,7 +21,6 @@ import yaml
 
 REPO = Path(__file__).resolve().parent.parent
 WF = REPO / ".github" / "workflows"
-sys.path.insert(0, str(REPO / "scripts"))
 
 
 def _copy_inputs(root: Path) -> Path:

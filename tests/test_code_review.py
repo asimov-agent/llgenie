@@ -19,9 +19,8 @@ from pathlib import Path
 import yaml
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
-import code_review as cr  # noqa: E402
-import issue_body  # noqa: E402  (the one issue shape, issue #745)
+from scripts import code_review as cr
+from scripts import issue_body
 
 
 def _tree(tmp_path: Path, workflows: dict[str, str]) -> Path:

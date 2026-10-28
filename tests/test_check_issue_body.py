@@ -9,14 +9,12 @@ NO-SKIP POLICY: a missing prerequisite is a LOUD FAILURE, never a skip.
 from __future__ import annotations
 
 import shutil
-import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
 
-import check_issue_body as gate  # noqa: E402
-import issue_body  # noqa: E402
+from scripts import check_issue_body as gate
+from scripts import issue_body
 
 
 def _tree(tmp_path: Path) -> Path:

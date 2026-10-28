@@ -68,21 +68,32 @@ def findings(root: Path = REPO_ROOT, allow: tuple[str, ...] = ALLOWED) -> list[d
         if _allowed(rel, allow):
             continue
         text = path.read_text()
-        for n, line in enumerate(text.splitlines(), 1):
-            if SYS_PATH.search(line) and not line.lstrip().startswith("#"):
-                items.append({
-                    "key": "sys-path",
-                    "where": f"{rel}:{n}",
-                    "detail": "a path entry outside tests/conftest.py: the suite is meant to have one "
-                              "import root, and a per-file insert is the shape that gave it 104 "
-                              "(issue #796)",
-                })
-                break                                   # one finding per file is enough to fix it
         try:
             tree = ast.parse(text)
         except SyntaxError as exc:                      # a file that will not parse is its own finding
             items.append({"key": "syntax", "where": rel, "detail": f"does not parse: {exc.msg}"})
             continue
+        # MODULE-LEVEL only. An insert inside a test body is a different animal: it points at a
+        # temporary plugin tree the test just built (`sys.path.insert(0, str(home / "plugins" / "nerve"))`)
+        # and removing it breaks the test rather than the seam. The rule is about the bootstrap.
+        for node in tree.body:
+            if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
+                continue
+            call = node.value
+            if not (isinstance(call.func, ast.Attribute) and call.func.attr in ("insert", "append")):
+                continue
+            owner = call.func.value
+            if not (isinstance(owner, ast.Attribute) and owner.attr == "path"
+                    and isinstance(owner.value, ast.Name) and owner.value.id == "sys"):
+                continue
+            items.append({
+                "key": "sys-path",
+                "where": f"{rel}:{node.lineno}",
+                "detail": "a module-level path entry outside tests/conftest.py: the suite is meant to "
+                          "have one import root, and a per-file bootstrap is the shape that gave it "
+                          "104 (issue #796)",
+            })
+            break                                       # one finding per file is enough to fix it
         for node in tree.body:                          # top-level imports only: a nested one is local
             names: list[str] = []
             if isinstance(node, ast.Import):

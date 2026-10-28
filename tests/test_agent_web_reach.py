@@ -23,7 +23,6 @@ import http.server
 import os
 import re
 import subprocess
-import sys
 import threading
 from pathlib import Path
 
@@ -238,7 +237,6 @@ def test_a_bot_leg_reaches_agent_fetch():
     """#362 shipped the leg and no bot called it, so the reach was unreachable from a run. The
     assertion is DERIVED from the workflow files and the Makefile's call graph — never a hand list."""
 
-    sys.path.insert(0, str(REPO / "scripts"))
     import check_wiring as cw
 
     # Given the wiring graph of the real tree
@@ -284,7 +282,6 @@ def test_the_bot_leg_forwards_the_key_by_name_and_gates_first():
 def test_the_candidates_are_extracted_from_prose():
     """An issue names URLs inside prose; the extractor must find them and drop the noise."""
 
-    sys.path.insert(0, str(REPO / "scripts"))
     import web_evidence as we
 
     # Given prose that wraps URLs in punctuation and repeats one
@@ -302,7 +299,6 @@ def test_the_candidates_are_extracted_from_prose():
 def test_a_dead_url_is_reported_and_fails_the_coverage_check():
     """`make web-coverage` must be loud on a dead link — it is the URL a bot run depends on."""
 
-    sys.path.insert(0, str(REPO / "scripts"))
     import web_evidence as we
 
     # Given a real server that 404s one path and serves another
@@ -330,7 +326,6 @@ def test_a_dead_url_is_reported_and_fails_the_coverage_check():
 def test_the_coverage_fixture_names_urls_and_gated_urls_are_not_dead():
     """The fixture is the declared dependency list, and a credential-gated URL is reachable, not dead."""
 
-    sys.path.insert(0, str(REPO / "scripts"))
     import web_evidence as we
 
     # Given the checked-in fixture, and a real server that refuses with 403

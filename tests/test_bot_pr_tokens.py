@@ -27,8 +27,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
-import issue_implementer as ii  # noqa: E402
+from scripts import issue_implementer as ii
 
 JOB_TOKEN = "token-for-the-comments-0123456789"
 PAT_TOKEN = "token-for-the-pull-request-9876543210"

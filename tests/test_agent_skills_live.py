@@ -21,9 +21,8 @@ from contextlib import contextmanager
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO / "scripts"))
 
-import check_agent_skills as guard  # noqa: E402  (the real leg/skill scanner)
+from scripts import check_agent_skills as guard
 
 REGISTER = REPO / "scripts" / "hermes_skills_register.py"
 SKILLS_DIR = REPO / ".hermes" / "skills"

@@ -13,13 +13,11 @@ step still names rc=3 for what it is.
 """
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO / "scripts"))
 
-import check_agent_skills as guard  # noqa: E402  (the real guard, never a copy)
+from scripts import check_agent_skills as guard
 
 MAKEFILE = (REPO / "Makefile").read_text()
 CONTRACT = (REPO / ".hermes" / "skills" / "bot-unattended" / "SKILL.md").read_text()
