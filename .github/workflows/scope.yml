@@ -1,0 +1,79 @@
+name: scope — which CI jobs a change selects (issue #824)
+
+# SCOPE — the always-present check that says WHICH stages a pull request was supposed to run.
+#
+# Trigger surface: every pull request to `main`, with NO `paths`/`paths-ignore` filter of its own.
+# `ci.yml` IS path-filtered (a docs-only diff does not schedule the 28-job matrix), so the applied
+# set of jobs is a decision made before any job exists — and a decision that leaves nothing behind.
+# This workflow is that trace: it classifies the diff with `scripts/ci_scope.py`, prints one
+# `class=<name>` line per class it detected and the jobs those classes select, and fails loudly when
+# a path matches no class (never a silent pass, issue #801's lesson).
+#
+# Flow: checkout (full history, so the merge base is readable) -> fetch the PR's base ref ->
+#       make ci-scope BASE=origin/<base> (scripts/ci_scope.py jobs) -> the step summary carries the
+#       classes, the selected jobs and the skipped ones.
+#
+# Never: never decides anything about publishing (that is `ci.yml`'s `guard`), never runs a stage,
+#        never gates a merge — the repository has no required status checks, so this check's job is
+#        legibility: an absent stage is a stated decision here instead of a silent hole.
+# dispatch: no inputs — a manual round asks the same question as the automatic one: diff the dispatched
+# ref against main and report the classes. There is nothing to target, so there is no form.
+on:
+  pull_request:
+    branches: ["main"]
+  # A merge-queue ref, a force-pushed branch and a manual dispatch must all produce this check too:
+  # `scope` is the one name that states what a diff selected, so its ABSENCE is itself a loss of
+  # legibility - which is exactly when a reader needs it most. None of these events carries a path
+  # filter: a filter here would let the reporting check vanish precisely on the unusual diff.
+  # (`ci.yml` is the workflow that decides the matrix; this one only reports the decision.)
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scope-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scope:
+    name: scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0   # `git diff <base>...HEAD` needs the merge base, not a shallow clone
+      - name: make ci-scope (the classes this diff touches, and the jobs they select)
+        env:
+          EVENT_BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          # A pull_request checkout has the merge ref, not the base branch: fetch it by name so the
+          # classifier diffs against what the PR would merge into. A manual dispatch and a merge-queue
+          # ref carry no base_ref at all, so they fall back to `main` and SAY so - an empty ref would
+          # make `git diff <base>...HEAD` fail, and a failing reporter is not a report.
+          BASE_REF="${EVENT_BASE_REF:-main}"
+          if [ -z "${EVENT_BASE_REF:-}" ]; then
+            echo "No github.base_ref for event '${GITHUB_EVENT_NAME}': reporting the diff against main."
+          fi
+          git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+          make ci-scope BASE="origin/${BASE_REF}"
+      - name: State the scope in the job summary
+        if: always()
+        env:
+          EVENT_BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -uo pipefail
+          BASE_REF="${EVENT_BASE_REF:-main}"
+          {
+            echo "### scope — what this diff selects"
+            echo ""
+            echo '```'
+            make ci-scope BASE="origin/${BASE_REF}" 2>&1 || true
+            echo '```'
+            echo ""
+            echo "A docs-only diff skips \`ci.yml\` by trigger and runs the \`docs\` workflow instead;"
+            echo "every other class runs the full matrix. \`push\` runs to \`main\` are never filtered."
+          } >> "$GITHUB_STEP_SUMMARY"
