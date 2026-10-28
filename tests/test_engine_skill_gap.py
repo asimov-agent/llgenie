@@ -29,12 +29,11 @@ import pytest
 import yaml
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
-import engine_skill_gap as gap_mod  # noqa: E402
-import issue_body  # noqa: E402  (the one issue shape, issue #745)
-import engine_skills as es  # noqa: E402
-import model_engine_pick as mp  # noqa: E402
-import unit_tests as ut  # noqa: E402  (the unit-suite aggregator, issue #393)
+from scripts import engine_skill_gap as gap_mod
+from scripts import issue_body
+from scripts import engine_skills as es
+from scripts import model_engine_pick as mp
+from scripts import unit_tests as ut
 
 REGISTRY = REPO / "data" / "models.json"
 MANIFEST = REPO / "data" / "unsupported-engines.json"

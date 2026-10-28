@@ -9,14 +9,12 @@ verdict rule and the exception lifecycle (a new gap fails, a stale exception fai
 
 from __future__ import annotations
 
-import sys
 
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO / "scripts"))
 
-import engine_coverage as cov  # noqa: E402
+from scripts import engine_coverage as cov
 
 
 def _skill(sid: str = "engine-a", servable=True, os_=("linux",)) -> dict:

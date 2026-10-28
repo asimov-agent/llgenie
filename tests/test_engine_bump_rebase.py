@@ -18,7 +18,6 @@ import yaml
 
 os.environ.setdefault("GITHUB_TOKEN", "test-token-hermetic")
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import scripts.engine_bump_rebase as ebr  # noqa: E402
 
 

@@ -16,9 +16,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 SMOKE = REPO / "scripts" / "engine_smoke.py"
-sys.path.insert(0, str(REPO / "scripts"))
 
-import engine_smoke as smoke  # noqa: E402
+from scripts import engine_smoke as smoke
 
 
 def _fetch_argv(monkeypatch, fmt: str) -> list[str]:

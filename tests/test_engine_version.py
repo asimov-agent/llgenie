@@ -19,8 +19,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
-import engine_image as ei  # noqa: E402
+from scripts import engine_image as ei
 
 
 def test_engine_binary_reports_a_version():

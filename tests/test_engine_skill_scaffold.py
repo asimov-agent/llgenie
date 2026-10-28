@@ -24,9 +24,8 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
-import engine_skills as es  # noqa: E402
-import engine_skill_scaffold as scaf  # noqa: E402
+from scripts import engine_skills as es
+from scripts import engine_skill_scaffold as scaf
 
 SCRIPT = REPO / "scripts" / "engine_skill_scaffold.py"
 

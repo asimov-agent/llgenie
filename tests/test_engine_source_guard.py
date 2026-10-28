@@ -14,9 +14,8 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO / "scripts"))
 
-import engine_source_guard as guard  # noqa: E402
+from scripts import engine_source_guard as guard
 
 
 def _cell(engine: str, arch: str, install: list[str], prebuilt: bool = False) -> dict:

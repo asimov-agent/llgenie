@@ -14,15 +14,13 @@ from __future__ import annotations
 import json
 import re
 import subprocess
-import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 WORKFLOW = REPO / ".github" / "workflows" / "engine-build.yml"
 MAKEFILE = (REPO / "Makefile").read_text()
-sys.path.insert(0, str(REPO / "scripts"))
 
-import engine_image as ei  # noqa: E402  (the real matrix code, never a copy)
+from scripts import engine_image as ei
 
 
 def workflow() -> str:

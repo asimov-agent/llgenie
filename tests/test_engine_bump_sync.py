@@ -8,12 +8,10 @@ conflict => False, never force-push on failure).
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 
 os.environ.setdefault("GITHUB_TOKEN", "test-token-hermetic")
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import scripts.engine_bump_sync as ebs  # noqa: E402
 
 

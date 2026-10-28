@@ -20,8 +20,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO / "scripts"))
-import engine_image as ei  # noqa: E402
+from scripts import engine_image as ei
 
 
 def _binary(tmp_path: Path, answers: dict[str, str], default_rc: int = 1) -> Path:

@@ -18,8 +18,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
-import check_dispatch_forms as cdf  # noqa: E402
+from scripts import check_dispatch_forms as cdf
 
 HEADER = """# Trigger surface: schedule + workflow_dispatch.
 # Flow: guard -> make something.

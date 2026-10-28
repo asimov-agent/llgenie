@@ -8,12 +8,10 @@ nothing — which is exactly what it did before this change.
 from __future__ import annotations
 
 import subprocess
-import sys
 
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO))
 
 import scripts.engine_image as ei  # noqa: E402
 
