@@ -11,6 +11,7 @@ index, or when a row here names a note that does not exist.
 
 | Date | Change | Record | Issue / PR |
 |---|---|---|---|
+| 2026-10-28 | a plan the live search stops returning is a NOTE when its own link still answers (200, or 401/403 gated) and only a 404/410 fails the gate, while a sync carries a still-downloadable plan over instead of deleting it from the picker | [2026-10-28-quant-catalog-search-drift.md](agent-wiki/2026-10-28-quant-catalog-search-drift.md) | #769 |
 | 2026-10-28 | a shipped engine the CI matrix never builds (disabled cell, non-CI variant, no linux image) is now red in `ci-unit`: `make check-engine-coverage` + the ordered new-engine flow | [2026-10-28-engine-ci-coverage.md](agent-wiki/2026-10-28-engine-ci-coverage.md) | #771 |
 | 2026-10-27 | a new registry engine's tracking issue is queued for the bots (`agent:implement`, set explicitly and read back), and `make engine-skill-scaffold` writes its skill with every unprovable key left empty | [2026-10-27-engine-skill-automation.md](agent-wiki/2026-10-27-engine-skill-automation.md) | #757 |
 | 2026-10-27 | the per-engine spawn runs on `always()` with a change guard, and its recipe re-checks the diff, so a red sync still files the work item that explains it | [2026-10-27-registry-sync-spawn-always.md](agent-wiki/2026-10-27-registry-sync-spawn-always.md) | #758 |

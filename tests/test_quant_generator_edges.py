@@ -93,19 +93,40 @@ def test_update_with_only_a_removed_link_probes_nothing():
 
 
 # ---- edge case 3: a drift the repository OWNS is caught by --check ---------------
-def test_check_fails_when_a_committed_plan_is_lost(monkeypatch, tmp_path):
-    # Given a committed catalog (A, B) and a generator that now produces only (A)
+def test_check_fails_when_a_lost_plan_s_link_is_dead(monkeypatch, tmp_path):
+    # Given a committed catalog (A, B) and a generator that now produces only (A),
+    #   where the lost plan's own link answers 404/410 (issue #769)
     _stub_generator(monkeypatch, [_A])
     dst = tmp_path / "trending-quant-catalog.json"
     dst.write_text(json.dumps(_payload([_A, _B]), indent=2) + "\n")
     monkeypatch.setattr(sys, "argv", ["gen_trending_quant_catalog.py", "--check", "-o", str(dst)])
+    monkeypatch.setattr(gen, "_probe_status",
+                        lambda u, timeout=20.0: gen.PROBE_DEAD if u == _B else gen.PROBE_OK)
 
     # When check-quant-catalog runs (the drift gate)
     rc = gen.main()
 
-    # Then it FAILS: the committed artifact records a download the generator can no
-    #   longer produce, so the table llgenie reads is stale (issue #736)
+    # Then it FAILS: the committed artifact records a download NOTHING serves, so the
+    #   table llgenie reads is stale (issues #736, #769)
     assert rc == 1
+
+
+def test_check_notes_a_lost_plan_the_repo_still_serves(monkeypatch, tmp_path, capsys):
+    # Given the same drift, but the lost plan's repo still answers (200 OK or 401/403 gated):
+    #   this is live-search churn (#769), not a dead plan
+    _stub_generator(monkeypatch, [_A])
+    dst = tmp_path / "trending-quant-catalog.json"
+    dst.write_text(json.dumps(_payload([_A, _B]), indent=2) + "\n")
+    monkeypatch.setattr(sys, "argv", ["gen_trending_quant_catalog.py", "--check", "-o", str(dst)])
+    monkeypatch.setattr(gen, "_probe_status", lambda u, timeout=20.0: gen.PROBE_GATED)
+
+    # When check-quant-catalog runs
+    rc = gen.main()
+
+    # Then the gate stays GREEN and the note names the plan and the status that kept it
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "NOTE" in out and _B in out and "still reachable (gated)" in out, out
 
 
 def test_check_notes_a_new_link_instead_of_failing(monkeypatch, tmp_path, capsys):

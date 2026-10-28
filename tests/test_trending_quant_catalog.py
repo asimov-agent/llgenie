@@ -278,30 +278,62 @@ def test_a_repo_upstream_publishes_since_the_sync_is_a_note_not_a_failure():
     assert any("MLX" in n for n in notes), notes
 
 
-def test_a_plan_the_committed_table_has_and_the_generator_lost_still_fails():
-    # Given a fresh generation that lost the plan the committed table records
+def test_a_lost_plan_whose_link_is_dead_still_fails():
+    # Given a fresh generation that lost the plan the committed table records, and the
+    #   plan's own link answers 404/410 — nothing serves that download any more (#769)
     fresh = json.loads(json.dumps(_committed()))
     fresh["files"]["m1"]["llama.cpp"]["quants"] = []
 
     # When  it is compared with the committed table
-    failures, _notes = gen.compare(_committed(), fresh)
+    failures, _notes = gen.compare(_committed(), fresh, probe=lambda u: gen.PROBE_DEAD)
 
-    # Then  the missing plan fails, naming it
-    assert any("no longer generated" in f for f in failures), failures
+    # Then  the missing plan fails, naming the plan and why it may be dropped
+    assert any("404/410" in f for f in failures), failures
 
 
-def test_a_changed_plan_still_fails():
-    # Given a fresh generation whose plan points at a different file
+def test_a_lost_plan_the_repo_still_serves_is_a_note_not_a_failure():
+    # Given the same lost plan, but its repo still answers 200 (it fell off the search page)
+    fresh = json.loads(json.dumps(_committed()))
+    fresh["files"]["m1"]["llama.cpp"]["quants"] = []
+
+    # When  it is compared with the committed table
+    failures, notes = gen.compare(_committed(), fresh, probe=lambda u: gen.PROBE_OK)
+
+    # Then  nothing fails: search churn must not red the one gate every PR runs (#769)
+    assert failures == [], failures
+    assert any("still reachable (ok)" in n for n in notes), notes
+
+
+def test_a_changed_plan_is_reported_on_both_sides_and_never_fails():
+    # Given a fresh generation whose plan points at a different file — the old URL still
+    #   answers, so the download llgenie records has not broken; the search simply
+    #   describes it differently now (#769)
     fresh = json.loads(json.dumps(_committed()))
     fresh["files"]["m1"]["llama.cpp"]["quants"][0]["path"] = "m1-Q8.gguf"
     fresh["files"]["m1"]["llama.cpp"]["quants"][0]["url"] = \
         "https://huggingface.co/org/m1-gguf/resolve/main/m1-Q8.gguf"
 
     # When  it is compared with the committed table
-    failures, _notes = gen.compare(_committed(), fresh)
+    failures, notes = gen.compare(_committed(), fresh, probe=lambda u: gen.PROBE_OK)
 
-    # Then  a silent change to what llgenie would download fails
-    assert any("no longer generated" in f for f in failures), failures
+    # Then  both directions are reported for the next sync, and the gate stays green
+    assert failures == [], failures
+    assert any("still reachable (ok)" in n for n in notes), notes
+    assert any("does not record yet" in n for n in notes), notes
+
+
+def test_a_changed_plan_whose_old_link_is_dead_fails():
+    # Given the same changed plan, but the committed URL answers 404/410
+    fresh = json.loads(json.dumps(_committed()))
+    fresh["files"]["m1"]["llama.cpp"]["quants"][0]["path"] = "m1-Q8.gguf"
+    fresh["files"]["m1"]["llama.cpp"]["quants"][0]["url"] = \
+        "https://huggingface.co/org/m1-gguf/resolve/main/m1-Q8.gguf"
+
+    # When  it is compared with the committed table
+    failures, _notes = gen.compare(_committed(), fresh, probe=lambda u: gen.PROBE_DEAD)
+
+    # Then  the dead plan fails the gate
+    assert any("404/410" in f for f in failures), failures
 
 
 def test_a_catalog_rendered_for_another_registry_still_fails():

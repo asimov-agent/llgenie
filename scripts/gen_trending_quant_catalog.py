@@ -217,13 +217,68 @@ def _plan_key(q: dict) -> tuple:
             q.get("size_gb"), q.get("url"))
 
 
-def compare(committed: dict, generated: dict) -> tuple[list[str], list[str]]:
+def _classify_missing_plan(plan: dict, probe) -> str:
+    """Probe a plan the generation dropped and say what kind of absence it is (issue #769).
+
+    The plan's own link answers the question the live SEARCH cannot: a repo that still serves the
+    file (``ok``, or ``gated`` — exists, this token may not read it) fell off a search page, and
+    that is churn; a repo that answers 404/410 is gone, and that is a dead plan. A transport error
+    reads as ``dead`` here on purpose — an unverifiable plan must not be silently blessed.
+    """
+    url = plan.get("url")
+    if not url:
+        return PROBE_DEAD
+    return probe(url)
+
+
+def carry_over(committed: dict, generated: dict, probe=None) -> tuple[dict, list[str], list[str]]:
+    """Carry a still-reachable committed plan into a fresh sync instead of dropping it (#769).
+
+    A sync used to be purely additive in one direction: whatever the live search returned was the
+    new table, so a plan that fell off a search page vanished from the picker even though its repo
+    answered 200 (measured: `ToPo-ToPo/Ornith-1.5-35B-A3B-mlx-4bit`). This re-inserts every plan
+    the generation dropped whose link still answers — kept in its own (model, engine) cell, and
+    printed with the reason — and leaves a genuinely dead plan out.
+
+    Returns `(payload, kept, dropped)` where `kept`/`dropped` are the readable lines a sync prints.
+    A section or engine the generation lost entirely is not resurrected: that is a structural
+    change (`compare()` fails on it), not search churn.
+    """
+    probe = probe or _probe_status
+    import copy
+    merged = copy.deepcopy(generated)
+    kept: list[str] = []
+    dropped: list[str] = []
+    old_files = committed.get("files") or {}
+    new_files = merged.get("files") or {}
+    for mid, engines in old_files.items():
+        if mid not in new_files:
+            continue
+        for eng, cell in engines.items():
+            fresh = new_files[mid].get(eng)
+            if fresh is None:
+                continue
+            have = {_plan_key(q) for q in fresh.get("quants") or []}
+            for q in cell.get("quants") or []:
+                if _plan_key(q) in have:
+                    continue
+                kind = _classify_missing_plan(q, probe)
+                if kind == PROBE_DEAD:
+                    dropped.append(f"{mid}/{eng}: {q.get('url')} (the link answers 404/410)")
+                    continue
+                fresh.setdefault("quants", []).append(q)
+                kept.append(f"{mid}/{eng}: {q.get('url')} (still reachable: {kind}; the live "
+                            f"search no longer returns it)")
+    return merged, kept, dropped
+
+
+def compare(committed: dict, generated: dict, probe=None) -> tuple[list[str], list[str]]:
     """The committed table against a fresh generation, as `(failures, notes)`.
 
-    A row the committed table HAS must be regenerated identically: a plan that disappeared,
-    a plan whose repo/files/size/url changed, an engine that lost an arch, or a registry the
-    catalog was not rendered for (`meta.generated_utc`) — each is a FAILURE, because the
-    catalog is what llgenie reads and a silent change would ship an unverified download.
+    A row the committed table HAS must be regenerated identically: an engine that lost an
+    arch, a plan whose repo/files/size/url changed, or a registry the catalog was not
+    rendered for (`meta.generated_utc`) — each is a FAILURE, because the catalog is what
+    llgenie reads and a silent change would ship an unverified download.
 
     What the live Hub re-reads is a NOTE, because the table is regenerated from a SEARCH
     (`mlx_repos()`/`tensorfold_repos()` query huggingface.co `sort=downloads`), so the same
@@ -234,7 +289,22 @@ def compare(committed: dict, generated: dict) -> tuple[list[str], list[str]]:
     and blocked every PR on the repository. Recording the new order/rows is the weekly
     `make sync-quant-catalog`'s job; the check reports them and stays green — the same rule
     the registry guard applies to data the store re-reads.
+
+    A committed plan the generation no longer contains is one of TWO different events, and
+    the gate must say which (issue #769). The plan's own link is probed:
+
+    * ``ok``/``gated`` — the repo still serves the file; only the live SEARCH stopped
+      returning it (a page moved, a repo became gated). A NOTE: kept, never a failure, so a
+      search page cannot turn every PR red — measured 2026-10-28 on `main` `ea80ab4`: the six
+      `SolsticeAI/Nanbeige4.3-33B-mlx-*` plans answered 401 and
+      `ToPo-ToPo/Ornith-1.5-35B-A3B-mlx-4bit` answered 200 while the gate was red;
+    * ``dead`` — 404/410, the repository is gone, so dropping the plan is the correct action
+      and this IS a failure: the committed catalog records a download nothing serves.
+
+    `probe` is `_probe_status` unless a caller injects one; the gate probes only the plans a
+    generation dropped, so a clean catalog costs no requests.
     """
+    probe = probe or _probe_status
     failures: list[str] = []
     notes: list[str] = []
 
@@ -259,9 +329,17 @@ def compare(committed: dict, generated: dict) -> tuple[list[str], list[str]]:
                                 f"{fresh.get('arch')}")
             have = {_plan_key(q) for q in fresh.get("quants") or []}
             for q in cell.get("quants") or []:
-                if _plan_key(q) not in have:
-                    failures.append(f"{mid}/{eng}: the committed plan {q.get('url')} is no "
-                                    f"longer generated")
+                if _plan_key(q) in have:
+                    continue
+                kind = _classify_missing_plan(q, probe)
+                if kind == PROBE_DEAD:
+                    failures.append(f"{mid}/{eng}: the committed plan {q.get('url')} is gone "
+                                    f"(the link answers 404/410) — nothing serves it, drop it "
+                                    f"with make sync-quant-catalog")
+                else:
+                    notes.append(f"{mid}/{eng}: the committed plan {q.get('url')} is still "
+                                 f"reachable ({kind}) but the live search no longer returns "
+                                 f"it — kept, not a failure; the sync carries it over")
             old_order = [_plan_key(q) for q in cell.get("quants") or []]
             new_order = [_plan_key(q) for q in fresh.get("quants") or []]
             if set(old_order) == set(new_order) and old_order != new_order:
@@ -314,6 +392,21 @@ def main():
                "files": out}
     text = json.dumps(payload, indent=2) + "\n"
     dest = Path(args.out)
+
+    # ---- a sync keeps what is still downloadable (issue #769) --------------------
+    # The generation is read from a SEARCH, so a plan can fall off a page while its repo still
+    # serves the file. A sync that wrote the search's answer verbatim deleted a downloadable plan
+    # from the picker; a plan whose link is really gone (404/410) is still dropped, loudly.
+    if not args.check:
+        prior = json.loads(dest.read_text()) if dest.exists() else None
+        if prior:
+            payload, kept, dropped = carry_over(prior, payload)
+            text = json.dumps(payload, indent=2) + "\n"
+            for line in kept:
+                print(f"[sync] kept {line}")
+            for line in dropped:
+                print(f"[sync] dropped {line}")
+            out = payload["files"]
 
     new_urls = _all_urls(payload)
 
