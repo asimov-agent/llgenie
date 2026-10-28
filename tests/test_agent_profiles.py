@@ -387,3 +387,49 @@ def test_a_truncated_seed_is_refused_rather_than_shrinking_the_live_profile(tmp_
 
     assert sync.write(agents, "someone", live, force=True) == 0
     assert (live / "SOUL.md").read_text() == "short seed\n", "--force means it"
+
+
+def test_a_live_rulebook_longer_than_the_tree_copy_is_a_finding(tmp_path):
+    """The truncated seed, caught BEFORE a sync: `sync` copies tree over profile, so a prefix loses a rule."""
+    import check_agent_profiles as cap
+
+    agents = tmp_path / "agents"
+    prof = agents / "someone"
+    (prof / "skills" / "s").mkdir(parents=True)
+    (prof / "SOUL.md").write_text("short\n")
+    (prof / "skills" / "s" / "SKILL.md").write_text("also short\n")
+    live = tmp_path / "live" / "someone"
+    (live / "skills" / "s").mkdir(parents=True)
+    (live / "SOUL.md").write_text("a much longer live rulebook\n" * 100)
+    (live / "skills" / "s" / "SKILL.md").write_text("also short\n")          # identical: not a finding
+    (agents / "manifest.json").write_text('{"profiles": [{"name": "someone", "rules": ["never-merge"]}]}')
+
+    items = cap.shrink_findings(tmp_path, agents, live.parent)
+    assert [i["key"] for i in items] == ["live-longer"]
+    assert "SOUL.md" in items[0]["where"]
+    assert "prefix of the rulebook" in items[0]["detail"]
+
+
+def test_a_tree_copy_that_matches_or_exceeds_the_live_one_is_clean(tmp_path):
+    import check_agent_profiles as cap
+
+    agents = tmp_path / "agents"
+    prof = agents / "someone"
+    prof.mkdir(parents=True)
+    (prof / "SOUL.md").write_text("the same rulebook\n")
+    live = tmp_path / "live" / "someone"
+    live.mkdir(parents=True)
+    (live / "SOUL.md").write_text("the same rulebook\n")
+    (agents / "manifest.json").write_text('{"profiles": [{"name": "someone", "rules": ["never-merge"]}]}')
+    assert cap.shrink_findings(tmp_path, agents, live.parent) == []
+
+
+def test_no_live_profile_home_means_the_comparison_is_skipped_not_failed(tmp_path):
+    """CI has no `~/.hermes/profiles/`; a gate that cannot see the live files must say nothing, not fail."""
+    import check_agent_profiles as cap
+
+    agents = tmp_path / "agents"
+    (agents / "someone").mkdir(parents=True)
+    (agents / "someone" / "SOUL.md").write_text("x\n")
+    (agents / "manifest.json").write_text('{"profiles": [{"name": "someone", "rules": ["never-merge"]}]}')
+    assert cap.shrink_findings(tmp_path, agents, None) == []
