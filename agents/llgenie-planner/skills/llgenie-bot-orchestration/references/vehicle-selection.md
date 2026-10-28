@@ -35,6 +35,14 @@ lane's file from its authoritative source (the live copy) rather than transcribi
 count after widening — the manifest gate should report one entry per directory that exists, and a missing sixth lane is
 the normal way this goes wrong.
 
+## When widening stalls, land the base alone
+
+Widening one PR to carry every per-lane file means all of them must arrive through one branch, so it inherits that lane's
+blockers — and while it waits, the shared tree is still absent from the base and every copy stays conflicted. The cheaper
+fallback, once widening has missed a round: **merge the base PR as it stands**, close the copies with comparisons, and
+let each remaining lane open a small PR touching exactly its own file plus one index line. Landing the base unblocks
+everything; a widening that never lands unblocks nothing.
+
 ## Close with a comparison, never with a verdict
 
 The close comment must show the reader why the work is not lost:
