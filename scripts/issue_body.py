@@ -48,6 +48,7 @@ PRODUCERS: tuple[tuple[str, str], ...] = (
     ("scripts/registry_change_issue.py", "render"),
     ("scripts/architecture_bot.py", "render_issue"),
     ("scripts/queued_run_alarm.py", "file_label_issue"),
+    ("scripts/jev_preflight_tracker.py", "issue_body"),
 )
 HEADING_RE = re.compile(r"^##\s+(.+?)\s*$", re.M)
 

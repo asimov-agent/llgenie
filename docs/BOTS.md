@@ -813,6 +813,20 @@ make issue-bot-image       # the same image, for the issue-bot (alias of agent-i
   NERVE_REQUIRE=1`): a bot run does not start with the JEV engine off — the layer is a precondition
   for an autonomous run, and an ordinary manual or local invocation keeps the report-and-continue
   behaviour.
+  A bot job whose step runs the required mode does it through `make jev-preflight-required
+  REPO=<owner/repo> RUN_URL=<run>` (issue #802): the exit status is unchanged (the step stays red), but
+  a failure now names its failing class (`key-missing`, `plugin-missing`, `plugin-disabled`,
+  `hermes-missing`, `smoke-missing`, `provider-unsupported`, `provider-no-payload`,
+  `provider-unreachable`, `unknown`), the measured line and that class's fix in the run's own output,
+  and files ONE issue per class — deduped by `<!-- jev-preflight: <class> -->` on the body's first line,
+  labelled `agent:implement`. A later run of the same class prints the existing issue and files
+  nothing, so "the bot did not run" is answerable from the issue list instead of a step name. A LOCAL
+  invocation of the same target files nothing at all (`--local` whenever `GITHUB_ACTIONS` is not
+  `true`): a host-local precondition is not a repository failure, and a person running the target must
+  not write to the issue list (measured 2026-10-28, that mistake filed #809, now closed). The
+  `issue-dedupe` job carries `TYPESAFE_API_KEY` for exactly this, and the `issue-dedup` recipe forwards
+  it into the leg's container (`-e TYPESAFE_API_KEY`, as `issue-refiner` does) — until #802 neither
+  did, every picked pair died in the preflight at 13:34Z on 2026-10-28, and no issue tracked it.
 A bump PR publishes the images it built (`make push-engine` is a step of every
 `engine-image-*` job), but those jobs run in parallel with the `install` job, so
 `make ci-install` waits first: it runs `make ci-wait-engine-images ARCH=cpu` before

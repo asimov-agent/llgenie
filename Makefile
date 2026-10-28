@@ -68,7 +68,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	engine-gate-report engine-skill-gap engine-skill-gap-md spawn-engine-skill-issues engine-skill-scaffold registry-change-report sync-change-issue registry-review-brief registry-sync-review registry-review-publish sync-strata-models check-strata-models check-wiring wiring-report check-secret-output secret-output-report \
 	secret-scan secret-scan-history secret-scan-self-test \
 	queued-alarm issue-cleaner-scan issue-cleaner-apply worktree-prune fix-loop fix-loop-image fix-bot-sweep fix-bot-report agent-image-ref issue-bot-dispatch issue-bot-open-pr issue-bot-image \
-	issue-bot-triage issue-bot-changed issue-bot-verdict issue-bot-gates issue-bot-gates-check implement-issue hermes-smoke agent-jev-preflight nerve-profile-check code-review-scan code-review-file rebase-bot-sweep rebase-bot rebase-bot-abort \
+	issue-bot-triage issue-bot-changed issue-bot-verdict issue-bot-gates issue-bot-gates-check implement-issue hermes-smoke agent-jev-preflight jev-preflight-required nerve-profile-check code-review-scan code-review-file rebase-bot-sweep rebase-bot rebase-bot-abort \
 	engine-params-review-brief engine-params-review engine-params-review-apply \
 	architecture-bot-brief architecture-bot-doc architecture-bot-publish architecture-bot \
 	scrub-log \
@@ -451,6 +451,7 @@ issue-dedup: ## Hermes decides whether the picked pair is the SAME defect (reads
 	@$(MAKE) --no-print-directory agent-shell-keys-check AGENT_SHELL_CHECK_KEYS=NOUS_API_KEY
 	$(call scrubbed_run,$(RUNTIME) run --rm --init -v "$(CURDIR):/repo" -w /repo \
 	  -e NOUS_API_KEY -e HERMES_REASONING -e REPO \
+	  -e TYPESAFE_API_KEY \
 	  -e HERMES_NERVE_PROVIDER -e NERVE_REQUIRE \
 	  $(AGENT_SHELL_FORWARD) \
 	  $(AGENT_IMAGE) bash -lc 'make _issue-dedup')
@@ -666,6 +667,26 @@ agent-jev-preflight: ## Prove the JEV engine is active in the agent image; every
 	  -e HERMES_NERVE_PROVIDER -e NERVE_REQUIRE -e NERVE_GATE_SKIP_PROVIDER \
 	  $(AGENT_SHELL_FORWARD) \
 	  $(AGENT_IMAGE) bash -lc 'make _agent-jev-preflight')
+# The JEV preflight as a bot STEP depends on it (issue #802). `agent-jev-preflight NERVE_REQUIRE=1`
+# is a bot job's first step, and when the engine is off the step failed with a step name only: an
+# operator could not tell a missing provider secret from a broken image, and (measured 2026-10-28,
+# issue-dedupe runs 40697636784 and 40702295009) nothing tracked it, so a duplicate sweep that
+# decided nothing looked exactly like a sweep with nothing to do. This target keeps that exit status
+# (the step stays red) and adds what the run owed the reader: the failure CLASS and its fix in the
+# output, and ONE tracker issue per class (`scripts/jev_preflight_tracker.py`, marker-deduped) — a
+# second run of the same class prints the existing issue and files nothing.
+jev-preflight-required: ## Run the JEV preflight as a bot step does: on failure print the failure class + its fix and file ONE deduped tracker (REPO=; RUN_URL=; DRY=1 previews). Never softens the exit status (issue #802)
+	@test -n "$(REPO)" || { echo "Usage: make jev-preflight-required REPO=<owner/repo> [RUN_URL=<url>] [DRY=1]"; exit 1; }
+	@log=$$(mktemp); \
+	$(MAKE) --no-print-directory agent-jev-preflight NERVE_REQUIRE=1 >"$$log" 2>&1; rc=$$?; \
+	cat "$$log"; \
+	if [ $$rc -eq 0 ]; then rm -f "$$log"; exit 0; fi; \
+	python3 scripts/jev_preflight_tracker.py report --repo "$(GH_REPO)" --log "$$log" \
+	  $(if $(RUN_URL),--run-url "$(RUN_URL)",) $(if $(DRY),--dry,) \
+	  $(if $(filter true,$(GITHUB_ACTIONS)),,--local) || true; \
+	rm -f "$$log"; \
+	echo "::error::the JEV decision layer is inactive, so this bot step did not start — the failure class and its fix are above, and $(GH_REPO) carries the tracker (issue #802)"; \
+	exit $$rc
 # The code-review bot (issue #269): it reads the TREE and the PIPELINES and files what is
 # actually wrong. Its whole output is issues — analysis, never implementation (AGENTS.md,
 # #231) — so it never edits a file, never opens a PR and never merges; each issue carries the

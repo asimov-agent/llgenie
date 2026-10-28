@@ -76,6 +76,11 @@ jobs:
     timeout-minutes: 60
     env:
       NOUS_API_KEY: ${{ secrets.NOUS_PORTAL_API_TOKEN }}
+      # The JEV/provider key for the decision layer the agent image carries (issue #238). It was
+      # MISSING here until issue #802: the preflight step below is armed with NERVE_REQUIRE=1, so the
+      # run died in `require_env.py` on every picked pair (40697636784, 40702295009) while the step
+      # name said nothing about a missing secret. Run-time only, never baked into the image.
+      TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
       REPO: ${{ github.repository }}
     steps:
       - name: "Checkout main (read-only for this bot - it pushes nothing)"
@@ -106,9 +111,17 @@ jobs:
           [ "$action" = "pick" ] && echo "picked=true" >> "$GITHUB_OUTPUT" || echo "picked=false" >> "$GITHUB_OUTPUT"
           exit 0
 
+      # `make jev-preflight-required` keeps this step's failure red but makes it answerable: the run
+      # names the failure CLASS and its fix, and files ONE tracker issue per class (issue #802). The
+      # step name stays the one every other bot uses, so the run page reads the same everywhere.
       - name: Prove the JEV engine is active — the decision does not start without it (issue #238)
         if: steps.pick.outputs.picked == 'true'
-        run: make agent-jev-preflight NERVE_REQUIRE=1
+        env:
+          # The tracker files/updates its issue with the job token; the step is only reached when a
+          # pair was picked, so a "nothing to do" run never touches the issue list.
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: make jev-preflight-required REPO="$REPO" RUN_URL="$RUN_URL"
 
       - name: Prove the agent's shell can see this job's credentials (issue #358)
         if: steps.pick.outputs.picked == 'true'
