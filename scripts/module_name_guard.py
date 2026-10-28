@@ -17,7 +17,11 @@ So the writer is checked by the same function as the reviewer, before it commits
 
 Commands (stdlib only):
 
-    check [--root DIR] [PATH ...]   # the paths that name the old module (exit 1); no PATH = whole tree
+    check [--root DIR] [--include-self] [PATH ...]
+        # the paths that name the old module (exit 1); no PATH = whole tree
+
+`make check-module-names` (inside `ci-unit`) runs this CLI, so the rule is executable in CI and not
+only asserted in prose (issue #812).
 """
 from __future__ import annotations
 
@@ -42,6 +46,14 @@ ALLOWED_PREFIXES = ("scripts/llama_serve.py", "scripts/module_name_guard.py", "a
 
 #: Binary/media files are not text to a reader.
 SKIP_SUFFIXES = {".pyc", ".png", ".jpg", ".gif", ".woff", ".woff2", ".gz", ".bin"}
+
+#: Files the CLI must not judge, by reason, because the library's caller excludes them (`hits(...,
+#: exclude=...)`). ONE entry: the guard's own test spells the forbidden name in order to assert the
+#: rule, so judging it would make the CLI refuse the file that proves the rule — the false red that
+#: kept this guard out of every target (issue #812). The rule itself is NOT weakened: every other
+#: live file, this module's allowlist aside, is still refused, and `--include-self` shows exactly
+#: what the exclusion buys by judging this file too.
+SELF_EXCLUDED = ("tests/test_rename_llgenie_serve.py",)
 
 
 def offenders(text: str) -> list[str]:
@@ -163,10 +175,15 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Refuse the old CLI module name in a live file.")
     parser.add_argument("command", choices=["check"])
     parser.add_argument("--root", default=".", help="the tree to read (default: the current dir)")
+    parser.add_argument("--include-self", action="store_true",
+                        help="also judge SELF_EXCLUDED (the guard's own test), which is what the "
+                             "exclusion buys: without it the CLI refuses the file that proves the rule")
     parser.add_argument("paths", nargs="*", help="files to check instead of the whole tree")
     args = parser.parse_args(argv)
 
-    found = hits(Path(args.root), [Path(p) for p in args.paths] or None)
+    root = Path(args.root)
+    exclude = [] if args.include_self else [root / p for p in SELF_EXCLUDED]
+    found = hits(root, [Path(p) for p in args.paths] or None, exclude=exclude)
     if found:
         print("[module-name] REFUSED: these live files name the retired CLI module:", file=sys.stderr)
         for rel in found:

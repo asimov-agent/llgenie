@@ -210,3 +210,46 @@ def test_a_gitignored_file_naming_the_old_module_does_not_redden_the_guard(tmp_p
     # Then  the gitignored file is neither read nor a finding
     assert "refine-in.md" not in seen
     assert "refine-in.md" not in found, found
+
+
+def test_the_cli_is_green_on_this_tree(capsys):
+    """The entry point `make check-module-names` runs is the CLI, so the CLI must pass here (#812)."""
+
+    # Given this repository, where no live file names the old module
+    # When  the CLI judges the whole tree
+    rc = guard.main(["check", "--root", str(REPO)])
+    out = capsys.readouterr()
+
+    # Then  it passes and says so — the exact case that was red before #812
+    assert rc == 0, out.err
+    assert "OK" in out.out
+
+
+def test_the_cli_refuses_a_planted_old_name(tmp_path, capsys):
+    """The negative control: excluding one file must not blunt the rule for every other live file."""
+
+    # Given a live file that names the retired module
+    (tmp_path / "planted.py").write_text("from scripts import llama_serve  # planted\n")
+
+    # When  the CLI judges that tree
+    rc = guard.main(["check", "--root", str(tmp_path)])
+    err = capsys.readouterr().err
+
+    # Then  it refuses, naming exactly that file
+    assert rc == 1
+    assert "planted.py" in err
+
+
+def test_the_self_exclusion_is_a_decision_not_a_hole(capsys):
+    """`--include-self` judges this file too, so the exclusion is provably what makes the CLI green."""
+
+    # Given the CLI's exclusion, which names exactly this test file and nothing else
+    assert guard.SELF_EXCLUDED == ("tests/test_rename_llgenie_serve.py",)
+
+    # When  the CLI is asked to judge it as well
+    rc = guard.main(["check", "--root", str(REPO), "--include-self"])
+    err = capsys.readouterr().err
+
+    # Then  the file the exclusion names is exactly the file the rule would refuse
+    assert rc == 1
+    assert "tests/test_rename_llgenie_serve.py" in err

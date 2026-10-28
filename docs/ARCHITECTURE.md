@@ -206,6 +206,15 @@ fresh checkout, stayed green (issue #350). The matcher is deliberately minimal (
 prefix, a `*.ext` name, a literal path) and works where `git ls-files` does not, since the unit
 suite runs in the test image with `.git` pointing outside the mount.
 
+`make check-module-names` is the target `ci-unit` runs, and it is the CLI, not the library
+(issue #812). The CLI excludes exactly one file — the guard's own test, which spells the
+forbidden name because that is what it asserts — through the module-level `SELF_EXCLUDED`
+constant, so the exclusion is a dated decision with a reason rather than a hole: `--include-self`
+judges it too and refuses it, and a planted old-name file in any other live path fails the
+target. Before #812 the constant did not exist, `main()` never passed the library's `exclude`
+seam, and no target ran the guard at all — so the rule was asserted in this paragraph and
+enforced nowhere.
+
 ## Engine images
 
 `skills/engines/*/SKILL.md` is the source; `make generate-engine-params` is the only step

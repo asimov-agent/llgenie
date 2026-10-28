@@ -1156,7 +1156,9 @@ make architecture-bot-publish REPO=asimov-agent/llgenie  # ONE issue + ONE PR, n
 - **The rename guard is applied to the WRITER, before anything is written** (issue #573). The
   CLI was renamed to `scripts/llgenie_serve.py` (#251) and the retired spelling may appear only in
   its deprecated shim, `agent-wiki/` and `openspec/changes/` — a doc that names it fails
-  `make test-unit`. The rule lives once, in `scripts/module_name_guard.py`, imported by both
+  `make test-unit` and `make check-module-names` (the same rule, run as a CLI by `ci-unit`; its
+  own test is the one file the CLI excludes, through `SELF_EXCLUDED`, issue #812). The rule lives
+  once, in `scripts/module_name_guard.py`, imported by both
   `tests/test_rename_llgenie_serve.py` and `publish()`, which runs it on the regenerated doc and
   refuses **loudly** (no branch, no commit, no PR) instead of discovering it 25 minutes later as
   two red unit jobs (PR #572). The brief also tells the agent the rule, so the refresh should not
@@ -1372,6 +1374,9 @@ make pr-hygiene-report # show every producer the PR/commit-message guard reads, 
 make check-pr-authors  # fail when a PR commit is authored by anyone but Andy Holst or Asimov Agent, when a Co-authored-by trailer names anyone else, or when a producer commits off the allowlist (issue #345)
 make pr-authors-report # show every commit in the range with its author verdict, and the identity each producer assigns
 make check-workflows   # fail when a YAML file's GitHub expression does not parse, a YAML file lacks a trailing newline, a workflow has no top-level name, or a `workflow_run` trigger names no workflows (issue #330)
+make check-module-names   # fail when a LIVE file spells the retired CLI module name instead of
+                          # `scripts/llgenie_serve.py`; the one excluded file is the guard's own test, through the
+                          # module-level `SELF_EXCLUDED` constant (issues #251, #573, #812)
 make issue-cleaner-scan   # which OPEN issue a merged PR already implemented: GitHub closes an issue at merge
                           # only when the body carries a closing keyword bound to it, so a PR that merged and
                           # left its issue open is a stale-open (issue #325). Prints each finding with its
