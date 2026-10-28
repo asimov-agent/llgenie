@@ -4,7 +4,7 @@
 `| head -1`) makes the writer take SIGPIPE and the pipeline report 141 — which declared a perfectly
 healthy `strata/rocm` binary "missing" (issue #616). The same file used to accept a `detect` that
 never touched the binary at all, echoing the pin instead of the version the engine reports
-(found building the v0.2.6 pin, #605).
+(found building the v0.2.7 pin, #605).
 
 These tests read the COMMITTED params (what the image actually runs), not the skill text, so a
 regeneration that drops the fix is caught too.
@@ -75,7 +75,7 @@ def residue(variant: dict) -> str:
 
 
 def test_strata_detect_is_wired_to_a_documented_flag():
-    """The v0.2.6 CLI answers `--version`; the skill must exercise it, not echo the pin."""
+    """The v0.2.7 CLI answers `--version`; the skill must exercise it, not echo the pin."""
 
     # Given strata's committed params
     doc = json.loads((PARAMS / "strata.json").read_text())

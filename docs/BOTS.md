@@ -150,9 +150,9 @@ still unskilled) — both reddened every PR when upstream moved (issue #575).
 
 The Strata live tier derives what it expects from the pin it has just fetched, never from a list in the
 test: the families the pinned `setup.py` declares with no `hf` must equal the map's `hub: false` set
-(empty at v0.1.43, `nvfp4` at v0.2.6). The hermetic side locks the family SHAPE instead — Hub-hosted
+(empty at v0.1.43, `nvfp4` at v0.2.7). The hermetic side locks the family SHAPE instead — Hub-hosted
 (`repo` + `revision` + `subdir`, no `hub` key) or explicitly not-Hub (`hub: false`, no repo), never
-both, never neither — because the v0.1.43 snapshot test red the *correct* v0.2.6 bump on
+both, never neither — because the v0.1.43 snapshot test red the *correct* v0.2.7 bump on
 `nvfp4 unexpectedly marked not-Hub` (PR #605).
 
 `tests/test_strata_live_target.py` pins that boundary hermetically: the file is out of the gate the

@@ -582,7 +582,7 @@ trend matrix lives under `tests/fixtures/`:
   would gate a push or a pull request, or disagree with the label roster.
 - `data/strata_models.json` is written from Strata's `setup.py` at the skill's pinned
   commit (`make sync-strata-models`, checked by `make check-strata-models`; the pin is
-  `v0.2.6@ff91dd77` today). A family is either Hub-hosted — `repo` + `revision` +
+  `v0.2.7@3f6d9c28` today). A family is either Hub-hosted — `repo` + `revision` +
   `subdir` and no `hub` key — or explicitly not-Hub: `hub: false` with no repo, never both
   and never neither. `check` runs `family_shape_problems()` first, so a malformed map is
   named by family and defect instead of surfacing as a 100-line diff; WHICH families are

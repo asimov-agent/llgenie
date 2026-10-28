@@ -1,8 +1,8 @@
 {
   "_generated_by": "make sync-strata-models (scripts/strata_models.py) - do not edit",
-  "source": "https://github.com/Niko1221/Strata/blob/ff91dd77a13857ccc2f1bd67edc9a8ecd4ecdfa4/setup.py",
-  "ref": "v0.2.6",
-  "pinned": "ff91dd77a13857ccc2f1bd67edc9a8ecd4ecdfa4",
+  "source": "https://github.com/Niko1221/Strata/blob/3f6d9c28e56bfce604601f39de53d457fa90dc74/setup.py",
+  "ref": "v0.2.7",
+  "pinned": "3f6d9c28e56bfce604601f39de53d457fa90dc74",
   "hf_revisions": {
     "ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF": "ed59f92082b1e93c0e96d60a8b11aab089b52f09",
     "ukisai/Swift-1.5-Qwen3.8-Flash-Next-GSQ-RCO-GGUF": "99bb8f7f95c7aa7b24a36a7786a4f657b30f5d3d",

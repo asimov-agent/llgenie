@@ -103,7 +103,7 @@ def test_map_tables_equal_setup_py_tables(setup_py):
     assert s["hf_revisions"] == setup_py.HF_REVISIONS
     for fam, d in s["families"].items():
         src = setup_py.FAMILIES[fam]
-        # A family the pin declares without `hf` (Strata's `nvfp4`, v0.2.6+) has no URL to build:
+        # A family the pin declares without `hf` (Strata's `nvfp4`, v0.2.7+) has no URL to build:
         # the map says so instead, and this test must read that shape rather than crash on `repo`.
         if "hf" not in src:
             assert d.get("hub") is False and "repo" not in d, fam
@@ -165,7 +165,7 @@ def test_every_choice_file_name_is_what_setup_py_builds_and_maps_back(setup_py):
 
     A family the pinned setup.py declares WITHOUT an `hf` is vendor-hosted (`hub: false`, no repo):
     it has no Hub path to build, so the contract is the opposite — `strata_files` must REFUSE it
-    by name rather than hand back a URL built from None (issue #643; `nvfp4` at v0.2.6)."""
+    by name rather than hand back a URL built from None (issue #643; `nvfp4` at v0.2.7)."""
     for fam, d in setup_py.FAMILIES.items():
         for size, md in setup_py.MODELS.items():
             if fam not in md.get("families", ("qwen", "swift")):
