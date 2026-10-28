@@ -7,6 +7,16 @@ name: CI
 on:
   pull_request:
     branches: ["main"]
+    # A docs-only diff does not schedule the 28-job matrix (issue #824). GitHub applies a
+    # `paths-ignore` clause only when EVERY changed path matches it, so a single code file in the
+    # diff brings the whole matrix back; `docs.yml` runs the docs gates for this same class, and
+    # `scope.yml` (no filter of its own) states on the PR which set ran and which stages the diff
+    # selected. `push` is deliberately NOT filtered: a merge to `main` keeps all 28 jobs.
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "agent-wiki/**"
+      - "openspec/**"
   push:
     branches: ["main"]    # merges: build + publish engine images to GHCR
 

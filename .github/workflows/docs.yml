@@ -1,0 +1,65 @@
+name: docs — the docs-only gates (issue #824)
+
+# DOCS — what a docs-only pull request runs instead of the 28-job matrix.
+#
+# `ci.yml` carries `paths-ignore` for the docs class (`**/*.md`, `docs/**`, `agent-wiki/**`,
+# `openspec/**`), so a PR that touches nothing but documentation does not schedule the engine
+# matrix, the scanner images or the published-image stages (measured before this change: PR #767,
+# one markdown file, 28 jobs; PR #825, six markdown files, 28 jobs). GitHub applies `paths-ignore`
+# only when EVERY changed path matches, so one code file in the diff brings the full matrix back.
+#
+# This workflow runs exactly the gates a docs change can still break: the markdown linefeed/heading
+# lint, the documentation index, the wiring guard, the issue-body shape, the workflow gates, and the
+# OpenSpec structure the change itself carries. It is path-filtered to the SAME docs class, so the
+# two triggers are one decision, and `scope.yml` (no filter at all) states which of them ran.
+#
+# Never: never publishes an image, never runs a test image build, never gates anything by absence —
+#        the repository has no required status checks, so this workflow adds no deadlock.
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "**/*.md"
+      - "docs/**"
+      - "agent-wiki/**"
+      - "openspec/**"
+      - "CHANGES.md"
+      - "README.md"
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docs:
+    name: docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/docker
+      - name: make test-env (Python 3.11 + the test image, pulled by hash from GHCR)
+        run: make test-env
+      - name: make openspec-image-pull (the OpenSpec CLI image, pulled by hash)
+        run: make openspec-image-pull
+      - name: make ci-lint (linefeed + a blank line before every markdown heading)
+        run: make ci-lint
+      - name: make check-docs check-wiring check-issue-bodies check-workflows check-dispatch-forms
+        run: |
+          set -euo pipefail
+          make check-docs
+          make check-wiring
+          make check-issue-bodies
+          make check-workflows
+          make check-dispatch-forms
+      - name: make ci-openspec (the change's own structure, and no unchecked task)
+        run: make ci-openspec
+      - name: Prune orphaned test containers
+        if: always()
+        run: make test-clean

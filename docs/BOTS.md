@@ -1372,6 +1372,8 @@ make pr-hygiene-report # show every producer the PR/commit-message guard reads, 
 make check-pr-authors  # fail when a PR commit is authored by anyone but Andy Holst or Asimov Agent, when a Co-authored-by trailer names anyone else, or when a producer commits off the allowlist (issue #345)
 make pr-authors-report # show every commit in the range with its author verdict, and the identity each producer assigns
 make check-workflows   # fail when a YAML file's GitHub expression does not parse, a YAML file lacks a trailing newline, a workflow has no top-level name, or a `workflow_run` trigger names no workflows (issue #330)
+make ci-scope          # print the change classes a diff touches and the jobs they select (BASE=<ref>); the
+                       # classifier the `scope` workflow runs on every PR (issue #824)
 make issue-cleaner-scan   # which OPEN issue a merged PR already implemented: GitHub closes an issue at merge
                           # only when the body carries a closing keyword bound to it, so a PR that merged and
                           # left its issue open is a stale-open (issue #325). Prints each finding with its
@@ -1692,6 +1694,38 @@ A bot step writes with the credential that can actually make the write:
 step's `GH_TOKEN`, and that the job declares the permission the write needs. A push is checked against
 the PAT wherever the job carries it (step env, job env, or the `actions/checkout` token that `git push`
 actually uses).
+
+### A docs-only PR does not schedule the 28-job matrix (issue #824)
+
+`ci.yml` runs one 28-job matrix for every change, so a PR that edits markdown paid for the engine
+matrix, the scanner images and the published-image stages: measured 2026-10-28, PR #767 (one file,
+`docs/ARCHITECTURE.md`) queued **28** jobs and PR #825 (six markdown files and one OpenSpec change)
+queued **28** as well. Only the amount of documentation an author happened to touch varied.
+
+The selection happens at the TRIGGER, never in a job `if:` — a condition that skips a job leaves
+nothing in the job list, and `tests/test_ci_images.py` allows only four job-level shapes, none of
+them a path selection. So `ci.yml`'s `pull_request` carries `paths-ignore` for the docs class
+(`**/*.md`, `docs/**`, `agent-wiki/**`, `openspec/**`) and GitHub applies it only when EVERY changed
+path matches: one code file in the diff brings the whole matrix back, and `push` to `main` is never
+filtered.
+
+Two workflows exist because absence must still be legible:
+
+- **`scope.yml`** has no filter of its own. It classifies the diff with `scripts/ci_scope.py`
+  (`make ci-scope`) and reports one check named `scope` stating the classes it detected, the jobs
+  they select and the jobs they skip — so "did the stage this change needs run?" is answered on the
+  PR instead of being inferred from a missing check. A path that matches no class fails the check
+  loudly rather than passing silently (the #801 lesson: an empty answer is not a verdict).
+- **`docs.yml`** is path-filtered to the same docs class and runs what a documentation change can
+  still break: `make ci-lint`, the documentation index, the wiring guard, the issue-body shape, the
+  workflow gates, and `make ci-openspec` for the change's own structure.
+
+`scripts/ci_scope.py` is stdlib only and takes the diff as an argument, so the classifier runs in the
+test image with no network, no git and no third-party action: a path-filter action would be a new
+pinned `uses:` entry with the power to skip the whole pipeline, and `git diff --name-only` is
+auditable inside the workflow. The repository has no required status checks (`branches/main/protection`
+→ 404; ruleset `24862727` carries `deletion` and `non_fast_forward`), so a skipped stage cannot
+deadlock a merge — `scope` buys legibility, not enforcement.
 
 ### Every workflow file is validated before it can merge (issue #330)
 
