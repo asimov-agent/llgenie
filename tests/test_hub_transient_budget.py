@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import http.server
 import json
-import sys
 import threading
 import urllib.error
 import urllib.request
@@ -22,10 +21,9 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
 
-import hf_auth  # noqa: E402
-import model_engine_pick as mp  # noqa: E402
+from scripts import hf_auth
+from scripts import model_engine_pick as mp
 
 
 class _Scripted(http.server.BaseHTTPRequestHandler):

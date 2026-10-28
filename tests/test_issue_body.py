@@ -8,16 +8,14 @@ NO-SKIP POLICY: a missing prerequisite is a LOUD FAILURE, never a skip.
 """
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
 
-import issue_body  # noqa: E402
-import security_issues as si  # noqa: E402
+from scripts import issue_body
+from scripts import security_issues as si
 
 FIELDS = dict(
     problem="the scanner reports a known-vulnerable pin",

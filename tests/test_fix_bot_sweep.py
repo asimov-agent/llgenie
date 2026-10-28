@@ -16,8 +16,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 SWEEP = REPO / "scripts" / "fix_bot_sweep.py"
-sys.path.insert(0, str(REPO / "scripts"))
-import fix_bot_sweep as sweep  # noqa: E402
+from scripts import fix_bot_sweep as sweep
 
 OWNER = "asimov-agent"
 

@@ -23,8 +23,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO / "scripts"))
-import issue_cleaner as cleaner  # noqa: E402
+from scripts import issue_cleaner as cleaner
 
 OWNER = "asimov-agent"
 

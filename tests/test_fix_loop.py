@@ -12,7 +12,6 @@ from __future__ import annotations
 import os
 import stat
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -21,8 +20,7 @@ REPO = Path(__file__).resolve().parents[1]
 LOOP = REPO / "scripts" / "fix_loop.sh"
 RULES = REPO / ".hermes" / "skills" / "pr-fix" / "SKILL.md"
 
-sys.path.insert(0, str(REPO / "scripts"))
-import fix_bot_report  # noqa: E402
+from scripts import fix_bot_report
 
 
 def stub_agent(tmp_path: Path, *, fixes_after: int | None = None, exit_code: int = 0) -> Path:

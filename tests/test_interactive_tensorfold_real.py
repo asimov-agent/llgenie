@@ -30,9 +30,7 @@ import urllib.request
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
-sys.path.insert(0, str(REPO / "tests"))
-import engine_skills as es  # noqa: E402
+from scripts import engine_skills as es
 from ptydrive import Pty  # noqa: E402
 
 SERVE = REPO / "scripts" / "llgenie_serve.py"

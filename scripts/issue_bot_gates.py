@@ -72,6 +72,7 @@ DEFERRED: dict[str, str] = {
     "check-security-bumps": "reads tools/security-floors.in against the compiled pins: a security-pipeline change moves it, and a stale floor fails here rather than in the bot's PR",
     "check-scanner-images": "reads the scanner Dockerfiles and digests.json: a static gate a scan-pipeline change moves, not the issue-bot's own PR",
     "check-actions": "a static read of the workflow files: the change that would float an Action is a workflow edit, and the PR the bot opens is re-checked by the pin gate in ci-unit",
+    "check-import-roots": "a pure AST scan of tests/ for a bootstrap path entry and a bare scripts/ import: it can only move when a test file changes, which is exactly what the agent\'s own test-unit run re-reads, and #475 names a fixed FAST list (widening it is that issue\'s follow-up, not this one)",
     "check-module-names": "a static read of every live file for one retired module name: the change that would reintroduce it is a text edit ci-unit re-checks on the bot's own PR, and #475 names a fixed FAST list (widening it is that issue's follow-up, not this one)",
     "check-renovate": "a static read of renovate.json and ci.yml's trigger: a dependency-bot config change is not something the issue-bot's own PR can introduce",
     "test-unit": "the agent already ran the whole hermetic suite while writing the change (11-20 minutes); a second run would not fit the leg's budget",

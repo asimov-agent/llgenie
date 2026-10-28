@@ -12,14 +12,12 @@ from __future__ import annotations
 import contextlib
 import http.server
 import socket
-import sys
 import threading
 from pathlib import Path
 
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "tests"))
 import hub_probe  # noqa: E402
 
 

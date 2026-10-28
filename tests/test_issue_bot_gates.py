@@ -26,9 +26,8 @@ from pathlib import Path
 import yaml
 
 REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO / "scripts"))
 
-import issue_bot_gates  # noqa: E402  (the module under test, imported from scripts/)
+from scripts import issue_bot_gates
 
 #: What the issue's "What done looks like" names, in that order: an independent pin on the list.
 SPEC_GATES = (

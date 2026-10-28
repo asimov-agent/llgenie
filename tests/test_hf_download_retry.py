@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import io
 import json
-import sys
 import urllib.error
 from email.message import Message
 from pathlib import Path
@@ -16,12 +15,11 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
 
-import hf_auth  # noqa: E402
-import hf_download  # noqa: E402
-import llgenie_serve  # noqa: E402
-import model_engine_pick as mp  # noqa: E402
+from scripts import hf_auth
+from scripts import hf_download
+from scripts import llgenie_serve
+from scripts import model_engine_pick as mp
 
 
 def _too_many(seconds):

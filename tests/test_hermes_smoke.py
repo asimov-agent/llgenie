@@ -27,9 +27,8 @@ REPO = Path(__file__).resolve().parent.parent
 SCRIPT = REPO / "scripts" / "hermes_smoke.py"
 MAKEFILE = REPO / "Makefile"
 WORKFLOW = REPO / ".github" / "workflows" / "issue-bot.yml"
-sys.path.insert(0, str(REPO / "scripts"))
 
-import hermes_smoke as smoke  # noqa: E402  (the module under test, loaded for real)
+from scripts import hermes_smoke as smoke
 
 #: The value the old recipe asked the model to echo. Built from pieces so THIS file does not carry it
 #: literally — the tree scan below must be able to fail on a real prompt, not on its own assertion.

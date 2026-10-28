@@ -27,9 +27,8 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
-import engine_image as ei  # noqa: E402
-import install_engine_launchers as il  # noqa: E402
+from scripts import engine_image as ei
+from scripts import install_engine_launchers as il
 
 BACKEND = os.environ.get("LLAMA_BACKEND", "")
 BIN = Path.home() / "bin"

@@ -16,12 +16,10 @@ NO-SKIP POLICY: every case reads the real roster and the real recipe; none is sk
 from __future__ import annotations
 
 import re
-import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
-import unit_tests as ut  # noqa: E402  (the aggregator the gate runs)
+from scripts import unit_tests as ut
 
 MAKEFILE = (REPO / "Makefile").read_text()
 

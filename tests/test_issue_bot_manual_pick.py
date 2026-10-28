@@ -32,9 +32,8 @@ MAKEFILE = REPO / "Makefile"
 README = REPO / "README.md"
 #: The dispatch table lives in docs/BOTS.md — the README is the user guide (issue #678).
 BOTS = REPO / "docs" / "BOTS.md"
-sys.path.insert(0, str(REPO / "scripts"))
 
-import issue_implementer  # noqa: E402  (the dispatcher whose default we pin)
+from scripts import issue_implementer
 
 
 def _issue_number_block() -> str:

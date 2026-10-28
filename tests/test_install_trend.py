@@ -18,16 +18,13 @@ import json
 import os
 import socket
 import subprocess
-import sys
 import time
 import urllib.request
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
-sys.path.insert(0, str(REPO / "tests"))
-import engine_image as ei  # noqa: E402
-import model_engine_pick as mp  # noqa: E402
+from scripts import engine_image as ei
+from scripts import model_engine_pick as mp
 from ptydrive import Pty  # noqa: E402
 
 BIN = Path.home() / "bin"
