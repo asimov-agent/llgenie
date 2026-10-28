@@ -208,6 +208,39 @@ docker run --rm -u root -v "$BASELINE":/repo:rw -w /repo -e HOME=/root \
   in minutes while the same suite's `-q` dots looked identical to a hang. Never quote such a loop as a
   gate result — it exists to locate a stall, not to verify a change.
 
+## Adding a make target to a repo whose `.PHONY:` is a continuation list
+
+`.PHONY:` in this repo spans several lines joined by trailing `\\`. Appending a new name to the end of
+the **first** line silently drops names that live on later continuation lines, and the target still
+runs — so the failure surfaces as unrelated targets being refused:
+
+```
+[check-wiring] `make workflows-report` is not declared .PHONY …
+[check-wiring] `make worktree-prune` is not declared .PHONY …
+```
+
+**Fix:** declare the new target on its own line (`\n.PHONY: bot-preflight\nbot-preflight: ## …`)
+instead of editing the existing block, and re-run `make check-wiring` to prove the other names came
+back. Read the whole continued block (`sed -n "${L},$((L+3))p" Makefile`) before touching it.
+
+## Commit before you touch anything else in a worktree
+
+An uncommitted worktree is not storage — it is a file nobody saved, in a directory a branch switch, a
+sweep, or a container permission error can empty. **Commit and push before the next action of any kind**
+(the next file edit is fine; checking out another branch there, reusing the directory, or starting a
+second task in it is not), and prefer committing through a message that names the issue.
+
+- **A branch ref can be empty while the work is fine.** Before believing "it is gone", check the *remotes*:
+  `git ls-remote fork <branch>`, `git ls-tree -r <remote>/<branch> | grep <path>`, and the PR's own file
+  list (`gh pr view <n> --json files`). A local branch at the base commit plus a published PR is a
+  repurposed checkout, not data loss — measured on a repo where the local branch had zero commits while
+  the fork branch carried the whole change and an open PR.
+- **Quote byte sizes when arguing about a file's identity.** A reported "16.6 KB / 14.5 KB" matched
+  `git cat-file -s` on the committed blobs exactly, which settled a "lost work" claim in one command.
+- **Never re-invent lost work from memory to satisfy a request for deliverable.** If a file truly is gone,
+  say so in one line and restart from the spec; a half-remembered re-implementation is worse than an
+  honest restart.
+
 ## Report the tree the number came from
 
 A background/full suite started before your last edit measures a tree that no longer exists. Either
