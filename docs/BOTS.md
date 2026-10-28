@@ -175,7 +175,10 @@ runner's PAT refuses outright — measured on registry-sync run 40682255828; #72
 `make engine-skill-scaffold ENGINE="<registry name>"` — the target that writes
 `skills/engines/<id>/SKILL.md` from the registry's own entry (engine, repo URL, backends) and leaves
 every upstream fact it cannot prove EMPTY, so `make skills-validate` names the remaining work instead of
-a guessed pin building.
+a guessed pin building. The one key it does derive is `os:`: the same backend evidence decides it —
+`Metal` alone is `darwin` (a native Apple-Silicon engine, never an image), Metal plus a Linux backend
+is `darwin` + `linux`, no Metal is `linux` — and the scaffold's own to-do list states which evidence
+produced the value, so a wrong one is corrected from the pinned repo rather than guessed (issue #772).
 
 **Who runs the scaffold: the issue-bot, before the agent starts.** `scripts/issue_implementer.py
 dispatch` (the `make issue-bot-dispatch` step of `issue-bot.yml`) recognises a tracking issue by the

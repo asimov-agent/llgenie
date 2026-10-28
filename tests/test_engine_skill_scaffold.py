@@ -126,6 +126,94 @@ def test_scaffold_accepts_explicit_backends_and_slugs_a_dotted_engine_id(tmp_pat
     assert got["id"] == "some-server-fork" and got["backends"] == ["rocm", "vulkan"]
     skill = es.load_skill(Path(got["path"]))
     assert skill["name"] == "engine-some-server-fork" and skill["backends"] == ["rocm", "vulkan"]
+    # The explicit list is the evidence `os:` is derived from too: no metal, so linux
+    assert skill["os"] == ["linux"]
+
+
+def test_a_metal_only_registry_entry_scaffolds_darwin_only(tmp_path):
+    """A macOS/Metal engine is scaffolded as `darwin`, never as a Linux server (issue #772)."""
+
+    # Given a registry engine whose ONLY backend is Metal (an Apple-Silicon server)
+    registry = _registry(tmp_path, {"MacOnly": {
+        "backend": "Metal",
+        "url": "https://github.com/acme/mac-only",
+        "note": "Apple Silicon native server",
+    }})
+    out = tmp_path / "skills"
+
+    # When the scaffold runs for it
+    result = scaf.scaffold("MacOnly", str(registry), out)
+
+    # Then the skill claims darwin alone, and its backends are still the registry's
+    assert result["written"] is True
+    skill = es.load_skill(out / result["id"] / "SKILL.md")
+    assert skill["backends"] == ["metal"]
+    assert skill["os"] == ["darwin"]
+
+    # And no Linux image is ever asked of it: `container_spec()` renders nothing for it,
+    # so the "a real OpenAI server always gets an image" rule does not apply
+    assert es.container_spec(skill, "metal") is None
+    assert not [e for e in es.validate(es.load_skills(out)) if "no container image for" in e]
+
+
+def test_a_linux_backend_registry_entry_scaffolds_linux(tmp_path):
+    """An engine the registry lists for CUDA/ROCm/CPU is still scaffolded for Linux."""
+
+    # Given a registry engine with no Metal backend at all
+    registry = _registry(tmp_path, {"LinuxOnly": {
+        "backend": "CUDA / ROCm / CPU",
+        "url": "https://github.com/acme/linux-only",
+    }})
+    out = tmp_path / "skills"
+
+    # When the scaffold runs for it
+    result = scaf.scaffold("LinuxOnly", str(registry), out)
+
+    # Then the skill claims linux, and the container gate DOES apply to its backends
+    skill = es.load_skill(out / result["id"] / "SKILL.md")
+    assert skill["os"] == ["linux"]
+    assert es.container_spec(skill, "cuda") is not None
+
+
+def test_a_dual_backend_engine_scaffolds_both_oses_only_when_the_registry_names_both(tmp_path):
+    """Metal plus a Linux backend is `[darwin, linux]`; nothing else is invented."""
+
+    # Given one engine the registry lists for both Metal and CUDA, and one for Metal only
+    registry = _registry(tmp_path, {
+        "BothWorlds": {"backend": "CUDA / Metal", "url": "https://github.com/acme/both"},
+        "MacOnly": {"backend": "Metal", "url": "https://github.com/acme/mac"},
+    })
+    out = tmp_path / "skills"
+
+    # When the scaffold runs for both
+    both = scaf.scaffold("BothWorlds", str(registry), out)
+    mac = scaf.scaffold("MacOnly", str(registry), out)
+
+    # Then the dual engine carries both oses, and the Metal-only one carries neither linux
+    assert es.load_skill(Path(both["path"]))["os"] == ["darwin", "linux"]
+    assert es.load_skill(Path(mac["path"]))["os"] == ["darwin"]
+
+
+def test_the_scaffold_body_names_where_the_os_value_came_from(tmp_path):
+    """The implementer reads the derivation, so the value is corrected with evidence, not a guess."""
+
+    # Given a Metal-only engine and a Linux engine
+    registry = _registry(tmp_path, {
+        "MacOnly": {"backend": "Metal", "url": "https://github.com/acme/mac"},
+        "LinuxOnly": {"backend": "CUDA / CPU", "url": "https://github.com/acme/linux"},
+    })
+    out = tmp_path / "skills"
+
+    # When the scaffold runs for both
+    mac = scaf.scaffold("MacOnly", str(registry), out)
+    linux = scaf.scaffold("LinuxOnly", str(registry), out)
+
+    # Then each body states the os it wrote AND the registry evidence behind it
+    mac_body = Path(mac["path"]).read_text()
+    linux_body = Path(linux["path"]).read_text()
+    assert "`os: [darwin]` — the backend list names `Metal` and no Linux backend" in mac_body
+    assert "`os: [linux]` — the backend list names no `Metal` (cuda, cpu)" in linux_body
+    assert "check it against the pinned repo" in mac_body
 
 
 def test_scaffold_names_an_engine_the_registry_does_not_list(tmp_path):

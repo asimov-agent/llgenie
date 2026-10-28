@@ -14,7 +14,9 @@ no image `rank_engines` drops the engine and the models only it serves vanish fr
 offer.
 
 This writes the FILE, from what the registry actually states — engine name, upstream
-repo URL, backends — and leaves every upstream fact it CANNOT prove EMPTY:
+repo URL, backends, and the `os:` those backends can run on (`METAL` alone is `darwin`,
+because Metal runs natively and never in an image) — and leaves every other upstream fact
+it CANNOT prove EMPTY:
 
 - nothing here guesses a version, a commit, a license, an apt package, a build command
   or a launch flag; a guessed pin is worse than an empty one because it builds;
@@ -42,6 +44,15 @@ SKILLS_DIR = REPO / "skills" / "engines"
 # The registry's `backend` is a human string ("CUDA / ROCm / CPU / Metal"); these are the
 # container backends a skill may declare (`metal` is native-only but still a backend).
 _BACKEND_WORDS = {"cuda": "cuda", "rocm": "rocm", "vulkan": "vulkan", "cpu": "cpu", "metal": "metal"}
+
+# The backends a Linux container image serves. `metal` is the one that does not: it runs
+# natively on Apple Silicon and never in an image (`engine_skills.CONTAINER_BACKENDS`).
+_LINUX_BACKENDS = ("cuda", "rocm", "vulkan", "cpu")
+# The `os:` value a skill declares per shape. Written in the order the repo's own
+# dual-OS skills use (`os: [darwin, linux]`).
+_DARWIN = ["darwin"]
+_LINUX = ["linux"]
+_DARWIN_LINUX = ["darwin", "linux"]
 
 # Written EMPTY on purpose: the pinned repo is the only source of these. `validate()`
 # reports an empty required key as `missing <key>`, so the list below is also the to-do.
@@ -76,6 +87,38 @@ def backends(backend: str | None, override: str | None = None) -> list[str]:
     return [b for b in es.BACKENDS if b in found]
 
 
+def oses(backs: list[str]) -> list[str]:
+    """The skill's `os:` list, derived from the backends the scaffold was given.
+
+    `METAL` alone is a macOS engine: Metal runs natively on Apple Silicon and never in an
+    image, so claiming `linux` would make `skills-validate`/`generate-engine-params` demand
+    a Dockerfile for a backend upstream cannot build. Metal plus a Linux backend is both,
+    and no Metal at all is Linux (every other backend is a Linux container image).
+    """
+    has_metal = "metal" in backs
+    has_linux = any(b in _LINUX_BACKENDS for b in backs)
+    if has_metal and has_linux:
+        return list(_DARWIN_LINUX)
+    return list(_DARWIN) if has_metal else list(_LINUX)
+
+
+def os_note(backs: list[str]) -> str:
+    """One sentence naming where the `os:` value came from, for the scaffold's to-do list."""
+    value = ", ".join(oses(backs))
+    has_metal = "metal" in backs
+    has_linux = any(b in _LINUX_BACKENDS for b in backs)
+    if has_metal and has_linux:
+        return (f"`os: [{value}]` — the backend list names `Metal` and a Linux backend "
+                f"({', '.join(b for b in backs if b in _LINUX_BACKENDS)}), so the Linux backends get "
+                f"container images and Metal runs natively on Apple Silicon.")
+    if has_metal:
+        return (f"`os: [{value}]` — the backend list names `Metal` and no Linux backend "
+                f"(CUDA/ROCm/Vulkan/CPU), so this is a macOS engine: Metal runs natively on Apple "
+                f"Silicon and never in an image, so no `container:` block is expected.")
+    return (f"`os: [{value}]` — the backend list names no `Metal` "
+            f"({', '.join(backs)}), so every declared backend runs in a Linux container image.")
+
+
 def _quote(value: str) -> str:
     return json.dumps(value)
 
@@ -98,7 +141,7 @@ def skill_text(name: str, spec: dict, sid: str, backs: list[str], servable: str)
         "license: \"\"",
         f"servable: {servable}",
         "backends: [" + ", ".join(backs) + "]",
-        "os: [linux]",
+        "os: [" + ", ".join(oses(backs)) + "]",
         "formats: []",
         "upstream_watch: []",
         "prereqs:",
@@ -122,16 +165,20 @@ def skill_text(name: str, spec: dict, sid: str, backs: list[str], servable: str)
         "does not state is EMPTY on purpose — fill it from the pinned repo, never from",
         "memory, and never with a guessed value:",
         "",
-        "1. `ref` / `ref_kind` / `pinned` — the release tag (or branch) and the full 40-hex",
+        "1. " + os_note(backs),
+        "   `os:` is the ONE key this scaffold fills from evidence rather than leaving empty;",
+        "   check it against the pinned repo and change it only when the repo proves a backend",
+        "   the registry does not name.",
+        "2. `ref` / `ref_kind` / `pinned` — the release tag (or branch) and the full 40-hex",
         "   commit it resolves to (`git ls-remote <repo> <ref>`), then set `verified` to",
         "   today's date.",
-        "2. `license` — the repo's LICENSE.",
-        "3. `install.<backend>` — the steps its own Dockerfile/README uses to build or",
+        "3. `license` — the repo's LICENSE.",
+        "4. `install.<backend>` — the steps its own Dockerfile/README uses to build or",
         "   install it, one list per backend. Engines run in container images, never on the",
         "   host (Metal aside), so no venv/`--system` instructions.",
-        "4. `binary` / `detect` / `launch` / `health` / `alias_mode` / `prereqs` — how its",
+        "5. `binary` / `detect` / `launch` / `health` / `alias_mode` / `prereqs` — how its",
         "   OpenAI server starts and how `{alias}`/`{port}` reach it.",
-        "5. `formats` / `upstream_watch` — the model formats it serves, and the upstream",
+        "6. `formats` / `upstream_watch` — the model formats it serves, and the upstream",
         "   files `make engine-bump` re-reads to derive apt/pip deltas.",
         "",
         "Then:",

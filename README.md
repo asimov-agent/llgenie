@@ -334,7 +334,9 @@ make spawn-engine-skill-issues # open one tracking issue per NEW unskilled engin
                                # labelled `agent:implement` and read back — an unlabelled issue routes to
                                # no bot, so the label is applied explicitly and verified (issue #724)
 make engine-skill-scaffold ENGINE="<registry name>"  # write skills/engines/<id>/SKILL.md from the
-                               # registry's own entry (engine, repo, backends); every key it cannot
+                               # registry's own entry (engine, repo, backends) plus the `os:` those
+                               # backends can run on — a Metal-only engine is `darwin`, because Metal
+                               # runs natively and never in an image; every key it cannot
                                # prove is left EMPTY so `make skills-validate` names it (ID= overrides
                                # the kebab, BACKENDS= when the registry names none, OUT=/REGISTRY= pick
                                # another tree/store, DRY=1 previews, FORCE=1 overwrites a skill)

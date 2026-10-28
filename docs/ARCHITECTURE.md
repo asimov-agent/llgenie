@@ -98,7 +98,9 @@ previews). Nothing is published without drift, and the bot never merges.
    (GraphQL, refused by the runner's PAT) is trusted (#724/#757). It names
    `make engine-skill-scaffold ENGINE="<registry name>"` — the target that writes the
    skill from the registry's own entry and leaves every unprovable key EMPTY, so
-   `make skills-validate` names the remaining work rather than a guessed pin building.
+   `make skills-validate` names the remaining work rather than a guessed pin building. The one
+   key it derives is `os:`, from the same backend evidence: `Metal` alone is `darwin` (native,
+   never an image), Metal plus a Linux backend is both, no Metal is `linux` (issue #772).
 6. **Engine image** — `make build-engine ENGINE=<id> ARCH=<arch>` builds strictly from the
    generated params and Dockerfile with plain make; the shared toolchain layer under it is
    `make build-engine-base BACKEND=<cpu|cuda|rocm|vulkan>` (`PUSH=1` publishes it).
