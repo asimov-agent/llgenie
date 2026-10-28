@@ -44,6 +44,7 @@ env:
 jobs:
   # lint: linefeed / editorconfig
   lint:
+    timeout-minutes: 15   # measured 27 s on ubuntu-latest; 15 min is a hang ceiling, not a budget
     runs-on: ${{ inputs.runner }}
     continue-on-error: false
     permissions:
@@ -74,6 +75,7 @@ jobs:
 
   # unit: hermetic unit tests + registry/skill/param checks
   unit:
+    timeout-minutes: 60   # measured minutes on ubuntu-latest; 60 catches a hang that the 360-min default hides
     runs-on: ${{ inputs.runner }}
     continue-on-error: false
     permissions:
@@ -131,6 +133,7 @@ jobs:
   # setup-python only provides python3.12; make builds the venv (hermes-agent + pytest),
   # scans AGENTS.md and runs the guard's tests, the same as on a dev host.
   agents-read:
+    timeout-minutes: 15   # measured 20 s; the default 360 min would hide a hang for six hours
     runs-on: ${{ inputs.runner }}
     continue-on-error: false
     steps:
@@ -143,6 +146,7 @@ jobs:
 
   # openspec: validate the OpenSpec changes; every active change has all tasks checked
   openspec:
+    timeout-minutes: 15   # measured 20 s; the default 360 min would hide a hang for six hours
     runs-on: ${{ inputs.runner }}
     continue-on-error: false
     permissions:
