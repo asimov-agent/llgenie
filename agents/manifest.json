@@ -1,0 +1,13 @@
+{
+  "note": "Host agent profiles whose behaviour (SOUL.md + skills/) lives in this tree, one directory per profile (issue #791). `make sync-agent-profile PROFILE=<name>` copies agents/<name>/ into that profile's Hermes home; `make check-agent-profiles` gates this tree. `rules` names the standing rules that profile's SOUL.md must state: never-implement, never-merge.",
+  "profiles": [
+    {
+      "name": "llgenie-planner",
+      "rules": ["never-implement", "never-merge"]
+    },
+    {
+      "name": "llgenie-issse-implementer",
+      "rules": []
+    }
+  ]
+}
