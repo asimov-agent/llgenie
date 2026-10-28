@@ -166,7 +166,7 @@ jobs:
       packages: read
     secrets: inherit
     with:
-      runner: macos-15-intel   # required: a macOS failure fails the run, same as Linux
+      runner: macos-14   # PROBE (#862): does this label provision where macos-15-intel never starts?
 
   # ------------------------------------------------------------------
   # engine-images (issue #98). Pure make, no LLM, nothing built on a laptop:
