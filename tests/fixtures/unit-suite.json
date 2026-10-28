@@ -108,7 +108,7 @@
  "deselect": {
   "tests/test_engine_bump.py": {
    "test_derive_reports_the_live_release_archives": "Reads the LIVE TensorFold release archive listing upstream (network + the real release). The hermetic gate cannot carry it; `make test-engine-bump-live` runs it.",
-   "test_tensorfold_v1_0_5_release_is_native_archives": "Asserts the live TensorFold v1.0.5 release's archive set upstream \u2014 network, so it is not hermetic. `make test-engine-bump-live` runs it.",
+   "test_tensorfold_release_is_native_archives": "Asserts the PINNED TensorFold release's archive set upstream (#830: the ref is read from containers/engines/params/tensorfold.json, never a literal) \u2014 network, so it is not hermetic. `make test-engine-bump-live` runs it.",
    "test_tensorfold_release_archive_unpacks_and_runs": "Unpacks and runs the REAL TensorFold release archive (multi-GB download + a native serve). `make test-engine-bump-live` runs it."
   },
   "tests/test_trend_pick.py": {

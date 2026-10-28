@@ -1736,10 +1736,10 @@ def test_derive_reports_the_live_release_archives(tmp_path):
     """
 
     # Given a tag-pinned skill whose repo is a real local git repo, and the
-    # published TensorFold v1.0.5 release standing in for its own
+    # published TensorFold release standing in for its own
     repo = _make_repo(tmp_path, "up", {"README.md": "native binary\n"})
     sha = _git(repo, "rev-parse", "HEAD")
-    skill = _skill(tmp_path, "https://github.com/ashhart/TensorFold", "v1.0.5", "tag", sha)
+    skill = _skill(tmp_path, "https://github.com/ashhart/TensorFold", _pinned_tensorfold_ref(), "tag", sha)
     skill["backends"] = ["cuda", "metal"]
     skill["install"] = {"cuda": ["uv pip install 'engine @ git+{repo}.git@v{version}'"],
                         "metal": ["uv tool install 'engine @ git+{repo}.git@v{version}'"]}
@@ -1761,21 +1761,42 @@ def test_derive_reports_the_live_release_archives(tmp_path):
     assert "release_assets" not in again["auto"]
 
 
-def test_tensorfold_v1_0_5_release_is_native_archives():
-    """The published TensorFold 1.0.5 release is what E10 must recognise.
+def _pinned_tensorfold_ref() -> str:
+    """The TensorFold ref this repository actually ships, read from the pin the bump edits.
+
+    #830: this test used to assert a literal release (`v1.0.5`) that two bumps had already left behind,
+    so it kept passing against an archive nothing in the tree referenced. The pin is the only source of
+    truth a bump also edits; a missing or unreadable pin fails loudly instead of falling back to a
+    literal, because a silent fallback is how the test rotted the first time.
+    """
+    import json
+
+    pin = REPO / "containers" / "engines" / "params" / "tensorfold.json"
+    ref = ""
+    try:
+        ref = str(json.loads(pin.read_text()).get("ref") or "").strip()
+    except (OSError, ValueError) as exc:
+        pytest.fail(f"cannot read the TensorFold pin from {pin}: {exc}")
+    assert ref, f"the TensorFold pin in {pin} names no `ref`"
+    return ref
+
+
+def test_tensorfold_release_is_native_archives():
+    """The TensorFold release THIS repository pins is what E10 must recognise.
 
     Reads the live GitHub release. A bump that cannot see these assets would
-    leave the pip install that 1.0.5 refuses.
+    leave the pip install that release refuses.
     """
 
-    # Given the published TensorFold v1.0.5 release
-    assets = eb._release_assets("https://github.com/ashhart/TensorFold", "v1.0.5")
+    # Given the published TensorFold release this repository PINS (#830: never a literal)
+    ref = _pinned_tensorfold_ref()
+    assets = eb._release_assets("https://github.com/ashhart/TensorFold", ref)
 
     # When the bump classifies its assets
     found = eb._native_archives(assets)
 
     # Then both archives the skill's backends need are there, checksummed
-    assert assets, "GitHub returned no assets for TensorFold v1.0.5"
+    assert assets, f"GitHub returned no assets for TensorFold {ref}"
     assert ("linux", "x86_64") in found
     assert ("macos", "arm64") in found
     assert found[("linux", "x86_64")].endswith(".tar.gz")
@@ -1784,7 +1805,7 @@ def test_tensorfold_v1_0_5_release_is_native_archives():
     # archive shape after a bump and correctly derives nothing (issue #389)
     pip_skill = {"id": "tensorfold", "engine": "TensorFold",
                  "repo": "https://github.com/ashhart/TensorFold",
-                 "ref": "v1.0.5", "version": "v1.0.5", "backends": ["metal", "cuda"],
+                 "ref": _pinned_tensorfold_ref(), "version": _pinned_tensorfold_ref(), "backends": ["metal", "cuda"],
                  "install": {"metal": ["uv tool install --force 'tensorfold @ git+{repo}.git@v{version}'"],
                              "cuda": ["uv pip install --system 'tensorfold @ git+{repo}.git@v{version}'"]}}
     steps = eb.release_archive_install(pip_skill, assets)
@@ -1804,7 +1825,7 @@ def test_tensorfold_release_archive_unpacks_and_runs(tmp_path):
 
     Downloads the real release archive, checks the published checksum and runs
     the unpacked binary. This is the step the cuda image died on: pip of
-    v1.0.5 refuses to build, the archive is what upstream ships instead.
+    the pip wheel refuses to build for this platform, the archive is what upstream ships instead.
     """
     import hashlib
     import platform
@@ -1815,10 +1836,11 @@ def test_tensorfold_release_archive_unpacks_and_runs(tmp_path):
     # archive and the binary died with Bad CPU type.
     arch_tok = "x86_64" if platform.machine() in ("x86_64", "AMD64") else "arm64"
     os_tok = "linux" if platform.system() == "Linux" else "macos"
-    assets = eb._release_assets("https://github.com/ashhart/TensorFold", "v1.0.5")
+    assets = eb._release_assets("https://github.com/ashhart/TensorFold", _pinned_tensorfold_ref())
     found = eb._native_archives(assets)
     asset = found[(os_tok, arch_tok)]
-    base = "https://github.com/ashhart/TensorFold/releases/download/v1.0.5"
+    ref = _pinned_tensorfold_ref()
+    base = f"https://github.com/ashhart/TensorFold/releases/download/{ref}"
     archive = tmp_path / asset
     eb._download(f"{base}/{asset}", archive)
     eb._download(f"{base}/{asset}.sha256", tmp_path / f"{asset}.sha256")
@@ -1928,7 +1950,7 @@ def test_unit_recipe_runs_the_destination_release_cases():
     )
     live = (
         "test_derive_reports_the_live_release_archives",
-        "test_tensorfold_v1_0_5_release_is_native_archives",
+        "test_tensorfold_release_is_native_archives",
         "test_tensorfold_release_archive_unpacks_and_runs",
     )
 

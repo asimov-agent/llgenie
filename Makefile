@@ -1278,8 +1278,8 @@ test-hub-live: ## The live-Hub checks kept OUT of the hermetic gate (issue #438)
 	$(TEST_RUN) python -m pytest tests/test_trend_pick.py::test_the_vendored_registry_links_all_answer tests/test_trend_pick.py::test_readme_links_answer_and_a_broken_copy_is_caught tests/test_trend_pick.py::test_select_downloads_a_missing_model_for_real -p no:cacheprovider -q
 test-strata-live: ## The Strata download/serve checks kept OUT of the hermetic gate (issue #437): Strata's pinned commit is fetched over git, its GGUF choices come from the live Hub, and its real server answers — network + a real install
 	$(TEST_RUN) python -m pytest tests/test_strata_download.py -p no:cacheprovider -q
-test-engine-bump-live: ## TensorFold v1.0.5 release archive: list, classify, checksum, run
-	$(TEST_RUN) python -m pytest tests/test_engine_bump.py::test_derive_reports_the_live_release_archives tests/test_engine_bump.py::test_tensorfold_v1_0_5_release_is_native_archives tests/test_engine_bump.py::test_tensorfold_release_archive_unpacks_and_runs -p no:cacheprovider -q
+test-engine-bump-live: ## Live check of the engine-bump archive path against the PINNED TensorFold release (list, classify, checksum, run; the ref comes from containers/engines/params/tensorfold.json, never a literal — #830)
+	$(TEST_RUN) python -m pytest tests/test_engine_bump.py::test_derive_reports_the_live_release_archives tests/test_engine_bump.py::test_tensorfold_release_is_native_archives tests/test_engine_bump.py::test_tensorfold_release_archive_unpacks_and_runs -p no:cacheprovider -q
 
 # hermes-agent needs Python >=3.11, it pins its own 3.12 (gguf venv + test image are 3.11): the guard
 # gets its own Python 3.12 venv, built by make on any host (Linux, macOS, CI). It lives
