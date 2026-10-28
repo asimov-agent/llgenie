@@ -1,7 +1,7 @@
 # A host agent's SOUL and skills live in this repo
 
 **Issue:** [#791](https://github.com/asimov-agent/llgenie/issues/791) · **OpenSpec change:**
-`agent-profile-tree` · **PR:** this change's PR on `asimov-agent/llgenie`
+`agent-profile-tree` · **PR:** [#834](https://github.com/asimov-agent/llgenie/pull/834)
 
 ## What was verified against the spec
 
