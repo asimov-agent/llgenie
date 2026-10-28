@@ -1343,8 +1343,13 @@ ci-image-refs: ## Print the GHCR refs of the CI images (test, openspec, agent) f
 	@python3 scripts/ci_images.py ref
 
 test-variant-image: ## Build the CUDA toolkit + python variant-build image locally (the variant-build matrix is no longer a pipeline job; this reproduces it by hand)
-	@cp tools/requirements.txt tools/requirements-dev.txt containers/ci-variant/
-	$(RUNTIME) build -t $(VARIANT_IMG) containers/ci-variant/
+	# The lockfiles are build-time inputs copied from tools/ (the ONE generator of a compiled pin),
+	# in a TEMP context — never written into the checkout, where a stale copy becomes a finding the
+	# scan can never clear (issue #787, the same shape as scripts/ci_images.py::context).
+	@ctx=$$(mktemp -d) && trap 'rm -rf "$$ctx"' EXIT && \
+		cp containers/ci-variant/Dockerfile "$$ctx/" && \
+		cp tools/requirements.txt tools/requirements-dev.txt "$$ctx/" && \
+		$(RUNTIME) build -t $(VARIANT_IMG) "$$ctx"
 	@echo "Variant image built: $(VARIANT_IMG)"
 
 test-clean: ## Remove left-over/stopped orphaned containers of the test image (interrupted/failed runs)
