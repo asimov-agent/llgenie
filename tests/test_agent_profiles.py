@@ -379,9 +379,8 @@ def test_a_truncated_seed_is_refused_rather_than_shrinking_the_live_profile(tmp_
     live.mkdir()
     (live / "SOUL.md").write_text("a much longer, real rulebook\n" * 200)
 
-    assert [(rel, tree, size) for rel, tree, size in sync.shrinks(agents, "someone", live)] == [
-        ("SOUL.md", len("short seed\n"), (live / "SOUL.md").stat().st_size)
-    ]
+    assert [row[0] for row in sync.shrinks(agents, "someone", live)] == ["SOUL.md"]
+    assert sync.shrinks(agents, "someone", live)[0][3] > 0, "the live file has lines the tree lacks"
     assert sync.write(agents, "someone", live) == 3
     assert (live / "SOUL.md").stat().st_size > 1000, "the refusal must not have written anything"
 
@@ -433,3 +432,45 @@ def test_no_live_profile_home_means_the_comparison_is_skipped_not_failed(tmp_pat
     (agents / "someone" / "SOUL.md").write_text("x\n")
     (agents / "manifest.json").write_text('{"profiles": [{"name": "someone", "rules": ["never-merge"]}]}')
     assert cap.shrink_findings(tmp_path, agents, None) == []
+
+
+def test_a_tree_file_that_is_a_content_SUBSET_is_refused_even_when_the_sizes_are_close(tmp_path):
+    """Rule from the #791 review: content, not a size ratio.
+
+    A seed that keeps every heading but drops the rules under them can be within a few percent of the
+    live size, so a size floor alone passes it. Subset-of-lines catches it: every line the tree has is
+    in the live file, and the live file has more.
+    """
+    import agent_profile_sync as sync
+
+    agents = tmp_path / "agents"
+    prof = agents / "someone"
+    prof.mkdir(parents=True)
+    live = tmp_path / "live"
+    live.mkdir()
+    rules = "".join(f"- rule {i}: a long operating rule that matters\n" for i in range(20))
+    (live / "SOUL.md").write_text(rules + "- rule Z: only in live\n")
+    subset = "".join(f"- rule {i}: a long operating rule that matters\n" for i in range(20))
+    (prof / "SOUL.md").write_text(subset)                      # ~95 % of the size, 1 rule missing
+
+    found = sync.shrinks(agents, "someone", live)
+    assert [row[0] for row in found] == ["SOUL.md"]
+    assert found[0][3] == 1, "exactly one line would be lost"
+    assert sync.write(agents, "someone", live) == 3
+    assert (live / "SOUL.md").read_text().endswith("only in live\n"), "the refusal wrote nothing"
+
+
+def test_a_genuine_rewrite_that_is_not_a_subset_is_allowed(tmp_path):
+    """The control: different rules are an edit, not a truncation — the guard must not block edits."""
+    import agent_profile_sync as sync
+
+    agents = tmp_path / "agents"
+    prof = agents / "someone"
+    prof.mkdir(parents=True)
+    live = tmp_path / "live"
+    live.mkdir()
+    (live / "SOUL.md").write_text("- old rule A\n- old rule B\n")
+    (prof / "SOUL.md").write_text("- new rule A\n- new rule B\n")
+    assert sync.shrinks(agents, "someone", live) == []
+    assert sync.write(agents, "someone", live) == 0
+    assert (live / "SOUL.md").read_text() == "- new rule A\n- new rule B\n"
