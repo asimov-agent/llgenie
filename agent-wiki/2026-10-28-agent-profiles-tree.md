@@ -72,3 +72,36 @@ claim runs in `make test-unit` against a temporary `HERMES_PROFILE_HOME`.
 - `make sync-agent-profile … CHECK=1` — green against both live profiles (above).
 - `make check-docs`, `make check-wiring`, `make check-agent-skills`, `make openspec-validate
   NAME=agent-profile-tree`, `make test-unit` — the PR's gate output.
+
+## The planner's live SOUL and skill were folded back in (issue #851)
+
+The tree was cut at 22:20Z, and the orchestrator's own `SOUL.md` and
+`llgenie-bot-orchestration` skill kept being written after it: at `ed892cf6` the committed planner
+SOUL was 5,149 b against 7,509 b live (the five standing rules — assignment-and-state reporting, a
+report-is-a-claim, `cancelled` is not a verdict, one vehicle per issue, never push to a branch you
+were not dispatched for), and the committed skill was one reference out of ten. The tree is only
+a source of truth if it carries what the agent actually runs under, so #851 folds the live text in
+verbatim on the same branch and PR (#903), extending the tree rather than opening a second vehicle.
+
+- `agents/llgenie-planner/SOUL.md` — 7,509 b, `diff` against the live profile file is empty.
+- `agents/llgenie-planner/skills/llgenie-bot-orchestration/` — `SKILL.md` 100,343 b plus all 10
+  `references/*.md`; `diff -r` against the live skill directory is empty.
+- `agents/manifest.json` unchanged: it declares `{name, rules}` for this tree, and
+  `make check-agent-profiles` is the gate that reads it (a `path · sha256 · authored` row belongs to
+  the superseded #834 schema, which this branch does not carry).
+- Snapshot 2026-10-28T22:28:24Z. The live profile is written by its own agent while the sync runs, so
+  the copy was taken twice inside two minutes: the first (22:27:37Z) carried 12 references, the second
+  (22:28:24Z, the committed one) carries 10 — the orchestrator had just consolidated
+  `agent-profile-sync-safety.md` and `ci-log-and-state-forensics.md` into
+  `assertions-and-gates.md` (5,071 → 6,409 b) and grown `ci-state-and-queue.md`
+  (17,005 → 17,821 b). The two superseded files were removed rather than left behind, because a tree
+  that carries a reference the profile no longer has is the same defect in the other direction.
+  The committed text is the second snapshot; drift after it is a new private edit that needs its own
+  issue, not a silent second copy. This is the one place the sync cannot self-heal: the profile is a
+  moving target while its own agent works, so a reviewer who re-runs the diff an hour later may see
+  newer live text.
+
+Gate output on that snapshot: `make check-agent-profiles` OK (2 profiles), `make check-agent-skills`
+OK (10 legs, 11 skills), `make check-docs` OK (242 targets), `make lint` OK,
+`make sync-agent-profile PROFILE=llgenie-planner CHECK=1` OK on all 12 committed files (SOUL.md,
+`SKILL.md`, 10 references).
