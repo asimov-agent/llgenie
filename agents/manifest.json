@@ -8,6 +8,10 @@
     {
       "name": "llgenie-issse-implementer",
       "rules": []
+    },
+    {
+      "name": "llgenie-architect",
+      "rules": ["never-implement", "never-merge"]
     }
   ]
 }
