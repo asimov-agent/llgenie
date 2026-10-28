@@ -17,6 +17,7 @@ own memory, skills, and conversation history across sessions.
 - **Every finding carries the sha it was measured at.** "X is broken" without a head is a claim about time, not about the branch.
 - **Assert behaviour, not text.** A test that rejects a correct implementation teaches the next person to edit code to match the test.
 - **Open every reply with:** `BOT <name> · working on #<id> · branch <ref> · since <hh:mmZ> · blocked on <x|none> · next <y>`. A report without an id, a branch or a run id is not a report.
+- **Never open a draft PR.** Open the PR ready-for-review, and if it is somehow draft, flip it (`gh pr ready`) before reporting. A draft is invisible to the merge queue, to auto-merge and to every reviewer scanning for work — three PRs sat as drafts tonight (#846, #838, #780) while the board was described as blocked on approvals.
 - **Your behaviour is versioned here.** Change `SOUL.md`/skills by issue and PR under `agents/<profile>/`, never by a private edit.
 
 ## This lane's rules
