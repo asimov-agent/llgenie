@@ -12,9 +12,13 @@ name: security-scan — the daily vulnerability pipeline (Trivy + Syft + Grype +
 # Flow: guard (owner / repository bot / collaborator with write, BEFORE any secret is read) ->
 #       make check-security-scan (policy + digests + triggers sane) -> make security-scan-all
 #       (Syft SBOM, then Trivy, Grype and Semgrep from their pinned images) -> make security-verdict
-#       EVENT=<event> (the policy decides whether that event may gate) -> make security-issues (one
-#       tagged issue per finding) -> make security-bumps (the floor the scanner demands, regenerated
-#       into ONE bump PR that closes the issues it fixes) -> upload SARIF + the CycloneDX SBOM.
+#       EVENT=<event> (the policy decides whether that event may gate; its outcome is CAPTURED, not
+#       raised) -> make security-issues (one tagged issue per finding) -> make security-bumps (the
+#       floor the scanner demands, regenerated into ONE bump PR that closes the issues it fixes) ->
+#       upload SARIF + the CycloneDX SBOM -> the LAST step turns a gated verdict into the run's red.
+#       Order is the contract: a gated verdict must still file its issues and open its PR, so the
+#       red is the final step and never a mid-job exit (measured defect: the 2026-10-28 daily run
+#       died at the verdict and filed nothing while four fixable CVEs sat in the reports).
 # Trigger surface: schedule daily 04:05 UTC (its own odd minute — no bot shares a slot, issue #275) and
 #                  workflow_dispatch (owner / repository bot / collaborator with write), and NOTHING
 #                  else — no pull_request and no push trigger (issue #738).
@@ -113,6 +117,13 @@ jobs:
           fi
 
       - name: make security-verdict (the policy decides whether THIS event may gate)
+        # The verdict must NOT abort the job: filing the tagged issues (#716) and opening the floor
+        # bump PR (#738) are the reason this pipeline exists, and both used to be skipped whenever
+        # the verdict gated (measured: the 2026-10-28 daily run went red at this step and produced
+        # zero issues and zero PRs while four fixable CVEs sat in the reports). The outcome is
+        # captured here and turned into the run's exit code by the LAST step of the job.
+        id: verdict
+        continue-on-error: true
         run: |-
           set -euo pipefail
           ENFORCE="${{ github.event.inputs.enforce || '' }}"
@@ -120,12 +131,18 @@ jobs:
           make security-verdict EVENT="${{ github.event_name }}" ENFORCE="$ENFORCE"
 
       - name: make security-issues (file or update one tagged issue per finding)
+        # Runs even when the verdict gated — that is the point. Still skipped when the scan itself
+        # died before writing reports, so a scanner crash never files a bogus "0 findings" issue.
+        if: always() && hashFiles('security-reports/*') != ''
         env:
           GH_TOKEN: ${{ secrets.BUMP_TOKEN || secrets.GITHUB_TOKEN }}
           SECURITY_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: make security-issues SLUG="${{ github.repository }}" RUN_URL="$SECURITY_RUN_URL"
 
       - name: make security-bumps (the floor the scanner demands, regenerated into ONE bump PR)
+        # Also `always()`: a failed issue-filing pass must never hide the pinned floors the scan
+        # demands, and a gated verdict is exactly when the bump PR matters most.
+        if: always() && hashFiles('security-reports/*') != ''
         env:
           GH_TOKEN: ${{ secrets.BUMP_TOKEN || secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.BUMP_TOKEN || secrets.GITHUB_TOKEN }}
@@ -147,3 +164,13 @@ jobs:
           path: security-reports/
           retention-days: 30
           if-no-files-found: warn
+
+      - name: Hand the verdict to the run's exit code (LAST, so nothing above is skipped)
+        # The single place a red daily scan comes from. By the time this runs, the tagged issues,
+        # the floor bump PR, the SARIF upload and the artifact have all happened — so a red run
+        # always means "findings were filed and a PR is waiting", never "the pipeline broke before
+        # it did its job".
+        if: always() && steps.verdict.outcome == 'failure'
+        run: |
+          echo "::error::security-verdict gated this run — the tagged issues were filed and the floor bump PR was regenerated before this step; see the verdict log above for the findings."
+          exit 1
