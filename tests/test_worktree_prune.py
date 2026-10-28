@@ -25,7 +25,9 @@ from __future__ import annotations
 import json
 import os
 import stat
+import re
 import subprocess
+import shutil
 import sys
 from pathlib import Path
 
@@ -59,6 +61,34 @@ def _gh_stub(tmp_path: Path, prs: list[dict], *, fails: bool = False) -> Path:
         body = '#!/bin/sh\necho "HTTP 502: bad gateway" >&2\nexit 1\n'
     else:
         body = f'#!/bin/sh\ncat "{tmp_path / "prs.json"}"\n'
+    script.write_text(body)
+    script.chmod(script.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    return bin_dir
+
+
+def _runtime_stub(tmp_path: Path, *, cleans: bool) -> Path:
+    """A `docker` on PATH for the debris step — it deletes what the mount names, or refuses.
+
+    The sweep deletes root-owned debris with `docker run --rm -v <parent>:/wt <image> rm -rf /wt/<name>`
+    (#759). `cleans=True` performs that delete (the host's own user can remove its own fixture files, so
+    the outcome is the same as a root delete); `cleans=False` answers like an engine that cannot mount
+    the path — which must leave a reported leftover, never a traceback.
+    """
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    script = bin_dir / "docker"
+    if cleans:
+        body = (
+            "#!/bin/sh\n"
+            'mount=""\n'
+            'last=""\n'
+            'for arg in "$@"; do last="$arg"; case "$arg" in *:/wt) mount="${arg%:/wt}";; esac; done\n'
+            '[ -n "$mount" ] || exit 1\n'
+            'case "$last" in /wt/*) ;; *) exit 1;; esac\n'
+            'rm -rf "${mount}/${last#/wt/}"\n'
+        )
+    else:
+        body = '#!/bin/sh\necho "docker: not available" >&2\nexit 1\n'
     script.write_text(body)
     script.chmod(script.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
     return bin_dir
@@ -111,10 +141,29 @@ def _pr(number: int, head: str, state: str, merge_oid: str = "") -> dict:
     }
 
 
-def _run(tmp_path: Path, work: Path, prs: list[dict], *args: str, fails: bool = False) -> subprocess.CompletedProcess:
-    """Run the prune for real, with the stubbed `gh` first on PATH."""
+def _run(
+    tmp_path: Path,
+    work: Path,
+    prs: list[dict],
+    *args: str,
+    fails: bool = False,
+    runtime: str | None = None,
+) -> subprocess.CompletedProcess:
+    """Run the prune for real, with the stubbed `gh` (and optionally a stubbed runtime) first on PATH.
+
+    `runtime` is `"cleans"`/`"refuses"` to control the debris step; `None` names a runtime that is not
+    installed at all (`RUNTIME=llgenie-no-such-engine`), so the sweep must report a leftover rather than
+    drive whatever engine the host happens to have.
+    """
     bin_dir = _gh_stub(tmp_path, prs, fails=fails)
-    env = {**os.environ, **GIT_ENV, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"}
+    if runtime is not None:
+        _runtime_stub(tmp_path, cleans=runtime == "cleans")
+    env = {
+        **os.environ,
+        **GIT_ENV,
+        "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+        "RUNTIME": "docker" if runtime is not None else "llgenie-no-such-engine",
+    }
     return subprocess.run(
         ["python3", str(REPO / "scripts" / "worktree_prune.py"), "--repo", "asimov-agent/llgenie", *args],
         cwd=work,
@@ -471,8 +520,12 @@ def test_dry_run_prunes_nothing_and_prints_the_plan(tmp_path):
     assert "feat/dry" in _git(work, "for-each-ref", "--format=%(refname:short)", "refs/heads")
 
 
-def test_a_worktree_that_cannot_be_removed_keeps_its_branch_and_exits_nonzero(tmp_path):
-    """A failed worktree removal stops at that branch: deleting the branch first would strand the tree."""
+def test_a_worktree_that_cannot_be_removed_is_reported_as_a_leftover_and_exits_zero(tmp_path):
+    """A failed removal is a named leftover, not `Error 2`: the reason, the path and the fix are printed.
+
+    Measured on a real checkout (issue #759): the first non-dry run unregistered the worktree, left the
+    directory behind and exited 2, so the sweep read as broken while only a directory was left.
+    """
 
     # Given a merged-PR branch whose worktree git refuses to remove (it is locked)
     work = _repo(tmp_path)
@@ -482,14 +535,108 @@ def test_a_worktree_that_cannot_be_removed_keeps_its_branch_and_exits_nonzero(tm
     _git(work, "worktree", "lock", str(tree))
 
     # When  the prune runs
-    result = _run(tmp_path, work, [_pr(15, "feat/locked", "MERGED", squash)])
+    result = _run(tmp_path, work, [_pr(15, "feat/locked", "MERGED", squash)], runtime="refuses")
 
-    # Then  it exits 2, the worktree survives, the BRANCH survives, and the failure is named
-    assert result.returncode == 2, result.stdout
+    # Then  it exits 0, names the directory as a leftover with the command that clears it, and says
+    #       why the branch was kept instead of failing the whole sweep
+    assert result.returncode == 0, result.stdout + result.stderr
     assert tree.is_dir()
+    assert f"[worktree-prune] leftover {tree}" in result.stdout, result.stdout
+    assert "clear it with:" in result.stdout
+    assert "docker run --rm -v" in result.stdout
+    assert "1 leftover(s)" in result.stdout
+    assert "FAILED" not in result.stderr
     assert "feat/locked" in _git(work, "for-each-ref", "--format=%(refname:short)", "refs/heads")
-    assert "FAILED" in result.stderr
-    assert "could not remove worktree" in result.stderr
+
+
+def _left_over_worktree(tmp_path: Path, branch: str, tree_name: str) -> tuple[Path, Path]:
+    """A real repository plus a worktree whose git registration is gone while its directory stays.
+
+    That is the state `git worktree remove` leaves when it unregisters the worktree and *then* fails to
+    delete its contents (root-owned files from a containerized `make test-unit`, #433). It cannot be
+    produced by the planner — `git status` inside a worktree with no admin dir fails, and the planner
+    keeps a worktree it cannot read — so the test hands `apply()` the decision the plan made before the
+    removal and lets the real sweep recover (#759).
+    """
+    work = _repo(tmp_path)
+    _merged_branch(work, branch)
+    tree = tmp_path / tree_name
+    _git(work, "worktree", "add", str(tree), branch)
+    admin = work / ".git" / "worktrees" / tree.name
+    assert admin.is_dir()
+    shutil.rmtree(admin)
+    assert tree.is_dir() and str(tree) not in _git(work, "worktree", "list")
+    return work, tree
+
+
+def _import_sweep():
+    """The sweep's own module, so a test can call `apply()`/`render()` directly."""
+    sys.path.insert(0, str(REPO / "scripts"))
+    import worktree_prune  # noqa: PLC0415 — the module under test, imported once per test
+
+    return worktree_prune
+
+
+def test_apply_reports_a_surviving_directory_and_still_deletes_its_branch(tmp_path, monkeypatch):
+    """The measured half-done run: the worktree is unregistered, its directory survives, the branch goes.
+
+    `pruned 0 branches, 1 worktrees` and `Error 2` was the old answer (issue #759). It must be a leftover
+    naming the directory and the command that clears it, with the branch delete done, not skipped.
+    """
+
+    # Given a merged branch whose worktree directory survived its own unregistration
+    work, tree = _left_over_worktree(tmp_path, "feat/debris", "wt-debris")
+    sweep = _import_sweep()
+    monkeypatch.setenv("RUNTIME", "llgenie-no-such-engine")
+
+    # When  apply() runs for real on the decision the planner made
+    decision = sweep.Decision("feat/debris", "prune", "PR #17 merged", pr=17, path=str(tree))
+    outcome = sweep.apply([decision], cwd=str(work))
+
+    # Then  the directory is a leftover with its reason and its clearing command, and the branch is gone
+    assert not outcome.errors, outcome.errors
+    assert [leftover.path for leftover in outcome.leftovers] == [str(tree)]
+    assert "could not be deleted" in outcome.leftovers[0].reason
+    assert outcome.leftovers[0].command.startswith("llgenie-no-such-engine run --rm -v ")
+    assert f"{tree.parent}:/wt" in outcome.leftovers[0].command
+    assert f"rm -rf /wt/{tree.name}" in outcome.leftovers[0].command
+    assert outcome.removed_branches == ["feat/debris"]
+    assert "feat/debris" not in _git(work, "for-each-ref", "--format=%(refname:short)", "refs/heads")
+    assert tree.is_dir()
+
+    # And the printed plan says so, in the summary and in its own line
+    printed = "\n".join(sweep.render(outcome, dry=False, base="origin/main"))
+    assert f"[worktree-prune] leftover {tree} — the directory could not be deleted" in printed
+    assert "clear it with:" in printed
+    assert "1 leftover(s)" in printed
+
+
+def test_root_owned_debris_is_cleared_through_the_container_engine(tmp_path, monkeypatch, capsys):
+    """Where the container engine answers, the sweep deletes the debris itself and retries the removal.
+
+    The engine is the one that created the root-owned files (#433), so it is the one asked to delete
+    them: `docker run --rm -v <parent>:/wt <image> rm -rf /wt/<name>`, then the removal again (#759).
+    No leftover and no human step when that works.
+    """
+
+    # Given a surviving worktree directory and an engine that deletes what the mount names
+    work, tree = _left_over_worktree(tmp_path, "feat/rootown", "wt-rootown")
+    _runtime_stub(tmp_path, cleans=True)
+    monkeypatch.setenv("PATH", f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("RUNTIME", "docker")
+    sweep = _import_sweep()
+
+    # When  apply() runs for real
+    decision = sweep.Decision("feat/rootown", "prune", "PR #18 merged", pr=18, path=str(tree))
+    outcome = sweep.apply([decision], cwd=str(work))
+
+    # Then  the directory is gone, the branch is gone, and nothing is reported as left over
+    assert not outcome.errors, outcome.errors
+    assert outcome.leftovers == []
+    assert outcome.removed_worktrees == [str(tree)]
+    assert not tree.exists(), f"{tree} survived"
+    assert "cleared the root-owned debris" in capsys.readouterr().out
+    assert "feat/rootown" not in _git(work, "for-each-ref", "--format=%(refname:short)", "refs/heads")
 
 
 def test_the_worktree_the_run_is_in_is_never_removed(tmp_path):
@@ -568,3 +715,29 @@ def test_the_make_target_is_phony_documented_and_forwards_dry():
     assert "--repo $(if $(SLUG),$(SLUG),asimov-agent/llgenie)" in makefile
     assert "worktree_prune.py --repo $(if $(REPO)" not in makefile
     assert "worktree-prune" in readme, "make check-docs fails a user-facing target missing from the README"
+
+
+# ---------------------------------------------------------------------------------------------------
+# issue #759, review point (b): the debris image is an image the sweep RUNS, so it is pinned like the
+# repo's other third-party images rather than left floating on a minor tag.
+def test_the_debris_image_is_pinned_to_a_full_version(monkeypatch):
+    """A floating minor tag silently becomes a different root filesystem than the one reviewed."""
+
+    monkeypatch.delenv("LLGENIE_DEBRIS_IMAGE", raising=False)
+    sweep = _import_sweep()
+
+    assert re.fullmatch(r"[a-z0-9][\w./-]*:\d+\.\d+\.\d+", sweep.debris_image()), (
+        f"the debris image must carry a full MAJOR.MINOR.PATCH tag, not a floating minor: "
+        f"{sweep.debris_image()!r}")
+
+
+def test_an_override_reaches_the_clearing_command_verbatim(monkeypatch):
+    """A mirrored host must be able to swap the image, and the printed command must show what it will run."""
+    monkeypatch.setenv("LLGENIE_DEBRIS_IMAGE", "registry.example/alpine:3.21.4")
+    monkeypatch.setenv("RUNTIME", "docker")
+    sweep = _import_sweep()
+
+    command = sweep.clearing_command("/tmp/parent/leftover")
+
+    assert "registry.example/alpine:3.21.4" in command, command
+    assert command.startswith("docker run --rm -v "), command
