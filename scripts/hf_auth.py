@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 import time
 import urllib.error
 import urllib.parse
@@ -162,7 +163,12 @@ def hub_open(req: urllib.request.Request, timeout: float = 30, opener=None):
                 _rate_limited += 1
                 if _rate_limited > RATE_LIMIT_WAITS:
                     raise
-                time.sleep(rate_limit_wait(e))
+                wait = rate_limit_wait(e)
+                # Say it out loud: an unannounced multi-minute sleep is indistinguishable
+                # from a hang, and `llgenie` fans out one Hub tree call per model x format.
+                print(f"[hf] rate limited (429) on {req.full_url.split('?')[0]}: waiting {wait}s "
+                      f"(wait {_rate_limited}/{RATE_LIMIT_WAITS})", file=sys.stderr, flush=True)
+                time.sleep(wait)
             elif e.code in TRANSIENT_HTTP:
                 _rate_limited = 0
                 if attempts >= HUB_MAX_ATTEMPTS:

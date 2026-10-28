@@ -235,3 +235,41 @@ def test_throttle_wait_ignores_text_that_names_no_throttle():
     # Then it names no throttle (0), so the downloader keeps its short pause
     assert auth.throttle_wait(text) == 0
     assert auth.throttle_wait("") == 0
+
+
+def test_a_rate_limit_wait_is_announced_on_stderr(monkeypatch, capsys):
+    """An unannounced multi-minute sleep looks exactly like a hang.
+
+    `llgenie <no args>` fans out one Hub tree call per model x format, so a throttle used to
+    park the program for minutes printing nothing at all (measured: `--pick --auto --dry`
+    produced no output for 200 s).
+    """
+    import urllib.error
+    import urllib.request
+
+    import scripts.hf_auth as hf
+
+    # Given a Hub that answers 429 once and then throws
+    calls = {"n": 0}
+    err = _http_error(429, {"RateLimit": '"api";r=0;t=12'})
+
+    def opener(_req, timeout=30):
+        calls["n"] += 1
+        raise err
+
+    sleeps: list[int] = []
+    monkeypatch.setattr(hf.time, "sleep", lambda s: sleeps.append(s))
+
+    # When  hub_open hits the throttle
+    req = urllib.request.Request("https://huggingface.co/api/models/org/m/tree/main")
+    try:
+        hf.hub_open(req, timeout=1, opener=opener)
+    except urllib.error.HTTPError:
+        pass
+
+    # Then  it printed what it is waiting for and how long, instead of going silent
+    err_text = capsys.readouterr().err
+    assert "rate limited (429)" in err_text, err_text
+    assert "waiting 12s" in err_text, err_text
+    assert "org/m" in err_text, err_text
+    assert sleeps and sleeps[0] == 12, sleeps
