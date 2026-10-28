@@ -52,6 +52,8 @@ When a branch includes another open PR's commits (stacked branches, files added 
 
 Immediately after `gh pr create`: `gh pr merge <n> --squash --auto`, then verify `gh pr view <n> --json autoMergeRequest`. Do not arm a draft, a `do-not-merge` PR, or one based on a non-`main` branch — report those as deliberately unarmed with the reason. Arming is not approving: `auto-merge.yml` still performs the review with a second identity, and a red PR is never merged because `REQUIRED_MERGE_STATE = "CLEAN"`.
 
+When the owner has decided a state change applies repo-wide (arm auto-merge, add a label, retarget a base), **apply it to every eligible PR in one pass and report the exceptions** rather than doing one and waiting to be asked again. Loop with the eligibility checks inline, print `armed=<n>` and the skipped list with each skip's reason, and only then report. The owner experiences one-at-a-time execution as the work not being done.
+
 ## Never prune a worktree
 
 `make worktree-prune`, `git worktree prune`, `git worktree remove` are forbidden unless the owner says so. The prune's "already merged" test reads the branch ref only, so it cannot see uncommitted work — and the trees it would destroy are exactly the merged-head, no-open-PR, dirty ones. Measure with `git worktree list --porcelain` and report; a report target that cannot delete is the supported operation.

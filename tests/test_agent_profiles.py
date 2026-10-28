@@ -524,3 +524,31 @@ def test_a_successful_copy_never_claims_identical_for_a_changed_file(tmp_path, c
     message = capsys.readouterr().out
     assert "copied" in message.lower() and "replaced an existing file" in message.lower(), message
     assert "identical" not in message.lower(), message
+
+
+def test_the_force_path_says_it_shrank_and_never_claims_identity(tmp_path, capsys):
+    """`--force` is the one case where a file legitimately shrinks — so the log must say so.
+
+    Without this the refusal assertion only guards the path nobody takes: pass `--force` and the old
+    "verified … read back identical" over a 2,360-byte deletion comes straight back (review of #903).
+    """
+    import agent_profile_sync as sync
+
+    agents = tmp_path / "agents"
+    (agents / "someone").mkdir(parents=True)
+    live = tmp_path / "live"
+    live.mkdir()
+    tree_text = "- a\n- b\n"
+    live_text = "- a\n- b\n- c the rule that would be lost\n"
+    (agents / "someone" / "SOUL.md").write_text(tree_text)
+    (live / "SOUL.md").write_text(live_text)
+    tree_bytes, live_bytes = len(tree_text.encode()), len(live_text.encode())
+
+    assert sync.write(agents, "someone", live, force=True) == 0
+    message = capsys.readouterr().out.lower()
+
+    assert "read back identical" not in message, message          # the sentence this exists to kill
+    assert "shrank" in message and "--force" in message, message
+    assert f"{tree_bytes:,} b" in message and f"{live_bytes:,} b" in message, message
+    assert "line(s) removed" in message, message                  # it says what was lost, not just that it wrote
+    assert (live / "SOUL.md").read_text() == tree_text, "force means it"
