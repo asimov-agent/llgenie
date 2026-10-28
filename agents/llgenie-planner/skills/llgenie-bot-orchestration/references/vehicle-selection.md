@@ -15,12 +15,25 @@ gh pr view <n> --json files --jq '[.files[].path]|join(", ")'      # per candida
 - **Count dependents before choosing.** If three other PRs build on one candidate's `agents/`, `Makefile` or shared
 tests, that candidate survives — closing it orphans them and forces a rebase of each onto a differently shaped base.
   Keeping the stacked base costs one PR; closing it costs N.
+- **Check whether they are a stack or copies before counting anything else.** A stack has each PR based on the previous
+  branch; copies share one file skeleton — same `Makefile`, same manifest, same tests, same docs — with one unique file
+  each. Compare `gh pr view <n> --json files` across the candidates: identical skeleton plus one distinct path per PR
+  means **copies of one change**, and the first to land turns the rest into conflicts in every shared file. Selecting a
+  "survivor" then merges an arbitrary subset, and resolving the others by taking one side silently drops a lane's entry.
 - **Prefer the candidate on the newest base.** A vehicle cut before a base-changing merge ships a tree that is already red
   for a reason main has since fixed; the one on current `main` carries the fix.
 - **Prefer the candidate that carries the union of content.** Same files plus one more is not "bigger", it is a superset —
   check by file list, then by the specific additions (a profile, a rule, a test).
 - **One PR per issue, decided once.** A third vehicle needs the planner's word, not a lane's initiative; a lane that finds
   two open PRs for its issue reports and stops rather than opening a third.
+
+## When N PRs are parallel copies, widen one and close the rest
+
+Land **one** PR widened to carry every per-lane file, close the others with the comparison, and keep any unique *code*
+(not content) as a small delta on the post-merge base. A copy of a copy is also where a file shrinks: re-seed each
+lane's file from its authoritative source (the live copy) rather than transcribing it out of another PR, and check the
+count after widening — the manifest gate should report one entry per directory that exists, and a missing sixth lane is
+the normal way this goes wrong.
 
 ## Close with a comparison, never with a verdict
 
