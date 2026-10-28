@@ -7,6 +7,22 @@ name: CI
 on:
   pull_request:
     branches: ["main"]
+    # A docs-only diff does not schedule the 28-job matrix (issue #824). GitHub applies a
+    # `paths-ignore` clause only when EVERY changed path matches it, so a single code file in the
+    # diff brings the whole matrix back; `docs.yml` runs the docs gates for this same class, and
+    # `scope.yml` (no filter of its own) states on the PR which set ran and which stages the diff
+    # selected. `push` is deliberately NOT filtered: a merge to `main` keeps all 28 jobs.
+    # The list is the `docs` CLASS, not "every markdown file": `data/*.md`, `.hermes/skills/**/SKILL.md`,
+    # `skills/engines/**/SKILL.md` and `tests/fixtures/**/*.md` are read by real gates (check-registry,
+    # check-agent-skills, check-engine-params, unit), so a bare `**/*.md` would skip them. Keep this list
+    # in step with `CLASSES["docs"]` in scripts/ci_scope.py and with docs.yml's `paths:`; the test
+    # `test_ci_yml_filters_only_the_docs_class_on_pull_request` fails if a markdown path outside docs/ appears here.
+    paths-ignore:
+      - "docs/**"
+      - "agent-wiki/**"
+      - "openspec/**"
+      - "README.md"
+      - "CHANGES.md"
   push:
     branches: ["main"]    # merges: build + publish engine images to GHCR
 
