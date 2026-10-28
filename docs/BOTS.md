@@ -1057,6 +1057,35 @@ key it has already filed, and a cap (3 per run) bounds a bad run — a weekly ru
 files nothing and stays quiet. The two API-backed checks need a token with admin to read the secret
 list; without one they warn loudly and skip rather than filing a claim they cannot support.
 
+## Agents push to the base repository, never to the fork (issue #910)
+
+A PR whose head lives in another repository is a **cross-repository** PR, and it costs three things this
+repository has already paid for: a `pull_request` run from a fork receives **no repository secrets** (the
+empty `secrets.BUMP_TOKEN` that made the old in-workflow merge job report `success` while merging nothing —
+#481, which is why `auto-merge.yml` is a `workflow_run` workflow); approval follows the **fork's** own review
+semantics instead of this repository's; and every sweep then needs two remote rules, "push back to the PR's
+own head" and "never push a fork head to upstream", whose ambiguity has already produced near-misses.
+
+So the rule is: **agents push branches to `asimov-agent/llgenie`.** The two remotes on a checkout are not
+interchangeable, and their names have been known to move — read `git remote -v` before any push.
+
+| remote (as configured on this host) | URL | what agents push here |
+|---|---|---|
+| `upstream` | `asimov-agent/llgenie` | **yes — this is the one**; a branch here makes a same-repository PR |
+| `origin` | `andyholst/llgenie` (the owner's fork) | no; it is the historical path, kept so existing PRs still resolve |
+
+On the second main repository on this host (`/home/asimov/repository/git/llgenie`) the same two URLs are
+called `origin` (base) and `fork` (the owner's) — the **names** differ per clone, the **rule** does not.
+Push to whichever remote's URL is `asimov-agent/llgenie`.
+
+**What the check does about it:** `make check-pr-heads` reports every open PR grouped by head repository and
+**names each cross-repository one** with the reason and the remedy. It is a **warning, never a failure** —
+the fifteen existing cross-repository PRs are legitimate and merge as they are, and a check that fails on
+them would teach the next person to skip it. `make pr-heads-report` prints the same view without the check's
+one-line verdict. A caller that has decided cross-repository heads are unacceptable can ask for the strict
+form (`python3 scripts/pr_heads.py check --strict`), which is how the policy stays a decision rather than a
+default.
+
 ## A green, conflict-free PR is merged by CI (issue #482)
 
 Landing a PR no longer waits at a keyboard. The `auto-merge` job in
