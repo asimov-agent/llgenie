@@ -148,9 +148,9 @@ picks which start script or image to run.
 
 ## Repository layout
 
-The tree is 1550 tracked files: `data/` 9, `skills/` 17 (16 engine directories plus their
-`README.md`), `containers/` 59, `tests/` 169, `scripts/` 99, `openspec/` 929, `agent-wiki/`
-206 and `docs/` 7.
+The tree is 1560 tracked files: `data/` 9, `skills/` 17 (16 engine directories plus their
+`README.md`), `containers/` 59, `tests/` 170, `scripts/` 99, `openspec/` 936, `agent-wiki/`
+208 and `docs/` 7.
 
 | Path | Role |
 |---|---|
@@ -165,10 +165,10 @@ The tree is 1550 tracked files: `data/` 9, `skills/` 17 (16 engine directories p
 | `containers/ci-variant/` | the CUDA-toolkit variant-build image (`make test-variant-image`) with its own `requirements.txt` / `requirements-dev.txt` |
 | `data/` | vendored registry, the vendored model contract (schema + prose) it is validated against, quant catalog, strata model map, engine-skill gap, unsupported engines, trending README, and the scan failure/issue policy |
 | `docs/` | `ARCHITECTURE.md` (this map), `ENGINES.md` (per-engine build/serve), `BOTS.md` (automation, crons, credentials), `SCANS.md` (the scan pipeline), `SCANNERS.md` (scanner images), `SECURITY.md` (supply-chain pins), `RENOVATE.md` (dependency updates) |
-| `openspec/` | the change record: `config.yaml`, its `Dockerfile`, and `changes/<name>/{proposal.md,specs/**,tasks.md}` (238 changes) |
-| `agent-wiki/` | dated work record (206 entries), one per change, referencing its issue and PR |
+| `openspec/` | the change record: `config.yaml`, its `Dockerfile`, and `changes/<name>/{proposal.md,specs/**,tasks.md}` (240 changes) |
+| `agent-wiki/` | dated work record (208 entries), one per change, referencing its issue and PR |
 | `CHANGES.md` | the index of those notes, newest first; a note that is missing from it fails `make check-docs` (issue #678) |
-| `tests/` | 141 `tests/test_*.py` files, fixtures, shared test helpers (`tests/top_tier_dry_run.py` for the live Hub dry run, `tests/hub_probe.py` for a probe's verdict on one Hub file) and the live end-to-end gates, discovered by `scripts/unit_tests.py` |
+| `tests/` | 142 `tests/test_*.py` files, fixtures, shared test helpers (`tests/top_tier_dry_run.py` for the live Hub dry run, `tests/hub_probe.py` for a probe's verdict on one Hub file) and the live end-to-end gates, discovered by `scripts/unit_tests.py` |
 | `docker-compose-files/` | the compose definitions for the OpenSpec CLI (`openspec.yaml`) and the test image (`test.yaml`) |
 | `tools/` | pip-compile inputs (`requirements.in`, `requirements-dev.in`), the generated `security-floors.in` constraint file, and the venv targets |
 | `renovate.json` | the dependency / base-image update config Renovate acts on; its properties are a gate (`make check-renovate`), not a preference |
@@ -782,7 +782,7 @@ in the git-ignored `security-reports/`.
 | `code-review-bot.yml` | `31 7 * * 1` | files issues for findings in the tree and the pipelines (`scripts/code_review.py`) |
 | `security-scan.yml` | `5 4 * * *` | the daily vulnerability pipeline (Trivy + Syft + Grype + Semgrep, from their pinned images), never a PR or push check; one run is `make check-security-scan` -> `make security-scan-all` -> `make security-verdict EVENT=…` -> `make security-issues` -> `make security-bumps`, with the reports uploaded as SARIF and as an artifact (issues #715, #738) |
 | `security-bot.yml` | `9 5 * * *` | turns ONE `auto-fixable` vulnerability issue into a green PR (`make security-bot`), on a labelled issue or the daily schedule: the pin is parsed out of the issue body, the edit lands on the one file that owns it, `make lint check-wiring check-docs check-security-scan` must pass before the push, and a finding it cannot place (a container advisory, a package pinned nowhere) becomes a comment instead of a guessed PR (issue #717) |
-| `registry-sync.yml` | `19 5 * * 1` | byte-copies the upstream registry, its README and its model contract (`data/model_contract.json` + `MODEL_CONTRACT.md`), validates every engine skill with `ALLOW_NEW_ENGINES=1` so a store that first names an engine llgenie does not ship is CARRIED rather than fatal (issue #683), opens one tracking issue per new engine (`make spawn-engine-skill-issues`), states what the store changed in ONE issue even when a gate reds (`make sync-change-issue`, `scripts/registry_change_issue.py`, issue #704), regenerates the derived tables and opens a PR; `ci-unit`'s `make check-engine-skill-gap` keeps that PR red until each engine ships a skill or gets a dated decision |
+| `registry-sync.yml` | `19 5 * * 1` | byte-copies the upstream registry, its README and its model contract (`data/model_contract.json` + `MODEL_CONTRACT.md`), validates every engine skill with `ALLOW_NEW_ENGINES=1` so a store that first names an engine llgenie does not ship is CARRIED rather than fatal (issue #683), opens one tracking issue per new engine (`make spawn-engine-skill-issues`), states what the store changed in ONE issue even when a gate reds (`make sync-change-issue`, `scripts/registry_change_issue.py`, issue #704), regenerates the derived tables and opens a PR; `ci-unit`'s `make check-engine-skill-gap` keeps that PR red until each engine ships a skill or gets a dated decision. The spawn step runs with `always() && steps.diff.outputs.changed` and re-checks the store diff inside its own recipe before `make`, because the store that names a new unskilled engine is exactly the store whose check step reds and a `success()`-gated spawn suppressed the one work item that explains how to un-red it (issue #758); the PR step keeps its change-only condition, so a file whose checks did not pass is never pushed |
 | `registry-sync-review.yml` | `55 * * * *` | reviews a **green** sync PR into ONE work item (issue #709): `make registry-review-brief` checks out the sync PR's head and, offline, decides `action=review|skip` from the PR's own check buckets and renders the VRAM selection table — per `(arch, vram, ram)`, the models the trend list shows and the server `rank_engines()` puts first with its t/s, with `slower-than-class` / `no-engine` / `unmeasured` / `empty-tier` findings. Only on `review` does it build the agent image, prove the shell keys and run the `registry-sync-review` leg (`make registry-sync-review` -> `registry-review.md`), then `make registry-review-publish` files ONE issue labelled `agent:implement` keyed by the store's `generated_utc`; an hourly run with no green PR costs nothing |
 | `engine-bump.yml` | `53 6 * * 1` | pins every engine skill to its upstream release (carrying the dependency delta's `DEPS` line and any hard-fail into the PR body), then reviews the derived build params against that engine's own documentation at the new pin (`make engine-params-review-brief` -> `make engine-params-review` -> `make engine-params-review-apply`) and appends the review section to the PR body; the review is `continue-on-error`, so a failed or empty review still opens the PR and says so (issues #583, #186) |
 | `engine-bump-rebase.yml` | `41 5 * * *` | keeps the engine-bump PRs current |
@@ -943,7 +943,7 @@ still a hard failure.
 
 ## Tests and gates
 
-`make test-unit` discovers every `tests/test_*.py` through `scripts/unit_tests.py` (141
+`make test-unit` discovers every `tests/test_*.py` through `scripts/unit_tests.py` (142
 files today); a file is in the gate the moment it exists, and an exclusion is a dated entry
 in `tests/fixtures/unit-suite.json`. `make test` runs the named `groups.fast` subset from
 the same roster rather than a hand-kept list of files. The live gates are separate targets
