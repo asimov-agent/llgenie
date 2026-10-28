@@ -396,6 +396,9 @@ model-pin-report: ## Print the bots' pinned model snapshot, where each place dec
 .PHONY: bot-preflight
 bot-preflight: ## Fetch origin/main, fast-forward a behind checkout, and record the AGENTS.md this run is measured against (issue #792)
 	python3 scripts/bot_preflight.py $(if $(CHECK),--check,)
+.PHONY: check-import-roots
+check-import-roots: ## CI: fail when a test file carries its own `sys.path` entry or imports a `scripts/` module bare — a ratchet against the recorded counts (issue #796)
+	python3 scripts/check_import_roots.py ratchet
 
 check-agent-skills: ## CI: fail when a bot leg does not preload its project skill, names a missing one, or carries a rulebook inline instead of a pointer (issue #577)
 	python3 scripts/check_agent_skills.py check
@@ -1655,6 +1658,7 @@ ci-unit: bash-check ## CI job unit: hermetic unit tests + registry / skill / Str
 	$(MAKE) check-agent-model
 	$(MAKE) issue-bot-gates
 	$(MAKE) issue-bot-gates-check
+	$(MAKE) check-import-roots
 
 ci-agents-read: bash-check ## CI job agents-read: make test-agents-read (Python 3.12 venv -> AGENTS.md scan -> guard tests)
 	$(MAKE) test-agents-read
