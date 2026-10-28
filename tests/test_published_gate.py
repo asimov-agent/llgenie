@@ -106,12 +106,25 @@ def test_ci_feeds_the_output_from_the_job_that_resolves_the_rows():
 
     # Then  the producer publishes the output …
     assert matrix_job["outputs"]["pushed"] == "${{ steps.m.outputs.pushed }}", matrix_job["outputs"]
-    # … its step writes it next to the matrix, by ASKING the script that owns the decision …
+    # … its step writes it next to the matrix, by ASKING the make target that owns the decision …
+    # The step must not run the script inline: `test_the_real_tree_has_no_inline_script_call` requires a
+    # make target for anything that carries repo logic (#892). So the WIRING is what is pinned here, and
+    # the target's own call to the script is pinned on the Makefile - the decision's behaviour is covered
+    # by the tests below, and pinning the old inline spelling is what made this assertion stale.
     step = next(s for s in matrix_job["steps"] if s.get("id") == "m")
-    assert "scripts/engine_matrix_pushed.py" in step["run"], step["run"]
-    assert '--event "${{ github.event_name }}"' in step["run"], step["run"]
-    assert '--matrix "$matrix"' in step["run"], step["run"]
-    assert 'echo "pushed=$(python3 scripts/engine_matrix_pushed.py' in step["run"], step["run"]
+    run = step["run"]
+    assert "make -s engine-matrix-pushed" in run, run
+    assert 'EVENT="$EVENT_NAME"' in run, run
+    assert 'MATRIX="$matrix"' in run, run
+    assert 'echo "pushed=$(make -s engine-matrix-pushed' in run, run
+    assert "python3 scripts/engine_matrix_pushed.py" not in run, "the step must not run the script inline"
+    # … the event name reaches the step through `env`, because the target takes it as a variable …
+    assert step["env"]["EVENT_NAME"] == "${{ github.event_name }}", step.get("env")
+    # … and the make target is what calls the script, so the decision is still exercised end to end.
+    makefile = (REPO / "Makefile").read_text()
+    recipe = makefile.split("\nengine-matrix-pushed:", 1)[1].split("\n\n", 1)[0]
+    assert "scripts/engine_matrix_pushed.py" in recipe, recipe
+    assert '--event "$(EVENT)"' in recipe and "--matrix" in recipe, recipe
     # … and the consumer needs that job and passes the output through, with a fail-closed default.
     assert "engine-matrix" in published["needs"], published["needs"]
     assert published["with"]["pushed"] == "${{ needs.engine-matrix.outputs.pushed || 'false' }}", published["with"]

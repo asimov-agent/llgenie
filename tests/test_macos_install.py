@@ -314,10 +314,11 @@ def test_linux_and_macos_run_the_same_pipeline():
     assert triggers["pull_request"]["branches"] == ["main"]
     assert triggers["push"]["branches"] == ["main"]
 
-    # And linux and macos call the same pipeline, on a Linux and a macOS runner
+    # And ONE pipeline runs, on a Linux runner: issue #870 removed the macOS caller entirely, so no
+    # runner is requested for it (the file still takes the label as an input, which is what makes the
+    # coverage restorable by adding a caller back).
     assert callers["linux"] == ("./.github/workflows/pipeline.yml", "ubuntu-latest")
-    # (macOS: the SAME pipeline file, one job per make ci-<job>, no combined jobs, issue #120)
-    assert callers["macos"] == ("./.github/workflows/pipeline.yml", "macos-15-intel")
+    assert "macos" not in callers, callers
     assert callers["linux-published"] == ("./.github/workflows/published.yml", "ubuntu-latest")
     # And macOS has no published-image stage: it never runs an engine container (issue #120)
     assert "macos-published" not in jobs
@@ -332,7 +333,6 @@ def test_linux_and_macos_run_the_same_pipeline():
     published = yaml.safe_load((wf / "published.yml").read_text())["jobs"]
     for name, job in {**pipeline, **published}.items():
         assert job["continue-on-error"] is False, name
-    assert "optional" not in jobs["macos"]["with"]
     assert "optional" not in jobs["linux"]["with"] and "optional" not in jobs["linux-published"]["with"]
     install = "\n".join(st.get("run", "") for st in pipeline["install"]["steps"])
     assert "make ci-install" in install and "make install\n" not in install
@@ -901,7 +901,8 @@ def test_macos_ci_does_not_run_docker_github_actions():
     # And every macOS job and every Linux job must succeed for the run to be green
     for name, job in {**pipeline, **published}.items():
         assert job["continue-on-error"] is False, name
-    for name in ("linux", "macos", "linux-published"):
+    # issue #870 removed the `macos` caller: only the Linux pair remains to be checked
+    for name in ("linux", "linux-published"):
         assert "optional" not in ci[name]["with"], name
 
 
@@ -918,8 +919,8 @@ def test_macos_has_no_published_image_or_native_engine_ci_job():
     runners = {n: j.get("runs-on") or j.get("with", {}).get("runner") for n, j in ci.items()}
     macos = {n for n, r in runners.items() if r and "macos" in str(r)}
 
-    # Then the only macOS job is the shared pipeline
-    assert macos == {"macos"}
+    # Then there is NO macOS job at all (issue #870: the group was deleted, not gated)
+    assert macos == set(), macos
     assert "macos-published" not in ci and "native-engine-macos-arm64" not in ci
 
     # And published.yml is Linux only (no macOS runner, no runner.os branch)

@@ -221,6 +221,8 @@ jobs:
         with:
           fetch-depth: 0
       - id: m
+        env:
+          EVENT_NAME: ${{ github.event_name }}
         # Issue #153: build and publish an image only when its tag changed since
         # the parent commit. The tag is <pin8>-<image-hash>-<arch>, so an
         # unchanged pin (and unchanged build inputs) is already on GHCR.
@@ -241,7 +243,7 @@ jobs:
           # expression, because it is the thing that makes four jobs run or not run - and a decision
           # inside YAML can only be "tested" by reading the file as text
           # (scripts/engine_matrix_pushed.py: push event AND at least one real, non-`none` row).
-          echo "pushed=$(python3 scripts/engine_matrix_pushed.py --event "${{ github.event_name }}" --matrix "$matrix")" >> "$GITHUB_OUTPUT"
+          echo "pushed=$(make -s engine-matrix-pushed EVENT="$EVENT_NAME" MATRIX="$matrix")" >> "$GITHUB_OUTPUT"
 
   engine-image:
     needs: [engine-matrix, engine-base, ci-images]

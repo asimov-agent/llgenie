@@ -194,7 +194,8 @@ def test_workflows_pass_the_secret_into_reusable_workflows():
 
     # When its reusable-workflow calls are read
     # Then each one inherits the secret
-    for job in ("linux", "macos", "linux-published"):
+    # issue #870 removed the `macos` caller; every caller that remains inherits the secret
+    for job in ("linux", "linux-published"):
         assert ci[job]["secrets"] == "inherit", job
 
 

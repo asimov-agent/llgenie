@@ -1701,7 +1701,9 @@ def test_install_published_is_the_last_stage_per_mocked_backend():
     jobs = _y.safe_load((REPO / ".github/workflows/ci.yml").read_text())["jobs"]
     for side in ("linux-published",):
         caller = jobs[side]
-        assert caller["needs"] == ["engine-image", "ci-images"]
+        # #867 added engine-matrix: the published family asks it whether this run pushed an image,
+        # so `pushed` selects the four install rows or the single `none` placeholder row.
+        assert caller["needs"] == ["engine-matrix", "engine-image", "ci-images"]
         assert "!cancelled()" in caller["if"]
         # a skipped uses: job reports no check names, so a PR must run it too
         # (merge API: "4 of 14 required status checks are expected", PR #126)
@@ -1715,7 +1717,13 @@ def test_install_published_is_the_last_stage_per_mocked_backend():
         if "uses" in job:
             assert "continue-on-error" not in job, name
     job = _y.safe_load((REPO / ".github/workflows/published.yml").read_text())["jobs"]["install-published"]
-    assert job["strategy"]["matrix"]["backend"] == ["cpu", "cuda", "rocm", "vulkan"]
+    # #844: the four backends are selected by the producer's `pushed` output, and the `none`
+    # placeholder row is what keeps every check name reporting on a pull request that pushed nothing.
+    backend = str(job["strategy"]["matrix"]["backend"])
+    assert "inputs.pushed == 'true'" in backend, backend
+    for name in ("cpu", "cuda", "rocm", "vulkan"):
+        assert f'"{name}"' in backend, backend
+    assert '["none"]' in backend, backend
     runs = [st.get("run", "") for st in job["steps"]]
     assert any("docker login ghcr.io" in r for r in runs)
     assert any("make ci-engines BACKEND=${{ matrix.backend }}" in r for r in runs)
