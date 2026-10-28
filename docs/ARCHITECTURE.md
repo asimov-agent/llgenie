@@ -148,9 +148,9 @@ picks which start script or image to run.
 
 ## Repository layout
 
-The tree is 1560 tracked files: `data/` 9, `skills/` 17 (16 engine directories plus their
-`README.md`), `containers/` 59, `tests/` 170, `scripts/` 99, `openspec/` 936, `agent-wiki/`
-208 and `docs/` 7.
+The tree is 1567 tracked files: `data/` 9, `skills/` 17 (16 engine directories plus their
+`README.md`), `containers/` 59, `tests/` 171, `scripts/` 100, `openspec/` 940, `agent-wiki/`
+209 and `docs/` 7.
 
 | Path | Role |
 |---|---|
@@ -165,10 +165,10 @@ The tree is 1560 tracked files: `data/` 9, `skills/` 17 (16 engine directories p
 | `containers/ci-variant/` | the CUDA-toolkit variant-build image (`make test-variant-image`) with its own `requirements.txt` / `requirements-dev.txt` |
 | `data/` | vendored registry, the vendored model contract (schema + prose) it is validated against, quant catalog, strata model map, engine-skill gap, unsupported engines, trending README, and the scan failure/issue policy |
 | `docs/` | `ARCHITECTURE.md` (this map), `ENGINES.md` (per-engine build/serve), `BOTS.md` (automation, crons, credentials), `SCANS.md` (the scan pipeline), `SCANNERS.md` (scanner images), `SECURITY.md` (supply-chain pins), `RENOVATE.md` (dependency updates) |
-| `openspec/` | the change record: `config.yaml`, its `Dockerfile`, and `changes/<name>/{proposal.md,specs/**,tasks.md}` (240 changes) |
-| `agent-wiki/` | dated work record (208 entries), one per change, referencing its issue and PR |
+| `openspec/` | the change record: `config.yaml`, its `Dockerfile`, and `changes/<name>/{proposal.md,specs/**,tasks.md}` (241 changes) |
+| `agent-wiki/` | dated work record (209 entries), one per change, referencing its issue and PR |
 | `CHANGES.md` | the index of those notes, newest first; a note that is missing from it fails `make check-docs` (issue #678) |
-| `tests/` | 142 `tests/test_*.py` files, fixtures, shared test helpers (`tests/top_tier_dry_run.py` for the live Hub dry run, `tests/hub_probe.py` for a probe's verdict on one Hub file) and the live end-to-end gates, discovered by `scripts/unit_tests.py` |
+| `tests/` | 143 `tests/test_*.py` files, fixtures, shared test helpers (`tests/top_tier_dry_run.py` for the live Hub dry run, `tests/hub_probe.py` for a probe's verdict on one Hub file) and the live end-to-end gates, discovered by `scripts/unit_tests.py` |
 | `docker-compose-files/` | the compose definitions for the OpenSpec CLI (`openspec.yaml`) and the test image (`test.yaml`) |
 | `tools/` | pip-compile inputs (`requirements.in`, `requirements-dev.in`), the generated `security-floors.in` constraint file, and the venv targets |
 | `renovate.json` | the dependency / base-image update config Renovate acts on; its properties are a gate (`make check-renovate`), not a preference |
@@ -943,7 +943,7 @@ still a hard failure.
 
 ## Tests and gates
 
-`make test-unit` discovers every `tests/test_*.py` through `scripts/unit_tests.py` (142
+`make test-unit` discovers every `tests/test_*.py` through `scripts/unit_tests.py` (143
 files today); a file is in the gate the moment it exists, and an exclusion is a dated entry
 in `tests/fixtures/unit-suite.json`. `make test` runs the named `groups.fast` subset from
 the same roster rather than a hand-kept list of files. The live gates are separate targets
