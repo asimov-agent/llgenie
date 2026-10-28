@@ -1,0 +1,1 @@
+| 2026-10-28 | a launcher whose image tag lags the committed params is red in `ci-unit` (`make check-engine-launchers`), instead of silently running an older pinned engine | [2026-10-28-engine-launcher-freshness.md](agent-wiki/2026-10-28-engine-launcher-freshness.md) | #842 |
