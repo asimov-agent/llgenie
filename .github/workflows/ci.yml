@@ -213,6 +213,12 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.m.outputs.matrix }}
+      # #844: whether THIS run can push an image at all. Read here, in the job that resolves the rows,
+      # because a matrix job cannot aggregate its legs' outputs: `needs.<job>.outputs` takes the LAST
+      # leg's value, so a per-leg `pushed` would report one arbitrary row. The push step itself lives
+      # in `engine-image` and runs only on a push event for a real (non-`none`) row — those are the two
+      # facts this output states, and nothing is inferred from the diff's classification.
+      pushed: ${{ steps.m.outputs.pushed }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -224,14 +230,21 @@ jobs:
         # pull_request compares against the base branch; a push compares against
         # github.event.before. A new branch's before sha is all zeros: full matrix.
         run: |
+          set -euo pipefail
           before="${{ github.event.before }}"
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "matrix=$(make -s list-engine-images CI=1 JSON=1 CHANGED=origin/${{ github.base_ref }})" >> "$GITHUB_OUTPUT"
+            matrix=$(make -s list-engine-images CI=1 JSON=1 CHANGED=origin/${{ github.base_ref }})
           elif [ -n "$before" ] && [ "$before" != "0000000000000000000000000000000000000000" ]; then
-            echo "matrix=$(make -s list-engine-images CI=1 JSON=1 CHANGED=$before)" >> "$GITHUB_OUTPUT"
+            matrix=$(make -s list-engine-images CI=1 JSON=1 CHANGED=$before)
           else
-            echo "matrix=$(make -s list-engine-images CI=1 JSON=1)" >> "$GITHUB_OUTPUT"
+            matrix=$(make -s list-engine-images CI=1 JSON=1)
           fi
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          # #844: does this run push an image at all? The decision is a script, not an inline
+          # expression, because it is the thing that makes four jobs run or not run - and a decision
+          # inside YAML can only be "tested" by reading the file as text
+          # (scripts/engine_matrix_pushed.py: push event AND at least one real, non-`none` row).
+          echo "pushed=$(python3 scripts/engine_matrix_pushed.py --event "${{ github.event_name }}" --matrix "$matrix")" >> "$GITHUB_OUTPUT"
 
   engine-image:
     needs: [engine-matrix, engine-base, ci-images]
@@ -361,7 +374,7 @@ jobs:
   # it never runs an engine container, issue #120). Every push run (issue #117).
   # ------------------------------------------------------------------
   linux-published:
-    needs: [engine-image, ci-images]
+    needs: [engine-matrix, engine-image, ci-images]
     # Required check names (linux-published / install-published-*) must report on
     # a pull_request too. A skipped uses: job reports nothing, and the merge API
     # then waits forever: "4 of 14 required status checks are expected" (PR #126).
@@ -375,6 +388,10 @@ jobs:
     secrets: inherit
     with:
       runner: ubuntu-latest
+      # #844: the four install jobs only run when this run actually pushed an image. On a
+      # pull_request nothing pushes (PUBLISH is empty), so the matrix resolves to the `none`
+      # placeholder row: every check name still reports, and the row says why it ran nothing.
+      pushed: ${{ needs.engine-matrix.outputs.pushed || 'false' }}
 
   # ------------------------------------------------------------------
   # auto-merge is NOT a job here (issue #493). A `pull_request` run from a fork receives NO repository

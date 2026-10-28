@@ -474,8 +474,11 @@ def test_no_ci_step_or_job_is_skipped():
     # And a step only runs after a failed one, is Linux-only Docker, is the macOS
     # openspec CLI, or skips the none placeholder row (matrix is illegal in a job if:)
     for key, cond in step_ifs.items():
+        # `matrix.backend != 'none'` is the published family's placeholder row (#844): the exact twin of
+        # `matrix.engine != 'none'` that #828 gave the engine family. It skips a ROW, never a job, so
+        # every check name still reports and the row's own first step prints why it installed nothing.
         assert cond in ("${{ !cancelled() }}", "always()", "runner.os == 'Linux'", "runner.os == 'macOS'",
-                        "${{ matrix.engine != 'none' }}"), key
+                        "${{ matrix.engine != 'none' }}", "${{ matrix.backend != 'none' }}"), key
 
     # And the OS / matrix decisions live in make: ci-free-disk and test-engine-stage
     mk = (REPO / "Makefile").read_text()
