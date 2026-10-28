@@ -11,6 +11,7 @@ index, or when a row here names a note that does not exist.
 
 | Date | Change | Record | Issue / PR |
 |---|---|---|---|
+| 2026-10-28 | green ⇒ merged is permanent policy, and guarded: deleting `auto-merge.yml`, dropping its automatic PR-completion trigger, or loosening `REQUIRED_MERGE_STATE` each reds `ci-unit` | [2026-10-28-auto-merge-guard.md](agent-wiki/2026-10-28-auto-merge-guard.md) | #874 |
 | 2026-10-28 | `linux / top-tier` is off the `pull_request` matrix — main + the `ci:slow` label only — decided by `make ci-slow-rows` and carried into `pipeline.yml`'s one matrix axis (the macOS rows the issue also named were removed by #870) | [2026-10-28-pr-matrix-trim-slow-rows.md](agent-wiki/2026-10-28-pr-matrix-trim-slow-rows.md) | #859 |
 | 2026-10-28 | a plan the live search stops returning is a NOTE when its own link still answers (200, or 401/403 gated) and only a 404/410 fails the gate, while a sync carries a still-downloadable plan over instead of deleting it from the picker | [2026-10-28-quant-catalog-search-drift.md](agent-wiki/2026-10-28-quant-catalog-search-drift.md) | #769 |
 | 2026-10-28 | a shipped engine the CI matrix never builds (disabled cell, non-CI variant, no linux image) is now red in `ci-unit`: `make check-engine-coverage` + the ordered new-engine flow | [2026-10-28-engine-ci-coverage.md](agent-wiki/2026-10-28-engine-ci-coverage.md) | #771 |

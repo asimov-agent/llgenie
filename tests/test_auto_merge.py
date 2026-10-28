@@ -725,6 +725,39 @@ def test_the_explain_target_is_phony_and_documented():
     assert "auto-merge-explain" in DOCS
 
 
+# ---- green ⇒ merged is permanent: the threshold may be neither deleted nor loosened (issue #874) ----
+
+def test_the_merge_gate_still_requires_a_clean_pr():
+    """`mergeStateStatus` stays CLEAN — #874 forbids a loosened threshold, not only a deleted file.
+
+    The tree half of the guard sits with the workflow invariants
+    (`tests/test_bot_pipeline_isolation.py::test_auto_merge_fires_by_itself_when_a_pr_run_completes`);
+    this is the decision half. It pins BOTH the constants and the behaviour they drive, so an edit that
+    widens one of them (to `UNSTABLE`/`BLOCKED`, or by dropping the head check) reds here instead of
+    quietly merging a PR GitHub says is not clean.
+    """
+
+    # Given the three thresholds the decision reads, and the human hold
+    # Then  each is the one #874 pinned — OPEN (not MERGED/CLOSED), MERGEABLE, and CLEAN
+    assert (am.REQUIRED_STATE, am.REQUIRED_MERGEABLE, am.REQUIRED_MERGE_STATE) == \
+        ("OPEN", "MERGEABLE", "CLEAN"), (
+        "the merge thresholds were loosened: a PR that GitHub does not report as OPEN + MERGEABLE + "
+        "CLEAN would now be merged (issue #874 — never merge an unstable, blocked, dirty or stale PR)")
+    assert am.HOLD_LABEL == "do-not-merge", "the human hold label was renamed away"
+
+    # When  an otherwise green, still-headed PR is decided for every non-CLEAN merge state
+    for status in ("UNSTABLE", "BLOCKED", "DIRTY", "BEHIND", "HAS_HOOKS", "UNKNOWN", ""):
+        state = _state(mergeStateStatus=status)
+        reason = am.decide(state, HEAD)
+
+        # Then  it is deferred with a reason, never merged
+        assert reason, f"decide() returned None (i.e. MERGE) for mergeStateStatus={status!r}"
+
+    # And   the inverse still holds: a green, CLEAN PR at the run's own head merges with no human
+    assert am.decide(_state(), HEAD) is None, (
+        "a green, CLEAN, non-draft PR no longer merges — the guard must not also break the behaviour")
+
+
 # ---- the merge runs where the secrets are: a workflow_run workflow (issue #493) ---------------
 
 def test_ci_has_no_auto_merge_job_any_more():

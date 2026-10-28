@@ -1104,10 +1104,10 @@ default.
 
 ## A green, conflict-free PR is merged by CI (issue #482)
 
-Landing a PR no longer waits at a keyboard. The `auto-merge` job in
-`.github/workflows/ci.yml` squash-merges a pull request the moment its run is green **and** the PR is
-conflict-free, and deletes the branch. The shape is `trending-local-llms`' `auto-merge` job in
-`qa-validate.yml`, which is the model for every bot in this repo.
+Landing a PR no longer waits at a keyboard. The `auto-merge` workflow
+(`.github/workflows/auto-merge.yml` — a `workflow_run` on `CI`, see #493 below) squash-merges a pull request
+the moment its run is green **and** the PR is conflict-free, and deletes the branch. The shape is
+`trending-local-llms`' `auto-merge` job in `qa-validate.yml`, which is the model for every bot in this repo.
 
 ```bash
 make auto-merge PR=<n> REPO=asimov-agent/llgenie [HEAD_SHA=<sha>] [APPROVE=1] [DRY=1]  # the decision + the merge
@@ -1185,6 +1185,43 @@ posted, `do-not-merge` removed, a pending check finished — is finished by the 
 
 The agent still never runs `gh pr merge` itself (AGENTS.md rule 7): it pushes, drives the PR green and
 stops — CI lands it, or a human does when the job defers.
+
+### Green ⇒ merged is permanent policy, and the tree half is guarded (issue #874)
+
+**A pull request whose pipeline is green and whose state is `CLEAN` is squash-merged by CI, and this
+behaviour is never removed from these pipelines** (owner instruction, 2026-10-28). #874 was filed because it
+was switched off by hand and nothing in the tree failed: the file was still there, the workflow was
+`disabled_manually`, and green PRs simply accumulated at `BLOCKED`. Three properties are policy now, and a
+change that breaks one is a red `ci-unit` instead of a review argument:
+
+| property | where | guarded by (`make test-unit`) |
+|---|---|---|
+| the workflow stays in the tree, named `auto-merge` | `.github/workflows/auto-merge.yml` | `tests/test_bot_pipeline_isolation.py::test_the_auto_merge_workflow_is_in_the_tree_and_keeps_its_name` |
+| it fires **by itself** when a `CI` run on a pull request completes (`on.workflow_run`, `types: [completed]`), and its `merge` job still demands `conclusion == 'success'` | same file | `tests/test_bot_pipeline_isolation.py::test_auto_merge_fires_by_itself_when_a_pr_run_completes` |
+| the decision keeps `REQUIRED_STATE = "OPEN"`, `REQUIRED_MERGEABLE = "MERGEABLE"`, `REQUIRED_MERGE_STATE = "CLEAN"` and the `do-not-merge` hold — `UNSTABLE`, `BLOCKED`, `DIRTY` and `BEHIND` all defer | `scripts/auto_merge.py` | `tests/test_auto_merge.py::test_the_merge_gate_still_requires_a_clean_pr` |
+
+The `schedule` (`3,33 * * * *`) is the retry **backstop** for a deferral, never the trigger the guard
+accepts: a workflow whose only automatic trigger is a cron merges nothing until that slot arrives, and one
+reachable only by `workflow_dispatch` merges nothing until a human clicks it.
+
+**A repo-level mute is not visible from the tree, and the guard says so.** `disabled_manually` is GitHub's
+own state, readable only through the API, so a hermetic `ci-unit` cannot assert it; what the tree half can
+prove is that nothing in the repository makes the workflow unreachable or inert. `allow_auto_merge` — the
+repository-level switch `gh pr merge --auto` needs — is owner-only for the same reason.
+
+### Which workflows may be paused — and which never
+
+Pausing a bot leg is legitimate. Pausing the merge path is the defect #874 is about. Measured 2026-10-28
+(`gh workflow list --all`), the paused set — the **only** workflows that may be paused — is the bot fleet:
+
+> architecture-bot, code-review-bot, engine-build, engine-bump, engine-bump-rebase, fix-bot, issue-bot,
+> issue-dedupe, issue-refiner, publish-agent-image, queued-alarm, rebase-bot, registry-sync,
+> registry-sync-review, run-failure-reactor, search-smoke, security-bot, security-scan
+
+**Never paused, in any pause: `auto-merge`** — the merge path itself. `ci.yml`, `pipeline.yml` and
+`published.yml` are `active` for the same reason: each is what makes a green PR a mergeable, tested,
+published one. (`bench-disk` also reads `disabled_manually` but has no file in the tree — a stale
+registration, not a workflow a pause can touch.)
 
 ## The architecture bot — `docs/ARCHITECTURE.md` follows the code (issue #449)
 

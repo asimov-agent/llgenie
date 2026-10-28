@@ -281,5 +281,93 @@ def test_the_auto_merge_sweep_stays_scheduled():
     )
 
 
+# ---- green ⇒ merged is permanent policy: the merge gate cannot be removed (issue #874) ----------
+
+#: The ONE file that merges a green pull request (its own header records why it is not a job in `ci.yml`).
+AUTO_MERGE = "auto-merge.yml"
+
+#: Triggers that fire BY THEMSELVES the moment a pull request's run finishes. `schedule` and
+#: `workflow_dispatch` are BACKSTOPS, never the trigger: a workflow reachable only by a cron slot or by
+#: hand merges nothing until that slot arrives or a human clicks it, which is the pause #874 forbids.
+PR_COMPLETION_TRIGGERS = ("workflow_run", "check_suite")
+
+
+def _triggers(wf: dict) -> set[str]:
+    """The event names the workflow's `on:` block declares."""
+    return set(_on(wf))
+
+
+def test_the_auto_merge_workflow_is_in_the_tree_and_keeps_its_name():
+    """Deleting the merge workflow is a red test, not a silently thinner pipeline (issue #874).
+
+    The `name:` is load-bearing, not cosmetic: GitHub matches `on.workflow_run.workflows` against a
+    workflow's top-level `name:` verbatim and takes no wildcard, so a rename stops every roster that
+    names it from matching (#349 — a rename left rebase-bot's failures routed nowhere for a week).
+    """
+    # Given the merge workflow's path
+    path = WF / AUTO_MERGE
+
+    # Then  it exists, parses, and is still called `auto-merge`
+    assert path.is_file(), (
+        f"{path} is gone: a green PR would then never be merged, and no run would go red for it "
+        f"(issue #874 — this behaviour may not be removed from the pipelines)")
+    workflow = _load(AUTO_MERGE)
+    assert workflow.get("name") == "auto-merge", (
+        f"{AUTO_MERGE}: top-level `name:` is {workflow.get('name')!r}, not 'auto-merge' — a rename "
+        f"breaks every `workflow_run.workflows` roster that names it (matched verbatim, no wildcard)")
+
+
+def test_auto_merge_fires_by_itself_when_a_pr_run_completes():
+    """Green ⇒ merged runs on its own; a manual-only or cron-only workflow is the pause, not the gate.
+
+    Issue #874 was filed after the merge path was switched off by hand and nothing in the tree failed:
+    the file was present, the workflow was `disabled_manually`, and PRs simply accumulated. A hermetic
+    test cannot read the repository's own enable state (that is the GitHub API and an owner action), so
+    this pins the half that lives in the tree — the file, an AUTOMATIC trigger on the CI run finishing,
+    and a `merge` job that still demands a pull-request run that concluded `success`. Delete any of them
+    and `ci-unit` is red instead of the behaviour going quiet.
+    """
+    # Given the merge workflow, its triggers and its merge job
+    workflow = _load(AUTO_MERGE)
+    on = _on(workflow)
+    jobs = workflow.get("jobs") or {}
+    problems: list[str] = []
+
+    # When  every property that makes it merge a green PR with no human in the loop is checked
+    automatic = _triggers(workflow) & set(PR_COMPLETION_TRIGGERS)
+    if not automatic:
+        problems.append(
+            f"`on:` declares {sorted(_triggers(workflow))} and no automatic PR-completion trigger "
+            f"({', '.join(PR_COMPLETION_TRIGGERS)}): a green PR is then merged by nobody until a cron "
+            f"slot or a human arrives")
+    if "workflow_run" in automatic:
+        block = on.get("workflow_run")
+        run: dict = block if isinstance(block, dict) else {}
+        watched = [str(w) for w in (run.get("workflows") or [])]
+        if "CI" not in watched:
+            problems.append(
+                f"`on.workflow_run.workflows` is {watched}: it must name `CI`, the workflow whose "
+                f"green run authorises the merge")
+        kinds = [str(t) for t in (run.get("types") or [])]
+        if "completed" not in kinds:
+            problems.append(
+                f"`on.workflow_run.types` is {kinds}: without `completed` it never hears the run finish")
+    merge_job = jobs.get("merge")
+    if not isinstance(merge_job, dict):
+        problems.append("the `merge` job is gone: nothing decides a merge any more")
+    else:
+        cond = str(merge_job.get("if") or "")
+        for needle, why in (("workflow_run", "it is the run-completion gate"),
+                            ("pull_request", "a push run on main has no PR to merge"),
+                            ("conclusion == 'success'", "a red run must never reach the merge")):
+            if needle not in cond:
+                problems.append(f"the `merge` job's `if:` no longer requires {needle!r} ({why})")
+
+    # Then  every property holds, and the failure names ALL of the ones that do not
+    assert not problems, (
+        f"{AUTO_MERGE} no longer merges a green PR by itself (issue #874):\n  "
+        + "\n  ".join(problems))
+
+
 if __name__ == "__main__":  # pragma: no cover - manual probe
     print(json.dumps({n: _schedules(_load(n)) for n in BOT_WORKFLOWS}, indent=2))
