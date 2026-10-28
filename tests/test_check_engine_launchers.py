@@ -157,3 +157,52 @@ def test_the_expected_tag_comes_from_the_launcher_writer():
     # Then  they are the same list, tag for tag (the check imports the writer, not the formula)
     assert rows.keys() == written.keys()
     assert all(rows[k]["tag"] == written[k]["tag"] for k in rows)
+
+
+# ------------------------------- the tag hashes FOUR inputs, so the check must too
+# `engine_skills._image_inputs` hashes the variant's params, its committed Dockerfile,
+# `containers/engines/entrypoint.sh` and `scripts/engine_runner.py`. A check that hashed only the
+# params would call a correct launcher stale on a branch that legitimately edits the runner — the
+# worst audience for a false red.
+def _tag_with(params: dict, variant: str, **overrides) -> str:
+    """The tag the published scheme computes for `variant`, with any of the four inputs replaced."""
+    import hashlib
+
+    from scripts import engine_skills as es
+
+    digest = hashlib.sha256(es._image_inputs(params, variant, **overrides)).hexdigest()[:8]
+    return f"llgenie/{params['id']}:{str(params['pinned'])[:8]}-{digest}-{variant}"
+
+
+def test_expected_is_the_full_four_input_digest():
+    """`expected()` must not be a shortcut formula over the params alone."""
+
+    # Given the committed params for one engine
+    row = _an_engine()
+    params = ei.load_params(row["engine"])
+
+    # When  the tag is recomputed from all four inputs, read from disk exactly as the build does
+    full = _tag_with(params, row["variant"])
+
+    # Then  the check's expectation is that same tag (params + Dockerfile + entrypoint + runner)
+    assert cel.expected(ARCH) and row["tag"] == full
+
+
+def test_a_changed_engine_runner_makes_a_current_launcher_stale(tmp_path, capsys):
+    """Editing `scripts/engine_runner.py` moves every tag: a launcher from before it IS stale."""
+
+    # Given a launcher whose tag was computed with DIFFERENT runner bytes
+    row = _an_engine()
+    params = ei.load_params(row["engine"])
+    shifted = _tag_with(params, row["variant"], runner=b"# a runner that changed\n")
+    assert shifted != row["tag"], "the runner bytes must move the tag"
+    _write_launcher(tmp_path, row["engine"], shifted)
+
+    # When  the check runs against this tree (whose runner is the committed one)
+    code = cel.check(tmp_path, ARCH)
+    out = capsys.readouterr()
+
+    # Then  it is STALE and names both tags — correctly, and for the right reason
+    assert code == 1
+    combined = out.out + out.err
+    assert "STALE" in combined and shifted in combined and row["tag"] in combined
