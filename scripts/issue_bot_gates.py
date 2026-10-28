@@ -84,6 +84,7 @@ DEFERRED: dict[str, str] = {
     "check-engine-params": "regenerates the engine params and Dockerfiles and compares them; slow",
     "check-engine-coverage": "a static read of the skills and the committed params: ci-unit re-checks the issue-bot's own PR, which is where a new skill and its params land, and widening FAST_GATES past the #475 six is that issue's follow-up",
     "check-engine-source": "reads every engine's upstream source at its pin; network-bound",
+    "check-engine-launchers": "reads this host's ~/bin launchers against the committed params: a host-local file the bot's PR cannot change, and ci-unit (where the bot's own PR is re-checked) has no launchers at all, so it is informational there by design (issue #842)",
     "check-secret-output": "compares SECRET_VARS with AGENT_SHELL_KEYS; fast, but #475 names a fixed list and widening it is that issue's follow-up, not this one",
     "check-dispatch-forms": "reads the dispatchable workflows' input forms; fast, but not in #475's list (follow-up issue, not this change)",
     "check-pr-authors": "reads the PR's commit range, which does not exist before the push",

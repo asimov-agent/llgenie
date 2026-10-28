@@ -83,7 +83,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	security-bumps security-bumps-plan check-security-bumps \
 	agent-shell-keys-check \
 	agent-fetch search-smoke require-env web-coverage issue-evidence \
-	engine-bump-rebase generate-engine-params check-engine-params check-engine-coverage engine-coverage-report check-engine-source engine-source-report build-engine run-engine stop-engine list-engine-images engine-build-matrix ci-lint ci-unit ci-agents-read \
+	engine-bump-rebase generate-engine-params check-engine-params check-engine-coverage engine-coverage-report check-engine-source engine-source-report check-engine-launchers engine-launchers-report build-engine run-engine stop-engine list-engine-images engine-build-matrix ci-lint ci-unit ci-agents-read \
 	ci-openspec ci-cpu-health ci-top-tier ci-install ci-install-dry-args ci-free-disk ci-slow-rows test-engine-stage bot-sync-main bot-sync-branch ci-wait-engine-images \
 	ci-install-dry ci-install-run ci-install-uninstall test-env test-top-tier test-top-tier-ci test-top-tier-cli-ci test-top-tier-serve test-top-tier-serve-ci \
 	check-agent-model model-pin-report check-agent-skills agent-skills-report test-agent-skills-live hermes-skills-register \
@@ -1096,6 +1096,10 @@ check-engine-source: ## CI: fail if a cell claims a source build (prebuilt=false
 	python3 scripts/engine_source_guard.py check
 engine-source-report: ## Print the source-vs-prebuilt census of every engine x arch cell, and every tracked exception
 	python3 scripts/engine_source_guard.py report
+check-engine-launchers: ## CI: fail when a ~/bin/llgenie-engine-* launcher names a different image tag than the committed params compute (a stale launcher silently runs an older pinned engine; issue #842; CHECK_REGISTRY=1 also fails a tag no manifest resolves)
+	python3 scripts/check_engine_launchers.py check $(if $(BIN),--bin "$(BIN)",) $(if $(ARCH),--arch "$(ARCH)",) $(if $(CHECK_REGISTRY),--check-registry,)
+engine-launchers-report: ## Print, per engine, the image tag this host's launcher carries next to the one the committed params compute (issue #842)
+	python3 scripts/check_engine_launchers.py report $(if $(BIN),--bin "$(BIN)",) $(if $(ARCH),--arch "$(ARCH)",)
 
 engine-gate-report: ## Print what each engine cell will actually prove (flag-proven / device-exempt / disabled) from the committed params, before any image is built (issue #625)
 	python3 scripts/engine_gate_report.py
@@ -1570,6 +1574,7 @@ ci-unit: bash-check ## CI job unit: hermetic unit tests + registry / skill / Str
 	$(MAKE) check-engine-params
 	$(MAKE) check-engine-coverage
 	$(MAKE) check-engine-source
+	$(MAKE) check-engine-launchers
 	$(MAKE) check-wiring
 	$(MAKE) check-secret-output
 	$(MAKE) check-docs
