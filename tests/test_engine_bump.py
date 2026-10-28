@@ -1163,7 +1163,7 @@ def test_bump_reads_the_destination_release(tmp_path, monkeypatch):
 
     derive() runs before pin(). The old tag's release file is absent. The
     destination tag's file has checksummed native archives. v9.1.0 -> v9.2.0
-    is the vX.Y.Z shape of TensorFold v1.1.6 -> v1.0.7.
+    is the vX.Y.Z shape of TensorFold v1.1.8 -> v1.0.7.
     """
 
     # Given a git+ skill on v9.1.0 and archives only in the v9.2.0 release file
@@ -1405,7 +1405,7 @@ def test_each_failed_bump_engine_keeps_its_install_kind(tmp_path, monkeypatch, e
 def test_bump_ignores_archives_published_only_on_the_old_tag(tmp_path, monkeypatch):
     """Archives on the tag still written in the skill must not win.
 
-    This is the v1.1.6 -> v1.0.7 failure: derive used to read the old tag.
+    This is the v1.1.8 -> v1.0.7 failure: derive used to read the old tag.
     The old release file has checksummed archives. The destination file is empty.
     """
 

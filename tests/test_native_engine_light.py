@@ -1,6 +1,6 @@
 """The lightest TensorFold model on this Apple-Silicon host's Metal (issue #114).
 
-The lightest checkpoint TensorFold 1.1.6 serves correctly is `LIGHT_REPO`
+The lightest checkpoint TensorFold 1.1.8 serves correctly is `LIGHT_REPO`
 (Qwen3.5-9B, MLX 4-bit, 5.5 GiB: smaller Qwen3.5 sizes tie their embeddings, which
 the packed decoder refuses; Nemotron-4B and gemma-E2B fail to load; a 2-bit 9B loads
 but answers garbage). It is installed and served exactly as llgenie does on a pick:

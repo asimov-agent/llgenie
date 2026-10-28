@@ -39,7 +39,7 @@ def test_a_version_must_look_like_a_version():
         "vllm/cpu: installed 0.32.0+cpu": "0.32.0",
         "llama.cpp/cpu: installed version: 0.7.0-dev (build 11870, commit 39febd2a0)": "0.7.0",
         "installed pin 3c75be02f450": "pin 3c75be02f450",
-        "tensorfold-native 1.1.6": "1.1.6",
+        "tensorfold-native 1.1.8": "1.1.8",
         # measured on the published laurentzuijdwijk/cpu image: a log line, THEN the real version
         "0.00.000.331 I srv  llama_server: initializing ...\n"
         "version: 0.5.0-dev (build 11364, commit 3c75be02f)\n"

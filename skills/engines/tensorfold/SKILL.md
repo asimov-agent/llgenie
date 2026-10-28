@@ -4,11 +4,11 @@ description: "Use when installing TensorFold (MLX on Apple Silicon, or CUDA sm_8
 engine: "TensorFold"
 id: tensorfold
 repo: https://github.com/ashhart/TensorFold
-ref: v1.1.6
+ref: v1.1.8
 ref_kind: tag
-version: v1.1.6
-pinned: c425f4cc773049827ffd63c9de3ddf39f76c6749
-verified: "2026-10-26"
+version: v1.1.8
+pinned: 812fb0404b1856df29dcb4a285d25dddf469288d
+verified: "2026-10-28"
 license: Apache-2.0
 servable: true
 backends: [metal, cuda]
