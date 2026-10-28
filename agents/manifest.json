@@ -8,6 +8,10 @@
     {
       "name": "llgenie-issse-implementer",
       "rules": []
+    },
+    {
+      "name": "llgenie-documentation-maintainer",
+      "rules": ["never-implement"]
     }
   ]
 }
