@@ -31,8 +31,7 @@ import urllib.request
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
-import engine_skills as es  # noqa: E402
+from scripts import engine_skills as es
 
 LIGHT_REPO = "mlx-community/Qwen3.5-9B-MLX-4bit"
 INST = REPO / "scripts" / "install_engine_launchers.py"

@@ -31,8 +31,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
-import engine_skills as es  # noqa: E402
+from scripts import engine_skills as es
 
 SERVE = REPO / "scripts" / "llgenie_serve.py"
 INST = REPO / "scripts" / "install_engine_launchers.py"

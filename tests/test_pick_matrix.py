@@ -15,9 +15,8 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
-import hf_auth  # noqa: E402
-import model_engine_pick as mp  # noqa: E402
+from scripts import hf_auth
+from scripts import model_engine_pick as mp
 
 GB = 2**30
 

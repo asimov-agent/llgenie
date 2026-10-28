@@ -16,8 +16,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
-import pin_actions as pa  # noqa: E402
+from scripts import pin_actions as pa
 
 SHA = "11d5960a326750d5838078e36cf38b85af677262"
 

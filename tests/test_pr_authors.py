@@ -12,13 +12,11 @@ The fixture repositories are built with a real base branch and a real head branc
 from __future__ import annotations
 
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT))
 
 import scripts.check_pr_authors as cpa  # noqa: E402
 

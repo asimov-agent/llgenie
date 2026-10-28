@@ -19,9 +19,8 @@ import pytest
 import yaml
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
-import bot_claims as bc  # noqa: E402
-import issue_refiner as ir  # noqa: E402
+from scripts import bot_claims as bc
+from scripts import issue_refiner as ir
 
 OWNER, NAME = "asimov-agent", "llgenie"
 

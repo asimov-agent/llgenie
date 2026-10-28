@@ -25,15 +25,13 @@ from __future__ import annotations
 
 import http.server
 import json
-import sys
 import threading
 from pathlib import Path
 
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
-import gen_trending_quant_catalog as gen  # noqa: E402
+from scripts import gen_trending_quant_catalog as gen
 
 
 class _Handler(http.server.BaseHTTPRequestHandler):

@@ -20,8 +20,7 @@ from pathlib import Path
 import yaml
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
-import rebase_bot_sweep as rb  # noqa: E402
+from scripts import rebase_bot_sweep as rb
 
 OWNER, NAME = "asimov-agent", "llgenie"
 

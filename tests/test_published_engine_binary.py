@@ -18,14 +18,12 @@ from __future__ import annotations
 
 import os
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
-import engine_image as ei  # noqa: E402
+from scripts import engine_image as ei
 
 
 def test_latest_published_image_binary_file_answers_its_documented_flags():

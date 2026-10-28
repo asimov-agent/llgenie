@@ -27,9 +27,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 ALARM = REPO / "scripts" / "queued_run_alarm.py"
-sys.path.insert(0, str(REPO / "scripts"))
-import queued_run_alarm as alarm  # noqa: E402
-import issue_body  # noqa: E402  (the one issue shape, issue #745)
+from scripts import queued_run_alarm as alarm
+from scripts import issue_body
 
 OWNER = "asimov-agent"
 

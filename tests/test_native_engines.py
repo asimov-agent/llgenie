@@ -32,9 +32,8 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
-import engine_skills as es  # noqa: E402
-import model_engine_pick as mp  # noqa: E402
+from scripts import engine_skills as es
+from scripts import model_engine_pick as mp
 
 INST = REPO / "scripts" / "install_engine_launchers.py"
 NATIVE = sorted(mp.metal_engines())

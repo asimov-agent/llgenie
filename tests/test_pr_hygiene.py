@@ -14,12 +14,10 @@ NO-SKIP POLICY: a missing prerequisite is a LOUD FAILURE, never a skip.
 """
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
-import check_pr_hygiene as cph  # noqa: E402
+from scripts import check_pr_hygiene as cph
 
 #: An AGENTS.md that carries the mandate — the baseline every fixture starts from. It carries BOTH
 #: required texts: the message mandate and the closing rule, so a fixture that drops either is the
