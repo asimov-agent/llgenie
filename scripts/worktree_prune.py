@@ -22,6 +22,12 @@ worktree (it holds no branch, so no merge can license deleting it) and the repos
 `--dry` prints the same plan and mutates nothing. Any failure — the `gh` lookup, a `git worktree
 remove`, a `git branch -D` — exits 2 naming the branch and the step, and never continues past a failed
 worktree removal to delete that branch.
+
+A worktree can be unregistered by `git worktree remove` while its directory survives: a containerized
+test run leaves `root:root` files inside it, so the delete fails on `Permission denied`. That directory
+is reported as a **leftover** — its path, the reason, and the one command that clears it — the branch is
+deleted anyway, and the run exits 0. Where a container engine answers, `apply()` deletes the debris
+through it as root (the engine that created the files) and retries the removal once (issue #759).
 """
 from __future__ import annotations
 
@@ -29,6 +35,8 @@ import argparse
 import json
 import os
 import re
+import shlex
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -36,6 +44,9 @@ from pathlib import Path
 
 #: The base a merge commit must be an ancestor of, unless `--base` says otherwise.
 DEFAULT_BASE = "origin/main"
+
+#: The image the sweep deletes root-owned debris with, inside the container engine (issue #759).
+DEBRIS_IMAGE = os.environ.get("LLGENIE_DEBRIS_IMAGE") or "alpine:3.21"
 
 #: How many PRs one lookup reads. The repository has never held more than 500.
 PR_LIMIT = "500"
@@ -78,12 +89,23 @@ class Decision:
 
 
 @dataclass
+class Leftover:
+    """A worktree directory the sweep unregistered but could not delete (issue #759)."""
+
+    branch: str
+    path: str
+    reason: str
+    command: str
+
+
+@dataclass
 class Outcome:
     """The result of applying (or drying) a plan."""
 
     decisions: list[Decision] = field(default_factory=list)
     removed_branches: list[str] = field(default_factory=list)
     removed_worktrees: list[str] = field(default_factory=list)
+    leftovers: list[Leftover] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
     @property
@@ -201,6 +223,104 @@ def _refused_by_worktree(message: str) -> str | None:
     return m.group(1) if m else None
 
 
+def container_runtime() -> str | None:
+    """The container engine the debris is cleared through, or None when none answers.
+
+    `nerdctl` first (this host's runtime), then `docker`; `RUNTIME` overrides both, the same knob the
+    security scripts use. An explicit `RUNTIME` is trusted: the caller is saying which engine to drive.
+    """
+    explicit = os.environ.get("RUNTIME")
+    if explicit:
+        return explicit
+    for candidate in ("nerdctl", "docker"):
+        if shutil.which(candidate):
+            return candidate
+    return None
+
+
+def clearing_command(path: str) -> str:
+    """The one command a reader can run to clear a leftover directory, as root, beside the checkout."""
+    parent, name = os.path.split(os.path.abspath(path))
+    runtime = container_runtime() or "docker"
+    return (
+        f"{runtime} run --rm -v {shlex.quote(parent)}:/wt {DEBRIS_IMAGE} "
+        f"rm -rf {shlex.quote('/wt/' + name)}"
+    )
+
+
+def _registered(path: str, cwd: str | None = None) -> bool:
+    """Does `git worktree list` still name this directory? The difference between a leftover and a bug."""
+    for tree in worktrees(cwd):
+        if os.path.realpath(tree.path) == os.path.realpath(path):
+            return True
+    return False
+
+
+def _clear_debris(path: str, cwd: str | None = None) -> bool:
+    """Delete `path` as root inside the container engine — the engine that created the debris.
+
+    Returns True only when the directory is actually gone afterwards; a missing engine, a missing image
+    or a refused mount is a `False`, never an exception: the caller then reports a leftover instead.
+    """
+    runtime = container_runtime()
+    if not runtime or not os.path.exists(path):
+        return False
+    parent, name = os.path.split(os.path.abspath(path))
+    try:
+        result = _run(
+            [runtime, "run", "--rm", "-v", f"{parent}:/wt", DEBRIS_IMAGE, "rm", "-rf", f"/wt/{name}"],
+            cwd=cwd,
+            check=False,
+        )
+    except OSError:
+        # The named runtime is not installed here: no debris clearing, the caller reports a leftover.
+        return False
+    return result.returncode == 0 and not os.path.exists(path)
+
+
+def remove_worktree(decision: Decision, outcome: Outcome, cwd: str | None = None) -> bool:
+    """Remove one prunable worktree; True when its directory is gone.
+
+    `git worktree remove` can fail *after* the worktree is unregistered, when the directory holds files
+    the current user does not own (a containerized test run leaves `root:root` `__pycache__`/`.pyc`
+    behind, #433). That is not a failure of the sweep: the debris is cleared through the container
+    engine as root when one answers, the removal is retried once, and anything still standing is
+    recorded as a leftover naming its path and the command that clears it (issue #759) — never a silent
+    success and never a bare `Error 2` for work that half happened.
+    """
+    assert decision.path is not None
+    path = decision.path
+    try:
+        _git(["worktree", "remove", path], cwd=cwd)
+        return True
+    except PruneError as exc:
+        reason = str(exc)
+
+    if _clear_debris(path, cwd=cwd):
+        if _registered(path, cwd=cwd):
+            try:
+                _git(["worktree", "remove", path], cwd=cwd)
+            except PruneError as retry_exc:
+                reason = str(retry_exc)
+        if not os.path.exists(path):
+            print(f"{TAG} cleared the root-owned debris in {path} through {container_runtime()} and removed it")
+            return True
+
+    if not os.path.exists(path):
+        # The directory is gone (git removed it and only its own bookkeeping complained): nothing left.
+        return True
+
+    outcome.leftovers.append(
+        Leftover(
+            branch=decision.branch,
+            path=path,
+            reason=f"the directory could not be deleted ({reason.strip().splitlines()[-1] if reason.strip() else 'permission denied'})",
+            command=clearing_command(path),
+        )
+    )
+    return False
+
+
 def _detached_and_clean(path: str, cwd: str | None = None) -> bool:
     """Whether `path` is a worktree git reports as branch-line-less and detached, holding no changes.
 
@@ -301,12 +421,11 @@ def apply(decisions: list[Decision], cwd: str | None = None) -> Outcome:
         if not decision.prunable:
             continue
         if decision.path:
-            try:
-                _git(["worktree", "remove", decision.path], cwd=cwd)
-            except PruneError as exc:
-                outcome.errors.append(f"{decision.branch}: could not remove worktree {decision.path}: {exc}")
-                continue
-            outcome.removed_worktrees.append(decision.path)
+            # A failed *removal* is not a failed prune: the worktree is unregistered even when its
+            # directory survives, so the branch delete below still runs and the debris is reported as a
+            # leftover with the command that clears it (issue #759).
+            if remove_worktree(decision, outcome, cwd=cwd):
+                outcome.removed_worktrees.append(decision.path)
         try:
             _git(["branch", "-D", decision.branch], cwd=cwd)
         except PruneError as exc:
@@ -355,11 +474,16 @@ def render(outcome: Outcome, *, dry: bool, base: str) -> list[str]:
             lines.append(f"{TAG} {'would prune' if dry else 'prune'} {decision.branch} — {decision.reason}{where}")
         else:
             lines.append(f"{TAG} keep {decision.branch} — {decision.reason}")
+    for leftover in outcome.leftovers:
+        lines.append(
+            f"{TAG} leftover {leftover.path} — {leftover.reason}; clear it with: {leftover.command}"
+        )
     verb = "would prune" if dry else "pruned"
     worktree_count = sum(1 for d in outcome.decisions if d.prunable and d.path)
+    leftovers = "" if (dry or not outcome.leftovers) else f"; {len(outcome.leftovers)} leftover(s)"
     lines.append(
         f"{TAG} {verb} {len(outcome.removed_branches) if not dry else sum(1 for d in outcome.decisions if d.prunable)} "
-        f"branches, {worktree_count} worktrees; kept {len(outcome.kept)} "
+        f"branches, {worktree_count} worktrees{leftovers}; kept {len(outcome.kept)} "
         f"(base {base})"
     )
     return lines
