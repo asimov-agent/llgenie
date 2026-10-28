@@ -204,3 +204,42 @@ def test_no_workflow_filters_markdown_by_extension():
                     if str(entry).strip().strip('"').strip("'") in ("**/*.md", "*.md"):
                         offenders.append(f"{path.name}:{event}:{key}: {entry}")
     assert not offenders, offenders
+
+def test_scope_runs_on_every_event_and_falls_back_to_main():
+    """The reporting check must EXIST on the refs where the diff is least ordinary (issue #824).
+
+    A merge-queue ref, a force-push and a manual dispatch are the runs where nobody knows the diff
+    shape, so a `scope` trigger limited to `pull_request` silently removes the one artifact that says
+    which stages were skipped and why. `github.base_ref` is EMPTY on `merge_group` and
+    `workflow_dispatch`, so the step must fall back to `main` — without it the classifier diffs against
+    `origin/` and dies before the widening in `ci_scope.py` can run.
+    """
+
+    # Given the scope workflow
+    doc = _wf("scope.yml")
+    on = doc.get("on") if "on" in doc else doc.get(True)
+
+    # Then  it listens to the three events …
+    assert {"pull_request", "merge_group", "workflow_dispatch"} <= set(on), sorted(on)
+    # … and NONE of them is path-filtered, or the check vanishes when it is most needed
+    for event, cfg in on.items():
+        assert not (cfg or {}).get("paths"), (event, cfg)
+        assert not (cfg or {}).get("paths-ignore"), (event, cfg)
+
+    # And every step that runs the classifier falls back to `main` for the empty base ref. TWO spellings
+    # are legitimate — `${{ github.base_ref || 'main' }}` and a shell default `${EVENT_BASE_REF:-main}`
+    # — so this asserts the BEHAVIOUR, not one spelling: checking the expression alone false-reds a
+    # correct implementation that uses the shell form, which is what this test did when first written.
+    runs = [s for s in doc["jobs"]["scope"]["steps"] if "ci-scope" in (s.get("run") or "")]
+    assert runs, [s.get("name") for s in doc["jobs"]["scope"]["steps"]]
+    for step in runs:
+        env_blob = " ".join(str(v) for v in (step.get("env") or {}).values())
+        body = step.get("run") or ""
+        assert ("|| 'main'" in env_blob) or (":-main" in body) or (":-main" in env_blob), (
+            step.get("name"), env_blob, body[:200])
+        # … and the fallback must be USED when fetching/diffing, not merely declared
+        assert "main" in body, (step.get("name"), body[:200])
+
+    # And the exemption the dispatch-form gate demands is present at column 0 of the raw file
+    raw = (REPO / ".github" / "workflows" / "scope.yml").read_text().splitlines()
+    assert any(l.startswith("# dispatch: no inputs") for l in raw), "missing `# dispatch: no inputs` line"
