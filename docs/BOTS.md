@@ -1267,6 +1267,7 @@ from the pipeline that will run.
 | `rebase-bot.yml` | keeps every open PR current with main, every eligible PR per run (never merges) | `max_prs` (optional, default `10`) — Most PRs this run may rebase (the sweep's daily cap still applies on top) |
 | `registry-sync-review.yml` | a GREEN registry-sync PR is reviewed into ONE agent:implement issue | `dry` (optional, default `false`) — Preview the brief and the issue body this run would file, filing nothing |
 | `registry-sync.yml` | syncs the vendored registry and regenerates the derived tables, then opens the PR | none — the sync has no modes: it always fetches the upstream registry, regenerates |
+| `scope.yml` | which CI jobs a change selects (issue #824) | none — the classifier reads the diff and nothing else, so a manual run has nothing |
 | `search-smoke.yml` | one real Firecrawl request proves the masked web reach | none — the smoke takes no target: it always proves the same leg with one request. |
 | `security-bot.yml` | turns ONE auto-fixable vulnerability issue into a green PR (never merges) | `dry` (optional, default `false`) — Preview the issue it would take and the edit it would make, pushing nothing |
 | `security-scan.yml` | the daily vulnerability pipeline (Trivy + Syft + Grype + Semgrep), never a PR or push check | `tools` (optional, default `all`) — Which scanners to run: all, or one of syft / trivy / grype / semgrep<br>`enforce` (optional, default `full`) — Failure policy for THIS dispatch: full = the daily policy, report = never gate |
@@ -1574,6 +1575,41 @@ The loop runs the failing check, hands the failure to Hermes and re-checks, up t
 `FIX_ROUNDS` (default 3). The loop itself never commits or pushes; the workflow pushes
 the repaired tree as ONE commit with the owner PAT (so CI re-runs) only when the loop
 ends green.
+
+### A docs-only PR runs two checks, not twenty-eight (issue #824)
+
+A pull request's stages are selected from the paths it changed. `make ci-scope`
+(`scripts/ci_scope.py`, stdlib, `git diff --name-only`) turns a diff into change classes — `docs`,
+`skills`, `workflows`, `scripts`, `tests`, `data`, `containers`, `engines`, `security` — and prints the
+jobs those classes select, with a reason beside every skipped one:
+
+```
+make ci-scope BASE=origin/main                       # selected and skipped jobs, each with a reason
+python3 scripts/ci_scope.py classify --paths x/y     # only the classes
+python3 scripts/ci_scope.py jobs --paths x/y --json  # the set, machine-readable
+```
+
+A path that matches no class makes the script exit 1, so an unclassifiable diff fails `scope` loudly
+rather than being read as "nothing to run".
+
+Selection happens at three levels, and they are deliberately kept apart:
+
+- **the trigger** carries the `docs` class only — `docs/**`, `agent-wiki/**`, `openspec/**`,
+  `README.md`, `CHANGES.md`. A diff made only of those paths skips `ci.yml` and runs `docs.yml`
+  instead, so a docs PR pays two checks (`scope`, `docs`) rather than twenty-eight. The list is the
+  **class**, not "every markdown file": `data/*.md`, `.hermes/skills/**/SKILL.md`,
+  `skills/engines/**/SKILL.md` and `tests/fixtures/**/*.md` are read by real gates
+  (`check-registry`, `check-agent-skills`, `check-engine-params`, unit), so a bare `**/*.md` would
+  skip the gate that proves them — `tests/test_ci_scope.py` fails if one is added to the list;
+- **the rows inside a family** stay with `CHANGED=<ref>` (`list-engine-images`,
+  `list-engine-base-images`), which compares rendered inputs — the class gate decides whether the
+  family runs, never which cells inside it;
+- **`push` to `main` is not filtered at all**: a merge keeps the whole matrix.
+
+Wildcard inputs (`Makefile`, `tools/**`, `.github/**`, `scripts/ci_*.py`, `scripts/engine_*.py`,
+`scripts/check_*.py`, `scripts/unit_tests.py`, `pytest.ini`, `.gitleaks.toml`, `renovate.json`,
+`AGENTS.md`) select every class on purpose: each can change what a gate proves, so a wrong skip there
+would hide a regression in the gate rather than in the product.
 
 ### Documentation is part of the change (issue #257)
 
