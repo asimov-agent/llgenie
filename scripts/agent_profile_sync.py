@@ -136,8 +136,8 @@ def write(agents: Path, name: str, dest: Path, force: bool = False) -> int:
     shrinking = shrinks(agents, name, dest)
     if shrinking and not force:
         for rel, tree, live, lost in shrinking:
-            print(f"[agent-profile] REFUSED {agents.name}/{name}/{rel}: the tree has {tree} b, the live "
-                  f"profile has {live} b, and the tree's lines are a SUBSET of the live file's — a sync "
+            print(f"[agent-profile] REFUSED {agents.name}/{name}/{rel}: the tree file is SMALLER than "
+                  f"the live one — {tree} b against {live} b — and its lines are a subset, so a sync "
                   f"would delete {lost} line(s) of rulebook. That is a truncated seed, not an edit; fix "
                   f"the seed, or pass --force to mean it.", file=sys.stderr)
         return 3
