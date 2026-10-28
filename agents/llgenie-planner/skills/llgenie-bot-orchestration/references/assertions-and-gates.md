@@ -57,6 +57,18 @@ A real branch almost always contains a human commit (a rebase, an owner fixup), 
 majority case. Encode the decision as **`any(...)`, or `all(...)` plus a notice naming the human commits**, and prove it
 with a negative control executed on that branch.
 
+## A check that cannot compare must say so
+
+When a guard's second side is absent — no live profile on a CI runner, no credentials, no fixture — do **not** return silently. Silence makes "compared and fine" indistinguishable from "could not compare", and that ambiguity is how a truncated copy ships green.
+
+```python
+if live_home is None:
+    print(f"[check] live comparison SKIPPED: no profile home at {path} — tree checks only")
+    return 0
+```
+
+Skip (never fail) when the missing side is something the environment cannot supply — a runner that reds for a condition it cannot fix is an unfixable red — but make the skip a stated outcome, and assert the line appears so it cannot degrade back to silence.
+
 ## Symmetric gates
 
 Every gate needs the negative control **in both directions**, or it is decoration:
@@ -89,7 +101,10 @@ run. Three consequences for the guard and its tests:
 - **Never print the word "identical" for a file whose size changed**: `verified: 3 copied, 1 shrank (7,509 → 5,149 b)`.
 - **Pin the message, not just the exit code.** A refusal that still prints "verified" is the same lie with a non-zero
   status: assert the non-zero exit, both sizes present in the output, the shrink named, and `"verified" not in out` on
-  the refusing path.
+  the refusing path. **Compute the expected sizes from the fixture**, never as literals — a literal goes stale the moment
+  the file changes, and the live file can grow between measuring it and committing. Add the mirror test for the success
+  path too (`copied … replaced an existing file`, never `identical`): the refusal half alone leaves the misleading
+  sentence alive on the path production actually runs.
 
 Prove the whole thing on a **sandbox copy** of the destination (`cp -a` the profile or corpus, run the real target
 against it, then check string presence for three rules that must survive). Reproduction on a copy is what turns "this
