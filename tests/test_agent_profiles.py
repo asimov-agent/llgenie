@@ -361,3 +361,29 @@ def test_sync_of_an_unknown_profile_exits_2(tmp_path):
     # Then  it exits 2 and says which profiles it knows
     assert result.returncode == 2
     assert "llgenie-planner" in result.stderr
+
+
+def test_a_truncated_seed_is_refused_rather_than_shrinking_the_live_profile(tmp_path):
+    """The defect this guards: a seed taken from an issue excerpt is a prefix, not an edit.
+
+    `sync` copied whatever the tree held over the live profile, so a 5,149-byte excerpt replaced a
+    7,509-byte rulebook with every gate green. Now the sync refuses and names both sizes.
+    """
+    import agent_profile_sync as sync
+
+    agents = tmp_path / "agents"
+    prof = agents / "someone"
+    prof.mkdir(parents=True)
+    (prof / "SOUL.md").write_text("short seed\n")
+    live = tmp_path / "live"
+    live.mkdir()
+    (live / "SOUL.md").write_text("a much longer, real rulebook\n" * 200)
+
+    assert [(rel, tree, size) for rel, tree, size in sync.shrinks(agents, "someone", live)] == [
+        ("SOUL.md", len("short seed\n"), (live / "SOUL.md").stat().st_size)
+    ]
+    assert sync.write(agents, "someone", live) == 3
+    assert (live / "SOUL.md").stat().st_size > 1000, "the refusal must not have written anything"
+
+    assert sync.write(agents, "someone", live, force=True) == 0
+    assert (live / "SOUL.md").read_text() == "short seed\n", "--force means it"
