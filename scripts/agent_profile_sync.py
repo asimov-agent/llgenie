@@ -65,20 +65,33 @@ def check(agents: Path, name: str, dest: Path) -> int:
               f"sync for {name}", file=sys.stderr)
         return 2
     differing: list[str] = []
+    truncated: list[tuple[str, int, int]] = []
     for path in files:
         rel = _rel(path, agents / name)
         target = dest / rel
         if not target.is_file():
             differing.append(f"{rel} (missing in the profile)")
         elif not filecmp.cmp(path, target, shallow=False):
-            differing.append(f"{rel} (differs: tree {path.stat().st_size} b, profile "
-                             f"{target.stat().st_size} b)")
+            tree_size, live_size = path.stat().st_size, target.stat().st_size
+            differing.append(f"{rel} (differs: tree {tree_size} b, profile {live_size} b)")
+            if live_size > tree_size:
+                truncated.append((rel, tree_size, live_size))
     if differing:
         for line in differing:
             rel = line.split(" (")[0]
             print(f"[agent-profile] DIFFERS {agents.name}/{name}/{rel}: {line}", file=sys.stderr)
+        # A differing file whose LIVE copy is longer is the dangerous direction: syncing it would delete
+        # live behaviour, so `--check` must say that rather than the neutral "differs" (issue #791).
+        for rel, tree_size, live_size in truncated:
+            print(f"[agent-profile] TRUNCATED? {agents.name}/{name}/{rel}: the tree copy is {tree_size} b "
+                  f"and the profile's is {live_size} b — syncing would REPLACE {live_size - tree_size} b of "
+                  f"live behaviour. Re-copy the file FROM the profile before syncing", file=sys.stderr)
         print(f"[agent-profile] {len(differing)} of {len(files)} file(s) differ from {dest} — "
-              f"first: {differing[0].split(' (')[0]}. Run `make sync-agent-profile PROFILE={name}` "
+              f"first: {differing[0].split(' (')[0]}. "
+              + (f"{len(truncated)} of them would SHRINK the live profile, so the tree copy is the "
+                 "truncated one: do not sync it until it is re-copied. "
+                 if truncated else "")
+              + f"Run `make sync-agent-profile PROFILE={name}` "
               "to make the profile the repository's copy", file=sys.stderr)
         return 1
     print(f"[agent-profile] OK: {len(files)} file(s) of {agents.name}/{name} match {dest} "
@@ -86,7 +99,27 @@ def check(agents: Path, name: str, dest: Path) -> int:
     return 0
 
 
-def write(agents: Path, name: str, dest: Path) -> int:
+def shrinking(agents: Path, name: str, dest: Path) -> list[tuple[str, int, int]]:
+    """Files the tree would REPLACE with something shorter than the live copy (issue #791).
+
+    A sync that silently turns a 100 kB rulebook into 20 kB of it is not a sync: it is a truncation with a
+    green exit code. Measured on this host, an in-tree planner seed was 20,297 b against a live 100,031 b,
+    and 5,149 b against 7,509 b — both would have overwritten live behaviour on the first `make
+    sync-agent-profile`. So the size comparison is a REFUSAL, with the numbers printed, and `--force` is
+    the explicit way to say the shrink is intended.
+    """
+    out: list[tuple[str, int, int]] = []
+    for path in profile_files(agents, name):
+        rel = _rel(path, agents / name)
+        target = dest / rel
+        if target.is_file():
+            tree_size, live_size = path.stat().st_size, target.stat().st_size
+            if live_size > tree_size:
+                out.append((rel, tree_size, live_size))
+    return out
+
+
+def write(agents: Path, name: str, dest: Path, force: bool = False) -> int:
     """Copy each file in, then read every one back; a read-back mismatch is a failure."""
     files = profile_files(agents, name)
     if not files:
@@ -98,6 +131,16 @@ def write(agents: Path, name: str, dest: Path) -> int:
     except OSError as exc:
         print(f"[agent-profile] FAIL: cannot create {dest}: {exc}", file=sys.stderr)
         return 2
+    shrunk = shrinking(agents, name, dest)
+    if shrunk and not force:
+        for rel, tree_size, live_size in shrunk:
+            print(f"[agent-profile] REFUSED: {rel} — the tree copy is {tree_size} b and the live file is "
+                  f"{live_size} b; syncing would replace {live_size - tree_size} b of live behaviour with "
+                  f"a shorter file", file=sys.stderr)
+        print(f"[agent-profile] FAIL: {len(shrunk)} file(s) would SHRINK {name}'s live profile — a "
+              f"truncated in-tree copy is not a sync. Re-copy the file from the live profile, or pass "
+              f"--force if the shrink is intended (issue #791)", file=sys.stderr)
+        return 1
     written: list[str] = []
     for path in files:
         rel = _rel(path, agents / name)
@@ -126,6 +169,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="the profile's Hermes home (default: $HERMES_PROFILE_HOME, else "
                              "~/.hermes/profiles/<profile>)")
     parser.add_argument("--root", default=str(REPO_ROOT), help="tree to read (the tests use this)")
+    parser.add_argument("--force", action="store_true",
+                        help="write even when a file would SHRINK the live profile — say so explicitly "
+                             "when the truncation is intended (issue #791)")
     args = parser.parse_args(argv)
 
     root = Path(args.root).resolve()
@@ -149,7 +195,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"[agent-profile] {args.profile}: destination {dest} (from {source})")
     if args.check:
         return check(agents, args.profile, dest)
-    return write(agents, args.profile, dest)
+    return write(agents, args.profile, dest, force=args.force)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,20 @@
+{
+  "note": "Profiles whose SOUL does not yet state the canonical fleet block from agents/standing-rules.md (issue #873, acceptance criterion 1). An entry is legitimate only while it describes a REAL gap: once the profile states the block, `make check-agent-profiles` reports the entry STALE and it must be deleted. Each entry names the vehicle that owns the fix, because a gap with no owner is a gap nobody closes.",
+  "exemptions": [
+    {
+      "profile": "llgenie-architect",
+      "reason": "states the fleet heading with 10 of the 12 canonical bullets (missing 'never assert a list the tree is meant to extend' and 'a body- or SOUL-only change never justifies cancelling a run'); the lane owns its own SOUL and #877 is its vehicle",
+      "owner": "#877"
+    },
+    {
+      "profile": "llgenie-planner",
+      "reason": "states no fleet heading at all; the planner lane authors its own block and hands it to whoever lands #834",
+      "owner": "#834"
+    },
+    {
+      "profile": "llgenie-issse-implementer",
+      "reason": "states no fleet heading at all (a 337-byte stub); the implementer lane writes its own block",
+      "owner": "llgenie-issse-implementer"
+    }
+  ]
+}

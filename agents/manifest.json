@@ -3,7 +3,10 @@
   "profiles": [
     {
       "name": "llgenie-planner",
-      "rules": ["never-implement", "never-merge"]
+      "rules": [
+        "never-implement",
+        "never-merge"
+      ]
     },
     {
       "name": "llgenie-issse-implementer",
@@ -11,7 +14,16 @@
     },
     {
       "name": "llgenie-architect",
-      "rules": ["never-implement", "never-merge"]
+      "rules": [
+        "never-implement",
+        "never-merge"
+      ]
+    },
+    {
+      "name": "llgenie-ci-pipelines-maintainer",
+      "rules": [
+        "never-merge"
+      ]
     }
   ]
 }
