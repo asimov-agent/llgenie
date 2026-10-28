@@ -207,6 +207,20 @@ description: A fixture skill.
     assert any("## Rules" in i["detail"] for i in items if i["key"] == "skill-section")
 
 
+def test_a_decorated_section_heading_is_not_the_section(tmp_path):
+    """`## Rules for reviewers` is not `## Rules`: the gate matches the heading, not a substring."""
+
+    # Given a skill whose heading is decorated rather than the contract's own
+    # When  the guard runs
+    # Then  the section counts as missing (issue #805)
+    body = GOOD_SKILL.format(name="demo").replace("## Rules", "## Rules for reviewers")
+    root = make_tree(tmp_path, leg_line(),
+                     {"demo": body, "bot-unattended": GOOD_SKILL.format(name="bot-unattended")})
+    items = guard.findings(root)
+    assert "skill-section" in {i["key"] for i in items}
+    assert any("## Rules" in i["detail"] for i in items if i["key"] == "skill-section")
+
+
 def test_a_skill_nothing_preloads_is_reported(tmp_path):
     """A contract no leg loads is dead weight, not a rule."""
 
@@ -250,6 +264,55 @@ def test_a_host_skill_still_owes_its_contract_sections(tmp_path):
     items = guard.findings(root)
     assert "skill-section" in {i["key"] for i in items}
     assert any(host in i["where"] for i in items if i["key"] == "skill-section")
+
+
+def test_a_host_skill_is_exempt_from_the_unused_rule(tmp_path, monkeypatch):
+    """A skill no leg can preload is a HOST skill, admitted by name — not dead weight (issue #805)."""
+
+    # Given a skill no leg names, admitted by name in HOST_SKILLS
+    # When  the guard runs
+    # Then  the unused-skill rule does not fire for it
+    monkeypatch.setattr(guard, "HOST_SKILLS", frozenset({"operator-loop"}))
+    root = make_tree(tmp_path, leg_line(),
+                     {"demo": GOOD_SKILL.format(name="demo"),
+                      "bot-unattended": GOOD_SKILL.format(name="bot-unattended"),
+                      "operator-loop": GOOD_SKILL.format(name="operator-loop")})
+    items = guard.findings(root)
+    assert "skill-unused" not in {i["key"] for i in items}
+    assert not any("operator-loop" in i["where"] for i in items), items
+
+
+def test_a_host_skill_admitted_by_name_still_owes_its_contract(tmp_path, monkeypatch):
+    """Admission is by NAME, never by shape: a host skill owes Inputs/Output/Rules like any other."""
+
+    # Given an admitted host skill that is missing `Rules`
+    # When  the guard runs
+    # Then  the hole in the contract is still a finding
+    monkeypatch.setattr(guard, "HOST_SKILLS", frozenset({"operator-loop"}))
+    body = GOOD_SKILL.format(name="operator-loop").replace("## Rules\n\n- a fixture rule\n", "")
+    root = make_tree(tmp_path, leg_line(),
+                     {"demo": GOOD_SKILL.format(name="demo"),
+                      "bot-unattended": GOOD_SKILL.format(name="bot-unattended"),
+                      "operator-loop": body})
+    items = guard.findings(root)
+    assert "skill-section" in {i["key"] for i in items}
+    assert any("## Rules" in i["detail"] for i in items if i["key"] == "skill-section")
+
+
+def test_this_tree_admits_the_architecture_pass_host_skill():
+    """The architecture pass is in the tree, reported as a host skill, and its rules survive."""
+
+    # Given this repository as it is checked out
+    # When  the guard reports
+    # Then  the host skill is admitted by name and carries the measurement rule
+    assert "llgenie-architecture-pass" in guard.HOST_SKILLS
+    report = guard.report(REPO)
+    assert "llgenie-architecture-pass: host-skill" in report, report
+    body = (REPO / ".hermes" / "skills" / "llgenie-architecture-pass" / "SKILL.md").read_text(encoding="utf-8")
+    assert "commits/main" in body, "the sha rule must name the API, not the checkout"
+    assert "never the working checkout" in body
+    for section in guard.REQUIRED_SECTIONS:
+        assert section in body, f"{section} missing from the host skill"
 
 
 def test_the_retired_rules_file_is_refused(tmp_path):

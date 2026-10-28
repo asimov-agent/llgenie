@@ -308,6 +308,27 @@ issue, never prose.
   with no `- [ ]` item, an `AGENTS.md` that has lost this section, and an issue skill that no longer
   states the shape. `make issue-bodies-report` prints what it reads.
 
+## An issue's numbers name the commit they were measured on (MANDATORY, durable)
+
+An issue that asserts a count, a file path or a line number is making a claim about **one commit**. Name
+it in `## Technical`, and take `main` from the API — never from the checkout you happen to be standing in,
+which is routinely parked on a feature branch:
+
+```bash
+gh api repos/asimov-agent/llgenie/commits/main --jq .sha      # the sha the issue will cite
+git worktree add --detach ../llgenie-wt/<name> origin/main    # a read-only tree of that sha
+```
+
+State the counting method beside every number a reader could reproduce differently: targets come from
+`make -qp`, not a line regex; "files containing the call" and "test modules containing the call" are
+different denominators and both must be named. When two populations share a number, name the population —
+a count that is right but answers a different question is worse than no count.
+
+A number that is challenged is **re-measured, and the body is corrected** — not just a comment, because the
+implementer reads the body. The comment carries the delta: the claim, what was filed, what it measures, and
+whether the correction rescopes an acceptance criterion. Six issues were once filed against a PR tip while
+claiming `main`; three needed rescoping after an independent re-measure.
+
 ## Every PR body and commit message carries the issue, the fix and the benefit (MANDATORY, durable)
 
 A commit and a PR are read on their own. A reviewer, a `git log`, a `git bisect` must learn from

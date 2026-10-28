@@ -6,6 +6,10 @@ contract each bot runs under: `Inputs` says what the host prepared, `Output` say
 leg may write, `Rules` says what it must not do. A skill no leg can load (it needs a GPU) is a HOST
 skill: the same contract shape, admitted by name in `HOST_SKILLS`, run by an operator on a host.
 
+A skill **no CI leg preloads** — an operator loop a host runs on demand — is a HOST skill: the same
+contract shape, admitted by name in `HOST_SKILLS` (`scripts/check_agent_skills.py`), exempt from the
+unused-skill rule only, and still owing frontmatter and `Inputs`/`Output`/`Rules`.
+
 The repo's `skills/engines/` is a different thing: those describe inference servers and are read by
 `scripts/engine_skills.py` → `make generate-engine-params`, never by an agent.
 
@@ -22,10 +26,12 @@ The repo's `skills/engines/` is a different thing: those describe inference serv
 | `rebase-conflict` | `make rebase-bot-agent` | resolve a stopped rebase |
 | `pr-fix` | `make fix-loop-image` | repair a red PR check |
 | `llgenie-engine-improver` | **no leg** — host skill | the engine loop a GPU host runs: sync → skill → params/image → tune → picker |
+| `llgenie-architecture-pass` | **no leg** — host skill | the architecture pass a host agent runs: measure `origin/main` → audit → file issues |
 
-`llgenie-engine-improver` is the one HOST skill: an operator loop that needs a real GPU, so no CI leg
-preloads it. It is admitted by name in `HOST_SKILLS` (`scripts/check_agent_skills.py`) and is exempt
-from the unused-skill rule only — it still owes frontmatter and `Inputs`/`Output`/`Rules`.
+`llgenie-engine-improver` and `llgenie-architecture-pass` are the HOST skills: operator loops a host
+runs on demand (the engine loop needs a real GPU; the architecture pass needs a host checkout), so no
+CI leg preloads them. They are admitted by name in `HOST_SKILLS` (`scripts/check_agent_skills.py`) and
+are exempt from the unused-skill rule only — they still owe frontmatter and `Inputs`/`Output`/`Rules`.
 
 Rules for adding one:
 
