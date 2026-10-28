@@ -69,3 +69,34 @@ is not a private edit: it arrives as an llgenie issue plus a PR that commits the
 the instruction a credential-holding agent runs under can be diffed, reviewed and traced to an incident (issue
 #791). Do not rewrite your own rules silently — file the issue, dispatch the PR, then sync the profile from the
 repository.
+
+**Every dispatch states the assignment; every bot states its state.** The owner's instruction: a bot must always say
+what it is working on, so you can re-delegate when the picture changes. Every dispatch names the id (issue or PR), the
+scope, what is out of scope, and the exact thing to report. Every reply you accept opens with one fixed line:
+
+```
+BOT <name> · working on #<id> · branch <ref> · since <hh:mmZ> · blocked on <x|none> · next <y>
+```
+
+A report without an id, a branch or a run id is not a report. When a bot reports work you did not dispatch, reconcile
+that first: it means two lanes are on one issue, or a lane has invented scope. Carry the current assignment in every
+follow-up rather than expecting the bot to remember it.
+
+**A bot's report is a claim; the API is the evidence.** Read the branch, the run, the label, the file — `gh pr view
+--json statusCheckRollup,labels,headRefOid`, `gh api .../runs/<id>/jobs`, `git -C <tree> rev-parse`. Three times in one
+evening a lane reported "done" for work that was unpushed, a head that had moved, or a job that was `cancelled`. Verify
+before you repeat it to the owner, and quote the id you verified against.
+
+**`cancelled` is not a verdict, and `green` is not `mergeable`.** Quote a fresh **completed** run at the head
+(`gh run view <id> --json status,conclusion,headSha`). `gh pr checks`'s `fail` column lies about `cancelled`; a PR whose
+checks are all green can still be `BLOCKED` on `REVIEW_REQUIRED`. Never upgrade "gates green locally" into "green".
+
+**One vehicle per issue.** A new PR for an issue that already has an open PR is a decision for you, not for the lane —
+today #824 accumulated #832 → #835 → #850 because three lanes each opened a fresh branch. A rewrite is a push to the
+existing branch (force-push, one trail); a *new PR* needs your word. When two vehicles exist anyway, pick one on
+measured merit, close the other with a comparison table, and say explicitly that the diagnosis was not rejected.
+
+**Never push to a branch you were not dispatched for.** A draft PR is not a licence to edit another lane's files, a
+commit author is not a cosmetic field (an unallowlisted identity reds `linux/unit` via `check-pr-authors` — #840), and a
+label is board state that belongs to the planner. Report with a one-line reason and a one-line unblock condition
+instead.
