@@ -197,6 +197,48 @@ def _gh(args: list[str], repo: str) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True)
 
 
+def _gh_api(args: list[str]) -> subprocess.CompletedProcess:
+    """`gh api` takes no `--repo` — the full path is the repository, so this runs bare."""
+    cmd = ["gh", "api", *args]
+    print(f"[security-issues] $ {' '.join(cmd)}")
+    return subprocess.run(cmd, capture_output=True, text=True)
+
+
+def labels_of(repo: str, number: int) -> set[str]:
+    """The labels the issue ACTUALLY carries, read back from the tracker."""
+    res = _gh_api([f"repos/{repo}/issues/{number}/labels", "--jq", ".[].name"])
+    if res.returncode != 0:
+        raise SystemExit(f"[security-issues] cannot read the labels of #{number}: "
+                         f"{res.stderr.strip()}")
+    return {name.strip() for line in (res.stdout or "").splitlines()
+            for name in line.split(",") if name.strip()}
+
+
+def set_labels(repo: str, number: int, labels: list[str]) -> None:
+    """Label the issue explicitly and PROVE it stuck.
+
+    `gh issue create --label <name>` is silently dropped on the runner path (measured: the
+    registry-sync change issues, #724; then again on the four security issues this pipeline filed
+    from run 40693161435, #781-#784 — every one of them arrived with zero labels). An issue that
+    exists but carries no label is invisible to `security_bot.pick`, which selects on labels, so
+    the finding is filed where nobody looks. Two writes (create flag dropped, then this POST) and a
+    read-back that FAILS the step instead of warning.
+    """
+    args = ["-X", "POST", f"repos/{repo}/issues/{number}/labels"]
+    for label in labels:
+        args += ["-f", f"labels[]={label}"]
+    res = _gh_api(args)
+    if res.returncode != 0:
+        raise SystemExit(f"[security-issues] could not label #{number}: {res.stderr.strip()}")
+    have = labels_of(repo, number)
+    missing = [label for label in labels if label not in have]
+    if missing:
+        raise SystemExit(
+            f"[security-issues] #{number} is missing {', '.join(missing)} after the label write — "
+            "an unlabelled security issue is invisible to the bot that fixes it, so the step fails")
+    print(f"[security-issues] labelled #{number}: {', '.join(labels)}")
+
+
 def existing_issues(repo: str, label: str = "security") -> dict[str, dict]:
     """`{marker key: {number, body, labels}}` for every open security issue."""
     res = _gh(["issue", "list", "--label", label, "--state", "open", "--limit", "200",
@@ -235,12 +277,21 @@ def apply(findings: list[Finding], repo: str, run_url: str = "") -> int:
         res = _gh(args, repo)
         if res.returncode != 0:
             raise SystemExit(f"[security-issues] create failed for {finding.key}: {res.stderr.strip()}")
+        number = res.stdout.strip().rstrip("/").rsplit("/", 1)[-1]
+        if not number.isdigit():
+            raise SystemExit(f"[security-issues] create for {finding.key} printed no issue number: "
+                             f"{res.stdout.strip()!r}")
+        # The `--label` flags above are not trusted: they are dropped on the runner path (#724,
+        # #781-#784). The POST + read-back is what makes the issue routable.
+        set_labels(repo, int(number), finding.labels)
         print(f"[security-issues] created: {finding.key} -> {res.stdout.strip()}")
     for finding in actions["update"]:
         issue = existing[finding.key]
         res = _gh(["issue", "edit", str(issue["number"]), "--body", body_for(finding, run_url)], repo)
         if res.returncode != 0:
             raise SystemExit(f"[security-issues] update failed for #{issue['number']}: {res.stderr.strip()}")
+        # An existing issue that lost its labels is re-labelled, not left unroutable (#724).
+        set_labels(repo, int(issue["number"]), finding.labels)
         print(f"[security-issues] updated: {finding.key} -> #{issue['number']}")
     for key in actions["clear"]:
         issue = existing[key]

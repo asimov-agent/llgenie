@@ -20,6 +20,9 @@ import security_issues as si  # noqa: E402
 
 POLICY = {"fail_on": ["critical", "high"], "pr_fail_on": ["critical"],
           "require_fix": True, "issue_severities": ["critical", "high"]}
+#: Every label a finding can carry: what the stub answers when a label read-back is requested.
+LOUD = ("security,vulnerability,severity:critical,severity:high,component:python,"
+        "component:container,auto-fixable")
 TRIVY = {"Results": [{"Vulnerabilities": [
     {"VulnerabilityID": "CVE-1", "PkgName": "numpy", "InstalledVersion": "1.0",
      "FixedVersion": "1.1", "Severity": "CRITICAL"},
@@ -45,7 +48,9 @@ def _gh_stub(tmp_path: Path, monkeypatch) -> Path:
         "#!/usr/bin/env python3\n"
         "import json, os, sys\n"
         "open(os.environ['GH_STUB_LOG'], 'a').write(json.dumps(sys.argv[1:]) + '\\n')\n"
-        "if 'list' in sys.argv[1:3]:\n"
+        "if sys.argv[1:2] == ['api'] and any('labels' in a for a in sys.argv):\n"
+        f"    print(os.environ.get('GH_STUB_LABELS', '{LOUD}'))\n"
+        "elif 'list' in sys.argv[1:3]:\n"
         "    print(os.environ.get('GH_STUB_LIST', '[]'))\n"
         "else:\n"
         "    print('https://github.com/o/r/issues/1')\n",
@@ -160,6 +165,43 @@ def test_apply_creates_then_updates_the_same_issue(tmp_path, monkeypatch):
     calls = _calls(log)
     assert not [c for c in calls if c[:2] == ["issue", "create"]]
     assert len([c for c in calls if c[:2] == ["issue", "edit"]]) == 2
+
+
+def test_a_dropped_label_fails_the_step_instead_of_filing_an_invisible_issue(tmp_path, monkeypatch):
+    """The label is probed, not assumed: create's `--label` is dropped on the runner path (#724)."""
+
+    # Given a gh whose label read-back answers with one label whatever was written
+    log = _gh_stub(tmp_path, monkeypatch)
+    findings = si.issue_findings(_reports(tmp_path), POLICY)
+    monkeypatch.setenv("GH_STUB_LABELS", "security")
+
+    # When  apply files an issue whose labels did not stick
+    try:
+        si.apply(findings, "o/r")
+    except SystemExit as exc:
+        assert "invisible to the bot that fixes it" in str(exc), exc
+    else:                                        # pragma: no cover - the failure is the assertion
+        raise AssertionError("an unlabelled issue must fail the step")
+
+    # Then  the explicit POST was attempted first (create's --label is never the whole write)
+    assert [c for c in _calls(log) if c[:1] == ["api"] and "-X" in c and "POST" in c]
+
+
+def test_the_label_read_back_is_what_the_issue_carries(tmp_path, monkeypatch):
+    """A successful run proves the labels by reading them back, not by trusting the create flag."""
+
+    # Given a tracker that keeps the labels
+    log = _gh_stub(tmp_path, monkeypatch)
+
+    # When  apply files the findings
+    si.apply(si.issue_findings(_reports(tmp_path), POLICY), "o/r")
+
+    # Then  every created issue was followed by a POST and a read-back
+    calls = _calls(log)
+    posts = [c for c in calls if c[:1] == ["api"] and "-X" in c and "POST" in c]
+    reads = [c for c in calls if c[:1] == ["api"] and "repos/o/r/issues/1/labels" in c
+             and "--jq" in c]
+    assert len(posts) == 2 and len(reads) == 2
 
 
 def test_a_vanished_finding_is_closed(tmp_path, monkeypatch):
