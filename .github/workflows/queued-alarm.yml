@@ -36,51 +36,23 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  guard:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+  probe-15-intel:
+    name: probe macos-15-intel
+    runs-on: macos-15-intel
+    timeout-minutes: 5
     steps:
-      - name: Owner / collaborator trigger guard
-        env:
-          ACTOR: ${{ github.actor }}
-          TRIGGER: ${{ github.triggering_actor }}
-          OWNER: ${{ github.repository_owner }}
-          REPO: ${{ github.repository }}
-          # The run's head repository: empty for every non-PR event (issue #510).
-          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name || '' }}
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          for u in "$ACTOR" "$TRIGGER"; do
-            if [ "$u" = "$OWNER" ]; then continue; fi
-            # The repository's own bot is a GitHub App login, so it is never a collaborator and the
-            # permission read below answers 404 -> `none`: every bot-opened PR was refused (run
-            # 39650944430, #495). It may pass ONLY when the run's head is a branch in THIS repository —
-            # a same-repo head can be produced only by a token with write access — while the bot as the
-            # actor of a FOREIGN head (a bot commenting on a stranger's PR) is still refused (#510).
-            if [ "$u" = "github-actions[bot]" ] && [ -n "${HEAD_REPO:-}" ] && [ "${HEAD_REPO:-}" = "$REPO" ]; then
-              echo "Repository bot $u on a same-repo head ($HEAD_REPO) - allowed."
-              continue
-            fi
-            perm=$(gh api "repos/$REPO/collaborators/$u/permission" --jq .permission 2>/dev/null || echo none)
-            case "$perm" in
-              admin|maintain|write) echo "Collaborator $u has $perm - allowed." ;;
-              *) echo "Refused: $u is not the owner or a collaborator with write access (permission: ${perm:-none})."; exit 1 ;;
-            esac
-          done
-          echo "Allowed: actor=$ACTOR triggering_actor=$TRIGGER"
-  alarm:
-    needs: [guard]
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+      - run: sw_vers && uname -m
+
+  probe-14:
+    name: probe macos-14
+    runs-on: macos-14
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Report jobs queued far too long, delivered to the run's PR (else one issue per stuck label)
-        env:
-          # It comments on a PR / files ONE deduped issue: `issues: write` is declared above and
-          # granted to github.token, while the owner PAT carries no Issues write (issue #412).
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          make queued-alarm REPO="${{ github.repository }}" \
-            MINUTES="${{ inputs.minutes || '30' }}" COMMENT=1
+      - run: sw_vers && uname -m
+
+  probe-13:
+    name: probe macos-13
+    runs-on: macos-13
+    timeout-minutes: 5
+    steps:
+      - run: sw_vers && uname -m
