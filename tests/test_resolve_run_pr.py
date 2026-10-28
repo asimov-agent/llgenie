@@ -232,3 +232,60 @@ def test_the_fix_bot_workflow_resolves_through_the_lenient_target():
     assert "--allow-none" in lenient, lenient
     assert "--allow-none" not in strict, strict
     assert "--allow-none" not in WORKFLOW, "the merge gate must keep its loud failure"
+
+
+# ---------------------------------------------------------------------------------------------------
+# issue #897: a head whose PR already merged or closed is a NON-EVENT, not a dropped green PR
+def test_a_landed_pr_head_is_an_answer_and_the_gate_ends_cleanly(tmp_path, monkeypatch, capsys):
+    """A completed CI run can arrive after its PR merged; nothing to merge, nothing to fix."""
+
+    # Given a run whose head has no OPEN PR, but whose PR exists and is MERGED
+    monkeypatch.setattr(rr, "run_pr_number", lambda *a, **k: None)
+    monkeypatch.setattr(rr, "open_pr_for_head", lambda *a, **k: None)
+    monkeypatch.setattr(rr, "landed_pr_for_head", lambda *a, **k: (12, "MERGED"))
+
+    # When  the merge gate resolves it
+    rc = rr.main(["resolve", "--repo", "o/r", "--run-id", "40749229861",
+                  "--head-owner", "asimov-agent", "--head-branch", BRANCH])
+
+    # Then  it is green, and the log says which PR and which state
+    err = capsys.readouterr().err
+    assert rc == 0, err
+    assert "nothing to merge" in err and "#12" in err and "MERGED" in err, err
+
+
+def test_a_head_that_never_had_a_pr_still_fails_loudly(tmp_path, monkeypatch, capsys):
+    """The case the original message protects: something was built that nobody can review."""
+
+    # Given a head with no PR in ANY state
+    monkeypatch.setattr(rr, "run_pr_number", lambda *a, **k: None)
+    monkeypatch.setattr(rr, "open_pr_for_head", lambda *a, **k: None)
+    monkeypatch.setattr(rr, "landed_pr_for_head", lambda *a, **k: None)
+
+    # When  the merge gate resolves it
+    rc = rr.main(["resolve", "--repo", "o/r", "--run-id", "1",
+                  "--head-owner", "asimov-agent", "--head-branch", BRANCH])
+
+    # Then  it still fails, with the original message
+    err = capsys.readouterr().err
+    assert rc == 1, err
+    assert "must never be silently dropped" in err, err
+
+
+def test_the_landed_lookup_filters_by_head_owner_and_branch_through_the_api():
+    """`head=owner:branch` is the only form that works for a FORK head, and every bot PR is one.
+
+    `gh pr list --search head:<branch>` matches same-repo branches only - the trap this module's own
+    docstring records for #508. Using it here would leave the false red for exactly the PRs it is for.
+    """
+
+    import inspect
+
+    source = inspect.getsource(rr.landed_pr_for_head)
+    # source 1: the exact REST filter, which answers for a head in THIS repository
+    assert "pulls?state=all&head=" in source, source
+    assert "{head_owner}:{head_branch}" in source, source
+    # source 2: the search form, which answers for a FORK head - measured: head=asimov-agent:<branch>
+    # answers `867 closed` while head=andyholst:<branch> answers nothing for the same PR, and 12 of the
+    # last 40 PRs in this repository have fork heads, so one source alone misses half of them
+    assert '"--search"' in source, source

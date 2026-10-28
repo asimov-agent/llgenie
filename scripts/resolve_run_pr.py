@@ -44,6 +44,13 @@ import sys
 
 #: The owner is a login from the run object, never shell-expanded: it is passed to `gh` as argv.
 _OWNER_JQ = '.[] | select(.headRepositoryOwner.login=="{}") | .number'
+#: The same filter for a PR in ANY state (issue #897), joined into "<number> <state>".
+_LANDED_JQ = (r'[.[] | select(.state != "OPEN")] | first | "\(.number) \(.state)"')
+#: The search-form filter for the SAME question (#897): `gh pr list --search head:<branch>
+#: --state all`, rendered as "<number> <state>" for the PR whose head owner we were given.
+_LANDED_SEARCH_JQ = ('.[] | select(.headRepositoryOwner.login == "{}") | "\\(.number) \\(.state)"')
+
+
 
 
 class ResolutionError(RuntimeError):
@@ -77,6 +84,40 @@ def open_pr_for_head(repo: str, head_owner: str, head_branch: str, gh: str = "gh
     return _first_number(done.stdout)
 
 
+def landed_pr_for_head(repo: str, head_owner: str, head_branch: str,
+                       gh: str = "gh") -> "tuple[int, str] | None":
+    """The CLOSED or MERGED PR whose head is this branch — an answer, not a drop (issue #897).
+
+    A completed `CI` run can arrive after its PR was merged or closed (a bot branch that landed, a branch
+    that was abandoned). There is nothing to merge and nothing a human can do, so the merge gate must end
+    cleanly; the message still names the PR and its state, so the log says which case it was.
+
+    TWO sources, in this order, for the same reason `resolve()` has two: the REST filter
+    `head=<owner>:<branch>` is exact when the head lives in this repository, and a **fork** head is the
+    case the search form handles. Measured on 2026-10-28: `head=asimov-agent:ci/844-…` answers
+    `867 closed`, while `head=andyholst:ci/844-…` answers nothing for the same PR, so a single-source
+    lookup would miss half the heads this repository actually produces (12 of the last 40 PRs are forks).
+    """
+    done = _gh(gh, ["api", f"repos/{repo}/pulls?state=all&head={head_owner}:{head_branch}&per_page=100",
+                    "--jq", _LANDED_JQ])
+    found = _first_landed(done.stdout)
+    if found:
+        return found
+    # the search form: it resolves a head whose PR was opened from another repository
+    done = _gh(gh, ["pr", "list", "--repo", repo, "--search", f"head:{head_branch}", "--state", "all",
+                    "--json", "number,state,headRepositoryOwner", "--jq", _LANDED_SEARCH_JQ.format(head_owner)])
+    return _first_landed(done.stdout)
+
+
+def _first_landed(stdout: str) -> "tuple[int, str] | None":
+    """`"<number> <state>"` from a `gh` answer, or None when the answer names no PR."""
+    lines = [line.strip() for line in (stdout or "").splitlines() if line.strip()]
+    if not lines:
+        return None
+    number, _, state = lines[0].partition(" ")
+    return (int(number), (state.strip() or "UNKNOWN")) if number.isdigit() else None
+
+
 def resolve(repo: str, run_id: int, head_owner: str, head_branch: str, gh: str = "gh") -> int:
     """The PR number for the run, from the run object first and the head branch second."""
     number = run_pr_number(repo, run_id, gh)
@@ -108,6 +149,14 @@ def main(argv: list[str] | None = None) -> int:
         number = resolve(args.repo, args.run_id, args.head_owner, args.head_branch, args.gh)
     except ResolutionError as exc:
         if not args.allow_none:
+            # issue #897: a head whose PR already merged or closed is a non-event, not a dropped green
+            # PR - and a red run for it is a control that fires when nothing is wrong.
+            landed = landed_pr_for_head(args.repo, args.head_owner, args.head_branch, args.gh)
+            if landed:
+                number, state = landed
+                print(f"[auto-merge-resolve] nothing to merge: PR #{number} for head "
+                      f"{args.head_owner}:{args.head_branch} is {state} (issue #897)", file=sys.stderr)
+                return _emit(label, "", args)
             print(f"[auto-merge-resolve] {exc}", file=sys.stderr)
             return 1
         # The fix-bot's own case (issue #629): the run's PR already merged or closed, so there is no
