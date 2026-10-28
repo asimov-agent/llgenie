@@ -27,10 +27,9 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "scripts"))
 
-import model_engine_pick as MP  # noqa: E402
-import strata_models as SM  # noqa: E402
+from scripts import model_engine_pick as MP
+from scripts import strata_models as SM
 
 HF_FAMILY = "https://huggingface.co/ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF/resolve/" \
             "ed59f92082b1e93c0e96d60a8b11aab089b52f09/{q}/"

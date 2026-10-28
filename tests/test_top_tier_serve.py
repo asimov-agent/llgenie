@@ -26,7 +26,6 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO))
 import scripts.llgenie_serve as llgenie_serve  # noqa: E402
 
 pytestmark = pytest.mark.acceptance

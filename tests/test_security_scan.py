@@ -17,8 +17,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
-import security_scan as ss  # noqa: E402
+from scripts import security_scan as ss
 
 TRIVY_OK = {"Results": [{"Vulnerabilities": [
     {"VulnerabilityID": "CVE-1", "PkgName": "numpy", "InstalledVersion": "1.0",

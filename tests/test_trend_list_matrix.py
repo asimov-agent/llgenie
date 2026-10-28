@@ -10,15 +10,13 @@ new list.
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
-import model_engine_pick as mp  # noqa: E402
-import trend_list_matrix as tlm  # noqa: E402
+from scripts import model_engine_pick as mp
+from scripts import trend_list_matrix as tlm
 
 FIXTURE = REPO / "tests" / "fixtures" / "trend-list-matrix.json"
 GOLDEN = json.loads(FIXTURE.read_text())

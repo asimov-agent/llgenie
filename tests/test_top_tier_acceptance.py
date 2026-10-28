@@ -21,7 +21,6 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO))
 import scripts.hf_auth as hf_auth  # noqa: E402
 import scripts.llgenie_serve as llgenie_serve  # noqa: E402
 from top_tier_dry_run import run_dry_run  # noqa: E402  (issue #399: bounded retry)

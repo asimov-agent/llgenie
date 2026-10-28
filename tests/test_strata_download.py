@@ -20,11 +20,9 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
-sys.path.insert(0, str(REPO / "tests"))
-import hf_auth  # noqa: E402
-import model_engine_pick as mp  # noqa: E402
-import strata_models as sm  # noqa: E402
+from scripts import hf_auth
+from scripts import model_engine_pick as mp
+from scripts import strata_models as sm
 from ptydrive import Pty  # noqa: E402
 
 SERVE = REPO / "scripts" / "llgenie_serve.py"

@@ -15,14 +15,12 @@ NO-SKIP POLICY: a missing prerequisite is a LOUD FAILURE, never a skip.
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 
 import yaml
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
-import check_workflows as cw  # noqa: E402
+from scripts import check_workflows as cw
 
 #: The exact text that shipped in engine-bump-rebase.yml and made GitHub refuse the file.
 PRE_FIX_COMMENT = ("          # folded into one `${{ ... }}` so the mode this run took is readable "

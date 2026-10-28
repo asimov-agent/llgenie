@@ -19,8 +19,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
-import unit_tests as ut  # noqa: E402
+from scripts import unit_tests as ut
 
 CLI = REPO / "scripts" / "unit_tests.py"
 ROSTER = REPO / "tests" / "fixtures" / "unit-suite.json"
