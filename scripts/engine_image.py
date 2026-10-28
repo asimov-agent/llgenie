@@ -980,6 +980,38 @@ def matrix(ci: bool = False, changed: str = "", params_dir=None,
     return out
 
 
+def base_matrix(changed: str = "", root=None) -> list[dict]:
+    """One row per shared-base toolchain whose rendered Dockerfile differs from `changed`.
+
+    The base Dockerfiles are generated (`containers/engines/base/Dockerfile.<backend>` is
+    `render_base_dockerfile()`), so "did this backend's toolchain change" is a text comparison, not a
+    build: the same inputs that make the tag. Every PR used to queue FOUR `engine-base-*` jobs to
+    rebuild toolchains it had not touched (measured: a security-script PR queued 28 jobs, 4 of them
+    base rows); with `changed` set they collapse to the one `none` placeholder row, which `ci.yml`
+    skips per step — the matrix stays legal and nothing is silently dropped. Without `changed`
+    (a push whose `before` is unknown) every backend is included: the full sweep.
+    """
+    root = Path(root) if root else Path(__file__).resolve().parents[1]
+    rows: list[dict] = []
+    for backend in ("cpu", "cuda", "rocm", "vulkan"):
+        rel = f"containers/engines/base/Dockerfile.{backend}"
+        same = False
+        if changed:
+            try:
+                old = subprocess.run(["git", "show", f"{changed}:{rel}"], cwd=root,
+                                     capture_output=True, text=True)
+            except OSError:
+                old = None
+            same = bool(old) and old.returncode == 0 and old.stdout == es.render_base_dockerfile(backend)
+        if not same:
+            rows.append({"backend": backend})
+    if not rows:
+        # GitHub fails a workflow whose include list is empty BEFORE the job if: is evaluated
+        # (run 38105450418); one placeholder row keeps the matrix legal and ci.yml skips it.
+        rows.append({"backend": "none"})
+    return rows
+
+
 def ci_status(run: str = "", watch: bool = False, interval: int = 60) -> int:
     """Summarise the CI engine-image jobs (gh CLI) for the current branch."""
     branch = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True,
@@ -1039,6 +1071,9 @@ def main(argv=None) -> int:
     m.add_argument("--changed", default="", help="ref: only images whose tag differs from it")
     m.add_argument("--engine", default="", help="only this engine id (the dispatched sweep)")
     m.add_argument("--arch", default="", help="only this backend/variant")
+    bm = sub.add_parser("base-matrix", help="the shared base toolchains whose inputs differ from a ref")
+    bm.add_argument("--json", action="store_true")
+    bm.add_argument("--changed", default="", help="ref: only toolchains whose Dockerfile differs from it")
     a = ap.parse_args(argv)
 
     if a.cmd == "build-base":
@@ -1047,6 +1082,10 @@ def main(argv=None) -> int:
         return ci_status(a.run, a.watch)
     if a.cmd == "ensure-env":
         return 0 if ensure_container_env() else 1
+    if a.cmd == "base-matrix":
+        rows = base_matrix(a.changed)
+        print(json.dumps({"include": rows}) if a.json else "\n".join(r["backend"] for r in rows))
+        return 0
     if a.cmd == "matrix":
         rows = matrix(a.ci, a.changed, engine=a.engine, arch=a.arch)
         print(json.dumps({"include": rows}) if a.json else

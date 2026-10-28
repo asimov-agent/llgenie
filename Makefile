@@ -79,7 +79,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	security-bumps security-bumps-plan check-security-bumps \
 	agent-shell-keys-check \
 	agent-fetch search-smoke require-env web-coverage issue-evidence \
-	engine-bump-rebase generate-engine-params check-engine-params check-engine-coverage engine-coverage-report check-engine-source engine-source-report build-engine run-engine stop-engine list-engine-images engine-build-matrix ci-lint ci-unit ci-agents-read ci-scope \
+	engine-bump-rebase generate-engine-params check-engine-params check-engine-coverage engine-coverage-report check-engine-source engine-source-report build-engine run-engine stop-engine list-engine-images list-engine-base-images engine-build-matrix ci-lint ci-unit ci-agents-read ci-scope \
 	ci-openspec ci-cpu-health ci-top-tier ci-install ci-install-dry-args ci-free-disk test-engine-stage bot-sync-main bot-sync-branch ci-wait-engine-images \
 	ci-install-dry ci-install-run ci-install-uninstall test-env test-top-tier test-top-tier-ci test-top-tier-cli-ci test-top-tier-serve test-top-tier-serve-ci \
 	check-agent-model model-pin-report check-agent-skills agent-skills-report test-agent-skills-live hermes-skills-register \
@@ -1085,6 +1085,8 @@ engine-bump-daily: ## Issue #107: plan -> bump every moved engine (DRY=1 prints 
 	@$(PY) scripts/engine_bump.py bump-daily $(if $(DRY),--dry,)
 list-engine-images: ## List every engine x arch variant (CI=1: only CI variants, JSON=1: GitHub matrix JSON; CHANGED=<ref> keeps only images whose tag differs from it)
 	@python3 scripts/engine_image.py matrix $(if $(CI),--ci,) $(if $(JSON),--json,) $(if $(CHANGED),--changed $(CHANGED),)
+list-engine-base-images: ## List the shared base toolchains (JSON=1: GitHub matrix JSON; CHANGED=<ref> keeps only toolchains whose Dockerfile differs from it)
+	@python3 scripts/engine_image.py base-matrix $(if $(JSON),--json,) $(if $(CHANGED),--changed $(CHANGED),)
 engine-build-matrix: ## The JSON matrix the dispatched engine-build workflow builds: every engine x variant at its committed pin (ENGINE=<id>, ARCH=<backend> narrow it; CI variants only)
 	@python3 scripts/engine_image.py matrix --json --ci $(if $(ENGINE),--engine "$(ENGINE)",) $(if $(ARCH),--arch "$(ARCH)",)
 test-engine-image: ## GPU images on GPU-less CI: run tests/test_engine_version.py (entrypoint `version`; needs a GPU to serve)

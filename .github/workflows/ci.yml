@@ -195,11 +195,13 @@ jobs:
   #     not rebuilt. cpu images are started and curl-tested (make test-engine).
   # ------------------------------------------------------------------
   engine-base:
-    needs: [guard]
+    # Issue #817: gated by CHANGED like the engine matrix. A PR that touches no base toolchain gets the
+    # one `none` row (ci.yml skips it per step, exactly as engine-image does); an empty include list is
+    # illegal, and a job-level `if:` is forbidden here (tests/test_ci_images.py).
+    needs: [engine-matrix]
     strategy:
       fail-fast: false
-      matrix:
-        backend: [cpu, cuda, rocm, vulkan]
+      matrix: ${{ fromJSON(needs.engine-matrix.outputs.base) }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -215,10 +217,14 @@ jobs:
       PUBLISH: ${{ github.event_name == 'push' && '1' || '' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        if: ${{ matrix.backend != 'none' }}
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        if: ${{ matrix.backend != 'none' }}
       - name: Log in to GHCR (every run is a push run and publishes)
+        if: ${{ matrix.backend != 'none' }}
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
       - name: make build-engine-base BACKEND=${{ matrix.backend }} (PUSH=1 on push runs)
+        if: ${{ matrix.backend != 'none' }}
         run: make build-engine-base BACKEND=${{ matrix.backend }} PUSH=$PUBLISH
 
   engine-matrix:
@@ -232,6 +238,10 @@ jobs:
       # in `engine-image` and runs only on a push event for a real (non-`none`) row — those are the two
       # facts this output states, and nothing is inferred from the diff's classification.
       pushed: ${{ steps.m.outputs.pushed }}
+      # Issue #817: the shared base toolchains are path-gated too. Every PR queued FOUR
+      # engine-base-* rows to rebuild toolchains it had not touched; the same changed-ref
+      # rule that narrows the engine matrix now narrows these to one `none` row.
+      base: ${{ steps.m.outputs.base }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -247,12 +257,16 @@ jobs:
           before="${{ github.event.before }}"
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             matrix=$(make -s list-engine-images CI=1 JSON=1 CHANGED=origin/${{ github.base_ref }})
+            base=$(make -s list-engine-base-images JSON=1 CHANGED=origin/${{ github.base_ref }})
           elif [ -n "$before" ] && [ "$before" != "0000000000000000000000000000000000000000" ]; then
             matrix=$(make -s list-engine-images CI=1 JSON=1 CHANGED=$before)
+            base=$(make -s list-engine-base-images JSON=1 CHANGED=$before)
           else
             matrix=$(make -s list-engine-images CI=1 JSON=1)
+            base=$(make -s list-engine-base-images JSON=1)
           fi
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "base=$base" >> "$GITHUB_OUTPUT"
           # #844: does this run push an image at all? The decision is a script, not an inline
           # expression, because it is the thing that makes four jobs run or not run - and a decision
           # inside YAML can only be "tested" by reading the file as text

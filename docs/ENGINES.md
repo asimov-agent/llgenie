@@ -279,8 +279,16 @@ make build-engines ENGINE=llama.cpp ARCH=cuda             # one engine x one arc
 make engine-build-matrix [ENGINE=] [ARCH=]                # the JSON matrix the dispatched sweep builds
 make run-engine ENGINE=vllm MODEL=Qwen/Qwen2.5-0.5B-Instruct PORT=11434
 make stop-engine ENGINE=vllm
-make list-engine-images              # every engine x arch variant
+make list-engine-images              # every engine x arch variant (`JSON=1`, `CHANGED=<ref>` narrows it)
+make list-engine-base-images         # the shared base toolchains (`JSON=1`, `CHANGED=<ref>` keeps only those a ref did not have)
 ```
+
+`CHANGED=<ref>` is the path gate (issue #817): CI compares each image's tag and each base
+toolchain's rendered `Dockerfile.<backend>` against the base branch, so a pull request queues only
+the cells and toolchains it actually changed — a PR that touches no base toolchain gets one `none`
+placeholder row instead of four `engine-base-*` jobs, and one that touches no engine gets one `none`
+row in the engine matrix. A push whose `before` sha is unknown (a new branch) asks for the full
+sweep.
 
 1. **`make generate-engine-params`** renders each skill into fixed, hard-coded
    parameters, **one image per backend** (`cpu`, `cuda`, `rocm`, `vulkan`). GPU code is a

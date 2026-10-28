@@ -74,6 +74,40 @@ def _calls(log: Path) -> list[str]:
 # ---------------------------------------------------------------------------
 # the tag
 # ---------------------------------------------------------------------------
+def test_the_base_matrix_is_path_gated_to_the_toolchains_that_changed(monkeypatch):
+    """Issue #817: a PR that touches no base toolchain must not queue four engine-base rows."""
+
+    # Given every base toolchain identical to a ref (git show returns the same rendered text)
+    import subprocess as sp
+
+    import engine_image
+
+    def rendered(backend):
+        return f"FROM scratch  # {backend}\n"
+
+    def fake_run(cmd, **kw):
+        backend = str(cmd[-1]).rsplit(".", 1)[-1]
+        return sp.CompletedProcess(cmd, 0, rendered(backend), "")
+
+    monkeypatch.setattr(engine_image.es, "render_base_dockerfile", rendered)
+    monkeypatch.setattr(engine_image.subprocess, "run", fake_run)
+
+    # When  the matrix is computed against that ref
+    # Then  it collapses to the one placeholder row (an empty include list is illegal)
+    assert engine_image.base_matrix("some-ref") == [{"backend": "none"}]
+
+    # When  one toolchain's rendering differs from the ref
+    monkeypatch.setattr(engine_image.es, "render_base_dockerfile",
+                        lambda b: "FROM scratch  # cuda-v2\n" if b == "cuda" else rendered(b))
+
+    # Then  only that backend is queued
+    assert engine_image.base_matrix("some-ref") == [{"backend": "cuda"}]
+
+    # And without a ref (a push whose `before` is unknown) the full sweep is queued
+    monkeypatch.setattr(engine_image.es, "render_base_dockerfile", rendered)
+    assert [r["backend"] for r in engine_image.base_matrix("")] == ["cpu", "cuda", "rocm", "vulkan"]
+
+
 def test_tag_follows_the_image_inputs(tmp_path):
     """The tag is a hash of exactly the image's inputs."""
     import ci_images
@@ -480,6 +514,8 @@ def test_no_ci_step_or_job_is_skipped():
     # And a step only runs after a failed one, is Linux-only Docker, is the macOS
     # openspec CLI, or skips the none placeholder row (matrix is illegal in a job if:)
     for key, cond in step_ifs.items():
+        # `matrix.<axis> != 'none'` is the placeholder-row idiom, one per matrix axis: engine-image
+        # skips its `none` row on `matrix.engine`, engine-base on `matrix.backend` (issue #817).
         # `matrix.backend != 'none'` is the published family's placeholder row (#844): the exact twin of
         # `matrix.engine != 'none'` that #828 gave the engine family. It skips a ROW, never a job, so
         # every check name still reports and the row's own first step prints why it installed nothing.
