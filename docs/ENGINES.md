@@ -91,6 +91,11 @@ would fail on a tag nobody pushed, with the error pointing at the registry inste
 additionally fails a computed tag that resolves no manifest; the default run touches no network and
 starts no container.
 
+The tag hashes FOUR inputs, not just the params: the variant's params, its committed Dockerfile,
+`containers/engines/entrypoint.sh` and `scripts/engine_runner.py`. A checkout that differs in any
+of them recomputes every tag, so run the check against the tree you intend to install from — on a
+branch that edits the runner, every launcher will read as stale by design.
+
 It does **not** prove the image runs, that it serves a model, or that a published tag exists —
 `make test-built-engine` and the engine-image CI matrix answer those. It also does not publish or
 rebuild anything: a stale launcher is fixed by `make engine-launchers ENGINES=<id>`, which pulls.

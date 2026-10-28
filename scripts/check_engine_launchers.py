@@ -9,6 +9,13 @@ install fails hard on a tag nobody pushed, with the error pointing at the regist
 instead of at the pin drift (issue #842; the same class as #178's "invariant with no
 gate").
 
+The tag hashes FOUR inputs, not just the params: the variant's params, its committed
+Dockerfile, `containers/engines/entrypoint.sh` and `scripts/engine_runner.py`
+(`engine_skills._image_inputs`). A checkout that differs in any of them — a branch editing the
+runner, an uncommitted params edit — computes a different tag, so compare against the tree you
+intend to install from and expect every launcher to look stale on a branch that touches the
+runner.
+
 **The expected tag comes from the launcher writer itself** — `install_engine_launchers.
 install_plan()`, the one place that builds the (engine, variant, tag) list `install`
 uses. A second copy of the tag formula would agree today and disagree later, which is
