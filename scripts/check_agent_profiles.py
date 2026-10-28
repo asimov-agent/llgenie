@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -217,6 +218,54 @@ def _skill_findings(skill_dir: Path, root: Path) -> list[dict]:
     return items
 
 
+def live_root(root: Path = REPO_ROOT) -> Path | None:
+    """Where the host profiles live, or None when this checkout is not on a machine that has them.
+
+    CI has no `~/.hermes/profiles/`, so the invariant is checked where it can be: on the host that holds
+    the live rulebooks. A tree-only checkout skips it rather than failing, which keeps the gate honest
+    about what it can see instead of pretending the comparison happened.
+    """
+    base = Path(os.environ.get("HERMES_PROFILES_HOME") or (Path.home() / ".hermes" / "profiles"))
+    return base if base.is_dir() else None
+
+
+def shrink_findings(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR,
+                    live: Path | None = None) -> list[dict]:
+    """Every live rulebook LONGER than its in-tree copy — the truncated seed, caught before a sync.
+
+    This is the direction that loses a rule silently: `sync` copies the tree over the profile, so a
+    tree file that is a prefix of the live one replaces it and every gate stays green (issue #791).
+    """
+    agents = (root / agents_dir) if not agents_dir.is_absolute() else agents_dir
+    base = live if live is not None else live_root(root)
+    if base is None or not agents.is_dir():
+        return []
+    profiles, _ = read_manifest(agents)
+    items: list[dict] = []
+    for profile in profiles:
+        live_profile = base / profile["name"]
+        if not live_profile.is_dir():
+            continue
+        tree_profile = agents / profile["name"]
+        for path in sorted(tree_profile.rglob("*")):
+            if not path.is_file():
+                continue
+            rel = path.relative_to(tree_profile)
+            counterpart = live_profile / rel
+            if not counterpart.is_file():
+                continue
+            tree, there = path.stat().st_size, counterpart.stat().st_size
+            if there > tree:
+                items.append({
+                    "key": "live-longer",
+                    "where": f"{tree_profile.name}/{rel}",
+                    "detail": f"the tree has {tree} b, the live profile has {there} b — the seed is a "
+                              f"prefix of the rulebook, so `make sync-agent-profile` would replace "
+                              f"{there} bytes with {tree} and no gate would notice (issue #791)",
+                })
+    return items
+
+
 def findings(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR) -> list[dict]:
     """Every way the host agents' tree can be broken. An empty list is the only pass."""
     items: list[dict] = []
@@ -231,6 +280,7 @@ def findings(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR) -> list[dict
 
     profiles, manifest_items = read_manifest(agents)
     items.extend(manifest_items)
+    items.extend(shrink_findings(root, agents_dir))
     if not any(REQUIRED_RULE in profile["rules"] for profile in profiles):
         items.append({
             "key": "manifest-rule",
