@@ -150,6 +150,33 @@ An approval must come from an account that is **not the PR author**. Where every
 
 Diagnose a "nobody can merge" board in this order: author identity vs approver identity → the repo switch → whether the runs that would do the approving are themselves queued.
 
+## A completed run with zero jobs is a broken workflow, and no rollup shows it
+
+`timeout-minutes` is **invalid on a `uses:` job**. The workflow fails to load before any job exists, so the run ends
+`completed/failure` with **0 jobs and 0 check-runs**, every `statusCheckRollup` reads `fail=0`, and the PR looks clean
+while it can never be tested:
+
+```bash
+gh api repos/<o>/<r>/actions/runs/<id>/jobs --jq '.total_count'   # 0 ⇒ the file did not parse
+```
+
+Ceilings belong on the jobs *inside* the called reusable workflow, never on the caller. So: when a PR's only run is
+`failure` with no jobs, read the workflow shape before suspecting a flaky test — and a workflow-shape gate forbidding
+`timeout-minutes` on `uses:` jobs is worth more than any per-PR check, because this is the one failure mode no rollup
+reports.
+
+## Arming auto-merge is a step at creation, not a decision per PR
+
+```bash
+gh pr merge <n> --squash --auto          # immediately after gh pr create
+gh pr view <n> --json autoMergeRequest  # verify: enabledAt must sit beside createdAt
+```
+
+A `workflow_run` sweep arms nothing retroactively — a PR armed *after* its run concluded waits for the next sweep, so
+arming late loses the very event it needed. Never arm a draft, a `do-not-merge` PR, or one based on a non-`main` branch;
+report those as **deliberately unarmed with the reason**. Arming is neither approving nor a verdict: the merge decision
+still refuses anything red.
+
 ## A queued run owes no verdict; a running one owes all of it
 
 Superseding a **queued** run by pushing a corrected head destroys nothing — it never acquired a runner, so there is no

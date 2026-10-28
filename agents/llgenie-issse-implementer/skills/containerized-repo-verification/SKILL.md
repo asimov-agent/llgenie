@@ -207,6 +207,33 @@ docker run --rm -u root -v "$BASELINE":/repo:rw -w /repo -e HOME=/root \
   Under host contention a 20 s file took >150 s; a per-file loop with `timeout 150` named the slow file
   in minutes while the same suite's `-q` dots looked identical to a hang. Never quote such a loop as a
   gate result — it exists to locate a stall, not to verify a change.
+- **The cheapest differential is head-to-head, not base-to-head.** When a gate reds at your head, diff the
+  two heads on the paths that matter: `git diff --stat <red-head> <new-head> -- <workflow> <script>` — an
+  EMPTY result proves the red cannot be your change, and every line that does differ is the base's own
+  content pulled in by a rebase. One command, no second container run, and it holds even when the base
+  moved twice while you were working.
+
+## A new job that runs a make gate must prepare the images that gate runs in
+
+A `make ci-<job>` mega-target chains gates whose recipes each `docker run <some-image>`. A new workflow
+job that calls the mega-target inherits every one of those image dependencies, but it only prepares the
+images its own earlier steps pulled — so it dies seconds in, on the ONE gate that needs a different image:
+
+```
+Unable to find image 'llgenie/openspec:latest' locally
+pull access denied … repository does not exist or may require 'docker login'
+make[1]: *** [Makefile:1139: openspec-validate-all] Error 125
+```
+
+- **Read the gate's recipe before wiring a job to it**: `grep -n "^ci-<job>:" -A6 Makefile`, then follow
+  each chained target to its `$(RUNTIME) run $(…_OPTS)` line and note the image. Add the matching
+  preparation step (`make <image>-pull`, or the same `docker tag` the canonical CI job does) before the
+  gate step.
+- **The failure shape mimics a red base** — a step failing early on a `main` that was red minutes ago. The
+  head-to-head differential above is what separates them; do not conclude "the base" without it.
+- A step-level read beats a conclusion-level one: `gh api repos/<o>/<r>/actions/jobs/<id> --jq '.steps[] |
+  "\(.number) \(.conclusion)\t\(.name)"'` names the failing step in one call, where the run's
+  `failure` says nothing. Job logs may come back truncated; the step list never does.
 
 ## Adding a make target to a repo whose `.PHONY:` is a continuation list
 
@@ -240,6 +267,23 @@ second task in it is not), and prefer committing through a message that names th
 - **Never re-invent lost work from memory to satisfy a request for deliverable.** If a file truly is gone,
   say so in one line and restart from the spec; a half-remembered re-implementation is worse than an
   honest restart.
+
+## A file tree that is the source of truth for files living OUTSIDE the repo
+
+When a repo holds copies of files that also exist outside it (agent profiles, deployed configs, generated
+skills), the sync direction decides what a mistake costs. Copying tree → live can only lose content; so:
+
+- **Refuse to shrink.** The sync tool must refuse to write a target file that is smaller than the live one
+  (a fraction such as 75 % is enough) unless an explicit `--force` says it is deliberate, and name both
+  byte counts when it refuses. A seed taken from a doc excerpt or a truncated paste is a PREFIX of the
+  real file, and copying it over the live copy deletes rules silently while every gate stays green.
+- **Gate the direction that loses content, not just equality.** A gate that compares sizes and fails when
+  the LIVE file is longer catches the next truncated seed before a sync, not after. Skip the comparison
+  where the live files do not exist (a CI runner) rather than failing — say in the docstring that the
+  invariant holds on the host that holds them, so the silence is a stated limitation, not a blind spot.
+- **Re-read the source at commit time and quote the sizes in the PR body.** A byte count taken from a
+  message or an earlier turn is already stale when the live file grows; two `git cat-file -s` / `stat -c
+  %s` lines that match are the evidence a reviewer needs.
 
 ## Report the tree the number came from
 
