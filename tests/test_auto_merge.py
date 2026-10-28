@@ -49,7 +49,7 @@ def _state(**kw) -> dict:
 def _fake_gh(tmp_path: Path, pr: dict, issues: dict | None = None, token_login: str = "asimov-agent",
              permissions: dict | None = None, tokens: dict | None = None, merge_rc: int = 0,
              settle_after: int = 0, prs: list | None = None, views: dict | None = None,
-             unknown_reads: int = 0):
+             unknown_reads: int = 0, refuse_user_for: list | None = None):
     """A `gh` answering `pr view` / `pr review` / `pr merge` / `issue view` / `api user` / permission.
 
     It records every argv (the assertion surface) and flips the PR's state through marker files, so a test
@@ -81,6 +81,8 @@ if os.path.exists({str(log)!r} + ".approved"):
 if os.path.exists({str(log)!r} + ".merged"):
     PR = dict(PR, state="MERGED")
 if args[:3] == ["api", "user", "--jq"]:
+    if os.environ.get("GH_TOKEN", "") in json.loads({json.dumps(refuse_user_for or [])!r}):
+        print("gh: Resource not accessible by integration (HTTP 403)", file=sys.stderr); sys.exit(1)
     print(TOKENS.get(os.environ.get("GH_TOKEN", ""), TOKEN)); sys.exit(0)
 if len(args) >= 2 and args[0] == "api" and "/collaborators/" in args[1] and args[1].endswith("/permission"):
     login = args[1].split("/collaborators/")[1].split("/")[0]
@@ -431,11 +433,17 @@ def test_the_merge_uses_the_owner_pat_and_a_make_target():
     block = MERGE_WF
 
     # When  its env and run are read
-    # Then  the token is the owner PAT, never the job token, and the command is a make target
+    # Then  the MERGE is made with the owner PAT — never the job token, which starts no workflows …
     assert "GH_TOKEN: ${{ secrets.BUMP_TOKEN }}" in block, block[:800]
-    assert "github.token" not in block, "a merge made with the job token starts no workflows"
+    assert "GH_TOKEN: ${{ github.token }}" not in block, (
+        "a merge made with the job token starts no workflows, so the merge must keep the owner PAT")
     assert "make auto-merge" in block, block[:800]
     assert "python3 scripts/auto_merge.py" not in block, "the workflow must call the make target"
+    # … while the REVIEW is exactly the job token, which is a DIFFERENT account from the author (#874):
+    # `github-actions[bot]` approves, `andyholst` authored, so the approval is legal without an owner PAT.
+    assert "APPROVER_TOKEN: ${{ github.token }}" in block, block[:800]
+    assert "secrets.APPROVER_TOKEN" not in block, (
+        "the review must not depend on a secret that can be empty: the job token always exists")
 
 def test_the_targets_are_phony_and_documented():
     """`auto-merge` and `verify-closure` exist, are phony, and are documented."""
@@ -927,3 +935,51 @@ def test_the_recheck_runs_on_every_ci_completion_too():
     recheck = MERGE_WF.split("recheck:", 1)[1]
     assert "needs: [merge]" in recheck
     assert "always()" in recheck, "a workflow_run completion must sweep too"
+
+
+# ---- issue #874: the workflow's own token can approve, and must not approve its own PR ----
+
+def test_an_ordinary_author_is_approved_by_the_workflow_token(tmp_path, monkeypatch):
+    """`github.token` is `github-actions[bot]`, a different account from the author — so it is legal.
+
+    An installation token cannot answer `GET /user` (403 "Resource not accessible by integration"), which is
+    why the identity is deterministic rather than queried: the fallback names the bot instead of aborting.
+    """
+    # Given a review-blocked PR authored by andyholst, and the workflow token as the approver
+    gh = _fake_gh(tmp_path, _review_blocked(author="andyholst"), {"491": "CLOSED"},
+                  token_login="asimov-agent", refuse_user_for=["wf-token"])
+    monkeypatch.setenv("APPROVER_TOKEN", "wf-token")
+
+    # When  the job runs
+    rc = am.run(str(gh), "asimov-agent/llgenie", 482, HEAD, approve_when_review_required=True)
+
+    # Then  the review is posted with that token, and the merge is not the admin bypass
+    calls = _calls(tmp_path / "gh.log")
+    merges = [c for c in calls if c[:2] == ["pr", "merge"]]
+    assert rc == 0, rc
+    assert ["pr", "review"] in [c[:2] for c in calls], calls
+    assert merges and "--admin" not in merges[0], merges
+    assert not any("wf-token" in " ".join(c) for c in calls), "the token must never reach argv"
+
+
+def test_a_pr_the_workflow_opened_is_never_approved_by_the_workflow(tmp_path, monkeypatch):
+    """The negative control: `github-actions[bot]` cannot approve a PR `github-actions[bot]` opened.
+
+    Without this, enabling the workflow token as the approver would turn a self-approval attempt into a
+    GitHub 422 on a green PR — the failure mode the guard exists to prevent.
+    """
+    # Given a PR the workflow itself opened, and a merge token that is ALSO the workflow's own account
+    gh = _fake_gh(tmp_path, _review_blocked(author="github-actions[bot]"), {"491": "CLOSED"},
+                  token_login="github-actions[bot]", refuse_user_for=["wf-token"],
+                  permissions={"github-actions[bot]": "admin", "andyholst": "admin"})
+    monkeypatch.setenv("APPROVER_TOKEN", "wf-token")
+
+    # When  the job runs for an owner-triggered run (so the bot-PR guard lets it through)
+    rc = am.run(str(gh), "asimov-agent/llgenie", 482, HEAD, approve_when_review_required=True,
+                actor="andyholst")
+
+    # Then  it never posts a review, and falls back to the admin merge instead
+    calls = _calls(tmp_path / "gh.log")
+    assert rc == 0, rc
+    assert not [c for c in calls if c[:2] == ["pr", "review"]], calls
+    assert [c for c in calls if c[:2] == ["pr", "merge"] and "--admin" in c], calls

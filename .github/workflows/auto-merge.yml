@@ -15,6 +15,23 @@ name: auto-merge
 #
 # `trending-local-llms` never needed this because its bots push branches inside the repo; llgenie pushes to
 # the fork by design.
+#
+# TWO IDENTITIES, AND WHY THE REVIEW IS THE JOB TOKEN (issue #874).
+#
+# `auto-merge` merges with the owner PAT (`secrets.BUMP_TOKEN`): a merge made with the job token starts no
+# workflows, and the post-merge run on `main` must happen. But the required REVIEW does not need an owner
+# action at all — GitHub Actions may create and approve pull requests, and the approver only has to differ
+# from the AUTHOR. Every PR here is opened by `andyholst` (the bots push with the owner PAT) while the
+# workflow's token is `github-actions[bot]`: two different accounts, so `github.token` can approve it, and
+# the review stops depending on a secret that can be empty in the base repository.
+#
+# The guard is "approver != author", not "use token X": an installation token cannot even answer
+# `GET /user` (403 "Resource not accessible by integration"), so its identity is the deterministic
+# `github-actions[bot]` — and a PR that THIS bot opened can never be approved by it. That is the case
+# `scripts/auto_merge.py::WORKFLOW_BOT` refuses, with a test that pins it.
+#
+# A `pull_request` run from a fork gets a read-only token and could neither approve nor merge, which is the
+# other reason this flow lives in a `workflow_run` workflow: it runs in the BASE repo with the base token.
 
 on:
   workflow_run:
@@ -94,7 +111,7 @@ jobs:
           # (issue #524). Optional — unset falls back to the --admin bypass, which GitHub refuses wherever
           # the review rule is enforced for admins. The value is read from the environment by
           # scripts/auto_merge.py and never reaches argv.
-          APPROVER_TOKEN: ${{ secrets.APPROVER_TOKEN }}
+          APPROVER_TOKEN: ${{ github.token }}
           # Who triggered the CI run. A bot-authored PR is merged only when this is the owner, a write
           # collaborator, or the bot — the same gate ci.yml's guard already applied to the run.
           ACTOR: ${{ github.event.workflow_run.actor.login }}
@@ -128,6 +145,6 @@ jobs:
       - name: Re-evaluate the deferred PRs (approve as the other identity, then merge)
         env:
           GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
-          APPROVER_TOKEN: ${{ secrets.APPROVER_TOKEN }}
+          APPROVER_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: make auto-merge-recheck REPO="$REPO"

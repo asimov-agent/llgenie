@@ -190,9 +190,19 @@ def review_blocked(state: dict) -> bool:
             and (state.get("reviewDecision") or "").upper() == "REVIEW_REQUIRED")
 
 
+#: The account a workflow's own `GITHUB_TOKEN` acts as. `GET /user` cannot be read with an installation
+#: token (403 "Resource not accessible by integration"), so the identity is not askable — and it does not
+#: have to be, because it is deterministic. Naming it explicitly is what lets the guard below refuse a PR
+#: this bot opened itself, instead of guessing and approving it (issue #874).
+WORKFLOW_BOT = "github-actions[bot]"
+
+
 def token_login(gh: str, token: str = "") -> str:
-    """The account a token belongs to — GitHub refuses a pull request approving its own author."""
-    return _gh(gh, ["api", "user", "--jq", ".login"], token=token).strip()
+    """The account a token belongs to; "" when it cannot be asked (an installation token cannot)."""
+    try:
+        return _gh(gh, ["api", "user", "--jq", ".login"], token=token).strip()
+    except SystemExit:
+        return ""
 
 
 def approve(gh: str, repo: str, pr: int, token: str = "") -> str:
@@ -219,7 +229,8 @@ def try_approve(gh: str, repo: str, pr: int, state: dict, dry: bool = False,
             return (f"a required review is missing, and the PR's author (`{author}`) is the merge token's own "
                     f"account — GitHub refuses a self-approval, so a human must approve it "
                     f"(or set APPROVER_TOKEN to the other allowed identity)")
-        me = token_login(gh, token=approver_token)
+        # The workflow's own token cannot answer `GET /user`; its identity is the runner's bot account.
+        me = token_login(gh, token=approver_token) or WORKFLOW_BOT
         token = approver_token
         if author.lower() == me.lower():
             return (f"a required review is missing, and both tokens belong to `{me}` — GitHub refuses a "
