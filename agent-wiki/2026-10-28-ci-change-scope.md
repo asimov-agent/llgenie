@@ -77,6 +77,36 @@ nothing would have checked that the store still validates. The trigger therefore
 the `*.md` glob, and `tests/test_ci_scope.py` fails if `**/*.md` returns or if any path above is added
 to either list.
 
+## Reviewed: what the sample-based guard cannot see (tester pass)
+
+`tests/test_ci_scope.py` names five sample paths. A finite sample is the right shape for "this shape
+of path is ignored", and the wrong shape for "no tracked path is ignored that needs a stage" — a
+markdown file added later under a code directory walks straight past it. `tests/test_ci_scope_trigger.py`
+therefore compares the trigger with the REPOSITORY, and covers the one code path `scope.yml` runs:
+
+- **every tracked path the filter swallows is `docs`-only**, over all of `git ls-files` (987 markdown
+  files, 1579 tracked paths), with GitHub's filter semantics — `*` stops at `/`, a bare pattern is
+  root-only, `**/` is any depth. Re-adding `**/*.md` makes it fail with the 43 offenders;
+- **the two filters agree path by path**, in both directions. Set equality of two pattern LISTS is
+  not equality of what they match, which is why `docs.yml`'s list must be compared as a matcher too —
+  a path ignored by one workflow and not run by the other is a PR with no check at all;
+- **every job in `ci.yml` and every stage in `pipeline.yml` is named by the classifier** (compare a
+  job's `name:` prefix, not its id: `engine-published-test` publishes `test-published-*`). Without
+  it, a job added to `ci.yml` is a family `JOBS` can never select;
+- **`_paths_from_diff` / `--from` is exercised** in a throwaway git repo — three-dot merge-base read
+  included — because that is the only path `scope.yml` runs and no other case passes `--from`;
+- **a docs+code diff selects the union** (the acceptance criteria's last row).
+
+Both invariants FAIL LOUDLY when `git ls-files` cannot read the index rather than passing over an
+empty list: a worktree's `.git` is a pointer outside the tree, so a container mounting only the
+worktree must mount the parent repo too (`make test-unit` does), and the test says so instead of
+returning green.
+
+Measured in the `llgenie/test` image (the unit stage's own environment, `tests/conftest.py` included,
+so the no-skip rule applies): `pytest tests/test_ci_scope.py tests/test_ci_scope_trigger.py
+tests/test_ci_images.py tests/test_workflows_valid.py` → **57 passed**; re-adding `**/*.md` to
+`paths-ignore` → **2 failed** with 43 offenders.
+
 ## Not covered
 
 - **824b** — per-stage selection inside `ci.yml` for the code classes (`unit`, `install`, `top-tier`,
