@@ -161,8 +161,16 @@ def write(agents: Path, name: str, dest: Path, force: bool = False) -> int:
     changed = [rel for rel in written
                if not filecmp.cmp(agents / name / rel, dest / rel, shallow=False)]
     rewritten = [rel for rel in written if (dest / rel).exists()]
+    # A --force run is the ONE case where a file legitimately shrinks, which is exactly when the log
+    # must say so: "verified … identical" over a 2,360-byte deletion is the defect this guard exists for,
+    # and it survives --force unless the message names the shrink and both sizes.
+    shrunk_note = ""
+    if shrinking:
+        rel, tree, live, lost = shrinking[0]
+        shrunk_note = (f", {len(shrinking)} shrank by --force ({live:,} b → {tree:,} b"
+                       + (f", {lost} line(s) removed" if lost else "") + ")")
     print(f"[agent-profile] verified: {len(written)} copied and read back as written"
-          + (f", {len(rewritten)} replaced an existing file" if rewritten else ""))
+          + (f", {len(rewritten)} replaced an existing file" if rewritten else "") + shrunk_note)
     return 0
 
 
