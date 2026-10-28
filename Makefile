@@ -83,6 +83,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	ci-openspec ci-cpu-health ci-top-tier ci-install ci-install-dry-args ci-free-disk test-engine-stage bot-sync-main bot-sync-branch ci-wait-engine-images \
 	ci-install-dry ci-install-run ci-install-uninstall test-env test-top-tier test-top-tier-ci test-top-tier-cli-ci test-top-tier-serve test-top-tier-serve-ci \
 	check-agent-model model-pin-report check-agent-skills agent-skills-report test-agent-skills-live hermes-skills-register \
+	sync-agent-profile check-agent-profiles agent-profiles-report \
 	test-hub-live test-strata-live test-engine-bump-live test-native-engines test-native-engine-light test-variant-image \
 	bash-check engine-bump engine-bump-daily engine-bump-plan engine-derive generate-requirements openspec-tasks-check check-registry-keys ci-engines engine-matrix-pushed
 
@@ -383,6 +384,27 @@ agent-skills-report: ## Print every agent leg with its prompt size and preloaded
 
 hermes-skills-register: ## Register the checkout's .hermes/skills in Hermes's config so `hermes -s <name>` resolves for every bot leg (HOME_DIR= the Hermes home, DIR= the skill dir; CHECK=1 verifies without writing — issue #577)
 	python3 scripts/hermes_skills_register.py --home "$(if $(HOME_DIR),$(HOME_DIR),$(HOME)/.hermes)" --dir "$(if $(DIR),$(DIR),$(CURDIR)/.hermes/skills)" $(if $(CHECK),--check,)
+
+
+# ---- a host agent's behaviour lives in the repo too (issue #791) ---------------------
+# The two host agents (llgenie-planner, llgenie-issse-implementer) keep the same two kinds of
+# file as the bot legs — SOUL.md and skills/<name>/SKILL.md — but under
+# ~/.hermes/profiles/<profile>/, outside version control. An instruction that changes a
+# credential-holding agent's behaviour was therefore the one change here nobody could diff.
+# agents/<profile>/ is that behaviour's home now: `make sync-agent-profile` copies the tree INTO
+# the profile's Hermes home (write, then read back — the shape scripts/hermes_skills_register.py
+# uses) and CHECK=1 compares instead, naming the first differing path. The gate is what keeps the
+# tree honest (a listed profile with no SOUL.md, a skill whose frontmatter name disagrees with its
+# directory, a secret-shaped value, a planner SOUL.md that dropped "never merge").
+sync-agent-profile: ## Copy agents/<PROFILE>/ into that profile's Hermes home (PROFILE=<profile>; CHECK=1 compares instead of writing and names the first differing path; HERMES_PROFILE_HOME= overrides the destination — issue #791)
+	@test -n "$(PROFILE)" || { echo "Usage: make sync-agent-profile PROFILE=<profile> [CHECK=1]"; exit 2; }
+	python3 scripts/agent_profile_sync.py --profile "$(PROFILE)" $(if $(CHECK),--check,)
+
+check-agent-profiles: ## CI: fail when a listed host-agent profile has no SOUL.md, a skill's frontmatter name disagrees with its directory, a skill names a missing reference or carries a secret value, or a SOUL.md dropped a standing rule (issue #791)
+	python3 scripts/check_agent_profiles.py check
+
+agent-profiles-report: ## Print every host-agent profile with its SOUL.md size, its skills and its standing rules, then every finding (issue #791)
+	python3 scripts/check_agent_profiles.py report
 
 
 # ---- a leg refuses to start on a missing key (issue #363) --------------------
@@ -1515,6 +1537,7 @@ ci-unit: bash-check ## CI job unit: hermetic unit tests + registry / skill / Str
 	$(MAKE) check-actions
 	$(MAKE) check-renovate
 	$(MAKE) check-agent-skills
+	$(MAKE) check-agent-profiles
 	$(MAKE) check-agent-model
 	$(MAKE) issue-bot-gates
 	$(MAKE) issue-bot-gates-check
