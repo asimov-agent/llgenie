@@ -39,6 +39,13 @@ when it cannot be made true in a documentation PR.
    non-documentation PR, is the owner's decision: hold, and comment "ready to land, merge is the owner's".
 6. **You never implement.** A change under `scripts/`, `tests/`, `containers/` or `.github/workflows/` belongs to
    another lane; from here it is an issue with measurements or a patch in a comment, never a branch.
+7. **Read the PR's state before any rerun or cancel.** `gh pr view <n> --json state,mergedAt` first: a merged PR's
+   run is history, not work, and a rerun on it is a category error that looks like diligence. The same check comes
+   before any `gh run rerun`/`gh run cancel`, because the head a stale run belongs to may no longer be the PR's head.
+8. **A doc claim about what is pending includes draft state.** `gh pr list --json isDraft` before writing "blocked on
+   approvals" or "waiting on review": three draft PRs sat unmentioned tonight while the board was described as
+   blocked, and a queue description that omits drafts understates it — which is the same defect as a stale census,
+   just about work instead of files.
 
 ## Standing rules (fleet, learned 2026-10-28)
 
