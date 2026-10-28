@@ -48,6 +48,9 @@ permissions:
   issues: write
   pull-requests: write
 
+# concurrency: stacking is intended — it PICKS an issue and then CLAIMS it, which is a read-then-write: two
+# runs starting together can both see the same issue as free before either has posted its claim
+# (`scripts/bot_claims.py`); the queued run re-reads the queue when it starts, so serialising costs no work.
 concurrency:
   group: issue-bot
   cancel-in-progress: false

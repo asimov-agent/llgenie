@@ -129,16 +129,35 @@ def test_every_pull_request_workflow_declares_a_group():
     )
 
 
+#: A workflow may cancel unconditionally only if it SAYS why (issue #917). The rule this gate defends is
+#: real - a bot run hands up to 180 minutes of agent work to the runner, and a main run publishes images to
+#: GHCR - but it is a rule about WORK, not about the word `true`: a sweep that reads fresh state and takes
+#: one atomic action is idempotent, so superseding it costs nothing while starving it costs the fleet its
+#: merger (measured: sixteen of forty queued runs were `auto-merge` waiting for itself). So the exemption is
+#: greppable text IN THE WORKFLOW, reviewed in the same diff as the setting it explains - not an entry in a
+#: list here, which is the shape that drifts.
+SUPERSEDE_MARKER = "# concurrency: superseding is safe"
+
+
+def _states_superseding_is_safe(path: Path) -> bool:
+    """Does this workflow carry the reasoned marker that allows an unconditional `true`?"""
+    return SUPERSEDE_MARKER in path.read_text()
+
+
 def test_no_workflow_cancels_every_run_unconditionally():
-    """`cancel-in-progress: true` for every event is never right here: a bot run hands up to 180
-    minutes of agent work to the runner, and a main run publishes images to GHCR."""
+    """`cancel-in-progress: true` for every event is never right here WITHOUT a stated reason: a bot run
+    hands up to 180 minutes of agent work to the runner, and a main run publishes images to GHCR.
+
+    The reason is per workflow and it lives in the workflow (see SUPERSEDE_MARKER); this test is what stops
+    the word `true` appearing silently.
+    """
     # Given every workflow file
     offenders: list[str] = []
     for path in sorted(WF.glob("*.yml")):
         conc = _concurrency(_load(path.name))
 
-        # When it cancels every run unconditionally
-        if conc is not None and conc[1] is True:
+        # When it cancels every run unconditionally and says nothing about why
+        if conc is not None and conc[1] is True and not _states_superseding_is_safe(path):
             offenders.append(path.name)
 
     # Then the test names it
@@ -177,3 +196,15 @@ def test_engine_build_serialises_publishing_runs_but_not_a_narrow_dispatch():
 
     # And  it never cancels a running sweep
     assert cancel is False or str(cancel).lower() == "false", cancel
+
+
+def test_the_unconditional_cancel_escape_needs_the_marker_in_the_workflow(tmp_path):
+    """The hatch is one greppable line, so an unexplained `true` cannot ride along with a reasoned one."""
+    reasoned = tmp_path / "a.yml"
+    reasoned.write_text("# concurrency: superseding is safe — a sweep re-reads and merges atomically\n"
+                        "concurrency:\n  group: a\n  cancel-in-progress: true\n", encoding="utf-8")
+    silent = tmp_path / "b.yml"
+    silent.write_text("concurrency:\n  group: b\n  cancel-in-progress: true\n", encoding="utf-8")
+
+    assert _states_superseding_is_safe(reasoned) is True
+    assert _states_superseding_is_safe(silent) is False

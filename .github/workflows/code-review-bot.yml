@@ -41,6 +41,9 @@ permissions:
   contents: read
   issues: write
 
+# concurrency: stacking is intended — it files ONE issue per finding, and a second run starting mid-filing
+# would race the dedupe search against the first run's own writes (two issues for one finding); the queued
+# run re-scans when it starts (issue #917).
 concurrency:
   group: code-review
   cancel-in-progress: false

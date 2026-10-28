@@ -34,6 +34,9 @@ permissions:
   pull-requests: read
   actions: read
 
+# concurrency: stacking is intended — it files ONE `agent:implement` work item per green registry-sync PR, and
+# two runs racing would file that item twice (the second run reads the PR's existing issue only after the first
+# has written it); the queued run re-reads which sync PRs are green when it starts (issue #917).
 concurrency:
   group: registry-sync-review
   cancel-in-progress: false

@@ -57,6 +57,7 @@ permissions:
   contents: read
   packages: write
 
+# concurrency: stacking is intended — it builds and publishes images at their pins, so a second run would rebuild what the first is publishing (issue #917).
 concurrency:
   # A run that PUBLISHES serialises globally: two pushes could race on the same :<arch> tag and one
   # would overwrite the other's image. A build-and-verify run serialises only with the SAME selection,

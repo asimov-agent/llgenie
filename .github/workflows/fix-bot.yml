@@ -75,6 +75,9 @@ permissions:
   pull-requests: write
   actions: read
 
+# concurrency: stacking is intended — it pushes a repair branch for a red PR and re-checks it, so two runs on
+# the same PR would race the same ref and the second could revert the first's fix; the queued run re-reads the
+# PR's checks when it starts (issue #917).
 concurrency:
   group: fix-bot-${{ inputs.pr_number || inputs.branch }}
   cancel-in-progress: false

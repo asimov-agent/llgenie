@@ -37,6 +37,9 @@ permissions:
   pull-requests: write
   issues: write
 
+# concurrency: stacking is intended — it opens a PR per changed engine by pushing `chore/engine-bump-*`
+# branches, so a second run starting mid-push would race those refs; the queued run re-derives from upstream
+# when it starts (issue #917).
 concurrency:
   group: engine-bump
   cancel-in-progress: false

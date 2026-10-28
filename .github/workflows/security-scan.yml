@@ -40,6 +40,7 @@ on:
 permissions:
   contents: read
 
+# concurrency: stacking is intended — it writes the day's security reports, and two runs would overwrite each other's verdict files (issue #917).
 concurrency:
   # A bot never cancels an in-progress run (issue #275): the group is this workflow's own, and
   # `cancel-in-progress` is false so a second scan waits instead of killing one mid-upload.

@@ -36,6 +36,9 @@ permissions:
   pull-requests: write
   actions: read
 
+# concurrency: stacking is intended — it rewrites `docs/ARCHITECTURE.md` and pushes it as ONE reviewable PR,
+# so two runs racing that branch would rewrite a head the other just pushed; the queued run re-reads the tree
+# and the drift when it starts (issue #917).
 concurrency:
   group: architecture-bot
   cancel-in-progress: false

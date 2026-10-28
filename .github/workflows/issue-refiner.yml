@@ -34,6 +34,9 @@ permissions:
   issues: write
   pull-requests: read
 
+# concurrency: stacking is intended — it picks ONE issue, rewrites its body and adds the refined
+# label, so two runs racing would refine the same issue twice and the second would rewrite a body the
+# first had just written; the queued run re-picks when it starts (issue #917).
 concurrency:
   group: issue-refiner
   cancel-in-progress: false

@@ -51,6 +51,8 @@ permissions:
   contents: write
   pull-requests: write
 
+# concurrency: stacking is intended — it force-pushes PR branches, and two runs racing the same branch is a
+# rewritten head nobody asked for; a queued second run re-reads the board when it starts (issue #917).
 concurrency:
   group: rebase-bot
   cancel-in-progress: false

@@ -29,6 +29,9 @@ on:
 permissions:
   contents: read
 
+# concurrency: stacking is intended — it opens a focused PR that closes one vulnerability issue, so two runs
+# racing would both claim the same issue and push the same branch; the queued run re-picks a fresh issue when
+# it starts (issue #917).
 concurrency:
   group: security-bot
   cancel-in-progress: false

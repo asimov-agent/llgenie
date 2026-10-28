@@ -32,6 +32,9 @@ permissions:
   issues: write
   pull-requests: read
 
+# concurrency: stacking is intended — it decides duplicates by searching the open issues and then closing one,
+# so two runs racing would both read the same pair as unhandled and close twice (or close the survivor); the
+# queued run re-reads the issue list when it starts (issue #917).
 concurrency:
   group: issue-dedupe
   cancel-in-progress: false

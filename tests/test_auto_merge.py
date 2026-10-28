@@ -424,6 +424,54 @@ def test_a_bot_author_is_recognised_by_its_login_alone(tmp_path):
     assert ["pr", "merge"] in kinds, kinds
 
 
+# ---- issue #917: the merger must not queue behind itself ----
+
+def _concurrency_block(workflow: str) -> str:
+    """The `concurrency:` mapping as text, so its SHAPE can be asserted rather than its presence.
+
+    Comments are stripped: the block carries its own explanation, and an assertion about what the workflow
+    DOES must not be satisfied or defeated by prose that quotes the very values it forbids.
+    """
+    m = re.search(r"^concurrency:\s*\n((?:[ \t]+.*\n)+)", workflow, re.M)
+    assert m, "auto-merge.yml has no concurrency block at all"
+    return "\n".join(line for line in m.group(1).splitlines() if not line.lstrip().startswith("#"))
+
+
+def test_a_later_sweep_supersedes_an_earlier_one():
+    """Nine sweeps stacked on `main` put 12 of 51 queued runs behind a 4h25m queue (issue #917).
+
+    The merger was queued behind itself: every CI completion fired a sweep, the schedule fired one every 30
+    minutes, and `cancel-in-progress: false` made them wait for each other instead of superseding. A sweep
+    re-reads the PR state before acting, so the newer run subsumes the older one, and a merge already made is
+    idempotent - the next sweep reads MERGED and stops.
+    """
+    block = _concurrency_block(MERGE_WF)
+
+    assert "cancel-in-progress: true" in block, block
+    assert "cancel-in-progress: false" not in block, (
+        "a per-branch group that cannot cancel stacks one sweep per CI completion (#917)")
+
+
+def test_the_sweep_group_is_repo_wide_within_each_outcome_not_per_branch():
+    """One sweep at a time per OUTCOME (issue #917, corrected twice by measurement).
+
+    `cancel-in-progress: false` does NOT protect a PENDING run: GitHub keeps one running plus one pending per
+    group and replaces the pending one whatever the flag says. With a per-branch group the scheduled sweeps —
+    which carry no `head_branch` — collapsed into one empty-name group and cancelled each other's pending slot:
+    16 of the last 25 runs ended `cancelled` with no job rows, so nothing drained and churn looked like
+    backlog. And a single repo-wide group has the opposite defect: a sweep fired by a FAILING CI run decides
+    nothing (the `merge` job requires `conclusion == 'success'`), yet it would cancel the pending sweep of a
+    PR that IS mergeable. So the group is repo-wide *within each conclusion*.
+    """
+    block = _concurrency_block(MERGE_WF)
+
+    assert "github.event.workflow_run.conclusion" in block, (
+        "a single group lets a failed-CI sweep cancel a mergeable PR's pending sweep (#917): " + block)
+    assert "head_branch" not in block, (
+        "a per-branch group is what let the scheduled sweeps cancel each other (#917)")
+    assert "cancel-in-progress: true" in block, block
+
+
 def test_the_merge_uses_the_owner_pat_and_a_make_target():
     """The PAT, so the post-merge run on main happens; and CI runs a make target, not a script."""
 

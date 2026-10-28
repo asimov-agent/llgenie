@@ -1246,6 +1246,34 @@ make run-failure-reactor REPO=asimov-agent/llgenie RUN_ID=<run> DRY=1   # previe
 commits, pushes or merges in the file-issue path — it files; the issue-bot owns implementation, the
 fix-bot owns PR repair. A run it cannot diagnose is reported loudly, never silently dropped.
 
+### A scheduled sweep must not queue behind itself (issue #917)
+
+A `schedule:` workflow fires again on its slot whether or not the previous run finished. Two different
+failures follow, and the second one is the one that bit here:
+
+1. with `cancel-in-progress: false` a new run **waits** for the old one, so a slow sweep becomes a queue of
+   identical sweeps — measured on `auto-merge`: **nine sweeps stacked in 36 minutes**;
+2. and the flag does **not** protect a *pending* run at all. GitHub keeps one running plus one pending per
+   group, and a newly queued run replaces the pending one whatever the flag says — the flag only protects the
+   run already executing. With a per-branch group the scheduled sweeps (which carry no `head_branch`) all
+   collapsed into one empty-name group and cancelled each other's pending slot: **16 of the last 25 runs were
+   cancelled with no job rows**, so nothing drained and churn looked like backlog.
+
+So `auto-merge` uses **one repo-wide group with `cancel-in-progress: true`** — only one sweep decides at a
+time, absolutely. That is safe here specifically: a sweep holds no state between runs (it re-reads every PR),
+each merge is one atomic `gh pr merge` call so a cancellation lands before or after a merge and never inside
+one, and a PR whose sweep is preempted is picked up by the next sweep, including the scheduled recheck.
+
+`make sweep-concurrency-report` lists every other scheduled workflow whose runs stack, split into *"stack with
+no stated decision"* and *"stack on purpose"*:
+
+- **reads fresh state, then acts** → `cancel-in-progress: true` under a group that cannot preempt a different
+  unit of work;
+- **mutates shared state** (a registry sync, an image build, a branch force-push) → serialising is right: keep
+  `false` **and state it in the file** as `# concurrency: stacking is intended — <reason>`, so the next reader
+  knows it was decided rather than copied. `tests/test_ci_concurrency.py` refuses an unexplained
+  `cancel-in-progress: true`; the marker is the escape, and it is reviewed in the same diff as the setting.
+
 ## Dispatching a bot by hand (issue #276)
 Every workflow a human can start by hand states **what work the run will do** — in its name, in its
 dispatch form, and in the header block at the top of the file (`Trigger surface` / `Flow` / `Never`).

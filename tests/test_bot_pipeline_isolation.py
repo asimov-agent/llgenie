@@ -117,6 +117,11 @@ def _reserved_minutes() -> set[int]:
     return minutes
 
 
+#: A bot may cancel an in-progress run only if it SAYS why (issue #917). See test_ci_concurrency.py for the
+#: same hatch on the CI workflow's own block.
+SUPERSEDE_MARKER = "# concurrency: superseding is safe"
+
+
 def _concurrency(wf: dict):
     """(group, cancel-in-progress) or None when the workflow declares no group."""
     conc = wf.get("concurrency")
@@ -182,8 +187,13 @@ def test_every_bot_has_its_own_concurrency_group():
         assert conc is not None, f"{name}: no concurrency group (a dispatch can overlap a run)"
         group, cancel = conc
         assert isinstance(group, str) and group.strip(), f"{name}: empty concurrency group"
-        assert cancel is False, (
-            f"{name}: cancel-in-progress must be false so a queued run is not cancelled"
+        # … unless the workflow says why superseding is safe (#917). The rule this protects is real: a
+        # queued run must not be killed mid-work. But a sweep that holds no state between runs and takes ONE
+        # atomic action is idempotent, and starving it costs the fleet its merger - so the exemption is a
+        # greppable line IN the workflow, reviewed with the setting, exactly as `test_ci_concurrency.py` does.
+        assert cancel is False or SUPERSEDE_MARKER in (WF / name).read_text(), (
+            f"{name}: cancel-in-progress must be false so a queued run is not cancelled, unless the file "
+            f"states `{SUPERSEDE_MARKER} — <reason>`"
         )
 
         # And the group is the bot's own, not shared with another bot

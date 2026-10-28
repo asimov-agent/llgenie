@@ -31,6 +31,9 @@ permissions:
   actions: read
   issues: write
 
+# concurrency: stacking is intended — it deduplicates by a marker comment it reads back, so two runs racing
+# would both read "no comment yet" and post the same alarm twice; the queued run reads the board fresh when it
+# starts (issue #917).
 concurrency:
   group: queued-run-alarm
   cancel-in-progress: false

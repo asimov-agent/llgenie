@@ -35,6 +35,7 @@ permissions:
   pull-requests: write
   issues: write
 
+# concurrency: stacking is intended — it writes `data/models.json` and opens a PR, so two overlapping runs would race the same branch (issue #917).
 concurrency:
   group: registry-sync
   cancel-in-progress: false

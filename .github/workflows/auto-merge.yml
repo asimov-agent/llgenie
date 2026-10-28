@@ -37,9 +37,51 @@ permissions:
   pull-requests: write
   issues: write
 
+# THE MERGER MUST NOT QUEUE BEHIND ITSELF (issue #917).
+#
+# Every `CI` completion fires a sweep and the schedule fires one every 30 minutes. With
+# `cancel-in-progress: false` those runs STACK instead of superseding: measured 22:36Z-23:12Z, NINE sweeps
+# on `main` queued behind each other, and `auto-merge` became 12 of the 51 queued runs - behind a queue whose
+# oldest item had waited 4h25m. PRs sat armed, green and BLOCKED while the job that would merge them waited
+# for the job that would merge them.
+#
+# Cancelling the older run is correct, not lossy: a sweep holds NO state between runs (it re-reads every PR's
+# current state - state, mergeability, head SHA, hold label, review decision), and each merge is ONE atomic
+# `gh pr merge` call, so a cancellation lands before or after a merge, never inside one. A PR whose sweep is
+# preempted is picked up by the next sweep, including the scheduled recheck, which is why repo-wide is safe
+# here and a per-branch group was not enough.
+#
+# WHY REPO-WIDE AND NOT PER-BRANCH (measured by the tick, 01:15Z): `cancel-in-progress: false` does NOT
+# protect a PENDING run - GitHub keeps one running plus one pending per group, and a newly queued run replaces
+# the pending one whatever the flag says; the flag protects only the run already executing. With a per-branch
+# group, the scheduled sweeps (which have no `head_branch`) all collapsed into `auto-merge-` and cancelled each
+# other's pending slot: 16 of the last 25 runs were cancelled with NO job rows, so nothing drained and the
+# queue looked like backlog when it was churn. One group for all sweeps makes "one at a time" absolute.
+# `tests/test_auto_merge.py` and `tests/test_ci_concurrency.py` pin this shape, because a "harmless"
+# concurrency setting has starved this board three times.
+# concurrency: superseding is safe — a sweep re-reads the PR and merges with one atomic
+# `gh pr merge`, so a cancelled sweep has done nothing that needs redoing, while sixteen sweeps
+# waiting for each other cost the fleet its merger (issue #917).
 concurrency:
-  group: auto-merge-${{ github.event.workflow_run.head_branch }}
-  cancel-in-progress: false
+  # REPO-WIDE within each OUTCOME, not per branch. Two facts decide this line:
+  #
+  # 1. `cancel-in-progress: false` does NOT protect a PENDING run — GitHub keeps one running plus one pending
+  #    per group and replaces the pending one whatever the flag says. A per-branch group therefore let the
+  #    scheduled sweeps (no `head_branch`) collapse into one empty-name group and cancel each other: 16 of the
+  #    last 25 runs ended `cancelled` with no job rows, so nothing drained.
+  # 2. A sweep fired by a FAILING CI run decides nothing — the `merge` job requires `conclusion == 'success'`
+  #    — so under one group it would cancel the pending sweep of a PR that IS mergeable: a harmless extra run
+  #    turned into a lost merge. Partitioning by conclusion costs one extra group and removes that.
+  #
+  #    `workflow_run.types` cannot filter by conclusion (it only offers `completed`), so this partition IS the
+  #    filter: a failed or cancelled CI run gets its own group, supersedes only its own kind, and spends no
+  #    runner deciding something the `if:` below would refuse anyway.
+  #
+  # "Newest replaces older" is safe here specifically: a sweep holds no state between runs, each merge is one
+  # atomic `gh pr merge` so a cancel lands before or after a merge and never inside one, and a PR whose sweep
+  # is preempted is picked up by the next sweep, including the scheduled recheck.
+  group: auto-merge-${{ github.event.workflow_run.conclusion || 'schedule' }}
+  cancel-in-progress: true
 
 jobs:
   merge:

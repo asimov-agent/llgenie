@@ -24,9 +24,12 @@ on:
 permissions:
   contents: read
 
+# concurrency: superseding is safe — one bounded request proves the same leg every time, so a newer run
+# subsumes an older one instead of waiting behind it and burning a runner slot for a result nobody will read
+# (issue #917).
 concurrency:
   group: search-smoke
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   guard:
