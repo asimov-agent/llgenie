@@ -484,3 +484,99 @@ def test_the_classify_subcommand_pins_the_same_exit_codes_as_jobs():
 
     assert ci_scope.main(["classify", "--paths", "somewhere/unknown.bin"]) == 1
     assert ci_scope.main(["classify", "--paths", "docs/ARCHITECTURE.md"]) == 0
+
+
+# ---------------------------------------------------------------------------------------------------
+# #857: assert the base_ref fallback's BEHAVIOUR, not its spelling. The previous pin was
+# `assert "${EVENT_BASE_REF:-main}" in body`, which a correct re-spelling reds and a broken one can pass:
+# a first rewrite here used bare `"$EVENT_BASE_REF"` and died on `EVENT_BASE_REF: unbound variable` under
+# `set -u`, while the string assertion stayed green. These tests EXECUTE the step with `git` and `make`
+# stubbed on PATH and read the argv `make` actually received.
+def _scope_step_body() -> str:
+    import yaml
+
+    doc = yaml.safe_load((REPO / ".github/workflows/scope.yml").read_text())
+    for step in doc["jobs"]["scope"]["steps"]:
+        if "ci-scope" in (step.get("name") or ""):
+            return step["run"]
+    raise AssertionError("scope.yml has no ci-scope step")
+
+
+def _run_scope_step(body: str, event_base_ref: str | None) -> tuple[int, str, str]:
+    """Execute the step body; return (rc, output, what `make` was called with)."""
+    import pathlib as _pathlib
+    import subprocess
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp = _pathlib.Path(td)
+        bin_dir = tmp / "bin"
+        bin_dir.mkdir()
+        log = tmp / "argv"
+        for name in ("git", "make"):
+            stub = bin_dir / name
+            stub.write_text(f'#!/bin/sh\necho "{name} $*" >> "{log}"\nexit 0\n')
+            stub.chmod(0o755)
+        env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "GITHUB_EVENT_NAME": "workflow_dispatch",
+               "GITHUB_OUTPUT": str(tmp / "out"), "HOME": str(tmp)}
+        if event_base_ref is not None:
+            env["EVENT_BASE_REF"] = event_base_ref
+        proc = subprocess.run(["/bin/bash", "-c", body], cwd=tmp, env=env,
+                              capture_output=True, text=True)
+        return proc.returncode, proc.stdout + proc.stderr, log.read_text() if log.exists() else ""
+
+
+def test_the_fallback_resolves_main_and_says_so():
+    """Property 1 (resolution) and 2 (visibility), on today's workflow, unedited."""
+
+    rc, out, argv = _run_scope_step(_scope_step_body(), event_base_ref=None)  # no base_ref at all
+    assert rc == 0, out
+    assert "make ci-scope BASE=origin/main" in argv, argv
+    assert "No github.base_ref for event" in out, out
+
+
+def test_a_supplied_base_ref_is_used_verbatim():
+    """Property 3: an implementation that always said `main` would pass 1 and 2 and be wrong here."""
+
+    rc, out, argv = _run_scope_step(_scope_step_body(), event_base_ref="release/1.x")
+    assert rc == 0, out
+    assert "make ci-scope BASE=origin/release/1.x" in argv, argv
+    assert "No github.base_ref for event" not in out, out
+
+
+def test_the_fallback_is_removable_and_the_test_notices():
+    """Mutation 1: drop the default, and `origin/main` must stop reaching `make`."""
+
+    body = _scope_step_body().replace('BASE_REF="${EVENT_BASE_REF:-main}"', 'BASE_REF="${EVENT_BASE_REF:-}"')
+    _, _, argv = _run_scope_step(body, event_base_ref=None)
+    assert "make ci-scope BASE=origin/main" not in argv, argv
+
+
+def test_the_reason_line_is_removable_and_the_test_notices():
+    """Mutation 2: silence the fallback and property 2 must fail."""
+
+    import re as _re
+
+    # remove the whole `if [ -z … ] … fi` block, not just the echo: half a block is a syntax error,
+    # and a mutation that does not run proves nothing about the property
+    body = _re.sub(r'^\s*if \[ -z "\$\{EVENT_BASE_REF:-\}" \]; then\n(?:.*\n)*?\s*fi\n',
+                   "", _scope_step_body(), flags=_re.M)
+    rc, out, argv = _run_scope_step(body, event_base_ref=None)
+    assert rc == 0, out
+    assert "make ci-scope BASE=origin/main" in argv, argv
+    assert "No github.base_ref for event" not in out, out        # the property this guards is gone
+
+
+def test_a_correct_respelling_keeps_the_test_green():
+    """Mutation 3: the spelling that broke the old pin - and this is why a grep-pin was not enough."""
+
+    body = _scope_step_body().replace(
+        'BASE_REF="${EVENT_BASE_REF:-main}"',
+        'BASE_REF="${EVENT_BASE_REF:-}"\n'
+        '          if [ -z "$BASE_REF" ]; then\n'
+        '            echo "No github.base_ref for event \'${GITHUB_EVENT_NAME}\': reporting the diff against main."\n'
+        '            BASE_REF=main\n'
+        '          fi')
+    rc, out, argv = _run_scope_step(body, event_base_ref=None)
+    assert rc == 0, out
+    assert "make ci-scope BASE=origin/main" in argv, argv
