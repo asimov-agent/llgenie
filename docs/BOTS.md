@@ -1272,6 +1272,40 @@ from the pipeline that will run.
 | `security-scan.yml` | the daily vulnerability pipeline (Trivy + Syft + Grype + Semgrep), never a PR or push check | `tools` (optional, default `all`) — Which scanners to run: all, or one of syft / trivy / grype / semgrep<br>`enforce` (optional, default `full`) — Failure policy for THIS dispatch: full = the daily policy, report = never gate |
 <!-- dispatch-forms:end -->
 
+## A queue is not a verdict (issue #817)
+
+When the account's runner concurrency is exhausted, every open PR's checks sit `pending`, every PR reads
+`BLOCKED`, and `auto-merge`, `fix-bot` and `rebase-bot` all correctly do nothing — so a backlog of PRs looks
+like a backlog of broken PRs when it is one saturated queue. GitHub's own status API stays `operational`
+throughout: this is ours, not an outage. Measure **supply** before treating a `BLOCKED` PR as a defect, or a
+bot as asleep:
+
+```bash
+# 1. supply vs demand, repo-wide: work exists, nothing is executing
+gh run list --limit 100 --json status \
+  --jq 'group_by(.status)|map({(.[0].status): length})|add'
+
+# 2. the wait per job: status queued, a stale startedAt, and completedAt still the zero time
+gh run view <run-id> --json jobs \
+  --jq '.jobs[] | select(.status=="queued") | {name, startedAt, completedAt}'
+```
+
+Measured on 2026-10-28: `{completed: 36, in_progress: 1, queued: 3}` once the queue drained, against
+**`queued: 18, in_progress: 0`** at the peak — many queued with *zero* running is the starvation shape.
+`runner_name` is **not** a discriminator: it is `null` for an `in_progress` job too, and `startedAt` is set
+when the job is *enqueued*, not when a runner picks it up. The age of a `queued` job against a zero
+`completedAt` is the signal, which is exactly what `make queued-alarm` already reports twice hourly
+(`minutes`, default 30).
+
+**This is not an empty rollup on ONE PR.** A single PR with no checks and `mergeStateStatus: DIRTY` (or
+`mergeable: CONFLICTING`) is a branch that needs a rebase — #801's class, a defect in the PR. A repo-wide
+`queued`-and-nothing-running is supply. Same symptom, opposite remedy: rebase one branch, or wait for runners.
+
+**Never merge or push to drain the queue.** A push to a `pull_request` re-queues the full matrix (`ci.yml`
+sets `cancel-in-progress` on that event), so it deepens the backlog it was meant to clear. Cost of getting
+this wrong on 2026-10-28: three agents, about an hour, and one recommendation to the owner to merge — retracted
+only after cancelling five runs showed the constraint was supply, not demand.
+
 ## Verification, loop & CI (containerized — same everywhere)
 
 Every verification stage runs **inside the test container** so behaviour is
