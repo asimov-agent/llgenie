@@ -15,16 +15,14 @@ from __future__ import annotations
 import copy
 import io
 import json
-import sys
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "scripts"))
 
-import registry_keys as RK  # noqa: E402
+from scripts import registry_keys as RK
 
 POST_1 = "https://lightbrd.com/u/status/1"
 POST_2 = "https://lightbrd.com/u/status/2"

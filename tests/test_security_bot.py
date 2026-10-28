@@ -18,8 +18,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
-import security_bot as sb  # noqa: E402
+from scripts import security_bot as sb
 
 BODY_OK = """<!-- security-finding: trivy:CVE-2024-1:numpy -->
 

@@ -19,8 +19,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
-import resolve_run_pr as rr  # noqa: E402
+from scripts import resolve_run_pr as rr
 
 WORKFLOW = (REPO / ".github" / "workflows" / "auto-merge.yml").read_text()
 BRANCH = "fix/rebase-gate-mount"

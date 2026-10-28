@@ -22,11 +22,10 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO / "scripts"))
 
-import env_seam  # noqa: E402
-import detect_server  # noqa: E402
-import module_name_guard as guard  # noqa: E402
+from scripts import env_seam
+from scripts import detect_server
+from scripts import module_name_guard as guard
 
 # ONE rule, shared with the writer (issue #573): the architecture bot's doc refresh is checked by
 # `guard.offenders()` before it commits, so a rule fixed here cannot leave the bot writing what this

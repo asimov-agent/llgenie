@@ -19,8 +19,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 REACTOR = REPO / "scripts" / "run_failure_reactor.py"
-sys.path.insert(0, str(REPO / "scripts"))
-import run_failure_reactor as reactor  # noqa: E402
+from scripts import run_failure_reactor as reactor
 
 OWNER = "asimov-agent"
 

@@ -16,9 +16,8 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
-import check_secret_output as cso  # noqa: E402
-import unit_tests as ut  # noqa: E402  (the unit-suite aggregator, issue #393)
+from scripts import check_secret_output as cso
+from scripts import unit_tests as ut
 
 
 def _tree(tmp_path: Path, files: dict[str, str]) -> Path:

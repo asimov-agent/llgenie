@@ -15,8 +15,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
-import security_issues as si  # noqa: E402
+from scripts import security_issues as si
 
 POLICY = {"fail_on": ["critical", "high"], "pr_fail_on": ["critical"],
           "require_fix": True, "issue_severities": ["critical", "high"]}

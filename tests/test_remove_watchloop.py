@@ -6,13 +6,11 @@ rebase stays. These tests assert the removal is complete and the rebase remains.
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 
 os.environ.setdefault("GITHUB_TOKEN", "test-token-hermetic")
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
 
 
 class TestNoCronMakeTargets:

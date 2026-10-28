@@ -16,10 +16,9 @@ import pytest
 import yaml
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
-import engine_skills as es  # noqa: E402
-import model_engine_pick as mp  # noqa: E402
-import sync_registry as sr  # noqa: E402
+from scripts import engine_skills as es
+from scripts import model_engine_pick as mp
+from scripts import sync_registry as sr
 
 BEFORE = REPO / "tests" / "fixtures" / "registry-before"
 BEFORE_MODELS = BEFORE / "models.json"

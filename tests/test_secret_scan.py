@@ -22,8 +22,7 @@ CONFIG = REPO / ".gitleaks.toml"
 SELF_TEST = REPO / "scripts" / "secret_scan_self_test.py"
 WORKFLOW = REPO / ".github" / "workflows" / "pipeline.yml"
 
-sys.path.insert(0, str(REPO / "scripts"))
-import check_secret_output as cso  # noqa: E402
+from scripts import check_secret_output as cso
 
 
 # ---------------------------------------------------------------------------

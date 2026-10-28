@@ -20,14 +20,12 @@ from __future__ import annotations
 import os
 import re
 import subprocess
-import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 SCRIPT = REPO / "scripts" / "require_env.py"
 MAKEFILE = REPO / "Makefile"
-sys.path.insert(0, str(REPO / "scripts"))
-import unit_tests as ut  # noqa: E402  (the unit-suite aggregator, issue #393)
+from scripts import unit_tests as ut
 
 # secret-output: test value — a sentinel, never a credential.
 SENTINEL = "SENTINELvalue0123456789abcdef"

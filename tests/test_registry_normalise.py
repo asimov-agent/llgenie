@@ -14,13 +14,11 @@ NO-SKIP POLICY: a missing prerequisite is a LOUD FAILURE, never a skip.
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "scripts"))
 
-import sync_registry as sr  # noqa: E402
+from scripts import sync_registry as sr
 
 
 def _store(*rows: dict) -> dict:

@@ -13,14 +13,12 @@ against fixture registries — no network, no Hub, no model files.
 """
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "scripts"))
 
-import model_engine_pick as MP  # noqa: E402
-import registry_keys as RK  # noqa: E402
+from scripts import model_engine_pick as MP
+from scripts import registry_keys as RK
 
 #: Every engine the picker can offer needs an image in the binaries file, so this fixture uses
 #: one engine that exists there: llama.cpp.
