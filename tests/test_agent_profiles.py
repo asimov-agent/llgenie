@@ -474,3 +474,53 @@ def test_a_genuine_rewrite_that_is_not_a_subset_is_allowed(tmp_path):
     assert sync.shrinks(agents, "someone", live) == []
     assert sync.write(agents, "someone", live) == 0
     assert (live / "SOUL.md").read_text() == "- new rule A\n- new rule B\n"
+
+
+# ---- the MESSAGE is part of the contract, not just the exit code (review of #903) -----------
+
+
+def test_a_refusal_names_both_sizes_says_smaller_and_never_says_verified(tmp_path, capsys):
+    """A refusal that still prints "verified" is the same lie with a non-zero exit.
+
+    The original defect was not that sync shrank a file: it was that it shrank one and printed
+    `verified: 3 file(s) read back identical`. So the test pins the sentence, not the return code alone.
+    """
+    import agent_profile_sync as sync
+
+    agents = tmp_path / "agents"
+    (agents / "someone").mkdir(parents=True)
+    live = tmp_path / "live"
+    live.mkdir()
+    tree_text = "- a\n- b\n"
+    live_text = "- a\n- b\n- c the rule that would be lost\n"
+    (agents / "someone" / "SOUL.md").write_text(tree_text)
+    (live / "SOUL.md").write_text(live_text)
+    tree_bytes, live_bytes = len(tree_text.encode()), len(live_text.encode())
+
+    rc = sync.write(agents, "someone", live)
+    out = capsys.readouterr()
+    message = out.out + out.err
+
+    assert rc != 0
+    assert f"{tree_bytes} b" in message and f"{live_bytes} b" in message, message   # both sizes named
+    assert "verified" not in message.lower(), message             # the lie this test exists for
+    assert "smaller" in message.lower(), message
+    assert "would delete" in message and "line(s)" in message
+    assert (live / "SOUL.md").read_text().endswith("the rule that would be lost\n"), "nothing was written"
+
+
+def test_a_successful_copy_never_claims_identical_for_a_changed_file(tmp_path, capsys):
+    """The other half: success must say what happened, not that the destination was already right."""
+    import agent_profile_sync as sync
+
+    agents = tmp_path / "agents"
+    (agents / "someone").mkdir(parents=True)
+    live = tmp_path / "live"
+    live.mkdir()
+    (agents / "someone" / "SOUL.md").write_text("- brand new rule\n")
+    (live / "SOUL.md").write_text("- an older rule\n")            # a genuine rewrite, not a subset
+
+    assert sync.write(agents, "someone", live) == 0
+    message = capsys.readouterr().out
+    assert "copied" in message.lower() and "replaced an existing file" in message.lower(), message
+    assert "identical" not in message.lower(), message
