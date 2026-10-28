@@ -139,6 +139,17 @@ gh api repos/<o>/<r>/actions/runs/<id>/jobs \
 - **Price it, do not describe it:** runner-minutes held (`completed_at - started_at` per job × count) is the argument
   that gets a timeout added; "it was slow" is not.
 
+## Who may approve — identity, not permission
+
+An approval must come from an account that is **not the PR author**. Where every bot pushes with the owner's PAT, every PR is owner-authored, `gh pr review --approve` answers `Can not approve your own pull request`, and the board sits `BLOCKED/REVIEW_REQUIRED` with green checks — which reads as "waiting on the owner" when the real problem is one identity doing everything.
+
+- **A workflow's own token is a different account** (`github-actions[bot]`, distinct from the owner PAT) and **can** approve with `permissions: pull-requests: write`. The review does not have to be an owner action.
+- **A `pull_request` run from a fork receives a read-only token**, so approve/merge logic belongs in a `workflow_run` workflow: that executes in the **base** repository with the base repository's token — the same reason the merge PAT lives there at all.
+- **The guard is "approver ≠ author"**, never "use token X": a PR opened by the workflow's own bot needs the other identity, so a hard-coded token assumption reds or silently no-ops on exactly that PR.
+- **`allow_auto_merge` is a repository setting, not code**: `PATCH /repos/<o>/<r>` returns 404 for a `write` token and only admin flips it. Check `collaborators/<user>/permission` before promising an auto-merge fix is deployable, and say plainly which half is code and which half is a click only the owner can make.
+
+Diagnose a "nobody can merge" board in this order: author identity vs approver identity → the repo switch → whether the runs that would do the approving are themselves queued.
+
 ## A queued run owes no verdict; a running one owes all of it
 
 Superseding a **queued** run by pushing a corrected head destroys nothing — it never acquired a runner, so there is no

@@ -1,5 +1,7 @@
 # Worktree and push hygiene
 
+Siblings: `references/ci-failure-diagnosis.md` (red vs cancelled vs queued, reading logs, timeouts, reruns) · `references/pr-approval-and-merge.md` (approver identity, auto-merge, fork vs same-repo heads).
+
 ## `git reset --hard` in another lane's worktree is destruction, not tidying
 
 A rebase sweep never needs `reset --hard`. Before any branch move:
@@ -45,6 +47,10 @@ Worktrees inherit whichever clone created them, so `git fetch origin main` valid
 ## A PR that carries another PR's file must land after it
 
 When a branch includes another open PR's commits (stacked branches, files added by both), merging the carrier first silently drops the base gate the other PR was extending. Order the merges: base PR, then the carrier, then the dependents.
+
+## Arm auto-merge at PR creation
+
+Immediately after `gh pr create`: `gh pr merge <n> --squash --auto`, then verify `gh pr view <n> --json autoMergeRequest`. Do not arm a draft, a `do-not-merge` PR, or one based on a non-`main` branch — report those as deliberately unarmed with the reason. Arming is not approving: `auto-merge.yml` still performs the review with a second identity, and a red PR is never merged because `REQUIRED_MERGE_STATE = "CLEAN"`.
 
 ## Never prune a worktree
 
