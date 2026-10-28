@@ -206,3 +206,44 @@ def test_a_changed_engine_runner_makes_a_current_launcher_stale(tmp_path, capsys
     assert code == 1
     combined = out.out + out.err
     assert "STALE" in combined and shifted in combined and row["tag"] in combined
+
+
+def _pin_of(tag: str) -> str:
+    """The pin component of a tag, so a test can assert two tags share it."""
+    return cel.tag_parts(tag)[0]
+
+
+def test_same_pin_different_params_is_reported_as_params_drift(tmp_path, capsys):
+    """CONSTRUCTED case: same pin, different params — the drift a --version can never see.
+
+    Built here rather than observed on a host (the two launchers this check found were both PIN
+    drift). It is the case that proves the check compares more than the pin: a tuned launch line,
+    an entrypoint/Dockerfile edit or a runner change moves the tag while `pinned` stays put.
+    """
+    import copy
+    import hashlib
+
+    from scripts import engine_skills as es
+
+    # Given a launcher whose tag was computed from the SAME pin with ONE params value changed
+    row = _an_engine()
+    params = ei.load_params(row["engine"])
+    tuned = copy.deepcopy(params)
+    tuned["variants"][row["variant"]]["build_args"]["LLGENIE_TEST_PARAMS_DRIFT"] = "1"
+    digest = hashlib.sha256(es._image_inputs(tuned, row["variant"])).hexdigest()[:8]
+    drifted = f"llgenie/{params['id']}:{str(params['pinned'])[:8]}-{digest}-{row['variant']}"
+    assert _pin_of(drifted) == _pin_of(row["tag"]), "the pin must be identical"
+    assert drifted != row["tag"], "the params change must move the tag"
+    _write_launcher(tmp_path, row["engine"], drifted)
+
+    # When  the check runs
+    code = cel.check(tmp_path, ARCH)
+    out = capsys.readouterr()
+
+    # Then  it fails, says the PIN is the same and the PARAMS are not
+    assert code == 1
+    combined = out.out + out.err
+    assert "STALE" in combined
+    assert "other params (same pin)" in combined, combined
+    assert drifted in combined and row["tag"] in combined
+
