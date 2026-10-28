@@ -210,3 +210,56 @@ def test_a_gitignored_file_naming_the_old_module_does_not_redden_the_guard(tmp_p
     # Then  the gitignored file is neither read nor a finding
     assert "refine-in.md" not in seen
     assert "refine-in.md" not in found, found
+
+
+# --------------------------------------------------------------------------
+# the RUNNER: the seam the library always had, and the gate that now uses it
+# --------------------------------------------------------------------------
+
+def test_the_runner_passes_on_this_tree(capsys):
+    """`main()` exits 0 on a clean tree — the case the CLI was red on (issue #812)."""
+
+    # Given this checkout, whose only mention of the old name is this guard test
+    assert guard.SELF_EXCLUDED == ("tests/test_rename_llgenie_serve.py",), guard.SELF_EXCLUDED
+
+    # When  the runner checks the whole tree
+    rc = guard.main(["check", "--root", str(REPO)])
+    out = capsys.readouterr()
+
+    # Then  it passes, and it says so
+    assert rc == 0, out.err
+    assert "[module-name] OK" in out.out
+
+
+def test_the_runner_refuses_a_planted_old_name_file(tmp_path, capsys):
+    """The negative control: the runner still fails, naming the file, when a live file names it."""
+
+    # Given a tree whose live doc names the retired module
+    retired = "llama" + "_serve"
+    (tmp_path / "docs").mkdir()
+    planted = tmp_path / "docs" / "ARCHITECTURE.md"
+    planted.write_text(f"the launcher is `scripts/{retired}.py`\n")
+
+    # When  the runner checks that tree
+    rc = guard.main(["check", "--root", str(tmp_path)])
+    err = capsys.readouterr().err
+
+    # Then  it refuses, naming the planted file
+    assert rc == 1
+    assert "docs/ARCHITECTURE.md" in err, err
+
+
+def test_removing_the_self_exclusion_turns_the_runner_red():
+    """The exclusion is a decision, not a hole: without it this very file is a finding."""
+
+    # Given this checkout and no exclusion at all
+    found = guard.hits(REPO)
+
+    # Then  the guard's own test is what the runner would refuse ...
+    assert "tests/test_rename_llgenie_serve.py" in found, found
+
+    # ... and the ONE recorded exclusion is what makes the runner pass
+    assert guard.hits(REPO, exclude=guard.self_excluded(REPO)) == [], (
+        "with SELF_EXCLUDED applied nothing is a finding; if this fails, some other live file "
+        "names the retired module"
+    )

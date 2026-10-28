@@ -86,6 +86,7 @@ DEFERRED: dict[str, str] = {
     "check-secret-output": "compares SECRET_VARS with AGENT_SHELL_KEYS; fast, but #475 names a fixed list and widening it is that issue's follow-up, not this one",
     "check-dispatch-forms": "reads the dispatchable workflows' input forms; fast, but not in #475's list (follow-up issue, not this change)",
     "check-pr-authors": "reads the PR's commit range, which does not exist before the push",
+    "check-module-names": "a whole-tree read for the retired CLI module name; the CI job that must catch a rename is ci-unit, and `make test-unit` (which the agent already ran) enforces the same rule through tests/test_rename_llgenie_serve.py — FAST_GATES is the fixed #475 list",
     "check-agent-skills": "validates every bot leg's prompt against its project skill; fast, but not in #475's list (follow-up issue, not this change)",
     "check-agent-model": "compares the pinned model snapshot with the two files carrying it; fast, but not in #475's list (follow-up issue, not this change)",
 }

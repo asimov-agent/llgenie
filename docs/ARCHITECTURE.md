@@ -199,7 +199,12 @@ time, then proves its settings against the profile it selected), `load_token_to_
 
 `scripts/module_name_guard.py` is the renamed-module guard: the CLI is
 `scripts/llgenie_serve.py`, and its old spelling is refused in every LIVE file, this doc
-included (issues #251, #573). "Live" is the tree walk minus the checkout's own `.gitignore`
+included (issues #251, #573). `make check-module-names` is the target `ci-unit` runs, so the rule
+is executable rather than asserted in prose (issue #812). The runner excludes exactly ONE file —
+the guard's own test, `tests/test_rename_llgenie_serve.py`, which spells the name because that is
+its subject (`SELF_EXCLUDED`, one constant with that reason beside it); every other live file is
+refused, and a test proves that removing the exclusion turns the runner red again, so the
+exclusion is a decision and not a hole. "Live" is the tree walk minus the checkout's own `.gitignore`
 rules (`live_files()` / `is_ignored()`), because a guard that read everything judged files git
 never tracks — a bot's git-ignored working file reddened the local `make loop` while CI, on a
 fresh checkout, stayed green (issue #350). The matcher is deliberately minimal (a `dir/`

@@ -18,6 +18,9 @@ So the writer is checked by the same function as the reviewer, before it commits
 Commands (stdlib only):
 
     check [--root DIR] [PATH ...]   # the paths that name the old module (exit 1); no PATH = whole tree
+
+`make check-module-names` is the gate: `ci-unit` runs it beside the other structural gates, so the
+rule is executable in CI and not merely asserted in this docstring (issue #812).
 """
 from __future__ import annotations
 
@@ -42,6 +45,13 @@ ALLOWED_PREFIXES = ("scripts/llama_serve.py", "scripts/module_name_guard.py", "a
 
 #: Binary/media files are not text to a reader.
 SKIP_SUFFIXES = {".pyc", ".png", ".jpg", ".gif", ".woff", ".woff2", ".gz", ".bin"}
+
+#: Files a RUNNER must not judge, repo-relative. ONE entry, and it is a decision, not a hole: the
+#: guard's own test file spells the retired name because that IS its subject — it plants the name,
+#: asserts the rule refuses it, and proves the shim still answers to it. Every other live file stays
+#: refused, and `tests/test_rename_llgenie_serve.py` asserts that removing this entry turns the
+#: guard red again (issue #812).
+SELF_EXCLUDED = ("tests/test_rename_llgenie_serve.py",)
 
 
 def offenders(text: str) -> list[str]:
@@ -159,6 +169,16 @@ def hits(root: Path, paths: list[Path] | None = None,
     return out
 
 
+def self_excluded(root: Path) -> list[Path]:
+    """The files a RUNNER must not judge, resolved against `root` (`SELF_EXCLUDED` explained there).
+
+    A tree that does not carry one of them (a fixture, a partial checkout) resolves to a path that
+    is simply never a candidate, so passing the list is always safe.
+    """
+    root = Path(root)
+    return [root / rel for rel in SELF_EXCLUDED]
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Refuse the old CLI module name in a live file.")
     parser.add_argument("command", choices=["check"])
@@ -166,7 +186,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("paths", nargs="*", help="files to check instead of the whole tree")
     args = parser.parse_args(argv)
 
-    found = hits(Path(args.root), [Path(p) for p in args.paths] or None)
+    root = Path(args.root)
+    # `exclude` carries the guard's own test, which spells the name it forbids (issue #812): the
+    # library always had the seam, but this entry point never passed it, so the CLI was red on a
+    # tree the suite called green. The exclusion is ONE constant, and a test proves that removing
+    # it turns this runner red again.
+    found = hits(root, [Path(p) for p in args.paths] or None, exclude=self_excluded(root))
     if found:
         print("[module-name] REFUSED: these live files name the retired CLI module:", file=sys.stderr)
         for rel in found:
