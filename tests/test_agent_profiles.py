@@ -1205,6 +1205,24 @@ def test_an_exemption_without_an_owner_is_a_finding(tmp_path):
     assert "owner" in detail, detail
 
 
+def test_the_report_names_duplicate_canonical_rules_and_the_gate_does_not_fail_on_them():
+    """A canonical rule stated twice is a second source of truth (one bullet, one place — #972).
+
+    `check-agent-profiles report` must NAME every profile that states a canonical rule more than once,
+    while `findings()` (the pass/fail path) must NOT fail on them — removal is a protected SOUL write
+    the owner routes, so it is visible debt, not a silent amnesty nor a red the lane cannot clear.
+    """
+    report_text = guard.report(REPO)
+    names = [l.split(":")[0].strip() for l in report_text.splitlines()
+             if "stated more than once" in l]
+    assert names, "report must name at least one duplicate canonical rule"
+    assert any("documentation-maintainer" in n for n in names), \
+        f"the known duplicate lane must be named: {names}"
+
+    # gate must stay green (duplicates are informational, not a failure)
+    assert guard.findings(REPO) == []
+
+
 def test_the_gate_still_has_the_fleet_block_leg():
     """A merge that silently drops the leg would ungate three profiles without failing anything (#873).
 
