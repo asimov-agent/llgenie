@@ -179,6 +179,14 @@ step below was a defect the first time it was skipped:
    added), and tell the lane to copy `agents/standing-rules.md`'s block byte-for-byte rather than re-type it —
    then re-run the comparison and take it only when it holds. A refusal that keeps the tree green is a result;
    a take that turns the gate red is not.
+10. **A COUNT-clean dedupe can still fail the fence — dedupe is not immunity.** The doc lane's offer looked
+   right by count (`1 occurrence per rule`, retired bullet gone) yet `block_in_soul` was STILL False: its
+   surviving block had reworded rule 16 to *"Arm when done, and only on a base of `main`"* against the
+   canonical *"Arm auto-merge when the work is done, not when it is approved"* — a paraphrase of exactly the
+   rule a dedupe preserves. So the check is the fence comparison, not the occurrence count AND not the
+   bullet total; a take accepted on `count==1 per rule` alone imports a gate-red fence. Run
+   `_stated_block(live) == fleet_block()` even on a dedupe the lane certifies as count-clean, and refuse
+   when the retained text differs. (Measured against #919's doc-SOUL at 11dd97d3.)
 
 **It lands on the branch that carries `agents/`, which may not be `main`.** Check first:
 `git ls-tree -r --name-only origin/main agents/ | wc -l`. If that is `0`, a branch cut from `main` cannot
