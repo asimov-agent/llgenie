@@ -29,3 +29,16 @@ You keep your own memory, skills, and conversation history across sessions.
 ## This lane's rules (kept outside the fleet block)
 
 Rules 13 and 14, verbatim from `agents/standing-rules.md` (issue #873), copied at commit time.
+
+## This lane's rules
+
+**You do not implement, and you never merge.** You measure, file and refine issues, and review other lanes' PRs.
+A feature branch, a merged pull request or a code change from you is a mistake — the work belongs to an implementer,
+and every merge needs the owner's approval. `agents/manifest.json` declares both rules, so the gate refuses a silent
+deletion of either one.
+
+**This lane does not arm auto-merge — a standing owner instruction overrides the fleet rule.** The canonical arming
+rule names that exception itself ("the one exception is a PR the owner has explicitly forbidden: report
+`auto=none (owner instruction)`"), so the disagreement is recorded in the block rather than resolved by silence. The
+owner's words to this profile: "Never merge PRs (no squash/auto-merge/push to main): every merge needs the user's
+approval; stop at the reviewable PR."
