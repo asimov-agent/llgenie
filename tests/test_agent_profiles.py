@@ -1430,6 +1430,45 @@ def test_the_retired_rule_debt_is_reported_and_never_fails_the_gate(tmp_path):
     assert "retired" not in {i["key"] for i in cap.findings(tmp_path, agents)}
 
 
+def test_the_check_command_names_a_so_souls_retired_rule_on_a_green_tree_and_stays_green(tmp_path, capsys):
+    """The note a reviewer running `make check-agent-profiles` sees, not just the report() unit.
+
+    `_retired_rule_debts` is wired into TWO surfaces: `report()` and the `check` command's informational
+    note. The check-command note only prints when findings() is empty (a red tree goes to the FAIL branch
+    before it is reached), so it cannot be pinned against the real repo — which is red on the tester's two
+    live-longers. It has to be driven on a synthetic green tree that carries the retired bullet, asserting
+    BOTH the note and the exit code, so a future edit cannot delete the note wiring while keeping the
+    report() call and the gate green.
+    """
+    import shutil
+
+    agents = tmp_path / "agents"
+    shutil.rmtree(agents, ignore_errors=True)
+    agents.mkdir()
+    shutil.copy(REPO / "agents" / guard.FLEET_BLOCK, agents / guard.FLEET_BLOCK)
+    # a single clean profile: `never-merge` stated plainly (the fleet block does not carry it — it is
+    # the orchestrator's rule), the canonical fleet block verbatim (its heading is already the first
+    # line of `fleet_block()`), and the retired arming bullet OUTSIDE the block
+    canonical = guard.fleet_block(REPO / "agents")
+    soul = ("# Lane\n\n**You never merge.**\n\n" + canonical
+            + "\n\n## This lane's rules\n\n"
+              "- **Arm auto-merge at PR creation.** `gh pr merge <n> --squash --auto`\n")
+    prof = agents / "lane"
+    prof.mkdir()
+    (prof / "SOUL.md").write_text(soul)
+    (agents / "manifest.json").write_text(
+        '{"profiles": [{"name": "lane", "rules": ["never-merge"]}]}')
+
+    rc = guard.main(["check", "--root", str(tmp_path), "--agents-dir", "agents"])
+    captured = capsys.readouterr()
+    text = captured.out + captured.err
+    assert rc == 0, f"the retired-rule note must not turn the gate red: {text}"
+    assert "OK:" in text, text
+    assert "retired" in text, text
+    assert f"lane still states the retired {guard.RETIRED_ARM_RULE!r}" in text, text
+    assert "rule 16 replaced it" in text, text
+
+
 def test_the_check_command_names_duplicate_rules_but_stays_green(capsys):
     """The gate must not keep duplicate-rule debt silent when green (one bullet, one place, #972).
 
