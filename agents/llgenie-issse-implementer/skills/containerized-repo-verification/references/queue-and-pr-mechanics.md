@@ -120,6 +120,22 @@ a delta parked behind a superseded PR while its replacement sat open and armed.
   the command, never a sha from a message — including your own. A reader who verifies an unreachable sha
   gets `not a valid object name` and cannot tell whether the work exists at all.
 
+## Arm when the work is done, not when it is approved (owner directive 2026-10-29)
+
+"Done" — the last push, the last check on a finished PR — triggers the arm, and the arm is a hand-over to
+the merger, not a merge. A finished, UNARMED PR is invisible to every merger sweep and waits for a human to
+notice it; that is the failure the directive removes.
+
+- The arm command is `gh pr merge <n> --squash --auto`, and it is run when the work is finished — not left
+  to "when a reviewer approves". Read the arm state back in the SAME comment and report the arm time:
+  `gh pr view <n> --json autoMergeRequest` — `--auto` exits 0 and arms NOTHING when the base is not the
+  default branch, so the exit code is never the fact (issue #964).
+- **The only accepted reason a finished PR sits unarmed** is an owner instruction not to merge it; then the
+  comment says `auto=none (owner instruction)` and where that instruction lives. Anything else — a draft, a
+  missing reviewer, "I will wait a bit" — is the failure, not an excuse, and the report names which of the
+  three silent triggers it was.
+- A stacked PR (base != `main`) cannot be armed, so name that too rather than reporting a false arm.
+
 ## `gh pr merge --auto` exits 0 when it does nothing
 
 Arming has three silent-failure triggers, all of which leave `autoMergeRequest=null` while the command
