@@ -158,6 +158,11 @@ def source_time(agents: Path, name: str, path: Path) -> float:
     return path.stat().st_mtime
 
 
+def _loses_live_lines(tree_text: str, live_text: str) -> bool:
+    """Would writing the tree drop a line the live file has? That, not the mtime, is the harm."""
+    return bool(set(_rule_lines(live_text)) - set(_rule_lines(tree_text)))
+
+
 def newer_than_source(agents: Path, name: str, dest: Path) -> list[tuple[str, float, float]]:
     """Live files edited AFTER the tree copy was committed: (relative path, source time, live mtime).
 
@@ -173,8 +178,16 @@ def newer_than_source(agents: Path, name: str, dest: Path) -> list[tuple[str, fl
         if not target.exists():
             continue
         src, live = source_time(agents, name, path), target.stat().st_mtime
-        if live > src + 1:  # a second of slack: filesystems store whole seconds, git stores integers
-            out.append((rel, src, live))
+        if live <= src + 1:  # a second of slack: filesystems store whole seconds, git stores integers
+            continue
+        # The mtime is a proxy for "someone else wrote this"; the HARM is losing a line they wrote. Two
+        # cases where the write destroys nothing and the refusal would be a false positive:
+        #   - the bytes are already identical, so the sync writes nothing at all;
+        #   - every live line also exists in the tree, so the write cannot drop one.
+        if filecmp.cmp(path, target, shallow=False) or not _loses_live_lines(
+                path.read_text(), target.read_text()):
+            continue
+        out.append((rel, src, live))
     return out
 
 
