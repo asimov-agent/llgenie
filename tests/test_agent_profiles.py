@@ -1219,8 +1219,12 @@ def test_the_report_names_duplicate_canonical_rules_and_the_gate_does_not_fail_o
     assert any("documentation-maintainer" in n for n in names), \
         f"the known duplicate lane must be named: {names}"
 
-    # gate must stay green (duplicates are informational, not a failure)
-    assert guard.findings(REPO) == []
+    # The discriminator is a BOLDED-RULE statement (bullet or bold paragraph), not a bullet-line-only
+    # scan (which under-counts implementer's r13/14 outside the fence) and not raw whole-text count.
+    # The refIled shape is EXACTLY the planner's measured table (11 rows: doc 3, ci-pipelines 2,
+    # tester 2, implementer 2, planner 1, pr-reviever 1) — a wrong discriminator shifts the count.
+    assert len(names) == 11, f"expected the planner's 11 duplicate rows, got {len(names)}: {names}"
+    assert guard.findings(REPO) == []   # duplicates are informational, never a gate failure
 
 
 def test_the_gate_still_has_the_fleet_block_leg():
