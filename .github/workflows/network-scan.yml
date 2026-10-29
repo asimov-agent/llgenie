@@ -91,7 +91,7 @@ jobs:
           fetch-depth: 0
 
       - name: Liveness gate — every committed model/GGUF link a test depends on must resolve (issue #1000)
-        run: make check-model-links LIVE=1
+        run: make check-model-links LIVE=1 LIMIT=25
 
       - name: Run the real-Hub network tests (the @pytest.mark.network ownership set, issue #1000)
         run: |

@@ -1115,8 +1115,8 @@ check-engine-launchers: ## CI: fail when a ~/bin/llgenie-engine-* launcher names
 	python3 scripts/check_engine_launchers.py check $(if $(BIN),--bin "$(BIN)",) $(if $(ARCH),--arch "$(ARCH)",) $(if $(CHECK_REGISTRY),--check-registry,)
 engine-launchers-report: ## Print, per engine, the image tag this host's launcher carries next to the one the committed params compute (issue #842)
 	python3 scripts/check_engine_launchers.py report $(if $(BIN),--bin "$(BIN)",) $(if $(ARCH),--arch "$(ARCH)",)
-check-model-links: ## CI: prove every committed model/GGUF link a test depends on resolves (static, no network; LIVE=1 probes the real Hub via tests/hub_probe — the ONE liveness authority, issue #1000)
-	python3 scripts/check_model_links_liveness.py check $(if $(LIVE),--live,)
+check-model-links: ## CI: prove every committed model/GGUF link a test depends on resolves (static, no network; LIVE=1 probes the real Hub via tests/hub_probe — the ONE liveness authority, issue #1000; LIMIT bounds a live sweep)
+	python3 scripts/check_model_links_liveness.py check $(if $(LIVE),--live,) $(if $(LIMIT),--limit $(LIMIT),)
 model-links-report: ## Print every committed model/GGUF link the tests depend on, with its caller (issue #1000)
 	python3 scripts/check_model_links_liveness.py report
 

@@ -52,3 +52,31 @@ def test_report_names_every_link_with_its_caller():
     # Then  report surfaces them as caller:url lines (fixture data, no network)
     out = ml._report(links, defects)
     assert out == 0
+
+
+def test_a_live_limit_bounds_the_probe(monkeypatch):
+    """`--limit N` runs at most N real probes, never the whole committed set.
+
+    The network-scan pipeline gates on `LIVE=1 LIMIT=25`; an unbounded live run would probe all
+    1321 committed links every day — a Hub rate-limit storm. The bound must be real, not a
+    suggestion, so the workflow's first step is fast and decides this hermetically.
+    """
+
+    import types
+
+    calls = {"n": 0}
+
+    def _fake(url):
+        calls["n"] += 1
+        return types.SimpleNamespace(exists=True, detail="HTTP 200")
+
+    monkeypatch.setattr(ml.hub_probe, "probe", _fake)
+    links, defects = ml._collect()
+
+    # When the live check is bounded to 3
+    rc = ml._check(links, defects, live=True, limit=3)
+
+    # Then it probes exactly 3 links (not all 1321) and passes
+    assert rc == 0
+    assert calls["n"] == 3
+

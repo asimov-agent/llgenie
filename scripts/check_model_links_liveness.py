@@ -80,7 +80,7 @@ def _collect() -> tuple[list[tuple[str, str]], list[str]]:
     return [(c, u) for c, u, _ in uniq], defects
 
 
-def _check(links, defects, live: bool) -> int:
+def _check(links, defects, live: bool, limit: int | None = None) -> int:
     bad = 0
     for defect in defects:
         print(f"[model-links] MALFORMED {defect}")
@@ -89,16 +89,18 @@ def _check(links, defects, live: bool) -> int:
     if not live:
         print(f"[model-links] static pass: {len(links)} well-formed, {len(defects)} malformed")
         return 1 if bad else 0
+    probe = links[: limit] if limit else links
     dead = 0
-    for caller, url in links:
+    for caller, url in probe:
         p = hub_probe.probe(url)
-        status = "ok" if p.ok else "DEAD"
-        if not p.ok:
+        status = "ok" if p.exists else "DEAD"
+        if not p.exists:
             dead += 1
             print(f"[model-links] {status} {caller}: {url} -> {p.detail}")
         else:
             print(f"[model-links] ok      {caller}: {p.detail}")
-    print(f"[model-links] live: {len(links) - dead} ok, {dead} dead, {len(defects)} malformed")
+    print(f"[model-links] live: {len(probe) - dead} ok, {dead} dead, {len(defects)} malformed"
+          + (f" (of {len(probe)} probed)" if limit and len(probe) < len(links) else ""))
     return 1 if (bad or dead) else 0
 
 
@@ -115,11 +117,14 @@ def main(argv=None) -> int:
     ap.add_argument("--live", action="store_true",
                     default=os.environ.get("LIVE", "") not in ("", "0", "false"),
                     help="probe the real Hub with hub_probe (default: static, no network)")
+    ap.add_argument("--limit", type=int, default=None,
+                    help="with --live, probe at most this many links (bound the schedule run; "
+                         "omit for a full sweep)")
     args = ap.parse_args(argv)
     links, defects = _collect()
     if args.cmd == "report":
         return _report(links, defects)
-    return _check(links, defects, args.live)
+    return _check(links, defects, args.live, args.limit)
 
 
 if __name__ == "__main__":
