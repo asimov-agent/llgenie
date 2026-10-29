@@ -753,6 +753,34 @@ def test_sync_refuses_to_overwrite_a_live_file_newer_than_the_source_commit(tmp_
     assert (live / "SOUL.md").read_text() == live_text, "nothing was written"
 
 
+def test_a_newer_live_file_the_write_cannot_damage_is_not_refused(tmp_path, capsys, monkeypatch):
+    """The mtime is a proxy; the HARM is losing a line the other lane wrote.
+
+    Found by using the guard: every file had been written by the lane's own sync two minutes earlier, so a
+    newer mtime refused a write that would have destroyed nothing — three files byte-identical and two where
+    the live lines were a subset of the tree's. A guard that fires there is a guard people learn to `--force`.
+    """
+    sync, agents, live, _, live_text = _moving_fixture(tmp_path, monkeypatch)
+    # live is NEWER, but the tree already carries every live line plus its own
+    (agents / "someone" / "SOUL.md").write_text(live_text + "- a rule this tree adds\n")
+    os.utime(live / "SOUL.md", (1_700_000_600, 1_700_000_600))
+
+    assert sync.write(agents, "someone", live) == 0
+    text = capsys.readouterr().out
+    assert "REFUSED" not in text and "NEWER than the source commit" not in text, text
+    assert (live / "SOUL.md").read_text().endswith("a rule this tree adds\n")
+
+
+def test_an_identical_file_is_not_refused_for_being_newer(tmp_path, capsys, monkeypatch):
+    """A sync of a byte-identical file writes nothing, so a newer mtime cannot be a reason to stop."""
+    sync, agents, live, tree_text, _ = _moving_fixture(tmp_path, monkeypatch)
+    (live / "SOUL.md").write_text(tree_text)                      # identical now
+    os.utime(live / "SOUL.md", (1_700_000_600, 1_700_000_600))
+
+    assert sync.write(agents, "someone", live) == 0
+    assert "REFUSED" not in capsys.readouterr().out
+
+
 def test_the_force_path_says_it_overwrote_a_newer_live_file(tmp_path, capsys, monkeypatch):
     """`--force` is the one legitimate overwrite of newer live work — so the log must name it."""
     sync, agents, live, _, _ = _moving_fixture(tmp_path, monkeypatch)
