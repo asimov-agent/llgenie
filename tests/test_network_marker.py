@@ -131,10 +131,30 @@ def test_the_unit_gate_executes_zero_network_marked_tests():
     )
 
 
-def test_the_network_marker_is_registered_in_pytest_ini():
-    cfg = (REPO / "pytest.ini").read_text()
-    markers = cfg.split("markers =", 1)[1]
-    assert "network:" in markers, "the `network` marker must be registered in pytest.ini"
+def test_ci_unit_reaches_the_not_network_seam():
+    """Lock the structural wiring so `-m "not network"` cannot silently drop out between the
+    Makefile, ci.yml and unit_tests.py: `ci-unit` -> `test-unit` -> `unit_tests.py run` (default
+    `-m "not network"`), and `test-unit-network` -> `--marker network`. The hermetic gate excludes
+    network-marked tests only if this chain holds end-to-end, not just in unit_tests.py alone."""
+    mk = (REPO / "Makefile").read_text()
+
+    def target_recipe(t):
+        m = re.search(r"(?m)^%s:.+\n((?:\t[^\n]*\n)+)" % t, mk)
+        assert m, f"make target {t} missing"
+        return m.group(1)
+
+    ci_unit = target_recipe("ci-unit")
+    test_unit = target_recipe("test-unit")
+    assert "test-unit" in ci_unit, f"ci-unit must call test-unit:\n{ci_unit}"
+    assert "unit_tests.py run" in test_unit, f"test-unit must call unit_tests.py run:\n{test_unit}"
+    # the default run() carries `-m "not network"` (asserted by test_the_unit_gate_runs_not_network)
+    tn = target_recipe("test-unit-network")
+    assert "--marker network" in tn, f"test-unit-network must run the network marker:\n{tn}"
+    # the CI unit gate runs `make ci-unit`; ci.yml reuses pipeline.yml's `unit` job to reach it
+    ci = (REPO / ".github" / "workflows" / "ci.yml").read_text()
+    pl = (REPO / ".github" / "workflows" / "pipeline.yml").read_text()
+    assert "pipeline.yml" in ci, "ci.yml must invoke the pipeline reuse for the unit gate"
+    assert "make ci-unit" in pl, "pipeline.yml's unit job must run `make ci-unit`"
 
 
 def test_the_unit_gate_runs_not_network():
