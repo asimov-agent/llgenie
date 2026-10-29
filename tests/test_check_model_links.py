@@ -112,6 +112,8 @@ EXPECTED_NETWORK_TESTS = {
         "test_select_downloads_a_missing_model_for_real",
         "test_download_mlx_repo_snapshot_for_real",
         "test_full_download_through_hf_download_places_the_complete_gguf",
+        "test_gguf_repo_prefers_registry_repo_then_named_gguf_repo",
+        "test_pick_file_fits_the_card_and_skips_shards_and_mmproj",
     },
     "test_model_engine_pick.py": {
         "test_download_fetches_a_real_chunk_of_the_chosen_file",
