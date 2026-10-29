@@ -15,7 +15,9 @@ metadata:
 
 ## When to Use
 
-Repo-specific depth lives in `references/`: `references/llgenie-engine-pipeline.md` (how a registry
+Repo-specific depth lives in `references/`: `references/agent-profile-tree.md` (keeping a host agent's
+SOUL and skills in the repo: re-seed by allowlist, the larger-but-dropping-lines trap, an audible skip),
+`references/llgenie-engine-pipeline.md` (how a registry
 engine becomes a built, published image, and which bot/gate owns each step).
 
 Use whenever `make <gate>` shells into a test image (`docker run … <repo>/test:latest python -m pytest …`)
