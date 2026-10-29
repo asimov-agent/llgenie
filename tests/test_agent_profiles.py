@@ -104,16 +104,20 @@ def test_committed_tree_passes_the_gate():
     assert items == [], items
 
 
-def test_manifest_lists_both_host_profiles():
-    """`agents/manifest.json` names the orchestrator and the implementer (acceptance criterion 4)."""
+def test_manifest_lists_every_host_profile():
+    """`agents/manifest.json` names all seven host profiles (acceptance criterion 4, widened by the
+    consolidation ruling: the tree lands once, with every lane's profile in it)."""
 
     # Given the committed manifest
     profiles = guard.profiles_from_manifest(REPO / "agents")
     names = [profile["name"] for profile in profiles]
 
     # When  it is read as the sync target reads it
-    # Then  both live host profiles are listed, and the orchestrator keeps both standing rules
-    assert names == ["llgenie-planner", "llgenie-issse-implementer"]
+    # Then  every host profile is listed, and the orchestrator keeps both standing rules
+    assert names == [
+        "llgenie-planner", "llgenie-issse-implementer", "llgenie-architect", "llgenie-security",
+        "llgenie-documentation-maintainer", "llgenie-ci-pipelines-maintainer", "llgenie-pr-reviever",
+    ]
     planner = next(p for p in profiles if p["name"] == "llgenie-planner")
     assert set(planner["rules"]) == {"never-implement", "never-merge"}
 
@@ -575,3 +579,53 @@ def test_the_live_comparison_skip_is_audible_not_silent(tmp_path, capsys, monkey
     assert "skipped" in err, err
     assert "not compared" in err, err
     assert "tree checks only" in err, err
+
+
+def test_the_singular_env_var_resolves_to_its_parent_and_still_compares(tmp_path, monkeypatch, capsys):
+    """`HERMES_PROFILE_HOME` names ONE profile's home; the gate needs the directory holding them all.
+
+    Taking the singular name at face value would look for `<a profile>/<lane>/SOUL.md`, find nothing, and
+    report a green with the comparison skipped — the audible-skip defect reintroduced by a variable name.
+    """
+    import check_agent_profiles as cap
+
+    profiles = tmp_path / "profiles"
+    tree_side = profiles / "someone"
+    tree_side.mkdir(parents=True)
+    (tree_side / "SOUL.md").write_text("short\n")
+    agents = tmp_path / "agents" / "someone"
+    agents.mkdir(parents=True)
+    (agents / "SOUL.md").write_text("short\n")
+    (tree_side / "SOUL.md").write_text("short\n")
+    (tmp_path / "agents" / "manifest.json").write_text(
+        '{"profiles": [{"name": "someone", "rules": ["never-merge"]}]}')
+    (agents / "SOUL.md").write_text("# S\n\n## Rules\n\n- never merge\n")
+    (tree_side / "SOUL.md").write_text("# S\n\n## Rules\n\n- never merge\n")
+
+    monkeypatch.delenv("HERMES_PROFILES_HOME", raising=False)
+    monkeypatch.setenv("HERMES_PROFILE_HOME", str(tree_side))      # a PROFILE's home, not the root
+
+    base, source = cap.live_root_info()
+    assert base == profiles, f"the parent must be used, got {base} from {source}"
+    assert "parent" in source
+
+    assert cap.main(["check", "--root", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "LIVE RULEBOOKS NOT COMPARED" not in out, "the comparison DID run, so no caveat belongs here"
+
+
+def test_the_ok_line_carries_the_caveat_when_the_comparison_is_skipped(tmp_path, monkeypatch, capsys):
+    """`EXIT=0` hides the skip: a reader, and a `&&` chain, look at the OK line and nothing else."""
+    import check_agent_profiles as cap
+
+    agents = tmp_path / "agents" / "someone"
+    agents.mkdir(parents=True)
+    (agents / "SOUL.md").write_text("# S\n\n## Rules\n\n- never merge\n")
+    (tmp_path / "agents" / "manifest.json").write_text(
+        '{"profiles": [{"name": "someone", "rules": ["never-merge"]}]}')
+    monkeypatch.setenv("HERMES_PROFILES_HOME", str(tmp_path / "absent"))
+    monkeypatch.delenv("HERMES_PROFILE_HOME", raising=False)
+
+    assert cap.main(["check", "--root", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "OK:" in out and "tree checks only, LIVE RULEBOOKS NOT COMPARED" in out, out
