@@ -250,6 +250,25 @@ runs — so the failure surfaces as unrelated targets being refused:
 instead of editing the existing block, and re-run `make check-wiring` to prove the other names came
 back. Read the whole continued block (`sed -n "${L},$((L+3))p" Makefile`) before touching it.
 
+## A PR's blockers are three commands, not a rule of thumb
+
+"Fork head therefore unapprovable" and "`cross=true` therefore can't be armed" are **inferences**, and
+both were wrong on a repo where the bot identity holds `admin`. Measure before asserting a blocker:
+
+```
+gh api repos/<owner>/<repo>/collaborators/<identity>/permission   # can it approve at all?
+gh pr view <n> --json state,isCrossRepository,autoMergeRequest,reviewDecision,mergeStateStatus
+gh pr checks <n>                                                # queued vs fail vs pending
+```
+
+`isCrossRepository` is a property of the **PR**, fixed at creation and retained after close — it is not a
+property of the branch, and it does not change when the same commits are pushed elsewhere. "Is this head
+approvable" is `state=OPEN` **and** the permission query; a closed PR answering `cross=true` says nothing
+about the branch that now carries its commits.
+
+A PR with `autoMergeRequest` set and one `queued` check is **waiting on the queue**, which is not the same
+as blocked by its head's location, and neither is the same as blocked by review policy.
+
 ## Commit before you touch anything else in a worktree
 
 An uncommitted worktree is not storage — it is a file nobody saved, in a directory a branch switch, a
