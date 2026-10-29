@@ -1090,3 +1090,57 @@ def sync_fixture(tmp_path: Path, live_soul: str | None) -> tuple[Path, Path]:
         (dest / "SOUL.md").write_text(live_soul, encoding="utf-8")
     return tree, dest
 
+
+
+# --- the architect lane states the rules its manifest declares (#873, #791) --------------------------------
+
+
+def test_the_architect_soul_states_the_rules_its_manifest_declares():
+    """The declaration and the statement have to exist together; either one alone is a hole.
+
+    Measured on the base (`ce14dd36`): `agents/manifest.json` lists `llgenie-architect` with `"rules": []` and
+    the SOUL never mentions merging or implementing, so `check-agent-profiles` reports
+    `UNPROTECTED … declares no standing rule` — green, and protecting nothing. Declaring a rule the SOUL does
+    not state is the other failure: it reds with `FAIL standing-rule … no longer states never-implement`. Both
+    halves are asserted here because either one alone reads as fine. Whitespace is normalised: prose wraps.
+    """
+    import json
+
+    soul = " ".join((REPO / "agents" / "llgenie-architect" / "SOUL.md").read_text().lower().split())
+    manifest = json.loads((REPO / "agents" / "manifest.json").read_text())
+    entry = next(p for p in manifest["profiles"] if p["name"] == "llgenie-architect")
+
+    assert entry["rules"] == ["never-implement", "never-merge"], entry["rules"]
+    assert "you do not implement" in soul, "the architect SOUL no longer states never-implement"
+    assert "never merge" in soul, "the architect SOUL no longer states never-merge"
+    assert "auto=none" in soul, \
+        "the lane's no-auto-merge instruction must sit beside the fleet rule it overrides"
+
+
+def test_the_declaration_is_what_protects_the_rule(tmp_path):
+    """Three states of the same contract: undeclared is silent, declared-and-deleted reds, stated is clean.
+
+    The silent direction is the point: a profile that declares nothing cannot fail on a rule it never declared,
+    which is why the declaration is load-bearing rather than decoration.
+    """
+    import json
+
+    import check_agent_profiles as cap
+
+    def tree(name: str, rules, state_it: bool):
+        agents = tmp_path / name
+        prof = agents / "lane"
+        prof.mkdir(parents=True)
+        (prof / "SOUL.md").write_text(
+            "# Lane\n\n## Rules\n\n" + ("- **You never merge.**\n" if state_it else "- **You review.**\n"))
+        (agents / "manifest.json").write_text(
+            json.dumps({"profiles": [{"name": "lane", "rules": rules}]}))
+        return agents
+
+    def standing(name, rules, state_it):
+        return [i for i in cap.findings(tmp_path / f"root-{name}", tree(name, rules, state_it))
+                if i["key"] == "standing-rule"]
+
+    assert standing("undeclared", [], False) == [], "an empty rules array cannot fail on an undeclared rule"
+    assert standing("declared", ["never-merge"], False), "declaring the rule must make its absence a finding"
+    assert standing("kept", ["never-merge"], True) == [], "a stated rule must pass"
