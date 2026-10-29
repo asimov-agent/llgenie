@@ -12,7 +12,8 @@ pinned by a test with a negative control.
   it as "Arm when done, and only on a base of main" — same intent, different wording, and `_stated_block()`
   compares byte-for-byte against `standing-rules.md` only. Measured: the doc lane's live 13,394 matched the
   `#873` wording, so the planner's "take 13,394, block True" was measured against the wrong canonical and
-  withdrawn (`#1009`). The doc SOUL's `_stated_block == fleet_block()` is now a durable regression.
+  withdrawn. Tracked on **#1005** (the single surviving vehicle; #1009 closed as a duplicate of it). The doc
+  SOUL's `_stated_block == fleet_block()` is now a durable regression.
 - **`git rebase --onto` needs the three-argument form for a stacked child.** Using the branch's own remote
   tip as `<upstream>` gives an empty range and silently MOVES the branch to the new tip, dropping the child
   commit. The right form is `--onto <new-parent-tip> <old-parent-tip>`; recover with `git reset --hard <sha>`
