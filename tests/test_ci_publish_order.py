@@ -23,7 +23,9 @@ import yaml
 REPO = Path(__file__).resolve().parent.parent
 PIPELINE = REPO / ".github" / "workflows" / "pipeline.yml"
 sys.path.insert(0, str(REPO))
+sys.path.insert(0, str(REPO / "scripts"))
 
+import base_ref  # noqa: E402  (the base ref resolver, issue #925)
 import scripts.install_engine_launchers as iel  # noqa: E402
 
 # `install_engine_launchers` imports its sibling as the top-level `engine_image`;
@@ -185,7 +187,7 @@ def test_published_images_need_no_wait(monkeypatch):
     assert len(refs) == len(iel.CORE_ENGINES)
 
 
-def _deferred_engines(params_dir: Path | None = None, base: str = "origin/main") -> set[str]:
+def _deferred_engines(params_dir: Path | None = None, base: str | None = None) -> set[str]:
     """Engines whose committed params this change moved, so this run is publishing their tags.
 
     A tag that has never been published cannot answer a registry lookup, and the PR that moves the
@@ -193,9 +195,14 @@ def _deferred_engines(params_dir: Path | None = None, base: str = "origin/main")
     waited for where the wait belongs (`make ci-wait-engine-images`, a prerequisite of `ci-install`,
     issue #169), so a hermetic unit gate must not require them (issue #672).
 
+    `base` is RESOLVED when not given (issue #925): this host has clones where `origin` is the owner's fork
+    and `upstream` is the base, and a hard-coded `origin/main` there diffs against a different tree — which
+    reds this test on a checkout where nothing is wrong with publishing.
+
     An engine whose params file has no copy on the base is deferred too: it is a first import, and
     nothing has published it yet.
     """
+    base = base or base_ref.resolve_base(quiet=True)
     root = params_dir or (REPO / "containers" / "engines" / "params")
     deferred: set[str] = set()
     for params_file in sorted(root.glob("*.json")):

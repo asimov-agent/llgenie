@@ -34,8 +34,21 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-#: The base a merge commit must be an ancestor of, unless `--base` says otherwise.
-DEFAULT_BASE = "origin/main"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import base_ref  # noqa: E402  (the base ref resolver, issue #925)
+
+#: The base a merge commit must be an ancestor of, unless `--base` says otherwise. RESOLVED, not assumed
+#: (issue #925): deciding that a branch is merged by testing ancestry against `origin/main` is only correct in
+#: a clone whose `origin` is the BASE repository. In this host's other layout `origin` is the owner's fork, so
+#: the sweep would judge branches against a different tree - and this is the sweep that DELETES worktrees.
+DEFAULT_BASE = None
+
+
+def default_base() -> str:
+    """The base to test ancestry against, resolved from this clone's remotes (issue #925)."""
+    if DEFAULT_BASE:
+        return str(DEFAULT_BASE)
+    return base_ref.resolve_base(quiet=True)
 
 #: How many PRs one lookup reads. The repository has never held more than 500.
 PR_LIMIT = "500"
@@ -365,8 +378,9 @@ def render(outcome: Outcome, *, dry: bool, base: str) -> list[str]:
     return lines
 
 
-def prune(*, repo: str, base: str = DEFAULT_BASE, dry: bool = False, cwd: str | None = None) -> Outcome:
+def prune(*, repo: str, base: str | None = None, dry: bool = False, cwd: str | None = None) -> Outcome:
     """Read the tree and GitHub, decide, and (unless `dry`) apply."""
+    base = base or default_base()
     root = repo_root(cwd)
     trees = worktrees(cwd)
     prs = pull_requests(repo, cwd)
@@ -379,7 +393,9 @@ def prune(*, repo: str, base: str = DEFAULT_BASE, dry: bool = False, cwd: str | 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Prune worktrees and branches whose PR already merged (#431).")
     parser.add_argument("--repo", default="asimov-agent/llgenie", help="the slug `gh pr list` reads (default asimov-agent/llgenie)")
-    parser.add_argument("--base", default=DEFAULT_BASE, help=f"the ref a merge commit must be on (default {DEFAULT_BASE})")
+    parser.add_argument("--base", default=None,
+                        help="the ref a merge commit must be on (default: resolved from this clone's "
+                             "remotes, issue #925)")
     parser.add_argument("--dry", action="store_true", help="print the plan and mutate nothing")
     parser.add_argument("--cwd", default=None, help="the repository to prune (default: the current directory)")
     args = parser.parse_args(argv)

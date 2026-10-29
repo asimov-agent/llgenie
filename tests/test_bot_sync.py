@@ -125,3 +125,52 @@ def test_the_bots_wire_the_sync_into_their_workflows():
     mk = (REPO / "Makefile").read_text()
     for target in ("bot-sync-main:", "bot-sync-branch:"):
         assert target in mk, f"{target} is not a make target"
+
+
+def test_the_base_remote_is_resolved_not_assumed(tmp_path):
+    """`git reset --hard` onto the wrong history is worse than a red test (issue #925).
+
+    This bot hard-resets the tree onto `${REMOTE}/main`. In a clone whose `origin` is the owner's FORK, that
+    resets onto different history — so the remote is RESOLVED (the one whose URL is the base repository) instead
+    of defaulting to `origin`. Driven through a real repository with both remotes, and the fork's main is set
+    to a commit the base does not have, so the two answers are distinguishable.
+    """
+
+    def commit(where: Path, name: str, text: str) -> str:
+        (where / name).write_text(text, encoding="utf-8")
+        git("add", "-A", cwd=where)
+        git("commit", "-q", "-m", f"{name}: {text}", cwd=where)
+        return git("rev-parse", "HEAD", cwd=where)
+
+    base = tmp_path / "base.git"
+    fork = tmp_path / "fork.git"
+    for bare in (base, fork):
+        subprocess.run(["git", "init", "-q", "--bare", str(bare)], check=True)
+
+    work = tmp_path / "work"
+    subprocess.run(["git", "clone", "-q", str(base), str(work)], check=True)
+    git("config", "user.name", "t", cwd=work)
+    git("config", "user.email", "t@e", cwd=work)
+    git("symbolic-ref", "HEAD", "refs/heads/main", cwd=work)
+    commit(work, "file.txt", "base\n")
+    git("push", "-q", "-u", "origin", "main", cwd=work)
+
+    # the SAME clone carries the fork as `origin` and the base as `upstream` — the layout that bit #925
+    git("remote", "rename", "origin", "upstream", cwd=work)
+    git("remote", "add", "origin", str(fork), cwd=work)
+    fork_tip = git("rev-parse", "HEAD", cwd=work)
+    git("push", "-q", "origin", "main", cwd=work)
+
+    # the base moves on; the fork does NOT, so a reset to the fork would leave the tree behind
+    base_tip = commit(work, "newer.txt", "the base moved\n")
+    git("push", "-q", "upstream", "main", cwd=work)
+
+    env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@e",
+           "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@e"}
+    env.pop("BOT_SYNC_REMOTE", None)          # the whole point: no override, so the script must resolve
+    result = subprocess.run(["bash", str(SCRIPT), "reset"], cwd=work, capture_output=True, text=True, env=env)
+
+    assert result.returncode == 0, result.stderr
+    assert "base remote: upstream" in result.stdout, result.stdout
+    assert git("rev-parse", "HEAD", cwd=work) == base_tip, (
+        f"the sync must land on the BASE tip ({base_tip[:7]}), not the fork's ({fork_tip[:7]})")

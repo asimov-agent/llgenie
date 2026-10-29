@@ -16,7 +16,22 @@
 # A remote that cannot be reached is always a failure: a bot must never work from a stale base.
 set -euo pipefail
 
-REMOTE="${BOT_SYNC_REMOTE:-origin}"
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# The base remote is RESOLVED, not assumed (issue #925): this bot does `git reset --hard` onto `${REMOTE}/main`,
+# and in a clone whose `origin` is the owner's FORK that resets the tree onto the wrong history. `base_ref.py`
+# names the remote whose URL is the repository the PRs target, and prints it, so a surprising base is visible.
+resolve_remote() {
+  local ref
+  ref="$(python3 "${SELF_DIR}/base_ref.py" --quiet 2>/dev/null || true)"
+  printf '%s' "${ref%%/*}"
+}
+
+REMOTE="${BOT_SYNC_REMOTE:-$(resolve_remote)}"
+if [ -z "${REMOTE}" ]; then
+  REMOTE="origin"
+  printf '[bot-sync] WARNING: no base remote could be resolved; falling back to `origin` (issue #925)\n' >&2
+fi
 BRANCH="${BOT_SYNC_BRANCH:-main}"
 MODE="${1:-}"
 
@@ -36,6 +51,7 @@ if ! git fetch "$REMOTE" "$BRANCH" --quiet 2>/dev/null; then
 fi
 TARGET="$(git rev-parse --verify --quiet "FETCH_HEAD")" \
   || die "cannot resolve ${REMOTE}/${BRANCH} after fetching it"
+say "base remote: ${REMOTE} (BOT_SYNC_REMOTE overrides; issue #925)"
 say "fetched ${REMOTE}/${BRANCH} ($(git rev-parse --short "$TARGET"))"
 
 if [ "$MODE" = "reset" ]; then

@@ -22,7 +22,22 @@ HEAD_BRANCH="${HEAD_BRANCH:?HEAD_BRANCH is required}"
 HEAD_REPO="${HEAD_REPO:-}"
 REPO="${REPO:?REPO is required}"
 OWNER="${REPO%%/*}"
-ORIGIN="${ORIGIN:-origin}"
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# The base remote is RESOLVED, not assumed (issue #925): this bot rebases onto `${ORIGIN}/main`, and in a clone
+# whose `origin` is the owner's FORK that replays every PR onto different history. `base_ref.py` names the remote
+# whose URL is the repository the PRs target. `ORIGIN` still overrides.
+resolve_origin() {
+  local ref
+  ref="$(python3 "${SELF_DIR}/base_ref.py" --quiet 2>/dev/null || true)"
+  printf '%s' "${ref%%/*}"
+}
+
+ORIGIN="${ORIGIN:-$(resolve_origin)}"
+if [ -z "${ORIGIN}" ]; then
+  ORIGIN="origin"
+  printf '[rebase-bot] WARNING: no base remote could be resolved; falling back to `origin` (issue #925)\n' >&2
+fi
 FORK_REMOTE="${FORK_REMOTE:-fork}"
 # `make` must PARSE the Makefile before it can run any target — and the conflict may BE in
 # `Makefile` ("Makefile:628: *** missing separator", run 39566967551 on PR #446). So the agent leg
@@ -99,7 +114,7 @@ else
     echo
     echo "Conflicted files:"; cat "$LOG"
     echo
-    echo "The branch is rebasing onto origin/main; HEAD is \`main\`, the replayed commit is the PR's own work."
+    echo "The branch is rebasing onto ${ORIGIN}/main; HEAD is \`main\`, the replayed commit is the PR's own work."
   } >"$PROMPT"
   if [ -n "$DRY" ]; then
     echo "[rebase-bot] DRY: <agent> <$(wc -l <"$PROMPT")-line conflict prompt"

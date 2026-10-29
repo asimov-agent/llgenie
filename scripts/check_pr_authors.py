@@ -354,10 +354,12 @@ def render(items: list[dict]) -> str:
     return "\n".join(lines)
 
 
+import base_ref  # noqa: E402  (the base ref resolver, issue #925)
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="check_pr_authors.py")
     p.add_argument("cmd", nargs="?", choices=("check", "report"))
-    p.add_argument("--base", default="origin/main")
+    p.add_argument("--base", default=None, help="the base ref to compare against (default: resolved — `upstream/main` in a clone where `origin` is the fork, issue #925)")
     p.add_argument("--head", default="HEAD")
     p.add_argument("--root", default=str(REPO_ROOT))
     args = p.parse_args(argv)
@@ -365,9 +367,9 @@ def main(argv: list[str] | None = None) -> int:
         p.error("need a command: check | report")
     root = Path(args.root)
     if args.cmd == "report":
-        print(report(args.base, args.head, root))
+        print(report(args.base or base_ref.resolve_base(), args.head, root))
         return 0
-    items = findings(args.base, args.head, root)
+    items = findings(args.base or base_ref.resolve_base(), args.head, root)
     print(render(items))
     return 1 if items else 0
 
