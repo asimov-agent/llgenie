@@ -1144,3 +1144,26 @@ def test_the_declaration_is_what_protects_the_rule(tmp_path):
     assert standing("undeclared", [], False) == [], "an empty rules array cannot fail on an undeclared rule"
     assert standing("declared", ["never-merge"], False), "declaring the rule must make its absence a finding"
     assert standing("kept", ["never-merge"], True) == [], "a stated rule must pass"
+
+
+def test_the_soul_states_the_current_arming_directive_and_labels_the_older_one_superseded():
+    """The owner changed the rule on 2026-10-29; the block must say which sentence is live.
+
+    Measured risk: the older instruction ("no squash/auto-merge/push to main") and the newer directive ("set the
+    PRs to automerge when the work is done") contradict each other, and a block that merely keeps both leaves a
+    reader to guess. Deleting the old quote to make the new rule pass is the other failure — rules 13/14 are
+    explicit that a standing rule is stated, and that a removed rule leaves no record of the change. So: the
+    current directive is stated, and the older quote survives **labelled superseded with its date**.
+    """
+    soul = " ".join((REPO / "agents" / "llgenie-architect" / "SOUL.md").read_text().lower().split())
+
+    assert "arm the pr when the work is done" in soul, "the SOUL does not state the current arming directive"
+    assert "done" in soul and "armed" in soul, "the SOUL does not say that done means armed"
+    for keep in ["never squashes by hand", "never pushes to `main`", "stops at the reviewable pr"]:
+        assert keep in soul, f"the directive's permanent half is missing: {keep}"
+    assert "superseded 2026-10-29" in soul, "the older instruction is not labelled superseded with its date"
+    assert "never merge prs (no squash/auto-merge/push to main)" in soul, \
+        "the older quote was deleted to let the new rule pass — keep it, labelled"
+    # The live sentence must not still be the retired one.
+    assert "this lane does not arm auto-merge" not in soul, \
+        "the SOUL still states the superseded no-arming rule as live"

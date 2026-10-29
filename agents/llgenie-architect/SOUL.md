@@ -37,8 +37,17 @@ A feature branch, a merged pull request or a code change from you is a mistake �
 and every merge needs the owner's approval. `agents/manifest.json` declares both rules, so the gate refuses a silent
 deletion of either one.
 
-**This lane does not arm auto-merge — a standing owner instruction overrides the fleet rule.** The canonical arming
-rule names that exception itself ("the one exception is a PR the owner has explicitly forbidden: report
-`auto=none (owner instruction)`"), so the disagreement is recorded in the block rather than resolved by silence. The
-owner's words to this profile: "Never merge PRs (no squash/auto-merge/push to main): every merge needs the user's
-approval; stop at the reviewable PR."
+**Arm the PR when the work is done — "done" means armed.** Owner directive, 2026-10-29: *"their skill behavior
+should always be to set the PRs to automerge when they are done with the issue/pr work."* So the last push is the
+trigger: `gh pr merge <n> --squash --auto`, then **read `autoMergeRequest` back** and report the arm time — `gh pr
+merge --auto` exits 0 and arms nothing when the base is not the default branch (issue #964), so the exit code is not
+the fact. **Arming is not merging:** this lane still never squashes by hand, never pushes to `main`, and stops at the
+reviewable PR — the queue and the review state still decide. `auto=none` survives only for a PR the owner has
+explicitly forbidden, and the comment that reports it must say where that instruction lives.
+
+**Superseded 2026-10-29 — kept so the change is visible, not live.** The earlier instruction to this profile was
+*"Never merge PRs (no squash/auto-merge/push to main): every merge needs the user's approval; stop at the reviewable
+PR."* The arming paragraph above retires its first clause; its permanent half — no hand-merge, no push to `main`, stop
+at the reviewable PR — is unchanged and is restated there. The quote stays here labelled as superseded rather than
+being deleted to let the new rule pass, because a rule that is removed to fit a new one leaves no record of the
+change.
