@@ -842,8 +842,10 @@ def test_the_author_gate_lesson_is_in_the_skill():
     for phrase in ["a re-author instruction can itself be built on a stale head",
                    "escalate a contradiction rather than force-push",
                    "email-matching) removes",
-                   "cannot clear the gate"]:
-        assert phrase in ref, f"the stale-re-author-order guard is missing: {phrase}"
+                   "cannot clear the gate",
+                   "re-measure at the current head before asserting the gate's red size",
+                   "a stated count is a snapshot of a head, not a constant"]:
+        assert phrase in ref, f"the stale-count guard is missing: {phrase}"
 
 
 def test_the_arm_when_done_rule_is_in_the_skill():
