@@ -99,16 +99,19 @@ DATA_PATH_FILES = (
 )
 
 # The complete real-Hub ownership set across those files, from the routing census (issue #1000):
-# ONLY test_trend_pick genuinely opens the Hub (each of these does real i/o, is named "for real" or
-# "live", and carries no `urlopen` monkeypatch in its body). Everything else is hermetic by
-# construction (0 open primitives) or reaches only a localhost serve / non-Hub, so nothing else may
-# be marked. test_plan_download_per_format_live_hub is deliberately ABSENT: it only plans, no i/o.
+# ONLY test_trend_pick genuinely opens the Hub. Five tests do real i/o (named "for real"/"live"/"full
+# download", no `urlopen` monkeypatch in their bodies; the fifth reaches the Hub through a model-dict
+# host, so a literal-host pin cannot see it — caught by the tester's review, not the pin). Everything
+# else is hermetic by construction (0 open primitives) or reaches only a localhost serve / non-Hub, so
+# nothing else may be marked. test_plan_download_per_format_live_hub is deliberately ABSENT: it only
+# plans, no i/o.
 EXPECTED_NETWORK_TESTS = {
     "test_trend_pick.py": {
         "test_live_upstream_registry_is_the_live_readme_list",
         "test_every_model_in_the_list_downloads_the_first_bytes_of_its_planned_file",
         "test_select_downloads_a_missing_model_for_real",
         "test_download_mlx_repo_snapshot_for_real",
+        "test_full_download_through_hf_download_places_the_complete_gguf",
     },
 }
 
