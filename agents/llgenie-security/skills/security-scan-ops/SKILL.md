@@ -184,6 +184,11 @@ test-image`). A `make sbom && make security-scan TOOL=trivy` run locally (pinned
 - **History rewrites are scoped to a branch, not to a range computed from the wrong HEAD.** Assert
   `git branch --show-current` first; a rebase started from a shared checkout on `main` rewrites other
   sessions' merged commits. Full procedure: `references/branch-and-push-hygiene.md`.
+- **Rebase only when the PR is actually `CONFLICTING` (issue #1015).** Do not rebase onto every `main` move —
+  let `main` advance under the PR until a merge needs it; a license covers *what*, the conflict decides
+  *when*. Fetch / pull latest asimov-agent/llgenie `main` is still mandatory before any work, with an explicit
+  refspec or the API — never a quoted sha, and the local `origin/main` branch is a shadow that goes stale
+  (`refs/heads/origin/main` read `6d9fef1d` while the API's real main was `6b8fafcf`).
 - **When workflows are disabled**, read their states first: `disabled_manually` is a deliberate pause, not a
   defect. A disabled workflow cannot be dispatched and its runs cannot be re-run, so the resume order is
   enable → verify with `enforce=report` → schedule. Detail: `references/fleet-pause-and-resume.md`.
