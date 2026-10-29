@@ -471,6 +471,10 @@ def _ci():
     return yaml.safe_load((REPO / ".github" / "workflows" / "ci.yml").read_text())
 
 
+def _eb():
+    return yaml.safe_load((REPO / ".github" / "workflows" / "engine-build.yml").read_text())
+
+
 def test_committed_engine_params_match_the_skills(skills):
     """make check-engine-params: the frozen params are exactly what the skills generate."""
 
@@ -646,37 +650,33 @@ def test_runner_serves_from_a_frozen_plan(tmp_path):
 
 
 def test_ci_builds_every_engine_arch_in_parallel_from_make(skills):
-    """CI computes the job list from the params and runs make build-engine per job."""
+    """The engine-build PRODUCER computes the job list from the params and runs make
+    build-engine per job, in parallel (issue #614 / #1027)."""
 
     import scripts.engine_image as ei
 
-    # Given the CI workflow and the generated matrix
-    jobs = _ci()["jobs"]
+    # Given the engine-build workflow and the generated matrix
+    jobs = _eb()["jobs"]
     rows = ei.matrix(ci=True)
 
-    # When the matrix and steps are read
-    steps = " ".join(str(st.get("run", "")) for st in jobs["engine-image"]["steps"])
-    mat_steps = " ".join(str(st.get("run", "")) for st in jobs["engine-matrix"]["steps"])
+    # When the matrix and build steps are read
+    steps = " ".join(str(st.get("run", "")) for st in jobs["build"]["steps"])
+    mat_text = (REPO / ".github" / "workflows" / "engine-build.yml").read_text()
 
-    # Then jobs come from `make list-engine-images CI=1 JSON=1`, build + push via make,
-    # curl-test cpu images, and every engine x CI arch is present
-    assert "make -s list-engine-images CI=1 JSON=1" in mat_steps
-    assert "fromJSON(needs.engine-matrix.outputs.matrix)" in str(jobs["engine-image"]["strategy"]["matrix"])
+    # Then jobs come from `make -s engine-build-matrix`, build + test + push via make,
+    # and every engine x CI arch is present
+    assert "make -s engine-build-matrix ENGINE=" in mat_text
+    assert 'fromJSON(needs.matrix.outputs.matrix)' in mat_text
     assert "make build-engine ENGINE=" in steps and "make push-engine ENGINE=" in steps
-    # every push run publishes (feature branches too, #101); pull_request runs never do
-    assert str(jobs["engine-image"]["env"]["PUBLISH"]) == "${{ github.event_name == 'push' && '1' || '' }}"
     assert "make test-engine-stage ENGINE=" in steps
     assert {(r["engine"], r["variant"]) for r in rows} >= {
         ("llama.cpp-prism", "vulkan"), ("vllm", "cpu"), ("ollama", "rocm"),
         ("llama.cpp", "vulkan"), ("llama.cpp", "rocm")}
-    # every params variant is a CI job except the disabled ones (issue #103)
+    # every params variant is a sweep row except the disabled ones (issue #103)
     every = {(r["engine"], r["variant"]) for r in ei.matrix()}
     assert {(r["engine"], r["variant"]) for r in rows} == every - set(ei.DISABLED)
     assert len(rows) == len(every) - len(ei.DISABLED)
     assert all(r["smoke"] == (r["variant"] == "cpu" and r["engine"] not in ei.SMOKE_SKIP) for r in rows)
-    assert jobs["engine-image"]["needs"] == ["engine-matrix", "engine-base", "ci-images"]
-    base_steps = " ".join(str(st.get("run", "")) for st in jobs["engine-base"]["steps"])
-    assert "make build-engine-base BACKEND=" in base_steps and "PUSH=$PUBLISH" in base_steps
 
 
 def test_ci_checks_params_are_fresh():
@@ -1187,20 +1187,18 @@ def test_no_image_carries_the_ggml_org_app_library_path_workaround():
 
 
 def test_post_build_test_stage_runs_engine_version_alias():
-    """Every engine image has a post-build pytest stage (tests/test_engine_runs.py):
-    cpu images serve and must answer 'hi' on the OpenAI endpoint; GPU images must at
-    least report the engine version. entrypoint.sh exposes `version` (= detect)."""
+    """Every engine image has a post-build verification stage (issue #1027): the engine-build
+    producer runs make test-engine-stage per row — serve: the cpu image answers 'hi' on the
+    OpenAI endpoint; detect: the binary reports its version. entrypoint.sh exposes `version`
+    (= detect)."""
 
     ep = (REPO / "containers" / "engines" / "entrypoint.sh").read_text()
-    ci = (REPO / ".github" / "workflows" / "ci.yml").read_text()
+    eb = (REPO / ".github" / "workflows" / "engine-build.yml").read_text()
     tr = (REPO / "tests" / "test_engine_runs.py").read_text()
 
-    # Given the entrypoint, the workflow test stage and the python test file
-    # When they are read
-    # Then the version alias exists, the CI test stage runs the python file, and it asserts both contracts
+    # Then the version alias exists, the producer runs the test stage, and it asserts both contracts
     assert "  version)" in ep and "alias of detect" in ep
-    assert "pytest tests/test_engine_runs.py in llgenie/test (endpoint" in ci
-    assert "pytest tests/test_engine_version.py (engine binary reports its version" in ci
+    assert "make test-engine-stage ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} TEST=${{ matrix.test }}" in eb
     assert "def test_engine_cpu_image_answers_hi(" in tr
     assert "def test_engine_binary_reports_a_version(" in (REPO / "tests" / "test_engine_version.py").read_text()
     assert "test-engine-image" in open(REPO / "Makefile").read()
@@ -1376,39 +1374,32 @@ def test_run_engine_skips_nvidia_modprobe_without_a_missing_cuda_node(monkeypatc
 
 
 def test_published_images_are_tested_again_as_a_separate_matrix_stage():
-    """Issue #102: after build -> test -> push, a separate matrix job pulls every image
-    from GHCR (no build, digest check) and runs the same tests + the install path."""
+    """Issue #102/#1027: the engine-build PRODUCER verifies every image BEFORE it pushes, and the
+    install consumer leg (make test-engine-install) runs after push, on the image that row just produced."""
 
     import yaml
 
-    # Given the CI workflow and the Makefile
-    jobs = yaml.safe_load((REPO / ".github" / "workflows" / "ci.yml").read_text())["jobs"]
-    pub = jobs["engine-published-test"]
-    steps = " ".join(st.get("run", "") for st in pub["steps"])
-    build = jobs["engine-image"]
+    # Given the engine-build workflow and the Makefile
+    jobs = yaml.safe_load((REPO / ".github" / "workflows" / "engine-build.yml").read_text())["jobs"]
+    build = jobs["build"]
     order = [st.get("run", "") for st in build["steps"] if st.get("run")]
     mk = (REPO / "Makefile").read_text()
 
-    # When the published stage and the build job are read
-    # Then the build job tests before it pushes
-    i_test = next(i for i, r in enumerate(order) if "make test-engine" in r)
+    # When the build job's steps are read
+    # Then it tests before it pushes
+    i_test = next(i for i, r in enumerate(order) if "make test-engine-stage" in r)
     i_push = next(i for i, r in enumerate(order) if "make push-engine" in r)
     assert i_test < i_push
-    # And the published stage runs after it, on every push run, over the same matrix
-    assert set(pub["needs"]) == {"engine-matrix", "engine-image", "ci-images"}
-    assert "github.event_name == 'push'" in pub["if"] and "!cancelled()" in pub["if"]
-    # nothing built (the none placeholder) skips every step; the job itself is push-only
-    assert "needs.engine-image.result == 'success'" in pub["if"]
-    assert all(st.get("if") == "${{ matrix.engine != 'none' }}" for st in pub["steps"])
-    assert all(st.get("if") == "${{ matrix.engine != 'none' }}" for st in jobs["engine-image"]["steps"])
-    assert pub["name"] == "test-published-${{ matrix.engine }}-${{ matrix.variant }}"
-    assert pub["strategy"]["matrix"] == build["strategy"]["matrix"]
-    assert pub["permissions"]["packages"] == "read"
-    # And it never builds: it pulls, re-tests, installs from the registry only
-    assert "make build-engine" not in steps and "make push-engine" not in steps
-    assert "make test-published-engine ENGINE=" in steps
-    assert "make engine-launchers" in steps and "BUILD=1" not in steps and "make test-built-engine" in steps
-    assert "pull-published" in mk[mk.index("test-published-engine:"):mk.index("push-engine:")]
+    # And the install consumer leg runs after push, over the same matrix (the none row never builds)
+    i_inst = next(i for i, r in enumerate(order) if "make test-engine-install" in r)
+    assert i_push < i_inst
+    assert build["strategy"]["matrix"] == "${{ fromJSON(needs.matrix.outputs.matrix) }}"
+    assert build["permissions"]["packages"] == "write"
+    # it builds, tests and installs the row's own image — one producer path, not a separate mirror matrix
+    assert "make build-engine ENGINE=" in " ".join(order)
+    # the none placeholder row never builds, and every gated step carries the engine != none guard
+    assert all("matrix.engine != 'none'" in (st.get("if") or "") for st in build["steps"] if st.get("if"))
+    assert "make test-engine-install ENGINE=" in " ".join(order)
 
 
 def test_pull_published_refuses_a_local_build_and_a_digest_mismatch(monkeypatch):
@@ -1512,9 +1503,8 @@ def test_post_build_tests_run_in_the_test_image_not_on_the_bare_runner():
     The engine-image job pulls llgenie/test (published by ci-images, issue #117) before its
     post-build stage, and test-engine-image runs pytest inside it (host docker socket), not
     via host python."""
-    ci = (REPO / ".github" / "workflows" / "ci.yml").read_text()
-    job = ci.split("\n  engine-image:\n", 1)[1].split("\n  engine-published-test:\n", 1)[0]
-    assert job.index("run: make test-image-pull") < job.index("post-build test:")
+    eb = (REPO / ".github" / "workflows" / "engine-build.yml").read_text()
+    assert eb.index("run: make test-image-pull") < eb.index("run: make test-engine-stage ENGINE=")
     mk = (REPO / "Makefile").read_text()
     recipe = mk.split("\ntest-engine-image:", 1)[1].split("\n\n", 1)[0].split("\ntest-", 1)[0]
     assert "$(call engine_test," in recipe and "tests/test_engine_version.py" in recipe
@@ -1567,10 +1557,10 @@ def test_every_published_image_is_started_and_answers_hi():
     assert 'ei.chat_testable("$(ENGINE)", "$(ARCH)")' in recipe
     smoke = (REPO / "scripts" / "engine_smoke.py").read_text()
     assert 'spec = {**spec, "run_args": list(es.SHM)}' in smoke
-    ci = (REPO / ".github" / "workflows" / "ci.yml").read_text()
-    job = ci.split("\n  engine-published-test:\n", 1)[1].split("\n  # ----", 1)[0]
-    assert "make test-published-engine ENGINE=" in job
-    assert "if: matrix.test" not in job  # no GPU image skips the chat test
+    eb = (REPO / ".github" / "workflows" / "engine-build.yml").read_text()
+    # the producer verifies every image it published: the cpu serve test answers "hi"
+    assert "run: make test-engine-stage ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} TEST=${{ matrix.test }}" in eb
+    assert "serve: the cpu image answers on the OpenAI API" in eb  # no GPU image skips the chat test
 
 
 def test_llama_server_shim_uses_the_images_real_binary_path():
@@ -1613,14 +1603,14 @@ def test_rocm_source_builds_pin_a_base_their_build_accepts():
 
 
 def test_published_stage_pulls_with_the_run_token():
-    """A first-time GHCR package can be private: engine-published-test logs in with the
-    run's read token before pulling, and every published image is chatted with."""
+    """A first-time GHCR package can be private: engine-build logs in with the run's token
+    before it pushes (packages: write today; the old published stage read-only token is gone)."""
     import yaml as _y
-    job = _y.safe_load((REPO / ".github/workflows/ci.yml").read_text())["jobs"]["engine-published-test"]
+    job = _y.safe_load((REPO / ".github/workflows/engine-build.yml").read_text())["jobs"]["build"]
     runs = [st.get("run", "") for st in job["steps"]]
     i_login = next(i for i, r in enumerate(runs) if "docker login ghcr.io" in r)
-    i_pull = next(i for i, r in enumerate(runs) if "make test-published-engine" in r)
-    assert i_login < i_pull and job["permissions"]["packages"] == "read"
+    i_push = next(i for i, r in enumerate(runs) if "make push-engine" in r)
+    assert i_login < i_push and job["permissions"]["packages"] == "write"
 
 
 @pytest.mark.parametrize("arch, want", [
@@ -1737,12 +1727,18 @@ def test_pre_publish_jobs_build_and_the_pull_only_install_runs_last():
 
 
 def test_published_install_step_runs_gpu_images_on_cpu():
-    """CI run 37407553595: the registry-only install of a cuda image failed on the
-    GPU-less runner (no CDI spec); that step sets LLGENIE_NO_GPU=1."""
+    """Issue #1027 / CI run 37407553595: the producer's install leg (make test-engine-install)
+    installs the just-published image on the gpu-less ubuntu runner, so the dry/uninstall must
+    not require a GPU/CDI spec — the old ci.yml install step's LLGENIE_NO_GPU handling moved here."""
     import yaml as _y
-    job = _y.safe_load((REPO / ".github/workflows/ci.yml").read_text())["jobs"]["engine-published-test"]
-    step = next(st for st in job["steps"] if "make engine-launchers" in st.get("run", ""))
-    assert step["env"]["LLGENIE_NO_GPU"] == "1"
+    eb = _y.safe_load((REPO / ".github/workflows/engine-build.yml").read_text())
+    job = eb["jobs"]["build"]
+    runs = [st.get("run", "") for st in job["steps"]]
+    assert "make test-engine-install ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}" in runs
+    assert "ubuntu" in str(job["runs-on"])
+    mk = (REPO / "Makefile").read_text()
+    recipe = mk.split("\ntest-engine-install:", 1)[1].split("\n\n", 1)[0]
+    assert "ci-install-dry" in recipe and "ci-install-uninstall" in recipe
 
 
 def test_only_engines_with_a_cpu_fallback_are_chat_tested_on_gpu_images():
