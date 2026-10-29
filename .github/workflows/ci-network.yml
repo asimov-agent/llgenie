@@ -1,4 +1,4 @@
-name: llgenie-hf-network — the daily real-Hub test pipeline (HF real-call tests, gated by the committed-link liveness check), never a PR or push check
+name: ci-network — the daily real-Hub test pipeline (HF real-call tests, gated by the committed-link liveness check), never a PR or push check
 
 # Issue #1000: the owner moved the real-call HF tests to their OWN pipeline — "the hf network tests
 # must be part of another ci pipeline … they can't be part of ci unit anymore". Every test marked
@@ -37,7 +37,7 @@ permissions:
 # concurrency: A bot never cancels an in-progress run (issue #275): the group is this workflow's own,
 # and `cancel-in-progress` is false so a second scheduled run waits instead of killing one mid-test.
 concurrency:
-  group: llgenie-hf-network
+  group: ci-network
   cancel-in-progress: false
 
 jobs:
