@@ -742,6 +742,26 @@ def test_the_ok_line_carries_the_caveat_when_the_comparison_is_skipped(tmp_path,
 # --- fleet rule 13: a hold without a remedy is abandonment (issue #948, rule in #873) -------------------
 
 
+def test_this_lane_s_soul_carries_each_canonical_rule_once_and_no_retired_bullet():
+    """The #973 dedupe: one bullet, one place, and the retired arming rule is gone.
+
+    This lane's SOUL restated rules 13/14 twice (top standing-rules section AND the fleet block) and
+    carried the retired "Arm auto-merge at PR creation" bullet that contradicts rule 16 (arm when done).
+    The planner measured r13=2 r14=2 r15=1 on this lane. After the dedupe each canonical rule appears
+    exactly once (in the fleet block), the retired bullet is absent, and rule 16 (arm when done) survives.
+    Any editor who re-adds a duplicate or the retired bullet must make this red.
+    """
+    soul = (REPO / "agents" / "llgenie-issse-implementer" / "SOUL.md").read_text()
+    for title in ["Never hold a PR without a remedy",
+                  "Announce the work where the work lives",
+                  "Start from a fresh upstream main"]:
+        assert soul.count(title) == 1, f"a canonical rule must appear exactly once (it may not be restated): {title}"
+    assert "Arm auto-merge at PR creation" not in soul, \
+        "the retired arm-at-creation bullet (contradicts rule 16) must not be in this lane's SOUL"
+    assert "Arm auto-merge when the work is done, not when it is approved" in soul, \
+        "rule 16 (arm when done) must survive the dedupe"
+
+
 def test_this_lane_s_soul_carries_the_fleet_hold_rule():
     """The rule must be in the SOUL, not only in the skill that spells out the procedure.
 
@@ -1236,19 +1256,30 @@ def test_the_report_names_duplicate_canonical_rules_and_the_gate_does_not_fail_o
     `check-agent-profiles report` must NAME every profile that states a canonical rule more than once,
     while `findings()` (the pass/fail path) must NOT fail on them — removal is a protected SOUL write
     the owner routes, so it is visible debt, not a silent amnesty nor a red the lane cannot clear.
+
+    This asserts a SUBSET, never a count: the report must name the lanes that still carry a duplicate
+    (documentation, ci-pipelines, planner, pr-reviever, tester), must NOT name a lane this vehicle has
+    deduped (implementer — its r13/r14 live only in the fleet block now), and the gate must stay green.
+    An exact row count is a moving snapshot — this lane's own dedupe just changed it 11 → 9 legitimately
+    — and "a snapshot is not a certificate" (#54's lesson).
     """
     report_text = guard.report(REPO)
-    names = [l.split(":")[0].strip() for l in report_text.splitlines()
-             if "stated more than once" in l]
+    names = sorted(l.split(":")[0].strip() for l in report_text.splitlines()
+                   if "stated more than once" in l)
     assert names, "report must name at least one duplicate canonical rule"
     assert any("documentation-maintainer" in n for n in names), \
         f"the known duplicate lane must be named: {names}"
 
-    # The discriminator is a BOLDED-RULE statement (bullet or bold paragraph), not a bullet-line-only
-    # scan (which under-counts implementer's r13/14 outside the fence) and not raw whole-text count.
-    # The refIled shape is EXACTLY the planner's measured table (11 rows: doc 3, ci-pipelines 2,
-    # tester 2, implementer 2, planner 1, pr-reviever 1) — a wrong discriminator shifts the count.
-    assert len(names) == 11, f"expected the planner's 11 duplicate rows, got {len(names)}: {names}"
+    # durable invariants, not a snapshot count:
+    still_debt = {"llgenie-documentation-maintainer", "llgenie-ci-pipelines-maintainer",
+                  "llgenie-planner", "llgenie-pr-reviever", "llgenie-tester"}
+    assert still_debt <= set(names), f"every still-debt lane must be named: {names}"
+    assert all("issse-implementer" not in n for n in names), \
+        "implementer's duplicate rule was deduped into the fleet block — it must not be re-flagged"
+
+    # The discriminator is a BOLDED-RULE statement, not a bullet-line-only scan (which under-counts a
+    # bold paragraph outside a fence) and not a raw whole-text count (which over-claims a prose mention).
+    # The named LANES are the stable contract; a wrong discriminator shifts which lanes appear.
     assert guard.findings(REPO) == []   # duplicates are informational, never a gate failure
 
 
