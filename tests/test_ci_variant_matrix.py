@@ -46,21 +46,24 @@ def _cells(job: dict) -> set[tuple[str, str, str]]:
 
 def test_linux_prism_and_stock_variants_are_engine_image_jobs():
     """prism+cpu/cuda and upstream+cpu/cuda now run as engine images, each from its own
-    base image, in parallel (the old in-container compile job is gone)."""
+    base image, in parallel, in the engine-build producer (issue #614 / #1027)."""
 
     import scripts.engine_image as ei
 
-    # Given the workflow and the generated engine-image matrix
-    jobs = _workflow()["jobs"]
+    # Given the engine-build workflow and the generated engine matrix
+    eb = yaml.safe_load((REPO / ".github/workflows/engine-build.yml").read_text())["jobs"]
+    build = eb["build"]
     rows = {(r["engine"], r["variant"]) for r in ei.matrix(ci=True)}
 
     # When the Linux variants are looked up
-    # Then each tree x backend is an engine-image job and the old job is removed
-    assert "server-variants" not in jobs
+    # Then each tree x backend is an engine row and the old in-container job is gone
+    assert "server-variants" not in eb
     assert {("llama.cpp-prism", "cpu"), ("llama.cpp", "cpu"), ("llama.cpp", "cuda")} <= rows
-    # the disabled images (issue #103) are not CI jobs
+    # the disabled images (issue #103) are not engine rows
     assert not rows & set(ei.DISABLED)
-    assert jobs["engine-image"]["strategy"]["fail-fast"] is False
+    # the producer builds the whole committed set in parallel, never fail-fast
+    assert build["strategy"]["fail-fast"] is False
+    assert build["strategy"]["max-parallel"] >= 10
 
 
 def _run_scripts(job: dict) -> str:
@@ -72,15 +75,15 @@ def test_every_variant_runs_a_test_stage_on_the_openai_api():
 
     import scripts.engine_image as ei
 
-    # Given the workflow and the engine-image matrix
-    jobs = _workflow()["jobs"]
-    image_steps = _run_scripts(jobs["engine-image"])
+    # Given the engine-build workflow and the engine matrix
+    eb = yaml.safe_load((REPO / ".github/workflows/engine-build.yml").read_text())["jobs"]
+    build_steps = _run_scripts(eb["build"])
     rows = ei.matrix(ci=True)
 
     # When the test stages are read
-    # Then every image job has a test (serve on cpu, detect on GPU)
+    # Then every image row has a test (serve on cpu, detect on GPU)
     # one step for every image (no skipped step): make picks serve or detect from matrix.test
-    assert "make test-engine-stage ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} TEST=${{ matrix.test }}" in image_steps
+    assert "make test-engine-stage ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} TEST=${{ matrix.test }}" in build_steps
     stage = (REPO / "Makefile").read_text().split("\ntest-engine-stage:", 1)[1].split("\n\n", 1)[0]
     assert "$(MAKE) test-engine ENGINE=" in stage and "$(MAKE) test-engine-image ENGINE=" in stage
     assert all(r["test"] in ("serve", "detect") for r in rows)
@@ -235,10 +238,12 @@ def test_install_ci_runs_make_install_and_make_uninstall():
     assert "llgenie-engine-*" in recipe and "scripts/llgenie_serve.py" in recipe
     assert "make ci-install" in job and "test-install-ci" not in job
     recipe = text.split("\nci-install:", 1)[1].split("\n\n", 1)[0]
-    assert "$(MAKE) test-env" in recipe and "$(MAKE) ci-install-run" in recipe
+    # product-only (issue #1027): ci-install installs the llgenie tool, never engines
+    assert "$(MAKE) test-env" in recipe and "$(MAKE) ci-install-product" in recipe
+    assert "ci-wait-engine-images" not in recipe and "ci-install-run" not in recipe
     assert "$(MAKE) ci-install-dry" in recipe and "$(MAKE) ci-install-uninstall" in recipe
-    run = text.split("\nci-install-run:", 1)[1].split("\n\n", 1)[0]
-    assert "ifeq ($(HOST_OS),Darwin)" in run and "$(MAKE) install" in run
-    assert "test-install-ci" not in run
+    run = text.split("\nci-install-product:", 1)[1].split("\n\n", 1)[0]
+    assert "$(MAKE) venv-install" in run and "$(MAKE) link" in run and "$(MAKE) smoke" in run
+    assert "engine-launchers" not in run and "test-built-engine" not in run
 
 

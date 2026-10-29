@@ -221,44 +221,38 @@ def test_matrix_placeholder_when_no_tag_changed(tmp_path, monkeypatch):
     assert rows == [PLACEHOLDER]
 
 
-def test_push_workflow_scopes_the_matrix():
-    """A push compares against github.event.before, not the full matrix."""
+def test_push_workflow_builds_the_whole_committed_set():
+    """The engine-build producer builds every committed engine x variant (issue #614 / #1027);
+    it does not CHANGED-scope like the old ci.yml engine-matrix did, so a bumped pin is rebuilt
+    by dispatching the whole sweep — dispatch inputs (engine / arch) narrow it, never a git filter."""
 
-    # Given the CI workflow
-    text = (REPO / ".github" / "workflows" / "ci.yml").read_text()
+    # Given the engine-build workflow
+    text = (REPO / ".github" / "workflows" / "engine-build.yml").read_text()
 
-    # When a push builds the engine matrix
-    step = text.split("- id: m", 1)[1].split("engine-image:", 1)[0]
-
-    # Then it scopes to the parent commit and keeps the full matrix only when
-    # that sha is the all-zero sha of a brand new branch
-    assert "CHANGED=$before" in step
-    assert "github.event.before" in step
-    assert "0000000000000000000000000000000000000000" in step
-    assert "CHANGED=origin/${{ github.base_ref }}" in step
+    # Then the matrix comes from the committed params as the full sweep, and is narrowed only by dispatch inputs
+    assert "make -s engine-build-matrix ENGINE=" in text
+    assert "empty = every engine in the committed params" in text
 
 
 def test_every_changed_image_is_built_tested_and_published():
-    """The row the matrix emits is the row CI builds, tests and pushes.
+    """The row the matrix emits is the row the engine-build producer builds, tests and pushes.
 
-    A pull request and a push to main share one engine-image job. Its matrix
-    comes from engine-matrix, so a tag that changed is built and published and
-    a tag that did not is not — on both, not only on pull_request.
+    The producer's build job runs build-engine -> test-engine-stage -> push-engine for every
+    committed row, then the serve-leg (test-published-engine) and install-leg (test-engine-install)
+    on the just-published image when the dispatch says push. A build-only dispatch publishes nothing.
     """
 
-    # Given the engine-image job
-    text = (REPO / ".github" / "workflows" / "ci.yml").read_text()
-    job = text.split("engine-image:", 1)[1].split("engine-published-test:", 1)[0]
+    # Given the engine-build workflow
+    text = (REPO / ".github" / "workflows" / "engine-build.yml").read_text()
 
-    # When CI runs a row
-    # Then it builds, tests and publishes that exact engine and arch, and skips
-    # the placeholder row that stands in for an unchanged tree
-    assert "matrix: ${{ fromJSON(needs.engine-matrix.outputs.matrix) }}" in job
-    assert "make build-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}" in job
-    assert "make test-engine-stage ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}" in job
-    assert "make push-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}" in job
-    assert "if: ${{ matrix.engine != 'none' }}" in job
-    assert "needs: [engine-matrix, engine-base, ci-images]" in job
+    # When the producer runs a row
+    # Then it builds, tests and publishes that exact engine and arch, and never the none row
+    assert "make build-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}" in text
+    assert "make test-engine-stage ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}" in text
+    assert "make push-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}" in text
+    assert "make test-published-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}" in text
+    assert "make test-engine-install ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}" in text
+    assert "matrix.engine != 'none'" in text and "inputs.push == 'true'" in text
 
 
 # ---------------------------------------------------------------------------
@@ -400,9 +394,9 @@ def _ci_make_calls(row: dict) -> list[str]:
 def test_each_bumped_engine_gets_its_make_calls(tmp_path):
     """A moved pin on any engine is the make build/test/push CI runs for its variants."""
 
-    # Given the committed engines, and the make lines the engine-image job runs
+    # Given the committed engines, and the make lines the engine-build build job runs
     repo, sha = _real_build_inputs(tmp_path)
-    job = (REPO / ".github" / "workflows" / "ci.yml").read_text().split("engine-image:", 1)[1]
+    job = (REPO / ".github" / "workflows" / "engine-build.yml").read_text()
     for line in _CI_MAKE:
         assert line in job
     params_dir = repo / "containers" / "engines" / "params"
