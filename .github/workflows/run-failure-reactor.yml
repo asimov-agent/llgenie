@@ -29,6 +29,7 @@ on:
   workflow_run:
     workflows:
       - architecture-bot — rewrites docs/ARCHITECTURE.md from the tree and opens a linked issue + PR (never merges)
+      - arms — fails when an open, mergeable, default-based PR is finished but carries no auto-merge (rule 16, #873)
       - auto-merge
       - ci-requeue — re-runs only the cancelled runs no later run superseded, every 30 minutes
       - CI

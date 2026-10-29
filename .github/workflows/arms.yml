@@ -1,0 +1,79 @@
+# Finished-but-unarmed PR alarm (fleet rule 16, issue #873).
+name: arms — fails when an open, mergeable, default-based PR is finished but carries no auto-merge (rule 16, #873)
+#
+# Rule 16 (owner directive 2026-10-29): the producing lane arms auto-merge when the work is DONE — a
+# mergeable, non-draft PR on the default branch must carry `autoMergeRequest` or it is invisible to every
+# `auto-merge` sweep. `make check-arms` (scripts/check_arms.py) is the gate; this sweep is its consumer, so
+# an unarmed finished PR becomes a red run a lane can see instead of a definition nobody runs.
+#
+# It must NOT run on pull_request: the board today has finished-but-unarmed PRs from every lane, so a per-PR
+# run would red every open PR at once. It is schedule + hand-dispatch only.
+#
+# Trigger surface: daily at `13 1 * * *` (minute 13, 01:13 UTC — free of every other cron on this board,
+# issue #275: no bot shares a minute), plus `workflow_dispatch`.
+# Flow: guard -> make check-arms (scripts/check_arms.py): list every open PR, filter in code (never a
+#       `--label` narrowed fetch), fail naming each finished-but-unarmed PR; report prints the armed count.
+# Never: never arms a PR itself (arming is the PRODUCING lane's closing move, rule 16), never cancels a run,
+#       never merges — it reports, and the run-failure-reactor routes the red to the lane that must arm them.
+# dispatch: no inputs — it audits the whole board; a hand run just re-checks what the daily sweep checks.
+on:
+  schedule:
+    - cron: "13 1 * * *"   # daily at 01:13 UTC — its own slot (issue #275: no bot shares a minute)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+# concurrency: superseding is safe — this sweep RE-READS the open board each run and reports (never mutates a
+# PR, never cancels), so a newer run's verdict replaces an older one's; a run that is preempted is re-alarmed
+# by the next daily tick. One repo-wide group keeps two overlapping runs from posting the same red twice.
+concurrency:
+  group: arms-alarm
+  cancel-in-progress: true
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Owner / collaborator trigger guard
+        env:
+          ACTOR: ${{ github.actor }}
+          TRIGGER: ${{ github.triggering_actor }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.repository }}
+          # The run's head repository: empty for every non-PR event (issue #510).
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name || '' }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for u in "$ACTOR" "$TRIGGER"; do
+            if [ "$u" = "$OWNER" ]; then continue; fi
+            # The repository's own bot is a GitHub App login, so it is never a collaborator and the
+            # permission read below answers 404 -> `none`: every bot-opened PR was refused (run
+            # 39650944430, #495). It may pass ONLY when the run's head is a branch in THIS repository —
+            # a same-repo head can be produced only by a token with write access — while the bot as the
+            # actor of a FOREIGN head (a bot commenting on a stranger's PR) is still refused (#510).
+            if [ "$u" = "github-actions[bot]" ] && [ -n "${HEAD_REPO:-}" ] && [ "${HEAD_REPO:-}" = "$REPO" ]; then
+              echo "Repository bot $u on a same-repo head ($HEAD_REPO) - allowed."
+              continue
+            fi
+            perm=$(gh api "repos/$REPO/collaborators/$u/permission" --jq .permission 2>/dev/null || echo none)
+            case "$perm" in
+              admin|maintain|write) echo "Collaborator $u has $perm - allowed." ;;
+              *) echo "Refused: $u is not the owner or a collaborator with write access (permission: ${perm:-none})."; exit 1 ;;
+            esac
+          done
+          echo "Allowed: actor=$ACTOR triggering_actor=$TRIGGER"
+
+  arms:
+    needs: [guard]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Fail on any finished PR that carries no auto-merge (fleet rule 16, #873)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: make check-arms

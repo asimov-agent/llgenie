@@ -990,9 +990,9 @@ check-pr-hygiene: ## CI: fail when a producer's commit message or PR body is emp
 	python3 scripts/check_pr_hygiene.py check
 pr-hygiene-report: ## Show every producer the PR/commit-message guard reads, and its verdict
 	python3 scripts/check_pr_hygiene.py report
-check-arms: ## Fail (exit 1) on any finished-but-unarmed open PR: a mergeable, non-draft, default-based PR must carry auto-merge (fleet rule 16, issue #873)
+check-arms: # internal alarm plumbing (rule 16 consumer) — stays out of the user-facing docs; its scheduled workflow arms.yml is the caller
 	python3 scripts/check_arms.py check
-arms-report: ## Show every open PR and its arm state, plus the count armed — a finished-but-unarmed PR is named, the board stays readable
+arms-report: # internal alarm plumbing (rule 16 consumer) — stays out of the user-facing docs
 	python3 scripts/check_arms.py report
 
 check-pr-heads: ## Warn (never fail) when an open PR's head lives in another repository, naming it with the reason and the remedy (issue #910)

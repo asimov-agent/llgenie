@@ -1580,6 +1580,7 @@ from the pipeline that will run.
 <!-- dispatch-forms:begin -->
 | workflow | what the run does | dispatch inputs |
 |---|---|---|
+| `arms.yml` | fails when an open, mergeable, default-based PR is finished but carries no auto-merge (rule 16, #873) | none — it audits the whole board; a hand run just re-checks what the daily sweep checks. |
 | `architecture-bot.yml` | rewrites docs/ARCHITECTURE.md from the tree and opens a linked issue + PR (never merges) | `dry` (optional, default `false`) — Preview the issue and PR bodies this run would file, filing nothing<br>`doc` (optional, default `docs/ARCHITECTURE.md`) — Repository-relative markdown document to refresh |
 | `ci-hf-live.yml` | the merge-to-main real-Hub test pipeline (HF live tests + the committed-link liveness gate), never a PR check | none — the pipeline runs exactly the @pytest.mark.network ownership set, gated first |
 | `ci-requeue.yml` | re-runs only the cancelled runs no later run superseded, every 30 minutes | none — the healer takes no target: it re-runs every cancelled run in the window that |
