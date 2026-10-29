@@ -281,16 +281,12 @@ engine-launchers: ## Pull this host's published engine images (default: llama.cp
 test-built-engine: ## After make install: every ~/bin/llgenie-engine-* start script must print its engine version via docker (Metal-only engines excluded)
 	python3 scripts/install_engine_launchers.py --bin "$(BIN)" --test
 
-test-engine-install: bash-check # Internal CI seam (issue #1027, deliberately internal like test-unit-network): after ENGINE's image was built + published, install + llgenie --dry + uninstall the just-published image — the producer-owned install leg. If PUBLISH != 1 (a PR/none run) it skips with a reason instead of failing.
+test-engine-install: bash-check # Internal CI seam (issue #1027, deliberately internal like test-unit-network): after ENGINE's image was built + published in the engine-build producer, install + llgenie --dry + uninstall the just-published image — the producer-owned install leg. Gating lives in the engine-build workflow (`inputs.push == 'true'`), so the target is pure install+dry+uninstall.
 	@test -n "$(ENGINE)" || { echo "Usage: make test-engine-install ENGINE=<id> ARCH=<variant>"; exit 1; }
-ifeq ($(PUBLISH),1)
 	make engine-install ENGINE="$(ENGINE)" BACKEND="$(ARCH)"
 	make test-built-engine
 	make ci-install-dry
 	make ci-install-uninstall
-else
-	@echo "test-engine-install: this run published no image (PUBLISH != 1), skipping the producer-owned install leg (#1027)"
-endif
 
 # ---- engine skills (issue #98) ------------------------------------------
 # One SKILL.md per inference server in skills/engines/<id>/. The skills are read

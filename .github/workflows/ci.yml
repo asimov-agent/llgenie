@@ -364,11 +364,6 @@ jobs:
       - name: make push-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} (every push run, after tests passed)
         if: ${{ matrix.engine != 'none' }}
         run: make push-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}
-      - name: "install-leg: make test-engine-install ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} — install + llgenie --dry + uninstall this row's just-published image, when this run published one (#1027, producer-owned; event decided inside make)"
-        if: ${{ matrix.engine != 'none' }}
-        env:
-          PUBLISH: ${{ github.event_name == 'push' && '1' || '' }}
-        run: make test-engine-install ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}
 
   # ------------------------------------------------------------------
   # engine-published-test (issue #102): SECOND MATRIX, one job per published
