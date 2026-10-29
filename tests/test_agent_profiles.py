@@ -875,3 +875,64 @@ def sync_fixture(tmp_path: Path, live_soul: str | None) -> tuple[Path, Path]:
         (dest / "SOUL.md").write_text(live_soul, encoding="utf-8")
     return tree, dest
 
+
+# -----------------------------------------------------------------------------------------------------------
+# issue #922: a declared rule must be STATED, not QUOTED — quoting satisfied `never-merge` with the statement
+# deleted, which is the worst possible false negative for a gate that exists to make deletion impossible.
+# -----------------------------------------------------------------------------------------------------------
+import json as _json922
+import pathlib as _pl922
+
+
+def _gate922():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("cap922", REPO / "scripts" / "check_agent_profiles.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _tree922(root, soul_text, rules=("never-merge",)):
+    agents = root / "agents"
+    profile = agents / "llgenie-planner"
+    profile.mkdir(parents=True)
+    (agents / "manifest.json").write_text(
+        _json922.dumps({"profiles": [{"name": "llgenie-planner", "rules": list(rules)}]}), encoding="utf-8")
+    (profile / "SOUL.md").write_text(soul_text, encoding="utf-8")
+    return root
+
+
+def test_a_soul_that_only_QUOTES_a_rule_fails(tmp_path, capsys):
+    """Prevents: the owner's instruction quoted in a lane section satisfying the rule it was quoted as."""
+    gate = _gate922()
+    _tree922(tmp_path, '# planner\n\nThe owner said "never merge PRs" once.\n')
+    code = gate.main(["check", "--root", str(tmp_path), "--agents-dir", "agents"])
+    out = capsys.readouterr()
+    assert code == 1, out.out + out.err
+    assert "standing-rule" in out.out, out.out
+
+
+def test_a_soul_that_STATES_a_rule_passes(tmp_path, capsys):
+    """Prevents: over-correcting into a gate that fails a correctly stated rule."""
+    gate = _gate922()
+    _tree922(tmp_path, "# planner\n\n- never merge: the owner's approval is the only merge path\n")
+    code = gate.main(["check", "--root", str(tmp_path), "--agents-dir", "agents"])
+    assert code == 0, capsys.readouterr().out
+
+
+def test_a_manifest_entry_with_no_rules_is_reported_unprotected(tmp_path, capsys):
+    """Prevents: `rules: []` reading as green when the gate protects nothing for that profile (also #921)."""
+    gate = _gate922()
+    _tree922(tmp_path, "# planner\n\nno rules here\n", rules=())
+    gate.main(["check", "--root", str(tmp_path), "--agents-dir", "agents"])
+    out = capsys.readouterr().out
+    assert "UNPROTECTED" in out, out   # loud, not fatal: three lanes ship `rules: []` today
+    assert "llgenie-planner" in out
+
+
+def test_a_rule_stated_inside_a_fenced_block_is_a_quote_not_a_statement(tmp_path, capsys):
+    """Prevents: a pasted example block satisfying the rule — the same false negative as quoting, one level up."""
+    gate = _gate922()
+    _tree922(tmp_path, "# planner\n\n```\nnever merge\n```\n")
+    code = gate.main(["check", "--root", str(tmp_path), "--agents-dir", "agents"])
+    assert code == 1, capsys.readouterr().out

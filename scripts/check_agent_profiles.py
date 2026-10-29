@@ -95,6 +95,30 @@ SECRET_PATTERNS = (
 REFERENCE_RE = re.compile(r"references/[A-Za-z0-9._-]+\.md")
 
 
+QUOTED = re.compile(r'"[^"\n]*"|\u201c[^\u201d\n]*\u201d|(?<![\w])' + "'" + r"[^'\n]*'" + "'" + r"(?![\w])")
+
+
+def stated_text(text: str) -> str:
+    """The text with every QUOTATION of a rule removed, so a quote cannot satisfy a declared rule (issue #922).
+
+    The gate asked "do the words appear?", and a lane section citing the owner's instruction
+    (`the owner's instruction is "Never merge PRs"`) therefore satisfied `never-merge` with the actual statement
+    deleted. Found by sabotage: removing the statement PASSED; only grepping for the other occurrences caught it.
+    Removed before scanning: fenced code blocks, blockquote lines, and inline quoted spans - a rule has to be
+    STATED by the file, not cited by it.
+    """
+    out: list[str] = []
+    fence = False
+    for line in text.splitlines():
+        if line.lstrip().startswith("```"):
+            fence = not fence
+            continue
+        if fence or line.lstrip().startswith(">"):
+            continue
+        out.append(QUOTED.sub(" ", line))
+    return "\n".join(out)
+
+
 def read_manifest(agents: Path) -> tuple[list[dict], list[dict]]:
     """The manifest's profiles as `[{name, rules}]`, plus every finding the manifest itself carries."""
     items: list[dict] = []
@@ -414,6 +438,15 @@ def _fleet_findings(agents: Path, profiles: list[dict]) -> list[dict]:
     return items
 
 
+def unprotected_profiles(profiles: list[dict]) -> list[str]:
+    """Profiles whose manifest declares NO rules: the gate protects nothing there, and that was silent.
+
+    Kept out of `findings()` on purpose - a finding that cannot fail its gate makes "is this tree clean?" answer
+    two different questions - and reported on its own line instead (issues #921, #922).
+    """
+    return [profile["name"] for profile in profiles if not profile["rules"]]
+
+
 def findings(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR) -> list[dict]:
     """Every way the host agents' tree can be broken. An empty list is the only pass."""
     items: list[dict] = []
@@ -457,7 +490,7 @@ def findings(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR) -> list[dict
                 "detail": "no SOUL.md — the role this profile runs under is not in the tree",
             })
         else:
-            text = soul.read_text(encoding="utf-8")
+            text = stated_text(soul.read_text(encoding="utf-8"))
             for rule in profile["rules"]:
                 if not STANDING_RULES[rule].search(text):
                     items.append({
@@ -511,6 +544,9 @@ def report(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR) -> str:
         lines.append(f"  {profile['name']}: SOUL.md={'yes' if soul.is_file() else 'MISSING'} "
                      f"({size} b) skills={','.join(skill_names) or '(none)'} rules={rules}")
     items = findings(root, agents_dir)
+    for name in unprotected_profiles(profiles):
+        lines.append(f"[check-agent-profiles] UNPROTECTED: agents/{name} declares no rules in the manifest — "
+                     "the gate protects nothing here (issue #922)")
     lines.append(f"[check-agent-profiles] {len(items)} finding(s)")
     for item in items:
         lines.append(f"  {item['key']}: {item['where']}: {item['detail']}")
@@ -550,8 +586,11 @@ def main(argv: list[str] | None = None) -> int:
         print("[check-agent-profiles] live-profile comparison SKIPPED: no profiles directory at "
               f"{live_source} — tree checks only, and the live rulebooks were NOT compared", file=sys.stderr)
     items = findings(root, agents_dir)
+    profiles, _ = read_manifest((root / agents_dir) if not agents_dir.is_absolute() else agents_dir)
+    for name in unprotected_profiles(profiles):
+        print(f"[check-agent-profiles] UNPROTECTED: agents/{name} declares no rules in the manifest — "
+              "the gate protects nothing here (issue #922)")
     if not items:
-        profiles, _ = read_manifest((root / agents_dir) if not agents_dir.is_absolute() else agents_dir)
         caveat = (" — tree checks only, LIVE RULEBOOKS NOT COMPARED" if live_base is None else "")
         print(f"[check-agent-profiles] OK: {len(profiles)} host-agent profile(s), each with a "
               "SOUL.md stating the rules its manifest declares; every skill's frontmatter name "
