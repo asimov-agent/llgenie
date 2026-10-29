@@ -75,6 +75,12 @@ depth**: runs die while still `queued`, because the next push arrives before Git
   mirage the planner calls "a job that never starts and a job cancelled look identical".
 - **`BLOCKED` on every PR is a symptom of this, not an approval problem.** The proof is the one PR reading
   `CLEAN` while the rest are blocked: its run happened to get scheduled.
+- **A check that reads `cancelled` at an UNMOVED head is a non-verdict — re-run it before believing
+green or red.** The concurrency group kills runs at a starved queue, so your own push's gate attempt can
+end `cancelled` seconds later precisely because you pushed; treating that as the branch's real answer is
+the same mistake as believing a killed batch. `gh run rerun <id>` (or re-arm to re-trigger) restores the
+attempt, and only a `completed/success` or `completed/failure` is a verdict worth quoting. Re-read the
+probe and the gate conclusion at the head you are about to push, not an earlier run you already answered.
 - Falsifiable check after any relief: successes should match the number of branches that stopped being
   pushed. If the cancelled share stays above ~80 % with hours-long `queued` times, the queue is still the
   constraint.
@@ -243,6 +249,27 @@ An old branch against a moving `main` makes the rebase mechanical and the **reco
   at 16 % by the runner's wall clock (`PYTEST_EXIT=137`, SIGKILL); 36 files per invocation finished clean in
   ~2 min each. Name the 137 as an artifact so nobody reads it as a failure, and prove a remaining red by
   running the same nodes against the exported base — an identical set means environment, not diff.
+
+## A foreign-lane red is that lane's to clear, not yours to "fix" in place
+
+A red in ANOTHER lane's file (a lint failure, a live-longer finding, a gate it owns) is not a free -fix the
+moment it blocks your PR. Editing that lane's copy in your tree to clear your own gate does not settle the
+red — it MOVES it. Measured: a one-line lint "fix" to a tester-lane SKILL (removing a stray `---`) made
+the tree copy diverge from that lane's live profile, which turned `lint` green and flipped
+`check-agent-profiles` to a `live-longer` finding (tree 3804 b vs live 3808 b) — strictly worse, and it
+touched a protected agent-instruction file that the sync refuses to route around.
+
+- **A red in another lane's file is a message to that lane, not a task for you.** Bookend it (name the
+  sha, the offending line, the exact fix), and let the owner take its own tree copy forward — the planner's
+  rule "each owner takes its tree copy" — instead of reaching in.
+- **A tree-copy edit that diverges from that lane's live is a second, opposite red.** The direction
+  guard (refuse to shrink live) exists precisely to catch a unilateral tree edit that lags the live file;
+  your "fix" becomes the thing the gate refuses.
+- **A count-clean dedupe can still fail the fence.** A lane may offer a dedupe that counts one occurrence
+  per rule and drops a retired bullet, yet its retained block paraphrases a canonical rule — so
+  `block_in_soul` is still False and taking it imports a gate-red fence. Run the fence comparison even on
+  an offer the lane certifies count-clean; refuse when the retained text differs. The occurrence count
+  and the bullet total are not the check; the fence is.
 
 ## A hold is a debt with a named creditor, or it is abandonment
 
