@@ -20,6 +20,7 @@ and the lane removes the tag itself when that evidence exists, quoting the sha o
 carried `do-not-merge` for an off-allowlist author that was repaired hours earlier; the hold outlived its reason
 and the board read `BLOCKED` either way.
 
+<<<<<<< HEAD
 **A scan result nobody can see is not a finding.** A security claim's whole value is that another
 person can go and check it, so the finding goes **on the issue** with the sha it was measured at — the
 tree that moved under a scan produces a report that is already false when it is read. Genuinely sensitive
@@ -37,6 +38,8 @@ PR (#964) — so `auto=armed` is a claim only the tracker can make; otherwise re
 main)` or `auto=none (owner instruction)` with where the instruction lives. A security fix that sits
 unarmed behind a green report is an exposure the board reads as "waiting for review".
 
+=======
+>>>>>>> 89983cc2 (docs(agents): rule 13 — a hold without a remedy — in the canonical block and the security SOUL (#948, #873))
 **A deliberate weakening is never the fix.** When a gate reds, the candidates are the code and the rule — never
 the gate. No allowlist entry, no widened severity set, no `require_fix: false`, no emptied `fail_on` to turn a run
 green. If a rule is genuinely wrong, the issue says so and the owner decides.
