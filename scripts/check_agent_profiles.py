@@ -527,6 +527,40 @@ def findings(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR) -> list[dict
     return items
 
 
+def _duplicate_rule_debts(agents: Path, profiles: list[dict]) -> list[tuple[str, str]]:
+    """Every (profile, canonical-rule-title) stated more than once in a SOUL — a second source of truth.
+
+    The gate compares the canonical block verbatim, so a duplicate in the lane-rules section is *not*
+    seen by `findings()` — but it is the exact drift mechanism #972 caught (a SOUL "had 16 bullets" yet
+    paraphrased rule 13 because the block sat beside a stray copy). Count occurrences, not a bullet
+    total. Reported, never failed: the removal is a protected SOUL write the owner routes.
+    """
+    canonical = fleet_block(agents)
+    if canonical is None:
+        return []
+    # the title text inside the emphasis, punctuation-trimmed on BOTH ends — `**remedy.**`,
+    # `**remedy**` and `remedy` are the same rule, and a duplicate drifts by punctuation before it
+    # drifts by text (#972). Match the core phrase so both copies of a duplicated bullet are counted.
+    titles = []
+    for line in canonical.splitlines():
+        if line.startswith("- **"):
+            end = line.find("**", 3)
+            title = line[4:end].strip()                  # text after the leading `**` (indices 2-3)
+            title = title.rstrip(".,:;!?")                  # drop trailing punctuation (a full stop drift)
+            if title:
+                titles.append(title)
+    debts: list[tuple[str, str]] = []
+    for profile in profiles:
+        soul = agents / profile["name"] / SOUL
+        if not soul.is_file():
+            continue
+        text = soul.read_text(encoding="utf-8")
+        for title in titles:
+            if text.count(title) > 1:
+                debts.append((profile["name"], title))
+    return sorted(debts)
+
+
 def report(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR) -> str:
     """What the gate reads: each profile with its SOUL, its skills and the rules it must keep."""
     agents = (root / agents_dir) if not agents_dir.is_absolute() else agents_dir
@@ -555,6 +589,12 @@ def report(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR) -> str:
         lines.append("fleet block — still owned, not yet verbatim:")
         for name, reason in sorted(exempt.items()):
             lines.append(f"  {name}: {reason}")
+    dups = _duplicate_rule_debts(agents, profiles)
+    if dups:
+        lines.append("")
+        lines.append("duplicate canonical rule (one bullet, one place — #972):")
+        for name, title in dups:
+            lines.append(f"  {name}: {title} stated more than once")
     return "\n".join(lines)
 
 
