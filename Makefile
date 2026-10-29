@@ -72,7 +72,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	queued-alarm issue-cleaner-scan issue-cleaner-apply worktree-report worktree-prune fix-loop fix-loop-image fix-bot-sweep fix-bot-report agent-image-ref issue-bot-dispatch issue-bot-open-pr issue-bot-image ci-requeue-cancelled issue-bot-pr-body-check agent-repo-ownership \
 	issue-bot-triage issue-bot-changed issue-bot-verdict issue-bot-gates issue-bot-gates-check implement-issue hermes-smoke agent-jev-preflight jev-preflight-required nerve-profile-check code-review-scan code-review-file rebase-bot-sweep rebase-bot rebase-bot-abort \
 	engine-params-review-brief engine-params-review engine-params-review-apply \
-	architecture-bot-brief architecture-bot-doc architecture-bot-publish architecture-bot \
+	architecture-bot-brief architecture-bot-doc architecture-bot-publish architecture-bot check-arms arms-report \
 	scrub-log \
 	check-pr-heads pr-heads-report bot-verdict bot-verdict-read \
 	run-failure-reactor rebase-bot-agent check-docs docs-report changes-index changes-index-report check-pr-hygiene pr-hygiene-report check-issue-bodies issue-bodies-report auto-merge auto-merge-resolve fix-bot-resolve auto-merge-explain auto-merge-recheck verify-closure check-pr-authors pr-authors-report check-workflows workflows-report check-module-names issue-refiner-pick issue-refiner issue-refiner-apply issue-dedup-pick issue-dedup issue-dedup-apply check-dispatch-forms dispatch-forms-report security-scan security-scan-all security-verdict security-issues security-issues-plan check-security-issues security-bot security-bot-pick check-security-bot sbom check-security-scan scanner-image test-scanner-image scanner-digests scanner-ref publish-scanner-images ci-scanner-images check-scanner-images \
@@ -990,6 +990,10 @@ check-pr-hygiene: ## CI: fail when a producer's commit message or PR body is emp
 	python3 scripts/check_pr_hygiene.py check
 pr-hygiene-report: ## Show every producer the PR/commit-message guard reads, and its verdict
 	python3 scripts/check_pr_hygiene.py report
+check-arms: ## Fail (exit 1) on any finished-but-unarmed open PR: a mergeable, non-draft, default-based PR must carry auto-merge (fleet rule 16, issue #873)
+	python3 scripts/check_arms.py check
+arms-report: ## Show every open PR and its arm state, plus the count armed — a finished-but-unarmed PR is named, the board stays readable
+	python3 scripts/check_arms.py report
 
 check-pr-heads: ## Warn (never fail) when an open PR's head lives in another repository, naming it with the reason and the remedy (issue #910)
 	python3 scripts/pr_heads.py check
