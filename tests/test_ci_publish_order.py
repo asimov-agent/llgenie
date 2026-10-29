@@ -14,6 +14,7 @@ lookup; the last test hits the real registry with no mock.
 from __future__ import annotations
 
 import re
+import inspect
 import subprocess
 import sys
 from pathlib import Path
@@ -565,3 +566,28 @@ def test_every_image_install_pulls_is_published():
 
     # Then  every image this change did not repin is published in the real registry
     _assert_published(deferred)
+
+
+def test_the_publish_gate_never_polls_open_endedly():
+    """Issue #1027 guard: `ci-wait-engine-images` (and its producer-cell-state-aware
+
+    successor) must never run an open-ended sleep/poll loop or wait on a tag that
+    exists only as long as a producer is alive. Every sleep is bounded (derived
+    from the PUBLISH_WAIT_* constants) and the producer's OWN cell state decides
+    what an absent tag means (issue #893); a producer that never ran fails fast.
+    """
+
+    # Given the gate's only wait loop, in the module that implements it
+    import scripts.install_engine_launchers as iel
+
+    # When  every unbounded-loop marker and every bare sleep is read
+    src = inspect.getsource(iel)
+    for banned in ("while True:", "while 1:"):
+        assert banned not in src, f"{banned} is an unbounded loop the producer gate must not use"
+
+    # Then  the gate's poll is the bounded, finite one: sleeps ARE present (a finite
+    # retry loop) but every one sits behind the PUBLISH_WAIT_* wall-clock budgets —
+    # never an unbounded wait on tag-existence
+    assert "time.sleep(" in src, "the producer gate must poll with a bounded retry"
+    assert "PUBLISH_WAIT_TIMEOUT_S" in src and "PUBLISH_WAIT_POLL_S" in src, \
+        "the wait must be bounded by the finite PUBLISH_WAIT_* constants, not open-ended"
