@@ -90,6 +90,7 @@ DEFERRED: dict[str, str] = {
     "check-pr-authors": "reads the PR's commit range, which does not exist before the push",
     "check-agent-skills": "validates every bot leg's prompt against its project skill; fast, but not in #475's list (follow-up issue, not this change)",
     "check-agent-model": "compares the pinned model snapshot with the two files carrying it; fast, but not in #475's list (follow-up issue, not this change)",
+    "check-model-links": "a fast static read of the committed model/GGUF links in data/ (and, under LIVE=1, a bounded probe of each): the change that would break a link is a data edit ci-unit re-checks on the bot's own PR, and FAST_GATES is the fixed #475 six (widening it is that issue's follow-up, not this one)",
 }
 
 _MAKE_CALL = re.compile(r"(?:\$\(MAKE\)|\bmake)\s+(?:-(?!C\s)\S+\s+)*([a-z0-9][a-z0-9._-]*)")
