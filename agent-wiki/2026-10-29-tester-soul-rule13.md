@@ -1,4 +1,4 @@
-# The tester lane states fleet rules 13 and 14 in its SOUL and its verification skill
+# The tester lane states fleet rules 13, 14 and 15 in its SOUL and its verification skill
 
 **Issue:** #873 (fleet rules versioned in `agents/`), #948 (a hold needs a remedy), #873 rule 14 (a result lives on the PR). **Measured:** 2026-10-29,
 `agents/ci-maintainer-soul@a4b398f9`.
@@ -22,3 +22,10 @@ a verifiable claim into an untracked absence.
 - `make sync-agent-profile PROFILE=llgenie-tester CHECK=1` → OK, 4 files match byte for byte after the
   sync (`SOUL.md` + the skill + its two references).
 - `pytest tests/test_agent_profiles.py` → 34 passed (including the CI-maintainer block comparison).
+
+## Rule 15, added in the same branch
+
+Fleet rule 15 — *start from a fresh upstream main, and bookend the work with two comments* — is added
+to the canonical block and to the SOULs that state it, and the verification skill gains the lane's
+form: **every verification line carries two shas**, `run <id> · head <sha> · main <sha> · <n> passed /
+<n> failed · <failing test names>`, plus the start/finish bookend in the thread where the work lives.

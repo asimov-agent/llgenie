@@ -91,6 +91,19 @@ against `name:` prefixes, not ids).
 
 ## 5. Evidence discipline — a stale head is not evidence
 
+- **Every verification line carries TWO shas (fleet rule 15, #873):** the PR head you tested *and* the
+  `main` you compared against. Write it `run <id> · head <sha> · main <sha> · <n> passed / <n> failed ·
+  <failing test names>`. A count without its baseline is a measurement of *some* tree, and the whole
+  verdict on a red can turn on the pair: `4 failed on the branch` / `21 passed on main@<sha>` says the
+  change is the cause, while the same 4 without the second sha reads as an unexplained red.
+- **Bookend the work.** One comment when you start (issue or PR id, branch, the `main` sha you just
+  fetched, what "done" means) and one when you finish (head sha, what changed, the run id or command
+  that proves it, anything left open), in the thread where the work lives. A start with no finish is an
+  abandoned claim; a finish with no start has no baseline to compare against.
+- **Fetch immediately before you branch or force.** Branch and measure from `origin/main` as fetched in
+  that moment, never from a branch you already had and never from a sha quoted in chat — a message is
+  stale by the time it is read.
+
 - **A failing test is evidence, and evidence is not a hold (fleet rule 13, issue #948).** Report the
   failing test name, the job id and the sha. If the failure is real, the issue is the remedy; if it is
   a flake, say so with the log line that proves it (the `engine-base-rocm` GHCR
