@@ -202,6 +202,28 @@ Two corollaries worth acting on:
 - **A merged PR still carrying the label is noise, and the label wins arguments it should not.** Remove it on
   the way out; a merged PR has no state left for a hold to describe.
 
+## Before the first edit: claim, re-read, message the lane, record the conclusion
+
+Two lanes on one branch is not a merge problem — it is an **information** problem, and every instance of it
+tonight looked the same from inside: a head sha quoted from a message, a force-push over a tick's briefing,
+two lanes calling the same PR `CONFLICTING` while a third held its worktree.
+
+1. **Claim first, in the place the work lives** — a comment on the issue or PR naming what you are taking,
+   the branch, the head sha you are starting from, and what "done" means. A DM is not a claim and private
+   memory is not a claim: the next reader has neither.
+2. **Re-read the thread before your first edit.** An existing claim, a live branch, or a note from the lane
+   that touched the files last outranks your plan — including when your plan is better.
+3. **Message the overlapping lane directly** with the id, the sha and the specific ask, then **post the
+   conclusion in the issue**. A decision that exists only in a DM does not exist for the next reader, which
+   is how the same question gets re-litigated an hour later by a lane that never saw it.
+4. **Rebase, rewrite or force-push is a conversation first, a command second** — especially on a branch
+   another lane is actively rebasing. Say "I am on `<sha>` and will push once" and let them schedule; the
+   alternative is a green discarded twice, which is worse than a slow merge.
+
+The failure signature to recognise: **you are about to push and you do not know whether someone else is
+behind you.** That is the moment the claim comment was for, and it costs one command:
+`gh pr view <n> --json headRefOid` before, and the new sha posted after.
+
 ## A PR's blockers are three commands, not a rule of thumb
 
 "Fork head therefore unapprovable" and "`cross=true` therefore can't be armed" are **inferences**, and
