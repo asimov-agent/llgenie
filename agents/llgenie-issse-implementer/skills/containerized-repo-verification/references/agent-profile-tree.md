@@ -59,6 +59,29 @@ so a tree that has not been re-seeded since the last edit to the live file is a 
 merges it ships the truncation the guard refuses. `CHECK=1` must say `N file(s) … match byte for byte`
 before the push, and the count is expected to grow as references are added.
 
+## A copy cannot watch itself: the missing piece is a CALLER
+
+Hand re-seeding holds for one push and then fails again within the hour, because the direction of staleness
+is structural — the tree is a copy and the live file is what gets edited. Measured: a tree that went
+byte-exact at three files was three files behind again after the next round of edits (`SKILL.md`
+22,296 → 23,349 b, one reference 3,398 → 5,882 b, another 6,721 → 10,634 b). **The gate was right both
+times; what was missing was a caller that runs where the live rulebooks exist**, since a runner has none.
+
+So a live-comparison check is not finished until it has three parts:
+
+- **A reading fix**: print the number of live comparisons (`live comparisons: N`), so a runner's green says
+  "0 compared" instead of reading like "compared and clean".
+- **A calling fix**: a named target a host can run on a timer (e.g. `make profile-drift`, plus `--only <key>`
+  filtering **after** the findings are computed so a filter can narrow output but never hide a class).
+- **A threshold that can be satisfied**: plain difference is *normal lag* — the live file is edited while a
+  PR is open, so a target that reds on any difference is always red and teaches nothing. The defect is a
+  tree that **lacks** live lines (subset/prefix, the shrink rule); report that as the failure and the rest
+  as information.
+
+**What the timer must NOT do is copy.** An automated re-seed is a `cp` in the destructive direction with no
+reader: it overwrites a deliberate tree-side edit and reports success. Opening one deduped issue naming the
+files is the whole job — the copy is a judgement the lane owns.
+
 ## A skip must be audible, and a home must HOLD a profile
 
 A runner has no `~/.hermes/profiles/`, so a live-vs-tree comparison cannot run there: fail it and every CI
