@@ -1138,6 +1138,16 @@ Landing a PR no longer waits at a keyboard. The `auto-merge` workflow
 the moment its run is green **and** the PR is conflict-free, and deletes the branch. The shape is
 `trending-local-llms`' `auto-merge` job in `qa-validate.yml`, which is the model for every bot in this repo.
 
+**A finished PR is armed when it is done, not when it is approved (owner directive 2026-10-29, #873).** The last
+push or the last green check is the trigger: the producing lane moves the PR into the merge queue itself —
+`gh pr merge <n> --squash --auto` — and then **reads `autoMergeRequest` back** and states the arm time in its
+comment, because that command exits 0 while arming nothing when the base is not the default branch (issue #964)
+or auto-merge is disabled. A finished but unarmed PR is invisible to every sweep. One exception: a PR the owner
+explicitly forbade is reported `auto=none (owner instruction)` with the line where that instruction lives.
+(This paragraph is itself measured against `upstream/main` `98466eb`.) Companion: `do-not-merge` is only for a
+real defect with the resolving issue named in the same comment, and never on a merged PR — a hold with no
+removal condition is abandonment, and a hold on a merged PR blocks nothing.
+
 ```bash
 make auto-merge PR=<n> REPO=asimov-agent/llgenie [HEAD_SHA=<sha>] [APPROVE=1] [DRY=1]  # the decision + the merge
 make auto-merge-explain PR=<n> REPO=asimov-agent/llgenie     # why it was (or was not) merged — writes nothing
