@@ -386,7 +386,7 @@ def test_no_ci_job_builds_a_ci_image():
     pulls = {n for n, t in runs.items() if "make test-image-pull" in t or "make test-env" in t or "make openspec-image-pull" in t}
     assert pulls, "no job pulls the CI images"
     callers = {"pipeline": ("linux",),
-               "published": ("linux-published",)}
+               }
     for name in pulls:
         wf, job = name.split("/", 1)
         if wf == "ci":
