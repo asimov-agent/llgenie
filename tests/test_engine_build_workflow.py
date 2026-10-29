@@ -121,6 +121,28 @@ def test_it_publishes_only_when_the_dispatch_asks_for_it():
     assert "PUSH=$PUBLISH" not in text, "the build step must not publish"
 
 
+def test_every_published_row_install_tests_the_image_it_just_published():
+    """Issue #1027 (producer-owned install): after a row pushes, it install + dry + uninstalls the
+    exact image it published via `make test-engine-install`, so "test the latest engines built"
+    lives in the pipeline that owns the build — not a separate consumer surface that can drift.
+    """
+
+    text = workflow()
+
+    # Given the row's publish then install-leg steps
+    # When  the order and the seam are read
+    # Then  the install-leg runs AFTER the push, calling the make seam (producer-owned)
+    assert "run: make test-engine-install ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}" in text
+    assert text.index("run: make push-engine") < text.index("run: make test-engine-install")
+
+    # And the make seam is a real target wrapping install + built-engine-check + dry + uninstall,
+    # so the producer's install leg reuses the host install path (no third surface)
+    tail = MAKEFILE.split("\ntest-engine-install:", 1)[1].split("\n\n", 1)[0]
+    for marker in ("engine-install", "test-built-engine", "ci-install-dry", "ci-install-uninstall"):
+        assert marker in tail, f"test-engine-install must wrap {marker}"
+
+
+
 def test_one_make_command_answers_every_build_scope():
     """All engines, one arch, one engine, or one engine x one arch — the same list in each case."""
 

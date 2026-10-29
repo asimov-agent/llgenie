@@ -165,3 +165,6 @@ jobs:
       - name: make push-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} (ONLY after the test above passed; re-checks the binary's flags before publishing)
         if: ${{ matrix.engine != 'none' && inputs.push == 'true' }}
         run: make push-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}
+      - name: "install-leg: make test-engine-install ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} — install + llgenie --dry + uninstall the image this row just published (#1027)"
+        if: ${{ matrix.engine != 'none' && inputs.push == 'true' }}
+        run: make test-engine-install ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}

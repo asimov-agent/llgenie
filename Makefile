@@ -57,7 +57,7 @@ SERVER_ROOT ?= $(HOME)/repository/git
 # link always agree on the binary.
 SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 
-.PHONY: all install venv-install link uninstall smoke list version help test-native-engine test-native-engine-serve test-interactive-tensorfold test-interactive-tensorfold-ci test-unit-network \
+.PHONY: all install venv-install link uninstall smoke list version help test-native-engine test-native-engine-serve test-interactive-tensorfold test-interactive-tensorfold-ci test-unit-network test-engine-install \
 	git-identity-apply check-git-identity git-identity-line git-identity-report \
 	sweep-concurrency-report \
 	openspec-image openspec-new openspec-validate openspec-validate-all openspec-status openspec-shell \
@@ -280,6 +280,13 @@ engine-launchers: ## Pull this host's published engine images (default: llama.cp
 	python3 scripts/install_engine_launchers.py --bin "$(BIN)" $(if $(ARCH),--arch $(ARCH),) $(if $(BUILD),--build,) $(if $(ENGINES),--engines $(ENGINES),)
 test-built-engine: ## After make install: every ~/bin/llgenie-engine-* start script must print its engine version via docker (Metal-only engines excluded)
 	python3 scripts/install_engine_launchers.py --bin "$(BIN)" --test
+
+test-engine-install: bash-check # Internal CI seam (issue #1027, deliberately internal like test-unit-network): after ENGINE's image was built + pushed in engine-build, install + llgenie --dry + uninstall the just-published image — the producer-owned install leg
+	@test -n "$(ENGINE)" || { echo "Usage: make test-engine-install ENGINE=<id> ARCH=<variant>"; exit 1; }
+	make engine-install ENGINE="$(ENGINE)" BACKEND="$(ARCH)"
+	make test-built-engine
+	make ci-install-dry
+	make ci-install-uninstall
 
 # ---- engine skills (issue #98) ------------------------------------------
 # One SKILL.md per inference server in skills/engines/<id>/. The skills are read
