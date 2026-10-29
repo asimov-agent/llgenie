@@ -936,6 +936,57 @@ def test_a_rule_inside_a_fenced_block_is_a_quote_not_a_statement():
         "a fenced quote is NOT a statement — the fence lines break exact equality with canonical"
 
 
+def test_the_duplicate_rule_discriminator_treats_the_period_variant_as_the_same_rule():
+    """A duplicate drifts by punctuation before it drifts by text (#972 #922): `remedy.**` and `remedy**`
+    are the SAME rule.
+
+    The canonical rule-13 title has a period inside the bold (`**Never hold a PR without a remedy.**`),
+    so an editor who re-types it drops the period (`**…remedy**`) and the gate must still count BOTH as
+    one rule stated twice — not pass the no-period copy as a different, single bullet. `_duplicate_rule_debts`
+    normalises by matching `**<stripped-title><optional-punctuation>**`, so either punctuation variant is
+    counted. This is the near-copy the planner keeps catching by hand; now it is a pinned gate property.
+    """
+    import check_agent_profiles as cap
+    canonical = cap.fleet_block(REPO / "agents")
+    assert canonical is not None, "the fleet block must exist to test against"
+
+    # the real rule-13 title as it appears in the canonical block (with its period)
+    per = None
+    for line in canonical.splitlines():
+        if line.startswith("- **") and "Never hold a PR without a remedy" in line:
+            per = line[4: line.find("**", 3)]           # e.g. "Never hold a PR without a remedy."
+            break
+    assert per is not None and per.endswith("."), f"expected a period-ending title, got {per!r}"
+    stripped = per.rstrip(".,:;!?")
+
+    def debts(soul_text):
+        # `_duplicate_rule_debts` resolves the canonical rule titles from `standing-rules.md`, so a
+        # synthetic agents root must carry it (copied from the real tree) or `fleet_block` returns None
+        # and the helper silently counts nothing.
+        import pathlib, tempfile, shutil
+        from check_agent_profiles import _duplicate_rule_debts
+        agent = pathlib.Path(tempfile.mkdtemp())
+        shutil.copy(REPO / "agents" / cap.FLEET_BLOCK, agent / cap.FLEET_BLOCK)
+        p = agent / "per-test" / "SOUL.md"
+        p.parent.mkdir(parents=True)
+        p.write_text(soul_text, encoding="utf-8")
+        return _duplicate_rule_debts(agent, [{"name": "per-test"}])
+
+    block_head = "## " + cap.FLEET_HEADING.replace("## ", "") + "\n\n"
+    one_each = ("# LLGenie X\n\n" + block_head
+                + f"- **{per}** one\n"          # period copy (canonical form)
+                + f"- **{stripped}** two\n")     # no-period copy (the drift)
+    two_period = ("# LLGenie X\n\n" + block_head
+                  + f"- **{per}** one\n" + f"- **{per}** two\n")
+    only_one = ("# LLGenie X\n\n" + block_head + f"- **{per}** one\n")
+
+    assert any(name == "per-test" and title == stripped for name, title in debts(one_each)), \
+        "a period + no-period copy of the same rule must be counted as a duplicate (same rule)"
+    assert any(name == "per-test" and title == stripped for name, title in debts(two_period)), \
+        "two identical copies must be counted as a duplicate"
+    assert debts(only_one) == [], "one copy of the rule must NOT be a duplicate"
+
+
 def test_the_bookend_and_fresh_base_procedure_is_in_the_skill():
     """Fleet rule 15 (issue #873): branch from a freshly fetched main, bookend with two comments.
 
