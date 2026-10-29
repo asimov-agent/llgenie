@@ -1471,6 +1471,25 @@ def test_the_doc_soul_stated_block_matches_the_gate_canonical():
     )
 
 
+def test_the_oneto_rebase_of_a_stacked_child_lesson_is_in_the_skill():
+    """The `--onto` three-argument form, pinned so the drop-the-child mistake cannot recur.
+
+    Measured #1008: `git rebase --onto <new-tip> <own-branch-remote>` has an empty review range and just
+    moves the branch to the new tip, silently dropping the child commit. The lesson must teach the correct
+    upstream (the OLD parent tip) and the recovery (reset --hard to the still-existing commit), or the next
+    stacked-PR rebase repeats it.
+    """
+    ref = " ".join((REPO / "agents" / "llgenie-issse-implementer" / "skills"
+                    / "containerized-repo-verification" / "references"
+                    / "queue-and-pr-mechanics.md").read_text().lower().split())
+    for phrase in ["rebase --onto <new-parent-tip> <old-parent-tip>",
+                   "empty `<old-tip>..head` range",
+                   "branch moves to the new tip",
+                   "puts the branch back",
+                   "merge-base --is-ancestor origin/<parent> head"]:
+        assert phrase in ref, f"the `--onto` stacked-rebase lesson is missing: {phrase}"
+
+
 def test_this_lane_s_soul_uses_the_canonical_rule16_wording_not_the_drifted_fence():
     """The #1009 defect, pinned on the lane that owns it: ONE canonical, the gate's.
 
