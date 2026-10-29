@@ -34,6 +34,12 @@
         "never-merge",
         "never-implement"
       ]
+    },
+    {
+      "name": "llgenie-tester",
+      "rules": [
+        "never-merge"
+      ]
     }
   ]
 }
