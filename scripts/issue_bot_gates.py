@@ -91,6 +91,7 @@ DEFERRED: dict[str, str] = {
     "check-pr-authors": "reads the PR's commit range, which does not exist before the push",
     "check-agent-skills": "validates every bot leg's prompt against its project skill; fast, but not in #475's list (follow-up issue, not this change)",
     "check-agent-model": "compares the pinned model snapshot with the two files carrying it; fast, but not in #475's list (follow-up issue, not this change)",
+    "check-agent-profiles": "validates every host agent's SOUL and skills tree against the live profile; fast, but not in #475's list (follow-up issue, not this change)",
 }
 
 _MAKE_CALL = re.compile(r"(?:\$\(MAKE\)|\bmake)\s+(?:-(?!C\s)\S+\s+)*([a-z0-9][a-z0-9._-]*)")
