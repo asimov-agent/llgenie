@@ -776,7 +776,7 @@ def test_this_lane_s_soul_carries_the_fleet_hold_rule():
     assert "never hold a pr without a remedy" in block, "the fleet block lost rule 13"
     assert "never hold a pr without a remedy" in soul, "this SOUL does not carry rule 13"
     for commitment in ["file the issue that will make the tag removable",
-                       "remove the tag myself",
+                       "remove the tag yourself",
                        "is a review, not a label"]:
         assert commitment in soul, f"rule 13 in the SOUL is missing: {commitment}"
 
