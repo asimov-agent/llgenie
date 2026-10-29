@@ -1534,6 +1534,26 @@ def test_one_vehicle_for_a_gate_follow_on_lesson_is_in_the_skill():
         assert phrase in ref, f"the one-vehicle landing lesson is missing: {phrase}"
 
 
+def test_the_mergeable_but_behind_rule_is_in_the_skill():
+    """#1015's apply decision, pinned: a MERGEABLE-but-behind PR is NOT broken — leave it (#1015).
+
+    On one directive round main moved to f244efe8 while #919/#977/#1008 each read MERGEABLE; all three were
+    left in place because a rebase that chases main rewrites shas under stacked children for a verdict the
+    arm already holds. The rebase trigger is the PR's own `mergeable` field, never main moving. This pin holds
+    the decision (live-wording, authoritative) so a future "main is ahead, rebase it" reflex cannot mis-fire.
+    """
+    ref = " ".join((REPO / "agents" / "llgenie-issse-implementer" / "skills"
+                    / "containerized-repo-verification" / "references"
+                    / "queue-and-pr-mechanics.md").read_text().lower().split())
+    for phrase in ["an armed branch does not need to chase `main`",
+                   "rebase only when the pr is actually `conflicting`, or its base merges",
+                   "a branch that is `mergeable` but slightly behind is not broken",
+                   "`gh pr view <n> --json mergeable` → `mergeable` means leave it armed and report",
+                   "`conflicting` means rebase",
+                   "behind-but-clean branch is not a reason to rebase"]:
+        assert phrase in ref, f"the #1015 apply decision is missing: {phrase}"
+
+
 def test_the_oneto_rebase_of_a_stacked_child_lesson_is_in_the_skill():
     """The `--onto` three-argument form, pinned so the drop-the-child mistake cannot recur.
 
