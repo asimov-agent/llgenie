@@ -3,7 +3,7 @@
 unmarked scope really reaches the Hub.
 
 `pytest.ini` registers the `network` marker and `scripts/unit_tests.py` builds the unit gate as
-`-m "not network"` (the `ci-network` pipeline uses `-m network` on the SAME seam). These tests fail
+`-m "not network"` (the #1002 network pipeline uses `-m network` on the SAME seam). These tests fail
 closed: if the marker is renamed, if the gate drops the exclusion, if a network-marked test appears
 without the marker, or if a NON-marked scope makes a real Hub reach, something here goes red rather
 than the real call sneaking into the default runtime path.
@@ -96,8 +96,6 @@ def test_the_unit_gate_executes_zero_network_marked_tests():
     EXECUTE a single network-marked node — proven at the collection level, not by file existence.
     Runs pytest --collect-only under the exact `-m "not network"` argv the gate uses and asserts
     that no collected node belongs to a @pytest.mark.network-decorated test."""
-    import subprocess as _sp
-
     files = ut.select(REPO)
     # node ids that would be taken OFF the executable set by -m "not network":
     net_names: dict[str, set[str]] = {}
@@ -113,12 +111,7 @@ def test_the_unit_gate_executes_zero_network_marked_tests():
             net_names[doc] = names
     assert net_names, "no network-marked test to exclude — the seam excludes nothing"
 
-    argv = [sys.executable, "-m", "pytest", "--collect-only", "-q", "-m",
-            "not network", "-p", "no:cacheprovider", *files]
-    run = _sp.run(argv, cwd=REPO, capture_output=True, text=True)
-    assert run.returncode == 0, run.stdout[-2000:] + run.stderr[-2000:]
-    collected = {ln.strip() for ln in run.stdout.splitlines() if "::" in ln}
-
+    collected = _collect_marker(REPO, "not network")
     leaked = [
         f"{doc}::{name}"
         for doc, names in net_names.items()
@@ -179,6 +172,63 @@ def test_network_marked_tests_exist_and_are_inside_the_gate():
     assert marked, "no selected test carries @pytest.mark.network — the marker excludes nothing"
 
 
+def _net_node_parts(node: str) -> tuple[str, str]:
+    """(file, testname) for a collected pytest node id, stripping any [params] suffix."""
+    if "::" not in node:
+        return ("", "")
+    f, t = node.split("::", 1)
+    return (f, t.split("[", 1)[0])
+
+
+def _collect_marker(root: Path, marker: str) -> set[str]:
+    """Run the gate's OWN collect as `-m <marker>` over the whole hermetic selection and return the
+    collected node ids. ONE invocation in the pin's both directions (`not network` for the unit gate,
+    `network` for the network pipeline) so the expression can never drift between them."""
+    import subprocess as _sp
+
+    files = ut.select(root)
+    argv = [sys.executable, "-m", "pytest", "--collect-only", "-q", "-m",
+            marker, "-p", "no:cacheprovider", *files]
+    run = _sp.run(argv, cwd=root, capture_output=True, text=True)
+    assert run.returncode == 0, run.stdout[-2000:] + run.stderr[-2000:]
+    return {ln.strip() for ln in run.stdout.splitlines() if "::" in ln}
+
+
+def test_the_network_pipeline_owns_the_marks():
+    """#1002 ownership proof: every `@pytest.mark.network` test is genuinely MEMBER of the network
+    pipeline's set — `pytest --collect-only -m network` (the seam `make test-unit-network` runs)
+    must collect every network-marked node. A marker pytest cannot select under `-m network` is not
+    membership, it is decoration. (The `-m "not network"` twin is the execution pin; this proves the
+    marks are ALSO reachable by the network side, per the owner's #1002 split.)"""
+    files = ut.select(REPO)
+    marked: dict[str, set[str]] = {}
+    for doc in files:
+        names = {
+            m.group(1)
+            for m in re.finditer(
+                r"@pytest\.mark\.network\s*\n\s*(?:async\s+)?def\s+(test_\w+)\(", (REPO / doc).read_text()
+            )
+        }
+        if names:
+            marked[doc] = names
+    assert marked, "no network-marked test — nothing for the network pipeline to own"
+
+    collected = {
+        _net_node_parts(ln)
+        for ln in _collect_marker(REPO, "network")
+    }
+    missing = [
+        f"{doc}::{name}"
+        for doc, names in marked.items()
+        for name in sorted(names)
+        if (doc, name) not in collected
+    ]
+    assert not missing, (
+        "#1002 ownership: these network-marked tests are NOT collected by the `-m network` seam, "
+        "so the network pipeline does not own them:\n" + "\n".join(missing[:8])
+    )
+
+
 _OPEN_RE = re.compile(
     r"\b(urlopen|urlretrieve|snapshot_download|hf_hub_download|hf_hub_snapshot_download|"
     r"repo_download|download_file|requests[._](get|post|put|head|delete|request|stream)|"
@@ -217,9 +267,17 @@ def _hub_opens(file_text: str) -> list[tuple[str, str]]:
         )
     )
     problems: list[tuple[str, str]] = []
+    # a model dict defined at module/test scope that carries a live Hub id (`X = {... "hf": "org/repo" ...}`)
+    # is a real-call source: `mp.download(X, ...)` / `mp.gguf_files(X["hf"])` reach the Hub even when
+    # the call line itself shows no huggingface.co literal (the model id is the host reference).
+    _MODEL_DICT = re.compile(r"([A-Za-z_]\w*)\s*=\s*\{[^}]*?\bhf\b[\"']?\s*:")
+    module_hf_models = {m.group(1) for m in _MODEL_DICT.finditer(file_text)}
 
     def _scan_scope(body: str, name: str) -> None:
         nono = _LOOPBACK_RE.search(body)
+        hf_models = dict.fromkeys(module_hf_models) | dict.fromkeys(
+            f.group(1) for f in _MODEL_DICT.finditer(body)
+        )
         hub_vars: dict[str, str] = {}
         non_def = [
             ln for ln in body.splitlines()
@@ -240,6 +298,17 @@ def _hub_opens(file_text: str) -> list[tuple[str, str]]:
                     v for k, v in hub_vars.items() if re.search(r"\b%s\b" % re.escape(k), s))
                 if _HUB_RE.search(to):
                     problems.append((name, s[:140]))
+            # the repo's OWN Hub entry points (no loopback): a real reach, whatever the arg shape —
+            # `mp.download`/`mp.gguf_files`/`mp.hf_size` are Hub entry points by construction (they
+            # call the Hub API / download via `_hub_json(f"{HF}/api/…")`), so there is no hermetic
+            # call form of them. A call in an unmarked scope that binds no loopback server IS a real
+            # unmarked Hub reach, whether the arg is a model dict, a `mp.repo_for(...)` call, or a
+            # plain repo string. NOT plan_download (planning only — the engine lane's carve-out) and
+            # NOT resolve_local (local disk only).
+            if not nono and re.search(
+                r"\b(mp\.download|mp\.gguf_files|mp\.hf_size)\s*\(", s
+            ):
+                problems.append((name, s[:140]))
             elif _HUB_RE.search(s):
                 pass  # a mention with no open is not a call
 
@@ -273,6 +342,6 @@ def test_no_unmarked_real_open_reaches_the_hub():
         "#1000 pin: the hermetic selection really reaches the Hub from these non-network sites:\n"
         + "\n".join(offenders[:8])
         + ("\n...and %d more" % (len(offenders) - 8) if len(offenders) > 8 else "")
-        + "\nRoute each to `@pytest.mark.network` (owned by the ci-network pipeline), to a "
+        + "\nRoute each to `@pytest.mark.network` (owned by the #1002 network pipeline), to a "
         "loopback server, or to `hub_probe` liveness; never a silent real call in the unit path."
     )
