@@ -89,13 +89,24 @@ make install
 
 `llgenie` with no model is interactive:
 
-1. **The trend list**: exactly the [trending-local-llms](https://github.com/andyholst/trending-local-llms)
-   README "Most loved" list, in README order (🔥 trending -> 🕑 recent -> 💤 stale, then trend score),
-   every model whose **stated minimum** fits this card — `vram_min` (the store's measured minimum)
-   when the store states one, else the README's VRAM column — and the figure printed beside each row
-   is that same one, so the list never shows a number it did not gate on (a 16 GB card is 16 GB even
-   though `nvidia-smi` reports 15.99 GiB, and a model the store proves runs at 12 GB is listed under
-   12GB, not under a bigger display bucket). Every model you can run here is numbered, downloaded or not
+1. **The card's trend list**: the models this card fits, in the card's own order.
+   *Which* models: the store's **measured evidence**, in the order upstream documents — a
+   measurement that actually **ran on a card of this size or smaller** (`engines[].hardware`,
+   never a datacenter part), else the declared minimum `vram_min`, else the stated `weight_gb`
+   (the `weights-only` fit). `vram_tier` is the README's display *bucket* and decides only for a
+   row that states none of them, so the label can neither hide a model the store proves runs
+   here (a 27B model with a 4 GB + 32 GB-RAM run is listed on an 8 GB card) nor admit one that
+   does not fit. The run's own footprint is what the RAM floor reads (its `system_ram_min`, else
+   the RAM its hardware names, e.g. `4GB VRAM + 32GB system RAM`); a declared minimum or a
+   weights-only fit is judged by the model's `system_ram_min`. Measured on the vendored store:
+   every placement the README's own `Up to 8/12/16/24/32/48 GB` tables make passes this gate.
+   *In which order*: the vendored README's **tier-local** ranking for this card
+   (`## 🔥 Trending for your card`, `### Up to N GB` — the speed bonus is earned only by a
+   measurement on a card that size or smaller), then the rows that table does not rank (no post
+   in the window: they still fit, so they stay selectable) in the store's own trend order —
+   `band → trend score → posts → peak t/s`, **computed** from the store's fields, never read off
+   `data/models.json`'s line numbers, so a reordered or append-only store gives the same list.
+   Every model you can run here is numbered, downloaded or not
    (`[local]` = already in `~/models`); one that cannot run here stays in the list as `--` with the reason.
 2. **Engines** for the chosen model, each with the format llgenie fetches for it. A figure is
    compared to **this host's card**, not just its backend: first the figures measured
@@ -152,7 +163,8 @@ cannot reach the Apple GPU, so no Metal image exists. Qwen3.8-Flash-Next 125B ne
 128 GB Mac it is pick 1 on TensorFold.
 
 The list is tested without the prompt (`llgenie --trend` prints exactly the rows the
-prompt asks from): `tests/test_mac_trend_pick.py` (Mac),
+prompt asks from): `tests/test_card_gate_measured_vram.py` (the gate's measured evidence and
+the card's order — the whole card → model rule in one file), `tests/test_mac_trend_pick.py` (Mac),
 `tests/test_trend_list_acceptance.py` (acceptance criteria AC1–AC8 on linux
 cuda/rocm/vulkan/cpu and mac metal) and `tests/test_tensorfold_seamless.py`
 (install / update / reuse on pick), all in `make test-unit`. That seam is **install-kind
@@ -263,7 +275,7 @@ Each model also states **what its run needs**, per upstream's `data/MODEL_CONTRA
 |---|---|
 | `weight_gb` | the weight budget *before* any context is allocated (`5.95GB Q4_K_M` → 5.95 GB); preferred over a Hub file-size guess in the "does not fit" reason |
 | `context_tokens` | the window the KV cache is sized for (`131072`, `128K`, `1M`) |
-| `system_ram_min` | a hard floor: a host below it does not fit, however much VRAM it has |
+| `system_ram_min` | a hard floor: a host below it does not fit, however much VRAM it has — read from the evidence that admitted the model (the run's own `system_ram_min`, else the RAM its hardware names) |
 | `storage_offload` | the model runs by streaming weights from storage (MoE); named in the reason |
 | `engine_min_version` | the engine build / flags the figure needs, carried on the engine row |
 

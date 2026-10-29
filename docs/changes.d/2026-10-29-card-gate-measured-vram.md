@@ -1,0 +1,1 @@
+| 2026-10-29 | `fits()` compares a card against the store measured evidence, not a declared `vram_tier`/`vram_min`, and a card list is the published tier ranking (OpenSpec `card-gate-measured-vram`) | [2026-10-29-card-gate-measured-vram.md](agent-wiki/2026-10-29-card-gate-measured-vram.md) | #669 |

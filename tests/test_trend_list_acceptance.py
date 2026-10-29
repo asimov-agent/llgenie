@@ -6,8 +6,10 @@ OpenSpec fix-mac-trend-pick-tensorfold). One matrix, every backend llgenie suppo
 For every (backend, card size) the list must satisfy the same invariants, whatever
 the README says this week:
 
-  AC1  rows   = exactly the README "Most loved" models whose VRAM tier fits the card,
-               in README order (nothing added, nothing dropped, nothing reordered);
+  AC1  rows   = exactly the models this card fits (`mp.fits`: a measurement that ran on this
+               size or smaller, else `vram_min`, else `weight_gb`), ordered by the README's
+               tier-local `### Up to N GB` ranking for this card and then the rows it does not
+               rank in the store's own trend order — never the store file's positions (#669);
   AC2  number = only servable rows are numbered, 1..N without gaps, and `--select N`
                / the prompt / `--auto` take exactly row N (1 for --auto);
   AC3  engine = every offered engine runs on this host: the host's own variant
@@ -145,11 +147,31 @@ def test_ac1_rows_are_the_readme_models_that_fit_in_readme_order(tmp_path, platf
     # When llgenie builds its list
     rows = _offer(tmp_path, backend, gb)
 
-    # Then it is exactly the registry's models this host fits, in README order — the
-    # fit is the product's own decision (VRAM floor AND the stated system-RAM floor,
-    # issue #669/#414), while the ORDER comes from the README the store was synced with.
-    expected = [m["name"] for m in mp.load_registry()["models"] if mp.fits(m, gb, ram)]
+    # Then it is exactly the registry's models this host fits, in the CARD's order — the
+    # fit is the product's own decision (measured evidence: a run on this size or smaller,
+    # else vram_min, else weight_gb, plus the stated system-RAM floor; issue #669/#414),
+    # while the ORDER is the published `Up to N GB` tier ranking (the tier-local trend),
+    # followed by the rows that table does not rank in the store's own trend order — never
+    # the store file's positions.
+    reg = mp.load_registry()
+    fit = {m["name"]: m for m in reg["models"] if mp.fits(m, gb, ram)}
+    ranked = [n for n in _tier_table(gb) if n in fit]
+    today = mp.registry_today(reg)
+    rest = sorted((fit[n] for n in fit if n not in set(ranked)), key=lambda m: mp.trend_key(m, today))
+    expected = ranked + [m["name"] for m in rest]
     assert [r["model"]["name"] for r in rows] == expected
+
+
+def _tier_table(gb: int) -> list[str]:
+    """The model names the vendored README's `### Up to N GB` table ranks, in its order —
+    parsed straight from the markdown, so this is an oracle the product cannot agree with by
+    having the same bug (issue #669)."""
+    section = README.read_text().split("## 🔥 Trending for your card", 1)[1].split("\n## ", 1)[0]
+    parts = re.split(r"^### Up to (\d+) GB$", section, flags=re.M)
+    tables = {int(parts[i]): re.findall(r"^\| \[\*\*(.+?)\*\*\]", parts[i + 1], re.M)
+              for i in range(1, len(parts), 2)}
+    tier = min((t for t in sorted(tables) if gb <= t), default=max(tables))
+    return tables[tier]
 
 
 def test_the_vendored_store_states_two_distinct_vram_figures():

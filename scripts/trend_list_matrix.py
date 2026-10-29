@@ -2,12 +2,14 @@
 """The trending list llgenie --matrix prints, one row per (arch, vram, ram).
 
 `matrix(registry, vram, ram, arch)` is the call behind
-`llgenie --matrix --vram V --ram R --arch A`. Models stay in the README
-"Most loved" order (buzz + log2 of the fastest consumer t/s). A model whose
-VRAM column is above the card is absent. The server on a row is the first
-engine `matrix` returns: the best fit for this card on this architecture
-(issue #225 — a figure proven on a card of this VRAM class or smaller, then a
-bigger card's figure, then another backend, then a datacenter figure; see
+`llgenie --matrix --vram V --ram R --arch A`. Models are in the CARD's order: the
+README's tier-local `### Up to N GB` ranking for that card first, then the rows it
+does not rank in the store's own trend order (issue #669) — never the store file's
+positions. A model whose measured evidence does not place it on the card is absent
+(a run on this size or smaller, else `vram_min`, else `weight_gb`). The server on a
+row is the first engine `matrix` returns: the best fit for this card on this
+architecture (issue #225 — a figure proven on a card of this VRAM class or smaller,
+then a bigger card's figure, then another backend, then a datacenter figure; see
 `model_engine_pick.rank_engines`), and only when a quant of that engine fits
 this VRAM and RAM. A model that fits the card but has no such engine is kept,
 with the reason.
@@ -34,7 +36,9 @@ RAMS = (8, 32, 60, 64)
 # nvidia-smi's 15.99 GiB card, with the RAM of the CUDA laptop this was pinned on.
 CASES = [(arch, vram, ram) for arch in ARCHS for vram in VRAMS for ram in RAMS]
 CASES.append(("cuda", 15.9921875, 62))
-ORDER = ("README weighted trend (buzz + log2 of consumer t/s). "
+ORDER = ("Card's list order: the README's tier-local 'Up to N GB' ranking for the card, then the "
+         "rows it does not rank in the store's own trend order (band -> trend score -> posts -> "
+         "peak t/s, computed — never the store file's positions), issue #669. "
          "The server is the best fit for this card on this arch with a quant that fits this vram and ram "
          "(a figure proven on a card of this vram class or smaller first, then a bigger card's figure, "
          "then another backend, then a datacenter figure; issue #225).")

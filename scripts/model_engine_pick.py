@@ -13,11 +13,14 @@ per model, measured t/s per engine (`engines[].tps`) plus post engagement.
                        same-backend figure from a bigger/unknown card, then
                        another backend, then a datacenter figure, then
                        supported-only; by t/s, then trending engagement.
-  rank_models()        registry models that fit the card (vram_tier <= card),
-                       each with its best engine, best first by t/s.
-  recommend()          what plain `llgenie` offers (issue #105): the upstream README
-                       "Most loved" list in its order, every model whose VRAM tier
-                       fits this card; rows that cannot be served here say why.
+  rank_models()        registry models that fit the card (measured evidence: a run
+                       on a card <= this one, else vram_min, else weight_gb —
+                       issue #669), each with its best engine, best first by t/s.
+  recommend()          what plain `llgenie` offers (issue #105): the models this
+                       card fits, in the card's own order — the vendored README's
+                       tier-local `Up to N GB` ranking, then the rows it does not
+                       rank in the store's trend order (the file's position is
+                       never read); rows that cannot be served here say why.
                        Engine t/s comes from this host's kind of hardware first.
   gguf_repo(model)     a Hub repo with .gguf files for the model: the registry
                        repo, else the most-downloaded `<name>-GGUF` repo.
@@ -379,9 +382,23 @@ def trend_score(model: dict) -> float:
     return float((model.get("engagement") or {}).get("trend_score") or 0)
 
 
+def peak_tps(model: dict) -> float:
+    """The model's fastest measured t/s, whatever the hardware (the store's tie-break)."""
+    return max([_num(e.get("tps")) for e in model.get("engines") or []] or [0.0])
+
+
 def trend_key(model: dict, today=None) -> tuple:
+    """The key the store is sorted with, computed from its own fields — never its position:
+    band (trending -> recent -> stale) -> trend score -> posts in the window -> peak t/s.
+
+    `data/models.json` is replaced wholesale by the weekly sync and arrives sorted this way;
+    reading that order back would make a line number decide the card's list, so `trend_list`
+    sorts by this key instead. Measured on the vendored 2026-10-27 store: the key reproduces
+    the committed order exactly (112 of 112 rows)."""
     eng = model.get("engagement") or {}
-    return (band(model, today), -trend_score(model), -int(eng.get("posts_7d") or 0))
+    return (band(model, today), -trend_score(model), -int(eng.get("posts_7d") or 0),
+            -peak_tps(model), str(model.get("id") or ""))
+
 
 
 def _engagement(e: dict) -> int:
@@ -495,6 +512,79 @@ def card_class_gb(gb: float) -> float:
     return float(round(gb)) if gb > 0 else gb
 
 
+TIER_SECTION = "## 🔥 Trending for your card"
+_TIER_HEADING = re.compile(r"^### Up to (\d+) GB$", re.M)
+
+
+def registry_readme() -> Path | None:
+    """The README vendored beside the store (`make sync-registry` writes both), when it is there."""
+    src = os.environ.get("LLGENIE_REGISTRY_SRC") or str(REGISTRY_FILE)
+    if src.startswith("http"):
+        return None
+    path = Path(src).with_name("trending-README.md")
+    return path if path.is_file() else None
+
+
+_TIER_CACHE: dict[tuple, dict[int, list[str]]] = {}
+
+
+def tier_tables() -> dict[int, list[str]]:
+    """Card tier (GB) -> the model names the vendored README's `### Up to N GB` table ranks, in
+    its order.
+
+    Those tables are upstream's TIER-LOCAL ranking: the speed bonus is earned only by a
+    measurement that ran on a card of that size or smaller, so a 32 GB figure never tops the
+    8 GB table (issue #669). Cached by path + mtime, so a synced README is read on the next
+    call. No README beside the store (a bare `LLGENIE_REGISTRY_SRC` fixture) -> `{}`, and the
+    card's list is then the computed store order alone.
+    """
+    path = registry_readme()
+    if path is None:
+        return {}
+    stat = path.stat()
+    key = (str(path), stat.st_mtime_ns, stat.st_size)
+    if key not in _TIER_CACHE:
+        text = path.read_text()
+        section = text.split(TIER_SECTION, 1)[1].split("\n## ", 1)[0] if TIER_SECTION in text else ""
+        parts = _TIER_HEADING.split(section)
+        _TIER_CACHE.clear()  # one store, one README: a previous run's tables never leak in
+        _TIER_CACHE[key] = {int(parts[i]): re.findall(r"^\| \[\*\*(.+?)\*\*\]", parts[i + 1], re.M)
+                            for i in range(1, len(parts), 2)}
+    return _TIER_CACHE[key]
+
+
+def card_tier(gb: float) -> int | None:
+    """The published tier a card reads: the smallest tier at or above the card's nominal size,
+    and the largest published tier for a bigger card (the tables stop at 48 GB)."""
+    tiers = sorted(tier_tables())
+    if not tiers or not gb:
+        return None
+    want = card_class_gb(gb)
+    return next((t for t in tiers if want <= t), tiers[-1])
+
+
+def tier_rank(gb: float) -> dict[str, int]:
+    """Model name -> its published position in this card's tier-local ranking ({} when the
+    store has no README beside it)."""
+    tier = card_tier(gb)
+    return {name: i for i, name in enumerate(tier_tables().get(tier or 0) or [])}
+
+
+def ran_on_gb(model: dict) -> float | None:
+    """The smallest card one of this model's MEASURED runs actually ran on, or None.
+
+    A measurement is a run: `engines[].tps` above zero, on hardware that names a card size
+    (`measurement_card_gb`). A datacenter part (H100/A100/MI300 ...) is not a card a reader
+    owns, so it is never evidence of what this card does — the rule `rank_engines` applies to a
+    figure (issue #669).
+    """
+    cards = [measurement_card_gb(e.get("hardware", ""))
+             for e in model.get("engines") or []
+             if _num(e.get("tps")) and not datacenter_hardware(e.get("hardware", ""))]
+    cards = [c for c in cards if c is not None]
+    return min(cards) if cards else None
+
+
 def vram_min_gb(model: dict) -> float | None:
     """The model's stated minimum card size (`vram_min`) in GB, or None when it states none.
 
@@ -520,24 +610,94 @@ def vram_label(model: dict) -> str:
     return f"{need:g}GB"
 
 
+GATE_EVIDENCE = ("run", "min", "weights", "label", "unknown", "")
+
+#: The system RAM a measurement's hardware string names: `4GB VRAM + 32GB system RAM`,
+#: `RTX 3060 12GB + 16GB DDR4`. A unified-memory box says `unified`, which is its card's pool,
+#: so it is not read here (the host's own RAM is what `ram_gb` states).
+_RAM_IN_HW = re.compile(r"(\d+(?:\.\d+)?)\s*GB\s*(?:of\s+)?(?:system\s+ram|ram|ddr\d?)\b", re.I)
+
+
+def admitting_measurement(model: dict, gb: float) -> dict | None:
+    """The measurement that proves this model runs on a card of `gb`: the smallest `ran on`
+    card at or below the card, or None when no run is at that size."""
+    card = card_class_gb(gb)
+    best, best_card = None, None
+    for e in model.get("engines") or []:
+        if not _num(e.get("tps")):
+            continue
+        hw = e.get("hardware", "")
+        if datacenter_hardware(hw):
+            continue
+        run_card = measurement_card_gb(hw)
+        if run_card is None or run_card > card:
+            continue
+        if best_card is None or run_card < best_card:
+            best, best_card = e, run_card
+    return best
+
+
+def card_evidence(model: dict, gb: float) -> str:
+    """WHICH evidence admits `model` on a card of `gb`: `"run"`, `"min"`, `"weights"`,
+    `"label"`, `"unknown"` (no card on this host) or `""` (nothing admits it).
+
+    The order is upstream's own (`data/MODEL_CONTRACT.md`, the README's `VRAM` column): a model
+    is placed on a card only with evidence — a proved `ran on` figure, the declared minimum, or
+    the labelled `weights-only` fit. `vram_tier` is the README's *display bucket* and decides
+    only for a row that states no measured figure at all, so the label can never keep out a
+    model the store proves runs here (issue #669).
+    """
+    if gb <= 0:
+        return "unknown"  # no card on this host: the gate has nothing to compare against
+    if admitting_measurement(model, gb) is not None:
+        return "run"
+    card = card_class_gb(gb)
+    need = vram_min_gb(model)
+    if need is not None and need <= card:
+        return "min"
+    weight = stated_budget_gb(model)
+    if weight is not None and weight <= card:
+        return "weights"  # the labelled weights-only fit: no run at this size, the file does fit
+    if need is not None:
+        return ""  # the store states its requirement and this card is below it
+    return "label" if _num(model.get("vram_tier")) <= card else ""
+
+
+def ram_floor_gb(model: dict, evidence: str, gb: float) -> float | None:
+    """The system RAM the ADMITTING evidence states, or None when it states none.
+
+    A run is judged by its own footprint — the measurement's `system_ram_min` when it states
+    one, else the RAM its hardware names (`4GB VRAM + 32GB system RAM`), else the model's
+    figure — because that is the run this card is being told about (`footprint()`: "the
+    measurement's own value wins for that engine"). A declared minimum or a weights-only fit is
+    judged by the model's own `system_ram_min`.
+    """
+    if evidence == "run":
+        run = admitting_measurement(model, gb) or {}
+        stated = stated_gb(run.get("system_ram_min"))
+        if stated:
+            return stated
+        named = _RAM_IN_HW.search(str(run.get("hardware") or ""))
+        if named:
+            return float(named.group(1))
+    return stated_gb(model.get("system_ram_min"))
+
+
 def fits(model: dict, gb: float, ram_gb: float | None = None) -> bool:
-    """The model's stated minimum (`vram_min`, else the README's `vram_tier`) <= the card's
-    nominal size — and, when the store states one, the model's `system_ram_min` <= this
-    host's RAM (issue #669).
+    """True when the store's measured evidence places this model on a card of `gb` — a run on a
+    card that size or smaller, else `vram_min`, else the stated `weight_gb` (issue #669) — and,
+    when the admitting evidence states one, this host's RAM is at least its `system_ram_min`.
 
     `system_ram_min` is the contract's optional system-RAM requirement (`MODEL_CONTRACT.md`:
     "the CPU and Metal tables are RAM-bound … partial offload keeps the un-offloaded layers +
     KV cache in system RAM"). It is a hard floor, never derived from `vram_min`, so a host
-    below it cannot run the model at the stated quality however much VRAM it has. Absent
-    (the common case) keeps the previous behaviour exactly.
+    below it cannot run the model at the stated quality however much VRAM it has.
     """
-    need = vram_min_gb(model)
-    if need is None:
-        need = _num(model.get("vram_tier"))
-    if gb > 0 and need > card_class_gb(gb):
+    evidence = card_evidence(model, gb)
+    if not evidence:
         return False
-    needs_ram = stated_gb(model.get("system_ram_min"))
-    return not (needs_ram and ram_gb and ram_gb < needs_ram)
+    floor = ram_floor_gb(model, evidence, gb)
+    return not (floor and ram_gb and ram_gb < floor)
 
 
 # ---- the contract's stated footprint (MODEL_CONTRACT.md, issue #414) ----------------------
@@ -613,13 +773,32 @@ def registry_today(registry: dict):
         return None
 
 
+def card_order(rows: list[dict], gb: float | None, registry: dict) -> list[dict]:
+    """`rows` in the order the card's list shows them.
+
+    The vendored README's tier-local ranking for that card comes first (issue #669), then every
+    row it does not rank — a model with no post in the window keeps no trend rank, but it still
+    fits, so it stays selectable — in the store's own trend order. Both halves are COMPUTED:
+    the tier table is read from the vendored README, the remainder from `trend_key` on the
+    store's fields. `data/models.json`'s file position is never read.
+    """
+    rank = tier_rank(gb) if gb is not None else {}
+    today = registry_today(registry)
+    return sorted(rows, key=lambda m: (rank.get(str(m.get("name")), len(rank)), *trend_key(m, today)))
+
+
 def trend_list(registry: dict, gb: float | None = None, ram_gb: float | None = None) -> list[dict]:
-    """The upstream README "Most loved" list, in its order, that fits this card
-    (vram_tier <= card RAM, and the stated `system_ram_min` <= this host's RAM when the
-    store states one). data/models.json is stored in exactly that order
-    (update_trending.py sorts it: band -> trend score -> posts -> peak t/s)."""
+    """The models this card fits, in the card's own order.
+
+    Membership is the gate (`fits`: measured evidence, plus the stated `system_ram_min` floor);
+    order is the vendored README's `### Up to N GB` tier-local ranking for this card, then the
+    rows it does not rank in the store's trend order (`card_order`). Measured on the vendored
+    2026-10-27 store, 8 GB: the published top is `Qwen3.6-35B-A3B`, `Bonsai 2 9B`, … while the
+    global order (which this used to return) is `Bonsai 2 9B`, `Qwen3.6-35B-A3B`, …
+    """
     gb = card_gb() if gb is None else gb
-    return [m for m in registry.get("models") or [] if fits(m, gb, ram_gb)]
+    return card_order([m for m in registry.get("models") or [] if fits(m, gb, ram_gb)], gb, registry)
+
 
 
 def rank_models(registry: dict, arch: str | None = None, gb: float | None = None, today=None) -> list[dict]:
