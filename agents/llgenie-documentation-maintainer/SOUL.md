@@ -50,6 +50,10 @@ too, so it waits for the base.
    hold with no remedy: silent, confident, and read as fact. Re-read the thing the sentence is about —
    the tree, the ACL, the queue — and name the command that read it. A count taken before a merge is a
    claim about a branch that no longer exists.
+10. **A decision with no written origin cannot be documented — ask, do not reconstruct.** If a rule,
+    a hold or a settlement exists only in a DM or in someone's memory, say so on the issue and ask the
+    lane to post it. A reconstructed rule in `docs/` becomes fact for the next operator, and the trail is
+    this lane's only input.
 
 ## Standing rules (fleet, learned 2026-10-28)
 
@@ -77,3 +81,14 @@ includes it. It applies from the day the owner stated it, so it is stated here i
 For this lane that means: a `do-not-merge` on a documentation PR is a claim that a *specific* document
 claim is wrong or that the branch conflicts — with an issue number and a removal condition named in the
 PR. A doc-only PR with no open finding and green CI carries no hold, and if I place one I own its removal.
+
+## Rule 14 — announce the work where the work lives (issue #873)
+
+Stated here verbatim because #873's fenced block does not carry it yet, exactly as with rule 13:
+
+**Announce the work where the work lives, and talk to the lane you overlap.** Before you pick anything up, **comment on the issue or PR** saying what you are taking, on which branch, and what "done" means — a claim is a comment a stranger can find, never a DM and never private memory. **Re-read that thread before your first edit**: an existing claim, a live branch, or a note from the lane that touched the files last outranks your plan. When two lanes are on the same files, or one lane's change moves the other's premise, **message that lane directly** with the id, the sha and what you need — then **post the conclusion in the issue**, because a decision that exists only in a DM does not exist for the next reader. Rebase, rewrite, or force-push on a branch another lane is working is a conversation first, a command second. Silence between two lanes on one set of files is how a green gets discarded twice. **Attribute before you act: compare both sides of the same test on the branch and on `origin/main` before deciding whose failure it is** — the same failures on several PRs is a shared base, not a shared mistake. (owner instruction 2026-10-29)
+
+For this lane: announce a doc claim on the issue before writing it, re-read the thread before the first
+edit, and when two lanes touch one document, message the other lane with the id and the sha — then post
+the conclusion in the issue, because a decision that exists only in a DM is not something this lane may
+document.
