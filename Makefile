@@ -828,7 +828,7 @@ sweep-concurrency-report: ## Report every scheduled workflow whose runs stack in
 
 fix-loop-image: ## Run the fix-bot loop inside the agent image (the same image the workflow uses); AGENT_IMAGE overrides the resolved ref, LOG=path also receives the REDACTED log (issue #359)
 	@python3 scripts/require_env.py NOUS_API_KEY
-	$(call scrubbed_run,img=$$(if [ -n "$(AGENT_IMAGE)" ]; then echo "$(AGENT_IMAGE)"; else python3 scripts/ci_images.py ref agent; fi); echo "agent image: $$img"; $(RUNTIME) run --rm --init -v "$$PWD:/repo" -w /repo -e NOUS_API_KEY -e GH_TOKEN -e FIX_CHECK -e FIX_ROUNDS -e TYPESAFE_API_KEY -e HERMES_NERVE_PROVIDER -e NERVE_REQUIRE $(AGENT_SHELL_FORWARD) $(AGENT_BOT_MARKER) "$$img" bash -lc 'scripts/agent_jev_preflight.sh && FIX_REPORT_FILE="$(REPORT_FILE)" scripts/fix_loop.sh'; $(if $(LOG),cp -f $(HERMES_LOG_SCRUBBED) $(LOG),true))
+	$(call scrubbed_run,img=$$(if [ -n "$(AGENT_IMAGE)" ]; then echo "$(AGENT_IMAGE)"; else python3 scripts/ci_images.py latest agent; fi); echo "agent image: $$img"; $(RUNTIME) run --rm --init -v "$$PWD:/repo" -w /repo -e NOUS_API_KEY -e GH_TOKEN -e FIX_CHECK -e FIX_ROUNDS -e TYPESAFE_API_KEY -e HERMES_NERVE_PROVIDER -e NERVE_REQUIRE $(AGENT_SHELL_FORWARD) $(AGENT_BOT_MARKER) "$$img" bash -lc 'scripts/agent_jev_preflight.sh && FIX_REPORT_FILE="$(REPORT_FILE)" scripts/fix_loop.sh'; $(if $(LOG),cp -f $(HERMES_LOG_SCRUBBED) $(LOG),true))
 
 fix-bot-sweep: ## Which red PR the fix-bot should repair, and dispatch it (DRY=1 previews; needs gh)
 	python3 scripts/fix_bot_sweep.py --repo $(GH_REPO) --check "$(if $(CHECK),$(CHECK),make ci-unit)" --max-attempts $(if $(ATTEMPTS),$(ATTEMPTS),5) $(if $(OWN_FORK),--own-fork $(OWN_FORK),) $(if $(PR),--pr $(PR),) $(if $(REPORT_FILE),--report-file "$(REPORT_FILE)",)$(if $(DRY),--dry,)
@@ -836,8 +836,8 @@ fix-bot-sweep: ## Which red PR the fix-bot should repair, and dispatch it (DRY=1
 fix-bot-report: ## Render the fix-bot's failure report from the loop's report file (REPORT=<path>; the same command the workflow uses to comment)
 	python3 scripts/fix_bot_report.py "$(if $(REPORT),$(REPORT),/tmp/fix-report.txt)" --command "$(if $(CHECK),$(CHECK),make ci-unit)"
 
-agent-image-ref: ## Print the GHCR ref of the agent (Hermes) image for the current Dockerfile + install script
-	@python3 scripts/ci_images.py ref agent
+agent-image-ref: ## Print the GHCR :latest ref every agent pull uses (publish points it at the content hash)
+	@python3 scripts/ci_images.py latest agent
 
 fix-loop: ## Run the PR fix-bot loop locally against the failing check (scripts/fix_loop.sh; needs an agent on PATH)
 	FIX_ROUNDS="$(if $(ROUNDS),$(ROUNDS),5)" FIX_CHECK="$(if $(CHECK),$(CHECK),make ci-unit)" FIX_REPORT_FILE="$(REPORT_FILE)" scripts/fix_loop.sh
@@ -1296,17 +1296,17 @@ test-image-pull: ## CI: pull the published test image (hash of its Dockerfile + 
 publish-ci-images: ## CI job ci-images: build + push the test and OpenSpec images ONLY when their hash tag is not on GHCR yet. The AGENT image is NOT here: the default GITHUB_TOKEN is denied "Create organization package" for a brand-new package (the first llgenie/agent publish), so it goes out through publish-agent-image.yml with the owner PAT, deliberately and by hand
 	python3 scripts/ci_images.py publish test openspec
 
-publish-agent-image: ## Build + push ONLY the agent (Hermes) image to GHCR (linux/amd64: it builds Hermes at build time, which times out under arm64 emulation) when its hash tag is not there yet. The dedicated job for the Hermes container (issues #222/#238/#248); guarded to owner/collaborators.
+publish-agent-image: ## Build + push ONLY the agent (Hermes) image to GHCR (linux/amd64: it builds Hermes at build time, which times out under arm64 emulation) when its hash tag is not there yet, and point :latest at that hash even when the hash is already published. The dedicated job for the Hermes container (issues #222/#238/#248); guarded to owner/collaborators.
 	python3 scripts/ci_images.py publish agent
 
 agent-image-push-check: ## Prove the GHCR credential can PUSH the agent image BEFORE the (up to 60-minute) build: ask the registry for a push-scoped token, then initiate the cheapest real write there is (an empty blob upload, no data). Prints the registry's own refusal and exits non-zero when the credential may not push (issue #335)
 	@test -n "$$GHCR_TOKEN" || { echo "ERROR: GHCR_TOKEN is unset - this target asks GHCR to prove a credential can push the llgenie/agent package"; exit 1; }
 	python3 scripts/ci_images.py pushcheck agent
 
-agent-image: ## The agent (Hermes) image: pull the published hash of its Dockerfile + install script (GHCR), else build it here
+agent-image: ## The agent (Hermes) image: pull ghcr.io/<registry>/llgenie/agent:latest, else build it here
 	python3 scripts/ci_images.py ensure agent
 
-agent-image-pull: ## CI: pull the published agent image (hash of its Dockerfile + install script) as llgenie/agent:latest; fails if not published, never builds
+agent-image-pull: ## CI: pull ghcr.io/<registry>/llgenie/agent:latest as llgenie/agent:latest; fails if that tag is missing, never builds
 	python3 scripts/ci_images.py pull agent
 
 ci-image-refs: ## Print the GHCR refs of the CI images (test, openspec, agent) for the current Dockerfiles + lockfiles

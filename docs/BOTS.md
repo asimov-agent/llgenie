@@ -770,7 +770,7 @@ make agent-jev-preflight   # report whether the layer is available for this run 
 make nerve-profile-check   # prove the rule the build enforces: a setting whose module the profile
                            # does not register is inert, so the build fails (issue #611)
 make agent-image           # the image: Hermes CLI + the pinned nerve plugin + its settings + the profile
-make agent-image-ref       # the GHCR ref of THIS commit's Dockerfile + install scripts (their hash)
+make agent-image-ref       # ghcr.io/<registry>/llgenie/agent:latest (publish points it at the content hash)
 make issue-bot-image       # the same image, for the issue-bot (alias of agent-image)
 ```
 
@@ -1761,10 +1761,10 @@ The Hermes agent image is what repairs a red PR in CI, so it gets its own publis
 instead of riding the test/openspec images:
 
 ```
-make agent-image        # pull the hash-tagged Hermes image (its Dockerfile + install script), else build it here
-make agent-image-pull   # CI: pull the published agent image as llgenie/agent:latest; fails when missing, never builds
-make agent-image-ref    # print the GHCR ref for the current Dockerfile + install script
-make publish-agent-image  # build + push ONLY the agent image (linux/amd64) when its hash tag is not there yet
+make agent-image        # pull ghcr.io/<registry>/llgenie/agent:latest, else build it here
+make agent-image-pull   # CI: pull that :latest tag as llgenie/agent:latest; fails when missing, never builds
+make agent-image-ref    # print the GHCR :latest ref every agent pull uses
+make publish-agent-image  # build + push the agent image (linux/amd64) when its hash is not there yet, and point :latest at that hash either way
 ```
 
 `publish-agent-image.yml` is `workflow_dispatch`-only, re-checks that the actor is the
@@ -1773,7 +1773,7 @@ plus `packages: write` — the same credential, account and shape `.github/workf
 `ci-images` job publishes `llgenie/test` and `llgenie/openspec` with (issue #413: the owner PAT it
 used before carries no `write:packages`, so its own `agent-image-push-check` refused it with
 `403 DENIED … does not match expected scopes`). It is `linux/amd64` only: building Hermes under arm64
-emulation times out. The image is hash-tagged, so re-running it is a no-op unless its inputs changed.
+emulation times out. The content hash stays the immutable tag. A re-run does not rebuild when that hash is already on GHCR, and it still points `:latest` at the hash. Pulls use `:latest`.
 
 The fix-bot (`fix-bot.yml`: hourly `schedule` + `workflow_dispatch`) repairs the branch,
 re-checks and stops — it **never merges**; a human reviews the result:

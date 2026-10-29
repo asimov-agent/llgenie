@@ -742,8 +742,10 @@ MIT — see [LICENSE](LICENSE).
 
 - Publishing the agent image is `make publish-agent-image`, run by `publish-agent-image.yml`
   (`workflow_dispatch` only, behind the owner/collaborator guard, issue #222/#238/#248). The image
-  is **hash-tagged** with its Dockerfile + install script + the test image it builds FROM, so a
-  re-run is a no-op unless those inputs changed; the job logs in to GHCR with the **owner PAT**
+  is published under a **content hash** of its Dockerfile + install script + the test image it
+  builds FROM. A re-run does not rebuild when that hash is already on GHCR, and it still points
+  `:latest` at the hash. `make agent-image`, `make agent-image-pull` and `make agent-image-ref`
+  use that `:latest` tag; the job logs in to GHCR with the **owner PAT**
   (`secrets.BUMP_TOKEN`), not `GITHUB_TOKEN`, and prints the published ref with `make
   ci-image-refs`. The credential reasoning is stated in that workflow's header, which is the file
   that has to stay true.

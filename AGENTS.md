@@ -1205,7 +1205,12 @@ the roster does not record is fatal — a target cannot silently run nothing.
   locally only when that hash is not published yet (issue #117).
 - `make test-image-pull` / `make openspec-image-pull` — CI: pull that hash, never build
   (fails when missing). `make publish-ci-images` — CI job `ci-images`: build + push
-  (amd64 + arm64) only the hashes not on GHCR. `make ci-image-refs` prints the refs.
+  (amd64 + arm64) only the hashes not on GHCR. `make ci-image-refs` prints the content-hash
+  refs, including the agent's.
+- `make agent-image` / `make agent-image-pull` — pull `ghcr.io/<registry>/llgenie/agent:latest`
+  (issue #989). `publish agent` points that tag at the current content hash, and moves it
+  again when the hash is already published. `make agent-image-ref` prints the `:latest` ref
+  the bots pass to `docker run`.
 - `make ci-<job>` — one target per CI pipeline job (`ci-lint`, `ci-unit`,
   `ci-agents-read`, `ci-openspec`, `ci-cpu-health`,
   `ci-top-tier`, `ci-install`). Linux and macOS both call `pipeline.yml`: one job each,

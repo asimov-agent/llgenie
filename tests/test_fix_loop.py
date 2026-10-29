@@ -216,10 +216,10 @@ def test_the_summary_survives_a_missing_report(tmp_path):
 def test_the_bot_runs_in_the_agent_image_not_on_the_runner():
     """The loop must run in the pinned image (issues #222/#238), not on the runner's toolchain.
 
-    The image ref is resolved from THIS commit's Dockerfile hash, so the workflow cannot name a
-    tag that drifts from the image it builds, and the secrets travel as run-time env — never
-    baked into the image. The workflow drives the loop through make targets (agent-image-ref,
-    fix-loop-image) so the same commands are reusable locally and by the pipeline.
+    The image ref is GHCR :latest, printed by make agent-image-ref. Publish points that tag
+    at the content hash, and the secrets travel as run-time env — never baked into the image.
+    The workflow drives the loop through make targets (agent-image-ref, fix-loop-image) so the
+    same commands are reusable locally and by the pipeline.
     """
     wf = (REPO / ".github" / "workflows" / "fix-bot.yml").read_text()
     mk = (REPO / "Makefile").read_text()
@@ -272,15 +272,16 @@ def test_the_new_make_targets_run_the_exact_commands():
     assert 'python3 scripts/fix_bot_report.py "/tmp/fix-report.txt"' in out
     assert '--command "make ci-unit"' in out
 
-    # agent-image-ref: the agent ref from ci_images
+    # agent-image-ref: the GHCR :latest ref every agent pull uses
     out = recipe("agent-image-ref")
-    assert "python3 scripts/ci_images.py ref agent" in out
+    assert "python3 scripts/ci_images.py latest agent" in out
 
     # fix-loop-image: runs the loop inside the agent image, secrets as run-time env
     out = recipe("fix-loop-image", AGENT_IMAGE="ghcr.io/asimov-agent/llgenie/agent:abc123")
     assert "docker run" in out and "scripts/fix_loop.sh" in out
     assert "-e NOUS_API_KEY" in out and "-e GH_TOKEN" in out
     assert "ghcr.io/asimov-agent/llgenie/agent:abc123" in out
+    assert "python3 scripts/ci_images.py latest agent" in out
 
 
 def test_the_default_agent_command_reads_the_prompt_through_z():

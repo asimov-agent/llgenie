@@ -13,11 +13,15 @@ Commands (driven by make, never by hand):
 
     publish <name>  CI job `ci-images`: look the hash tag up; build linux/amd64 + linux/arm64 and
                     push it ONLY when it is missing (registry layer cache)   make publish-ci-images
-    pull <name>     every CI job: pull the hash tag, tag it llgenie/<name>:latest; a missing tag
+                    The agent image also points GHCR :latest at that hash, including when the hash
+                    is already published (no rebuild).
+    pull <name>     every CI job: pull the tag, tag it llgenie/<name>:latest; a missing tag
                     fails loudly, nothing is built                           make test-image-pull
-    ensure <name>   a dev host: pull the published hash, else build it here from the same
+                    test and openspec pull the content hash. The agent image pulls GHCR :latest.
+    ensure <name>   a dev host: pull the same tag `pull` uses, else build it here from the same
                     Dockerfile (an edited Dockerfile/lockfile is not published yet)  make test-image
-    ref <name>      print the published ref                                  make ci-image-refs
+    ref <name>      print the published content-hash ref                     make ci-image-refs
+    latest <name>   print GHCR :latest                                       make agent-image-ref
     pushcheck <name>  publish-agent-image.yml: prove the credential can PUSH before the expensive
                     build — ask the registry for a push-scoped token, then initiate an empty blob
                     upload (the cheapest real write there is); the registry's own refusal is the
@@ -112,6 +116,22 @@ def ref(name: str, root: Path = REPO) -> str:
     return f"{registry()}/llgenie/{name}:{tag(name, root)}"
 
 
+def latest_ref(name: str) -> str:
+    """The moving GHCR tag. Agent pulls consume this; the content hash stays `ref`."""
+    return f"{registry()}/llgenie/{name}:latest"
+
+
+def pull_ref(name: str, root: Path = REPO) -> str:
+    """The ref `pull` and `ensure` fetch.
+
+    The agent image is always GHCR `:latest`. Test and OpenSpec stay on the content hash,
+    so a lockfile edit still builds locally until that hash is published.
+    """
+    if name == "agent":
+        return latest_ref(name)
+    return ref(name, root)
+
+
 def cache_ref(name: str) -> str:
     return f"{registry()}/llgenie/{name}:buildcache"
 
@@ -142,18 +162,32 @@ def _pull_and_tag(name: str, r: str) -> int:
 
 
 def publish(name: str, root: Path = REPO) -> int:
-    """CI only: build both arches and push, unless this hash is already on the registry."""
+    """CI only: build and push the content hash unless it is already on the registry.
+
+    The agent image also points GHCR `:latest` at that hash. A hash that is already
+    published is not rebuilt; `:latest` is still moved onto it, because that is the tag
+    every agent pull fetches and an earlier publish of this hash did not create it.
+    """
     r = ref(name, root)
     if published(r):
-        print(f"[ci-images] {r} already published (inputs unchanged): nothing to build", flush=True)
-        return 0
+        if name != "agent":
+            print(f"[ci-images] {r} already published (inputs unchanged): nothing to build", flush=True)
+            return 0
+        latest = latest_ref(name)
+        rc = _sh([RUNTIME, "buildx", "imagetools", "create", "-t", latest, r]).returncode
+        if rc == 0:
+            print(f"[ci-images] {r} already published; {latest} now points at it", flush=True)
+        return rc
     ctx = context(name, root)
     try:
         # A registry cache ref that does not exist yet makes buildx fail to configure the
         # importer (the first publish of a NEW image), so only read a cache that is published.
         cache_flags = (["--cache-from", f"type=registry,ref={cache_ref(name)}"]
                        if published(cache_ref(name)) else [])
-        rc = _sh([RUNTIME, "buildx", "build", "--platform", platforms(name), "-t", r,
+        tags = ["-t", r]
+        if name == "agent":
+            tags += ["-t", latest_ref(name)]
+        rc = _sh([RUNTIME, "buildx", "build", "--platform", platforms(name), *tags,
                   *build_args(name, root),
                   # links the GHCR package to the repo, so it gets the repo's visibility
                   "--label", f"org.opencontainers.image.source={SOURCE}",
@@ -163,13 +197,17 @@ def publish(name: str, root: Path = REPO) -> int:
     finally:
         shutil.rmtree(ctx, ignore_errors=True)
     if rc == 0:
-        print(f"[ci-images] published {r} ({PLATFORMS})", flush=True)
+        shown = f"{r} and {latest_ref(name)}" if name == "agent" else r
+        print(f"[ci-images] published {shown} ({PLATFORMS})", flush=True)
     return rc
 
 
 def pull(name: str, root: Path = REPO) -> int:
-    """CI jobs: pull the published hash tag, never build. A missing tag fails the job."""
-    r = ref(name, root)
+    """CI jobs: pull the published tag, never build. A missing tag fails the job.
+
+    The agent image pulls GHCR `:latest`. Test and OpenSpec pull the content hash.
+    """
+    r = pull_ref(name, root)
     if _pull_and_tag(name, r) != 0:
         print(f"[ci-images] {r} is not published: the ci-images job publishes it "
               f"(make publish-ci-images); CI jobs never build a CI image", file=sys.stderr, flush=True)
@@ -179,8 +217,8 @@ def pull(name: str, root: Path = REPO) -> int:
 
 
 def ensure(name: str, root: Path = REPO) -> int:
-    """Dev host: the published image of these inputs, else a local build of the same Dockerfile."""
-    r = ref(name, root)
+    """Dev host: the tag `pull` uses, else a local build of the same Dockerfile."""
+    r = pull_ref(name, root)
     if registry() and _pull_and_tag(name, r) == 0:
         print(f"[ci-images] {local_name(name)} = {r} (pulled, not built)", flush=True)
         return 0
@@ -293,15 +331,20 @@ def pushcheck(name: str) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="CI images on GHCR: publish once per hash, pull everywhere")
-    ap.add_argument("cmd", choices=("publish", "pull", "ensure", "ref", "tag", "pushcheck"))
+    ap.add_argument("cmd", choices=("publish", "pull", "ensure", "ref", "tag", "latest", "pushcheck"))
     ap.add_argument("names", nargs="*", default=list(IMAGES), help=f"default: {' '.join(IMAGES)}")
     a = ap.parse_args(argv)
     for n in a.names:
         if n not in IMAGES:
             ap.error(f"unknown image {n!r} (have {', '.join(IMAGES)})")
-    if a.cmd in ("ref", "tag"):
+    if a.cmd in ("ref", "tag", "latest"):
         for n in a.names:
-            print(ref(n) if a.cmd == "ref" else tag(n))
+            if a.cmd == "ref":
+                print(ref(n))
+            elif a.cmd == "tag":
+                print(tag(n))
+            else:
+                print(latest_ref(n))
         return 0
     run = {"publish": publish, "pull": pull, "ensure": ensure, "pushcheck": pushcheck}[a.cmd]
     rc = 0

@@ -195,7 +195,7 @@ jobs:
           fi
 
       # ------------------------------------------------------------- the loop
-      - name: Resolve the agent image for this commit (hash of the Dockerfile + install script)
+      - name: Resolve the agent image (GHCR :latest, the tag publish points at the content hash)
         id: agent
         if: steps.pr.outputs.branch != ''
         run: |
@@ -236,9 +236,9 @@ jobs:
           AGENT_IMAGE: ${{ steps.agent.outputs.image }}
         run: |
           set -o pipefail
-          # The bot runs in the pinned image (Hermes + git + gh + docker CLI), never on the
-          # runner's whatever-is-installed; the image ref is resolved from THIS commit's
-          # Dockerfile hash, so it cannot drift from the workflow that names it.
+          # The bot runs in the agent image (Hermes + git + gh + docker CLI), never on the
+          # runner's whatever-is-installed. make agent-image-ref prints GHCR :latest, the
+          # tag publish points at the current content hash.
           make fix-loop-image AGENT_IMAGE="$AGENT_IMAGE" LOG=/tmp/fix-loop.log
           echo "exit=$?" >> "$GITHUB_OUTPUT"
 

@@ -196,6 +196,8 @@ def test_publish_agent_pins_the_test_image_it_builds_from(tmp_path):
     b = builds[0]
     assert "--platform linux/amd64" in b and "--push" in b
     assert "arm64" not in b
+    assert re.search(r"-t ghcr\.io/asimov-agent/llgenie/agent:[0-9a-f]{12}", b), b
+    assert "-t ghcr.io/asimov-agent/llgenie/agent:latest" in b, b
     assert re.search(r"--build-arg TEST_IMAGE=ghcr\.io/asimov-agent/llgenie/test:[0-9a-f]{12}", b), b
 
     # And its context holds the agent Dockerfile and EVERY script it COPYs. Read from the
@@ -225,6 +227,61 @@ def test_agent_tag_changes_when_the_test_image_tag_changes(tmp_path):
         f.write("pytest-timeout==2.3.1\n")
     after = ci_images.tag("agent", root)
     assert before != after and re.fullmatch(r"[0-9a-f]{12}", before)
+
+
+def test_publish_agent_moves_latest_when_the_hash_is_already_published(tmp_path):
+    """An already-published agent hash is not rebuilt, and :latest still moves onto it.
+
+    The hash `74d0fa987227` was pushed with no :latest tag. A publish that returned
+    after the inspect would leave every pull of :latest with nothing to fetch.
+    """
+
+    # Given a registry that already has the agent image's hash tag
+    env, log = _fake_docker(tmp_path, published=True)
+
+    # When ci_images.py publish agent runs
+    r = _ci_images(env, "publish", "agent")
+
+    # Then it does not build, and imagetools points :latest at the hash
+    assert r.returncode == 0, r.stdout + r.stderr
+    calls = _calls(log)
+    assert not [c for c in calls if c.startswith("buildx build")], calls
+    create = [c for c in calls if c.startswith("buildx imagetools create")]
+    assert len(create) == 1, calls
+    assert "ghcr.io/asimov-agent/llgenie/agent:latest" in create[0], create[0]
+    assert re.search(r"ghcr\.io/asimov-agent/llgenie/agent:[0-9a-f]{12}", create[0]), create[0]
+    assert "now points at it" in r.stdout
+
+
+def test_agent_pull_uses_latest(tmp_path):
+    """Agent pulls fetch GHCR :latest. The content hash is not the pull ref."""
+
+    # Given a registry that answers the pull
+    env, log = _fake_docker(tmp_path, published=True)
+
+    # When ci_images.py pull agent runs
+    r = _ci_images(env, "pull", "agent")
+
+    # Then the only pull is :latest, retagged to the local name
+    assert r.returncode == 0, r.stdout + r.stderr
+    latest = "ghcr.io/asimov-agent/llgenie/agent:latest"
+    assert _calls(log) == [f"pull {latest}", f"tag {latest} llgenie/agent:latest"]
+
+
+def test_agent_ensure_pulls_latest(tmp_path):
+    """make agent-image pulls GHCR :latest and does not build when that tag exists."""
+
+    # Given a registry that answers the pull
+    env, log = _fake_docker(tmp_path, published=True)
+
+    # When ci_images.py ensure agent runs
+    r = _ci_images(env, "ensure", "agent")
+
+    # Then it pulls :latest and does not build
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert _calls(log)[0] == "pull ghcr.io/asimov-agent/llgenie/agent:latest"
+    assert "pulled, not built" in r.stdout
+    assert not [c for c in _calls(log) if c.startswith("build ")]
 
 
 # ---------------------------------------------------------------------------
@@ -259,6 +316,7 @@ def test_ci_pull_tags_the_local_name(tmp_path):
     calls = _calls(log)
     ref = calls[0].split()[1]
     assert calls == [f"pull {ref}", f"tag {ref} llgenie/test:latest"]
+    assert re.fullmatch(r"ghcr\.io/asimov-agent/llgenie/test:[0-9a-f]{12}", ref), ref
     assert "TEST_IMG := llgenie/test:latest" in (REPO / "Makefile").read_text()
 
 

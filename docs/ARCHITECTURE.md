@@ -661,11 +661,14 @@ test checks every tag this change did not repin, and it prints the engines it de
 the gate (`make ci-wait-engine-images`) that covers them; no git on `PATH` means nothing is
 deferred, i.e. the previous, stricter behaviour.
 
-The images themselves are hash-tagged artifacts, not per-job rebuilds: `make test-image`,
-`make openspec-image` and `make agent-image` pull the published hash of their Dockerfile
-(plus lockfiles, or the install script for the agent) and build it locally only when that
-hash is not on GHCR yet; the `-pull` forms (`test-image-pull`, `openspec-image-pull`,
-`agent-image-pull`) are what CI calls, and they fail rather than build.
+The test and OpenSpec images are hash-tagged artifacts, not per-job rebuilds: `make test-image`
+and `make openspec-image` pull the published hash of their Dockerfile (plus lockfiles) and
+build it locally only when that hash is not on GHCR yet; `test-image-pull` and
+`openspec-image-pull` are what CI calls, and they fail rather than build. `make agent-image`
+and `make agent-image-pull` pull `ghcr.io/<registry>/llgenie/agent:latest` — the tag
+`publish agent` points at the current content hash, including when that hash was already
+published — and the pull form fails rather than builds. `make agent-image-ref` prints that
+`:latest` ref.
 `make publish-ci-images` is the `ci-images` job (test + OpenSpec, amd64 + arm64, only the
 hashes not yet published), `make ci-image-refs` prints the three refs, and
 `make agent-image-push-check` proves the GHCR credential may write before a 60-minute agent

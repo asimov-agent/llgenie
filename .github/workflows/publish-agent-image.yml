@@ -25,21 +25,25 @@
 #      → `type=User`), so that reasoning never applied to this repo.
 #
 # The image is tagged with a hash of its Dockerfile + install script (and the test
-# image it builds FROM), so re-running this job is a no-op unless those inputs changed
-# (scripts/ci_images.py publish agent). It never merges, never touches main.
+# image it builds FROM). A re-run does not rebuild when that hash is already on GHCR,
+# and it still points ghcr.io/<registry>/llgenie/agent:latest at the hash. That :latest
+# tag is what every agent pull fetches (scripts/ci_images.py publish agent). It never
+# merges, never touches main.
 name: publish-agent-image — builds + pushes the Hermes agent image when its hash is not on GHCR yet
 
 # Trigger surface: `workflow_dispatch` ONLY (owner/collaborator) — nothing schedules it, so the
-#                  image is published when a human decides to, and `force=true` rebuilds even when
-#                  the hash tag is already on GHCR.
+#                  image is published when a human decides to. The form's `force` input is not
+#                  read by this job (issue #990).
 # Flow: guard (owner / collaborator with write/maintain/admin, BEFORE any secret is read) ->
 #       make agent-image-push-check (asks GHCR for a push-scoped token and initiates an empty blob
 #       upload, so a credential that may not publish fails in seconds instead of after the build;
 #       issue #335) -> make publish-agent-image (scripts/ci_images.py publish agent — builds the
 #       image, and pushes it to GHCR only when its hash tag is not there yet; that decision lives
-#       inside the script) -> make ci-image-refs (prints the published ref).
-# Never: never pushes an image whose hash already exists (unless `force=true`), never overwrites a
-#        different hash's tag, never merges, never runs on a schedule.
+#       inside the script; :latest is moved onto the hash either way) -> make ci-image-refs
+#       (prints the content-hash ref).
+# Never: never rebuilds an image whose hash already exists, never overwrites a different
+#        content-hash tag (`:latest` is the one tag a re-run moves), never merges, never runs
+#        on a schedule. The dispatch `force` input is not read here (issue #990).
 on:
   workflow_dispatch:
     inputs:

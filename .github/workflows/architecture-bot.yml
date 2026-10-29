@@ -104,7 +104,7 @@ jobs:
       - name: Sync with latest upstream main (the branch must start from its tip - issue #303)
         run: make bot-sync-main
 
-      - name: Resolve the agent image for this commit (hash of the Dockerfile + install script)
+      - name: Resolve the agent image (GHCR :latest, the tag publish points at the content hash)
         id: agent
         run: |
           set -euo pipefail

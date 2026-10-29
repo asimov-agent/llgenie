@@ -115,7 +115,7 @@ jobs:
           echo "findings=${findings:-0}" >> "$GITHUB_OUTPUT"
 
       # Everything below needs the model key: keep it behind the brief's decision.
-      - name: Resolve the agent image for this commit
+      - name: Resolve the agent image (GHCR :latest, the tag publish points at the content hash)
         if: steps.brief.outputs.action == 'review'
         id: agent
         run: |
