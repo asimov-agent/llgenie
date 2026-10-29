@@ -22,7 +22,12 @@
 #       make test-engine-stage ENGINE= ARCH= TEST=<row.test> (serve: the cpu image answers on the
 #       OpenAI API; detect: the binary reports its version and answers the flags a user types) ->
 #       make push-engine ENGINE= ARCH= (ONLY when push=true, and only after that test passed;
-#       push-engine re-checks the binary's flags before it pushes).
+#       push-engine re-checks the binary's flags before it pushes) ->
+#       make test-published-engine ENGINE= ARCH= (serve-leg: pull the JUST-published image, digest
+#       == :ARCH, re-check the binary version, then SERVE it and answer "hi"; cpu-fallback rows serve,
+#       GPU-only rows get the version test via --no-gpu) ->
+#       make test-engine-install ENGINE= ARCH= (install-leg: install + llgenie --dry + uninstall the
+#       image this row just published, #1027).
 # Never: never merges, never pushes to `main`, never runs on a schedule, never publishes an image
 #        whose binary has not answered its test, and never builds the `none` placeholder row.
 #
@@ -165,6 +170,9 @@ jobs:
       - name: make push-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} (ONLY after the test above passed; re-checks the binary's flags before publishing)
         if: ${{ matrix.engine != 'none' && inputs.push == 'true' }}
         run: make push-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}
+      - name: "serve-leg: make test-published-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} — pull the JUST-published image (digest == :ARCH), re-check the binary version, then SERVE it and answer 'hi' (cpu-fallback rows; GPU-only rows get the version test via --no-gpu so the published binary is still exercised)"
+        if: ${{ matrix.engine != 'none' && inputs.push == 'true' }}
+        run: make test-published-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}
       - name: "install-leg: make test-engine-install ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} — install + llgenie --dry + uninstall the image this row just published (#1027)"
         if: ${{ matrix.engine != 'none' && inputs.push == 'true' }}
         run: make test-engine-install ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}
