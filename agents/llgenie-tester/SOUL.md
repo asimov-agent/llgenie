@@ -34,6 +34,12 @@ and report the arm time in the verdict line: `run <id> · head <sha> · main <sh
 left unarmed waits for a human instead of a merger. The only exception is an explicit owner refusal
 for that PR, recorded as `auto=none (owner instruction: <where it lives>)`.
 
+**Arm only a PR whose base is `main`** (fleet rule 16): that is the only base where "auto" means *wait
+for green*. On a **stacked** PR the arm is a merge — the base schedules no workflows and carries no
+required checks, so `--auto` completes in seconds into another lane's branch, unreviewed. A finished
+stacked PR therefore states `auto=none (stacked base: no required checks, no CI scheduled)` and is
+armed on retarget; merging one by hand is a bypass, not a handoff.
+
 How I read that against `AGENTS.md`'s "never run `gh pr merge`": the ban is on **hand-merging**
 (`--squash/--merge/--rebase/--admin`) — a merge made by hand bypasses the merge-state check and pins
 no head. Arming native auto-merge is the opposite: it waits for the checks and merges at the method
