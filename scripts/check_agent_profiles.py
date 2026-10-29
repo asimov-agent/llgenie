@@ -384,6 +384,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.mode == "report":
         print(report(root, agents_dir))
         return 0
+    # A skip must be AUDIBLE (issue #791 review): a check that cannot compare must say so, or a reader
+    # concludes it compared. That distinction — "compared and fine" vs "could not compare" — is the same
+    # one that `verified` vs `verified: N identical` failed to make, and it is how a truncated seed
+    # reached a green gate in the first place.
+    if live_root(root) is None:
+        print("[check-agent-profiles] live-profile comparison SKIPPED: no profile home at "
+              f"$HERMES_PROFILE_HOME ({Path.home() / '.hermes' / 'profiles'}) — tree checks only, and the "
+              "live rulebooks were NOT compared", file=sys.stderr)
     items = findings(root, agents_dir)
     if not items:
         profiles, _ = read_manifest((root / agents_dir) if not agents_dir.is_absolute() else agents_dir)

@@ -552,3 +552,26 @@ def test_the_force_path_says_it_shrank_and_never_claims_identity(tmp_path, capsy
     assert f"{tree_bytes:,} b" in message and f"{live_bytes:,} b" in message, message
     assert "line(s) removed" in message, message                  # it says what was lost, not just that it wrote
     assert (live / "SOUL.md").read_text() == tree_text, "force means it"
+
+
+def test_the_live_comparison_skip_is_audible_not_silent(tmp_path, capsys, monkeypatch):
+    """A check that cannot compare must say so, or a reader concludes it compared.
+
+    The runner has no `~/.hermes/profiles/`, so the comparison cannot run there — but silence is how a
+    truncated seed reached a green gate in the first place (review of #791). The skip is a stated
+    outcome, and this asserts the sentence.
+    """
+    import check_agent_profiles as cap
+
+    agents = tmp_path / "agents" / "someone"
+    agents.mkdir(parents=True)
+    (agents / "SOUL.md").write_text("# Someone\n\n## Rules\n\n- never merge\n")
+    (tmp_path / "agents" / "manifest.json").write_text(
+        '{"profiles": [{"name": "someone", "rules": ["never-merge"]}]}')
+    monkeypatch.setenv("HERMES_PROFILES_HOME", str(tmp_path / "no-profiles-here"))
+
+    assert cap.main(["check", "--root", str(tmp_path)]) == 0
+    err = capsys.readouterr().err.lower()
+    assert "skipped" in err, err
+    assert "not compared" in err, err
+    assert "tree checks only" in err, err
