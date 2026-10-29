@@ -1088,6 +1088,46 @@ def test_a_soul_that_states_the_canonical_block_verbatim_passes(tmp_path):
     assert guard.findings(root) == []
 
 
+def test_no_souls_fleet_block_carries_the_retired_arming_rule():
+    """Two arming rules in one block is how a lane obeys the wrong one (measured on #972).
+
+    The canonical fence carried both "Arm auto-merge at PR creation" (old) and "Arm when done, and
+    only on a base of main" (rule 16); the old one is retired. A block that states it — in any
+    profile's SOUL — contradicts rule 16 and must be a finding, because the gate's verdict is what
+    a lane runs under.
+    """
+    for lane_dir in (REPO / "agents").iterdir():
+        if not (lane_dir / "SOUL.md").is_file():
+            continue
+        soul = (lane_dir / "SOUL.md").read_text(encoding="utf-8")
+        block = guard._stated_block(soul)
+        if block is None:
+            continue
+        assert "Arm auto-merge at PR creation" not in block, (
+            f"{lane_dir.name}/SOUL.md: retired arming rule is inside the fleet block — contradict "
+            f"rule 16 (Arm when done). It belongs in the lane-rules section at most, never in the "
+            f"canonical fence the gate compares."
+        )
+
+
+def test_every_real_souls_fleet_block_states_rule_16():
+    """Rule 16 (arm when done) must be in every real SOUL's stated block, not only canonical.
+
+    The planner caught three SOULs still carrying the retired arming bullet; the complement is that
+    each must carry the replacement — a lane that dropped the old rule but never gained rule 16 would
+    have no arming guidance at all.
+    """
+    canonical = guard.fleet_block(REPO / "agents") or ""
+    assert "Arm auto-merge when the work is done" in canonical, "canonical lost rule 16"
+    for lane_dir in (REPO / "agents").iterdir():
+        if not (lane_dir / "SOUL.md").is_file():
+            continue
+        block = guard._stated_block((lane_dir / "SOUL.md").read_text(encoding="utf-8")) or ""
+        assert "Arm auto-merge when the work is done" in block, (
+            f"{lane_dir.name}/SOUL.md stated block lacks rule 16 (arm when done)"
+        )
+
+
 def test_a_soul_missing_a_canonical_bullet_fails_and_names_it(tmp_path):
     """The gap must be actionable: which profile, and which bullet."""
     root = fleet_tree(tmp_path, stated=FLEET_HEAD + "\n\n- **Never merge without the owner's approval.** "
