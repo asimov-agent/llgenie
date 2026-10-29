@@ -386,6 +386,25 @@ ratchet baseline recorded at 34/14 that main measures at 107/151, a hand-edited 
 with per-file fragments, and a lint rule that did not exist at cut — three findings whose only cause was
 starting on a base that had already moved.
 
+## A PR's head is the REMOTE branch, not a local worktree or scratch ref
+
+A "your branch moved" / "you pushed during the freeze" claim is settled against the remote, never by
+looking at local refs. Measured: a lane cited three shas (`e9c7e7f3`, `7e4a8519`, `5e74cb68`) as the #919
+head "advancing under a stop" — all three resolved to LOCAL scratch branches (`tmp/retake-myskill`,
+`tmp/lint-fix`, `pr944-replay`), never pushed, and the PR's remote head was frozen the whole time.
+
+- **The authoritative read is the remote branch, twice-verified:** `git ls-remote origin refs/heads/<branch>`
+  and `gh pr view <n> --json headRefOid` must agree; that sha is the PR's head, and nothing else is.
+- **A disputed sha's membership is `git merge-base --is-ancestor <sha> origin/<branch>` — one command for
+  "is it actually on the branch".** If it is not an ancestor, the sha is on another ref (or only local);
+  say which refs contain it (`git for-each-ref --contains <sha>`), and stop.
+- **`tmp/` and `pr<N>-*` worktrees are local, disposable, and NOT the PR's history.** A worktree checks out a
+  branch for a moment's work; its HEAD is not evidence about what was pushed. Distinguish "carries that
+  content locally" from "advanced the remote PR" — the objection only bites the latter.
+- **Concede a mistaken "your branch moved" flag on the record with the two reads as proof, then drop the
+  item** — measure-then-escalate holds against an accusation about your own lane as much as against a planner
+  premise. Do not argue; show `ls-remote` + `merge-base` + `headRefOid`.
+
 ## A MERGED PR keeps its flags, and that is how a re-cut gets authorised by mistake
 
 Measured: `#847` merged at 08:36:01Z; thirty-four minutes later a briefing still described it as
