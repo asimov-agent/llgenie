@@ -245,6 +245,33 @@ An old branch against a moving `main` makes the rebase mechanical and the **reco
 - **Write commit messages to a file and use `-F`.** `git commit -m "…`main`…"` runs the backticks as command
   substitution: bash prints `command not found` and the message lands with words missing. Check
   `git log -1 --format=%s` before pushing.
+- **Rebase the WHOLE branch with plain `git rebase <main>`, never `--onto <main> <old-head>`.** `git rebase
+  --onto <main> <some-earlier-branch-head>` replays ONLY the commits after that fork point and silently
+  DROPS everything before it — the branch shrinks mid-rebase with no error. The pitfall is that `--onto`
+  reads as "rebasing from a base" and the disaster looks like a successful rebase that lost most of the
+  branch. For "bring my whole branch onto fresh main" the command is `git rebase <main-tip>` (no `--onto`);
+  there is no legitimate common case that wants `--onto <main> <an-old-commit-of-my-own-branch>`. If you
+  already ran it, `git rebase --abort` and redo — the work is still safe until a push or a `--continue`
+  that succeeds.
+- **A stacked rebase through a generated-file conflict recurs per commit, so drive the CONTINUE as a loop,
+  not a one-shot.** When the branch carries several "regenerate CHANGES.md" commits, each one re-conflicts
+  on a rebase off a moved `main`; a single `--continue` stops at the next conflict and you resolve in a
+  loop. For each iteration: regenerate the derived file from its fragments (`scripts/changes_index.py
+  write`) to a union (never resolve to one side), `git add` the resolved files, then `--continue` — and
+  give `--continue` a no-op editor (`GIT_EDITOR=true`), or it blocks opening an editor mid-loop. Set a loop
+  bound so a quagmire aborts; 30-40 iterations of regen+continue is a long but bounded rebase, not a hang.
+- **A worktree's rebase state lives in the MAIN clone's admin dir, not `worktree/.git/`.** `git rebase
+  --continue` timing out mid-rebase leaves `ls .git/rebase-merge` empty (the worktree `.git` is a pointer),
+  which reads as "rebase done" when the rebase is paused at the next conflict. Check with
+  `git -C . status` for `interactive rebase in progress; onto …` or look under
+  `<main-clone>/.git/worktrees/<name>/rebase-merge` before concluding a rebase finished.
+- **A PR reads `CONFLICTING`/`DIRTY` right after a force-push, then GitHub recomputes it clean.** Immediately
+  after `git push --force-with-lease` of a rebased branch the PR can report `mergeable=CONFLICTING` while the
+  merge is actually clean — GitHub re-checks mergeability asynchronously. Do not diagnose or re-rebase on
+  that reading; re-read `gh pr view <n> --json mergeable,mergeStateStatus` after ~20-30 s and treat the
+  first reading as the recompute, not a verdict. The confirming signal: the base you rebased onto IS current
+  `main` (re-fetch and compare `FETCH_HEAD == <base>` same-turn), so a genuine conflict requires `git
+  merge-tree <main> HEAD` to show markers — not the PR's transient state.
 - **Split a large pytest batch and report exit codes, not counts.** One invocation over ~70 files was killed
   at 16 % by the runner's wall clock (`PYTEST_EXIT=137`, SIGKILL); 36 files per invocation finished clean in
   ~2 min each. Name the 137 as an artifact so nobody reads it as a failure, and prove a remaining red by
