@@ -17,9 +17,14 @@ agents/<profile>/skills/<name>/SKILL.md
 
 ## Procedure
 
-1. **Read the canonical rule block from its issue, and copy it byte-identically.** Fetch the issue body
-   and extract the fenced block programmatically rather than retyping it — a paraphrased block fails the
-   acceptance criterion and makes a cross-lane diff lie:
+1. **Copy the canonical block from `agents/standing-rules.md`, byte-identically.** The rule's *issue* is
+   the source of truth for the wording, but the file every gate compares a `SOUL.md` against is
+   `agents/standing-rules.md` — so adding a rule means adding the bullet THERE first, then re-splicing the
+   whole block into the SOUL and asserting `block in soul_text`. A SOUL-only edit fails `fleet-block-drift`
+   ("the section is present but differs from the canonical text"). A new rule often arrives as a numbered
+   item in the issue body, OUTSIDE the fenced block: extract it rather than retyping
+   (`re.search(r"^\*\*(\d+)\. (.*)$", body, re.M)`, prefix `- **`) — a paraphrase fails the gate exactly
+   as a typo does. The issue-extraction recipe, when the bullet is not in the fence yet:
    ```bash
    gh issue view <n> --repo <owner/repo> --json body --jq .body > /tmp/issue.md
    python3 - <<'PY'
@@ -78,6 +83,22 @@ agents/<profile>/skills/<name>/SKILL.md
   `description:`, then the body. The profile gate fails on a missing block or a name/directory mismatch, and
   Hermes resolves a skill by the frontmatter name, so a mismatch means the profile loads nothing. Write the
   whole file instead of patching its frontmatter: an approximate patch at that boundary duplicates the block.
+- **`agents/<profile>/SOUL.md` is a protected agent-instruction file: a direct write is refused with an
+  approval prompt that can time out, and a timeout is NOT consent.** Do not route the edit around the guard
+  (not through `terminal`, not by writing the profile copy and syncing backwards). Put the exact
+  replacement text in the PR body/comment, land everything else, and report the one blocked sentence as an
+  open item needing the owner's approval — a skill or reference file in the same tree is editable, so the
+  operational half can still ship.
+- **A host-only skill cannot be the survivor, but do not delete it first.** When the live profile skill is
+  richer than its tree copy: copy the whole thing (SKILL.md + `references/` + `scripts/`) into
+  `agents/<profile>/skills/<name>/`, rename the frontmatter `name:` to the directory name,
+  `make sync-agent-profile PROFILE=<p>` then `CHECK=1` → `byte for byte`, and only THEN remove the
+  host-only directory. Deleting first loses content nobody can diff; syncing is additive, so nothing is
+  lost while both exist.
+- **The canonical block grows while your branch is open, and a rebase can duplicate it.** Re-splice the
+  whole block from the new base after every rebase, and check that each rule appears exactly once
+  (`grep -c "^- \*\*<rule opening>"`) — merges that carry the same stream of rule additions leave the
+  closing bullet followed by a second copy of the last three rules.
 - **Do not edit another lane's SOUL or skill to make a gate green.** When the gate names a different profile,
   report the numbers and hand it to that lane; only a lane edits its own behaviour files. A pre-existing
   failure is proved pre-existing by stashing your change and re-running the gate, not by assuming it.
