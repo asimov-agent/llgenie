@@ -263,9 +263,9 @@ back. Read the whole continued block (`sed -n "${L},$((L+3))p" Makefile`) before
 
 ## Queue mechanics, suite reproducibility, a PR's blockers
 
-Three failures that all look like something else — a starved sweeper, a suite whose two runs
-disagree, and a PR called unapprovable on a rule of thumb. Full text with the measurements:
-`references/queue-and-pr-mechanics.md`.
+Failures that all look like something else — a starved sweeper, a suite whose two runs disagree, a PR
+called unapprovable on a rule of thumb, a fork head that cannot get secrets, and a rebase whose recounts
+(not its conflicts) are the work. Full text with the measurements: `references/queue-and-pr-mechanics.md`.
 
 ## Commit before you touch anything else in a worktree
 
