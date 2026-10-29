@@ -1430,6 +1430,26 @@ def test_the_retired_rule_debt_is_reported_and_never_fails_the_gate(tmp_path):
     assert "retired" not in {i["key"] for i in cap.findings(tmp_path, agents)}
 
 
+def test_the_retired_rule_debt_lesson_is_in_the_skill():
+    """The gate change ships with its lesson, or the next editor re-introduces the silent pass.
+
+    `_retired_rule_debts` is behaviour; the skill is why it exists and how to act on it — that the retired
+    bullet was invisible to the old gate, that removal is a protected SOUL write (never fix another lane's
+    to clear the note), and that keeping report() while dropping the check note re-silences the debt where
+    the reviewer runs. This pins those three sentences so the property survives the next rewrite of the ref.
+    """
+    ref = " ".join((REPO / "agents" / "llgenie-issse-implementer" / "skills"
+                    / "containerized-repo-verification" / "references"
+                    / "agent-profile-tree.md").read_text().lower().split())
+    for phrase in ["the retired arming bullet is gate-named debt",
+                   "neither a canonical title nor (appearing once) a duplicate",
+                   "the old gate saw nothing",
+                   "a protected soul write the owner routes",
+                   "do not remove the bullet from another lane's soul to clear the note",
+                   "makes the debt silent again"]:
+        assert phrase in ref, f"the retired-rule debt lesson is missing: {phrase}"
+
+
 def test_the_check_command_names_a_so_souls_retired_rule_on_a_green_tree_and_stays_green(tmp_path, capsys):
     """The note a reviewer running `make check-agent-profiles` sees, not just the report() unit.
 
