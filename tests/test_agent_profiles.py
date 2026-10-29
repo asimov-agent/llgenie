@@ -867,6 +867,26 @@ def test_the_arm_when_done_rule_is_in_the_skill():
         assert phrase in ref, f"the arm-when-done operative half is missing: {phrase}"
 
 
+def test_the_never_arm_a_stacked_pr_lesson_is_in_the_skill():
+    """The #954 hazard: `gh pr merge --auto` on a stacked PR MERGES it into its non-main base.
+
+    #954 auto-merged into feat/agent-profile-implementer-skill at 2026-10-29T08:27:41Z; its commit,
+    88abd614, is an ancestor of neither main nor the tree head. A stacked arm is a wrong-branch merge,
+    not a no-op, so the skill must teach "never arm a base that is not main", not the stale "has nothing
+    to merge into".
+    """
+    ref = " ".join((REPO / "agents" / "llgenie-issse-implementer" / "skills" / "containerized-repo-verification"
+                    / "references" / "queue-and-pr-mechanics.md").read_text().lower().split())
+
+    assert "never" in ref
+    for phrase in ["a stacked pr (base != `main`) must **never** be armed",
+                   "it merges the pr into its non-main base",
+                   "ancestor of neither `main` nor the tree head",
+                   "never arm a pr whose base is not `main`",
+                   "auto=none (stacked, base is not main)"]:
+        assert phrase in ref, f"the stacked-arm hazard is missing: {phrase}"
+
+
 def test_a_rule_inside_a_fenced_block_is_a_quote_not_a_statement():
     """Pinning the maintainer's offered delta (#956/#944): a pasted example is a quote, not a statement.
 
