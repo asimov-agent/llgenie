@@ -742,6 +742,24 @@ def test_this_lane_s_soul_carries_the_fleet_announce_rule():
         assert commitment in soul, f"rule 14 in the SOUL is missing: {commitment}"
 
 
+def test_the_skill_says_a_merged_pr_keeps_its_flags():
+    """The trap that authorised a re-cut of an already-merged PR, pinned where the procedure lives.
+
+    #847 merged at 08:36:01Z; a briefing still described it as cross=true / DIRTY thirty-four minutes later
+    and authorised a re-cut whose only effect would have been deleting 4,869 lines. The lesson is a command
+    order, not an anecdote: check `state,mergedAt` before planning work against a PR number.
+    """
+    ref = " ".join((REPO / "agents" / "llgenie-issse-implementer" / "skills" / "containerized-repo-verification"
+                    / "references" / "queue-and-pr-mechanics.md").read_text().lower().split())
+
+    assert "a merged pr keeps its flags" in ref
+    for phrase in ["before planning work against it",
+                   "is the content actually on main",
+                   "would only delete work",
+                   "a branch that is behind main is not a branch that needs re-cutting"]:
+        assert phrase in ref, f"the merged-PR trap is missing: {phrase}"
+
+
 def test_the_announce_procedure_is_in_the_skill_that_governs_prs():
     """The SOUL states the constraint; the skill states the four steps and the command that proves them."""
     ref = " ".join((REPO / "agents" / "llgenie-issse-implementer" / "skills" / "containerized-repo-verification"
