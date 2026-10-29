@@ -87,6 +87,29 @@ A branch whose PR title does not contain the branch's own subject reads as orpha
 looked PR-less by title-grep and had **#886** open, `MERGEABLE`, since hours earlier. The lookup is
 `gh pr list --head <branch> --state all`; a branch without a *matching title* is not a branch without a PR.
 
+## A generated index goes CONFLICTING when `main` adds a row the branch lacks
+
+A long-lived branch on a base that predates a new `docs/changes.d/` fragment reads `MERGEABLE` until the
+moment `main` merges that fragment's row; then GitHub re-computes the merge and the PR flips to
+`DIRTY`/`CONFLICTING` because the generated `CHANGES.md`/index is a single file both sides rebuilt. The
+conflict is not a real code clash — it is two regenerations of one derived file landing in the same region.
+
+- **Diagnosis is one `gh pr view <n> --json mergeable_state`** showing `dirty` with `mergeable=false`
+  while `git merge-tree` on your head against your (older) record of `main` reports clean. The reason:
+  `origin/main` moved since you cached it, and the new tip added a fragment row. Recheck `git rev-parse
+  origin/main` before assuming the conflict is real.
+- **The additive, freeze-respecting fix:** do NOT rebase or force-push (a freeze forbids both).
+  `git merge origin/main` (a plain merge commit, history-preserving), then resolve `CHANGES.md` by
+  regenerating it from the fragment union — `make changes-index` after copying any `agent-wiki/` note the
+  new fragment links (the index errors out listing the missing note until you bring it over). Resolving to
+  a *union* regenerated from fragments covers both sides; resolving to one side's file drops the other's
+  documented rows.
+- **Verify the merge really cleared it**: `git merge-tree <base> main <branch>` → zero conflict markers,
+  and `gh pr view --json mergeStateStatus` → `BLOCKED` (mergeable), then re-arm. A `BLOCKED` that was
+  `CONFLICTING` seconds earlier is the same PR, no longer dirty.
+- **Commit the merge, do not squash-dismiss it.** The merge commit is the record that the base moved and
+  you absorbed it without rewriting; keep it in the PR's history.
+
 ## A union of two insertions can be parseable and still be bisected
 
 Resolving a conflict by keeping both sides has two failure modes, and only the first is loud:
@@ -257,11 +280,24 @@ behind you.** That is the moment the claim comment was for, and it costs one com
 An unbookended job and a stale base are the same defect from two directions: the first makes it impossible
 to tell who owes a finish comment, the second makes a lane act on a premise someone already invalidated.
 
+- **Fetch fresh canonical `main` BEFORE any other work — every job, every time.** Confirm which remote is
+  canonical first (`git remote -v`: the repo's own namespace — is `origin` the shared owner or your fork?),
+  then `git fetch <canonical> main` and read it back. Never reason from a `main` sha you already had, never
+  from one quoted in a chat message (stale by the time you read it), and never from a remote name you
+  *assume* exists. In this repo `origin` = `asimov-agent/llgenie` (the canonical) and `fork` = `andyholst`;
+  there is NO `upstream` remote — `git fetch upstream main` fails with "repository does not exist", which is
+  itself the signal to check the remote list rather than guess.
+- **Branch from `<canonical>/main` at the sha you just fetched** — never from a branch you already had.
+- **Answer a plan against the current `main`, not a four-heads-old snapshot.** A planner or reviewer who
+  measures at an old sha (`4fb3bf3a`) will report "rule 13 twice in your SOUL" or "3 of 4 live-longer
+  findings" that a dedupe or a main-merge has already cleared. `git merge-base --is-ancestor <their sha> HEAD`
+  tells you in one command whether their premise is behind yours; if it is, re-measure at HEAD and post BOTH
+  shas, never a vague "that's old".
 - **The base:** `git fetch origin main`, then branch from `origin/main` **at the sha you just fetched** — never
   from a branch you already had, never from a sha quoted in a chat message (stale by the time you read it).
-  In this repo `origin` is a fork and upstream is `asimov-agent/llgenie`, so a bare `origin` cannot be the
-  canonical source; `git fetch origin main` against the fork is the trap, and the fix is naming the canonical
-  remote (`upstream main` here, or the same-repo `origin` when the fork is not involved).
+  In this repo `origin` is the canonical same-repo owner, so `git fetch origin main` is correct; in a
+  fork-side worktree `origin` is the fork and the canonical apex is a different named remote — always confirm
+  the remote list before naming the fetch target.
 - **Stacked exception:** when the base must be another open PR (the files exist only on that branch), branch
   from that PR's tip and name BOTH shas — the stack head and the `origin/main` you fetched — so a reader can
   tell which part is stacked and which is upstream.
