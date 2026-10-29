@@ -117,6 +117,13 @@ invisible: the target exits 0 and prints a path.
   that a non-dry run with `OUT=` lands under `/tmp/scratch`.
 - Pin it with a test that reads the Makefile recipe and asserts each `VAR=` appears next to its `--flag`
   and that the target is in `.PHONY` — a wiring gate proves the target exists, not that it forwards.
+- **A documented-but-unforwarded knob runs in a mode the help text never mentions.** A `FORCE=`/`DRY=`/
+  `OUT=` named in the help line but missing its `$(if $(VAR),--var,)` silently executes the SAFE/SKIP
+  side — a documented force that refuses, a documented dry-run that writes — and exits 0, because the
+  refusal/dry path is itself "success". The pin is the DEFAULT too, not just the set value: assert both
+  `$(if $(FORCE),--force,)` is present AND that the unset default passes no flag, and negative-control it
+  by deleting the `$(if ...)` from the recipe (fail). Pin the `Usage:` line and the help text mention as
+  well, so a flag that is documented twice and forwarded nowhere is caught.
 - Path arguments passed as `$(if $(OUT),--out "$(OUT)",)` are the shape to copy; a bare `$(OUT)` inside a
   quoted string is the shape that silently drops the flag when the var is empty.
 
