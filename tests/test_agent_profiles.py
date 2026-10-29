@@ -804,6 +804,25 @@ def test_the_skill_says_a_merged_pr_keeps_its_flags():
         assert phrase in ref, f"the merged-PR trap is missing: {phrase}"
 
 
+def test_the_author_gate_lesson_is_in_the_skill():
+    """A display-name ban against main's own authors is a policy change, not a branch fix.
+
+    Measured on #919: my commits report OK (I author `Andy Holst <andy.holst@protonmail.com>`); the 11
+    failures are other lanes' `Andy <…>` commits plus one typo'd domain. Re-authoring a mid-history commit
+    rewrites every sha after it and strands stacked PRs — so the skill carries the two responses instead of
+    teaching the next lane to rewrite shared history for a gate that will never pass.
+    """
+    ref = " ".join((REPO / "agents" / "llgenie-issse-implementer" / "skills" / "containerized-repo-verification"
+                    / "references" / "queue-and-pr-mechanics.md").read_text().lower().split())
+
+    assert "the author allowlist bans a display name" in ref
+    for phrase in ["the stable key is the email; the display name is not",
+                   "re-authoring a mid-history commit rewrites",
+                   "a policy change in the gate's own allowlist",
+                   "a conversation first"]:
+        assert phrase in ref, f"the author-gate lesson is missing: {phrase}"
+
+
 def test_the_arm_when_done_rule_is_in_the_skill():
     """Owner directive 2026-10-29 (#873): done triggers the arm, not approval.
 
