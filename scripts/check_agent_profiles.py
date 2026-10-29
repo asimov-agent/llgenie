@@ -66,6 +66,16 @@ STANDING_RULES = {
 #: The one rule every manifest must keep for at least one profile: the orchestrator is the agent
 #: that can dispatch a merge, and the rule was once a file nobody diffed.
 REQUIRED_RULE = "never-merge"
+#: The canonical fleet block, committed ONCE in `agents/standing-rules.md` so the same text can be compared
+#: across profiles instead of trusted. A profile's SOUL must state it verbatim: thirteen paraphrases of one
+#: rule is thirteen chances for it to stop being the rule (issue #873, acceptance criterion 1).
+FLEET_BLOCK = "standing-rules.md"
+FLEET_HEADING = "## Standing rules (fleet, learned 2026-10-28)"
+#: Profiles whose block is not yet verbatim, each with a dated reason and the vehicle that owns the fix.
+#: An exemption is legitimate only while it still describes a real gap: once the profile gains the block,
+#: the entry is reported STALE and must be deleted, so the list cannot quietly become a permanent amnesty.
+FLEET_EXEMPTIONS = "fleet-block-exemptions.json"
+
 
 #: A profile's data — memory, sessions, credentials — is not behaviour and is never committed.
 FORBIDDEN_NAMES = {"state.db", "config.yaml", ".env", "auth.lock"}
@@ -290,6 +300,120 @@ def shrink_findings(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR,
     return items
 
 
+def fleet_block(agents: Path) -> "str | None":
+    """The canonical fleet section, exactly as `agents/standing-rules.md` states it."""
+    path = agents / FLEET_BLOCK
+    if not path.is_file():
+        return None
+    text = path.read_text(encoding="utf-8")
+    if FLEET_HEADING not in text:
+        return None
+    return FLEET_HEADING + "\n\n" + text.split(FLEET_HEADING, 1)[1].strip("\n")
+
+
+def _stated_block(soul_text: str) -> "str | None":
+    """The fleet section a SOUL itself states, or None when it states none."""
+    if FLEET_HEADING not in soul_text:
+        return None
+    rest = soul_text.split(FLEET_HEADING, 1)[1]
+    body = rest.split("\n## ", 1)[0].strip("\n")
+    return FLEET_HEADING + "\n\n" + body
+
+
+def _first_missing(canonical: str, stated: str | None) -> str:
+    """The first canonical bullet the SOUL does not state — the line a reader can act on."""
+    if stated is None:
+        for line in canonical.splitlines():
+            if line.startswith("- **"):
+                return line[:120]
+        return canonical.splitlines()[0][:120]
+    for line in canonical.splitlines():
+        if line.startswith("- **") and line not in stated:
+            return line[:120]
+    return "(the section is present but differs from the canonical text)"
+
+
+def read_fleet_exemptions(agents: Path) -> tuple[dict, list[dict]]:
+    """`{profile: reason}` plus any finding the exemption list itself carries."""
+    path = agents / FLEET_EXEMPTIONS
+    if not path.is_file():
+        return {}, []
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return {}, [{"key": "fleet-exemptions", "where": str(path.relative_to(path.parents[1])),
+                     "detail": f"not valid JSON: {exc}"}]
+    items = raw if isinstance(raw, list) else raw.get("exemptions", [])
+    out: dict[str, str] = {}
+    owners: dict[str, str] = {}
+    bad: list[dict] = []
+    for entry in items:
+        name = entry.get("profile") if isinstance(entry, dict) else None
+        reason = (entry.get("reason") or "") if isinstance(entry, dict) else ""
+        owner = (entry.get("owner") or "") if isinstance(entry, dict) else ""
+        if not name or not reason.strip() or not owner.strip():
+            missing = [part for part, value in (("profile", name), ("reason", reason), ("owner", owner))
+                       if not (value or "").strip()]
+            bad.append({"key": "fleet-exemptions",
+                        "where": str(path.relative_to(path.parents[1])),
+                        "detail": f"entry {entry!r} has no {' and no '.join(missing)} — a gap with no owner "
+                                  "is a gap nobody closes, and one with no written reason is an amnesty"})
+            continue
+        out[name] = reason.strip()
+        owners[name] = owner.strip()
+    return out, bad
+
+
+def _fleet_findings(agents: Path, profiles: list[dict]) -> list[dict]:
+    """Every profile's SOUL must state the canonical fleet block verbatim (#873).
+
+    An exemption downgrades a real drift to a stale-report once the profile is fixed, so the gap is either
+    visible as a failing gate or visible as a debt the owner still owes - never invisible.
+    """
+    canonical = fleet_block(agents)
+    if canonical is None:
+        # A tree that never adopted the canonical block is not a finding - but a tree where a SOUL states
+        # the heading while the single copy is gone IS: deleting the source must not be how a drift passes.
+        claims = [p["name"] for p in profiles
+                  if (agents / p["name"] / SOUL).is_file()
+                  and FLEET_HEADING in (agents / p["name"] / SOUL).read_text(encoding="utf-8")]
+        if not claims:
+            return []
+        return [{"key": "fleet-block-source",
+                 "where": str((agents / FLEET_BLOCK).relative_to(agents.parents[1])),
+                 "detail": f"`{FLEET_BLOCK}` is missing or has no heading, but {claims} state the fleet "
+                           "heading — without the single copy nothing can be compared, so the check would "
+                           "pass by not looking"}]
+    exempt, items = read_fleet_exemptions(agents)
+    stated_names = {p["name"] for p in profiles}
+    for name in sorted(set(exempt) - stated_names):
+        items.append({"key": "fleet-exemption-unknown",
+                      "where": str((agents / FLEET_EXEMPTIONS).relative_to(agents.parents[1])),
+                      "detail": f"exemption for `{name}`, which the manifest does not list — remove it "
+                                "or list the profile"})
+    for profile in profiles:
+        name = profile["name"]
+        soul = agents / name / SOUL
+        if not soul.is_file():
+            continue
+        stated = _stated_block(soul.read_text(encoding="utf-8"))
+        if stated == canonical:
+            if name in exempt:
+                items.append({"key": "fleet-exemption-stale",
+                              "where": str(soul.relative_to(agents.parents[1])),
+                              "detail": f"`{name}` now states the canonical block verbatim, so its "
+                                        f"exemption in {FLEET_EXEMPTIONS} is stale — delete it, or the "
+                                        "list stops meaning anything"})
+            continue
+        if name in exempt:
+            continue        # a real gap, owned by a named vehicle — reported by `report`, not failed
+        items.append({"key": "fleet-block-drift",
+                      "where": str(soul.relative_to(agents.parents[1])),
+                      "detail": f"`{name}` does not state the canonical fleet block from {FLEET_BLOCK} "
+                                f"verbatim; first missing bullet: {_first_missing(canonical, stated)}"})
+    return items
+
+
 def findings(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR) -> list[dict]:
     """Every way the host agents' tree can be broken. An empty list is the only pass."""
     items: list[dict] = []
@@ -358,6 +482,8 @@ def findings(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR) -> list[dict
                 })
             items.extend(_secret_findings(path, root))
 
+    items.extend(_fleet_findings(agents, profiles))
+
     for entry in sorted(p for p in agents.iterdir() if p.is_dir()):
         if entry.name not in listed:
             items.append({
@@ -390,6 +516,13 @@ def report(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR) -> str:
         lines.append(f"  {item['key']}: {item['where']}: {item['detail']}")
     if manifest_items:
         lines.append(f"[check-agent-profiles] {len(manifest_items)} manifest finding(s)")
+    # debts the gate does not fail on, because a named owner is working them: visible, never silent
+    exempt, _ = read_fleet_exemptions(agents_dir if agents_dir.is_absolute() else root / agents_dir)
+    if exempt:
+        lines.append("")
+        lines.append("fleet block — still owned, not yet verbatim:")
+        for name, reason in sorted(exempt.items()):
+            lines.append(f"  {name}: {reason}")
     return "\n".join(lines)
 
 
