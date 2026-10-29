@@ -14,7 +14,10 @@
     },
     {
       "name": "llgenie-architect",
-      "rules": []
+      "rules": [
+        "never-implement",
+        "never-merge"
+      ]
     },
     {
       "name": "llgenie-security",
