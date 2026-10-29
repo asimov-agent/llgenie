@@ -670,6 +670,46 @@ def test_the_hold_procedure_is_in_the_skill_that_governs_prs():
     assert "no issue number" in ref and "no tag" in ref, "the no-issue-no-tag rule is not stated"
 
 
+# --- fleet rule 14: announce the work, talk to the lane you overlap (#873) -----------------------------
+
+
+def test_this_lane_s_soul_carries_the_fleet_announce_rule():
+    """Rule 14 is a claim discipline, so it has to be in the text read at session start.
+
+    Every collision tonight — a stale head quoted by two reviewers, a force-push over a tick's briefing,
+    a PR called CONFLICTING while another lane held its worktree — was two lanes on one branch with no
+    announcement. A rule kept in a DM is a rule the next reader cannot find.
+    """
+    # Prose wraps: a rule split across two lines still states the rule, so the assertion normalises
+    # whitespace. Asserting the wrapped form would fail on a reformat and pass on a genuine edit.
+    soul = " ".join((REPO / "agents" / "llgenie-issse-implementer" / "SOUL.md").read_text().lower().split())
+    block = " ".join((REPO / "agents" / "standing-rules.md").read_text().lower().split())
+
+    assert "announce the work where the work lives" in block, "the fleet block lost rule 14"
+    assert "announce the work where the work lives" in soul, "this SOUL does not carry rule 14"
+    for commitment in ["comment on the issue or pr",
+                       "re-read that thread",
+                       "message that lane directly",
+                       "post the conclusion in the issue",
+                       "a conversation first, a command second"]:
+        assert commitment in soul, f"rule 14 in the SOUL is missing: {commitment}"
+
+
+def test_the_announce_procedure_is_in_the_skill_that_governs_prs():
+    """The SOUL states the constraint; the skill states the four steps and the command that proves them."""
+    ref = " ".join((REPO / "agents" / "llgenie-issse-implementer" / "skills" / "containerized-repo-verification"
+                    / "references" / "queue-and-pr-mechanics.md").read_text().lower().split())
+
+    assert "before the first edit: claim, re-read, message the lane" in ref
+    for step in ["claim first, in the place the work lives",
+                 "re-read the thread before your first edit",
+                 "message the overlapping lane directly",
+                 "post the conclusion in the issue",
+                 "a conversation first, a command second"]:
+        assert step in ref, f"the announce procedure is missing a step: {step}"
+    assert "gh pr view <n> --json headrefoid" in ref, "the pre-push check is not named"
+
+
 # --- the live profile is a MOVING reference: a sync must not overwrite work it did not read (issue #924)
 
 
