@@ -27,6 +27,13 @@
     {
       "name": "llgenie-ci-pipelines-maintainer",
       "rules": []
+    },
+    {
+      "name": "llgenie-pr-reviever",
+      "rules": [
+        "never-merge",
+        "never-implement"
+      ]
     }
   ]
 }
