@@ -8,6 +8,9 @@ FROM llgenie/base-cpu:d0eb107fa0
 ENV DEBIAN_FRONTEND=noninteractive HF_HOME=/models/hf \
     PATH=/opt/llgenie/bin:/usr/local/cuda/bin:${PATH}
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libopenblas-dev liblapacke-dev python3-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/llgenie/app
 COPY engine_runner.py entrypoint.sh params.json ./

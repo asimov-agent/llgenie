@@ -16,14 +16,19 @@
       "prebuilt": false,
       "runtime_base": "",
       "runtime_copy": [],
-      "apt": [],
+      "apt": [
+        "python3-dev"
+      ],
       "build_args": {
         "CUDA_ARCH": "",
         "GPU_TARGETS": "",
         "TORCH_BACKEND": "cu130"
       },
       "install": [
-        "uv pip install --system --break-system-packages 'freetoken[accel]==0.2.1'"
+        "test -d /opt/llgenie/engines/freetoken/src/.git || git clone https://github.com/FlashML-org/FreeToken.git /opt/llgenie/engines/freetoken/src",
+        "git -C /opt/llgenie/engines/freetoken/src fetch -q origin v0.2.1 && git -C /opt/llgenie/engines/freetoken/src checkout -q ba31db2ea708b61d7313bccb3ee4adf9d11ecb90",
+        "uv pip install --system --break-system-packages setuptools wheel 'torch>=2.14,<2.15'",
+        "cd /opt/llgenie/engines/freetoken/src && CUDA_HOME=/usr/local/cuda MAX_JOBS=$(nproc) uv pip install --system --break-system-packages --no-cache --no-build-isolation -e '.[accel]'"
       ],
       "env": {},
       "detect": "ft --version",

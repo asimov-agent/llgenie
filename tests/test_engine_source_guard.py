@@ -88,7 +88,7 @@ def test_a_tracked_exception_passes_the_gate_but_is_reported():
     """A cell tracked by its issue is printed and does not fail the run; a new one does."""
 
     # Given a tracked cell and an untracked one
-    tracked = _cell("mlx", "cpu", ["uv pip install 'mlx[cpu]' mlx-lm==0.32.2"])
+    tracked = _cell("litert", "cpu", ["uv pip install litert-lm==0.18.1"])
     untracked = _cell("brandnew", "cuda", ["uv pip install brandnew==1.0"])
 
     # When  the check runs on each alone
@@ -104,7 +104,7 @@ def test_a_tracked_exception_passes_the_gate_but_is_reported():
 
 
 def test_the_census_matches_the_committed_params():
-    """17 source cells compile, 9 are prebuilt, 5 claim a build they do not have yet."""
+    """21 source cells compile, 9 are prebuilt, and one wheel cell is tracked with its dated decision."""
 
     rows = guard.cells()
 
@@ -114,13 +114,48 @@ def test_the_census_matches_the_committed_params():
     source = [r for r in rows if not r["prebuilt"]]
     bad = guard.findings(rows)
 
-    # Then  the counts are the ones the issues describe
+    # Then  the counts are the ones issue #615 leaves behind
     assert len(rows) == 31
     assert len(prebuilt) == 9
     assert len(source) == 22
-    assert len(bad) == 5 and all(issue for _w, _m, issue in bad)
-    assert {w for w, _m, _i in bad} == {"freetoken/cuda", "litert/cpu", "mlx/cpu", "mlx/cuda",
-                                        "tensorfold/cuda"}
+    assert len(bad) == 1 and all(issue for _w, _m, issue in bad)
+    assert {w for w, _m, _i in bad} == {"litert/cpu"}
+
+
+def test_every_cell_converted_by_615_is_a_source_build_in_the_committed_params():
+    """The converted cells' committed params — what the Dockerfile is generated from — build them."""
+
+    # Given the cells issue #615 converted from a wheel or a release archive
+    converted = [("freetoken", "cuda"), ("mlx", "cpu"), ("mlx", "cuda"), ("tensorfold", "cuda")]
+
+    # When  each one's committed params are read
+    rows = []
+    for engine, arch in converted:
+        doc = json.loads((REPO / f"containers/engines/params/{engine}.json").read_text())
+        variant = doc["variants"][arch]
+        rows.append(_cell(engine, arch, variant["install"], bool(variant.get("prebuilt"))))
+
+    # Then  none is prebuilt, every install names a pinned clone, and the guard has nothing to say
+    assert not any(r["prebuilt"] for r in rows)
+    assert all(any("git clone" in line for line in r["install"]) for r in rows)
+    assert guard.findings(rows) == []
+    assert {e for e, _a in converted}.isdisjoint({w.split("/")[0] for w, _m, _i in guard.findings()})
+
+
+def test_a_zig_cell_that_builds_from_source_passes():
+    """TensorFold is a Zig project: `zig build` with the project's -Dsm arch list is a source build."""
+
+    # Given a cell that clones the pin and runs the project's own Zig build
+    row = _cell("tensorfold", "cuda", [
+        "uv pip install --system --break-system-packages ziglang==0.17.0",
+        "git clone https://github.com/ashhart/TensorFold.git /src",
+        "git -C /src checkout -q c425f4cc773049827ffd63c9de3ddf39f76c6749",
+        "cd /src && zig build -Dtarget=x86_64-linux-gnu -Dnvcc=$(command -v nvcc) -Dsm=80,86,120,121",
+    ])
+
+    # When  the guard looks at it
+    # Then  it has nothing to say
+    assert guard.findings([row]) == []
 
 
 def test_the_manifest_of_a_converted_engine_is_a_source_build_after_generate():

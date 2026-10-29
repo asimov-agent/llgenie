@@ -27,7 +27,15 @@ prereqs:
   rocm: [rocminfo, git]
 install:
   cuda:
-    - "uv pip install --system --break-system-packages 'freetoken[accel]=={version}'"
+    # source build (issue #615): the clone at the pin plus FreeToken's own setup.py, which
+    # names its CUDA fat arch list itself (sm_75/80/90/100/120 SASS + sm_75 PTX) — there is
+    # no arch env var to pass, and naming them there is what stops torch probing for a GPU
+    # on the build machine. torch is PyPI's cu130 2.14.1, the build the project's own
+    # pyproject documents (see [tool.uv.sources]).
+    - "test -d {src}/.git || git clone {repo}.git {src}"
+    - "git -C {src} fetch -q origin {ref} && git -C {src} checkout -q {pinned}"
+    - "uv pip install --system --break-system-packages setuptools wheel 'torch>=2.14,<2.15'"
+    - "cd {src} && CUDA_HOME=/usr/local/cuda MAX_JOBS={jobs} uv pip install --system --break-system-packages --no-cache --no-build-isolation -e '.[accel]'"
   rocm:
     # ROCm support (hip_compat, docs/install_amd.md) is only on main after v0.1.3:
     # the v{version} tag fails with "CUDA_HOME is required" (CI #98)
@@ -44,6 +52,8 @@ launch: "{binary} serve --model {model} --host {host} --port {port} --served-mod
 health: "GET /health"
 alias_mode: flag
 container:
+  cuda:              # shared devel base (nvidia/cuda 13.0.2, nvcc): the cell compiles the kernels
+    apt: [python3-dev]   # CPython headers for the extensions setup.py builds
   rocm:
     base: "rocm/pytorch:rocm7.2.4_ubuntu24.04_py3.12_pytorch_release_2.10.0@sha256:4449f856653602317e4101a76fce599c7fcd58ccec2e539951fce5f73083179e"   # ROCm 7.2.4 (same base as sglang; the 7.14 rocm/pytorch is a 19 GB layer); torch 2.11 below
     gpu_targets: "gfx1100;gfx1101;gfx1102;gfx1103;gfx1200;gfx1201"   # RDNA3/4 only (requires.gpu_targets)

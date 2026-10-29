@@ -18,6 +18,17 @@ prereqs:
   common: [uv]
 install:
   cpu:
+    # Dated decision (issue #615, measured 2026-10-29): this stays a published wheel, not a
+    # source build. `litert-lm` is built upstream as a Bazel `py_wheel`
+    # (`//python/litert_lm_cli:wheel`) whose runtime core is `prebuilt/<os>/libLiteRt.so` — a
+    # Git **LFS** object (an upstream-compiled library), so building the wheel here would still
+    # ship someone else's binary. `bazel build //python/litert_lm_cli:wheel` at the pin
+    # (`bda6248`) with the repo's `.bazelversion` 7.6.1 dies in 92 s at "computing the main repo
+    # mapping" (`@rules_cc//cc:extensions.bzl` has no `compatibility_proxy_repo`) after 4.5 GB of
+    # Bazel cache, and the C++ route upstream's own CI takes
+    # (`//runtime/engine:litert_lm_main`) is a different CLI than the `litert-lm serve` this
+    # skill wraps. Recorded in `scripts/engine_source_guard.py::KNOWN_NOT_SOURCE`; delete that
+    # entry when upstream ships a wheel-free build of this exact CLI.
     - "uv pip install --system --break-system-packages litert-lm=={version}"
   metal:
     - "uv tool install --force litert-lm=={version}"

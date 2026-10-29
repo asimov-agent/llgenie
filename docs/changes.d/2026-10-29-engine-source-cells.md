@@ -1,0 +1,1 @@
+| 2026-10-29 | `freetoken/cuda`, `mlx/cpu`, `mlx/cuda` and `tensorfold/cuda` build from their pinned sources instead of PyPI wheels and a release archive; `litert/cpu` records why its pip package cannot be built here, and the nine `prebuilt` cells are split into #936–#939 | [2026-10-29-engine-source-cells.md](agent-wiki/2026-10-29-engine-source-cells.md) | #615 |

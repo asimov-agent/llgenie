@@ -34,6 +34,7 @@ PARAMS = os.path.join(REPO_ROOT, "containers", "engines", "params")
 BUILD_SIGNALS = (
     r"\bcmake\b", r"\bninja\b", r"\bmeson\b", r"\bbazel build\b", r"\bnvcc\b",
     r"\bcargo build\b", r"\bgo build\b", r"\bgo install\b", r"\bgradle\b", r"\bjavac\b",
+    r"\bzig build\b",
     r"-m build\b", r"setup\.py", r"setup_[a-z_]+\.py", r"\bmake\b",
     # A python entrypoint that drives a native build (Strata compiles llama.cpp this way).
     r"get_llama_cpp\(", r"CMAKE_ARGS\s*=",
@@ -53,12 +54,10 @@ ARTEFACT_SUFFIXES = (".tar", ".tar.gz", ".tar.zst", ".tgz", ".zip", ".whl")
 # Cells that say `prebuilt: false` today without a source build, and why. Each is tracked:
 # removing the entry is what the issue does. Keep the reason concrete and dated.
 KNOWN_NOT_SOURCE = {
-    ("freetoken", "cuda"): "#615 install is a wheel (`freetoken[accel]==0.2.0`); needs the rocm-style clone+build",
-    ("litert", "cpu"): "#615 install is a wheel (`litert-lm==0.18.1`); needs the LiteRT-LM source build",
-    ("mlx", "cpu"): "#615 install is a wheel (`mlx[cpu] mlx-lm==0.32.2`); needs mlx's C++ core from source",
-    ("mlx", "cuda"): "#615 install is a wheel (`mlx[cuda] mlx-lm==0.32.2`); needs mlx's C++ core from source",
-    ("tensorfold", "cuda"): "#615 install downloads the `tensorfold-<ver>-linux-x86_64.tar.gz` release "
-                             "and sha256-verifies it; upstream ships no buildable tree",
+    ("litert", "cpu"): "#615 install is a wheel (`litert-lm==0.18.1`) whose runtime core is upstream's "
+                       "compiled `prebuilt/<os>/libLiteRt.so`; `bazel build //python/litert_lm_cli:wheel` "
+                       "fails at repository mapping in 92 s (measured 2026-10-29) and the C++ target is a "
+                       "different CLI — the skill carries the dated decision",
 }
 
 

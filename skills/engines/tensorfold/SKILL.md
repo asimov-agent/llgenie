@@ -31,15 +31,22 @@ install:
     - "exe=$(find {prefix}/{version}/bin -maxdepth 1 -type f -perm -111); set -- $exe; ln -sfn \"$1\" {prefix}/{version}/bin/{id}"
     - "ln -sfn {prefix}/{version} {prefix}/current"
   cuda:
-    - "mkdir -p {prefix}/{version}"
-    - "curl -fsSL -o {prefix}/tensorfold-{version}-linux-x86_64.tar.gz {repo}/releases/download/v{version}/tensorfold-{version}-linux-x86_64.tar.gz"
-    - "curl -fsSL -o {prefix}/tensorfold-{version}-linux-x86_64.tar.gz.sha256 {repo}/releases/download/v{version}/tensorfold-{version}-linux-x86_64.tar.gz.sha256"
-    - "cd {prefix} && sha256sum -c tensorfold-{version}-linux-x86_64.tar.gz.sha256"
-    - "tar -xzf {prefix}/tensorfold-{version}-linux-x86_64.tar.gz -C {prefix}/{version} --strip-components=1"
-    - "exe=$(find {prefix}/{version}/bin -maxdepth 1 -type f -perm -111); set -- $exe; ln -sfn \"$1\" {prefix}/{version}/bin/{id}"
+    # source build (issue #615): at the pin TensorFold is a Zig project (`build.zig`,
+    # `.zig-version` = 0.17.0) that compiles the CUDA server itself and builds one kernel
+    # fatbin per SASS target with `nvcc`. The compiler comes from PyPI's `ziglang` (a
+    # toolchain, like gcc), and the arch list is upstream's own `release_sms`
+    # (`zig/build/cuda.zig`): sm_80, 86, 120, 121 — passed as `-Dsm`, the project's
+    # equivalent of CMAKE_CUDA_ARCHITECTURES. No release archive is downloaded.
+    - "uv pip install --system --break-system-packages ziglang==0.17.0"
+    - "ln -sfn /usr/local/bin/python-zig /usr/local/bin/zig"
+    - "test -d {src}/.git || git clone {repo}.git {src}"
+    - "git -C {src} fetch -q origin {ref} && git -C {src} checkout -q {pinned}"
+    - "cd {src} && zig build -Dtarget=x86_64-linux-gnu -Doptimize=fast -Dnvcc=$(command -v nvcc) -Dsm=80,86,120,121 -Dstrip=true"
+    - "mkdir -p {prefix}/{version}/bin"
+    - "ln -sfn {src}/zig-out/bin/{id} {prefix}/{version}/bin/{id}"
     - "ln -sfn {prefix}/{version} {prefix}/current"
 binary: "{prefix}/current/bin/{id}"
-binary_flags: ["--help", "--version"]   # the archive binary answers both (its --version is the installed release)
+binary_flags: ["--help", "--version"]   # the built binary answers both (its --version is the pinned release)
 detect: "{binary} --version"
 launch:
   common: "{binary} serve {model} --host {host} --port {port} --name {alias}"
@@ -55,8 +62,8 @@ env:
 health: "GET /v1/models"
 alias_mode: flag
 container:
-  cuda:     # upstream-supported CUDA runtime
-    base: "nvcr.io/nvidia/pytorch:26.07-py3"
+  cuda:     # shared devel base (nvidia/cuda 13.0.2 + nvcc): this cell compiles the server and its fatbins
+    apt: [git]   # the pinned clone; the Zig compiler is `ziglang` from PyPI, no torch needed to build
 upstream_watch: [pyproject.toml, README.md, RUNBOOK.md, src/tensorfold/server.py, src/tensorfold/cli.py]
 ---
 

@@ -12,23 +12,26 @@
       "engine": "TensorFold",
       "backend": "cuda",
       "arch": "",
-      "base": "nvcr.io/nvidia/pytorch:26.07-py3",
+      "base": "nvidia/cuda:13.0.2-devel-ubuntu24.04",
       "prebuilt": false,
       "runtime_base": "",
       "runtime_copy": [],
-      "apt": [],
+      "apt": [
+        "git"
+      ],
       "build_args": {
         "CUDA_ARCH": "",
         "GPU_TARGETS": "",
         "TORCH_BACKEND": "cu130"
       },
       "install": [
-        "mkdir -p /opt/llgenie/engines/tensorfold/1.1.8",
-        "curl -fsSL -o /opt/llgenie/engines/tensorfold/tensorfold-1.1.8-linux-x86_64.tar.gz https://github.com/ashhart/TensorFold/releases/download/v1.1.8/tensorfold-1.1.8-linux-x86_64.tar.gz",
-        "curl -fsSL -o /opt/llgenie/engines/tensorfold/tensorfold-1.1.8-linux-x86_64.tar.gz.sha256 https://github.com/ashhart/TensorFold/releases/download/v1.1.8/tensorfold-1.1.8-linux-x86_64.tar.gz.sha256",
-        "cd /opt/llgenie/engines/tensorfold && sha256sum -c tensorfold-1.1.8-linux-x86_64.tar.gz.sha256",
-        "tar -xzf /opt/llgenie/engines/tensorfold/tensorfold-1.1.8-linux-x86_64.tar.gz -C /opt/llgenie/engines/tensorfold/1.1.8 --strip-components=1",
-        "exe=$(find /opt/llgenie/engines/tensorfold/1.1.8/bin -maxdepth 1 -type f -perm -111); set -- $exe; ln -sfn \"$1\" /opt/llgenie/engines/tensorfold/1.1.8/bin/tensorfold",
+        "uv pip install --system --break-system-packages ziglang==0.17.0",
+        "ln -sfn /usr/local/bin/python-zig /usr/local/bin/zig",
+        "test -d /opt/llgenie/engines/tensorfold/src/.git || git clone https://github.com/ashhart/TensorFold.git /opt/llgenie/engines/tensorfold/src",
+        "git -C /opt/llgenie/engines/tensorfold/src fetch -q origin v1.1.8 && git -C /opt/llgenie/engines/tensorfold/src checkout -q 812fb0404b1856df29dcb4a285d25dddf469288d",
+        "cd /opt/llgenie/engines/tensorfold/src && zig build -Dtarget=x86_64-linux-gnu -Doptimize=fast -Dnvcc=$(command -v nvcc) -Dsm=80,86,120,121 -Dstrip=true",
+        "mkdir -p /opt/llgenie/engines/tensorfold/1.1.8/bin",
+        "ln -sfn /opt/llgenie/engines/tensorfold/src/zig-out/bin/tensorfold /opt/llgenie/engines/tensorfold/1.1.8/bin/tensorfold",
         "ln -sfn /opt/llgenie/engines/tensorfold/1.1.8 /opt/llgenie/engines/tensorfold/current"
       ],
       "env": {},

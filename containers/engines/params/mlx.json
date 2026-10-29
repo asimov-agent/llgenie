@@ -5,25 +5,60 @@
   "repo": "https://github.com/ml-explore/mlx-lm",
   "ref": "v0.32.2",
   "pinned": "93e6d4a6447b3080861985947f0820e76fcb957d",
-  "native": {},
+  "native": {
+    "metal": {
+      "cmake_flags": "",
+      "hw_flags": {},
+      "env": {},
+      "src_dir": "",
+      "build_dir": "build-metal"
+    },
+    "cuda": {
+      "cmake_flags": "-DMLX_BUILD_CUDA=ON -DMLX_BUILD_METAL=OFF",
+      "hw_flags": {
+        "cuda_arch": "-DMLX_CUDA_ARCHITECTURES={cuda_arch}"
+      },
+      "env": {},
+      "src_dir": "",
+      "build_dir": "build-cuda"
+    },
+    "cpu": {
+      "cmake_flags": "-DMLX_BUILD_METAL=OFF",
+      "hw_flags": {},
+      "env": {},
+      "src_dir": "",
+      "build_dir": "build-cpu"
+    }
+  },
   "variants": {
     "cuda": {
       "id": "mlx",
       "engine": "MLX",
       "backend": "cuda",
-      "arch": "",
+      "arch": "80;86;89;90;120",
       "base": "nvidia/cuda:13.0.2-devel-ubuntu24.04",
       "prebuilt": false,
       "runtime_base": "",
       "runtime_copy": [],
-      "apt": [],
+      "apt": [
+        "libopenblas-dev",
+        "liblapacke-dev",
+        "python3-dev",
+        "libcudnn9-dev-cuda-13"
+      ],
       "build_args": {
-        "CUDA_ARCH": "",
+        "CUDA_ARCH": "80;86;89;90;120",
         "GPU_TARGETS": "",
         "TORCH_BACKEND": "cu130"
       },
       "install": [
-        "uv pip install --system --break-system-packages 'mlx[cuda13]' mlx-lm==0.32.2"
+        "test -d /opt/llgenie/engines/mlx/mlx/.git || git clone https://github.com/ml-explore/mlx.git /opt/llgenie/engines/mlx/mlx",
+        "git -C /opt/llgenie/engines/mlx/mlx fetch -q origin v0.32.2 && git -C /opt/llgenie/engines/mlx/mlx checkout -q 1f8e74e3f12f31365464a6867c6579f0e9b29d85",
+        "uv pip install --system --break-system-packages setuptools wheel typing_extensions setuptools-scm",
+        "CMAKE_ARGS='-DMLX_BUILD_CUDA=ON -DMLX_BUILD_METAL=OFF -DMLX_CUDA_ARCHITECTURES=80;86;89;90;120' uv pip install --system --break-system-packages --no-cache --no-build-isolation /opt/llgenie/engines/mlx/mlx",
+        "test -d /opt/llgenie/engines/mlx/src/.git || git clone https://github.com/ml-explore/mlx-lm.git /opt/llgenie/engines/mlx/src",
+        "git -C /opt/llgenie/engines/mlx/src fetch -q origin v0.32.2 && git -C /opt/llgenie/engines/mlx/src checkout -q 93e6d4a6447b3080861985947f0820e76fcb957d",
+        "uv pip install --system --break-system-packages --no-cache --no-build-isolation /opt/llgenie/engines/mlx/src"
       ],
       "env": {},
       "detect": "mlx_lm.server --help > /dev/null 2>&1 || python3 -c 'import importlib.metadata as m; print(\"mlx-lm\", m.version(\"mlx-lm\"), \"mlx\", m.version(\"mlx\"))'",
@@ -49,14 +84,24 @@
       "prebuilt": false,
       "runtime_base": "",
       "runtime_copy": [],
-      "apt": [],
+      "apt": [
+        "libopenblas-dev",
+        "liblapacke-dev",
+        "python3-dev"
+      ],
       "build_args": {
         "CUDA_ARCH": "",
         "GPU_TARGETS": "",
         "TORCH_BACKEND": "cpu"
       },
       "install": [
-        "uv pip install --system --break-system-packages 'mlx[cpu]' mlx-lm==0.32.2"
+        "test -d /opt/llgenie/engines/mlx/mlx/.git || git clone https://github.com/ml-explore/mlx.git /opt/llgenie/engines/mlx/mlx",
+        "git -C /opt/llgenie/engines/mlx/mlx fetch -q origin v0.32.2 && git -C /opt/llgenie/engines/mlx/mlx checkout -q 1f8e74e3f12f31365464a6867c6579f0e9b29d85",
+        "uv pip install --system --break-system-packages setuptools wheel typing_extensions setuptools-scm",
+        "CMAKE_ARGS='-DMLX_BUILD_METAL=OFF' uv pip install --system --break-system-packages --no-cache --no-build-isolation /opt/llgenie/engines/mlx/mlx",
+        "test -d /opt/llgenie/engines/mlx/src/.git || git clone https://github.com/ml-explore/mlx-lm.git /opt/llgenie/engines/mlx/src",
+        "git -C /opt/llgenie/engines/mlx/src fetch -q origin v0.32.2 && git -C /opt/llgenie/engines/mlx/src checkout -q 93e6d4a6447b3080861985947f0820e76fcb957d",
+        "uv pip install --system --break-system-packages --no-cache --no-build-isolation /opt/llgenie/engines/mlx/src"
       ],
       "env": {},
       "detect": "mlx_lm.server --help > /dev/null && python3 -c 'import importlib.metadata as m; print(\"mlx-lm\", m.version(\"mlx-lm\"), \"mlx\", m.version(\"mlx\"))'",

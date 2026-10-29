@@ -251,12 +251,24 @@ do the same locally.
 
 **Source or prebuilt is the params' decision, not this workflow's.** A variant with
 `prebuilt: false` compiles from its pinned sha in the generated Dockerfile; a variant with
-`prebuilt: true` starts `FROM` an upstream image and only adds the llgenie entrypoint. `llama.cpp` was converted to a source build in all four variants with this
-change (pinned sha checked out, `-DGGML_*` flags, `-DCMAKE_CUDA_ARCHITECTURES` / `-DGPU_TARGETS`
-passed to the compiler, only `build/bin` shipped on the slim runtime base). **12 variants are still
-prebuilt** — `ollama` ×4, `vllm` ×3, `sglang` cuda, `tensorrt-llm` cuda — and converting them is
-**issue #615**; this workflow builds whatever the params say, so a converted variant needs no
-workflow change.
+`prebuilt: true` starts `FROM` an upstream image and only adds the llgenie entrypoint. Every cell
+that says `prebuilt: false` must actually compile — `make check-engine-source` (ci-unit) fails a
+cell whose install steps only pull a wheel or a release archive, and passes only on the cells that
+carry a dated entry in `scripts/engine_source_guard.py::KNOWN_NOT_SOURCE` naming issue #615.
+
+Converted from a wheel/archive to a real build so far: `llama.cpp` ×4 (PR #616), `freetoken/cuda`
+(clone at `ba31db2e` + upstream `setup.py`, its own sm_75/80/90/100/120 fat list), `mlx/cpu` +
+`mlx/cuda` (`ml-explore/mlx` at the `mlx-lm` pin built with `MLX_BUILD_CUDA=ON` and
+`-DMLX_CUDA_ARCHITECTURES` from the shared fat list, cuDNN headers for its CUDA backend, then
+`mlx-lm` from its own tree) and `tensorfold/cuda` (a Zig project at its pin — `build.zig`,
+`.zig-version` 0.17.0 — compiled by `zig build -Dnvcc=… -Dsm=80,86,120,121`, upstream's own
+`release_sms`; the Zig compiler comes from PyPI's `ziglang`, the way gcc would come from apt).
+Still prebuilt today, each with its own linked issue because its build cost is unmeasured:
+`ollama` ×4, `vllm` ×3, `sglang` cuda, `tensorrt-llm` cuda. `litert/cpu` keeps a dated decision in
+its skill: its pip package is a Bazel `py_wheel` over a Git-LFS `prebuilt/*/libLiteRt.so`
+(upstream's compiled core), so building it here would still ship someone else's binary, the
+`bazel build //python/litert_lm_cli:wheel` attempt dies at repository mapping in 92 s, and the C++
+`//runtime/engine:litert_lm_main` path is a different CLI than the `litert-lm serve` the skill wraps.
 
 ### Engine container images (one per engine x hardware arch)
 

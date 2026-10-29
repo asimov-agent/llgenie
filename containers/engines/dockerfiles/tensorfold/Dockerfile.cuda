@@ -3,14 +3,11 @@
 # Build: make build-engine ENGINE=tensorfold ARCH=cuda
 # Run:   make run-engine ENGINE=tensorfold ARCH=cuda MODEL=<model> PORT=11434
 #        -> OpenAI API at http://127.0.0.1:<PORT>/v1, model llm-local
-FROM nvcr.io/nvidia/pytorch:26.07-py3
+FROM llgenie/base-cuda:79cfaf25ba
 
 ENV DEBIAN_FRONTEND=noninteractive HF_HOME=/models/hf \
     PATH=/opt/llgenie/bin:/usr/local/cuda/bin:${PATH}
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates curl git build-essential cmake ninja-build zstd python3 tar \
-    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/llgenie/app
 COPY engine_runner.py entrypoint.sh params.json ./

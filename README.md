@@ -78,6 +78,14 @@ make install
    that device node), they run `nvidia-modprobe -c 0 -m -u` before `docker run` and exit
    if the node is still missing. `LLGENIE_NO_GPU=1` drops the CDI device first, so that
    path does not call `nvidia-modprobe`.
+   **Every engine image is compiled from source at its pinned commit**, with that backend's own
+   parameters (`make check-engine-source`, in `ci-unit`, fails any cell that claims a build and
+   only pulls a wheel or a release archive). One cell is a recorded exception: `litert/cpu`
+   installs upstream's Bazel wheel, whose runtime is a Git-LFS `prebuilt/<os>/libLiteRt.so`, so
+   building it here would still ship upstream's binary — the measurement and the dated decision
+   are in `skills/engines/litert/SKILL.md` and `docs/ENGINES.md`. The nine cells that
+   `prebuilt: true` today (`ollama` ×4, `vllm` ×3, `sglang/cuda`, `tensorrt-llm/cuda`) start
+   from the engine's own upstream image and each is tracked by its own issue.
 4. **symlink + smoke** — symlinks `~/bin/llgenie.py` → this repo's launcher (`scripts/llgenie_serve.py`),
    then runs `~/bin/llgenie --list`. Succeeds even when `~/models` is empty (you populate it with
    `llgenie --download-top-tier`), failing only on a genuine gguf/launch error.

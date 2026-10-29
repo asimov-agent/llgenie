@@ -7,7 +7,11 @@ FROM llgenie/base-cuda:79cfaf25ba
 
 ENV DEBIAN_FRONTEND=noninteractive HF_HOME=/models/hf \
     PATH=/opt/llgenie/bin:/usr/local/cuda/bin:${PATH}
+ENV LLGENIE_CUDA_ARCH=80;86;89;90;120
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libopenblas-dev liblapacke-dev python3-dev libcudnn9-dev-cuda-13 \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/llgenie/app
 COPY engine_runner.py entrypoint.sh params.json ./
