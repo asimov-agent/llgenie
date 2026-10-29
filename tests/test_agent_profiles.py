@@ -938,7 +938,8 @@ def test_sync_refuses_to_overwrite_a_live_file_newer_than_the_source_commit(tmp_
     assert "would overwrite" in text, text
     assert "edited AFTER the tree copy was committed" in text, text
     assert "2023-11-14T22:13:20Z" in text and "2023-11-14T22:23:20Z" in text, text  # both times, named
-    assert "losing 1 line(s)" in text, text          # what the overwrite would cost
+    assert "and the content differs: 1 live line(s) the tree lacks" in text, text  # mtime first, then the cost
+    assert "of another lane's work" not in text, text  # the tree has no ownership info; never assign blame
     assert "verified" not in text.lower(), text      # a refusal that prints success is the same lie
     assert (live / "SOUL.md").read_text() == live_text, "nothing was written"
 
