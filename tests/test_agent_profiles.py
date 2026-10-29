@@ -878,13 +878,18 @@ def test_the_never_arm_a_stacked_pr_lesson_is_in_the_skill():
     ref = " ".join((REPO / "agents" / "llgenie-issse-implementer" / "skills" / "containerized-repo-verification"
                     / "references" / "queue-and-pr-mechanics.md").read_text().lower().split())
 
-    assert "never" in ref
     for phrase in ["a stacked pr (base != `main`) must **never** be armed",
                    "it merges the pr into its non-main base",
                    "ancestor of neither `main` nor the tree head",
                    "never arm a pr whose base is not `main`",
                    "auto=none (stacked, base is not main)"]:
         assert phrase in ref, f"the stacked-arm hazard is missing: {phrase}"
+
+    # The inverse must hold too: the STALE teaching that #954 disproved — "has nothing to merge into"
+    # or "cannot be armed, so the arm fails" — is exactly the wrong-rule regression, and it can coexist
+    # with any single "never". If it returns, the section has drifted back and must fail.
+    assert "has nothing to merge into" not in ref, "the stale no-op teaching has returned"
+    assert "cannot be armed, so name that too" not in ref, "the stale 'cannot be armed' teaching has returned"
 
 
 def test_a_rule_inside_a_fenced_block_is_a_quote_not_a_statement():
