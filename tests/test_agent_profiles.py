@@ -632,6 +632,44 @@ def test_the_ok_line_carries_the_caveat_when_the_comparison_is_skipped(tmp_path,
     out = capsys.readouterr().out
     assert "OK:" in out and "tree checks only, LIVE RULEBOOKS NOT COMPARED" in out, out
 
+# --- fleet rule 13: a hold without a remedy is abandonment (issue #948, rule in #873) -------------------
+
+
+def test_this_lane_s_soul_carries_the_fleet_hold_rule():
+    """The rule must be in the SOUL, not only in the skill that spells out the procedure.
+
+    `mergeStateStatus` reads `BLOCKED` identically for a real defect and a forgotten tag, so the constraint
+    has to be present before the situation is met. The fleet block (#873) states it; this lane's SOUL is
+    what a session actually reads, and a skill is only loaded when its trigger matches — which a hold
+    review does not.
+    """
+    soul = (REPO / "agents" / "llgenie-issse-implementer" / "SOUL.md").read_text().lower()
+    block = (REPO / "agents" / "standing-rules.md").read_text().lower()
+
+    assert "never hold a pr without a remedy" in block, "the fleet block lost rule 13"
+    assert "never hold a pr without a remedy" in soul, "this SOUL does not carry rule 13"
+    for commitment in ["file the issue that will make the tag removable",
+                       "remove the tag myself",
+                       "is a review, not a label"]:
+        assert commitment in soul, f"rule 13 in the SOUL is missing: {commitment}"
+
+
+def test_the_hold_procedure_is_in_the_skill_that_governs_prs():
+    """The SOUL states the constraint; the skill states what to do, in order, where the work happens."""
+    ref = (REPO / "agents" / "llgenie-issse-implementer" / "skills" / "containerized-repo-verification"
+           / "references" / "queue-and-pr-mechanics.md").read_text().lower()
+
+    assert "a hold is a debt with a named creditor" in ref
+    for step in ["is a review",
+                 "leave the label off",
+                 "file the issue that makes the tag removable",
+                 "exact condition for removal",
+                 "remove the tag yourself",
+                 "close the issue"]:
+        assert step in ref, f"the hold procedure is missing a step: {step}"
+    assert "no issue number" in ref and "no tag" in ref, "the no-issue-no-tag rule is not stated"
+
+
 # --- the live profile is a MOVING reference: a sync must not overwrite work it did not read (issue #924)
 
 
