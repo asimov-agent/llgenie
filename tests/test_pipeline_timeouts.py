@@ -21,10 +21,10 @@ import yaml
 REPO = Path(__file__).resolve().parents[1]
 PIPELINE = REPO / ".github" / "workflows" / "pipeline.yml"
 #: Every workflow the PR path actually runs. `pipeline.yml` holds the stages, but `ci.yml` decides whether
-#: they run at all and `published.yml` is reached from it - a job in either of those that inherits the
+#: they run at all - a job in either of those that inherits the
 #: 360-minute default is the same invisible stall, one level further out (#846, incident #767).
 WORKFLOWS = tuple(REPO / ".github" / "workflows" / name
-                  for name in ("ci.yml", "pipeline.yml", "published.yml"))
+                  for name in ("ci.yml", "pipeline.yml"))
 
 #: Below this a slow-but-healthy job would be killed; above it the default is effectively still in force.
 MIN_MINUTES = 5

@@ -57,7 +57,7 @@ SERVER_ROOT ?= $(HOME)/repository/git
 # link always agree on the binary.
 SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 
-.PHONY: all install venv-install link uninstall smoke list version help test-native-engine test-native-engine-serve test-interactive-tensorfold test-interactive-tensorfold-ci test-unit-network test-engine-install \ ci-install-product
+.PHONY: all install venv-install link uninstall smoke list version help test-native-engine test-native-engine-serve test-interactive-tensorfold test-interactive-tensorfold-ci test-unit-network test-engine-install ci-install-product \
 	git-identity-apply check-git-identity git-identity-line git-identity-report \
 	sweep-concurrency-report \
 	openspec-image openspec-new openspec-validate openspec-validate-all openspec-status openspec-shell \
