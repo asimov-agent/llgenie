@@ -131,6 +131,77 @@ on another branch has nothing to merge into). `mergeStateStatus` may read `UNKNO
 - **`mergedAt` is not evidence of an arm.** A PR can land by an owner's or a sweep's merge after a failed
   arm, so a post-hoc look at `mergedAt` confirms a merge that your command never enabled.
 
+## Re-cutting a fork-head PR as same-repo
+
+A fork `pull_request` run gets a read-only token and **no repo secrets**, and the approving identity has to
+be a second one — so a fork-head PR can sit green and unmergeable while the same commits on a same-repo
+branch would land. Re-cutting is cheaper than diagnosing it, and it is not a rebase:
+
+```
+git push origin HEAD:refs/heads/<branch>              # same repo, same commits
+gh pr create --repo <owner>/<repo> --base main \
+  --head <owner>:<branch> --body-file /tmp/body.md
+gh pr merge <new> --squash --auto                     # then READ IT BACK: autoMergeRequest
+gh pr comment <old> --body-file /tmp/comparison.md    # head sha, why, re-runnable verification
+gh pr close <old>
+```
+
+- **`--head <owner>:<branch>` is what makes it same-repo** — leaving the prefix off is the silent default
+  that reproduces the defect.
+- **Close the old PR; do not force-push the fork branch.** Its head sha and history stay readable, which is
+  what lets a reader compare the two.
+- **Do not re-cut to fix a different symptom.** A queue-bound PR looks identical from the outside, so measure
+  first (`gh api repos/<owner>/<repo>/collaborators/<identity>/permission`, `gh pr checks <n>`): re-cutting a
+  PR that was merely waiting throws away the run it was waiting for.
+
+## Rebasing a long-lived branch: the base moved, so the measurements did
+
+An old branch against a moving `main` makes the rebase mechanical and the **recounts** the actual work.
+
+- **Measure the base without mutating your own worktree.** `git archive <base-sha> | tar -x -C $SCRATCH`,
+  then run the branch's own checker against that export (`python3 <branch>/scripts/<checker>.py --root
+  $SCRATCH report`). The tempting shortcut — stash, `git checkout <sha> -- .`, then restore — silently
+  reverts your own working-tree fixes when the restore path is wrong, and it still looks clean afterwards.
+- **A ratchet/baseline recorded at the branch's original cut goes red because the BASE grew**, not because
+  the branch regressed: other lanes added offenders while it sat conflicting (measured: 34/14 recorded, base
+  107/151, branch 22/44). Re-measure both sides, re-record the baseline at the counts the *branch* produces,
+  and say why in the commit — keeping the old number makes the guard red on the untouched base, which no
+  reviewer can merge.
+- **Re-run the docs/index gates: conventions move under you.** A hand-edited index row may now be a per-file
+  fragment, and a merged section needs a blank line before its heading — the "keep both" union of two doc
+  additions glues a heading onto the paragraph above it, so lint fails on the JOIN and neither side is wrong.
+- **Write commit messages to a file and use `-F`.** `git commit -m "…`main`…"` runs the backticks as command
+  substitution: bash prints `command not found` and the message lands with words missing. Check
+  `git log -1 --format=%s` before pushing.
+- **Split a large pytest batch and report exit codes, not counts.** One invocation over ~70 files was killed
+  at 16 % by the runner's wall clock (`PYTEST_EXIT=137`, SIGKILL); 36 files per invocation finished clean in
+  ~2 min each. Name the 137 as an artifact so nobody reads it as a failure, and prove a remaining red by
+  running the same nodes against the exported base — an identical set means environment, not diff.
+
+## A hold is a debt with a named creditor, or it is abandonment
+
+`do-not-merge` means *there is a concrete defect with a tracked fix* — never "this lane would rather not".
+`mergeStateStatus` reads `BLOCKED` for both a real defect and a forgotten tag, so the label cannot carry
+its own reason: **the comment is the record, or there is none.**
+
+The sequence, in order, and every step is somebody's action rather than a state:
+
+1. **Is it totally wrong, or genuinely conflicting with something?** If neither, it is a review — say what
+   is wrong in a review comment and leave the label off. "I am not confident" is not a reason.
+2. **File the issue that makes the tag removable** — the fix, not the complaint.
+3. **Name it in a PR comment**, with the exact condition for removal: `held on #NNN; removed when <X> lands`.
+   No issue number ⇒ no tag.
+4. **Remove the tag yourself when that issue lands**, and say so with the sha or run id that proves it.
+5. **Close the issue.** A held tag with a merged fix is the same defect from the other end: the board shows
+   a blocker nobody can clear.
+
+Two corollaries worth acting on:
+
+- **Re-audit every hold each pass.** Tag + no linked issue = either file one now or drop the tag, and say
+  which. A hold whose reason expired outlives its author and hides finished work behind a `BLOCKED` row.
+- **A merged PR still carrying the label is noise, and the label wins arguments it should not.** Remove it on
+  the way out; a merged PR has no state left for a hold to describe.
+
 ## A PR's blockers are three commands, not a rule of thumb
 
 "Fork head therefore unapprovable" and "`cross=true` therefore can't be armed" are **inferences**, and
