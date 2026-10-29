@@ -47,9 +47,22 @@ contradicts the body** (a planner comment pivoting from matrix placeholders to t
 - **A test that does `import scripts.<x>` dies at COLLECTION on a sibling import.** If the module under
   test itself imports a sibling on `scripts/` (`import base_ref`), `python -m pytest` inside the image
   exits 2 with `ModuleNotFoundError: No module named '<sibling>'` and an empty summary — which reads
-  like a hang, not a collection error. `scripts/` is not on the image's path by default; run the
+  like a hang, not a collection error.  `scripts/` is not on the image's path by default; run the
   container with `-e PYTHONPATH=/repo/scripts`. The repo's `make test-unit` already sets this up;
   your ad-hoc run has to do it by hand.
+- **Captured output goes through a host-absolute path, never `/repo/...` from the host shell.**
+  `docker run … python -m pytest … > /repo/x.txt` is redirected by YOUR shell, not the container, so
+  the file lands at the host's `/repo` root (root-owned, invisible to `ls /repo`) or the redirect
+  fails before docker even starts. Write to the worktree by full path —
+  `> /home/asimov/repository/git/llgenie-wt/<name>/x.txt` — and read it from the host that already
+  owns the tree. Same for a `PULSE_DONE` marker: `echo … >> "$OUT"` on the same absolute path, and
+  wake on the marker line.
+- **To learn where a slow stage's time really goes, run `--durations=N` over the suspect files, not
+  the whole suite.** The full unit suite here is ~10× slower locally than in CI because the
+  Hub-touching tests crawl unauthenticated; `pytest --durations=20 <files>` on the named suspects
+  gives the slowest in minutes, while a whole-suite run is a multi-hour job. Reference-counts and
+  real network-opens differ — execution (`--durations`) is the ground truth, a grep of URLs is only
+  the candidate list. See `references/network-test-audit.md` for the audit-and-route recipe.
 - Make gates call plain `python3 scripts/*.py check`: put a scratch venv's `bin` first on `PATH` so
   `pyyaml` resolves (system `/usr/bin/python3 -m venv`, not the Hermes venv), then run each gate and
   print its exit code.
