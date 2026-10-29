@@ -150,8 +150,17 @@ step below was a defect the first time it was skipped:
      inside a sentence is a restatement, a bare text reference is not); counting only `- **` bullet lines
      under-claims a bold paragraph outside a fence that restates the rule (implementer's rules 13/14 sat in
      bold paragraphs, not bullets). The title inside emphasis, punctuation-trimmed on both ends
-     (`**Title**` / `**Title.**`) counts real statements and excludes prose. Pin the exact row count, not
-     just the lanes named — a wrong discriminator shifts the count even while the named lanes are right.
+     (`**Title**` / `**Title.**`) counts real statements and excludes prose. Pin the durable SUBSET — the
+     lanes that still carry debt, and the lane THIS vehicle cleared — not a magic row count: a count reds the
+     moment the dedupe lands (measured: a test pinned `len==11` from a measured table, and it passed as soon
+     as this lane cleared its own two duplicates, 11→9, for a change the planner ordered). Assert
+     `still-debt-lanes <= set(named)` and `cleared-lane not in named`; a wrong discriminator still shifts
+     which lanes appear without making a count brittle.
+   - **A dedupe leaves stale pins behind: an assertion phrase that lived ONLY in the removed copy reds the
+     suite.** If the duplicate restated a canonical rule in a personal voice ("remove the tag myself") that
+     the surviving fleet block never used ("remove the tag yourself"), the pin fails the moment the duplicate
+     goes. Re-point the assertion at the SURVIVING canonical wording — never resurrect the duplicate to
+     satisfy an old phrase, which re-creates the very second source of truth the dedupe removed.
    - **`check` output is where a reviewer sees it; a silent green is the amnesty.** A gate that computes this
      debt but prints it only in `report` leaves CI and reviewers hearing nothing on a green tree. Print one
      informational note per duplicate to **stderr while EXIT stays 0** — the deletion is a protected write the
