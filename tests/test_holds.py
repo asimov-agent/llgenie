@@ -16,6 +16,7 @@ remedy, and that is exactly what every held PR on this board was doing when the 
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -116,3 +117,124 @@ def test_the_phrasings_the_board_actually_uses_are_recognised(tmp_path):
     out = run("check", "--fixture", str(prs))
     assert out.returncode == 0, out.stdout
     assert "#949" in out.stdout
+
+
+# ---- the live path: the gate must audit the same set the API shows (issue #948) ---------------------------
+
+def _fake_gh_binary(tmp_path: Path, comments: list[dict], api_exit: int = 0) -> Path:
+    """A `gh` on PATH that answers the two calls the live path makes, and records its argv."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir(parents=True, exist_ok=True)
+    log = tmp_path / "gh.log"
+    prs = [
+        {"number": 904, "title": "held", "body": "closes #824", "labels": [{"name": "do-not-merge"}]},
+        {"number": 1, "title": "not held", "body": "", "labels": [{"name": "bug"}]},
+    ]
+    gh = bindir / "gh"
+    gh.write_text(f'''#!{sys.executable}
+import json, sys
+args = sys.argv[1:]
+with open({str(log)!r}, "a") as fh:
+    fh.write(json.dumps(args) + "\\n")
+if args[:2] == ["pr", "list"]:
+    print(json.dumps({json.dumps(prs)})); sys.exit(0)
+if args[:1] == ["api"]:
+    if {api_exit}:
+        print("gh: API rate limit exceeded", file=sys.stderr); sys.exit({api_exit})
+    print(json.dumps({json.dumps(comments)})); sys.exit(0)
+print("unexpected: " + " ".join(args), file=sys.stderr); sys.exit(1)
+''')
+    gh.chmod(0o755)
+    return bindir
+
+
+def _argv(tmp_path: Path) -> list[list[str]]:
+    log = tmp_path / "gh.log"
+    if not log.exists():
+        return []
+    return [json.loads(line) for line in log.read_text().splitlines() if line.strip()]
+
+
+def test_the_live_report_counts_the_held_pr_the_api_shows(tmp_path, monkeypatch, capsys):
+    """Prevents: a green report over an EMPTY denominator.
+
+    `holds-report` printed `0 PR(s) carry do-not-merge` while `gh pr view 904 --json labels` returned the
+    label — the gate was auditing nothing and reporting success about it, which is the failure this issue
+    exists to remove. A fixture test that only exercises the empty board hides exactly that.
+    """
+    bindir = _fake_gh_binary(tmp_path, [{"body": "resolving issue #949, lifting condition: #949"}])
+    monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
+
+    out = run("report")
+    assert out.returncode == 0, out.stdout + out.stderr
+    assert "1 PR(s) carry" in out.stdout, out.stdout
+    assert "#904" in out.stdout and "#1" not in out.stdout, out.stdout
+    assert not [a for a in _argv(tmp_path) if "--label" in a], (
+        "the set must be listed and filtered locally, not narrowed by the API")
+
+
+def test_the_live_check_fails_a_held_pr_that_names_no_remedy(tmp_path, monkeypatch):
+    """The same enumeration, with the PR naming nothing: the gate must fail — not report a clean board."""
+    bindir = _fake_gh_binary(tmp_path, [{"body": "parking this until someone looks"}])
+    monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
+
+    out = run("check")
+    assert out.returncode == 1, out.stdout + out.stderr
+    assert "#904" in out.stdout, out.stdout
+    assert "no resolving issue" in out.stdout, out.stdout
+
+
+def test_the_live_check_passes_when_the_hold_names_its_remedy(tmp_path, monkeypatch):
+    """The other direction: an unheld board and a held-but-documented board both pass — and the count is real."""
+    bindir = _fake_gh_binary(tmp_path, [{"body": "resolves #949"}])
+    monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
+
+    out = run("check")
+    assert out.returncode == 0, out.stdout + out.stderr
+    assert "1 PR(s) carry" in out.stdout, out.stdout
+
+
+def test_a_failed_comments_read_is_an_error_not_a_violation(tmp_path, monkeypatch):
+    """Prevents: an unmeasured hold reported as an undocumented one.
+
+    If the comments API fails, an empty comment list makes a perfectly documented hold look like a hold naming
+    nothing — the gate would name the wrong PR for the wrong reason. A failed measurement must say so.
+    """
+    bindir = _fake_gh_binary(tmp_path, [], api_exit=1)
+    monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
+
+    out = run("check")
+    assert out.returncode != 0, out.stdout + out.stderr
+    assert "cannot read the comments of #904" in (out.stdout + out.stderr), out.stdout + out.stderr
+    assert "no resolving issue" not in out.stdout, out.stdout
+
+
+def test_the_summary_records_the_denominator_beside_the_finding(tmp_path, monkeypatch):
+    """A green "0 without a resolving issue" is indistinguishable from "no holds were found".
+
+    issue #929's lesson, applied to this gate: the number of holds AUDITED has to sit beside the number of
+    violations, or the run's own summary is a success claim about an unknown denominator.
+    """
+    bindir = _fake_gh_binary(tmp_path, [{"body": "resolves #949"}])
+    monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
+    summary = tmp_path / "summary.md"
+
+    out = run("check", "--summary", str(summary))
+
+    assert out.returncode == 0, out.stdout + out.stderr
+    text = summary.read_text()
+    assert "**1** PR(s) carry" in text, text
+    assert "**0** without a resolving issue" in text, text
+
+
+def test_the_summary_names_the_hold_that_has_no_remedy(tmp_path, monkeypatch):
+    bindir = _fake_gh_binary(tmp_path, [{"body": "parking this"}])
+    monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
+    summary = tmp_path / "summary.md"
+
+    out = run("check", "--summary", str(summary))
+
+    assert out.returncode == 1, out.stdout + out.stderr
+    text = summary.read_text()
+    assert "**1** without a resolving issue" in text, text
+    assert "#904" in text, text

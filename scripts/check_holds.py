@@ -16,6 +16,10 @@ Usage
   python3 scripts/check_holds.py report                 # same information, exit 0
   python3 scripts/check_holds.py check --fixture f.json # offline: the tests seed this shape, no network
 
+In Actions the audit is also written to `$GITHUB_STEP_SUMMARY` (pass `--summary PATH` by hand), so a green run
+says HOW MANY holds it audited: "0 without a resolving issue" out of an unknown denominator is exactly the green
+line a future reader cannot distinguish from "there were no holds to look at" (issue #929's lesson).
+
 The fixture shape is the one the live path builds:
   [{"number": 904, "title": "…", "body": "…", "comments": [{"body": "resolves #948"}]}]
 """
@@ -23,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -44,20 +49,38 @@ HOLD_WORD = re.compile(r"do-not-merge|\bhold\b|holding", re.IGNORECASE)
 
 
 def held_prs(repo: str) -> list[dict]:
-    """Every open PR carrying the label, with its comments — one list call and one comments call each."""
+    """Every open PR carrying the label, with its comments — one list call and one comments call each.
+
+    The list is NOT narrowed with `--label`: it fetches every open PR and filters on `labels` locally, so the
+    set this gate audits is the same set the API shows. A first version asked the API to filter, and when the two
+    disagreed (`holds-report` printing 0 while `gh pr view 904 --json labels` returned `do-not-merge`) every
+    check downstream was still "green" — a gate whose denominator is empty reports success about nothing, which
+    is the exact failure this issue exists to remove. Both forms agreed when measured (`#904`), and the local
+    filter is the one that cannot silently diverge: the label list comes back on the same row as the PR.
+    """
     listed = subprocess.run(
-        ["gh", "pr", "list", "--repo", repo, "--state", "open", "--label", LABEL, "--limit", "100",
-         "--json", "number,title,body"],
+        ["gh", "pr", "list", "--repo", repo, "--state", "open", "--limit", "200",
+         "--json", "number,title,body,labels"],
         capture_output=True, text=True)
     if listed.returncode != 0:
         raise SystemExit(f"[check-holds] FAIL: cannot list PRs: {listed.stderr.strip()}")
-    prs = json.loads(listed.stdout or "[]")
+    everything = json.loads(listed.stdout or "[]")
+    prs = [pr for pr in everything
+           if any((label.get("name") or "") == LABEL for label in (pr.get("labels") or []))]
     for pr in prs:
         comments = subprocess.run(
             ["gh", "api", f"repos/{repo}/issues/{pr['number']}/comments", "--paginate",
              "--jq", "[.[]|{body}]"],
             capture_output=True, text=True)
-        pr["comments"] = json.loads(comments.stdout or "[]") if comments.returncode == 0 else []
+        if comments.returncode != 0:
+            # A failed read is NOT "this hold names no remedy". Swallowing it to [] turns an unmeasured PR into a
+            # violation, which is the same defect as an empty denominator reported as a clean board: the gate
+            # would name a properly documented hold and the operator would go looking for a remedy that is
+            # already there. Fail with the PR named and the gh error attached.
+            raise SystemExit(
+                f"[check-holds] FAIL: cannot read the comments of #{pr['number']}, so its hold cannot be judged: "
+                f"{comments.stderr.strip() or 'gh returned no error text'}")
+        pr["comments"] = json.loads(comments.stdout or "[]")
     return prs
 
 
@@ -125,12 +148,30 @@ def report(prs: list[dict], held: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def write_summary(path: str, prs: list[dict], held: list[dict]) -> None:
+    """Record the DENOMINATOR next to the finding, in the run's own summary.
+
+    A green line reading "0 without a resolving issue" is indistinguishable from "0 holds were found" unless the
+    number audited is written beside it, and a gate whose scope is invisible gets trusted for the wrong reason.
+    """
+    lines = ["### holds audit", "",
+             f"- **{len(prs)}** PR(s) carry `do-not-merge`",
+             f"- **{len(held)}** without a resolving issue"]
+    if held:
+        lines += ["", "Holds with no resolving issue:", ""]
+        lines += [f"- {item['where']}: {item['title']}" for item in held]
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write("\n".join(lines) + "\n")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=(__doc__ or "check holds").splitlines()[0])
     parser.add_argument("mode", nargs="?", default="check", choices=("check", "report"))
     parser.add_argument("--repo", default="asimov-agent/llgenie")
     parser.add_argument("--fixture", default=None,
                         help="read PRs from a JSON file instead of the API (the tests use this)")
+    parser.add_argument("--summary", default=os.environ.get("GITHUB_STEP_SUMMARY") or None,
+                        help="append the counts to this markdown file ($GITHUB_STEP_SUMMARY by default)")
     args = parser.parse_args(argv)
 
     if args.fixture:
@@ -140,6 +181,8 @@ def main(argv: list[str] | None = None) -> int:
 
     held = findings(prs)
     print(report(prs, held))
+    if args.summary:
+        write_summary(args.summary, prs, held)
     if args.mode == "report":
         return 0
     return 1 if held else 0
