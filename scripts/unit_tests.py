@@ -302,7 +302,7 @@ def main(argv_: list[str] | None = None) -> int:
                          "whole selection")
     ap.add_argument("--marker", default=None,
                     help="pytest -m expression for this run (default: `not network`, the unit gate; "
-                         "pass `network` for the ci-network pipeline, issue #1000)")
+                         "pass `network` for the network pipeline, issue #1000)")
     a = ap.parse_args(argv_)
     if a.cmd == "list":
         for doc in (select_group(a.root, a.group) if a.group else select(a.root)):
