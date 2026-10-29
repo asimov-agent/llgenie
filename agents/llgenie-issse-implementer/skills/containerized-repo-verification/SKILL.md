@@ -283,6 +283,15 @@ Failures that all look like something else — a starved sweeper, a suite whose 
 called unapprovable on a rule of thumb, a fork head that cannot get secrets, and a rebase whose recounts
 (not its conflicts) are the work. Full text with the measurements: `references/queue-and-pr-mechanics.md`.
 
+**A check that reads `cancelled` is not a verdict — it is a run the queue killed, not an answer.** At a
+starved queue the concurrency group cancels your own push's gate attempt seconds after you push, so a
+cancelled `guard` is no evidence about the branch. `gh run rerun <id>`/re-arm to get a real
+`completed/success` or `completed/failure` before quoting the PR's state; and a red in ANOTHER lane's file
+is that lane's to clear, never a "fix" you make in your own tree (it only moves the red to a direction
+guard).
+
+## A new make target: prove every documented knob reaches the CLI
+
 ## Commit before you touch anything else in a worktree
 
 An uncommitted worktree is not storage — it is a file nobody saved, in a directory a branch switch, a
