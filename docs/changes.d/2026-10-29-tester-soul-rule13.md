@@ -1,0 +1,1 @@
+| 2026-10-29 | the tester lane's SOUL and verification skill live in `agents/`, and fleet rules 13 and 14 (never hold a PR without a remedy; announce the work where the work lives) are added to the canonical block every SOUL states | [2026-10-29-tester-soul-rule13.md](agent-wiki/2026-10-29-tester-soul-rule13.md) | #873, #948 |
