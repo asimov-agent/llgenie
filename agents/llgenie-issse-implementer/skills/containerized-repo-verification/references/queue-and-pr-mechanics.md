@@ -87,6 +87,60 @@ A branch whose PR title does not contain the branch's own subject reads as orpha
 looked PR-less by title-grep and had **#886** open, `MERGEABLE`, since hours earlier. The lookup is
 `gh pr list --head <branch> --state all`; a branch without a *matching title* is not a branch without a PR.
 
+## A union of two insertions can be parseable and still be bisected
+
+Resolving a conflict by keeping both sides has two failure modes, and only the first is loud:
+
+- **Loud:** the sides sit inside one function, so "keep both" yields `IndentationError: unexpected indent`.
+  Six conflicts in one file (an `add_argument`, a docstring body, a dict literal) measured this way — the
+  parse error is the *proof* the conflicts are not additive, not a style objection.
+- **Silent, and worse:** the union lands two halves of one function body such that the file still parses,
+  but a branch of the function is gone — measured in llgenie, a merged gate returned `None` from a function
+  that should return a list, and died only when something called it (`TypeError: 'NoneType' object is not
+  iterable`). No red at merge time, no red at import time.
+
+So after any hand-resolved union of code: **diff the merged function against both parents** (`git diff <parent> <merge> -- <file>`) and re-run the tests that exercise it — a green gate is not evidence the
+function survived, because the gate may be the thing that was bisected.
+
+## A closed PR's number stays readable and looks like a live dependency
+
+Parked work held "until #N merges" can be held behind a **closed** PR for hours: the number renders
+identically in a comment and in a search result, so nothing about it reads as dead. Measured: a lane kept
+a delta parked behind a superseded PR while its replacement sat open and armed.
+
+- Before sequencing behind any PR: `gh pr view <n> --json state,mergedAt`. `state=CLOSED` with
+  `mergedAt=null` means the work landed nowhere and the dependency is imaginary.
+- **A superseded PR keeps its head sha.** Quote the *branch tip* (`gh pr view <n> --json headRefOid`) or
+  the command, never a sha from a message — including your own. A reader who verifies an unreachable sha
+  gets `not a valid object name` and cannot tell whether the work exists at all.
+
+## `gh pr merge --auto` exits 0 when it does nothing
+
+Arming has three silent-failure triggers, all of which leave `autoMergeRequest=null` while the command
+succeeds: a **draft**, a `do-not-merge` label, and a **base that is not the default branch** (a PR stacked
+on another branch has nothing to merge into). `mergeStateStatus` may read `UNKNOWN` for the same reason.
+
+- **Read the arm state back; never trust the exit code**: `gh pr view <n> --json autoMergeRequest`. Absent
+  → not armed, and say so with the reason (draft / label / non-default base).
+- **`mergedAt` is not evidence of an arm.** A PR can land by an owner's or a sweep's merge after a failed
+  arm, so a post-hoc look at `mergedAt` confirms a merge that your command never enabled.
+
+## A union merge must be verified, not trusted
+
+"Keep both sides" is only safe when **both sides are whole statements or whole lines at the same
+indentation**. Six conflicts inside functions (an `add_argument`, a docstring body, a dict literal) produce
+`IndentationError` on the merged file — that parse error is the proof the conflict is not additive, so try
+the mechanical resolution and let the interpreter answer instead of arguing about it.
+
+- **A union can silently halve a function**: one side's `return` lands, the other's body is dropped, the
+  helper now returns `None` and the *gate crashes* — which reads as "the gate is broken" rather than "the
+  merge lost a branch of it".
+- After any union, **grep for each side's key symbol** (`grep -c "<def name>"`) and run the tests at the
+  merged head; and prefer the stricter side outright when the two implement the same check at different
+  strengths (a content test beats a size test; keeping both is two implementations of one rule).
+- An assertion pinning an exact set (seven names, a count) reds on the next legitimate addition — assert a
+  **subset** of the guarantee you need, or the gate gets disabled by the first correct change.
+
 ## A PR's blockers are three commands, not a rule of thumb
 
 "Fork head therefore unapprovable" and "`cross=true` therefore can't be armed" are **inferences**, and
