@@ -139,6 +139,13 @@ step below was a defect the first time it was skipped:
 7. **A protected instruction file needs the owner's approval.** Writing a lane's `SOUL.md` may be refused
    as a protected agent-instruction file; that refusal is not something to route around with a shell write.
    Ask, state which rule is missing, and land it in the same commit as its tests once approved.
+8. **One canonical bullet, one place — a duplicate is a second source of truth that drifts first.** Measured
+   on #972: the SOUL "had 16 bullets" yet paraphrased rule 13, because the block sat beside a stray copy of
+   the same title in the lane-rules section. The second copy goes stale while the block stays canonical, so
+   *count occurrences, not a bullet total*: assert the canonical block verbatim AND each canonical rule
+   title appears exactly once in the SOUL. A lane-specific line that merely mentions a rule is fine; a full
+   restatement of a canonical bullet is a drift waiting to happen. The deletion itself may be a protected
+   write (item 7) — pin the occurrence count as a red test first, so no editor ships another duplicate.
 
 **It lands on the branch that carries `agents/`, which may not be `main`.** Check first:
 `git ls-tree -r --name-only origin/main agents/ | wc -l`. If that is `0`, a branch cut from `main` cannot
