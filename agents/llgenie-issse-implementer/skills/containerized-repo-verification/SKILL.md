@@ -21,7 +21,9 @@ write path and the harm it must not over-fire on, versioning a new fleet rule in
 lane's SOUL when its tree copy is the broken side, an audible skip, and why a hand re-seed needs a CALLER on
 a timer),
 `references/queue-and-pr-mechanics.md` (a starved sweeper, queue depth vs `cancel-in-progress`, diff and
-`gh pr list` lookups, union merges, silent arming), `references/llgenie-engine-pipeline.md` (how a registry
+`gh pr list` lookups, union merges, silent arming, and — for a gate that rejects its own branch's
+identities — changing its comparison key: enumerate every consumer of the keyed data, close the pair gap
+symmetrically in every consumer, gate on the tests not the self-run, and negative-control each), `references/llgenie-engine-pipeline.md` (how a registry
 engine becomes a built, published image, and which bot/gate owns each step).
 
 Use whenever `make <gate>` shells into a test image (`docker run … <repo>/test:latest python -m pytest …`)

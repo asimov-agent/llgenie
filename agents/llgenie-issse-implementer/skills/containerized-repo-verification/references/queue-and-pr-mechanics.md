@@ -332,6 +332,38 @@ instruction raises the earlier no-rewrite ruling — escalate a contradiction ra
 history rewrite that cannot clear the gate and that the gate's own durable fix (email-matching) removes
 by construction.**
 
+## Changing a gate's comparison key: enumerate every consumer, and make the tests the evidence
+
+When a gate rejects the very identities its own branch carries (a permitted person under an alias name),
+the fix is to change WHAT the gate compares on — the stable email instead of the display name — not to
+rewrite history. That key change has four hard edges, each of which bit in sequence.
+
+- **The self-gating caveat: the gate runs its own script from the PR's own tree, so the loosened check
+  passes its own `guard` trivially.** A gate that keys on email will approve the PR that just keyed on
+  email. That is not evidence the change is right — **the TESTS are the evidence, not the green self-run**,
+  and the PR body must quote the pytest output. A reviewer who sees only "guard: pass" cannot tell whether
+  the gate loosened by design or was hollowed out.
+- **Changing a dict's KEY semantics ripples to every consumer, not just the "main" check.** Grep the symbol
+  (`ALLOWED`, `grep -n ALLOWED`) across the whole module AND its sibling seam — name→email meant
+  `ALLOWED[name]`-style lookups in the co-author evidence, the producer scan, the seam's `identity()`/`
+  allowed_note()`/`report()`, and every test that read the old shape. A test that still does
+  `ALLOWED.get(name) == email` reimplements the old contract and fails on a shard you did not run.
+- **A fixed pair check re-bites one level up.** Closing the cross-identity gap in `check_producers` but
+  leaving `check_seam.pins_identity` on `any(name allowed) and any(email allowed)` re-introduces the same
+  bug in the other consumer of the same identity. When you fix a comparison-key bug, grep the WHOLE file
+  for every place that used the old semantic (independent `name in` / `email in`), including the commodity
+  helper the seam reuses, and fix them symmetrically.
+- **A name×email cross-product pair check false-flags a producer that legitimately pins two full
+  identities.** Pair-checking by iterating every (name, email) reports A-name/B-email and B-name/A-email
+  "mixed pairs" that never co-occur. Fire the pair finding only when the file has NO valid pair at all;
+  a multi-identity producer passes, a genuinely mixed one still reds.
+
+Each of the four gets a negative control: loosen the check and the pinning test must fail before it passes.
+
+The durable-fix framing when the gate contradicts its own history: an alias list is NAMES only — an allowed
+name at the wrong email still fails, so a typo'd-domain commit stays a violation even after the email-keying
+fix. The stable key is the email; the display name is a spelling the squash writes from the profile.
+
 ## A PR's blockers are three commands, not a rule of thumb
 
 "Fork head therefore unapprovable" and "`cross=true` therefore can't be armed" are **inferences**, and
