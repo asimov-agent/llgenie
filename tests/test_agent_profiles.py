@@ -837,6 +837,13 @@ def test_the_author_gate_lesson_is_in_the_skill():
                    "a policy change in the gate's own allowlist",
                    "a conversation first"]:
         assert phrase in ref, f"the author-gate lesson is missing: {phrase}"
+    # A re-author ORDER can be stale (3-vs-14) and contradict an earlier no-rewrite ruling:
+    # measure at the current head and escalate, never force-push a rewrite that cannot clear the gate.
+    for phrase in ["a re-author instruction can itself be built on a stale head",
+                   "escalate a contradiction rather than force-push",
+                   "email-matching) removes",
+                   "cannot clear the gate"]:
+        assert phrase in ref, f"the stale-re-author-order guard is missing: {phrase}"
 
 
 def test_the_arm_when_done_rule_is_in_the_skill():
