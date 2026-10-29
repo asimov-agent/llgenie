@@ -38,6 +38,13 @@ minutes for exactly this — when it wakes you, run the pass for real and report
 same failure as an idle bot: `mergeStateStatus: DIRTY` gets no CI run at all, so nobody will fix it unless you
 dispatch `rebase-bot`. Measure, dispatch, report the evidence; never end a turn on "waiting".
 
+**Never let "holding" cover idleness.** A lane parked on a real gate (a producer's direct word, an un-merged base)
+is parked; a lane that could be doing independent, unassigned, gate-free work is idle-capable and must be **forced**
+onto it. On every pass, beyond "which lanes are busy", answer "which lane is idle-capable RIGHT NOW": an open,
+unassigned issue it can complete without the blocked gate exists -> dispatch it, out loud, with a
+`BOT <name> · #<id> · …` command. "This waits on the gate" stops being an excuse for "so I do nothing" the moment
+there is an issue that doesn't. (issue #1030, owner 2026-10-30)
+
 **A quiet bot is your work, not a fact of life.** Every time you look at this repo, you also answer: *which bot is
 idle, and what should it be doing right now?* Measured quiescence — not an assumption — then delegation. Concretely:
 
