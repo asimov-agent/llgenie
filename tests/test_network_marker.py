@@ -179,6 +179,56 @@ def test_network_marked_tests_exist_and_are_inside_the_gate():
     assert marked, "no selected test carries @pytest.mark.network — the marker excludes nothing"
 
 
+def _net_node_parts(node: str) -> tuple[str, str]:
+    """(file, testname) for a collected pytest node id, stripping any [params] suffix."""
+    if "::" not in node:
+        return ("", "")
+    f, t = node.split("::", 1)
+    return (f, t.split("[", 1)[0])
+
+
+def test_the_network_pipeline_owns_the_marks():
+    """#1002 ownership proof: every `@pytest.mark.network` test is genuinely MEMBER of the network
+    pipeline's set — `pytest --collect-only -m network` (the seam `make test-unit-network` runs)
+    must collect every network-marked node. A marker pytest cannot select under `-m network` is not
+    membership, it is decoration. (The `-m "not network"` twin is the execution pin; this proves the
+    marks are ALSO reachable by the network side, per the owner's #1002 split.)"""
+    import subprocess as _sp
+
+    files = ut.select(REPO)
+    marked: dict[str, set[str]] = {}
+    for doc in files:
+        names = {
+            m.group(1)
+            for m in re.finditer(
+                r"@pytest\.mark\.network\s*\n\s*(?:async\s+)?def\s+(test_\w+)\(", (REPO / doc).read_text()
+            )
+        }
+        if names:
+            marked[doc] = names
+    assert marked, "no network-marked test — nothing for the network pipeline to own"
+
+    argv = [sys.executable, "-m", "pytest", "--collect-only", "-q", "-m",
+            "network", "-p", "no:cacheprovider", *files]
+    run = _sp.run(argv, cwd=REPO, capture_output=True, text=True)
+    assert run.returncode == 0, run.stdout[-1500:] + run.stderr[-1500:]
+    collected = {
+        _net_node_parts(ln.strip())
+        for ln in run.stdout.splitlines()
+        if "::" in ln
+    }
+    missing = [
+        f"{doc}::{name}"
+        for doc, names in marked.items()
+        for name in sorted(names)
+        if (doc, name) not in collected
+    ]
+    assert not missing, (
+        "#1002 ownership: these network-marked tests are NOT collected by the `-m network` seam, "
+        "so the network pipeline does not own them:\n" + "\n".join(missing[:8])
+    )
+
+
 _OPEN_RE = re.compile(
     r"\b(urlopen|urlretrieve|snapshot_download|hf_hub_download|hf_hub_snapshot_download|"
     r"repo_download|download_file|requests[._](get|post|put|head|delete|request|stream)|"
