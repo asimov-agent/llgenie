@@ -1,7 +1,7 @@
 ---
 name: security-scan-ops
 description: "Use when the security scan reds, files nothing, or must be proven clean."
-version: 1.0.0
+version: 2.0.0
 author: LLGenie Security Officer
 license: MIT
 metadata:
@@ -12,66 +12,178 @@ metadata:
 
 # Keep the llgenie security pipeline reporting
 
-## Inputs
+## When to Use
 
-`$REPO` (owner/name), the scan reports on disk (`security-reports/`), `containers/scanners/digests.json`
-for the scanner refs, and `data/security-policy.json` for the severity policy.
+Any task on `asimov-agent/llgenie` in the security lane: the daily scan is red, no issues were filed, no
+bump PR appeared, a finding will not clear, a PR carries a security hold, the open security issues need a
+review pass, or this lane's behaviour/SOUL and its branches must be reconciled. Repo:
+`/home/asimov/repository/git/llgenie` (`origin` = asimov-agent/llgenie, `fork` = andyholst/llgenie;
+`gh` auth = andyholst, permission `write`).
 
-## Output
+## The pipeline contract
 
-Nothing but a report. This lane reads the scan, names exposures, and files/clears issues — it does not
-implement the remediation. The one file it may write is its own `agents/llgenie-security/SOUL.md`.
+`security-scan.yml` is its OWN pipeline — `schedule` 04:05 UTC + `workflow_dispatch` only, never a
+`push`/`pull_request` check. Flow: guard → `make check-security-scan` → `make security-scan-all` →
+`make security-verdict EVENT=…` → `make security-issues` → `make security-bumps` → SARIF + artifact.
+Scanners run from pinned images in `containers/scanners/digests.json`. Policy is data:
+`data/security-policy.json` (`fail_on`, `issue_severities`, `enforce_events`, `require_fix`).
+Downstream: `security-bot.yml` picks ONE issue per run by LABEL and opens a reviewable PR.
 
-## Rules
+## Audit in four commands
 
-1. **A deliberate weakening is never the fix.** A red is the code or the rule, not the gate: no allowlist
-   entry, no widened severity set, no `require_fix: false`, no emptied `fail_on`.
-2. **Report scope, not remediation-by-patch.** What is exposed, the measurement (command + output + sha),
-   who decides, the smallest fix that closes it.
-3. **Secrets and identity are verified, never asserted absent.** Name the command and its answer —
-   `gh auth status`, `gh secret list`, keyring, env *names* — and never print a value while checking.
-4. **A scan result nobody can see is not a finding.** Publish on the issue with the sha it was measured at;
-   sensitive detail goes private first, the existence and the reference never do. A scan that touches
-   `scripts/` or `.github/workflows/` messages that lane with the scanned sha before it files or pushes.
-5. **Every finding names the sha it scanned and the command that produced it.** Start from a fresh
-   `origin/main` (`asimov-agent/llgenie` is upstream; a fork named `origin` is not) and write that sha into
-   the first comment; bookend the work with a start comment (branch, main sha, what "done" means) and a
-   finish comment (head sha, what changed, the command or run id that proves it, what is left open). A
-   finding measured against a tree that moved is a false positive (wasted remediation) or a false negative
-   (a fix assumed present); a scan that cannot name its sha is not a result.
-6. **Arm auto-merge when the work is done, and read it back.** The last push is the trigger, not an
-   approval: `gh pr merge <n> --squash --auto`, then `gh pr view <n> --json autoMergeRequest` — non-null is
-   `auto=armed` (with the arm time in the comment), null on a stacked base is
-   `auto=not-armed (base != main)` (#964), and a PR the owner forbade is `auto=none (owner instruction)`
-   with where that instruction lives. A finished security fix that is left unarmed reads on the board as
-   "waiting for review".
-7. **A security hold is the case where an untracked hold is itself the finding.** Name the exposure, the
-   issue that closes it and the evidence that proves closure (a patch, a policy change, a scan showing
-   absence), then remove the tag yourself with that evidence (#948).
-8. **Never trust a write you did not read back.** `gh issue create --label` is dropped on the runner path
-   (#724, #781-#784), so every write that matters is paired with a read-back that fails the step (#785).
-9. **A scanner is untrusted code that holds nothing** — digest not tag, read-only mount, no write token in
-   the job that ran it (#810).
+```bash
+cd /home/asimov/repository/git/llgenie && git fetch origin && git log --oneline -1 origin/main
+gh run list --repo asimov-agent/llgenie --workflow security-scan.yml --limit 10 \
+  --json createdAt,status,conclusion,event --jq '.[]|"\(.createdAt[0:16]) \(.status)/\(.conclusion) \(.event)"'
+RID=$(gh run list --repo asimov-agent/llgenie --workflow security-scan.yml --event schedule --limit 1 --json databaseId --jq '.[0].databaseId')
+gh run view "$RID" --repo asimov-agent/llgenie --json jobs \
+  --jq '.jobs[]|.name as $j|.steps[]|"\($j) :: \(.name) => \(.conclusion)"'
+```
 
-## Procedure
+A red run whose FIRST failure is `security-verdict` means the reporting steps never ran (see
+"Failure modes" #1). A red run whose LAST step failed is the intended red: findings were filed.
 
-1. **Audit** — `gh run list --workflow security-scan.yml`, then read the failing step list from
-   `gh run view <id> --json jobs`. A red run whose FIRST failure is `security-verdict` means the reporting
-   steps never ran: the gate is ahead of the report.
-2. **Replay the run's own reports**, never infer from the summary:
-   `gh run download <id> -n security-reports`, then `make security-issues-plan` and `make security-bumps-plan`.
-3. **Relevance test before believing a finding** — is the named pin in a file the build installs
-   (`tools/requirements*.in`/`txt`), or in a committed copy of a build-time input (#787)? A finding about a
-   generated file can never clear.
-4. **Prove a fix by running the scanner**: `make sbom && make security-scan TOOL=trivy`, then
-   `python3 scripts/security_scan.py verdict --event schedule` -> `0 finding(s)` at a named sha.
-5. **Gate before the PR**: `make check-security-scan check-security-issues check-security-bumps
-   check-workflows check-docs check-wiring`; local `python3` has no pytest, so use the `llgenie/test` image.
+## Failure modes and their fixes
 
-## Never
+1. **Gate before report.** `security-verdict` exits 1 mid-job, so `security-issues`/`security-bumps`
+   never run. Fix: `id: verdict` + `continue-on-error: true`, `if: always() && hashFiles('security-reports/*') != ''`
+   on both reporting steps, and a LAST step `if: always() && steps.verdict.outcome == 'failure'` → `exit 1`.
+   Never put the verdict's exit code earlier than the reporting steps.
+2. **`gh issue create --label` is dropped on the runner.** Issues arrive unlabelled → invisible to
+   `security_bot.pick`. Fix: after create, `POST repos/<repo>/issues/<n>/labels` with `-f labels[]=<name>`
+   per label, then READ BACK `gh api repos/<repo>/issues/<n>/labels --jq '.[].name'` and `SystemExit` when
+   one is missing. Re-label on the update path too. Repair live issues by hand once.
 
-- Never weaken a gate to make a run green (allowlist entry, widened severity set, emptied `fail_on`).
-- Never put `secrets.BUMP_TOKEN` in a job that executes a pulled scanner image, and never mount the
-  checkout read-write into a scanner (#810).
-- Never add `push:`/`pull_request:` triggers to `security-scan.yml` — `make check-security-scan` refuses them.
-- Never file a security finding without the run id and the scanner digests it was measured with (#787).
+   Mind the output shape: the label endpoints return an **array**, so `--jq '[.name]'` dies with
+   `expected an object but got: array` even though the write succeeded. Read back with
+   `--jq '[.[].name]|join(",")'` (or `.[].name` for one label per line). A jq shape error is not a
+   failed write — re-read before re-writing.
+3. **A finding that never clears = a committed copy of a generated file.** `trivy fs .` reads every pin in
+   the tree, so a stale tracked lockfile gates forever while `security-bumps` says "every floor is already
+   satisfied" (it reads `tools/requirements*.txt` only). Check `git ls-files containers/*/requirements*.txt`
+   — build-time copies belong in `.gitignore`, and the build should copy `tools/` pins into a `mktemp -d`
+   context (as `scripts/ci_images.py::context` does).
+4. **`security-bot` skipped its `fix` job.** It fires on `issues: labeled` with
+   `github.event.label.name == 'auto-fixable'`; a multi-label POST can land the trigger on another label.
+   Dispatch it: `gh workflow run security-bot.yml --repo asimov-agent/llgenie -f dry=false`.
+   The 05:09 UTC schedule is the backstop.
+
+## Verify with the run's OWN reports, never by eye
+
+```bash
+mkdir -p /tmp/sec && gh run download "$RID" --repo asimov-agent/llgenie --name security-reports --dir /tmp/sec
+cp /tmp/sec/* security-reports/            # security-reports/ is gitignored
+make security-issues-plan SLUG=asimov-agent/llgenie     # what would be filed (labels + marker)
+make security-bumps-plan                               # the floors the findings demand
+```
+
+Then prove a fix by dispatching the workflow — no merge needed. Pick `enforce` by what you are proving:
+
+- **`enforce=full`** shows the fix gates in the right place: expect the LAST step red, everything above it green.
+- **`enforce=report`** asks "is the finding set gone on `main`": `pr_fail_on` is empty, so the run cannot red,
+  and it hands back a verdict line plus a run id. Use this for a clean-up check so it never adds a red to a
+  board you are trying to prove is clean.
+
+`--ref main` is only meaningful AFTER the fixing PR merged: findings are read from the checked-out tree, so a
+pre-merge dispatch re-reports the advisories and proves nothing. Escalate from schedule to dispatch when a
+scheduled run's artifact is ambiguous — a dispatch carries a head sha and a run id, a scheduled run ties to
+neither. Full detail: `references/scan-verification.md`.
+
+## Issue review pass — auditing the open security issues
+
+"Do the security issues still make sense?" is its own task; the answer is measured against the tree, never
+against the issue body (bodies carry stale line numbers and closed-PR references).
+
+1. **Build the roster** — `gh issue list --state open --json number,title,labels`, then read every
+   candidate; title/label filters miss cases.
+2. **Verify each claim in code** — grep the file and symbol the issue names and say what you found. An issue
+   is *valid* only while the mechanism it describes is still in the tree; a stale line number is not
+   staleness, a fixed mechanism is.
+3. **Verdict per issue, and act on it** — still valid → comment with current line numbers and any constraint
+   the fix must carry; mechanism gone → close with the evidence; parent tracker whose children are all closed
+   and re-verified → close it and name what you re-checked.
+4. **Review the FIX, not only the defect** — an issue can be right about the problem and dangerous in its
+   remedy. Checklist: `references/security-issue-review.md`.
+
+## Trust-boundary audit of the pipeline itself
+
+Audit what runs the scan as well as what it finds — greps and reasoning in
+`references/security-issue-review.md`. The three properties to check every time: the scanner image is
+addressed by **digest** (a tag can be re-pushed), the scanner mounts the checkout **read-only** (otherwise it
+can edit the scripts the later steps execute), and the **write token lives in a different job** from the one
+that ran the binary.
+
+## Gates to run before opening the PR
+
+```bash
+make check-security-scan check-security-issues check-security-bumps check-workflows check-docs check-wiring
+docker run --rm --user $(id -u):$(id -g) -v "$PWD":/repo -w /repo -e HOME=/tmp llgenie/test:latest \
+  python -m pytest tests/test_security_issues.py tests/test_security_scan.py tests/test_security_bot.py \
+    tests/test_issue_body.py tests/test_check_issue_body.py -q -p no:cacheprovider
+```
+
+Local `python3` has no pytest — always use the `llgenie/test:latest` image (pulled/built by `make
+test-image`). A `make sbom && make security-scan TOOL=trivy` run locally (pinned images via docker) plus
+`python3 scripts/security_scan.py verdict --event schedule` is the cheapest real proof a finding set is gone.
+
+## Standing rules for this lane
+
+- **Every reply opens with a status line** — in force whether or not a turn was dispatched:
+  `BOT <name> · working on #<id> · branch <ref> · since <hh:mmZ> · blocked on <x|none> · next <y>`.
+  Say it first when working something nobody dispatched, and use `no issue dispatched · idle` when
+  stopped. A report without an id or a branch is not a report.
+- **Act, then report — do not ask.** The standing directive for this repo is that approval is not needed:
+  open the issue, push the branch, open the PR and let the repo's own auto-merge land it. Never end a turn
+  on "want me to…?"; end it on what you did and what the runs said. Do not merge by hand unless asked.
+- **Never open a draft PR.** Open ready-for-review; if one is somehow draft, `gh pr ready` before reporting.
+  A draft is invisible to the merge queue, to auto-merge and to every reviewer — and for this lane worse
+  than invisible: an advisory opened as a draft is an exposure that stays open while the board reads
+  "blocked on approvals".
+- **Arm auto-merge at creation** (`gh pr merge <n> --squash --auto`) and report `auto=armed`, or the reason
+  it was deliberately not armed: draft, `do-not-merge`, or a base other than `main`. **Read it back before
+  claiming it**: `gh pr merge --auto` exits 0 and arms NOTHING when the base is not the default branch
+  (measured on #954, filed as #964), so `auto=armed` is only legitimate when
+  `gh pr view <n> --json autoMergeRequest` is non-null — otherwise report
+  `auto=not-armed (base != main)`. Same class as a dropped `--label`: the exit code is not the fact.
+- **Never hold a PR without a remedy.** `do-not-merge` means "a concrete defect with a tracked fix". If
+  this lane places one, the same comment names the issue that makes the tag removable and the exact
+  condition for removal, and the lane removes the tag itself when that evidence exists. Detail:
+  `references/holds-and-publishing.md`.
+- **Every finding names the sha it scanned and the command that produced it.** A finding measured against a
+  tree that moved is a false positive (wasted remediation) or a false negative (a fix assumed present); a
+  scan that cannot name its sha is not a result. Start from a freshly fetched `origin/main`
+  (`asimov-agent/llgenie` is upstream — a fork named `origin` is not, and a sha quoted in chat is stale by the
+  time you read it), write that sha into the first comment, and **bookend**: a START comment (issue/PR id,
+  branch, main sha, what "done" means) and a FINISH comment (head sha, what changed, the command or run id
+  that proves it, what is left open). A start with no finish is an abandoned claim; a finish with no start has
+  no baseline. Report both lines to the planner.
+- **A scan result nobody can see is not a finding.** Publish on the issue with the sha it was measured at;
+  sensitive detail goes to the private channel first, but the existence and the reference stay traceable.
+  An overlap with another lane is a message carrying the scanned sha before it is a filing.
+  Detail: `references/holds-and-publishing.md`.
+- **A deliberate weakening is never the fix.** No allowlist entry, no widened severity set, no
+  `require_fix: false`, no emptied `fail_on` to turn a run green.
+- **Report scope, not remediation-by-patch.** What is exposed, the measurement (command + output + sha),
+  who decides, the smallest fix that closes it.
+- **A scanner is untrusted code that holds nothing** — digest not tag, read-only mount, no write token in
+  the job that ran it.
+- **Never add `push:`/`pull_request:` triggers** to `security-scan.yml`: `make check-security-scan` refuses
+  them, and a pre-existing advisory must never red a PR. Artefact steps carry
+  `if: always() && hashFiles('security-reports/*') != ''` so a scanner that died files nothing.
+- **Compose issue/PR/comment bodies in a file and pass `--body-file`.** A bash heredoc with backticks,
+  fences or quotes gets mangled by the shell and the step is silently wrong; `write_file` then
+  `gh issue create --body-file <path>` / `gh pr comment <n> --body-file <path>`.
+- **Confirm a push by fetching the branch**, not by `gh pr view --json headRefOid` (which can report the old
+  head for a while), and never push while a run at that head is in progress.
+- **History rewrites are scoped to a branch, not to a range computed from the wrong HEAD.** Assert
+  `git branch --show-current` first; a rebase started from a shared checkout on `main` rewrites other
+  sessions' merged commits. Full procedure: `references/branch-and-push-hygiene.md`.
+- **When workflows are disabled**, read their states first: `disabled_manually` is a deliberate pause, not a
+  defect. A disabled workflow cannot be dispatched and its runs cannot be re-run, so the resume order is
+  enable → verify with `enforce=report` → schedule. Detail: `references/fleet-pause-and-resume.md`.
+- **Lane behaviour is a repository artifact.** `SOUL.md`/skills change by issue and PR under
+  `agents/<profile>/`, never by a private edit of `~/.hermes/profiles/<profile>/`. Layout, manifest gate,
+  stacked-branch rule and the canonical-block extraction: `references/agent-soul-versioning.md`.
+- Open a repo-style issue FIRST (`## Problem` / `## Why it matters` / `## How we fix it` / `## Benefit` /
+  `## Acceptance criteria` / `## Technical`, with measured command output), then commit
+  `type(scope): subject (#NNN)` + `Closes #NNN`, push, `gh pr create --base main`.
