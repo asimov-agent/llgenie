@@ -98,13 +98,13 @@ DATA_PATH_FILES = (
     "test_install_trend.py",
 )
 
-# The complete real-Hub ownership set across those files, from the routing census (issue #1000):
-# ONLY test_trend_pick genuinely opens the Hub. Five tests do real i/o (named "for real"/"live"/"full
-# download", no `urlopen` monkeypatch in their bodies; the fifth reaches the Hub through a model-dict
-# host, so a literal-host pin cannot see it — caught by the tester's review, not the pin). Everything
-# else is hermetic by construction (0 open primitives) or reaches only a localhost serve / non-Hub, so
-# nothing else may be marked. test_plan_download_per_format_live_hub is deliberately ABSENT: it only
-# plans, no i/o.
+# The complete real-Hub ownership set across those files, from the routing census (issue #1000).
+# Two files genuinely open the Hub: test_trend_pick (five tests) and test_model_engine_pick (one). Each real test reaches the Hub through a model dict (`mp.download(model, ...)`), so the URL
+# host is implied by the model's `hf` key, NOT a literal huggingface.co line — which is why a
+# literal-line census undercounted (the tester's review caught the gaps, and this exact-equality pin
+# reds on any mark the census didn't predict). Everything else is hermetic by construction (0 open
+# primitives) or reaches only a localhost serve / non-Hub, so nothing else may be marked.
+# test_plan_download_per_format_live_hub is deliberately ABSENT: it only plans, no i/o.
 EXPECTED_NETWORK_TESTS = {
     "test_trend_pick.py": {
         "test_live_upstream_registry_is_the_live_readme_list",
@@ -112,6 +112,9 @@ EXPECTED_NETWORK_TESTS = {
         "test_select_downloads_a_missing_model_for_real",
         "test_download_mlx_repo_snapshot_for_real",
         "test_full_download_through_hf_download_places_the_complete_gguf",
+    },
+    "test_model_engine_pick.py": {
+        "test_download_fetches_a_real_chunk_of_the_chosen_file",
     },
 }
 
