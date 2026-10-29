@@ -532,6 +532,16 @@ about the branch that now carries its commits.
 A PR with `autoMergeRequest` set and one `queued` check is **waiting on the queue**, which is not the same
 as blocked by its head's location, and neither is the same as blocked by review policy.
 
+## Rebase only when the branch is CONFLICTING, never on every `main` move
+
+An armed branch does not need to chase `main`. `main` advances constantly while a PR sits upstream, and
+a rebase on every move is churn that rewrites shas under every stacked child and forfeits the arm's
+verdict. The owner correction: **rebase only when the PR is actually `CONFLICTING`, or its base merges**;
+a branch that is `MERGEABLE` but slightly behind is not broken. Before touching it, verify the trigger —
+`gh pr view <n> --json mergeable` → `MERGEABLE` means leave it armed and report, `CONFLICTING` means
+rebase. This is the flip side of the older "rebase the whole branch onto fresh main" rule: that rule is
+for when a rebase is actually owed, this one says a behind-but-clean branch is not a reason to rebase.
+
 ## Rebasing a stacked child onto a moved parent — the `--onto` three-argument form
 
 To move a stacked PR's *own commits* on top of a parent that has advanced, the rebase needs the upstream
@@ -549,6 +559,18 @@ Recover from the mistake before pushing: the dropped commit still exists (`git c
 `git reset --hard <sha>` puts the branch back, then re-run with the correct upstream. Verify the child is a
 descendant of the new parent tip before force-pushing: `git merge-base --is-ancestor origin/<parent> HEAD`
 must be true.
+
+**A stacked child rebased onto a moved parent can conflict on ANOTHER lane's SOUL, and the resolution must
+keep BOTH the lane's new content and your scoped edit.** When the parent advances with a commit that touched
+a lane's `SOUL.md` (its own new rule bullet) in the same own-rules section your child edits (a dedupe), the
+rebase across it conflicts there. Resolve by taking the PARENT's version of the file (the other lane's bullet
+is correctly placed) and re-applying ONLY your scoped change — never "keep either side" wholesale, and never
+let the dedupe side drop the other lane's new bullet (measured: the dedupe-side resolution silently removed
+a lane's monitoring bullet). After resolving, verify BOTH properties survive: the other lane's new content
+present (`grep -c "<its bullet>"` = 1) AND your dedupe applied (`_duplicate_rule_debts` on that lane is
+`[]`), then re-check every SOUL's `block_in_soul` — a bullet placed inside the canonical fence instead of
+the own-rules section breaks the byte-identical compare (6820 b vs 5842 b). Amend the corrected file into the
+child commit and force-push to finish.
 
 ## Two vehicles for one gate fix land the same line on ONE, never both (the #824 collision shape)
 
