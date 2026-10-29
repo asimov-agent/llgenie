@@ -1694,50 +1694,30 @@ def test_gpu_scripts_can_run_on_cpu_for_tests():
         assert '[ -n "${LLGENIE_NO_GPU:-}" ] && gpu=(' in body and '"${gpu[@]}"' in body
 
 
-def test_install_published_is_the_last_stage_per_mocked_backend():
-    """make install is tested LAST, against the published images, per backend
-    (cpu/cuda/rocm/vulkan mocked via LLAMA_BACKEND), after engine-published-test."""
+def test_install_published_lives_in_the_engine_build_producer_not_the_ci_pipeline():
+    """#1027: the install/dry/uninstall consumer test of every published engine image runs in
+    the engine-build PRODUCER workflow — after push-engine, on the image that row just published
+    (make test-engine-install: install -> test-built-engine -> ci-install-dry -> ci-install-uninstall) —
+    NOT as a ci.yml / linux-published / published.yml install stage. The ci pipeline must not own an
+    engine build/test surface."""
+
     import yaml as _y
-    jobs = _y.safe_load((REPO / ".github/workflows/ci.yml").read_text())["jobs"]
-    for side in ("linux-published",):
-        caller = jobs[side]
-        # #867 added engine-matrix: the published family asks it whether this run pushed an image,
-        # so `pushed` selects the four install rows or the single `none` placeholder row.
-        assert caller["needs"] == ["engine-matrix", "engine-image", "ci-images"]
-        assert "!cancelled()" in caller["if"]
-        # a skipped uses: job reports no check names, so a PR must run it too
-        # (merge API: "4 of 14 required status checks are expected", PR #126)
-        assert "github.event_name == 'pull_request'" in caller["if"]
-        assert "needs.engine-image.result == 'success'" in caller["if"]
-        assert caller["uses"] == "./.github/workflows/published.yml"
-    # continue-on-error is illegal on a uses: job: GitHub stops treating the job
-    # as a workflow call and then reports uses/with unexpected and runs-on
-    # missing (PR #126, run 38104306645). The if: is what skips a push-only job.
-    for name, job in jobs.items():
-        if "uses" in job:
-            assert "continue-on-error" not in job, name
-    job = _y.safe_load((REPO / ".github/workflows/published.yml").read_text())["jobs"]["install-published"]
-    # #844: the four backends are selected by the producer's `pushed` output, and the `none`
-    # placeholder row is what keeps every check name reporting on a pull request that pushed nothing.
-    backend = str(job["strategy"]["matrix"]["backend"])
-    assert "inputs.pushed == 'true'" in backend, backend
-    for name in ("cpu", "cuda", "rocm", "vulkan"):
-        assert f'"{name}"' in backend, backend
-    assert '["none"]' in backend, backend
-    runs = [st.get("run", "") for st in job["steps"]]
-    assert any("docker login ghcr.io" in r for r in runs)
-    assert any("make ci-engines BACKEND=${{ matrix.backend }}" in r for r in runs)
-    mk_ = (REPO / "Makefile").read_text()
-    assert "python3 scripts/ci_engines.py $(BACKEND)" in mk_.split("\nci-engines:", 1)[1].split("\n\n", 1)[0]
-    assert not any("make build-engine" in r or "BUILD=1" in r for r in runs)
+    ci_jobs = _y.safe_load((REPO / ".github/workflows/ci.yml").read_text())["jobs"]
+
+    # The engine build/publish/test job family and the linux-published install stage are OUT of ci.yml
+    for gone in ("engine-base", "engine-matrix", "engine-image", "engine-published-test", "linux-published"):
+        assert gone not in ci_jobs, f"{gone} must not be a ci.yml job (engine build/test lives in engine-build)"
+
+    # The producer (engine-build) owns the install-test, after it published the image
+    wf = (REPO / ".github/workflows/engine-build.yml").read_text()
+    assert "make test-engine-install ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}" in wf
+    assert wf.index("run: make push-engine") < wf.index("run: make test-engine-install"), \
+        "the producer's install leg must run AFTER it published the image"
+
     mk = (REPO / "Makefile").read_text()
-    recipe = mk.split("\ntest-install-published:", 1)[1].split("\n\n", 1)[0]
-    assert "LLAMA_BACKEND=$(BACKEND)" in recipe and "LLGENIE_NO_GPU=1" in recipe
-    assert "tests/test_install_published.py" in recipe
-    t = (REPO / "tests" / "test_install_published.py").read_text()
-    for needle in ('"(pull published images only)"', '"[engine-image] built" not in', '"--pick", "--auto", "--engine"',
-                   '_make("uninstall")', '("prism", "prism-server", "llama.cpp-prism")'):
-        assert needle in t, needle
+    recipe = mk.split("\ntest-engine-install:", 1)[1].split("\n\n", 1)[0]
+    for needle in ("engine-install", "test-built-engine", "ci-install-dry", "ci-install-uninstall"):
+        assert needle in recipe, needle
 
 
 def test_pre_publish_jobs_build_and_the_pull_only_install_runs_last():
