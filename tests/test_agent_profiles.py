@@ -1471,6 +1471,25 @@ def test_the_doc_soul_stated_block_matches_the_gate_canonical():
     )
 
 
+def test_one_vehicle_for_a_gate_follow_on_lesson_is_in_the_skill():
+    """The two-vehicle one-line landing rule, pinned so the #824 collision shape cannot recur.
+
+    When #993 and #977 both fix the same email-keyed author gate, the architect co-author line owed by
+    each must land on the consolidation WINNER only, never both. The lesson must survive the next rewrite
+    of the ref, or a lane pushes the line onto both vehicles and re-creates the collision.
+    """
+    ref = " ".join((REPO / "agents" / "llgenie-issse-implementer" / "skills"
+                    / "containerized-repo-verification" / "references"
+                    / "queue-and-pr-mechanics.md").read_text().lower().split())
+    for phrase in ["two vehicles for one gate fix",
+                   "land the same line on one, never both",
+                   "the vehicle that wins the consolidation",
+                   "landing it on both is how `#824` became a",
+                   "measure the gate's own `aliases`/`allowed` symbol",
+                   "co-authored-by: llgenie architect <architect@llgenie.local>"]:
+        assert phrase in ref, f"the one-vehicle landing lesson is missing: {phrase}"
+
+
 def test_the_oneto_rebase_of_a_stacked_child_lesson_is_in_the_skill():
     """The `--onto` three-argument form, pinned so the drop-the-child mistake cannot recur.
 
