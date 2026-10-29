@@ -30,6 +30,11 @@
       "profile": "llgenie-ci-pipelines-maintainer",
       "reason": "states no rule-13 (hold-without-remedy) or rule-14 (announce-the-work) bullet; the llgenie-ci-pipelines-maintainer lane owns its SOUL and copies the block from agents/standing-rules.md",
       "owner": "llgenie-ci-pipelines-maintainer"
+    },
+    {
+      "profile": "llgenie-tester",
+      "reason": "does not state the current canonical block; its lane owns the file and copies agents/standing-rules.md",
+      "owner": "llgenie-tester"
     }
   ]
 }
