@@ -73,6 +73,30 @@ deliberately, top first.
   was copied under a different name than the directory it lives in.
 - **`check-agent-profiles` red for a rule the manifest declares** — the SOUL states the rule in prose
   that does not match the manifest's rule name; state it verbatim.
+- **The tree copy states the fleet block TWICE and the first copy is stale.** The gates do not count
+  headings, so a SOUL can carry the canonical text twice — once from before the last rule was added,
+  once correct — and look fine. Detect it mechanically before deciding which side is right:
+
+  ```
+  python3 - <<'PY'
+  from pathlib import Path
+  H = "## Standing rules (fleet, learned 2026-10-28)"
+  canon = H + "\n\n" + Path("agents/standing-rules.md").read_text().split(H, 1)[1].strip("\n")
+  for label, p in (("TREE", <tree soul>), ("LIVE", <live soul>)):
+      parts = Path(p).read_text().split(H)
+      ok = [H + "\n\n" + part.split("\n## ")[0].strip("\n") == canon for part in parts[1:]]
+      print(label, "blocks:", len(parts) - 1, "canonical?", ok)
+  PY
+  ```
+
+  One block and `[True]` in the live profile against `[False, True]` in the tree means the **live
+  side is the good one** and the re-take runs live → tree, even though the guard's message is phrased
+  about a newer live mtime. Decide the direction from this comparison, never from the mtime alone.
+- **Never force a sync over a live file another lane just edited without reading both.** The live
+  profile is edited by other lanes too; a `REFUSED … live newer than the source commit` can be a real
+  in-flight edit. Read the diff, decide which side is correct (canonical-block comparison above), and
+  if the tree is the defective side, take live → tree **on your own branch** — never push to a branch
+  you were not dispatched for, and say in the thread which sha the copy came from.
 - **`sync ... REFUSED ... the live file was edited AFTER the tree copy was committed`** — the guard is
   **mtime**, not content, so it fires on your own earlier sync too. Diff first (`diff` the live file
   against the tree copy) and only force when the bytes are identical. **`make sync-agent-profile`
