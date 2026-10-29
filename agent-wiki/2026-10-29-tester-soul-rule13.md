@@ -1,6 +1,6 @@
-# The tester lane states fleet rule 13 in its SOUL and its verification skill
+# The tester lane states fleet rules 13 and 14 in its SOUL and its verification skill
 
-**Issue:** #873 (fleet rules versioned in `agents/`), #948 (a hold needs a remedy). **Measured:** 2026-10-29,
+**Issue:** #873 (fleet rules versioned in `agents/`), #948 (a hold needs a remedy), #873 rule 14 (a result lives on the PR). **Measured:** 2026-10-29,
 `agents/ci-maintainer-soul@a4b398f9`.
 
 ## What changed

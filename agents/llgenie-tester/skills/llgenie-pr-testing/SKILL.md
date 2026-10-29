@@ -132,6 +132,14 @@ four gates that can fail first and without `if: always()` — a lint failure hid
 
 ## 7. Post evidence, never a merge
 
+- **A result lives on the PR, with the run id and the sha** (fleet rule 14, #873): the shape is
+  `run <id> · <sha> · <n> passed / <n> failed · <failing test names>`. A verdict delivered to one
+  person is invisible to the lane that must fix it and to the next reader who must trust it — so the
+  comment goes on the PR, and only the *pointer* to it goes into a message.
+- **When another lane is repairing the PR, message it with the failing test and the run id instead of
+  re-running into its push.** Re-running is a push into `cancel-in-progress`: it destroys the matrix
+  that lane is waiting on, and the result it was going to produce.
+
 Comment on the PR with the run ids / command output that proves each claim, plus the RED test that
 exposes each gap and the patch that turns it green. Comment on the issue too when the follow-up
 sub-issues the body promises do not exist yet (`gh issue list --search 824b`). Do not push to or
