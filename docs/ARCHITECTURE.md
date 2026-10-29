@@ -978,7 +978,9 @@ in `tests/fixtures/unit-suite.json`. `make test` runs the named `groups.fast` su
 the same roster rather than a hand-kept list of files. The live gates are separate targets
 (`test-install`, `test-health`, `test-engine`, `test-published-engine`,
 `test-native-engine*`, `test-top-tier*`, `test-hub-live`, `test-strata-live`,
-`test-engine-bump-live`) and are never skipped: a missing prerequisite fails loudly. On an
+`test-engine-bump-live`) and are never skipped: a missing prerequisite fails loudly.
+`make test-engine-bump-live` runs in `engine-bump.yml` after that workflow writes the new
+TensorFold pin and parameter list, and not in the `ci.yml` unit job. On an
 Apple-Silicon host `make test-health` is the real GPU/Metal proof — it launches
 `~/bin/llgenie` against the host's Metal `llama-server`; on Linux it answers "hi" through
 the llama.cpp engine image. The native-Metal gates (`test-native-engines`,

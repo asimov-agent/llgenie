@@ -2001,9 +2001,22 @@ def test_unit_recipe_keeps_the_image_build_out():
     assert "test_the_pinned_release_archive_unpacks_and_runs" in deselect
     live = (REPO / "Makefile").read_text().split("\ntest-engine-bump-live:", 1)[1].split("\n\n", 1)[0]
     assert "test_the_pinned_release_archive_unpacks_and_runs" in live
+    # The live archive download is the bump pipeline's proof, after the new pin is written.
+    # ci.yml's unit job (pipeline.yml) does not run it (issue #995).
     unit = yaml.safe_load((REPO / ".github" / "workflows" / "pipeline.yml").read_text())["jobs"]["unit"]
-    live_step = next(s for s in unit["steps"] if "test-engine-bump-live" in str(s.get("run", "")))
-    assert live_step.get("if") == "runner.os == 'Linux'"
+    assert not [s for s in unit["steps"] if "test-engine-bump-live" in str(s.get("run", ""))]
+    bump = yaml.safe_load((REPO / ".github" / "workflows" / "engine-bump.yml").read_text())["jobs"]["bump"]
+    steps = bump["steps"]
+    live_i = next(i for i, s in enumerate(steps) if "test-engine-bump-live" in str(s.get("run", "")))
+    bump_i = next(i for i, s in enumerate(steps) if "make engine-bump" in str(s.get("run", "")))
+    docker_i = next(i for i, s in enumerate(steps) if str(s.get("uses", "")).endswith("/actions/docker"))
+    env_i = next(i for i, s in enumerate(steps) if s.get("run") == "make test-env")
+    pr_i = next(i for i, s in enumerate(steps) if "Open / update the bump PR" in (s.get("name") or ""))
+    assert bump_i < docker_i < env_i < live_i < pr_i
+    assert steps[live_i].get("if") == "matrix.id == 'tensorfold'"
+    assert steps[docker_i].get("if") == "matrix.id == 'tensorfold'"
+    assert steps[env_i].get("if") == "matrix.id == 'tensorfold'"
+    assert bump["permissions"]["packages"] == "read"
 
 
 def _pytest_deselects(argv: list[str], node: str) -> bool:
@@ -2016,7 +2029,8 @@ def test_unit_recipe_runs_the_destination_release_cases():
     """make test-unit runs the hermetic destination-tag cases and not the live release reads.
 
     The unit job calls the aggregator (`scripts/unit_tests.py`); the three GitHub-release
-    tests are de-selected by exact node id and stay on `make test-engine-bump-live` (Linux only).
+    tests are de-selected by exact node id and stay on `make test-engine-bump-live`, which
+    `engine-bump.yml` runs for the TensorFold bump after the new pin is written.
     """
 
     # Given the invocation the unit suite runs, and the roster's de-selections

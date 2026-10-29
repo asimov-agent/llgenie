@@ -89,9 +89,6 @@ jobs:
         run: make test-env
       - name: make ci-unit (test-unit, skills-validate, check-registry, check-strata-models, check-engine-params)
         run: make ci-unit
-      - name: make test-engine-bump-live (TensorFold release archive; Linux only — macOS runners cannot reach api.github.com and ship no macos-x86_64 archive)
-        if: runner.os == 'Linux'
-        run: make test-engine-bump-live
       - name: Prune orphaned test containers
         if: always()
         run: make test-clean

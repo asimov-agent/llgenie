@@ -241,8 +241,9 @@ make engine-params-review-brief ENGINE=<id>   # the engine's own docs at its pin
 make engine-params-review ENGINE=<id>         # Hermes reviews them against those docs (proposes only cited -D flags)
 make engine-params-review-apply ENGINE=<id>   # validate proposals (flag AND quote must be in the upstream file),
                                               # apply accepted ones to the skill, regenerate, write the PR section
-make test-engine-bump-live            # the TensorFold v1.0.5 release archive as a live end-to-end: list,
-                                      # classify, checksum and RUN it (the archive path an engine bump takes)
+make test-engine-bump-live            # the pinned TensorFold release archive: list, classify, checksum and RUN it.
+                                      # engine-bump.yml runs this after make engine-bump writes the new pin,
+                                      # and only for the tensorfold row. ci.yml does not.
 make test-hub-live                    # the two live-Hub checks kept OUT of `make test-unit` (issue #438):
                                       # the README's trend links answer, and a missing model really downloads
 make test-strata-live                 # the Strata download/serve checks kept OUT of `make test-unit`

@@ -14,8 +14,10 @@ name: engine-bump — bumps pinned engines to their newest upstream release and 
 # Trigger surface: schedule weekly Monday 06:53 UTC (`53 6 * * 1`), and workflow_dispatch (owner/collaborator;
 #                  `engine` limits the run to one engine id, empty = every engine).
 # Flow: guard (owner/collaborator/bot, BEFORE any secret is read) -> make engine-bump
-#       (scripts/engine_bump.py: move the pin to the newest upstream tag, re-derive the build
-#       parameters from the upstream tree, open or update the `chore/engine-bump-*` PR).
+#       (scripts/engine_bump.py: move the pin, re-derive, write the parameter list) ->
+#       make test-engine-bump-live (tensorfold only, after that pin is written: list, checksum,
+#       unpack and run the release archive) -> open or update the `chore/engine-bump-*` PR.
+#       That PR's CI builds the engine images. ci.yml does not run this live archive test.
 # Never: never merges, never pushes to `main`, never rewrites a skill it cannot re-derive (a removed
 #        build option is recorded as a hard-fail instead, and the PR still opens).
 on:
@@ -111,6 +113,7 @@ jobs:
       contents: write
       pull-requests: write
       issues: write
+      packages: read
     name: bump-${{ matrix.id }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -169,6 +172,18 @@ jobs:
           make engine-params-review-apply ENGINE="$ENGINE" || \
             echo "::warning::the review apply step failed for $ENGINE; nothing was applied"
           exit 0
+      # The live archive proof belongs here, after the new pin and parameter list exist, and
+      # before the PR whose CI builds the engine. It reads the TensorFold pin, so only that
+      # matrix row pays for the download. ci.yml's unit job does not run it (issue #995).
+      - name: Set up Docker for the TensorFold archive proof
+        if: matrix.id == 'tensorfold'
+        uses: ./.github/actions/docker
+      - name: make test-env
+        if: matrix.id == 'tensorfold'
+        run: make test-env
+      - name: make test-engine-bump-live (pinned TensorFold release archive, after the new params)
+        if: matrix.id == 'tensorfold'
+        run: make test-engine-bump-live
       - name: Open / update the bump PR
         env:
           GH_TOKEN: ${{ secrets.BUMP_TOKEN }}

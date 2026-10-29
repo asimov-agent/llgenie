@@ -1,0 +1,1 @@
+| 2026-10-29 | the live TensorFold archive proof runs on the engine-bump pipeline after the new pin, and not on every CI unit job | [2026-10-29-engine-bump-live-on-bump.md](agent-wiki/2026-10-29-engine-bump-live-on-bump.md) | #995 |
