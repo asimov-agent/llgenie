@@ -501,15 +501,26 @@ def test_a_params_file_identical_to_the_base_is_not_deferred(tmp_path):
     (root / f"{engine}.json").write_text(shown.stdout)
     assert _deferred_engines(params_dir=root, base=head) == set()
 
-    # Case 2: params identical to origin/main but the tag computation differs on this branch (#823)
-    # => the fleet was re-tagged, so an unchanged params file IS deferred to the producer publish
+    # Case 2: params identical to origin/main. Whether the engine is deferred depends on whether
+    # this branch's tag computation (scripts/engine_image.py) actually differs from base — a
+    # tag-computation change re-tags the whole fleet, so an unchanged params file IS deferred then
+    # (#823), and is not when the computation is unchanged. Computing it here keeps the assertion
+    # deterministic across the CI and local base states.
+    changed = subprocess.run(["git", "show", "origin/main:scripts/engine_image.py"], cwd=REPO,
+                             capture_output=True, text=True)
+    tag_src_changed = (changed.returncode != 0
+                       or changed.stdout != (REPO / "scripts" / "engine_image.py").read_text())
     base_main = subprocess.run(["git", "show", f"origin/main:containers/engines/params/{engine}.json"],
                                cwd=REPO, capture_output=True, text=True)
     assert base_main.returncode == 0, base_main.stderr
     root2 = tmp_path / "params2"
     root2.mkdir()
     (root2 / f"{engine}.json").write_text(base_main.stdout)
-    assert "llama.cpp" in _deferred_engines(params_dir=root2, base="origin/main")
+    got = _deferred_engines(params_dir=root2, base="origin/main")
+    if tag_src_changed:
+        assert "llama.cpp" in got, got
+    else:
+        assert "llama.cpp" not in got, got
 
 
 def test_an_engine_with_no_base_copy_is_deferred(tmp_path):
