@@ -1146,6 +1146,19 @@ make verify-closure PR=<n> REPO=asimov-agent/llgenie         # did `closes #n` a
 make auto-merge-resolve REPO=<owner/repo> RUN_ID=<id> HEAD_OWNER=<owner> HEAD_BRANCH=<branch>  # run -> PR number
 ```
 
+**Every number this box reports names the sha it was measured at (fleet rule 15, #873).** `auto-merge` fetches
+`upstream/main` and notes the sha it branched from before it measures anything, `make` exposes it as
+`HEAD_SHA=<sha>` on the merge commands, and every line that carries a count — a baseline, a decision, a
+deferral — states the head sha it was taken against. A number without its sha reads like a fact about time,
+not about one tree: #953's ratchet recorded `34/14` at the cut, and by the time the rebase arrived `main`
+measured `107/151` — a guard asserting a board its own repo had already outgrown. The same shape as a `0`
+printed while `#904` carried the label (issue #948): an instrument that does not say which tree it looked at is
+believed, and believed about the wrong one. This box's own work is bookended the same way — one PR comment when
+work starts (issue, branch, the main sha, what "done" means) and one when it finishes (head sha, the proof,
+what is left open), and a measurement answered at a stale head replies with the sha the correction is taken at
+plus the command that showed it. A gate's baseline is re-asserted against the fetched `main` before it is
+trusted, never quoted from the moment it was cut.
+
 What it will and will not touch:
 
 | condition | result |

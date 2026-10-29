@@ -1,0 +1,1 @@
+| 2026-10-29 | every number the merger reports names the sha it was measured at: fetch → branch at that sha → bookend the act (#873) | [2026-10-29-rule15-sha-baseline.md](agent-wiki/2026-10-29-rule15-sha-baseline.md) | #873 |

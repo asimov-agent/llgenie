@@ -16,6 +16,7 @@ a note that does not exist, or when a row is malformed.
 
 | Date | Change | Record | Issue / PR |
 |---|---|---|---|
+| 2026-10-29 | every number the merger reports names the sha it was measured at: fetch → branch at that sha → bookend the act (#873) | [2026-10-29-rule15-sha-baseline.md](agent-wiki/2026-10-29-rule15-sha-baseline.md) | #873 |
 | 2026-10-29 | the live TensorFold archive proof runs on the engine-bump pipeline after the new pin, and not on every CI unit job | [2026-10-29-engine-bump-live-on-bump.md](agent-wiki/2026-10-29-engine-bump-live-on-bump.md) | #995, #996 |
 | 2026-10-29 | `make check-wiring` also asserts the reverse `.PHONY` direction: every key must name a target with a recipe, an inline `;` command or a prerequisite (a declared alias) — a key whose recipe is gone is a permanent green no-op (`make <name>` → "Nothing to be done", exit 0) | [2026-10-29-check-wiring-phony-declares-recipe.md](agent-wiki/2026-10-29-check-wiring-phony-declares-recipe.md) | #883 |
 | 2026-10-29 | the change index is one row per file (`docs/changes.d/`), rendered into `CHANGES.md` by `make changes-index` — two changes can no longer edit one line, so a merge cannot re-dirty an open PR | [2026-10-29-changes-index-per-change-file.md](agent-wiki/2026-10-29-changes-index-per-change-file.md) | #934 |
