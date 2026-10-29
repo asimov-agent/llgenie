@@ -37,6 +37,7 @@ on:
       - engine-bump-rebase — rebases every open engine-bump PR onto the latest main
       - engine-bump — bumps pinned engines to their newest upstream release and opens the PR
       - fix-bot — repairs a failing PR branch until its checks pass (never merges)
+      - holds — fails when a do-not-merge label names no resolving issue
       - issue-bot — implements ONE issue per run as a reviewable PR (never merges)
       - issue-dedupe — retires a duplicate of an issue, FOUR times a day, never a claimed one
       - issue-refiner — reviews ONE not-yet-implemented issue, never opens a PR

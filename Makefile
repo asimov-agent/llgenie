@@ -956,6 +956,14 @@ auto-merge-explain: ## Print why a PR was (or was not) auto-merged: state, merge
 verify-closure: ## Prove a merged PR closed what its body claims: prints every closing reference and its state, and fails naming an issue that is still OPEN (PR= REPO=)
 	@test -n "$(PR)" && test -n "$(REPO)" || { echo "Usage: make verify-closure PR=<n> REPO=<owner/repo>"; exit 1; }
 	python3 scripts/verify_closure.py verify --repo "$(GH_REPO)" --pr $(PR)
+check-holds: ## CI: fail when an open PR carries `do-not-merge` with no resolving issue named anywhere (issue #948)
+	python3 scripts/check_holds.py check
+
+holds-report: ## Print every open PR carrying `do-not-merge` and the issue it names as the remedy (issue #948)
+	python3 scripts/check_holds.py report
+
+.PHONY: check-holds holds-report
+
 check-pr-hygiene: ## CI: fail when a producer's commit message or PR body is empty, a placeholder, a subject with no body, or when AGENTS.md lost the mandate (issue #313)
 	python3 scripts/check_pr_hygiene.py check
 pr-hygiene-report: ## Show every producer the PR/commit-message guard reads, and its verdict

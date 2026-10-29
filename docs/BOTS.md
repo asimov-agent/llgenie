@@ -1407,6 +1407,28 @@ make architecture-bot-publish REPO=asimov-agent/llgenie  # ONE issue + ONE PR, n
   branch in this repository (a bot-opened PR is such a head, issue #510). A stranger cannot dispatch
   it.
 
+## Holds need a remedy (issue #948)
+
+`do-not-merge` means **a known defect with a tracked remedy** — never "this lane would rather not". The owner's
+ruling: never place it unless the PR is totally wrong or conflicts with something concrete, and if you do, **file
+the issue that makes the tag removable and say so where a reader can see it**. A PR a bot implemented cannot carry
+it by default.
+
+`mergeStateStatus` reads `BLOCKED` either way, so no existing check could tell a hold with a remedy from one
+without. Two ways to read a hold:
+
+```
+make check-holds      # CI (holds.yml, daily + on labelled PRs): fails on any hold with no named remedy
+make holds-report     # every held PR and the issue it names — exits 0, so a bad board can still be read
+```
+
+The remedy must be a **resolve-verb phrase next to an issue number** — `resolves #NNN`, `blocked by #NNN`,
+`until #NNN` — in the PR body or any comment. A passing mention (`supersedes #786, see #892`) is **not** a
+remedy: measured on this repo when the issue was filed, all three held PRs named issues and none named a remedy
+for the *hold*, which is why an "any `#N`" rule would have passed every hold ever placed.
+
+The lane that placed the hold removes it when its fix lands, and says so with the sha or run id that proves it.
+
 ## The run-failure reactor (issue #286)
 
 A bot that reacts to a **failed CI run** — any run, not just a PR check — and routes it to a remedy.
@@ -1517,6 +1539,7 @@ from the pipeline that will run.
 | `engine-bump-rebase.yml` | rebases every open engine-bump PR onto the latest main | `dry` (optional, default `false`) — print the PRs it would rebase and push nothing (no branch is touched) |
 | `engine-bump.yml` | bumps pinned engines to their newest upstream release and opens the PR | `engine` (optional) — Only bump this engine (id); empty = all |
 | `fix-bot.yml` | repairs a failing PR branch until its checks pass (never merges) | `pr_number` (optional) — PR number whose branch should be repaired<br>`branch` (optional) — PR head branch (used when pr_number is empty)<br>`check` (optional, default `make ci-unit`) — the deterministic check to drive the loop<br>`rounds` (optional, default `5`) — repair attempts (default 5)<br>`report_file` (optional) — path to the failed run's captured log (repair context; empty = run the check locally) |
+| `holds.yml` | fails when a do-not-merge label names no resolving issue | none — it reads every held PR and fails on any hold with no named remedy, so a hand run just |
 | `issue-bot.yml` | implements ONE issue per run as a reviewable PR (never merges) | `issue_number` (optional) — Issue to implement (owner only). Leave BLANK and the bot picks the oldest agent:implement issue itself - one issue per run, exactly like the schedule |
 | `issue-dedupe.yml` | retires a duplicate of an issue, FOUR times a day, never a claimed one | none — the bot decides by itself which ONE pair to compare (scripts/issue_dedup.py). |
 | `issue-refiner.yml` | reviews ONE not-yet-implemented issue, never opens a PR | none — the bot decides by itself which ONE issue to review (scripts/issue_refiner.py); |

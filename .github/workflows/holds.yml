@@ -1,0 +1,80 @@
+# Holds need a remedy (issue #948).
+#
+# The owner's ruling: never flag a PR `do-not-merge` unless it is totally wrong or conflicting with something
+# concrete, and if a lane does, it files the fix issue that makes the tag removable and says so where a reader can
+# see it. `mergeStateStatus` reads `BLOCKED` for a hold with a tracked remedy and for one without, so no existing
+# gate can tell them apart — a hold with no remedy is abandonment wearing the same colour as a decision.
+#
+# No conditional job (`needs: [guard]` is a gate, not an `if:`): the decision lives in code, and it does —
+# scripts/check_holds.py reads every held PR's body and comments for a resolve-verb phrase next to an issue number
+# (`resolves #NNN`, `blocked by #NNN`, `until #NNN`) and fails naming the PR and the two ways out.
+name: holds — fails when a do-not-merge label names no resolving issue
+
+# Trigger surface: daily at `21 7 * * *` (a minute no other bot owns), plus `workflow_dispatch`.
+# Flow: guard -> make check-holds (scripts/check_holds.py: list the open PRs carrying `do-not-merge`, read
+#       body+comments, and fail on any hold whose exit condition is not written down).
+# Never: never removes a label, never merges, never comments — it reports, and the lane that placed the hold acts.
+# dispatch: no inputs — it reads every held PR and fails on any hold with no named remedy, so a hand run just
+#           re-audits the board; there is nothing to parameterise.
+on:
+  schedule:
+    - cron: "21 7 * * *"   # daily at 07:21 UTC — its own slot (issue #275: no bot shares a minute)
+  pull_request:
+    types: [opened, reopened, synchronize, labeled]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+# concurrency: one static group, no cancellation — the check is a read of live state, and killing a run mid-read
+# would leave the board reported from half a listing.
+concurrency:
+  group: holds-audit
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Owner / collaborator trigger guard
+        env:
+          ACTOR: ${{ github.actor }}
+          TRIGGER: ${{ github.triggering_actor }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.repository }}
+          # The run's head repository: empty for every non-PR event (issue #510).
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name || '' }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for u in "$ACTOR" "$TRIGGER"; do
+            if [ "$u" = "$OWNER" ]; then continue; fi
+            # The repository's own bot is a GitHub App login, so it is never a collaborator and the
+            # permission read below answers 404 -> `none`: every bot-opened PR was refused (run
+            # 39650944430, #495). It may pass ONLY when the run's head is a branch in THIS repository —
+            # a same-repo head can be produced only by a token with write access — while the bot as the
+            # actor of a FOREIGN head (a bot commenting on a stranger's PR) is still refused (#510).
+            if [ "$u" = "github-actions[bot]" ] && [ -n "${HEAD_REPO:-}" ] && [ "${HEAD_REPO:-}" = "$REPO" ]; then
+              echo "Repository bot $u on a same-repo head ($HEAD_REPO) - allowed."
+              continue
+            fi
+            perm=$(gh api "repos/$REPO/collaborators/$u/permission" --jq .permission 2>/dev/null || echo none)
+            case "$perm" in
+              admin|maintain|write) echo "Collaborator $u has $perm - allowed." ;;
+              *) echo "Refused: $u is not the owner or a collaborator with write access (permission: ${perm:-none})."; exit 1 ;;
+            esac
+          done
+          echo "Allowed: actor=$ACTOR triggering_actor=$TRIGGER"
+  holds:
+    needs: [guard]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Fail on any hold that cannot name its remedy
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: make check-holds
