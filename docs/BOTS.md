@@ -1519,6 +1519,7 @@ from the pipeline that will run.
 | `issue-bot.yml` | implements ONE issue per run as a reviewable PR (never merges) | `issue_number` (optional) — Issue to implement (owner only). Leave BLANK and the bot picks the oldest agent:implement issue itself - one issue per run, exactly like the schedule |
 | `issue-dedupe.yml` | retires a duplicate of an issue, FOUR times a day, never a claimed one | none — the bot decides by itself which ONE pair to compare (scripts/issue_dedup.py). |
 | `issue-refiner.yml` | reviews ONE not-yet-implemented issue, never opens a PR | none — the bot decides by itself which ONE issue to review (scripts/issue_refiner.py); |
+| `network-scan.yml` | the daily real-Hub test pipeline (HF real-call tests, gated by the committed-link liveness check), never a PR or push check | `scope` (optional, default `all`) — Which HF network tests to run: all, or one marked file |
 | `publish-agent-image.yml` | builds + pushes the Hermes agent image when its hash is not on GHCR yet | `force` (optional, default `false`) — Rebuild + push even if the hash tag is already on GHCR |
 | `queued-alarm.yml` | reports CI jobs queued far too long, once per affected run | `minutes` (optional, default `30`) — report jobs queued longer than this many minutes |
 | `rebase-bot.yml` | keeps every open PR current with main, every eligible PR per run (never merges) | `max_prs` (optional, default `10`) — Most PRs this run may rebase (the sweep's daily cap still applies on top) |

@@ -1,12 +1,15 @@
 {
-  "note": "Workflows a `workflow_run` consumer deliberately does NOT watch (issue #349). `make check-workflows` fails when a workflow's completion is routed nowhere and no entry here records why — an omission has to be a dated decision, not an accident. An entry is refused without a `reason` and reported STALE once it names no workflow (the workflow was renamed or deleted), so this file cannot rot either.",
-  "decided_utc": "2026-10-28",
+  "note": "Workflows a `workflow_run` consumer deliberately does NOT watch (issue #349). `make check-workflows` fails when a workflow's completion is routed nowhere and no entry here records why \u2014 an omission has to be a dated decision, not an accident. An entry is refused without a `reason` and reported STALE once it names no workflow (the workflow was renamed or deleted), so this file cannot rot either.",
+  "decided_utc": "2026-10-29",
   "workflows": {
-    "security-scan — the daily vulnerability pipeline (Trivy + Syft + Grype + Semgrep), never a PR or push check": {
+    "security-scan \u2014 the daily vulnerability pipeline (Trivy + Syft + Grype + Semgrep), never a PR or push check": {
       "reason": "Its red is already a work item with an owner: the scan's `fail_on` gate (critical/high WITH a fix, `data/security-policy.json`) is deliberate (`docs/SCANS.md`), `make security-issues` files the advisory issues, and `security-bot` turns one of them into a green PR. The reactor's Route B would file a SECOND issue per push to `main` (its marker carries the head sha), spending the issue-bot's 3-a-day budget on the same advisories."
     },
-    "run-failure-reactor — routes a failed run to a fix or a deduped issue (never merges)": {
+    "run-failure-reactor \u2014 routes a failed run to a fix or a deduped issue (never merges)": {
       "reason": "It skips its own completion so a self-trigger loop is impossible (#286); listing itself is refused by the `workflow-run-self` rule. Its own red is what `code-review-bot` and `queued-alarm` report, and a red reactor run cannot route itself."
+    },
+    "llgenie-hf-network \u2014 the daily real-Hub test pipeline (HF real-call tests, gated by the committed-link liveness check), never a PR or push check": {
+      "reason": "Its red is already a named work item, not a defect needing a second issue: the liveness gate (scripts/check_model_links_liveness.py LIVE=1, issue #1000) names the exact dead URL it fails on, and the test failures are the @pytest.mark.network ownership set's real-Hub flakes \u2014 investigation targets, not an implementation defect the reactor's Route B should file. Adding it to the reactor would spend the issue-bot budget on the scheduled live-Hub blips a probe pipeline exists to surface."
     }
   }
 }
