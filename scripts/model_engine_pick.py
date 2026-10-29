@@ -757,15 +757,40 @@ def _no_fit_reason(model: dict, fmts: list[str], gb: float, arch: str, ram_gb,
         parts.append(f"smallest TensorFold MLX is {s['size'] / 2**30:.0f} GB" if s
                      else "TensorFold publishes no MLX checkpoint of it")
     if "gguf" in fmts:
-        ws = gguf_weights(gguf_repo(model) or "")
-        if ws:
-            parts.append(f"smallest GGUF is {ws[0]['size'] / 2**30:.0f} GB")
+        smallest_gb = _smallest_gguf_gb(model)
+        if smallest_gb is not None:
+            parts.append(f"smallest GGUF is {smallest_gb:.0f} GB")
     if parts:
         reason = f"{', '.join(parts)} > {budget:.0f} GB this host can hold"
         if stated.get("storage_offload"):
             reason += f"; the registry states it runs off storage ({stated['storage_offload']})"
         return reason
     return f"no {'/'.join(fmts) or 'supported'} download of it fits this host"
+
+
+def _smallest_gguf_gb(model: dict) -> float | None:
+    """The smallest loadable GGUF for `model`, in GB.
+
+    The COMMITTED HF class table (`data/trending-quant-catalog.json`) comes first: it
+    is a hermetic, checked-in snapshot of each trending model's llama.cpp-family quant
+    plans and their sizes, so the fit-reason / trend-list matrix is stable and does NOT
+    re-walk the live Hub on every unit run (#974). A model the catalog does not cover
+    yet falls back to the live HF tree (a registry synced a step ahead of its catalog).
+    """
+    cells = (quant_catalog().get("files") or {}).get(str(model.get("id") or ""))
+    smallest: float | None = None
+    if cells:
+        for eng, cell in cells.items():
+            if not eng.startswith("llama.cpp"):
+                continue
+            for q in cell.get("quants") or []:
+                s = q.get("size_gb")
+                if s and (smallest is None or s < smallest):
+                    smallest = float(s)
+    if smallest is not None:
+        return smallest
+    ws = gguf_weights(gguf_repo(model) or "")
+    return (ws[0]["size"] / 2**30) if ws else None
 
 
 def _tokens(s: str) -> list[str]:
