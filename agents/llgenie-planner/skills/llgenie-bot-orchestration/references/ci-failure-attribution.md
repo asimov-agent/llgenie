@@ -25,6 +25,10 @@ A log is evidence about **the ref it ran on**. Quoting a branch log as a claim a
 
 When the same N tests fail across several unrelated PRs, suspect a shared base change (a workflow group deleted, a job renamed, a list grown) rather than N lane bugs. Grep the tests for the removed symbol, fix it once on `main`, then re-check each PR: a PR that goes green **with no code change** is the proof, and that sentence belongs on the PR.
 
+**The cheap discriminator is a two-sided count**, e.g. `notes 222 / rows 222` on `origin/main` against `222 / 221` on the branch — one missing artefact, not a broken feature. Quote both sides; a one-sided count is an opinion.
+
+And when the missing artefact is generated or indexed, **rebase, never edit**: adding the row or file in the PR diff duplicates it after the rebase. Batch the affected set onto one fresh base in a single pass (one matrix instead of N staggered 20-minute ones), and report `base sha · PR# · head before → after` per PR. A rebase is legal only where the failure is *shared*; where the PR owns the red, the owning lane fixes it and the sweeper says so.
+
 ## 4. A shape change has a spelling — find who asserted it
 
 Before pushing a change that moves a shape (inline command → make target, `needs` list, `.PHONY` keys, a status field, a manifest), grep the suite for that shape's literal text:
@@ -53,6 +57,16 @@ A correct fix reds when another test pins the *spelling* rather than the behavio
 - A **queued** run owes no verdict, so superseding it costs nothing; a **running** matrix is 20+ paid minutes, so cancelling it needs a reason. Cancel only matrices whose verdict no longer matters (closed or merged PRs, stale heads).
 - Distinguish **starvation** (many queued, nothing in progress — capacity/plan) from **churn** (queue deep but the oldest entry is minutes old — one runner against many pushes). Churn's fix is fewer runs per PR, not more cancels.
 
-## 8. Failure shapes worth naming in the report
+## 8. A rebase is a re-measurement, not a replay
+
+Rebasing a branch that sat for hours is not a mechanical conflict resolution: `main` changed the *premises* the branch encodes. Expect to find, and to re-derive rather than trust:
+
+- a **baseline recorded at the cut** (a ratchet count, a file census, a snapshot of accepted findings) that no longer matches what `main` produces — re-measure it against an export of the new base and record what the branch *actually* produces, or the guard reds on `main` itself;
+- an **index/record model that changed** (one file per change instead of one row in a table) — the old shape is wrong in kind, not in content, so the fix is regeneration, not a merge of both sides;
+- a **lint or format rule that did not exist at cut** — a "keep both sides" resolution glues a heading onto the previous paragraph and reds `lint`.
+
+State the base sha in every rebase report, and when the branch predates a model change, say **"stale in kind, needs rebase"** instead of "missing row": the two need different fixes.
+
+## 9. Failure shapes worth naming in the report
 
 Write the verdict as a sentence a merger can act on: *green at `<sha>`, run `<id>`, N success / 0 failure / 0 cancelled, mergeable* — or *not green, because X*. Name cancelled jobs explicitly; never summarise a run with cancelled rows as "green modulo timeouts".
