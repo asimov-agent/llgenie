@@ -298,20 +298,17 @@ def _hub_opens(file_text: str) -> list[tuple[str, str]]:
                     v for k, v in hub_vars.items() if re.search(r"\b%s\b" % re.escape(k), s))
                 if _HUB_RE.search(to):
                     problems.append((name, s[:140]))
-            # the repo's own DOWNLOAD entries called with a hub model dict (no loopback): a real Hub
-            # reach expressed as a model id, not a URL literal. NOT plan_download (planning only,
-            # never touches the network — the engine lane's explicit carve-out) and NOT resolve_local
-            # (local disk resolution only).
-            if not nono:
-                dm = re.search(
-                    r"\b(mp\.download|mp\.gguf_files|mp\.hf_size)\("
-                    r"\s*([\"']?(?:[A-Za-z_]\w*)?[\"']?)(?:\[?[\"']hf[\"']\]?)?\s*[),.]",
-                    s,
-                )
-                if dm:
-                    arg = dm.group(2).strip().strip("\"'")
-                    if arg in hf_models:
-                        problems.append((name, s[:140]))
+            # the repo's OWN Hub entry points (no loopback): a real reach, whatever the arg shape —
+            # `mp.download`/`mp.gguf_files`/`mp.hf_size` are Hub entry points by construction (they
+            # call the Hub API / download via `_hub_json(f"{HF}/api/…")`), so there is no hermetic
+            # call form of them. A call in an unmarked scope that binds no loopback server IS a real
+            # unmarked Hub reach, whether the arg is a model dict, a `mp.repo_for(...)` call, or a
+            # plain repo string. NOT plan_download (planning only — the engine lane's carve-out) and
+            # NOT resolve_local (local disk only).
+            if not nono and re.search(
+                r"\b(mp\.download|mp\.gguf_files|mp\.hf_size)\s*\(", s
+            ):
+                problems.append((name, s[:140]))
             elif _HUB_RE.search(s):
                 pass  # a mention with no open is not a call
 
