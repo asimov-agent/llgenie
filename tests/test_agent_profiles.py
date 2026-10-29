@@ -804,6 +804,30 @@ def test_the_skill_says_a_merged_pr_keeps_its_flags():
         assert phrase in ref, f"the merged-PR trap is missing: {phrase}"
 
 
+def test_a_rule_inside_a_fenced_block_is_a_quote_not_a_statement():
+    """Pinning the maintainer's offered delta (#956/#944): a pasted example is a quote, not a statement.
+
+    `_stated_block` must NOT treat a fleet block quoted inside Markdown fences as though the SOUL states it
+    verbatim — the fence lines break exact equality, so a SOUL that only quotes the block is drift, and the
+    gate has to say so rather than passing on a paraphrase one level up.
+    """
+    import check_agent_profiles as cap
+
+    canonical = cap.fleet_block(REPO / "agents")
+    assert canonical is not None, "the fleet block must exist to test against"
+
+    soul_stated = ("# LLGenie X\n\n## Role\n\n" + cap.FLEET_HEADING + "\n\n"
+                   + canonical + "\n")
+    soul_fenced = ("# LLGenie X\n\n## Role\n\n```\n" + canonical + "\n```\n")
+
+    assert cap._stated_block(soul_stated) == canonical, \
+        "a verbatim copy is a statement — it matches the canonical block"
+    # the fenced copy still CONTAINS the heading, so a section is found; what must differ is that its
+    # body carries the fence markers and is therefore NOT the canonical text
+    assert cap._stated_block(soul_fenced) != canonical, \
+        "a fenced quote is NOT a statement — the fence lines break exact equality with canonical"
+
+
 def test_the_bookend_and_fresh_base_procedure_is_in_the_skill():
     """Fleet rule 15 (issue #873): branch from a freshly fetched main, bookend with two comments.
 
