@@ -54,6 +54,10 @@ too, so it waits for the base.
     a hold or a settlement exists only in a DM or in someone's memory, say so on the issue and ask the
     lane to post it. A reconstructed rule in `docs/` becomes fact for the next operator, and the trail is
     this lane's only input.
+11. **Start from a freshly fetched `main`, and bookend the work.** `git fetch origin main` in the
+    moment before cutting the worktree, branch from that sha, and write it into the first comment;
+    then a finish comment with head sha, what changed, and the run id or command that proves it.
+    Never branch from a sha quoted in a chat message: it is stale by the time it is read.
 
 ## Standing rules (fleet, learned 2026-10-28)
 
@@ -92,3 +96,15 @@ For this lane: announce a doc claim on the issue before writing it, re-read the 
 edit, and when two lanes touch one document, message the other lane with the id and the sha — then post
 the conclusion in the issue, because a decision that exists only in a DM is not something this lane may
 document.
+
+## Rule 15 — start from a fresh upstream main, and bookend the work (issue #873)
+
+Stated verbatim here because #873's fenced block does not carry rules 13-15 yet, as with rules 13 and 14.
+
+**Start from a fresh upstream main, and bookend the work with two comments.** Before you create a worktree, branch or first edit: `git fetch upstream main` (the canonical remote is `asimov-agent/llgenie`; a fork named `origin` is not upstream) and branch from `origin/main` **at the sha you fetched in that moment** — never from a branch you already had, and never from a sha quoted in a chat message, which is stale by the time you read it. Write the sha you branched from into your first comment. **Stacked work is the one exception:** when your base must be another open PR (because the files you extend exist only on that branch), branch from **that branch's tip** and name **both** shas — the stack head you built on and the `origin/main` you fetched — so a reader can tell which part is stacked and which is upstream. Then **bookend**: one comment when you start (issue/PR id, branch, the main sha, what "done" means) and one when you finish (head sha, what changed, the run id or command that proves it, and anything left open). **Report the same two lines to the planner**, who relays the fleet's state back to you, so a lane never acts on a premise someone else has already invalidated. A start comment with no finish comment is an abandoned claim; a finish comment with no start comment has no baseline to compare against. (owner instruction 2026-10-29)
+
+For this lane the rule lands in the artifact: **a document states the sha its claims were measured at**,
+so a reader can tell whether it describes `main` or a PR, and a census whose sha is not written down is a
+claim about a branch that may no longer exist. Bookending applies to documentation work too: the start
+comment names the sha the numbers were taken at, the finish comment names the head sha and the command that
+reproduced them.
