@@ -1475,6 +1475,25 @@ def test_the_doc_soul_stated_block_matches_the_gate_canonical():
     )
 
 
+def test_the_ambiguous_refname_lesson_is_in_the_skill():
+    """The stale-base-watch lesson: an explicit refspec, never `origin/main` by a short name (#994).
+
+    Measured: `git rev-parse origin/main` returned 6d9fef1d (an old leftover) instead of the real current
+    main (238dcd2c), because the short name is ambiguous and resolved to a stale ref — so a base-watch
+    claimed #919 was "~1 behind" against a wrong sha. The fresh-main rule must teach the explicit
+    `+refs/heads/main:refs/remotes/origin/main` fetch + `refs/remotes/origin/main` read, or the ambiguity
+    produces false base-drift reports.
+    """
+    ref = " ".join((REPO / "agents" / "llgenie-issse-implementer" / "skills"
+                    / "containerized-repo-verification" / "references"
+                    / "queue-and-pr-mechanics.md").read_text().lower().split())
+    for phrase in ["a refname can be ambiguous and read a stale ref",
+                   "fetch with an explicit refspec, never `origin/main` by a short name",
+                   "`+refs/heads/main:refs/remotes/origin/main`",
+                   "the fresh-main rule"]:
+        assert phrase in ref, f"the ambiguous-refname lesson is missing: {phrase}"
+
+
 def test_the_pr_head_is_the_remote_branch_lesson_is_in_the_skill():
     """The halt-dispute lesson, pinned: a PR's head is the REMOTE branch, never a local worktree.
 
