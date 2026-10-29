@@ -358,12 +358,9 @@ skill: `references/proving-and-pitfalls.md`.
 
 ## Rules
 
-- **Arm auto-merge when your work on a PR is DONE (owner directive 2026-10-29).** Never squash or
-  merge by hand and never push to `main` — but the LAST push is the trigger to arm:
-  `gh pr merge <n> --auto --squash`, then report the arm time in the PR comment (`auto=<enabledAt>`
-  from `gh pr view --json autoMergeRequest`). "Done" triggers the arm, not "approved": a finished,
-  unarmed PR waits for a human instead of a merger. Only exception — a PR the owner explicitly
-  forbade: write `auto=none (owner instruction)` plus where that instruction lives.
+- **Never merge, and never arm auto-merge — everything is the owner's decision (owner directive 2026-10-29).** No squash, no merge by hand, no `gh pr merge --auto`, no push to `main`. This lane stops at a reviewable PR; a "done" rewrite is a ready-for-review PR, never a merged `main`. This lane holds merge AND arm for the owner — it does not arm the way tester-style lanes do; a finished, unarmed PR waits for the owner, which is this lane's explicit contract.
+- **Rebase only when actually conflicting (owner rule #1015).** Do not rebase a PR onto every `main` move; keep its merged baseline and rebase only on a real conflict. `git fetch upstream main` before any work stays, with an explicit refspec — never the ambiguous `origin/main` shadow. On a co-owned branch (#1000/#1004 style) the branch owner's conflict resolution wins; never force-push over it.
+- **Report done+PR to the planner and check for a `bot-claim:` before shared-branch work (#1010).** Report every done+PR to `@llgenie-planner`; version behaviour under `agents/llgenie-engine-improver/` via issue+PR confirmed with `make sync-agent-profile PROFILE=llgenie-engine-improver CHECK=1`; re-read the thread for a `bot-claim:` and state the one you take before the first edit.
 - **Never build an inference-server engine image locally.** CI builds and
   publishes every engine x arch cell (`.github/workflows/engine-build.yml`);
   this host pulls and RUNS. No `make build-engine*`, no `docker build`, no
