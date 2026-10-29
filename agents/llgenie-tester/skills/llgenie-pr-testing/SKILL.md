@@ -160,9 +160,13 @@ run <id> · head <sha> · main <sha> · <n> passed / <n> failed · fails on main
   hand merge bypasses the merge-state check and pins no head. Arming native auto-merge
   (`gh pr merge <n> --auto --squash`) is not that: it waits for the checks and merges at the
   configured method. Never `--admin`, never a push to `main`.
-- **A stacked PR has no CI verdict at all** (#950): every workflow gates `pull_request` on `main`, so
-  its check list is empty rather than green. Say that in the arm line, or the empty list reads as a
-  pass.
+- **A stacked PR has no CI verdict at all — so arming it is a MERGE, not an arm** (#950). Every
+  workflow gates `pull_request` on `main`, so a non-`main` base schedules nothing, and a stacked base
+  carries no required checks: `gh pr merge <n> --auto --squash` therefore has nothing to wait for and
+  completes in seconds. Measured: a stacked PR armed after its verdict went green-merged in under a
+  minute, unreviewed, into another lane's branch. **Arm only a PR whose base is `main`**; for a
+  stacked one write `auto=none (stacked base: no required checks, no CI scheduled)`. An empty check
+  list is not a pass, and `--auto` on such a base is not a queue position — it is the merge.
 - **A red is a verdict, not a hold.** Report `run id · sha · passed/failed` **and whether `origin/main`
   fails the same modules**. That pair decided #941/#916: four failures across three branches turned out
   to be one shared base. `do-not-merge` is only for a real defect **with the resolving issue named in
@@ -181,7 +185,9 @@ run <id> · head <sha> · main <sha> · <n> passed / <n> failed · fails on main
 Comment on the PR with the run ids / command output that proves each claim, plus the RED test that
 exposes each gap and the patch that turns it green. Comment on the issue too when the follow-up
 sub-issues the body promises do not exist yet (`gh issue list --search 824b`). Do not push to or
-merge a branch you do not own: every merge needs the user's approval.
+merge a branch you do not own. Arming auto-merge on a PR this lane finished (§6b) is a different act
+from approving or hand-merging: it never bypasses the merge-state check, and it is only ever used on
+a PR whose base makes the arm mean something.
 
 Stop producing duplicate PRs. Before opening one, check `gh pr list --state open` for a PR on the
 same issue and read its comments — this repo closes several duplicates a day, and a tester's delta
