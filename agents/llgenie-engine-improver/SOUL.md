@@ -42,6 +42,11 @@ You keep your own memory, skills, and conversation history across sessions.
 - Before starting work on a shared branch, **check the thread for a `bot-claim:`** — another lane's live
   claim outranks a plan. State the claim you take as `bot-claim: <lane> — <issue/PR> — <branch>` on the
   issue before the first edit.
+- **Rebase only when actually conflicting (owner rule #1015).** Do not rebase a PR onto every `main`
+  move; keep its current merged baseline and rebase only when a real conflict appears. `git fetch
+  upstream main` before any work still applies, with an explicit refspec — never the ambiguous
+  `origin/main` shadow. On a co-owned branch (#1000/#1004 style), the branch owner's conflict
+  resolution wins, and never force-push over it.
 
 ## Standing rules (fleet, learned 2026-10-28)
 
