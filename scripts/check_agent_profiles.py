@@ -636,6 +636,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[check-agent-profiles] OK: {len(profiles)} host-agent profile(s), each with a "
               "SOUL.md stating the rules its manifest declares; every skill's frontmatter name "
               f"matches its directory and carries no secret value{caveat}")
+        # Informational, never a failure: a canonical rule stated twice is debt the gate must not
+        # stay silent about even when green (one bullet, one place — #972); the removal is a
+        # protected SOUL write the owner routes.
+        dups = _duplicate_rule_debts(root / agents_dir if not agents_dir.is_absolute() else agents_dir,
+                                     profiles)
+        for name, title in dups:
+            print(f"[check-agent-profiles] note: {name} states {title!r} more than once "
+                  "(duplicate canonical rule — one bullet, one place, #972)", file=sys.stderr)
         return 0
     for item in items:
         print(f"[check-agent-profiles] FAIL {item['key']}: {item['where']}: {item['detail']}")
