@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A PR's commits are authored through an allowed email — and by no one else (issue #345).
+"""A PR's commits are authored by Andy Holst or Asimov Agent — and by no one else (issue #345).
 
 A commit's author is the attribution a reader trusts: `git log`, `git blame` and `git bisect` all
 answer "who wrote this line" from it. In this repository the same two identities appear under several
@@ -19,20 +19,26 @@ already ambiguous on `main`:
           2 andyholst <andyholst@users.noreply.github.com>
           1 llama-ai-agent <agent@llama-ai>
 
-Only two EMAIL addresses may author a PR's commits:
+Only two identities may author a PR's commits, and each is an ADDRESS with an explicit list of the
+display names it may be written under (issue #971):
 
-    andy.holst@protonmail.com
-    support@docondee.com
+    andy.holst@protonmail.com  <- Andy Holst, Andy, andyholst
+    support@docondee.com       <- Asimov Agent, Mr. Asimov
 
-The EMAIL is the gate, and the display name is informational. A commit's author address is the field the
-committer controls: GitHub's squash of a PR commit writes the display name from the ACCOUNT PROFILE, not
-from the committer, so `Andy <andy.holst@protonmail.com>` (issue #840), `andyholst <andy.holst@protonmail.com>`
-and `Mr. Asimov <support@docondee.com>` are the same two people and all pass. Rewriting history to satisfy a
-name the committer cannot set is the wrong fix. `github-actions[bot] <github-actions[bot]@users.
-noreply.github.com>`, `Hermes Agent <agent@asimov.local>` and `andyholst <andyholst@users.noreply.github.com>`
-are still violations — the ADDRESS is outside the allowlist, whatever the name. A producer's static scan
-(the workflow files, which authors type by hand) keeps matching name AND email, because a producer controls
-what it writes; only the commit gate keys on email alone.
+The **email is the identity**. A display name is only accepted when the address it carries names it as
+an alias, so the alias list is a NAME list and never an email list: `Andy <andy.holst@protonmail.com>`
+is the owner and passes, while `Andy Holst <andy.holtd@protonmail.com>` (a lookalike domain-local typo)
+and `Andy <someone@else.example>` still fail — the pair must be one the map states.
+
+Every identity outside that map is a violation: `github-actions[bot]`, `llgenie fix-bot`,
+`Hermes Agent`, `asimov-agent`, `llama-ai-agent`, and any address that is not one of the two.
+
+The name alone cannot be the key, which is why the map is keyed by the address. GitHub writes a squash
+commit's author name from the account's PROFILE DISPLAY NAME, not from the git identity the branch was
+committed with, and a producer that sets only the email inherits whatever name the host has — so the
+committer cannot always control the display name, while the address is the thing that actually
+identifies the person. Measured on this tree, the five spellings above account for 764 + 549 + 234 +
+98 + 48 commits.
 
 The scan is bounded to the commits a PR ADDS (`git rev-list --no-merges <base>..<head>`):
 
@@ -74,15 +80,22 @@ WORKFLOWS = ".github/workflows"
 SCRIPTS = "scripts"
 AGENTS = "AGENTS.md"
 MAKEFILE = "Makefile"
-#: The identities a PR's commits may be authored by. Name -> the ONE email that name must carry.
-#: The name matches exactly: `Andy`, `andyholst` and `Mr. Asimov` are the same people but NOT the
-#: allowed spelling, because the spelling is what a reader of `git log` sees.
-ALLOWED: dict[str, str] = {
-    "Andy Holst": "andy.holst@protonmail.com",
-    "Asimov Agent": "support@docondee.com",
+#: The allowlisted identities, keyed by the ONE address each identity owns. The value is the set of
+#: display names that address may be written under — an ALIAS LIST, never a list of addresses
+#: (issue #971). The address is the identity because the display name is not always the committer's
+#: to choose: GitHub writes a squash commit's author name from the account's profile display name.
+#: `Mr. Asimov` maps to `support@docondee.com`, which is the address history carries it under
+#: (98 commits at the time of writing), not to the owner's address.
+ALIASES: dict[str, frozenset[str]] = {
+    "andy.holst@protonmail.com": frozenset({"Andy Holst", "Andy", "andyholst"}),
+    "support@docondee.com": frozenset({"Asimov Agent", "Mr. Asimov"}),
 }
+#: Name -> the ONE email that name must carry, DERIVED from `ALIASES` so the two cannot drift.
+#: Several names now share an address; that is the alias list, and a pair is allowed only when the
+#: address is allowlisted AND it names that display name.
+ALLOWED: dict[str, str] = {name: email for email, names in ALIASES.items() for name in names}
 #: The AGENTS.md section the rule must keep. Deleting it is a violation, not an edit.
-AGENTS_MANDATE = "## A PR's commits are authored through an allowed email — no one else"
+AGENTS_MANDATE = "## A PR's commits are authored by Andy Holst or Asimov Agent — no one else"
 #: A `Co-authored-by:` trailer, as git writes it. The name is everything before the `<`.
 COAUTHOR = re.compile(r"^[ \t]*co-authored-by:[ \t]*(?P<name>[^<]+?)[ \t]*<(?P<email>[^>]*)>",
                       re.IGNORECASE | re.MULTILINE)
@@ -166,28 +179,43 @@ def commits_in_range(base: str, head: str, cwd: Path = REPO_ROOT) -> list[dict]:
     return commits
 
 
-def _identity_finding(where: str, sha: str, name: str, email: str) -> dict | None:
-    """The violation an author identity is, or None when it is an allowed one.
+def _allowed_note() -> str:
+    """One sentence naming the allowlist — address first, with the display names it may carry."""
+    return " or ".join(
+        f"{' / '.join(sorted(names))} <{email}>" for email, names in ALIASES.items()
+    )
 
-    The EMAIL is the gate: it is the field the committer controls, and it is what GitHub's squash of a PR
-    commit does NOT rewrite. The display name is informational — a squash writes it from the PROFILE, so
-    `Andy <andy.holst@protonmail.com>` (issue #840) and `Asimov Agent <support@docondee.com>` must both pass
-    even though only the second matches the allowlist spelling. A foreign EMAIL is a violation whatever the
-    name says (`Andy Holst <someone@else>`), because the address is the attribution that cannot be fudged by
-    a merge.
+
+def _identity_finding(where: str, sha: str, name: str, email: str) -> dict | None:
+    """The violation an author identity is, or None when the pair is one `ALIASES` states.
+
+    The ADDRESS is the identity: a display name is allowed only when the address it carries names it.
+    A lookalike address (`andy.holtd@…`) therefore fails even under an allowed name, which is the half
+    of the original rule that must survive the alias list (issue #971).
     """
-    if email in ALLOWED.values():
+    aliases = ALIASES.get(email)
+    if aliases is not None and name in aliases:
         return None
-    expected = " or ".join(f"{n} <{e}>" for n, e in ALLOWED.items())
+    if aliases is not None:
+        reason = (
+            f"`{email}` is an allowlisted address, but `{name}` is not one of the display names it "
+            f"may carry ({', '.join(sorted(aliases))})"
+        )
+    else:
+        reason = (
+            f"`{email}` is not an allowlisted address, so `{name}` cannot be accepted under it — an "
+            f"alias list names display names, never addresses"
+        )
+    expected = _allowed_note()
     return {
         "key": f"author/{where}:{sha[:12]}",
         "title": f"ci: {where} carries a commit authored outside the allowlist",
         "evidence": (
-            f"`{where}` commit `{sha[:12]}` is authored `{name} <{email}>`, which is outside the "
-            f"allowlist. A PR's commits must be authored through an allowed email ({expected} — the "
-            f"display name is informational, because a squash writes it from the profile; the address is "
-            f"the field the committer controls, issue #840). Set the email on the branch and re-author: "
-            f"`git config user.email andy.holst@protonmail.com` / `support@docondee.com`, then "
+            f"`{where}` commit `{sha[:12]}` is authored `{name} <{email}>`: {reason}. A PR's commits "
+            f"may be authored by {expected} and by no one else (issues #345, #971). Set the identity "
+            f"on the branch and re-author: "
+            f"`git config user.name \"Andy Holst\"` / "
+            f"`git config user.email andy.holst@protonmail.com`, then "
             f"`git rebase --reset-author` (or `git commit --amend --reset-author`) and "
             f"`git push --force-with-lease` on your own PR branch."
         ),
@@ -212,10 +240,9 @@ def check_commits(commits: list[dict], where: str = "pull request") -> list[dict
                 )
                 finding["evidence"] = (
                     f"`{where}` commit `{c['sha'][:12]}` carries `Co-authored-by: {name} <{email}>`. "
-                    f"A PR's commits may be authored by "
-                    f"{' or '.join(f'{n} <{e}>' for n, e in ALLOWED.items())} and by no one else "
-                    f"(issue #345); a co-author's name is attribution too. Drop the trailer or make "
-                    f"the co-author one of the two allowed identities."
+                    f"A PR's commits may be authored by {_allowed_note()} and by no one else "
+                    f"(issues #345, #971); a co-author's name is attribution too. Drop the trailer or "
+                    f"make the co-author one of the two allowlisted addresses under one of its aliases."
                 )
                 out.append(finding)
     return out
@@ -298,21 +325,21 @@ def check_producers(root: Path = REPO_ROOT) -> list[dict]:
                 "title": f"ci: {where} authors commits as `{name}`, outside the allowlist",
                 "evidence": (
                     f"`{where}` sets `user.name` to `{name}`. A PR's commits may be authored by "
-                    f"{' or '.join(f'{n} <{e}>' for n, e in ALLOWED.items())} and by no one else "
-                    f"(issue #345). Set the allowed identity instead."
+                    f"{_allowed_note()} and by no one else "
+                    f"(issues #345, #971). Set the allowed identity instead."
                 ),
                 "where": where,
             })
         for email in emails:
-            if _runtime_value(email) or email in ALLOWED.values():
+            if _runtime_value(email) or email in ALIASES:
                 continue
             out.append({
                 "key": f"producer-email/{where}:{email}",
                 "title": f"ci: {where} authors commits as `{email}`, outside the allowlist",
                 "evidence": (
                     f"`{where}` sets `user.email` to `{email}`. A PR's commits may be authored by "
-                    f"{' or '.join(f'{n} <{e}>' for n, e in ALLOWED.items())} and by no one else "
-                    f"(issue #345). Set the allowed identity instead."
+                    f"{_allowed_note()} and by no one else "
+                    f"(issues #345, #971). Set the allowed identity instead."
                 ),
                 "where": where,
             })
@@ -363,7 +390,7 @@ def check_seam(root: Path = REPO_ROOT) -> list[dict]:
         command = _command_text(text)
         names, emails = _producer_values(text)
         pins_identity = (any(n in ALLOWED for n in names)
-                         and any(e in ALLOWED.values() for e in emails))
+                         and any(e in ALIASES for e in emails))
         if where.endswith(".py"):
             # A docstring may quote `git commit -am "…"` while explaining a rule; only an argv list or
             # a `git("commit")` helper call is an invocation.
@@ -451,8 +478,7 @@ def report(base: str, head: str, root: Path = REPO_ROOT) -> str:
                     for m in COAUTHOR.finditer(c["message"])]
         extra = f"  co-authors: {'; '.join(trailers)}" if trailers else ""
         lines.append(f"  {verdict}  {c['sha'][:12]}  {c['name']} <{c['email']}>{extra}")
-    lines.append(f"[check-pr-authors] allowed: "
-                 f"{', '.join(f'{n} <{e}>' for n, e in ALLOWED.items())}")
+    lines.append(f"[check-pr-authors] allowed: {_allowed_note()}")
     for path in producer_files(root):
         where = str(path.relative_to(root))
         names, emails = _producer_values(path.read_text())
@@ -460,7 +486,7 @@ def report(base: str, head: str, root: Path = REPO_ROOT) -> str:
             tag = "runtime" if _runtime_value(name) else ("OK" if name in ALLOWED else "FAIL")
             lines.append(f"  {tag}  {where}  user.name={name}")
         for email in emails:
-            tag = "runtime" if _runtime_value(email) else ("OK" if email in ALLOWED.values() else "FAIL")
+            tag = "runtime" if _runtime_value(email) else ("OK" if email in ALIASES else "FAIL")
             lines.append(f"  {tag}  {where}  user.email={email}")
     return "\n".join(lines)
 

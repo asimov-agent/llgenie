@@ -1660,7 +1660,7 @@ make check-docs        # fail when a user-facing make target is not documented h
 make docs-report       # show every user-facing target: documented, missing, or a recorded exception
 make check-pr-hygiene  # fail when a producer's commit message or PR body is empty, a placeholder, a subject with no body, or when AGENTS.md lost the mandate (issue #313)
 make pr-hygiene-report # show every producer the PR/commit-message guard reads, and its verdict
-make check-pr-authors  # fail when a PR commit is authored through an allowlisted email address, when a Co-authored-by trailer names anyone else, or when a producer commits off the allowlist (issue #345)
+make check-pr-authors  # fail when a PR commit is authored by anyone but Andy Holst or Asimov Agent, when a Co-authored-by trailer names anyone else, or when a producer commits off the allowlist (issue #345)
 make pr-authors-report # show every commit in the range with its author verdict, and the identity each producer assigns
 make check-workflows   # fail when a YAML file's GitHub expression does not parse, a YAML file lacks a trailing newline, a workflow has no top-level name, a `workflow_run` trigger names no workflows (issue #330), or a `workflow_run` roster names a workflow that does not exist / leaves one unwatched (issue #349)
 make check-module-names   # fail when a LIVE file spells the retired CLI module name instead of
@@ -1995,25 +1995,23 @@ with no `- [ ]` item, on an `AGENTS.md` that lost the section, and on an issue s
 states the shape. `make issue-bodies-report` prints every producer, whether it renders through the
 seam, and the verdict.
 
-### A PR's commits are authored through an allowed email — no one else (issue #345)
+### A PR's commits are authored by Andy Holst or Asimov Agent — no one else (issue #345)
 
 A commit's author is the attribution every reader trusts — `git log`, `git blame` and `git bisect`
-all answer "who wrote this" from it. Only two identity **addresses** may author a PR's commits:
+all answer "who wrote this" from it. Only two identities may author a PR's commits:
 
 ```
-andy.holst@protonmail.com
-support@docondee.com
+Andy Holst <andy.holst@protonmail.com>
+Asimov Agent <support@docondee.com>
 ```
 
-The **email is the gate**, and the display name is informational: GitHub's squash of a PR commit writes the
-name from the account **profile**, not the committer, so `Andy <andy.holst@protonmail.com>`,
-`andyholst <andy.holst@protonmail.com>` and `Mr. Asimov <support@docondee.com>` are the same two people and
-all pass (issue #840 — rewriting history to satisfy a field the committer cannot set is the wrong fix). A
-commit authored at a **foreign address** fails whatever the name says — `Andy Holst <someone@else.example>` —
-and `github-actions[bot]`, `Hermes Agent` and `llgenie fix-bot` fail because their addresses are outside the
-allowlist. A `Co-authored-by:` trailer naming an off-allowlist address fails too. The repository's own
-**producers** are held to the stricter name-and-address pair, because a workflow author types `user.name` by
-hand and so can control it.
+The **email is the identity**, and each allowlisted address carries an explicit alias list of the
+display names it may be written under: `andy.holst@protonmail.com` ← `Andy Holst`, `Andy`,
+`andyholst`; `support@docondee.com` ← `Asimov Agent`, `Mr. Asimov`. A display name is accepted only
+under the address that names it, so the alias list is a NAME list and never an email list —
+`Andy Holst <andy.holtd@protonmail.com>` and `Andy <someone@else.example>` both fail, while
+`github-actions[bot]`, `llgenie fix-bot` and `Hermes Agent` were never aliases. A `Co-authored-by:`
+trailer naming anyone else fails too.
 
 `make check-pr-authors` (`scripts/check_pr_authors.py`, in the `ci-unit` job) is the gate. It reads
 the commits a PR **adds** (`git rev-list --no-merges <base>..<head>`, default `origin/main..HEAD`):

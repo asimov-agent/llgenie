@@ -1,0 +1,1 @@
+| 2026-10-29 | the commit-author gate keys on the allowlisted **address** with an explicit alias list per address, so `Andy <andy.holst@protonmail.com>` passes while the lookalike `andy.holtd@…` still fails | [2026-10-29-author-alias-emails.md](agent-wiki/2026-10-29-author-alias-emails.md) | #971 |

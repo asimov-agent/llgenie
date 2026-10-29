@@ -98,58 +98,67 @@ def test_the_allowed_identities_pass(tmp_path: Path):
     assert items == []
 
 
-def test_the_squash_display_name_with_the_allowed_email_passes(tmp_path: Path):
-    # Given a real repo whose branch adds a commit authored `Andy` at the allowed address — the exact
-    # shape GitHub's squash writes (display name from the PROFILE, not the committer, issue #840)
+def test_an_allowlisted_email_under_an_alias_name_passes(tmp_path: Path):
+    # Given a real repo whose branch adds commits under each display name the two allowlisted
+    # addresses may carry (issue #971 — GitHub writes a squash commit's name from the profile)
     repo = _repo(tmp_path)
-    _branch(repo, "feat/andy")
+    _branch(repo, "feat/aliases")
     _commit(repo, "Andy", "andy.holst@protonmail.com", "feat(x): authored Andy")
-
-    # When  the guard reads the real commit range
-    items = cpa.check_commits(cpa.commits_in_range("main", "HEAD", repo))
-
-    # Then  the display name is informational; the email is the gate, so it passes
-    assert items == []
-
-
-def test_the_squash_display_name_fix_bot_email_still_fails(tmp_path: Path):
-    # Given a real repo whose branch adds a commit authored `Andy` at a non-allowlisted address
-    repo = _repo(tmp_path)
-    _branch(repo, "feat/bad-email-elsewhere")
-    _commit(repo, "Andy", "someone@else.example", "feat(x): right name, wrong email")
-
-    # When  the guard reads the real commit range
-    items = cpa.check_commits(cpa.commits_in_range("main", "HEAD", repo))
-
-    # Then  the EMAIL is outside the allowlist, so it is a violation whatever the name says
-    assert len(items) == 1
-    assert _authors(items) == ["Andy"]
-
-
-def test_a_commit_authored_andyholst_with_the_allowed_email_passes(tmp_path: Path):
-    # Given a real repo whose branch adds a commit authored `andyholst` at the allowed address
-    repo = _repo(tmp_path)
-    _branch(repo, "feat/andyholst")
     _commit(repo, "andyholst", "andy.holst@protonmail.com", "feat(x): authored andyholst")
-
-    # When  the guard reads the real commit range
-    items = cpa.check_commits(cpa.commits_in_range("main", "HEAD", repo))
-
-    # Then  the email is allowed, so the alternate display name passes (issue #840)
-    assert items == []
-
-
-def test_a_commit_authored_mr_asimov_with_the_allowed_email_passes(tmp_path: Path):
-    # Given a real repo whose branch adds a commit authored `Mr. Asimov` at the allowed address
-    repo = _repo(tmp_path)
-    _branch(repo, "feat/mr-asimov")
     _commit(repo, "Mr. Asimov", "support@docondee.com", "feat(x): authored Mr. Asimov")
 
     # When  the guard reads the real commit range
     items = cpa.check_commits(cpa.commits_in_range("main", "HEAD", repo))
 
-    # Then  the email is allowed, so the alternate display name passes
+    # Then  the ADDRESS is the identity and each name is an alias of it, so nothing is reported
     assert items == []
+
+
+def test_an_alias_name_with_a_typo_email_still_fails(tmp_path: Path):
+    # Given a real repo whose branch adds a commit with an allowed name and a lookalike address
+    # (the real typo measured on #919: `fd31640d Andy Holst <andy.holtd@protonmail.com>`)
+    repo = _repo(tmp_path)
+    _branch(repo, "feat/typo-email")
+    _commit(repo, "Andy Holst", "andy.holtd@protonmail.com", "feat(x): a typo in the address")
+
+    # When  the guard reads the real commit range
+    items = cpa.check_commits(cpa.commits_in_range("main", "HEAD", repo))
+
+    # Then  the alias list is a NAME list, never an email list, so this is still a violation
+    assert len(items) == 1
+    assert "andy.holtd@protonmail.com` is not an allowlisted address" in items[0]["evidence"]
+
+
+def test_an_unknown_author_still_reds_the_gate(tmp_path: Path):
+    # Given a real repo whose branch adds a commit by an identity the map does not name — the
+    # negative control that proves the widened allowlist has not become a pass-through
+    repo = _repo(tmp_path)
+    _branch(repo, "feat/unknown")
+    _commit(repo, "Hermes Agent", "agent@asimov.local", "feat(x): an unknown author")
+
+    # When  the guard's own entry point runs against the tree
+    items = cpa.check_commits(cpa.commits_in_range("main", "HEAD", repo))
+    rc = cpa.main(["check", "--base", "main", "--head", "HEAD", "--root", str(repo)])
+
+    # Then  it is reported and the exit code CI gates on is non-zero
+    assert len(items) == 1
+    assert _authors(items) == ["Hermes Agent"]
+    assert rc == 1
+
+
+def test_the_alias_map_is_one_address_per_name(tmp_path: Path):
+    # Given the alias map the guard enforces
+    # When  every address and every display name is read
+    owners: dict[str, set[str]] = {}
+    for email, names in cpa.ALIASES.items():
+        for name in names:
+            owners.setdefault(name, set()).add(email)
+
+    # Then  each key is an allowlisted address, no name belongs to two addresses, and `ALLOWED` is
+    # derived from the map rather than restated beside it
+    assert set(cpa.ALIASES) == {"andy.holst@protonmail.com", "support@docondee.com"}
+    assert all(len(emails) == 1 for emails in owners.values()), owners
+    assert cpa.ALLOWED == {name: next(iter(e)) for name, e in owners.items()}
 
 
 def test_a_commit_authored_github_actions_bot_is_a_violation(tmp_path: Path):
@@ -182,22 +191,21 @@ def test_the_right_name_with_the_wrong_email_is_a_violation(tmp_path: Path):
 
 
 def test_every_off_list_identity_is_reported_in_a_long_range(tmp_path: Path):
-    # Given a real repo whose branch adds five commits, two of them off-email
+    # Given a real repo whose branch adds five commits, three of them off-list
     repo = _repo(tmp_path)
     _branch(repo, "feat/mixed")
     _commit(repo, *ANDY, "feat(x): allowed one")
-    _commit(repo, "Andy", "andy.holst@protonmail.com", "feat(x): alternate display name (allowed email)")
-    _commit(repo, "llgenie fix-bot", "fix-bot@users.noreply.github.com", "feat(x): off-list one")
-    _commit(repo, "Hermes Agent", "agent@asimov.local", "feat(x): off-list two")
+    _commit(repo, "LLGenie Architect", "architect@llgenie.local", "feat(x): off-list one")
+    _commit(repo, "llgenie fix-bot", "fix-bot@users.noreply.github.com", "feat(x): off-list two")
+    _commit(repo, "Hermes Agent", "agent@asimov.local", "feat(x): off-list three")
     _commit(repo, *ASIMOV, "feat(x): allowed two")
 
     # When  the guard reads the real commit range
     items = cpa.check_commits(cpa.commits_in_range("main", "HEAD", repo))
 
-    # Then  exactly the two off-EMAIL authors are reported, each once (`Andy` carries an allowed email,
-    #      so its alternate display name is not a violation, issue #840)
-    assert len(items) == 2
-    assert sorted(_authors(items)) == sorted(["llgenie fix-bot", "Hermes Agent"])
+    # Then  exactly the three off-list authors are reported, each once
+    assert len(items) == 3
+    assert sorted(_authors(items)) == sorted(["LLGenie Architect", "llgenie fix-bot", "Hermes Agent"])
 
 
 # ---------------------------------------------------------------------------
@@ -217,7 +225,7 @@ def test_an_off_list_co_author_is_its_own_finding(tmp_path: Path):
     # Then  the co-author is reported under its own key and the author is NOT
     assert len(items) == 1
     assert "co-author/" in items[0]["key"]
-    assert "Hermes Agent <agent@asimov.local>" in items[0]["evidence"]
+    assert "Hermes Agent" in items[0]["evidence"]
 
 
 def test_an_allowed_co_author_is_accepted(tmp_path: Path):
@@ -225,7 +233,7 @@ def test_an_allowed_co_author_is_accepted(tmp_path: Path):
     repo = _repo(tmp_path)
     _branch(repo, "feat/coauthor-ok")
     message = ("feat(x): an allowed author with an allowed co-author\n\n"
-               "Co-authored-by: Asimov Agent <support@docondee.com>")
+               "Co-authored-by: Mr. Asimov <support@docondee.com>")
     _commit(repo, *ANDY, message)
 
     # When  the guard reads the real commit range
@@ -486,7 +494,7 @@ def test_check_exits_non_zero_on_a_violation_and_zero_on_this_repo(tmp_path: Pat
     # Given a real repo whose branch adds an off-list commit
     repo = _repo(tmp_path)
     _branch(repo, "feat/bad")
-    _commit(repo, "Andy", "andy.holst@protonmail.com", "feat(x): off-list")
+    _commit(repo, "Hermes Agent", "agent@asimov.local", "feat(x): off-list")
 
     # When  the guard's own entry point runs against each tree
     bad = cpa.main(["check", "--base", "main", "--head", "HEAD", "--root", str(repo)])
@@ -496,11 +504,11 @@ def test_check_exits_non_zero_on_a_violation_and_zero_on_this_repo(tmp_path: Pat
 
 
 def test_report_lists_every_commit_and_its_verdict(tmp_path: Path):
-    # Given a real repo whose branch adds one allowed and one off-email commit
+    # Given a real repo whose branch adds one allowed and one off-list commit
     repo = _repo(tmp_path)
     _branch(repo, "feat/mixed-report")
     _commit(repo, *ANDY, "feat(x): allowed")
-    _commit(repo, "Hermes Agent", "agent@asimov.local", "feat(x): off-email")
+    _commit(repo, "LLGenie Architect", "architect@llgenie.local", "feat(x): off-list")
 
     # When  the report runs
     text = cpa.report("main", "HEAD", repo)
