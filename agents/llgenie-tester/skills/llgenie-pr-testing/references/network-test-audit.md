@@ -1,0 +1,59 @@
+---
+# Auditing and routing tests that hit the real network out of a hermetic gate
+
+A `linux / unit`-style gate has a time budget and a flake budget. A large share of both comes from
+one class of test: one that opens a real hub URL for a model/dataset/registry. This is the recipe for
+finding those tests and routing each to a pattern that is fast and hermetic.
+
+## 1. Static scan: build the candidate list, know it is only a candidate list
+
+A reference to an endpoint is NOT proof the test opens it — many are mock URLs in fixtures, a local
+in-process server, or a probe helper. Grep the unit test directory for a coincident open-call and an
+endpoint reference on the same line, per file:
+
+```
+OPEN = re.compile(r"(requests\.(get|head|post)|urlopen|urlretrieve|hf_hub_download|snapshot_download|huggingface_hub|from_pretrained)")
+HF   = re.compile(r"huggingface\.co|hf\.co|HUGGINGFACE_HUB|HF_|hub\.hf|huggingface_hub")
+for each test_*.py: count lines matching OPEN AND HF; note whether the file marks `@pytest.mark.network`
+                   or its tests appear in the unit suite's deselection roster
+```
+
+The count is the candidate list. Report it as such — "N reference lines, none marked, none
+quarantined" is the finding a reviewer reads; do not dress the grep count up as a network-opens count.
+
+## 2. Ground truth is execution: `--durations=N` over the suspects
+
+A grep tells you what LOOKS network-bound. `pytest --durations=25 <suspect files>` on the exact files
+tells you what IS. Run it over the named files, not the whole suite — the local unauthenticated full
+suite can be an order of magnitude slower than CI because the Hub-touching tests crawl, and a whole
+suite run is a multi-hour wait for the same signal the named-files pulse gives in minutes.
+
+Attach the durations output (slowest table) to the issue **before** editing any test: it is the
+baseline the refactor is judged against, and the ceiling a later PR's timing is held to.
+
+## 3. Route each real-call test into exactly one pattern
+
+| pattern | what it is | when to use it |
+|---|---|---|
+| loopback | real function against a real in-process server (a `test_hub_*` transient-budget style test reusing a local responsive server) | the function's logic is what matters; no external state is needed |
+| liveness | HEAD/curl through ONE probe helper that proves the link returns and fails with a legible string naming the dead URL and the caller | the test needs to know the upstream file still exists; link rot must be a named message, not a raw 404 |
+| `@pytest.mark.network` | a real call that cannot be loopback or liveness, quarantined from the default gate | everything else — never a silent real call in the default path |
+
+Pick ONE liveness helper as the authority (a `hub_probe` module). Do not let two files spell the
+proof two ways: pin the unit gate so a second authority fails a scan.
+
+## 4. The marker mechanism so a refactor has a target
+
+- add the marker to the pytest config: `network: a test that calls the real hub; excluded from the
+  hermetic gate`;
+- the suite selection gets `-m "not network"` (or an equivalent explicit deselect) so any
+  `@pytest.mark.network` test is out of `ci-unit` by construction;
+- a pinning test that scans the unit suite for an **unmarked** real endpoint open (a real call with no
+  `network` mark and no loopback/liveness provenance) and fails on the first — the gate's own proof
+  that nothing slipped back in. A widened gate passes its own gate trivially; only the pin reports it.
+
+## 5. Coordinate before editing
+
+When a model/registry/data-path lane owns the files that are slow, hand the audit + durations to it
+and take the gate side (marker, pin, ledger) yourself. Agree the liveness-helper name up front so the
+split does not produce two spellings of the same proof.
