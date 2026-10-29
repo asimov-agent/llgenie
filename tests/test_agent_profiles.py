@@ -1450,6 +1450,26 @@ def test_the_fleet_block_has_one_canonical_lesson_is_in_the_skill():
         assert phrase in ref, f"the single-canonical lesson is missing: {phrase}"
 
 
+def test_this_lane_s_soul_uses_the_canonical_rule16_wording_not_the_drifted_fence():
+    """The #1009 defect, pinned on the lane that owns it: ONE canonical, the gate's.
+
+    issue #873's body fence states rule 16 as "Arm when done, and only on a base of main"; the gate's
+    canonical (agents/standing-rules.md via fleet_block()) states it as "Arm auto-merge when the work is
+    done, not when it is approved". `_stated_block()` compares byte-for-byte against standing-rules.md
+    only — so a SOUL built from the #873 fence passes a sampler and FAILS the gate (measured: taking the
+    doc lane's live 13,394, which matched #873, re-introduced block-in-soul FAIL; planner's instruction
+    withdrawn, #1009). This lane's SOUL must state the gate's wording and the drifted wording must not
+    appear in its stated block, so the divergent-source mistake cannot return here.
+    """
+    soul = (REPO / "agents" / "llgenie-issse-implementer" / "SOUL.md").read_text()
+    block = guard._stated_block(soul)
+    assert block is not None, "this lane's SOUL must state the canonical fence"
+    assert "Arm auto-merge when the work is done" in block, \
+        "this lane's stated block must carry the gate's canonical rule-16 wording"
+    assert "Arm when done, and only on a base of" not in block, \
+        "the drifted #873-fence wording must not be in this lane's stated block (it fails the gate)"
+
+
 def test_the_retired_rule_debt_lesson_is_in_the_skill():
     """The gate change ships with its lesson, or the next editor re-introduces the silent pass.
 
