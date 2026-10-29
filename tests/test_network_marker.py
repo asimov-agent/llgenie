@@ -217,9 +217,17 @@ def _hub_opens(file_text: str) -> list[tuple[str, str]]:
         )
     )
     problems: list[tuple[str, str]] = []
+    # a model dict defined at module/test scope that carries a live Hub id (`X = {... "hf": "org/repo" ...}`)
+    # is a real-call source: `mp.download(X, ...)` / `mp.gguf_files(X["hf"])` reach the Hub even when
+    # the call line itself shows no huggingface.co literal (the model id is the host reference).
+    _MODEL_DICT = re.compile(r"([A-Za-z_]\w*)\s*=\s*\{[^}]*?\bhf\b[\"']?\s*:")
+    module_hf_models = {m.group(1) for m in _MODEL_DICT.finditer(file_text)}
 
     def _scan_scope(body: str, name: str) -> None:
         nono = _LOOPBACK_RE.search(body)
+        hf_models = dict.fromkeys(module_hf_models) | dict.fromkeys(
+            f.group(1) for f in _MODEL_DICT.finditer(body)
+        )
         hub_vars: dict[str, str] = {}
         non_def = [
             ln for ln in body.splitlines()
@@ -240,6 +248,20 @@ def _hub_opens(file_text: str) -> list[tuple[str, str]]:
                     v for k, v in hub_vars.items() if re.search(r"\b%s\b" % re.escape(k), s))
                 if _HUB_RE.search(to):
                     problems.append((name, s[:140]))
+            # the repo's own DOWNLOAD entries called with a hub model dict (no loopback): a real Hub
+            # reach expressed as a model id, not a URL literal. NOT plan_download (planning only,
+            # never touches the network — the engine lane's explicit carve-out) and NOT resolve_local
+            # (local disk resolution only).
+            if not nono:
+                dm = re.search(
+                    r"\b(mp\.download|mp\.gguf_files|mp\.hf_size)\("
+                    r"\s*([\"']?(?:[A-Za-z_]\w*)?[\"']?)(?:\[?[\"']hf[\"']\]?)?\s*[),.]",
+                    s,
+                )
+                if dm:
+                    arg = dm.group(2).strip().strip("\"'")
+                    if arg in hf_models:
+                        problems.append((name, s[:140]))
             elif _HUB_RE.search(s):
                 pass  # a mention with no open is not a call
 
