@@ -58,6 +58,7 @@ SERVER_ROOT ?= $(HOME)/repository/git
 SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 
 .PHONY: all install venv-install link uninstall smoke list version help test-native-engine test-native-engine-serve test-interactive-tensorfold test-interactive-tensorfold-ci \
+	git-identity-apply check-git-identity git-identity-line git-identity-report \
 	sweep-concurrency-report \
 	openspec-image openspec-new openspec-validate openspec-validate-all openspec-status openspec-shell \
 	test test-unit test-agents-read agents-read-venv test-install test-install-ci test-install-host test-install-trend test-health test-health-host download-test-model \
@@ -950,6 +951,21 @@ check-pr-authors: ## CI: fail when a PR's commit is authored by anyone but Andy 
 	python3 scripts/check_pr_authors.py check --base "$(PR_BASE)" --head "$(PR_HEAD)"
 pr-authors-report: ## Show every commit in the range with its author verdict, and the identity each producer assigns
 	python3 scripts/check_pr_authors.py report --base "$(PR_BASE)" --head "$(PR_HEAD)"
+# The ONE source of the identity every leg commits as (issue #840). `git-identity-apply` writes the
+# allowlisted pair into THIS repository's git config — the one place a leg sources it from, instead of
+# nine literals in three spellings, or whatever the host's ~/.gitconfig happens to hold.
+# `check-git-identity` fails when the identity git would actually use is outside
+# `scripts/check_pr_authors.py::ALLOWED`, naming where it came from (GIT_AUTHOR_EMAIL, a config file).
+# `git-identity-line` is the `Author:` line a bot's PR body carries. All three are CI/leg plumbing, so
+# none carries a `##` help line: `make help` documents what a USER runs.
+git-identity-apply:
+	python3 scripts/git_identity.py apply
+check-git-identity:
+	python3 scripts/git_identity.py check
+git-identity-line:
+	@python3 scripts/git_identity.py line
+git-identity-report:
+	python3 scripts/git_identity.py report
 check-workflows: ## CI: fail when a YAML file's GitHub expression does not parse, when a YAML file lacks a trailing newline, when a workflow has no top-level name, or when a `workflow_run` roster names a workflow that does not exist or leaves one unwatched (issues #330, #349)
 	python3 scripts/check_workflows.py check
 workflows-report: ## Show every YAML file the workflow gate reads, how many expressions it validated, and its verdict

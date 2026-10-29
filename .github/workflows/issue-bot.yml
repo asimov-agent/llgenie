@@ -263,9 +263,9 @@ jobs:
           BRANCH: ${{ steps.dispatch.outputs.branch }}
         run: |
           # Authored as one of the two identities a PR's commits may carry (`Asimov Agent`,
-          # issue #345); a github-actions[bot] branch is also held for approval on its PR.
-          git config user.name "Asimov Agent"
-          git config user.email "support@docondee.com"
+          # issue #345), sourced from the ONE seam that sets it (issue #840) rather than a literal in
+          # this file; a github-actions[bot] branch is also held for approval on its PR.
+          make git-identity-apply
           git checkout -b "$BRANCH"
           # The bot's own run inputs (issue.md, triage.md, refine*.md, comment.md) are in
           # .gitignore, so this stages repository content only: there is no per-file exclude

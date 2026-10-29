@@ -273,9 +273,11 @@ jobs:
           if [ -z "$(git status --porcelain)" ]; then exit 0; fi
           # The commit is authored as one of the two identities a PR's commits may carry
           # (`Asimov Agent`, issue #345): an off-allowlist author fails `make check-pr-authors`,
-          # so a repair pushed as anything else would red the very PR it repairs.
-          git -c user.name="Asimov Agent" -c user.email="support@docondee.com" \
-            commit -am "fix(bot): repair the failing check (#222)
+          # so a repair pushed as anything else would red the very PR it repairs. The identity comes
+          # from the ONE seam (issue #840) instead of a `-c` literal — a `-c` flag overrides every
+          # config layer by design, which is how `andy@asimov.local` reached a head once.
+          make git-identity-apply
+          git commit -am "fix(bot): repair the failing check (#222)
 
           Repaired by the PR fix-bot loop (scripts/fix_loop.sh): the check ran, Hermes
           was handed the failure and the repo rules, and the check was re-run until it

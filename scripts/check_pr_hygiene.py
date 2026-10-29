@@ -66,8 +66,10 @@ PY_GIT_COMMIT = re.compile(r"""["']git["']\s*,\s*["']commit["']""")
 PY_PR_CREATE = re.compile(r"""["'](?:gh["']\s*,\s*["'])?pr["']\s*,\s*["']create["']""")
 #: The flag that carries a PR body — file first, so `--body` does not shadow `--body-file`.
 BODY_FLAG = re.compile(r"(?<![\w-])(--body-file|--body|-b)(?!=)")
-#: The flag that carries a commit message.
-MSG_FLAG = re.compile(r"(?<![\w-])(--message|-m|-F|--file)(?!=)")
+#: The flag that carries a commit message. `-[a-z]*m` also reads the SHORT-FLAG BUNDLE git accepts
+#: (`-am`, `-sm`), because `git commit -am "…"` carries its message just as `-m "…"` does and a rule
+#: that reads only `-m` reports a real message as "no message" (measured on `fix-bot.yml`, #840).
+MSG_FLAG = re.compile(r"(?<![\w-])(--message|-[a-z]*m|-F|--file)(?!=)")
 BODY_FLAGS = ("--body-file", "--body", "-b")
 MSG_FLAGS = ("--message", "-m", "-F", "--file")
 #: Shell keywords and Python call openings a real invocation may sit behind.
@@ -89,17 +91,22 @@ def producer_files(root: Path = REPO_ROOT) -> list[Path]:
 
 
 def _commands(text: str) -> list[str]:
-    """Logical shell commands: backslash-continued lines joined, every other line on its own."""
+    """Logical shell commands: backslash-continued lines joined, and a MULTI-LINE quoted message kept
+    whole — a `git commit -am "subject\\n\\nbody…"` spans lines and is still ONE command."""
     out: list[str] = []
     buf = ""
     for line in text.splitlines():
-        if line.strip().startswith("#"):
+        if line.strip().startswith("#") and not buf:
             continue
         stripped = line.rstrip()
         if stripped.endswith("\\"):
             buf += stripped[:-1] + " "
             continue
         buf += stripped
+        if buf.count('"') % 2 == 1:
+            # An open double quote: the command continues on the next line.
+            buf += "\n"
+            continue
         if buf.strip():
             out.append(buf.strip())
         buf = ""
@@ -160,12 +167,27 @@ def _shell_values(cmd: str, flag_re: re.Pattern) -> list[str]:
     return out
 
 
+def _py_unquote(value: str) -> str:
+    """A Python string literal without its quotes (and its `f` prefix), so it compares to real text."""
+    value = value.strip()
+    if value[:2] in ("f\"", "f'"):
+        value = value[1:]
+    return value.strip("\"'")
+
+
 def _py_values(chunk: str, flags: tuple[str, ...]) -> list[str]:
-    """The values after a flag in a Python argv list: `"--body", body` -> `body`."""
+    """The values after a flag in a Python argv list: `"--body", body` -> `body`.
+
+    A QUOTED string is read whole, spaces included (`"-m", f"fix(x): one subject"` is ONE value), and
+    only then a bare token is taken. Reading one token made every message containing a space look
+    like a one-word subject — and a `-m` whose inline `-c` flags had hidden the call entirely was
+    never read at all (measured while converting the producers to the one identity seam, #840).
+    """
     out = []
     for name in flags:
-        pattern = re.compile(rf"""(?<![\w-]){re.escape(name)}["']?\s*,\s*([^\s,\]\)]+)""")
-        out += [m.group(1).strip("\"'") for m in pattern.finditer(chunk)]
+        pattern = re.compile(
+            rf"""(?<![\w-]){re.escape(name)}["']?\s*,\s*([f]?(?:"[^"]*"|'[^']*')|[^\s,\])]+)""")
+        out += [_py_unquote(m.group(1)) for m in pattern.finditer(chunk)]
     return out
 
 

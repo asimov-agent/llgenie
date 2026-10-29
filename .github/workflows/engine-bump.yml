@@ -180,19 +180,22 @@ jobs:
           DEPS: ${{ steps.bump.outputs.deps }}
         run: |
           # Authored as one of the two identities a PR's commits may carry (`Asimov Agent`,
-          # issue #345). The PUSH/PR still use BUMP_TOKEN, so the PR is opened by a real account and
-          # CI starts (issue #136) — only the git AUTHOR is pinned, because `gh api user` would
-          # otherwise stamp the token owner's LOGIN (e.g. `asimov-agent`), which is not an allowed
-          # spelling and fails `make check-pr-authors` on this very PR.
-          git config user.name "Asimov Agent"
-          git config user.email "support@docondee.com"
+          # issue #345), sourced from the ONE seam that sets it (issue #840) instead of a literal
+          # typed into this file. The PUSH/PR still use BUMP_TOKEN, so the PR is opened by a real
+          # account and CI starts (issue #136) — only the git AUTHOR is pinned, because `gh api user`
+          # would otherwise stamp the token owner's LOGIN (e.g. `asimov-agent`), which is not an
+          # allowed spelling and fails `make check-pr-authors` on this very PR.
+          make git-identity-apply
           branch="chore/engine-bump-${ID}"
           git switch -C "$branch"
           git add skills/engines/${ID}/SKILL.md containers/engines/params/${ID}.json containers/engines/dockerfiles/${ID}/ tests/ docs/ data/strata_models.json
           msg=$(printf 'Issue: #107 — the weekly engine bump found %s at %s, pinned at %s.\n\nFix: re-derived the install recipe at %s and applied it to SKILL.md, the frozen per-arch Dockerfiles, the params and the Strata model list.\n\nBenefit: llgenie builds and serves this engine at the upstream release instead of a stale pin.\n\nTechnical: make engine-bump ENGINE=%s (derive -> pin -> apply -> make generate-engine-params). CI builds and tests the images of this engine only; a red PR means the new upstream commit needs a manual skill fix.' "$ID" "$REF" "${OLD:0:8}" "$REF" "$ID")
           git commit -m "chore(engine): bump ${ID} to ${REF}@${NEW:0:8}" -m "$msg" || { echo "nothing to commit"; exit 0; }
           git push --force origin "$branch"
-          body=$(printf 'Automated engine pin bump (issue #107).\n\n- **Engine:** `%s`\n- **Pin:** `%s` -> `%s` (`%s`)\n- **Compare:** https://github.com/${{ github.repository }}/compare/%s...%s\n- CI builds and tests ONLY this engine'\''s images. A red PR means the new commit needs a manual skill fix.' "$ID" "${OLD:0:8}" "${NEW:0:8}" "$REF" "$OLD" "$NEW")
+          # The author a reviewer sees, before the diff (issue #840): the identity the commit above
+          # actually carries, read from the same seam that set it.
+          author="$(make -s git-identity-line)"
+          body=$(printf '%s\n\nAutomated engine pin bump (issue #107).\n\n- **Engine:** `%s`\n- **Pin:** `%s` -> `%s` (`%s`)\n- **Compare:** https://github.com/${{ github.repository }}/compare/%s...%s\n- CI builds and tests ONLY this engine'\''s images. A red PR means the new commit needs a manual skill fix.' "$author" "$ID" "${OLD:0:8}" "${NEW:0:8}" "$REF" "$OLD" "$NEW")
           if [ -n "$HARD_FAIL" ]; then
             body="$(printf '%b' "${body}" '\n' '\n' '> ⚠️ **Manual review required:** a build parameter could not be auto-derived — ' "$HARD_FAIL" '. The pin is bumped and the PR is open; CI will go red on the build until the skill is fixed by hand.')"
           fi

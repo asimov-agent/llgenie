@@ -41,6 +41,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
+import git_identity  # noqa: E402  the ONE source of the commit identity (issue #840)
 import security_issues as si  # noqa: E402
 import security_scan as ss  # noqa: E402
 
@@ -217,6 +218,9 @@ def matched_issues(fl: dict[str, Floor], repo: str) -> dict[int, Floor]:
 def pr_body(fl: dict[str, Floor], moved: list[tuple[str, str, str]],
             issues: dict[int, Floor], root: Path = REPO) -> str:
     lines = [
+        # The author a reviewer sees, before the diff (issue #840).
+        git_identity.pr_author_line(),
+        "",
         f"Issue: the daily scan reports {sum(len(f.advisories) for f in fl.values())} advisories "
         f"across {len(fl)} package(s) whose fixed version is above the pin this repository compiles "
         f"({', '.join(f.package for f in fl.values())}). Nothing bumped them: they are transitive "
@@ -297,12 +301,18 @@ def apply(repo: str, root: Path = REPO, dry: bool = False, reports: Path | None 
         return 1
     issues = matched_issues(fl, repo)
     branch = BRANCH
+    # The identity comes from the ONE seam that sets it (`scripts/git_identity.py`, issue #840).
+    git_identity.apply(root)
     steps = [
         ["git", "checkout", "-B", branch],
         ["git", "add", *[str(p.relative_to(root)) for p in branch_targets(root)]],
-        ["git", "-c", 'user.name="Asimov Agent"', "-c", 'user.email="support@docondee.com"',
-         "commit", "-m",
-         "fix(security): compile the scan's floors into the pinned requirements (#738)"],
+        ["git", "commit",
+         "-m", "fix(security): compile the scan's floors into the pinned requirements",
+         "-m", "Issue: the scan reports advisories whose fixed version is above the compiled pin.\n\n"
+               "Fix: write `tools/security-floors.in` from the report's own `fixed` versions and "
+               "regenerate the compiled requirements (#738).\n\nBenefit: the pins reach the floor the "
+               "scan itself names, so the run stops reding on advisories nobody bumped.\n\n"
+               "Technical: `make security-bumps` — floors, pip-compile, gates, one PR."],
         # The bot's own PR branch, rewritten every run: the floor file is a standing assertion.
         ["git", "push", "-u", "--force-with-lease", "origin", branch],
     ]

@@ -108,6 +108,26 @@ INLINE_EMAIL = re.compile(r"""user\.email\s*=\s*""" + _VALUE)
 #: one that genuinely cannot — and the commit scan is what ultimately governs the PR either way.
 RUNTIME = ("$(", "${", "${{")
 
+#: The ONE seam a leg sources its commit identity from (`scripts/git_identity.py`, issue #840): the
+#: make target, the script invocation, or the function a Python producer calls. A producer that runs
+#: `git commit` must either pin an allowed identity itself or name this — never inherit the host's.
+SEAM_APPLY = ("git-identity-apply", "git_identity.py apply", "git_identity.apply(", "gi.apply(")
+#: The seam's PR-body line: what makes a bot PR report its author, so a reviewer needs no `gh api`.
+SEAM_LINE = ("git-identity-line", "git_identity.py line", "pr_author_line(")
+#: A `git … commit` invocation on one folded line — the `-c user.name=… commit` form included, and a
+#: backslash-continued command folded by `_folded()`. `commit` must be the SUBCOMMAND (followed by an
+#: option or end of line), so prose such as `count … commit(s)` on a `say()` line is not an
+#: invocation; full-line comments are stripped before this runs (`_command_text`).
+GIT_COMMIT_ANY = re.compile(r"\bgit\b[^\n]{0,160}?\bcommit(?=[ \t]+-|\s*$)")
+#: The same invocation as a Python argv list — `["git", "-c", …, "commit", …]` or a `git("commit")`
+#: helper call. Only these count in a `.py` producer: a docstring may quote a command, and a quoted
+#: example is prose, not a producer that commits.
+PY_COMMIT_ANY = re.compile(r"""["']git["'][^\n]{0,160}?["']commit["']"""
+                           r"""|\bgit\([^\n]{0,100}?["']commit["']""")
+#: A `gh pr create` invocation, shell and Python argv forms.
+GH_PR_CREATE_ANY = re.compile(r"\bgh\b[^\n]{0,160}?\bpr\s+create\b")
+PY_PR_CREATE_ANY = re.compile(r"""["']pr["']\s*,\s*["']create["']""")
+
 
 def _run(args: list[str], cwd: Path) -> str:
     """Run git and return its stdout. A failure is raised, never swallowed."""
@@ -196,17 +216,22 @@ def check_commits(commits: list[dict], where: str = "pull request") -> list[dict
 #: those words as violations, which drowns a real one in noise (measured: 12 of the 21 findings on
 #: this repository's own tree were this file matching itself).
 SELF = Path(__file__).resolve()
+#: The ONE seam that sets the identity (`scripts/git_identity.py`, issue #840). Like this guard it
+#: names identities as DATA — it documents `git config user.name …` while explaining precedence and
+#: reads `GIT_AUTHOR_EMAIL` to say where a wrong identity came from — and never assigns one to a
+#: commit of its own, so scanning it reports the documentation as the defect.
+SEAM_SELF = (REPO_ROOT / SCRIPTS / "git_identity.py").resolve()
 
 
 def producer_files(root: Path = REPO_ROOT) -> list[Path]:
-    """Every file the repository owns that can author a commit — except this guard itself."""
+    """Every file the repository owns that can author a commit — except this guard and the seam."""
     out: list[Path] = list(sorted((root / WORKFLOWS).glob("*.yml")))
     makefile = root / MAKEFILE
     if makefile.exists():
         out.append(makefile)
     for pattern in ("*.sh", "*.py"):
         out += sorted((root / SCRIPTS).rglob(pattern))
-    return [p for p in out if p.resolve() != SELF]
+    return [p for p in out if p.resolve() not in (SELF, SEAM_SELF)]
 
 
 def _runtime_value(value: str) -> bool:
@@ -282,6 +307,89 @@ def check_producers(root: Path = REPO_ROOT) -> list[dict]:
     return out
 
 
+def _folded(text: str) -> str:
+    """A shell `run:` block with its backslash continuations folded into one line.
+
+    `git -c user.name=… -c user.email=… \\` newline `commit -am "…"` is ONE command, and a rule that
+    reads only same-line text misses it — which is exactly the producer this guard is about.
+    """
+    return re.sub(r"\\\n\s*", " ", text)
+
+
+def _command_text(text: str) -> str:
+    """A producer's text with its full-line comments stripped, then folded.
+
+    A `#` line in a `run:` block or a workflow header that QUOTES a command is prose about a command,
+    not the command: the tree's own explanation of this rule names `git commit`, and a scan that
+    counted it would report the documentation as the defect (measured on this very file's siblings).
+    """
+    kept = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+    return _folded(kept)
+
+
+def _names(text: str, markers: tuple[str, ...]) -> bool:
+    """Whether a producer sources one of the seam's spellings (make target, script, function)."""
+    return any(marker in text for marker in markers)
+
+
+def check_seam(root: Path = REPO_ROOT) -> list[dict]:
+    """Every producer either sources the ONE identity or pins an allowed one — and reports it.
+
+    Two rules, both about issue #840's mechanism (a correct-LOOKING name with a wrong domain):
+
+    * a producer that runs `git commit` must either pin an allowed name/email itself or name the
+      seam (`make git-identity-apply` / `git_identity.apply`). A new leg that just commits inherits
+      whatever the host gives it, which is how `Asimov Agent <agent@asimov.invalid>` reached `main`;
+    * a producer that opens a PR must report the identity in the body through the seam
+      (`make -s git-identity-line` / `pr_author_line()`), so a reviewer sees the author up front
+      instead of reaching for `gh api`.
+    """
+    out: list[dict] = []
+    for path in producer_files(root):
+        where = str(path.relative_to(root))
+        text = path.read_text()
+        command = _command_text(text)
+        names, emails = _producer_values(text)
+        pins_identity = (any(n in ALLOWED for n in names)
+                         and any(e in ALLOWED.values() for e in emails))
+        if where.endswith(".py"):
+            # A docstring may quote `git commit -am "…"` while explaining a rule; only an argv list or
+            # a `git("commit")` helper call is an invocation.
+            code = "\n".join(line for line in text.splitlines()
+                             if not line.lstrip().startswith("#"))
+            commits = bool(PY_COMMIT_ANY.search(code))
+            opens_pr = bool(PY_PR_CREATE_ANY.search(code))
+        else:
+            commits = bool(GIT_COMMIT_ANY.search(command))
+            opens_pr = bool(GH_PR_CREATE_ANY.search(command))
+        if commits and not pins_identity and not _names(text, SEAM_APPLY):
+            out.append({
+                "key": f"seam-commit/{where}",
+                "title": f"ci: {where} commits without sourcing the one allowlisted identity",
+                "evidence": (
+                    f"`{where}` runs `git commit` but neither pins an allowed name/email nor names "
+                    f"the seam (`make git-identity-apply`, `scripts/git_identity.py`). A leg that "
+                    f"inherits the host's git config commits as whatever that host holds — the "
+                    f"mechanism behind `Asimov Agent <agent@asimov.invalid>`, a correct-looking name "
+                    f"with a wrong domain (issue #840). Source the seam before the commit."
+                ),
+                "where": where,
+            })
+        if opens_pr and not _names(text, SEAM_LINE):
+            out.append({
+                "key": f"seam-pr-body/{where}",
+                "title": f"ci: {where} opens a PR without reporting the author in the body",
+                "evidence": (
+                    f"`{where}` opens a PR but does not carry the identity line "
+                    f"(`make -s git-identity-line`, `git_identity.pr_author_line()`). A reviewer must "
+                    f"see `Author: Asimov Agent <support@docondee.com>` without `gh api` "
+                    f"(issue #840)."
+                ),
+                "where": where,
+            })
+    return out
+
+
 def check_agents_mandate(root: Path = REPO_ROOT) -> list[dict]:
     """AGENTS.md states the author rule, so the rule cannot be deleted silently."""
     path = root / AGENTS
@@ -312,6 +420,7 @@ def findings(base: str, head: str, root: Path = REPO_ROOT) -> list[dict]:
         }]
     out = check_commits(commits)
     out += check_producers(root)
+    out += check_seam(root)
     out += check_agents_mandate(root)
     return out
 

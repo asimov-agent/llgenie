@@ -36,7 +36,12 @@ _OS_ENV = {
 
 _REPO = "acme/llgenie"
 
+#: The author line the seam puts first in the body (issue #840) — the identity the commit carries.
+_AUTHOR = "Author: Asimov Agent <support@docondee.com>"
+
 _EXPECTED_BASE = (
+    _AUTHOR + "\n"
+    "\n"
     "Automated engine pin bump (issue #107).\n"
     "\n"
     "- **Engine:** `ollama`\n"
@@ -73,9 +78,15 @@ def _body_slice() -> list[str]:
     return lines[start:end]
 
 
-def _bash(body_slice: list[str], hard_fail: str, deps: str = "") -> str:
-    """Run the body-assembly slice in bash and print `$body` on stdout."""
+def _bash(body_slice: list[str], hard_fail: str, deps: str = "",
+          author: str = _AUTHOR) -> str:
+    """Run the body-assembly slice in bash and print `$body` on stdout.
+
+    `author` stands in for `$(make -s git-identity-line)`: the seam's own value is pinned by
+    `tests/test_git_identity.py`, and this module pins what the body does with it.
+    """
     script = "set -eu\n"
+    script += f"author={_shell_quote(author)}\n"
     for key, val in _OS_ENV.items():
         script += f'{key}={_shell_quote(val)}\n'
     script += f"HARD_FAIL={_shell_quote(hard_fail)}\n"

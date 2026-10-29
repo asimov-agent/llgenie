@@ -1,0 +1,1 @@
+| 2026-10-29 | the commit identity has ONE source (`scripts/git_identity.py`, derived from `check_pr_authors.ALLOWED`), every committing/PR-opening producer sources it, `guard` asserts it in seconds, and bot PR bodies report `Author:` up front | [2026-10-29-author-identity-seam.md](agent-wiki/2026-10-29-author-identity-seam.md) | #840 |

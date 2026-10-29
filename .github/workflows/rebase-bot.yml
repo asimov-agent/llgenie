@@ -144,15 +144,14 @@ jobs:
           # The token that posts the outcome comment and its `done` marker (issue #453), and the
           # one the sweep uses to read PRs.
           GH_TOKEN: ${{ github.token }}
-          # A rebase preserves the author of the commits it replays and re-stamps the COMMITTER, so
-          # this only decides who a conflict resolution is authored/committed as — one of the two
-          # identities a PR's commits may carry (`Asimov Agent`, issue #345).
-          GIT_AUTHOR_NAME: Asimov Agent
-          GIT_AUTHOR_EMAIL: support@docondee.com
-          GIT_COMMITTER_NAME: Asimov Agent
-          GIT_COMMITTER_EMAIL: support@docondee.com
         run: |
           set -uo pipefail
+          # A rebase preserves the author of the commits it replays and re-stamps the COMMITTER, so
+          # this only decides who a conflict resolution is authored/committed as — one of the two
+          # identities a PR's commits may carry (`Asimov Agent`, issue #345), sourced from the ONE
+          # seam that sets it (issue #840) instead of four env literals in this file. The step runs
+          # without `-e`, so the seam's failure is turned into this step's failure explicitly.
+          make git-identity-apply || exit 1
           # The job env sets MAX_PR; defaulting here keeps the step honest when it is run alone
           # (and makes the bound a property of the step, not only of the workflow's env block).
           MAX_PR="${MAX_PR:-10}"

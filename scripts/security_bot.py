@@ -39,6 +39,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
+import git_identity  # noqa: E402  the ONE source of the commit identity (issue #840)
 import security_issues as si  # noqa: E402
 
 SELECT_LABELS = ("security", "vulnerability", "auto-fixable")
@@ -153,6 +154,9 @@ def gates(root: Path = REPO) -> tuple[bool, str]:
 
 def pr_body(target: Target, path: Path, before: str, after: str, root: Path = REPO) -> str:
     return "\n".join([
+        # The author a reviewer sees, before the diff (issue #840).
+        git_identity.pr_author_line(),
+        "",
         f"Issue: #{target.number} — `{target.package}` is pinned at `{before.split('==')[-1]}`, and "
         f"the scanner reports `{target.current}` → `{target.fixed}`.",
         "",
@@ -212,12 +216,20 @@ def apply(repo: str, root: Path = REPO, dry: bool = False, run_url: str = "") ->
         print("[security-bot] gates red after the edit — reverted, no PR")
         return 1
     branch = branch_name(target)
+    # The identity comes from the ONE seam that sets it (`scripts/git_identity.py`, issue #840): a
+    # command-line identity override beats every config layer by design, which is how a
+    # correct-looking name once reached a head with the wrong domain.
+    git_identity.apply(root)
     steps = [
         ["git", "checkout", "-b", branch],
         ["git", "add", str(path)],
-        ["git", "-c", 'user.name="Asimov Agent"', "-c", 'user.email="support@docondee.com"',
-         "commit", "-m", f"fix(security): bump {target.package} {before.split('==')[-1]} -> "
-                         f"{after.split('==')[-1]} for {target.advisory}"],
+        ["git", "commit",
+         "-m", f"fix(security): bump {target.package} for {target.advisory}",
+         "-m", f"Issue: #{target.number} — `{target.package}` is pinned below the advisory's fixed "
+               f"version.\n\nFix: move the pin `{before}` -> `{after}` in "
+               f"`{path.relative_to(root)}`.\n\nBenefit: the advisory `{target.advisory}` is closed by "
+               f"the smallest possible change.\n\nTechnical: one pin, fast gates run before the push, "
+               f"the PR closes #{target.number}."],
         ["git", "push", "-u", "origin", branch],
     ]
     for step in steps:

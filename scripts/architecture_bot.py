@@ -42,14 +42,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import git_identity  # the ONE source of the commit identity (issue #840)
 import issue_body  # the one issue shape every producer renders through (issue #745)
 import module_name_guard  # the shared rename rule (#573): the same check `make test-unit` runs
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOC_DEFAULT = "docs/ARCHITECTURE.md"
 BRANCH_PREFIX = "agent/architecture-"
-AUTHOR_NAME = "Asimov Agent"
-AUTHOR_EMAIL = "support@docondee.com"
+#: The commit identity, read from the seam that SETS it (issue #840) instead of a second copy of the
+#: allowlisted pair here — two copies is how a correct-looking name acquires a wrong domain.
+AUTHOR_NAME, AUTHOR_EMAIL = git_identity.identity()
 MIN_DOC_CHARS = 200
 MAX_LISTED_PATHS = 60
 
@@ -359,6 +361,9 @@ def render_issue(d: dict, stamp: str, head: str, doc: str) -> str:
 def render_pr(issue: int, d: dict, stamp: str, head: str, doc: str, branch: str) -> str:
     paths = ", ".join(f"`{p.split(chr(9))[-1]}`" for p in d["paths"][:10]) or "(the doc has no history)"
     return "\n".join([
+        # The author a reviewer sees, before the diff (issue #840).
+        git_identity.pr_author_line(),
+        "",
         f"Completes the architecture refresh for `{doc}` at `{head}`.",
         "",
         f"Issue: `{doc}` lagged the tree — last updated at `{d['doc_sha'][:12] or 'never'}`, "
@@ -512,10 +517,10 @@ def publish(root: Path, repo: str, doc: str = DOC_DEFAULT, stamp: str = "",
 
     git(root, "checkout", "-b", branch)
     git(root, "add", "--", doc)
-    # The identity is pinned as the literal allowlisted values: `make check-pr-authors` reads this
-    # producer, and a name it cannot resolve is a violation, not a shorthand.
-    git(root, "config", "user.name", "Asimov Agent")
-    git(root, "config", "user.email", "support@docondee.com")
+    # The identity comes from the ONE seam that sets it (`scripts/git_identity.py`, issue #840), the
+    # bot half of the allowlist `make check-pr-authors` enforces — not from whatever the host's git
+    # config holds, and not from a second literal here that could drift to another domain.
+    git_identity.apply(root)
     git(root, "commit", "-m", _title(stamp), "-m", issue_text)
     commit = git(root, "rev-parse", "HEAD").strip()
     git(root, "push", "-u", "origin", branch)

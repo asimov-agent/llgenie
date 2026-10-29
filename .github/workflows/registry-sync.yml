@@ -148,11 +148,11 @@ jobs:
           UTC: ${{ steps.diff.outputs.utc }}
         run: |
           # Authored as one of the two identities a PR's commits may carry (`Asimov Agent`,
-          # issue #345); `gh api user` would stamp the token owner's LOGIN instead, which is not an
+          # issue #345), sourced from the ONE seam that sets it (issue #840) rather than a literal in
+          # this file; `gh api user` would stamp the token owner's LOGIN instead, which is not an
           # allowed spelling and fails `make check-pr-authors` on this very PR. The push/PR keep
           # BUMP_TOKEN so the sync PR is opened by a real account and CI starts (issue #136).
-          git config user.name "Asimov Agent"
-          git config user.email "support@docondee.com"
+          make git-identity-apply
           git switch -C chore/registry-sync
           git add data/models.json data/trending-README.md data/trending-quant-catalog.json tests/fixtures/trending-quant-catalog.json tests/fixtures/trend-list-matrix.json data/engine-skill-gap.json
           msg=$(printf 'Issue: the vendored registry (data/models.json, from andyholst/trending-local-llms) was stale — generated_utc %s.\n\nFix: re-synced the registry and regenerated every derived artifact (the quant catalog, the per-architecture / VRAM / RAM trend list, the per-engine list and the unskilled-engine gap), then re-ran the gates on the new files.\n\nBenefit: llgenie ranks and offers models from current upstream data instead of an aged copy.\n\nTechnical: make sync-registry + sync-quant-catalog + render-trend-list-matrix + render-engine-skill-gap, then check-registry, check-quant-catalog, engine-skill-gap, skills-validate and test-unit. The trend-list-matrix fixture diff is the new list llgenie --matrix shows.' "$UTC")
@@ -164,6 +164,9 @@ jobs:
           ${gap}
 
           An engine llgenie does not ship is tolerated ONLY when it is a dated decision in \`data/unsupported-engines.json\`; a NEW one fails \`make check-engine-skill-gap\` in ci-unit until it ships a skill or its decision is recorded, and this run opened one tracking issue per new engine (issue #229). Reviewers: decide each new engine here."
+          # The author a reviewer sees, before the diff (issue #840), read from the same seam that set
+          # the identity of the commit above.
+          body=$(printf '%s\n\n%s' "$(make -s git-identity-line)" "$body")
           if gh pr view chore/registry-sync --json state -q .state 2>/dev/null | grep -q OPEN; then
             gh pr edit chore/registry-sync --title "chore(registry): sync models.json ($UTC)" --body "$body"
           else

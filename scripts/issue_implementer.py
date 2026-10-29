@@ -54,6 +54,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import bot_claims  # the shared claim protocol (scripts/bot_claims.py)
+import git_identity  # the ONE source of the commit identity + the PR body's Author line (issue #840)
 
 # How the cap recognises the bot's OWN PRs (issue #409). The author alone is not it:
 # `make issue-bot-open-pr` runs `gh` with the owner PAT, so the PR is authored by the PAT's
@@ -431,7 +432,10 @@ def render_pr_body(text: str, num: int, diffstat: str) -> str:
         raise SystemExit(f"[issue-implementer] {PR_BODY_FILE} must name the issue it implements "
                          f"(`#{num}`) in its `Issue:` part")
     stat = diffstat.strip() or "(the pushed commit's file list is unavailable)"
-    return f"{text.strip()}\n\nFiles changed:\n\n```\n{stat}\n```\n\ncloses #{num}\n"
+    # The author a reviewer sees, before the diff (issue #840): the identity the bot commits as, from
+    # the ONE seam that sets it — so a mismatch is visible without `gh api`.
+    return (f"{git_identity.pr_author_line()}\n\n{text.strip()}\n\nFiles changed:\n\n"
+            f"```\n{stat}\n```\n\ncloses #{num}\n")
 
 
 def diffstat(git: str = "git") -> str:

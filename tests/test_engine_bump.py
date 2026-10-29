@@ -795,8 +795,13 @@ def test_bump_pr_uses_owner_pat():
     assert "secrets.BUMP_TOKEN" in text
     assert "secrets.GITHUB_TOKEN" not in text
     assert "github-actions[bot]" not in text
-    assert "Asimov Agent" in text
-    assert "support@docondee.com" in text
+    # The author identity is SOURCED from the ONE seam (issue #840) instead of a literal in this
+    # file, and that seam resolves to an allowlisted pair — a second literal could drift to another
+    # domain while still looking right in `git log --format='%an'`.
+    assert "make git-identity-apply" in text
+    import scripts.check_pr_authors as cpa
+    import scripts.git_identity as gi
+    assert cpa.ALLOWED.get(gi.identity()[0]) == gi.identity()[1]
 
 
 def test_sync_pr_uses_owner_pat():
@@ -813,8 +818,11 @@ def test_sync_pr_uses_owner_pat():
     assert "secrets.BUMP_TOKEN" in text
     assert "secrets.GITHUB_TOKEN" not in text
     assert "github-actions[bot]" not in text
-    assert "Asimov Agent" in text
-    assert "support@docondee.com" in text
+    # Sourced from the ONE seam (issue #840), which resolves to an allowlisted identity.
+    assert "make git-identity-apply" in text
+    import scripts.check_pr_authors as cpa
+    import scripts.git_identity as gi
+    assert cpa.ALLOWED.get(gi.identity()[0]) == gi.identity()[1]
 
 
 def test_guard_keeps_default_token():
