@@ -1671,10 +1671,14 @@ ci-install: bash-check ## CI job install (issue #1027): PRODUCT-ONLY — prepare
 	$(MAKE) ci-install-dry-args
 	$(MAKE) ci-install-uninstall
 
-ci-install-product: bash-check # Internal CI seam (issue #1027, product-only like test-engine-install): install the llgenie tool WITHOUT pulling or testing any inference engine — venv + launcher + smoke only. The engine install-test is the engine-build producer's `test-engine-install`.
+ci-install-product: bash-check # Internal CI seam (issue #1027, product-only like test-engine-install): install the llgenie tool WITHOUT pulling or testing any inference engine — venv + launcher + smoke only. The engine install-test is the engine-build producer's `test-engine-install`. Runs inside the test container (which has the repo's python 3.11), like every other ci-install stage.
+ifeq ($(HOST_OS),Darwin)
 	$(MAKE) venv-install
 	$(MAKE) link
 	$(MAKE) smoke
+else
+	$(ENGINE_TEST_RUN) sh -c 'make venv-install && make link && make smoke'
+endif
 
 ci-install-run: bash-check ## make install, as-is (Linux: inside the test container; macOS: the 3.11 venv, no container)
 ifeq ($(HOST_OS),Darwin)
