@@ -651,6 +651,22 @@ def test_the_force_path_says_it_shrank_and_never_claims_identity(tmp_path, capsy
     assert (live / "SOUL.md").read_text() == tree_text, "force means it"
 
 
+def test_the_make_sync_recipe_wires_FORCE_to_the_force_flag(tmp_path):
+    """`FORCE=1` must reach the script as `--force`, or `make sync-agent-profile … FORCE=1` silently
+    runs in refuse-mode. Measured on #919's repair: `FORCE` was documented in the help text but never
+    passed on the recipe line — `$(if $(CHECK),--check,)` had a sibling, `$(if $(FORCE),--force,)` did
+    not. The recipe is what the gate's own callers use, so it gets pinned here, not just the script flag.
+    """
+    makefile = (REPO / "Makefile").read_text()
+    # the recipe line is the one containing scripts/agent_profile_sync.py
+    line = next(l for l in makefile.splitlines() if "scripts/agent_profile_sync.py" in l)
+
+    assert "$(if $(FORCE),--force,)" in line, line          # FORCE flows to the script
+    assert "$(if $(CHECK),--check,)" in line, line          # and CHECK still flows
+    assert "FORCE=1 bypasses the refusal" in makefile, "help text documents FORCE (the documented-but-dead flag is the defect)"
+    assert "FORCE=1" in " ".join(l for l in makefile.splitlines() if "Usage: make sync-agent-profile" in l)
+
+
 def test_the_live_comparison_skip_is_audible_not_silent(tmp_path, capsys, monkeypatch):
     """A check that cannot compare must say so, or a reader concludes it compared.
 
