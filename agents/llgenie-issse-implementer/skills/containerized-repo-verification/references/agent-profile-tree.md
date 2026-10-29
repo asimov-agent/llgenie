@@ -56,6 +56,19 @@ the line count the overwrite would cost, say **would overwrite**, never say "ver
   cannot drop one — the same set-of-lines test `shrinks()` uses, in the other direction). Measured:
   a refresh two minutes after the previous sync was refused for five files, three byte-identical and two
   where the live lines were a strict subset of the tree's.
+- **Order the refusal by what the gate actually checked, and never name whose work it is.** First the mtime
+  fact (`the live file was edited AFTER the tree copy was committed — live <t>, source commit <t>`), then —
+  only when the content differs — the line count (`and the content differs: N live line(s) the tree lacks`),
+  byte sizes, and the remediation. The tree has no ownership information, so a hard-pinned `of another
+  lane's work` is a guess the harness has no right to make — it fires on a lane's own files when only the
+  mtime moved, and redirects blame at the wrong owner. Assert the phrases in a test and negative-control it
+  (restore the blame phrase → fail).
+- **When you EDIT a tree copy of a live file, edit as an additive superset, never a replace.** The set-of-lines
+  gate reads a replace of a live paragraph as *dropping* those lines — even when the tree copy is your own,
+  the edit is deliberate, and the new text is better (measured: a two-line correction to an in-tree skill
+  redded its own gate with `live-lines-missing`, 3 lines). Keep the live paragraph verbatim and append the
+  corrected/re-measured text as its own additive paragraph, then confirm `live lines the tree lacks == 0`
+  before the sync. A corrective replace is indistinguishable from a truncation to the gate.
 
 **And compute "what changed" from a snapshot taken BEFORE the write.** Asking after the copy answers
 "all of them" on every run — `replaced an existing file` computed post-copy is a property the instrument
