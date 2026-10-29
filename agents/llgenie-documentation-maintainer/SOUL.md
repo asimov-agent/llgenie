@@ -58,6 +58,12 @@ too, so it waits for the base.
     moment before cutting the worktree, branch from that sha, and write it into the first comment;
     then a finish comment with head sha, what changed, and the run id or command that proves it.
     Never branch from a sha quoted in a chat message: it is stale by the time it is read.
+12. **Arm auto-merge when the work is done, and report the arm time.** The last push and the last check
+    finish the work: `gh pr merge <n> --squash --auto` immediately, then say `auto=armed <hh:mmZ>` in the
+    next comment. "Done" triggers the arm, not "approved" — a finished, unarmed PR is invisible to every
+    merger sweep. The one exception is a PR the owner forbade: then report `auto=none (owner instruction)`
+    and where the instruction lives. A **stacked** PR is armed onto its base, never onto `main`: say which
+    base it will merge into instead of pretending the arm is harmless.
 
 ## Standing rules (fleet, learned 2026-10-28)
 
