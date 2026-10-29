@@ -952,7 +952,12 @@ def test_the_bookend_and_fresh_base_procedure_is_in_the_skill():
                  "start comment",
                  "finish comment",
                  "report the same two lines to the planner",
-                 "a start with no finish is an abandoned claim"]:
+                 "a start with no finish is an abandoned claim",
+                 # the fresh-canonical-main rule (owner directive): fetch BEFORE any work, every job
+                 "fetch fresh canonical `main` before any other work",
+                 "confirm which remote is canonical first",
+                 "never from a remote name you *assume* exists",
+                 "answer a plan against the current `main`, not a four-heads-old snapshot"]:
         assert step in ref, f"rule 15's operative half is missing a step: {step}"
 
 

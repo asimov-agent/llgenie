@@ -64,7 +64,12 @@ docker run --rm -u root -v "$PWD":/repo:rw -w /repo -e HOME=/root \
   prerequisite is absent — by design, "missing prerequisite is a hard failure, never a skip". So a hand-made
   batch reports a red that no diff caused. Check the roster for a file before believing its failure, and
   prove it environmental by running the same node on `main` (measured: `test_top_tier_serve.py` fails
-  identically at `798cbee`, 1 failed / 202 passed in the real batch). Narrow a slow sweep with the
+  identically at `798cbee`, 1 failed / 202 passed in the real batch). **A test that imports Hermes' own
+  `agent` package fails on ANY head in a bare test image:** `test_agent_skills_live.py` needs
+  `agents-read`'s `agent.skill_commands` preload, so it errors `ModuleNotFoundError: No module named
+  'agent'` on pristine `main` and your branch alike — prove it environmental with `git diff
+  origin/main...HEAD -- <testfile>` returning `0` (you did not touch the test, so its failure is not the
+  diff) plus the same node failing at a detached `main` worktree. Narrow a slow sweep with the
   roster's own selection (`python scripts/unit_tests.py argv`, `-k`, or the target's group/`--deselect`
   list), never by enumerating files yourself.
 - Mount the tree at the SAME absolute path the Makefile uses (or at `/repo` with `-w /repo`) — some
