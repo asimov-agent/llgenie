@@ -1167,3 +1167,58 @@ def test_the_soul_states_the_current_arming_directive_and_labels_the_older_one_s
     # The live sentence must not still be the retired one.
     assert "this lane does not arm auto-merge" not in soul, \
         "the SOUL still states the superseded no-arming rule as live"
+
+
+# --- fleet rule 15: a pass against a stale tree is a census of the past (#873) ----------------------------
+
+
+def test_the_architect_soul_carries_fleet_rule_15_verbatim():
+    """Rule 15 is the one this lane earned both ways: one finding dead, one decisive, same night.
+
+    A retracted "truncated seed" claim measured against a head that had already moved, and a re-measurement
+    at the freshest sha that found rules 13-14 missing from all seven SOULs, are the same lane on the same
+    night. The rule lives in the text a session reads, not in a lesson someone remembers. Whitespace is
+    normalised because prose wraps and asserting the wrapped form measures formatting, not the rule.
+    """
+    soul = " ".join((REPO / "agents" / "llgenie-architect" / "SOUL.md").read_text().lower().split())
+
+    assert "start from a fresh upstream main" in soul, "the architect SOUL lost rule 15"
+    for commitment in ["git fetch upstream main",
+                       "at the sha you fetched in that moment",
+                       "write the sha you branched from into your first comment",
+                       "one comment when you start",
+                       "one when you finish",
+                       "an abandoned claim"]:
+        assert commitment in soul, f"rule 15 in the SOUL is missing: {commitment}"
+
+
+def test_the_pass_skill_puts_the_sha_in_the_census_header_and_bookends():
+    """The SOUL states the constraint; the skill states where a pass starts and ends (rule 15)."""
+    skill = " ".join((REPO / ".hermes" / "skills" / "llgenie-architecture-pass"
+                      / "SKILL.md").read_text().lower().split())
+
+    for step in ["start from a fresh upstream main, and put the sha in the census header",
+                 "census header",
+                 "one comment when you start",
+                 "one comment when you finish",
+                 "the sha fetched in that moment"]:
+        assert step in skill, f"rule 15 in the skill is missing: {step}"
+
+
+def test_the_pass_skill_refuses_a_finding_whose_path_cannot_be_opened():
+    """A `where:` that does not resolve is a defect in the reporter, and this lane learned it the hard way.
+
+    Measured tonight: `check_agent_profiles` reported `zz9/agents/llgenie-architect/SOUL.md` from
+    `--root /tmp/zz9` and `w/agents/…` from `--root /w`, because `agents.parents[1]` is one level above the
+    repository (issue #973). A report built on such a path sends the implementer to a file that does not
+    exist, and two path conventions in one output is how a reviewer stops trusting paths altogether and
+    loses the sha the finding was measured at.
+    """
+    skill = " ".join((REPO / ".hermes" / "skills" / "llgenie-architecture-pass"
+                      / "SKILL.md").read_text().lower().split())
+
+    assert "a finding that names a path you cannot open is a finding about the reporter" in skill
+    for demand in ["open it from the repo root", "the measurement is wrong", "#973",
+                   "two path conventions in one output"]:
+        assert demand in skill, f"the path-check rule in the skill is missing: {demand}"
+
