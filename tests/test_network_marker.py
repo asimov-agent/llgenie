@@ -96,8 +96,6 @@ def test_the_unit_gate_executes_zero_network_marked_tests():
     EXECUTE a single network-marked node — proven at the collection level, not by file existence.
     Runs pytest --collect-only under the exact `-m "not network"` argv the gate uses and asserts
     that no collected node belongs to a @pytest.mark.network-decorated test."""
-    import subprocess as _sp
-
     files = ut.select(REPO)
     # node ids that would be taken OFF the executable set by -m "not network":
     net_names: dict[str, set[str]] = {}
@@ -113,12 +111,7 @@ def test_the_unit_gate_executes_zero_network_marked_tests():
             net_names[doc] = names
     assert net_names, "no network-marked test to exclude — the seam excludes nothing"
 
-    argv = [sys.executable, "-m", "pytest", "--collect-only", "-q", "-m",
-            "not network", "-p", "no:cacheprovider", *files]
-    run = _sp.run(argv, cwd=REPO, capture_output=True, text=True)
-    assert run.returncode == 0, run.stdout[-2000:] + run.stderr[-2000:]
-    collected = {ln.strip() for ln in run.stdout.splitlines() if "::" in ln}
-
+    collected = _collect_marker(REPO, "not network")
     leaked = [
         f"{doc}::{name}"
         for doc, names in net_names.items()
@@ -187,14 +180,26 @@ def _net_node_parts(node: str) -> tuple[str, str]:
     return (f, t.split("[", 1)[0])
 
 
+def _collect_marker(root: Path, marker: str) -> set[str]:
+    """Run the gate's OWN collect as `-m <marker>` over the whole hermetic selection and return the
+    collected node ids. ONE invocation in the pin's both directions (`not network` for the unit gate,
+    `network` for the network pipeline) so the expression can never drift between them."""
+    import subprocess as _sp
+
+    files = ut.select(root)
+    argv = [sys.executable, "-m", "pytest", "--collect-only", "-q", "-m",
+            marker, "-p", "no:cacheprovider", *files]
+    run = _sp.run(argv, cwd=root, capture_output=True, text=True)
+    assert run.returncode == 0, run.stdout[-2000:] + run.stderr[-2000:]
+    return {ln.strip() for ln in run.stdout.splitlines() if "::" in ln}
+
+
 def test_the_network_pipeline_owns_the_marks():
     """#1002 ownership proof: every `@pytest.mark.network` test is genuinely MEMBER of the network
     pipeline's set — `pytest --collect-only -m network` (the seam `make test-unit-network` runs)
     must collect every network-marked node. A marker pytest cannot select under `-m network` is not
     membership, it is decoration. (The `-m "not network"` twin is the execution pin; this proves the
     marks are ALSO reachable by the network side, per the owner's #1002 split.)"""
-    import subprocess as _sp
-
     files = ut.select(REPO)
     marked: dict[str, set[str]] = {}
     for doc in files:
@@ -208,14 +213,9 @@ def test_the_network_pipeline_owns_the_marks():
             marked[doc] = names
     assert marked, "no network-marked test — nothing for the network pipeline to own"
 
-    argv = [sys.executable, "-m", "pytest", "--collect-only", "-q", "-m",
-            "network", "-p", "no:cacheprovider", *files]
-    run = _sp.run(argv, cwd=REPO, capture_output=True, text=True)
-    assert run.returncode == 0, run.stdout[-1500:] + run.stderr[-1500:]
     collected = {
-        _net_node_parts(ln.strip())
-        for ln in run.stdout.splitlines()
-        if "::" in ln
+        _net_node_parts(ln)
+        for ln in _collect_marker(REPO, "network")
     }
     missing = [
         f"{doc}::{name}"
