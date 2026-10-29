@@ -38,7 +38,17 @@ What "wired" means — one graph, no guessing:
   `.PHONY:` block — otherwise any file named after it (a scratch file, a checkout on a
   case-insensitive filesystem) shadows it and the target reports success having run
   nothing. A target that genuinely produces a file of its own name is recorded under
-  `"not_phony"` in the same decisions file instead.
+  `"not_phony"` in the same decisions file instead;
+- **the reverse direction is an ERROR too** (issue #883): every `.PHONY` entry must name a
+  target that can actually run — a target with a recipe, an inline `;` command, or at least
+  one prerequisite (a declared alias such as `loop: loop-harness`). A key whose recipe is
+  gone (the debris a union resolution leaves behind when one side's commit is dropped) is
+  WORSE than a loud failure: because the name is declared phony, `make <name>` prints
+  `make: Nothing to be done for '<name>'.` and exits 0 — a green no-op, permanent, with no
+  file needed to shadow it (measured; a name with no rule and no `.PHONY` entry at all fails
+  with `No rule to make target`, exit 2). A key whose target has neither a recipe nor a
+  prerequisite runs NOTHING the same way. Every offender is reported in ONE pass, so a single
+  edit fixes the whole set.
 
 Stdlib only.
 """
@@ -110,6 +120,27 @@ def _phony_targets(root: Path) -> set[str]:
             out |= set(re.findall(r"[A-Za-z0-9][A-Za-z0-9._-]*",
                                   " ".join(c.rstrip().rstrip("\\") for c in chunk)))
     return out
+
+
+def _runs_something(block: str) -> bool:
+    """Does this target block RUN anything? (issue #883)
+
+    A `.PHONY` entry promises `make <name>` does something. Three shapes keep that promise: a
+    recipe line (a TAB-indented line after the goal line), an inline command after `;`, or at
+    least one prerequisite — a declared alias such as `loop: loop-harness` or
+    `all: generate-requirements venv-install`, where make runs the prerequisites instead. A goal
+    line with none of the three (`debris:`) is a declaration that runs nothing, and a `.PHONY`
+    key with no goal line at all is a stale key whose recipe is gone."""
+    lines = block.splitlines()
+    if not lines:
+        return False
+    header = lines[0].split("#", 1)[0]
+    after = header.split(":", 1)[1] if ":" in header else ""
+    if ";" in after:
+        return True
+    if re.search(r"[a-z0-9][a-z0-9._-]*", after):  # a prerequisite word: a declared alias
+        return True
+    return any(line.startswith("\t") for line in lines[1:])
 
 
 def _workflow_steps(root: Path) -> dict[str, str]:
@@ -295,6 +326,11 @@ def graph(root: Path = REPO) -> dict:
         "named_by_target": named_by_target,
         "aggregated": aggregated, "aggregator_errors": agg_errors,
         "phony": sorted(_phony_targets(root)),
+        # the reverse .PHONY direction (issue #883): declarations that cannot run, split into the
+        # two shapes so the message can name the right fix for each.
+        "phony_no_target": sorted(_phony_targets(root) - set(recipes)),
+        "phony_runs_nothing": sorted(t for t in _phony_targets(root) & set(recipes)
+                                     if not _runs_something(recipes[t])),
         # wired at all (any target, any workflow) vs reached by the CI workflows
         "reachable": _close(root, docs, recipes, calls, recipes.keys(), workflow_docs, extra_named=aggregated),
         "ci_reachable": _close(root, docs, recipes, calls, ci_targets, workflow_docs, extra_named=aggregated),
@@ -335,8 +371,9 @@ def load_exceptions(path: Path) -> dict:
 def check(g: dict, exceptions: dict) -> list[str]:
     """Errors: a document wired to nothing, a document only a non-CI target reaches and no
     dated exception records, a stale exception, a workflow that calls a make target which
-    does not exist (a typo in a `run:` block is a silent no-op), and a target that is not
-    declared `.PHONY` (a file with that name makes the target a green no-op, issue #392)."""
+    does not exist (a typo in a `run:` block is a silent no-op), a target that is not
+    declared `.PHONY` (a file with that name makes the target a green no-op, issue #392), and
+    a `.PHONY` entry that names no target or a target that runs nothing (issue #883)."""
     recorded = exceptions.get("documents") or {}
     errors = list(g.get("aggregator_errors") or [])
     for w, targets in g["workflow_targets"].items():
@@ -401,6 +438,24 @@ def check(g: dict, exceptions: dict) -> list[str]:
         elif target in phony:
             errors.append(f"{exceptions['path']}: `make {target}` is declared .PHONY now — "
                           f"delete the not_phony entry")
+
+    # The reverse direction (issue #883): a `.PHONY` entry is a promise that `make <name>` runs
+    # something. A key whose recipe is gone — the debris a union resolution leaves when one side's
+    # commit is dropped — fails at run time with "No rule to make target" and used to pass every
+    # gate, because only the called -> exists direction was checked. Both shapes are reported in
+    # ONE pass so a single edit fixes the whole set.
+    for target in sorted(g.get("phony_no_target") or ()):
+        errors.append(f".PHONY declares `{target}`, but no target of that name exists in "
+                      f"{' or '.join(MAKEFILES)}: because the name is declared phony, "
+                      f"`make {target}` prints \"Nothing to be done\" and exits 0 — a green no-op "
+                      f"that verifies nothing. Add the recipe back, or delete the stale "
+                      f"declaration (a key outlives its recipe when a union resolution drops one "
+                      f"side)")
+    for target in sorted(g.get("phony_runs_nothing") or ()):
+        errors.append(f".PHONY declares `{target}`, but its target has no recipe and no "
+                      f"prerequisite, so `make {target}` runs NOTHING and exits 0: give it a "
+                      f"recipe, make it a declared alias (`{target}: <target-it-runs>`), or delete "
+                      f"the declaration")
     return errors
 
 
@@ -430,6 +485,16 @@ def report(g: dict, exceptions: dict) -> str:
                  f"file of their own name, {len(unphony)} undeclared")
     for tgt in unphony:
         lines.append(f"  NOT .PHONY: make {tgt}")
+    # the reverse direction (issue #883): a declaration that cannot run
+    no_target = list(g.get("phony_no_target") or ())
+    runs_nothing = list(g.get("phony_runs_nothing") or ())
+    lines.append(f"  {len(phony) - len(no_target) - len(runs_nothing)} .PHONY entr(ies) name a target "
+                 f"that can run, {len(no_target)} name no target, {len(runs_nothing)} name a target "
+                 f"that runs nothing")
+    for tgt in no_target:
+        lines.append(f"  PHONY, NO TARGET: {tgt}")
+    for tgt in runs_nothing:
+        lines.append(f"  PHONY, RUNS NOTHING: {tgt}")
     for tgt in sorted(set(claims) - reached):
         lines.append(f"  CLAIMS CI, NOT REACHED: make {tgt}")
     for doc in docs:

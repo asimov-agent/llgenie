@@ -306,6 +306,97 @@ def test_the_real_tree_declares_every_target_phony():
 
 
 # ---------------------------------------------------------------------------
+# the reverse .PHONY rule (issue #883): a declaration with nothing to run is debris
+# ---------------------------------------------------------------------------
+def test_a_phony_entry_with_no_target_fails_and_deleting_it_is_the_fix(tmp_path):
+    """The measured defect: a `.PHONY` key whose recipe is gone passed every gate, because only
+    the called -> exists direction was checked. Because the name IS declared phony, `make <name>`
+    exits 0 with "Nothing to be done" — a permanent green no-op, not a loud error."""
+
+    # Given a checkout whose .PHONY names a target that exists nowhere in the Makefile
+    body = ".PHONY: test-unit ci-scope-phantom\ntest-unit: ## x\n\tpython3 -m pytest tests/test_a.py\n"
+    root = _tree(tmp_path, body, {"test_a.py": "def test_a():\n    assert True\n"},
+                 {"ci.yml": "jobs:\n  unit:\n    steps:\n      - run: make test-unit\n"})
+
+    # When  the wiring is checked
+    r = _run(root, "check")
+
+    # Then  it exits 1 and names the stale key and the green no-op it stands for
+    assert r.returncode == 1, r.stdout
+    assert "ci-scope-phantom" in r.stderr and "Nothing to be done" in r.stderr
+    # And   the declaration is real breakage, not a theory: make itself runs nothing, exit 0
+    run = subprocess.run(["make", "-C", str(root), "ci-scope-phantom"], capture_output=True, text=True)
+    assert run.returncode == 0, run.stdout + run.stderr
+    assert "Nothing to be done for 'ci-scope-phantom'" in run.stdout + run.stderr
+
+    # And   deleting the stale key is the fix
+    (root / "Makefile").write_text(body.replace(" ci-scope-phantom", ""))
+    ok = _run(root, "check")
+    assert ok.returncode == 0, ok.stderr
+
+
+def test_every_unrunnable_phony_entry_is_reported_in_one_pass(tmp_path):
+    """All offenders come back in one message, so one edit fixes the set — not a whack-a-mole."""
+
+    # Given a .PHONY block naming a key with no target and a target with no recipe or prerequisite
+    makefile = (".PHONY: test-unit ghost-one ghost-two\ntest-unit: ## x\n"
+                "\tpython3 -m pytest tests/test_a.py\nghost-one: ## declares nothing to run\n")
+    root = _tree(tmp_path, makefile, {"test_a.py": "def test_a():\n    assert True\n"},
+                 {"ci.yml": "jobs:\n  unit:\n    steps:\n      - run: make test-unit\n"})
+
+    # When  the wiring is checked
+    r = _run(root, "check")
+
+    # Then  both shapes are named, in the same pass
+    assert r.returncode == 1, r.stdout
+    assert "`ghost-two`, but no target of that name exists" in r.stderr
+    assert "`ghost-one`, but its target has no recipe and no prerequisite" in r.stderr
+    # And   the stale-empty goal line is refused too (a key with a target that runs nothing)
+    assert "runs NOTHING" in r.stderr
+
+
+def test_a_declared_alias_is_a_runnable_phony_entry(tmp_path):
+    """`loop: loop-harness` and `all: gen venv-install` are the repo's own aliases: a goal line
+    carrying prerequisites runs those, so the rule must not mistake them for debris."""
+
+    # Given aliases declared .PHONY whose goal line carries prerequisites instead of a recipe
+    makefile = (".PHONY: test-unit alias-prereq alias-inline\n"
+                "test-unit: ## x\n\tpython3 -m pytest tests/test_a.py\n"
+                "alias-prereq: test-unit\n"
+                "alias-inline: test-unit ; @echo inline\n")
+    root = _tree(tmp_path, makefile, {"test_a.py": "def test_a():\n    assert True\n"},
+                 {"ci.yml": "jobs:\n  unit:\n    steps:\n      - run: make test-unit\n"})
+
+    # When  the wiring is checked
+    r = _run(root, "check")
+
+    # Then  neither alias shape is an offender
+    assert r.returncode == 0, r.stderr
+    g = cw.graph(root)
+    assert "alias-prereq" in g["phony"] and "alias-inline" in g["phony"]
+    assert g["phony_no_target"] == [] and g["phony_runs_nothing"] == []
+
+
+def test_the_real_tree_declares_no_phony_entry_it_cannot_run():
+    """The repo itself obeys the reverse rule, derived from the Makefiles — never a hand list."""
+
+    # Given the real checkout's wiring graph
+    g = cw.graph(REPO)
+
+    # When  the reverse .PHONY direction is applied
+    no_target, runs_nothing = g["phony_no_target"], g["phony_runs_nothing"]
+
+    # Then  every declaration names a target that can run something
+    assert no_target == [], no_target
+    assert runs_nothing == [], runs_nothing
+    # And   the rule is not vacuous: the tree has a real .PHONY block, and its aliases resolve
+    assert len(g["phony"]) >= 150, len(g["phony"])
+    for name in g["phony"]:
+        assert name in g["recipes"], name
+        assert cw._runs_something(g["recipes"][name]), name
+
+
+# ---------------------------------------------------------------------------
 # the wiring of the guard itself
 # ---------------------------------------------------------------------------
 def test_the_guard_runs_in_ci_unit_and_this_file_runs_in_test_unit():

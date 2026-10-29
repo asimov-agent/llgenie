@@ -772,6 +772,13 @@ the pipelines ran it while the help line still did, issue #239; the rule is lock
 `tests/test_wiring.py`, issue #657). The gate's `json` subcommand emits `reachable`,
 `named_by_target` and `workflow_targets` as sorted lists, never a `set` (issue #395).
 
+The same gate asserts the reverse `.PHONY` direction (issue #883): every key must name a target
+with a recipe, an inline `;` command, or at least one prerequisite (a declared alias like
+`loop: loop-harness`). A key whose recipe is gone is a permanent green no-op — because the name is
+declared phony, `make <name>` prints `Nothing to be done` and exits 0, where the same name with no
+declaration fails `No rule to make target` — so `scripts/check_wiring.py` names every offender in
+one pass and `make wiring-report` prints the can-run / no-target / runs-nothing counts.
+
 ## Bots
 
 Every bot is a workflow with its own cron slot, its own `concurrency:` group, an

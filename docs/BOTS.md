@@ -72,6 +72,21 @@ counts. A target that genuinely writes a file of its own name is exempt — but 
 under `not_phony` in `tests/fixtures/host-only-wiring.json`, which is refused without a reason and
 reported stale once the target is declared or gone.
 
+### Every `.PHONY` entry names something that runs (issue #883)
+
+The declaration works in both directions, and only one was checked: a `.PHONY` key whose recipe is
+gone (the debris a union resolution leaves when one side's commit is dropped) passed every gate. It
+is not a loud failure either — because the name IS declared phony, `make <name>` prints
+`make: Nothing to be done for '<name>'.` and exits **0** (measured; the same name with no `.PHONY`
+entry fails `No rule to make target`, exit 2). That is the #392 hazard made permanent: a green no-op
+that needs no file to shadow it. So `make check-wiring` now asserts the reverse direction too — every
+`.PHONY` entry must name a target with a recipe, an inline `;` command, or at least one prerequisite
+(a declared alias such as `loop: loop-harness` / `all: generate-requirements venv-install`). A key
+with no target at all, and a key whose target has neither a recipe nor a prerequisite, are both
+errors; every offender is named in the same pass, so one edit fixes the set. On `main` (measured at
+`7e99e199`) there are zero offenders: the four recipe-less keys are all aliases. `make wiring-report`
+prints the can-run / no-target / runs-nothing counts.
+
 `make sync-registry` vendors a **normalised** copy of upstream's store (issue #687): `formats`
 restricted to the vocabulary, a non-format name restated from the row's repo/id, a duplicate id
 dropped — printed, one note per change — while every model row upstream lists is kept, because a

@@ -343,7 +343,9 @@ make engine-skill-scaffold ENGINE="<registry name>"  # write skills/engines/<id>
 make check-wiring              # CI: fail when a test/script is wired to no make target, or only to
                                # one CI never runs (tests/fixtures/host-only-wiring.json records the
                                # deliberate ones), a workflow calls a make target that does not exist,
-                               # or a target is not declared .PHONY
+                               # a target is not declared .PHONY, or a .PHONY entry names a target that
+                               # cannot run (no target at all, or no recipe and no prerequisite — `make
+                               # <name>` then prints "Nothing to be done" and exits 0; issue #883)
 make wiring-report            # show how every test/script is wired (which target, whether CI runs it)
 ```
 

@@ -876,7 +876,7 @@ secret-scan-history: ## Fail when a credential VALUE is anywhere in the git hist
 
 secret-scan-self-test: ## CI: prove the scanner is not a false green — a planted fake credential MUST be caught, and the same tree is clean once it is removed
 	python3 scripts/secret_scan_self_test.py
-check-wiring: ## CI: fail when a test/script is wired to no make target or only to one CI never runs, when a recorded host-only exception is stale, or when a workflow calls a make target that does not exist
+check-wiring: ## CI: fail when a test/script is wired to no make target or only to one CI never runs, when a recorded host-only exception is stale, when a workflow calls a make target that does not exist, or when a `.PHONY` entry names no target or a target that runs nothing (issue #883)
 	python3 scripts/check_wiring.py check
 wiring-report: ## Show how every test/script is wired (which make target, and whether CI runs it) and the recorded host-only exceptions
 	python3 scripts/check_wiring.py report
@@ -1642,7 +1642,7 @@ help:
 	@echo "  make spawn-engine-skill-issues   open one tracking issue per NEW unskilled engine (the weekly sync runs this)"
 	@echo "  make registry-change-report      print what the vendored registry changed vs HEAD"
 	@echo "  make sync-change-issue           open ONE issue stating the change (the weekly sync runs this)"
-	@echo "  make check-wiring                CI: fail when a test/script is wired to no make target, or only to one CI never runs (tests/fixtures/host-only-wiring.json records the deliberate ones)"
+	@echo "  make check-wiring                CI: fail when a test/script is wired to no make target, or only to one CI never runs (tests/fixtures/host-only-wiring.json records the deliberate ones), or when a .PHONY entry names no target or a target that runs nothing"
 	@echo "  make check-secret-output         CI: fail when any file prints a secret's VALUE (an echo of a token variable), passes it on a command line (a value after -e), runs under a shell xtrace, dumps the environment around it, or commits a credential-shaped literal"
 	@echo "  make wiring-report               show how every test/script is wired (target + whether CI runs it) and the host-only exceptions"
 	@echo "  make issue-bot-dispatch          the issue-implementer dispatcher (issue #248): cap 3/day -> pick one labeled/ready issue -> claim -> write issue.md + branch"
