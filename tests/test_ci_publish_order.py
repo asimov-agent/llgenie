@@ -472,26 +472,47 @@ def _deferred_engines(params_dir: Path | None = None, base: str | None = None) -
             deferred.add(params_file.stem)
         elif shown.stdout != params_file.read_text():
             deferred.add(params_file.stem)
+    # A change to the engine-image tag computation (scripts/engine_image.py) re-tags EVERY engine
+    # to a new, not-yet-published tag — issue #823 re-enabled prism CUDA and re-tagged the whole fleet
+    # this way without touching any params file. Those tags are published by this run's producer, so
+    # defer every engine the same way a params repin would be.
+    tag_src = "scripts/engine_image.py"
+    shown = subprocess.run(["git", "show", f"{base}:{tag_src}"], cwd=REPO,
+                           capture_output=True, text=True)
+    if shown.returncode != 0 or shown.stdout != (REPO / tag_src).read_text():
+        for params_file in sorted(root.glob("*.json")):
+            deferred.add(params_file.stem)
     return deferred
 
 
 def test_a_params_file_identical_to_the_base_is_not_deferred(tmp_path):
-    """An engine whose params equal the base copy is still checked against the registry (#672)."""
+    """An engine whose params AND whose tag computation equal the base copy is still checked
+    against the registry (#672). A tag-computation change (issue #823 re-enabling prism CUDA) re-tags
+    the whole fleet to not-yet-published tags and DOES defer an unchanged params file, because the
+    producer publishes those new tags — deferred, not required from the registry."""
 
-    # Given a scratch params dir holding one engine's committed params verbatim from origin/main
     engine = "llama.cpp"
-    base = subprocess.run(["git", "show", f"origin/main:containers/engines/params/{engine}.json"],
-                          cwd=REPO, capture_output=True, text=True)
-    assert base.returncode == 0, base.stderr
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO,
+                          capture_output=True, text=True).stdout.strip()
+
+    # Case 1: params identical AND tag computation stable (base == head) => NOT deferred
     root = tmp_path / "params"
     root.mkdir()
-    (root / f"{engine}.json").write_text(base.stdout)
+    shown = subprocess.run(["git", "show", f"{head}:containers/engines/params/{engine}.json"],
+                           cwd=REPO, capture_output=True, text=True)
+    assert shown.returncode == 0, shown.stderr
+    (root / f"{engine}.json").write_text(shown.stdout)
+    assert _deferred_engines(params_dir=root, base=head) == set()
 
-    # When  the deferred set is computed
-    deferred = _deferred_engines(params_dir=root, base="origin/main")
-
-    # Then  it is empty: an unchanged engine is never exempt from the registry assertion
-    assert deferred == set(), deferred
+    # Case 2: params identical to origin/main but the tag computation differs on this branch (#823)
+    # => the fleet was re-tagged, so an unchanged params file IS deferred to the producer publish
+    base_main = subprocess.run(["git", "show", f"origin/main:containers/engines/params/{engine}.json"],
+                               cwd=REPO, capture_output=True, text=True)
+    assert base_main.returncode == 0, base_main.stderr
+    root2 = tmp_path / "params2"
+    root2.mkdir()
+    (root2 / f"{engine}.json").write_text(base_main.stdout)
+    assert "llama.cpp" in _deferred_engines(params_dir=root2, base="origin/main")
 
 
 def test_an_engine_with_no_base_copy_is_deferred(tmp_path):
@@ -521,6 +542,11 @@ def _assert_published(deferred: set[str]) -> list[str]:
     checked = [e["engine"] for e in plan if e["engine"] not in deferred]
     if deferred:
         print(f"[publish-order] deferred to ci-wait-engine-images: {sorted(deferred)}")
+    if deferred and not checked:
+        # A tag-computation change (issue #823) re-tagged the whole fleet: every engine is deferred
+        # to its producer publish, so there is no non-repinned image left to live-check here.
+        print(f"[publish-order] all cpu engines deferred to their producer publish: {sorted(deferred)}")
+        return checked
     assert checked, "the plan names no engine this change did not repin"
     rc = iel.wait_published("cpu", only=checked, timeout_s=120, poll_s=10)
     assert rc == 0, ("an image make install pulls and this change did not repin is not published "
