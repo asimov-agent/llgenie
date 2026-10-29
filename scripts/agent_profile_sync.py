@@ -67,20 +67,33 @@ def check(agents: Path, name: str, dest: Path) -> int:
               f"sync for {name}", file=sys.stderr)
         return 2
     differing: list[str] = []
+    truncated: list[tuple[str, int, int]] = []
     for path in files:
         rel = _rel(path, agents / name)
         target = dest / rel
         if not target.is_file():
             differing.append(f"{rel} (missing in the profile)")
         elif not filecmp.cmp(path, target, shallow=False):
-            differing.append(f"{rel} (differs: tree {path.stat().st_size} b, profile "
-                             f"{target.stat().st_size} b)")
+            tree_size, live_size = path.stat().st_size, target.stat().st_size
+            differing.append(f"{rel} (differs: tree {tree_size} b, profile {live_size} b)")
+            if live_size > tree_size:
+                truncated.append((rel, tree_size, live_size))
     if differing:
         for line in differing:
             rel = line.split(" (")[0]
             print(f"[agent-profile] DIFFERS {agents.name}/{name}/{rel}: {line}", file=sys.stderr)
+        # A differing file whose LIVE copy is longer is the dangerous direction: syncing it would delete
+        # live behaviour, so `--check` must say that rather than the neutral "differs" (issue #791).
+        for rel, tree_size, live_size in truncated:
+            print(f"[agent-profile] TRUNCATED? {agents.name}/{name}/{rel}: the tree copy is {tree_size} b "
+                  f"and the profile's is {live_size} b — syncing would REPLACE {live_size - tree_size} b of "
+                  f"live behaviour. Re-copy the file FROM the profile before syncing", file=sys.stderr)
         print(f"[agent-profile] {len(differing)} of {len(files)} file(s) differ from {dest} — "
-              f"first: {differing[0].split(' (')[0]}. Run `make sync-agent-profile PROFILE={name}` "
+              f"first: {differing[0].split(' (')[0]}. "
+              + (f"{len(truncated)} of them would SHRINK the live profile, so the tree copy is the "
+                 "truncated one: do not sync it until it is re-copied. "
+                 if truncated else "")
+              + f"Run `make sync-agent-profile PROFILE={name}` "
               "to make the profile the repository's copy", file=sys.stderr)
         return 1
     print(f"[agent-profile] OK: {len(files)} file(s) of {agents.name}/{name} match {dest} "
