@@ -329,13 +329,25 @@ def fleet_block(agents: Path) -> "str | None":
     return FLEET_HEADING + "\n\n" + text.split(FLEET_HEADING, 1)[1].strip("\n")
 
 
+def _stated_blocks(soul_text: str) -> "list[str]":
+    """Every fleet section the SOUL states, in order — a SOUL may carry more than one.
+
+    A lane that already had a partial fleet section and then appended the canonical block states BOTH, and
+    reading only the first would report drift it does not have. The rule is "the canonical block is in this
+    SOUL verbatim", so any section satisfying it counts; `_first_missing` then reads the closest one.
+    """
+    out: list[str] = []
+    parts = soul_text.split(FLEET_HEADING)
+    for rest in parts[1:]:
+        body = rest.split("\n## ", 1)[0].strip("\n")
+        out.append(FLEET_HEADING + "\n\n" + body)
+    return out
+
+
 def _stated_block(soul_text: str) -> "str | None":
-    """The fleet section a SOUL itself states, or None when it states none."""
-    if FLEET_HEADING not in soul_text:
-        return None
-    rest = soul_text.split(FLEET_HEADING, 1)[1]
-    body = rest.split("\n## ", 1)[0].strip("\n")
-    return FLEET_HEADING + "\n\n" + body
+    """The fleet section a SOUL states, or None when it states none (the longest, for a useful diff)."""
+    blocks = _stated_blocks(soul_text)
+    return max(blocks, key=len) if blocks else None
 
 
 def _first_missing(canonical: str, stated: str | None) -> str:
@@ -415,7 +427,7 @@ def _fleet_findings(agents: Path, profiles: list[dict]) -> list[dict]:
         if not soul.is_file():
             continue
         stated = _stated_block(soul.read_text(encoding="utf-8"))
-        if stated == canonical:
+        if stated == canonical or canonical in _stated_blocks(soul.read_text(encoding="utf-8")):
             if name in exempt:
                 items.append({"key": "fleet-exemption-stale",
                               "where": str(soul.relative_to(agents.parents[1])),
