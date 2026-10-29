@@ -1321,6 +1321,46 @@ posted, `do-not-merge` removed, a pending check finished — is finished by the 
 The agent still never runs `gh pr merge` itself (AGENTS.md rule 7): it pushes, drives the PR green and
 stops — CI lands it, or a human does when the job defers.
 
+### A bot's review verdict is a comment, never an approval (issue #852)
+
+**A bot review is a verdict written on the thread, and a bot never approves and never needs a second
+identity.** Every bot here pushes with the owner's PAT, so the PR author *is* the owner account and GitHub
+refuses the approval itself: `gh pr review --approve` answers `Can not approve your own pull request`, and
+`reviewDecision` can never leave `REVIEW_REQUIRED` on a bot-authored PR. Adding a second PAT to dodge that
+would only move the problem (the author is whoever pushed) and would put an owner credential in the review
+path, so the verdict is machine-readable instead:
+
+```text
+<!-- bot-verdict: head=<40-hex sha> verdict=approve reviewer=<login> -->
+```
+
+`scripts/bot_verdict.py` is the ONE producer and the ONE parser of that mark:
+
+```bash
+make bot-verdict VERDICT=approve|changes HEAD=<full sha> REPO=asimov-agent/llgenie PR=<n> [REVIEWER=<login>] [NOTE=] [DRY=1]
+make bot-verdict-read REPO=asimov-agent/llgenie PR=<n> [HEAD=<sha>]   # what the merge gate would read
+```
+
+Three rules make it safe, and each is a test rather than a convention:
+
+- **The head is written INTO the verdict, and a stale verdict does not count.** `auto_merge.decide()`
+  accepts "reviewed by a bot verdict at head `<sha>`" only when `<sha>` equals the PR's CURRENT
+  `headRefOid`: a verdict describes one tree, and a push after it would otherwise merge unreviewed code.
+  The producer refuses a short sha for the same reason — a prefix is not a head.
+- **The marker is not an approval and not a label.** It cannot flip `reviewDecision`, it cannot be
+  mistaken for a human sign-off, and it posts one comment per (head, verdict) — a repeated run is quiet.
+- **It cannot be forged.** A PR comment may be written by anyone, so a verdict counts only when the
+  comment's author is one of the repository's own identities or a bot login **and** the `reviewer=` in the
+  marker equals that author — a stranger cannot write `reviewer=github-actions[bot]` and borrow the name.
+
+Because the required review cannot be moved by a marker, the merge of a verdict-cleared PR is the
+`--admin` path (the block is the identity, not a check — this branch has no required check in its
+protection), and a refusal is a deferral with the reason on the PR, never a red run. A `changes` verdict
+at the current head holds the PR even when its merge state is otherwise clean. The workflow that reads all
+of this must keep firing by itself, which is the guard
+`tests/test_bot_pipeline_isolation.py::test_auto_merge_fires_by_itself_when_a_pr_run_completes` (issue
+#874) — a verdict reader is worthless behind a workflow that only runs when a human clicks it.
+
 ### Green ⇒ merged is permanent policy, and the tree half is guarded (issue #874)
 
 **A pull request whose pipeline is green and whose state is `CLEAN` is squash-merged by CI, and this

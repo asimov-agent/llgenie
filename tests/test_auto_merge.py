@@ -21,6 +21,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
 import auto_merge as am  # noqa: E402
+import bot_verdict as bv  # noqa: E402
 import verify_closure as vc  # noqa: E402
 
 CI = (REPO / ".github" / "workflows" / "ci.yml").read_text()
@@ -382,7 +383,12 @@ def test_every_requested_field_is_in_ghs_own_allowlist():
 
 
 def test_pr_state_requests_exactly_the_locked_field_list(tmp_path):
-    """`pr_state` is the one call every decision reads; its argv carries only allowlisted names."""
+    """`pr_state` is the one call every decision reads; its argv carries only allowlisted names.
+
+    Since issue #852 the read also asks for `comments`: a bot review verdict is a comment marker, and
+    the decision must see the verdict and the head it has to match in the SAME snapshot — a second
+    read could pair a verdict with a head that moved between the calls.
+    """
 
     # Given a fake gh and a complete PR state
     gh = _fake_gh(tmp_path, _state())
@@ -394,7 +400,8 @@ def test_pr_state_requests_exactly_the_locked_field_list(tmp_path):
     views = [c for c in _calls(tmp_path / "gh.log") if c[:2] == ["pr", "view"]]
     assert len(views) == 1, views
     requested = views[0][views[0].index("--json") + 1].split(",")
-    assert requested == list(am.PR_VIEW_STATE_FIELDS), requested
+    assert requested == list(am.PR_VIEW_FIELDS), requested
+    assert "comments" in requested, "the verdict marker lives in the thread (issue #852)"
     assert "authorAssociation" not in requested, requested
 
 
@@ -1227,3 +1234,100 @@ def test_a_failed_announcement_names_the_merge_it_could_not_record(tmp_path, mon
     assert f"MERGED at {HEAD}" in err, err
     assert "could NOT be posted" in err, err
     assert "no audit line" in err, err
+# ---- a bot verdict is legible to the merge decision, never an approval (issue #852) -----------
+
+def _verdict(head: str = HEAD, verdict: str = "approve", reviewer: str = "github-actions[bot]",
+             author: str = "") -> dict:
+    """A PR comment carrying the bot-verdict marker, in the shape `gh pr view --json comments` gives."""
+    who = author or reviewer
+    return {"author": {"login": who}, "body": bv.marker(head, verdict, reviewer)}
+
+
+def test_a_stale_verdict_does_not_clear_the_review_block(tmp_path):
+    """A verdict names ONE tree: at any other head it says nothing about what would merge.
+
+    Every bot pushes with the owner's token, so an approval is impossible and `reviewDecision` stays
+    REVIEW_REQUIRED. The fix must not be "any verdict in the thread clears the block" — a push after the
+    verdict would then merge unreviewed code (issue #852).
+    """
+    # Given a review-blocked PR at HEAD, with a verdict written for an OLDER commit
+    stale = _verdict(head="0" * 40)
+    state = _review_blocked(comments=[stale])
+    gh = _fake_gh(tmp_path, state, {"482": "CLOSED"})
+
+    # When  the decision and then the full run read it
+    reason = am.decide(state, HEAD, repo_owner="asimov-agent")
+    rc = am.run(str(gh), "asimov-agent/llgenie", 482, HEAD)
+
+    # Then  the block stands, the reason is the merge state, and nothing is merged
+    assert reason and "mergeStateStatus is BLOCKED" in reason, reason
+    assert rc == 0
+    assert not [c for c in _calls(tmp_path / "gh.log") if c[:2] == ["pr", "merge"]]
+
+
+def test_a_verdict_at_the_current_head_clears_the_review_block_and_merges(tmp_path):
+    """The verdict IS the review; the block is the identity, so the merge bypasses it (issue #852)."""
+    # Given a review-blocked PR at HEAD and a trusted verdict written for exactly that head
+    state = _review_blocked(comments=[_verdict()])
+    gh = _fake_gh(tmp_path, state, {"482": "CLOSED"})
+
+    # When  the decision and the run read it
+    reason = am.decide(state, HEAD, repo_owner="asimov-agent")
+    rc = am.run(str(gh), "asimov-agent/llgenie", 482, HEAD, approve_when_review_required=True)
+
+    # Then  the decision accepts it, and the merge is the ONE admin merge pinned to that head
+    assert reason is None, reason
+    merges = [c for c in _calls(tmp_path / "gh.log") if c[:2] == ["pr", "merge"]]
+    assert rc == 0, rc
+    assert len(merges) == 1, merges
+    assert "--admin" in merges[0], merges[0]
+    assert merges[0][merges[0].index("--match-head-commit") + 1] == HEAD, merges[0]
+
+
+def test_a_verdict_from_an_untrusted_login_does_not_count(tmp_path):
+    """Anyone can comment on a public PR, so the marker's author must be a repository identity."""
+    # Given a verdict marker written by an account the repository does not own
+    state = _review_blocked(comments=[_verdict(reviewer="stranger", author="stranger")])
+    gh = _fake_gh(tmp_path, state, {"482": "CLOSED"})
+
+    # When  the decision and the run read it
+    reason = am.decide(state, HEAD, repo_owner="asimov-agent")
+    rc = am.run(str(gh), "asimov-agent/llgenie", 482, HEAD)
+
+    # Then  it is not a verdict about anything, and nothing is merged
+    assert reason and "BLOCKED" in reason, reason
+    assert rc == 0
+    assert not [c for c in _calls(tmp_path / "gh.log") if c[:2] == ["pr", "merge"]]
+
+
+def test_a_stranger_cannot_borrow_a_bot_name_in_the_marker(tmp_path):
+    """`reviewer=` must be the comment's own author, or the marker impersonates an identity."""
+    # Given a stranger's comment whose marker claims the bot wrote it
+    state = _review_blocked(comments=[_verdict(reviewer="github-actions[bot]", author="stranger")])
+
+    # When  the decision reads it
+    reason = am.decide(state, HEAD, repo_owner="asimov-agent")
+
+    # Then  it does not count
+    assert reason and "BLOCKED" in reason, reason
+
+
+def test_a_changes_verdict_at_the_head_holds_the_pr(tmp_path):
+    """A verdict is a decision either way: `changes` blocks, even when the merge state is otherwise fine."""
+    # Given a CLEAN PR whose thread carries a `changes` verdict at its head
+    state = _state(comments=[_verdict(verdict="changes", reviewer="asimov-agent")])
+    gh = _fake_gh(tmp_path, state, {"482": "CLOSED"})
+
+    # When  the decision and the run read it
+    reason = am.decide(state, HEAD, repo_owner="asimov-agent")
+    rc = am.run(str(gh), "asimov-agent/llgenie", 482, HEAD)
+
+    # Then  the changes are named and nothing is merged
+    assert reason and "requests changes" in reason, reason
+    assert rc == 0
+    assert not [c for c in _calls(tmp_path / "gh.log") if c[:2] == ["pr", "merge"]]
+
+# The property "the gate still fires itself" is pinned by
+# tests/test_bot_pipeline_isolation.py::test_auto_merge_fires_by_itself_when_a_pr_run_completes
+# (issue #874): this change reads the verdict, it must never be the reason the workflow stops running
+# on its own, so that guard is re-run in the same `make test-unit` pass (issue #852).

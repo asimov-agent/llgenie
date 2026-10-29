@@ -74,7 +74,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	engine-params-review-brief engine-params-review engine-params-review-apply \
 	architecture-bot-brief architecture-bot-doc architecture-bot-publish architecture-bot \
 	scrub-log \
-	check-pr-heads pr-heads-report \
+	check-pr-heads pr-heads-report bot-verdict bot-verdict-read \
 	run-failure-reactor rebase-bot-agent check-docs docs-report changes-index changes-index-report check-pr-hygiene pr-hygiene-report check-issue-bodies issue-bodies-report auto-merge auto-merge-resolve fix-bot-resolve auto-merge-explain auto-merge-recheck verify-closure check-pr-authors pr-authors-report check-workflows workflows-report check-module-names issue-refiner-pick issue-refiner issue-refiner-apply issue-dedup-pick issue-dedup issue-dedup-apply check-dispatch-forms dispatch-forms-report security-scan security-scan-all security-verdict security-issues security-issues-plan check-security-issues security-bot security-bot-pick check-security-bot sbom check-security-scan scanner-image test-scanner-image scanner-digests scanner-ref publish-scanner-images ci-scanner-images check-scanner-images \
 	run-failure-reactor rebase-bot-agent check-docs docs-report changes-index changes-index-report check-pr-hygiene pr-hygiene-report auto-merge auto-merge-resolve fix-bot-resolve auto-merge-explain auto-merge-recheck verify-closure check-pr-authors pr-authors-report check-workflows workflows-report issue-refiner-pick issue-refiner issue-refiner-apply issue-dedup-pick issue-dedup issue-dedup-apply check-dispatch-forms dispatch-forms-report scanner-image test-scanner-image scanner-digests scanner-ref publish-scanner-images ci-scanner-images check-scanner-images \
 	run-failure-reactor rebase-bot-agent check-docs docs-report changes-index changes-index-report check-pr-hygiene pr-hygiene-report auto-merge auto-merge-resolve fix-bot-resolve auto-merge-explain auto-merge-recheck verify-closure check-pr-authors pr-authors-report check-workflows workflows-report issue-refiner-pick issue-refiner issue-refiner-apply issue-dedup-pick issue-dedup issue-dedup-apply check-dispatch-forms dispatch-forms-report check-actions actions-report update-actions \
@@ -960,6 +960,17 @@ auto-merge-recheck: ## Re-evaluate the open PRs whose own deferral marker matche
 auto-merge-explain: ## Print why a PR was (or was not) auto-merged: state, mergeability, merge state, review decision, author and the verdict — writes NOTHING (PR= REPO= [HEAD_SHA=])
 	@test -n "$(PR)" && test -n "$(REPO)" || { echo "Usage: make auto-merge-explain PR=<n> REPO=<owner/repo> [HEAD_SHA=<sha>]"; exit 1; }
 	python3 scripts/auto_merge.py explain --repo "$(GH_REPO)" --pr $(PR) $(if $(HEAD_SHA),--head-sha $(HEAD_SHA),)
+
+# A bot's review VERDICT is a comment marker, never an approval (issue #852): every bot pushes with the
+# owner's token, so `gh pr review --approve` on its own PR is refused and `reviewDecision` can never leave
+# REVIEW_REQUIRED. The marker names the head it reviewed, and `auto_merge.decide()` accepts it ONLY at the
+# PR's current head — a stale verdict counts for nothing. One producer, one format: scripts/bot_verdict.py.
+bot-verdict: ## Post a bot review verdict at one head on a PR (a marker comment, never an approval; deduped per head+verdict): VERDICT=approve|changes HEAD=<sha> REPO= PR= [REVIEWER=] [NOTE=] [DRY=1] (issue #852)
+	@test -n "$(HEAD)" && test -n "$(REPO)" && test -n "$(PR)" && test -n "$(VERDICT)" || { echo "Usage: make bot-verdict VERDICT=approve|changes HEAD=<full sha> REPO=<owner/repo> PR=<n> [REVIEWER=<login>] [NOTE=] [DRY=1]"; exit 1; }
+	python3 scripts/bot_verdict.py post --repo "$(GH_REPO)" --pr $(PR) --head "$(HEAD)" --verdict "$(VERDICT)" $(if $(REVIEWER),--reviewer "$(REVIEWER)",) $(if $(NOTE),--note "$(NOTE)",) $(if $(DRY),--dry,)
+bot-verdict-read: ## Print the bot verdict the merge gate would read for a PR at its current head (REPO= PR= [HEAD=])
+	@test -n "$(REPO)" && test -n "$(PR)" || { echo "Usage: make bot-verdict-read REPO=<owner/repo> PR=<n> [HEAD=<sha>]"; exit 1; }
+	python3 scripts/bot_verdict.py show --repo "$(GH_REPO)" --pr $(PR) $(if $(HEAD),--head "$(HEAD)",)
 verify-closure: ## Prove a merged PR closed what its body claims: prints every closing reference and its state, and fails naming an issue that is still OPEN (PR= REPO=)
 	@test -n "$(PR)" && test -n "$(REPO)" || { echo "Usage: make verify-closure PR=<n> REPO=<owner/repo>"; exit 1; }
 	python3 scripts/verify_closure.py verify --repo "$(GH_REPO)" --pr $(PR)

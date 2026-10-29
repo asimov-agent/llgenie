@@ -1,0 +1,1 @@
+| 2026-10-29 | a bot's review verdict is a comment marker naming the head it reviewed (`make bot-verdict`), never an approval: `auto_merge.decide()` accepts it only at the PR's current `headRefOid`, so a stale verdict cannot merge unreviewed code | [2026-10-29-bot-verdict-legible.md](agent-wiki/2026-10-29-bot-verdict-legible.md) | #852 |

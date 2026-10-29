@@ -19,6 +19,15 @@ TWO things make a deferral honest rather than silent (issue #491):
     own `needs:` gate already proved every needed job succeeded, the author is a different account from the
     merge token's (GitHub refuses a self-approval), and the author is one of this repo's two identities
     (`andyholst`, `asimov-agent`). Any other review-blocked PR waits for a person;
+  * a bot's REVIEW VERDICT is a comment marker, never an approval (issue #852). Every bot pushes with the
+    owner's token, so `gh pr review --approve` on its own PR is refused and `reviewDecision` can never leave
+    `REVIEW_REQUIRED`; a complete verdict written only in prose was therefore invisible to this decision and
+    the PR sat `BLOCKED` forever. `scripts/bot_verdict.py` owns the marker
+    (`<!-- bot-verdict: head=<sha> verdict=<approve|changes> reviewer=<login> -->`), and this decision
+    accepts it ONLY when the head it names equals the PR's CURRENT `headRefOid`: a verdict on an older
+    commit describes a tree that is not merging, so a stale one is refused. The merge then uses `--admin`
+    (the review block cannot be moved by an approval a bot is allowed to post), and a refusal is a
+    deferral with the reason on the PR, never a red run;
   * every deferral posts ONE comment per head SHA (`<!-- auto-merge: deferred <sha> -->`) carrying the reason
     and what would unblock it, so "why is this not merged?" is answerable from the PR, not from a run log.
 
@@ -48,6 +57,10 @@ import sys
 import time
 
 import verify_closure
+
+#: A bot's review verdict is a comment marker owned by `scripts/bot_verdict.py` — never an approval
+#: (issue #852). `decide()` reads it, and accepts it only at the PR's CURRENT head.
+import bot_verdict
 
 REQUIRED_STATE = "OPEN"
 REQUIRED_MERGEABLE = "MERGEABLE"
@@ -94,9 +107,14 @@ def _gh(gh: str, args: list[str], token: str = "") -> str:
 
 
 def pr_state(gh: str, repo: str, pr: int) -> dict:
-    """What GitHub says about this PR right now: the merge decision is read from here, in one call."""
+    """What GitHub says about this PR right now: the merge decision is read from here, in one call.
+
+    The `comments` are part of the read because a bot's review verdict IS a comment marker (issue
+    #852): the decision needs the thread and the head in the SAME snapshot, or a verdict could be
+    matched against a head it was not written for.
+    """
     out = _gh(gh, ["pr", "view", str(pr), "--repo", repo, "--json",
-                   ",".join(PR_VIEW_STATE_FIELDS)])
+                   ",".join(PR_VIEW_FIELDS)])
     return json.loads(out or "{}")
 
 
@@ -159,7 +177,15 @@ def _permission(gh: str, repo: str, login: str) -> str:
 
 def decide(state: dict, head_sha: str, hold_label: str = HOLD_LABEL,
            repo_owner: str = "") -> "str | None":
-    """None when the PR may be merged; otherwise the reason it is deferred to a human."""
+    """None when the PR may be merged; otherwise the reason it is deferred to a human.
+
+    A review block is cleared by a BOT VERDICT at the PR's current head (issue #852), never by a
+    GitHub approval: a bot pushes with the owner's token, so `gh pr review --approve` on its own PR is
+    refused and `reviewDecision` can never leave `REVIEW_REQUIRED`. The verdict's marker names the sha
+    it reviewed, and it counts only when that sha equals `headRefOid` right now — a verdict on an older
+    commit describes a tree that is not merging, so a stale one is refused by the same rule the run's
+    own head check applies.
+    """
     labels = {str(l.get("name")) for l in (state.get("labels") or [])}
     if hold_label in labels:
         return f"the `{hold_label}` label is set (the human hold)"
@@ -170,11 +196,19 @@ def decide(state: dict, head_sha: str, hold_label: str = HOLD_LABEL,
     if (state.get("mergeable") or "").upper() != REQUIRED_MERGEABLE:
         return (f"mergeable is {state.get('mergeable')} (conflicts, or GitHub has not finished "
                 f"computing it)")
+    current_head = (state.get("headRefOid") or "").strip().lower()
+    verdict = bot_verdict.verdict_for_head(state.get("comments") or [], current_head)
+    if verdict and verdict["verdict"] in bot_verdict.BLOCKING:
+        return (f"a bot verdict at {(current_head or '?')[:8]} requests changes "
+                f"(reviewer `{verdict['reviewer']}`)")
     status = (state.get("mergeStateStatus") or "").upper()
     if status != REQUIRED_MERGE_STATE:
-        why = {"DIRTY": "conflicts with main", "BEHIND": "behind main (needs an update)",
-               "BLOCKED": "blocked by a required check or review"}.get(status, "not mergeable yet")
-        return f"mergeStateStatus is {status or 'UNKNOWN'} ({why})"
+        cleared = (status == "BLOCKED" and review_blocked(state) and verdict
+                   and verdict["verdict"] in bot_verdict.ACCEPTING)
+        if not cleared:
+            why = {"DIRTY": "conflicts with main", "BEHIND": "behind main (needs an update)",
+                   "BLOCKED": "blocked by a required check or review"}.get(status, "not mergeable yet")
+            return f"mergeStateStatus is {status or 'UNKNOWN'} ({why})"
     head_repo = ((state.get("headRepository") or {}).get("nameWithOwner") or "")
     if head_repo and repo_owner:
         owner, _, _ = head_repo.partition("/")
@@ -455,6 +489,35 @@ def _clear_review(gh: str, repo: str, pr: int, head_sha: str, state: dict, dry: 
     return verify_closure.verify(gh, repo, pr)
 
 
+def _merge_review_cleared(gh: str, repo: str, pr: int, head_sha: str, state: dict, dry: bool) -> int:
+    """Merge a review-blocked PR whose block was cleared by a BOT VERDICT at this head (issue #852).
+
+    The verdict is the review, but GitHub's `reviewDecision` cannot be moved by it (an approval of a
+    bot-authored PR is refused by GitHub itself), so the block is a procedural identity block and the
+    merge is the `--admin` path that bypasses it. A refusal is a deferral with the reason ON the PR,
+    never a red run: a repository that enforces the review rule for admins simply waits for a human.
+    """
+    verdict = bot_verdict.verdict_for_head(state.get("comments") or [],
+                                           (state.get("headRefOid") or ""))
+    who = verdict["reviewer"] if verdict else "unknown"
+    if dry:
+        print(f"[auto-merge] would merge PR #{pr} at {(head_sha or '')[:8]} on the bot verdict at this "
+              f"head (reviewer `{who}`); the required review cannot be self-approved, so the merge uses "
+              f"--admin")
+        return 0
+    print(f"[auto-merge] PR #{pr} is green and review-blocked, with a bot verdict at "
+          f"{(head_sha or '')[:8]} from `{who}` — merging on the verdict (--admin: the review block "
+          f"cannot be cleared by an approval a bot may post)")
+    try:
+        print(merge(gh, repo, pr, head_sha, delete_branch=_same_repo(state, repo), admin=True).strip())
+    except SystemExit as exc:
+        defer(gh, repo, pr, head_sha,
+              f"a bot verdict at {(head_sha or '')[:8]} from `{who}` cleared the review, but GitHub "
+              f"refused the merge: {exc}", dry=dry)
+        return 0
+    return verify_closure.verify(gh, repo, pr)
+
+
 def run(gh: str, repo: str, pr: int, head_sha: str, dry: bool = False,
         approve_when_review_required: bool = False, actor: str = "") -> int:
     state = pr_state(gh, repo, pr)
@@ -472,6 +535,9 @@ def run(gh: str, repo: str, pr: int, head_sha: str, dry: bool = False,
     if reason:
         defer(gh, repo, pr, head_sha, reason, dry=dry)
         return 0
+    if review_blocked(state):
+        # decide() cleared the review block: only a bot verdict at this head can do that (#852).
+        return _merge_review_cleared(gh, repo, pr, head_sha, state, dry)
     return _merge(gh, repo, pr, head_sha, state, dry)
 
 
@@ -526,9 +592,16 @@ def explain(gh: str, repo: str, pr: int, head_sha: str = "") -> int:
               "headRepository")
     print(f"[auto-merge] PR #{pr}: " + json.dumps({k: state.get(k) for k in fields}))
     print(f"[auto-merge] author: {((state.get('author') or {}).get('login') or 'unknown')}")
+    current_head = (state.get("headRefOid") or "").strip().lower()
+    verdict = bot_verdict.verdict_for_head(state.get("comments") or [], current_head)
+    print(f"[auto-merge] bot verdict at this head: "
+          f"{json.dumps(verdict) if verdict else 'none'}")
     reason = decide(state, head_sha, repo_owner=repo.split("/")[0])
     if reason is None:
-        print(f"[auto-merge] verdict: would merge PR #{pr}{' (fork head: branch kept)' if not _same_repo(state, repo) else ''}")
+        via = " on the bot verdict at this head (--admin: the review cannot be self-approved)" \
+            if review_blocked(state) else ""
+        print(f"[auto-merge] verdict: would merge PR #{pr}{via}"
+              f"{' (fork head: branch kept)' if not _same_repo(state, repo) else ''}")
         return 0
     if review_blocked(state):
         print(f"[auto-merge] verdict: would approve with the owner PAT, then merge — IF the approving "
