@@ -402,6 +402,32 @@ jobs:
     assert "support@docondee.com" in " ".join(it["evidence"] for it in items)
 
 
+def test_a_producer_that_pins_two_full_identities_is_not_pair_flagged(tmp_path: Path):
+    """​The pair check must not flag a file that legitimately pins TWO whole ALLOWED identities.
+
+    Cross-product over names x emails would report the A-name/B-email and B-name/A-email mixed pairs
+    that never co-occur. A file that pins both bull valid pairs is fine.
+    """
+    root = _producer_tree(tmp_path, """\
+name: bot
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          git config user.name "Andy Holst"
+          git config user.email "andy.holst@protonmail.com"
+      - run: |
+          git config user.name "Asimov Agent"
+          git config user.email "support@docondee.com"
+""")
+
+    items = cpa.check_producers(root)
+    keys = _keys(items)
+
+    assert not any(k.startswith("producer-pair/") for k in keys), keys
+
+
 def test_a_runtime_identity_is_accepted(tmp_path: Path):
     # Given a fixture tree whose workflow resolves its identity at run time
     root = _producer_tree(tmp_path, """\

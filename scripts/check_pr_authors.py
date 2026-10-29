@@ -304,25 +304,31 @@ def check_producers(root: Path = REPO_ROOT) -> list[dict]:
         # values: a producer setting `user.name "Andy Holst"` with `user.email "support@docondee.com"`
         # is two different identities mixed, and the commit-scan rejects exactly that pairing — the
         # producer scan must, too, or the static half green-lights what the dynamic half has to catch.
-        # Fires ONLY when both halves are individually allowed but do not form a pair (a wholly
-        # off-list name+email is already reported by the two standalone findings below).
-        paired = [(n, e) for n in names for e in emails
-                  if not _runtime_value(n) and not _runtime_value(e)
-                  and n in ALLOWED_NAMES and e in ALLOWED_EMAILS]
-        for name, email in paired:
-            aliases = ALLOWED.get(email)
-            if aliases is not None and name in aliases:
-                continue
-            out.append({
-                "key": f"producer-pair/{where}:{name}",
-                "title": f"ci: {where} mixes two identities into one producer",
-                "evidence": (
-                    f"`{where}` sets `user.name` to `{name}` and `user.email` to `{email}`, which is "
-                    f"not an allowed pair — the email is the stable identity and `{name}` is not one "
-                    f"of its aliases (issue #971). Audit the allowed emails: {_expected()}."
-                ),
-                "where": where,
-            })
+        # Fires ONLY when the file has NO valid pair at all: a file that legitimately pins TWO full
+        # identities (A-name+A-email AND B-name+B-email) is fine — its cross-products must not be
+        # reported, because they never co-occur. A wholly off-list name+email is already reported by
+        # the two standalone findings below.
+        valid_pairs = {(n, e) for n in names for e in emails
+                       if not _runtime_value(n) and not _runtime_value(e)
+                       and n in ALLOWED.get(e, ())}
+        if not valid_pairs:
+            for name in names:
+                for email in emails:
+                    if _runtime_value(name) or _runtime_value(email):
+                        continue
+                    if name not in ALLOWED_NAMES or email not in ALLOWED_EMAILS:
+                        continue
+                    out.append({
+                        "key": f"producer-pair/{where}:{name}",
+                        "title": f"ci: {where} mixes two identities into one producer",
+                        "evidence": (
+                            f"`{where}` sets `user.name` to `{name}` and `user.email` to `{email}`, "
+                            f"which is not an allowed pair — the email is the stable identity and "
+                            f"`{name}` is not one of its aliases (issue #971). Audit the allowed "
+                            f"emails: {_expected()}."
+                        ),
+                        "where": where,
+                    })
         for name in names:
             if _runtime_value(name) or name in ALLOWED_NAMES:
                 continue
