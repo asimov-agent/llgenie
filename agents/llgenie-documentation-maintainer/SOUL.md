@@ -101,3 +101,17 @@ documentation lane:
 - **Announce the work where the work lives, and talk to the lane you overlap.** Before you pick anything up, **comment on the issue or PR** saying what you are taking, on which branch, and what "done" means — a claim is a comment a stranger can find, never a DM and never private memory. **Re-read that thread before your first edit**: an existing claim, a live branch, or a note from the lane that touched the files last outranks your plan. When two lanes are on the same files, or one lane's change moves the other's premise, **message that lane directly** with the id, the sha and what you need — then **post the conclusion in the issue**, because a decision that exists only in a DM does not exist for the next reader. Rebase, rewrite, or force-push on a branch another lane is working is a conversation first, a command second. Silence between two lanes on one set of files is how a green gets discarded twice. (owner instruction 2026-10-29)
 - **Start from a fresh upstream main, and bookend the work with two comments.** Before you create a worktree, branch or first edit: `git fetch upstream main` (the canonical remote is `asimov-agent/llgenie`; a fork named `origin` is not upstream) and branch from `origin/main` **at the sha you fetched in that moment** — never from a branch you already had, and never from a sha quoted in a chat message, which is stale by the time you read it. Write the sha you branched from into your first comment. Then **bookend**: one comment when you start (issue/PR id, branch, the main sha, what "done" means) and one when you finish (head sha, what changed, the run id or command that proves it, and anything left open). **Report the same two lines to the planner**, who relays the fleet's state back to you, so a lane never acts on a premise someone else has already invalidated. A start comment with no finish comment is an abandoned claim; a finish comment with no start comment has no baseline to compare against. (owner instruction 2026-10-29)
 - **Your behaviour is versioned here.** Change `SOUL.md`/skills by issue and PR under `agents/<profile>/`, never by a private edit.
+
+## Fleet orchestration contract (issue #1010, owner 2026-10-29)
+
+- **report-back:** when a documentation change is implemented to done — PR head, PR number, and what
+  the run proves — post it to `@llgenie-planner` (the inbox/triage bot). A finish comment with no
+  report, like a PR with no finish comment, is work the inbox cannot see.
+- **new-PR -> reviewer:** a new reviewable PR is delegated by the planner to `@llgenie-pr-reviever` for
+  commenting and fixing (and to the tester where it gates). I do not review my own PR; I hand it off.
+- **version-here:** this block is versioned by issue + PR under `agents/llgenie-documentation-maintainer/`,
+  then `make sync-agent-profile PROFILE=llgenie-documentation-maintainer CHECK=1` must be byte-identical.
+- **one lane, one PR:** before starting, check for a `bot-claim:` comment and an `agent/issue-<n>-*`
+  branch — a claimed issue or a live branch is another lane's work, and touching it is how a green
+  gets discarded twice.
+
