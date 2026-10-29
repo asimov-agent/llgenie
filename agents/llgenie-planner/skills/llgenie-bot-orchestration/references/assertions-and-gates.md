@@ -138,3 +138,19 @@ workable shape is **one foundation PR plus per-profile PRs stacked on it** — t
 collapse to their own single file. A lane that re-cuts the whole tree is a duplicate, not a parallel effort: close it
 with a file-by-file comparison and state explicitly that the diagnosis was not rejected. Corollary for ordering: a PR
 carrying another PR's file must land **after** it, or the earlier gate silently regresses when the carrier merges.
+
+**Detect the duplicate by content, not by description.** File counts look identical when every PR re-derives the same
+skeleton: diff each PR against its own base and compare the *shared* file list — five "profile" PRs that each carry the
+same sixteen-file skeleton plus one own file are five copies of one change. Then count the actual payload (profiles,
+services, entries), not the files: a PR claiming to add the tree while its payload count is unchanged is a copy.
+
+### Verify a seeded copy against the live artefact at commit time
+
+```bash
+git cat-file -s <sha>:<tree path>      # what the PR will merge
+stat -c %s <live path>                 # what the profile actually loads
+```
+
+Comparing those two is the check; comparing a worktree's files compares neither, and a size quoted in a message is stale
+before it is read — the live file here grew three times in one session. Re-read at commit time and state both numbers in
+the PR body so a reviewer can confirm the sizes rather than trusting the gate.
