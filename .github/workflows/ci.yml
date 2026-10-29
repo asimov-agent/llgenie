@@ -212,9 +212,15 @@ jobs:
     # the `ci:slow` label, every other row of this call does not.
     needs: [ci-images, guard]
     uses: ./.github/workflows/pipeline.yml
+    # A called workflow can never grant MORE than the caller passes it, so a permission
+    # `pipeline.yml` needs must be named HERE too: `actions: read` is what lets its
+    # `install` job read the producer cells' job state (issue #893). Granting it only in
+    # the callee made GitHub refuse the whole workflow — a completed/failure run with
+    # ZERO jobs and nothing to open (run 40819108106).
     permissions:
       contents: read
       packages: read
+      actions: read
     secrets: inherit
     with:
       runner: ubuntu-latest

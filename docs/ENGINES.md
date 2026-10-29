@@ -58,7 +58,9 @@ make install ENGINES=all                  # every engine for this backend (other
 make install ENGINES=vllm ARCH=cuda       # some engines / a forced backend
 make install BUILD=1                      # build an image that is not published (default: pull only)
 make test-built-engine                    # every ~/bin/llgenie-engine-* prints its engine version
-make ci-wait-engine-images ARCH=cpu       # CI gate: wait until every image `make install` pulls is published (issue #169)
+make ci-wait-engine-images ARCH=cpu       # CI gate: wait until every image `make install` pulls is published (issue #169);
+                                          # a producer cell still QUEUED is waited on up to 75 min and reported as BLOCKED,
+                                          # a producer that concluded is reported as NOT FOUND (issue #893)
 make install-prism-metal     # macOS only: native Metal build (Metal cannot run in a container)
 make install-upstream-metal  # macOS only
 make install-prism-cpu       # Linux: the Prism llama.cpp engine image (CPU) + start scripts + version test

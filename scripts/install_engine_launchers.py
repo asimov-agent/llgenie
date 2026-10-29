@@ -262,17 +262,141 @@ def install_plan(arch: str, only: list[str] | None = None) -> list[dict]:
 # The engine-image jobs of the same CI run build and push these images in parallel
 # with the install job, so a first run of a new pin used to fail `not published`
 # (issue #169). The gate polls the registry manifest until each tag shows up.
+#
+# A tag that is absent has TWO very different causes, and the wait used to report
+# both as "not published" (issue #893): the image was never produced (a bad pin, a
+# failed publish step), or the producer cell was still QUEUED in the runner queue the
+# install job is itself running in — the queue outlasted the wait, which is capacity,
+# not a defect. So the wait reads its producers' OWN job state: `ci.yml` names each
+# engine-image cell `engine-image-<engine>-<variant>`, and that job name is the join.
+#
+#   queued / in_progress  -> keep waiting, up to PUBLISH_WAIT_QUEUE_MAX_S
+#   completed / failure   -> NOT FOUND, naming the producer and its conclusion
+#   completed / success   -> NOT FOUND, the tag really is missing
+#   no state to read      -> the old budget, and the message says capacity is not ruled out
+#
+# Both bounds are wall-clock and finite. PUBLISH_WAIT_QUEUE_MAX_S plus the reserve the
+# rest of the install job needs must stay BELOW that job's `timeout-minutes`, or a hung
+# producer inherits GitHub's six-hour default: tests/test_ci_publish_order.py pins the
+# relation against the workflow file itself.
 PUBLISH_WAIT_TIMEOUT_S = 30 * 60
+PUBLISH_WAIT_QUEUE_MAX_S = 75 * 60
+PUBLISH_WAIT_RESERVE_S = 20 * 60   # pull + make install + the dry run + uninstall
 PUBLISH_WAIT_POLL_S = 20
+#: A producer that has CONCLUDED ends the wait, because its tag is final — but not at
+#: once: a registry manifest can lag its own push by a moment, or answer 404 while the
+#: token is being minted, and a timed-out verdict there would be a flake dressed as a
+#: defect. So a concluded producer shortens the budget to this, never to zero.
+PUBLISH_WAIT_CONCLUDED_GRACE_S = 2 * 60
+
+#: A producer status that means "the builder has not finished" — the runner queue.
+PRODUCER_QUEUED_STATES = ("queued", "in_progress", "waiting", "pending", "requested")
+
+
+def producer_job_name(engine: str, variant: str) -> str:
+    """The `ci.yml` job name of the cell that builds and pushes ONE image."""
+    return f"engine-image-{engine}-{variant}"
+
+
+def _github_get(url: str, token: str) -> tuple[dict, str]:
+    """(body, next-page link) for one Actions API page. Raises on a non-200."""
+    import urllib.request
+    req = urllib.request.Request(url, headers={
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "llgenie-ci-wait-engine-images",
+    })
+    with urllib.request.urlopen(req, timeout=30) as r:
+        body, link = json.loads(r.read()), r.headers.get("Link") or ""
+    nxt = ""
+    for part in link.split(","):
+        if 'rel="next"' in part:
+            nxt = part.split(";")[0].strip().strip("<>")
+    return body, nxt
+
+
+def producer_job_states() -> dict[str, tuple[str, str]]:
+    """{job name: (status, conclusion)} for this run's jobs, from the Actions API.
+
+    Empty when this is not a GitHub Actions run (a host `make ci-wait-engine-images`)
+    or when the token cannot read the run's jobs: the wait then keeps its queue-unaware
+    budget and still fails loudly. It never raises and never hangs — a lookup that
+    cannot answer must not become a stall.
+    """
+    run_id = os.environ.get("GITHUB_RUN_ID", "").strip()
+    repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
+    token = (os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or "").strip()
+    if not (run_id and repo and token):
+        return {}
+    url = (f"https://api.github.com/repos/{repo}/actions/runs/{run_id}"
+           f"/jobs?filter=latest&per_page=100")
+    states: dict[str, tuple[str, str]] = {}
+    try:
+        for _ in range(20):                      # paginated; 20 pages is 2000 jobs
+            body, nxt = _github_get(url, token)
+            for job in body.get("jobs") or []:
+                name = job.get("name") or ""
+                if name:
+                    states[name] = (job.get("status") or "", job.get("conclusion") or "")
+            if not nxt:
+                break
+            url = nxt
+    except Exception as e:  # noqa: BLE001 - "cannot read" is `unknown`, not a failure
+        print(f"[install] could not read the producer jobs' state ({str(e)[-120:]}): "
+              f"the runner queue cannot be ruled out", flush=True)
+        return {}
+    return states
+
+
+def producer_state(states: dict[str, tuple[str, str]] | None,
+                   engine: str, variant: str) -> tuple[str, str, str]:
+    """('queued'|'failed'|'done'|'unknown', job name, conclusion) for one producer cell."""
+    job = producer_job_name(engine, variant)
+    status, conclusion = (states or {}).get(job, ("", ""))
+    if status in PRODUCER_QUEUED_STATES:
+        return "queued", job, conclusion
+    if status == "completed":
+        return ("done" if conclusion in ("", "success", "skipped") else "failed"), job, conclusion
+    return "unknown", job, conclusion
+
+
+def _missing_verdict(engine: str, variant: str, ref: str, state: str, job: str,
+                     conclusion: str, reason: str, elapsed_s: float) -> str:
+    """The one line that says WHICH failure this is (issue #893), and its remedy."""
+    waited = int(elapsed_s) // 60
+    if state == "queued":
+        return (f"[install] FAIL {engine}/{variant}: BLOCKED — the producer cell {job} is still queued "
+                f"after {waited} minutes with no runner: this is the runner queue, not a bad tag. "
+                f"{ref} has not been published yet; re-run this job once the engine-image cells have "
+                f"started, and do not change the pin.")
+    if state == "failed":
+        return (f"[install] FAIL {engine}/{variant}: NOT FOUND — the producer cell {job} concluded "
+                f"{conclusion or 'unsuccessfully'}, so {ref} was never published "
+                f"(last registry error: {reason}). Fix the producer cell, not the wait.")
+    if state == "done":
+        return (f"[install] FAIL {engine}/{variant}: NOT FOUND — the producer cell {job} concluded "
+                f"{conclusion or 'success'} and {ref} was never published "
+                f"(last registry error: {reason}). The pin or the publish step needs a look.")
+    return (f"[install] FAIL {engine}/{variant}: NOT FOUND — {ref} was never published within "
+            f"{waited} minutes and no producer cell state could be read (a host run, or the "
+            f"job lacks `actions: read`), so the runner queue cannot be ruled out "
+            f"(last registry error: {reason}).")
 
 
 def wait_published(arch: str, only: list[str] | None = None,
                    timeout_s: int = PUBLISH_WAIT_TIMEOUT_S,
-                   poll_s: int = PUBLISH_WAIT_POLL_S) -> int:
+                   poll_s: int = PUBLISH_WAIT_POLL_S,
+                   max_queue_s: int = PUBLISH_WAIT_QUEUE_MAX_S,
+                   states: dict[str, tuple[str, str]] | None = None,
+                   concluded_grace_s: int = PUBLISH_WAIT_CONCLUDED_GRACE_S) -> int:
     """Wait until every image `install` pulls for this backend is published (issue #169).
 
     No pull, no build, no fallback: a manifest lookup per tag, retried until the tag
-    appears or the deadline passes. A tag that never appears fails loudly and is named.
+    appears or the deadline passes. A tag that never appears fails loudly and is named,
+    and the failure says WHICH failure it is (issue #893): `BLOCKED` when the producer
+    cell is still queued in the runner queue, `NOT FOUND` when the producer concluded
+    and the tag itself is absent.
     """
     if not ei.REGISTRY:
         print("[install] FAIL LLGENIE_REGISTRY is not set: there is nothing to wait for")
@@ -284,8 +408,11 @@ def wait_published(arch: str, only: list[str] | None = None,
         return 0
     print(f"[install] waiting for {len(want)} published image(s) for backend {arch}: "
           + ", ".join(f"{e}/{v}" for e, v, _ in want), flush=True)
-    deadline = time.monotonic() + timeout_s
-    missing, reason = list(want), {}
+    started = time.monotonic()
+    deadline = started + timeout_s
+    ceiling = started + max_queue_s
+    missing, reason, verdict = list(want), {}, {}
+    extended = False
     while missing:
         still = []
         for engine, variant, ref in missing:
@@ -299,14 +426,41 @@ def wait_published(arch: str, only: list[str] | None = None,
         if not missing:
             print(f"[install] every image install pulls is published", flush=True)
             return 0
+        # The producer's OWN state decides what an absent tag means (issue #893). A
+        # producer that has CONCLUDED has published its tag or never will, so waiting
+        # on it further cannot change the answer — but it shortens the budget to a grace
+        # period instead of to zero, because a manifest can lag its own push; one that is
+        # still queued/in_progress is the runner queue, which is capacity, not a tag.
+        current = states if states is not None else producer_job_states()
+        verdict = {(e, v): producer_state(current, e, v) for e, v, _ in missing}
+        if any(s in ("done", "failed") for s, _, _ in verdict.values()):
+            if time.monotonic() >= min(deadline, started + concluded_grace_s):
+                break
+            time.sleep(poll_s)
+            continue
+        if any(s == "queued" for s, _, _ in verdict.values()):
+            now = time.monotonic()
+            if now >= ceiling:
+                break
+            if not extended:
+                extended = True
+                print("[install] producer still queued: "
+                      + ", ".join(j for _, j, _ in verdict.values())
+                      + f" — the runner queue, not the tag, is the delay; keeping the wait "
+                        f"alive up to {max_queue_s // 60} minutes (issue #893)", flush=True)
+            time.sleep(poll_s)
+            continue
         if time.monotonic() >= deadline:
             break
         print(f"[install] not published yet: {', '.join(ref for _, _, ref in missing)}; "
               f"waiting {poll_s}s", flush=True)
         time.sleep(poll_s)
+    elapsed = time.monotonic() - started
     for engine, variant, ref in missing:
-        print(f"[install] FAIL {engine}/{variant}: {ref} was never published "
-              f"(last registry error: {reason.get(ref, '')})")
+        state, job, conclusion = verdict.get((engine, variant)) or producer_state(
+            states if states is not None else {}, engine, variant)
+        print(_missing_verdict(engine, variant, ref, state, job, conclusion,
+                               reason.get(ref, ""), elapsed))
     return 1
 
 

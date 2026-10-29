@@ -861,8 +861,33 @@ A bump PR publishes the images it built (`make push-engine` is a step of every
 `make ci-install` waits first: it runs `make ci-wait-engine-images ARCH=cpu` before
 `make ci-install-run`. It resolves exactly the tags `make install` pulls and polls
 the registry manifest until each one is published, naming and failing on a tag that never
-appears (it never builds an image and never pulls a different one). The OS branch lives in
-the gate target: macOS pulls no engine image, so its run of the gate does no lookup and
+appears (it never builds an image and never pulls a different one).
+
+**An absent tag has two causes and the gate names which one it saw (issue #893).** The
+`install` job runs in the same runner queue as the `engine-image-*` cells that publish the
+tags it wants, so under queue pressure the producer is still `queued` when the wait's
+budget runs out — and a 404 after 30 honest minutes reads exactly like a wrong pin.
+`scripts/install_engine_launchers.py` therefore reads its producers' own job state from the
+Actions API (`GET /actions/runs/<id>/jobs`, which is why the job carries `actions: read`),
+joining on the cell name `engine-image-<engine>-<variant>`:
+
+- `queued` / `in_progress` — the runner queue, not the tag. The wait keeps going, up to
+  `PUBLISH_WAIT_QUEUE_MAX_S` (75 min), and then fails as **`BLOCKED — the producer cell
+  <job> is still queued after N minutes with no runner: this is the runner queue, not a bad
+  tag`**, telling the reader to re-run rather than touch the pin.
+- `completed` with any conclusion — the producer has published its tag or never will, so the
+  wait shortens to a two-minute grace (a registry manifest can lag its own push, and a verdict
+  at zero would be a flake dressed as a defect) and then fails as **`NOT FOUND`**, naming the
+  cell and its conclusion (`concluded success and <ref> was never published` / `concluded
+  failure`). This is the real defect case.
+- no state readable (a host run, or a token without `actions: read`) — the old 30-minute
+  budget, and the message says the queue *cannot be ruled out* rather than pretending to know.
+
+Both bounds are finite and the relation to the job's ceiling is pinned by
+`tests/test_ci_publish_order.py`: 75 + the 20-minute reserve for the pull/install/dry-run/
+uninstall stays under the job's `timeout-minutes: 120`, so a hung producer can never hold a
+runner for GitHub's six-hour default. The OS branch lives in the gate target: macOS pulls
+no engine image, so its run of the gate does no lookup and
 `ci-install` stays the same on both OSes. Without that gate the first run of a new pin fails
 `[install] FAIL llama.cpp/cpu: not published` while its own build job is still pushing
 the tag (issue #169).

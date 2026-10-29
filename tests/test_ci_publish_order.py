@@ -18,6 +18,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 import yaml
 
 REPO = Path(__file__).resolve().parent.parent
@@ -51,6 +52,46 @@ def _gate(monkeypatch, log: list[str], published: bool = True):
         return ("sha256:" + "0" * 64, "") if published else ("", "404 Not Found")
 
     monkeypatch.setattr(ei, "_digest_http", fake)
+
+
+@pytest.fixture(autouse=True)
+def _no_live_actions_lookup(monkeypatch):
+    """A unit test never reads the Actions API (issue #893).
+
+    The producer state is injected into `wait_published`, and the no-state fallback is
+    exercised explicitly. An inherited `GITHUB_RUN_ID`/`GITHUB_TOKEN` (CI exports both)
+    would otherwise make a hermetic test call the live API for its own run.
+    """
+    for var in ("GITHUB_RUN_ID", "GITHUB_REPOSITORY", "GITHUB_TOKEN", "GH_TOKEN"):
+        monkeypatch.delenv(var, raising=False)
+
+
+class _FakeClock:
+    """A monotonic clock the wait advances by sleeping, so a 75-minute ceiling costs nothing."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.now += seconds
+
+
+def _producer_states(status: str, conclusion: str = "", arch: str = "cpu",
+                     engines: list[str] | None = None) -> dict[str, tuple[str, str]]:
+    """The producer cells' job state, keyed exactly as `ci.yml` names them."""
+    return {iel.producer_job_name(e, arch): (status, conclusion)
+            for e in (engines or iel.CORE_ENGINES)}
+
+
+def _publish_after(monkeypatch, clock: "_FakeClock", at_s: float) -> None:
+    """A registry that answers 404 until the clock reaches `at_s`, then publishes."""
+    monkeypatch.setattr(ei, "REGISTRY", REGISTRY)
+    monkeypatch.setattr(
+        ei, "_digest_http",
+        lambda ref: (("sha256:" + "0" * 64, "") if clock.now >= at_s else ("", "404 Not Found")))
 
 
 def _recipe(target: str) -> str:
@@ -185,6 +226,220 @@ def test_published_images_need_no_wait(monkeypatch):
     # Then it passes after a single pass over the tags
     assert rc == 0
     assert len(refs) == len(iel.CORE_ENGINES)
+
+
+def test_published_images_never_consult_the_producer_state(monkeypatch):
+    """Nothing to wait for means no job-state lookup either (issue #893)."""
+
+    # Given a registry that answers every lookup with a digest, and no producer state
+    _gate(monkeypatch, [])
+    monkeypatch.setattr(iel, "producer_job_states",
+                        lambda: pytest.fail("a published image must not trigger an API read"))
+
+    # When the gate waits with no injected state (the production lookup)
+    rc = iel.wait_published("cpu", timeout_s=60, poll_s=20)
+
+    # Then it passes without ever asking the Actions API
+    assert rc == 0
+
+
+def test_a_queued_producer_keeps_the_wait_alive_past_the_old_budget(monkeypatch, capsys):
+    """A producer cell that is still queued is capacity, not a missing tag (issue #893)."""
+
+    # Given producer cells that are only QUEUED, and a registry that publishes the tag
+    # 31 minutes in — one minute past the old 30-minute budget
+    clock = _FakeClock()
+    monkeypatch.setattr(iel, "time", clock)
+    _publish_after(monkeypatch, clock, at_s=31 * 60)
+
+    # When  the gate waits with that state injected
+    rc = iel.wait_published("cpu", timeout_s=30 * 60, poll_s=20,
+                            states=_producer_states("queued"))
+
+    # Then  it keeps waiting past the old budget and passes when the image lands
+    assert rc == 0
+    assert clock.now > 30 * 60, f"the wait gave up at {clock.now}s, inside the queue ceiling"
+    out = capsys.readouterr().out
+    assert "producer still queued" in out
+    assert "BLOCKED" not in out and "NOT FOUND" not in out
+
+
+def test_a_producer_queued_past_the_ceiling_fails_as_BLOCKED(monkeypatch, capsys):
+    """The queue outlasting the wait is reported as the queue, never as a bad tag (issue #893)."""
+
+    # Given producer cells that never leave the queue and a tag that never appears
+    clock = _FakeClock()
+    monkeypatch.setattr(iel, "time", clock)
+    _gate(monkeypatch, [], published=False)
+
+    # When  the gate runs out of its queue budget
+    rc = iel.wait_published("cpu", timeout_s=30 * 60, poll_s=20,
+                            states=_producer_states("queued"))
+
+    # Then  it fails as BLOCKED, naming the producer cell and the remedy — and never
+    #       claims the tag is missing
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert "BLOCKED" in out and "NOT FOUND" not in out
+    assert "runner queue, not a bad tag" in out
+    for engine in iel.CORE_ENGINES:
+        assert f"BLOCKED — the producer cell {iel.producer_job_name(engine, 'cpu')}" in out
+    assert clock.now == iel.PUBLISH_WAIT_QUEUE_MAX_S, (
+        f"the wait ended at {clock.now}s, not at the shipped ceiling "
+        f"{iel.PUBLISH_WAIT_QUEUE_MAX_S}s")
+
+
+def test_a_producer_that_concluded_success_with_a_missing_tag_fails_as_NOT_FOUND(monkeypatch, capsys):
+    """A producer that finished and pushed nothing is a real missing image (issue #893)."""
+
+    # Given a producer that concluded successfully and a tag that is not there
+    clock = _FakeClock()
+    monkeypatch.setattr(iel, "time", clock)
+    _gate(monkeypatch, [], published=False)
+
+    # When  the gate waits
+    rc = iel.wait_published("cpu", timeout_s=30 * 60, poll_s=20,
+                            states=_producer_states("completed", "success"))
+
+    # Then  it fails as NOT FOUND once the grace period is spent — the pin/publish needs a
+    #       look, the queue is not the cause
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert "NOT FOUND" in out and "BLOCKED" not in out
+    assert "concluded success" in out and "pin or the publish step" in out
+    assert clock.now == iel.PUBLISH_WAIT_CONCLUDED_GRACE_S, (
+        "a concluded producer must cost the grace period, never the 30-minute budget")
+
+
+def test_a_producer_that_failed_ends_the_wait_at_the_grace_period(monkeypatch, capsys):
+    """A producer that concluded failure is named in the verdict, after one short grace (issue #893)."""
+
+    # Given a producer cell that concluded `failure`
+    clock = _FakeClock()
+    monkeypatch.setattr(iel, "time", clock)
+    _gate(monkeypatch, [], published=False)
+
+    # When  the gate's first poll finds the tag absent
+    rc = iel.wait_published("cpu", timeout_s=30 * 60, poll_s=20,
+                            states=_producer_states("completed", "failure"))
+
+    # Then  it fails within the grace period (a registry manifest can lag its own push),
+    #       naming the producer and its conclusion — never sitting out the full budget
+    assert rc == 1
+    assert clock.now == iel.PUBLISH_WAIT_CONCLUDED_GRACE_S
+    out = capsys.readouterr().out
+    assert "NOT FOUND" in out and "concluded failure" in out and "Fix the producer cell" in out
+
+
+def test_no_readable_producer_state_says_capacity_cannot_be_ruled_out(monkeypatch, capsys):
+    """A host run (or a job without `actions: read`) is honest about what it cannot know."""
+
+    # Given no producer state at all — the host path, and the CI path if the token cannot read jobs
+    clock = _FakeClock()
+    monkeypatch.setattr(iel, "time", clock)
+    _gate(monkeypatch, [], published=False)
+
+    # When  the gate waits with the empty state
+    rc = iel.wait_published("cpu", timeout_s=30 * 60, poll_s=20, states={})
+
+    # Then  it still fails, says it could not read the state, and names the one caveat
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert "could be read" in out and "runner queue cannot be ruled out" in out
+    assert clock.now == 30 * 60, "no state means the old queue-unaware budget"
+
+
+def test_the_producer_lookup_reads_job_names_from_the_actions_api(monkeypatch):
+    """The lookup joins on `engine-image-<engine>-<variant>`, the name `ci.yml` sets (issue #893)."""
+
+    # Given a GitHub Actions run whose job list holds the producer cells
+    monkeypatch.setenv("GITHUB_RUN_ID", "1234")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "asimov-agent/llgenie")
+    monkeypatch.setenv("GITHUB_TOKEN", "not-a-real-token")
+    pages = [({"jobs": [{"name": "engine-image-llama.cpp-cpu", "status": "queued",
+                         "conclusion": None},
+                        {"name": "install", "status": "in_progress", "conclusion": None}]}, "")]
+
+    def fake_get(url: str, token: str):
+        assert "repos/asimov-agent/llgenie/actions/runs/1234/jobs" in url
+        return pages.pop(0)
+
+    monkeypatch.setattr(iel, "_github_get", fake_get)
+
+    # When  the run's jobs are read
+    states = iel.producer_job_states()
+
+    # Then  the producer cell is addressable by the name the wait looks up
+    assert iel.producer_job_name("llama.cpp", "cpu") in states
+    assert iel.producer_state(states, "llama.cpp", "cpu")[0] == "queued"
+
+
+def test_the_producer_lookup_is_empty_outside_actions(monkeypatch):
+    """A host `make ci-wait-engine-images` never calls the API (issue #893)."""
+
+    # Given no Actions environment (the autouse fixture removed it)
+    monkeypatch.setattr(iel, "_github_get",
+                        lambda url, token: pytest.fail("no run id means no API call"))
+
+    # When  the state is read
+    states = iel.producer_job_states()
+
+    # Then  it is empty, and the wait falls back to its queue-unaware budget
+    assert states == {}
+
+
+def test_the_queue_ceiling_fits_inside_the_install_job_timeout():
+    """A hung producer must not inherit GitHub's six-hour default (issues #872, #893)."""
+
+    # Given the install job's own ceiling, as the workflow declares it
+    job = yaml.safe_load(PIPELINE.read_text())["jobs"]["install"]
+    ceiling = job["timeout-minutes"] * 60
+
+    # When  the wait's budgets are compared with it
+    # Then  the queue ceiling leaves room for the rest of the job, and the base budget is
+    #       never larger than the queue ceiling (a base above it would never extend)
+    assert iel.PUBLISH_WAIT_TIMEOUT_S <= iel.PUBLISH_WAIT_QUEUE_MAX_S
+    assert iel.PUBLISH_WAIT_QUEUE_MAX_S + iel.PUBLISH_WAIT_RESERVE_S < ceiling, (
+        f"{iel.PUBLISH_WAIT_QUEUE_MAX_S}s + {iel.PUBLISH_WAIT_RESERVE_S}s of wait/reserve "
+        f"does not fit in the install job's {ceiling}s")
+
+
+def test_the_install_job_may_read_the_producer_state():
+    """Without `actions: read` the lookup answers 403 and the two causes collapse again (#893)."""
+
+    # Given the install job the reusable pipeline declares
+    job = yaml.safe_load(PIPELINE.read_text())["jobs"]["install"]
+
+    # When  its permissions are read
+    # Then  it may read this run's jobs, which is where the producer state lives
+    assert job["permissions"].get("actions") == "read", (
+        "the install job cannot read the producer cells' state without `actions: read`, "
+        "so a queued producer is once again reported as a missing tag")
+
+
+def test_the_caller_grants_the_action_read_the_callee_needs():
+    """A called workflow cannot exceed its caller's token — the caller must grant it too (#893).
+
+    Measured: declaring `actions: read` in `pipeline.yml`'s `install` job alone made GitHub
+    refuse the WHOLE workflow at startup — run 40819108106, `completed/failure`, 0 jobs, and
+    `gh run view --log-failed` answers "log not found" because no job ever existed.
+    """
+
+    # Given the workflow that calls the reusable pipeline
+    ci = yaml.safe_load((REPO / ".github" / "workflows" / "ci.yml").read_text())
+    callers = [name for name, job in ci["jobs"].items()
+               if (job.get("uses") or "").endswith("pipeline.yml")]
+
+    # When  each caller's job-level permissions are read
+    # Then  every one of them grants `actions: read`, or the callee's request is refused at
+    #       load time and the run reports nothing at all
+    assert callers, "no job in ci.yml calls the reusable pipeline"
+    for name in callers:
+        granted = (ci["jobs"][name].get("permissions") or {}).get("actions")
+        assert granted == "read", (
+            f"ci.yml job `{name}` does not grant `actions: read`, so pipeline.yml's install "
+            "job cannot read the producer state and GitHub refuses the whole workflow at "
+            "startup (0 jobs, no log)")
 
 
 def _deferred_engines(params_dir: Path | None = None, base: str | None = None) -> set[str]:
