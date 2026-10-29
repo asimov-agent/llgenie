@@ -224,6 +224,30 @@ The failure signature to recognise: **you are about to push and you do not know 
 behind you.** That is the moment the claim comment was for, and it costs one command:
 `gh pr view <n> --json headRefOid` before, and the new sha posted after.
 
+## Bookend the work, and start from a freshly fetched main (fleet rule 15)
+
+An unbookended job and a stale base are the same defect from two directions: the first makes it impossible
+to tell who owes a finish comment, the second makes a lane act on a premise someone already invalidated.
+
+- **The base:** `git fetch origin main`, then branch from `origin/main` **at the sha you just fetched** — never
+  from a branch you already had, never from a sha quoted in a chat message (stale by the time you read it).
+  In this repo `origin` is a fork and upstream is `asimov-agent/llgenie`, so a bare `origin` cannot be the
+  canonical source; `git fetch origin main` against the fork is the trap, and the fix is naming the canonical
+  remote (`upstream main` here, or the same-repo `origin` when the fork is not involved).
+- **Stacked exception:** when the base must be another open PR (the files exist only on that branch), branch
+  from that PR's tip and name BOTH shas — the stack head and the `origin/main` you fetched — so a reader can
+  tell which part is stacked and which is upstream.
+- **Start comment** (before the first edit): issue/PR id, branch, the main sha you branched from, and what
+  "done" means.
+- **Finish comment** (after the last push): new head sha, what changed, the run id or command that proves it,
+  and anything left open. Report the same two lines to the planner.
+- **A start with no finish is an abandoned claim; a finish with no start has no baseline to compare against.**
+
+Measured in this repo: a branch sat at `798cbee` while main moved to `5017128e`; the rebase then found a
+ratchet baseline recorded at 34/14 that main measures at 107/151, a hand-edited index row that #943 replaced
+with per-file fragments, and a lint rule that did not exist at cut — three findings whose only cause was
+starting on a base that had already moved.
+
 ## A MERGED PR keeps its flags, and that is how a re-cut gets authorised by mistake
 
 Measured: `#847` merged at 08:36:01Z; thirty-four minutes later a briefing still described it as
