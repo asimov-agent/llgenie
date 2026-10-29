@@ -224,6 +224,27 @@ The failure signature to recognise: **you are about to push and you do not know 
 behind you.** That is the moment the claim comment was for, and it costs one command:
 `gh pr view <n> --json headRefOid` before, and the new sha posted after.
 
+## A MERGED PR keeps its flags, and that is how a re-cut gets authorised by mistake
+
+Measured: `#847` merged at 08:36:01Z; thirty-four minutes later a briefing still described it as
+"`cross=true` · `DIRTY` · the rebase does not resolve it" and authorised a re-cut. Every one of those
+statements was true of the **object** and false of the **branch**: a merged PR keeps its head ref, its fork
+status and a readable `mergeStateStatus`, and its head is simply an older tree.
+
+```
+gh pr view <n> --json state,mergedAt,mergeCommit        # BEFORE planning work against it
+git merge-base --is-ancestor <merge_commit> origin/main # is the content actually on main?
+git diff --stat <head> origin/main | tail -1            # a re-cut here would only DELETE work
+```
+
+The measured shape of that trap: `git diff --stat 5ca8a705 origin/main` → **312 files, 4,869 deletions** —
+re-cutting would have produced a PR whose only effect was removing five thousand lines. **A branch that is
+behind main is not a branch that needs re-cutting; it is a branch whose work already landed.**
+
+Two corollaries: `DIRTY`/`CONFLICTING` on an old head is a statement about that head, not a verdict on the
+change; and the fix for a fork head is a re-cut — but only after `state,MERGED` proves there is something
+left to re-cut.
+
 ## A PR's blockers are three commands, not a rule of thumb
 
 "Fork head therefore unapprovable" and "`cross=true` therefore can't be armed" are **inferences**, and
