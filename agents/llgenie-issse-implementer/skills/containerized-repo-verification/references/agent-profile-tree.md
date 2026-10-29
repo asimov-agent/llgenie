@@ -82,6 +82,17 @@ So a live-comparison check is not finished until it has three parts:
 reader: it overwrites a deliberate tree-side edit and reports success. Opening one deduped issue naming the
 files is the whole job — the copy is a judgement the lane owns.
 
+**While a copy is under review, freeze the source.** Editing the live file and re-seeding in the same window
+recreates the drift before the next gate runs — two re-takes inside one hour went stale the same way, the
+second after the branch was already armed. Either stop editing the live profile until the PR merges, or
+accept that every push needs a re-take; say which in the commit so the reviewer does not have to discover it.
+
+**Four states, not two, and only three are defects.** Truncated (the tree misses live lines → a sync DELETES
+live behaviour), **diverged** (each side owns lines the other lacks → a sync destroys work on *both* sides),
+missing (structural), and tree-ahead (the tree carries lines live lacks and misses none → a sync only ADDS,
+so it is lag). A size comparison or a two-state "differs" test reports **diverged as nothing at all**, which
+makes the most destructive state the invisible one — classify by subset relation in BOTH directions.
+
 ## A skip must be audible, and a home must HOLD a profile
 
 A runner has no `~/.hermes/profiles/`, so a live-vs-tree comparison cannot run there: fail it and every CI
