@@ -1364,7 +1364,7 @@ test-clean: ## Remove left-over/stopped orphaned containers of the test image (i
 	done; \
 	echo "Pruned stopped orphaned $(TEST_IMG) containers."
 
-# internal CI seam (issue #1000/#1002): the `-m network` twin of test-unit, run by the admitted network pipeline (`ci-network.yml`) — every test the hermetic gate excludes by marker runs HERE, never silently skipped; not user-facing and no `##` help line on purpose (engine-matrix-pushed precedent)
+# internal CI seam (issue #1000/#1002): the `-m network` twin of test-unit, run by the admitted network pipeline (#1002, `ci-hf-live.yml`) — every test the hermetic gate excludes by marker runs HERE, never silently skipped; not user-facing and no `##` help line on purpose (engine-matrix-pushed precedent)
 test-unit-network: bash-check
 	$(MAKE) bash-check
 	$(TEST_RUN) python scripts/unit_tests.py run --marker network
