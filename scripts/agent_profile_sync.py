@@ -131,7 +131,10 @@ def shrinks(agents: Path, name: str, dest: Path) -> list[tuple[str, int, int, in
         tree_lines, live_lines = _rule_lines(tree_text), _rule_lines(live_text)
         subset = (tree_lines != live_lines and set(tree_lines) <= set(live_lines))
         lost = len([ln for ln in live_lines if ln not in set(tree_lines)])
-        if subset or (live and tree < live * SHRINK_FLOOR):
+        # `subset` with `lost == 0` means the tree adds nothing new — it duplicates lines the live file
+        # already has. A sync loses no rule there, so refusing it is the false positive that teaches an
+        # operator to pass --force. The size floor still fires on its own, and any lost line still refuses.
+        if (subset and lost) or (live and tree < live * SHRINK_FLOOR):
             out.append((rel, tree, live, lost))
     return out
 
@@ -222,10 +225,12 @@ def write(agents: Path, name: str, dest: Path, force: bool = False) -> int:
     shrinking = shrinks(agents, name, dest)
     if shrinking and not force:
         for rel, tree, live, lost in shrinking:
-            print(f"[agent-profile] REFUSED {agents.name}/{name}/{rel}: the tree file is SMALLER than "
-                  f"the live one — {tree} b against {live} b — and its lines are a subset, so a sync "
-                  f"would delete {lost} line(s) of rulebook. That is a truncated seed, not an edit; fix "
-                  f"the seed, or pass --force to mean it.", file=sys.stderr)
+            how = ("is SMALLER and its lines are a subset of the live file's"
+                   if tree < live else "keeps every line it has inside the live file's, but drops live ones")
+            print(f"[agent-profile] REFUSED {agents.name}/{name}/{rel}: the tree file {how} — "
+                  f"{tree} b against {live} b — so a sync would delete {lost} line(s) of rulebook. "
+                  f"That is a truncated seed, not an edit; fix the seed, or pass --force to mean it.",
+                  file=sys.stderr)
         return 3
     written: list[str] = []
     # Captured BEFORE the copy: after it every file exists and matches, so asking then answers "no change"
