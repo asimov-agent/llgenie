@@ -289,23 +289,25 @@ def shrink_findings(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR,
             if not counterpart.is_file():
                 continue
             tree, there = path.stat().st_size, counterpart.stat().st_size
-            if there > tree:
-                items.append({
-                    "key": "live-longer",
-                    "where": f"{tree_profile.name}/{rel}",
-                    "detail": f"the tree has {tree} b, the live profile has {there} b — the seed is a "
-                              f"prefix of the rulebook, so `make sync-agent-profile` would replace "
-                              f"{there} bytes with {tree} and no gate would notice (issue #791)",
-                })
-                continue
-            # Size is the signal an operator reads first, and it is the one that misses the dangerous
-            # shape: a tree copy that is LARGER than live while dropping lines live has. Measured on four
-            # lanes, every rewrite was bigger than the file it replaced (4,936/6,346/6,046/5,714 b against
-            # 431/722/4,936/2,811) and each dropped 4-32 live lines — invisible to any size comparison.
+            # CONTENT decides, and size is only context. A live file can be bigger because it repeats a
+            # block (measured: five SOULs carried the canonical fleet block twice after an append), and a
+            # size test calls that a truncated seed when the tree carries every live rule already. The
+            # question that matters is the one `sync` asks: would a copy delete a line the live file has?
             tree_lines = {ln.strip() for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()}
             live_lines = {ln.strip() for ln in counterpart.read_text(encoding="utf-8").splitlines()
                           if ln.strip()}
             missing = live_lines - tree_lines
+            if missing and there > tree:
+                items.append({
+                    "key": "live-longer",
+                    "where": f"{tree_profile.name}/{rel}",
+                    "detail": f"the tree has {tree} b, the live profile has {there} b and carries "
+                              f"{len(missing)} line(s) the tree lacks — the seed is a prefix of the "
+                              f"rulebook, so `make sync-agent-profile` would replace {there} bytes with "
+                              f"{tree} and no gate would notice (issue #791). First: "
+                              f"{sorted(missing)[0][:80]!r}",
+                })
+                continue
             if missing:
                 items.append({
                     "key": "live-lines-missing",
