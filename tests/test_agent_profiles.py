@@ -1090,3 +1090,80 @@ def sync_fixture(tmp_path: Path, live_soul: str | None) -> tuple[Path, Path]:
         (dest / "SOUL.md").write_text(live_soul, encoding="utf-8")
     return tree, dest
 
+
+
+# --- the architect lane states the rules its manifest declares (#873, #791) --------------------------------
+
+
+def test_the_architect_soul_states_the_rules_its_manifest_declares():
+    """The declaration and the statement have to exist together; either one alone is a hole.
+
+    Measured on the base (`ce14dd36`): `agents/manifest.json` lists `llgenie-architect` with `"rules": []` and
+    the SOUL never mentions merging or implementing, so `check-agent-profiles` reports
+    `UNPROTECTED … declares no standing rule` — green, and protecting nothing. Declaring a rule the SOUL does
+    not state is the other failure: it reds with `FAIL standing-rule … no longer states never-implement`. Both
+    halves are asserted here because either one alone reads as fine. Whitespace is normalised: prose wraps.
+    """
+    import json
+
+    soul = " ".join((REPO / "agents" / "llgenie-architect" / "SOUL.md").read_text().lower().split())
+    manifest = json.loads((REPO / "agents" / "manifest.json").read_text())
+    entry = next(p for p in manifest["profiles"] if p["name"] == "llgenie-architect")
+
+    assert entry["rules"] == ["never-implement", "never-merge"], entry["rules"]
+    assert "you do not implement" in soul, "the architect SOUL no longer states never-implement"
+    assert "never merge" in soul, "the architect SOUL no longer states never-merge"
+    assert "auto=none" in soul, \
+        "the lane's no-auto-merge instruction must sit beside the fleet rule it overrides"
+
+
+def test_the_declaration_is_what_protects_the_rule(tmp_path):
+    """Three states of the same contract: undeclared is silent, declared-and-deleted reds, stated is clean.
+
+    The silent direction is the point: a profile that declares nothing cannot fail on a rule it never declared,
+    which is why the declaration is load-bearing rather than decoration.
+    """
+    import json
+
+    import check_agent_profiles as cap
+
+    def tree(name: str, rules, state_it: bool):
+        agents = tmp_path / name
+        prof = agents / "lane"
+        prof.mkdir(parents=True)
+        (prof / "SOUL.md").write_text(
+            "# Lane\n\n## Rules\n\n" + ("- **You never merge.**\n" if state_it else "- **You review.**\n"))
+        (agents / "manifest.json").write_text(
+            json.dumps({"profiles": [{"name": "lane", "rules": rules}]}))
+        return agents
+
+    def standing(name, rules, state_it):
+        return [i for i in cap.findings(tmp_path / f"root-{name}", tree(name, rules, state_it))
+                if i["key"] == "standing-rule"]
+
+    assert standing("undeclared", [], False) == [], "an empty rules array cannot fail on an undeclared rule"
+    assert standing("declared", ["never-merge"], False), "declaring the rule must make its absence a finding"
+    assert standing("kept", ["never-merge"], True) == [], "a stated rule must pass"
+
+
+def test_the_soul_states_the_current_arming_directive_and_labels_the_older_one_superseded():
+    """The owner changed the rule on 2026-10-29; the block must say which sentence is live.
+
+    Measured risk: the older instruction ("no squash/auto-merge/push to main") and the newer directive ("set the
+    PRs to automerge when the work is done") contradict each other, and a block that merely keeps both leaves a
+    reader to guess. Deleting the old quote to make the new rule pass is the other failure — rules 13/14 are
+    explicit that a standing rule is stated, and that a removed rule leaves no record of the change. So: the
+    current directive is stated, and the older quote survives **labelled superseded with its date**.
+    """
+    soul = " ".join((REPO / "agents" / "llgenie-architect" / "SOUL.md").read_text().lower().split())
+
+    assert "arm the pr when the work is done" in soul, "the SOUL does not state the current arming directive"
+    assert "done" in soul and "armed" in soul, "the SOUL does not say that done means armed"
+    for keep in ["never squashes by hand", "never pushes to `main`", "stops at the reviewable pr"]:
+        assert keep in soul, f"the directive's permanent half is missing: {keep}"
+    assert "superseded 2026-10-29" in soul, "the older instruction is not labelled superseded with its date"
+    assert "never merge prs (no squash/auto-merge/push to main)" in soul, \
+        "the older quote was deleted to let the new rule pass — keep it, labelled"
+    # The live sentence must not still be the retired one.
+    assert "this lane does not arm auto-merge" not in soul, \
+        "the SOUL still states the superseded no-arming rule as live"
