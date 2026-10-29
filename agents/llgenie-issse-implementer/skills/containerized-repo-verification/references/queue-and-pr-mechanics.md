@@ -292,6 +292,12 @@ Measured on `#919`: `check-pr-authors` failed on 11 branch commits, but **none o
 `Andy <andy.holst@protonmail.com>` (the owner's actual git config authors "Andy"), plus one with a typo'd
 domain `andy.holtd@protonmail.com`.
 
+Re-measured at head `63aa93c1` the count is 14 — the same two classes plus a third: commits landed as
+`Andy <andy.holst@protonmail.com>` (the owner's git config authors "Andy"), one with a typo'd domain
+`andy.holtd@protonmail.com`, and two squashes of the stacked PRs #972/#978 carrying `Co-authored-by:
+LLGenie Architect <architect@llgenie.local>` (a local fake domain). All 14 are the scanner's own commit
+range — the static producer half stays clean.
+
 Two separate facts, two different responses:
 
 - **A typo is yours to fix only if the commit is yours**, and re-authoring a mid-history commit rewrites
