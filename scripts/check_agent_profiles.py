@@ -218,6 +218,26 @@ def _skill_findings(skill_dir: Path, root: Path) -> list[dict]:
     return items
 
 
+def live_root_info() -> tuple[Path | None, str]:
+    """(the profiles directory or None, where that path came from) — the two env vars mean DIFFERENT things.
+
+    `agent_profile_sync.py` takes `HERMES_PROFILE_HOME` — **one profile's** home, e.g.
+    `~/.hermes/profiles/llgenie-planner`. This gate needs the **parent** of that, the directory holding
+    every profile. Accepting the singular name without that distinction would send the gate looking for
+    `<a profile>/<lane>/SOUL.md`, find nothing, and report a green with the comparison skipped — the exact
+    failure the audible skip exists to prevent, reintroduced through a variable name.
+    """
+    plural = os.environ.get("HERMES_PROFILES_HOME")
+    singular = os.environ.get("HERMES_PROFILE_HOME")
+    if plural:
+        base, source = Path(plural).expanduser(), "$HERMES_PROFILES_HOME"
+    elif singular:
+        base, source = Path(singular).expanduser().parent, "$HERMES_PROFILE_HOME (its parent directory)"
+    else:
+        base, source = Path.home() / ".hermes" / "profiles", "~/.hermes/profiles"
+    return (base if base.is_dir() else None), source
+
+
 def live_root(root: Path = REPO_ROOT) -> Path | None:
     """Where the host profiles live, or None when this checkout is not on a machine that has them.
 
@@ -225,8 +245,7 @@ def live_root(root: Path = REPO_ROOT) -> Path | None:
     the live rulebooks. A tree-only checkout skips it rather than failing, which keeps the gate honest
     about what it can see instead of pretending the comparison happened.
     """
-    base = Path(os.environ.get("HERMES_PROFILES_HOME") or (Path.home() / ".hermes" / "profiles"))
-    return base if base.is_dir() else None
+    return live_root_info()[0]
 
 
 def shrink_findings(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR,
@@ -388,16 +407,17 @@ def main(argv: list[str] | None = None) -> int:
     # concludes it compared. That distinction — "compared and fine" vs "could not compare" — is the same
     # one that `verified` vs `verified: N identical` failed to make, and it is how a truncated seed
     # reached a green gate in the first place.
-    if live_root(root) is None:
-        print("[check-agent-profiles] live-profile comparison SKIPPED: no profile home at "
-              f"$HERMES_PROFILE_HOME ({Path.home() / '.hermes' / 'profiles'}) — tree checks only, and the "
-              "live rulebooks were NOT compared", file=sys.stderr)
+    live_base, live_source = live_root_info()
+    if live_base is None:
+        print("[check-agent-profiles] live-profile comparison SKIPPED: no profiles directory at "
+              f"{live_source} — tree checks only, and the live rulebooks were NOT compared", file=sys.stderr)
     items = findings(root, agents_dir)
     if not items:
         profiles, _ = read_manifest((root / agents_dir) if not agents_dir.is_absolute() else agents_dir)
+        caveat = (" — tree checks only, LIVE RULEBOOKS NOT COMPARED" if live_base is None else "")
         print(f"[check-agent-profiles] OK: {len(profiles)} host-agent profile(s), each with a "
               "SOUL.md stating the rules its manifest declares; every skill's frontmatter name "
-              "matches its directory and carries no secret value")
+              f"matches its directory and carries no secret value{caveat}")
         return 0
     for item in items:
         print(f"[check-agent-profiles] FAIL {item['key']}: {item['where']}: {item['detail']}")
