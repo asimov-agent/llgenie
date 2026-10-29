@@ -442,6 +442,50 @@ def test_a_tree_copy_LARGER_than_live_while_dropping_live_lines_is_a_finding(tmp
     assert "live-only" in items[0]["detail"]
 
 
+def test_a_tree_that_only_DUPLICATES_live_lines_is_not_refused(tmp_path, capsys):
+    """A subset that loses nothing is harmless: the sync deletes no rule, so refusing it teaches --force.
+
+    Found while putting the canonical fleet block into every SOUL: the tree became 16,694 b against live
+    10,824 b, every tree line already existed live (the block had been appended twice), and `shrinks()`
+    refused while reporting "the tree file is SMALLER" and "would delete 0 line(s)". A guard that fires when
+    no rule is lost is a guard people route around.
+    """
+    import agent_profile_sync as sync
+
+    agents = tmp_path / "agents"
+    (agents / "someone").mkdir(parents=True)
+    live = tmp_path / "live"
+    live.mkdir()
+    rule = "- one long operating rule that matters\n"
+    (live / "SOUL.md").write_text(rule)
+    (agents / "someone" / "SOUL.md").write_text(rule * 3)      # larger, but adds nothing live lacks
+
+    assert sync.write(agents, "someone", live) == 0
+    assert "REFUSED" not in capsys.readouterr().out
+
+
+def test_the_refusal_does_not_call_a_larger_tree_SMALLER(tmp_path, capsys):
+    """The message has to name the case it is, because "SMALLER" over a larger file is the reader's trap."""
+    import agent_profile_sync as sync
+
+    agents = tmp_path / "agents"
+    (agents / "someone").mkdir(parents=True)
+    live = tmp_path / "live"
+    live.mkdir()
+    # every tree line exists in live (so it IS a subset) but the tree is larger, because it repeats one;
+    # and it drops two live rules — the case where "SMALLER" was the wrong description
+    kept = "- kept rule " + "x" * 200 + "\n"
+    (live / "SOUL.md").write_text(kept + "- dropped one\n- dropped two\n")
+    (agents / "someone" / "SOUL.md").write_text(kept * 3)
+
+    rc = sync.write(agents, "someone", live)
+    captured = capsys.readouterr()          # one call: a second readouterr() returns empty
+    text = captured.out + captured.err
+    assert rc != 0
+    assert "SMALLER" not in text, text
+    assert "drops live ones" in text, text
+
+
 def test_the_two_directions_are_exclusive_so_a_finding_names_the_damage(tmp_path):
     """One file, one finding: `live-longer` (a sync would shrink live) or `live-lines-missing` (a sync would
     delete live-only rules) — never both, because the detail a reader acts on is whichever damage applies.
