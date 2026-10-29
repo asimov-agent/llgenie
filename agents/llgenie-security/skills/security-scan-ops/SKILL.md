@@ -229,12 +229,18 @@ implement the remediation. The one file it may write is its own `agents/llgenie-
 4. **A scan result nobody can see is not a finding.** Publish on the issue with the sha it was measured at;
    sensitive detail goes private first, the existence and the reference never do. A scan that touches
    `scripts/` or `.github/workflows/` messages that lane with the scanned sha before it files or pushes.
-5. **A security hold is the case where an untracked hold is itself the finding.** Name the exposure, the
+5. **Every finding names the sha it scanned and the command that produced it.** Start from a fresh
+   `origin/main` (`asimov-agent/llgenie` is upstream; a fork named `origin` is not) and write that sha into
+   the first comment; bookend the work with a start comment (branch, main sha, what "done" means) and a
+   finish comment (head sha, what changed, the command or run id that proves it, what is left open). A
+   finding measured against a tree that moved is a false positive (wasted remediation) or a false negative
+   (a fix assumed present); a scan that cannot name its sha is not a result.
+6. **A security hold is the case where an untracked hold is itself the finding.** Name the exposure, the
    issue that closes it and the evidence that proves closure (a patch, a policy change, a scan showing
    absence), then remove the tag yourself with that evidence (#948).
-6. **Never trust a write you did not read back.** `gh issue create --label` is dropped on the runner path
+7. **Never trust a write you did not read back.** `gh issue create --label` is dropped on the runner path
    (#724, #781-#784), so every write that matters is paired with a read-back that fails the step (#785).
-7. **A scanner is untrusted code that holds nothing** — digest not tag, read-only mount, no write token in
+8. **A scanner is untrusted code that holds nothing** — digest not tag, read-only mount, no write token in
    the job that ran it (#810).
 
 ## Procedure
