@@ -1475,6 +1475,27 @@ def test_the_doc_soul_stated_block_matches_the_gate_canonical():
     )
 
 
+def test_the_pr_head_is_the_remote_branch_lesson_is_in_the_skill():
+    """The halt-dispute lesson, pinned: a PR's head is the REMOTE branch, never a local worktree.
+
+    During the fleet stop, a lane claimed "#919 advanced under the freeze" citing three shas
+    (e9c7e7f3, 7e4a8519, 5e74cb68). All three resolved to LOCAL scratch branches (tmp/retake-myskill,
+    tmp/lint-fix, pr944-replay) — never pushed — while the remote #919 head was frozen throughout. The
+    authoritative read is the remote branch, twice-verified; a disputed sha's membership is an ancestry
+    check against origin/<branch>. This pin holds that lesson so a future "your branch moved" claim is
+    settled against the remote, not a local read.
+    """
+    ref = " ".join((REPO / "agents" / "llgenie-issse-implementer" / "skills"
+                    / "containerized-repo-verification" / "references"
+                    / "queue-and-pr-mechanics.md").read_text().lower().split())
+    for phrase in ["a pr's head is the remote branch, not a local worktree or scratch ref",
+                   "settled against the remote",
+                   "resolved to local scratch branches",
+                   "the authoritative read is the remote branch, twice-verified",
+                   "git merge-base --is-ancestor <sha> origin/<branch>"]:
+        assert phrase in ref, f"the remote-branch-head lesson is missing: {phrase}"
+
+
 def test_one_vehicle_for_a_gate_follow_on_lesson_is_in_the_skill():
     """The two-vehicle one-line landing rule, pinned so the #824 collision shape cannot recur.
 
