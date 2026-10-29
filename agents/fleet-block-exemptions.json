@@ -1,40 +1,4 @@
 {
-  "note": "Profiles whose SOUL does not yet state the canonical fleet block from agents/standing-rules.md (issue #873). An entry is legitimate only while it describes a REAL gap: once the profile states the block, `make check-agent-profiles` reports the entry STALE and it must be deleted. Each entry names the lane that owns the file, because only a lane may edit its own SOUL - and a gap with no owner is a gap nobody closes.",
-  "exemptions": [
-    {
-      "profile": "llgenie-architect",
-      "reason": "states no rule-13 (hold-without-remedy) or rule-14 (announce-the-work) bullet; the llgenie-architect lane owns its SOUL and copies the block from agents/standing-rules.md",
-      "owner": "llgenie-architect"
-    },
-    {
-      "profile": "llgenie-documentation-maintainer",
-      "reason": "states no rule-13 (hold-without-remedy) or rule-14 (announce-the-work) bullet; the llgenie-documentation-maintainer lane owns its SOUL and copies the block from agents/standing-rules.md",
-      "owner": "llgenie-documentation-maintainer"
-    },
-    {
-      "profile": "llgenie-planner",
-      "reason": "states no rule-13 (hold-without-remedy) or rule-14 (announce-the-work) bullet; the llgenie-planner lane owns its SOUL and copies the block from agents/standing-rules.md",
-      "owner": "llgenie-planner"
-    },
-    {
-      "profile": "llgenie-pr-reviever",
-      "reason": "states no rule-13 (hold-without-remedy) or rule-14 (announce-the-work) bullet; the llgenie-pr-reviever lane owns its SOUL and copies the block from agents/standing-rules.md",
-      "owner": "llgenie-pr-reviever"
-    },
-    {
-      "profile": "llgenie-issse-implementer",
-      "reason": "states no rule-13 (hold-without-remedy) or rule-14 (announce-the-work) bullet; the llgenie-issse-implementer lane owns its SOUL and copies the block from agents/standing-rules.md",
-      "owner": "llgenie-issse-implementer"
-    },
-    {
-      "profile": "llgenie-ci-pipelines-maintainer",
-      "reason": "states no rule-13 (hold-without-remedy) or rule-14 (announce-the-work) bullet; the llgenie-ci-pipelines-maintainer lane owns its SOUL and copies the block from agents/standing-rules.md",
-      "owner": "llgenie-ci-pipelines-maintainer"
-    },
-    {
-      "profile": "llgenie-tester",
-      "reason": "does not state the current canonical block; its lane owns the file and copies agents/standing-rules.md",
-      "owner": "llgenie-tester"
-    }
-  ]
+  "note": "Profiles whose SOUL does not yet state the canonical fleet block from agents/standing-rules.md (issue #873). An entry is legitimate only while it describes a REAL gap: once the profile states the block, `make check-agent-profiles` reports the entry STALE and it must be deleted. Each entry names the lane that owns the file, because only a lane may edit its own SOUL \u2014 and a gap with no owner is a gap nobody closes. The list is EMPTY because every profile now states the canonical block verbatim (#873, #948).",
+  "exemptions": []
 }
