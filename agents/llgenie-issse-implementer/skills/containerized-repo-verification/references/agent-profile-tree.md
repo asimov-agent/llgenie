@@ -142,10 +142,25 @@ step below was a defect the first time it was skipped:
 8. **One canonical bullet, one place — a duplicate is a second source of truth that drifts first.** Measured
    on #972: the SOUL "had 16 bullets" yet paraphrased rule 13, because the block sat beside a stray copy of
    the same title in the lane-rules section. The second copy goes stale while the block stays canonical, so
-   *count occurrences, not a bullet total*: assert the canonical block verbatim AND each canonical rule
-   title appears exactly once in the SOUL. A lane-specific line that merely mentions a rule is fine; a full
+   *count occurrences, not a bullet total*. A lane-specific line that merely mentions a rule is fine; a full
    restatement of a canonical bullet is a drift waiting to happen. The deletion itself may be a protected
    write (item 7) — pin the occurrence count as a red test first, so no editor ships another duplicate.
+   - **Mirror the bolded-rule form, never the raw text and never the bullet count.** The viper is the
+     delimiter: counting the whole-file text over-claims a *prose* mention as a duplicate (a bold rule
+     inside a sentence is a restatement, a bare text reference is not); counting only `- **` bullet lines
+     under-claims a bold paragraph outside a fence that restates the rule (implementer's rules 13/14 sat in
+     bold paragraphs, not bullets). The title inside emphasis, punctuation-trimmed on both ends
+     (`**Title**` / `**Title.**`) counts real statements and excludes prose. Pin the exact row count, not
+     just the lanes named — a wrong discriminator shifts the count even while the named lanes are right.
+   - **`check` output is where a reviewer sees it; a silent green is the amnesty.** A gate that computes this
+     debt but prints it only in `report` leaves CI and reviewers hearing nothing on a green tree. Print one
+     informational note per duplicate to **stderr while EXIT stays 0** — the deletion is a protected write the
+     owner routes (item 7), so a hard failure is a red no editor can clear, and silence teaches the next
+     editor to ship another copy. Now it is visible and unblocking.
+   - **A negative control must actually remove the code.** A plant whose `replace()` string does not match the
+     file leaves the feature intact, and the test stays green for the wrong reason — an invalid control that
+     looks like a pass. Confirm the mutation landed (grep for a sentinel, or assert the replacement returned)
+     before trusting the red.
 9. **A lane-offered re-take must pass the gate's own comparison BEFORE you take it.** When another lane says
    "I deduplicated the live file, take it into the tree", run `_stated_block(live) == fleet_block()` first —
    a file whose bullet-counts are right but whose TEXT paraphrases the fence (the "one full stop" drift) can
