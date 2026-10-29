@@ -291,6 +291,8 @@ make check-engine-params             # CI: fail if the committed params are stal
 make check-engine-coverage           # CI: fail if a shipped servable engine has no buildable CI cell (disabled / no linux / no params) and no recorded exception
 make engine-coverage-report          # the census: every shipped engine -> built | not-an-image | unbuilt (with its #103 reason)
 make check-engine-source             # CI: fail if a cell says prebuilt=false but its install steps only download a wheel/archive
+make check-model-links              # CI: every committed model/GGUF link a test depends on resolves (static, hermetic; LIVE=1 probes the real Hub via tests/hub_probe, the ONE liveness authority, issue #1000)
+make model-links-report              # print those links and their callers (issue #1000)
 make engine-source-report            # the census: source-built vs prebuilt cells, and every tracked exception
 make build-engine ENGINE=llama.cpp-prism                 # image for THIS machine's backend (cuda here)
 make build-engine ENGINE=llama.cpp-prism ARCH=rocm       # one image per backend: cpu | cuda | rocm | vulkan
