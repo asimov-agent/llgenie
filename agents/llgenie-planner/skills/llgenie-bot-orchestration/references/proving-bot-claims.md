@@ -68,3 +68,22 @@ gh api repos/<owner>/<repo>/pulls/<n>/reviews --jq '.[]|"\(.submitted_at) \(.use
 An `APPROVED` review submitted by the same identity that then merges, seconds later, is an automated merge gate doing
 what it was configured to do — not the owner's approval. Report it as an incident with both timestamps, and never
 describe it to the owner as "you approved this".
+
+## 5. Read the artefact before characterising the lane
+
+A lane's DM is a summary; the PR thread is the record. Never conclude "that lane reports nothing" or "the verdict only
+lives in chat" from the message you received — open the PR and count the comments:
+
+```bash
+gh pr view <n> --repo <owner>/<repo> --json comments --jq '.comments[] | "\(.createdAt) \(.author.login) \(.body|length)"'
+```
+
+A wrong characterisation costs the lane a defensive reply and costs you the trust needed for the next correction. Say
+"I inferred that from the summary instead of reading the thread", in public, once.
+
+## 6. Your own dispatch quotes a stale sha
+
+The sha in a dispatch is stale by the time the lane reads it — the board moves in minutes. Write "fetch and branch from
+the sha you get **now**, and name it in your start comment" rather than "branch from `<sha>`", and when you re-check
+someone's head, re-check it in the same turn you quote it: `git ls-remote <remote> <branch>` decides the branch tip, and
+a cached sha is history, not state.
