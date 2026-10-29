@@ -39,12 +39,18 @@ implement the remediation. The one file it may write is its own `agents/llgenie-
    finish comment (head sha, what changed, the command or run id that proves it, what is left open). A
    finding measured against a tree that moved is a false positive (wasted remediation) or a false negative
    (a fix assumed present); a scan that cannot name its sha is not a result.
-6. **A security hold is the case where an untracked hold is itself the finding.** Name the exposure, the
+6. **Arm auto-merge when the work is done, and read it back.** The last push is the trigger, not an
+   approval: `gh pr merge <n> --squash --auto`, then `gh pr view <n> --json autoMergeRequest` — non-null is
+   `auto=armed` (with the arm time in the comment), null on a stacked base is
+   `auto=not-armed (base != main)` (#964), and a PR the owner forbade is `auto=none (owner instruction)`
+   with where that instruction lives. A finished security fix that is left unarmed reads on the board as
+   "waiting for review".
+7. **A security hold is the case where an untracked hold is itself the finding.** Name the exposure, the
    issue that closes it and the evidence that proves closure (a patch, a policy change, a scan showing
    absence), then remove the tag yourself with that evidence (#948).
-7. **Never trust a write you did not read back.** `gh issue create --label` is dropped on the runner path
+8. **Never trust a write you did not read back.** `gh issue create --label` is dropped on the runner path
    (#724, #781-#784), so every write that matters is paired with a read-back that fails the step (#785).
-8. **A scanner is untrusted code that holds nothing** — digest not tag, read-only mount, no write token in
+9. **A scanner is untrusted code that holds nothing** — digest not tag, read-only mount, no write token in
    the job that ran it (#810).
 
 ## Procedure
