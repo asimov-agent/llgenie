@@ -2,9 +2,10 @@ name: llgenie-hf-network — the daily real-Hub test pipeline (HF real-call test
 
 # Issue #1000: the owner moved the real-call HF tests to their OWN pipeline — "the hf network tests
 # must be part of another ci pipeline … they can't be part of ci unit anymore". Every test marked
-# @pytest.mark.network is owned by THIS pipeline (ci-unit deselects it with `-m "not network"`; the
-# network workflow runs exactly `-m "network"`). Nothing here is a PR or a push check: a live-Hub
-# flake or a rotating GGUF link must never red a pull request.
+# @pytest.mark.network is owned by THIS pipeline (ci-unit deselects them with `-m "not network"`; the
+# network workflow runs the tester's seam, `make test-unit-network`, which runs exactly the
+# network-marked set through the same discovery as unit — issue #393). Nothing here is a PR or a
+# push check: a live-Hub flake or a rotating GGUF link must never red a pull request.
 #
 # The committed-link liveness gate (scripts/check_model_links_liveness.py, issue #1000) runs FIRST,
 # with LIVE=1, over exactly the committed model/GGUF links the tests depend on, via
@@ -12,25 +13,23 @@ name: llgenie-hf-network — the daily real-Hub test pipeline (HF real-call test
 # the job, not a raw 404 and not a silent green. That gate is what makes this pipeline safe to run
 # on a SCHEDULE rather than on every push — a dead link surfaces as a named failure on the next
 # scheduled run, never as a silent rot.
-# Flow: guard (owner / repository bot / collaborator with write, BEFORE any run) -> make
-#       check-model-links LIVE=1 (liveness gate over the pipeline's links) -> python -m pytest
-#       -m "network" (the ownership set of the real-Hub tests). Order is the contract: a dead link
-#       fails the gate before any test runs, so the red name is the URL, not a test's 404.
+# Flow: guard (owner / repository bot / collaborator with write, BEFORE any run) -> make test-env
+#       (pull llgenie/test) -> make check-model-links LIVE=1 LIMIT=25 (liveness gate over the
+#       pipeline's links) -> make test-unit-network (the @pytest.mark.network ownership set via the
+#       tester's seam, scripts/unit_tests.py run --marker network, issue #393/1000); the job then
+#       runs make test-clean. Order is the contract: a dead link fails the gate before any test runs,
+#       so the red name is the URL, not a test's 404.
 # Trigger surface: schedule daily 06:15 UTC (its own odd minute — no bot shares a slot, issue #275)
 #                  and workflow_dispatch (owner / repository bot / collaborator with write), and
 #                  NOTHING else — no pull_request and no push trigger (issue #1000).
 # Never: never merges, never pushes to `main`, never runs in ci-unit, never gates a pull request or
 #        a push, and never hand-edits a fixture (issue #987: fixtures regenerate via generators).
+# dispatch: no inputs — the pipeline runs exactly the @pytest.mark.network ownership set, gated first
+#           by the bounded liveness check; there is nothing to choose at dispatch time (issue #1000).
 on:
   schedule:
     - cron: "15 6 * * *"    # daily 06:15 UTC — its own odd minute (issue #275: no bot shares a slot)
   workflow_dispatch:
-    inputs:
-      scope:
-        description: "Which HF network tests to run: all, or one marked file"
-        type: choice
-        options: [all, trend]
-        default: all
 
 permissions:
   contents: read
@@ -79,26 +78,22 @@ jobs:
   hf-network:
     needs: [guard]
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     permissions:
       contents: read
-    env:
-      HOME: /home/runner
-      RUNTIME: docker
+      packages: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          fetch-depth: 0
-
+          fetch-depth: 0   # the seam's discovery needs the parent commit (unit-suite.json, issue #393)
+      - uses: ./.github/actions/docker
+        if: runner.os == 'Linux'
+      - name: make test-env (Python 3.11 - Linux pulls llgenie/test from GHCR)
+        run: make test-env
       - name: Liveness gate — every committed model/GGUF link a test depends on must resolve (issue #1000)
         run: make check-model-links LIVE=1 LIMIT=25
-
-      - name: Run the real-Hub network tests (the @pytest.mark.network ownership set, issue #1000)
-        run: |
-          set -euo pipefail
-          scope="${{ inputs.scope }}"
-          if [ "$scope" = "trend" ]; then
-            python3 -m pytest tests/test_trend_pick.py -m "network" -q -p no:cacheprovider
-          else
-            python3 -m pytest -m "network" -q -p no:cacheprovider
-          fi
+      - name: make test-unit-network (the @pytest.mark.network ownership set, via the seam, issue #1000)
+        run: make test-unit-network
+      - name: Prune orphaned test containers
+        if: always()
+        run: make test-clean
