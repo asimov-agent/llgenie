@@ -66,7 +66,8 @@ def test_the_seam_derives_the_bot_half_of_the_allowlist():
 
     # Then  it is one of the two allowlisted pairs, read from ALLOWED rather than restated
     assert name == "Asimov Agent"
-    assert cpa.ALLOWED[name] == email == "support@docondee.com"
+    assert email == "support@docondee.com"
+    assert email in cpa.ALLOWED_EMAILS and name in cpa.ALLOWED_NAMES
 
 
 def test_the_seam_names_both_allowed_identities_in_its_evidence():
@@ -75,8 +76,8 @@ def test_the_seam_names_both_allowed_identities_in_its_evidence():
     note = gi.allowed_note()
 
     # Then  both pairs are named, so a red says what IS allowed
-    for name, email in cpa.ALLOWED.items():
-        assert f"{name} <{email}>" in note
+    assert "Andy Holst <andy.holst@protonmail.com>" in note
+    assert "Asimov Agent <support@docondee.com>" in note
 
 
 def test_apply_writes_the_allowlisted_identity_into_the_repository(tmp_path: Path):

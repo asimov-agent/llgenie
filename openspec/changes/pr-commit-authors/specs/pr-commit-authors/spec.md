@@ -4,33 +4,47 @@
 
 ### Requirement: A PR's commits are authored by an allowed identity
 
-`make check-pr-authors` SHALL fail when a non-merge commit in the PR's range is authored by a name
-that is not exactly `Andy Holst` or `Asimov Agent`, or by a name whose email is not the one that
-belongs to it. The range SHALL be the commits the PR ADDS (`git rev-list --no-merges <base>..<head>`),
-so a commit already reachable from the base branch SHALL NOT be reported and a merge commit SHALL NOT
-be reported. The finding SHALL name the commit, its author and the identity to set.
+`make check-pr-authors` SHALL fail when a non-merge commit in the PR's range is authored by an email
+that is not an allowed address, or by an allowed email carrying a display name that is not one of its
+listed aliases. The EMAIL is the stable key (issue #971): GitHub's squash writes the profile display name,
+not what the committer set, so an exact-name match rejects a permitted owner; an allowed alias at an
+email that is NOT that alias's allowed address is still a violation. The range SHALL be the commits the
+PR ADDS (`git rev-list --no-merges <base>..<head>`), so a commit already reachable from the base branch
+SHALL NOT be reported and a merge commit SHALL NOT be reported. The finding SHALL name the commit, its
+author, its email and the identity to set.
 
-#### Scenario: a commit authored `andyholst`
+#### Scenario: an allowed email under one of its aliases
 
-- **GIVEN** a real git repository whose `main` is the base and a branch that adds one commit authored
+- **GIVEN** a real git repository whose `main` is the base and a branch that adds a commit authored
   `andyholst <andy.holst@protonmail.com>`
 - **WHEN** `check_pr_authors.py check --base main --head HEAD` runs
-- **THEN** it SHALL exit non-zero and name the offending commit's author as `andyholst`
-- **Test:** `tests/test_pr_authors.py::test_a_commit_authored_andyholst_is_a_violation`
+- **THEN** it SHALL exit zero, because `andy.holst@protonmail.com` is an allowed email and `andyholst`
+  is one of its listed aliases — the email is the key, not the spelling
+- **Test:** `tests/test_pr_authors.py::test_an_allowed_alias_name_is_accepted`
 
-#### Scenario: a commit authored `Andy`
+#### Scenario: the allowed names `Andy` / `Mr. Asimov` under an allowed email
 
-- **GIVEN** a branch whose commit is authored `Andy <andy.holst@protonmail.com>`
+- **GIVEN** branches whose commits are authored `Andy <andy.holst@protonmail.com>` and
+  `Mr. Asimov <support@docondee.com>`
+- **WHEN** the guard reads them
+- **THEN** it SHALL report no violation, because each email is allowed and each name is a listed alias
+  of that email
+- **Test:** `tests/test_pr_authors.py::test_an_allowed_alias_name_is_accepted`
+
+#### Scenario: an allowed alias at a foreign email
+
+- **GIVEN** a branch whose commit is authored `Mr. Asimov <someone@else.example>`
 - **WHEN** the guard reads it
-- **THEN** it SHALL report the author `Andy` as outside the allowlist
-- **Test:** `tests/test_pr_authors.py::test_a_commit_authored_andy_is_a_violation`
+- **THEN** it SHALL report the commit — an alias list is names, never emails, so sharing a display name
+  across identities does not make them interchangeable
+- **Test:** `tests/test_pr_authors.py::test_an_alias_name_with_a_foreign_email_is_a_violation`
 
-#### Scenario: a commit authored `Mr. Asimov`
+#### Scenario: an unknown email fails and names the email
 
-- **GIVEN** a branch whose commit is authored `Mr. Asimov <support@docondee.com>`
+- **GIVEN** a branch whose commit is authored `Andy Holst <not.an.allowed@example.net>`
 - **WHEN** the guard reads it
-- **THEN** it SHALL report the author as outside the allowlist
-- **Test:** `tests/test_pr_authors.py::test_a_commit_authored_mr_asimov_is_a_violation`
+- **THEN** it SHALL report the commit and its evidence SHALL name the rejected email
+- **Test:** `tests/test_pr_authors.py::test_an_unknown_email_fails_and_names_the_email`
 
 #### Scenario: the allowed identities
 
@@ -57,7 +71,7 @@ commit whose author is allowed and whose co-author is not is reported once and u
 #### Scenario: an allowed author with an off-list co-author
 
 - **GIVEN** a commit authored `Andy Holst <andy.holst@protonmail.com>` whose message carries
-  `Co-authored-by: Mr. Asimov <support@docondee.com>`
+  `Co-authored-by: Hermes Agent <agent@asimov.local>`
 - **WHEN** the guard reads it
 - **THEN** it SHALL report the co-author under its own key and SHALL NOT report the author
 - **Test:** `tests/test_pr_authors.py::test_an_off_list_co_author_is_its_own_finding`
@@ -78,7 +92,7 @@ create — the merge commit GitHub writes on `main` is authored `GitHub <noreply
 
 #### Scenario: an off-list commit on the base branch
 
-- **GIVEN** a base branch that carries a commit authored `Mr. Asimov <support@docondee.com>`, and a
+- **GIVEN** a base branch that carries a commit authored `Hermes Agent <agent@asimov.local>`, and a
   head branch that adds one allowed commit on top of it
 - **WHEN** the guard reads the head's range against the base
 - **THEN** it SHALL report no violation, because the off-list commit is on the base, not in the range

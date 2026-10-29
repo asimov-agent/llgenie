@@ -98,48 +98,70 @@ def test_the_allowed_identities_pass(tmp_path: Path):
     assert items == []
 
 
-def test_a_commit_authored_andyholst_is_a_violation(tmp_path: Path):
-    # Given a real repo whose branch adds a commit authored `andyholst`
+def test_an_allowed_alias_name_is_accepted(tmp_path: Path):
+    """The email is the stable key; each allowed spelling of it passes (issue #971).
+
+    GitHub's squash writes the profile display name, not the identity the committer set, so exact-name
+    matching rejected a permitted person (`Andy`, `andyholst`, `Mr. Asimov` all carry an allowed email).
+    Each of these is the same person under an alias — allowed.
+    """
+    for i, alias in enumerate(("Andy", "andyholst", "Mr. Asimov")):
+        case = tmp_path / f"case-{i}"
+        case.mkdir()
+        repo = _repo(case)
+        _branch(repo, f"feat/alias-{i}")
+        email = "support@docondee.com" if alias == "Mr. Asimov" else "andy.holst@protonmail.com"
+        _commit(repo, alias, email, f"feat(x): authored {alias}")
+
+        items = cpa.check_commits(cpa.commits_in_range("main", "HEAD", repo))
+
+        assert items == [], f"alias `{alias} <{email}>` should be allowed, got {_authors(items)}"
+
+
+def test_an_alias_name_with_a_foreign_email_is_a_violation(tmp_path: Path):
+    """The alias list is NAMES only: an alias carried by the WRONG email still fails (issue #971).
+
+    `Mr. Asimov` is an allowed display name under `support@docondee.com`, but a commit authored
+    `Mr. Asimov <someone@else.example>` is a violation — the email is not the one that alias may carry.
+    This is what keeps `fd31640d` (`Andy Holst <andy.holtd@protonmail.com>`, a typo'd domain) a finding.
+    """
     repo = _repo(tmp_path)
-    _branch(repo, "feat/andyholst")
-    _commit(repo, "andyholst", "andy.holst@protonmail.com", "feat(x): authored andyholst")
+    _branch(repo, "feat/alias-wrong-email")
+    _commit(repo, "Mr. Asimov", "someone@else.example", "feat(x): an alias at a foreign address")
 
-    # When  the guard reads the real commit range
-    commits = cpa.commits_in_range("main", "HEAD", repo)
-    items = cpa.check_commits(commits)
-
-    # Then  it reports the author, and names it
-    assert len(items) == 1
-    assert _authors(items) == ["andyholst"]
-    assert "allowlist" in items[0]["evidence"]
-
-
-def test_a_commit_authored_andy_is_a_violation(tmp_path: Path):
-    # Given a real repo whose branch adds a commit authored `Andy`
-    repo = _repo(tmp_path)
-    _branch(repo, "feat/andy")
-    _commit(repo, "Andy", "andy.holst@protonmail.com", "feat(x): authored Andy")
-
-    # When  the guard reads the real commit range
     items = cpa.check_commits(cpa.commits_in_range("main", "HEAD", repo))
 
-    # Then  `Andy` is outside the allowlist
-    assert len(items) == 1
-    assert _authors(items) == ["Andy"]
-
-
-def test_a_commit_authored_mr_asimov_is_a_violation(tmp_path: Path):
-    # Given a real repo whose branch adds a commit authored `Mr. Asimov`
-    repo = _repo(tmp_path)
-    _branch(repo, "feat/mr-asimov")
-    _commit(repo, "Mr. Asimov", "support@docondee.com", "feat(x): authored Mr. Asimov")
-
-    # When  the guard reads the real commit range
-    items = cpa.check_commits(cpa.commits_in_range("main", "HEAD", repo))
-
-    # Then  `Mr. Asimov` is outside the allowlist
     assert len(items) == 1
     assert _authors(items) == ["Mr. Asimov"]
+    assert "someone@else.example" in items[0]["evidence"]
+
+
+def test_an_unknown_email_fails_and_names_the_email(tmp_path: Path):
+    """The gate is the EMAIL: a permitted name at an address not in ALLOWED is a violation (issue #971).
+
+    This is the stable-key direction — the evidence names the email so the reader sees which address
+    was rejected, not just the display name.
+    """
+    repo = _repo(tmp_path)
+    _branch(repo, "feat/unknown-email")
+    _commit(repo, "Andy Holst", "not.an.allowed@example.net", "feat(x): allowed name, unknown email")
+
+    items = cpa.check_commits(cpa.commits_in_range("main", "HEAD", repo))
+
+    assert len(items) == 1
+    assert "not.an.allowed@example.net" in items[0]["evidence"]
+    assert "permitted addresses" in items[0]["evidence"]
+
+
+def test_the_name_cannot_be_the_key_is_stated_in_the_docstring():
+    """The reason the allowlist keys on EMAIL, not name, is written next to ALLOWED (issue #971).
+
+    The acceptance says a docstring line must say why the name cannot be the key; a future editor who
+    reverts to name-keying deletes that line, which reds this test.
+    """
+    import inspect
+    src = inspect.getsource(cpa)
+    assert "The name cannot be the key" in src, "the email-keyed rationale must sit beside ALLOWED"
 
 
 def test_a_commit_authored_github_actions_bot_is_a_violation(tmp_path: Path):
@@ -176,7 +198,8 @@ def test_every_off_list_identity_is_reported_in_a_long_range(tmp_path: Path):
     repo = _repo(tmp_path)
     _branch(repo, "feat/mixed")
     _commit(repo, *ANDY, "feat(x): allowed one")
-    _commit(repo, "Andy", "andy.holst@protonmail.com", "feat(x): off-list one")
+    _commit(repo, "github-actions[bot]", "41898282+github-actions[bot]@users.noreply.github.com",
+            "feat(x): off-list one")
     _commit(repo, "llgenie fix-bot", "fix-bot@users.noreply.github.com", "feat(x): off-list two")
     _commit(repo, "Hermes Agent", "agent@asimov.local", "feat(x): off-list three")
     _commit(repo, *ASIMOV, "feat(x): allowed two")
@@ -186,7 +209,8 @@ def test_every_off_list_identity_is_reported_in_a_long_range(tmp_path: Path):
 
     # Then  exactly the three off-list authors are reported, each once
     assert len(items) == 3
-    assert sorted(_authors(items)) == sorted(["Andy", "llgenie fix-bot", "Hermes Agent"])
+    assert sorted(_authors(items)) == sorted(
+        ["github-actions[bot]", "llgenie fix-bot", "Hermes Agent"])
 
 
 # ---------------------------------------------------------------------------
@@ -197,7 +221,7 @@ def test_an_off_list_co_author_is_its_own_finding(tmp_path: Path):
     repo = _repo(tmp_path)
     _branch(repo, "feat/coauthor")
     message = ("feat(x): an allowed author with an off-list co-author\n\n"
-               "Co-authored-by: Mr. Asimov <support@docondee.com>")
+               "Co-authored-by: Hermes Agent <agent@asimov.local>")
     _commit(repo, *ANDY, message)
 
     # When  the guard reads the real commit range
@@ -206,7 +230,7 @@ def test_an_off_list_co_author_is_its_own_finding(tmp_path: Path):
     # Then  the co-author is reported under its own key and the author is NOT
     assert len(items) == 1
     assert "co-author/" in items[0]["key"]
-    assert "Mr. Asimov" in items[0]["evidence"]
+    assert "Hermes Agent" in items[0]["evidence"]
 
 
 def test_an_allowed_co_author_is_accepted(tmp_path: Path):
@@ -489,7 +513,8 @@ def test_report_lists_every_commit_and_its_verdict(tmp_path: Path):
     repo = _repo(tmp_path)
     _branch(repo, "feat/mixed-report")
     _commit(repo, *ANDY, "feat(x): allowed")
-    _commit(repo, "Andy", "andy.holst@protonmail.com", "feat(x): off-list")
+    _commit(repo, "github-actions[bot]", "41898282+github-actions[bot]@users.noreply.github.com",
+            "feat(x): off-list")
 
     # When  the report runs
     text = cpa.report("main", "HEAD", repo)

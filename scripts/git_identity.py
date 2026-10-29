@@ -58,12 +58,13 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 try:  # imported as a module (`scripts.git_identity`), which is how the tests read it
-    from scripts.check_pr_authors import ALLOWED
+    from scripts.check_pr_authors import ALLOWED, ALLOWED_EMAILS, _expected
 except ModuleNotFoundError:  # run as a script: `scripts/` is sys.path[0]
-    from check_pr_authors import ALLOWED
+    from check_pr_authors import ALLOWED, ALLOWED_EMAILS, _expected
 
-#: The half of the allowlist the automation commits as. The NAME is the allowlist key, so the email is
-#: read from `ALLOWED` and can never drift from the policy it is checked against.
+#: The half of the allowlist the automation commits as. The EMAIL is the allowlist key, so the email is
+#: read from `ALLOWED` and can never drift from the policy it is checked against; the name is the
+#: canonical alias of that email (which is what `ALLOWED[email][0]` holds).
 BOT_NAME = "Asimov Agent"
 #: `git var GIT_AUTHOR_IDENT` prints `<name> <<email>> <timestamp> <tz>`.
 IDENT = re.compile(r"^(?P<name>.*?) <(?P<email>[^>]*)>")
@@ -71,13 +72,20 @@ IDENT = re.compile(r"^(?P<name>.*?) <(?P<email>[^>]*)>")
 
 def identity() -> tuple[str, str]:
     """The `(name, email)` every leg commits as — the bot half of `ALLOWED`, and nothing else."""
-    return BOT_NAME, ALLOWED[BOT_NAME]
+    return BOT_NAME, _bot_email()
+
+
+def _bot_email() -> str:
+    """The email the bot identity owns — the ALLOWED key whose canonical alias is BOT_NAME."""
+    for email, aliases in ALLOWED.items():
+        if aliases[0] == BOT_NAME or BOT_NAME in aliases:
+            return email
+    raise RuntimeError(f"BOT_NAME {BOT_NAME!r} is not an alias of any ALLOWED email")
 
 
 def allowed_note() -> str:
     """One sentence naming the allowlist, for a finding's evidence."""
-    return ("A PR's commits may be authored by "
-            + " or ".join(f"{n} <{e}>" for n, e in ALLOWED.items()) + " and by no one else")
+    return ("A PR's commits may be authored by " + _expected() + " and by no one else")
 
 
 def _git(args: list[str], cwd: Path) -> tuple[int, str]:
@@ -136,7 +144,8 @@ def resolve(cwd: Path = REPO_ROOT) -> dict:
 def check(cwd: Path = REPO_ROOT) -> list[dict]:
     """Findings when the identity git would commit as is not one of the two allowed pairs."""
     got = resolve(cwd)
-    if ALLOWED.get(got["name"]) == got["email"]:
+    aliases = ALLOWED.get(got["email"])
+    if aliases is not None and got["name"] in aliases:
         return []
     name, email = identity()
     return [{
@@ -179,7 +188,7 @@ def report(cwd: Path = REPO_ROOT) -> str:
         f"[git-identity] {verdict}  {got['name']} <{got['email']}>",
         f"[git-identity]   name  source: {got['name_source']}",
         f"[git-identity]   email source: {got['email_source']}",
-        f"[git-identity] allowed: {', '.join(f'{n} <{e}>' for n, e in ALLOWED.items())}",
+        f"[git-identity] allowed: {_expected()}",
     ]
     return "\n".join(lines)
 

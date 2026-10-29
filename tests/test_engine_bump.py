@@ -801,7 +801,7 @@ def test_bump_pr_uses_owner_pat():
     assert "make git-identity-apply" in text
     import scripts.check_pr_authors as cpa
     import scripts.git_identity as gi
-    assert cpa.ALLOWED.get(gi.identity()[0]) == gi.identity()[1]
+    assert gi.identity() == ("Asimov Agent", "support@docondee.com")
 
 
 def test_sync_pr_uses_owner_pat():
@@ -822,7 +822,7 @@ def test_sync_pr_uses_owner_pat():
     assert "make git-identity-apply" in text
     import scripts.check_pr_authors as cpa
     import scripts.git_identity as gi
-    assert cpa.ALLOWED.get(gi.identity()[0]) == gi.identity()[1]
+    assert gi.identity() == ("Asimov Agent", "support@docondee.com")
 
 
 def test_guard_keeps_default_token():
