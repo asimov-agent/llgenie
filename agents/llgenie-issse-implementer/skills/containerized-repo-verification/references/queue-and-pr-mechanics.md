@@ -522,3 +522,16 @@ Recover from the mistake before pushing: the dropped commit still exists (`git c
 `git reset --hard <sha>` puts the branch back, then re-run with the correct upstream. Verify the child is a
 descendant of the new parent tip before force-pushing: `git merge-base --is-ancestor origin/<parent> HEAD`
 must be true.
+
+## Two vehicles for one gate fix land the same line on ONE, never both (the #824 collision shape)
+
+When two open PRs fix the same gate (`#993` fix/840-email-author-gate vs `#977` fix/971-author-alias, both
+email-keyed author allowlists), a follow-on line each is owed (here: `"architect@llgenie.local":
+frozenset({"LLGenie Architect"}),` because `Co-authored-by: LLGenie Architect <architect@llgenie.local>`
+trailers in `73cbe680`/`5999f9ad` are in neither ALIASES set) has a merging-order hazard: it must land on
+the vehicle that WINS the consolidation, never on both — landing it on both is how `#824` became a
+three-branch collision. Before pushing the line, confirm which vehicle survives (`gh pr view <n> --json
+state,mergedAt` for both), and if the winner is unresolved, hold the line as a comment on each candidate
+with the evidence, not a push to either. Measure the gate's own `ALIASES`/`ALLOWED` symbol before claiming
+a co-author is covered — `grep -n "architect" scripts/check_pr_authors.py` (measured: neither ALIASES set
+contained `architect@llgenie.local`, so an email-keyed gate still rejected both commits).
