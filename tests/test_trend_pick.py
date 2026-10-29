@@ -445,6 +445,7 @@ def test_the_vendored_contract_is_upstreams_and_the_store_satisfies_it():
     sr.check_contract(json.loads(VENDORED.read_bytes()), json.loads(upstream_schema))
 
 
+@pytest.mark.network
 def test_live_upstream_registry_is_the_live_readme_list():
     """Live GitHub: upstream data/models.json is exactly the README "Most loved" list."""
     data = sr.validate(sr.fetch(sr.UPSTREAM))
@@ -763,6 +764,7 @@ def test_select_with_engine_overrides_the_top_engine(tmp_path):
     assert row["model"]["name"] in r.stdout
 
 
+@pytest.mark.network
 def test_every_model_in_the_list_downloads_the_first_bytes_of_its_planned_file(tmp_path, monkeypatch):
     """The download path is the same for every row, and it is real: for each model in
     the 16 GB list llgenie fetches the first bytes of the exact file plan_download
@@ -787,6 +789,7 @@ def test_every_model_in_the_list_downloads_the_first_bytes_of_its_planned_file(t
             assert out.read_bytes()[:4] == b"GGUF", row["model"]["name"]
 
 
+@pytest.mark.network
 def test_select_downloads_a_missing_model_for_real(tmp_path):
     """Real download, no --dry, no terminal: on a 2 GB cpu card the list is Gemma 4 E2B
     (LiteRT, too big for 1 GB) and DeepSeek R1 1.5B; --select picks DeepSeek, which is
@@ -806,6 +809,7 @@ def test_select_downloads_a_missing_model_for_real(tmp_path):
     assert "would download" not in r2.stdout and str(f) in r2.stdout, r2.stdout
 
 
+@pytest.mark.network
 def test_download_mlx_repo_snapshot_for_real(tmp_path):
     """Real download of a whole safetensors repo (the MLX/safetensors path), tiny repo."""
     m = {"id": "tiny-st", "name": "tiny-random-LlamaForCausalLM",
