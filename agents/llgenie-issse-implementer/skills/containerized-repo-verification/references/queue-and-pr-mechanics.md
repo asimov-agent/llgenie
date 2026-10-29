@@ -285,6 +285,28 @@ Two corollaries: `DIRTY`/`CONFLICTING` on an old head is a statement about that 
 change; and the fix for a fork head is a re-cut — but only after `state,MERGED` proves there is something
 left to re-cut.
 
+## The author allowlist bans a display name `main` itself carries — measure, then escalate, never rewrite
+
+Measured on `#919`: `check-pr-authors` failed on 11 branch commits, but **none of them was mine** — I author
+`Andy Holst <andy.holst@protonmail.com>`, which the gate accepts. The failures were commits landed as
+`Andy <andy.holst@protonmail.com>` (the owner's actual git config authors "Andy"), plus one with a typo'd
+domain `andy.holtd@protonmail.com`.
+
+Two separate facts, two different responses:
+
+- **A typo is yours to fix only if the commit is yours**, and re-authoring a mid-history commit rewrites
+  every sha after it, which strands every stacked PR (base = your branch) — a *conversation first*, and a
+  rewrite of a branch another lane is working on is not unilateral (rule 14).
+- **The allowlist accepts `Andy Holst` / `Asimov Agent`, yet 33 of the last 40 commits on `main` are authored
+  `Andy <andy.holst@protonmail.com>` — same email, different name.** A gate that bans the identity the
+  branch's own history uses can never pass a branch that pulls `main` in, and re-authoring does not stop the
+  next occurrence. The stable key is the email; the display name is not. That is a policy change in the
+  gate's own allowlist, not a branch fix.
+
+So: verify which failures are yours (`scripts/check_pr_authors.py report --base <main> --head HEAD`),
+expect your own to be `OK`, and escalate the rest with the two measurements — a typo fix that needs a
+rewrite, and an allowlist that contradicts `main`'s own authors.
+
 ## A PR's blockers are three commands, not a rule of thumb
 
 "Fork head therefore unapprovable" and "`cross=true` therefore can't be armed" are **inferences**, and
