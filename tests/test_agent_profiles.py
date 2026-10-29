@@ -1373,23 +1373,27 @@ def test_the_report_names_duplicate_canonical_rules_and_the_gate_does_not_fail_o
     while `findings()` (the pass/fail path) must NOT fail on them — removal is a protected SOUL write
     the owner routes, so it is visible debt, not a silent amnesty nor a red the lane cannot clear.
 
-    This asserts a SUBSET, never a count: the report must name the lanes that still carry a duplicate
-    (documentation, ci-pipelines, planner, pr-reviever, tester), must NOT name a lane this vehicle has
-    deduped (implementer — its r13/r14 live only in the fleet block now), and the gate must stay green.
-    An exact row count is a moving snapshot — this lane's own dedupe just changed it 11 → 9 legitimately
-    — and "a snapshot is not a certificate" (#54's lesson).
+    Follow-up #1006/#1007 deleted the outside-fence duplicates: the doc lane's SOUL was taken in from its
+    in-lane write (#1007) so documentation is now clean, and #1008 dedups the other lanes. The durable
+    invariant: a lane must NOT be re-flagged when it is clean, the planner's content-bearing `never-push`
+    paragraph (its own SOUL, its call to remove) may remain, and implementer stays clean. An exact row
+    count would be a moving snapshot — "a snapshot is not a certificate" (#54's lesson).
     """
     report_text = guard.report(REPO)
     names = sorted(l.split(":")[0].strip() for l in report_text.splitlines()
                    if "stated more than once" in l)
     assert names, "report must name at least one duplicate canonical rule"
-    assert any("documentation-maintainer" in n for n in names), \
-        f"the known duplicate lane must be named: {names}"
 
-    # durable invariants, not a snapshot count:
-    still_debt = {"llgenie-documentation-maintainer", "llgenie-ci-pipelines-maintainer",
-                  "llgenie-planner", "llgenie-pr-reviever", "llgenie-tester"}
+    # a deduped lane must NOT be named; if any is, the dedupe regressed
+    deduped = {"llgenie-documentation-maintainer", "llgenie-issse-implementer"}
+    assert not (deduped & set(names)), f"a deduped lane was re-flagged as a duplicate: {names}"
+
+    # the remaining duplicates are the other lanes still owed (until #1008 lands) + the planner's
+    # content-bearing paragraph (its own SOUL)
+    still_debt = {"llgenie-ci-pipelines-maintainer", "llgenie-planner",
+                  "llgenie-pr-reviever", "llgenie-tester"}
     assert still_debt <= set(names), f"every still-debt lane must be named: {names}"
+
     assert all("issse-implementer" not in n for n in names), \
         "implementer's duplicate rule was deduped into the fleet block — it must not be re-flagged"
 
