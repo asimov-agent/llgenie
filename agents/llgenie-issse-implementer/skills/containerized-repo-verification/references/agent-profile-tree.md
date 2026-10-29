@@ -146,6 +146,15 @@ step below was a defect the first time it was skipped:
    title appears exactly once in the SOUL. A lane-specific line that merely mentions a rule is fine; a full
    restatement of a canonical bullet is a drift waiting to happen. The deletion itself may be a protected
    write (item 7) — pin the occurrence count as a red test first, so no editor ships another duplicate.
+9. **A lane-offered re-take must pass the gate's own comparison BEFORE you take it.** When another lane says
+   "I deduplicated the live file, take it into the tree", run `_stated_block(live) == fleet_block()` first —
+   a file whose bullet-counts are right but whose TEXT paraphrases the fence (the "one full stop" drift) can
+   claim `block in soul == True` while failing the byte comparison, and taking it replaces a gate-green tree
+   with a gate-red one (measured: a 13,394 b doc-SOUL re-take offered as verbatim redd `fleet-block-drift` on
+   the first of four paraphrased rules). Refuse the take, show the unified diff (N removed-from-canonical, N
+   added), and tell the lane to copy `agents/standing-rules.md`'s block byte-for-byte rather than re-type it —
+   then re-run the comparison and take it only when it holds. A refusal that keeps the tree green is a result;
+   a take that turns the gate red is not.
 
 **It lands on the branch that carries `agents/`, which may not be `main`.** Check first:
 `git ls-tree -r --name-only origin/main agents/ | wc -l`. If that is `0`, a branch cut from `main` cannot
