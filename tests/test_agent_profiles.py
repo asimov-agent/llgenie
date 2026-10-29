@@ -113,11 +113,13 @@ def test_manifest_lists_every_host_profile():
     names = [profile["name"] for profile in profiles]
 
     # When  it is read as the sync target reads it
-    # Then  every host profile is listed, and the orchestrator keeps both standing rules
-    assert names == [
+    # Then every profile the tree is expected to carry is listed, and the orchestrator keeps both rules.
+    # SUBSET, not equality: an exact list is a snapshot of the membership and reds on the next legitimate
+    # addition (issue #873's rule 12) - and this lane's own profile joins next.
+    assert {
         "llgenie-planner", "llgenie-issse-implementer", "llgenie-architect", "llgenie-security",
         "llgenie-documentation-maintainer", "llgenie-ci-pipelines-maintainer", "llgenie-pr-reviever",
-    ]
+    } <= set(names), names
     planner = next(p for p in profiles if p["name"] == "llgenie-planner")
     assert set(planner["rules"]) == {"never-implement", "never-merge"}
 
@@ -721,4 +723,155 @@ def test_the_source_time_is_the_COMMIT_not_the_file_mtime(tmp_path):
     os.utime(path, (4_000_000_000, 4_000_000_000))              # an mtime far in the future
     assert sync.source_time(agents, "someone", path) == committed
     assert committed < 4_000_000_000, "the mtime leaked into the source time"
+
+
+def test_every_manifest_profile_names_a_directory_that_exists():
+    """The other half of "never assert an exact list": the entries must resolve (#873).
+
+    A subset assertion keeps the list extensible, but on its own it lets a TYPO through - a manifest
+    entry naming a profile that has no `agents/<name>/SOUL.md` would be gated by nothing and synced
+    nowhere. The rule is the member exists; the referent is that it is real.
+    """
+    profiles = guard.profiles_from_manifest(REPO / "agents")
+
+    missing = [profile["name"] for profile in profiles
+               if not (REPO / "agents" / profile["name"] / "SOUL.md").is_file()]
+
+    assert not missing, (
+        "these manifest entries name no agents/<name>/SOUL.md, so nothing gates them and the sync "
+        f"target has nothing to copy (#873): {missing}")
+
+
+# ---------------------------------------------------------------------------------------------------
+# issue #873: the canonical fleet block lives ONCE, and every profile's SOUL must state it verbatim.
+# The gate compares, names the profile and the first missing bullet, and refuses to pass by not looking.
+FLEET_HEAD = "## Standing rules (fleet, learned 2026-10-28)"
+BLOCK = FLEET_HEAD + "\n\n- **Never merge without the owner's approval.** A merge needs a human.\n" \
+                    "- **Never prune a worktree.** Measure, report, never delete.\n"
+
+
+def fleet_tree(tmp_path: Path, stated: str | None = BLOCK, canonical: str = BLOCK) -> Path:
+    """A tree whose single copy and one profile's SOUL can disagree independently."""
+    root = fixture_tree(tmp_path)
+    (root / "agents" / "standing-rules.md").write_text("# Standing rules (fleet)\n\n" + canonical,
+                                                       encoding="utf-8")
+    write_soul(root / "agents", "llgenie-planner",
+               SOUL_ORCHESTRATOR + ("\n" + stated if stated else ""))
+    return root
+
+
+def test_a_soul_that_states_the_canonical_block_verbatim_passes(tmp_path):
+    root = fleet_tree(tmp_path)
+    assert guard.findings(root) == []
+
+
+def test_a_soul_missing_a_canonical_bullet_fails_and_names_it(tmp_path):
+    """The gap must be actionable: which profile, and which bullet."""
+    root = fleet_tree(tmp_path, stated=FLEET_HEAD + "\n\n- **Never merge without the owner's approval.** "
+                                                  "A merge needs a human.\n")
+    items = guard.findings(root)
+    keys = [i["key"] for i in items]
+    assert "fleet-block-drift" in keys, items
+    detail = next(i["detail"] for i in items if i["key"] == "fleet-block-drift")
+    assert "llgenie-planner" in detail, detail
+    assert "Never prune a worktree" in detail, detail      # the first missing bullet, quoted
+
+
+def test_deleting_the_single_copy_does_not_let_the_drift_pass(tmp_path):
+    """A tree where a SOUL claims the heading but the canonical file is gone must fail, not skip."""
+    root = fleet_tree(tmp_path)
+    (root / "agents" / "standing-rules.md").unlink()
+    keys = [i["key"] for i in guard.findings(root)]
+    assert "fleet-block-source" in keys, keys
+
+
+def test_an_exemption_holds_the_drift_open_but_goes_stale_once_the_profile_is_fixed(tmp_path):
+    """An exemption is a named debt, never an amnesty: the moment the gap closes it must be reported."""
+    root = fleet_tree(tmp_path, stated=FLEET_HEAD + "\n\n- **Never merge without the owner's approval.** "
+                                                   "A merge needs a human.\n")
+    exemptions = root / "agents" / "fleet-block-exemptions.json"
+    exemptions.write_text(json.dumps({"exemptions": [
+        {"profile": "llgenie-planner", "reason": "lane owns its own SOUL", "owner": "#834"}]}),
+        encoding="utf-8")
+    assert guard.findings(root) == []                       # exempted: real, owned, not a failure
+
+    write_soul(root / "agents", "llgenie-planner", SOUL_ORCHESTRATOR + "\n" + BLOCK)   # the lane fixes it
+    keys = [i["key"] for i in guard.findings(root)]
+    assert "fleet-exemption-stale" in keys, keys            # … and the list must now be corrected
+
+
+def test_an_exemption_without_a_written_reason_is_a_finding(tmp_path):
+    root = fleet_tree(tmp_path)
+    (root / "agents" / "fleet-block-exemptions.json").write_text(
+        json.dumps({"exemptions": [{"profile": "llgenie-planner", "reason": "   ", "owner": "#834"}]}),
+        encoding="utf-8")
+    keys = [i["key"] for i in guard.findings(root)]
+    assert "fleet-exemptions" in keys, keys
+
+
+def test_an_exemption_without_an_owner_is_a_finding(tmp_path):
+    """A gap with no owner is a gap nobody closes — the reason alone is not enough (#873)."""
+    root = fleet_tree(tmp_path)
+    (root / "agents" / "fleet-block-exemptions.json").write_text(
+        json.dumps({"exemptions": [{"profile": "llgenie-planner", "reason": "the lane will do it"}]}),
+        encoding="utf-8")
+
+    items = guard.findings(root)
+    detail = next(i["detail"] for i in items if i["key"] == "fleet-exemptions")
+    assert "owner" in detail, detail
+
+
+def test_the_gate_still_has_the_fleet_block_leg():
+    """A merge that silently drops the leg would ungate three profiles without failing anything (#873).
+
+    This PR carries the foundation that #877 also carries. If #877 lands *after* it, the base gate reverts
+    to comparing only the rules a manifest declares - no error, no finding, three profiles quietly
+    unchecked. So the leg itself is asserted to exist, which turns a bad merge order into a red test.
+    """
+    assert callable(getattr(guard, "fleet_block", None)), "the canonical-block reader is gone"
+    assert callable(getattr(guard, "_fleet_findings", None)), "the fleet-block leg is gone from findings()"
+
+    # and it is actually reached from findings(), not merely defined
+    source = (REPO / "scripts" / "check_agent_profiles.py").read_text()
+    assert "items.extend(_fleet_findings(" in source, "findings() no longer calls the fleet-block leg"
+
+
+def test_report_lists_an_exempted_debt_so_it_is_never_silent(tmp_path):
+    """`report` is where a reader looks to see what the gate is NOT failing on (#873).
+
+    An exemption keeps the build green on purpose; if it also kept the gap invisible, the fleet block would
+    decay exactly where nobody was looking. So the debt must appear BY NAME, with the reason it is allowed.
+    """
+    root = fleet_tree(tmp_path, stated=FLEET_HEAD + "\n\n- **Never merge without the owner's approval.** "
+                                                   "A merge needs a human.\n")
+    (root / "agents" / "fleet-block-exemptions.json").write_text(json.dumps({"exemptions": [
+        {"profile": "llgenie-planner", "reason": "the lane authors its own block", "owner": "#834"}]}),
+        encoding="utf-8")
+
+    assert guard.findings(root) == []                       # exempted: green on purpose
+    text = guard.report(root)
+    assert "llgenie-planner" in text, text                  # … but named, never silent
+    assert "the lane authors its own block" in text, text
+    assert "fleet block" in text.lower(), text
+
+
+# ---------------------------------------------------------------------------------------------------
+# issue #791, measured on this host: an in-tree planner seed was 20,297 b against a live 100,031 b, and
+# 5,149 b against 7,509 b. A sync would have replaced live behaviour with a fraction of itself, green.
+LIVE_ONLY = "\n## Live-only section\n\n" + ("a rule that exists only live\n" * 40)
+
+
+def sync_fixture(tmp_path: Path, live_soul: str | None) -> tuple[Path, Path]:
+    """A one-profile tree plus a destination holding the live copy (or nothing at all)."""
+    tree = tmp_path / "tree"
+    (tree / "agents" / "llgenie-planner").mkdir(parents=True)
+    (tree / "agents" / "manifest.json").write_text(
+        json.dumps({"profiles": [{"name": "llgenie-planner",
+                                  "rules": ["never-implement", "never-merge"]}]}), encoding="utf-8")
+    (tree / "agents" / "llgenie-planner" / "SOUL.md").write_text(SOUL_ORCHESTRATOR, encoding="utf-8")
+    dest = tmp_path / "live"
+    if live_soul is not None:
+        dest.mkdir(parents=True, exist_ok=True)
+        (dest / "SOUL.md").write_text(live_soul, encoding="utf-8")
+    return tree, dest
 
