@@ -80,3 +80,71 @@ def test_a_live_limit_bounds_the_probe(monkeypatch):
     assert rc == 0
     assert calls["n"] == 3
 
+
+# The HF/trend data-path files this lane routes (issue #1000). Ownership of the real-Hub tests is
+# pinned HERE, deterministically, so the network pipeline's membership set cannot drift: a hermetic
+# test marked `.network` silently loses coverage, and an unmarked real-Hub test escapes the gate.
+DATA_PATH_FILES = (
+    "test_native_engine_real.py",
+    "test_interactive_tensorfold_real.py",
+    "test_top_tier_serve.py",
+    "test_strata_download.py",
+    "test_strata_missing_hf.py",
+    "test_model_engine_pick.py",
+    "test_engine_bump.py",
+    "test_pick_matrix.py",
+    "test_pick_matrix_arch_perms.py",
+    "test_trend_pick.py",
+    "test_install_trend.py",
+)
+
+# The complete real-Hub ownership set across those files, from the routing census (issue #1000):
+# ONLY test_trend_pick genuinely opens the Hub (each of these does real i/o, is named "for real" or
+# "live", and carries no `urlopen` monkeypatch in its body). Everything else is hermetic by
+# construction (0 open primitives) or reaches only a localhost serve / non-Hub, so nothing else may
+# be marked. test_plan_download_per_format_live_hub is deliberately ABSENT: it only plans, no i/o.
+EXPECTED_NETWORK_TESTS = {
+    "test_trend_pick.py": {
+        "test_live_upstream_registry_is_the_live_readme_list",
+        "test_every_model_in_the_list_downloads_the_first_bytes_of_its_planned_file",
+        "test_select_downloads_a_missing_model_for_real",
+        "test_download_mlx_repo_snapshot_for_real",
+    },
+}
+
+
+def test_the_network_membership_of_the_hf_data_path_files_is_exact():
+    """The @pytest.mark.network set over the data-path files matches the routing census exactly.
+
+    This is the "routing decision is pinned by a test" half the owner asked for in #1000: marked ==
+    EXPECTED_NETWORK_TESTS, every file accounted for, and no file in the ownership set is absent. A
+    future edit that marks a hermetic test `.network` (dropping unit coverage) or leaves a new
+    real-Hub test unmarked (escaping the gate) changes this and the test reds with the file + test.
+    """
+
+    actual: dict[str, set[str]] = {f: set() for f in DATA_PATH_FILES}
+    for filename in DATA_PATH_FILES:
+        path = REPO / "tests" / filename
+        lines = path.read_text().splitlines()
+        for i, line in enumerate(lines):
+            if "@pytest.mark.network" in line:
+                # the decorated test is the NEXT `def test_...` line
+                for nxt in lines[i + 1:]:
+                    if nxt.startswith("def test_"):
+                        name = nxt.split("(")[0][len("def "):].strip()
+                        actual[filename].add(name)
+                        break
+                else:
+                    raise AssertionError(f"{filename}:{i+1}: @pytest.mark.network marks nothing")
+
+    # Only the files that carry marks are asserted; every OTHER data-path file must therefore be
+    # mark-free (an added mark there adds a key and reds here), and every expected mark must exist.
+    marked = {k: set(v) for k, v in actual.items() if v}
+    assert marked == EXPECTED_NETWORK_TESTS, (
+        f"network-membership drift:\n  actual-marks: {marked}\n  expected: {EXPECTED_NETWORK_TESTS}"
+    )
+    assert all(v == set() for f, v in actual.items() if f not in EXPECTED_NETWORK_TESTS), (
+        "a data-path file NOT in the ownership set carries a @pytest.mark.network mark"
+    )
+
+
