@@ -134,16 +134,28 @@ notice it; that is the failure the directive removes.
   comment says `auto=none (owner instruction)` and where that instruction lives. Anything else — a draft, a
   missing reviewer, "I will wait a bit" — is the failure, not an excuse, and the report names which of the
   three silent triggers it was.
-- A stacked PR (base != `main`) cannot be armed, so name that too rather than reporting a false arm.
+- A stacked PR (base != `main`) must **never** be armed: auto-merge on a stacked PR does not sit — it
+  MERGES the PR into its non-main base, stranding a merge commit that is an ancestor of neither
+  `main` nor the tree head (measured: #954 auto-merged into `feat/agent-profile-implementer-skill` at
+  08:27:41Z and its commit is in neither). Report `auto=none (stacked, base is not main)`.
 
-## `gh pr merge --auto` exits 0 when it does nothing
+## `gh pr merge --auto` exits 0 when it does nothing — UNLESS the base accepts merges
 
-Arming has three silent-failure triggers, all of which leave `autoMergeRequest=null` while the command
-succeeds: a **draft**, a `do-not-merge` label, and a **base that is not the default branch** (a PR stacked
-on another branch has nothing to merge into). `mergeStateStatus` may read `UNKNOWN` for the same reason.
+Arming has **three silent triggers and one active hazard**. The silent ones leave `autoMergeRequest=null`
+while the command succeeds: a **draft**, a `do-not-merge` label, and a base whose branch protection
+refuses the arm (a stack on a protected/non-main branch). `mergeStateStatus` may read `UNKNOWN`.
+
+The **active hazard** is a stacked PR on an UNPROTECTED non-main branch: `gh pr merge --auto` does not
+no-op there — it MERGES the PR into that branch. #954 hit exactly this: armed onto
+`feat/agent-profile-implementer-skill`, it auto-merged at 08:27:41Z, and the merge commit is an ancestor
+of neither `main` nor the current tree head. `autoMergeRequest` after that is not a lie, it is a merge
+you did not intend. So the read-back (`--json autoMergeRequest`) must be a check on **which base** you
+armed, not just on whether the arm is present.
 
 - **Read the arm state back; never trust the exit code**: `gh pr view <n> --json autoMergeRequest`. Absent
-  → not armed, and say so with the reason (draft / label / non-default base).
+  → not armed, and say so with the reason (draft / label / non-default protected base).
+- **Never arm a PR whose base is not `main`.** A stacked PR's "merge" is a contamination of its base, and
+  once it happens the commit is in neither `main` nor the tree — it is orphaned work you cannot review.
 - **`mergedAt` is not evidence of an arm.** A PR can land by an owner's or a sweep's merge after a failed
   arm, so a post-hoc look at `mergedAt` confirms a merge that your command never enabled.
 
