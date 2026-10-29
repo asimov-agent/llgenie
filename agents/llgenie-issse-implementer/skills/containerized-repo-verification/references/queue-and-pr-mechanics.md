@@ -99,8 +99,14 @@ Resolving a conflict by keeping both sides has two failure modes, and only the f
   that should return a list, and died only when something called it (`TypeError: 'NoneType' object is not
   iterable`). No red at merge time, no red at import time.
 
-So after any hand-resolved union of code: **diff the merged function against both parents** (`git diff <parent> <merge> -- <file>`) and re-run the tests that exercise it — a green gate is not evidence the
-function survived, because the gate may be the thing that was bisected.
+So after any hand-resolved union of code: **diff the merged function against both parents**
+(`git diff <parent> <merge> -- <file>`) and run the tests that exercise it — a green gate is not evidence the
+function survived, because the gate may be the thing that was bisected. Also `grep -c "<def name>"` for each
+side's key symbol, and **prefer the stricter side outright when both implement one check at different
+strengths** (a content test beats a size test; keeping both is two implementations of one rule).
+
+Related: an assertion that pins an exact set (seven names, a count) reds on the next legitimate addition —
+assert a **subset** of the guarantee you need, or the gate gets disabled by the first correct change.
 
 ## A closed PR's number stays readable and looks like a live dependency
 
@@ -124,22 +130,6 @@ on another branch has nothing to merge into). `mergeStateStatus` may read `UNKNO
   → not armed, and say so with the reason (draft / label / non-default base).
 - **`mergedAt` is not evidence of an arm.** A PR can land by an owner's or a sweep's merge after a failed
   arm, so a post-hoc look at `mergedAt` confirms a merge that your command never enabled.
-
-## A union merge must be verified, not trusted
-
-"Keep both sides" is only safe when **both sides are whole statements or whole lines at the same
-indentation**. Six conflicts inside functions (an `add_argument`, a docstring body, a dict literal) produce
-`IndentationError` on the merged file — that parse error is the proof the conflict is not additive, so try
-the mechanical resolution and let the interpreter answer instead of arguing about it.
-
-- **A union can silently halve a function**: one side's `return` lands, the other's body is dropped, the
-  helper now returns `None` and the *gate crashes* — which reads as "the gate is broken" rather than "the
-  merge lost a branch of it".
-- After any union, **grep for each side's key symbol** (`grep -c "<def name>"`) and run the tests at the
-  merged head; and prefer the stricter side outright when the two implement the same check at different
-  strengths (a content test beats a size test; keeping both is two implementations of one rule).
-- An assertion pinning an exact set (seven names, a count) reds on the next legitimate addition — assert a
-  **subset** of the guarantee you need, or the gate gets disabled by the first correct change.
 
 ## A PR's blockers are three commands, not a rule of thumb
 
