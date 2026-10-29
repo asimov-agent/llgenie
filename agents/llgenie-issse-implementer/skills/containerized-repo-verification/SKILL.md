@@ -58,10 +58,9 @@ docker run --rm -u root -v "$PWD":/repo:rw -w /repo -e HOME=/root \
   prerequisite is absent — by design, "missing prerequisite is a hard failure, never a skip". So a hand-made
   batch reports a red that no diff caused. Check the roster for a file before believing its failure, and
   prove it environmental by running the same node on `main` (measured: `test_top_tier_serve.py` fails
-  identically at `798cbee`, 1 failed / 202 passed in the real batch).
-  the loop's output is unreadable rather than merely slow. Narrow with the roster's own selection
-  (`python scripts/unit_tests.py argv`, `-k`, or the target's group/`--deselect` list), never by
-  enumerating files yourself.
+  identically at `798cbee`, 1 failed / 202 passed in the real batch). Narrow a slow sweep with the
+  roster's own selection (`python scripts/unit_tests.py argv`, `-k`, or the target's group/`--deselect`
+  list), never by enumerating files yourself.
 - Mount the tree at the SAME absolute path the Makefile uses (or at `/repo` with `-w /repo`) — some
   fixtures resolve paths from the repo root and break under a remapped path.
 - `-p no:cacheprovider` keeps the run hermetic (no shared cache between host and container runs).
@@ -297,9 +296,22 @@ skills), the sync direction decides what a mistake costs. Copying tree → live 
   the LIVE file is longer catches the next truncated seed before a sync, not after. Skip the comparison
   where the live files do not exist (a CI runner) rather than failing — say in the docstring that the
   invariant holds on the host that holds them, so the silence is a stated limitation, not a blind spot.
+- **Guard the WRITE by age, not only the read by content.** The live copy is a moving reference: its owner
+  edits it while the change is under review, so a sync into a file modified after the source commit is a
+  silent merge in the wrong direction, and no read-time caveat can see a write it already allowed. Refuse
+  unless `--force`, naming both times, both sizes and the lines the overwrite would cost. Take the source
+  time from the **commit** that last touched the tree path (`git log -1 --format=%ct -- <path>`), never
+  the file's mtime — a fresh clone stamps every file with checkout time, which makes the guard pass on
+  exactly the checkout that runs the sync.
 - **Re-read the source at commit time and quote the sizes in the PR body.** A byte count taken from a
   message or an earlier turn is already stale when the live file grows; two `git cat-file -s` / `stat -c
   %s` lines that match are the evidence a reviewer needs.
+- **A line that reports what changed must read a snapshot taken BEFORE the write.** Asking after the copy
+  answers "all of them" on every run — a property the instrument never checked, which is the same defect
+  as a green gate over a truncated seed.
+
+Full recipes (re-seed by allowlist, the larger-but-dropping-lines trap, the audible skip, the age guard
+and its negative controls): `references/agent-profile-tree.md`.
 
 ## Report the tree the number came from
 
