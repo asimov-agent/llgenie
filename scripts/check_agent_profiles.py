@@ -549,6 +549,12 @@ def _duplicate_rule_debts(agents: Path, profiles: list[dict]) -> list[tuple[str,
             title = title.rstrip(".,:;!?")                  # drop trailing punctuation (a full stop drift)
             if title:
                 titles.append(title)
+    # Count occurrences of the title in a BOLDED-RULE form (`**Title**` or `**Title.**`) — a second
+    # statement of the rule, whether as a `- **` bullet or a bolded paragraph in a lane section.
+    # A bare prose mention of the rule is not a statement of it. (Measured: documentation's rule 13 has
+    # two `- **` bullets; implementer's rule 13/14 restate in bold paragraphs outside the fence — both
+    # are real duplicates. A sentence like "there is no `never push` carve-out" is not.)
+    import re as _re
     debts: list[tuple[str, str]] = []
     for profile in profiles:
         soul = agents / profile["name"] / SOUL
@@ -556,7 +562,9 @@ def _duplicate_rule_debts(agents: Path, profiles: list[dict]) -> list[tuple[str,
             continue
         text = soul.read_text(encoding="utf-8")
         for title in titles:
-            if text.count(title) > 1:
+            # the title, optionally with trailing punctuation, inside emphasis: `**Title**` / `**Title.**`
+            pat = _re.compile(r"\*\*" + _re.escape(title) + r"[\u002e\u002c\u003a\u003b\u0021\u003f]?\*\*")
+            if len(pat.findall(text)) > 1:
                 debts.append((profile["name"], title))
     return sorted(debts)
 
