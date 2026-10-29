@@ -295,7 +295,12 @@ domain `andy.holtd@protonmail.com`.
 Re-measured at head `63aa93c1` the count is 14 — the same two classes plus a third: commits landed as
 `Andy <andy.holst@protonmail.com>` (the owner's git config authors "Andy"), one with a typo'd domain
 `andy.holtd@protonmail.com`, and two squashes of the stacked PRs #972/#978 carrying `Co-authored-by:
-LLGenie Architect <architect@llgenie.local>` (a local fake domain). All 14 are the scanner's own commit
+LLGenie Architect <architect@llgenie.local>` (a local fake domain). After a rebase onto a newer main the
+count fell to **11 at `e3b8014c`** — every subsequent rebase re-measures the range, because a squash copy
+already reachable from the new base is no longer this PR's addition (`b6d9cfd8` #981, "patch contents
+already upstream", was dropped and its finding went with it). The two co-author trailers survive every
+rebase and no `--reset-author` clears them. So a stated count is a snapshot of a head, not a constant:
+**re-measure at the CURRENT head before asserting the gate's red size.** All are the scanner's own commit
 range — the static producer half stays clean.
 
 Two separate facts, two different responses:
