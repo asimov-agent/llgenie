@@ -57,7 +57,7 @@ SERVER_ROOT ?= $(HOME)/repository/git
 # link always agree on the binary.
 SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 
-.PHONY: all install venv-install link uninstall smoke list version help test-native-engine test-native-engine-serve test-interactive-tensorfold test-interactive-tensorfold-ci \
+.PHONY: all install venv-install link uninstall smoke list version help test-native-engine test-native-engine-serve test-interactive-tensorfold test-interactive-tensorfold-ci test-unit-network \
 	git-identity-apply check-git-identity git-identity-line git-identity-report \
 	sweep-concurrency-report \
 	openspec-image openspec-new openspec-validate openspec-validate-all openspec-status openspec-shell \
@@ -1363,6 +1363,11 @@ test-clean: ## Remove left-over/stopped orphaned containers of the test image (i
 	  fi; \
 	done; \
 	echo "Pruned stopped orphaned $(TEST_IMG) containers."
+
+# internal CI seam (issue #1000): the `-m network` twin of test-unit, run by the admitted `ci-network` pipeline — every test the hermetic gate excludes by marker runs HERE, never silently skipped; not user-facing and no `##` help line on purpose (engine-matrix-pushed precedent)
+test-unit-network: bash-check
+	$(MAKE) bash-check
+	$(TEST_RUN) python scripts/unit_tests.py run --marker network
 
 test-unit: ## Hermetic unit tests (containerized) — the suite is DISCOVERED, not enumerated: scripts/unit_tests.py selects every tests/test_*.py minus the dated exclusions in tests/fixtures/unit-suite.json (issue #393)
 	$(TEST_RUN) python scripts/unit_tests.py run

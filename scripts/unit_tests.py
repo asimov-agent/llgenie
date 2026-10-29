@@ -125,11 +125,15 @@ def deselected(root: str | Path | None = None) -> list[str]:
 
 
 def argv(root: str | Path | None = None, python: str | None = None,
-         group: str | None = None) -> list[str]:
+        group: str | None = None, marker: str | None = None) -> list[str]:
     """The pytest invocation: the discovered files (or, with `group`, exactly that group's files),
     then one `--deselect` per recorded node id."""
     files = select_group(root, group) if group else select(root)
-    args = [python or sys.executable, "-m", "pytest", *files, "-p", "no:cacheprovider", "-q"]
+    # Marker seam (issue #1000): the hermetic gate runs `-m "not network"` so a
+    # network-marked test can never sneak into ci-unit; the network pipeline runs `-m network`.
+    expr = marker if marker is not None else "not network"
+    args = [python or sys.executable, "-m", "pytest", *files, "-m", expr,
+            "-p", "no:cacheprovider", "-q"]
     for node in deselected(root):
         args += ["--deselect", node]
     return args
@@ -267,7 +271,7 @@ def report(root: str | Path | None = None) -> str:
 
 
 def run(root: str | Path | None = None, python: str | None = None,
-        group: str | None = None) -> int:
+        group: str | None = None, marker: str | None = None) -> int:
     """Check the roster, then exec pytest on the discovered suite (or, with `group`, on exactly
     that group's files). A broken roster is exit 2 BEFORE pytest runs: a gate must not start from
     an exclusion record nobody can trust. An unknown group is exit 2 for the same reason."""
@@ -281,7 +285,7 @@ def run(root: str | Path | None = None, python: str | None = None,
         print(f"[unit-suite] refusing to start pytest: {ROSTER} records no group {group!r}",
               file=sys.stderr)
         return 2
-    args = argv(root, python, group)
+    args = argv(root, python, group, marker)
     print(f"[unit-suite] {_summary(root)}")
     if group:
         print(f"[unit-suite] group {group}: {' '.join(select_group(root, group))}")
@@ -296,6 +300,9 @@ def main(argv_: list[str] | None = None) -> int:
     ap.add_argument("--group", default=None,
                     help="a named group from the roster (e.g. `fast`, issue #403) instead of the "
                          "whole selection")
+    ap.add_argument("--marker", default=None,
+                    help="pytest -m expression for this run (default: `not network`, the unit gate; "
+                         "pass `network` for the ci-network pipeline, issue #1000)")
     a = ap.parse_args(argv_)
     if a.cmd == "list":
         for doc in (select_group(a.root, a.group) if a.group else select(a.root)):
@@ -305,7 +312,7 @@ def main(argv_: list[str] | None = None) -> int:
         print(report(a.root))
         return 0
     if a.cmd == "argv":
-        print(" ".join(argv(a.root, group=a.group)))
+        print(" ".join(argv(a.root, group=a.group, marker=a.marker)))
         return 0
     if a.cmd == "check":
         errors = check(a.root)
@@ -318,7 +325,7 @@ def main(argv_: list[str] | None = None) -> int:
     if a.cmd == "report":
         print(report(a.root))
         return 0
-    return run(a.root, group=a.group)
+    return run(a.root, group=a.group, marker=a.marker)
 
 
 if __name__ == "__main__":
