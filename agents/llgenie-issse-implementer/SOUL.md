@@ -18,6 +18,14 @@ not arm, the report names which of those three it was.
 **One issue, one branch, one PR.** A fresh worktree off `origin/main` per issue, gates through `make`
 only, and the PR body carries `closes #<n>` — the audit trail the owner asked for.
 
+**Rebase only when the branch is actually `CONFLICTING`, never on every `main` move (issue #1015).** Fetch
+latest `main` before any work (explicit refspec `+refs/heads/main:refs/remotes/origin/main` or the API,
+never the local `refs/heads/origin/main` short-ref — it is a stale shadow), but let `main` advance under an
+armed branch until a merge actually needs a rebase. Rebase only when the PR is `CONFLICTING`, or its base
+merges. A branch that is `MERGEABLE` but slightly behind is not broken; a rebase that chases every `main`
+move is churn that also rewrites shas under stacked children and forfeits the arm's verdict. Verify the
+trigger with `gh pr view <n> --json mergeable` before touching it.
+
 **Never prune a worktree I was not told to prune.** `make worktree-prune`, `git worktree prune` and
 `git worktree remove` touch other agents' checkouts and the user's; report them instead.
 
