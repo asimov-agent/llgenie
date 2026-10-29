@@ -8,7 +8,7 @@ on:
   pull_request:
     branches: ["main"]
   push:
-    branches: ["main"]    # merges: build + publish engine images to GHCR
+    branches: ["main"]    # merges: run the PR gate suite (engine build/publish lives in engine-build)
 
 # Hub calls (unit pick, hf download, engine containers) send this. The value is
 # the repo Actions secret HF_TOKEN. Reusable workflows receive it via secrets: inherit.
@@ -20,9 +20,10 @@ env:
 # for a pull_request run is `refs/pull/<n>/merge`, so one PR cancels its own previous run and two
 # different PRs never cancel each other. Without it a second push left the first run's jobs alive —
 # measured 2026-10-15: `feat/bot-pipeline-isolation` had run 38680205632 (sha 345e7eb8) and run
-# 38683422700 (sha 846d4ed8) both live — and a same-repo PR run PUBLISHES to GHCR (`make push-engine`
-# is an unconditional step of every engine-image job), so both were building and pushing the same
-# images while the superseded one sat in the runner queue.
+# 38683422700 (sha 846d4ed8) both live — and a same-repo PR run PUBLISHED engine images to GHCR
+# (`make push-engine` was an unconditional step of the engine-image job), so both were building and
+# pushing the same images while the superseded one sat in the runner queue. Engine publish has since
+# moved to the engine-build producer (#1027), so ci.yml cancels no engine publish from here.
 #
 # `cancel-in-progress` is TRUE for pull_request ONLY: a `push` to main must never cancel a main run
 # that is mid-publish (a cancelled publish leaves the content-hash tag half-pushed and the next run
@@ -63,16 +64,17 @@ concurrency:
 # once per content hash; every other job PULLS them (make test-image-pull /
 # make openspec-image-pull) and never builds them.
 #
-# The engine images are built ONCE (engine-base / engine-image / engine-published-test,
-# Linux: the images are linux containers), then installed from GHCR on Linux only
-# (published.yml: make test-install-published per backend).
+# The engine images are built, verified, published to GHCR and install-tested by the
+# engine-build PRODUCER workflow (build-engine -> test-engine-stage -> push-engine ->
+# test-engine-install), not by ci.yml: this pipeline builds and tests no engine (issue #1027).
 jobs:
   # ------------------------------------------------------------------
   # guard (issue #122): only collaborators, the github-actions[bot], and the repo
   # owner may trigger this workflow. A push to a fork runs the workflow in the FORK
   # (its own GHCR), never upstream; this guard additionally fails the run when the
   # actor is not a collaborator/owner/bot, so a non-collaborator can never drive the
-  # upstream's publish jobs (ci-images / engine-base / engine-image push to GHCR).
+  # upstream's publish jobs (ci-images pushes CI images to GHCR; engine images are published
+  # only by the engine-build producer, which has its own owner/collaborator guard).
   # ------------------------------------------------------------------
   # ------------------------------------------------------------------
   # guard (issue #122, hardened by #295): only the owner, a collaborator with WRITE access, or
