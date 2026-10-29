@@ -15,6 +15,15 @@ Both are refusals, not warnings. `--allow` takes a path prefix that is exempt (t
 deliberate exception recorded with its reason in the same list), so the list is the record of every
 exception rather than a comment somewhere.
 
+The ratchet: `tests/fixtures/import-roots-baseline.json` records the counts, `check` fails when they
+RISE, and a batch that converts files lowers them — so the guard is green on today's tree and still
+refuses tomorrow's new offender. **A baseline is a MEASUREMENT, not a constant.** It was `34 bare /
+14 sys-path` when this branch was cut and `107 / 151` on `main` a day later, because other lanes added
+tests that bootstrap their own path; recorded as-is, the guard would have been red on `main` itself.
+Re-record at what the branch actually produces (`--root <exported tree> report` measures any tree
+without touching it) and the meaning is preserved — it may fall, never rise. A baseline copied from an
+old cut asserts the past, and a guard that asserts the past is a guard people disable.
+
 Usage:
     python3 scripts/check_import_roots.py check      # exit 1 on any finding
     python3 scripts/check_import_roots.py report     # the findings, or the two rules and their counts

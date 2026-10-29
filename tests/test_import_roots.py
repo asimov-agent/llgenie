@@ -102,3 +102,18 @@ def test_a_module_level_insert_is_still_a_finding(tmp_path):
     items = guard.findings(root)
     assert [i["key"] for i in items] == ["sys-path"]
     assert "module-level" in items[0]["detail"]
+
+
+def test_the_guard_says_a_baseline_is_a_measurement_and_not_a_constant():
+    """The lesson from re-cutting this branch belongs in the guard, not in a PR comment.
+
+    The baseline read `34 bare / 14 sys-path` at cut and `107 / 151` on `main` two hours later, because
+    other lanes added tests that bootstrap their own path. Recorded as-is, the guard would have been red on
+    `main` itself — so the docstring has to say that a baseline is re-recorded at what the branch produces,
+    or the next lane copies the number and inherits the contradiction.
+    """
+    doc = " ".join((guard.__doc__ or "").lower().split())
+    for phrase in ["a baseline is a measurement, not a constant",
+                   "re-record at what the branch actually produces",
+                   "it may fall, never rise"]:
+        assert phrase in doc, f"the guard does not document the ratchet's first rule: {phrase}"
