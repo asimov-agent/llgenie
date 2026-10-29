@@ -214,12 +214,15 @@ def write(agents: Path, name: str, dest: Path, force: bool = False) -> int:
         for rel, src, live in moving:
             target = dest / rel
             tree_bytes, live_bytes = (agents / name / rel).stat().st_size, target.stat().st_size
-            lost = len([ln for ln in _rule_lines(target.read_text())
-                        if ln not in set(_rule_lines((agents / name / rel).read_text()))])
+            lost = [ln for ln in _rule_lines(target.read_text())
+                    if ln not in set(_rule_lines((agents / name / rel).read_text()))]
+            # Order the message by what was actually checked: first the mtime fact, then — only when the
+            # content differs — the line count. The tree has no ownership information, so never say whose
+            # work it is; "another lane's work" was a guess the harness had no right to make.
             print(f"[agent-profile] REFUSED {agents.name}/{name}/{rel}: the live file was edited AFTER "
                   f"the tree copy was committed — live {_stamp(live)}, source commit {_stamp(src)} — so a "
-                  f"sync would overwrite {live_bytes:,} b of another lane's work with {tree_bytes:,} b"
-                  + (f", losing {lost} line(s) it does not have" if lost else "")
+                  f"sync would overwrite {live_bytes:,} b with {tree_bytes:,} b"
+                  + (f", and the content differs: {len(lost)} live line(s) the tree lacks" if lost else "")
                   + ". Read the live file and merge deliberately, or pass --force to mean it.",
                   file=sys.stderr)
         return 4
