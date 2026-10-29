@@ -100,21 +100,14 @@ jobs:
   install:
     runs-on: ${{ inputs.runner }}
     continue-on-error: false
-    # 120 minutes, and the wait inside it is bounded well below that (issue #893):
-    # `scripts/install_engine_launchers.py` extends the wait while a producer cell is
-    # still queued, up to PUBLISH_WAIT_QUEUE_MAX_S (75) and reserves the last
-    # PUBLISH_WAIT_RESERVE_S (20) for the pull + install + dry run + uninstall, so
-    # 75 + 20 < 120 and a hung producer can never inherit GitHub's six-hour default.
-    # tests/test_ci_publish_order.py pins that relation against this file.
+    # Product-only (issue #1027): ci-install installs the llgenie tool (venv + launcher) and runs
+    # llgenie --dry + uninstall. The inference-engine install-test lives in the engine-build
+    # producer's `test-engine-install` (on the just-published image), so this row neither waits for
+    # nor pulls nor version-tests any engine image.
     timeout-minutes: 120
     permissions:
       contents: read
       packages: read
-      # Read the producer cells' own job state in this run: a tag that is absent
-      # because `engine-image-<engine>-<variant>` is still QUEUED is capacity, not a
-      # missing image, and the wait must say which (issue #893). Without this the
-      # lookup comes back empty and the wait falls back to its queue-unaware budget.
-      actions: read
     env:
       LLGENIE_REGISTRY: ghcr.io/${{ github.repository_owner }}
     steps:
@@ -123,7 +116,7 @@ jobs:
         run: make ci-free-disk
       - uses: ./.github/actions/docker
         if: runner.os == 'Linux'  # macOS: make install in the 3.11 venv, no Colima
-      - name: make ci-install (waits for the images it pulls, then installs, llgenie --dry, uninstall)
+      - name: make ci-install (product-only llgenie install + dry + uninstall; the engine install-test runs in engine-build)
         run: make ci-install
       - name: Prune orphaned test containers
         if: always()

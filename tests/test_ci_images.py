@@ -463,12 +463,15 @@ def test_every_pipeline_job_runs_one_ci_make_target():
     # macOS never runs those inside a container.
     recipe = mk.split("\nci-install:", 1)[1].split("\n\n", 1)[0]
     assert "$(MAKE) test-env" in recipe
-    assert "$(MAKE) ci-wait-engine-images ARCH=cpu" in recipe.split("$(MAKE) ci-install-run")[0]
-    assert "$(MAKE) ci-install-run" in recipe and "$(MAKE) ci-install-dry" in recipe
+    # product-only (issue #1027): ci-install installs the llgenie tool, never engine images
+    assert "$(MAKE) ci-install-product" in recipe and "$(MAKE) ci-install-dry" in recipe
+    assert "ci-wait-engine-images" not in recipe and "ci-install-run" not in recipe
     assert "$(MAKE) ci-install-uninstall" in recipe and "test-install-ci" not in recipe
-    run = mk.split("\nci-install-run:", 1)[1].split("\n\n", 1)[0]
-    assert "ifeq ($(HOST_OS),Darwin)" in run and "$(MAKE) install" in run
-    assert "$(ENGINE_TEST_RUN)" in run.split("else", 1)[1]
+    # ci-install-product is OS-neutral: pure venv + launcher + smoke, no engine pull, no branch
+    prod = mk.split("\nci-install-product:", 1)[1].split("\n\n", 1)[0]
+    assert "$(MAKE) venv-install" in prod and "$(MAKE) link" in prod and "$(MAKE) smoke" in prod
+    # product-only: it must NOT pull or version-test any inference engine
+    assert "engine-launchers" not in prod and "test-built-engine" not in prod and "ci-wait-engine-images" not in prod
     dry = mk.split("\nci-install-dry:", 1)[1].split("\n\n", 1)[0]
     assert '"$(BIN)/llgenie" --dry' in dry
     assert "$$HOME/bin/llgenie --dry" in dry.split("else", 1)[1]

@@ -112,20 +112,16 @@ def _install_ci_targets() -> list[str]:
     return [t for t in found if t != "ci-free-disk"]
 
 
-def test_install_job_waits_before_it_installs():
-    """ci-install waits for the images it pulls before it runs make install."""
+def test_install_job_does_not_install_engines():
+    """ci-install is PRODUCT-ONLY (issue #1027): it installs the llgenie tool and never waits for
+    or pulls an inference-engine image. The engine install-test lives in engine-build's
+    `test-engine-install`, so ci.yml must not wait for nor install engines."""
 
-    # Given the ci-install recipe the install job runs
     recipe = _recipe("ci-install")
 
-    # When the wait and the install are located in recipe order
-    wait = recipe.find("$(MAKE) ci-wait-engine-images")
-    run = recipe.find("$(MAKE) ci-install-run")
-
-    # Then the gate is in the recipe and strictly before make install
-    assert wait != -1, "ci-install has no make ci-wait-engine-images"
-    assert run != -1, "ci-install has no make ci-install-run"
-    assert wait < run, f"wait at {wait} must precede ci-install-run at {run}"
+    assert "$(MAKE) ci-install-product" in recipe, "ci-install must install the llgenie tool"
+    assert "ci-wait-engine-images" not in recipe, "ci-install must not wait for engine images"
+    assert "ci-install-run" not in recipe, "ci-install must not run the engine-pulling make install"
 
 
 def test_the_install_job_runs_one_make_target():
@@ -149,9 +145,9 @@ def test_the_install_target_keeps_its_darwin_branch_for_host_use():
     # Given ci-install's recipe and the gate target's recipe
     install, gate = _recipe("ci-install"), _recipe("ci-wait-engine-images")
 
-    # Then ci-install is OS-neutral: the same targets on both OSes, no Darwin branch
+    # Then ci-install is OS-neutral AND product-only (no engine wait/pull from ci.yml, #1027)
     assert "Darwin" not in install
-    assert "$(MAKE) ci-wait-engine-images ARCH=cpu" in install
+    assert "ci-wait-engine-images" not in install and "ci-install-product" in install
 
     # And only the gate target branches on the OS, with the registry lookup on Linux
     assert "ifeq ($(HOST_OS),Darwin)" in gate
@@ -405,17 +401,18 @@ def test_the_queue_ceiling_fits_inside_the_install_job_timeout():
         f"does not fit in the install job's {ceiling}s")
 
 
-def test_the_install_job_may_read_the_producer_state():
-    """Without `actions: read` the lookup answers 403 and the two causes collapse again (#893)."""
+def test_the_install_job_does_not_need_to_read_the_producer_state():
+    """PRODUCT-ONLY (issue #1027): the ci.yml install row neither waits for nor reads the engine
+    producer's state, because it installs no engine — the engine install-test lives in engine-build's
+    `test-engine-install`. The old `actions: read`-for-producer-state permission is gone with the wait."""
 
     # Given the install job the reusable pipeline declares
     job = yaml.safe_load(PIPELINE.read_text())["jobs"]["install"]
 
     # When  its permissions are read
-    # Then  it may read this run's jobs, which is where the producer state lives
-    assert job["permissions"].get("actions") == "read", (
-        "the install job cannot read the producer cells' state without `actions: read`, "
-        "so a queued producer is once again reported as a missing tag")
+    # Then  it does NOT read the producer cells' state (no engine wait in ci.yml)
+    assert job["permissions"].get("actions") != "read", (
+        "the product-only install job must not read the producer cells' state (no engine wait in ci.yml)")
 
 
 def test_the_caller_grants_the_action_read_the_callee_needs():

@@ -57,7 +57,7 @@ SERVER_ROOT ?= $(HOME)/repository/git
 # link always agree on the binary.
 SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 
-.PHONY: all install venv-install link uninstall smoke list version help test-native-engine test-native-engine-serve test-interactive-tensorfold test-interactive-tensorfold-ci test-unit-network test-engine-install \
+.PHONY: all install venv-install link uninstall smoke list version help test-native-engine test-native-engine-serve test-interactive-tensorfold test-interactive-tensorfold-ci test-unit-network test-engine-install \ ci-install-product
 	git-identity-apply check-git-identity git-identity-line git-identity-report \
 	sweep-concurrency-report \
 	openspec-image openspec-new openspec-validate openspec-validate-all openspec-status openspec-shell \
@@ -1664,13 +1664,17 @@ else
 	python3 scripts/install_engine_launchers.py --wait-published $(if $(ARCH),--arch $(ARCH),) $(if $(ENGINES),--engines $(ENGINES),)
 endif
 
-ci-install: bash-check ## CI job install: prepare the environment, wait for the images install pulls, then test make install, the installed llgenie dry run, and make uninstall as separate steps. macOS never runs a container.
+ci-install: bash-check ## CI job install (issue #1027): PRODUCT-ONLY — prepare the environment, install the llgenie tool (venv + launcher, no engine pull/test), then the installed llgenie dry run, the CLI arg surface and make uninstall, as separate steps. The inference-engine install-test lives in the engine-build producer's `test-engine-install`. macOS never runs a container.
 	$(MAKE) test-env
-	$(MAKE) ci-wait-engine-images ARCH=cpu
-	$(MAKE) ci-install-run
+	$(MAKE) ci-install-product
 	$(MAKE) ci-install-dry
 	$(MAKE) ci-install-dry-args
 	$(MAKE) ci-install-uninstall
+
+ci-install-product: bash-check # Internal CI seam (issue #1027, product-only like test-engine-install): install the llgenie tool WITHOUT pulling or testing any inference engine — venv + launcher + smoke only. The engine install-test is the engine-build producer's `test-engine-install`.
+	$(MAKE) venv-install
+	$(MAKE) link
+	$(MAKE) smoke
 
 ci-install-run: bash-check ## make install, as-is (Linux: inside the test container; macOS: the 3.11 venv, no container)
 ifeq ($(HOST_OS),Darwin)

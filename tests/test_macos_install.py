@@ -341,10 +341,13 @@ def test_linux_and_macos_run_the_same_pipeline():
     assert "make ci-install" in install and "make install\n" not in install
     assert "test-install-ci" not in install
     ci_install = mk.split("\nci-install:", 1)[1].split("\n\n", 1)[0]
-    assert "$(MAKE) test-env" in ci_install and "$(MAKE) ci-install-run" in ci_install
+    # product-only (issue #1027): ci-install installs the llgenie tool, never engine images
+    assert "$(MAKE) test-env" in ci_install and "$(MAKE) ci-install-product" in ci_install
+    assert "ci-wait-engine-images" not in ci_install and "ci-install-run" not in ci_install
     assert "$(MAKE) ci-install-dry" in ci_install and "test-install-ci" not in ci_install
-    run = mk.split("\nci-install-run:", 1)[1].split("\n\n", 1)[0]
-    assert "ifeq ($(HOST_OS),Darwin)" in run and "$(ENGINE_TEST_RUN)" in run.split("else", 1)[1]
+    prod = mk.split("\nci-install-product:", 1)[1].split("\n\n", 1)[0]
+    assert "$(MAKE) venv-install" in prod and "$(MAKE) link" in prod and "$(MAKE) smoke" in prod
+    assert "engine-launchers" not in prod and "test-built-engine" not in prod
 
     # And the Docker action never RUNS a Docker GitHub Action and never starts Colima
     mac_steps = [st for st in docker["runs"]["steps"] if st.get("if") == "runner.os == 'macOS'"]
@@ -892,7 +895,7 @@ def test_macos_ci_does_not_run_docker_github_actions():
     # And install, health and top-tier are the same targets on both OSes (no second Darwin install)
     for target, same in (
         ("ci-install", "$(MAKE) test-env"),
-        ("ci-install", "$(MAKE) ci-install-run"),
+        ("ci-install", "$(MAKE) ci-install-product"),  # product-only (issue #1027): no engine install in ci.yml
         ("ci-install", "$(MAKE) ci-install-dry"),
         ("ci-install", "$(MAKE) ci-install-uninstall"),
         ("ci-cpu-health", "$(MAKE) test-health"),
