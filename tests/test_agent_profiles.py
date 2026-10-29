@@ -1399,6 +1399,37 @@ def test_the_report_names_duplicate_canonical_rules_and_the_gate_does_not_fail_o
     assert guard.findings(REPO) == []   # duplicates are informational, never a gate failure
 
 
+def test_the_retired_rule_debt_is_reported_and_never_fails_the_gate(tmp_path):
+    """A SOUL still stating the retired arming bullet contradicts rule 16 (#873/#950) — visible, not fatal.
+
+    The retired "Arm auto-merge at PR creation" bullet is neither a canonical title nor (when it appears
+    once) a duplicate, so it sat invisible to `findings()`, `_duplicate_rule_debts`, and the fleet-block leg
+    (which only reads the stated block). Measured: documentation and pr-reviever each carry it once and the
+    gate said nothing. `_retired_rule_debts` is the REPORT debt that makes it visible; like the duplicate
+    debt, removal is a protected SOUL write the owner routes, so it must never turn the gate red.
+    """
+    import check_agent_profiles as cap
+    import shutil
+
+    agents = tmp_path / "agents"
+    shutil.rmtree(agents, ignore_errors=True)
+    agents.mkdir()
+    shutil.copy(REPO / "agents" / cap.FLEET_BLOCK, agents / cap.FLEET_BLOCK)
+    (agents / "manifest.json").write_text(
+        '{"profiles": [{"name": "lane", "rules": ["never-merge"]}]}')
+    prof = agents / "lane"
+    prof.mkdir()
+    soul = ("# Lane\n\n- **Never merge without the owner's approval.**\n\n"
+            "## This lane's rules\n\n- **Arm auto-merge at PR creation.** `gh pr merge <n> --squash --auto`\n")
+    (prof / "SOUL.md").write_text(soul)
+
+    retired = cap._retired_rule_debts(agents, [{"name": "lane"}])
+    assert ("lane", cap.RETIRED_ARM_RULE) in retired, retired
+    # report names it, gate stays green: it is debt with an owner route, not a red the lane cannot clear
+    assert "retired canonical rule still stated" in cap.report(tmp_path, agents)
+    assert "retired" not in {i["key"] for i in cap.findings(tmp_path, agents)}
+
+
 def test_the_check_command_names_duplicate_rules_but_stays_green(capsys):
     """The gate must not keep duplicate-rule debt silent when green (one bullet, one place, #972).
 
