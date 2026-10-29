@@ -68,6 +68,19 @@ def test_the_real_tree_is_wired():
     assert issue_bot_gates.check(REPO) == []
 
 
+def test_check_agent_profiles_is_classified_deferred_with_a_reason():
+    """`check-agent-profiles` reached ci-unit with no FAST/DEFERRED entry was #885's fifth finding, and reds
+    every PR carrying the tree (the branch that added it to ci-unit failed its own gate). It is deferred in
+    the style of its siblings — a static read, not in #475's fixed FAST list. An entry that is deleted or
+    that rots to an empty reason is a regression this pin catches (the empty-reason form is a separate
+    defect the guard names: a `DEFERRED` key with no text passes the real-tree check but is silt).
+    """
+    assert "check-agent-profiles" in issue_bot_gates.DEFERRED
+    reason = issue_bot_gates.DEFERRED["check-agent-profiles"].strip()
+    assert reason, "check-agent-profiles is deferred with no reason — say why it is not re-checked"
+    assert "not in #475's list" in reason or "follow-up" in reason, reason
+
+
 def test_the_issue_bot_runs_the_gate_between_detection_and_push():
     """Position is the whole contract: after the tree is known to have changed, before it is pushed."""
     # Given the real issue-bot workflow
