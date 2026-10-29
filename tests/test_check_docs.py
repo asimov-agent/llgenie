@@ -397,8 +397,7 @@ def test_agents_md_and_readme_state_the_documentation_mandate():
     assert "in the SAME commit" in agents and "make check-docs" in agents
     assert "the PR it implements" in agents
 
-    # And the rule is a dated note indexed by CHANGES.md — not an append to the README
-    assert "`CHANGES.md` — the index" in agents
+    # And the rule is a dated note with its own row — never an append to the README
     assert "Never document a change by appending a" in agents
     assert "a bot never writes `README.md` at all" in agents
 
@@ -409,6 +408,75 @@ def test_agents_md_and_readme_state_the_documentation_mandate():
     # And the README documents the gate the user is expected to run, and links the index
     assert "make check-docs" in readme and "make docs-report" in readme
     assert "](CHANGES.md)" in readme and "](docs/ARCHITECTURE.md)" in readme
+
+
+# ---------------------------------------------------------------------------
+# the change-record rule names the fragment, not a CHANGES.md append (issue #942)
+# ---------------------------------------------------------------------------
+def test_change_record_rule_names_the_fragment_and_names_the_renderer():
+    """Every document that states the rule tells a contributor what a change ADDS. `CHANGES.md` is
+    rendered from `docs/changes.d/<note-stem>.md` (issue #934), so a rule that still asks for a row
+    in `CHANGES.md` publishes the append point the repository removed."""
+
+    # Given every file that states the change-record rule
+    texts = cd.rule_doc_texts(REPO)
+
+    # When each statement is checked for an instruction to append a row to CHANGES.md
+    offenders = {name: found for name, found in
+                 ((n, cd.append_point_violations(t)) for n, t in texts.items()) if found}
+
+    # Then the only paths allowed to still name it are the recorded, issue-numbered exceptions
+    assert set(offenders) <= set(cd.APPEND_POINT_EXCEPTIONS), offenders
+
+    # And the corpus is not all exempt: most statements read clean, and they say what to add instead
+    assert len(texts) - len(offenders) >= 2, sorted(texts)
+    for name in ("docs/ARCHITECTURE.md", "docs/BOTS.md"):
+        assert "docs/changes.d/" in texts[name], name
+        assert "make changes-index" in texts[name], name
+
+
+def test_the_gate_reds_on_a_reintroduced_changes_append_and_greens_on_the_fragment(tmp_path):
+    """Falsifiable in both directions: a document that tells a contributor to put its row in
+    `CHANGES.md` fails the gate, the same document rewritten to the fragment shape passes, and the
+    gate names the file and the replacement rather than just the word `CHANGES.md`."""
+
+    # Given a checkout whose rule page asks for a row in CHANGES.md
+    root = _tree(tmp_path,
+                 "install: ## Install everything\n\t@true\n",
+                 "# llgenie\n\n```\nmake install   # install everything\n```\n")
+    rule = root / "docs" / "RULES.md"
+    rule.parent.mkdir(parents=True, exist_ok=True)
+    rule.write_text(
+        "# Rules\n\nEvery change appends its row to `CHANGES.md`, newest first, in the same commit.\n")
+
+    # When the documentation is checked
+    problems = cd.problems(cd.graph(root))
+
+    # Then exactly the reintroduced append point fails, and the error names the replacement
+    assert len(problems) == 1, problems
+    assert "docs/RULES.md: tells a contributor to add its row to CHANGES.md" in problems[0]
+    assert "docs/changes.d/<note-stem>.md" in problems[0]
+    assert "make changes-index" in problems[0]
+
+    # And the real CLI reports it too — this is the gate CI runs, not just a helper
+    r = _run(root, "check")
+    assert r.returncode == 1 and "docs/RULES.md" in r.stderr, r.stdout + r.stderr
+
+    # And the fragment shape is the fix: name what the change adds, and the renderer
+    rule.write_text(
+        "# Rules\n\nEvery change adds `docs/changes.d/<note-stem>.md`; `CHANGES.md` is rendered by\n"
+        "`make changes-index` and no change edits it.\n")
+    assert cd.problems(cd.graph(root)) == []
+    assert _run(root, "check").returncode == 0
+
+    # And a recorded exception cannot outlive its reason: a clean file under an exemption is STALE
+    cd.APPEND_POINT_EXCEPTIONS["docs/RULES.md"] = {"issue": 942, "decided": "2026-10-29",
+                                                   "reason": "test"}
+    try:
+        stale = cd.problems(cd.graph(root))
+        assert len(stale) == 1 and "append-point exception" in stale[0] and "STALE" in stale[0], stale
+    finally:
+        del cd.APPEND_POINT_EXCEPTIONS["docs/RULES.md"]
 
 
 # ---------------------------------------------------------------------------

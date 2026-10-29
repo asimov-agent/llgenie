@@ -6,7 +6,8 @@ which credential reaches which shell, how the transcript is redacted, and how a 
 
 merged. The user guide is `README.md`; the code map is `docs/ARCHITECTURE.md`; each change's
 
-own record is a dated note in `agent-wiki/`, indexed by `CHANGES.md`.
+own record is a dated note in `agent-wiki/` with its own row under `docs/changes.d/` — one row per
+file, rendered into `CHANGES.md` by `make changes-index` (issue #934).
 
 The sections below follow the legs in the order a change travels: pipeline and skills, the
 implementer, credentials and redaction, review and merge, the architecture bot, failure handling,

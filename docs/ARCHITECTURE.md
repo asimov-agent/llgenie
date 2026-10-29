@@ -1173,8 +1173,10 @@ drift: `Problem` ↔ `Issue:`, `How we fix it` ↔ `Fix:`, `Benefit` ↔ `Benefi
 Work happens in its own git worktree cut from `origin/main`. The OpenSpec change is written
 before the code (`make openspec-new NAME=<name>`, `make openspec-validate NAME=<name>`), each
 task is ticked when verified (`make openspec-tasks-check` asserts none is left unchecked),
-and the same commit carries the change's dated `agent-wiki/` note, its row in `CHANGES.md`
-(newest first), and — when the change alters something a user runs — the matching
+and the same commit carries the change's dated `agent-wiki/` note and its own index row under
+`docs/changes.d/` — one row per file, and `CHANGES.md` is that index rendered by
+`make changes-index`, never edited by a change (issue #934) — and, when the change alters something
+a user runs, the matching
 `README.md` section. The PR targets `asimov-agent/llgenie:main`, carries
 `Issue:` / `Fix:` / `Benefit:` / `Technical:` and `closes #<n>`, and only Andy Holst or
 Asimov Agent may author its commits (`make check-pr-hygiene`, `make check-pr-authors`).

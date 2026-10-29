@@ -67,6 +67,41 @@ WIKI_LINK_RE = re.compile(r"\]\((?:\./)?agent-wiki/([^)\s]+\.md)\)")
 # A markdown link the README uses to reach a reference document.
 DOC_LINK_RE = re.compile(r"\]\((?:\./)?(docs/[^)\s]+\.md)\)")
 
+# --- the change-record rule itself (issue #942) -------------------------------------------
+# Files that state the change-record rule a contributor follows. `CHANGES.md` is rendered from
+# `docs/changes.d/<note-stem>.md` (issue #934), so a document that still tells a contributor to put
+# its row in `CHANGES.md` re-creates the one shared line that made every merge re-dirty every open
+# PR. These are read as a corpus and the rule below is applied to each of them.
+RULE_DOCS = ("AGENTS.md", "README.md")
+RULE_DOC_GLOBS = ("docs/*.md", "agents/*/SOUL.md")
+# A path whose rule statement has not been rewritten yet, with the issue that removes the entry.
+# The entry is STALE the moment the document stops naming the append point, and a stale entry is a
+# failure: an exemption cannot outlive its reason.
+APPEND_POINT_EXCEPTIONS = {
+    "AGENTS.md": {
+        "issue": 942,
+        "decided": "2026-10-29",
+        "reason": "protected agent-instruction file: the wording update needs an owner-approved "
+                  "write, and the rest of the corpus is already fixed",
+    },
+}
+# The verb a document uses to tell a contributor to put a row somewhere ...
+APPEND_VERB_RE = re.compile(
+    r"\b(?:add|adds|adding|append|appends|appending|prepend|prepends|prepending|insert|inserts|"
+    r"write|writes|writing|edit|edits|editing|update|updates|updating|carry|carries|carrying|"
+    r"record|records|recorded|put|puts)\b",
+    re.I,
+)
+# ... the noun it puts there ...
+ROW_NOUN_RE = re.compile(r"\b(?:row|rows|entry|entries|line|lines|item|items)\b", re.I)
+# ... and the mechanism a CORRECT sentence names instead of the shared file. A window that names
+# the fragment directory, the renderer or the rendering itself is describing the mechanism, not
+# asking for an append.
+FRAGMENT_MECHANISM_RE = re.compile(r"docs/changes\.d|changes-index|rendered|\brender\b", re.I)
+# How far around each `CHANGES.md` mention to look for the verb and the noun.
+APPEND_WINDOW = 160
+
+
 
 def _targets(root: Path) -> dict[str, str]:
     """`{target: its help text}` for every target `make help` would print."""
@@ -151,6 +186,42 @@ def _index_module():
     return ci
 
 
+def rule_doc_texts(root: Path = REPO) -> dict[str, str]:
+    """`{path relative to root: text}` for every file that states the change-record rule."""
+    texts: dict[str, str] = {}
+    for name in RULE_DOCS:
+        p = root / name
+        if p.is_file():
+            texts[name] = p.read_text()
+    for pattern in RULE_DOC_GLOBS:
+        for p in sorted(root.glob(pattern)):
+            if p.is_file():
+                texts[str(p.relative_to(root))] = p.read_text()
+    return texts
+
+
+def append_point_violations(text: str) -> list[str]:
+    """The sentences in `text` that tell a contributor to put its row in `CHANGES.md`.
+
+    `CHANGES.md` is rendered from `docs/changes.d/<note-stem>.md` (issue #934), so an instruction to
+    append a row to it re-creates the single line every merge conflicted on. A mention of
+    `CHANGES.md` is a violation when an append verb and a row/entry/line noun sit within
+    `APPEND_WINDOW` characters of it and the same window never names the fragment mechanism — i.e.
+    it advises an append and does not correct itself in the same breath.
+    """
+    flat = " ".join(text.split())
+    found: list[str] = []
+    for m in re.finditer(re.escape(CHANGES), flat):
+        ctx = flat[max(0, m.start() - APPEND_WINDOW):m.end() + APPEND_WINDOW]
+        if FRAGMENT_MECHANISM_RE.search(ctx):
+            continue
+        if APPEND_VERB_RE.search(ctx) and ROW_NOUN_RE.search(ctx):
+            snippet = ctx.strip()
+            found.append(snippet if len(snippet) <= 200 else "…" + snippet[-200:])
+    return found
+
+
+
 def graph(root: Path = REPO) -> dict:
     """The documentation graph, computed from the real files."""
     targets = _targets(root) if (root / MAKEFILE).exists() else {}
@@ -173,6 +244,9 @@ def graph(root: Path = REPO) -> dict:
         "fragments": _index_fragments(root),
         "changes": changes,
         "changes_links": sorted(set(WIKI_LINK_RE.findall(changes))),
+        # `{path: [advice to append a row to CHANGES.md]}` — the rule statements that are stale.
+        "rule_docs": {name: append_point_violations(text)
+                      for name, text in rule_doc_texts(root).items()},
         "change_headings": [m.group(0).strip() for m in CHANGE_HEADING_RE.finditer(readme)]
                             + [m.group(0).strip() for m in CHANGELOG_HEADING_RE.finditer(readme)],
     }
@@ -180,8 +254,9 @@ def graph(root: Path = REPO) -> dict:
 
 def problems(info: dict) -> list[str]:
     """Every documentation defect: an undocumented target, a stale/undocumented exception, a work
-    record that references no issue or PR or is not indexed, a dangling index row, and a README
-    that carries change history or does not reach the index."""
+    record that references no issue or PR or is not indexed, a dangling index row, a README
+    that carries change history or does not reach the index, and a rule statement that still tells
+    a contributor to append its row to `CHANGES.md` (issue #942)."""
     recorded = info["exceptions"]["targets"]
     errors: list[str] = []
     for target in info["undocumented"]:
@@ -232,6 +307,23 @@ def problems(info: dict) -> list[str]:
             f"{info['readme']} carries a generated dispatch table — it lives in {DOCS_DIR}/BOTS.md, "
             f"so no bot regenerates the README"
         )
+    for name, snippets in info["rule_docs"].items():
+        if not snippets:
+            if name in APPEND_POINT_EXCEPTIONS:
+                entry = APPEND_POINT_EXCEPTIONS[name]
+                errors.append(
+                    f"{name}: the append-point exception (issue #{entry['issue']}) is STALE — it no "
+                    f"longer tells a contributor to append to {CHANGES}; delete the entry"
+                )
+            continue
+        if name in APPEND_POINT_EXCEPTIONS:
+            continue
+        for snippet in snippets:
+            errors.append(
+                f"{name}: tells a contributor to add its row to {CHANGES} — a change adds "
+                f"{FRAGMENTS}/<note-stem>.md and {CHANGES} is rendered by `make changes-index` "
+                f"(issue #934); neither the change nor the rule may edit it: …{snippet[-120:]}"
+            )
     return errors
 
 
@@ -264,6 +356,21 @@ def report(info: dict) -> str:
         f"{CHANGES}: {len(info['changes_links'])} note link(s); "
         f"{len(info['change_headings'])} change-history heading(s) in {info['readme']}"
     )
+    stale = {name: v for name, v in info["rule_docs"].items() if v}
+    lines.append(
+        f"[check-docs] change-record rule: {len(info['rule_docs'])} statement(s) read, "
+        f"{len(stale)} that still name a {CHANGES} append "
+        f"({', '.join(sorted(stale)) or 'none'}), "
+        f"{len(APPEND_POINT_EXCEPTIONS)} recorded exception(s)"
+    )
+    for name in sorted(stale):
+        mark = "recorded" if name in APPEND_POINT_EXCEPTIONS else "STALE"
+        lines.append(f"[check-docs]   {mark:8} {name}")
+    for name, entry in sorted(APPEND_POINT_EXCEPTIONS.items()):
+        lines.append(
+            f"[check-docs]   exception {name} (issue #{entry['issue']}, {entry['decided']}): "
+            f"{entry['reason']}"
+        )
     return "\n".join(lines)
 
 
