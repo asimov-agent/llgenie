@@ -253,6 +253,29 @@ def test_publish_agent_moves_latest_when_the_hash_is_already_published(tmp_path)
     assert "now points at it" in r.stdout
 
 
+def test_publish_agent_force_rebuilds_a_hash_already_published(tmp_path):
+    """The dispatch `force` input rebuilds + pushes even a hash already on GHCR (issue #990).
+
+    Without `--force` the publish above only points :latest at a published hash. The
+    workflow's `force` input is passed through as `make publish-agent-image FORCE=--force`,
+    and the script must then do a real amd64 build+push of the hash instead of skipping it.
+    """
+
+    # Given a registry that already has the agent image's hash tag
+    env, log = _fake_docker(tmp_path, published=True)
+
+    # When publish agent --force runs
+    r = _ci_images(env, "publish", "agent", "--force")
+
+    # Then it DOES rebuild and push (force overrides the already-published skip), amd64 only
+    assert r.returncode == 0, r.stdout + r.stderr
+    builds = [c for c in _calls(log) if c.startswith("buildx build")]
+    assert len(builds) == 1, _calls(log)
+    assert "--platform linux/amd64" in builds[0] and "--push" in builds[0], builds[0]
+    assert re.search(r"-t ghcr\.io/asimov-agent/llgenie/agent:[0-9a-f]{12}", builds[0]), builds[0]
+    assert "-t ghcr.io/asimov-agent/llgenie/agent:latest" in builds[0], builds[0]
+
+
 def test_agent_pull_uses_latest(tmp_path):
     """Agent pulls fetch GHCR :latest. The content hash is not the pull ref."""
 

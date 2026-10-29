@@ -32,18 +32,18 @@
 name: publish-agent-image — builds + pushes the Hermes agent image when its hash is not on GHCR yet
 
 # Trigger surface: `workflow_dispatch` ONLY (owner/collaborator) — nothing schedules it, so the
-#                  image is published when a human decides to. The form's `force` input is not
-#                  read by this job (issue #990).
+#                  image is published when a human decides to. The dispatch `force` input rebuilds
+#                  even a hash already on GHCR (issue #990).
 # Flow: guard (owner / collaborator with write/maintain/admin, BEFORE any secret is read) ->
 #       make agent-image-push-check (asks GHCR for a push-scoped token and initiates an empty blob
 #       upload, so a credential that may not publish fails in seconds instead of after the build;
-#       issue #335) -> make publish-agent-image (scripts/ci_images.py publish agent — builds the
-#       image, and pushes it to GHCR only when its hash tag is not there yet; that decision lives
-#       inside the script; :latest is moved onto the hash either way) -> make ci-image-refs
-#       (prints the content-hash ref).
-# Never: never rebuilds an image whose hash already exists, never overwrites a different
-#        content-hash tag (`:latest` is the one tag a re-run moves), never merges, never runs
-#        on a schedule. The dispatch `force` input is not read here (issue #990).
+#       issue #335) -> make publish-agent-image (scripts/ci_images.py publish agent --force when the
+#       dispatch `force` input is true — builds the image, and pushes it to GHCR only when its hash
+#       tag is not there yet unless forced; that decision lives inside the script; :latest is moved
+#       onto the hash either way) -> make ci-image-refs (prints the content-hash ref).
+# Never: never rebuilds an image whose hash already exists (unless the dispatch `force` input is
+#        true), never overwrites a different content-hash tag (`:latest` is the one tag a re-run
+#        moves), never merges, never runs on a schedule.
 on:
   workflow_dispatch:
     inputs:
@@ -113,7 +113,7 @@ jobs:
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: make agent-image-push-check
-      - name: make publish-agent-image (build + push the Hermes image when its hash is not on GHCR yet)
-        run: make publish-agent-image
+      - name: make publish-agent-image (build + push the Hermes image when its hash is not on GHCR yet; the dispatch force input rebuilds even a published hash, issue #990)
+        run: make publish-agent-image ${{ inputs.force == 'true' && 'FORCE=--force' || '' }}
       - name: Print the published ref
         run: make ci-image-refs

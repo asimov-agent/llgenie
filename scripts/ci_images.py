@@ -161,15 +161,17 @@ def _pull_and_tag(name: str, r: str) -> int:
     return rc
 
 
-def publish(name: str, root: Path = REPO) -> int:
+def publish(name: str, root: Path = REPO, force: bool = False) -> int:
     """CI only: build and push the content hash unless it is already on the registry.
 
     The agent image also points GHCR `:latest` at that hash. A hash that is already
     published is not rebuilt; `:latest` is still moved onto it, because that is the tag
     every agent pull fetches and an earlier publish of this hash did not create it.
+    `force=True` (the publish-agent-image dispatch `force` input, issue #990) rebuilds and
+    pushes even when the hash is already on the registry.
     """
     r = ref(name, root)
-    if published(r):
+    if published(r) and not force:
         if name != "agent":
             print(f"[ci-images] {r} already published (inputs unchanged): nothing to build", flush=True)
             return 0
@@ -333,6 +335,9 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="CI images on GHCR: publish once per hash, pull everywhere")
     ap.add_argument("cmd", choices=("publish", "pull", "ensure", "ref", "tag", "latest", "pushcheck"))
     ap.add_argument("names", nargs="*", default=list(IMAGES), help=f"default: {' '.join(IMAGES)}")
+    ap.add_argument("--force", action="store_true",
+                    help="publish: rebuild + push even when the content hash is already on the "
+                         "registry (the publish-agent-image dispatch `force` input, issue #990)")
     a = ap.parse_args(argv)
     for n in a.names:
         if n not in IMAGES:
@@ -349,7 +354,10 @@ def main(argv: list[str] | None = None) -> int:
     run = {"publish": publish, "pull": pull, "ensure": ensure, "pushcheck": pushcheck}[a.cmd]
     rc = 0
     for n in a.names:
-        rc = run(n) or rc
+        if a.cmd == "publish":
+            rc = publish(n, force=a.force) or rc
+        else:
+            rc = run(n) or rc
     return rc
 
 
