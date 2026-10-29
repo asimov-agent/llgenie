@@ -71,6 +71,13 @@ REQUIRED_RULE = "never-merge"
 #: rule is thirteen chances for it to stop being the rule (issue #873, acceptance criterion 1).
 FLEET_BLOCK = "standing-rules.md"
 FLEET_HEADING = "## Standing rules (fleet, learned 2026-10-28)"
+#: The retired arming rule — "Arm auto-merge at PR creation" — that #873/super seeded with rule 16
+#: (arm when DONE, and only on a base of `main`). A SOUL stating the retired bullet contradicts rule 16
+#: (arming at creation is the wrong trigger, and a non-`main` base is exactly the stacked-arm hazard
+#: #954 measured). The gate never treated it as a defect because it is not a canonical title and not a
+#: duplicate — it sat invisible (measured: pr-reviever carries it once, `findings()` silent). It is report
+#: debt like a duplicate: the removal is a protected SOUL write the owner routes.
+RETIRED_ARM_RULE = "Arm auto-merge at PR creation"
 #: Profiles whose block is not yet verbatim, each with a dated reason and the vehicle that owns the fix.
 #: An exemption is legitimate only while it still describes a real gap: once the profile gains the block,
 #: the entry is reported STALE and must be deleted, so the list cannot quietly become a permanent amnesty.
@@ -569,6 +576,31 @@ def _duplicate_rule_debts(agents: Path, profiles: list[dict]) -> list[tuple[str,
     return sorted(debts)
 
 
+def _retired_rule_debts(agents: Path, profiles: list[dict]) -> list[tuple[str, str]]:
+    """Every (profile, retired-rule) a SOUL still states — a contradiction of the rule that replaced it.
+
+    The retired "Arm auto-merge at PR creation" bullet is not a canonical title and not (necessarily) a
+    duplicate, so the gate's other checks never saw it — measured: pr-reviever carries it once and
+    `findings()` was silent about a SOUL that contradicts rule 16 (arm when done / main-base only, #873,
+    #950). A lane running under it would arm at creation onto a non-`main` base, the exact stacked-arm
+    hazard #954 measured. This is the same class as a duplicate: a protected SOUL write the owner routes,
+    so it is REPORT debt (visible, never a hard gate red).
+    """
+    if not (agents / FLEET_BLOCK).is_file():
+        return []
+    import re as _re
+    pat = _re.compile(r"\*\*" + _re.escape(RETIRED_ARM_RULE) + r"\b[^\n]*?\*\*")
+    debts: list[tuple[str, str]] = []
+    for profile in profiles:
+        soul = agents / profile["name"] / SOUL
+        if not soul.is_file():
+            continue
+        text = soul.read_text(encoding="utf-8")
+        if pat.search(text):
+            debts.append((profile["name"], RETIRED_ARM_RULE))
+    return sorted(debts)
+
+
 def report(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR) -> str:
     """What the gate reads: each profile with its SOUL, its skills and the rules it must keep."""
     agents = (root / agents_dir) if not agents_dir.is_absolute() else agents_dir
@@ -603,6 +635,12 @@ def report(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR) -> str:
         lines.append("duplicate canonical rule (one bullet, one place — #972):")
         for name, title in dups:
             lines.append(f"  {name}: {title} stated more than once")
+    retired = _retired_rule_debts(agents, profiles)
+    if retired:
+        lines.append("")
+        lines.append("retired canonical rule still stated (rule 16 replaced it — #873, #950):")
+        for name, rule in retired:
+            lines.append(f"  {name}: {rule}")
     return "\n".join(lines)
 
 
@@ -644,6 +682,11 @@ def main(argv: list[str] | None = None) -> int:
         for name, title in dups:
             print(f"[check-agent-profiles] note: {name} states {title!r} more than once "
                   "(duplicate canonical rule — one bullet, one place, #972)", file=sys.stderr)
+        retired = _retired_rule_debts(root / agents_dir if not agents_dir.is_absolute() else agents_dir,
+                                     profiles)
+        for name, rule in retired:
+            print(f"[check-agent-profiles] note: {name} still states the retired {rule!r} "
+                  "(rule 16 replaced it — #873, #950)", file=sys.stderr)
         return 0
     for item in items:
         print(f"[check-agent-profiles] FAIL {item['key']}: {item['where']}: {item['detail']}")
