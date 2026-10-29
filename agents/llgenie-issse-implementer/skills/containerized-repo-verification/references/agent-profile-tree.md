@@ -226,3 +226,11 @@ run is red for a condition the runner cannot fix; stay silent and a reader concl
   passes it, so a junk path reports a comparison it did not make. The durable test is a **manifest match**:
   `<base>/<name>/SOUL.md` for at least one name in `manifest.json`. An existence test and a count are both
   satisfiable by accident; a name is not.
+- **The retired arming bullet is gate-named debt, never a silent pass and never a red.** The retired
+  `Arm auto-merge at PR creation` is neither a canonical title nor (appearing once) a duplicate, so the old
+  gate saw NOTHING while documentation-maintainer and pr-reviever ran under a contradiction of rule 16
+  (arm when done / main-base only, #873, #950). `_retired_rule_debts` names every such SOUL in `report()`
+  and as a `check` `note:` — the same visible-not-silent contract as the duplicate-rule debt. Do not remove
+  the bullet from another lane's SOUL to clear the note: that is a protected SOUL write the owner routes,
+  and the gate fuses nothing on it. Removing the note wiring while keeping `report()` makes the debt silent
+  again in the exact place a reviewer runs — the pin test keeps that wiring on green.
