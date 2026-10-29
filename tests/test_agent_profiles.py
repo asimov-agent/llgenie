@@ -998,6 +998,25 @@ def test_an_identical_file_is_not_refused_for_being_newer(tmp_path, capsys, monk
     assert "REFUSED" not in capsys.readouterr().out
 
 
+def test_the_one_bullet_one_place_lesson_is_in_the_skill():
+    """Every canonical bullet lives once, then once only (measured on #972 / planner 11:40Z).
+
+    A canonical rule stated twice is a second source of truth that drifts first — the block stays
+    canonical while the stray lane-rules copy paraphrases and goes stale (that is how #972's SOUL
+    "had 16 bullets" yet was wrong). The skill must teach count-occurrences-not-totals, or the next
+    editor ships another duplicate.
+    """
+    ref = " ".join((REPO / "agents" / "llgenie-issse-implementer" / "skills"
+                    / "containerized-repo-verification" / "references"
+                    / "agent-profile-tree.md").read_text().lower().split())
+
+    for phrase in ["one canonical bullet, one place",
+                   "a duplicate is a second source of truth that drifts first",
+                   "count occurrences, not a bullet total",
+                   "pin the occurrence count as a red test first"]:
+        assert phrase in ref, f"the one-bullet-one-place lesson is missing: {phrase}"
+
+
 def test_the_force_path_says_it_overwrote_a_newer_live_file(tmp_path, capsys, monkeypatch):
     """`--force` is the one legitimate overwrite of newer live work — so the log must name it."""
     sync, agents, live, _, _ = _moving_fixture(tmp_path, monkeypatch)
