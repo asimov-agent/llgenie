@@ -232,10 +232,15 @@ def live_root_info() -> tuple[Path | None, str]:
     if plural:
         base, source = Path(plural).expanduser(), "$HERMES_PROFILES_HOME"
     elif singular:
+        # The parent of anything exists — a typo, a bare filename, `/nonexistent-home` all have one —
+        # so taking `.parent` unconditionally reported OK with no caveat while comparing nothing.
         base, source = Path(singular).expanduser().parent, "$HERMES_PROFILE_HOME (its parent directory)"
     else:
         base, source = Path.home() / ".hermes" / "profiles", "~/.hermes/profiles"
-    return (base if base.is_dir() else None), source
+    # A profiles home HOLDS profiles. `exists()` is not the test: a directory that contains no
+    # `<name>/SOUL.md` cannot answer the question, and must take the skip path with its caveat.
+    holds_a_profile = base.is_dir() and any((d / "SOUL.md").is_file() for d in base.iterdir() if d.is_dir())
+    return (base if holds_a_profile else None), source
 
 
 def live_root(root: Path = REPO_ROOT) -> Path | None:
