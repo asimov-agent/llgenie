@@ -156,6 +156,11 @@ run <id> · head <sha> · main <sha> · <n> passed / <n> failed · fails on main
 - **"Done" triggers the arm, not "approved."** Do not wait for a human to say yes.
 - **Exception: the owner explicitly refused that PR** → write `auto=none (owner instruction: <where
   the instruction lives>)` instead of arming. A silent omission is not the exception.
+- **Arm only a `main`-based PR (fleet rule 16).** On a stacked PR the arm is a merge: its base
+  schedules no workflows (#950) and carries no required checks, so `--auto` finishes in seconds into
+  another lane's branch, unreviewed — measured on #958, armed 08:19Z and merged 08:19:55Z. A finished
+  stacked PR records `auto=none (stacked base: no required checks, no CI scheduled)` and is armed **on
+  retarget**; merging one by hand is a bypass, not a handoff.
 - **`AGENTS.md` bans `gh pr merge` for hand-merging** (`--squash/--merge/--rebase/--admin`), because a
   hand merge bypasses the merge-state check and pins no head. Arming native auto-merge
   (`gh pr merge <n> --auto --squash`) is not that: it waits for the checks and merges at the
