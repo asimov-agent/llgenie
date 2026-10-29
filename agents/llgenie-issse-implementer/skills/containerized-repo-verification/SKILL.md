@@ -16,8 +16,10 @@ metadata:
 ## When to Use
 
 Repo-specific depth lives in `references/`: `references/agent-profile-tree.md` (keeping a host agent's
-SOUL and skills in the repo: re-seed by allowlist, the larger-but-dropping-lines trap, an audible skip),
-`references/llgenie-engine-pipeline.md` (how a registry
+SOUL and skills in the repo: re-seed by allowlist, the larger-but-dropping-lines trap, the age guard on the
+write path, an audible skip, and why a hand re-seed needs a CALLER on a timer),
+`references/queue-and-pr-mechanics.md` (a starved sweeper, queue depth vs `cancel-in-progress`, diff and
+`gh pr list` lookups, union merges, silent arming), `references/llgenie-engine-pipeline.md` (how a registry
 engine becomes a built, published image, and which bot/gate owns each step).
 
 Use whenever `make <gate>` shells into a test image (`docker run … <repo>/test:latest python -m pytest …`)
@@ -310,8 +312,15 @@ skills), the sync direction decides what a mistake costs. Copying tree → live 
   answers "all of them" on every run — a property the instrument never checked, which is the same defect
   as a green gate over a truncated seed.
 
+- **Hand re-seeding is not the fix; a caller is.** The copy goes stale within the hour of the next live
+  edit, because the direction of staleness is structural. Ship the reading fix (print `live comparisons: N`
+  so a runner's green does not read as "compared and clean"), a named target a host can run on a timer, and
+  a threshold that can be satisfied — plain difference is normal lag, a tree that LACKS live lines is the
+  defect. The timer opens one deduped issue; it never copies, because an automated `cp` overwrites a
+  deliberate tree-side edit and reports success.
+
 Full recipes (re-seed by allowlist, the larger-but-dropping-lines trap, the audible skip, the age guard
-and its negative controls): `references/agent-profile-tree.md`.
+and its negative controls, the caller rule): `references/agent-profile-tree.md`.
 
 ## Report the tree the number came from
 
