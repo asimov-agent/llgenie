@@ -101,6 +101,7 @@ def test_llgenie_dry_run_prints_model_engine_and_container_command(tmp_path):
     assert "llgenie-engine-vllm" in r.stdout
 
 
+@pytest.mark.network
 def test_download_fetches_a_real_chunk_of_the_chosen_file(tmp_path, monkeypatch):
     """CI download test: the real Hub tree lookup + a ranged fetch of 1 MiB."""
     # Given a small GGUF model and a 1 MiB download cap

@@ -946,6 +946,7 @@ TINY = {"id": "tiny", "name": "tiny-random-LlamaForCausalLM",
         "formats": [{"name": "GGUF", "hf": "aladar/tiny-random-LlamaForCausalLM-GGUF"}]}
 
 
+@pytest.mark.network
 def test_full_download_through_hf_download_places_the_complete_gguf(tmp_path, monkeypatch):
     """The real download path (scripts/hf_download.py -> hf CLI), full file, no byte cap."""
     # Given a tiny real GGUF repo and no download cap
@@ -960,6 +961,7 @@ def test_full_download_through_hf_download_places_the_complete_gguf(tmp_path, mo
     assert mp.resolve_local(TINY, tmp_path) == out
 
 
+@pytest.mark.network
 def test_gguf_repo_prefers_registry_repo_then_named_gguf_repo():
     # Given a registry repo that holds GGUF, and one that holds only safetensors
     bonsai = next(m for m in mp.load_registry()["models"] if m["id"] == "bonsai-2-27b")
@@ -974,6 +976,7 @@ def test_gguf_repo_prefers_registry_repo_then_named_gguf_repo():
     assert mp.gguf_repo({"id": "x", "name": "x", "hf": "llgenie-nonexistent/none-zzzq"}) is None
 
 
+@pytest.mark.network
 def test_pick_file_fits_the_card_and_skips_shards_and_mmproj():
     # Given a real GGUF repo with many quants
     files = mp.gguf_files("Qwen/Qwen2.5-0.5B-Instruct-GGUF")
