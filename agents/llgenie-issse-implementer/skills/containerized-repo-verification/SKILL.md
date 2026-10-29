@@ -51,6 +51,14 @@ docker run --rm -u root -v "$PWD":/repo:rw -w /repo -e HOME=/root \
   script that dies on its own subprocess is the invocation's fault, not the diff's.
 - **A per-file loop over `tests/test_*.py` is not a substitute for the suite.** Tests that need the
   harness env (tokens, `make` targets, fixtures the conftest builds) fail in isolation by the dozen, so
+  batch it through the repo's own runner (`python scripts/unit_tests.py run`) instead of naming files.
+- **A file you named by hand may be one the suite DESELECTS by design.** llgenie's
+  `tests/fixtures/unit-suite.json` records each exclusion with its reason and target: hardware/network
+  end-to-end tests (a real `llama-server`, a live Hugging Face download) fail as *hard* errors when their
+  prerequisite is absent — by design, "missing prerequisite is a hard failure, never a skip". So a hand-made
+  batch reports a red that no diff caused. Check the roster for a file before believing its failure, and
+  prove it environmental by running the same node on `main` (measured: `test_top_tier_serve.py` fails
+  identically at `798cbee`, 1 failed / 202 passed in the real batch).
   the loop's output is unreadable rather than merely slow. Narrow with the roster's own selection
   (`python scripts/unit_tests.py argv`, `-k`, or the target's group/`--deselect` list), never by
   enumerating files yourself.
