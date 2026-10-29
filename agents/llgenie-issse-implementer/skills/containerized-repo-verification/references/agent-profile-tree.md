@@ -234,3 +234,13 @@ run is red for a condition the runner cannot fix; stay silent and a reader concl
   the bullet from another lane's SOUL to clear the note: that is a protected SOUL write the owner routes,
   and the gate fuses nothing on it. Removing the note wiring while keeping `report()` makes the debt silent
   again in the exact place a reviewer runs — the pin test keeps that wiring on green.
+- **The fleet block has ONE canonical — `agents/standing-rules.md`, never the issue fence.** The gate reads
+  `fleet_block()` from `agents/standing-rules.md` (rule 16 = "Arm **auto-merge** when the work is done, not
+  when it is approved"). Issue #873's body fence states rule 16 as "Arm **when done, and only on a base of
+  main**" — the SAME intent, DIFFERENT wording, and `_stated_block()` compares byte-for-byte against
+  `standing-rules.md` only. Measured (head 28ce443f): `agents/llgenie-documentation-maintainer/SOUL.md:112`
+  and this reference's earlier rule-16 quote carried the #873 wording, so taking the doc lane's live 13,394
+  (which matched #873) re-introduced `block-in-soul` FAIL — the planner's "take 13,394, block True" was
+  measured against the wrong canonical and was withdrawn (issue #1009). Two authorities for one fleet rule is
+  how a lane ships an instruction measured against the wrong source. When in doubt, compare against
+  `fleet_block()`, never a sampled fence.
