@@ -804,6 +804,24 @@ def test_the_skill_says_a_merged_pr_keeps_its_flags():
         assert phrase in ref, f"the merged-PR trap is missing: {phrase}"
 
 
+def test_the_arm_when_done_rule_is_in_the_skill():
+    """Owner directive 2026-10-29 (#873): done triggers the arm, not approval.
+
+    The SOUL states the constraint; the skill must carry the operative half — the arm command, the read-back
+    that the exit code never is, and the only accepted reason for a finished PR to sit unarmed. Without it,
+    a finished PR sits invisible to the merger sweep and waits for a human to notice.
+    """
+    ref = " ".join((REPO / "agents" / "llgenie-issse-implementer" / "skills" / "containerized-repo-verification"
+                    / "references" / "queue-and-pr-mechanics.md").read_text().lower().split())
+
+    assert "arm when the work is done, not when it is approved" in ref
+    for phrase in ["the last push, the last check on a finished pr",
+                   "gh pr merge <n> --squash --auto",
+                   "auto=none (owner instruction)",
+                   "read the arm state back in the same comment"]:
+        assert phrase in ref, f"the arm-when-done operative half is missing: {phrase}"
+
+
 def test_a_rule_inside_a_fenced_block_is_a_quote_not_a_statement():
     """Pinning the maintainer's offered delta (#956/#944): a pasted example is a quote, not a statement.
 
