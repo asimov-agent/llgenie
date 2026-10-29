@@ -504,3 +504,21 @@ about the branch that now carries its commits.
 
 A PR with `autoMergeRequest` set and one `queued` check is **waiting on the queue**, which is not the same
 as blocked by its head's location, and neither is the same as blocked by review policy.
+
+## Rebasing a stacked child onto a moved parent — the `--onto` three-argument form
+
+To move a stacked PR's *own commits* on top of a parent that has advanced, the rebase needs the upstream
+explicit — and the branch's own tip is the wrong upstream-argument (measured: the author moved #1008's
+branch to `bae12f54`, the parent tip, silently dropping the dedupe commit, because
+`git rebase --onto <new-tip> <own-remote-tip>` has an empty `<old-tip>..HEAD` range and just relocates the
+branch):
+```bash
+# WRONG: upstream = the branch's own remote tip -> empty range -> branch MOVES to the new tip, commit lost
+git rebase --onto <new-parent-tip> <own-branch-remote>     # BAD
+# RIGHT: upstream = the OLD parent tip the commit currently sits on -> replays only the child's commit
+git rebase --onto <new-parent-tip> <old-parent-tip>        # replay just the child commit
+```
+Recover from the mistake before pushing: the dropped commit still exists (`git cat-file -t <sha>`),
+`git reset --hard <sha>` puts the branch back, then re-run with the correct upstream. Verify the child is a
+descendant of the new parent tip before force-pushing: `git merge-base --is-ancestor origin/<parent> HEAD`
+must be true.
