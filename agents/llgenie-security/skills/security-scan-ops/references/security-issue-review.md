@@ -57,6 +57,33 @@ these written into it, or the safety of the pipeline is inverted:
 3. **Never let the leg re-publish the image that judges it.** Rebuilding/re-tagging scanner images
    belongs in the reviewed publish path, not an agent job.
 
+## Reviewing a permission-surface widening (a gate or allowlist)
+
+A PR that widens a merge-blocking gate (an author allowlist, a severity set, a check roster) is a
+permission-surface change and gets reviewed as one:
+
+1. **Aliases of a key are safe; a new key is the actual widening.** Decide whether the change adds
+derived aliases OF an already-trusted identity key (e.g. more display names for the same two addresses)
+or adds a new key no reviewer intent covers. The former keeps the trust set identical; the latter is
+the real expansion and needs its own justification.
+2. **Read the accept predicate, not the prose.** The decision function must still require the
+conjunction — the key is allowlisted AND the presented value belongs to that key's set. A widening is
+safe when it relaxes the value set of an existing key; it is a hole when it accepts a value without the
+key, or a key under any value. Grep the literal `if` and confirm the AND is still there, and that the
+derived lookup structure cannot drift from the source of truth.
+3. **State the failing cases that still fail.** A widening with no enumerated negative class is not
+reviewable. List the classes (a lookalike key, an allowed key under a non-listed value, a cross-key
+value) and confirm the suite asserts each one — for an author gate these are the commits that must
+still red.
+4. **Check the canary that restates the policy.** A gate is usually paired with a mandate string
+(template, doc heading) the check refuses to delete. If the gate widens past that sentence, the doc
+drifts — usually the safe direction, but it invites the wrong next edit (widening the gate to match the
+sentence). Track it; the canary should stay at least as strict as the gate a reader is told about.
+5. **Run the suite for the negative cases and say which command passed.** "The negative cases still red"
+is a claim until a test run proves it; remember the import path when running tests directly
+(`PYTHONPATH=/repo/scripts`), and note the invocation in the review so the reviewer can not reproduce
+it, not just trust it.
+
 ## Comment shape that survives review
 
 State the verdict, the current line number, and the consequence — not a summary of the issue:
