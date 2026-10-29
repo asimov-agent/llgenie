@@ -290,8 +290,6 @@ cancelled `guard` is no evidence about the branch. `gh run rerun <id>`/re-arm to
 is that lane's to clear, never a "fix" you make in your own tree (it only moves the red to a direction
 guard).
 
-## A new make target: prove every documented knob reaches the CLI
-
 ## Commit before you touch anything else in a worktree
 
 An uncommitted worktree is not storage — it is a file nobody saved, in a directory a branch switch, a
@@ -345,6 +343,15 @@ skills), the sync direction decides what a mistake costs. Copying tree → live 
   a threshold that can be satisfied — plain difference is normal lag, a tree that LACKS live lines is the
   defect. The timer opens one deduped issue; it never copies, because an automated `cp` overwrites a
   deliberate tree-side edit and reports success.
+
+- **A protected-agent-instruction wall refuses EVEN YOUR OWN lane's file — and not routing around it is the
+test.** A harness gates every `agents/*/SOUL.md` write and may time out without consent even for the lane
+that owns the file ("silence is not consent"). The failure is not hostile config: it is the issue+PR rule
+made mechanical. Do not retry via another path (terminal, `git`, `execute_code` all look like routing
+around). Instead: confirm the blocked edit landed nowhere (`git diff --stat` on the file, clean), then ship
+what is NOT gated — a ledger `docs/changes.d/` fragment, an `agent-wiki/` page, a test pin that makes the
+intent durable — and report the SOUL line as awaiting the owner's approval, not silently done. A behavior
+contract that waits for the wall is still tracked; a contract only in a DM is lost.
 
 Full recipes (re-seed by allowlist, the larger-but-dropping-lines trap, the audible skip, the age guard
 and its negative controls, the caller rule): `references/agent-profile-tree.md`.
