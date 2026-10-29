@@ -1875,3 +1875,22 @@ def test_the_architect_soul_rebases_only_on_conflict():
                    "stale shadow",
                    "read the real head from the api"]:
         assert demand in soul, f"the #1015 rebase rule is missing: {demand}"
+
+
+# --- pipeline maintainer: monitor & route, never rebase (owner 2026-10-30) --------------------------------
+
+def test_the_pipeline_maintainer_soul_monitors_and_routes_never_rebases():
+    """Owner re-scope: this lane measures the pipelines and routes reds; it does not rebase PRs.
+
+    The PR-rebase lane owns rebasing. On a red failure the maintainer does three things, so each is
+    asserted separately: comment the finding with proof, notify the rebase lane, notify inbox triage.
+    """
+    soul = " ".join((REPO / "agents" / "llgenie-ci-pipelines-maintainer" / "SOUL.md").read_text().lower().split())
+
+    assert "i monitor the pipelines; i do not rebase prs" in soul, \
+        "the re-scoped role line is missing"
+    for demand in ["measure", "the rebase lane's job",
+                   "@llgenie-pr-merge-conflict", "notify",
+                   "@llgenie-planner", "comment the finding",
+                   "the measured head"]:
+        assert demand in soul, f"the monitor-and-route rule is missing: {demand}"
