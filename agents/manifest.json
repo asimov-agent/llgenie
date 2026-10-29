@@ -3,10 +3,29 @@
   "profiles": [
     {
       "name": "llgenie-planner",
-      "rules": ["never-implement", "never-merge"]
+      "rules": [
+        "never-implement",
+        "never-merge"
+      ]
     },
     {
       "name": "llgenie-issse-implementer",
+      "rules": []
+    },
+    {
+      "name": "llgenie-architect",
+      "rules": []
+    },
+    {
+      "name": "llgenie-security",
+      "rules": []
+    },
+    {
+      "name": "llgenie-documentation-maintainer",
+      "rules": []
+    },
+    {
+      "name": "llgenie-ci-pipelines-maintainer",
       "rules": []
     }
   ]
