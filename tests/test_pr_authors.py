@@ -354,6 +354,29 @@ jobs:
     assert "llgenie fix-bot" in " ".join(it["evidence"] for it in items)
 
 
+def test_a_producer_that_commits_with_an_unpaired_allowed_identity_is_seam_missing(tmp_path: Path):
+    """​`check_seam.pins_identity` must require an ALLOWED PAIR, not any allowed name and any
+    allowed email (issue #971). A producer that commits as `Andy Holst` + `support@docondee.com`
+    (two identities mixed) used to satisfy the independent check and pass the seam gate.
+    """
+    root = _producer_tree(tmp_path, """\
+name: bot
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Commit
+        run: |
+          git config user.name "Andy Holst"
+          git config user.email "support@docondee.com"
+          git commit -m "chore: bump"
+""")
+
+    items = cpa.check_seam(root)
+
+    assert any(k.startswith("seam-commit/") for k in _keys(items)), _keys(items)
+
+
 def test_a_producer_mixing_two_allowed_identities_is_a_violation(tmp_path: Path):
     """​A producer that blends two ALLOWED identities is caught by the pair check (issue #971).
 

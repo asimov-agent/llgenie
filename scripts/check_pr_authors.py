@@ -395,8 +395,12 @@ def check_seam(root: Path = REPO_ROOT) -> list[dict]:
         text = path.read_text()
         command = _command_text(text)
         names, emails = _producer_values(text)
-        pins_identity = (any(n in ALLOWED_NAMES for n in names)
-                         and any(e in ALLOWED_EMAILS for e in emails))
+        # The name and email must form an ALLOWED PAIR, not any two standalone values: with the email
+        # as the stable key, an allowed name and an allowed email are only a real identity when the
+        # name is an alias of that email (issue #971). An unpaired mix would pass the old independent
+        # check and commit as nobody the allowlist names.
+        pins_identity = any(n in ALLOWED_NAMES and e in ALLOWED_EMAILS
+                            and n in ALLOWED.get(e, ()) for n in names for e in emails)
         if where.endswith(".py"):
             # A docstring may quote `git commit -am "…"` while explaining a rule; only an argv list or
             # a `git("commit")` helper call is an invocation.
