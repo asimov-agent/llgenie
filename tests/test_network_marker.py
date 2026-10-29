@@ -3,7 +3,7 @@
 unmarked scope really reaches the Hub.
 
 `pytest.ini` registers the `network` marker and `scripts/unit_tests.py` builds the unit gate as
-`-m "not network"` (the network pipeline `network-scan.yml`, #1002, uses `-m network` on the SAME seam). These tests fail
+`-m "not network"` (the network pipeline `ci-network.yml`, #1002, uses `-m network` on the SAME seam). These tests fail
 closed: if the marker is renamed, if the gate drops the exclusion, if a network-marked test appears
 without the marker, or if a NON-marked scope makes a real Hub reach, something here goes red rather
 than the real call sneaking into the default runtime path.
@@ -345,6 +345,6 @@ def test_no_unmarked_real_open_reaches_the_hub():
         "#1000 pin: the hermetic selection really reaches the Hub from these non-network sites:\n"
         + "\n".join(offenders[:8])
         + ("\n...and %d more" % (len(offenders) - 8) if len(offenders) > 8 else "")
-        + "\nRoute each to `@pytest.mark.network` (owned by the network pipeline `network-scan.yml`), to a "
+        + "\nRoute each to `@pytest.mark.network` (owned by the network pipeline `ci-network.yml`), to a "
         "loopback server, or to `hub_probe` liveness; never a silent real call in the unit path."
     )
