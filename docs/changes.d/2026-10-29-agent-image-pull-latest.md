@@ -1,1 +1,1 @@
-| 2026-10-29 | agent pulls use GHCR `:latest`; publish points that tag at the content hash, including when the hash is already published | [2026-10-29-agent-image-pull-latest.md](agent-wiki/2026-10-29-agent-image-pull-latest.md) | #989 |
+| 2026-10-29 | agent pulls use GHCR `:latest`; publish points that tag at the content hash, including when the hash is already published | [2026-10-29-agent-image-pull-latest.md](agent-wiki/2026-10-29-agent-image-pull-latest.md) | #989, #992 |

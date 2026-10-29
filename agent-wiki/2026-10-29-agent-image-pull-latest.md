@@ -1,6 +1,6 @@
 # agent-image-pull-latest — 2026-10-29
 
-Implements **#989**. The unread `force` input on `publish-agent-image.yml` is **#990** and is not
+Implements **#989**. Pull request **#992**. The unread `force` input on `publish-agent-image.yml` is **#990** and is not
 part of this change.
 
 ## What changed
