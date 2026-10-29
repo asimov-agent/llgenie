@@ -43,7 +43,6 @@ on:
       - issue-refiner — reviews ONE not-yet-implemented issue, never opens a PR
       - pipeline
       - publish-agent-image — builds + pushes the Hermes agent image when its hash is not on GHCR yet
-      - published
       - queued-alarm — reports CI jobs queued far too long, once per affected run
       - rebase-bot — keeps every open PR current with main, every eligible PR per run (never merges)
       - registry-sync-review — a GREEN registry-sync PR is reviewed into ONE agent:implement issue

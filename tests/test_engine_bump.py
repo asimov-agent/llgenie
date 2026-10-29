@@ -1623,7 +1623,7 @@ def test_workflows_export_the_github_token():
     """Workflows that can start a test container export the Actions GitHub token."""
 
     # Given the workflows that already export HF_TOKEN
-    names = ("ci.yml", "pipeline.yml", "published.yml", "engine-bump.yml", "registry-sync.yml")
+    names = ("ci.yml", "pipeline.yml", "engine-bump.yml", "registry-sync.yml")
 
     # When their workflow env is read
     # Then each sets GITHUB_TOKEN from the Actions secret

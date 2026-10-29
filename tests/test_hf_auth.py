@@ -71,7 +71,7 @@ def test_workflows_inject_the_actions_secret():
     """Every workflow that can call the Hub exports the HF_TOKEN secret."""
 
     # Given the CI workflows
-    names = ("ci.yml", "pipeline.yml", "published.yml", "engine-bump.yml", "registry-sync.yml")
+    names = ("ci.yml", "pipeline.yml", "engine-bump.yml", "registry-sync.yml")
     docs = {name: yaml.safe_load((REPO / ".github" / "workflows" / name).read_text()) for name in names}
 
     # When their workflow env and reusable-workflow calls are read
@@ -194,8 +194,9 @@ def test_workflows_pass_the_secret_into_reusable_workflows():
 
     # When its reusable-workflow calls are read
     # Then each one inherits the secret
-    # issue #870 removed the `macos` caller; every caller that remains inherits the secret
-    for job in ("linux", "linux-published"):
+    # issue #870 removed the `macos` caller; issue #1027 folded the published install
+    # surface into engine-build, so `linux` is the only reusable-workflow caller that remains
+    for job in ("linux",):
         assert ci[job]["secrets"] == "inherit", job
 
 

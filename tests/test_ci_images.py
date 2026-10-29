@@ -370,7 +370,8 @@ def test_no_ci_job_builds_a_ci_image():
 
     # Given every workflow in .github/workflows
     ci = _jobs("ci.yml")
-    pipeline, published = _jobs("pipeline.yml"), _jobs("published.yml")
+    pipeline = _jobs("pipeline.yml")
+    published = {}
     every = {**{f"ci/{k}": v for k, v in ci.items()}, **{f"pipeline/{k}": v for k, v in pipeline.items()},
              **{f"published/{k}": v for k, v in published.items()}}
 
@@ -526,7 +527,7 @@ def test_no_ci_step_or_job_is_skipped():
     empty before the job if: is evaluated. That row is skipped and builds nothing."""
 
     # Given every workflow
-    files = ("ci.yml", "pipeline.yml", "published.yml")
+    files = ("ci.yml", "pipeline.yml")
     wf = {f: _jobs(f) for f in files}
 
     # When every job-level and step-level if: is collected

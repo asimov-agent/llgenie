@@ -320,7 +320,9 @@ def test_linux_and_macos_run_the_same_pipeline():
     # what keeps the coverage restorable by adding a caller back.
     assert callers["linux"] == ("./.github/workflows/pipeline.yml", "ubuntu-latest")
     assert "macos" not in callers and not [n for n in jobs if "macos" in n.lower()], list(jobs)
-    assert callers["linux-published"] == ("./.github/workflows/published.yml", "ubuntu-latest")
+    # issue #1027: the install-published surface (published.yml) folded into the
+    # engine-build producer, so no ci.yml job calls it anymore
+    assert "linux-published" not in callers, callers.keys()
     # And macOS has no published-image stage: it never runs an engine container (issue #120)
     assert "macos-published" not in jobs
 
@@ -330,12 +332,11 @@ def test_linux_and_macos_run_the_same_pipeline():
         assert job["runs-on"] == "${{ inputs.runner }}", name
 
     # And a failure on either OS fails the run: no job is continue-on-error, and neither
-    # macOS caller passes optional
-    published = yaml.safe_load((wf / "published.yml").read_text())["jobs"]
-    for name, job in {**pipeline, **published}.items():
+    # macOS caller passes optional (issue #1027 folded the published install surface into engine-build)
+    for name, job in {**pipeline}.items():
         assert job["continue-on-error"] is False, name
-    # (the `macos` caller is gone, #870: only the Linux callers remain to check)
-    assert "optional" not in jobs["linux"]["with"] and "optional" not in jobs["linux-published"]["with"]
+    # (the `macos` caller is gone, #870; `linux-published` is gone, #1027: only `linux` remains)
+    assert "optional" not in jobs["linux"]["with"]
     install = "\n".join(st.get("run", "") for st in pipeline["install"]["steps"])
     assert "make ci-install" in install and "make install\n" not in install
     assert "test-install-ci" not in install
@@ -777,16 +778,14 @@ def test_engine_stage_is_one_make_target():
     Linux per container backend; BACKEND=metal stays a make target for an Apple-Silicon
     host (issue #120: no macOS CI job, the runners have no Metal GPU)."""
 
-    # Given the workflows and the Makefile
+    # Given the producer workflow and the Makefile
     wf = REPO / ".github" / "workflows"
-    published = yaml.safe_load((wf / "published.yml").read_text())["jobs"]["install-published"]
+    eb = (wf / "engine-build.yml").read_text()
     mk = (REPO / "Makefile").read_text()
 
-    # When the engine-install steps are collected
-    linux_runs = [st["run"] for st in published["steps"] if "run" in st and "ci-engines" in st["run"]]
-
-    # Then the Linux row calls make ci-engines per backend
-    assert linux_runs == ["make ci-engines BACKEND=${{ matrix.backend }}"]
+    # When the engine install stage is read (engine-build owns it, on the row's just-published image)
+    # Then the producer runs the install target AFTER it published the image
+    assert eb.index("run: make push-engine") < eb.index("run: make test-engine-install ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}")
 
     # And the target is a thin entrypoint over the python script
     recipe = mk.split("\nci-engines:", 1)[1].split("\n\n", 1)[0]
@@ -863,13 +862,12 @@ def test_macos_ci_does_not_run_docker_github_actions():
     # Given the workflows, the Docker action and the Makefile
     wf = REPO / ".github" / "workflows"
     pipeline = yaml.safe_load((wf / "pipeline.yml").read_text())["jobs"]
-    published = yaml.safe_load((wf / "published.yml").read_text())["jobs"]
     ci = yaml.safe_load((wf / "ci.yml").read_text())["jobs"]
     docker = (REPO / ".github/actions/docker/action.yml").read_text()
     mk = (REPO / "Makefile").read_text()
 
     # When the Docker steps and the install/health recipes are read
-    docker_steps = [st for jobs in (pipeline, published) for j in jobs.values()
+    docker_steps = [st for jobs in (pipeline,) for j in jobs.values()
                     for st in j.get("steps", []) if st.get("uses") == "./.github/actions/docker"]
     linux_only = ("install", "openspec", "cpu-health", "top-tier")
 
@@ -882,7 +880,7 @@ def test_macos_ci_does_not_run_docker_github_actions():
     assert "macOS must not call this action" in docker
 
     # And every shared pipeline job that mentions the Docker action gates it to Linux
-    # (published.yml is Linux only: macOS has no published-image stage).
+    # (the engine install-test lives in the engine-build producer, Linux-only).
     # issue #859: `top-tier` also gates every working step on its row axis, so the OS gate appears
     # combined there — the Linux-only property is what matters.
     for name, step in ((name, st) for name, j in pipeline.items()
@@ -904,10 +902,10 @@ def test_macos_ci_does_not_run_docker_github_actions():
         assert same in recipe and "Darwin" not in recipe, target
 
     # And every macOS job and every Linux job must succeed for the run to be green
-    for name, job in {**pipeline, **published}.items():
+    for name, job in {**pipeline}.items():
         assert job["continue-on-error"] is False, name
     # issue #870: the `macos` caller no longer exists, so only the Linux callers are checked here
-    for name in ("linux", "linux-published"):
+    for name in ("linux",):
         assert "optional" not in ci[name]["with"], name
 
 
@@ -918,7 +916,6 @@ def test_macos_has_no_published_image_or_native_engine_ci_job():
     # Given ci.yml and published.yml
     wf = REPO / ".github" / "workflows"
     ci = yaml.safe_load((wf / "ci.yml").read_text())["jobs"]
-    published = (wf / "published.yml").read_text()
 
     # When the jobs and their runners are read
     runners = {n: j.get("runs-on") or j.get("with", {}).get("runner") for n, j in ci.items()}
@@ -929,8 +926,8 @@ def test_macos_has_no_published_image_or_native_engine_ci_job():
     assert macos == set(), macos
     assert "macos-published" not in ci and "native-engine-macos-arm64" not in ci
 
-    # And published.yml is Linux only (no macOS runner, no runner.os branch)
-    assert "macos" not in published and "runner.os" not in published
+    # And the engine build/test lives in the engine-build producer (no ci.yml/macos image stage)
+    assert all("macos-published" not in j and "native-engine-macos" not in str(j) for j in ci.values())
 
 
 def test_native_engine_matrix_covers_every_metal_skill():
@@ -1009,7 +1006,7 @@ def test_macos_make_test_stages_run_in_the_311_venv_not_a_container():
     assert "$(MAKE) -C tools venv-dev-install" in env and "ci_images.py pull test" in env
 
     # And every CI job prepares that environment with make test-env, never make test-image-pull
-    for wf in ("pipeline.yml", "published.yml"):
+    for wf in ("pipeline.yml",):
         text = (REPO / ".github" / "workflows" / wf).read_text()
         assert "make test-image-pull" not in text.split("\non:", 1)[1], wf
         assert "run: make test-env" in text, wf
