@@ -91,6 +91,46 @@ def test_any_paths_ignore_cannot_drop_a_non_doc_markdown_role():
     )
 
 
+def test_the_unit_gate_executes_zero_network_marked_tests():
+    """Execution-level half of the owner's stronger pin (#1000): the unit gate command must not
+    EXECUTE a single network-marked node — proven at the collection level, not by file existence.
+    Runs pytest --collect-only under the exact `-m "not network"` argv the gate uses and asserts
+    that no collected node belongs to a @pytest.mark.network-decorated test."""
+    import subprocess as _sp
+
+    files = ut.select(REPO)
+    # node ids that would be taken OFF the executable set by -m "not network":
+    net_names: dict[str, set[str]] = {}
+    for doc in files:
+        text = (REPO / doc).read_text()
+        names = {
+            m.group(1)
+            for m in re.finditer(
+                r"@pytest\.mark\.network\s*\n\s*(?:async\s+)?def\s+(test_\w+)\(", text
+            )
+        }
+        if names:
+            net_names[doc] = names
+    assert net_names, "no network-marked test to exclude — the seam excludes nothing"
+
+    argv = [sys.executable, "-m", "pytest", "--collect-only", "-q", "-m",
+            "not network", "-p", "no:cacheprovider", *files]
+    run = _sp.run(argv, cwd=REPO, capture_output=True, text=True)
+    assert run.returncode == 0, run.stdout[-2000:] + run.stderr[-2000:]
+    collected = {ln.strip() for ln in run.stdout.splitlines() if "::" in ln}
+
+    leaked = [
+        f"{doc}::{name}"
+        for doc, names in net_names.items()
+        for name in names
+        if any(ln.startswith(f"{doc}::{name}") for ln in collected)
+    ]
+    assert not leaked, (
+        "#1000 execution pin: these network-marked nodes are in the unit gate's collect set, so "
+        "-m \"not network\" does not exclude them:\n" + "\n".join(leaked[:8])
+    )
+
+
 def test_the_network_marker_is_registered_in_pytest_ini():
     cfg = (REPO / "pytest.ini").read_text()
     markers = cfg.split("markers =", 1)[1]
