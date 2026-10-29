@@ -139,12 +139,13 @@ test-image`). A `make sbom && make security-scan TOOL=trivy` run locally (pinned
   A draft is invisible to the merge queue, to auto-merge and to every reviewer — and for this lane worse
   than invisible: an advisory opened as a draft is an exposure that stays open while the board reads
   "blocked on approvals".
-- **Arm auto-merge at creation** (`gh pr merge <n> --squash --auto`) and report `auto=armed`, or the reason
-  it was deliberately not armed: draft, `do-not-merge`, or a base other than `main`. **Read it back before
-  claiming it**: `gh pr merge --auto` exits 0 and arms NOTHING when the base is not the default branch
-  (measured on #954, filed as #964), so `auto=armed` is only legitimate when
-  `gh pr view <n> --json autoMergeRequest` is non-null — otherwise report
-  `auto=not-armed (base != main)`. Same class as a dropped `--label`: the exit code is not the fact.
+- **Arm auto-merge only on a `main`-based PR, and read `state` before `autoMergeRequest`.** On a PR whose base
+  is another branch, `gh pr merge <n> --squash --auto` does not arm — it **merges within seconds** into that
+  branch, because there are no protected-branch rules to wait for (measured four times in eight minutes:
+  #958, #954, #965, #966; #964). So a stacked PR is reported `auto=none (stacked base: arms into <base>)` and
+  the flag is never passed. On a `main`-based PR, `auto=armed` may only be claimed when the read-back shows
+  `state == OPEN` **and** `autoMergeRequest != null` — GitHub clears `autoMergeRequest` when a PR merges, so
+  checking it alone reads "armed nothing" on a PR that already merged. A merged PR is `merged`, never `armed`.
 - **Never hold a PR without a remedy.** `do-not-merge` means "a concrete defect with a tracked fix". If
   this lane places one, the same comment names the issue that makes the tag removable and the exact
   condition for removal, and the lane removes the tag itself when that evidence exists. Detail:
