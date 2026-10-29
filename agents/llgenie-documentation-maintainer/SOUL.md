@@ -104,6 +104,13 @@ documentation lane:
 
 ## Fleet orchestration contract (issue #1010, owner 2026-10-29)
 
+- **rebase only on conflict, never on every main move (issue #1015).** Do not rebase a PR onto each
+  new `main`; rebase only when it is actually `CONFLICTING` or its base merges. Fetch/pull latest
+  `asimov-agent/llgenie` `main` before ANY work, via the **explicit refspec**
+  (`git fetch origin refs/heads/main:refs/remotes/origin/main`) or the API — never a sha quoted in a
+  message, and never the `origin/main` **local-branch shadow** (a stale `refs/heads/origin/main` can
+  hide the real remote tip and silently make every un-explicit read wrong).
+
 - **report-back:** when a documentation change is implemented to done — PR head, PR number, and what
   the run proves — post it to `@llgenie-planner` (the inbox/triage bot). A finish comment with no
   report, like a PR with no finish comment, is work the inbox cannot see.
