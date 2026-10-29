@@ -300,6 +300,29 @@ def check_producers(root: Path = REPO_ROOT) -> list[dict]:
     for path in producer_files(root):
         where = str(path.relative_to(root))
         names, emails = _producer_values(path.read_text())
+        # A file that pins BOTH a name and an email must pin an ALLOWED PAIR, not any two standalone
+        # values: a producer setting `user.name "Andy Holst"` with `user.email "support@docondee.com"`
+        # is two different identities mixed, and the commit-scan rejects exactly that pairing — the
+        # producer scan must, too, or the static half green-lights what the dynamic half has to catch.
+        # Fires ONLY when both halves are individually allowed but do not form a pair (a wholly
+        # off-list name+email is already reported by the two standalone findings below).
+        paired = [(n, e) for n in names for e in emails
+                  if not _runtime_value(n) and not _runtime_value(e)
+                  and n in ALLOWED_NAMES and e in ALLOWED_EMAILS]
+        for name, email in paired:
+            aliases = ALLOWED.get(email)
+            if aliases is not None and name in aliases:
+                continue
+            out.append({
+                "key": f"producer-pair/{where}:{name}",
+                "title": f"ci: {where} mixes two identities into one producer",
+                "evidence": (
+                    f"`{where}` sets `user.name` to `{name}` and `user.email` to `{email}`, which is "
+                    f"not an allowed pair — the email is the stable identity and `{name}` is not one "
+                    f"of its aliases (issue #971). Audit the allowed emails: {_expected()}."
+                ),
+                "where": where,
+            })
         for name in names:
             if _runtime_value(name) or name in ALLOWED_NAMES:
                 continue

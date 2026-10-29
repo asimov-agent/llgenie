@@ -354,6 +354,31 @@ jobs:
     assert "llgenie fix-bot" in " ".join(it["evidence"] for it in items)
 
 
+def test_a_producer_mixing_two_allowed_identities_is_a_violation(tmp_path: Path):
+    """​A producer that blends two ALLOWED identities is caught by the pair check (issue #971).
+
+    `user.name "Andy Holst"` with `user.email "support@docondee.com"` pass the standalone name/email
+    checks (both are individually allowed) but form no allowed pair — the static scan must not
+    green-light what the commit scan rejects.
+    """
+    root = _producer_tree(tmp_path, """\
+name: bot
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          git config user.name "Andy Holst"
+          git config user.email "support@docondee.com"
+          git commit -m "chore: bump"
+""")
+
+    items = cpa.check_producers(root)
+
+    assert any(k.startswith("producer-pair/") for k in _keys(items)), _keys(items)
+    assert "support@docondee.com" in " ".join(it["evidence"] for it in items)
+
+
 def test_a_runtime_identity_is_accepted(tmp_path: Path):
     # Given a fixture tree whose workflow resolves its identity at run time
     root = _producer_tree(tmp_path, """\
