@@ -1176,6 +1176,30 @@ outright (#873). It skips a PR that is **already armed**, so running it twice is
 A live `make arm-auto-merge-report` is the honest status line for this rule: `44 open PR(s): 11 unarmed, 33
 already armed or draft`.
 
+## A stacked PR has no CI verdict at all (issue #945)
+
+`.github/workflows/ci.yml` triggers `pull_request` with `branches: ["main"]`, and on a
+`pull_request` event **`branches` filters the BASE branch, not the head**. So a PR whose base is
+another feature branch is not "waiting on CI" — it gets **no run at all**, and `gh pr checks`
+prints `no checks reported`, which reads like an unfinished job rather than an absent one.
+Measured on three stacked PRs (`#944`, `#929`, `#921`, all based on
+`feat/agent-profile-implementer-skill`): `statusCheckRollup` had **0** entries each, `gh run list
+--branch <head>` returned **0** runs, and closing/reopening the PR (the `reopened` activity) did
+not change that — the filter is on the base, not on the activity type.
+
+Two consequences that decide how a stacked PR is handled:
+
+- **A stacked PR can never be "green",** so it must never be merged on the strength of its checks:
+  merging it into its base is the only correct move, and the base's own PR carries the verdict for
+  `main`.
+- **The rebase-first rule is not stylistic.** Stack to keep review small, but the moment the base
+  lands, retarget (`gh pr edit --base main`) or rebase onto `main`, because until then no gate in
+  this repository is inspecting the head.
+
+`AGENTS: <sha>` in a PR body is the check a reader can make by eye: if the base is not `main`, the
+`AGENTS` line is quoting a tree the PR will not merge into.
+
+
 ## A green, conflict-free PR is merged by CI (issue #482)
 
 Landing a PR no longer waits at a keyboard. The `auto-merge` workflow

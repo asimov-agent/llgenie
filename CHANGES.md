@@ -16,6 +16,7 @@ a note that does not exist, or when a row is malformed.
 
 | Date | Change | Record | Issue / PR |
 |---|---|---|---|
+| 2026-10-29 | `docs/BOTS.md` states that a stacked PR has no CI verdict at all — `pull_request.branches: ["main"]` filters the BASE branch, so a PR based on a feature branch gets no run and `gh pr checks` says `no checks reported`; merge it only into its base, and retarget to `main` when the base lands | [2026-10-29-stacked-pr-no-ci-verdict.md](agent-wiki/2026-10-29-stacked-pr-no-ci-verdict.md) | #945 |
 | 2026-10-29 | a finished PR is armed when it is done, not when it is approved: the producing lane rolls it in, reads the arm back, and a finished-but-unarmed PR is invisible to every sweep (#873) | [2026-10-29-rule16-arm-when-done.md](agent-wiki/2026-10-29-rule16-arm-when-done.md) | #873 |
 | 2026-10-29 | every number the merger reports names the sha it was measured at: fetch → branch at that sha → bookend the act (#873) | [2026-10-29-rule15-sha-baseline.md](agent-wiki/2026-10-29-rule15-sha-baseline.md) | #873 |
 | 2026-10-29 | `make ci-wait-engine-images` reads its producer cells' own job state: a cell still `queued`/`in_progress` extends the wait to a 75-minute ceiling and then fails as `BLOCKED`, a concluded one fails at once as `NOT FOUND` — so a queue delay is never reported as a missing tag | [2026-10-29-install-wait-names-the-queue.md](agent-wiki/2026-10-29-install-wait-names-the-queue.md) | #893 / #941 |
