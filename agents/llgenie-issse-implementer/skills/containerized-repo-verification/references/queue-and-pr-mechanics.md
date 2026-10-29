@@ -58,6 +58,21 @@ depth**: runs die while still `queued`, because the next push arrives before Git
   (fewer concurrent runs, more runners), not the flag, and the two must not be "fixed" together.
 - **A run only produces a verdict if the head stops moving for longer than the queue takes** — so push
   once, then FREEZE the branch. Iterating on a queued branch cancels the run that would have answered.
+- **Prove it is safe to push before you do — never infer it from breath.** The branch may be green while a
+  run is still `queued` (not yet `in_progress`), and a push at that moment costs exactly that verdict:
+  `gh api repos/<o>/<r>/commits/<HEAD>/check-runs --jq '[.check_runs[] |
+  select(.status=="in_progress" or .status=="queued")] | length'` → `0` is the only "safe to push". A `1`
+  means hold: the run the head has been waiting on would be cancelled by your next push. Measured: #919 hit
+  this mid-flight when a remote re-take (`a19ae75c`) landed a commit-and-queue while an unrelated rebase was
+  prepared — the rebase moved the local head, and only the probe, run again at the real head, said "hold".
+- **But not every `queued` job is the verdict; read the GATE, not the count.** A residual matrix job can sit
+  `queued` long after the defining check answered — measured: at a19ae75c the `guard` job was `completed /
+  failure` while an orphaned `linux-published / install-published-none` still read `queued`. A single
+  `1`-from-any-name would have told you "hold" when the only thing left was a starved job that would never
+  produce a verdict anyway. Discriminate: is the run the PR's gate actually waits on (`guard`,
+  `check-pr-authors`, `check-agent-profiles`) still open, or is it the residual sim? If the gate concluded
+  and only a detached matrix job lingers, the count alone is not "hold" — it is the many-queued-jobs
+  mirage the planner calls "a job that never starts and a job cancelled look identical".
 - **`BLOCKED` on every PR is a symptom of this, not an approval problem.** The proof is the one PR reading
   `CLEAN` while the rest are blocked: its run happened to get scheduled.
 - Falsifiable check after any relief: successes should match the number of branches that stopped being
@@ -293,6 +308,11 @@ to tell who owes a finish comment, the second makes a lane act on a premise some
   findings" that a dedupe or a main-merge has already cleared. `git merge-base --is-ancestor <their sha> HEAD`
   tells you in one command whether their premise is behind yours; if it is, re-measure at HEAD and post BOTH
   shas, never a vague "that's old".
+- **Re-read the head in the SAME turn you quote it — a sha is a claim about the past the moment another
+  lane can push.** Three shas in one status line, all three stale, makes every claim built on them
+  backward-looking; it is your own rule ("a rebase preserves content and destroys shas; only the content
+  check can tell you") turned around against you. `git ls-remote origin refs/heads/<branch>` is one line
+  and is the only honest head to quote. Post the sha you just fetched, not the one you memorised.
 - **The base:** `git fetch origin main`, then branch from `origin/main` **at the sha you just fetched** — never
   from a branch you already had, never from a sha quoted in a chat message (stale by the time you read it).
   In this repo `origin` is the canonical same-repo owner, so `git fetch origin main` is correct; in a
