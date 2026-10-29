@@ -297,6 +297,24 @@ def shrink_findings(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR,
                               f"prefix of the rulebook, so `make sync-agent-profile` would replace "
                               f"{there} bytes with {tree} and no gate would notice (issue #791)",
                 })
+                continue
+            # Size is the signal an operator reads first, and it is the one that misses the dangerous
+            # shape: a tree copy that is LARGER than live while dropping lines live has. Measured on four
+            # lanes, every rewrite was bigger than the file it replaced (4,936/6,346/6,046/5,714 b against
+            # 431/722/4,936/2,811) and each dropped 4-32 live lines — invisible to any size comparison.
+            tree_lines = {ln.strip() for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()}
+            live_lines = {ln.strip() for ln in counterpart.read_text(encoding="utf-8").splitlines()
+                          if ln.strip()}
+            missing = live_lines - tree_lines
+            if missing:
+                items.append({
+                    "key": "live-lines-missing",
+                    "where": f"{tree_profile.name}/{rel}",
+                    "detail": f"the tree copy carries {len(missing)} line(s) the live profile has, "
+                              f"although it is {tree} b against {there} b — size says nothing here, and a "
+                              f"sync would delete rulebook that exists only live (issue #791). First: "
+                              f"{sorted(missing)[0][:90]!r}",
+                })
     return items
 
 

@@ -415,6 +415,33 @@ def test_a_live_rulebook_longer_than_the_tree_copy_is_a_finding(tmp_path):
     assert "prefix of the rulebook" in items[0]["detail"]
 
 
+def test_a_tree_copy_LARGER_than_live_while_dropping_live_lines_is_a_finding(tmp_path):
+    """The shape every size guard misses, and the one that actually shipped four times tonight.
+
+    Measured on four lanes: each tree copy was BIGGER than the live file it replaced (4,936/6,346/6,046/
+    5,714 b against 431/722/4,936/2,811) while dropping 4-32 live lines. A `there > tree` test reports
+    nothing; a sync then deletes rules that exist only in the live profile.
+    """
+    import check_agent_profiles as cap
+
+    agents = tmp_path / "agents"
+    prof = agents / "someone"
+    prof.mkdir(parents=True)
+    # the tree is LONGER, has its own text, and is missing two lines the live file carries
+    (prof / "SOUL.md").write_text("a rewritten rule \n" * 60)
+    live = tmp_path / "live" / "someone"
+    live.mkdir(parents=True)
+    (live / "SOUL.md").write_text("a rewritten rule \nthe live-only rule that must not be lost\n"
+                                  "another live-only rule\n")
+    (agents / "manifest.json").write_text('{"profiles": [{"name": "someone", "rules": ["never-merge"]}]}')
+
+    items = cap.shrink_findings(tmp_path, agents, live.parent)
+    assert [i["key"] for i in items] == ["live-lines-missing"], items
+    assert "2 line(s)" in items[0]["detail"]
+    # which line is named first is sorted order, so assert the class rather than the instance
+    assert "live-only" in items[0]["detail"]
+
+
 def test_a_tree_copy_that_matches_or_exceeds_the_live_one_is_clean(tmp_path):
     import check_agent_profiles as cap
 
