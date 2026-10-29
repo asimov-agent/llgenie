@@ -57,6 +57,15 @@ RECOMMEND_LIMIT = None  # the whole README trend list that fits the card
 SHARD = re.compile(r"-\d{5}-of-\d{5}\.gguf$")
 HF = "https://huggingface.co"
 APPLE = re.compile(r"apple|\bM[1-9]\b|\bM[1-9] (pro|max|ultra)|mac", re.I)
+#: Outer ceiling, in seconds, on ONE `scripts/hf_download.py` child (a file or a whole
+#: repo). The child bounds its own attempts (hf_download.py: MAX_RETRY=20 on a 90 s
+#: stall-watch and a 5 s pause, i.e. a ~1900 s retry ladder before transfer time), but
+#: nothing bounded the hop as a whole: `subprocess.run` with no `timeout=` let one stalled
+#: transfer hold a CI job until GitHub's 6-hour default, with `pytest`'s 300 s faulthandler
+#: only printing a traceback (issue #872). 3600 s is ~2x that ladder, so a healthy download
+#: that retries still finishes while a dead one fails in an hour NAMING its command.
+#: Override with LLGENIE_DOWNLOAD_TIMEOUT=<seconds> for an unusually slow link.
+DOWNLOAD_TIMEOUT = float(os.environ.get("LLGENIE_DOWNLOAD_TIMEOUT", "3600"))
 
 
 def models_root() -> Path:
@@ -1737,8 +1746,16 @@ def download(model: dict, gb: float | None = None, root: Path | None = None, fmt
     sizes = {f["path"]: int(f.get("size") or 0) for f in _tree(repo, rev)}
     for i, filename in enumerate(plan["files"], 1):
         label = model["id"] + (f"-{i}of{len(plan['files'])}" if len(plan["files"]) > 1 else "")
-        rc = subprocess.run([sys.executable, str(REPO / "scripts" / "hf_download.py"), repo, filename,
-                             str(dest), label, "0", str(sizes.get(filename, 0))], env=env).returncode
+        cmd = [sys.executable, str(REPO / "scripts" / "hf_download.py"), repo, filename,
+               str(dest), label, "0", str(sizes.get(filename, 0))]
+        try:
+            rc = subprocess.run(cmd, env=env, timeout=DOWNLOAD_TIMEOUT).returncode
+        except subprocess.TimeoutExpired:
+            # A timeout is a FAILURE that names itself: never an empty success, and never
+            # the 6-hour silence of a child nobody killed (issues #797, #872).
+            raise SystemExit(
+                f"[pick] download of {repo}/{filename} exceeded {DOWNLOAD_TIMEOUT:.0f}s "
+                f"(LLGENIE_DOWNLOAD_TIMEOUT) and was killed: {' '.join(cmd)}") from None
         if rc:
             raise SystemExit(f"[pick] download of {repo}/{filename} failed (exit {rc})")
     return dest if plan.get("dir") else dest / plan["path"]

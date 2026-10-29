@@ -6,9 +6,11 @@ CI injects the Actions secret as HF_TOKEN. A non-Hub URL never receives it.
 from __future__ import annotations
 
 import ast
+import urllib.error
 import urllib.request
 from pathlib import Path
 
+import pytest
 import yaml
 
 import scripts.hf_auth as auth
@@ -274,3 +276,77 @@ def test_a_rate_limit_wait_is_announced_on_stderr(monkeypatch, capsys):
     assert "waiting 12s" in err_text, err_text
     assert "org/m" in err_text, err_text
     assert sleeps and sleeps[0] == 12, sleeps
+
+
+def _always_429(seconds: int):
+    """A transport that answers the Hub's 429 with `seconds` left in the window."""
+
+    def opener(req, timeout=30):
+        raise _http_error(429, {"RateLimit": f'"api";r=0;t={seconds}'})
+
+    return opener
+
+
+def _open_hub(monkeypatch, seconds: int):
+    """Drive the REAL hub_open against a 429 forever; returns the sleeps it took."""
+    slept: list[float] = []
+    monkeypatch.setattr(auth, "_rate_limited", 0)
+    monkeypatch.setattr(auth.urllib.request, "urlopen", _always_429(seconds))
+    monkeypatch.setattr(auth.time, "sleep", lambda s: slept.append(s))
+    return slept
+
+
+def test_a_429_window_that_does_not_fit_the_budget_fails_before_sleeping(monkeypatch):
+    """The 20-minute hop (issue #872): one capped 600 s window can no longer be slept."""
+
+    # Given a Hub that answers the CAP of 600 s left in its window, forever
+    slept = _open_hub(monkeypatch, auth.RATE_LIMIT_WAIT_CAP)
+
+    # When the shared opener asks it once
+    with pytest.raises(urllib.error.HTTPError) as raised:
+        auth.hub_open(urllib.request.Request("https://huggingface.co/api/models/org/repo"))
+
+    # Then the call failed on that first answer without sleeping at all
+    assert raised.value.code == 429
+    assert slept == [], "a 429 longer than the budget must fail fast, never sleep it"
+
+    # and the budget it is measured against is smaller than ONE Hub window
+    assert 0 < auth.RATE_LIMIT_TOTAL_BUDGET < auth.RATE_LIMIT_WAIT_CAP
+
+
+def test_the_429_ceiling_is_a_total_budget_not_a_count_of_waits(monkeypatch):
+    """Two windows are allowed by COUNT, but their SUM may not pass the total."""
+
+    # Given a Hub naming 40 s each time, a 2-window count, and a 60 s total
+    monkeypatch.setattr(auth, "RATE_LIMIT_WAITS", 2)
+    monkeypatch.setattr(auth, "RATE_LIMIT_TOTAL_BUDGET", 60.0)
+    slept = _open_hub(monkeypatch, 40)
+
+    # When the shared opener asks it
+    with pytest.raises(urllib.error.HTTPError) as raised:
+        auth.hub_open(urllib.request.Request("https://huggingface.co/api/models/org/repo"))
+
+    # Then only the wait that FIT the total was spent: 40 of 60, never 80
+    assert raised.value.code == 429
+    assert slept == [40]
+    assert sum(slept) <= auth.RATE_LIMIT_TOTAL_BUDGET
+
+
+def test_the_429_failure_names_the_attempts_it_spent_and_the_budget(monkeypatch):
+    """A rate-limited lookup is diagnosable from its own message, not a stopwatch."""
+
+    # Given a Hub naming 40 s each time, a 2-window count, and a 60 s total
+    monkeypatch.setattr(auth, "RATE_LIMIT_WAITS", 2)
+    monkeypatch.setattr(auth, "RATE_LIMIT_TOTAL_BUDGET", 60.0)
+    _open_hub(monkeypatch, 40)
+
+    # When the shared opener fails on it
+    with pytest.raises(urllib.error.HTTPError) as raised:
+        auth.hub_open(urllib.request.Request("https://huggingface.co/api/models/org/repo"))
+
+    # Then the message states the attempts, the waits spent and the budget it ran out of
+    message = raised.value.msg
+    assert "2 attempt(s)" in message, message
+    assert "1 429 wait(s)" in message, message
+    assert "40s of the 60s budget" in message, message
+    assert "429" in str(raised.value)

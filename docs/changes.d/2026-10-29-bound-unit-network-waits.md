@@ -1,0 +1,1 @@
+| 2026-10-29 | the one unbounded hop in `make ci-unit` is bounded: the `hf_download.py` child carries an explicit `timeout=` that fails loudly naming its command, and one Hub lookup's 429 sleeps are capped by a 60 s total that names the attempts it spent | [2026-10-29-bound-unit-network-waits.md](agent-wiki/2026-10-29-bound-unit-network-waits.md) | #872 |

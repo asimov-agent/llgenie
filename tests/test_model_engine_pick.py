@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -113,6 +114,64 @@ def test_download_fetches_a_real_chunk_of_the_chosen_file(tmp_path, monkeypatch)
     assert out.suffix == ".gguf" and out.parent == tmp_path / "Qwen__Qwen2.5-0.5B-Instruct-GGUF"
     assert out.stat().st_size == 2**20
     assert out.read_bytes()[:4] == b"GGUF"
+
+
+def _one_file_plan(monkeypatch) -> dict:
+    """A one-file plan whose Hub tree listing is a fixture, so no test touches the Hub."""
+    monkeypatch.delenv("LLGENIE_DOWNLOAD_MAX_BYTES", raising=False)  # the subprocess path, not the range seam
+    monkeypatch.setattr(mp, "_tree", lambda repo, rev="main": [{"path": "model.gguf", "size": 4}])
+    return {"repo": "org/tiny", "files": ["model.gguf"], "path": "model.gguf", "size": 4}
+
+
+def test_download_bounds_the_hf_child_with_an_explicit_timeout(tmp_path, monkeypatch):
+    """The one unbounded hop (#872): the hf_download.py child carries a stated ceiling."""
+
+    # Given a one-file plan and a recorder standing in for the child's exit status
+    plan = _one_file_plan(monkeypatch)
+    seen: dict = {}
+
+    class _Done:
+        returncode = 0
+
+    def fake_run(cmd, **kw):
+        seen["cmd"], seen["kwargs"] = list(cmd), kw
+        return _Done()
+
+    monkeypatch.setattr(mp.subprocess, "run", fake_run)
+
+    # When the model is downloaded through the hf child
+    mp.download({"id": "tiny", "name": "tiny"}, 2, tmp_path, fmt="gguf", arch="cpu", plan=plan)
+
+    # Then the child was bounded by the module's own ceiling — never an unbounded wait
+    assert "timeout" in seen["kwargs"], "subprocess.run must pass timeout= (issue #872)"
+    assert seen["kwargs"]["timeout"] == mp.DOWNLOAD_TIMEOUT
+    assert 0 < mp.DOWNLOAD_TIMEOUT <= 3600
+    assert "hf_download.py" in " ".join(seen["cmd"])
+
+
+def test_a_stalled_hf_child_fails_loudly_naming_the_command_and_the_bound(tmp_path, monkeypatch):
+    """A real child that outlives the ceiling exits naming its command, never empty output."""
+
+    # Given a real `hf` CLI that never returns, and a 2 s ceiling
+    stub = tmp_path / "hf"
+    stub.write_text("#!/bin/sh\nsleep 3\n")
+    stub.chmod(0o755)
+    monkeypatch.setenv("HF_BIN", str(stub))
+    monkeypatch.setattr(mp, "DOWNLOAD_TIMEOUT", 2.0)
+    plan = _one_file_plan(monkeypatch)
+
+    # When the download runs
+    started = time.time()
+    with pytest.raises(SystemExit) as raised:
+        mp.download({"id": "tiny", "name": "tiny"}, 2, tmp_path, fmt="gguf", arch="cpu", plan=plan)
+    took = time.time() - started
+
+    # Then it failed inside the ceiling, naming the command and the bound it broke
+    assert took < 60, f"the bound must end the attempt, it took {took:.1f}s"
+    message = str(raised.value)
+    assert "exceeded 2s" in message, message
+    assert "hf_download.py" in message, message
+    assert "model.gguf" in message, message
 
 
 def test_model_file_param_serves_that_exact_file(tmp_path):

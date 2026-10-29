@@ -88,6 +88,15 @@ HUB_MAX_ATTEMPTS = int(os.environ.get("HUB_MAX_ATTEMPTS", "8"))
 HUB_BASE_PAUSE = float(os.environ.get("HUB_BASE_PAUSE", "1.5"))
 #: How many rate-limit windows one GET may wait out (each up to RATE_LIMIT_WAIT_CAP).
 RATE_LIMIT_WAITS = int(os.environ.get("HUB_RATE_LIMIT_WAITS", "2"))
+#: Total seconds ONE `hub_open` lookup may spend sleeping on Hub 429s (issue #872).
+#: The count above bounds the NUMBER of waits, never their sum: two capped waits are
+#: 1200 seconds, and a probe that spends them holds a shared CI runner for 20 minutes
+#: while `pytest`'s 300 s faulthandler only prints a traceback. So the waits are bounded
+#: by a TOTAL: a 429 whose window does not fit what is left of this budget raises at once
+#: (the Hub's `t` is the seconds left in a fixed 5-minute window, so sleeping less spends
+#: the next window on another 429 — failing fast is the honest answer), and the raised
+#: message states the attempts and the seconds spent, so the lookup never fails silently.
+RATE_LIMIT_TOTAL_BUDGET = float(os.environ.get("HUB_RATE_LIMIT_BUDGET", "60"))
 
 
 def rate_limit_wait(err: urllib.error.HTTPError) -> int:
@@ -128,6 +137,24 @@ def throttle_wait(text: str) -> int:
     return min(RATE_LIMIT_WAIT_CAP, max(0, seconds))
 
 
+def _rate_limited_error(err: urllib.error.HTTPError, attempts: int, waits: int,
+                        slept: float) -> urllib.error.HTTPError:
+    """The same 429, with the budget it was allowed spelled out in its message.
+
+    The status and headers are the Hub's, unchanged, so a caller that reads
+    `e.code`/`e.headers` behaves exactly as before; only `msg` (what the traceback
+    and every `str(err)` show) now says how many attempts and 429 waits were spent
+    out of what budget — a rate-limited lookup must be diagnosable from its own
+    failure, not from a stopwatch (issue #872).
+    """
+    return urllib.error.HTTPError(
+        err.url, err.code,
+        f"{err.msg} [hf_auth] {attempts} attempt(s), {waits} 429 wait(s) totalling "
+        f"{slept:.0f}s of the {RATE_LIMIT_TOTAL_BUDGET:.0f}s budget "
+        f"(HUB_RATE_LIMIT_BUDGET) over at most {RATE_LIMIT_WAITS} window(s)",
+        err.headers, None)
+
+
 def hub_open(req: urllib.request.Request, timeout: float = 30, opener=None):
     """Open a Hub URL: ONE GET with ONE bounded, stated transient budget.
 
@@ -140,6 +167,10 @@ def hub_open(req: urllib.request.Request, timeout: float = 30, opener=None):
       `t`, else 5 minutes, capped at 10) and may spend at most TWO such waits; a
       third consecutive 429 raises. Waiting less spends the next window on another
       429, and an unbounded wait would park a CI job for hours.
+    - the waits are ALSO bounded by a total, `RATE_LIMIT_TOTAL_BUDGET` (60 s): a wait
+      that does not fit what is left of it raises immediately instead of sleeping, so
+      a single lookup's wall clock is a small constant rather than 2 x 600 s. The
+      raised 429 names the attempts and the seconds spent (issue #872).
     - every other transient outcome retries on a 1.5s doubling ladder (1.5, 3, 6,
       12, 24, 48, 96) up to `HUB_MAX_ATTEMPTS` tries in total.
     - a definitive answer (401/403/404, any other status) is raised on the FIRST
@@ -154,6 +185,8 @@ def hub_open(req: urllib.request.Request, timeout: float = 30, opener=None):
     authorize(req)
     open_fn = opener or urllib.request.urlopen
     attempts = 0
+    waits = 0     # 429 waits THIS lookup has spent (the count rule caps them)
+    slept = 0.0   # seconds THIS lookup has slept on them (the total rule caps them)
     while True:
         attempts += 1
         try:
@@ -161,14 +194,18 @@ def hub_open(req: urllib.request.Request, timeout: float = 30, opener=None):
         except urllib.error.HTTPError as e:
             if e.code == 429:
                 _rate_limited += 1
-                if _rate_limited > RATE_LIMIT_WAITS:
-                    raise
                 wait = rate_limit_wait(e)
+                if _rate_limited > RATE_LIMIT_WAITS or slept + wait > RATE_LIMIT_TOTAL_BUDGET:
+                    # Two ceilings, and either one ends the lookup: too many windows, or
+                    # the next window does not fit what is left of the total budget.
+                    raise _rate_limited_error(e, attempts, waits, slept) from None
                 # Say it out loud: an unannounced multi-minute sleep is indistinguishable
                 # from a hang, and `llgenie` fans out one Hub tree call per model x format.
                 print(f"[hf] rate limited (429) on {req.full_url.split('?')[0]}: waiting {wait}s "
                       f"(wait {_rate_limited}/{RATE_LIMIT_WAITS})", file=sys.stderr, flush=True)
                 time.sleep(wait)
+                waits += 1
+                slept += wait
             elif e.code in TRANSIENT_HTTP:
                 _rate_limited = 0
                 if attempts >= HUB_MAX_ATTEMPTS:
