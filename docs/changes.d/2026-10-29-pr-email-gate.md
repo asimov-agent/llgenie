@@ -1,0 +1,1 @@
+| 2026-10-29 | the author gate matches the commit EMAIL, not the display name: a squash writes the name from the profile, so the address is the field the committer controls (#840) | [2026-10-29-pr-email-gate.md](agent-wiki/2026-10-29-pr-email-gate.md) | #840, #873 |

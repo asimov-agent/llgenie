@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A PR's commits are authored by Andy Holst or Asimov Agent — and by no one else (issue #345).
+"""A PR's commits are authored through an allowed email — and by no one else (issue #345).
 
 A commit's author is the attribution a reader trusts: `git log`, `git blame` and `git bisect` all
 answer "who wrote this line" from it. In this repository the same two identities appear under several
@@ -19,15 +19,20 @@ already ambiguous on `main`:
           2 andyholst <andyholst@users.noreply.github.com>
           1 llama-ai-agent <agent@llama-ai>
 
-Only two identities may author a PR's commits:
+Only two EMAIL addresses may author a PR's commits:
 
-    Andy Holst <andy.holst@protonmail.com>
-    Asimov Agent <support@docondee.com>
+    andy.holst@protonmail.com
+    support@docondee.com
 
-Every other author is a violation — `Andy`, `andyholst`, `Mr. Asimov`, `github-actions[bot]`,
-`llgenie fix-bot`, `Hermes Agent`, `asimov-agent`, `llama-ai-agent`. The name must match exactly AND
-the email must be the one that belongs to that name, so a commit authored `Andy Holst <someone@else>`
-is as much a violation as one authored `Andy`.
+The EMAIL is the gate, and the display name is informational. A commit's author address is the field the
+committer controls: GitHub's squash of a PR commit writes the display name from the ACCOUNT PROFILE, not
+from the committer, so `Andy <andy.holst@protonmail.com>` (issue #840), `andyholst <andy.holst@protonmail.com>`
+and `Mr. Asimov <support@docondee.com>` are the same two people and all pass. Rewriting history to satisfy a
+name the committer cannot set is the wrong fix. `github-actions[bot] <github-actions[bot]@users.
+noreply.github.com>`, `Hermes Agent <agent@asimov.local>` and `andyholst <andyholst@users.noreply.github.com>`
+are still violations — the ADDRESS is outside the allowlist, whatever the name. A producer's static scan
+(the workflow files, which authors type by hand) keeps matching name AND email, because a producer controls
+what it writes; only the commit gate keys on email alone.
 
 The scan is bounded to the commits a PR ADDS (`git rev-list --no-merges <base>..<head>`):
 
@@ -77,7 +82,7 @@ ALLOWED: dict[str, str] = {
     "Asimov Agent": "support@docondee.com",
 }
 #: The AGENTS.md section the rule must keep. Deleting it is a violation, not an edit.
-AGENTS_MANDATE = "## A PR's commits are authored by Andy Holst or Asimov Agent — no one else"
+AGENTS_MANDATE = "## A PR's commits are authored through an allowed email — no one else"
 #: A `Co-authored-by:` trailer, as git writes it. The name is everything before the `<`.
 COAUTHOR = re.compile(r"^[ \t]*co-authored-by:[ \t]*(?P<name>[^<]+?)[ \t]*<(?P<email>[^>]*)>",
                       re.IGNORECASE | re.MULTILINE)
@@ -162,9 +167,16 @@ def commits_in_range(base: str, head: str, cwd: Path = REPO_ROOT) -> list[dict]:
 
 
 def _identity_finding(where: str, sha: str, name: str, email: str) -> dict | None:
-    """The violation an author identity is, or None when it is exactly an allowed pair."""
-    allowed_email = ALLOWED.get(name)
-    if allowed_email is not None and allowed_email == email:
+    """The violation an author identity is, or None when it is an allowed one.
+
+    The EMAIL is the gate: it is the field the committer controls, and it is what GitHub's squash of a PR
+    commit does NOT rewrite. The display name is informational — a squash writes it from the PROFILE, so
+    `Andy <andy.holst@protonmail.com>` (issue #840) and `Asimov Agent <support@docondee.com>` must both pass
+    even though only the second matches the allowlist spelling. A foreign EMAIL is a violation whatever the
+    name says (`Andy Holst <someone@else>`), because the address is the attribution that cannot be fudged by
+    a merge.
+    """
+    if email in ALLOWED.values():
         return None
     expected = " or ".join(f"{n} <{e}>" for n, e in ALLOWED.items())
     return {
@@ -172,10 +184,10 @@ def _identity_finding(where: str, sha: str, name: str, email: str) -> dict | Non
         "title": f"ci: {where} carries a commit authored outside the allowlist",
         "evidence": (
             f"`{where}` commit `{sha[:12]}` is authored `{name} <{email}>`, which is outside the "
-            f"allowlist. A PR's commits may be authored by {expected} and by no one else "
-            f"(issue #345). Set the identity on the branch and re-author: "
-            f"`git config user.name \"Andy Holst\"` / "
-            f"`git config user.email andy.holst@protonmail.com`, then "
+            f"allowlist. A PR's commits must be authored through an allowed email ({expected} — the "
+            f"display name is informational, because a squash writes it from the profile; the address is "
+            f"the field the committer controls, issue #840). Set the email on the branch and re-author: "
+            f"`git config user.email andy.holst@protonmail.com` / `support@docondee.com`, then "
             f"`git rebase --reset-author` (or `git commit --amend --reset-author`) and "
             f"`git push --force-with-lease` on your own PR branch."
         ),

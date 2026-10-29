@@ -10,27 +10,28 @@ belongs to it. The range SHALL be the commits the PR ADDS (`git rev-list --no-me
 so a commit already reachable from the base branch SHALL NOT be reported and a merge commit SHALL NOT
 be reported. The finding SHALL name the commit, its author and the identity to set.
 
-#### Scenario: a commit authored `andyholst`
+#### Scenario: the squash display name with the allowed email
 
 - **GIVEN** a real git repository whose `main` is the base and a branch that adds one commit authored
   `andyholst <andy.holst@protonmail.com>`
 - **WHEN** `check_pr_authors.py check --base main --head HEAD` runs
-- **THEN** it SHALL exit non-zero and name the offending commit's author as `andyholst`
-- **Test:** `tests/test_pr_authors.py::test_a_commit_authored_andyholst_is_a_violation`
+- **THEN** it SHALL pass, because the email `andy.holst@protonmail.com` is allowlisted and the display name
+  is informational — a squash writes the name from the profile, not the committer (issue #840)
+- **Test:** `tests/test_pr_authors.py::test_a_commit_authored_andyholst_with_the_allowed_email_passes`
 
-#### Scenario: a commit authored `Andy`
+#### Scenario: a commit authored `Andy` at the allowed email
 
 - **GIVEN** a branch whose commit is authored `Andy <andy.holst@protonmail.com>`
 - **WHEN** the guard reads it
-- **THEN** it SHALL report the author `Andy` as outside the allowlist
-- **Test:** `tests/test_pr_authors.py::test_a_commit_authored_andy_is_a_violation`
+- **THEN** it SHALL pass — the address is the gate, and this is the exact shape GitHub's squash writes
+- **Test:** `tests/test_pr_authors.py::test_the_squash_display_name_with_the_allowed_email_passes`
 
-#### Scenario: a commit authored `Mr. Asimov`
+#### Scenario: a commit authored `Mr. Asimov` at the allowed email
 
 - **GIVEN** a branch whose commit is authored `Mr. Asimov <support@docondee.com>`
 - **WHEN** the guard reads it
-- **THEN** it SHALL report the author as outside the allowlist
-- **Test:** `tests/test_pr_authors.py::test_a_commit_authored_mr_asimov_is_a_violation`
+- **THEN** it SHALL pass — the display name varies, the allowed address is what the gate checks
+- **Test:** `tests/test_pr_authors.py::test_a_commit_authored_mr_asimov_with_the_allowed_email_passes`
 
 #### Scenario: the allowed identities
 

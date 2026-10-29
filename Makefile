@@ -979,7 +979,7 @@ issue-bodies-report: ## Show every issue producer, whether it renders through th
 PR_BASE ?= origin/main
 MODE ?= full
 PR_HEAD ?= HEAD
-check-pr-authors: ## CI: fail when a PR's commit is authored by anyone but Andy Holst or Asimov Agent, when a Co-authored-by trailer names anyone else, or when a producer commits off the allowlist (issue #345)
+check-pr-authors: ## CI: fail when a PR's commit is authored through an allowlisted email address, when a Co-authored-by trailer names anyone else, or when a producer commits off the allowlist (issue #345)
 	python3 scripts/check_pr_authors.py check --base "$(PR_BASE)" --head "$(PR_HEAD)"
 pr-authors-report: ## Show every commit in the range with its author verdict, and the identity each producer assigns
 	python3 scripts/check_pr_authors.py report --base "$(PR_BASE)" --head "$(PR_HEAD)"
@@ -1732,7 +1732,7 @@ help:
 	@echo "  make agent-jev-preflight           report whether the JEV decision layer is available in the agent image (never blocks a run; NERVE_REQUIRE=1 verifies the image instead) — issue #238"
 	@echo "  make check-docs                  CI: fail when a user-facing make target is undocumented, an exception is stale, an agent-wiki/ note is not indexed in CHANGES.md, or README.md carries change history"
 	@echo "  make docs-report                 show every user-facing make target (documented / missing / recorded exception) and each work record's issue references"
-	@echo "  make check-pr-authors            CI: fail when a PR commit is authored by anyone but Andy Holst or Asimov Agent, when a Co-authored-by trailer names anyone else, or when a producer commits off the allowlist — PR_BASE/PR_HEAD bound the range (issue #345)"
+	@echo "  make check-pr-authors            CI: fail when a PR commit is authored through an allowlisted email address, when a Co-authored-by trailer names anyone else, or when a producer commits off the allowlist — PR_BASE/PR_HEAD bound the range (issue #345)"
 	@echo "  make pr-authors-report           show every commit in the range with its author verdict, and the identity each producer assigns"
 	@echo "  make build-engine ENGINE=<id> [ARCH=cpu|cuda|rocm|vulkan] [PUSH=1]   build from the generated Dockerfile"
 	@echo "  make build-engine-<id>-<arch>    e.g. build-engine-vllm-cuda, build-engine-llama.cpp-prism-rocm"
