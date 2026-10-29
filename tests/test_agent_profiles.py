@@ -804,6 +804,26 @@ def test_the_skill_says_a_merged_pr_keeps_its_flags():
         assert phrase in ref, f"the merged-PR trap is missing: {phrase}"
 
 
+def test_the_bookend_and_fresh_base_procedure_is_in_the_skill():
+    """Fleet rule 15 (issue #873): branch from a freshly fetched main, bookend with two comments.
+
+    The operative half has to be where the work happens, not only in the SOUL's statement of the rule. A
+    stale base is the parent of the three findings in the reference (ratchet baseline, dead index row, lint
+    rule that did not exist at cut), and an unbookended job is how the blame gets mis-assigned.
+    """
+    ref = " ".join((REPO / "agents" / "llgenie-issse-implementer" / "skills" / "containerized-repo-verification"
+                    / "references" / "queue-and-pr-mechanics.md").read_text().lower().split())
+
+    assert "bookend the work, and start from a freshly fetched main" in ref
+    for step in ["never from a sha quoted in a chat message",
+                 "branch from that pr's tip and name both shas",
+                 "start comment",
+                 "finish comment",
+                 "report the same two lines to the planner",
+                 "a start with no finish is an abandoned claim"]:
+        assert step in ref, f"rule 15's operative half is missing a step: {step}"
+
+
 def test_the_announce_procedure_is_in_the_skill_that_governs_prs():
     """The SOUL states the constraint; the skill states the four steps and the command that proves them."""
     ref = " ".join((REPO / "agents" / "llgenie-issse-implementer" / "skills" / "containerized-repo-verification"
