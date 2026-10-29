@@ -1,0 +1,1 @@
+| 2026-10-16 | The write-level guard rule reads the `case` arm (#306, from #300 / #295) | [2026-10-16-guard-write-level-arm.md](agent-wiki/2026-10-16-guard-write-level-arm.md) | #306, #300, #295, #122 |

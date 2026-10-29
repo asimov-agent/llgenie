@@ -1,0 +1,1 @@
+| 2026-10-21 | rebase-bot reaches its conflict agent while the Makefile is conflicted (issue #460) | [2026-10-21-rebase-bot-make-snapshot.md](agent-wiki/2026-10-21-rebase-bot-make-snapshot.md) | #460, #446, #461 |

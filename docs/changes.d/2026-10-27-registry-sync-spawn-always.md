@@ -1,0 +1,1 @@
+| 2026-10-27 | the per-engine spawn runs on `always()` with a change guard, and its recipe re-checks the diff, so a red sync still files the work item that explains it | [2026-10-27-registry-sync-spawn-always.md](agent-wiki/2026-10-27-registry-sync-spawn-always.md) | #758 |

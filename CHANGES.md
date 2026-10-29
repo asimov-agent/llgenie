@@ -1,55 +1,61 @@
 # Changes — the index of change records
 
 Every change in this repository has ONE dated note of its own in `agent-wiki/` — a Zettelkasten
-entry that states what was verified against the spec, the decisions taken, and the issue and PR it
-implements. This file is the index of those notes, newest first, and it is the file `README.md`
-points at instead of carrying change history itself.
+entry that states what was verified against the spec, the decisions taken, and the issue and PR
+it implements. This file is the index of those notes, newest first, and it is the file
+`README.md` points at instead of carrying change history itself.
 
-A new change adds its note and one row here, in the same commit (AGENTS.md, "Documentation is part
-of the change"). `make check-docs` fails when a note under `agent-wiki/` is missing from this
-index, or when a row here names a note that does not exist.
+The index rows do not live here: each one is its own file, `docs/changes.d/<note-stem>.md`,
+holding a single row (issue #934). A change adds its note and its fragment, and nothing else.
+One row per file means two changes can never edit the same line, so no merge can re-dirty an
+open PR. This page is rendered from those fragments by `make changes-index`; do not edit it by
+hand.
+
+`make check-docs` fails when a note under `agent-wiki/` has no fragment, when a fragment names
+a note that does not exist, or when a row is malformed.
 
 | Date | Change | Record | Issue / PR |
 |---|---|---|---|
-| 2026-10-28 | green ⇒ merged is permanent policy, and guarded: deleting `auto-merge.yml`, dropping its automatic PR-completion trigger, or loosening `REQUIRED_MERGE_STATE` each reds `ci-unit` | [2026-10-28-auto-merge-guard.md](agent-wiki/2026-10-28-auto-merge-guard.md) | #874 |
-| 2026-10-28 | `linux / top-tier` is off the `pull_request` matrix — main + the `ci:slow` label only — decided by `make ci-slow-rows` and carried into `pipeline.yml`'s one matrix axis (the macOS rows the issue also named were removed by #870) | [2026-10-28-pr-matrix-trim-slow-rows.md](agent-wiki/2026-10-28-pr-matrix-trim-slow-rows.md) | #859 |
-| 2026-10-28 | the architecture pass is a GATED HOST SKILL in `.hermes/skills/` (`HOST_SKILLS` by name), and a required contract section is an exact heading — not a substring | [2026-10-28-architecture-pass-host-skill.md](agent-wiki/2026-10-28-architecture-pass-host-skill.md) | #805 |
+| 2026-10-29 | the change index is one row per file (`docs/changes.d/`), rendered into `CHANGES.md` by `make changes-index` — two changes can no longer edit one line, so a merge cannot re-dirty an open PR | [2026-10-29-changes-index-per-change-file.md](agent-wiki/2026-10-29-changes-index-per-change-file.md) | #934 |
 | 2026-10-28 | a plan the live search stops returning is a NOTE when its own link still answers (200, or 401/403 gated) and only a 404/410 fails the gate, while a sync carries a still-downloadable plan over instead of deleting it from the picker | [2026-10-28-quant-catalog-search-drift.md](agent-wiki/2026-10-28-quant-catalog-search-drift.md) | #769 |
-| 2026-10-28 | a shipped engine the CI matrix never builds (disabled cell, non-CI variant, no linux image) is now red in `ci-unit`: `make check-engine-coverage` + the ordered new-engine flow | [2026-10-28-engine-ci-coverage.md](agent-wiki/2026-10-28-engine-ci-coverage.md) | #771 |
-| 2026-10-28 | the spawned engine-skill tracking issue is queued through the REST label API (`POST …/issues/<n>/labels`) and read back, because `--label` on create is dropped and `gh issue edit --add-label` is refused by the runner's PAT | [2026-10-28-engine-skill-gap-label-api.md](agent-wiki/2026-10-28-engine-skill-gap-label-api.md) | #724, PR #826 |
+| 2026-10-28 | `linux / top-tier` is off the `pull_request` matrix — main + the `ci:slow` label only — decided by `make ci-slow-rows` and carried into `pipeline.yml`'s one matrix axis (the macOS rows the issue also named were removed by #870) | [2026-10-28-pr-matrix-trim-slow-rows.md](agent-wiki/2026-10-28-pr-matrix-trim-slow-rows.md) | #859 |
 | 2026-10-28 | a bot job's JEV preflight failure names its class and its fix and files ONE tracker per class, and the dedupe job finally passes `TYPESAFE_API_KEY`: `make jev-preflight-required` | [2026-10-28-issue-dedupe-jev-preflight.md](agent-wiki/2026-10-28-issue-dedupe-jev-preflight.md) | #802 |
 | 2026-10-28 | a scaffolded engine skill derives `os:` from the backend evidence it already reads — a Metal-only engine is `darwin`, not a Linux server — and its body names where the value came from | [2026-10-28-engine-skill-scaffold-os.md](agent-wiki/2026-10-28-engine-skill-scaffold-os.md) | #772 |
-| 2026-10-27 | a new registry engine's tracking issue is queued for the bots (`agent:implement`, set explicitly and read back), and `make engine-skill-scaffold` writes its skill with every unprovable key left empty | [2026-10-27-engine-skill-automation.md](agent-wiki/2026-10-27-engine-skill-automation.md) | #757 |
-| 2026-10-27 | the per-engine spawn runs on `always()` with a change guard, and its recipe re-checks the diff, so a red sync still files the work item that explains it | [2026-10-27-registry-sync-spawn-always.md](agent-wiki/2026-10-27-registry-sync-spawn-always.md) | #758 |
-| 2026-10-27 | the compile inputs state the versions the scan demands: direct runtime deps pinned, the three scanned advisories floored, both compiled files regenerated | [2026-10-27-security-requirements-pins.md](agent-wiki/2026-10-27-security-requirements-pins.md) | #754 |
-| 2026-10-27 | the weekly sync's own gate passes on the store it downloaded: the quant table stops inventing plans, an engine without a plan is not offered, a gated link is not a dead one, and the 18 new engines are dated and decided | [2026-10-27-registry-sync-unit-gate.md](agent-wiki/2026-10-27-registry-sync-unit-gate.md) | #750, #749, PR #753 |
+| 2026-10-28 | the spawned engine-skill tracking issue is queued through the REST label API (`POST …/issues/<n>/labels`) and read back, because `--label` on create is dropped and `gh issue edit --add-label` is refused by the runner's PAT | [2026-10-28-engine-skill-gap-label-api.md](agent-wiki/2026-10-28-engine-skill-gap-label-api.md) | #724, PR #826 |
+| 2026-10-28 | a shipped engine the CI matrix never builds (disabled cell, non-CI variant, no linux image) is now red in `ci-unit`: `make check-engine-coverage` + the ordered new-engine flow | [2026-10-28-engine-ci-coverage.md](agent-wiki/2026-10-28-engine-ci-coverage.md) | #771 |
+| 2026-10-28 | green ⇒ merged is permanent policy, and guarded: deleting `auto-merge.yml`, dropping its automatic PR-completion trigger, or loosening `REQUIRED_MERGE_STATE` each reds `ci-unit` | [2026-10-28-auto-merge-guard.md](agent-wiki/2026-10-28-auto-merge-guard.md) | #874 |
+| 2026-10-28 | the architecture pass is a GATED HOST SKILL in `.hermes/skills/` (`HOST_SKILLS` by name), and a required contract section is an exact heading — not a substring | [2026-10-28-architecture-pass-host-skill.md](agent-wiki/2026-10-28-architecture-pass-host-skill.md) | #805 |
 | 2026-10-27 | the security stack names no scanner this repository does not ship (Trivy + Grype/Syft + Semgrep) | [2026-10-27-security-stack-roster.md](agent-wiki/2026-10-27-security-stack-roster.md) | #714, #715, #725, #729 |
-| 2026-10-27 | Every issue states the problem, why, how, the benefit and its acceptance criteria, then one technical section — rendered by `scripts/issue_body.py` and gated by `make check-issue-bodies` | [2026-10-27-issue-body-shape.md](agent-wiki/2026-10-27-issue-body-shape.md) | #745 |
-| 2026-10-27 | Renovate owns the low-risk pins, and nothing generated | [2026-10-27-renovate-dependencies.md](agent-wiki/2026-10-27-renovate-dependencies.md) | #718 |
-| 2026-10-27 | every GitHub Action runs at a commit, not at a tag | [2026-10-27-pin-github-actions.md](agent-wiki/2026-10-27-pin-github-actions.md) | #719 |
+| 2026-10-27 | the scans run from pinned images; a PR run is narrower than the daily run | [2026-10-27-security-scan-workflow.md](agent-wiki/2026-10-27-security-scan-workflow.md) | #715 |
+| 2026-10-27 | the compile inputs state the versions the scan demands: direct runtime deps pinned, the three scanned advisories floored, both compiled files regenerated | [2026-10-27-security-requirements-pins.md](agent-wiki/2026-10-27-security-requirements-pins.md) | #754 |
+| 2026-10-27 | a finding becomes exactly one tagged issue, and never a duplicate | [2026-10-27-security-issues.md](agent-wiki/2026-10-27-security-issues.md) | #716 |
 | 2026-10-27 | the scan is its own daily pipeline (never on PR/push), and the pins it names are compiled into the requirements by the run that reports them | [2026-10-27-security-daily-self-correct.md](agent-wiki/2026-10-27-security-daily-self-correct.md) | #738, #718, #739 |
 | 2026-10-27 | the bot turns one auto-fixable issue into one green PR, or nothing | [2026-10-27-security-bot.md](agent-wiki/2026-10-27-security-bot.md) | #717 |
-| 2026-10-27 | a finding becomes exactly one tagged issue, and never a duplicate | [2026-10-27-security-issues.md](agent-wiki/2026-10-27-security-issues.md) | #716 |
-| 2026-10-27 | the scans run from pinned images; a PR run is narrower than the daily run | [2026-10-27-security-scan-workflow.md](agent-wiki/2026-10-27-security-scan-workflow.md) | #715 |
 | 2026-10-27 | one immutable Wolfi image per scanner | [2026-10-27-scanner-images.md](agent-wiki/2026-10-27-scanner-images.md) | #714 |
-| 2026-10-27 | `check-quant-catalog` fails on a plan the committed table lost, and only notes what the live Hub re-reads (a reorder, a newly published conversion) | [2026-10-27-quant-catalog-live-drift.md](agent-wiki/2026-10-27-quant-catalog-live-drift.md) | #736, #732 |
-| 2026-10-27 | the pick gates on the measured minimum, and the suite asserts rules over the store | [2026-10-27-pick-gate-engine.md](agent-wiki/2026-10-27-pick-gate-engine.md) | #669, #693, #730 |
+| 2026-10-27 | Renovate owns the low-risk pins, and nothing generated | [2026-10-27-renovate-dependencies.md](agent-wiki/2026-10-27-renovate-dependencies.md) | #718 |
+| 2026-10-27 | the weekly sync's own gate passes on the store it downloaded: the quant table stops inventing plans, an engine without a plan is not offered, a gated link is not a dead one, and the 18 new engines are dated and decided | [2026-10-27-registry-sync-unit-gate.md](agent-wiki/2026-10-27-registry-sync-unit-gate.md) | #750, #749, PR #753 |
+| 2026-10-27 | the per-engine spawn runs on `always()` with a change guard, and its recipe re-checks the diff, so a red sync still files the work item that explains it | [2026-10-27-registry-sync-spawn-always.md](agent-wiki/2026-10-27-registry-sync-spawn-always.md) | #758 |
 | 2026-10-27 | a GREEN sync PR is reviewed into ONE issue (VRAM trend list + highest-t/s server) | [2026-10-27-registry-sync-review.md](agent-wiki/2026-10-27-registry-sync-review.md) | #709, #720 |
 | 2026-10-27 | a changed store opens ONE issue that states what changed | [2026-10-27-registry-sync-change-issue.md](agent-wiki/2026-10-27-registry-sync-change-issue.md) | #704 |
-| 2026-10-27 | a check whose exit code is discarded is not a gate | [2026-10-27-quant-catalog-check-exit.md](agent-wiki/2026-10-27-quant-catalog-check-exit.md) | #701, #702 |
 | 2026-10-27 | a `formats` name that is not a format is not a loss | [2026-10-27-registry-keys-format-vocab.md](agent-wiki/2026-10-27-registry-keys-format-vocab.md) | #698, #700 |
+| 2026-10-27 | `check-quant-catalog` fails on a plan the committed table lost, and only notes what the live Hub re-reads (a reorder, a newly published conversion) | [2026-10-27-quant-catalog-live-drift.md](agent-wiki/2026-10-27-quant-catalog-live-drift.md) | #736, #732 |
+| 2026-10-27 | a check whose exit code is discarded is not a gate | [2026-10-27-quant-catalog-check-exit.md](agent-wiki/2026-10-27-quant-catalog-check-exit.md) | #701, #702 |
+| 2026-10-27 | every GitHub Action runs at a commit, not at a tag | [2026-10-27-pin-github-actions.md](agent-wiki/2026-10-27-pin-github-actions.md) | #719 |
+| 2026-10-27 | the pick gates on the measured minimum, and the suite asserts rules over the store | [2026-10-27-pick-gate-engine.md](agent-wiki/2026-10-27-pick-gate-engine.md) | #669, #693, #730 |
+| 2026-10-27 | Every issue states the problem, why, how, the benefit and its acceptance criteria, then one technical section — rendered by `scripts/issue_body.py` and gated by `make check-issue-bodies` | [2026-10-27-issue-body-shape.md](agent-wiki/2026-10-27-issue-body-shape.md) | #745 |
+| 2026-10-27 | a new registry engine's tracking issue is queued for the bots (`agent:implement`, set explicitly and read back), and `make engine-skill-scaffold` writes its skill with every unprovable key left empty | [2026-10-27-engine-skill-automation.md](agent-wiki/2026-10-27-engine-skill-automation.md) | #757 |
 | 2026-10-26 | the store is vendored with the contract it is written against | [2026-10-26-vendor-model-contract.md](agent-wiki/2026-10-26-vendor-model-contract.md) | #694, #699 |
-| 2026-10-26 | the registry link check asks the Hub's API, and a 429 is not a dead link | [2026-10-26-registry-link-check-hub.md](agent-wiki/2026-10-26-registry-link-check-hub.md) | #690, #691 |
-| 2026-10-26 | the vendored registry is normalised on the way in (formats vocabulary, duplicates) | [2026-10-26-registry-normalise-on-vendor.md](agent-wiki/2026-10-26-registry-normalise-on-vendor.md) | #687 |
-| 2026-10-26 | the registry sync carries a NEW engine instead of dying on it | [2026-10-26-registry-sync-carries-new-engines.md](agent-wiki/2026-10-26-registry-sync-carries-new-engines.md) | #683, #685 |
+| 2026-10-26 | the unit gate stops requiring a tag its own PR is publishing | [2026-10-26-unit-gate-bump-race.md](agent-wiki/2026-10-26-unit-gate-bump-race.md) | #672, #674, #665, #663 |
 | 2026-10-26 | a dry run that outlives its deadline is retried, not raised out of the seam | [2026-10-26-top-tier-timeout-retry.md](agent-wiki/2026-10-26-top-tier-timeout-retry.md) | #676 |
 | 2026-10-26 | sglang's version fallback is the pin, never a commit sha | [2026-10-26-sglang-version-not-pin.md](agent-wiki/2026-10-26-sglang-version-not-pin.md) | #636, #650 |
-| 2026-10-26 | the README is the user guide; every change is a dated note indexed here | [2026-10-26-readme-user-guide-changes-index.md](agent-wiki/2026-10-26-readme-user-guide-changes-index.md) | #678, #680 |
-| 2026-10-26 | the unit gate stops requiring a tag its own PR is publishing | [2026-10-26-unit-gate-bump-race.md](agent-wiki/2026-10-26-unit-gate-bump-race.md) | #672, #674, #665, #663 |
 | 2026-10-26 | gh gets the repo slug, not the checkout path | [2026-10-26-repo-slug-default.md](agent-wiki/2026-10-26-repo-slug-default.md) | #343, #434 |
 | 2026-10-26 | the rename guard reads live files, not the raw tree | [2026-10-26-rename-guard-tracked.md](agent-wiki/2026-10-26-rename-guard-tracked.md) | #350 |
+| 2026-10-26 | the registry sync carries a NEW engine instead of dying on it | [2026-10-26-registry-sync-carries-new-engines.md](agent-wiki/2026-10-26-registry-sync-carries-new-engines.md) | #683, #685 |
+| 2026-10-26 | the vendored registry is normalised on the way in (formats vocabulary, duplicates) | [2026-10-26-registry-normalise-on-vendor.md](agent-wiki/2026-10-26-registry-normalise-on-vendor.md) | #687 |
+| 2026-10-26 | the registry link check asks the Hub's API, and a 429 is not a dead link | [2026-10-26-registry-link-check-hub.md](agent-wiki/2026-10-26-registry-link-check-hub.md) | #690, #691 |
 | 2026-10-26 | the additive-only gate compares identity, so the weekly sync can land | [2026-10-26-registry-guard-measurement-identity.md](agent-wiki/2026-10-26-registry-guard-measurement-identity.md) | #668, #534, #671, #673 |
 | 2026-10-26 | a dry refiner pick writes nothing | [2026-10-26-refiner-dry-no-write.md](agent-wiki/2026-10-26-refiner-dry-no-write.md) | #352 |
+| 2026-10-26 | the README is the user guide; every change is a dated note indexed here | [2026-10-26-readme-user-guide-changes-index.md](agent-wiki/2026-10-26-readme-user-guide-changes-index.md) | #678, #680 |
 | 2026-10-26 | the openspec gate validates every active change | [2026-10-26-openspec-validate-all.md](agent-wiki/2026-10-26-openspec-validate-all.md) | #156 |
 | 2026-10-26 | the issue-bot re-checks the fast gates before it pushes | [2026-10-26-issue-bot-gates.md](agent-wiki/2026-10-26-issue-bot-gates.md) | #475, #428, #429, #407 |
 | 2026-10-26 | a help line's CI claim must match what CI does | [2026-10-26-install-ci-claim.md](agent-wiki/2026-10-26-install-ci-claim.md) | #239 |
@@ -122,8 +128,8 @@ index, or when a row here names a note that does not exist.
 | 2026-10-21 | A green PR blocked only by a review is approved by the other identity — and every deferral is on the PR | [2026-10-21-auto-merge-review-approve.md](agent-wiki/2026-10-21-auto-merge-review-approve.md) | #491, #489, #481 |
 | 2026-10-21 | A green, conflict-free PR is merged by CI | [2026-10-21-auto-merge-green-prs.md](agent-wiki/2026-10-21-auto-merge-green-prs.md) | #482 |
 | 2026-10-21 | The auto-merge job accepts the owner's fork as a PR head | [2026-10-21-auto-merge-fork-head.md](agent-wiki/2026-10-21-auto-merge-fork-head.md) | #488, #483, #481 |
-| 2026-10-21 | architecture bot keeps docs/ARCHITECTURE.md current (issue #449) | [2026-10-21-architecture-bot.md](agent-wiki/2026-10-21-architecture-bot.md) | #449, #451, #269, #248 |
 | 2026-10-21 | a lost GitHub answer no longer strands an architecture refresh (issue #479) | [2026-10-21-architecture-bot-pr-retry.md](agent-wiki/2026-10-21-architecture-bot-pr-retry.md) | #479, #478, #480, #481 |
+| 2026-10-21 | architecture bot keeps docs/ARCHITECTURE.md current (issue #449) | [2026-10-21-architecture-bot.md](agent-wiki/2026-10-21-architecture-bot.md) | #449, #451, #269, #248 |
 | 2026-10-21 | the agent image can publish: GITHUB_TOKEN, not the owner PAT | [2026-10-21-agent-image-ghcr-credential.md](agent-wiki/2026-10-21-agent-image-ghcr-credential.md) | #413, #441, #335, #435 |
 | 2026-10-20 | The masked web reach is deployed: a bot leg uses it, and the URLs are checked | [2026-10-20-web-reach-deploy.md](agent-wiki/2026-10-20-web-reach-deploy.md) | #380, #357, #362, #402 |
 | 2026-10-20 | The loop's fast suite is a named group in the roster, not a hand-list (issue #403) | [2026-10-20-unit-suite-fast-group.md](agent-wiki/2026-10-20-unit-suite-fast-group.md) | #403, #393, #397 |

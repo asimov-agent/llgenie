@@ -1,0 +1,1 @@
+| 2026-10-19 | The engine smoke fetches its model through the one downloader (issue #385) | [2026-10-19-engine-smoke-throttle.md](agent-wiki/2026-10-19-engine-smoke-throttle.md) | #385, #374, #372, #339 |

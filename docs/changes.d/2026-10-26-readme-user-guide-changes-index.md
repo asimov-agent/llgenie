@@ -1,0 +1,1 @@
+| 2026-10-26 | the README is the user guide; every change is a dated note indexed here | [2026-10-26-readme-user-guide-changes-index.md](agent-wiki/2026-10-26-readme-user-guide-changes-index.md) | #678, #680 |

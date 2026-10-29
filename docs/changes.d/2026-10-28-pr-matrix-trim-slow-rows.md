@@ -1,0 +1,1 @@
+| 2026-10-28 | `linux / top-tier` is off the `pull_request` matrix — main + the `ci:slow` label only — decided by `make ci-slow-rows` and carried into `pipeline.yml`'s one matrix axis (the macOS rows the issue also named were removed by #870) | [2026-10-28-pr-matrix-trim-slow-rows.md](agent-wiki/2026-10-28-pr-matrix-trim-slow-rows.md) | #859 |

@@ -1,0 +1,1 @@
+| 2026-10-20 | The TensorFold suites stop assuming the skill pip-installs itself (issue #389) | [2026-10-20-tensorfold-kind-tests.md](agent-wiki/2026-10-20-tensorfold-kind-tests.md) | #389, #386, #388, #373 |

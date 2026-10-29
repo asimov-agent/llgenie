@@ -1,0 +1,1 @@
+| 2026-10-26 | the vendored registry is normalised on the way in (formats vocabulary, duplicates) | [2026-10-26-registry-normalise-on-vendor.md](agent-wiki/2026-10-26-registry-normalise-on-vendor.md) | #687 |

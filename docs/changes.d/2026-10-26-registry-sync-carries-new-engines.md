@@ -1,0 +1,1 @@
+| 2026-10-26 | the registry sync carries a NEW engine instead of dying on it | [2026-10-26-registry-sync-carries-new-engines.md](agent-wiki/2026-10-26-registry-sync-carries-new-engines.md) | #683, #685 |

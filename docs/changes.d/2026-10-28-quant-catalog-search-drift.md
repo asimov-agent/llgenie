@@ -1,0 +1,1 @@
+| 2026-10-28 | a plan the live search stops returning is a NOTE when its own link still answers (200, or 401/403 gated) and only a 404/410 fails the gate, while a sync carries a still-downloadable plan over instead of deleting it from the picker | [2026-10-28-quant-catalog-search-drift.md](agent-wiki/2026-10-28-quant-catalog-search-drift.md) | #769 |

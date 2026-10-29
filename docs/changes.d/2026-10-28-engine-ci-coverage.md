@@ -1,0 +1,1 @@
+| 2026-10-28 | a shipped engine the CI matrix never builds (disabled cell, non-CI variant, no linux image) is now red in `ci-unit`: `make check-engine-coverage` + the ordered new-engine flow | [2026-10-28-engine-ci-coverage.md](agent-wiki/2026-10-28-engine-ci-coverage.md) | #771 |

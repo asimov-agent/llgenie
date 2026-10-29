@@ -1,0 +1,1 @@
+| 2026-10-27 | the security stack names no scanner this repository does not ship (Trivy + Grype/Syft + Semgrep) | [2026-10-27-security-stack-roster.md](agent-wiki/2026-10-27-security-stack-roster.md) | #714, #715, #725, #729 |

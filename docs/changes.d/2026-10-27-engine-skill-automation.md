@@ -1,0 +1,1 @@
+| 2026-10-27 | a new registry engine's tracking issue is queued for the bots (`agent:implement`, set explicitly and read back), and `make engine-skill-scaffold` writes its skill with every unprovable key left empty | [2026-10-27-engine-skill-automation.md](agent-wiki/2026-10-27-engine-skill-automation.md) | #757 |

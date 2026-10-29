@@ -1,0 +1,1 @@
+| 2026-10-21 | a failed rebase leaves a clean tree for the next decision (issue #464) | [2026-10-21-rebase-bot-actor-abort.md](agent-wiki/2026-10-21-rebase-bot-actor-abort.md) | #464, #463, #460, #465 |

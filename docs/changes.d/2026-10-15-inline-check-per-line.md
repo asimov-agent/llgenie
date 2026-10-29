@@ -1,0 +1,1 @@
+| 2026-10-15 | The inline-script check was per step block, so a `gh` step could hide a script call (#296) | [2026-10-15-inline-check-per-line.md](agent-wiki/2026-10-15-inline-check-per-line.md) | #296, #293, #295, #305 |

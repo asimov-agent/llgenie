@@ -1,0 +1,1 @@
+| 2026-10-21 | a lost GitHub answer no longer strands an architecture refresh (issue #479) | [2026-10-21-architecture-bot-pr-retry.md](agent-wiki/2026-10-21-architecture-bot-pr-retry.md) | #479, #478, #480, #481 |

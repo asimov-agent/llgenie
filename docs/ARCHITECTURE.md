@@ -168,11 +168,11 @@ The tree is 1576 tracked files: `data/` 9, `skills/` 17 (16 engine directories p
 | `.hermes/skills/` | the Hermes **project skills** — `issue-triage`, `issue-implement`, `issue-refiner`, `issue-dedup`, `pr-fix`, `rebase-conflict`, `architecture-doc`, `engine-params-review`, `registry-sync-review`, `agent-fetch`, `bot-unattended` (plus a `README.md`), each leg's contract preloaded with `hermes -s <name>`, and the HOST skill `llgenie-architecture-pass`, which no leg preloads (admitted by name in `HOST_SKILLS`) — all guarded by `make check-agent-skills` (issues #577, #805) |
 | `containers/ci-variant/` | the CUDA-toolkit variant-build image (`make test-variant-image`) with its own `requirements.txt` / `requirements-dev.txt` |
 | `data/` | vendored registry, the vendored model contract (schema + prose) it is validated against, quant catalog, strata model map, engine-skill gap, unsupported engines, trending README, and the scan failure/issue policy |
-| `docs/` | `ARCHITECTURE.md` (this map), `ENGINES.md` (per-engine build/serve), `BOTS.md` (automation, crons, credentials), `SCANS.md` (the scan pipeline), `SCANNERS.md` (scanner images), `SECURITY.md` (supply-chain pins), `RENOVATE.md` (dependency updates) |
-| `openspec/` | the change record: `config.yaml`, its `Dockerfile`, and `changes/<name>/{proposal.md,specs/**,tasks.md}` (242 changes) |
-| `agent-wiki/` | dated work record (210 entries), one per change, referencing its issue and PR |
-| `CHANGES.md` | the index of those notes, newest first; a note that is missing from it fails `make check-docs` (issue #678) |
-| `tests/` | 145 `tests/test_*.py` files, fixtures, shared test helpers (`tests/top_tier_dry_run.py` for the live Hub dry run, `tests/hub_probe.py` for a probe's verdict on one Hub file) and the live end-to-end gates, discovered by `scripts/unit_tests.py` |
+| `docs/` | `ARCHITECTURE.md` (this map), `ENGINES.md` (per-engine build/serve), `BOTS.md` (automation, crons, credentials), `SCANS.md` (the scan pipeline), `SCANNERS.md` (scanner images), `SECURITY.md` (supply-chain pins), `RENOVATE.md` (dependency updates), and `changes.d/` (one index row per change — the change index is a directory, never one shared table, issue #934) |
+| `openspec/` | the change record: `config.yaml`, its `Dockerfile`, and `changes/<name>/{proposal.md,specs/**,tasks.md}` (250 changes) |
+| `agent-wiki/` | dated work record (218 entries), one per change, referencing its issue and PR |
+| `CHANGES.md` | those notes' index, newest first — one row rendered from each `docs/changes.d/<note>.md` by `make changes-index`; a note with no row, or a row naming a missing note, fails `make check-docs` (issues #678, #934) |
+| `tests/` | 151 `tests/test_*.py` files, fixtures, shared test helpers (`tests/top_tier_dry_run.py` for the live Hub dry run, `tests/hub_probe.py` for a probe's verdict on one Hub file) and the live end-to-end gates, discovered by `scripts/unit_tests.py` |
 | `docker-compose-files/` | the compose definitions for the OpenSpec CLI (`openspec.yaml`) and the test image (`test.yaml`) |
 | `tools/` | pip-compile inputs (`requirements.in`, `requirements-dev.in`), the generated `security-floors.in` constraint file, and the venv targets |
 | `renovate.json` | the dependency / base-image update config Renovate acts on; its properties are a gate (`make check-renovate`), not a preference |
@@ -742,8 +742,10 @@ The structural gates are make targets, so the same command runs locally and in C
 `name:`), `make check-dispatch-forms` (a dispatchable workflow documents its inputs and
 stages), `make check-wiring` (every script/test reachable from a target CI runs),
 `make check-docs` (every `##` make target is in `README.md` or a `docs/` page the README
-links, every `agent-wiki/` note names its issue and PR and is indexed in `CHANGES.md`, and
-`README.md` carries no change history), `make check-pr-hygiene`, `make check-issue-bodies`,
+links, every `agent-wiki/` note names its issue and PR and has its own index row in
+`docs/changes.d/` — `CHANGES.md` is that index rendered, so no two changes edit one line
+(issue #934) — and `README.md` carries no change history), `make check-pr-hygiene`,
+`make check-issue-bodies`,
 `make check-pr-authors`, `make check-secret-output`, `make check-engine-source` (a
 `prebuilt: false` cell must run a real build, with its tracked exceptions reported),
 `make check-actions` and `make check-renovate`, `make check-scanner-images` and the
@@ -756,7 +758,7 @@ inline prompt is a pointer), the `make secret-scan` / `make secret-scan-self-tes
 Makefile's shell) and `scripts/check_python.py`, which `tools/Makefile` runs to keep the gguf
 venv on Python 3.11. All of them run inside `make ci-unit`. Every gate has a report target
 that prints what it read without deciding anything — `make workflows-report`,
-`make wiring-report`, `make docs-report`, `make pr-hygiene-report`,
+`make wiring-report`, `make docs-report`, `make changes-index-report`, `make pr-hygiene-report`,
 `make issue-bodies-report`, `make pr-authors-report`, `make secret-output-report`,
 `make model-pin-report`, `make agent-skills-report`, `make engine-source-report`,
 `make dispatch-forms-report`, `make actions-report`, `make renovate-report` — so a red gate
@@ -1117,6 +1119,7 @@ bound and still exits non-zero with the CLI's named cause (issue #399, locked by
 `make check-actions`, `make check-renovate`, `make check-scanner-images`, the
 `check-security-*` roster, `make check-agent-model` and `make check-agent-skills` are the
 repository's structural gates, and each has its report target (`docs-report`,
+`changes-index-report`,
 `pr-hygiene-report`, `issue-bodies-report`, `pr-authors-report`, `workflows-report`,
 `dispatch-forms-report`, `wiring-report`, `secret-output-report`, `engine-source-report`,
 `actions-report`, `renovate-report`, `model-pin-report`, `agent-skills-report`) that prints
@@ -1132,8 +1135,10 @@ The README is the user guide, not a change log: a target is documented when its 
 appears in `README.md` or in a `docs/` page the README links (`docs/BOTS.md` for automation,
 `docs/ENGINES.md` for engine build/serve, `docs/SCANS.md` / `docs/SCANNERS.md` for the scan
 pipeline, `docs/SECURITY.md` for the pins, `docs/RENOVATE.md` for dependency updates), every
-`agent-wiki/` note must reference an issue or PR and be indexed in `CHANGES.md`, every index
-row must name a note that exists, `README.md` must link `CHANGES.md`, and a README heading
+`agent-wiki/` note must reference an issue or PR and have its own index row in
+`docs/changes.d/` (one row per file, so a merge never re-dirties an open PR — issue #934), every
+row must name a note that exists, `CHANGES.md` — the rendered table — must link no missing note,
+`README.md` must link `CHANGES.md`, and a README heading
 that carries an `(issue #N)`, a change-log title or the generated dispatch-table marker
 fails. A user-facing target that is deliberately undocumented needs a dated exception in
 `tests/fixtures/docs-exceptions.json`, and that entry goes stale once the target is

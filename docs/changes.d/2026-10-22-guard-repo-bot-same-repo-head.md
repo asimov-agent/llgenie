@@ -1,0 +1,1 @@
+| 2026-10-22 | The guard admits the repository's own bot on a same-repo head | [2026-10-22-guard-repo-bot-same-repo-head.md](agent-wiki/2026-10-22-guard-repo-bot-same-repo-head.md) | #510, #511, #495, #480 |

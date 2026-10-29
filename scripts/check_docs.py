@@ -25,8 +25,11 @@ What "documented" means — one definition, no guessing:
   decision, not an accident. A recorded exception that the surface now documents is STALE and must
   be deleted, so the file cannot rot;
 - every `agent-wiki/*.md` entry must **reference** the issue or PR it implements (`#<n>`) — a work
-  record that names no issue is unfalsifiable — and must be **indexed in `CHANGES.md`**;
-- every note `CHANGES.md` links must exist, and `README.md` must link `CHANGES.md`;
+  record that names no issue is unfalsifiable — and must be **indexed by one fragment** of its own
+  under `docs/changes.d/` (one row per file, so no two changes edit one line — issue #934);
+- every fragment must name the note of its own name and be one well-formed row, and `CHANGES.md`
+  (rendered from the fragments by `make changes-index`) must link no note that is missing;
+  `README.md` must link `CHANGES.md`;
 - `README.md` must stay a user guide: no heading carrying an `(issue #N)` change reference, no
   generated dispatch-table marker, and no change-log heading — a bot that appends change history
   to it fails this gate instead of being able to.
@@ -45,6 +48,7 @@ REPO = Path(__file__).resolve().parent.parent
 MAKEFILE = "Makefile"
 README = "README.md"
 CHANGES = "CHANGES.md"
+FRAGMENTS = "docs/changes.d"
 DOCS_DIR = "docs"
 WIKI_DIR = "agent-wiki"
 EXCEPTIONS = "tests/fixtures/docs-exceptions.json"
@@ -131,6 +135,22 @@ def _wiki_entries(root: Path) -> dict[str, str]:
     return {p.name: p.read_text() for p in sorted(wiki.glob("*.md"))}
 
 
+def _index_fragments(root: Path) -> dict[str, str]:
+    """`{note stem: fragment text}` for every `docs/changes.d/*.md` index row (issue #934)."""
+    d = root / FRAGMENTS
+    if not d.is_dir():
+        return {}
+    return {p.stem: p.read_text() for p in sorted(d.glob("*.md"))}
+
+
+def _index_module():
+    """`scripts/changes_index.py` — one parser for the index, shared with its own target."""
+    if str(Path(__file__).resolve().parent) not in sys.path:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import changes_index as ci
+    return ci
+
+
 def graph(root: Path = REPO) -> dict:
     """The documentation graph, computed from the real files."""
     targets = _targets(root) if (root / MAKEFILE).exists() else {}
@@ -149,7 +169,8 @@ def graph(root: Path = REPO) -> dict:
         "documented": documented,
         "undocumented": undocumented,
         "exceptions": _exceptions(root),
-        "wiki": _wiki_entries(root),
+        "wiki": {name[:-3]: text for name, text in _wiki_entries(root).items()},
+        "fragments": _index_fragments(root),
         "changes": changes,
         "changes_links": sorted(set(WIKI_LINK_RE.findall(changes))),
         "change_headings": [m.group(0).strip() for m in CHANGE_HEADING_RE.finditer(readme)]
@@ -177,15 +198,23 @@ def problems(info: dict) -> list[str]:
             errors.append(
                 f"{EXCEPTIONS}: {target!r} is STALE — the docs document it now; delete the entry"
             )
-    for name, text in info["wiki"].items():
+    for stem, text in info["wiki"].items():
         if not REF_RE.search(text):
-            errors.append(f"{WIKI_DIR}/{name}: references no issue or PR (`#<n>`)")
-        if name not in info["changes_links"]:
+            errors.append(f"{WIKI_DIR}/{stem}.md: references no issue or PR (`#<n>`)")
+        if stem not in info["fragments"]:
             errors.append(
-                f"{WIKI_DIR}/{name}: is not indexed in {CHANGES} — add its row "
-                f"(one change, one dated note, one index line)"
+                f"{WIKI_DIR}/{stem}.md: is not indexed — add {FRAGMENTS}/{stem}.md with its row "
+                f"(one change, one note, one index row of its own)"
             )
-    known = set(info["wiki"])
+    ci = _index_module()
+    for stem, text in info["fragments"].items():
+        row, errs = ci.parse_row(text, stem)
+        errors.extend(errs)
+        if stem not in info["wiki"]:
+            errors.append(
+                f"{FRAGMENTS}/{stem}.md: links {WIKI_DIR}/{stem}.md, which does not exist"
+            )
+    known = {stem + ".md" for stem in info["wiki"]}
     for name in info["changes_links"]:
         if name not in known:
             errors.append(f"{CHANGES}: links {WIKI_DIR}/{name}, which does not exist")
@@ -223,15 +252,16 @@ def report(info: dict) -> str:
             f"[check-docs]   exception {target} (issue #{entry['issue']}, {entry['decided']}): "
             f"{entry['reason']}"
         )
-    for name, text in info["wiki"].items():
+    for stem, text in info["wiki"].items():
         refs = REF_RE.findall(text)
-        indexed = "indexed" if name in info["changes_links"] else "NOT INDEXED"
+        indexed = "indexed" if stem in info["fragments"] else "NOT INDEXED"
         if refs:
-            lines.append(f"[check-docs]   {WIKI_DIR}/{name}: {len(refs)} issue/PR reference(s), {indexed}")
+            lines.append(f"[check-docs]   {WIKI_DIR}/{stem}.md: {len(refs)} issue/PR reference(s), {indexed}")
         else:
-            lines.append(f"[check-docs]   {WIKI_DIR}/{name}: NO issue/PR reference")
+            lines.append(f"[check-docs]   {WIKI_DIR}/{stem}.md: NO issue/PR reference")
     lines.append(
-        f"[check-docs] {CHANGES}: {len(info['changes_links'])} note link(s); "
+        f"[check-docs] {FRAGMENTS}: {len(info['fragments'])} index row(s); "
+        f"{CHANGES}: {len(info['changes_links'])} note link(s); "
         f"{len(info['change_headings'])} change-history heading(s) in {info['readme']}"
     )
     return "\n".join(lines)
@@ -256,8 +286,9 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"[check-docs] ok: every one of the {len(info['targets'])} user-facing make targets is "
         f"documented in {len(info['surface'])} doc(s) (or a recorded exception), every "
-        f"{len(info['wiki'])} {WIKI_DIR}/ entry references an issue or PR and is indexed in "
-        f"{CHANGES}, and {info['readme']} carries no change history"
+        f"{len(info['wiki'])} {WIKI_DIR}/ entry references an issue or PR and has its own index "
+        f"row in {FRAGMENTS}, {CHANGES} links no missing note, and {info['readme']} carries no "
+        f"change history"
     )
     return 0
 

@@ -1,0 +1,1 @@
+| 2026-10-28 | a scaffolded engine skill derives `os:` from the backend evidence it already reads — a Metal-only engine is `darwin`, not a Linux server — and its body names where the value came from | [2026-10-28-engine-skill-scaffold-os.md](agent-wiki/2026-10-28-engine-skill-scaffold-os.md) | #772 |

@@ -1,0 +1,1 @@
+| 2026-10-28 | a bot job's JEV preflight failure names its class and its fix and files ONE tracker per class, and the dedupe job finally passes `TYPESAFE_API_KEY`: `make jev-preflight-required` | [2026-10-28-issue-dedupe-jev-preflight.md](agent-wiki/2026-10-28-issue-dedupe-jev-preflight.md) | #802 |

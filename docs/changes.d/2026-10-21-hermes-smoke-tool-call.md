@@ -1,0 +1,1 @@
+| 2026-10-21 | `make hermes-smoke` proves the tool calling every bot leg depends on | [2026-10-21-hermes-smoke-tool-call.md](agent-wiki/2026-10-21-hermes-smoke-tool-call.md) | #407, #439, #426, #427 |

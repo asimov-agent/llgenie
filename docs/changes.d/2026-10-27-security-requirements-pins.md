@@ -1,0 +1,1 @@
+| 2026-10-27 | the compile inputs state the versions the scan demands: direct runtime deps pinned, the three scanned advisories floored, both compiled files regenerated | [2026-10-27-security-requirements-pins.md](agent-wiki/2026-10-27-security-requirements-pins.md) | #754 |

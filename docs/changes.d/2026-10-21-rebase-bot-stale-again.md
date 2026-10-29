@@ -1,0 +1,1 @@
+| 2026-10-21 | eligibility is the merge state, not "already rebased today" (issue #467) | [2026-10-21-rebase-bot-stale-again.md](agent-wiki/2026-10-21-rebase-bot-stale-again.md) | #467, #447, #448, #458 |

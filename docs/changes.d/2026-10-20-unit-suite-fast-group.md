@@ -1,0 +1,1 @@
+| 2026-10-20 | The loop's fast suite is a named group in the roster, not a hand-list (issue #403) | [2026-10-20-unit-suite-fast-group.md](agent-wiki/2026-10-20-unit-suite-fast-group.md) | #403, #393, #397 |

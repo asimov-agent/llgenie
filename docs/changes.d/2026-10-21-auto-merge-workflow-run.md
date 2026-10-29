@@ -1,0 +1,1 @@
+| 2026-10-21 | The merge runs where the secrets are: `auto-merge` is a `workflow_run` workflow | [2026-10-21-auto-merge-workflow-run.md](agent-wiki/2026-10-21-auto-merge-workflow-run.md) | #493, #491, #481 |

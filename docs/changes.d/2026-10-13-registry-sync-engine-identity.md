@@ -1,0 +1,1 @@
+| 2026-10-13 | 2026-10-13 registry-sync engine identity (issue #223, merged PR #224) | [2026-10-13-registry-sync-engine-identity.md](agent-wiki/2026-10-13-registry-sync-engine-identity.md) | #223, #224, #226, #225 |

@@ -1,0 +1,1 @@
+| 2026-10-28 | the spawned engine-skill tracking issue is queued through the REST label API (`POST …/issues/<n>/labels`) and read back, because `--label` on create is dropped and `gh issue edit --add-label` is refused by the runner's PAT | [2026-10-28-engine-skill-gap-label-api.md](agent-wiki/2026-10-28-engine-skill-gap-label-api.md) | #724, PR #826 |

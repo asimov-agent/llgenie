@@ -1,0 +1,1 @@
+| 2026-10-14 | The issue-refiner: make the backlog implementable on the spare capacity (issue #263, PR #264) | [2026-10-14-issue-refiner.md](agent-wiki/2026-10-14-issue-refiner.md) | #263, #264, #248, #261 |

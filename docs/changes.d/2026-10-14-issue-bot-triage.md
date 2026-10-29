@@ -1,0 +1,1 @@
+| 2026-10-14 | The issue bot reads the whole thread and decides: implement / refine / close (issue #261, PR #262) | [2026-10-14-issue-bot-triage.md](agent-wiki/2026-10-14-issue-bot-triage.md) | #261, #262, #248, #257 |

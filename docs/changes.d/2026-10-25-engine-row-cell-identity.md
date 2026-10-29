@@ -1,0 +1,1 @@
+| 2026-10-25 | an engine row decides through one function, with its cell's identity | [2026-10-25-engine-row-cell-identity.md](agent-wiki/2026-10-25-engine-row-cell-identity.md) | #634, #637, #625, #632 |

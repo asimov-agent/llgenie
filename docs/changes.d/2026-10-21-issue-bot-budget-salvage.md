@@ -1,0 +1,1 @@
+| 2026-10-21 | the issue-bot's implement leg has a budget and salvages its work (issue #476) | [2026-10-21-issue-bot-budget-salvage.md](agent-wiki/2026-10-21-issue-bot-budget-salvage.md) | #476, #486 |

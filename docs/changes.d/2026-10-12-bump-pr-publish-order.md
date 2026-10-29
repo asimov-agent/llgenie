@@ -1,0 +1,1 @@
+| 2026-10-12 | bump PR publish order (issue #169, OpenSpec fix-bump-pr-install-pull-order) | [2026-10-12-bump-pr-publish-order.md](agent-wiki/2026-10-12-bump-pr-publish-order.md) | #169, #130, #168, #120 |

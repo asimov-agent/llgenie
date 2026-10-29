@@ -1,0 +1,1 @@
+| 2026-10-16 | workflow-flow-targets — a `Flow:` header must name targets that exist (issue #323) | [2026-10-16-workflow-flow-targets.md](agent-wiki/2026-10-16-workflow-flow-targets.md) | #323, #335 |

@@ -18,12 +18,12 @@ on how it works. The references it points at:
 | [`docs/SCANS.md`](docs/SCANS.md) | the vulnerability scans: which scanner runs from which pinned image, the daily-only triggers, the failure policy, the floor the scan compiles into the pins, and the SBOM/SARIF outputs |
 | [`docs/SECURITY.md`](docs/SECURITY.md) | what is pinned and how it is updated: every GitHub Action at a full commit SHA, the gate that enforces it, and the documented update path |
 | [`docs/RENOVATE.md`](docs/RENOVATE.md) | what Renovate owns (Python pins, container base images), what it must never touch, its low-risk-only automerge policy, and why a base-image bump builds images |
-| [`CHANGES.md`](CHANGES.md) | the change index — one line per change, linking its dated `agent-wiki/` note |
+| [`CHANGES.md`](CHANGES.md) | the change index — one row per change, each rendered from its own file in `docs/changes.d/` so two changes never edit one line, linking its dated `agent-wiki/` note |
 | [`AGENTS.md`](AGENTS.md) | the workflow rules for an agent or a bot working in this repository |
 
-A change's own record is a dated Zettelkasten note in `agent-wiki/YYYY-MM-DD-<kebab>.md`,
-referenced from `CHANGES.md` and from the OpenSpec change that drove it. No bot appends change
-history to this file (`make check-docs` fails if one does).
+A change's own record is a dated Zettelkasten note in `agent-wiki/YYYY-MM-DD-<kebab>.md`, with its
+index row in `docs/changes.d/<note-name>.md` (one row per file — see below) and rendered into
+`CHANGES.md`. No bot appends change history to this file (`make check-docs` fails if one does).
 
 ---
 
@@ -644,13 +644,20 @@ The rules an agent follows here (branch, PR body, commit authorship, review repl
 This README is the user guide. The references it links are checked, not trusted:
 
 ```bash
-make docs-report   # every user-facing make target, where it is documented, and each change note
-make check-docs    # CI gate: an undocumented target, a stale decision, an unindexed change note,
-                   # or change history appended to this README fails it
+make docs-report            # every user-facing make target, where it is documented, and each
+                            # change note's own index row
+make check-docs             # CI gate: an undocumented target, a stale decision, a change note with
+                            # no index row, a row naming a missing note, or change history appended
+                            # to this README fails it
+make changes-index           # re-render CHANGES.md from docs/changes.d/ (the rows are one file each)
+make changes-index-report    # the fragment census, and how many rows CHANGES.md is behind
 ```
 
-A change's history is a dated note in `agent-wiki/YYYY-MM-DD-<kebab>.md`, indexed by
-[`CHANGES.md`](CHANGES.md) — never a section of this file. `make check-dispatch-forms` verifies the
+A change's history is a dated note in `agent-wiki/YYYY-MM-DD-<kebab>.md`, indexed by a row in
+`docs/changes.d/YYYY-MM-DD-<kebab>.md` — one row per file, so two changes in flight never edit the
+same line and no merge can re-dirty an open PR (issue #934). [`CHANGES.md`](CHANGES.md) is that
+index rendered into one table; `make changes-index` writes it and no change PR edits it by hand.
+The history is never a section of this file. `make check-dispatch-forms` verifies the
 generated dispatch table in [`docs/BOTS.md`](docs/BOTS.md) against the workflows themselves, and
 `make check-workflows` validates every workflow file.
 

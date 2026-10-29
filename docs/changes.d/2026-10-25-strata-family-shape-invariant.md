@@ -1,0 +1,1 @@
+| 2026-10-25 | strata: the family SHAPE is the invariant, not v0.1.43's membership | [2026-10-25-strata-family-shape-invariant.md](agent-wiki/2026-10-25-strata-family-shape-invariant.md) | #643, #605, #416, #641 |

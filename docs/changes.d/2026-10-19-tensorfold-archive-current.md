@@ -1,0 +1,1 @@
+| 2026-10-19 | A release-archive install tracks {prefix}/current so the native state can be outdated (#386) | [2026-10-19-tensorfold-archive-current.md](agent-wiki/2026-10-19-tensorfold-archive-current.md) | #386, #114, #373 |

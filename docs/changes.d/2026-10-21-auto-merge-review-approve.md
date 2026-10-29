@@ -1,0 +1,1 @@
+| 2026-10-21 | A green PR blocked only by a review is approved by the other identity — and every deferral is on the PR | [2026-10-21-auto-merge-review-approve.md](agent-wiki/2026-10-21-auto-merge-review-approve.md) | #491, #489, #481 |

@@ -1,0 +1,1 @@
+| 2026-10-20 | `make secret-scan` reads the committable set, not the whole filesystem | [2026-10-20-secret-scan-committable.md](agent-wiki/2026-10-20-secret-scan-committable.md) | #382, #357, #360, #398 |

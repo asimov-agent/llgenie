@@ -37,11 +37,13 @@ def _run(root: Path, *args: str) -> subprocess.CompletedProcess:
 
 def _tree(tmp_path: Path, makefile: str, readme: str, wiki: dict | None = None,
           exceptions: dict | None = None, changes: str | None = None,
-          docs: dict | None = None, link_changes: bool = True) -> Path:
+          docs: dict | None = None, link_changes: bool = True,
+          fragments: dict | None = None) -> Path:
     """A real checkout skeleton: a Makefile, a README.md, an index, work records, docs pages.
 
-    `CHANGES.md` defaults to one row per wiki note and the README to linking it, so a fault test
-    fails for exactly the thing it breaks; both can be overridden to test the index itself.
+    The index is one row per file under `docs/changes.d/` (issue #934): `fragments` defaults to one
+    well-formed row per wiki note, so a fault test fails for exactly the thing it breaks. `changes`
+    is the rendered/committed `CHANGES.md`; both can be overridden to test the index itself.
     """
     tmp_path.mkdir(parents=True, exist_ok=True)
     (tmp_path / "Makefile").write_text(makefile)
@@ -50,11 +52,19 @@ def _tree(tmp_path: Path, makefile: str, readme: str, wiki: dict | None = None,
     for name, body in (wiki or {}).items():
         (tmp_path / "agent-wiki").mkdir(exist_ok=True)
         (tmp_path / "agent-wiki" / name).write_text(body)
+    if fragments is None:
+        fragments = {name[:-3] if name.endswith(".md") else name: None for name in (wiki or {})}
+    (tmp_path / cd.FRAGMENTS).mkdir(parents=True, exist_ok=True)
+    for stem, row in fragments.items():
+        if row is None:
+            row = f"| 2026-10-14 | change | [{stem}.md](agent-wiki/{stem}.md) | #257 |"
+        (tmp_path / cd.FRAGMENTS / f"{stem}.md").write_text(row if row.endswith("\n") else row + "\n")
     for rel, body in (docs or {}).items():
         (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / rel).write_text(body)
     if changes is None:
-        rows = "\n".join(f"| 2026-10-14 | change | [n](agent-wiki/{name}) | #257 |" for name in (wiki or {}))
+        rows = "\n".join(f"| 2026-10-14 | change | [n](agent-wiki/{name[:-3]}.md) | #257 |"
+                         for name in (wiki or {}))
         changes = "# Changes\n\n| Date | Change | Record | Issue / PR |\n|---|---|---|---|\n" + rows + "\n"
     (tmp_path / "CHANGES.md").write_text(changes)
     if exceptions is not None:
@@ -83,7 +93,9 @@ def test_the_real_tree_documents_every_user_facing_target():
     assert len(info["targets"]) > 90, len(info["targets"])
     assert len(info["documented"]) == len(info["targets"])
     assert len(info["wiki"]) > 20, len(info["wiki"])
-    assert set(info["changes_links"]) == set(info["wiki"]), "every note is indexed once"
+    assert set(info["fragments"]) == set(info["wiki"]), "every note has exactly one index row"
+    assert set(info["changes_links"]) == {stem + ".md" for stem in info["wiki"]}, \
+        "the rendered CHANGES.md links every note once"
     assert "docs/BOTS.md" in info["surface"], info["surface"]
     assert info["change_headings"] == [], info["change_headings"]
 
@@ -100,14 +112,14 @@ def test_the_report_names_documented_missing_work_records_and_the_index():
     # Then it counts the surface, and every work record is listed with its references and index row
     assert "user-facing (## help) make targets" in text
     for name in info["wiki"]:
-        assert f"agent-wiki/{name}:" in text
+        assert f"agent-wiki/{name}.md:" in text
     assert "NO issue/PR reference" not in text and "MISSING" not in text and "NOT INDEXED" not in text
-    assert "CHANGES.md:" in text
+    assert f"docs/changes.d: {len(info['fragments'])} index row(s)" in text and "CHANGES.md:" in text
 
     # And the CLI's checked mode agrees with the library (the CI shape)
     r = _run(REPO, "check")
     assert r.returncode == 0, r.stderr
-    assert "indexed in CHANGES.md" in r.stdout
+    assert "own index row in docs/changes.d" in r.stdout
 
 
 # ---------------------------------------------------------------------------
@@ -233,40 +245,95 @@ def test_a_work_record_that_references_no_issue_fails(tmp_path):
 # ---------------------------------------------------------------------------
 # the change record: one note per change, indexed — never appended to the README
 # ---------------------------------------------------------------------------
-def test_a_note_missing_from_the_index_fails_and_its_row_fixes_it(tmp_path):
-    """A change's record is only findable when `CHANGES.md` indexes it."""
+def test_a_note_with_no_index_row_fails_and_its_own_row_file_fixes_it(tmp_path):
+    """A change's record is only findable when its own index row exists (issue #934)."""
 
-    # Given a real note that CHANGES.md does not link
+    # Given a real note whose index row does not exist
     root = _tree(tmp_path, "install: ## Install\n\t@true\n", "# llgenie\n\n```\nmake install\n```\n",
                  wiki={"2026-10-14-change.md": "# Change\n\nIssue #257.\n"},
-                 changes="# Changes\n\n| Date | Change | Record | Issue / PR |\n|---|---|---|---|\n")
+                 fragments={}, changes="# Changes\n\n| Date | Change | Record | Issue / PR |\n|---|---|---|---|\n")
 
     # When the documentation is checked
     problems = cd.problems(cd.graph(root))
 
-    # Then it names the unindexed note
-    assert len(problems) == 1 and "is not indexed in CHANGES.md" in problems[0], problems
+    # Then it names the row the change owes, and the note is otherwise well-formed
+    assert len(problems) == 1, problems
+    assert "2026-10-14-change.md: is not indexed" in problems[0]
+    assert "docs/changes.d/2026-10-14-change.md" in problems[0]
+    assert _run(root, "check").returncode != 0
 
-    # And its row — a link to the note — is the fix
-    (root / "CHANGES.md").write_text(
-        "# Changes\n\n| Date | Change | Record | Issue / PR |\n|---|---|---|---|\n"
-        "| 2026-10-14 | change | [n](agent-wiki/2026-10-14-change.md) | #257 |\n")
+    # And the fix is the change's OWN row file — a file no other change can conflict with
+    (root / "docs/changes.d/2026-10-14-change.md").write_text(
+        "| 2026-10-14 | change | [2026-10-14-change.md](agent-wiki/2026-10-14-change.md) | #257 |\n")
+    assert cd.problems(cd.graph(root)) == []
+    assert _run(root, "check").returncode == 0
+
+
+def test_deleting_the_note_a_row_indexes_fails_naming_the_note(tmp_path):
+    """The index cannot invent history: a row whose note is gone is a defect, and it is loud."""
+
+    # Given a note and its one-row index file
+    note = "# Change\n\nIssue #257.\n"
+    root = _tree(tmp_path, "install: ## Install\n\t@true\n", "# llgenie\n\n```\nmake install\n```\n",
+                 wiki={"2026-10-14-change.md": note},
+                 changes="# Changes\n\n| Date | Change | Record | Issue / PR |\n|---|---|---|---|\n")
     assert cd.problems(cd.graph(root)) == []
 
+    # When the note is deleted and its row survives
+    (root / "agent-wiki/2026-10-14-change.md").unlink()
 
-def test_an_index_row_pointing_at_a_missing_note_fails(tmp_path):
-    """The index cannot invent history: a row whose note is gone is a defect."""
-
-    # Given an index row for a note that does not exist
-    root = _tree(tmp_path, "install: ## Install\n\t@true\n", "# llgenie\n\n```\nmake install\n```\n",
-                 changes="# Changes\n\n| Date | Change | Record | Issue / PR |\n|---|---|---|---|\n"
-                         "| 2026-10-14 | gone | [n](agent-wiki/2026-10-14-gone.md) | #257 |\n")
-
-    # When the documentation is checked
+    # Then the gate is RED, naming the row and the note that does not exist
     problems = cd.problems(cd.graph(root))
+    assert len(problems) == 1, problems
+    assert "docs/changes.d/2026-10-14-change.md: links agent-wiki/2026-10-14-change.md, " \
+           "which does not exist" in problems[0]
+    red = _run(root, "check")
+    assert red.returncode != 0 and "which does not exist" in red.stderr, red.stderr
 
-    # Then it names the dangling row
-    assert len(problems) == 1 and "which does not exist" in problems[0], problems
+    # And restoring the note is GREEN again
+    (root / "agent-wiki/2026-10-14-change.md").write_text(note)
+    assert cd.problems(cd.graph(root)) == []
+    green = _run(root, "check")
+    assert green.returncode == 0 and "ok:" in green.stdout, green.stdout
+
+
+def test_a_malformed_index_row_fails(tmp_path):
+    """A row must be exactly one well-formed row: a date, a summary, its own note, an issue/PR."""
+
+    # Given a fragment that is not a single row, one with no issue reference, and one that
+    # indexes somebody else's note
+    cases = {
+        "two-lines": "| 2026-10-14 | change | [n](agent-wiki/two-lines.md) | #257 |\n"
+                     "| 2026-10-15 | another | [n](agent-wiki/two-lines.md) | #257 |\n",
+        "not-a-row": "change, see #257\n",
+        "no-ref": "| 2026-10-14 | change | [n](agent-wiki/no-ref.md) | nothing |\n",
+        "bad-date": "| 14/10/2026 | change | [n](agent-wiki/bad-date.md) | #257 |\n",
+        "other-note": "| 2026-10-14 | change | [n](agent-wiki/someone-else.md) | #257 |\n",
+    }
+    for stem, row in cases.items():
+        root = _tree(tmp_path / stem, "install: ## Install\n\t@true\n",
+                     "# llgenie\n\n```\nmake install\n```\n",
+                     wiki={f"{stem}.md": "# Change\n\nIssue #257.\n"},
+                     fragments={stem: row},
+                     changes="# Changes\n\n| Date | Change | Record | Issue / PR |\n|---|---|---|---|\n")
+
+        # When the documentation is checked
+        problems = cd.problems(cd.graph(root))
+
+        # Then the malformed row is named, never silently indexed
+        assert len(problems) == 1, (stem, problems)
+        assert f"docs/changes.d/{stem}.md:" in problems[0], (stem, problems)
+        assert _run(root, "check").returncode != 0
+
+    # And the shapes are named: not one row, an unparsable row, no reference, a bad date, a
+    # fragment indexing a note that is not its own
+    for stem, needle in (("two-lines", "a fragment is exactly one row"),
+                         ("not-a-row", "is not a row"),
+                         ("no-ref", "names no issue or PR"),
+                         ("bad-date", "is not YYYY-MM-DD"),
+                         ("other-note", "must index the note of its own name")):
+        root = tmp_path / stem
+        assert any(needle in p for p in cd.problems(cd.graph(root))), (stem, needle)
 
 
 def test_the_readme_must_link_the_change_index(tmp_path):

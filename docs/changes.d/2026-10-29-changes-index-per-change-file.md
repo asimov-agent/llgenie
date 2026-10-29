@@ -1,0 +1,1 @@
+| 2026-10-29 | the change index is one row per file (`docs/changes.d/`), rendered into `CHANGES.md` by `make changes-index` — two changes can no longer edit one line, so a merge cannot re-dirty an open PR | [2026-10-29-changes-index-per-change-file.md](agent-wiki/2026-10-29-changes-index-per-change-file.md) | #934 |

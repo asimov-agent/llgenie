@@ -1,0 +1,1 @@
+| 2026-10-16 | A PR's commits are authored by Andy Holst or Asimov Agent — and by no one else (#345) | [2026-10-16-pr-commit-authors.md](agent-wiki/2026-10-16-pr-commit-authors.md) | #345, #351, #346, #170 |

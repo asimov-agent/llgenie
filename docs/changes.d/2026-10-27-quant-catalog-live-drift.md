@@ -1,0 +1,1 @@
+| 2026-10-27 | `check-quant-catalog` fails on a plan the committed table lost, and only notes what the live Hub re-reads (a reorder, a newly published conversion) | [2026-10-27-quant-catalog-live-drift.md](agent-wiki/2026-10-27-quant-catalog-live-drift.md) | #736, #732 |

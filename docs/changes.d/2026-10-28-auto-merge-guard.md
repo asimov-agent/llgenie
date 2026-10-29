@@ -1,0 +1,1 @@
+| 2026-10-28 | green ⇒ merged is permanent policy, and guarded: deleting `auto-merge.yml`, dropping its automatic PR-completion trigger, or loosening `REQUIRED_MERGE_STATE` each reds `ci-unit` | [2026-10-28-auto-merge-guard.md](agent-wiki/2026-10-28-auto-merge-guard.md) | #874 |

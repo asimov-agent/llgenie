@@ -1,0 +1,1 @@
+| 2026-10-19 | the implementer leg's GH_TOKEN is set, and the rule that catches the next one (#364) | [2026-10-19-issue-bot-ghtoken.md](agent-wiki/2026-10-19-issue-bot-ghtoken.md) | #364, #371, #357, #358 |

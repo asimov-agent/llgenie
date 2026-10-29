@@ -1,0 +1,1 @@
+| 2026-10-27 | Every issue states the problem, why, how, the benefit and its acceptance criteria, then one technical section — rendered by `scripts/issue_body.py` and gated by `make check-issue-bodies` | [2026-10-27-issue-body-shape.md](agent-wiki/2026-10-27-issue-body-shape.md) | #745 |

@@ -1,0 +1,1 @@
+| 2026-10-26 | the additive-only gate compares identity, so the weekly sync can land | [2026-10-26-registry-guard-measurement-identity.md](agent-wiki/2026-10-26-registry-guard-measurement-identity.md) | #668, #534, #671, #673 |

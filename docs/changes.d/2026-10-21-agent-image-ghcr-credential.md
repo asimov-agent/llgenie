@@ -1,0 +1,1 @@
+| 2026-10-21 | the agent image can publish: GITHUB_TOKEN, not the owner PAT | [2026-10-21-agent-image-ghcr-credential.md](agent-wiki/2026-10-21-agent-image-ghcr-credential.md) | #413, #441, #335, #435 |

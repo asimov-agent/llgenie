@@ -1,0 +1,1 @@
+| 2026-10-14 | 2026-10-14 vendored registry is additive only (issue #233) | [2026-10-14-trending-registry-additive-only.md](agent-wiki/2026-10-14-trending-registry-additive-only.md) | #233, #114, #115, #113 |

@@ -1,0 +1,1 @@
+| 2026-10-28 | the architecture pass is a GATED HOST SKILL in `.hermes/skills/` (`HOST_SKILLS` by name), and a required contract section is an exact heading — not a substring | [2026-10-28-architecture-pass-host-skill.md](agent-wiki/2026-10-28-architecture-pass-host-skill.md) | #805 |

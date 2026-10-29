@@ -1,0 +1,1 @@
+| 2026-10-27 | the scan is its own daily pipeline (never on PR/push), and the pins it names are compiled into the requirements by the run that reports them | [2026-10-27-security-daily-self-correct.md](agent-wiki/2026-10-27-security-daily-self-correct.md) | #738, #718, #739 |

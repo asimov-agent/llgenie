@@ -1,0 +1,1 @@
+| 2026-10-22 | Strata's live download checks leave the hermetic unit gate (#437) | [2026-10-22-strata-download-live-target.md](agent-wiki/2026-10-22-strata-download-live-target.md) | #437, #438, #519 |

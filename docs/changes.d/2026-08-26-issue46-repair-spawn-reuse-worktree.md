@@ -1,0 +1,1 @@
+| 2026-08-26 | issue #46: repair spawn reuses existing branch/worktree | [2026-08-26-issue46-repair-spawn-reuse-worktree.md](agent-wiki/2026-08-26-issue46-repair-spawn-reuse-worktree.md) | #46, #47, #9 |

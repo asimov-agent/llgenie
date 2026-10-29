@@ -1,0 +1,1 @@
+| 2026-10-24 | an engine bump's derived params are reviewed against the engine's own docs (#583) | [2026-10-24-engine-params-review.md](agent-wiki/2026-10-24-engine-params-review.md) | #583, #580, #427 |

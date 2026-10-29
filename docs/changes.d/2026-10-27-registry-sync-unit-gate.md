@@ -1,0 +1,1 @@
+| 2026-10-27 | the weekly sync's own gate passes on the store it downloaded: the quant table stops inventing plans, an engine without a plan is not offered, a gated link is not a dead one, and the 18 new engines are dated and decided | [2026-10-27-registry-sync-unit-gate.md](agent-wiki/2026-10-27-registry-sync-unit-gate.md) | #750, #749, PR #753 |

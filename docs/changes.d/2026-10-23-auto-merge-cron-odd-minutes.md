@@ -1,0 +1,1 @@
+| 2026-10-23 | the auto-merge sweep's cron was never going to fire (#560) | [2026-10-23-auto-merge-cron-odd-minutes.md](agent-wiki/2026-10-23-auto-merge-cron-odd-minutes.md) | #560, #562, #546, #275 |

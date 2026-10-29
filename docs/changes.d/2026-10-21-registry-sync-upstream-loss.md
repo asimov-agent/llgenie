@@ -1,0 +1,1 @@
+| 2026-10-21 | the weekly registry sync is blocked by a loss in the upstream store (issue #525) | [2026-10-21-registry-sync-upstream-loss.md](agent-wiki/2026-10-21-registry-sync-upstream-loss.md) | #525, #487 |
