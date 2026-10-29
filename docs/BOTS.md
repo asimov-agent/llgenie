@@ -2250,6 +2250,7 @@ in stderr, retried within the same bound, and named at the bound instead of esca
 ### Preflight
 
 `make bot-preflight` fetches `origin/main`, fast-forwards a clean behind checkout and writes `preflight.txt` — the `origin/main` commit, `AGENTS.md`'s bytes, lines and heading digest, and the `AGENTS: <sha> <bytes>b <lines>l` line a bot PR body must carry (issue #792). A dirty or diverged checkout is refused with its paths; the target never rebases. `CHECK=1` re-derives the record and fails when the file on disk disagrees with the tree.
+
 ### Import roots
 
 `make check-import-roots` refuses a test file that carries its own `sys.path` entry (only `tests/conftest.py` may) or imports a `scripts/` module bare, and it **ratchets** against `tests/fixtures/import-roots-baseline.json`: the count may fall as the migration batches land and may never rise, so the guard can ship before the migration finishes (issue #796).
