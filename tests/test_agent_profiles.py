@@ -1058,6 +1058,33 @@ def test_the_announce_procedure_is_in_the_skill_that_governs_prs():
     assert "gh pr view <n> --json headrefoid" in ref, "the pre-push check is not named"
 
 
+def test_a_count_clean_dedupe_that_paraphrases_the_fence_is_still_refused():
+    """Item 10 (#972's sharper edge): a dedupe can be count-clean (one per rule, retired bullet gone)
+    and STILL fail `block_in_soul` if its retained fence paraphrases a canonical rule.
+
+    Measured against #919's doc-SOUL at 11dd97d3: the doc offer counted `1 occurrence per rule` with the
+    retired bullet gone, yet `_stated_block` differed from canonical because rule 16 had been reworded
+    ("Arm when done, and only on a base of main" vs "Arm auto-merge when the work is done, not when it is
+    approved"). A take accepted on the count alone imports a gate-red fence. Assert both assertions of the
+    refusal: the count discriminator (each canonical rule once) can be satisfied while the fence comparison
+    (the gate's real test) is not.
+    """
+    import check_agent_profiles as cap
+    canonical = cap.fleet_block(REPO / "agents")
+    assert canonical is not None
+
+    # build a SOUL whose block keeps one copy of each canonical rule but REWORDS rule 16
+    reworded = canonical.replace(
+        "**Arm auto-merge when the work is done, not when it is approved.**",
+        "**Arm when done, and only on a base of `main`.**")
+    assert reworded != canonical, "the reworded block must differ from canonical"
+    soul = ("# LLGenie X\n\n## Role\n\n" + reworded + "\n")
+
+    # the gate's real test: block in soul must be FALSE under the paraphrase
+    assert cap._stated_block(soul) != canonical, \
+        "a fence-paraphrasing dedupe must NOT pass block_in_soul even though it is count-clean"
+
+
 # --- the live profile is a MOVING reference: a sync must not overwrite work it did not read (issue #924)
 
 
@@ -1147,7 +1174,9 @@ def test_the_one_bullet_one_place_lesson_is_in_the_skill():
                    "count occurrences, not a bullet total",
                    "pin the occurrence count as a red test first",
                    "a lane-offered re-take must pass the gate's own comparison before you take it",
-                   "a refusal that keeps the tree green is a result"]:
+                   "a refusal that keeps the tree green is a result",
+                   "a count-clean dedupe can still fail the fence — dedupe is not immunity",
+                   "run `_stated_block(live) == fleet_block()` even on a dedupe the lane certifies as count-clean"]:
         assert phrase in ref, f"the re-take-gate-check lesson is missing: {phrase}"
 
 
