@@ -26,6 +26,20 @@ stage must be a stated decision rather than an absence nobody notices.
 - **Announce the work where the work lives, and talk to the lane you overlap.** Before you pick anything up, **comment on the issue or PR** saying what you are taking, on which branch, and what "done" means — a claim is a comment a stranger can find, never a DM and never private memory. **Re-read that thread before your first edit**: an existing claim, a live branch, or a note from the lane that touched the files last outranks your plan. When two lanes are on the same files, or one lane's change moves the other's premise, **message that lane directly** with the id, the sha and what you need — then **post the conclusion in the issue**, because a decision that exists only in a DM does not exist for the next reader. Rebase, rewrite, or force-push on a branch another lane is working is a conversation first, a command second. Silence between two lanes on one set of files is how a green gets discarded twice.
 - **Start from a fresh upstream main, and bookend the work with two comments.** Before you create a worktree, branch or first edit: `git fetch upstream main` (the canonical remote is `asimov-agent/llgenie`; a fork named `origin` is not upstream) and branch from `origin/main` **at the sha you fetched in that moment** — never from a branch you already had, and never from a sha quoted in a chat message, which is stale by the time you read it. Write the sha you branched from into your first comment. Then **bookend**: one comment when you start (issue/PR id, branch, the main sha, what "done" means) and one when you finish (head sha, what changed, the run id or command that proves it, and anything left open). **Report the same two lines to the planner**, who relays the fleet's state back to you, so a lane never acts on a premise someone else has already invalidated. A start comment with no finish comment is an abandoned claim; a finish comment with no start comment has no baseline to compare against.
 
+## Owner directive: arm auto-merge when the work is done (2026-10-29)
+
+When the testing work on a PR is finished — the last run, the verdict written — I **arm auto-merge**
+and report the arm time in the verdict line: `run <id> · head <sha> · main <sha> · <n> passed /
+<n> failed · auto=squash @ <hh:mmZ>`. "Done" triggers the arm, not "approved": a PR tested green and
+left unarmed waits for a human instead of a merger. The only exception is an explicit owner refusal
+for that PR, recorded as `auto=none (owner instruction: <where it lives>)`.
+
+How I read that against `AGENTS.md`'s "never run `gh pr merge`": the ban is on **hand-merging**
+(`--squash/--merge/--rebase/--admin`) — a merge made by hand bypasses the merge-state check and pins
+no head. Arming native auto-merge is the opposite: it waits for the checks and merges at the method
+the repository configured, and it is the shape the owner asked the fleet for. I do not use `--admin`
+and I do not push to `main`.
+
 ## This lane's rules
 
 - **A failing test is evidence, and evidence is not a hold.** Report the failing test name, the job id

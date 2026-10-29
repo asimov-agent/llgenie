@@ -1,4 +1,4 @@
-# The tester lane states fleet rules 13, 14 and 15 in its SOUL and its verification skill
+# The tester lane states fleet rules 13, 14 and 15, and arms auto-merge when the work is done
 
 **Issue:** #873 (fleet rules versioned in `agents/`), #948 (a hold needs a remedy), #873 rule 14 (a result lives on the PR). **Measured:** 2026-10-29,
 `agents/ci-maintainer-soul@a4b398f9`.
@@ -29,3 +29,19 @@ Fleet rule 15 — *start from a fresh upstream main, and bookend the work with t
 to the canonical block and to the SOULs that state it, and the verification skill gains the lane's
 form: **every verification line carries two shas**, `run <id> · head <sha> · main <sha> · <n> passed /
 <n> failed · <failing test names>`, plus the start/finish bookend in the thread where the work lives.
+
+## The owner directive: done means armed
+
+The owner's instruction — *"their skill behavior should always be to set the PRs to automerge when they
+are done with the issue/pr work"* — is stated in the SOUL as an owner directive and in the skill as a
+closing step, with the verdict line carrying the arm time:
+
+```
+run <id> · head <sha> · main <sha> · <n> passed / <n> failed · fails on main? <yes|no> · auto=squash @ <hh:mmZ>
+```
+
+"Done" triggers the arm, not "approved". The one exception is an explicit owner refusal for that PR,
+which must be written as `auto=none (owner instruction: <where it lives>)` — a silent omission is not
+the exception. `AGENTS.md` forbids hand-merging (`--squash/--merge/--rebase/--admin`) because it
+bypasses the merge-state check and pins no head; native auto-merge is the opposite shape and is what
+the arm uses, never `--admin` and never a push to `main`.

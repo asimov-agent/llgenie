@@ -143,6 +143,31 @@ selection must put openspec in `ALWAYS` (plus a test that every class selects it
 scripts-only PR silently stops validating specs. Likewise `docs.yml` runs `make ci-openspec` *after*
 four gates that can fail first and without `if: always()` — a lint failure hides the spec validation.
 
+## 6b. Finish the work: arm auto-merge (owner directive, 2026-10-29)
+
+A verification that ends in a comment and no arm waits for a human instead of a merger. When the
+testing work on a PR is finished — **last run**, verdict posted — arm it and report the arm time in
+the same line:
+
+```
+run <id> · head <sha> · main <sha> · <n> passed / <n> failed · fails on main? <yes|no> · auto=squash @ <hh:mmZ>
+```
+
+- **"Done" triggers the arm, not "approved."** Do not wait for a human to say yes.
+- **Exception: the owner explicitly refused that PR** → write `auto=none (owner instruction: <where
+  the instruction lives>)` instead of arming. A silent omission is not the exception.
+- **`AGENTS.md` bans `gh pr merge` for hand-merging** (`--squash/--merge/--rebase/--admin`), because a
+  hand merge bypasses the merge-state check and pins no head. Arming native auto-merge
+  (`gh pr merge <n> --auto --squash`) is not that: it waits for the checks and merges at the
+  configured method. Never `--admin`, never a push to `main`.
+- **A stacked PR has no CI verdict at all** (#950): every workflow gates `pull_request` on `main`, so
+  its check list is empty rather than green. Say that in the arm line, or the empty list reads as a
+  pass.
+- **A red is a verdict, not a hold.** Report `run id · sha · passed/failed` **and whether `origin/main`
+  fails the same modules**. That pair decided #941/#916: four failures across three branches turned out
+  to be one shared base. `do-not-merge` is only for a real defect **with the resolving issue named in
+  the same comment** — never on a merged PR, never as "I am not confident".
+
 ## 7. Post evidence, never a merge
 
 - **A result lives on the PR, with the run id and the sha** (fleet rule 14, #873): the shape is
