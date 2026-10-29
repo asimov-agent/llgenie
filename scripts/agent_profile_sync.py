@@ -131,10 +131,11 @@ def shrinks(agents: Path, name: str, dest: Path) -> list[tuple[str, int, int, in
         tree_lines, live_lines = _rule_lines(tree_text), _rule_lines(live_text)
         subset = (tree_lines != live_lines and set(tree_lines) <= set(live_lines))
         lost = len([ln for ln in live_lines if ln not in set(tree_lines)])
-        # `subset` with `lost == 0` means the tree adds nothing new — it duplicates lines the live file
-        # already has. A sync loses no rule there, so refusing it is the false positive that teaches an
-        # operator to pass --force. The size floor still fires on its own, and any lost line still refuses.
-        if (subset and lost) or (live and tree < live * SHRINK_FLOOR):
+        # Two signals, and BOTH now require a lost line, because that is the only harm: a tree that is
+        # smaller only because the live file REPEATS a block loses nothing (measured: 16,694 b against
+        # 10,824 b, "would delete 0 line(s)"), and a deliberate rewrite keeps being allowed as long as it
+        # is neither a prefix of live nor far below the size floor.
+        if lost and (subset or (live and tree < live * SHRINK_FLOOR)):
             out.append((rel, tree, live, lost))
     return out
 
