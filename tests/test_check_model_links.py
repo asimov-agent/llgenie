@@ -98,10 +98,13 @@ DATA_PATH_FILES = (
     "test_install_trend.py",
 )
 
-# The complete real-Hub ownership set across those files, from the routing census (issue #1000):
-# ONLY test_trend_pick genuinely opens the Hub (each of these does real i/o, is named "for real" or
-# "live", and carries no `urlopen` monkeypatch in its body). Everything else is hermetic by
-# construction (0 open primitives) or reaches only a localhost serve / non-Hub, so nothing else may
+# The complete real-Hub ownership set across those files, from the widened routing census (issue
+# #1000, corrected): the four live reads + the three Hub-metadata reads mp.gguf_repo/mp.gguf_files
+# (test_gguf_repo_..., test_pick_file_fits_..., = live _hub_json/_tree) + the full real GGUF
+# download (test_full_download_...) in test_trend_pick, and test_model_engine_pick's
+# test_download_fetches_a_real_chunk_of_the_chosen_file (mp.download, host implied by the model
+# dict — NOT a 0-open-primitive hermetic test, as the earlier census wrongly claimed). Everything
+# else is hermetic by construction or reaches only a localhost serve / non-Hub, so nothing else may
 # be marked. test_plan_download_per_format_live_hub is deliberately ABSENT: it only plans, no i/o.
 EXPECTED_NETWORK_TESTS = {
     "test_trend_pick.py": {
@@ -109,6 +112,12 @@ EXPECTED_NETWORK_TESTS = {
         "test_every_model_in_the_list_downloads_the_first_bytes_of_its_planned_file",
         "test_select_downloads_a_missing_model_for_real",
         "test_download_mlx_repo_snapshot_for_real",
+        "test_gguf_repo_prefers_registry_repo_then_named_gguf_repo",
+        "test_pick_file_fits_the_card_and_skips_shards_and_mmproj",
+        "test_full_download_through_hf_download_places_the_complete_gguf",
+    },
+    "test_model_engine_pick.py": {
+        "test_download_fetches_a_real_chunk_of_the_chosen_file",
     },
 }
 
