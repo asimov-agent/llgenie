@@ -1875,3 +1875,19 @@ def test_the_architect_soul_rebases_only_on_conflict():
                    "stale shadow",
                    "read the real head from the api"]:
         assert demand in soul, f"the #1015 rebase rule is missing: {demand}"
+
+
+def test_the_pass_skill_carries_orchestration_and_orchestration_rebase():
+    """Version-here means both carriers agree: the SOUL has the orchestration + #1015 block, so must the skill.
+
+    A rule that lives only in the SOUL is read at session start; the skill is what loads when a pass runs. If
+    the two drift, one of them teaches a different protocol than the other — which is the divergence versioning
+    exists to catch (#1010, #1015).
+    """
+    skill = " ".join((REPO / ".hermes" / "skills" / "llgenie-architecture-pass"
+                      / "SKILL.md").read_text().lower().split())
+
+    for demand in ["report back", "@llgenie-planner", "a new pr goes to the reviewer",
+                   "@llgenie-pr-reviever", "one lane, one pr", "bot-claim:",
+                   "agent/issue-", "rebase only on conflict", "arms on retarget"]:
+        assert demand in skill, f"the pass skill lost the orchestration/#1015 lesson: {demand}"
