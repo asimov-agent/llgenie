@@ -109,7 +109,9 @@ against `name:` prefixes, not ids).
   a flake, say so with the log line that proves it (the `engine-base-rocm` GHCR
   `net/http: request canceled` timeout is the precedent). Never convert a red check into a
   `do-not-merge` label — that turns a verifiable claim into an untracked absence, and a hold whose
-  reason expired reads as abandonment on the board.
+  reason expired reads as abandonment on the board. If a hold *is* justified — a real defect, proven —
+  name the resolving issue in the same comment and say what would clear it; a tag with no named remedy
+  is indistinguishable from abandonment.
 
 - Judge a run only by `gh run view <id> --json status,conclusion,headSha`, and only at the PR's
   **current** head. A force-push leaves runs at a dead head; they prove nothing about the branch now.
@@ -156,17 +158,22 @@ run <id> · head <sha> · main <sha> · <n> passed / <n> failed · fails on main
 - **"Done" triggers the arm, not "approved."** Do not wait for a human to say yes.
 - **Exception: the owner explicitly refused that PR** → write `auto=none (owner instruction: <where
   the instruction lives>)` instead of arming. A silent omission is not the exception.
+- **Arm only a `main`-based PR (fleet rule 16).** On a stacked PR the arm IS a merge: its base
+  schedules no workflows and carries no required checks, so `gh pr merge <n> --auto --squash` has
+  nothing to wait for and lands in seconds, unreviewed, in another lane's branch. An empty check list
+  is not a pass and `--auto` there is not a queue position. A finished stacked PR records
+  `auto=none (stacked base: no required checks, no CI scheduled)` and is armed **on retarget**;
+  merging one by hand is a bypass, not a handoff.
 - **`AGENTS.md` bans `gh pr merge` for hand-merging** (`--squash/--merge/--rebase/--admin`), because a
   hand merge bypasses the merge-state check and pins no head. Arming native auto-merge
   (`gh pr merge <n> --auto --squash`) is not that: it waits for the checks and merges at the
   configured method. Never `--admin`, never a push to `main`.
-- **A stacked PR has no CI verdict at all** (#950): every workflow gates `pull_request` on `main`, so
-  its check list is empty rather than green. Say that in the arm line, or the empty list reads as a
-  pass.
-- **A red is a verdict, not a hold.** Report `run id · sha · passed/failed` **and whether `origin/main`
-  fails the same modules**. That pair decided #941/#916: four failures across three branches turned out
-  to be one shared base. `do-not-merge` is only for a real defect **with the resolving issue named in
-  the same comment** — never on a merged PR, never as "I am not confident".
+- **A red is a verdict, not a hold** — the rule and its evidence shape live in §5; the only label it
+  can ever justify is on a real defect **with the resolving issue named in the same comment**, never
+  on a merged PR, never as "I am not confident".
+
+Fleet rules themselves are changed through `agents/<profile>/`, not by editing the live profile: see
+`references/agent-profile-versioning.md` for the sync, gate and stacked-base procedure.
 
 ## 7. Post evidence, never a merge
 
@@ -181,7 +188,9 @@ run <id> · head <sha> · main <sha> · <n> passed / <n> failed · fails on main
 Comment on the PR with the run ids / command output that proves each claim, plus the RED test that
 exposes each gap and the patch that turns it green. Comment on the issue too when the follow-up
 sub-issues the body promises do not exist yet (`gh issue list --search 824b`). Do not push to or
-merge a branch you do not own: every merge needs the user's approval.
+merge a branch you do not own. Arming auto-merge on a PR this lane finished (§6b) is a different act
+from approving or hand-merging: it never bypasses the merge-state check, and it is only ever used on
+a PR whose base makes the arm mean something.
 
 Stop producing duplicate PRs. Before opening one, check `gh pr list --state open` for a PR on the
 same issue and read its comments — this repo closes several duplicates a day, and a tester's delta
