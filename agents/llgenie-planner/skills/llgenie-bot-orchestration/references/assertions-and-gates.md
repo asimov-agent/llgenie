@@ -154,3 +154,45 @@ stat -c %s <live path>                 # what the profile actually loads
 Comparing those two is the check; comparing a worktree's files compares neither, and a size quoted in a message is stale
 before it is read — the live file here grew three times in one session. Re-read at commit time and state both numbers in
 the PR body so a reviewer can confirm the sizes rather than trusting the gate.
+
+**A replacement that is LARGER while dropping lines defeats every shrink guard.** Size is the one signal an operator and
+a gate read first, so a rewrite that grows a file while omitting live clauses sails through a length check and a
+"non-shrinking" assertion. When merging two copies, do not take either side wholesale: diff, then confirm **no tree-only
+line disappears and every live-only line is either taken or consciously declined**, and say which in the commit message.
+A lane's own longer spelling of the same rule is not a superset of the live text.
+
+**After any rewrite, verify content, not the sha.** A rebase preserves content and destroys shas, so a lane quoting "my
+head is `<sha>`" after a fetch can be describing a commit nobody else has — measure `git cat-file -s <sha>:<path>`,
+the test suite, and `CHECK=1` byte-identity instead, and treat the sha as "the head when measured".
+
+## The tree is the source; the live copy is not
+
+A gate that compares a committed copy against a live artefact **becomes unsatisfiable** the moment anyone edits the live
+authority directly: the reference moves faster than the PR, so the comparison reds forever and every "re-take the live
+file" instruction just launders an unversioned edit into the repo. Measured drift on one file in a single session:
+tree 4,936 b unchanged while live went 8,596 → 10,591 → 14,045 b.
+
+- **Sync one way.** Tree → live only. A reverse direction is an escape hatch that produces the drift; refuse it and say
+  which file and what to change instead.
+- **Two distinct findings.** `live longer than tree` (a truncated seed) and `live edited after the tree commit` (an
+  unversioned edit) need different fixes; collapsing them lets a re-take masquerade as a repair.
+- **Refuse to overwrite differing content** unless the tree change is committed and force is explicit.
+- **A live profile is evidence, not a source of truth.** When copying from it, take a named artefact (a PR's blob at a
+  sha) rather than the moving file, and say in the commit message what was kept and dropped.
+
+## Identity gates key on email, never on a display name the platform sets
+
+A gate that compares the *author name* to an allowlist reds on innocent commits, because the display name is written by
+the platform (a squash takes the profile name) and by ad-hoc `git -c user.name=...`, neither of which the committer
+controls. The durable shape:
+
+- the **email** is the identity key; each allowed identity carries an explicit **alias list of names** it may appear under;
+- an email outside the allowlist still fails, and the message names the **email**;
+- a **typo email still fails** — the alias list is names only, never emails, or "fixing" the gate quietly allowlists a
+  wrong address;
+- the docstring records *why* the name cannot be the key, so the next author does not restore exact-name matching.
+
+Fixing the gate is usually cheaper than rewriting history: re-authoring N commits means rewriting every descendant and
+invalidating the verdicts of all stacked children, while the gate is one file plus a negative control. And a gate runs
+the script from the PR's own tree, so a PR that loosens the check passes its own guard trivially — **the tests are the
+evidence, not the green run**.

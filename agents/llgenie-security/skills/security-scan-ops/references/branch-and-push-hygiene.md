@@ -75,6 +75,24 @@ If nothing is unique: `git -C <wt> reset --hard <target>` — **never a force-pu
 `git status --porcelain` is empty, then verify `HEAD` equals the target, the branch is in sync, and the
 tree's own gate is green. Unique work goes in a push, not a reset, and is reported before anything moves.
 
+## A merge can exist in no reachable history — check ancestry, not just the PR state
+
+`state=MERGED` in the tracker is not proof the change survived: a later force-push of the base branch strands
+the merge commit, and `gh pr view` keeps saying MERGED forever because the PR record is independent of the
+commit graph. This is the failure mode of several lanes merging into one consolidation branch that is then
+rebased underneath them.
+
+```bash
+gh pr view <n> --json number,state,mergedAt,mergeCommit
+git merge-base --is-ancestor <mergeCommit> origin/main && echo "in main" || echo "STRANDED from main"
+git merge-base --is-ancestor <mergeCommit> origin/<shared-branch>          # and from the branch it merged into
+```
+
+Stranded-but-present means the *content* survives only because a later commit carried it — prove that
+explicitly (grep the file at the current head for the lines you added) and say so, because `git log` can no
+longer show that anything was reviewed. A branch that other lanes merge into is never force-pushed
+unilaterally; a rebase of it is a conversation with those lanes first.
+
 ## An interrupted rebase is not an invalid one
 
 If a worktree is mid-rebase (`rebase-merge/` present, "interactive rebase in progress; onto <sha>"), read
