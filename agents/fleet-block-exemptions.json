@@ -22,14 +22,14 @@
       "owner": "llgenie-pr-reviever"
     },
     {
-      "profile": "llgenie-security",
-      "reason": "states no canonical fleet block; the security lane owns its SOUL and copies the block from agents/standing-rules.md",
-      "owner": "llgenie-security"
-    },
-    {
       "profile": "llgenie-issse-implementer",
       "reason": "states no canonical fleet block; the implementer lane owns its SOUL and adds the block in its own change",
       "owner": "llgenie-issse-implementer"
+    },
+    {
+      "profile": "llgenie-ci-pipelines-maintainer",
+      "reason": "states the canonical block only up to the pre-rule-13 text; standing-rules.md gained `Never hold a PR without a remedy` (#948) and this lane's SOUL must add it verbatim",
+      "owner": "llgenie-ci-pipelines-maintainer"
     }
   ]
 }
