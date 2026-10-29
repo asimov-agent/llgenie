@@ -442,6 +442,26 @@ def test_a_tree_copy_LARGER_than_live_while_dropping_live_lines_is_a_finding(tmp
     assert "live-only" in items[0]["detail"]
 
 
+def test_the_two_directions_are_exclusive_so_a_finding_names_the_damage(tmp_path):
+    """One file, one finding: `live-longer` (a sync would shrink live) or `live-lines-missing` (a sync would
+    delete live-only rules) — never both, because the detail a reader acts on is whichever damage applies.
+    """
+    import check_agent_profiles as cap
+
+    agents = tmp_path / "agents"
+    prof = agents / "someone"
+    prof.mkdir(parents=True)
+    (prof / "SOUL.md").write_text("short\n")                        # shorter AND missing live lines
+    live = tmp_path / "live" / "someone"
+    live.mkdir(parents=True)
+    (live / "SOUL.md").write_text("a longer live rulebook\n" * 40)
+    (agents / "manifest.json").write_text('{"profiles": [{"name": "someone", "rules": ["never-merge"]}]}')
+
+    items = cap.shrink_findings(tmp_path, agents, live.parent)
+    assert [i["key"] for i in items] == ["live-longer"], items
+    assert "live-lines-missing" not in " ".join(i["key"] for i in items)
+
+
 def test_a_tree_copy_that_matches_or_exceeds_the_live_one_is_clean(tmp_path):
     import check_agent_profiles as cap
 
