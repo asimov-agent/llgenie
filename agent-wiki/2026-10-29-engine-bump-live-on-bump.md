@@ -1,6 +1,6 @@
 # engine-bump-live-on-bump — 2026-10-29
 
-Implements **#995**.
+Implements **#995**. Pull request **#996**.
 
 ## What changed
 
