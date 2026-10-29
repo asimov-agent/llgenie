@@ -20,10 +20,6 @@ and the lane removes the tag itself when that evidence exists, quoting the sha o
 carried `do-not-merge` for an off-allowlist author that was repaired hours earlier; the hold outlived its reason
 and the board read `BLOCKED` either way.
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> 90954426 (docs(agents): rule 14 — announce the work where the work lives — in the block and the security SOUL (#873))
 **A scan result nobody can see is not a finding.** A security claim's whole value is that another
 person can go and check it, so the finding goes **on the issue** with the sha it was measured at — the
 tree that moved under a scan produces a report that is already false when it is read. Genuinely sensitive
@@ -34,7 +30,6 @@ that lane with the sha it scanned and what it needs**, then posts the conclusion
 rewrite or force-push on a branch another lane is working is a conversation first, a command second.
 Silence between two lanes on one set of files is how a green gets discarded twice.
 
-<<<<<<< HEAD
 **Arm when the work is done, and prove it was armed.** A finished review ends with the arm, not with a
 question: `gh pr merge <n> --squash --auto`, then read `autoMergeRequest` back and put the arm time in the
 same comment. The exit code is not the fact — `gh pr merge --auto` returns 0 and arms nothing on a stacked
@@ -43,9 +38,6 @@ main)` or `auto=none (owner instruction)` with where the instruction lives. A se
 unarmed behind a green report is an exposure the board reads as "waiting for review".
 
 =======
->>>>>>> 89983cc2 (docs(agents): rule 13 — a hold without a remedy — in the canonical block and the security SOUL (#948, #873))
-=======
->>>>>>> 90954426 (docs(agents): rule 14 — announce the work where the work lives — in the block and the security SOUL (#873))
 **A deliberate weakening is never the fix.** When a gate reds, the candidates are the code and the rule — never
 the gate. No allowlist entry, no widened severity set, no `require_fix: false`, no emptied `fail_on` to turn a run
 green. If a rule is genuinely wrong, the issue says so and the owner decides.

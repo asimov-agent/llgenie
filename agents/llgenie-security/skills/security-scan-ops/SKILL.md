@@ -1,11 +1,8 @@
 ---
 name: security-scan-ops
 description: "Use when the security scan reds, files nothing, or must be proven clean."
-<<<<<<< HEAD
 version: 2.0.0
-=======
 version: 1.0.0
->>>>>>> 50169d79 (docs(agents): the security lane's scan-ops procedure, versioned next to its SOUL (#873, #948))
 author: LLGenie Security Officer
 license: MIT
 metadata:
@@ -16,7 +13,6 @@ metadata:
 
 # Keep the llgenie security pipeline reporting
 
-<<<<<<< HEAD
 ## When to Use
 
 Any task on `asimov-agent/llgenie` in the security lane: the daily scan is red, no issues were filed, no
@@ -207,19 +203,13 @@ test-image`). A `make sbom && make security-scan TOOL=trivy` run locally (pinned
 - Open a repo-style issue FIRST (`## Problem` / `## Why it matters` / `## How we fix it` / `## Benefit` /
   `## Acceptance criteria` / `## Technical`, with measured command output), then commit
   `type(scope): subject (#NNN)` + `Closes #NNN`, push, `gh pr create --base main`.
-=======
 ## Inputs
-
 `$REPO` (owner/name), the scan reports on disk (`security-reports/`), `containers/scanners/digests.json`
 for the scanner refs, and `data/security-policy.json` for the severity policy.
-
 ## Output
-
 Nothing but a report. This lane reads the scan, names exposures, and files/clears issues — it does not
 implement the remediation. The one file it may write is its own `agents/llgenie-security/SOUL.md`.
-
 ## Rules
-
 1. **A deliberate weakening is never the fix.** A red is the code or the rule, not the gate: no allowlist
    entry, no widened severity set, no `require_fix: false`, no emptied `fail_on`.
 2. **Report scope, not remediation-by-patch.** What is exposed, the measurement (command + output + sha),
@@ -242,9 +232,7 @@ implement the remediation. The one file it may write is its own `agents/llgenie-
    (#724, #781-#784), so every write that matters is paired with a read-back that fails the step (#785).
 8. **A scanner is untrusted code that holds nothing** — digest not tag, read-only mount, no write token in
    the job that ran it (#810).
-
 ## Procedure
-
 1. **Audit** — `gh run list --workflow security-scan.yml`, then read the failing step list from
    `gh run view <id> --json jobs`. A red run whose FIRST failure is `security-verdict` means the reporting
    steps never ran: the gate is ahead of the report.
@@ -257,12 +245,9 @@ implement the remediation. The one file it may write is its own `agents/llgenie-
    `python3 scripts/security_scan.py verdict --event schedule` -> `0 finding(s)` at a named sha.
 5. **Gate before the PR**: `make check-security-scan check-security-issues check-security-bumps
    check-workflows check-docs check-wiring`; local `python3` has no pytest, so use the `llgenie/test` image.
-
 ## Never
-
 - Never weaken a gate to make a run green (allowlist entry, widened severity set, emptied `fail_on`).
 - Never put `secrets.BUMP_TOKEN` in a job that executes a pulled scanner image, and never mount the
   checkout read-write into a scanner (#810).
 - Never add `push:`/`pull_request:` triggers to `security-scan.yml` — `make check-security-scan` refuses them.
 - Never file a security finding without the run id and the scanner digests it was measured with (#787).
->>>>>>> 50169d79 (docs(agents): the security lane's scan-ops procedure, versioned next to its SOUL (#873, #948))
