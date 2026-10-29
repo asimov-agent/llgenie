@@ -1857,3 +1857,21 @@ def test_the_architect_soul_carries_the_orchestration_block():
                    "byte-identical",
                    "one lane, one pr", "bot-claim:", "agent/issue-"]:
         assert demand in soul, f"the orchestration block is missing: {demand}"
+
+
+def test_the_architect_soul_rebases_only_on_conflict():
+    """Owner rule #1015: stacked PRs are not rebased onto every main move; only an actual CONFLICT does it.
+
+    Rebase-by-mainmove is how a green gets discarded twice — the branch chases a moving base and every
+    re-run restarts. So the SOUL states the trigger: rebase only when CONFLICTING, stay stacked, arm on
+    retarget. The API-vs-shadow warning is part of it: `origin/main` can be a stale local ref, so read the
+    real head from the API when a sha matters.
+    """
+    soul = " ".join((REPO / "agents" / "llgenie-architect" / "SOUL.md").read_text().lower().split())
+
+    assert "rebase only on conflict" in soul, "the SOUL lost the #1015 rebase rule"
+    for demand in ["a rebase is for when a branch is actually",
+                   "arm on retarget",
+                   "stale shadow",
+                   "read the real head from the api"]:
+        assert demand in soul, f"the #1015 rebase rule is missing: {demand}"

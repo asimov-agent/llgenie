@@ -70,3 +70,9 @@ the running profile agree.
 
 **One lane, one PR.** Before starting, check `bot-claim:` and `agent/issue-<n>-*` so two lanes never take the
 same issue — the claim is a comment a stranger can find, not a fork of a branch.
+
+**Rebase only on conflict (owner rule #1015).** This lane does not rebase its stacked PRs onto every move of
+`main`. They stay stacked behind their base branch and arm on retarget; a rebase is for when a branch is
+actually `CONFLICTING`, and resting it against a moving `main` is how a green gets discarded twice. Fetch
+`main` in-turn before any work (`git fetch upstream main`; `origin/main` may be a stale shadow — read the real
+head from the API when a sha matters).
