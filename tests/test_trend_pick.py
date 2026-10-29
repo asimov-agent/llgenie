@@ -597,7 +597,7 @@ def test_every_registry_engine_name_maps_to_its_skill_or_has_no_image():
 
 
 @pytest.mark.parametrize("arch,engine,variant", [
-    ("cuda", "llama.cpp", "cuda"), ("cuda", "llama.cpp-prism", "cpu"),      # prism/cuda disabled (#103)
+    ("cuda", "llama.cpp", "cuda"), ("cuda", "llama.cpp-prism", "cuda"),      # prism/cuda enabled (#823)
     ("cuda", "strata", "cuda"), ("rocm", "strata", "rocm"),
     ("cuda", "litert", "cpu"), ("cuda", "mlx", "cuda"), ("rocm", "mlx", "cpu"),
     ("vulkan", "vllm", "cpu"), ("rocm", "freetoken", "rocm"), ("cpu", "ollama", "cpu")])
@@ -1025,7 +1025,7 @@ def test_host_engines_use_the_backend_variant_with_cpu_fallback():
     for e in rows.values():
         assert not ei.disabled(e["id"], e["variant"])
     assert rows["llama.cpp"]["variant"] == "cuda"
-    assert rows["llama.cpp-prism"]["variant"] == "cpu"  # prism/cuda disabled until #103
+    assert rows["llama.cpp-prism"]["variant"] == "cuda"  # prism/cuda enabled (#823)
     assert "sglang" in rows and "sglang" not in {e["id"] for e in mp.host_engines("cpu")}
 
 
