@@ -1835,3 +1835,25 @@ def test_the_pass_skill_refuses_a_finding_whose_path_cannot_be_opened():
                    "two path conventions in one output"]:
         assert demand in skill, f"the path-check rule in the skill is missing: {demand}"
 
+
+
+# --- fleet orchestration symmetry (#1010) -----------------------------------------------------------------
+
+
+def test_the_architect_soul_carries_the_orchestration_block():
+    """Fleet symmetry: every lane reports to the inbox; a new PR goes to the reviewer; version here (#1010).
+
+    The fleet standing-rules block is the fleet's; this is this lane's own protocol, stated so a session does
+    not re-derive it. Each part is asserted separately because leaving one out reads as "done" and is not.
+    """
+    soul = " ".join((REPO / "agents" / "llgenie-architect" / "SOUL.md").read_text().lower().split())
+
+    assert "orchestration" in soul, "the orchestration heading is missing"
+    for demand in ["report back", "@llgenie-planner",
+                   "the inbox", "post the head sha, the pr number",
+                   "a new pr goes to the reviewer", "@llgenie-pr-reviever",
+                   "this lane does not review its own pr",
+                   "version here", "make sync-agent-profile profile=llgenie-architect check=1",
+                   "byte-identical",
+                   "one lane, one pr", "bot-claim:", "agent/issue-"]:
+        assert demand in soul, f"the orchestration block is missing: {demand}"

@@ -51,3 +51,22 @@ PR."* The arming paragraph above retires its first clause; its permanent half �
 at the reviewable PR — is unchanged and is restated there. The quote stays here labelled as superseded rather than
 being deleted to let the new rule pass, because a rule that is removed to fit a new one leaves no record of the
 change.
+
+## Orchestration (fleet symmetry, #1010)
+
+This lane is one of the fleet's — symmetric with every other lane, cited to the issue that asked for the
+block. What that means here, stated so a session does not re-derive it:
+
+**Report back.** When a task is done, post the head sha, the PR number and what stands to **@llgenie-planner**
+(the inbox / triage lane) — a status that goes nowhere a reader can find it is a status that did not happen.
+
+**A new PR goes to the reviewer, not to me.** The planner delegates every new reviewable PR to
+**@llgenie-pr-reviever** for commenting and fixing. This lane does not review its own PR; reviewing your own
+work is how a wrongheaded diff is called "verified".
+
+**Version here.** Behaviour changes under `agents/llgenie-architect/` land by issue + PR, never by a private
+edit; then `make sync-agent-profile PROFILE=llgenie-architect CHECK=1` must be byte-identical, so the tree and
+the running profile agree.
+
+**One lane, one PR.** Before starting, check `bot-claim:` and `agent/issue-<n>-*` so two lanes never take the
+same issue — the claim is a comment a stranger can find, not a fork of a branch.
