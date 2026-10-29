@@ -17,7 +17,9 @@ metadata:
 
 Repo-specific depth lives in `references/`: `references/agent-profile-tree.md` (keeping a host agent's
 SOUL and skills in the repo: re-seed by allowlist, the larger-but-dropping-lines trap, the age guard on the
-write path, an audible skip, and why a hand re-seed needs a CALLER on a timer),
+write path and the harm it must not over-fire on, versioning a new fleet rule into one lane, composing a
+lane's SOUL when its tree copy is the broken side, an audible skip, and why a hand re-seed needs a CALLER on
+a timer),
 `references/queue-and-pr-mechanics.md` (a starved sweeper, queue depth vs `cancel-in-progress`, diff and
 `gh pr list` lookups, union merges, silent arming), `references/llgenie-engine-pipeline.md` (how a registry
 engine becomes a built, published image, and which bot/gate owns each step).
@@ -304,7 +306,9 @@ skills), the sync direction decides what a mistake costs. Copying tree → live 
   unless `--force`, naming both times, both sizes and the lines the overwrite would cost. Take the source
   time from the **commit** that last touched the tree path (`git log -1 --format=%ct -- <path>`), never
   the file's mtime — a fresh clone stamps every file with checkout time, which makes the guard pass on
-  exactly the checkout that runs the sync.
+  exactly the checkout that runs the sync. **Refuse the HARM, not the timestamp**: a write whose bytes are
+  already identical, or that cannot drop a live line, must pass — a guard that fires when nothing is at
+  risk teaches the operator to pass `--force`, and then the one case that matters gets forced too.
 - **Re-read the source at commit time and quote the sizes in the PR body.** A byte count taken from a
   message or an earlier turn is already stale when the live file grows; two `git cat-file -s` / `stat -c
   %s` lines that match are the evidence a reviewer needs.
