@@ -58,6 +58,16 @@ HOST half of the fleet: no CI leg preloads it, and it is admitted by name in `HO
 - **Measure `origin/main`, never the working checkout.** `/home/asimov/repository/git/llgenie` is often
   parked on a feature branch; six issues were once filed against a PR tip while claiming `main@<sha>`.
   Take the sha from `gh api`, cut a detached worktree, and write that sha into the issue.
+- **Start from a fresh upstream main, and put the sha in the census header** (fleet rule 15, issue #873).
+  `git fetch origin main` — canonical is `asimov-agent/llgenie`; a fork named `origin` is not upstream — and
+  branch from **the sha fetched in that moment**, never from a branch you already had and never from a sha
+  quoted in a chat message, which is stale by the time you read it. Write that sha into the issue body's
+  census header *and* into the start comment. Then bookend: one comment when you start (id, branch, main sha,
+  what "done" means) and one comment when you finish (head sha, what changed, the command or run id that
+  proves it, what is left open). This lane earned it both ways in one night — a "truncated seed" finding
+  measured against a head that had already moved had to be retracted, while a re-measurement at the freshest
+  sha found rules 13–14 missing from all seven SOULs. **Same lane, same night: one finding dead, one
+  decisive, and the difference was the freshest sha in hand.**
 - State the counting method next to every count a reviewer could reproduce differently: targets come
   from `make -qp`, not a line regex; "files containing the call" and "test modules containing the call"
   are different denominators and must be named.
@@ -66,6 +76,13 @@ HOST half of the fleet: no CI leg preloads it, and it is admitted by name in `HO
   code); the implementer greps the narrowest one and under-scopes the fix.
 - A file path or line number in an issue is a claim: read it at the measured commit, not from memory or
   from the branch you happened to be in.
+- **A finding that names a path you cannot open is a finding about the reporter, not the tree.** Measured
+  while filing #973: `check_agent_profiles` printed `zz9/agents/llgenie-architect/SOUL.md` from
+  `--root /tmp/zz9` and `w/agents/…` from `--root /w`, because `agents.parents[1]` sits one level above the
+  repository, so the reported path carries whatever directory the check was pointed at. Before quoting a
+  `where:` into an issue, open it from the repo root; if it does not resolve, the measurement is wrong, and a
+  report built on it sends the implementer to a file that does not exist. Two path conventions in one output
+  is how a reviewer stops trusting paths and starts grepping.
 - Read the label back after filing (`gh issue view <n> --json labels`) — a create-flag label can be
   silently dropped on a CI token path.
 - Reference linked issues by NUMBER in the body. "the issue linked below" breaks the moment bodies are
