@@ -418,9 +418,9 @@ hermes-skills-register: ## Register the checkout's .hermes/skills in Hermes's co
 # uses) and CHECK=1 compares instead, naming the first differing path. The gate is what keeps the
 # tree honest (a listed profile with no SOUL.md, a skill whose frontmatter name disagrees with its
 # directory, a secret-shaped value, a planner SOUL.md that dropped "never merge").
-sync-agent-profile: ## Copy agents/<PROFILE>/ into that profile's Hermes home (PROFILE=<profile>; CHECK=1 compares instead of writing and names the first differing path; HERMES_PROFILE_HOME= overrides the destination — issue #791)
-	@test -n "$(PROFILE)" || { echo "Usage: make sync-agent-profile PROFILE=<profile> [CHECK=1]"; exit 2; }
-	python3 scripts/agent_profile_sync.py --profile "$(PROFILE)" $(if $(CHECK),--check,)
+sync-agent-profile: ## Copy agents/<PROFILE>/ into that profile's Hermes home (PROFILE=<profile>; CHECK=1 compares instead of writing and names the first differing path; FORCE=1 bypasses the refusal for a live file edited after the commit — read the refusal before forcing, it exists for a reason — HERMES_PROFILE_HOME= overrides the destination — issue #791)
+	@test -n "$(PROFILE)" || { echo "Usage: make sync-agent-profile PROFILE=<profile> [CHECK=1] [FORCE=1]"; exit 2; }
+	python3 scripts/agent_profile_sync.py --profile "$(PROFILE)" $(if $(CHECK),--check,) $(if $(FORCE),--force,)
 
 check-agent-profiles: ## CI: fail when a listed host-agent profile has no SOUL.md, a skill's frontmatter name disagrees with its directory, a skill names a missing reference or carries a secret value, or a SOUL.md dropped a standing rule (issue #791)
 	python3 scripts/check_agent_profiles.py check
