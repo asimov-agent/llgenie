@@ -1227,6 +1227,23 @@ def test_the_report_names_duplicate_canonical_rules_and_the_gate_does_not_fail_o
     assert guard.findings(REPO) == []   # duplicates are informational, never a gate failure
 
 
+def test_the_check_command_names_duplicate_rules_but_stays_green(capsys):
+    """The gate must not keep duplicate-rule debt silent when green (one bullet, one place, #972).
+
+    `make check-agent-profiles` is what a reviewer runs, so the tree's duplicate canonical rules must
+    appear there — as informational `note:` lines that do NOT change the exit code (a protected SOUL
+    write the owner routes, not a red the lane cannot clear).
+    """
+    import subprocess
+    proc = subprocess.run(
+        [sys.executable, "scripts/check_agent_profiles.py", "check"],
+        cwd=REPO, capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr
+    assert "OK:" in proc.stdout
+    assert "duplicate canonical rule" in proc.stderr, proc.stderr
+    assert "more than once" in proc.stderr, proc.stderr
+
+
 def test_the_gate_still_has_the_fleet_block_leg():
     """A merge that silently drops the leg would ungate three profiles without failing anything (#873).
 
