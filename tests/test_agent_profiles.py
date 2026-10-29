@@ -844,7 +844,8 @@ def test_the_author_gate_lesson_is_in_the_skill():
                    "email-matching) removes",
                    "cannot clear the gate",
                    "re-measure at the current head before asserting the gate's red size",
-                   "a stated count is a snapshot of a head, not a constant"]:
+                   "a stated count is a snapshot of a head, not a constant",
+                   "a snapshot earned by re-measuring, not by trusting the earlier head's number"]:
         assert phrase in ref, f"the stale-count guard is missing: {phrase}"
 
 
