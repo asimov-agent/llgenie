@@ -95,7 +95,7 @@ ALIASES: dict[str, frozenset[str]] = {
 #: address is allowlisted AND it names that display name.
 ALLOWED: dict[str, str] = {name: email for email, names in ALIASES.items() for name in names}
 #: The AGENTS.md section the rule must keep. Deleting it is a violation, not an edit.
-AGENTS_MANDATE = "## A PR's commits are authored by Andy Holst or Asimov Agent — no one else"
+AGENTS_MANDATE = "## A PR's commits are authored through an allowed email — no one else"
 #: A `Co-authored-by:` trailer, as git writes it. The name is everything before the `<`.
 COAUTHOR = re.compile(r"^[ \t]*co-authored-by:[ \t]*(?P<name>[^<]+?)[ \t]*<(?P<email>[^>]*)>",
                       re.IGNORECASE | re.MULTILINE)

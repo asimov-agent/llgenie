@@ -362,20 +362,22 @@ that is not a typed Conventional Commit or no body, on a PR opened with an empty
 and on an `AGENTS.md` that no longer carries this section. `make pr-hygiene-report` prints what it
 reads.
 
-## A PR's commits are authored by Andy Holst or Asimov Agent — no one else
+## A PR's commits are authored through an allowed email — no one else
 
 A commit's author is the attribution every reader trusts: `git log`, `git blame` and `git bisect` all
-answer "who wrote this" from it. Two identities may author a PR's commits, and no others:
+answer "who wrote this" from it. Two identity addresses may author a PR's commits, and no others:
 
 ```
-Andy Holst <andy.holst@protonmail.com>
-Asimov Agent <support@docondee.com>
+andy.holst@protonmail.com
+support@docondee.com
 ```
 
-- **The name matches EXACTLY and the email must be the one that belongs to it.** `Andy`, `andyholst`
-  and `Mr. Asimov` are the same two people under other spellings, and they FAIL — a reader of
-  `git log` cannot tell whether `Andy`, `Andy Holst` and `andyholst` are one person or three.
-  `Andy Holst <someone@else.example>` fails too: the name must carry its own address.
+- **The EMAIL is the gate, and the display name is informational.** GitHub's squash of a PR commit writes
+  the name from the account PROFILE, not the committer, so `Andy <andy.holst@protonmail.com>`,
+  `andyholst <andy.holst@protonmail.com>` and `Mr. Asimov <support@docondee.com>` are the same two people
+  under other spellings and they PASS (issue #840). Rewriting history to satisfy a field the committer
+  cannot set is the wrong fix. A foreign ADDRESS fails whatever the name says — `Andy Holst
+  <someone@else.example>`.
 - **Every bot identity fails.** `github-actions[bot]`, `llgenie fix-bot`, `Hermes Agent`,
   `asimov-agent` and `llama-ai-agent` are outside the allowlist; the repo's own workflows therefore
   commit as `Asimov Agent` (`fix-bot.yml`, `issue-bot.yml`, `rebase-bot.yml`, `engine-bump.yml`,
