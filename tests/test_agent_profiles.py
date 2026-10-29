@@ -1430,6 +1430,26 @@ def test_the_retired_rule_debt_is_reported_and_never_fails_the_gate(tmp_path):
     assert "retired" not in {i["key"] for i in cap.findings(tmp_path, agents)}
 
 
+def test_the_fleet_block_has_one_canonical_lesson_is_in_the_skill():
+    """The gate ships with its "compare against fleet_block(), never the issue fence" lesson (#1009).
+
+    Two authorities for rule 16 (agents/standing-rules.md vs #873's fence) is how the planner's
+    "take 13,394, block True" got measured against the wrong canonical and shipped an instruction that
+    re-introduced a gate red. The lesson must survive the next rewrite of the ref, or the same
+    divergent-source mistake returns.
+    """
+    ref = " ".join((REPO / "agents" / "llgenie-issse-implementer" / "skills"
+                    / "containerized-repo-verification" / "references"
+                    / "agent-profile-tree.md").read_text().lower().split())
+    for phrase in ["the fleet block has one canonical",
+                   "never the issue fence",
+                   "compares byte-for-byte against `standing-rules.md` only",
+                   "measured against the wrong canonical and was withdrawn",
+                   "two authorities for one fleet rule",
+                   "compare against `fleet_block()`, never a sampled fence"]:
+        assert phrase in ref, f"the single-canonical lesson is missing: {phrase}"
+
+
 def test_the_retired_rule_debt_lesson_is_in_the_skill():
     """The gate change ships with its lesson, or the next editor re-introduces the silent pass.
 
