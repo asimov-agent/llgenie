@@ -70,7 +70,13 @@ REQUIRED_RULE = "never-merge"
 #: across profiles instead of trusted. A profile's SOUL must state it verbatim: thirteen paraphrases of one
 #: rule is thirteen chances for it to stop being the rule (issue #873, acceptance criterion 1).
 FLEET_BLOCK = "standing-rules.md"
+#: The fleet heading, and the retired arming rule the canonical block no longer carries.
+#: A SOUL that states BOTH an arming rule at PR-creation time AND rule 16 (arm when done) has two
+#: contradictory arm triggers — the exact "which rule do I obey" failure a lane hits when the fence
+#: carried both and retired one (measured on #972/#873). The retired bullet is phrase-distinct: it
+#: triggers "arm at PR creation", rule 16 triggers "arm when the work is done".
 FLEET_HEADING = "## Standing rules (fleet, learned 2026-10-28)"
+RETIRED_ARM_RULE = "Arm auto-merge at PR creation"
 #: Profiles whose block is not yet verbatim, each with a dated reason and the vehicle that owns the fix.
 #: An exemption is legitimate only while it still describes a real gap: once the profile gains the block,
 #: the entry is reported STALE and must be deleted, so the list cannot quietly become a permanent amnesty.
@@ -443,6 +449,24 @@ def _fleet_findings(agents: Path, profiles: list[dict]) -> list[dict]:
                       "where": str(soul.relative_to(agents.parents[1])),
                       "detail": f"`{name}` does not state the canonical fleet block from {FLEET_BLOCK} "
                                 f"verbatim; first missing bullet: {_first_missing(canonical, stated)}"})
+    # A SOUL that still states the RETIRED arming rule contradicts rule 16 even when its fleet block
+    # is otherwise canonical — two arm triggers in one profile is how a lane times the arm wrong.
+    # The gate must name it, because the canonical fence retirement would otherwise go unnoticed.
+    for profile in profiles:
+        name = profile["name"]
+        soul = agents / name / SOUL
+        if not soul.is_file():
+            continue
+        text = soul.read_text(encoding="utf-8")
+        if RETIRED_ARM_RULE in text:
+            items.append({"key": "retired-arm-rule",
+                          "where": str(soul.relative_to(agents.parents[1])),
+                          "detail": f"`{name}` still states the retired rule "
+                                    f"`{RETIRED_ARM_RULE}` (arm at PR-creation). The canonical fence "
+                                    f"{FLEET_BLOCK} retired it in favour of rule 16 (arm when the work "
+                                    f"is done); two arming rules in one SOUL means the lane can obey the "
+                                    f"wrong one. Remove the retired bullet — it belongs in no lane's "
+                                    f"rulebook once the fence dropped it."})
     return items
 
 
