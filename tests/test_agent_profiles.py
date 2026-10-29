@@ -1835,3 +1835,43 @@ def test_the_pass_skill_refuses_a_finding_whose_path_cannot_be_opened():
                    "two path conventions in one output"]:
         assert demand in skill, f"the path-check rule in the skill is missing: {demand}"
 
+
+
+# --- fleet orchestration symmetry (#1010) -----------------------------------------------------------------
+
+
+def test_the_architect_soul_carries_the_orchestration_block():
+    """Fleet symmetry: every lane reports to the inbox; a new PR goes to the reviewer; version here (#1010).
+
+    The fleet standing-rules block is the fleet's; this is this lane's own protocol, stated so a session does
+    not re-derive it. Each part is asserted separately because leaving one out reads as "done" and is not.
+    """
+    soul = " ".join((REPO / "agents" / "llgenie-architect" / "SOUL.md").read_text().lower().split())
+
+    assert "orchestration" in soul, "the orchestration heading is missing"
+    for demand in ["report back", "@llgenie-planner",
+                   "the inbox", "post the head sha, the pr number",
+                   "a new pr goes to the reviewer", "@llgenie-pr-reviever",
+                   "this lane does not review its own pr",
+                   "version here", "make sync-agent-profile profile=llgenie-architect check=1",
+                   "byte-identical",
+                   "one lane, one pr", "bot-claim:", "agent/issue-"]:
+        assert demand in soul, f"the orchestration block is missing: {demand}"
+
+
+def test_the_architect_soul_rebases_only_on_conflict():
+    """Owner rule #1015: stacked PRs are not rebased onto every main move; only an actual CONFLICT does it.
+
+    Rebase-by-mainmove is how a green gets discarded twice — the branch chases a moving base and every
+    re-run restarts. So the SOUL states the trigger: rebase only when CONFLICTING, stay stacked, arm on
+    retarget. The API-vs-shadow warning is part of it: `origin/main` can be a stale local ref, so read the
+    real head from the API when a sha matters.
+    """
+    soul = " ".join((REPO / "agents" / "llgenie-architect" / "SOUL.md").read_text().lower().split())
+
+    assert "rebase only on conflict" in soul, "the SOUL lost the #1015 rebase rule"
+    for demand in ["a rebase is for when a branch is actually",
+                   "arm on retarget",
+                   "stale shadow",
+                   "read the real head from the api"]:
+        assert demand in soul, f"the #1015 rebase rule is missing: {demand}"
