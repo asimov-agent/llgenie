@@ -3,32 +3,32 @@
   "exemptions": [
     {
       "profile": "llgenie-architect",
-      "reason": "states no canonical fleet block; the architect lane's file predates the block and its owner has to copy it from agents/standing-rules.md",
+      "reason": "states no rule-13 (hold-without-remedy) or rule-14 (announce-the-work) bullet; the llgenie-architect lane owns its SOUL and copies the block from agents/standing-rules.md",
       "owner": "llgenie-architect"
     },
     {
       "profile": "llgenie-documentation-maintainer",
-      "reason": "states no canonical fleet block; the documentation lane owns its SOUL and copies the block from agents/standing-rules.md",
+      "reason": "states no rule-13 (hold-without-remedy) or rule-14 (announce-the-work) bullet; the llgenie-documentation-maintainer lane owns its SOUL and copies the block from agents/standing-rules.md",
       "owner": "llgenie-documentation-maintainer"
     },
     {
       "profile": "llgenie-planner",
-      "reason": "states no canonical fleet block; the planner lane authors its own block (its text is posted for it) and applies it in its own PR",
+      "reason": "states no rule-13 (hold-without-remedy) or rule-14 (announce-the-work) bullet; the llgenie-planner lane owns its SOUL and copies the block from agents/standing-rules.md",
       "owner": "llgenie-planner"
     },
     {
       "profile": "llgenie-pr-reviever",
-      "reason": "states no canonical fleet block; the reviewer lane owns its SOUL and copies the block from agents/standing-rules.md",
+      "reason": "states no rule-13 (hold-without-remedy) or rule-14 (announce-the-work) bullet; the llgenie-pr-reviever lane owns its SOUL and copies the block from agents/standing-rules.md",
       "owner": "llgenie-pr-reviever"
     },
     {
       "profile": "llgenie-issse-implementer",
-      "reason": "states no canonical fleet block; the implementer lane owns its SOUL and adds the block in its own change",
+      "reason": "states no rule-13 (hold-without-remedy) or rule-14 (announce-the-work) bullet; the llgenie-issse-implementer lane owns its SOUL and copies the block from agents/standing-rules.md",
       "owner": "llgenie-issse-implementer"
     },
     {
       "profile": "llgenie-ci-pipelines-maintainer",
-      "reason": "states the canonical block only up to the pre-rule-13 text; standing-rules.md gained `Never hold a PR without a remedy` (#948) and this lane's SOUL must add it verbatim",
+      "reason": "states no rule-13 (hold-without-remedy) or rule-14 (announce-the-work) bullet; the llgenie-ci-pipelines-maintainer lane owns its SOUL and copies the block from agents/standing-rules.md",
       "owner": "llgenie-ci-pipelines-maintainer"
     }
   ]
