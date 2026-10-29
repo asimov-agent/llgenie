@@ -1450,6 +1450,27 @@ def test_the_fleet_block_has_one_canonical_lesson_is_in_the_skill():
         assert phrase in ref, f"the single-canonical lesson is missing: {phrase}"
 
 
+def test_the_doc_soul_stated_block_matches_the_gate_canonical():
+    """Pin the exact measurement the planner's "+1 retired bullet" claim failed to reproduce (#1005, #1009).
+
+    The doc SOUL's stated block == fleet_block() was asserted FALSE (5,869/20 vs 5,870/21 b) then TRUE
+    then FALSE again across planner reads — none reproduced on the gate's own functions. At head 2804433f
+    the retired bullet sits at line 108, OUTSIDE the stated-block region (86–106), and the stated block is
+    byte-identical to the 18-line canonical fence. Pinning it as a durable regression so the claim can never
+    recur unchecked: if the fence drifts, this reds with the name and the first differing line, and the fix
+    is a protected in-lane (~#1006/#1008) dedupe, never a from-live copy.
+    """
+    canonical = guard.fleet_block(REPO / "agents")
+    assert canonical is not None, "the canonical fleet block must exist"
+    doc = REPO / "agents" / "llgenie-documentation-maintainer" / "SOUL.md"
+    stated = guard._stated_block(doc.read_text(encoding="utf-8"))
+    assert stated == canonical, (
+        "doc SOUL stated block != canonical fleet_block() — the fence drifted. Diff the gate's own "
+        "fleet_block() vs _stated_block() and dedupe in-lane; do NOT re-source from live (that reintroduces "
+        "the #1009 block-in-soul failure)."
+    )
+
+
 def test_this_lane_s_soul_uses_the_canonical_rule16_wording_not_the_drifted_fence():
     """The #1009 defect, pinned on the lane that owns it: ONE canonical, the gate's.
 
