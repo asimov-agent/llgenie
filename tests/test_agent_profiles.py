@@ -936,7 +936,7 @@ def test_a_rule_inside_a_fenced_block_is_a_quote_not_a_statement():
         "a fenced quote is NOT a statement — the fence lines break exact equality with canonical"
 
 
-def test_the_duplicate_rule_discriminator_treats_the_period_variant_as_the_same_rule():
+def test_the_duplicate_rule_discriminator_treats_the_period_variant_as_the_same_rule(tmp_path):
     """A duplicate drifts by punctuation before it drifts by text (#972 #922): `remedy.**` and `remedy**`
     are the SAME rule.
 
@@ -947,6 +947,8 @@ def test_the_duplicate_rule_discriminator_treats_the_period_variant_as_the_same_
     counted. This is the near-copy the planner keeps catching by hand; now it is a pinned gate property.
     """
     import check_agent_profiles as cap
+    import shutil
+    from check_agent_profiles import _duplicate_rule_debts
     canonical = cap.fleet_block(REPO / "agents")
     assert canonical is not None, "the fleet block must exist to test against"
 
@@ -963,9 +965,11 @@ def test_the_duplicate_rule_discriminator_treats_the_period_variant_as_the_same_
         # `_duplicate_rule_debts` resolves the canonical rule titles from `standing-rules.md`, so a
         # synthetic agents root must carry it (copied from the real tree) or `fleet_block` returns None
         # and the helper silently counts nothing.
-        import pathlib, tempfile, shutil
-        from check_agent_profiles import _duplicate_rule_debts
-        agent = pathlib.Path(tempfile.mkdtemp())
+        # Use the test's `tmp_path` (auto-cleaned at the end of the test) instead of `tempfile.mkdtemp()`,
+        # which leaks a directory per call.
+        agent = tmp_path / "agents"
+        shutil.rmtree(agent, ignore_errors=True)   # fresh root per call (three calls in this test)
+        agent.mkdir()
         shutil.copy(REPO / "agents" / cap.FLEET_BLOCK, agent / cap.FLEET_BLOCK)
         p = agent / "per-test" / "SOUL.md"
         p.parent.mkdir(parents=True)
@@ -985,6 +989,28 @@ def test_the_duplicate_rule_discriminator_treats_the_period_variant_as_the_same_
     assert any(name == "per-test" and title == stripped for name, title in debts(two_period)), \
         "two identical copies must be counted as a duplicate"
     assert debts(only_one) == [], "one copy of the rule must NOT be a duplicate"
+
+
+def test_the_prove_it_is_safe_to_push_before_push_lesson_is_in_the_skill():
+    """A push into a head with a `queued` run cancels that verdict — never infer safety from breath.
+
+    The skill teaches "push once then FREEZE the branch", but freezing is only advisory; the operable half
+    is the probe that proves a push is safe (`gh api .../commits/<HEAD>/check-runs` → 0 in_progress or
+    queued). A branch can be green while a run is still queued, and a push then throws away the very
+    verdict the branch was waiting on. This pin holds the probe and the freeze rule in the skill.
+    """
+    ref = " ".join((REPO / "agents" / "llgenie-issse-implementer" / "skills" / "containerized-repo-verification"
+                    / "references" / "queue-and-pr-mechanics.md").read_text().lower().split())
+
+    for phrase in ["prove it is safe to push before you do",
+                   "push once, then freeze the branch",
+                   "commits/<head>/check-runs",
+                   'select(.status=="in_progress" or .status=="queued")',
+                   "`0` is the only \"safe to push\"",
+                   "but not every `queued` job is the verdict; read the gate, not the count",
+                   "is the run the pr's gate actually waits on (`guard`, `check-pr-authors`, `check-agent-profiles`)",
+                   "only a detached matrix job lingers"]:
+        assert phrase in ref, f"the push-safety probe / gate discriminator lesson is missing: {phrase}"
 
 
 def test_the_bookend_and_fresh_base_procedure_is_in_the_skill():
@@ -1008,7 +1034,12 @@ def test_the_bookend_and_fresh_base_procedure_is_in_the_skill():
                  "fetch fresh canonical `main` before any other work",
                  "confirm which remote is canonical first",
                  "never from a remote name you *assume* exists",
-                 "answer a plan against the current `main`, not a four-heads-old snapshot"]:
+                 "answer a plan against the current `main`, not a four-heads-old snapshot",
+                 # the same-turn re-read (planner 13:20Z): a quoted sha is the past the moment another
+                 # lane can push; quote what you just fetched, never what you memorised
+                 "re-read the head in the same turn you quote it",
+                 "git ls-remote origin refs/heads/<branch>",
+                 "a sha is a claim about the past"]:
         assert step in ref, f"rule 15's operative half is missing a step: {step}"
 
 
