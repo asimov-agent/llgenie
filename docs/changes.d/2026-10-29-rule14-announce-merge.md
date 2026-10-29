@@ -1,0 +1,1 @@
+| 2026-10-29 | the merger publishes what it acted on: run id, head sha and decision, after the merge returned (#873) | [2026-10-29-rule14-announce-merge.md](agent-wiki/2026-10-29-rule14-announce-merge.md) | #873 |

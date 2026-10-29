@@ -65,6 +65,10 @@ WRITE_PERMISSIONS = ("admin", "maintain", "write")
 BOT_LOGINS = ("github-actions[bot]", "app/github-actions")
 #: One deferral comment per head SHA — re-posted only when the head moves.
 DEFERRAL_MARKER = "<!-- auto-merge: deferred {} -->"
+#: One MERGE announcement per head SHA (fleet rule 14, issue #873): the merger must publish what it acted on.
+#: A merger that merges silently is the same defect as two lanes on one branch — the next reader cannot tell
+#: work from coincidence, and "approval is not the blocker, scheduling is" stays an assertion instead of a record.
+MERGE_MARKER = "<!-- auto-merge: merged {} -->"
 #: Every `gh pr view --json` field name this module requests, in ONE place (issue #513).
 #: `authorAssociation` is deliberately absent: `gh pr view` has no such field, and asking for it made
 #: every run die with `Unknown JSON field: "authorAssociation"` before `decide()` was ever reached.
@@ -296,6 +300,52 @@ def _same_repo(state: dict, repo: str) -> bool:
     return not head_repo or head_repo == repo.lower()
 
 
+def announce_merge(gh: str, repo: str, pr: int, head_sha: str, admin: bool = False,
+                   dry: bool = False) -> None:
+    """Say on the PR what was merged, at which sha, by which run, and why it was allowed (rule 14, #873).
+
+    Idempotent per head sha, like the deferral: a recheck that finds the PR already merged must not post twice.
+    """
+    marker = MERGE_MARKER.format(head_sha)
+    if not (head_sha or "").strip():
+        # An empty sha makes the marker `<!-- auto-merge: merged  -->`, which matches every other empty-sha
+        # announcement, and "head sha judged: ``" is evidence that identifies nothing. Refuse loudly: rule 14
+        # exists so a reader can check WHICH tree was merged, and a comment that cannot answer that is noise
+        # wearing the shape of an audit line.
+        print(f"[auto-merge] PR #{pr}: NOT announcing the merge — no head sha was supplied, so the comment "
+              f"could not say which tree was merged (rule 14, #873)", file=sys.stderr)
+        return
+    if dry:
+        print(f"[auto-merge] would announce the merge on PR #{pr} ({marker})")
+        return
+    if any(marker in body for body in pr_comments(gh, repo, pr)):
+        return
+    # "unknown" would be a value the merger invented: the docs advertise `make auto-merge` as a local
+    # invocation, which has no `GITHUB_RUN_ID`, and a comment claiming a run that does not exist is the same
+    # defect as a merge with no comment at all. Say which kind of run it was instead.
+    run_id = os.environ.get("GITHUB_RUN_ID")
+    actor = f"run `{run_id}`" if run_id else "a local invocation (`make auto-merge`, no `GITHUB_RUN_ID`)"
+    how = "green CI run + `mergeStateStatus: CLEAN`"
+    if admin:
+        how += ", merged with `--admin` because the required review cannot be self-approved"
+    text = (f"{marker}\n\n**Merged by `auto-merge`.**\n\n"
+            f"- run: {actor}\n"
+            f"- head sha judged: `{head_sha}`\n"
+            f"- decision: {how}\n\n"
+            "Published because a merger that merges silently is the same defect as two lanes on one branch: "
+            "the next reader cannot tell work from coincidence (fleet rule 14, issue #873).")
+    try:
+        _gh(gh, ["pr", "comment", str(pr), "--repo", repo, "--body", text])
+    except SystemExit as exc:
+        # The merge already happened, so a failure here must not read as "the run failed" without saying
+        # what DID: name the merge and the missing record in one line, then re-raise so it stays loud (the
+        # run-failure reactor is the consumer). Silence is the defect rule 14 exists to remove; a bare
+        # `gh … failed` would charge the merge itself for a comment that never landed.
+        print(f"[auto-merge] PR #{pr}: MERGED at {head_sha} but the rule-14 announcement could NOT be posted "
+              f"— the PR has no audit line: {exc}", file=sys.stderr)
+        raise
+
+
 def _merge(gh: str, repo: str, pr: int, head_sha: str, state: dict, dry: bool,
           admin: bool = False) -> int:
     same = _same_repo(state, repo)
@@ -306,6 +356,7 @@ def _merge(gh: str, repo: str, pr: int, head_sha: str, state: dict, dry: bool,
         return 0
     print(f"[auto-merge] merging PR #{pr} at {(head_sha or '')[:8]} (green + CLEAN){keeps}{bypass}")
     print(merge(gh, repo, pr, head_sha, delete_branch=same, admin=admin).strip())
+    announce_merge(gh, repo, pr, head_sha, admin=admin)
     return verify_closure.verify(gh, repo, pr)
 
 
@@ -366,7 +417,8 @@ def _clear_review(gh: str, repo: str, pr: int, head_sha: str, state: dict, dry: 
     """Clear the one procedural block a bot may clear: a required review (issue #524).
 
     Order matters, and it is the order `trending-local-llms` gets for free: approve as the identity that is
-    NOT the author, then merge the validated commit normally. `--admin` is the last resort, because GitHub
+    NOT the author, then merge the validated commit normally. Whichever path merges announces on the PR
+    (rule 14, #873). `--admin` is the last resort, because GitHub
     refuses it wherever the review rule is enforced for admins — which is why #491's bypass has never
     merged anything (measured: PR #523, run 39816912388).
     """
@@ -391,6 +443,10 @@ def _clear_review(gh: str, repo: str, pr: int, head_sha: str, state: dict, dry: 
     print(f"[auto-merge] PR #{pr}: falling back to --admin (the review cannot be cleared legitimately)")
     try:
         print(merge(gh, repo, pr, head_sha, delete_branch=_same_repo(state, repo), admin=True).strip())
+        # Rule 14 (#873): the admin path is a merge too, so it publishes what it acted on. It is called
+        # AFTER the merge returned: a refusal raises SystemExit and reaches the deferral below instead,
+        # so a run that could not merge never announces one.
+        announce_merge(gh, repo, pr, head_sha, admin=True)
     except SystemExit as exc:
         # A refusal here is a policy deferral, not a broken gate: say so ON the PR (the #491 rule) and
         # never let a run that could not merge look like one that chose not to (#513).

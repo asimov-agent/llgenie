@@ -1254,6 +1254,14 @@ What it will and will not touch:
 | head moved after the run started | deferred: the newer run decides |
 | `do-not-merge` label | **held** — the human escape hatch; remove it and the next green run merges |
 
+**It publishes what it acted on (fleet rule 14, #873).** The automation is a lane too, so every act is
+written where a reader looks rather than only in a job log: a merge posts one comment naming the
+**run id** (`GITHUB_RUN_ID`), the **head sha judged** and the decision, and a deferral posts the
+one-line reason (`BLOCKED: review required`, `stale head`, `held`, …). The merge announcement is posted
+*after* the merge call returned, so a run whose merge GitHub refused never announces one, and it is
+idempotent per head — a recheck of an already-merged PR adds nothing, while a moved head announces
+again because the earlier marker described a different tree.
+
 The merge runs with the owner PAT (`secrets.BUMP_TOKEN`), never the job token: a merge made with
 `GITHUB_TOKEN` starts no workflows, so the post-merge run on `main` — the one that publishes the engine
 images — would never happen. Right after merging, `make verify-closure` reads the PR's own

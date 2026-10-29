@@ -1064,3 +1064,166 @@ def test_a_pr_the_workflow_opened_is_never_approved_by_the_workflow(tmp_path, mo
     assert rc == 0, rc
     assert not [c for c in calls if c[:2] == ["pr", "review"]], calls
     assert [c for c in calls if c[:2] == ["pr", "merge"] and "--admin" in c], calls
+
+
+# ---- announcing the merge (fleet rule 14, issue #873) ------------------------
+
+def _announcements(tmp_path: Path) -> list[str]:
+    """Every `pr comment` body the run posted — `[]` when the fake gh was never called at all."""
+    log = tmp_path / "gh.log"
+    if not log.exists():
+        return []
+    return [" ".join(c) for c in _calls(log) if c[:2] == ["pr", "comment"]]
+
+
+def test_a_merge_announces_the_run_the_sha_and_the_decision_on_the_pr(tmp_path, monkeypatch):
+    """Rule 14: a merger that merges silently cannot be told apart from a coincidence.
+
+    The comment must name the run id, the head sha judged and the decision — and it must be posted
+    AFTER the merge returned, not before it (a run that announces a merge it has not made is worse
+    than a silent one).
+    """
+
+    # Given a green, CLEAN PR and a run id in the environment
+    monkeypatch.setenv("GITHUB_RUN_ID", "40835541562")
+    gh = _fake_gh(tmp_path, _state(), {"482": "CLOSED"})
+
+    # When  the merge runs
+    rc = am.run(str(gh), "o/r", 482, HEAD)
+
+    # Then  one comment names the run, the sha and the decision, and it follows the merge
+    calls = _calls(tmp_path / "gh.log")
+    bodies = _announcements(tmp_path)
+    assert rc == 0, rc
+    assert len(bodies) == 1, bodies
+    body = bodies[0]
+    for needle in ("Merged by `auto-merge`", "40835541562", HEAD, "CLEAN", "rule 14"):
+        assert needle in body, (needle, body)
+    merge_at = [i for i, c in enumerate(calls) if c[:2] == ["pr", "merge"]]
+    comment_at = [i for i, c in enumerate(calls) if c[:2] == ["pr", "comment"]]
+    assert merge_at and comment_at and comment_at[0] > merge_at[0], calls
+
+
+def test_a_refused_merge_announces_nothing(tmp_path):
+    """The negative control: a merge GitHub refused is NOT announced as a merge.
+
+    `merge()` raises SystemExit on a refusal; the deferral path runs instead. Announcing there would
+    tell the next reader the PR had merged when it had not.
+    """
+
+    # Given a review-blocked PR whose merge GitHub refuses
+    gh = _fake_gh(tmp_path, _review_blocked(author="asimov-agent"), {"491": "CLOSED"},
+                  token_login="asimov-agent", merge_rc=1)
+
+    # When  the job runs
+    rc = am.run(str(gh), "asimov-agent/llgenie", 482, HEAD, approve_when_review_required=True)
+
+    # Then  it defers with the reason and announces no merge at all
+    bodies = _announcements(tmp_path)
+    assert rc == 0, rc
+    assert bodies and "admin merge was refused" in bodies[0], bodies
+    assert not [b for b in bodies if "Merged by `auto-merge`" in b], bodies
+
+
+def test_the_admin_fallback_announces_the_bypass(tmp_path):
+    """The admin path is a merge too: its announcement says the review could not be self-approved."""
+
+    # Given a review-blocked PR authored by the merge token's own account
+    gh = _fake_gh(tmp_path, _review_blocked(author="asimov-agent"), {"491": "CLOSED"},
+                  token_login="asimov-agent")
+
+    # When  the job runs with review clearance enabled
+    rc = am.run(str(gh), "asimov-agent/llgenie", 482, HEAD, approve_when_review_required=True)
+
+    # Then  the merge is announced as the admin bypass, after the merge
+    calls = _calls(tmp_path / "gh.log")
+    bodies = _announcements(tmp_path)
+    assert rc == 0, rc
+    assert len(bodies) == 1, bodies
+    assert "--admin" in bodies[0], bodies[0]
+    merge_at = [i for i, c in enumerate(calls) if c[:2] == ["pr", "merge"]]
+    comment_at = [i for i, c in enumerate(calls) if c[:2] == ["pr", "comment"]]
+    assert comment_at[0] > merge_at[0], calls
+
+
+def test_an_announcement_is_posted_once_per_head(tmp_path):
+    """Idempotent per head sha, like the deferral: a recheck of an already-merged PR posts nothing."""
+
+    # Given a PR whose comments already carry the announcement for this head
+    marker = am.MERGE_MARKER.format(HEAD)
+    gh = _fake_gh(tmp_path, _state(comments=[{"body": marker}]))
+
+    # When  the announcement runs again for the same head
+    am.announce_merge(str(gh), "o/r", 482, HEAD)
+
+    # Then  nothing is posted
+    assert not _announcements(tmp_path)
+
+    # And   a different head is announced (the old marker described a different tree)
+    gh2 = _fake_gh(tmp_path / "second", _state(comments=[{"body": marker}]))
+    am.announce_merge(str(gh2), "o/r", 482, "deadbeef" + HEAD[8:])
+    assert _announcements(tmp_path / "second")
+
+
+def test_a_local_run_says_it_is_local_instead_of_inventing_a_run_id(tmp_path, monkeypatch):
+    """`make auto-merge` is documented as a local invocation, and it has no `GITHUB_RUN_ID`.
+
+    The first version wrote `run: unknown` — a value the merger made up, in a comment whose whole purpose is
+    to be evidence. A reader cannot tell "unknown" from "a run id we failed to capture", so it now says which
+    kind of run it was. Prevents: an audit line that looks filled in and is not.
+    """
+    monkeypatch.delenv("GITHUB_RUN_ID", raising=False)
+    gh = _fake_gh(tmp_path, _state(), {"482": "CLOSED"})
+
+    rc = am.run(str(gh), "o/r", 482, HEAD)
+
+    bodies = _announcements(tmp_path)
+    assert rc == 0, rc
+    assert len(bodies) == 1, bodies
+    assert "a local invocation" in bodies[0], bodies[0]
+    assert "unknown" not in bodies[0], bodies[0]
+    assert HEAD in bodies[0], bodies[0]
+
+
+def test_an_announcement_with_no_head_sha_is_refused_not_posted(tmp_path, capsys):
+    """A comment that cannot say WHICH tree was merged is noise shaped like an audit line.
+
+    The marker would be `<!-- auto-merge: merged  -->`, which also matches every other empty-sha
+    announcement, so the idempotency check would silently suppress the next real one. Prevents: rule 14's
+    evidence requirement being satisfied by a comment with an empty sha in it.
+    """
+    gh = _fake_gh(tmp_path, _state(), {"482": "CLOSED"})
+
+    am.announce_merge(str(gh), "o/r", 482, "")
+
+    err = capsys.readouterr().err
+    assert "NOT announcing the merge" in err, err
+    assert not _announcements(tmp_path)
+
+
+def test_a_failed_announcement_names_the_merge_it_could_not_record(tmp_path, monkeypatch, capsys):
+    """The merge already happened; a comment that fails must not read as "the run failed" without saying so.
+
+    Without this, a flaky `gh pr comment` after a successful merge produces a bare `gh … failed` red — the
+    reader concludes nothing merged, while the branch is deleted and the commit is on `main`. Prevents: a
+    merged PR charged to a failed announcement, with the audit line missing and nobody told which.
+    """
+    import pytest as _pytest
+
+    gh = _fake_gh(tmp_path, _state(), {"482": "CLOSED"})
+    real = am._gh
+
+    def boom(gh_bin, args, token=""):
+        if args[:2] == ["pr", "comment"]:
+            raise SystemExit("[auto-merge] gh pr comment failed (1): Resource not accessible by integration")
+        return real(gh_bin, args, token)
+
+    monkeypatch.setattr(am, "_gh", boom)
+
+    with _pytest.raises(SystemExit):
+        am.run(str(gh), "o/r", 482, HEAD)
+
+    err = capsys.readouterr().err
+    assert f"MERGED at {HEAD}" in err, err
+    assert "could NOT be posted" in err, err
+    assert "no audit line" in err, err
