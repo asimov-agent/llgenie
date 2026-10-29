@@ -629,3 +629,96 @@ def test_the_ok_line_carries_the_caveat_when_the_comparison_is_skipped(tmp_path,
     assert cap.main(["check", "--root", str(tmp_path)]) == 0
     out = capsys.readouterr().out
     assert "OK:" in out and "tree checks only, LIVE RULEBOOKS NOT COMPARED" in out, out
+
+# --- the live profile is a MOVING reference: a sync must not overwrite work it did not read (issue #924)
+
+
+def _moving_fixture(tmp_path, monkeypatch):
+    """A tree copy committed at T, and a live file another lane edited at T+600 — the #924 shape."""
+    import agent_profile_sync as sync
+
+    agents = tmp_path / "agents"
+    (agents / "someone").mkdir(parents=True)
+    live = tmp_path / "live"
+    live.mkdir()
+    tree_text = "- a\n- b\n"
+    live_text = "- a\n- b\n- a rule another lane added at 01:44Z\n"
+    (agents / "someone" / "SOUL.md").write_text(tree_text)
+    (live / "SOUL.md").write_text(live_text)
+    monkeypatch.setattr(sync, "source_time", lambda *a, **k: 1_700_000_000.0)
+    os.utime(live / "SOUL.md", (1_700_000_600, 1_700_000_600))
+    return sync, agents, live, tree_text, live_text
+
+
+def test_sync_refuses_to_overwrite_a_live_file_newer_than_the_source_commit(tmp_path, capsys, monkeypatch):
+    """The write path is where a moving reference bites: no read-time caveat can see a sync it allowed.
+
+    Measured on #919: a `cp` from live was one command away from deleting twelve lines of tree-only
+    content that existed nowhere else, because the live file had been rewritten mid-review. A guard that
+    only compares CONTENT cannot see that the other side moved, so the refusal is on the time, and it is
+    checked BEFORE the shrink guard — the content problem would be the wrong description of the real one.
+    """
+    sync, agents, live, _, live_text = _moving_fixture(tmp_path, monkeypatch)
+
+    rc = sync.write(agents, "someone", live)
+    message = capsys.readouterr()
+    text = message.out + message.err
+
+    assert rc == 4, text
+    assert "would overwrite" in text, text
+    assert "edited AFTER the tree copy was committed" in text, text
+    assert "2023-11-14T22:13:20Z" in text and "2023-11-14T22:23:20Z" in text, text  # both times, named
+    assert "losing 1 line(s)" in text, text          # what the overwrite would cost
+    assert "verified" not in text.lower(), text      # a refusal that prints success is the same lie
+    assert (live / "SOUL.md").read_text() == live_text, "nothing was written"
+
+
+def test_the_force_path_says_it_overwrote_a_newer_live_file(tmp_path, capsys, monkeypatch):
+    """`--force` is the one legitimate overwrite of newer live work — so the log must name it."""
+    sync, agents, live, _, _ = _moving_fixture(tmp_path, monkeypatch)
+
+    assert sync.write(agents, "someone", live, force=True) == 0
+    text = capsys.readouterr().out
+
+    assert "overwrote a live file NEWER than the source commit by --force" in text, text
+    assert "2023-11-14T22:23:20Z" in text, text
+    assert "identical" not in text.lower(), text
+
+
+def test_a_live_file_older_than_the_source_commit_is_not_refused(tmp_path, capsys, monkeypatch):
+    """The control: the guard must not fire on the ordinary case, or it is just a red gate."""
+    import agent_profile_sync as sync
+
+    agents = tmp_path / "agents"
+    (agents / "someone").mkdir(parents=True)
+    live = tmp_path / "live"
+    live.mkdir()
+    (agents / "someone" / "SOUL.md").write_text("- brand new rule\n")
+    (live / "SOUL.md").write_text("- an older rule\n")          # a genuine rewrite, not a subset
+    monkeypatch.setattr(sync, "source_time", lambda *a, **k: 1_700_000_000.0)
+    os.utime(live / "SOUL.md", (1_699_999_000, 1_699_999_000))
+
+    assert sync.write(agents, "someone", live) == 0
+    text = capsys.readouterr().out
+    assert "REFUSED" not in text and "NEWER than the source commit" not in text, text
+
+
+def test_the_source_time_is_the_COMMIT_not_the_file_mtime(tmp_path):
+    """A fresh clone sets every mtime to now, which would disarm the guard on the very checkout using it."""
+    import subprocess as sp
+
+    import agent_profile_sync as sync
+
+    agents = tmp_path / "agents"
+    (agents / "someone").mkdir(parents=True)
+    path = agents / "someone" / "SOUL.md"
+    path.write_text("- a rule\n")
+    for cmd in (["git", "init", "-q"], ["git", "add", "-A"],
+                ["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-qm", "x"]):
+        sp.run(cmd, cwd=tmp_path, check=True, capture_output=True)
+
+    committed = sync.source_time(agents, "someone", path)
+    os.utime(path, (4_000_000_000, 4_000_000_000))              # an mtime far in the future
+    assert sync.source_time(agents, "someone", path) == committed
+    assert committed < 4_000_000_000, "the mtime leaked into the source time"
+

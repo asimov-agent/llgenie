@@ -27,7 +27,9 @@ import argparse
 import filecmp
 import os
 import shutil
+import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -121,6 +123,48 @@ def shrinks(agents: Path, name: str, dest: Path) -> list[tuple[str, int, int, in
     return out
 
 
+def _stamp(ts: float) -> str:
+    return datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def source_time(agents: Path, name: str, path: Path) -> float:
+    """When the tree copy was COMMITTED — not its mtime, which a fresh clone resets to now.
+
+    A clone sets every file's mtime to checkout time, so an mtime comparison would say the tree is newer
+    than any live file and quietly disarm this guard on exactly the checkout that runs it. The commit
+    that last touched the path is the stable answer; an untracked fixture file falls back to its mtime.
+    """
+    rel = path.relative_to(agents.parent).as_posix()
+    try:
+        out = subprocess.run(["git", "-C", str(agents.parent), "log", "-1", "--format=%ct", "--", rel],
+                             capture_output=True, text=True, timeout=20, check=False)
+        if out.returncode == 0 and out.stdout.strip():
+            return float(out.stdout.strip())
+    except (OSError, subprocess.SubprocessError, ValueError):
+        pass
+    return path.stat().st_mtime
+
+
+def newer_than_source(agents: Path, name: str, dest: Path) -> list[tuple[str, float, float]]:
+    """Live files edited AFTER the tree copy was committed: (relative path, source time, live mtime).
+
+    The defect this exists for: the live profile is a MOVING reference — another lane edits it while a PR
+    is under review — so `sync` into such a file is a silent merge in the wrong direction, on the write
+    path, where no read-time caveat can see it. Measured tonight, a `cp` from live was one command away
+    from deleting twelve lines of tree-only content that existed nowhere else (issue #924).
+    """
+    out: list[tuple[str, float, float]] = []
+    for path in profile_files(agents, name):
+        rel = _rel(path, agents / name)
+        target = dest / rel
+        if not target.exists():
+            continue
+        src, live = source_time(agents, name, path), target.stat().st_mtime
+        if live > src + 1:  # a second of slack: filesystems store whole seconds, git stores integers
+            out.append((rel, src, live))
+    return out
+
+
 def write(agents: Path, name: str, dest: Path, force: bool = False) -> int:
     """Copy each file in, then read every one back; a read-back mismatch is a failure."""
     files = profile_files(agents, name)
@@ -133,6 +177,22 @@ def write(agents: Path, name: str, dest: Path, force: bool = False) -> int:
     except OSError as exc:
         print(f"[agent-profile] FAIL: cannot create {dest}: {exc}", file=sys.stderr)
         return 2
+    # A live file edited after our commit is the more dangerous case, so it is refused FIRST: the shrink
+    # message would describe a content problem when the real problem is that another lane is editing.
+    moving = newer_than_source(agents, name, dest)
+    if moving and not force:
+        for rel, src, live in moving:
+            target = dest / rel
+            tree_bytes, live_bytes = (agents / name / rel).stat().st_size, target.stat().st_size
+            lost = len([ln for ln in _rule_lines(target.read_text())
+                        if ln not in set(_rule_lines((agents / name / rel).read_text()))])
+            print(f"[agent-profile] REFUSED {agents.name}/{name}/{rel}: the live file was edited AFTER "
+                  f"the tree copy was committed — live {_stamp(live)}, source commit {_stamp(src)} — so a "
+                  f"sync would overwrite {live_bytes:,} b of another lane's work with {tree_bytes:,} b"
+                  + (f", losing {lost} line(s) it does not have" if lost else "")
+                  + ". Read the live file and merge deliberately, or pass --force to mean it.",
+                  file=sys.stderr)
+        return 4
     shrinking = shrinks(agents, name, dest)
     if shrinking and not force:
         for rel, tree, live, lost in shrinking:
@@ -142,6 +202,11 @@ def write(agents: Path, name: str, dest: Path, force: bool = False) -> int:
                   f"the seed, or pass --force to mean it.", file=sys.stderr)
         return 3
     written: list[str] = []
+    # Captured BEFORE the copy: after it every file exists and matches, so asking then answers "no change"
+    # for every run — an instrument reporting a property it did not check.
+    existed = {rel for rel in (_rel(p, agents / name) for p in files) if (dest / rel).exists()}
+    differed = {rel for rel in existed
+                if not filecmp.cmp(agents / name / rel, dest / rel, shallow=False)}
     for path in files:
         rel = _rel(path, agents / name)
         target = dest / rel
@@ -158,9 +223,6 @@ def write(agents: Path, name: str, dest: Path, force: bool = False) -> int:
     print(f"[agent-profile] {agents.name}/{name} -> {dest} ({len(written)} file(s))")
     # Never say "identical" for a file whose content changed: that claim is about what was WRITTEN, not
     # about what was THERE, and the difference is what shipped a 2,360-byte deletion (issue #791 review).
-    changed = [rel for rel in written
-               if not filecmp.cmp(agents / name / rel, dest / rel, shallow=False)]
-    rewritten = [rel for rel in written if (dest / rel).exists()]
     # A --force run is the ONE case where a file legitimately shrinks, which is exactly when the log
     # must say so: "verified … identical" over a 2,360-byte deletion is the defect this guard exists for,
     # and it survives --force unless the message names the shrink and both sizes.
@@ -169,8 +231,15 @@ def write(agents: Path, name: str, dest: Path, force: bool = False) -> int:
         rel, tree, live, lost = shrinking[0]
         shrunk_note = (f", {len(shrinking)} shrank by --force ({live:,} b → {tree:,} b"
                        + (f", {lost} line(s) removed" if lost else "") + ")")
+    moving_note = ""
+    if moving:
+        rel, src, live = moving[0]
+        moving_note = (f", {len(moving)} overwrote a live file NEWER than the source commit by --force "
+                       f"(live {_stamp(live)} vs source {_stamp(src)})")
     print(f"[agent-profile] verified: {len(written)} copied and read back as written"
-          + (f", {len(rewritten)} replaced an existing file" if rewritten else "") + shrunk_note)
+          + (f", {len(existed)} replaced an existing file" if existed else "")
+          + (f", {len(differed)} of them had different content" if differed else "")
+          + shrunk_note + moving_note)
     return 0
 
 
