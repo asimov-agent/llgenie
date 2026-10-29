@@ -1,5 +1,5 @@
 {
-  "generated_utc": "2026-10-27T12:53:42Z",
+  "generated_utc": "2026-10-27T21:47:11Z",
   "order": "README weighted trend (buzz + log2 of consumer t/s). The server is the best fit for this card on this arch with a quant that fits this vram and ram (a figure proven on a card of this vram class or smaller first, then a bigger card's figure, then another backend, then a datacenter figure; issue #225).",
   "cases": [
     {
@@ -255,17 +255,17 @@
       "ram": 32,
       "rows": [
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp",
-          "tps": 179.0,
+          "model": "Qwen3.6-35B-A3B",
+          "server": "FreeToken",
+          "tps": 39.3,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
         },
         {
-          "model": "Qwen3.6-35B-A3B",
-          "server": "FreeToken",
-          "tps": 39.3,
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp",
+          "tps": 179.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -558,17 +558,17 @@
       "ram": 60,
       "rows": [
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp",
-          "tps": 179.0,
+          "model": "Qwen3.6-35B-A3B",
+          "server": "FreeToken",
+          "tps": 39.3,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
         },
         {
-          "model": "Qwen3.6-35B-A3B",
-          "server": "FreeToken",
-          "tps": 39.3,
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp",
+          "tps": 179.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -869,17 +869,17 @@
       "ram": 64,
       "rows": [
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp",
-          "tps": 179.0,
+          "model": "Qwen3.6-35B-A3B",
+          "server": "FreeToken",
+          "tps": 39.3,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
         },
         {
-          "model": "Qwen3.6-35B-A3B",
-          "server": "FreeToken",
-          "tps": 39.3,
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp",
+          "tps": 179.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -1563,17 +1563,17 @@
           "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 40 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp",
-          "tps": 179.0,
+          "model": "Qwen3.6-35B-A3B",
+          "server": "FreeToken",
+          "tps": 61.4,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
         },
         {
-          "model": "Qwen3.6-35B-A3B",
-          "server": "FreeToken",
-          "tps": 61.4,
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp",
+          "tps": 179.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -2050,17 +2050,17 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp",
-          "tps": 179.0,
+          "model": "Qwen3.6-35B-A3B",
+          "server": "FreeToken",
+          "tps": 61.4,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
         },
         {
-          "model": "Qwen3.6-35B-A3B",
-          "server": "FreeToken",
-          "tps": 61.4,
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp",
+          "tps": 179.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -2553,17 +2553,17 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp",
-          "tps": 179.0,
+          "model": "Qwen3.6-35B-A3B",
+          "server": "FreeToken",
+          "tps": 61.4,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
         },
         {
-          "model": "Qwen3.6-35B-A3B",
-          "server": "FreeToken",
-          "tps": 61.4,
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp",
+          "tps": 179.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -3120,14 +3120,6 @@
           "why": ""
         },
         {
-          "model": "Qwen3.6-35B-A3B (Kapitsa + DFlash2, M4 Pro MTP bake-off)",
-          "server": "Ollama",
-          "tps": 89.0,
-          "measured_on": "Metal",
-          "variant": "cuda",
-          "why": ""
-        },
-        {
           "model": "Qwen3.8-27B Twin Turbo",
           "server": "llama.cpp",
           "tps": 90.0,
@@ -3535,17 +3527,17 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp",
-          "tps": 179.0,
+          "model": "Qwen3.6-35B-A3B",
+          "server": "FreeToken",
+          "tps": 61.4,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
         },
         {
-          "model": "Qwen3.6-35B-A3B",
-          "server": "FreeToken",
-          "tps": 61.4,
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp",
+          "tps": 179.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -3611,14 +3603,6 @@
           "server": "llama.cpp",
           "tps": 35.0,
           "measured_on": "CUDA",
-          "variant": "cuda",
-          "why": ""
-        },
-        {
-          "model": "Qwen3.6-35B-A3B (Kapitsa + DFlash2, M4 Pro MTP bake-off)",
-          "server": "Ollama",
-          "tps": 89.0,
-          "measured_on": "Metal",
           "variant": "cuda",
           "why": ""
         },
@@ -4134,17 +4118,17 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp",
-          "tps": 179.0,
+          "model": "Qwen3.6-35B-A3B",
+          "server": "FreeToken",
+          "tps": 61.4,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
         },
         {
-          "model": "Qwen3.6-35B-A3B",
-          "server": "FreeToken",
-          "tps": 61.4,
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp",
+          "tps": 179.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -4765,17 +4749,17 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp",
-          "tps": 179.0,
+          "model": "Qwen3.6-35B-A3B",
+          "server": "FreeToken",
+          "tps": 61.4,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
         },
         {
-          "model": "Qwen3.6-35B-A3B",
-          "server": "FreeToken",
-          "tps": 61.4,
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp",
+          "tps": 179.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -5452,14 +5436,6 @@
           "why": ""
         },
         {
-          "model": "Qwen3.6-35B-A3B (Kapitsa + DFlash2, M4 Pro MTP bake-off)",
-          "server": "Ollama",
-          "tps": 89.0,
-          "measured_on": "Metal",
-          "variant": "cuda",
-          "why": ""
-        },
-        {
           "model": "Qwen3.8-27B Twin Turbo",
           "server": "llama.cpp",
           "tps": 90.0,
@@ -5536,6 +5512,14 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
+          "variant": "cuda",
+          "why": ""
+        },
+        {
+          "model": "Qwen3.8-27B on Radeon AI PRO R9700 (llama.cpp Vulkan)",
+          "server": "vLLM",
+          "tps": 113.0,
+          "measured_on": "ROCm",
           "variant": "cuda",
           "why": ""
         },
@@ -5852,14 +5836,6 @@
           "why": ""
         },
         {
-          "model": "Qwen3.8-27B on Radeon AI PRO R9700 (llama.cpp Vulkan)",
-          "server": "llama.cpp",
-          "tps": 51.8,
-          "measured_on": "ROCm",
-          "variant": "cuda",
-          "why": ""
-        },
-        {
           "model": "Meta Llama 3.1 70B (Q4, MLX)",
           "server": "",
           "tps": 0,
@@ -5907,17 +5883,17 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp",
-          "tps": 179.0,
+          "model": "Qwen3.6-35B-A3B",
+          "server": "vLLM",
+          "tps": 309.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
         },
         {
-          "model": "Qwen3.6-35B-A3B",
-          "server": "vLLM",
-          "tps": 309.0,
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp",
+          "tps": 179.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -5987,14 +5963,6 @@
           "why": ""
         },
         {
-          "model": "Qwen3.6-35B-A3B (Kapitsa + DFlash2, M4 Pro MTP bake-off)",
-          "server": "Ollama",
-          "tps": 89.0,
-          "measured_on": "Metal",
-          "variant": "cuda",
-          "why": ""
-        },
-        {
           "model": "Qwen3.8-27B Twin Turbo",
           "server": "llama.cpp",
           "tps": 90.0,
@@ -6007,6 +5975,14 @@
           "server": "llama.cpp",
           "tps": 99.7,
           "measured_on": "CUDA",
+          "variant": "cuda",
+          "why": ""
+        },
+        {
+          "model": "Qwen3.5 9B",
+          "server": "MLX",
+          "tps": 115.5,
+          "measured_on": "Metal",
           "variant": "cuda",
           "why": ""
         },
@@ -6083,14 +6059,6 @@
           "why": "stated weights are 111.4 GB, smallest GGUF is 68 GB > 65 GB this host can hold"
         },
         {
-          "model": "Qwen3.5 9B",
-          "server": "MLX",
-          "tps": 115.5,
-          "measured_on": "Metal",
-          "variant": "cuda",
-          "why": ""
-        },
-        {
           "model": "LFM2.5 24B A2B",
           "server": "MLX",
           "tps": 184.0,
@@ -6119,6 +6087,14 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
+          "variant": "cuda",
+          "why": ""
+        },
+        {
+          "model": "Qwen3.8-27B on Radeon AI PRO R9700 (llama.cpp Vulkan)",
+          "server": "vLLM",
+          "tps": 113.0,
+          "measured_on": "ROCm",
           "variant": "cuda",
           "why": ""
         },
@@ -6507,14 +6483,6 @@
           "why": ""
         },
         {
-          "model": "Qwen3.8-27B on Radeon AI PRO R9700 (llama.cpp Vulkan)",
-          "server": "llama.cpp",
-          "tps": 51.8,
-          "measured_on": "ROCm",
-          "variant": "cuda",
-          "why": ""
-        },
-        {
           "model": "Meta Llama 3.1 70B (Q4, MLX)",
           "server": "",
           "tps": 0,
@@ -6578,17 +6546,17 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp",
-          "tps": 179.0,
+          "model": "Qwen3.6-35B-A3B",
+          "server": "vLLM",
+          "tps": 309.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
         },
         {
-          "model": "Qwen3.6-35B-A3B",
-          "server": "vLLM",
-          "tps": 309.0,
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp",
+          "tps": 179.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -6682,6 +6650,14 @@
           "why": ""
         },
         {
+          "model": "Qwen3.5 9B",
+          "server": "MLX",
+          "tps": 115.5,
+          "measured_on": "Metal",
+          "variant": "cuda",
+          "why": ""
+        },
+        {
           "model": "Nemotron-Labs Dory 4B",
           "server": "MLX",
           "tps": 26.0,
@@ -6762,14 +6738,6 @@
           "why": ""
         },
         {
-          "model": "Qwen3.5 9B",
-          "server": "MLX",
-          "tps": 115.5,
-          "measured_on": "Metal",
-          "variant": "cuda",
-          "why": ""
-        },
-        {
           "model": "LFM2.5 24B A2B",
           "server": "MLX",
           "tps": 184.0,
@@ -6798,6 +6766,14 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
+          "variant": "cuda",
+          "why": ""
+        },
+        {
+          "model": "Qwen3.8-27B on Radeon AI PRO R9700 (llama.cpp Vulkan)",
+          "server": "vLLM",
+          "tps": 113.0,
+          "measured_on": "ROCm",
           "variant": "cuda",
           "why": ""
         },
@@ -7210,14 +7186,6 @@
           "why": ""
         },
         {
-          "model": "Qwen3.8-27B on Radeon AI PRO R9700 (llama.cpp Vulkan)",
-          "server": "llama.cpp",
-          "tps": 51.8,
-          "measured_on": "ROCm",
-          "variant": "cuda",
-          "why": ""
-        },
-        {
           "model": "Meta Llama 3.1 70B (Q4, MLX)",
           "server": "",
           "tps": 0,
@@ -7281,17 +7249,17 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp",
-          "tps": 179.0,
+          "model": "Qwen3.6-35B-A3B",
+          "server": "vLLM",
+          "tps": 309.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
         },
         {
-          "model": "Qwen3.6-35B-A3B",
-          "server": "vLLM",
-          "tps": 309.0,
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp",
+          "tps": 179.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -7385,6 +7353,14 @@
           "why": ""
         },
         {
+          "model": "Qwen3.5 9B",
+          "server": "MLX",
+          "tps": 115.5,
+          "measured_on": "Metal",
+          "variant": "cuda",
+          "why": ""
+        },
+        {
           "model": "Nemotron-Labs Dory 4B",
           "server": "MLX",
           "tps": 26.0,
@@ -7465,14 +7441,6 @@
           "why": ""
         },
         {
-          "model": "Qwen3.5 9B",
-          "server": "MLX",
-          "tps": 115.5,
-          "measured_on": "Metal",
-          "variant": "cuda",
-          "why": ""
-        },
-        {
           "model": "LFM2.5 24B A2B",
           "server": "MLX",
           "tps": 184.0,
@@ -7501,6 +7469,14 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
+          "variant": "cuda",
+          "why": ""
+        },
+        {
+          "model": "Qwen3.8-27B on Radeon AI PRO R9700 (llama.cpp Vulkan)",
+          "server": "vLLM",
+          "tps": 113.0,
+          "measured_on": "ROCm",
           "variant": "cuda",
           "why": ""
         },
@@ -7921,14 +7897,6 @@
           "why": ""
         },
         {
-          "model": "Qwen3.8-27B on Radeon AI PRO R9700 (llama.cpp Vulkan)",
-          "server": "llama.cpp",
-          "tps": 51.8,
-          "measured_on": "ROCm",
-          "variant": "cuda",
-          "why": ""
-        },
-        {
           "model": "Meta Llama 3.1 70B (Q4, MLX)",
           "server": "",
           "tps": 0,
@@ -8231,18 +8199,18 @@
       "ram": 32,
       "rows": [
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp",
-          "tps": 179.0,
-          "measured_on": "CUDA",
-          "variant": "rocm",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "llama.cpp",
           "tps": 190.0,
           "measured_on": "ROCm",
+          "variant": "rocm",
+          "why": ""
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp",
+          "tps": 179.0,
+          "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
         },
@@ -8534,18 +8502,18 @@
       "ram": 60,
       "rows": [
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp",
-          "tps": 179.0,
-          "measured_on": "CUDA",
-          "variant": "rocm",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "llama.cpp",
           "tps": 190.0,
           "measured_on": "ROCm",
+          "variant": "rocm",
+          "why": ""
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp",
+          "tps": 179.0,
+          "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
         },
@@ -8845,18 +8813,18 @@
       "ram": 64,
       "rows": [
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp",
-          "tps": 179.0,
-          "measured_on": "CUDA",
-          "variant": "rocm",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "llama.cpp",
           "tps": 190.0,
           "measured_on": "ROCm",
+          "variant": "rocm",
+          "why": ""
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp",
+          "tps": 179.0,
+          "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
         },
@@ -9539,18 +9507,18 @@
           "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 40 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp",
-          "tps": 179.0,
-          "measured_on": "CUDA",
-          "variant": "rocm",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "llama.cpp",
           "tps": 190.0,
           "measured_on": "ROCm",
+          "variant": "rocm",
+          "why": ""
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp",
+          "tps": 179.0,
+          "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
         },
@@ -10026,18 +9994,18 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp",
-          "tps": 179.0,
-          "measured_on": "CUDA",
-          "variant": "rocm",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "llama.cpp",
           "tps": 190.0,
           "measured_on": "ROCm",
+          "variant": "rocm",
+          "why": ""
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp",
+          "tps": 179.0,
+          "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
         },
@@ -10529,18 +10497,18 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp",
-          "tps": 179.0,
-          "measured_on": "CUDA",
-          "variant": "rocm",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "llama.cpp",
           "tps": 190.0,
           "measured_on": "ROCm",
+          "variant": "rocm",
+          "why": ""
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp",
+          "tps": 179.0,
+          "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
         },
@@ -11096,14 +11064,6 @@
           "why": ""
         },
         {
-          "model": "Qwen3.6-35B-A3B (Kapitsa + DFlash2, M4 Pro MTP bake-off)",
-          "server": "Ollama",
-          "tps": 89.0,
-          "measured_on": "Metal",
-          "variant": "rocm",
-          "why": ""
-        },
-        {
           "model": "Qwen3.8-27B Twin Turbo",
           "server": "llama.cpp",
           "tps": 90.0,
@@ -11511,18 +11471,18 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp",
-          "tps": 179.0,
-          "measured_on": "CUDA",
-          "variant": "rocm",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "llama.cpp",
           "tps": 190.0,
           "measured_on": "ROCm",
+          "variant": "rocm",
+          "why": ""
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp",
+          "tps": 179.0,
+          "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
         },
@@ -11587,14 +11547,6 @@
           "server": "llama.cpp",
           "tps": 38.5,
           "measured_on": "CPU",
-          "variant": "rocm",
-          "why": ""
-        },
-        {
-          "model": "Qwen3.6-35B-A3B (Kapitsa + DFlash2, M4 Pro MTP bake-off)",
-          "server": "Ollama",
-          "tps": 89.0,
-          "measured_on": "Metal",
           "variant": "rocm",
           "why": ""
         },
@@ -12110,18 +12062,18 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp",
-          "tps": 179.0,
-          "measured_on": "CUDA",
-          "variant": "rocm",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "llama.cpp",
           "tps": 190.0,
           "measured_on": "ROCm",
+          "variant": "rocm",
+          "why": ""
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp",
+          "tps": 179.0,
+          "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
         },
@@ -12741,18 +12693,18 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp",
-          "tps": 179.0,
-          "measured_on": "CUDA",
-          "variant": "rocm",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "llama.cpp",
           "tps": 190.0,
           "measured_on": "ROCm",
+          "variant": "rocm",
+          "why": ""
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp",
+          "tps": 179.0,
+          "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
         },
@@ -13428,14 +13380,6 @@
           "why": ""
         },
         {
-          "model": "Qwen3.6-35B-A3B (Kapitsa + DFlash2, M4 Pro MTP bake-off)",
-          "server": "Ollama",
-          "tps": 89.0,
-          "measured_on": "Metal",
-          "variant": "rocm",
-          "why": ""
-        },
-        {
           "model": "Qwen3.8-27B Twin Turbo",
           "server": "llama.cpp",
           "tps": 90.0,
@@ -13512,6 +13456,14 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
+          "variant": "rocm",
+          "why": ""
+        },
+        {
+          "model": "Qwen3.8-27B on Radeon AI PRO R9700 (llama.cpp Vulkan)",
+          "server": "vLLM",
+          "tps": 113.0,
+          "measured_on": "ROCm",
           "variant": "rocm",
           "why": ""
         },
@@ -13828,14 +13780,6 @@
           "why": ""
         },
         {
-          "model": "Qwen3.8-27B on Radeon AI PRO R9700 (llama.cpp Vulkan)",
-          "server": "llama.cpp",
-          "tps": 51.8,
-          "measured_on": "ROCm",
-          "variant": "rocm",
-          "why": ""
-        },
-        {
           "model": "Meta Llama 3.1 70B (Q4, MLX)",
           "server": "",
           "tps": 0,
@@ -13883,18 +13827,18 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp",
-          "tps": 179.0,
-          "measured_on": "CUDA",
-          "variant": "rocm",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "llama.cpp",
           "tps": 190.0,
           "measured_on": "ROCm",
+          "variant": "rocm",
+          "why": ""
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp",
+          "tps": 179.0,
+          "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
         },
@@ -13963,14 +13907,6 @@
           "why": ""
         },
         {
-          "model": "Qwen3.6-35B-A3B (Kapitsa + DFlash2, M4 Pro MTP bake-off)",
-          "server": "Ollama",
-          "tps": 89.0,
-          "measured_on": "Metal",
-          "variant": "rocm",
-          "why": ""
-        },
-        {
           "model": "Qwen3.8-27B Twin Turbo",
           "server": "llama.cpp",
           "tps": 90.0,
@@ -13983,6 +13919,14 @@
           "server": "llama.cpp",
           "tps": 99.7,
           "measured_on": "CUDA",
+          "variant": "rocm",
+          "why": ""
+        },
+        {
+          "model": "Qwen3.5 9B",
+          "server": "vLLM",
+          "tps": 62.0,
+          "measured_on": "ROCm",
           "variant": "rocm",
           "why": ""
         },
@@ -14059,14 +14003,6 @@
           "why": "stated weights are 111.4 GB, smallest GGUF is 68 GB > 65 GB this host can hold"
         },
         {
-          "model": "Qwen3.5 9B",
-          "server": "vLLM",
-          "tps": 62.0,
-          "measured_on": "ROCm",
-          "variant": "rocm",
-          "why": ""
-        },
-        {
           "model": "LFM2.5 24B A2B",
           "server": "",
           "tps": 0,
@@ -14095,6 +14031,14 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
+          "variant": "rocm",
+          "why": ""
+        },
+        {
+          "model": "Qwen3.8-27B on Radeon AI PRO R9700 (llama.cpp Vulkan)",
+          "server": "vLLM",
+          "tps": 113.0,
+          "measured_on": "ROCm",
           "variant": "rocm",
           "why": ""
         },
@@ -14483,14 +14427,6 @@
           "why": ""
         },
         {
-          "model": "Qwen3.8-27B on Radeon AI PRO R9700 (llama.cpp Vulkan)",
-          "server": "llama.cpp",
-          "tps": 51.8,
-          "measured_on": "ROCm",
-          "variant": "rocm",
-          "why": ""
-        },
-        {
           "model": "Meta Llama 3.1 70B (Q4, MLX)",
           "server": "",
           "tps": 0,
@@ -14554,18 +14490,18 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp",
-          "tps": 179.0,
-          "measured_on": "CUDA",
-          "variant": "rocm",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "llama.cpp",
           "tps": 190.0,
           "measured_on": "ROCm",
+          "variant": "rocm",
+          "why": ""
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp",
+          "tps": 179.0,
+          "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
         },
@@ -14658,6 +14594,14 @@
           "why": ""
         },
         {
+          "model": "Qwen3.5 9B",
+          "server": "vLLM",
+          "tps": 62.0,
+          "measured_on": "ROCm",
+          "variant": "rocm",
+          "why": ""
+        },
+        {
           "model": "Nemotron-Labs Dory 4B",
           "server": "",
           "tps": 0,
@@ -14738,14 +14682,6 @@
           "why": ""
         },
         {
-          "model": "Qwen3.5 9B",
-          "server": "vLLM",
-          "tps": 62.0,
-          "measured_on": "ROCm",
-          "variant": "rocm",
-          "why": ""
-        },
-        {
           "model": "LFM2.5 24B A2B",
           "server": "",
           "tps": 0,
@@ -14774,6 +14710,14 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
+          "variant": "rocm",
+          "why": ""
+        },
+        {
+          "model": "Qwen3.8-27B on Radeon AI PRO R9700 (llama.cpp Vulkan)",
+          "server": "vLLM",
+          "tps": 113.0,
+          "measured_on": "ROCm",
           "variant": "rocm",
           "why": ""
         },
@@ -15186,14 +15130,6 @@
           "why": ""
         },
         {
-          "model": "Qwen3.8-27B on Radeon AI PRO R9700 (llama.cpp Vulkan)",
-          "server": "llama.cpp",
-          "tps": 51.8,
-          "measured_on": "ROCm",
-          "variant": "rocm",
-          "why": ""
-        },
-        {
           "model": "Meta Llama 3.1 70B (Q4, MLX)",
           "server": "",
           "tps": 0,
@@ -15257,18 +15193,18 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp",
-          "tps": 179.0,
-          "measured_on": "CUDA",
-          "variant": "rocm",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "llama.cpp",
           "tps": 190.0,
           "measured_on": "ROCm",
+          "variant": "rocm",
+          "why": ""
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp",
+          "tps": 179.0,
+          "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
         },
@@ -15361,6 +15297,14 @@
           "why": ""
         },
         {
+          "model": "Qwen3.5 9B",
+          "server": "vLLM",
+          "tps": 62.0,
+          "measured_on": "ROCm",
+          "variant": "rocm",
+          "why": ""
+        },
+        {
           "model": "Nemotron-Labs Dory 4B",
           "server": "",
           "tps": 0,
@@ -15441,14 +15385,6 @@
           "why": ""
         },
         {
-          "model": "Qwen3.5 9B",
-          "server": "vLLM",
-          "tps": 62.0,
-          "measured_on": "ROCm",
-          "variant": "rocm",
-          "why": ""
-        },
-        {
           "model": "LFM2.5 24B A2B",
           "server": "",
           "tps": 0,
@@ -15477,6 +15413,14 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
+          "variant": "rocm",
+          "why": ""
+        },
+        {
+          "model": "Qwen3.8-27B on Radeon AI PRO R9700 (llama.cpp Vulkan)",
+          "server": "vLLM",
+          "tps": 113.0,
+          "measured_on": "ROCm",
           "variant": "rocm",
           "why": ""
         },
@@ -15897,14 +15841,6 @@
           "why": ""
         },
         {
-          "model": "Qwen3.8-27B on Radeon AI PRO R9700 (llama.cpp Vulkan)",
-          "server": "llama.cpp",
-          "tps": 51.8,
-          "measured_on": "ROCm",
-          "variant": "rocm",
-          "why": ""
-        },
-        {
           "model": "Meta Llama 3.1 70B (Q4, MLX)",
           "server": "",
           "tps": 0,
@@ -16207,18 +16143,18 @@
       "ram": 32,
       "rows": [
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 913.1,
-          "measured_on": "Metal",
-          "variant": "vulkan",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "llama.cpp",
           "tps": 190.0,
           "measured_on": "ROCm",
+          "variant": "vulkan",
+          "why": ""
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp (PrismML fork)",
+          "tps": 913.1,
+          "measured_on": "Metal",
           "variant": "vulkan",
           "why": ""
         },
@@ -16510,18 +16446,18 @@
       "ram": 60,
       "rows": [
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 913.1,
-          "measured_on": "Metal",
-          "variant": "vulkan",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "llama.cpp",
           "tps": 190.0,
           "measured_on": "ROCm",
+          "variant": "vulkan",
+          "why": ""
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp (PrismML fork)",
+          "tps": 913.1,
+          "measured_on": "Metal",
           "variant": "vulkan",
           "why": ""
         },
@@ -16821,18 +16757,18 @@
       "ram": 64,
       "rows": [
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 913.1,
-          "measured_on": "Metal",
-          "variant": "vulkan",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "llama.cpp",
           "tps": 190.0,
           "measured_on": "ROCm",
+          "variant": "vulkan",
+          "why": ""
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp (PrismML fork)",
+          "tps": 913.1,
+          "measured_on": "Metal",
           "variant": "vulkan",
           "why": ""
         },
@@ -17515,18 +17451,18 @@
           "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 40 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 913.1,
-          "measured_on": "Metal",
-          "variant": "vulkan",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "llama.cpp",
           "tps": 190.0,
           "measured_on": "ROCm",
+          "variant": "vulkan",
+          "why": ""
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp (PrismML fork)",
+          "tps": 913.1,
+          "measured_on": "Metal",
           "variant": "vulkan",
           "why": ""
         },
@@ -18002,18 +17938,18 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 913.1,
-          "measured_on": "Metal",
-          "variant": "vulkan",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "llama.cpp",
           "tps": 190.0,
           "measured_on": "ROCm",
+          "variant": "vulkan",
+          "why": ""
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp (PrismML fork)",
+          "tps": 913.1,
+          "measured_on": "Metal",
           "variant": "vulkan",
           "why": ""
         },
@@ -18505,18 +18441,18 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 913.1,
-          "measured_on": "Metal",
-          "variant": "vulkan",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "llama.cpp",
           "tps": 190.0,
           "measured_on": "ROCm",
+          "variant": "vulkan",
+          "why": ""
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp (PrismML fork)",
+          "tps": 913.1,
+          "measured_on": "Metal",
           "variant": "vulkan",
           "why": ""
         },
@@ -19072,14 +19008,6 @@
           "why": ""
         },
         {
-          "model": "Qwen3.6-35B-A3B (Kapitsa + DFlash2, M4 Pro MTP bake-off)",
-          "server": "Ollama",
-          "tps": 89.0,
-          "measured_on": "Metal",
-          "variant": "vulkan",
-          "why": ""
-        },
-        {
           "model": "Qwen3.8-27B Twin Turbo",
           "server": "llama.cpp",
           "tps": 90.0,
@@ -19487,18 +19415,18 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 913.1,
-          "measured_on": "Metal",
-          "variant": "vulkan",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "llama.cpp",
           "tps": 190.0,
           "measured_on": "ROCm",
+          "variant": "vulkan",
+          "why": ""
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp (PrismML fork)",
+          "tps": 913.1,
+          "measured_on": "Metal",
           "variant": "vulkan",
           "why": ""
         },
@@ -19563,14 +19491,6 @@
           "server": "llama.cpp",
           "tps": 38.5,
           "measured_on": "CPU",
-          "variant": "vulkan",
-          "why": ""
-        },
-        {
-          "model": "Qwen3.6-35B-A3B (Kapitsa + DFlash2, M4 Pro MTP bake-off)",
-          "server": "Ollama",
-          "tps": 89.0,
-          "measured_on": "Metal",
           "variant": "vulkan",
           "why": ""
         },
@@ -20086,18 +20006,18 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 913.1,
-          "measured_on": "Metal",
-          "variant": "vulkan",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "llama.cpp",
           "tps": 190.0,
           "measured_on": "ROCm",
+          "variant": "vulkan",
+          "why": ""
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp (PrismML fork)",
+          "tps": 913.1,
+          "measured_on": "Metal",
           "variant": "vulkan",
           "why": ""
         },
@@ -20717,18 +20637,18 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 913.1,
-          "measured_on": "Metal",
-          "variant": "vulkan",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "llama.cpp",
           "tps": 190.0,
           "measured_on": "ROCm",
+          "variant": "vulkan",
+          "why": ""
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp (PrismML fork)",
+          "tps": 913.1,
+          "measured_on": "Metal",
           "variant": "vulkan",
           "why": ""
         },
@@ -21404,14 +21324,6 @@
           "why": ""
         },
         {
-          "model": "Qwen3.6-35B-A3B (Kapitsa + DFlash2, M4 Pro MTP bake-off)",
-          "server": "Ollama",
-          "tps": 89.0,
-          "measured_on": "Metal",
-          "variant": "vulkan",
-          "why": ""
-        },
-        {
           "model": "Qwen3.8-27B Twin Turbo",
           "server": "llama.cpp",
           "tps": 90.0,
@@ -21488,6 +21400,14 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
+          "variant": "vulkan",
+          "why": ""
+        },
+        {
+          "model": "Qwen3.8-27B on Radeon AI PRO R9700 (llama.cpp Vulkan)",
+          "server": "llama.cpp",
+          "tps": 51.8,
+          "measured_on": "ROCm",
           "variant": "vulkan",
           "why": ""
         },
@@ -21802,14 +21722,6 @@
           "measured_on": "",
           "variant": "",
           "why": "smallest GGUF is 3 GB > 37 GB this host can hold"
-        },
-        {
-          "model": "Qwen3.8-27B on Radeon AI PRO R9700 (llama.cpp Vulkan)",
-          "server": "llama.cpp",
-          "tps": 51.8,
-          "measured_on": "ROCm",
-          "variant": "vulkan",
-          "why": ""
         },
         {
           "model": "Meta Llama 3.1 70B (Q4, MLX)",
@@ -21859,18 +21771,18 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 913.1,
-          "measured_on": "Metal",
-          "variant": "vulkan",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "llama.cpp",
           "tps": 190.0,
           "measured_on": "ROCm",
+          "variant": "vulkan",
+          "why": ""
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp (PrismML fork)",
+          "tps": 913.1,
+          "measured_on": "Metal",
           "variant": "vulkan",
           "why": ""
         },
@@ -21939,14 +21851,6 @@
           "why": ""
         },
         {
-          "model": "Qwen3.6-35B-A3B (Kapitsa + DFlash2, M4 Pro MTP bake-off)",
-          "server": "Ollama",
-          "tps": 89.0,
-          "measured_on": "Metal",
-          "variant": "vulkan",
-          "why": ""
-        },
-        {
           "model": "Qwen3.8-27B Twin Turbo",
           "server": "llama.cpp",
           "tps": 90.0,
@@ -21959,6 +21863,14 @@
           "server": "llama.cpp",
           "tps": 99.7,
           "measured_on": "CUDA",
+          "variant": "vulkan",
+          "why": ""
+        },
+        {
+          "model": "Qwen3.5 9B",
+          "server": "llama.cpp",
+          "tps": 36.0,
+          "measured_on": "ROCm",
           "variant": "vulkan",
           "why": ""
         },
@@ -22035,14 +21947,6 @@
           "why": "stated weights are 111.4 GB, smallest GGUF is 68 GB > 65 GB this host can hold"
         },
         {
-          "model": "Qwen3.5 9B",
-          "server": "llama.cpp",
-          "tps": 36.0,
-          "measured_on": "ROCm",
-          "variant": "vulkan",
-          "why": ""
-        },
-        {
           "model": "LFM2.5 24B A2B",
           "server": "",
           "tps": 0,
@@ -22071,6 +21975,14 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
+          "variant": "vulkan",
+          "why": ""
+        },
+        {
+          "model": "Qwen3.8-27B on Radeon AI PRO R9700 (llama.cpp Vulkan)",
+          "server": "llama.cpp",
+          "tps": 51.8,
+          "measured_on": "ROCm",
           "variant": "vulkan",
           "why": ""
         },
@@ -22459,14 +22371,6 @@
           "why": "smallest GGUF is 3 GB > 37 GB this host can hold"
         },
         {
-          "model": "Qwen3.8-27B on Radeon AI PRO R9700 (llama.cpp Vulkan)",
-          "server": "llama.cpp",
-          "tps": 51.8,
-          "measured_on": "ROCm",
-          "variant": "vulkan",
-          "why": ""
-        },
-        {
           "model": "Meta Llama 3.1 70B (Q4, MLX)",
           "server": "",
           "tps": 0,
@@ -22530,18 +22434,18 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 913.1,
-          "measured_on": "Metal",
-          "variant": "vulkan",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "llama.cpp",
           "tps": 190.0,
           "measured_on": "ROCm",
+          "variant": "vulkan",
+          "why": ""
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp (PrismML fork)",
+          "tps": 913.1,
+          "measured_on": "Metal",
           "variant": "vulkan",
           "why": ""
         },
@@ -22634,6 +22538,14 @@
           "why": ""
         },
         {
+          "model": "Qwen3.5 9B",
+          "server": "llama.cpp",
+          "tps": 36.0,
+          "measured_on": "ROCm",
+          "variant": "vulkan",
+          "why": ""
+        },
+        {
           "model": "Nemotron-Labs Dory 4B",
           "server": "",
           "tps": 0,
@@ -22714,14 +22626,6 @@
           "why": ""
         },
         {
-          "model": "Qwen3.5 9B",
-          "server": "llama.cpp",
-          "tps": 36.0,
-          "measured_on": "ROCm",
-          "variant": "vulkan",
-          "why": ""
-        },
-        {
           "model": "LFM2.5 24B A2B",
           "server": "",
           "tps": 0,
@@ -22750,6 +22654,14 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
+          "variant": "vulkan",
+          "why": ""
+        },
+        {
+          "model": "Qwen3.8-27B on Radeon AI PRO R9700 (llama.cpp Vulkan)",
+          "server": "llama.cpp",
+          "tps": 51.8,
+          "measured_on": "ROCm",
           "variant": "vulkan",
           "why": ""
         },
@@ -23162,14 +23074,6 @@
           "why": "smallest GGUF is 3 GB > 37 GB this host can hold"
         },
         {
-          "model": "Qwen3.8-27B on Radeon AI PRO R9700 (llama.cpp Vulkan)",
-          "server": "llama.cpp",
-          "tps": 51.8,
-          "measured_on": "ROCm",
-          "variant": "vulkan",
-          "why": ""
-        },
-        {
           "model": "Meta Llama 3.1 70B (Q4, MLX)",
           "server": "",
           "tps": 0,
@@ -23233,18 +23137,18 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 913.1,
-          "measured_on": "Metal",
-          "variant": "vulkan",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "llama.cpp",
           "tps": 190.0,
           "measured_on": "ROCm",
+          "variant": "vulkan",
+          "why": ""
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp (PrismML fork)",
+          "tps": 913.1,
+          "measured_on": "Metal",
           "variant": "vulkan",
           "why": ""
         },
@@ -23337,6 +23241,14 @@
           "why": ""
         },
         {
+          "model": "Qwen3.5 9B",
+          "server": "llama.cpp",
+          "tps": 36.0,
+          "measured_on": "ROCm",
+          "variant": "vulkan",
+          "why": ""
+        },
+        {
           "model": "Nemotron-Labs Dory 4B",
           "server": "",
           "tps": 0,
@@ -23417,14 +23329,6 @@
           "why": ""
         },
         {
-          "model": "Qwen3.5 9B",
-          "server": "llama.cpp",
-          "tps": 36.0,
-          "measured_on": "ROCm",
-          "variant": "vulkan",
-          "why": ""
-        },
-        {
           "model": "LFM2.5 24B A2B",
           "server": "",
           "tps": 0,
@@ -23453,6 +23357,14 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
+          "variant": "vulkan",
+          "why": ""
+        },
+        {
+          "model": "Qwen3.8-27B on Radeon AI PRO R9700 (llama.cpp Vulkan)",
+          "server": "llama.cpp",
+          "tps": 51.8,
+          "measured_on": "ROCm",
           "variant": "vulkan",
           "why": ""
         },
@@ -23873,14 +23785,6 @@
           "why": "smallest GGUF is 3 GB > 37 GB this host can hold"
         },
         {
-          "model": "Qwen3.8-27B on Radeon AI PRO R9700 (llama.cpp Vulkan)",
-          "server": "llama.cpp",
-          "tps": 51.8,
-          "measured_on": "ROCm",
-          "variant": "vulkan",
-          "why": ""
-        },
-        {
           "model": "Meta Llama 3.1 70B (Q4, MLX)",
           "server": "",
           "tps": 0,
@@ -24183,20 +24087,20 @@
       "ram": 32,
       "rows": [
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 913.1,
-          "measured_on": "Metal",
-          "variant": "metal",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "",
           "tps": 0,
           "measured_on": "",
           "variant": "",
           "why": "stated weights are 4 GB, smallest GGUF is 9 GB > 3 GB this host can hold"
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp (PrismML fork)",
+          "tps": 913.1,
+          "measured_on": "Metal",
+          "variant": "metal",
+          "why": ""
         },
         {
           "model": "Bonsai 2 27B",
@@ -24486,20 +24390,20 @@
       "ram": 60,
       "rows": [
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 913.1,
-          "measured_on": "Metal",
-          "variant": "metal",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "",
           "tps": 0,
           "measured_on": "",
           "variant": "",
           "why": "stated weights are 4 GB, smallest GGUF is 9 GB > 3 GB this host can hold"
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp (PrismML fork)",
+          "tps": 913.1,
+          "measured_on": "Metal",
+          "variant": "metal",
+          "why": ""
         },
         {
           "model": "Bonsai 2 27B",
@@ -24797,20 +24701,20 @@
       "ram": 64,
       "rows": [
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 913.1,
-          "measured_on": "Metal",
-          "variant": "metal",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "",
           "tps": 0,
           "measured_on": "",
           "variant": "",
           "why": "stated weights are 4 GB, smallest GGUF is 9 GB > 3 GB this host can hold"
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp (PrismML fork)",
+          "tps": 913.1,
+          "measured_on": "Metal",
+          "variant": "metal",
+          "why": ""
         },
         {
           "model": "Bonsai 2 27B",
@@ -25491,20 +25395,20 @@
           "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 6 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 913.1,
-          "measured_on": "Metal",
-          "variant": "metal",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "",
           "tps": 0,
           "measured_on": "",
           "variant": "",
           "why": "smallest GGUF is 9 GB > 6 GB this host can hold"
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp (PrismML fork)",
+          "tps": 913.1,
+          "measured_on": "Metal",
+          "variant": "metal",
+          "why": ""
         },
         {
           "model": "Bonsai 2 27B",
@@ -25978,20 +25882,20 @@
           "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 6 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 913.1,
-          "measured_on": "Metal",
-          "variant": "metal",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "",
           "tps": 0,
           "measured_on": "",
           "variant": "",
           "why": "smallest GGUF is 9 GB > 6 GB this host can hold"
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp (PrismML fork)",
+          "tps": 913.1,
+          "measured_on": "Metal",
+          "variant": "metal",
+          "why": ""
         },
         {
           "model": "Bonsai 2 27B",
@@ -26481,20 +26385,20 @@
           "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 6 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 913.1,
-          "measured_on": "Metal",
-          "variant": "metal",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "",
           "tps": 0,
           "measured_on": "",
           "variant": "",
           "why": "smallest GGUF is 9 GB > 6 GB this host can hold"
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp (PrismML fork)",
+          "tps": 913.1,
+          "measured_on": "Metal",
+          "variant": "metal",
+          "why": ""
         },
         {
           "model": "Bonsai 2 27B",
@@ -27044,14 +26948,6 @@
           "server": "llama.cpp",
           "tps": 38.5,
           "measured_on": "CPU",
-          "variant": "metal",
-          "why": ""
-        },
-        {
-          "model": "Qwen3.6-35B-A3B (Kapitsa + DFlash2, M4 Pro MTP bake-off)",
-          "server": "Ollama",
-          "tps": 89.0,
-          "measured_on": "Metal",
           "variant": "metal",
           "why": ""
         },
@@ -27463,17 +27359,17 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 913.1,
+          "model": "Qwen3.6-35B-A3B",
+          "server": "Ollama",
+          "tps": 89.0,
           "measured_on": "Metal",
           "variant": "metal",
           "why": ""
         },
         {
-          "model": "Qwen3.6-35B-A3B",
-          "server": "Ollama",
-          "tps": 89.0,
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp (PrismML fork)",
+          "tps": 913.1,
           "measured_on": "Metal",
           "variant": "metal",
           "why": ""
@@ -27539,14 +27435,6 @@
           "server": "llama.cpp",
           "tps": 38.5,
           "measured_on": "CPU",
-          "variant": "metal",
-          "why": ""
-        },
-        {
-          "model": "Qwen3.6-35B-A3B (Kapitsa + DFlash2, M4 Pro MTP bake-off)",
-          "server": "Ollama",
-          "tps": 89.0,
-          "measured_on": "Metal",
           "variant": "metal",
           "why": ""
         },
@@ -28062,17 +27950,17 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 913.1,
+          "model": "Qwen3.6-35B-A3B",
+          "server": "Ollama",
+          "tps": 89.0,
           "measured_on": "Metal",
           "variant": "metal",
           "why": ""
         },
         {
-          "model": "Qwen3.6-35B-A3B",
-          "server": "Ollama",
-          "tps": 89.0,
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp (PrismML fork)",
+          "tps": 913.1,
           "measured_on": "Metal",
           "variant": "metal",
           "why": ""
@@ -28693,17 +28581,17 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 913.1,
+          "model": "Qwen3.6-35B-A3B",
+          "server": "Ollama",
+          "tps": 89.0,
           "measured_on": "Metal",
           "variant": "metal",
           "why": ""
         },
         {
-          "model": "Qwen3.6-35B-A3B",
-          "server": "Ollama",
-          "tps": 89.0,
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp (PrismML fork)",
+          "tps": 913.1,
           "measured_on": "Metal",
           "variant": "metal",
           "why": ""
@@ -29380,14 +29268,6 @@
           "why": ""
         },
         {
-          "model": "Qwen3.6-35B-A3B (Kapitsa + DFlash2, M4 Pro MTP bake-off)",
-          "server": "Ollama",
-          "tps": 89.0,
-          "measured_on": "Metal",
-          "variant": "metal",
-          "why": ""
-        },
-        {
           "model": "Qwen3.8-27B Twin Turbo",
           "server": "llama.cpp",
           "tps": 90.0,
@@ -29464,6 +29344,14 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
+          "variant": "metal",
+          "why": ""
+        },
+        {
+          "model": "Qwen3.8-27B on Radeon AI PRO R9700 (llama.cpp Vulkan)",
+          "server": "llama.cpp",
+          "tps": 51.8,
+          "measured_on": "ROCm",
           "variant": "metal",
           "why": ""
         },
@@ -29780,14 +29668,6 @@
           "why": "no metal engine image (vLLM)"
         },
         {
-          "model": "Qwen3.8-27B on Radeon AI PRO R9700 (llama.cpp Vulkan)",
-          "server": "llama.cpp",
-          "tps": 51.8,
-          "measured_on": "ROCm",
-          "variant": "metal",
-          "why": ""
-        },
-        {
           "model": "Meta Llama 3.1 70B (Q4, MLX)",
           "server": "",
           "tps": 0,
@@ -29835,17 +29715,17 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 913.1,
+          "model": "Qwen3.6-35B-A3B",
+          "server": "MLX",
+          "tps": 108.6,
           "measured_on": "Metal",
           "variant": "metal",
           "why": ""
         },
         {
-          "model": "Qwen3.6-35B-A3B",
-          "server": "MLX",
-          "tps": 108.6,
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp (PrismML fork)",
+          "tps": 913.1,
           "measured_on": "Metal",
           "variant": "metal",
           "why": ""
@@ -29915,14 +29795,6 @@
           "why": ""
         },
         {
-          "model": "Qwen3.6-35B-A3B (Kapitsa + DFlash2, M4 Pro MTP bake-off)",
-          "server": "Ollama",
-          "tps": 89.0,
-          "measured_on": "Metal",
-          "variant": "metal",
-          "why": ""
-        },
-        {
           "model": "Qwen3.8-27B Twin Turbo",
           "server": "llama.cpp",
           "tps": 90.0,
@@ -29934,6 +29806,14 @@
           "model": "Gemma 4 12B",
           "server": "llama.cpp",
           "tps": 49.67,
+          "measured_on": "Metal",
+          "variant": "metal",
+          "why": ""
+        },
+        {
+          "model": "Qwen3.5 9B",
+          "server": "MLX",
+          "tps": 115.5,
           "measured_on": "Metal",
           "variant": "metal",
           "why": ""
@@ -30011,14 +29891,6 @@
           "why": "stated weights are 111.4 GB, smallest GGUF is 68 GB > 27 GB this host can hold"
         },
         {
-          "model": "Qwen3.5 9B",
-          "server": "MLX",
-          "tps": 115.5,
-          "measured_on": "Metal",
-          "variant": "metal",
-          "why": ""
-        },
-        {
           "model": "LFM2.5 24B A2B",
           "server": "MLX",
           "tps": 184.0,
@@ -30047,6 +29919,14 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
+          "variant": "metal",
+          "why": ""
+        },
+        {
+          "model": "Qwen3.8-27B on Radeon AI PRO R9700 (llama.cpp Vulkan)",
+          "server": "llama.cpp",
+          "tps": 51.8,
+          "measured_on": "ROCm",
           "variant": "metal",
           "why": ""
         },
@@ -30435,14 +30315,6 @@
           "why": "no metal engine image (vLLM)"
         },
         {
-          "model": "Qwen3.8-27B on Radeon AI PRO R9700 (llama.cpp Vulkan)",
-          "server": "llama.cpp",
-          "tps": 51.8,
-          "measured_on": "ROCm",
-          "variant": "metal",
-          "why": ""
-        },
-        {
           "model": "Meta Llama 3.1 70B (Q4, MLX)",
           "server": "",
           "tps": 0,
@@ -30506,17 +30378,17 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 913.1,
+          "model": "Qwen3.6-35B-A3B",
+          "server": "MLX",
+          "tps": 108.6,
           "measured_on": "Metal",
           "variant": "metal",
           "why": ""
         },
         {
-          "model": "Qwen3.6-35B-A3B",
-          "server": "MLX",
-          "tps": 108.6,
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp (PrismML fork)",
+          "tps": 913.1,
           "measured_on": "Metal",
           "variant": "metal",
           "why": ""
@@ -30610,6 +30482,14 @@
           "why": ""
         },
         {
+          "model": "Qwen3.5 9B",
+          "server": "MLX",
+          "tps": 115.5,
+          "measured_on": "Metal",
+          "variant": "metal",
+          "why": ""
+        },
+        {
           "model": "Nemotron-Labs Dory 4B",
           "server": "MLX",
           "tps": 26.0,
@@ -30690,14 +30570,6 @@
           "why": "stated weights are 111.4 GB, smallest GGUF is 68 GB > 27 GB this host can hold"
         },
         {
-          "model": "Qwen3.5 9B",
-          "server": "MLX",
-          "tps": 115.5,
-          "measured_on": "Metal",
-          "variant": "metal",
-          "why": ""
-        },
-        {
           "model": "LFM2.5 24B A2B",
           "server": "MLX",
           "tps": 184.0,
@@ -30726,6 +30598,14 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
+          "variant": "metal",
+          "why": ""
+        },
+        {
+          "model": "Qwen3.8-27B on Radeon AI PRO R9700 (llama.cpp Vulkan)",
+          "server": "llama.cpp",
+          "tps": 51.8,
+          "measured_on": "ROCm",
           "variant": "metal",
           "why": ""
         },
@@ -31138,14 +31018,6 @@
           "why": "no metal engine image (vLLM)"
         },
         {
-          "model": "Qwen3.8-27B on Radeon AI PRO R9700 (llama.cpp Vulkan)",
-          "server": "llama.cpp",
-          "tps": 51.8,
-          "measured_on": "ROCm",
-          "variant": "metal",
-          "why": ""
-        },
-        {
           "model": "Meta Llama 3.1 70B (Q4, MLX)",
           "server": "",
           "tps": 0,
@@ -31209,17 +31081,17 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 913.1,
+          "model": "Qwen3.6-35B-A3B",
+          "server": "MLX",
+          "tps": 108.6,
           "measured_on": "Metal",
           "variant": "metal",
           "why": ""
         },
         {
-          "model": "Qwen3.6-35B-A3B",
-          "server": "MLX",
-          "tps": 108.6,
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp (PrismML fork)",
+          "tps": 913.1,
           "measured_on": "Metal",
           "variant": "metal",
           "why": ""
@@ -31313,6 +31185,14 @@
           "why": ""
         },
         {
+          "model": "Qwen3.5 9B",
+          "server": "MLX",
+          "tps": 115.5,
+          "measured_on": "Metal",
+          "variant": "metal",
+          "why": ""
+        },
+        {
           "model": "Nemotron-Labs Dory 4B",
           "server": "MLX",
           "tps": 26.0,
@@ -31393,14 +31273,6 @@
           "why": "stated weights are 111.4 GB, smallest GGUF is 68 GB > 27 GB this host can hold"
         },
         {
-          "model": "Qwen3.5 9B",
-          "server": "MLX",
-          "tps": 115.5,
-          "measured_on": "Metal",
-          "variant": "metal",
-          "why": ""
-        },
-        {
           "model": "LFM2.5 24B A2B",
           "server": "MLX",
           "tps": 184.0,
@@ -31429,6 +31301,14 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
+          "variant": "metal",
+          "why": ""
+        },
+        {
+          "model": "Qwen3.8-27B on Radeon AI PRO R9700 (llama.cpp Vulkan)",
+          "server": "llama.cpp",
+          "tps": 51.8,
+          "measured_on": "ROCm",
           "variant": "metal",
           "why": ""
         },
@@ -31849,14 +31729,6 @@
           "why": "no metal engine image (vLLM)"
         },
         {
-          "model": "Qwen3.8-27B on Radeon AI PRO R9700 (llama.cpp Vulkan)",
-          "server": "llama.cpp",
-          "tps": 51.8,
-          "measured_on": "ROCm",
-          "variant": "metal",
-          "why": ""
-        },
-        {
           "model": "Meta Llama 3.1 70B (Q4, MLX)",
           "server": "",
           "tps": 0,
@@ -32159,20 +32031,20 @@
       "ram": 32,
       "rows": [
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 34.8,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "",
           "tps": 0,
           "measured_on": "",
           "variant": "",
           "why": "smallest GGUF is 9 GB > 5 GB this host can hold"
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp (PrismML fork)",
+          "tps": 34.8,
+          "measured_on": "CPU",
+          "variant": "cpu",
+          "why": ""
         },
         {
           "model": "Bonsai 2 27B",
@@ -32462,20 +32334,20 @@
       "ram": 60,
       "rows": [
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 34.8,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "",
           "tps": 0,
           "measured_on": "",
           "variant": "",
           "why": "smallest GGUF is 9 GB > 5 GB this host can hold"
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp (PrismML fork)",
+          "tps": 34.8,
+          "measured_on": "CPU",
+          "variant": "cpu",
+          "why": ""
         },
         {
           "model": "Bonsai 2 27B",
@@ -32773,20 +32645,20 @@
       "ram": 64,
       "rows": [
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 34.8,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "",
           "tps": 0,
           "measured_on": "",
           "variant": "",
           "why": "smallest GGUF is 9 GB > 5 GB this host can hold"
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp (PrismML fork)",
+          "tps": 34.8,
+          "measured_on": "CPU",
+          "variant": "cpu",
+          "why": ""
         },
         {
           "model": "Bonsai 2 27B",
@@ -33467,18 +33339,18 @@
           "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 12 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 34.8,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "vLLM",
           "tps": 309.0,
           "measured_on": "CUDA",
+          "variant": "cpu",
+          "why": ""
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp (PrismML fork)",
+          "tps": 34.8,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -33954,18 +33826,18 @@
           "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 12 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 34.8,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "vLLM",
           "tps": 309.0,
           "measured_on": "CUDA",
+          "variant": "cpu",
+          "why": ""
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp (PrismML fork)",
+          "tps": 34.8,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -34457,18 +34329,18 @@
           "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 12 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 34.8,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "vLLM",
           "tps": 309.0,
           "measured_on": "CUDA",
+          "variant": "cpu",
+          "why": ""
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp (PrismML fork)",
+          "tps": 34.8,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -35020,14 +34892,6 @@
           "server": "llama.cpp",
           "tps": 38.5,
           "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
-          "model": "Qwen3.6-35B-A3B (Kapitsa + DFlash2, M4 Pro MTP bake-off)",
-          "server": "Ollama",
-          "tps": 89.0,
-          "measured_on": "Metal",
           "variant": "cpu",
           "why": ""
         },
@@ -35439,18 +35303,18 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 34.8,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "vLLM",
           "tps": 309.0,
           "measured_on": "CUDA",
+          "variant": "cpu",
+          "why": ""
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp (PrismML fork)",
+          "tps": 34.8,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -35515,14 +35379,6 @@
           "server": "llama.cpp",
           "tps": 38.5,
           "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
-          "model": "Qwen3.6-35B-A3B (Kapitsa + DFlash2, M4 Pro MTP bake-off)",
-          "server": "Ollama",
-          "tps": 89.0,
-          "measured_on": "Metal",
           "variant": "cpu",
           "why": ""
         },
@@ -36038,18 +35894,18 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 34.8,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "vLLM",
           "tps": 309.0,
           "measured_on": "CUDA",
+          "variant": "cpu",
+          "why": ""
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp (PrismML fork)",
+          "tps": 34.8,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -36669,18 +36525,18 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 34.8,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "vLLM",
           "tps": 309.0,
           "measured_on": "CUDA",
+          "variant": "cpu",
+          "why": ""
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp (PrismML fork)",
+          "tps": 34.8,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -37356,14 +37212,6 @@
           "why": ""
         },
         {
-          "model": "Qwen3.6-35B-A3B (Kapitsa + DFlash2, M4 Pro MTP bake-off)",
-          "server": "Ollama",
-          "tps": 89.0,
-          "measured_on": "Metal",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Qwen3.8-27B Twin Turbo",
           "server": "llama.cpp",
           "tps": 90.0,
@@ -37440,6 +37288,14 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
+          "variant": "cpu",
+          "why": ""
+        },
+        {
+          "model": "Qwen3.8-27B on Radeon AI PRO R9700 (llama.cpp Vulkan)",
+          "server": "vLLM",
+          "tps": 113.0,
+          "measured_on": "ROCm",
           "variant": "cpu",
           "why": ""
         },
@@ -37756,14 +37612,6 @@
           "why": ""
         },
         {
-          "model": "Qwen3.8-27B on Radeon AI PRO R9700 (llama.cpp Vulkan)",
-          "server": "llama.cpp",
-          "tps": 51.8,
-          "measured_on": "ROCm",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Meta Llama 3.1 70B (Q4, MLX)",
           "server": "",
           "tps": 0,
@@ -37811,18 +37659,18 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 34.8,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "vLLM",
           "tps": 309.0,
           "measured_on": "CUDA",
+          "variant": "cpu",
+          "why": ""
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp (PrismML fork)",
+          "tps": 34.8,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -37891,14 +37739,6 @@
           "why": ""
         },
         {
-          "model": "Qwen3.6-35B-A3B (Kapitsa + DFlash2, M4 Pro MTP bake-off)",
-          "server": "Ollama",
-          "tps": 89.0,
-          "measured_on": "Metal",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Qwen3.8-27B Twin Turbo",
           "server": "llama.cpp",
           "tps": 90.0,
@@ -37911,6 +37751,14 @@
           "server": "llama.cpp",
           "tps": 99.7,
           "measured_on": "CUDA",
+          "variant": "cpu",
+          "why": ""
+        },
+        {
+          "model": "Qwen3.5 9B",
+          "server": "Ollama",
+          "tps": 6.73,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -37987,14 +37835,6 @@
           "why": "stated weights are 111.4 GB, smallest GGUF is 68 GB > 37 GB this host can hold"
         },
         {
-          "model": "Qwen3.5 9B",
-          "server": "Ollama",
-          "tps": 6.73,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "LFM2.5 24B A2B",
           "server": "MLX",
           "tps": 184.0,
@@ -38023,6 +37863,14 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
+          "variant": "cpu",
+          "why": ""
+        },
+        {
+          "model": "Qwen3.8-27B on Radeon AI PRO R9700 (llama.cpp Vulkan)",
+          "server": "vLLM",
+          "tps": 113.0,
+          "measured_on": "ROCm",
           "variant": "cpu",
           "why": ""
         },
@@ -38411,14 +38259,6 @@
           "why": ""
         },
         {
-          "model": "Qwen3.8-27B on Radeon AI PRO R9700 (llama.cpp Vulkan)",
-          "server": "llama.cpp",
-          "tps": 51.8,
-          "measured_on": "ROCm",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Meta Llama 3.1 70B (Q4, MLX)",
           "server": "",
           "tps": 0,
@@ -38482,18 +38322,18 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 34.8,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "vLLM",
           "tps": 309.0,
           "measured_on": "CUDA",
+          "variant": "cpu",
+          "why": ""
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp (PrismML fork)",
+          "tps": 34.8,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -38586,6 +38426,14 @@
           "why": ""
         },
         {
+          "model": "Qwen3.5 9B",
+          "server": "Ollama",
+          "tps": 6.73,
+          "measured_on": "CPU",
+          "variant": "cpu",
+          "why": ""
+        },
+        {
           "model": "Nemotron-Labs Dory 4B",
           "server": "MLX",
           "tps": 26.0,
@@ -38666,14 +38514,6 @@
           "why": "stated weights are 111.4 GB, smallest GGUF is 68 GB > 37 GB this host can hold"
         },
         {
-          "model": "Qwen3.5 9B",
-          "server": "Ollama",
-          "tps": 6.73,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "LFM2.5 24B A2B",
           "server": "MLX",
           "tps": 184.0,
@@ -38702,6 +38542,14 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
+          "variant": "cpu",
+          "why": ""
+        },
+        {
+          "model": "Qwen3.8-27B on Radeon AI PRO R9700 (llama.cpp Vulkan)",
+          "server": "vLLM",
+          "tps": 113.0,
+          "measured_on": "ROCm",
           "variant": "cpu",
           "why": ""
         },
@@ -39114,14 +38962,6 @@
           "why": ""
         },
         {
-          "model": "Qwen3.8-27B on Radeon AI PRO R9700 (llama.cpp Vulkan)",
-          "server": "llama.cpp",
-          "tps": 51.8,
-          "measured_on": "ROCm",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Meta Llama 3.1 70B (Q4, MLX)",
           "server": "",
           "tps": 0,
@@ -39185,18 +39025,18 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 34.8,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Qwen3.6-35B-A3B",
           "server": "vLLM",
           "tps": 309.0,
           "measured_on": "CUDA",
+          "variant": "cpu",
+          "why": ""
+        },
+        {
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp (PrismML fork)",
+          "tps": 34.8,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -39289,6 +39129,14 @@
           "why": ""
         },
         {
+          "model": "Qwen3.5 9B",
+          "server": "Ollama",
+          "tps": 6.73,
+          "measured_on": "CPU",
+          "variant": "cpu",
+          "why": ""
+        },
+        {
           "model": "Nemotron-Labs Dory 4B",
           "server": "MLX",
           "tps": 26.0,
@@ -39369,14 +39217,6 @@
           "why": "stated weights are 111.4 GB, smallest GGUF is 68 GB > 37 GB this host can hold"
         },
         {
-          "model": "Qwen3.5 9B",
-          "server": "Ollama",
-          "tps": 6.73,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "LFM2.5 24B A2B",
           "server": "MLX",
           "tps": 184.0,
@@ -39405,6 +39245,14 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
+          "variant": "cpu",
+          "why": ""
+        },
+        {
+          "model": "Qwen3.8-27B on Radeon AI PRO R9700 (llama.cpp Vulkan)",
+          "server": "vLLM",
+          "tps": 113.0,
+          "measured_on": "ROCm",
           "variant": "cpu",
           "why": ""
         },
@@ -39825,14 +39673,6 @@
           "why": ""
         },
         {
-          "model": "Qwen3.8-27B on Radeon AI PRO R9700 (llama.cpp Vulkan)",
-          "server": "llama.cpp",
-          "tps": 51.8,
-          "measured_on": "ROCm",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Meta Llama 3.1 70B (Q4, MLX)",
           "server": "",
           "tps": 0,
@@ -39896,17 +39736,17 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 9B",
-          "server": "llama.cpp",
-          "tps": 179.0,
+          "model": "Qwen3.6-35B-A3B",
+          "server": "FreeToken",
+          "tps": 61.4,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
         },
         {
-          "model": "Qwen3.6-35B-A3B",
-          "server": "FreeToken",
-          "tps": 61.4,
+          "model": "Bonsai 2 9B",
+          "server": "llama.cpp",
+          "tps": 179.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""

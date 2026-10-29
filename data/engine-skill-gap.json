@@ -1,6 +1,6 @@
 {
-  "generated_utc": "2026-10-27T12:53:42Z",
-  "registry_engines": 42,
+  "generated_utc": "2026-10-27T21:47:11Z",
+  "registry_engines": 43,
   "skills": 16,
   "shipped": [
     "DFlash2",
@@ -109,6 +109,13 @@
       "decision": "deferred",
       "decided": "2026-10-27",
       "reason": "A general deep-learning framework: the MPS backend is a tensor library, and the HTTP server in front of it is a separate project (TorchServe/vLLM/SGLang). An image of PyTorch would be a Python build toolchain, not an inference server llgenie can drive for a GGUF or MLX model.",
+      "issue": 229
+    },
+    {
+      "engine": "Rapid-MLX",
+      "decision": "deferred",
+      "decided": "2026-10-27",
+      "reason": "Apple-Silicon-only MLX server installed from Homebrew or PyPI, with pure MLX kernels and no Linux or GGUF path: its README scopes it to M-series Macs, calls `brew install rapid-mlx` the install, and the product it ships is a macOS desktop app plus image/video/audio generation aliases rather than a server llgenie could drive for the GGUF/MLX models it offers. Metal cannot run in llgenie's Linux image, and that platform is already served natively by the mlx engine, so a second native MLX stack would duplicate it.",
       "issue": 229
     },
     {
@@ -439,12 +446,15 @@
       "name": "Qwen3.6-35B-A3B (Kapitsa + DFlash2, M4 Pro MTP bake-off)",
       "engines": [
         "Kapitsa",
+        "LM Studio",
         "MTPLX",
         "Ollama",
+        "llama.cpp",
         "oMLX"
       ],
       "unsupported": [
         "Kapitsa",
+        "LM Studio",
         "MTPLX",
         "oMLX"
       ]
@@ -470,6 +480,22 @@
       ],
       "unsupported": [
         "MegaCapybara"
+      ]
+    },
+    {
+      "id": "qwen3.5-9b",
+      "name": "Qwen3.5 9B",
+      "engines": [
+        "MLX",
+        "Ollama",
+        "Rapid-MLX",
+        "llama.cpp",
+        "oMLX",
+        "vLLM"
+      ],
+      "unsupported": [
+        "Rapid-MLX",
+        "oMLX"
       ]
     },
     {
@@ -533,6 +559,17 @@
         "Kapitsa",
         "LM Studio",
         "oMLX"
+      ]
+    },
+    {
+      "id": "qwen3.8-flash-next-125b-strix-halo-strata",
+      "name": "Qwen3.8-Flash-Next 125B on Strix Halo (Strata)",
+      "engines": [
+        "Slotstream",
+        "Strata"
+      ],
+      "unsupported": [
+        "Slotstream"
       ]
     },
     {
@@ -872,6 +909,7 @@
         "qwen3.6-35b-a3b",
         "bonsai-2-27b",
         "qwen3-8-27b",
+        "qwen3.6-35b-a3b-kapitsa-m4-pro-mtp",
         "qwen3.6-35b-a3b-mac-mini-m4-pro-flint",
         "qwen3-6-35b-a3b",
         "qwen3-8-27b-aegis-rd1-2-lm-studio"
@@ -960,8 +998,8 @@
       "models": [
         "qwen3.8-27b",
         "qwen3.8-flash-next-125b",
-        "bonsai-2-9b",
         "qwen3.6-35b-a3b",
+        "bonsai-2-9b",
         "bonsai-2-27b",
         "lfm2.5-24b-a2b",
         "muse-spark-open",
@@ -969,16 +1007,17 @@
         "qwen3-8-flash-next-125b",
         "nanbeige4.3-33b",
         "bonsai-2-2b",
+        "qwen3.5-9b",
         "nemotron-dory-4b",
         "qwen3-1.7b-mlx-woodcock",
         "deepseek-v4.1-flash",
-        "qwen3.5-9b",
         "lfm2-5-24b-a2b",
         "qwen3.5-4b",
         "qwen3.5-35b-a3b",
         "gpt-oss-20b",
         "qwen3.5-122b-a10b",
         "gemma-4-e2b",
+        "muse-spark-open-mlx-2-studio-tp",
         "bonsai-2-4b",
         "qwen3-4b",
         "bonsai-2-2b-phone",
@@ -999,7 +1038,6 @@
         "youtu-parsing-omni",
         "bonsai-2-27b-mac-m4-max",
         "bonsai-2-9b-phone",
-        "muse-spark-open-mlx-2-studio-tp",
         "deepseek-v4.1-flash-1017",
         "bonsai-2-27b-mlx",
         "gemma-3-1b",
@@ -1014,13 +1052,14 @@
           "bonsai-2-9b-apple-silicon-yukon",
           "qwen3-8-flash-next-125b",
           "nanbeige4.3-33b",
+          "qwen3.5-9b",
           "nemotron-dory-4b",
           "qwen3-1.7b-mlx-woodcock",
-          "qwen3.5-9b",
           "lfm2-5-24b-a2b",
           "qwen3.5-35b-a3b",
           "gpt-oss-20b",
           "qwen3.5-122b-a10b",
+          "muse-spark-open-mlx-2-studio-tp",
           "qwen3-4b",
           "bonsai-2-2b-phone",
           "qwen3-30b",
@@ -1034,7 +1073,6 @@
           "youtu-parsing-omni",
           "bonsai-2-27b-mac-m4-max",
           "bonsai-2-9b-phone",
-          "muse-spark-open-mlx-2-studio-tp",
           "deepseek-v4.1-flash-1017",
           "bonsai-2-27b-mlx",
           "gemma-3-1b",
@@ -1055,6 +1093,7 @@
           "qwen3.5-35b-a3b",
           "gpt-oss-20b",
           "qwen3.5-122b-a10b",
+          "muse-spark-open-mlx-2-studio-tp",
           "qwen3-4b",
           "bonsai-2-2b-phone",
           "qwen3-30b",
@@ -1067,7 +1106,6 @@
           "youtu-parsing-omni",
           "bonsai-2-27b-mac-m4-max",
           "bonsai-2-9b-phone",
-          "muse-spark-open-mlx-2-studio-tp",
           "deepseek-v4.1-flash-1017",
           "bonsai-2-27b-mlx",
           "gemma-3-1b",
@@ -1088,6 +1126,7 @@
           "qwen3.5-35b-a3b",
           "gpt-oss-20b",
           "qwen3.5-122b-a10b",
+          "muse-spark-open-mlx-2-studio-tp",
           "qwen3-4b",
           "bonsai-2-2b-phone",
           "qwen3-30b",
@@ -1100,7 +1139,6 @@
           "youtu-parsing-omni",
           "bonsai-2-27b-mac-m4-max",
           "bonsai-2-9b-phone",
-          "muse-spark-open-mlx-2-studio-tp",
           "deepseek-v4.1-flash-1017",
           "bonsai-2-27b-mlx",
           "gemma-3-1b",
@@ -1116,15 +1154,16 @@
           "bonsai-2-9b-apple-silicon-yukon",
           "qwen3-8-flash-next-125b",
           "nanbeige4.3-33b",
+          "qwen3.5-9b",
           "nemotron-dory-4b",
           "qwen3-1.7b-mlx-woodcock",
           "deepseek-v4.1-flash",
-          "qwen3.5-9b",
           "lfm2-5-24b-a2b",
           "qwen3.5-4b",
           "qwen3.5-35b-a3b",
           "gpt-oss-20b",
           "qwen3.5-122b-a10b",
+          "muse-spark-open-mlx-2-studio-tp",
           "qwen3-4b",
           "bonsai-2-2b-phone",
           "qwen3-30b",
@@ -1141,7 +1180,6 @@
           "youtu-parsing-omni",
           "bonsai-2-27b-mac-m4-max",
           "bonsai-2-9b-phone",
-          "muse-spark-open-mlx-2-studio-tp",
           "deepseek-v4.1-flash-1017",
           "bonsai-2-27b-mlx",
           "gemma-3-1b",
@@ -1161,6 +1199,7 @@
           "qwen3.5-35b-a3b",
           "gpt-oss-20b",
           "qwen3.5-122b-a10b",
+          "muse-spark-open-mlx-2-studio-tp",
           "qwen3-4b",
           "bonsai-2-2b-phone",
           "qwen3-30b",
@@ -1173,7 +1212,6 @@
           "youtu-parsing-omni",
           "bonsai-2-27b-mac-m4-max",
           "bonsai-2-9b-phone",
-          "muse-spark-open-mlx-2-studio-tp",
           "deepseek-v4.1-flash-1017",
           "bonsai-2-27b-mlx",
           "gemma-3-27b",
@@ -1435,6 +1473,29 @@
       "reason": "A general deep-learning framework: the MPS backend is a tensor library, and the HTTP server in front of it is a separate project (TorchServe/vLLM/SGLang). An image of PyTorch would be a Python build toolchain, not an inference server llgenie can drive for a GGUF or MLX model.",
       "issue": 229
     },
+    "Rapid-MLX": {
+      "status": "known-unsupported",
+      "backends": [
+        "METAL"
+      ],
+      "url": "https://github.com/raullenchai/Rapid-MLX",
+      "image": false,
+      "variants": [],
+      "models": [
+        "qwen3.5-9b"
+      ],
+      "top_engine": {
+        "cuda": [],
+        "rocm": [],
+        "vulkan": [],
+        "metal": [],
+        "cpu": []
+      },
+      "decision": "deferred",
+      "decided": "2026-10-27",
+      "reason": "Apple-Silicon-only MLX server installed from Homebrew or PyPI, with pure MLX kernels and no Linux or GGUF path: its README scopes it to M-series Macs, calls `brew install rapid-mlx` the install, and the product it ships is a macOS desktop app plus image/video/audio generation aliases rather than a server llgenie could drive for the GGUF/MLX models it offers. Metal cannot run in llgenie's Linux image, and that platform is already served natively by the mlx engine, so a second native MLX stack would duplicate it.",
+      "issue": 229
+    },
     "SGLang": {
       "status": "shipped",
       "backends": [
@@ -1485,7 +1546,8 @@
       "image": false,
       "variants": [],
       "models": [
-        "qwen3.8-flash-next-125b"
+        "qwen3.8-flash-next-125b",
+        "qwen3.8-flash-next-125b-strix-halo-strata"
       ],
       "top_engine": {
         "cuda": [],
@@ -1739,23 +1801,25 @@
         "qwen3.8-27b",
         "qwen3.8-flash-next-125b",
         "qwen3.8-27b-dflash2-teksedge3090",
-        "bonsai-2-9b",
         "qwen3.6-35b-a3b",
+        "bonsai-2-9b",
         "lfm2.5-24b-a2b",
         "raon-1-mini-preview",
         "bonsai-2-2b",
+        "qwen3.6-35b-a3b-kapitsa-m4-pro-mtp",
         "qwen3.8-27b-twin-turbo",
         "gemma-4-12b",
+        "qwen3.5-9b",
         "nemotron-dory-4b",
         "nemotron-3.5-bolt-74b-a9b",
         "qwen2.5-0.5b",
         "qwen3.8-27b-defiance-uncensored",
         "deepseek-v4.1-flash",
         "qwen3.8-flash-next-125b-4090-hybrid",
-        "qwen3.5-9b",
         "qwen3.8-27b-coder390",
         "gemma-4-e4b",
         "qwen3-6-35b-a3b",
+        "qwen3.8-27b-radeon-pro-r9700",
         "gpt-oss-20b",
         "gemma-4-e2b",
         "bonsai-2-4b",
@@ -1783,7 +1847,6 @@
         "ornith-1.5-9b",
         "gemma-3-4b",
         "qwen-3.6-27b",
-        "qwen3.8-27b-radeon-pro-r9700",
         "gemma-4-31b",
         "gemma-4-26b",
         "gpt-oss-120b"
@@ -1820,7 +1883,6 @@
           "ornith-1.5-9b",
           "gemma-3-4b",
           "qwen-3.6-27b",
-          "qwen3.8-27b-radeon-pro-r9700",
           "gemma-4-31b",
           "gemma-4-26b",
           "gpt-oss-120b"
@@ -1858,7 +1920,6 @@
           "ornith-1.5-9b",
           "gemma-3-4b",
           "qwen-3.6-27b",
-          "qwen3.8-27b-radeon-pro-r9700",
           "gemma-4-31b",
           "gemma-4-26b",
           "gpt-oss-120b"
@@ -1896,7 +1957,6 @@
           "ornith-1.5-9b",
           "gemma-3-4b",
           "qwen-3.6-27b",
-          "qwen3.8-27b-radeon-pro-r9700",
           "gemma-4-31b",
           "gemma-4-26b",
           "gpt-oss-120b"
@@ -1914,6 +1974,7 @@
           "qwen3.8-flash-next-125b-4090-hybrid",
           "qwen3.8-27b-coder390",
           "gemma-4-e4b",
+          "qwen3.8-27b-radeon-pro-r9700",
           "gemma-4-26b-a4b",
           "muse-glimmer-30b",
           "qwen3-235b-a22b",
@@ -1932,7 +1993,6 @@
           "ornith-1.5-9b",
           "gemma-3-4b",
           "qwen-3.6-27b",
-          "qwen3.8-27b-radeon-pro-r9700",
           "gemma-4-31b",
           "gemma-4-26b",
           "gpt-oss-120b"
@@ -1970,7 +2030,6 @@
           "ornith-1.5-9b",
           "gemma-3-4b",
           "qwen-3.6-27b",
-          "qwen3.8-27b-radeon-pro-r9700",
           "gemma-4-31b",
           "gemma-4-26b",
           "gpt-oss-120b"
@@ -2202,6 +2261,7 @@
         "qwen3.6-35b-a3b",
         "qwen3-8-27b",
         "qwen3.6-35b-a3b-kapitsa-m4-pro-mtp",
+        "qwen3.5-9b",
         "qwen3-6-35b-a3b",
         "qwen3.8-27b-mlx-serve-26.10.1"
       ],
@@ -2306,8 +2366,9 @@
         "qwen3.6-35b-a3b",
         "lfm2.5-24b-a2b",
         "muse-spark-open",
-        "deepseek-v4.1-flash",
         "qwen3.5-9b",
+        "deepseek-v4.1-flash",
+        "qwen3.8-27b-radeon-pro-r9700",
         "qwen3.5-4b",
         "gemma-4-26b-a4b",
         "qwen3-4b",
@@ -2322,6 +2383,7 @@
           "qwen3.6-35b-a3b",
           "muse-spark-open",
           "deepseek-v4.1-flash",
+          "qwen3.8-27b-radeon-pro-r9700",
           "qwen3.5-4b",
           "qwen3-235b-a22b",
           "llama-3.1-8b"
@@ -2331,8 +2393,9 @@
           "qwen3.8-flash-next-125b",
           "qwen3.8-27b-dflash2-teksedge3090",
           "muse-spark-open",
-          "deepseek-v4.1-flash",
           "qwen3.5-9b",
+          "deepseek-v4.1-flash",
+          "qwen3.8-27b-radeon-pro-r9700",
           "qwen3.5-4b",
           "ornith-1.5",
           "llama-3.1-8b"
@@ -2342,8 +2405,9 @@
           "qwen3.8-flash-next-125b",
           "qwen3.8-27b-dflash2-teksedge3090",
           "muse-spark-open",
-          "deepseek-v4.1-flash",
           "qwen3.5-9b",
+          "deepseek-v4.1-flash",
+          "qwen3.8-27b-radeon-pro-r9700",
           "qwen3.5-4b",
           "ornith-1.5",
           "llama-3.1-8b"
@@ -2355,6 +2419,7 @@
           "qwen3.6-35b-a3b",
           "muse-spark-open",
           "deepseek-v4.1-flash",
+          "qwen3.8-27b-radeon-pro-r9700",
           "qwen3.5-4b",
           "qwen3-235b-a22b",
           "glm-5.3-flash",

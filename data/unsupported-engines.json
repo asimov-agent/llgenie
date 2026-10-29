@@ -10,6 +10,14 @@
       "backend": "Metal",
       "upstream": "https://github.com/ddalcu/mlx-serve"
     },
+    "Rapid-MLX": {
+      "decision": "deferred",
+      "decided": "2026-10-27",
+      "reason": "Apple-Silicon-only MLX server installed from Homebrew or PyPI, with pure MLX kernels and no Linux or GGUF path: its README scopes it to M-series Macs, calls `brew install rapid-mlx` the install, and the product it ships is a macOS desktop app plus image/video/audio generation aliases rather than a server llgenie could drive for the GGUF/MLX models it offers. Metal cannot run in llgenie's Linux image, and that platform is already served natively by the mlx engine, so a second native MLX stack would duplicate it.",
+      "issue": 229,
+      "backend": "Metal",
+      "upstream": "https://github.com/raullenchai/Rapid-MLX"
+    },
     "oMLX": {
       "decision": "deferred",
       "decided": "2026-10-14",
