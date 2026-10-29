@@ -1013,8 +1013,10 @@ def test_the_one_bullet_one_place_lesson_is_in_the_skill():
     for phrase in ["one canonical bullet, one place",
                    "a duplicate is a second source of truth that drifts first",
                    "count occurrences, not a bullet total",
-                   "pin the occurrence count as a red test first"]:
-        assert phrase in ref, f"the one-bullet-one-place lesson is missing: {phrase}"
+                   "pin the occurrence count as a red test first",
+                   "a lane-offered re-take must pass the gate's own comparison before you take it",
+                   "a refusal that keeps the tree green is a result"]:
+        assert phrase in ref, f"the re-take-gate-check lesson is missing: {phrase}"
 
 
 def test_the_force_path_says_it_overwrote_a_newer_live_file(tmp_path, capsys, monkeypatch):
