@@ -395,6 +395,14 @@ head "advancing under a stop" — all three resolved to LOCAL scratch branches (
 
 - **The authoritative read is the remote branch, twice-verified:** `git ls-remote origin refs/heads/<branch>`
   and `gh pr view <n> --json headRefOid` must agree; that sha is the PR's head, and nothing else is.
+- **A refname can be AMBIGUOUS and read a stale ref — fetch with an explicit refspec, never `origin/main` by
+  a short name.** Measured: `git rev-parse origin/main` returned `6d9fef1d` (an old leftover) instead of the
+  real current main, because `origin/main` as a short name resolved to something else than the remote-tracking
+  ref. So a base-watch claimed "#919 is ~1 behind" against a STALE sha and I had to correct it with
+  `git fetch origin +refs/heads/main:refs/remotes/origin/main` then `git rev-parse refs/remotes/origin/main`
+  (238dcd2c — which #919 already contained). The fresh-main rule is: fetch an explicit
+  `+refs/heads/main:refs/remotes/origin/main` and read `refs/remotes/origin/main`, so the refname cannot
+  quietly resolve to the wrong sha.
 - **A disputed sha's membership is `git merge-base --is-ancestor <sha> origin/<branch>` — one command for
   "is it actually on the branch".** If it is not an ancestor, the sha is on another ref (or only local);
   say which refs contain it (`git for-each-ref --contains <sha>`), and stop.
