@@ -27,8 +27,14 @@
    "issue": 237
   },
   "tests/test_install_published.py": {
-   "reason": "The published-install consumer test (pull a backend's published images, install + dl/uninstall). With issue #1027 the engine install/serve test lives in the engine-build producer (make test-engine-install per row on the just-published image) and ci.yml's install row is PRODUCT-ONLY, so no CI job reaches make test-install-published any more — it stays a human/host target.",
+   "reason": "The published-install consumer test (pull a backend's published images, install + dl/uninstall). With issue #1027 the engine install/serve test lives in the engine-build producer (make test-engine-install per row on the just-published image) and ci.yml's install row is PRODUCT-ONLY, so no CI job reaches make test-install-published any more \u2014 it stays a human/host target.",
    "target": "test-install-published",
+   "decided": "2026-10-29",
+   "issue": 1027
+  },
+  "tests/test_install_trend.py": {
+   "reason": "Host-only install-trend consumer test: `make test-install-trend` installs a trending top-tier model on a real host (network + disk); no CI job reaches it. Engine install/serve lives in the engine-build producer (#1027); this stays a human/host check.",
+   "target": "test-install-trend",
    "decided": "2026-10-29",
    "issue": 1027
   }
