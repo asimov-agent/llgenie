@@ -241,6 +241,7 @@ run is red for a condition the runner cannot fix; stay silent and a reader concl
   `standing-rules.md` only. Measured (head 28ce443f): `agents/llgenie-documentation-maintainer/SOUL.md:112`
   and this reference's earlier rule-16 quote carried the #873 wording, so taking the doc lane's live 13,394
   (which matched #873) re-introduced `block-in-soul` FAIL — the planner's "take 13,394, block True" was
-  measured against the wrong canonical and was withdrawn (issue #1009). Two authorities for one fleet rule is
+  measured against the wrong canonical and was withdrawn (tracked on issue #1005, the single surviving
+  vehicle; #1009 closed as a duplicate). Two authorities for one fleet rule is
   how a lane ships an instruction measured against the wrong source. When in doubt, compare against
   `fleet_block()`, never a sampled fence.
