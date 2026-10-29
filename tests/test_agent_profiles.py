@@ -625,6 +625,79 @@ def test_a_tree_copy_that_matches_or_exceeds_the_live_one_is_clean(tmp_path):
     assert cap.shrink_findings(tmp_path, agents, live.parent) == []
 
 
+def test_the_live_finding_names_the_reference_age_not_only_its_size(tmp_path):
+    """A size without an age cannot be reproduced; the same numbers minutes later read differently (#924).
+
+    Measured on #919: tree 22,175 b against a live 24,791 b, then against a live 21,349 b minutes later.
+    The finding changed verdict while the tree was byte-identical, so the message has to carry when the
+    reference was read.
+    """
+    import re
+
+    import check_agent_profiles as cap
+
+    agents = tmp_path / "agents"
+    prof = agents / "someone"
+    prof.mkdir(parents=True)
+    (prof / "SOUL.md").write_text("short\n")
+    live = tmp_path / "live" / "someone"
+    live.mkdir(parents=True)
+    (live / "SOUL.md").write_text("a much longer live rulebook\n" * 100)
+    (agents / "manifest.json").write_text('{"profiles": [{"name": "someone", "rules": ["never-merge"]}]}')
+
+    item = cap.shrink_findings(tmp_path, agents, live.parent)[0]
+    assert "live mtime" in item["detail"], item["detail"]
+    stamp = re.search(r"live mtime (\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ)", item["detail"])
+    assert stamp, f"the finding carries no parsable timestamp: {item['detail']}"
+
+
+def test_a_live_file_rewritten_during_the_check_is_reported_as_a_snapshot(tmp_path):
+    """The reference is not frozen: another lane rewrites it mid-review, so the verdict is a snapshot.
+
+    `started` is the moment the check began. A live file newer than that changed underneath the run, and
+    the caveat says so instead of implying a still reference; an older file produces no caveat at all, so
+    the sentence means something when it appears.
+    """
+    import time
+
+    import check_agent_profiles as cap
+
+    agents = tmp_path / "agents"
+    (agents / "someone").mkdir(parents=True)
+    (agents / "someone" / "SOUL.md").write_text("the same rulebook\n")
+    live = tmp_path / "live" / "someone"
+    live.mkdir(parents=True)
+    (live / "SOUL.md").write_text("the same rulebook\n")
+    (agents / "manifest.json").write_text('{"profiles": [{"name": "someone", "rules": ["never-merge"]}]}')
+
+    moved = cap.snapshot_caveat(tmp_path, agents, live.parent, started=0)
+    assert moved and "changed WHILE this check was reading it" in moved, moved
+    assert "SNAPSHOT" in moved and "re-run to confirm" in moved, moved
+    # Negative control: a reference older than the run start says nothing at all.
+    assert cap.snapshot_caveat(tmp_path, agents, live.parent, started=time.time() + 3600) is None
+
+
+def test_the_snapshot_note_is_audible_in_the_check_and_is_not_a_failure(tmp_path, capsys, monkeypatch):
+    """Announcing a moving reference must not red the tree: the tree is not the party that changed."""
+    import check_agent_profiles as cap
+
+    agents = tmp_path / "agents" / "someone"
+    agents.mkdir(parents=True)
+    (agents / "SOUL.md").write_text("# Someone\n\n## Rules\n\n- never merge\n")
+    (tmp_path / "agents" / "manifest.json").write_text(
+        '{"profiles": [{"name": "someone", "rules": ["never-merge"]}]}')
+    live = tmp_path / "profiles" / "someone"
+    live.mkdir(parents=True)
+    (live / "SOUL.md").write_text("# Someone\n\n## Rules\n\n- never merge\n")
+    monkeypatch.setenv("HERMES_PROFILES_HOME", str(tmp_path / "profiles"))
+    monkeypatch.setattr(cap, "_STARTED", 0.0)          # every live file counts as changed during the run
+
+    assert cap.main(["check", "--root", str(tmp_path), "--agents-dir", "agents"]) == 0
+    captured = capsys.readouterr()
+    assert "SNAPSHOT" in captured.err, captured.err
+    assert "moved DURING this run, so the comparison is a snapshot" in captured.out, captured.out
+
+
 def test_no_live_profile_home_means_the_comparison_is_skipped_not_failed(tmp_path):
     """CI has no `~/.hermes/profiles/`; a gate that cannot see the live files must say nothing, not fail."""
     import check_agent_profiles as cap
