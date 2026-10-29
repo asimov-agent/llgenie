@@ -1894,3 +1894,16 @@ def test_the_pipeline_maintainer_soul_monitors_and_routes_never_rebases():
                    "@llgenie-planner", "comment the finding",
                    "the measured head"]:
         assert demand in soul, f"the monitor-and-route rule is missing: {demand}"
+
+
+def test_the_pipeline_maintainer_soul_always_monitors_and_reports_reds_from_logs():
+    """Owner behavior: this lane's steady state is watching PR CI runs, reading the failing log,
+    and reporting each red to the inbox for it to decide — never from a status badge alone.
+    """
+    soul = " ".join((REPO / "agents" / "llgenie-ci-pipelines-maintainer" / "SOUL.md").read_text().lower().split())
+
+    assert "always monitor" in soul, "the always-monitor steady state is missing"
+    for demand in ["read the failing job's log", "the failing job's log",
+                   "@llgenie-planner", "inbox triage", "report", "the log-quoted cause",
+                   "cancelled run reads"]:
+        assert demand in soul, f"the monitor-and-report-from-log rule is missing: {demand}"
