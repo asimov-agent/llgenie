@@ -298,8 +298,10 @@ Re-measured at head `63aa93c1` the count is 14 — the same two classes plus a t
 LLGenie Architect <architect@llgenie.local>` (a local fake domain). After a rebase onto a newer main the
 count fell to **11 at `e3b8014c`** — every subsequent rebase re-measures the range, because a squash copy
 already reachable from the new base is no longer this PR's addition (`b6d9cfd8` #981, "patch contents
-already upstream", was dropped and its finding went with it). The two co-author trailers survive every
-rebase and no `--reset-author` clears them. So a stated count is a snapshot of a head, not a constant:
+already upstream", was dropped and its finding went with it). Re-verified at `6c198627` the count holds at
+**11** — a snapshot earned by re-measuring, not by trusting the earlier head's number. The two co-author
+trailers survive every rebase and no `--reset-author` clears them. So a stated count is a snapshot of a
+head, not a constant:
 **re-measure at the CURRENT head before asserting the gate's red size.** All are the scanner's own commit
 range — the static producer half stays clean.
 
