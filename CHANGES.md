@@ -16,6 +16,7 @@ a note that does not exist, or when a row is malformed.
 
 | Date | Change | Record | Issue / PR |
 |---|---|---|---|
+| 2026-10-29 | a finished PR is armed when it is done, not when it is approved: the producing lane rolls it in, reads the arm back, and a finished-but-unarmed PR is invisible to every sweep (#873) | [2026-10-29-rule16-arm-when-done.md](agent-wiki/2026-10-29-rule16-arm-when-done.md) | #873 |
 | 2026-10-29 | every number the merger reports names the sha it was measured at: fetch → branch at that sha → bookend the act (#873) | [2026-10-29-rule15-sha-baseline.md](agent-wiki/2026-10-29-rule15-sha-baseline.md) | #873 |
 | 2026-10-29 | the live TensorFold archive proof runs on the engine-bump pipeline after the new pin, and not on every CI unit job | [2026-10-29-engine-bump-live-on-bump.md](agent-wiki/2026-10-29-engine-bump-live-on-bump.md) | #995, #996 |
 | 2026-10-29 | `make check-wiring` also asserts the reverse `.PHONY` direction: every key must name a target with a recipe, an inline `;` command or a prerequisite (a declared alias) — a key whose recipe is gone is a permanent green no-op (`make <name>` → "Nothing to be done", exit 0) | [2026-10-29-check-wiring-phony-declares-recipe.md](agent-wiki/2026-10-29-check-wiring-phony-declares-recipe.md) | #883 |

@@ -1,0 +1,1 @@
+| 2026-10-29 | a finished PR is armed when it is done, not when it is approved: the producing lane rolls it in, reads the arm back, and a finished-but-unarmed PR is invisible to every sweep (#873) | [2026-10-29-rule16-arm-when-done.md](agent-wiki/2026-10-29-rule16-arm-when-done.md) | #873 |
