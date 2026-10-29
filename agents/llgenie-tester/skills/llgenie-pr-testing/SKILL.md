@@ -42,8 +42,14 @@ contradicts the body** (a planner comment pivoting from matrix placeholders to t
   `pytest.skip` fallback looks green locally and red in CI — conftest is what rejects skips, and it
   also pulls `scripts.llgenie_serve` (gguf+numpy), which is why people reach for `--noconftest` in the
   first place. Mount the MAIN repo as well as the worktree: a worktree's `.git` is a pointer outside
-  the tree, so without that mount `git ls-files` returns nothing and per-path assertions pass
+  the tree,  so without that mount `git ls-files` returns nothing and per-path assertions pass
   vacuously.
+- **A test that does `import scripts.<x>` dies at COLLECTION on a sibling import.** If the module under
+  test itself imports a sibling on `scripts/` (`import base_ref`), `python -m pytest` inside the image
+  exits 2 with `ModuleNotFoundError: No module named '<sibling>'` and an empty summary — which reads
+  like a hang, not a collection error. `scripts/` is not on the image's path by default; run the
+  container with `-e PYTHONPATH=/repo/scripts`. The repo's `make test-unit` already sets this up;
+  your ad-hoc run has to do it by hand.
 - Make gates call plain `python3 scripts/*.py check`: put a scratch venv's `bin` first on `PATH` so
   `pyyaml` resolves (system `/usr/bin/python3 -m venv`, not the Hermes venv), then run each gate and
   print its exit code.
@@ -280,7 +286,15 @@ When dispatched to verify the PR that closes the triage issue, the question is n
    the time of the fix) that is the finding. Then run the four whole files, not just the ids.
 3. **Read the assertion diff.** Updating an expectation to the new shape is a fix; deleting the
    assertion, relaxing it to `assertTrue(...)`, or removing a caller from a loop that still has other
-   callers is a weakening. An *inverted* assertion that now proves the absence is stronger, not weaker.
+   callers is a weakening. An *inverted* assertion that now proves the absence  is stronger, not weaker.
+- **A fix that WIDENS a gate (allowlist, alias map, roster) passes its own gate trivially — the
+  negative control decides it.** A green badge on a widened set proves nothing about the hole the
+  widening is supposed to keep closed. Run, through the guard's own entry point over throwaway
+  `git init -b main` commits, all three shapes: a valid case that must still pass, the genuine
+  breakage the widening exists to stop (the real typo), and a lookalike that must still fail. Report
+  the verdicts (`violations=0` / `violations=1` with the evidence string) with the command output, not
+  the CI badge — a tester's one-line "passes on the positive case" is the same hole as an assertion
+  that proves nothing.
 4. **Check an inline call became a target, not an exemption.** If the fix moves `python3 scripts/x.py`
    out of a workflow step, run the new target's truth table directly (each branch of the decision) and
    confirm the fail-closed case too.
