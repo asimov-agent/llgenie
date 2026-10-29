@@ -1,0 +1,35 @@
+{
+  "note": "Profiles whose SOUL does not yet state the canonical fleet block from agents/standing-rules.md (issue #873). An entry is legitimate only while it describes a REAL gap: once the profile states the block, `make check-agent-profiles` reports the entry STALE and it must be deleted. Each entry names the lane that owns the file, because only a lane may edit its own SOUL - and a gap with no owner is a gap nobody closes.",
+  "exemptions": [
+    {
+      "profile": "llgenie-architect",
+      "reason": "states no canonical fleet block; the architect lane's file predates the block and its owner has to copy it from agents/standing-rules.md",
+      "owner": "llgenie-architect"
+    },
+    {
+      "profile": "llgenie-documentation-maintainer",
+      "reason": "states no canonical fleet block; the documentation lane owns its SOUL and copies the block from agents/standing-rules.md",
+      "owner": "llgenie-documentation-maintainer"
+    },
+    {
+      "profile": "llgenie-planner",
+      "reason": "states no canonical fleet block; the planner lane authors its own block (its text is posted for it) and applies it in its own PR",
+      "owner": "llgenie-planner"
+    },
+    {
+      "profile": "llgenie-pr-reviever",
+      "reason": "states no canonical fleet block; the reviewer lane owns its SOUL and copies the block from agents/standing-rules.md",
+      "owner": "llgenie-pr-reviever"
+    },
+    {
+      "profile": "llgenie-security",
+      "reason": "states no canonical fleet block; the security lane owns its SOUL and copies the block from agents/standing-rules.md",
+      "owner": "llgenie-security"
+    },
+    {
+      "profile": "llgenie-issse-implementer",
+      "reason": "states no canonical fleet block; the implementer lane owns its SOUL and adds the block in its own change",
+      "owner": "llgenie-issse-implementer"
+    }
+  ]
+}
