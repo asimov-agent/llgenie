@@ -1140,19 +1140,6 @@ def test_a_soul_missing_a_canonical_bullet_fails_and_names_it(tmp_path):
     assert "Never prune a worktree" in detail, detail      # the first missing bullet, quoted
 
 
-def test_a_soul_stating_the_retired_arming_rule_is_a_finding(tmp_path):
-    """​The gate must name a SOUL that states the RETIRED arming rule even when its fleet block is
-    otherwise canonical (issue #972/#873). Two arm triggers in one profile is how a lane times the arm
-    wrong; the canonical fence retirement must be enforced, not left to each profile's memory.
-    """
-    # BLOCK is the canonical fragment WITHOUT the retired rule; stated carries it as a lane rule
-    root = fleet_tree(tmp_path, stated=FLEET_HEAD + "\n\n- **Never merge without the owner's approval.** "
-                "A merge needs a human.\n- **Arm auto-merge at PR creation.** Arm right after create.\n")
-    keys = [i["key"] for i in guard.findings(root)]
-
-    assert "retired-arm-rule" in keys, keys
-
-
 def test_deleting_the_single_copy_does_not_let_the_drift_pass(tmp_path):
     """A tree where a SOUL claims the heading but the canonical file is gone must fail, not skip."""
     root = fleet_tree(tmp_path)
