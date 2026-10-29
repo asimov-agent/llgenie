@@ -1490,14 +1490,14 @@ def test_the_report_names_duplicate_canonical_rules_and_the_gate_does_not_fail_o
     assert names, "report must name at least one duplicate canonical rule"
 
     # a deduped lane must NOT be named; if any is, the dedupe regressed
-    deduped = {"llgenie-documentation-maintainer", "llgenie-issse-implementer"}
+    deduped = {"llgenie-documentation-maintainer", "llgenie-issse-implementer",
+               "llgenie-ci-pipelines-maintainer", "llgenie-pr-reviever", "llgenie-tester"}
     assert not (deduped & set(names)), f"a deduped lane was re-flagged as a duplicate: {names}"
 
-    # the remaining duplicates are the other lanes still owed (until #1008 lands) + the planner's
-    # content-bearing paragraph (its own SOUL)
-    still_debt = {"llgenie-ci-pipelines-maintainer", "llgenie-planner",
-                  "llgenie-pr-reviever", "llgenie-tester"}
-    assert still_debt <= set(names), f"every still-debt lane must be named: {names}"
+    # after #1006/#1007/#1008 the ONLY legitimate duplicate is the planner's content-bearing
+    # `never-push` paragraph (its own SOUL, its call to remove); #1008 itself cleans the other lanes
+    remaining = set(names) - {"llgenie-issse-implementer"}
+    assert remaining <= {"llgenie-planner"}, f"an unexpected lane still carries a duplicate: {names}"
 
     assert all("issse-implementer" not in n for n in names), \
         "implementer's duplicate rule was deduped into the fleet block — it must not be re-flagged"
