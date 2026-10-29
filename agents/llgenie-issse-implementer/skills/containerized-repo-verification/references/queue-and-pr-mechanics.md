@@ -313,6 +313,18 @@ So: verify which failures are yours (`scripts/check_pr_authors.py report --base 
 expect your own to be `OK`, and escalate the rest with the two measurements — a typo fix that needs a
 rewrite, and an allowlist that contradicts `main`'s own authors.
 
+A re-author instruction can itself be built on a stale head and a partial count. Measured on `#919`: a
+dispatcher, having earlier ruled "do NOT rewrite the author, fix is email-matching (#840)", later ordered a
+re-author of "three squash authors" measured at an old tip (`80f54f9f~3`) while the real tip had moved
+twice (to `5baca03a`, where the gate is red on **14** findings, not 3 — 12 `Andy <…>` squashes plus two
+`Co-authored-by: … architect@llgenie.local` trailers that no `--reset-author` can ever clear). Declining
+was correct: a rewrite of three shas leaves eleven findings and a still-red gate, and it rewrites shas
+under every stacked PR (base = your branch) for a field that is cosmetic. So the check list grows by one:
+**before taking a re-author order, re-measure the failure count at the CURRENT head and confirm the
+instruction raises the earlier no-rewrite ruling — escalate a contradiction rather than force-push a
+history rewrite that cannot clear the gate and that the gate's own durable fix (email-matching) removes
+by construction.**
+
 ## A PR's blockers are three commands, not a rule of thumb
 
 "Fork head therefore unapprovable" and "`cross=true` therefore can't be armed" are **inferences**, and
