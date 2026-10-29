@@ -51,6 +51,12 @@ contradicts the body** (a planner comment pivoting from matrix placeholders to t
   pattern appears in the command string you are typing — write it `pkill -f "[u]nit_tests\.py"` or
   kill by pid/session id. A killed `make test-unit` leaves the container running: clean up with
   `docker ps -q --filter ancestor=llgenie/test:latest | xargs -r docker kill`.
+- **A worktree that smells of root cannot be removed, and `sudo` is not available to you.** A run
+  with `docker run -u root` (the standard pytest recipe above) leaves root-owned files in the tree,
+  so `git worktree remove` fails with `Permission denied` while `sudo` refuses for lack of a TTY. Do
+  what the repo's own `CI_HOME_CLEAN` does — delete from a container, then prune:
+  `docker run --rm --entrypoint sh -v <worktree-parent>:/r llgenie/test:latest -c 'rm -rf /r/<name>'`,
+  `git worktree prune`, and `docker rm -f` any leftover `llgenie/test` containers before reporting.
 - **Never report your own timeout as a repo failure.** `timeout N make <gate>` exits **124**, a
   SIGKILLed background job exits **137**: both mean *you* stopped it, not that the gate failed. The
   report must not carry an exit you caused — re-run with a larger cap or in the background first.
@@ -121,6 +127,15 @@ against `name:` prefixes, not ids).
   reads `conclusion=failure` — cancelling the run after a job failed rewrites the run-level word. The
   job endpoint (`gh api repos/<owner>/<repo>/actions/jobs/<id>`) is the finer truth, and its `steps[]`
   array names which step died without needing any log. See `references/red-job-triage.md`.
+- **Re-read a PR's state before you act on instructions about it.** A dispatch is a snapshot taken
+  minutes-to-hours ago: check `gh pr view <n> --json state,closedAt,headRefOid` and
+  `git ls-remote --heads origin <branch>` (0 refs = the branch is gone). A **closed** PR cannot be
+  "now conflicting", and a rebase instruction for it is moot — answer with `closedAt` and the deleted
+  branch instead of doing the work, or you will spend a cycle chasing a diff nobody can see.
+- **A stacked PR that flips to `CONFLICTING` with a whole-tree diff means its BASE was rewritten, not
+  that your commit broke.** The tell is the merge-base: `git merge-base <head> <base>` sitting several
+  commits behind, with the diff equal to the base's own file set. Rebase onto the new base tip and the
+  diff collapses back to your files; do not "fix" a conflict that is really a rewritten ancestor.
 - **A stacked PR gets zero CI**: every workflow here gates `pull_request` on `branches: ["main"]`,
   so a non-`main` base schedules nothing. GitHub also retargets a stacked PR's base to `main` when
   its base PR closes — that drags the base commit into the diff, and a `.github/**` change then hits
@@ -164,6 +179,10 @@ run <id> · head <sha> · main <sha> · <n> passed / <n> failed · fails on main
   is not a pass and `--auto` there is not a queue position. A finished stacked PR records
   `auto=none (stacked base: no required checks, no CI scheduled)` and is armed **on retarget**;
   merging one by hand is a bypass, not a handoff.
+- **After any arm, read it back** — `gh pr view <n> --json autoMergeRequest,mergedAt,mergeStateStatus`.
+  An arm that reports `MERGEABLE` and then `MERGED` within seconds is the stacked-base tell, not a
+  quiet queue position; report the merge commit and the arm time so the reviewer sees which of the two
+  happened. `mergeStateStatus` alone cannot distinguish "waiting" from "already merged".
 - **`AGENTS.md` bans `gh pr merge` for hand-merging** (`--squash/--merge/--rebase/--admin`), because a
   hand merge bypasses the merge-state check and pins no head. Arming native auto-merge
   (`gh pr merge <n> --auto --squash`) is not that: it waits for the checks and merges at the
@@ -242,14 +261,10 @@ not a patch. A fix from the test lane competes with the implementer's branch and
    would let the next run catch it. An enumerated "ruled out" list is a finding; a guessed root cause
    is not.
 
-**One red set is usually several causes — bisect it into cohorts before you report it.** Run the
-identical node-id list at each commit between the base and the head (`git log --oneline <base>..<head> --
-<the file>`, plus `git log -S "<symbol>" -- <file>` to find which commit introduced the behaviour a stale
-test still describes). The counts at each intermediate commit split the set: `4 failed, 2 passed` at the
-earlier commit and `6 failed` at the later one means four tests belong to the first change and two to the
-second — cohorts that need different fixes and different reviewers. Report them as a table (commit → its
-failing ids → the assertion it contradicts), and never let the dispatch's "one failing check each"
-become "one cause": the same red set can carry a stale-group cohort and a stale-YAML cohort at once.
+**A batch of reds is usually several causes — bisect by commit before reporting**, never by the
+issue title. The recipe, with the measured split, is in `references/red-job-triage.md` §7; the rule it
+encodes is that a dispatch saying "one failing check each" often hides one shared cause plus one that
+is genuinely the branch's own.
 
 ## 10. Verify a FIX PR — a fix that skips its way to green is worse than the red
 
