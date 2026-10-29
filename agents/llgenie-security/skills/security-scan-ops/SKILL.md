@@ -139,6 +139,11 @@ test-image`). A `make sbom && make security-scan TOOL=trivy` run locally (pinned
   A draft is invisible to the merge queue, to auto-merge and to every reviewer — and for this lane worse
   than invisible: an advisory opened as a draft is an exposure that stays open while the board reads
   "blocked on approvals".
+- **A PR whose rebase leaves nothing is a duplicate — close it, do not leave it on the board.** After a
+  rebase onto a moved base, `git log <new-base>..HEAD` empty (0 unique commits) with a message like
+  "patch contents already upstream" means the change already landed in the base. Close the PR as
+  superseded and name that empty-diff as the evidence; an OPEN, not-armed PR whose content is already
+  merged elsewhere reads on the board like it is blocked for a reason that does not exist.
 - **Arm auto-merge only on a `main`-based PR, and read `state` before `autoMergeRequest`.** On a PR whose base
   is another branch, `gh pr merge <n> --squash --auto` does not arm — it **merges within seconds** into that
   branch, because there are no protected-branch rules to wait for (measured four times in eight minutes:
