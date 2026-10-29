@@ -946,6 +946,7 @@ TINY = {"id": "tiny", "name": "tiny-random-LlamaForCausalLM",
         "formats": [{"name": "GGUF", "hf": "aladar/tiny-random-LlamaForCausalLM-GGUF"}]}
 
 
+@pytest.mark.network
 def test_full_download_through_hf_download_places_the_complete_gguf(tmp_path, monkeypatch):
     """The real download path (scripts/hf_download.py -> hf CLI), full file, no byte cap."""
     # Given a tiny real GGUF repo and no download cap
