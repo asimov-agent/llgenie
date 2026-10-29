@@ -49,6 +49,13 @@ the line count the overwrite would cost, say **would overwrite**, never say "ver
   guard is just a red gate. And the refusal must leave the file byte-unchanged — assert that too.
 - `--force` must then say what it did: `overwrote a live file NEWER than the source commit by --force
   (live <t> vs source <t>)`, with `identical` absent from both paths.
+- **Refuse the HARM, not the timestamp.** The mtime is a proxy for "someone else wrote this"; the harm is
+  losing a line they wrote. Two cases must PASS, or the guard fires on its own previous write and the
+  operator learns to pass `--force` — and then the one case that matters gets forced too: the bytes are
+  already identical (the sync writes nothing), and every live line also appears in the tree (the write
+  cannot drop one — the same set-of-lines test `shrinks()` uses, in the other direction). Measured:
+  a refresh two minutes after the previous sync was refused for five files, three byte-identical and two
+  where the live lines were a strict subset of the tree's.
 
 **And compute "what changed" from a snapshot taken BEFORE the write.** Asking after the copy answers
 "all of them" on every run — `replaced an existing file` computed post-copy is a property the instrument
@@ -92,6 +99,54 @@ live behaviour), **diverged** (each side owns lines the other lacks → a sync d
 missing (structural), and tree-ahead (the tree carries lines live lacks and misses none → a sync only ADDS,
 so it is lag). A size comparison or a two-state "differs" test reports **diverged as nothing at all**, which
 makes the most destructive state the invisible one — classify by subset relation in BOTH directions.
+
+## Versioning a fleet rule into one lane: SOUL states it, skill uses it
+
+A repo that keeps a canonical rule block (`agents/standing-rules.md`) and N lanes' `SOUL.md` copies will
+re-issue that block with new numbered rules. Adding rule N to a lane is a repeatable procedure, and every
+step below was a defect the first time it was skipped:
+
+1. **Copy the rule from the FILE at commit time, not from the message that announced it.** The block is the
+   authority; a chat summary drifts from it within the hour. Cite the rule and issue in the same line the
+   block uses (`… (rule N of the fleet block, <issue>)`) so the next reader can diff the two.
+2. **First person passes; paraphrase does not.** Rewriting `you` → `I` is expected in a SOUL. Dropping or
+   softening a commitment is not: keep each clause the block asserts (file the issue, name the removal
+   condition, remove the tag yourself, record the conclusion in the issue).
+3. **The skill carries the procedure, the SOUL carries the constraint.** A skill loads only when its
+   trigger matches, and a rule about holds or lanes is needed *before* the situation names itself — so the
+   SOUL states the rule whole and the skill that governs the action lists the steps in order.
+4. **Pin both with a test, and run a negative control.** Assert the rule text and each clause in the SOUL,
+   and each step in the skill; then delete the paragraph and confirm the test FAILS (restore, confirm it
+   passes). A test that only ever ran green does not pin anything.
+5. **Normalise whitespace in prose assertions.** A rule wrapped across a line still states the rule, so a
+   raw-substring assertion fails on a reformat and passes on a genuine edit. Split-join both sides before
+   asserting. And assert each phrase against the file it actually lives in: a clause quoted from the SOUL
+   will not be found in the skill, and vice versa.
+6. **Sync tree → live, then `CHECK=1` must say byte-identical**, before the push.
+7. **A protected instruction file needs the owner's approval.** Writing a lane's `SOUL.md` may be refused
+   as a protected agent-instruction file; that refusal is not something to route around with a shell write.
+   Ask, state which rule is missing, and land it in the same commit as its tests once approved.
+
+**It lands on the branch that carries `agents/`, which may not be `main`.** Check first:
+`git ls-tree -r --name-only origin/main agents/ | wc -l`. If that is `0`, a branch cut from `main` cannot
+modify the file at all, and a stacked PR cannot be armed — so the rule goes as a commit on the tree's
+existing vehicle, with `Refs <issue>` in the message. That is also the only ordering that keeps the
+live-comparison green: tree and live profile change together.
+
+## Composing a lane's SOUL when its tree copy is the broken side
+
+A tree-wide gate can be red on files you do not own, and the vehicle cannot merge on a red gate. Copying
+the live file blindly is wrong when the live file is the *stale* side; editing the lane's text is worse.
+The composition that loses nothing:
+
+- Read both sides and classify: identical · tree-short (a sync deletes live behaviour) · **tree-long but
+  missing live lines** (a rewrite that dropped them) · tree-ahead (lag, not a defect).
+- When the tree dropped live lines, rebuild it as **live verbatim, then the canonical fleet block, then
+  that lane's own rules**, and assert programmatically that every non-blank live line survives. Report the
+  composed size and the surviving-line check, not the intent.
+- **Tell the lane, with the id and the sha** — a cross-lane change announced only in a commit message is
+  the silence the announce rule exists to end. Invite the other direction: if their live profile is the
+  one that is behind, they say so and the re-take reverses.
 
 ## A skip must be audible, and a home must HOLD a profile
 
