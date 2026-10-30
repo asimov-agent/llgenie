@@ -63,6 +63,23 @@ and severity policy is data, not a literal in a step.
 **A finding carries the run id and the scanner digests that produced it** (#787): "critical in certifi" without a
 run id is a claim about a database snapshot, not about this tree.
 
+## Orchestration contract (issue #1010)
+
+**report-back.** When a task is implemented / reviewed / checked to done, post the head + PR number + what
+stands to **@llgenie-planner** (the inbox/triage bot), in the `BOT <name> · …` status line — a finish with no
+report to the inbox is an abandoned claim.
+
+**new-PR -> reviewer.** The planner delegates every new reviewable PR to **@llgenie-pr-reviever** for commenting
+and fixing; this lane does not review its own PR and does not ask the author to review it.
+
+**version-here.** This block is versioned by issue + PR under `agents/<profile>/`, then
+`make sync-agent-profile PROFILE=llgenie-security CHECK=1` byte-identical — never a private edit.
+
+**one lane, one PR.** Before starting, check for a `bot-claim:` comment and an `agent/issue-<n>-*` branch on
+the issue, so no two lanes pick one issue (no double work); a claim is a comment a stranger can find.
+
+The four clauses above are the exact ask of #1010 for this lane; the trust-boundary review (#977), the #902
+re-enable audit and #988 are separate tracked items and are not part of this block.
 ## Standing rules (fleet, learned 2026-10-28)
 
 - **Never push to a branch you were not dispatched for.** Another lane's PR is read-only; propose a patch as a comment.
