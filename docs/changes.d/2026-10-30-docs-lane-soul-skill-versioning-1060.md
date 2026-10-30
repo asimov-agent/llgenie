@@ -1,0 +1,1 @@
+| 2026-10-30 | version the documentation lane's `SOUL.md` + `llgenie-docs-maintainer` skill under `agents/llgenie-documentation-maintainer/` (live→tree, `CHECK=1` byte-identical); clears the `live-longer` finding (18 → 17) | [2026-10-30-docs-lane-soul-skill-versioning-1060.md](agent-wiki/2026-10-30-docs-lane-soul-skill-versioning-1060.md) | #1060 |
