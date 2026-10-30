@@ -1,0 +1,1 @@
+| 2026-10-31 | agents/llgenie-planner: the versioned skill is brought up to the live profile, and a new reference catalogues the sixteen one-directional checks the fleet corrected (live → tree, CHECK=1 43 files byte-identical) | [note](agent-wiki/2026-10-31-planner-skill-versioned-and-check-catalogue.md) | #1060 |
