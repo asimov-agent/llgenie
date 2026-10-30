@@ -649,10 +649,16 @@ def card_evidence(model: dict, gb: float) -> str:
     """
     if gb <= 0:
         return "unknown"  # no card on this host: the gate has nothing to compare against
-    if admitting_measurement(model, gb) is not None:
-        return "run"
     card = card_class_gb(gb)
     need = vram_min_gb(model)
+    # The declared measured minimum is the authoritative floor (issue #669): a model the store
+    # says needs a 128GB card must not be offered at 16 GB just because a stray smaller-card run
+    # exists (e.g. an MLX "M1 Pro 16GB unified memory" row beside a "M4 Max 128GB" — the card
+    # gate then reads the 128 GB minimum, not the spurious smaller measurement).
+    if need is not None and need > card:
+        return ""
+    if admitting_measurement(model, gb) is not None:
+        return "run"
     if need is not None and need <= card:
         return "min"
     weight = stated_budget_gb(model)
