@@ -152,9 +152,9 @@ picks which start script or image to run.
 
 ## Repository layout
 
-The tree is 1992 tracked files: `data/` 9, `skills/` 17 (16 engine directories plus their
-`README.md`), `containers/` 57, `tests/` 201, `scripts/` 120, `openspec/` 1031, `agent-wiki/`
-243 and `docs/` 250. (measured at `15eb17c`)
+The tree is 1995 tracked files: `data/` 9, `skills/` 17 (16 engine directories plus their
+`README.md`), `containers/` 57, `tests/` 202, `scripts/` 121, `openspec/` 1031, `agent-wiki/`
+243 and `docs/` 250. (measured at `41edb14`)
 
 | Path | Role |
 |---|---|
@@ -172,7 +172,7 @@ The tree is 1992 tracked files: `data/` 9, `skills/` 17 (16 engine directories p
 | `openspec/` | the change record: `config.yaml`, its `Dockerfile`, and `changes/<name>/{proposal.md,specs/**,tasks.md}` (264 changes) |
 | `agent-wiki/` | dated work record (243 entries), one per change, referencing its issue and PR |
 | `CHANGES.md` | those notes' index, newest first — one row rendered from each `docs/changes.d/<note>.md` by `make changes-index`; a note with no row, or a row naming a missing note, fails `make check-docs` (issues #678, #934) |
-| `tests/` | 171 `tests/test_*.py` files, fixtures, shared test helpers (`tests/top_tier_dry_run.py` for the live Hub dry run, `tests/hub_probe.py` for a probe's verdict on one Hub file) and the live end-to-end gates, discovered by `scripts/unit_tests.py` |
+| `tests/` | 172 `tests/test_*.py` files, fixtures, shared test helpers (`tests/top_tier_dry_run.py` for the live Hub dry run, `tests/hub_probe.py` for a probe's verdict on one Hub file) and the live end-to-end gates, discovered by `scripts/unit_tests.py` |
 | `docker-compose-files/` | the compose definitions for the OpenSpec CLI (`openspec.yaml`) and the test image (`test.yaml`) |
 | `tools/` | pip-compile inputs (`requirements.in`, `requirements-dev.in`), the generated `security-floors.in` constraint file, and the venv targets |
 | `renovate.json` | the dependency / base-image update config Renovate acts on; its properties are a gate (`make check-renovate`), not a preference |
@@ -972,7 +972,7 @@ still a hard failure.
 
 ## Tests and gates
 
-`make test-unit` discovers every `tests/test_*.py` through `scripts/unit_tests.py` (171
+`make test-unit` discovers every `tests/test_*.py` through `scripts/unit_tests.py` (172
 files today); a file is in the gate the moment it exists, and an exclusion is a dated entry
 in `tests/fixtures/unit-suite.json`. `make test` runs the named `groups.fast` subset from
 the same roster rather than a hand-kept list of files. The live gates are separate targets
