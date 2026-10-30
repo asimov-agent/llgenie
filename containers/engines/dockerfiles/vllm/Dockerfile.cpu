@@ -3,20 +3,18 @@
 # Build: make build-engine ENGINE=vllm ARCH=cpu
 # Run:   make run-engine ENGINE=vllm ARCH=cpu MODEL=<model> PORT=11434
 #        -> OpenAI API at http://127.0.0.1:<PORT>/v1, model llm-local
-FROM vllm/vllm-openai-cpu:v0.32.0
+FROM llgenie/base-cpu:d0eb107fa0
 
 ENV DEBIAN_FRONTEND=noninteractive HF_HOME=/models/hf \
     PATH=/opt/llgenie/bin:/usr/local/cuda/bin:${PATH}
 
-# Official upstream image already contains the engine; add only what the
-# llgenie entrypoint needs (python3 + curl) when the base lacks it.
-RUN if ! command -v python3 >/dev/null || ! command -v curl >/dev/null; then \
-      apt-get update && apt-get install -y --no-install-recommends ca-certificates curl python3 \
-      && rm -rf /var/lib/apt/lists/*; fi
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/llgenie/app
 COPY engine_runner.py entrypoint.sh params.json ./
-RUN chmod +x entrypoint.sh
+RUN chmod +x entrypoint.sh && python3 engine_runner.py install params.json && rm -rf /root/.cache
 
 ENV LLGENIE_ENGINE=vllm LLGENIE_BACKEND=cpu LLGENIE_VARIANT=cpu \
     LLGENIE_HOST=0.0.0.0 LLGENIE_PORT=11434

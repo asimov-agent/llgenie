@@ -11,18 +11,25 @@
       "id": "vllm",
       "engine": "vLLM",
       "backend": "cuda",
-      "arch": "",
-      "base": "vllm/vllm-openai:v0.32.0",
-      "prebuilt": true,
+      "arch": "75;80;86;89;90;120",
+      "base": "nvidia/cuda:13.0.2-devel-ubuntu24.04",
+      "prebuilt": false,
       "runtime_base": "",
       "runtime_copy": [],
-      "apt": [],
+      "apt": [
+        "python3-dev"
+      ],
       "build_args": {
-        "CUDA_ARCH": "",
+        "CUDA_ARCH": "75;80;86;89;90;120",
         "GPU_TARGETS": "",
         "TORCH_BACKEND": "cu130"
       },
-      "install": [],
+      "install": [
+        "test -d /opt/llgenie/engines/vllm/src/.git || git clone -b v0.32.0 --depth 1 https://github.com/vllm-project/vllm.git /opt/llgenie/engines/vllm/src",
+        "uv pip install --system --break-system-packages torch==2.13.0 --index-url https://download.pytorch.org/whl/cu130",
+        "uv pip install --system --break-system-packages -r /opt/llgenie/engines/vllm/src/requirements/build/cuda.txt --index-strategy unsafe-best-match",
+        "cd /opt/llgenie/engines/vllm/src && CMAKE_ARGS='-DCMAKE_CUDA_ARCHITECTURES=75;80;86;89;90;120' VLLM_TARGET_DEVICE=cuda uv pip install --system --break-system-packages --no-build-isolation -e ."
+      ],
       "env": {},
       "detect": "python3 -c 'from vllm import __version__ as v; print(v)'",
       "pre_launch": null,
@@ -42,18 +49,24 @@
       "id": "vllm",
       "engine": "vLLM",
       "backend": "rocm",
-      "arch": "",
-      "base": "vllm/vllm-openai-rocm:v0.32.0",
-      "prebuilt": true,
+      "arch": "gfx1030;gfx1100;gfx1101;gfx1102;gfx1151;gfx1200;gfx1201;gfx942",
+      "base": "rocm/dev-ubuntu-24.04:7.0-complete",
+      "prebuilt": false,
       "runtime_base": "",
       "runtime_copy": [],
-      "apt": [],
+      "apt": [
+        "python3-dev"
+      ],
       "build_args": {
         "CUDA_ARCH": "",
-        "GPU_TARGETS": "",
+        "GPU_TARGETS": "gfx1030;gfx1100;gfx1101;gfx1102;gfx1151;gfx1200;gfx1201;gfx942",
         "TORCH_BACKEND": "auto"
       },
-      "install": [],
+      "install": [
+        "test -d /opt/llgenie/engines/vllm/src/.git || git clone -b v0.32.0 --depth 1 https://github.com/vllm-project/vllm.git /opt/llgenie/engines/vllm/src",
+        "uv pip install --system --break-system-packages -r /opt/llgenie/engines/vllm/src/requirements/build/rocm.txt --index-strategy unsafe-best-match",
+        "cd /opt/llgenie/engines/vllm/src && PYTORCH_ROCM_ARCH='gfx1030;gfx1100;gfx1101;gfx1102;gfx1151;gfx1200;gfx1201;gfx942' VLLM_TARGET_DEVICE=rocm uv pip install --system --break-system-packages --no-build-isolation -e ."
+      ],
       "env": {},
       "detect": "python3 -c 'from vllm import __version__ as v; print(v)'",
       "pre_launch": null,
@@ -80,17 +93,23 @@
       "engine": "vLLM",
       "backend": "cpu",
       "arch": "",
-      "base": "vllm/vllm-openai-cpu:v0.32.0",
-      "prebuilt": true,
+      "base": "ubuntu:24.04",
+      "prebuilt": false,
       "runtime_base": "",
       "runtime_copy": [],
-      "apt": [],
+      "apt": [
+        "python3-dev"
+      ],
       "build_args": {
         "CUDA_ARCH": "",
         "GPU_TARGETS": "",
         "TORCH_BACKEND": "cpu"
       },
-      "install": [],
+      "install": [
+        "test -d /opt/llgenie/engines/vllm/src/.git || git clone -b v0.32.0 --depth 1 https://github.com/vllm-project/vllm.git /opt/llgenie/engines/vllm/src",
+        "uv pip install --system --break-system-packages -r /opt/llgenie/engines/vllm/src/requirements/build/cpu.txt --index-strategy unsafe-best-match",
+        "cd /opt/llgenie/engines/vllm/src && VLLM_TARGET_DEVICE=cpu uv pip install --system --break-system-packages --no-build-isolation -e ."
+      ],
       "env": {
         "VLLM_CPU_KVCACHE_SPACE": "4"
       },

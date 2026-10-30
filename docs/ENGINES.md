@@ -330,20 +330,22 @@ make list-engine-images              # every engine x arch variant
    Blackwell) and ROCm `gfx1030 … gfx1201` + `gfx942`. That makes 29 Dockerfiles instead of one
    per GPU arch.
    Each variant holds the base image, apt packages, build args, exact install steps (pinned
-   sha, `-DCMAKE_CUDA_ARCHITECTURES=89`, `-DGPU_TARGETS=gfx1100`, CUDA wheel index, …),
-   env, launch, health and `docker run` device args. A file is rewritten only when the
-   rendered parameters differ.
+   sha, `-DCMAKE_CUDA_ARCHITECTURES=89`, `-DPYTORCH_ROCM_ARCH=gfx1100`, `--no-build-isolation`
+   editable install, …), env, launch, health and `docker run` device args. A file is rewritten
+   only when the rendered parameters differ.
    It also writes **one Dockerfile per engine x arch**
    (`containers/engines/dockerfiles/<engine>/Dockerfile.<arch>`). Each one starts `FROM` the engine's
-   official image where one exists (`ghcr.io/ggml-org/llama.cpp:server[-cuda|-rocm|-vulkan]` pinned
-   by digest, `vllm/vllm-openai[-cpu|-rocm]`, `ollama/ollama[-rocm]`,
-   `nvcr.io/nvidia/tensorrt-llm/release`), adding only the llgenie entrypoint. (SGLang/cuda used to
-   be `FROM lmsysorg/sglang`; it now compiles the tag on the shared cuda devel base — #938.)
+   official image where one still ships prebuilt (`ollama/ollama[-rocm]`,
+   `nvcr.io/nvidia/tensorrt-llm/release`), adding only the llgenie entrypoint. (llama.cpp
+   compiles every variant from its pinned sha #615; SGLang/cuda #938 and vLLM x3 #937 are
+   both source builds, starting FROM the shared devel base.)
    Otherwise it compiles on the CUDA/ROCm/ubuntu devel base and ships on a slim runtime base
-   (llama.cpp family: multi-stage, only `build/bin` is copied). Compiled engines all build
+   (llama.cpp family: multi-stage, only `build/bin` is copied). Compiled engines — including
+   vLLM's three cells, now source builds (#937) — all build
    `FROM` one **shared toolchain base per backend** (`containers/engines/base/Dockerfile.<backend>`:
    CUDA/ROCm devel + cmake/ninja/git/uv), built once, published and reused, so the CUDA/ROCm
-   layers are shared instead of repeated per engine.
+   layers are shared instead of repeated per engine. (SGLang/cuda is converted to a source build
+   by #938 on its own change.)
 2. **`make build-engine`** docker-builds that generated Dockerfile. No skill is read. The
    variant is picked from the detected GPU (else `<backend>-portable`) or set with
    `ARCH=`. The tag hashes the frozen variant (`llgenie/llama-cpp-prism:c96baf4a-<hash>-cuda-sm89`),

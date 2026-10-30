@@ -1,6 +1,6 @@
 ---
 name: engine-vllm
-description: "Use when building the vLLM engine image (CUDA wheel matching the image toolkit, ROCm py3.12 wheel index, or CPU wheel) and serving as llm-local."
+description: "Use when building the vLLM engine image from source (clone at the pin, compile CUDA/ROCm/CPU kernels) and serving as llm-local."
 engine: "vLLM"
 id: vllm
 repo: https://github.com/vllm-project/vllm
@@ -23,13 +23,28 @@ prereqs:
   common: [uv]
   cuda: [nvidia-smi]
   rocm: [rocminfo]
+hw_flags:
+  cuda:
+    cuda_arch: "'-DCMAKE_CUDA_ARCHITECTURES={cuda_arch}'"
+  rocm:
+    gpu_targets: "'{gpu_targets}'"
 install:
   cuda:
-    - "uv pip install --system --break-system-packages vllm=={version} --torch-backend={torch_backend}"
+    - "test -d {src}/.git || git clone -b {ref} --depth 1 {repo}.git {src}"
+    # --no-build-isolation builds against a preinstalled torch: bump >= the sha's own
+    # torch pin from the matching PyTorch repack index, then the rest of vLLM's build deps.
+    - "uv pip install --system --break-system-packages torch==2.13.0 --index-url https://download.pytorch.org/whl/{torch_backend}"
+    - "uv pip install --system --break-system-packages -r {src}/requirements/build/cuda.txt --index-strategy unsafe-best-match"
+    - "cd {src} && CMAKE_ARGS='-DCMAKE_CUDA_ARCHITECTURES={cuda_arch}' VLLM_TARGET_DEVICE=cuda uv pip install --system --break-system-packages --no-build-isolation -e ."
   rocm:
-    - "uv pip install --system --break-system-packages vllm=={version} --extra-index-url https://wheels.vllm.ai/rocm/ --upgrade"
+    - "test -d {src}/.git || git clone -b {ref} --depth 1 {repo}.git {src}"
+    # the rocm build file itself names the amd index and the torch it needs
+    - "uv pip install --system --break-system-packages -r {src}/requirements/build/rocm.txt --index-strategy unsafe-best-match"
+    - "cd {src} && PYTORCH_ROCM_ARCH='{gpu_targets}' VLLM_TARGET_DEVICE=rocm uv pip install --system --break-system-packages --no-build-isolation -e ."
   cpu:
-    - "uv pip install --system --break-system-packages https://github.com/vllm-project/vllm/releases/download/v{version}/vllm-{version}+cpu-cp38-abi3-manylinux_2_39_{machine}.whl --torch-backend cpu"
+    - "test -d {src}/.git || git clone -b {ref} --depth 1 {repo}.git {src}"
+    - "uv pip install --system --break-system-packages -r {src}/requirements/build/cpu.txt --index-strategy unsafe-best-match"
+    - "cd {src} && VLLM_TARGET_DEVICE=cpu uv pip install --system --break-system-packages --no-build-isolation -e ."
 binary: "vllm"
 binary_flags: ["--version", "--help"]   # the vllm CLI answers --version (cpu detect) and --help
 binary_probe:
@@ -52,30 +67,32 @@ env:
     VLLM_CPU_KVCACHE_SPACE: "4"
 health: "GET /health"
 alias_mode: flag
-container:                       # official upstream images already contain vLLM
+container:
+  # every cell compiles the pinned sha on the shared devel base for that backend
+  # (cuda: nvidia/cuda:13.0.2-devel, rocm: rocm/dev-ubuntu-24.04:7.0-complete,
+  #  cpu: ubuntu:24.04) — no upstream vLLM wheel is installed (issue #937)
   cuda:
-    base: "vllm/vllm-openai:v{version}"
-    prebuilt: true
+    apt: [python3-dev]
   rocm:
-    base: "vllm/vllm-openai-rocm:v{version}"
-    prebuilt: true
+    apt: [python3-dev]
   cpu:
-    base: "vllm/vllm-openai-cpu:v{version}"
-    prebuilt: true
+    apt: [python3-dev]
 upstream_watch: [pyproject.toml, requirements/cuda.txt, requirements/rocm.txt, requirements/cpu.txt, docs/getting_started/installation/gpu.md, docs/getting_started/installation/cpu.md, docker/Dockerfile.rocm_base]
 ---
 
 # vLLM
 
-Installed with `uv pip install --system` into the engine image's own Python (the container is the isolation; nothing is installed on the host).
+Built from the pinned sha on the shared devel base for the backend, installed into the engine
+image's own Python with `uv pip install --no-build-isolation -e .` (the container is the
+isolation; nothing is installed on the host).
 
 ## Hardware parameters
 
 | Backend | Selection | Notes |
 |---|---|---|
-| cuda | `--torch-backend=auto` picks the PyTorch wheel index from the installed **driver** | compute capability >= 7.5. Blackwell needs CUDA >= 12.8 |
-| rocm | `https://wheels.vllm.ai/rocm/` index, **Python 3.12 only** (other versions silently fall back to the CUDA wheel) | gfx90a/942/950, RDNA3 gfx1100/1101, RDNA4 gfx1200/1201, Ryzen AI gfx1150/1151 (ROCm >= 7.0.2). Source builds: `PYTORCH_ROCM_ARCH={gpu_targets}` |
-| cpu | release wheel `+cpu` for the machine arch (`x86_64`/`aarch64`) | AVX2/AVX512 or NEON |
+| cuda | compile at the pin: `uv pip install --no-build-isolation -e .` with `CMAKE_ARGS=-DCMAKE_CUDA_ARCHITECTURES` | compute capability >= 7.5, fat arch list `75;80;86;89;90;120` |
+| rocm | compile at the pin: same editable install with `VLLM_TARGET_DEVICE=rocm` + `PYTORCH_ROCM_ARCH` | gfx90a/942/950, RDNA3 gfx1100/1101, RDNA4 gfx1200/1201, Ryzen AI gfx1150/1151 (ROCm >= 7.0.2) |
+| cpu | compile at the pin: `VLLM_TARGET_DEVICE=cpu uv pip install --no-build-isolation -e .` | pure Python/C++ CPU build, AVX2/AVX512 or NEON |
 
 There is no macOS GPU backend. `vllm-metal` is a separate project.
 

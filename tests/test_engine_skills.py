@@ -589,12 +589,11 @@ def test_one_generated_dockerfile_per_engine_arch(skills):
 
 
 def test_official_upstream_images_are_used_as_bases(skills):
-    """Engines that still ship an upstream image use it as the base (Ollama/TRT-LLM/vLLM).
+    """Engines that still ship an upstream image use it as the base (Ollama/TRT-LLM).
 
-    llama.cpp compiles every variant from its pinned sha (#615), and SGLang/cuda is now a
-    source build too (#938): its Dockerfile starts FROM the shared cuda devel base and runs
-    engine_runner.py install. vLLM's three cells stay prebuilt on this branch (#937 converts
-    them separately).
+    llama.cpp compiles every variant from its pinned sha (#615); SGLang/cuda (#938) and vLLM's
+    three cells (#937) are both source builds now — their Dockerfiles start FROM the shared
+    devel base and run engine_runner.py install.
     """
 
     # Given the generated Dockerfiles
@@ -604,9 +603,12 @@ def test_official_upstream_images_are_used_as_bases(skills):
     # Then the still-prebuilt cells keep the official image, and the converted ones compile
     assert "FROM ollama/ollama:0.40.12-rocm" in df("ollama", "rocm")
     assert "FROM nvcr.io/nvidia/tensorrt-llm/release:1.2.1" in df("tensorrt-llm", "cuda")
-    assert "FROM vllm/vllm-openai:v0.32.0" in df("vllm", "cuda")  # #937 converts these
+    # Both #938 (sglang/cuda) and #937 (vllm x3) are source builds on this merged tree
     assert "FROM lmsysorg/sglang:v0.5.22" not in df("sglang", "cuda")
     assert "engine_runner.py install" in df("sglang", "cuda")
+    for b in ("cuda", "rocm", "cpu"):
+        assert "FROM vllm/vllm-openai" not in df("vllm", b)
+        assert "engine_runner.py install" in df("vllm", b)
     # And llama.cpp compiles every variant, never FROM its official server image
     for b in ("cpu", "cuda", "rocm", "vulkan"):
         assert "FROM ghcr.io/ggml-org/llama.cpp:server" not in df("llama.cpp", b)

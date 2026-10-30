@@ -1,0 +1,1 @@
+| 2026-10-30 | `vllm`'s three cells (`cuda`, `rocm`, `cpu`) build from the pinned sha instead of the PyPI/release wheel — `CMAKE_CUDA_ARCHITECTURES` / `PYTORCH_ROCM_ARCH` from the shared fat lists, `container` blocks dropped `prebuilt: true` (#937) | [2026-10-30-vllm-source-build.md](agent-wiki/2026-10-30-vllm-source-build.md) | #937 |

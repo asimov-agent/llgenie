@@ -103,10 +103,10 @@ def test_a_tracked_exception_passes_the_gate_but_is_reported():
 
 
 def test_the_census_matches_the_committed_params():
-    """23 source cells compile, 8 are prebuilt, and one wheel cell is tracked with its dated decision.
+    """26 source cells compile, 5 are prebuilt, and one wheel cell is tracked with its dated decision.
 
-    #938 (sglang/cuda) converts one prebuilt cell to source; vllm's three cells stay prebuilt
-    on this branch (that is #937's separate follow-up)."""
+    #938 (sglang/cuda) and #937 (vllm x3) both convert prebuilt cells to source; this merged
+    tree carries both, so 26 of 31 cells build from a pinned sha and 5 stay prebuilt."""
 
     rows = guard.cells()
 
@@ -116,10 +116,10 @@ def test_the_census_matches_the_committed_params():
     source = [r for r in rows if not r["prebuilt"]]
     bad = guard.findings(rows)
 
-    # Then  the counts reflect sglang/cuda now compiling from its pinned sha
+    # Then the counts reflect BOTH conversions (sglang/cuda #938 + vllm x3 #937)
     assert len(rows) == 31
-    assert len(prebuilt) == 8
-    assert len(source) == 23
+    assert len(prebuilt) == 5
+    assert len(source) == 26
     assert len(bad) == 1 and all(issue for _w, _m, issue in bad)
     assert {w for w, _m, _i in bad} == {"litert/cpu"}
 
