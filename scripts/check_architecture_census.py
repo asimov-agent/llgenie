@@ -88,6 +88,18 @@ def doc_measured_sha() -> str | None:
     return m.group(1) if m else None
 
 
+def commit_is_real(sha: str) -> bool:
+    """A real, non-dangling commit (not a sha from an amend that vanished)."""
+    return subprocess.run(["git", "cat-file", "-e", f"{sha}^{{commit}}"],
+                          capture_output=True, cwd=REPO_ROOT).returncode == 0
+
+
+def tracked_at(sha: str) -> int:
+    out = subprocess.run(["git", "ls-tree", "-r", "--name-only", sha],
+                         capture_output=True, text=True, cwd=REPO_ROOT).stdout
+    return len([l for l in out.split("\n") if l])
+
+
 def check() -> int:
     m = measure()
     ok = doc_flat()
@@ -101,10 +113,17 @@ def check() -> int:
     stated = doc_measured_sha()
     if stated is None:
         bad += 1
-        print(f"[census-gate] measured-at: the doc states no `measured at <sha>` pointer; it must name the sha it was measured at")
-    elif stated != sha:
+        print("[census-gate] measured-at: the doc states no `measured at <sha>` pointer; it must name the sha it was measured at")
+    elif not commit_is_real(stated):
         bad += 1
-        print(f"[census-gate] measured-at: the doc says `{stated}`, HEAD is `{sha}` — the census was not measured at the head the gate sees")
+        print(f"[census-gate] measured-at: the doc's pointer `{stated}` is not a real commit (dangling from an amend?)")
+    else:
+        at_head = m["tracked"]
+        at_stated = tracked_at(stated)
+        if at_stated != at_head:
+            bad += 1
+            print(f"[census-gate] measured-at: the doc was measured at `{stated}` (a {at_stated}-file tree) but HEAD is "
+                  f"a {at_head}-file tree — the census was not measured against the tree the gate sees. Re-derive it now.")
     verdict = "OK" if bad == 0 else f"{bad} claim(s) stale"
     print(f"[census-gate] {verdict} — measured at {sha} (tracked={m['tracked']}, " +
           f"testspp={m['test_py']}, changes={m['openspec-changes']})")
