@@ -1,16 +1,22 @@
 ---
 name: agent-soul-versioning
 description: "Use when an agent's SOUL/skills change must land as a PR."
-version: 1.0.0
-author: Hermes Agent
+version: 1.0.1
+author: LLGenie Security Officer
 license: MIT
 metadata:
   hermes:
     tags: [agents, governance, github, review]
-    related_skills: [pr-finalization, github-workflow-admission, github]
+    related_skills: [security-scan-ops, pr-finalization, github-workflow-admission, github]
 ---
 
 # Land a behaviour change to an agent as a repository artifact
+
+> **Companion, not a duplicate:** the canonical-splice mechanics live in the sibling `security-scan-ops`
+> skill's `agent-soul-versioning.md` reference (extracting the bullet from the issuing issue, re-splicing
+> `agents/standing-rules.md`, the `fleet-block-drift` gate). This skill carries the *roster and
+> declaration* half — exemptions, manifest rules, the lane rule, the tree gate and the protected-file
+> consent rule — so read both when versioning a full profile (issue #1060).
 
 ## When to Use
 
