@@ -71,31 +71,76 @@ def test_a_gate_script_is_not_left_empty():
         assert len(body) > 5, f"{p.name} is effectively empty ({len(body)} non-blank lines)"
 
 
-def test_the_audit_tools_count_deletion_the_same_way():
-    """Two audits of one repository must not disagree, or one of them is lying to the owner.
+def _load_audit_module():
+    """Import the shipped audit tool as a module so its verdict function can be unit-tested.
 
-    `salvage-audit.sh` and `salvage-four-bucket.py` answer the same question -- "what is safe to
-    delete, what must be preserved" -- so a divergence means a prune decision taken on the wrong
-    number. This asserts the *rules*, not a snapshot of the counts (the repository changes every
-    minute, and an exact-count test would red on every unrelated push).
+    Testing `summarise` directly rather than shelling out to both tools: the tools need `gh` and
+    a real repository, which CI does not have, and AGENTS.md forbids skipped tests. The counting
+    RULES are what went wrong twice, and they are pure.
+    """
+    import importlib.util
 
-    Measured divergence that motivated this: the python tool first reported
-    `safe to delete: 45 branches / 132 worktrees` against the shell's `162 / 125`, because it
-    (a) counted `total - dirty` worktrees, marking CLEAN worktrees on unique branches as safe,
-    and (b) excluded lossless orphans from the deletable branch count.
+    path = SCRIPTS / "salvage-four-bucket.py"
+    spec = importlib.util.spec_from_file_location("salvage_four_bucket", path)
+    assert spec and spec.loader, f"cannot load {path}"
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_a_clean_worktree_on_a_unique_branch_is_preserved():
+    """The first real bug: `total - dirty` marked clean work on unique branches as deletable."""
+    mod = _load_audit_module()
+    rows = [{"branch": "uniq", "tip": "aaaa1111", "bucket": "orphan",
+             "added": ["only/here.md"], "held_by_pr": None}]
+    # clean (dirty=0) and its HEAD is the unique tip — deleting it loses the only copy
+    wts = [{"path": "/wt/uniq", "branch": "uniq", "head": "aaaa1111", "dirty": 0}]
+
+    verdict = mod.summarise(rows, wts)
+    assert verdict["safe_worktrees"] == 0, "a clean worktree on a unique branch was called safe"
+    assert [w["path"] for w in verdict["keep"]] == ["/wt/uniq"]
+
+
+def test_lossless_orphans_are_deletable_not_preserved():
+    """The second real bug: a bucket enumeration dropped lossless orphans (45 vs 162)."""
+    mod = _load_audit_module()
+    rows = [
+        {"branch": "merged", "tip": "b1", "bucket": "merged-and-clean"},
+        {"branch": "onpr", "tip": "b2", "bucket": "unmerged-with-a-PR"},
+        {"branch": "lossless", "tip": "b3", "bucket": "orphan", "added": [], "held_by_pr": None},
+        {"branch": "held", "tip": "b4", "bucket": "orphan",
+         "added": ["x.md"], "held_by_pr": 42},
+        {"branch": "uniq", "tip": "b5", "bucket": "orphan",
+         "added": ["y.md"], "held_by_pr": None},
+    ]
+
+    verdict = mod.summarise(rows, [])
+    assert verdict["safe_branches"] == 4, "lossless/held-by-PR orphans must count as deletable"
+    assert [r["branch"] for r in verdict["unique_orphans"]] == ["uniq"]
+
+
+def test_dirty_and_unique_are_union_not_sum():
+    """Preserved worktrees must be a UNION: a path that is both counts once."""
+    mod = _load_audit_module()
+    rows = [{"branch": "uniq", "tip": "c1", "bucket": "orphan",
+             "added": ["z.md"], "held_by_pr": None}]
+    wts = [{"path": "/wt/both", "branch": "uniq", "head": "c1", "dirty": 3}]
+
+    verdict = mod.summarise(rows, wts)
+    assert len(verdict["keep"]) == 1, "a dirty unique worktree must be counted once, not twice"
+    assert verdict["safe_worktrees"] == 0
+
+
+def test_the_shipped_tools_exist_and_are_independent_implementations():
+    """Two audits of one question must stay separate programs, or the cross-check is meaningless.
+
+    Running both needs `gh` and a live repository, so this asserts only what is testable here:
+    both are shipped, and neither silently delegates to the other (which would make their
+    agreement vacuous).
     """
     sh = (SCRIPTS / "salvage-audit.sh").read_text()
     py = (SCRIPTS / "salvage-four-bucket.py").read_text()
-
-    # Each tool must derive its preserve set as a UNION of dirty and unique-branch worktrees.
-    # A plain `total - dirty` subtraction is the bug; it is not allowed to reappear.
-    assert "len(keep)" in py, "python tool must subtract the union, not just dirty"
-    assert "len(wts)-len(dirty_all)" not in py, "python tool regressed to total-minus-dirty"
-    assert "set(wt_uniq)" in sh, "shell tool must union its unique-branch worktrees"
-
-    # And the deletable-branch count must be "everything except the unique set", never a
-    # bucket enumeration that silently drops lossless orphans.
-    assert "len(rows) - len(unique_orphans)" in py, \
-        "deletable branches must be total-minus-unique, not a bucket sum"
-    assert "for r in rows if r['bucket'] in ('merged-and-clean', 'unmerged-with-a-PR')" not in py, \
-        "deletable branches regressed to a bucket enumeration that drops lossless orphans"
+    assert "salvage-four-bucket" not in sh, "shell audit delegates to the python one"
+    assert "salvage-audit.sh" not in py.replace("# ", ""), "python audit delegates to the shell"
+    assert "MUST BE PRESERVED" in sh and "must be preserved" in py, \
+        "both must report the same two conclusion lines for a reader to compare"

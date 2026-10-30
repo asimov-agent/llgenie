@@ -16,10 +16,27 @@ Every call is read-only: gh read, git read. No prune, no remove, no branch -D.
 from __future__ import annotations
 
 import json
+import os
+import pathlib
 import subprocess
 import sys
 
-REPO = "/home/asimov/repository/git/llgenie"
+# Resolve the repository instead of hardcoding a host path: a skill script runs on whatever
+# checkout it is invoked from, and an absolute path pinned to one laptop makes the tool fail
+# on every other machine (and in CI, where the repo is /home/runner/work/...).
+def _resolve_repo() -> str:
+    env = os.environ.get("LLGENIE_REPO")
+    if env:
+        return env
+    here = pathlib.Path(__file__).resolve()
+    # the script lives at <repo>/agents/<lane>/skills/<skill>/scripts/<this>
+    for parent in here.parents:
+        if (parent / ".git").exists():
+            return str(parent)
+    return os.getcwd()
+
+
+REPO = _resolve_repo()
 ORG_REPO = "asimov-agent/llgenie"
 
 
@@ -33,6 +50,33 @@ def run(*a, timeout=180):
 def out(*a, **kw):
     r = run(*a, **kw)
     return r.stdout.strip() if r and r.returncode == 0 else ""
+
+
+def summarise(rows: list[dict], wts: list[dict]) -> dict:
+    """The prune verdict, as a pure function so it can be tested without gh or a real repo.
+
+    Two rules, both learned by getting them wrong and measuring the difference:
+
+    1. A worktree is safe to delete only when it is BOTH clean AND its HEAD carries nothing
+       unique. Counting `total - dirty` marks a CLEAN worktree sitting on a unique branch as
+       safe, which tells the owner to delete work that exists nowhere else.
+    2. Deletable branches = everything EXCEPT the unique set. Enumerating buckets instead
+       (merged-and-clean + unmerged-with-a-PR) silently drops the lossless orphans — 45
+       reported where the truth was 162.
+    """
+    unique_orphans = [r for r in rows
+                      if r["bucket"] == "orphan" and r.get("added") and not r.get("held_by_pr")]
+    unique_shas = {r["tip"] for r in unique_orphans}
+    keep_wt: dict[str, dict] = {w["path"]: w for w in wts if w["dirty"]}
+    for w in wts:
+        if w.get("head") in unique_shas or w.get("unique"):
+            keep_wt.setdefault(w["path"], w)
+    return {
+        "unique_orphans": unique_orphans,
+        "keep": list(keep_wt.values()),
+        "safe_branches": len(rows) - len(unique_orphans),
+        "safe_worktrees": len(wts) - len(keep_wt),
+    }
 
 
 def main() -> int:
@@ -169,28 +213,16 @@ def main() -> int:
     dirty_all = [w for w in wts if w["dirty"]]
     orphans = [r for r in rows if r["bucket"] == "orphan"]
     unique_orphans = [r for r in orphans if r.get("added") and not r.get("held_by_pr")]
-    # A worktree is only safe to delete when it is BOTH clean and its HEAD carries nothing unique.
-    # Counting `total - dirty` alone (the first version of this tool did) marks a CLEAN worktree
-    # sitting on a unique branch as safe -- which tells the owner to delete work that exists
-    # nowhere else. Measured: 6 clean worktrees were on unique branches, so the two figures
-    # disagreed (132 vs 126) and the wrong one was the optimistic one.
     unique_shas = {r["tip"] for r in unique_orphans}
     unique_wt = [w for w in wts if w.get("head") in unique_shas or w.get("unique")]
-    keep_wt = {w["path"]: w for w in dirty_all}
-    for w in unique_wt:
-        keep_wt.setdefault(w["path"], w)
-    keep = list(keep_wt.values())
+    keep = summarise(rows, wts)["keep"]
     print(f"conclusion: {len([r for r in rows if r['bucket']=='merged-and-clean'])} merged-and-clean"
           f" · {len(dirty_merged)} merged-but-dirty"
           f" · {len([r for r in rows if r['bucket']=='unmerged-with-a-PR'])} unmerged-with-a-PR"
           f" · {len(orphans)} orphan ({len(unique_orphans)} with content only here)")
     print(f"worktrees: {len(wts)} total · {len(dirty_all)} dirty · "
           f"{len(unique_wt)} on a unique branch · 0 removed")
-    # Deletable = everything that is not one of the preserved unique orphans: merged-and-clean,
-    # unmerged-with-a-PR, AND the orphans that add nothing main lacks. The first version counted
-    # only the first two and reported 45 where the truth was 162 -- it silently excluded 117
-    # lossless orphans, making the owner think a third of the deletable set had to be kept.
-    nodel = len(rows) - len(unique_orphans)
+    nodel = summarise(rows, wts)["safe_branches"]
     print(f"\nsafe in principle to delete: {nodel} branches, {len(wts)-len(keep)} worktrees")
     print(f"must be preserved: {len(unique_orphans)} branches + {len(keep)} worktrees "
           f"(dirty ∪ on-a-unique-branch)")
