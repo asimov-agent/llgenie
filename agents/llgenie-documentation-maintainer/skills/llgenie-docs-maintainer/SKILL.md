@@ -1,7 +1,7 @@
 ---
 name: llgenie-docs-maintainer
 description: "Use when auditing, filing or landing LLGenie docs changes."
-version: 1.0.2
+version: 1.0.3
 author: Hermes Agent
 license: MIT
 metadata:
@@ -329,6 +329,8 @@ fragments by `make changes-index` (`scripts/changes_index.py`). Rules that follo
   four canonical bullets are a paraphrase. So after re-deriving a fence, assert it against the gate's file — the
   implementer's comparator `_stated_block == fleet_block()` — before declaring `block in soul == True`, and when the
   two disagree, re-type from `agents/standing-rules.md` rather than trusting the count.
+- **To make a lane's SOUL state the canonical fleet block verbatim, relocate ONLY the extras — moving whole bullets that restate canonical rules reds the duplicate gate.** A SOUL's `## Standing rules (fleet…)` section is often interleaved with lane-specific material: an appended sentence inside a canonical bullet, a lane *variant* of a canonical rule (e.g. a different "Arm…" bullet), and extra `#`-cited bullets. Set the section body to the exact text of `agents/standing-rules.md`, and put the lane-specific material in a separate `## Lane rules (<profile>)` section. Do **not** relocate the modified *full* bullet — that duplicates the canonical rule and fails `tests/test_agent_profiles.py::test_the_report_names_duplicate_canonical_rules_and_the_gate_does_not_fail_on_them`; move only the added clause/sentence/clause-bearing bullet, not the whole rule. Verify with `python3 scripts/check_agent_profiles.py check` (no `fleet-block-drift` for that lane) and `python -m pytest tests/test_agent_profiles.py` (the duplicate test included) before pushing. When a `## This lane` heading immediately follows a bullet, add the blank line the markdown linter wants in the same edit.
+- **A PR's head may live on the FORK, so `git push origin HEAD:<branch>` can leave the PR unmoved and create a stray upstream branch.** `origin` is the upstream (`asimov-agent/llgenie`) but a PR's `headRepository` is often the fork (`andyholst/llgenie`). Pushing to `origin` then prints `[new branch]`, creates `agents/…` on the upstream, and the PR head does not change. Check `gh pr view <n> --json headRepositoryOwner,headRepository` first; push to `fork` (`git push fork HEAD:<branch>`), delete the stray (`git push origin --delete <branch>`), and confirm the head moved (`gh pr view <n> --json headRefOid`).
 - **Do not re-derive a bot's numbers by hand in prose.** Copy them from a command output you just
   ran, and quote the command in the PR body so a reviewer can reproduce it.
 - **A raw audit is mostly false positives — filter before you report or file anything.** Only
