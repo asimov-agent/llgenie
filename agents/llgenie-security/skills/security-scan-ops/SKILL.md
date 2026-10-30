@@ -258,3 +258,22 @@ implement the remediation. The one file it may write is its own `agents/llgenie-
   checkout read-write into a scanner (#810).
 - Never add `push:`/`pull_request:` triggers to `security-scan.yml` — `make check-security-scan` refuses them.
 - Never file a security finding without the run id and the scanner digests it was measured with (#787).
+
+## Reviewing another lane's PR
+
+- **`gh pr diff <n> -- <path>` takes no path argument** ("accepts at most 1 arg(s), received 2"). To read one
+  file of another lane's PR, fetch it at the head sha and diff locally:
+  `gh api "repos/<o>/<r>/contents/<path>?ref=<head-sha>" --jq .content | base64 -d > /tmp/new`, the same with
+  `?ref=<base-sha>` for the base, then `diff -u`. Review the gate's own code at the head against the base, not at
+  the PR body's description of it — a description can be right about the intent and wrong about the diff.
+
+<!-- host-bot-tools:begin -->
+
+## Tools
+
+This lane's chat session is pinned to these Hermes toolsets and no others: `clarify`, `file`, `memory`, `session_search`, `skills`, `terminal`, `todo`.
+
+Skills that stay enabled: `github`, `security-scan-ops`.
+Every other installed skill is listed in `skills.disabled`.
+The pin is `tests/fixtures/host-bot-capabilities.json` in asimov-agent/llgenie (issue #1038).
+<!-- host-bot-tools:end -->
