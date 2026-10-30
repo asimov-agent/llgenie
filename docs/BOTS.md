@@ -432,6 +432,8 @@ make sync-agent-profile PROFILE=llgenie-planner                       # copy age
 make sync-agent-profile PROFILE=llgenie-planner CHECK=1               # compare instead; names the first differing path
 make check-agent-profiles                                             # CI (ci-unit): the tree is honest
 make agent-profiles-report                                            # every profile, its SOUL, skills and rules
+make profile-drift                                                   # host-only: tree copies that are PREFIXES of the live rulebook (#928)
+make profile-drift-alarm                                             # the SCHEDULED caller: file ONE issue on drift (#928)
 ```
 
 `make sync-agent-profile` (`scripts/agent_profile_sync.py`, stdlib only) writes each file the tree
@@ -443,6 +445,24 @@ is `--dest`, else `$HERMES_PROFILE_HOME` (the profile's own home, not a `profile
 profile's other skills, memory, `state.db` and `.env` are untouched and no sync can remove behaviour
 nobody reviewed. An unknown profile (one `agents/manifest.json` does not list) exits **2**, never a
 silent pass.
+
+**One of its findings cannot run in CI, and says so instead of passing** (issue #928): the *live* comparison —
+a tree copy that is a prefix of the rulebook under `~/.hermes/profiles/` — needs those profiles, and a runner has
+none. The gate therefore prints a counted line rather than a bare green:
+
+```
+[check-agent-profiles] live comparisons: 0 (no profiles directory on this host — the live rulebooks were NOT compared)
+```
+
+On a host that has them the same line carries the real count, and `make profile-drift` (`check --only live-longer`)
+is the caller for that half: it exits non-zero listing each stale copy with both sizes, so drift has something to
+run it other than memory. In CI, `--summary` writes the count into the job summary for the same reason.
+
+`make profile-drift-alarm` (`scripts/profile_drift_alarm.py`) is the caller a timer can run: exit `0` clean,
+`3` drift, `2` could-not-compare, and with `--file-issue` it opens **one** issue titled
+`profile drift: N tree copy(ies) are truncated seeds` — or comments on the open one — so a recurring condition
+does not become a stream of duplicates. The body is a table of tree size, live size and the gap, plus the
+direction of the fix: **take the tree copy from the live file**, by allowlist, never the other way round.
 
 `make check-agent-profiles` (`scripts/check_agent_profiles.py`) fails when:
 

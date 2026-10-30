@@ -425,6 +425,16 @@ sync-agent-profile: ## Copy agents/<PROFILE>/ into that profile's Hermes home (P
 check-agent-profiles: ## CI: fail when a listed host-agent profile has no SOUL.md, a skill's frontmatter name disagrees with its directory, a skill names a missing reference or carries a secret value, or a SOUL.md dropped a standing rule — searched in the file's own voice, so a QUOTED rule satisfies nothing (issue #791, #922)
 	python3 scripts/check_agent_profiles.py check
 
+profile-drift-alarm: ## The SCHEDULED caller for #928: run on a host with live profiles, file ONE issue on drift (exit 2 = could not compare, 3 = drift)
+	@python3 scripts/profile_drift_alarm.py --file-issue
+
+.PHONY: profile-drift-alarm
+
+profile-drift: ## Fail when a tree copy is a PREFIX of the live rulebook (issue #928) — host-only: a CI runner has no live profiles, so this is the one finding that needs a caller where they exist
+	@python3 scripts/check_agent_profiles.py check --only live-longer
+
+.PHONY: profile-drift
+
 agent-profiles-report: ## Print every host-agent profile with its SOUL.md size, its skills and its standing rules, then every finding (issue #791)
 	python3 scripts/check_agent_profiles.py report
 
