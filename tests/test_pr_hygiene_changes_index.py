@@ -18,13 +18,11 @@ This file pins the contract behaviourally over real `CHANGES.md`/`docs/changes.d
 """
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO / "scripts"))
+from scripts import check_pr_hygiene  # noqa: E402  (the module under test)
 
-import check_pr_hygiene  # noqa: E402  (the module under test)
+REPO = Path(__file__).resolve().parents[1]
 
 #: A well-formed row as `CHANGES.md` renders it (`| date | summary | [note](agent-wiki/<stem>.md) | refs |`).
 ROW = ("| 2026-10-30 | {summary} | [{stem}.md](agent-wiki/{stem}.md) | #1063 |\n")
