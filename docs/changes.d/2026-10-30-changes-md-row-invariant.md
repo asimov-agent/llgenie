@@ -1,0 +1,1 @@
+| 2026-10-30 | a `CHANGES.md` row must have its `docs/changes.d/<stem>.md` fragment and no note may appear twice, enforced in `check-pr-hygiene` as a tree-consistency check (no diff, no cut-off) so a legitimate `make changes-index` regen still passes | [2026-10-30-changes-md-row-invariant.md](agent-wiki/2026-10-30-changes-md-row-invariant.md) | #1063 |
