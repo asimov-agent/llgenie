@@ -40,7 +40,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -374,17 +376,106 @@ def report(info: dict) -> str:
     return "\n".join(lines)
 
 
+# --- change -> note (issue #1123) ---------------------------------------------------------
+# `check-docs` answers "does this note have a fragment row" but never "does this change have a
+# note" — the rule was enforced in one direction only, so a behavioural change with no note
+# merged green. A change owes a note when it touches a *behavioural surface*; a test-only,
+# fixture-only or record-only change does not (a rule that demands a note for whitespace teaches
+# filler notes, which is worse than none). The surface set is ADDITIVE — extend it, never pin an
+# exact file list, or the check reds on the next legitimate surface and gets edited to match code.
+NOTE_SURFACE_RES = (
+    re.compile(r"^scripts/"),
+    re.compile(r"^agents/[^/]+/SOUL\.md$"),
+    re.compile(r"^agents/[^/]+/skills/"),
+    re.compile(r"^agents/manifest\.json$"),
+    re.compile(r"^docs/.*\.md$"),
+    re.compile(r"^\.github/workflows/"),
+    re.compile(r"^Makefile$"),
+    re.compile(r"^data/"),
+    re.compile(r"^containers/"),
+    re.compile(r"^openspec/"),
+)
+# Paths that never owe a note: the record itself, the rendered index, and tests/fixtures.
+NOTE_EXEMPT_RES = (
+    re.compile(r"^agent-wiki/"),
+    re.compile(r"^docs/changes\.d/"),
+    re.compile(r"^CHANGES\.md$"),
+    re.compile(r"^tests/"),
+)
+
+
+def owes_note(paths: "list[str]") -> bool:
+    """True when any changed path is a behavioural surface (and not record/test/rendered)."""
+    return any(any(rx.search(p) for rx in NOTE_SURFACE_RES)
+               and not any(rx.search(p) for rx in NOTE_EXEMPT_RES)
+               for p in paths)
+
+
+def _default_base(root: Path) -> str:
+    """Resolve a usable base ref for the change->note diff, or '' when none is available."""
+    for ref in ("origin/main", "main"):
+        r = subprocess.run(["git", "-C", str(root), "rev-parse", "--verify", "--quiet",
+                            f"{ref}^{{commit}}"], capture_output=True, text=True)
+        if r.returncode == 0 and r.stdout.strip():
+            return ref
+    return ""
+
+
+def _changed_paths(root: Path, base: str) -> "list[str]":
+    """Paths changed between the merge base of `base` and HEAD (three-dot)."""
+    r = subprocess.run(["git", "-C", str(root), "diff", "--name-only", f"{base}...HEAD"],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        raise RuntimeError(r.stderr.strip() or f"cannot diff against {base}")
+    return [p for p in r.stdout.splitlines() if p.strip()]
+
+
+def change_note_problems(root: Path, base: str) -> "list[str]":
+    """A behavioural change that added no `agent-wiki/` note is a problem (issue #1123).
+
+    Fails only when the diff touches a surface in `NOTE_SURFACE_RES` AND adds no `agent-wiki/*.md`
+    note. The note->fragment direction is already enforced by `problems()`, so requiring the note
+    here completes the loop: change -> note -> fragment.
+    """
+    paths = _changed_paths(root, base)
+    if not owes_note(paths):
+        return []
+    if any(p.startswith(f"{WIKI_DIR}/") for p in paths):
+        return []
+    surfaces = [p for p in paths if any(rx.search(p) for rx in NOTE_SURFACE_RES)
+                and not any(rx.search(p) for rx in NOTE_EXEMPT_RES)]
+    first = surfaces[0] if surfaces else "a behavioural surface"
+    more = f" (+{len(surfaces) - 1} more)" if len(surfaces) > 1 else ""
+    return [
+        f"change->note: this branch changes {first}{more} but adds no {WIKI_DIR}/<stem>.md note "
+        f"— a behavioural change owes a note (and its {FRAGMENTS}/<stem>.md row); see issue #1123"
+    ]
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="check_docs.py", description=__doc__)
     parser.add_argument("mode", choices=("check", "report"))
     parser.add_argument("--root", default=str(REPO),
                         help="checkout to check (default: this file's repo; a test seam)")
+    parser.add_argument("--base", default=os.environ.get("CHECK_DOCS_BASE", ""),
+                        help="base ref to diff for the change->note rule (issue #1123); default "
+                             "resolves origin/main, and the rule is skipped (with a printed note) "
+                             "when no base ref is available")
     args = parser.parse_args(argv)
     info = graph(Path(args.root))
     if args.mode == "report":
         print(report(info))
         return 0
     errors = problems(info)
+    base = args.base or _default_base(Path(args.root))
+    if base:
+        try:
+            errors += change_note_problems(Path(args.root), base)
+        except RuntimeError as exc:
+            print(f"[check-docs] note: change->note skipped ({exc})", file=sys.stderr)
+    else:
+        print("[check-docs] note: change->note skipped (no base ref; set CHECK_DOCS_BASE)",
+              file=sys.stderr)
     for err in errors:
         print(f"[check-docs] ERROR: {err}", file=sys.stderr)
     if errors:
