@@ -11,18 +11,28 @@
       "id": "sglang",
       "engine": "SGLang",
       "backend": "cuda",
-      "arch": "",
-      "base": "lmsysorg/sglang:v0.5.22",
-      "prebuilt": true,
+      "arch": "75;80;86;89;90;120",
+      "base": "nvidia/cuda:13.0.2-devel-ubuntu24.04",
+      "prebuilt": false,
       "runtime_base": "",
       "runtime_copy": [],
-      "apt": [],
+      "apt": [
+        "rustc-1.91",
+        "cargo-1.91",
+        "python3-dev",
+        "wget"
+      ],
       "build_args": {
-        "CUDA_ARCH": "",
+        "CUDA_ARCH": "75;80;86;89;90;120",
         "GPU_TARGETS": "",
         "TORCH_BACKEND": "cu130"
       },
-      "install": [],
+      "install": [
+        "test -d /opt/llgenie/engines/sglang/src/.git || git clone -b v0.5.22 --depth 1 https://github.com/sgl-project/sglang.git /opt/llgenie/engines/sglang/src",
+        "uv pip install --system --break-system-packages torch==2.14.1 --index-url https://download.pytorch.org/whl/cu130",
+        "cd /opt/llgenie/engines/sglang/src/python && SETUPTOOLS_SCM_PRETEND_VERSION=0.5.22 python3 -m pip install --no-cache-dir --no-build-isolation -e 'python[all]'",
+        "cd /opt/llgenie/engines/sglang/src/python/sglang/kernels/aot && CMAKE_ARGS='-DCMAKE_CUDA_ARCHITECTURES=75;80;86;89;90;120' python3 -m pip install --no-cache-dir --no-build-isolation -e ."
+      ],
       "env": {
         "CUDA_HOME": "$(dirname $(dirname $(command -v nvcc)))"
       },

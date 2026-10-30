@@ -1,0 +1,1 @@
+| 2026-10-30 | `sglang/cuda` builds from the pinned sha instead of the `sglang==` PyPI wheel — the rocm source-build shape ported to cuda, with `CMAKE_CUDA_ARCHITECTURES` from the shared fat list (#938) | [2026-10-30-sglang-cuda-source-build.md](agent-wiki/2026-10-30-sglang-cuda-source-build.md) | #938 |

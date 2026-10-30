@@ -1,6 +1,6 @@
 ---
 name: engine-sglang
-description: "Use when building the SGLang engine image (CUDA 13 wheels; AMD source build) and serving as llm-local, including DFlash speculative decoding."
+description: "Use when building the SGLang engine image from source (CUDA and ROCm both compile the pinned sha) and serving as llm-local, including DFlash speculative decoding."
 engine: "SGLang"
 id: sglang
 repo: https://github.com/sgl-project/sglang
@@ -23,9 +23,20 @@ prereqs:
   common: [uv]
   cuda: [nvidia-smi, nvcc]
   rocm: [rocminfo, hipconfig, git]
+hw_flags:
+  cuda:
+    cuda_arch: "'-DCMAKE_CUDA_ARCHITECTURES={cuda_arch}'"
 install:
   cuda:
-    - "uv pip install --system --break-system-packages --prerelease=allow sglang=={version}"
+    # port of the rocm source-build shape (issue #938): clone the pinned sha and
+    # install the python package, then compile the AOT CUDA kernels in place.
+    # The main pyproject needs torch preinstalled for --no-build-isolation.
+    - "test -d {src}/.git || git clone -b v{version} --depth 1 {repo}.git {src}"
+    - "uv pip install --system --break-system-packages torch==2.14.1 --index-url https://download.pytorch.org/whl/{torch_backend}"
+    - "cd {src}/python && SETUPTOOLS_SCM_PRETEND_VERSION={version} python3 -m pip install --no-cache-dir --no-build-isolation -e 'python[all]'"
+    # AOT kernels: upstream's CUDA kernel build is aot/CMakeLists via scikit-build-core;
+    # the arch list is passed as the same fat list every compiled engine uses.
+    - "cd {src}/python/sglang/kernels/aot && CMAKE_ARGS='-DCMAKE_CUDA_ARCHITECTURES={cuda_arch}' python3 -m pip install --no-cache-dir --no-build-isolation -e ."
   rocm:
     - "test -d {src}/.git || git clone -b v{version} --depth 1 {repo}.git {src}"
     # same steps as upstream docker/rocm.Dockerfile (CI #98: the generic
@@ -52,9 +63,10 @@ launch: "{binary} serve --model-path {model} --host {host} --port {port} --serve
 health: "GET /health"
 alias_mode: flag
 container:
-  cuda:     # official image
-    base: "lmsysorg/sglang:v{version}"
-    prebuilt: true
+  cuda:
+    # source build on the shared cuda devel base (issue #938): stretch the rust
+    # toolchain sglang's setuptools-rust build needs beyond noble's default
+    apt: [rustc-1.91, cargo-1.91, python3-dev, wget]
   rocm:
     # pinned to the base of sglang's own docker/rocm.Dockerfile (ROCm 7.2.4, torch 2.10):
     # rocm/pytorch:latest moved to a torch whose headers need C++20, while
@@ -68,9 +80,10 @@ upstream_watch: [python/pyproject.toml, python/pyproject_other.toml, python/sgla
 
 ## Hardware parameters
 
-- **cuda:** the mainline wheels are **CUDA 13** builds (0.5.19 was the last CUDA 12
-  release) and need a CUDA-13 capable driver. The FlashInfer default attention kernel
-  needs sm75+. If `CUDA_HOME not set` appears, it is derived from `nvcc`.
+- **cuda:** source build at the pinned sha (issue #938): torch 2.14.1 preinstalled from the
+  cu130 index, then `python[all]` and the AOT CUDA kernels compiled with the fat arch list.
+  Needs a CUDA-13 capable driver. The FlashInfer default attention kernel needs sm75+.
+  If `CUDA_HOME not set` appears, it is derived from `nvcc`.
 - **rocm:** no wheel. Build from source at the tag with
   `PYTORCH_ROCM_ARCH={gpu_targets}` (from `rocminfo`), then install `python[all_hip]`.
   Marlin-based quants (awq_marlin, gptq_marlin, gguf) do not work on AMD.

@@ -260,11 +260,13 @@ Converted from a wheel/archive to a real build so far: `llama.cpp` ×4 (PR #616)
 (clone at `ba31db2e` + upstream `setup.py`, its own sm_75/80/90/100/120 fat list), `mlx/cpu` +
 `mlx/cuda` (`ml-explore/mlx` at the `mlx-lm` pin built with `MLX_BUILD_CUDA=ON` and
 `-DMLX_CUDA_ARCHITECTURES` from the shared fat list, cuDNN headers for its CUDA backend, then
-`mlx-lm` from its own tree) and `tensorfold/cuda` (a Zig project at its pin — `build.zig`,
+`mlx-lm` from its own tree), `tensorfold/cuda` (a Zig project at its pin — `build.zig`,
 `.zig-version` 0.17.0 — compiled by `zig build -Dnvcc=… -Dsm=80,86,120,121`, upstream's own
-`release_sms`; the Zig compiler comes from PyPI's `ziglang`, the way gcc would come from apt).
+`release_sms`; the Zig compiler comes from PyPI's `ziglang`, the way gcc would come from apt) and
+`sglang/cuda` — the rocm cell already compiled; cuda now clones the tag and builds `python[all]`
+plus the AOT kernels (#938).
 Still prebuilt today, each with its own linked issue because its build cost is unmeasured:
-`ollama` ×4, `vllm` ×3, `sglang` cuda, `tensorrt-llm` cuda. `litert/cpu` keeps a dated decision in
+`ollama` ×4, `vllm` ×3, `tensorrt-llm` cuda. `litert/cpu` keeps a dated decision in
 its skill: its pip package is a Bazel `py_wheel` over a Git-LFS `prebuilt/*/libLiteRt.so`
 (upstream's compiled core), so building it here would still ship someone else's binary, the
 `bazel build //python/litert_lm_cli:wheel` attempt dies at repository mapping in 92 s, and the C++
@@ -334,8 +336,9 @@ make list-engine-images              # every engine x arch variant
    It also writes **one Dockerfile per engine x arch**
    (`containers/engines/dockerfiles/<engine>/Dockerfile.<arch>`). Each one starts `FROM` the engine's
    official image where one exists (`ghcr.io/ggml-org/llama.cpp:server[-cuda|-rocm|-vulkan]` pinned
-   by digest, `vllm/vllm-openai[-cpu|-rocm]`, `ollama/ollama[-rocm]`, `lmsysorg/sglang`,
-   `nvcr.io/nvidia/tensorrt-llm/release`), adding only the llgenie entrypoint.
+   by digest, `vllm/vllm-openai[-cpu|-rocm]`, `ollama/ollama[-rocm]`,
+   `nvcr.io/nvidia/tensorrt-llm/release`), adding only the llgenie entrypoint. (SGLang/cuda used to
+   be `FROM lmsysorg/sglang`; it now compiles the tag on the shared cuda devel base — #938.)
    Otherwise it compiles on the CUDA/ROCm/ubuntu devel base and ships on a slim runtime base
    (llama.cpp family: multi-stage, only `build/bin` is copied). Compiled engines all build
    `FROM` one **shared toolchain base per backend** (`containers/engines/base/Dockerfile.<backend>`:

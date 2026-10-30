@@ -589,25 +589,28 @@ def test_one_generated_dockerfile_per_engine_arch(skills):
 
 
 def test_official_upstream_images_are_used_as_bases(skills):
-    """Prefer the engine's own image where one is used (vLLM/Ollama/SGLang/TRT-LLM).
-    llama.cpp is the exception since issue #615: it compiles from its pinned sha."""
+    """Engines that still ship an upstream image use it as the base (Ollama/TRT-LLM/vLLM).
+
+    llama.cpp compiles every variant from its pinned sha (#615), and SGLang/cuda is now a
+    source build too (#938): its Dockerfile starts FROM the shared cuda devel base and runs
+    engine_runner.py install. vLLM's three cells stay prebuilt on this branch (#937 converts
+    them separately).
+    """
 
     # Given the generated Dockerfiles
     df = lambda e, v: es.dockerfile_path(e, v).read_text()  # noqa: E731
 
     # When their FROM lines are read
-    # Then the official image is the base and nothing is installed on top
-    assert "FROM vllm/vllm-openai:v0.32.0" in df("vllm", "cuda")
-    assert "FROM vllm/vllm-openai-cpu:v0.32.0" in df("vllm", "cpu")
-    assert "FROM vllm/vllm-openai-rocm:v0.32.0" in df("vllm", "rocm")
+    # Then the still-prebuilt cells keep the official image, and the converted ones compile
     assert "FROM ollama/ollama:0.40.12-rocm" in df("ollama", "rocm")
-    assert "FROM lmsysorg/sglang:v0.5.22" in df("sglang", "cuda")
     assert "FROM nvcr.io/nvidia/tensorrt-llm/release:1.2.1" in df("tensorrt-llm", "cuda")
-    # And llama.cpp is NOT prebuilt any more: every variant compiles the pinned sha
+    assert "FROM vllm/vllm-openai:v0.32.0" in df("vllm", "cuda")  # #937 converts these
+    assert "FROM lmsysorg/sglang:v0.5.22" not in df("sglang", "cuda")
+    assert "engine_runner.py install" in df("sglang", "cuda")
+    # And llama.cpp compiles every variant, never FROM its official server image
     for b in ("cpu", "cuda", "rocm", "vulkan"):
         assert "FROM ghcr.io/ggml-org/llama.cpp:server" not in df("llama.cpp", b)
         assert "engine_runner.py install" in df("llama.cpp", b)
-    assert "engine_runner.py install" not in df("vllm", "cpu")
 
 
 def test_compiled_engines_build_on_the_shared_base_and_ship_slim(skills):
