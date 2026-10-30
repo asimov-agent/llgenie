@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """The renamed-module guard: the old CLI name must not come back into a live file (issues #251, #573).
 
-The CLI is `scripts/llgenie_serve.py`. The file next to it under the OLD name stays as a deprecated
-alias — and that shim is the only place the old spelling may appear, together with the dated history
-(`agent-wiki/`, `openspec/changes/`) and this module (which has to spell the name it forbids). Every
-other live text file is refused, `docs/ARCHITECTURE.md` included.
+The CLI is `scripts/llgenie_serve.py`. The deprecated alias that once carried the old name was
+retired by issue #816, so the old spelling may appear only in the dated history (`agent-wiki/`,
+`openspec/changes/`) and this module (which has to spell the name it forbids). Every other live
+text file is refused, `docs/ARCHITECTURE.md` included — and a `scripts/llama_serve.py` that comes
+back is an ordinary offender, not an exemption.
 
 The rule lives HERE rather than inside a test because two things enforce it, and one code path keeps
 them from drifting:
@@ -39,9 +40,10 @@ OLD_MODULE = re.compile(r"\bllama_serve\b")
 #: Directories that are never source: VCS, build output, scratch, venvs.
 SKIP_DIRS = {".git", "__pycache__", "node_modules", ".ci-home", ".venv"}
 
-#: The shim keeps the old name on purpose, history keeps whatever was true then, and this module has
-#: to be able to name what it forbids.
-ALLOWED_PREFIXES = ("scripts/llama_serve.py", "scripts/module_name_guard.py", "agent-wiki/",
+#: The dated history keeps whatever was true then, and this module has to be able to name what it
+#: forbids. The shim's own exemption was retired with the shim (issue #816): a file at that path is
+#: now an offender like any other live file.
+ALLOWED_PREFIXES = ("scripts/module_name_guard.py", "agent-wiki/",
                     "openspec/changes/")
 
 #: Binary/media files are not text to a reader.
@@ -189,7 +191,7 @@ def main(argv: list[str] | None = None) -> int:
         for rel in found:
             print(f"  {rel}", file=sys.stderr)
         print("[module-name] describe the launcher as scripts/llgenie_serve.py; the old spelling "
-              "belongs to the deprecated shim and the dated history only (issue #251, #573).",
+              "belongs to the dated history only (issue #251, #573, #816).",
               file=sys.stderr)
         return 1
     print("[module-name] OK: no live file names the retired CLI module.")

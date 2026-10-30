@@ -1,4 +1,4 @@
-"""The CLI is named after the project, and the old name stays a working alias (#251).
+"""The CLI is named after the project, and the old name is gone (#251, #816).
 
 Two things this pins:
 
@@ -13,6 +13,7 @@ Two things this pins:
 """
 from __future__ import annotations
 
+import importlib.util
 import os
 import re
 import subprocess
@@ -80,25 +81,21 @@ def test_the_binary_and_upstream_names_are_untouched():
     assert (REPO / "scripts" / "build_llama_server.sh").exists()
 
 
-def test_the_shim_is_the_same_module_object():
-    """`import scripts.llama_serve` must hand back llgenie_serve, not a copy."""
-    code = (
-        "import sys; sys.path.insert(0, 'scripts')\n"
-        "import llama_serve, llgenie_serve\n"
-        "print(llama_serve is llgenie_serve)\n"
-    )
-    r = subprocess.run([sys.executable, "-c", code], cwd=str(REPO), capture_output=True, text=True)
-    assert r.returncode == 0, r.stderr
-    assert r.stdout.strip() == "True", r.stdout + r.stderr
+def test_the_shim_is_gone_and_the_real_cli_still_runs():
+    """The retired module is not importable, and the entry point that replaced it works (#816)."""
 
+    # Given the checkout, where the deprecated shim has been deleted
+    assert not (REPO / "scripts" / "llama_serve.py").exists()
 
-def test_the_shim_runs_the_cli_when_executed_directly():
-    src = (REPO / "scripts" / "llama_serve.py").read_text()
-    assert "__main__" in src and ".main()" in src, "the shim must still run the CLI"
-    assert "llgenie_serve" in src, "the shim must point at the new module"
-    # running the old path must actually reach the CLI: prove it end to end
-    r = subprocess.run([sys.executable, "scripts/llama_serve.py", "--help"],
-                       cwd=str(REPO), capture_output=True, text=True, timeout=120)
+    # When  the old module is resolved and the real CLI is asked for its help
+    old_spec = importlib.util.find_spec("scripts.llama_serve")
+    new_spec = importlib.util.find_spec("scripts.llgenie_serve")
+    r = subprocess.run([sys.executable, "scripts/llgenie_serve.py", "--help"],
+                       cwd=str(REPO), capture_output=True, text=True, timeout=780)
+
+    # Then  only the new module resolves, and it actually reaches the CLI — not a hollow removal
+    assert old_spec is None, "the retired module must not be importable"
+    assert new_spec is not None, "scripts.llgenie_serve must be the importable entry point"
     assert r.returncode == 0, r.stderr
     assert "usage" in (r.stdout + r.stderr).lower()
 
@@ -174,10 +171,10 @@ def test_the_shared_rule_reads_one_text():
     assert guard.is_clean("the launcher is `scripts/llgenie_serve.py`") is True
 
 
-def test_the_shared_rule_allows_the_shim_and_the_dated_history(tmp_path):
-    """The shim, the work record and a merged change say whatever was true then; a doc may not."""
+def test_the_guard_refuses_a_resurrected_shim_and_keeps_the_history(tmp_path):
+    """The dated record says whatever was true then; a resurrected shim is an ordinary offender."""
 
-    # Given a tree with the shim, a history entry, and a live doc that all name it
+    # Given a tree with a file at the retired shim path, a history entry, and a live doc
     retired = "llama" + "_serve"
     for d in ("scripts", "agent-wiki", "docs"):
         (tmp_path / d).mkdir()
@@ -188,8 +185,9 @@ def test_the_shared_rule_allows_the_shim_and_the_dated_history(tmp_path):
     # When  the tree is checked
     found = guard.hits(tmp_path)
 
-    # Then  only the live doc is a hit
-    assert found == ["docs/ARCHITECTURE.md"], found
+    # Then  the shim path and the live doc are hits; the dated history is not — the shim's own
+    # exemption was retired with the shim (#816)
+    assert found == ["docs/ARCHITECTURE.md", f"scripts/{retired}.py"], found
 
 
 def test_a_gitignored_file_naming_the_old_module_does_not_redden_the_guard(tmp_path):
