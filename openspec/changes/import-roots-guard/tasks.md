@@ -8,3 +8,6 @@
 - [x] `docs/BOTS.md` names the target; `CHANGES.md` and an agent-wiki note record it.
 - [x] The migration itself is **not** a task of this change: the guard lands first and the batches
       follow it, each reducing the recorded baseline.
+- [x] A migrated test module that shares module state with a sibling resets it per test (issue #953):
+      `tests/test_hf_download_retry.py` regains the isolation its top-level imports had by resetting
+      `scripts.hf_auth._rate_limited` in an autouse fixture, so the suite passes in alphabetical order.

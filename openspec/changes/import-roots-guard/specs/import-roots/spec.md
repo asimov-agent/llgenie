@@ -21,6 +21,26 @@ finding rather than skipped.
 - **When** the guard runs
 - **Then** it reports nothing and exits zero
 
+### Requirement: the migration must not share mutable module state across test modules
+
+A file migrated to `from scripts import …` keeps the SAME module object a sibling test module already
+imports. That is the point of one import root, but it also means a module-level global one test database
+mutates (e.g. `scripts.hf_auth._rate_limited`, which `hub_open` increments across 429s and only a non-429
+resets) is shared too. A test module whose cases DEPEND on that state MUST reset it per test (a
+function-scoped autouse fixture via `monkeypatch`, so pytest restores it), so the whole suite passes in
+alphabetical order regardless of which module ran first.
+
+#### Scenario: a retry test does not inherit a sibling module's exhausted budget counter
+
+- **Given** `test_hf_auth` runs first and drives `scripts.hf_auth.hub_open` with an always-429 opener to
+  exhaustion, leaving `_rate_limited` at `RATE_LIMIT_WAITS+1`
+- **Given** `test_hf_download_retry` imports the same `scripts.hf_auth` and asserts one full 429 budget
+- **When** each retry test starts (autouse fixture resetting `_rate_limited` to 0)
+- **Then** the chunk download and preflight probe retry tests pass after `test_hf_auth`, in alphabetical
+  order
+- **Test:** `tests/test_hf_download_retry.py::_fresh_rate_limit_budget` + the alphabetical run of
+  `tests/test_hf_auth.py tests/test_hf_download_retry.py` (both 18 pass)
+
 ### Requirement: the guard ratchets instead of blocking on a legacy count
 
 `make check-import-roots` MUST compare the current counts with `tests/fixtures/import-roots-baseline.json`

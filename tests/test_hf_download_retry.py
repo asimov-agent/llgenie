@@ -22,6 +22,20 @@ from scripts import llgenie_serve
 from scripts import model_engine_pick as mp
 
 
+@pytest.fixture(autouse=True)
+def _fresh_rate_limit_budget(monkeypatch):
+    """Every retry test asserts one whole 429 budget, so each starts from a clean counter.
+
+    `scripts.hf_auth._rate_limited` is a module global that `hub_open` increments
+    across calls and only a non-429 resets. Under the one-import root (issue #796)
+    `test_hf_download_retry.py` shares that same module object with `test_hf_auth.py`,
+    whose stderr-announce test drives a 429 opener to exhaustion and leaves the
+    counter at RATE_LIMIT_WAITS+1. Without a per-test reset the first 429 here raises
+    immediately (issue #953 regression, measured: 2 failed under alphabetical order).
+    """
+    monkeypatch.setattr(hf_auth, "_rate_limited", 0)
+
+
 def _too_many(seconds):
     hdrs = Message()
     hdrs["RateLimit"] = f'"api";r=0;t={seconds}'
