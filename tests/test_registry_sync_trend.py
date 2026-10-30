@@ -102,6 +102,22 @@ def live_sync(tmp_path_factory):
     return {"reg": reg, "readme": readme, "dest": dest}
 
 
+@pytest.fixture(scope="module")
+def vendored_sync():
+    """The COMMITTED registry through the same ranking path — local files, zero network.
+
+    Issue #1067: `live_sync` downloads upstream over HTTPS (network pipeline only); this is
+    its hermetic twin — same check_readme_matches / rank_models / fits calls against
+    data/models.json + data/trending-README.md, so routing the live twins to the network
+    pipeline drops no behaviour from make test-unit and weakens no assertion.
+    """
+
+    reg = _load(sr.VENDORED)
+    readme = sr.VENDORED_README.read_text()
+    sr.check_readme_matches(reg, readme)
+    return {"reg": reg, "readme": readme, "dest": sr.VENDORED}
+
+
 def test_october_5_fixture_prefers_a_known_card_over_a_card_less_box():
     """The frozen list, before the sync: 16 GB CUDA shows the servers the card class
     justifies. Qwen3.8-27B's fastest CUDA figure in this snapshot is 44.0 t/s on a
@@ -201,8 +217,7 @@ def test_registry_sync_workflow_is_weekly_and_accounts_for_unskilled_engines():
     assert "workflow_dispatch" in text
 
 
-@pytest.mark.network  # real Hub download via the live_sync fixture (issue #1000)
-def test_live_sync_adopts_a_higher_skilled_tps_for_models_that_fit_48gb(live_sync):
+def _sync_adopts_a_higher_skilled_tps(sync):
     """Download the live registry and rank it against the October 5 snapshot.
 
     The download is sync_registry.sync. The lists are rank_models for a 48 GB
@@ -217,9 +232,9 @@ def test_live_sync_adopts_a_higher_skilled_tps_for_models_that_fit_48gb(live_syn
     before_ids = {row[0] for row in before}
 
     # When that live download is ranked for a 48 GB CUDA card
-    new = live_sync["reg"]
-    readme = live_sync["readme"]
-    dest = live_sync["dest"]
+    new = sync["reg"]
+    readme = sync["readme"]
+    dest = sync["dest"]
     after = _listing(new, 48)
     after_by = {row[0]: row for row in after}
 
@@ -298,8 +313,20 @@ def test_live_sync_adopts_a_higher_skilled_tps_for_models_that_fit_48gb(live_syn
         assert any(name in err for err in strict)
 
 
-@pytest.mark.network  # real Hub download via the live_sync fixture (issue #1000)
-def test_rank_follows_the_given_vram_ram_and_arch(live_sync):
+def test_the_vendored_store_adopts_a_higher_skilled_tps_for_models_that_fit_48gb(vendored_sync):
+    """The same ranking behaviour on the COMMITTED store: hermetic (issue #1067)."""
+
+    _sync_adopts_a_higher_skilled_tps(vendored_sync)
+
+
+@pytest.mark.network
+def test_live_sync_adopts_a_higher_skilled_tps_for_models_that_fit_48gb(live_sync):
+    """The LIVE upstream registry; owned by the network pipeline (issue #1067)."""
+
+    _sync_adopts_a_higher_skilled_tps(live_sync)
+
+
+def _rank_follows_the_given_vram_ram_and_arch(sync):
     """Card size, system RAM, and architecture are arguments to the real functions.
 
     rank_models / rank_engines decide the list and the server. weight_budget_gb
@@ -309,7 +336,7 @@ def test_rank_follows_the_given_vram_ram_and_arch(live_sync):
 
     # Given the October 5 snapshot and the live download
     old = _load(BEFORE_MODELS)
-    new = live_sync["reg"]
+    new = sync["reg"]
     qwen_old = next(m for m in old["models"] if m["id"] == "qwen3.8-27b")
     qwen_new = next(m for m in new["models"] if m["id"] == "qwen3.8-27b")
     pinned = {}
@@ -403,6 +430,19 @@ def test_rank_follows_the_given_vram_ram_and_arch(live_sync):
     assert big
     at_48 = {r["model"]["id"] for r in mp.rank_models(new, "cuda", 48)}
     assert all(m["id"] not in at_48 for m in big)
+
+
+def test_the_vendored_store_rank_follows_the_given_vram_ram_and_arch(vendored_sync):
+    """The same hardware-matrix behaviour on the COMMITTED store: hermetic (issue #1067)."""
+
+    _rank_follows_the_given_vram_ram_and_arch(vendored_sync)
+
+
+@pytest.mark.network
+def test_rank_follows_the_given_vram_ram_and_arch(live_sync):
+    """The same matrix over the LIVE upstream registry; owned by the network pipeline."""
+
+    _rank_follows_the_given_vram_ram_and_arch(live_sync)
 
 
 def test_skills_validate_cli_with_the_decisions_exits_zero_on_the_october_5_fixture():
