@@ -430,6 +430,65 @@ def _is_ancestor(root: Path, sha: str, ref: str) -> bool:
     return r.returncode == 0
 
 
+def _index_module():
+    """`scripts/changes_index.py` — the ONE row parser, shared rather than re-implemented (#934)."""
+    here = str(Path(__file__).resolve().parent)
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import changes_index as ci  # noqa: PLC0415  (shared parser, imported beside its target)
+    return ci
+
+
+def changes_index_findings(root: Path = REPO_ROOT) -> list[dict]:
+    """Every `CHANGES.md` row must correspond to a `docs/changes.d/<stem>.md` fragment (issue #1063).
+
+    A TREE-CONSISTENCY check, not a diff check: reads `CHANGES.md` and the fragment directory in the
+    checkout, so it behaves identically in `ci-unit`, `issue-bot-gates` and a direct run, and needs
+    no base ref. Forward-looking by construction: a legitimate `make changes-index` regen builds rows
+    *from* fragments so it passes, while a hand-added aggregate row and a union-merge duplicate fail.
+
+    Two conditions, both required:
+      1. every row's note has a `docs/changes.d/<stem>.md` fragment (currentness NOT required — a
+         stale index passes);
+      2. no note appears in more than one row (the union-merge shape). Condition 1 alone misses it:
+         a duplicated row points at the same note that already has a fragment, so both copies pass.
+    """
+    ci = _index_module()
+    changes = root / ci.CHANGES
+    if not changes.exists():
+        return []
+    stems: list[str] = []
+    for line in changes.read_text().splitlines():
+        m = ci.ROW_RE.search(line)
+        if m:
+            note = m.group("note")
+            stems.append(note[:-3] if note.endswith(".md") else note)
+    fragments = set(ci._stems(root))
+    out: list[dict] = []
+    for stem in stems:
+        if stem not in fragments:
+            out.append({
+                "key": "changes-index",
+                "where": "CHANGES.md",
+                "detail": f"row for note `{stem}` has no {ci.FRAGMENTS}/{stem}.md — a change adds its "
+                          f"fragment, never a hand-written aggregate row; add "
+                          f"{ci.FRAGMENTS}/{stem}.md with its row (issue #1063)",
+            })
+    seen: dict[str, int] = {}
+    for stem in stems:
+        seen[stem] = seen.get(stem, 0) + 1
+    for stem, n in seen.items():
+        if n > 1:
+            out.append({
+                "key": "changes-index",
+                "where": "CHANGES.md",
+                "detail": f"note `{stem}` appears in {n} rows, and a fragment is one row — re-render "
+                          f"with `make changes-index` from {ci.FRAGMENTS}/{stem}.md; do not "
+                          f"union-merge this file (issue #1063)",
+            })
+    return out
+
+
 def findings(root: Path = REPO_ROOT) -> list[dict]:
     return check_producers(root) + check_agents_mandate(root)
 
@@ -484,6 +543,8 @@ def main(argv=None) -> int:
     a.add_argument("--head", required=True, help="the PR head ref or sha")
     a.add_argument("--base", required=True, help="the PR base ref or sha")
     a.add_argument("--body-file", required=True, help="the file holding the PR body")
+    c = sub.add_parser("changes-index", help="a CHANGES.md row has a docs/changes.d/<stem>.md fragment, and no note appears twice (issue #1063)")
+    c.add_argument("--root", default=str(REPO_ROOT))
     args = p.parse_args(argv)
     if not args.cmd:
         p.error("need a command: check | report")
@@ -499,6 +560,15 @@ def main(argv=None) -> int:
                 print(f"[check-pr-hygiene] {it['where']}: {it['detail']}", file=sys.stderr)
             return 1
         print("[check-pr-hygiene] OK: the `AGENTS:` line is reachable from both head and base")
+        return 0
+    if args.cmd == "changes-index":
+        items = changes_index_findings(root)
+        if items:
+            for it in items:
+                print(f"[check-pr-hygiene] {it['where']}: {it['detail']}", file=sys.stderr)
+            return 1
+        print("[check-pr-hygiene] OK: every CHANGES.md row has its docs/changes.d/ fragment, "
+              "and no note appears twice (issue #1063)")
         return 0
     items = findings(root)
     print(render(items))

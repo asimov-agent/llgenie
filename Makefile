@@ -1020,8 +1020,9 @@ holds-report: ## Print every open PR carrying `do-not-merge` and the issue it na
 
 .PHONY: check-holds holds-report
 
-check-pr-hygiene: ## CI: fail when a producer's commit message or PR body is empty, a placeholder, a subject with no body, or when AGENTS.md lost the mandate (issue #313)
+check-pr-hygiene: ## CI: fail when a producer's commit message or PR body is empty, a placeholder, a subject with no body, or when AGENTS.md lost the mandate (issue #313); also fail when a CHANGES.md row has no docs/changes.d/<stem>.md fragment or a note appears twice (issue #1063)
 	python3 scripts/check_pr_hygiene.py check
+	python3 scripts/check_pr_hygiene.py changes-index
 pr-hygiene-report: ## Show every producer the PR/commit-message guard reads, and its verdict
 	python3 scripts/check_pr_hygiene.py report
 check-arms: # internal alarm plumbing (rule 16 consumer) — stays out of the user-facing docs; its scheduled workflow arms.yml is the caller
