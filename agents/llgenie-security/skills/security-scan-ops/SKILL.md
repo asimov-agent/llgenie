@@ -7,7 +7,7 @@ license: MIT
 metadata:
   hermes:
     tags: [security, ci, github-actions, llgenie]
-    related_skills: [github-workflow-admission, github, containerized-repo-verification]
+    related_skills: [agent-soul-versioning, github-workflow-admission, github, containerized-repo-verification]
 ---
 
 # Keep the llgenie security pipeline reporting
