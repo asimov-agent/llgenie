@@ -2388,3 +2388,81 @@ def test_a_truncated_copy_is_a_defect_and_a_lagging_copy_is_not(tmp_path, capsys
     assert alarm.main(["--root", str(root)]) == 3
     out = capsys.readouterr().out
     assert "1 diverged" in out, out
+def test_fleet_findings_report_repo_relative_paths(tmp_path):
+    """A `where:` that cannot be opened from the repo root is a finding about the reporter (#973).
+
+    Measured before the fix: `agents.parents[1]` sits one level above the repository, so a drift finding
+    printed `zz9/agents/llgenie-architect/SOUL.md` from `--root /tmp/zz9` and `w/agents/…` from `--root /w`.
+    A path the implementer cannot open trains them to grep instead of trust, and a report built on it sends
+    them to a file that does not exist.
+    """
+    import re
+
+    import check_agent_profiles as cap
+
+    agents = tmp_path / "agents"
+    (agents / "someone").mkdir(parents=True)
+    (agents / "someone" / "SOUL.md").write_text("# Someone\n\n## Rules\n")
+    (agents / "manifest.json").write_text('{"profiles": [{"name": "someone", "rules": ["never-merge"]}]}')
+    (agents / "standing-rules.md").write_text(
+        "## Standing rules (fleet, learned 2026-10-28)\n\n- **Assert behaviour, not text.** a very long "
+        "canonical bullet that the SOUL does not state\n")
+
+    items = cap._fleet_findings(agents, cap.read_manifest(agents)[0])
+    drift = [i for i in items if i["key"] == "fleet-block-drift"]
+    assert drift, "expected a fleet-block-drift finding"
+    # the reported path must be openable from the repo root, i.e. start with agents/, never the tmp dir name
+    where = drift[0]["where"]
+    assert where.startswith("agents/"), f"path is not repo-relative: {where}"
+    assert not where.startswith(tmp_path.name), f"repo directory name prefixed: {where}"
+    assert not re.match(r"^[A-Za-z0-9_./-]+/agents/.*/.*/SOUL", where), where
+
+
+def test_the_exemption_path_and_the_drift_path_share_the_convention(tmp_path):
+    """The two path-writing styles must agree; a mixed convention is how a reviewer stops trusting paths (#973).
+
+    `path.parents[1]` on the exemptions FILE resolves to the repo root (correct), while `agents.parents[1]`
+    on the agents DIR resolves one level above (wrong). If a future edit normalises the wrong one to match
+    the right one, or vice versa, the tuple still reads two ways and the checklist here keeps it honest.
+    """
+    import check_agent_profiles as cap
+
+    agents = tmp_path / "agents"
+    (agents / "someone").mkdir(parents=True)
+    (agents / "someone" / "SOUL.md").write_text("# Someone\n\n## Rules\n")
+    (agents / "manifest.json").write_text('{"profiles": [{"name": "someone", "rules": ["never-merge"]}]}')
+    (agents / "standing-rules.md").write_text(
+        "## Standing rules (fleet, learned 2026-10-28)\n\n- **Assert behaviour, not text.** x\n")
+
+    # force a stale-exemption shape to exercise that path too
+    (agents / "fleet-block-exemptions.json").write_text(
+        '{"exemptions": [{"profile": "someone", "reason": "g", "owner": "o"}]}')
+
+    items = cap._fleet_findings(agents, cap.read_manifest(agents)[0])
+    for i in items:
+        assert i["where"].startswith("agents/"), f"{i['key']} where is not repo-relative: {i['where']}"
+        assert i["where"] != "agents/agents/", i["key"]
+def test_the_exemption_path_and_the_drift_path_share_the_convention(tmp_path):
+    """The two path-writing styles must agree; a mixed convention is how a reviewer stops trusting paths (#973).
+
+    `path.parents[1]` on the exemptions FILE resolves to the repo root (correct), while `agents.parents[1]`
+    on the agents DIR resolves one level above (wrong). If a future edit normalises the wrong one to match
+    the right one, or vice versa, the tuple still reads two ways and the checklist here keeps it honest.
+    """
+    import check_agent_profiles as cap
+
+    agents = tmp_path / "agents"
+    (agents / "someone").mkdir(parents=True)
+    (agents / "someone" / "SOUL.md").write_text("# Someone\n\n## Rules\n")
+    (agents / "manifest.json").write_text('{"profiles": [{"name": "someone", "rules": ["never-merge"]}]}')
+    (agents / "standing-rules.md").write_text(
+        "## Standing rules (fleet, learned 2026-10-28)\n\n- **Assert behaviour, not text.** x\n")
+
+    # force a stale-exemption shape to exercise that path too
+    (agents / "fleet-block-exemptions.json").write_text(
+        '{"exemptions": [{"profile": "someone", "reason": "g", "owner": "o"}]}')
+
+    items = cap._fleet_findings(agents, cap.read_manifest(agents)[0])
+    for i in items:
+        assert i["where"].startswith("agents/"), f"{i['key']} where is not repo-relative: {i['where']}"
+        assert i["where"] != "agents/agents/", i["key"]
