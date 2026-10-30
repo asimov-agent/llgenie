@@ -281,7 +281,7 @@ def test_the_new_make_targets_run_the_exact_commands():
     assert "docker run" in out and "scripts/fix_loop.sh" in out
     assert "-e NOUS_API_KEY" in out and "-e GH_TOKEN" in out
     assert "ghcr.io/asimov-agent/llgenie/agent:abc123" in out
-    assert "python3 scripts/ci_images.py latest agent" in out
+    assert "python3 scripts/ci_images.py ref agent" in out
 
 
 def test_the_default_agent_command_reads_the_prompt_through_z():
