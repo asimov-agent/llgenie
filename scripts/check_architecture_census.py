@@ -77,6 +77,17 @@ def claims(m: dict[str, int]) -> list[tuple[str, str]]:
     ]
 
 
+def short_head() -> str:
+    return subprocess.run(["git", "rev-parse", "--short", "HEAD"],
+                          capture_output=True, text=True, cwd=REPO_ROOT).stdout.strip()
+
+
+def doc_measured_sha() -> str | None:
+    """The `measured at <sha>` pointer the document states next to its census."""
+    m = re.search(r"measured at `([0-9a-f]{7,})`", doc_flat())
+    return m.group(1) if m else None
+
+
 def check() -> int:
     m = measure()
     ok = doc_flat()
@@ -86,7 +97,14 @@ def check() -> int:
             continue
         bad += 1
         print(f"[census-gate] {label}: the doc has no claim the tree already states as {token}")
-    sha = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip()
+    sha = short_head()
+    stated = doc_measured_sha()
+    if stated is None:
+        bad += 1
+        print(f"[census-gate] measured-at: the doc states no `measured at <sha>` pointer; it must name the sha it was measured at")
+    elif stated != sha:
+        bad += 1
+        print(f"[census-gate] measured-at: the doc says `{stated}`, HEAD is `{sha}` — the census was not measured at the head the gate sees")
     verdict = "OK" if bad == 0 else f"{bad} claim(s) stale"
     print(f"[census-gate] {verdict} — measured at {sha} (tracked={m['tracked']}, " +
           f"testspp={m['test_py']}, changes={m['openspec-changes']})")
