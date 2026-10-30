@@ -1,0 +1,1 @@
+| 2026-10-30 | refresh the `docs/ARCHITECTURE.md` census to the merged-`main` tree (1978 tracked; docs 248, agent-wiki 241, openspec 1023, tests 200, `test_*.py` 170, scripts 119) with a real `measured at` pointer, after the census gate #896 red on `main` in its first hours | [2026-10-30-census-refresh-1046.md](agent-wiki/2026-10-30-census-refresh-1046.md) | #1046 |
