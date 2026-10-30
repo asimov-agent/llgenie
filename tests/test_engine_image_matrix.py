@@ -511,3 +511,25 @@ def test_every_matrix_row_is_an_engine_make_build_engine_can_build():
         # And the row is the engine/arch build-engine is given, with a real tag
         assert dockerfile.exists(), f"{row['engine']}/{row['variant']}: no {dockerfile}"
         assert es.image_spec(params, row["variant"])["tag"].endswith(f"-{row['variant']}")
+
+
+def test_every_supported_arch_has_a_generated_dockerfile():
+    """Every engine's every supported variant (from its params) has a generated Dockerfile
+    at containers/engines/dockerfiles/<engine>/Dockerfile.<variant> (issue #1092).
+
+    A supported arch with no Dockerfile is a gap that must be caught HERE, not discovered
+    when the build runs — the engine-build matrix can only build what a Dockerfile exists
+    for. The base toolchain Dockerfile.<backend> it FROMs is checked by the build itself.
+    """
+    params_dir = REPO / "containers" / "engines" / "params"
+    df_dir = REPO / "containers" / "engines" / "dockerfiles"
+    missing: list[str] = []
+    checked = 0
+    for p in sorted(params_dir.glob("*.json")):
+        variants = json.loads(p.read_text()).get("variants") or {}
+        for v in variants:
+            checked += 1
+            if not (df_dir / p.stem / f"Dockerfile.{v}").is_file():
+                missing.append(f"{p.stem}/{v}")
+    assert checked > 0, "no engine params found — the audit would pass vacuously"
+    assert not missing, f"supported arch(es) with no generated Dockerfile: {missing}"
