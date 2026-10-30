@@ -3,9 +3,24 @@
 # `git rebase --onto` is wrong here: a stacked branch contains its base's commits, so replaying them
 # re-conflicts. `git cherry <base> HEAD` names only the '+' commits, which are this PR's own work.
 set -u
-P=/home/asimov/repository/git/llgenie
+# Resolve the checkout and the resolver helper rather than pinning one host path: this script
+# ships to every clone. $LLGENIE_REPO / $REBASE_RESOLVER win, else resolve from this script's
+# own location, else cwd.
+if [ -n "${LLGENIE_REPO:-}" ]; then
+  P="$LLGENIE_REPO"
+else
+  _d=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd); P=""
+  while [ "$_d" != "/" ]; do
+    [ -e "$_d/.git" ] && { P="$_d"; break; }
+    _d=$(dirname -- "$_d")
+  done
+  [ -n "$P" ] || P="$(pwd)"
+fi
 BASE_BRANCH=${STACK_BASE:-feat/agent-profile-implementer-skill}
-RESOLVER=/home/asimov/.hermes/profiles/llgenie-pr-merge-conflict/cache/scratch/resolve-fleet-triple.py
+# The resolver sits beside the other skill scripts; fall back to the historical profile path only
+# if that file is absent, so an un-migrated host still works.
+RESOLVER=${REBASE_RESOLVER:-$(dirname -- "${BASH_SOURCE[0]}")/resolve-fleet-triple.py}
+[ -f "$RESOLVER" ] || RESOLVER=/home/asimov/.hermes/profiles/llgenie-pr-merge-conflict/cache/scratch/resolve-fleet-triple.py
 cd "$P" || exit 1
 git fetch origin "$BASE_BRANCH:refs/remotes/origin/$BASE_BRANCH" --quiet
 BASE=refs/remotes/origin/$BASE_BRANCH

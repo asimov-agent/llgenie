@@ -3,7 +3,19 @@
 # fragments, verify notes==rows, run the two modules that were red, and push with a lease.
 # Never edits a row into a diff — `make changes-index` is the only writer of CHANGES.md.
 set -u
-P=/home/asimov/repository/git/llgenie
+# Resolve the checkout rather than pinning one host path: this script ships to every clone and to
+# CI, where the repository lives at a different absolute path. $LLGENIE_REPO wins, else walk up
+# from this script's own directory to the .git root, else cwd.
+if [ -n "${LLGENIE_REPO:-}" ]; then
+  P="$LLGENIE_REPO"
+else
+  _d=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd); P=""
+  while [ "$_d" != "/" ]; do
+    [ -e "$_d/.git" ] && { P="$_d"; break; }
+    _d=$(dirname -- "$_d")
+  done
+  [ -n "$P" ] || P="$(pwd)"
+fi
 cd "$P" || exit 1
 MAIN=$(git rev-parse origin/main)
 
