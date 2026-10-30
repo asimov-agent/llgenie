@@ -43,6 +43,12 @@
       "rules": [
         "never-merge"
       ]
+    },
+    {
+      "name": "llgenie-engine-improver",
+      "rules": [
+        "never-merge"
+      ]
     }
   ]
 }
