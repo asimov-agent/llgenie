@@ -2093,7 +2093,6 @@ def test_the_pipeline_maintainer_soul_monitors_and_routes_never_rebases():
                    "the measured head"]:
         assert demand in soul, f"the monitor-and-route rule is missing: {demand}"
 
-
 def test_the_pipeline_maintainer_soul_always_monitors_and_reports_reds_from_logs():
     """Owner behavior: this lane's steady state is watching PR CI runs, reading the failing log,
     and reporting each red to the inbox for it to decide — never from a status badge alone.
@@ -2121,3 +2120,271 @@ def test_the_pass_skill_carries_orchestration_and_orchestration_rebase():
                    "@llgenie-pr-reviever", "one lane, one pr", "bot-claim:",
                    "agent/issue-", "rebase only on conflict", "arms on retarget"]:
         assert demand in skill, f"the pass skill lost the orchestration/#1015 lesson: {demand}"
+# -----------------------------------------------------------------------------------------------------------
+# issue #928: the live-profile comparison cannot run on a CI runner, so its SKIP must be a counted fact and
+# the finding it owns must have a caller that runs where live profiles exist.
+# -----------------------------------------------------------------------------------------------------------
+import importlib.util as _ilu
+import pathlib as _pl
+
+_ROOT928 = _pl.Path(__file__).resolve().parents[1]
+
+
+def _guard928():
+    spec = _ilu.spec_from_file_location("cap928", _ROOT928 / "scripts" / "check_agent_profiles.py")
+    module = _ilu.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _tree928(root, profiles=("llgenie-planner",), drop_soul=False):
+    import json
+    agents = root / "agents"
+    (agents).mkdir(parents=True, exist_ok=True)
+    names = list(profiles)
+    (agents / "manifest.json").write_text(json.dumps({"profiles": [
+        {"name": name, "rules": ["never-merge"]} for name in names]}), encoding="utf-8")
+    for name in names:
+        (agents / name).mkdir(parents=True, exist_ok=True)
+        if not (drop_soul and name == names[0]):
+            (agents / name / "SOUL.md").write_text(f"# {name}\n\n- a rule\n", encoding="utf-8")
+    return agents
+
+
+def test_the_live_comparison_count_is_zero_when_no_profiles_exist(tmp_path, capsys, monkeypatch):
+    """`ci-unit` runs this gate where there is no `~/.hermes/profiles`: it must SAY it compared nothing."""
+    guard = _guard928()
+    empty = tmp_path / "no-profiles-here"
+    empty.mkdir()
+    monkeypatch.setenv("HERMES_PROFILES_HOME", str(empty))
+    monkeypatch.delenv("HERMES_PROFILE_HOME", raising=False)
+    _tree928(tmp_path)
+
+    guard.main(["check", "--root", str(tmp_path), "--agents-dir", "agents"])
+    out = capsys.readouterr()
+    # the fixture is deliberately thin, so the tree checks may fail; the COUNT is what this test is about
+    assert "live comparisons: 0" in out.out, out.out + out.err
+    assert "were NOT compared" in out.out
+
+
+def test_the_live_comparison_count_is_the_profile_count_when_profiles_exist(tmp_path, capsys, monkeypatch):
+    """Where the profiles DO exist the same line reports how many were compared - the other direction."""
+    guard = _guard928()
+    _tree928(tmp_path)
+    live = tmp_path / "profiles" / "llgenie-planner"
+    live.mkdir(parents=True)
+    (live / "SOUL.md").write_text("# live\n\nverbatim rules\n", encoding="utf-8")
+    monkeypatch.setenv("HERMES_PROFILES_HOME", str(tmp_path / "profiles"))
+
+    guard.main(["check", "--root", str(tmp_path), "--agents-dir", "agents"])
+    out = capsys.readouterr().out
+    assert "live comparisons: 1" in out, out
+    assert "SKIPPED" not in out
+
+
+def test_only_filters_to_the_key_that_cannot_run_in_ci(tmp_path, capsys, monkeypatch):
+    """`--only live-longer` is what gives the host-only finding a caller (issue #928).
+
+    The filter must DROP the other findings, or `make profile-drift` would fail on a missing SOUL and a
+    reader would conclude the copies had drifted.
+    """
+    guard = _guard928()
+    _tree928(tmp_path, drop_soul=True)
+    live = tmp_path / "profiles" / "llgenie-planner"
+    live.mkdir(parents=True)
+    (live / "SOUL.md").write_text("# live\n", encoding="utf-8")
+    monkeypatch.setenv("HERMES_PROFILES_HOME", str(tmp_path / "profiles"))
+
+    guard.main(["check", "--root", str(tmp_path), "--agents-dir", "agents", "--only", "live-longer"])
+    everything = "".join(capsys.readouterr())
+    assert "soul-missing" not in everything, everything
+
+
+def test_the_step_summary_states_the_skip_instead_of_staying_quiet(tmp_path, capsys, monkeypatch):
+    """A runner's job summary must carry the COUNT, so a green agents leg is not read as "copies current"."""
+    guard = _guard928()
+    empty = tmp_path / "no-profiles"
+    empty.mkdir()
+    _tree928(tmp_path)
+    monkeypatch.setenv("HERMES_PROFILES_HOME", str(empty))
+    summary = tmp_path / "summary.md"
+    summary.write_text("", encoding="utf-8")
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+
+    guard.main(["check", "--root", str(tmp_path), "--agents-dir", "agents", "--summary"])
+    capsys.readouterr()
+    text = summary.read_text(encoding="utf-8")
+    assert "0 live comparison(s)" in text, text
+    assert "NOT compared" in text, text
+
+
+def test_profile_drift_has_a_make_target_that_asks_only_for_that_key():
+    """The finding with no CI caller needs a NAME someone can run, not a mode they must remember (#928)."""
+    makefile = (_ROOT928 / "Makefile").read_text()
+    assert "\nprofile-drift:" in makefile, "make profile-drift must exist (issue #928)"
+    block = makefile.split("\nprofile-drift:", 1)[1].split("\n\n", 1)[0]
+    assert "check_agent_profiles.py" in block, block
+    assert "--only live-longer" in block, block
+    assert ".PHONY: profile-drift" in makefile, "an unlisted target is invisible to completion and to lint"
+
+
+# -----------------------------------------------------------------------------------------------------------
+# issue #928, option 1: the SCHEDULED caller. `make profile-drift` needs a person; this needs a timer.
+# -----------------------------------------------------------------------------------------------------------
+import json as _json
+
+
+def _alarm928():
+    spec = _ilu.spec_from_file_location("pda928", _ROOT928 / "scripts" / "profile_drift_alarm.py")
+    module = _ilu.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _drift_tree(root, live_extra="", drop_soul=False):
+    """A tree whose single rulebook is SHORTER than its live counterpart — the condition, not a mock."""
+    _tree928(root, drop_soul=drop_soul)
+    tree_soul = root / "agents" / "llgenie-planner" / "SOUL.md"
+    tree_soul.write_text("# planner\n\n- short\n", encoding="utf-8")
+    live = root / "profiles" / "llgenie-planner"
+    live.mkdir(parents=True, exist_ok=True)
+    (live / "SOUL.md").write_text(tree_soul.read_text() + live_extra, encoding="utf-8")
+    return live
+
+
+def test_the_alarm_exits_nonzero_and_names_both_sizes_when_a_copy_is_truncated(tmp_path, capsys, monkeypatch):
+    """The exit code is the alarm: 0 must mean "compared and clean", 3 must mean "drift", 2 must mean "could not"."""
+    alarm = _alarm928()
+    _drift_tree(tmp_path, live_extra="\n- a rule the tree never got\n")
+    monkeypatch.setenv("HERMES_PROFILES_HOME", str(tmp_path / "profiles"))
+
+    code = alarm.main(["--root", str(tmp_path)])
+    out = capsys.readouterr()
+    assert code == 3, out.out + out.err
+    assert "live comparisons: 1" in out.out
+    assert "the tree has" in out.out and "the live profile has" in out.out
+    assert "llgenie-planner/SOUL.md" in out.out
+
+
+def test_the_alarm_is_clean_when_the_copy_matches_the_live_file(tmp_path, capsys, monkeypatch):
+    """The other direction: without this, the alarm could be a constant red and nobody would notice."""
+    alarm = _alarm928()
+    _drift_tree(tmp_path)
+    monkeypatch.setenv("HERMES_PROFILES_HOME", str(tmp_path / "profiles"))
+
+    assert alarm.main(["--root", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "0 defects" in out, out
+
+
+def test_a_run_without_live_profiles_is_neither_clean_nor_drift(tmp_path, capsys, monkeypatch):
+    """A CI runner has no profiles: that must be exit 2 and a SKIP line, never a green (issue #928)."""
+    alarm = _alarm928()
+    _tree928(tmp_path)
+    empty = tmp_path / "nope"
+    empty.mkdir()
+    monkeypatch.setenv("HERMES_PROFILES_HOME", str(empty))
+
+    code = alarm.main(["--root", str(tmp_path)])
+    captured = capsys.readouterr()
+    assert code == 2, captured
+    assert "SKIPPED" in captured.err
+    assert "0 truncated" not in captured.out
+
+
+def test_the_issue_body_carries_a_table_with_both_sizes_and_the_direction_of_the_fix(tmp_path, monkeypatch):
+    """What a person reads at 3 a.m.: which file, how many bytes are missing, and which way to copy."""
+    alarm = _alarm928()
+    kept = [
+        {"kind": "truncated", "where": "llgenie-planner/SOUL.md",
+         "detail": "the tree has 100 b, the live profile has 400 b, and the tree is missing 3 live line(s): "
+                   "a sync would DELETE that behaviour"},
+        {"kind": "diverged", "where": "llgenie-security/SOUL.md",
+         "detail": "the tree has 50 b, the live profile has 90 b, with 2 tree-only and 4 live-only line(s): "
+                   "a sync destroys work on BOTH sides"},
+    ]
+    body = alarm.render(kept, compared=7)
+    assert "| `truncated` | `llgenie-planner/SOUL.md` |" in body, body
+    assert "| `diverged` | `llgenie-security/SOUL.md` |" in body, body
+    assert "**1 diverged, 1 truncated**" in body or "**1 truncated, 1 diverged**" in body, body
+    assert "**7 live comparison(s)**" in body
+    assert "Take each tree copy **from the live file**" in body
+    assert alarm.summary_of(kept) in ("1 diverged, 1 truncated", "1 truncated, 1 diverged")
+
+
+def test_an_existing_open_issue_is_refreshed_instead_of_duplicated(tmp_path, monkeypatch):
+    """A recurring condition must not become a stream of issues: one open issue, commented on each run."""
+    alarm = _alarm928()
+    calls: list[list[str]] = []
+
+    class Done:
+        returncode = 0
+        stdout = ('[{"number": 4242, "title": "profile drift: 3 tree copy(ies) are truncated seeds"},'
+                  ' {"number": 17, "title": "unrelated issue that must not be matched"}]')
+        stderr = ""
+
+    def fake_gh(*args, repo):
+        calls.append(list(args))
+        if args[0] == "issue" and args[1] == "comment":
+            return Done()
+        return Done()
+
+    monkeypatch.setattr(alarm, "gh", fake_gh)
+    items = [{"kind": "truncated", "where": "a/SOUL.md",
+              "detail": "the tree has 1 b, the live profile has 2 b, and the tree is missing 1 live line(s)"}]
+    result = alarm.file_or_refresh(items, compared=7, repo="o/r")
+
+    assert result == "refreshed #4242", result
+    assert calls[0][:2] == ["issue", "list"], calls
+    assert "--search" not in calls[0], (
+        "the refresh must list and match locally: a title SEARCH is eventually consistent and filed a second "
+        "issue for one condition (measured: #930 then #931 a minute apart)")
+    assert calls[1][:3] == ["issue", "comment", "4242"], calls
+
+
+def test_the_alarm_has_a_make_target_and_a_help_line():
+    """A scheduled job needs a stable entry point in the Makefile, and an undocumented one is a red."""
+    makefile = (_ROOT928 / "Makefile").read_text()
+    assert "\nprofile-drift-alarm:" in makefile, "make profile-drift-alarm must exist (issue #928)"
+    block = makefile.split("\nprofile-drift-alarm:", 1)[1].split("\n\n", 1)[0]
+    assert "profile_drift_alarm.py" in block, block
+    assert "--file-issue" in block, block
+    assert ".PHONY: profile-drift-alarm" in makefile
+
+
+def test_a_truncated_copy_is_a_defect_and_a_lagging_copy_is_not(tmp_path, capsys, monkeypatch):
+    """Size alone cannot separate "the copy is missing live lines" from "the owner edited live after the copy".
+
+    The implementer lane named the distinction: truncated = a sync would DELETE behaviour (defect); differs =
+    normal lag while a lane edits its own skill. A target that is red for both teaches the fleet to filter it.
+    """
+    alarm = _alarm928()
+    root = tmp_path
+    agents = root / "agents" / "llgenie-planner"
+    agents.mkdir(parents=True)
+    (root / "agents" / "manifest.json").write_text(
+        _json.dumps({"profiles": [{"name": "llgenie-planner", "rules": []}]}), encoding="utf-8")
+    live = root / "profiles" / "llgenie-planner"
+    live.mkdir(parents=True)
+    monkeypatch.setenv("HERMES_PROFILES_HOME", str(root / "profiles"))
+
+    # TRUNCATED: every tree line is a live line, and live has more -> a sync DELETES live behaviour
+    (agents / "SOUL.md").write_text("- one\n- two\n", encoding="utf-8")
+    (live / "SOUL.md").write_text("- one\n- two\n- three the tree never got\n", encoding="utf-8")
+    assert alarm.main(["--root", str(root)]) == 3
+    assert "1 truncated" in capsys.readouterr().out
+
+    # TREE-AHEAD: the tree carries a line live no longer has and misses nothing -> a sync merely ADDS to live
+    (agents / "SOUL.md").write_text("- one\n- two\n- a line only the tree has\n", encoding="utf-8")
+    (live / "SOUL.md").write_text("- one\n- two\n", encoding="utf-8")
+    capsys.readouterr()
+    assert alarm.main(["--root", str(root)]) == 0
+    assert "1 tree-ahead" in capsys.readouterr().out
+
+    # DIVERGED: both sides own lines the other lacks -> a sync destroys work on BOTH sides (the #924 case)
+    (agents / "SOUL.md").write_text("- one\n- tree only\n", encoding="utf-8")
+    (live / "SOUL.md").write_text("- one\n- live only\n", encoding="utf-8")
+    capsys.readouterr()
+    assert alarm.main(["--root", str(root)]) == 3
+    out = capsys.readouterr().out
+    assert "1 diverged" in out, out

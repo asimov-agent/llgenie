@@ -759,12 +759,37 @@ def report(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR) -> str:
     return "\n".join(lines)
 
 
+def write_step_summary(compared: int) -> None:
+    """Append the live-comparison count to $GITHUB_STEP_SUMMARY, when a workflow asked for it (issue #928).
+
+    The agents leg runs in `ci-unit`, where this number is always 0. Saying so in the job summary is what
+    keeps a green leg from being read as "the tree copies are current": they were not compared at all.
+    """
+    path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not path:
+        return
+    line = (f"- agent profiles: **{compared} live comparison(s)**"
+            + ("" if compared else " — no profiles directory on this runner, so the live rulebooks were "
+                                   "NOT compared (issue #928)") + "\n")
+    try:
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(line)
+    except OSError:
+        return  # a summary is a courtesy, never a gate
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
     parser.add_argument("mode", nargs="?", default="check", choices=("check", "report"))
     parser.add_argument("--root", default=str(REPO_ROOT), help="tree to read (the tests use this)")
     parser.add_argument("--agents-dir", default=str(AGENTS_DIR),
                         help="path of the agents tree, relative to --root (the tests use this)")
+    parser.add_argument("--only", default=None,
+                        help="report only findings whose key is this (e.g. live-longer); "
+                             "`make profile-drift` uses it to isolate the drift that cannot run in CI (issue #928)")
+    parser.add_argument("--summary", action="store_true",
+                        help="also append the live-comparison COUNT to $GITHUB_STEP_SUMMARY, so a job that "
+                             "compared nothing does not read as a job that compared and found nothing")
     args = parser.parse_args(argv)
     root = Path(args.root).resolve()
     if not root.is_dir():
@@ -795,6 +820,19 @@ def main(argv: list[str] | None = None) -> int:
         # mid-run, but a reader must not take the comparison for a verdict (#924).
         print(f"[check-agent-profiles] live-profile comparison is a SNAPSHOT: {snapshot}",
               file=sys.stderr)
+    if args.only:
+        # issue #928: `live-longer` is the one finding that CANNOT fire on a runner, because a runner has no
+        # live profiles. Isolating it gives that half a caller that runs where the profiles exist, instead of
+        # leaving the strongest check in the file to whoever remembers to run the whole gate by hand.
+        items = [item for item in items if item["key"] == args.only]
+    compared = len(profiles) if live_base is not None else 0
+    # A COUNT, not a sentence: "compared and found nothing" and "compared nothing" both used to be a green
+    # line, and the difference is the whole issue. One number makes the skip a fact a reader cannot miss.
+    print(f"[check-agent-profiles] live comparisons: {compared}"
+          + ("" if live_base is not None else " (no profiles directory on this host — the live rulebooks "
+                                              "were NOT compared)"))
+    if args.summary:
+        write_step_summary(compared)
     if not items:
         caveat = (" — tree checks only, LIVE RULEBOOKS NOT COMPARED" if live_base is None else "")
         if snapshot:
