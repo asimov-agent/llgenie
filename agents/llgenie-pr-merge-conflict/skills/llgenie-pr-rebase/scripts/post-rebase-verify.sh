@@ -25,7 +25,10 @@ bad() { say "$1" "FAIL"; fail=1; }
 
 cd "$(git rev-parse --show-toplevel)" || exit 2
 HEAD_SHA=$(git rev-parse --short HEAD)
-echo "post-rebase-verify  head=$HEAD_SHA  base=${BASE:0:8}"
+# Resolve BASE to a short sha for display: a caller may pass a ref (refs/remotes/origin/main)
+# or an abbreviate-able sha, and `${BASE:0:8}` on the former prints "refs/rem" — measured.
+BASE_SHA=$(git rev-parse --short "$BASE" 2>/dev/null || printf '%s' "$BASE" | cut -c1-8)
+echo "post-rebase-verify  head=$HEAD_SHA  base=$BASE_SHA"
 
 # 1. Clean worktree: an uncommitted file means the push ships the pre-fix tree.
 if [ -z "$(git status --porcelain)" ]; then ok "worktree clean"; else bad "worktree dirty (commit or amend first)"; fi
@@ -86,7 +89,7 @@ if [ -f scripts/lint_linefeeds.py ]; then
 fi
 
 # 8. The branch must actually be on top of the base we claim.
-if git merge-base --is-ancestor "$BASE" HEAD 2>/dev/null; then ok "base is an ancestor of HEAD"; else bad "base ${BASE:0:8} is NOT an ancestor"; fi
+if git merge-base --is-ancestor "$BASE" HEAD 2>/dev/null; then ok "base is an ancestor of HEAD"; else bad "base $BASE_SHA is NOT an ancestor"; fi
 
 # 9. Merge-tree must be clean against that base (exit code, not a path grep).
 if git merge-tree --write-tree "$BASE" HEAD >/dev/null 2>&1; then ok "merge-tree clean vs base"; else bad "merge-tree reports conflicts"; fi
