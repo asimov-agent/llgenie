@@ -1,0 +1,1 @@
+| 2026-10-30 | `make lane-preflight` runs the FAST gates (imported from `issue_bot_gates.py`) before a host lane pushes, printing one line per gate and a final verdict, and refuses a dirty tree so the verdict describes the would-be-pushed head | [2026-10-30-lane-preflight.md](agent-wiki/2026-10-30-lane-preflight.md) | #1058 |
