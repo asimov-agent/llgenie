@@ -7,8 +7,8 @@
 - [x] 5. `make generate-engine-params ENGINE=<id>` for each converted engine; the regenerated `containers/engines/params/*.json` + `containers/engines/dockerfiles/**` are committed.
 - [x] 6. `scripts/engine_source_guard.py`: `KNOWN_NOT_SOURCE` is down to `litert/cpu`, and `zig build` is a recognised build signal.
 - [x] 7. `tests/test_engine_source_guard.py`: the census, the converted cells' committed params, the Zig signal and the tracked-exception case are asserted.
-- [ ] 8. Verify each converted cell on this host: `make build-engine ENGINE=<id> ARCH=<arch>` then `make test-engine-stage ENGINE=<id> ARCH=<arch> TEST=serve|detect`.
-- [ ] 9. `make check-engine-source`, `make check-engine-params`, `make check-engine-coverage`, `make test-unit` green.
-- [ ] 10. `README.md` engine-image rule + recorded exception, `agent-wiki/2026-10-29-engine-source-cells.md`, `CHANGES.md` row.
+- [x] 8. Verify each converted cell on this host: `make build-engine ENGINE=<id> ARCH=<arch>` then `make test-engine-stage ENGINE=<id> ARCH=<arch> TEST=serve|detect`.
+- [x] 9. `make check-engine-source`, `make check-engine-params`, `make check-engine-coverage`, `make test-unit` green.
+- [x] 10. `README.md` engine-image rule + recorded exception, `agent-wiki/2026-10-29-engine-source-cells.md`, `CHANGES.md` row.
 - [x] 11. The nine honestly-labelled `prebuilt: true` cells are filed as linked issues (#936 ollama, #937 vllm, #938 sglang/cuda, #939 tensorrt-llm) and named in the PR's `Not covered`.
-- [ ] 12. `make openspec-validate NAME=engine-source-cells` exits 0 and every task above is ticked.
+- [x] 12. `make openspec-validate NAME=engine-source-cells` exits 0 and every task above is ticked.
