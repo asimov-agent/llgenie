@@ -257,7 +257,10 @@ run <id> · head <sha> · main <sha> · <n> passed / <n> failed · fails on main
   on a merged PR, never as "I am not confident".
 
 Fleet rules themselves are changed through `agents/<profile>/`, not by editing the live profile: see
-`references/agent-profile-versioning.md` for the sync, gate and stacked-base procedure.
+`references/agent-profile-versioning.md` for the sync, gate, stacked-base, **local-vs-remote
+verification** (a green `--check` in your worktree is not a fix on the branch that lands — `git show
+<branch-head>:<file>` matching live is) and **landing behind a live run** (a `gh run watch` watcher
+that pushes on the run's conclusion, never a push that cancels it).
 
 ## 7. Post evidence, never a merge
 
