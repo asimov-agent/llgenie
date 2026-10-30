@@ -514,7 +514,7 @@ def _fleet_findings(agents: Path, profiles: list[dict]) -> list[dict]:
         if not claims:
             return []
         return [{"key": "fleet-block-source",
-                 "where": str((agents / FLEET_BLOCK).relative_to(agents.parents[1])),
+                 "where": str((agents / FLEET_BLOCK).relative_to(agents.parent)),
                  "detail": f"`{FLEET_BLOCK}` is missing or has no heading, but {claims} state the fleet "
                            "heading — without the single copy nothing can be compared, so the check would "
                            "pass by not looking"}]
@@ -522,7 +522,7 @@ def _fleet_findings(agents: Path, profiles: list[dict]) -> list[dict]:
     stated_names = {p["name"] for p in profiles}
     for name in sorted(set(exempt) - stated_names):
         items.append({"key": "fleet-exemption-unknown",
-                      "where": str((agents / FLEET_EXEMPTIONS).relative_to(agents.parents[1])),
+                      "where": str((agents / FLEET_EXEMPTIONS).relative_to(agents.parent)),
                       "detail": f"exemption for `{name}`, which the manifest does not list — remove it "
                                 "or list the profile"})
     for profile in profiles:
@@ -534,7 +534,7 @@ def _fleet_findings(agents: Path, profiles: list[dict]) -> list[dict]:
         if stated == canonical or canonical in _stated_blocks(soul.read_text(encoding="utf-8")):
             if name in exempt:
                 items.append({"key": "fleet-exemption-stale",
-                              "where": str(soul.relative_to(agents.parents[1])),
+                              "where": str(soul.relative_to(agents.parent)),
                               "detail": f"`{name}` now states the canonical block verbatim, so its "
                                         f"exemption in {FLEET_EXEMPTIONS} is stale — delete it, or the "
                                         "list stops meaning anything"})
@@ -542,7 +542,7 @@ def _fleet_findings(agents: Path, profiles: list[dict]) -> list[dict]:
         if name in exempt:
             continue        # a real gap, owned by a named vehicle — reported by `report`, not failed
         items.append({"key": "fleet-block-drift",
-                      "where": str(soul.relative_to(agents.parents[1])),
+                      "where": str(soul.relative_to(agents.parent)),
                       "detail": f"`{name}` does not state the canonical fleet block from {FLEET_BLOCK} "
                                 f"verbatim; first missing bullet: {_first_missing(canonical, stated)}"})
     return items
