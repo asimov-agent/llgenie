@@ -11,8 +11,14 @@ refresh this change carries.
 
 ## The change
 
-`docs/ARCHITECTURE.md`'s census is re-derived to the tree at this change's head with a `measured at`
-pointer to a real commit whose tracked-file count equals `HEAD`. The gate now passes on the refreshed
-tree, so `main` stops redding until the tree next grows.
+`docs/ARCHITECTURE.md`'s census is counted once more, this time under the tree-at-named-sha
+contract the gate took in #1053/#1055: the numbers are read from `git ls-tree -r
+--name-only 564e9383` — 2009 tracked files, `docs/` 253, `agent-wiki/` 246, `openspec/`
+1038, `tests/` 203, `tests/test_*.py` 173, `scripts/` 121 (266 changes) — and the
+`measured at` pointer names that commit. It is an ancestor of the branch head and of
+`origin/main`, so the census is reproducible from a tree this branch contains and no longer
+has to name a PR head, which dangled after the squash. The five stacked census sentences
+earlier re-derives had left in the block (one per rebased pointer, `35d22ea`…`9508bb0`) are
+collapsed to one.
 
-Issue: #1046 (closes), #896
+Issue: #1046 (closes), #896, #1053, #1055
