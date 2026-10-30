@@ -34,7 +34,17 @@ MAIN=$(git rev-parse refs/remotes/origin/main 2>/dev/null) || {
 
 SHADOW=$(git rev-parse --verify --quiet refs/heads/origin/main >/dev/null 2>&1 && echo present || echo absent)
 
-tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+# Scratch dir for the two gh payloads. The ONLY removal this script performs, and it is
+# fenced two ways so a mis-expansion cannot widen it: the path must exist, and its basename
+# must match mktemp's own pattern. A reader grepping for `rm` in a script that promises to
+# delete nothing should find exactly this one line, explainable on sight.
+tmp=$(mktemp -d /tmp/salvage-audit.XXXXXX)
+cleanup() {
+  case "$tmp" in
+    /tmp/salvage-audit.*) [ -d "$tmp" ] && rm -rf -- "$tmp" ;;
+  esac
+}
+trap cleanup EXIT
 
 gh pr list --repo asimov-agent/llgenie --state open --limit 300 \
   --json number,headRefName,headRefOid > "$tmp/open.json" 2>/dev/null || echo '[]' > "$tmp/open.json"
