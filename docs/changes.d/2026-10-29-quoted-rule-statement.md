@@ -1,0 +1,1 @@
+| 2026-10-29 | a declared standing rule is read from a SOUL's own voice: quoting an instruction no longer satisfies the gate for stating it (`standing-rule-quoted`), and `rules: []` is reported `UNPROTECTED` instead of green | [2026-10-29-quoted-rule-statement.md](agent-wiki/2026-10-29-quoted-rule-statement.md) | #922 |
