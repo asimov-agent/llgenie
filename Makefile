@@ -927,7 +927,7 @@ check-docs: ## CI: fail when a user-facing (## help) make target is undocumented
 	python3 scripts/changes_index.py check
 	python3 scripts/check_docs.py check
 	python3 scripts/check_architecture_census.py check
-check-architecture-census: ## CI: fail when the docs/ARCHITECTURE.md census disagrees with the tree, naming both values and the sha measured (issue #896)
+check-architecture-census: ## CI: fail when the docs/ARCHITECTURE.md census disagrees with the tree at the `measured at <sha>` commit it names (which must be an ancestor of HEAD), naming both values and the sha measured (issues #896, #1053)
 	python3 scripts/check_architecture_census.py check
 .PHONY: check-architecture-census
 docs-report: ## Show every user-facing make target as documented / missing / a recorded exception, and each agent-wiki/ note's issue references + its docs/changes.d/ index row
