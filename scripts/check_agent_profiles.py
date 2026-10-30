@@ -42,9 +42,11 @@ Stdlib only.
 from __future__ import annotations
 
 import argparse
+import filecmp
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -320,6 +322,11 @@ def _iso(ts: float) -> str:
     return datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+#: #968 moved the stamp into this module so `agent_profile_sync.py` imports it; keep the older name as an
+#: alias of the one canonical formatter (issue #924).
+_stamp = _iso
+
+
 #: When this process started. A live file edited after this moment changed *during* the check, which makes
 #: the comparison a snapshot rather than a verdict (issue #924).
 _STARTED = time.time()
@@ -362,6 +369,76 @@ def snapshot_caveat(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR,
             + ", ".join(moved[:3])
             + (" …" if len(moved) > 3 else "")
             + " — this comparison is a SNAPSHOT of a moving file; re-run to confirm")
+
+
+def source_time(agents: Path, name: str, path: Path) -> float:
+    """When the tree copy was COMMITTED — not its mtime, which a fresh clone resets to now.
+
+    A clone sets every file's mtime to checkout time, so an mtime comparison would say the tree is newer
+    than any live file and quietly disarm this guard on exactly the checkout that runs it. The commit
+    that last touched the path is the stable answer; an untracked fixture file falls back to its mtime.
+    """
+    rel = path.relative_to(agents.parent).as_posix()
+    try:
+        out = subprocess.run(["git", "-C", str(agents.parent), "log", "-1", "--format=%ct", "--", rel],
+                             capture_output=True, text=True, timeout=20, check=False)
+        if out.returncode == 0 and out.stdout.strip():
+            return float(out.stdout.strip())
+    except (OSError, subprocess.SubprocessError, ValueError):
+        pass
+    return path.stat().st_mtime
+
+
+def live_edited_findings(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR,
+                         live: Path | None = None) -> list[dict]:
+    """Every live file EDITED AFTER its tree copy was committed — a hand written edit, named.
+
+    The sync is one-way: `make sync-agent-profile` copies the tree INTO the live profile, never the
+    reverse. So a live file whose mtime is NEWER than the tree copy's source commit, and whose content
+    differs, is not drift to re-take: it is the lane's own unversioned edit, and overwriting it with the
+    tree — or silently re-copying it into the tree — would launder an edit nobody reviewed (issue #968).
+    The finding names the profile, both sizes and the remedy, so the change stays an issue+PR under
+    `agents/<profile>/` and the gate reports the drift instead of chasing it.
+    """
+    agents = (root / agents_dir) if not agents_dir.is_absolute() else agents_dir
+    base = live if live is not None else live_root(root)
+    if base is None or not agents.is_dir():
+        return []
+    profiles, _ = read_manifest(agents)
+    items: list[dict] = []
+    for profile in profiles:
+        name = profile["name"]
+        live_profile = base / name
+        if not live_profile.is_dir():
+            continue
+        tree_profile = agents / name
+        for path in sorted(tree_profile.rglob("*")):
+            if not path.is_file():
+                continue
+            rel = path.relative_to(tree_profile)
+            counterpart = live_profile / rel
+            if not counterpart.is_file():
+                continue
+            # The harm is a live-only edit: content differs AND the live file is newer than when the
+            # tree copy was committed. Either alone is not it — an identical file writes nothing, and
+            # a newer file without a content difference has nothing to reconcile.
+            if filecmp.cmp(path, counterpart, shallow=False):
+                continue
+            tree, there = path.stat().st_size, counterpart.stat().st_size
+            src, live_mtime = source_time(agents, name, path), counterpart.stat().st_mtime
+            if live_mtime <= src + 1:  # same second of slack as the sync's own moving-reference guard
+                continue
+            items.append({
+                "key": "live-edited-not-tree",
+                "where": f"{tree_profile.name}/{rel}",
+                "detail": f"the LIVE profile was edited at {_iso(live_mtime)}, AFTER the tree copy was "
+                          f"committed at {_iso(src)} — the tree has {tree} b, the live profile has "
+                          f"{there} b. Sync is one-way (tree → live), so this edit exists only in the "
+                          f"live profile: commit it via an issue+PR under agents/{name}/, then "
+                          f"`make sync-agent-profile PROFILE={name}` clears it. Do not re-take the "
+                          f"live file into the tree.",
+            })
+    return items
 
 
 def shrink_findings(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR,
@@ -563,6 +640,7 @@ def findings(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR) -> list[dict
     profiles, manifest_items = read_manifest(agents)
     items.extend(manifest_items)
     items.extend(shrink_findings(root, agents_dir))
+    items.extend(live_edited_findings(root, agents_dir))
     if not any(REQUIRED_RULE in profile["rules"] for profile in profiles):
         items.append({
             "key": "manifest-rule",
@@ -759,37 +837,12 @@ def report(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR) -> str:
     return "\n".join(lines)
 
 
-def write_step_summary(compared: int) -> None:
-    """Append the live-comparison count to $GITHUB_STEP_SUMMARY, when a workflow asked for it (issue #928).
-
-    The agents leg runs in `ci-unit`, where this number is always 0. Saying so in the job summary is what
-    keeps a green leg from being read as "the tree copies are current": they were not compared at all.
-    """
-    path = os.environ.get("GITHUB_STEP_SUMMARY")
-    if not path:
-        return
-    line = (f"- agent profiles: **{compared} live comparison(s)**"
-            + ("" if compared else " — no profiles directory on this runner, so the live rulebooks were "
-                                   "NOT compared (issue #928)") + "\n")
-    try:
-        with open(path, "a", encoding="utf-8") as handle:
-            handle.write(line)
-    except OSError:
-        return  # a summary is a courtesy, never a gate
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
     parser.add_argument("mode", nargs="?", default="check", choices=("check", "report"))
     parser.add_argument("--root", default=str(REPO_ROOT), help="tree to read (the tests use this)")
     parser.add_argument("--agents-dir", default=str(AGENTS_DIR),
                         help="path of the agents tree, relative to --root (the tests use this)")
-    parser.add_argument("--only", default=None,
-                        help="report only findings whose key is this (e.g. live-longer); "
-                             "`make profile-drift` uses it to isolate the drift that cannot run in CI (issue #928)")
-    parser.add_argument("--summary", action="store_true",
-                        help="also append the live-comparison COUNT to $GITHUB_STEP_SUMMARY, so a job that "
-                             "compared nothing does not read as a job that compared and found nothing")
     args = parser.parse_args(argv)
     root = Path(args.root).resolve()
     if not root.is_dir():
@@ -820,19 +873,6 @@ def main(argv: list[str] | None = None) -> int:
         # mid-run, but a reader must not take the comparison for a verdict (#924).
         print(f"[check-agent-profiles] live-profile comparison is a SNAPSHOT: {snapshot}",
               file=sys.stderr)
-    if args.only:
-        # issue #928: `live-longer` is the one finding that CANNOT fire on a runner, because a runner has no
-        # live profiles. Isolating it gives that half a caller that runs where the profiles exist, instead of
-        # leaving the strongest check in the file to whoever remembers to run the whole gate by hand.
-        items = [item for item in items if item["key"] == args.only]
-    compared = len(profiles) if live_base is not None else 0
-    # A COUNT, not a sentence: "compared and found nothing" and "compared nothing" both used to be a green
-    # line, and the difference is the whole issue. One number makes the skip a fact a reader cannot miss.
-    print(f"[check-agent-profiles] live comparisons: {compared}"
-          + ("" if live_base is not None else " (no profiles directory on this host — the live rulebooks "
-                                              "were NOT compared)"))
-    if args.summary:
-        write_step_summary(compared)
     if not items:
         caveat = (" — tree checks only, LIVE RULEBOOKS NOT COMPARED" if live_base is None else "")
         if snapshot:
