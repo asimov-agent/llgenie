@@ -26,3 +26,12 @@ finding is deliberate and pre-exists: the manifest declares `rules: []` for this
 the docs-merge grant and does not declare `never-merge`.
 
 Issue: #1060
+
+## Verification (recorded at the PR head)
+
+```
+make sync-agent-profile PROFILE=llgenie-documentation-maintainer CHECK=1
+[agent-profile] OK: 5 file(s) of agents/llgenie-documentation-maintainer match … byte for byte   → exit 0
+make lint / check-docs / check-wiring                                             → exit 0
+python -m pytest tests/test_agent_profiles.py                                     → 104 passed
+```
