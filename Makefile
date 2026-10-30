@@ -926,6 +926,10 @@ wiring-report: ## Show how every test/script is wired (which make target, and wh
 check-docs: ## CI: fail when a user-facing (## help) make target is undocumented, a recorded exception is stale, an agent-wiki/ note references no issue or has no index row in docs/changes.d/, or README.md carries change history (issues #257, #678, #934)
 	python3 scripts/changes_index.py check
 	python3 scripts/check_docs.py check
+	python3 scripts/check_architecture_census.py check
+check-architecture-census: ## CI: fail when the docs/ARCHITECTURE.md census disagrees with the tree, naming both values and the sha measured (issue #896)
+	python3 scripts/check_architecture_census.py check
+.PHONY: check-architecture-census
 docs-report: ## Show every user-facing make target as documented / missing / a recorded exception, and each agent-wiki/ note's issue references + its docs/changes.d/ index row
 	python3 scripts/check_docs.py report
 changes-index: ## Render CHANGES.md from the one-row-per-change files in docs/changes.d/ (never edit CHANGES.md by hand; one row per file is what keeps two open PRs from conflicting — issue #934)
@@ -1618,6 +1622,7 @@ ci-unit: bash-check ## CI job unit: hermetic unit tests + registry / skill / Str
 	$(MAKE) check-wiring
 	$(MAKE) check-secret-output
 	$(MAKE) check-docs
+	$(MAKE) check-architecture-census
 	$(MAKE) check-dispatch-forms
 	$(MAKE) check-pr-hygiene
 	$(MAKE) check-issue-bodies
