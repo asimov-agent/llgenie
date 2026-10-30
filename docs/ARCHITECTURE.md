@@ -152,9 +152,9 @@ picks which start script or image to run.
 
 ## Repository layout
 
-The tree is 1995 tracked files: `data/` 9, `skills/` 17 (16 engine directories plus their
-`README.md`), `containers/` 57, `tests/` 202, `scripts/` 121, `openspec/` 1031, `agent-wiki/`
-243 and `docs/` 250. (measured at `41edb14`)
+The tree is 2000 tracked files: `data/` 9, `skills/` 17 (16 engine directories plus their
+`README.md`), `containers/` 57, `tests/` 202, `scripts/` 121, `openspec/` 1034, `agent-wiki/`
+244 and `docs/` 251. (measured at `660b5b8`)
 
 | Path | Role |
 |---|---|
@@ -169,8 +169,8 @@ The tree is 1995 tracked files: `data/` 9, `skills/` 17 (16 engine directories p
 | `containers/ci-variant/` | the CUDA-toolkit variant-build image (`make test-variant-image`): its `Dockerfile` only — the two lockfiles are copied from `tools/` into a temp build context and are never tracked here (a committed copy is a stale pin the scan can never clear, issue #787) |
 | `data/` | vendored registry, the vendored model contract (schema + prose) it is validated against, quant catalog, strata model map, engine-skill gap, unsupported engines, trending README, and the scan failure/issue policy |
 | `docs/` | `ARCHITECTURE.md` (this map), `ENGINES.md` (per-engine build/serve), `BOTS.md` (automation, crons, credentials), `SCANS.md` (the scan pipeline), `SCANNERS.md` (scanner images), `SECURITY.md` (supply-chain pins), `RENOVATE.md` (dependency updates), and `changes.d/` (one index row per change — the change index is a directory, never one shared table, issue #934) |
-| `openspec/` | the change record: `config.yaml`, its `Dockerfile`, and `changes/<name>/{proposal.md,specs/**,tasks.md}` (264 changes) |
-| `agent-wiki/` | dated work record (243 entries), one per change, referencing its issue and PR |
+| `openspec/` | the change record: `config.yaml`, its `Dockerfile`, and `changes/<name>/{proposal.md,specs/**,tasks.md}` (265 changes) |
+| `agent-wiki/` | dated work record (244 entries), one per change, referencing its issue and PR |
 | `CHANGES.md` | those notes' index, newest first — one row rendered from each `docs/changes.d/<note>.md` by `make changes-index`; a note with no row, or a row naming a missing note, fails `make check-docs` (issues #678, #934) |
 | `tests/` | 172 `tests/test_*.py` files, fixtures, shared test helpers (`tests/top_tier_dry_run.py` for the live Hub dry run, `tests/hub_probe.py` for a probe's verdict on one Hub file) and the live end-to-end gates, discovered by `scripts/unit_tests.py` |
 | `docker-compose-files/` | the compose definitions for the OpenSpec CLI (`openspec.yaml`) and the test image (`test.yaml`) |
