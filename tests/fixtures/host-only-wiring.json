@@ -37,12 +37,6 @@
    "target": "test-install-trend",
    "decided": "2026-10-29",
    "issue": 1027
-  },
-  "scripts/profile_drift_alarm.py": {
-   "reason": "The live-profile comparison needs ~/.hermes/profiles/, which a CI runner does not have, so this script is the caller that runs WHERE THE PROFILES EXIST: `make profile-drift-alarm` files or refreshes one issue on drift (exit 0 clean, 3 drift, 2 could-not-compare). Recorded rather than wired because wiring it to a CI target would make it skip every time, which is the green-that-means-nothing this issue exists to remove (issue #928).",
-   "target": "profile-drift-alarm",
-   "decided": "2026-10-29",
-   "issue": 928
   }
  },
  "targets": {
