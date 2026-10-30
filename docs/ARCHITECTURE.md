@@ -154,7 +154,25 @@ picks which start script or image to run.
 
 The tree is 2076 tracked files: `data/` 9, `skills/` 17 (16 engine directories plus their
 `README.md`), `containers/` 57, `tests/` 203, `scripts/` 124, `openspec/` 1041, `agent-wiki/`
-256 and `docs/` 263. (measured at `fa13395`)
+256 and `docs/` 263. (measured at `713d91e`)
+256 and `docs/` 263. (measured at `10c423f`)
+The tree is 2076 tracked files: `data/` 9, `skills/` 17 (16 engine directories plus their
+`README.md`), `containers/` 57, `tests/` 203, `scripts/` 124, `openspec/` 1041, `agent-wiki/`
+256 and `docs/` 263. (measured at `713d91e`)
+
+The tree is 2076 tracked files: `data/` 9, `skills/` 17 (16 engine directories plus their
+`README.md`), `containers/` 57, `tests/` 203, `scripts/` 124, `openspec/` 1041, `agent-wiki/`
+256 and `docs/` 263. (measured at `713d91e`)
+The tree is 2076 tracked files: `data/` 9, `skills/` 17 (16 engine directories plus their
+`README.md`), `containers/` 57, `tests/` 203, `scripts/` 124, `openspec/` 1041, `agent-wiki/`
+256 and `docs/` 263. (measured at `713d91e`)
+
+The tree is 2076 tracked files: `data/` 9, `skills/` 17 (16 engine directories plus their
+`README.md`), `containers/` 57, `tests/` 203, `scripts/` 124, `openspec/` 1041, `agent-wiki/`
+256 and `docs/` 263. (measured at `713d91e`)
+The tree is 2076 tracked files: `data/` 9, `skills/` 17 (16 engine directories plus their
+`README.md`), `containers/` 57, `tests/` 203, `scripts/` 124, `openspec/` 1041, `agent-wiki/`
+256 and `docs/` 263. (measured at `713d91e`)
 
 | Path | Role |
 |---|---|
@@ -171,6 +189,12 @@ The tree is 2076 tracked files: `data/` 9, `skills/` 17 (16 engine directories p
 | `docs/` | `ARCHITECTURE.md` (this map), `ENGINES.md` (per-engine build/serve), `BOTS.md` (automation, crons, credentials), `SCANS.md` (the scan pipeline), `SCANNERS.md` (scanner images), `SECURITY.md` (supply-chain pins), `RENOVATE.md` (dependency updates), and `changes.d/` (one index row per change — the change index is a directory, never one shared table, issue #934) |
 | `openspec/` | the change record: `config.yaml`, its `Dockerfile`, and `changes/<name>/{proposal.md,specs/**,tasks.md}` (267 changes) |
 | `agent-wiki/` | dated work record (256 entries), one per change, referencing its issue and PR |
+| `openspec/` | the change record: `config.yaml`, its `Dockerfile`, and `changes/<name>/{proposal.md,specs/**,tasks.md}` (265 changes) |
+| `agent-wiki/` | dated work record (245 entries), one per change, referencing its issue and PR |
+| `agent-wiki/` | dated work record (244 entries), one per change, referencing its issue and PR |
+
+| `agent-wiki/` | dated work record (254 entries), one per change, referencing its issue and PR |
+| `agent-wiki/` | dated work record (253 entries), one per change, referencing its issue and PR |
 | `CHANGES.md` | those notes' index, newest first — one row rendered from each `docs/changes.d/<note>.md` by `make changes-index`; a note with no row, or a row naming a missing note, fails `make check-docs` (issues #678, #934) |
 | `tests/` | 173 `tests/test_*.py` files, fixtures, shared test helpers (`tests/top_tier_dry_run.py` for the live Hub dry run, `tests/hub_probe.py` for a probe's verdict on one Hub file) and the live end-to-end gates, discovered by `scripts/unit_tests.py` |
 | `docker-compose-files/` | the compose definitions for the OpenSpec CLI (`openspec.yaml`) and the test image (`test.yaml`) |
