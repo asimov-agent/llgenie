@@ -5,6 +5,16 @@ description: Test a llgenie PR against its issue's acceptance criteria.
 
 # Testing an LLGenie PR against its issue
 
+<!-- host-bot-tools:begin -->
+## Tools
+
+This lane's chat session is pinned to these Hermes toolsets and no others: `clarify`, `code_execution`, `file`, `memory`, `session_search`, `skills`, `terminal`, `todo`.
+
+Skills that stay enabled: `containerized-repo-verification`, `github`, `llgenie-pr-testing`.
+Every other installed skill is listed in `skills.disabled`.
+The pin is `tests/fixtures/host-bot-capabilities.json` in asimov-agent/llgenie (issue #1038).
+<!-- host-bot-tools:end -->
+
 Issue and PR numbers differ: `#824` is an issue; the PR implementing it is found with
 `gh pr list --repo asimov-agent/llgenie --search 824` (PR title carries `(#824)`).
 
@@ -44,6 +54,16 @@ contradicts the body** (a planner comment pivoting from matrix placeholders to t
   first place. Mount the MAIN repo as well as the worktree: a worktree's `.git` is a pointer outside
   the tree,  so without that mount `git ls-files` returns nothing and per-path assertions pass
   vacuously.
+- **A git-dependent GATE run inside the container on an unmounted worktree fails with a MISLEADING
+  message, not a vacuous pass.** `scripts/check_architecture_census.py` and any gate that shells out
+  to `git cat-file`/`git ls-files` inside a `-v "$worktree":/repo` mount (no main-repo mount) cannot
+  resolve the worktree's gitfile: it reports `the doc's pointer \`<sha>\` is not a real commit` and
+  `tracked=0, testspp=0, changes=0` — which reads EXACTLY like a real dangling-pointer defect but is
+  the container artifact. Distinguish it before believing it: a dangling pointer from the actual
+  gate-defect class (§11) is ONE sha and the counts are non-zero; an unmounted-worktree run blames
+  EVERYTHING (`tracked=0`). Git-dependent gates need no pytest — run them on the HOST in the worktree
+  (`python3 scripts/check_architecture_census.py check`), where git resolves; keep pytest in the
+  container (it needs no git).
 - **A test that does `import scripts.<x>` dies at COLLECTION on a sibling import.** If the module under
   test itself imports a sibling on `scripts/` (`import base_ref`), `python -m pytest` inside the image
   exits 2 with `ModuleNotFoundError: No module named '<sibling>'` and an empty summary — which reads
@@ -92,7 +112,11 @@ gh api repos/<owner>/<repo>/actions/jobs/<job-id>/logs --allow-escape-sequences 
 ```
 
 `gh run view --log-failed` additionally refuses while the RUN is in flight even when the JOB has
-completed — read the job by id instead. Also worth knowing: `gh run view <id>` can report
+completed — read the job by id instead. **A `completed/success` run is not the stage verdict if it
+is the WRONG workflow** — this repo has `guard`/`scope`/`holds` and `CI` workflows, and a green
+`holds` run (jobs `guard`,`holds`) says nothing about `linux / unit`. Enumerate the jobs and match
+the stage name (`linux / unit`), and check the run's `workflowName`, before citing a run id as
+"unit green"; a success run of `guard`+`scope` has no unit job at all. Also worth knowing: `gh run view <id>` can report
 `cancelled` for a run whose job genuinely FAILED (a later push cancels the run); judge red/green with
 `gh api .../actions/jobs/<job-id>` (status+conclusion+steps), not the run conclusion, and never from
 `gh pr checks`'s fail column.
@@ -113,6 +137,13 @@ Prefer invariants that can fail: every ignored path is docs-only; `ci.yml`'s ign
 replacement workflow's `paths`; every `ci.yml` job and every `pipeline.yml` stage is named by the
 classifier (`engine-published-test` is the job id, `test-published-*` is the check family — compare
 against `name:` prefixes, not ids).
+- **A stage gate that a policy test classifies can red on classification, not on the gate's own
+  correctness.** Wiring-invariant tests (`test_the_real_tree_is_wired`-style) run a policy module
+  (`issue_bot_gates.check`) over the real Makefile: any `make` gate a stage runs that has no entry in
+  the policy's FAST/DEFERRED sets is a finding. The fix is a DEFERRED entry WITH a reason — the FAST
+  set is a frozen list (widening it is a different issue's follow-up), so "add it to FAST" is not the
+  default — not removing the gate from the stage. Reproduce the finding with the policy module's own
+  check before escalating; it names the exact gate and remedy.
 
 ## 5. Evidence discipline — a stale head is not evidence
 
@@ -128,6 +159,21 @@ against `name:` prefixes, not ids).
 - **Fetch immediately before you branch or force.** Branch and measure from `origin/main` as fetched in
   that moment, never from a branch you already had and never from a sha quoted in chat — a message is
   stale by the time it is read.
+- **To check out a PR's actual head, fetch `refs/pull/<n>/head` — not the bare sha.** `git fetch origin
+  <head-sha>` fails with "couldn't find remote ref" (a merge-ref-only or fork head is not a fetchable
+  branch name), and the PR's `headRefName` may not be fetchable either. The reliable pattern,
+  independent of the head's name, is
+  `git fetch origin refs/pull/<n>/head:refs/remotes/pr/<n>`, then
+  `git worktree add -d /path refs/remotes/pr/<n>`. Get the layout first with
+  `gh pr view <n> --json headRefName,headRefOid,headRepositoryOwner`.
+- **A supersede-close is a branch-owner act, and it must land AFTER the replacement merges — never
+  before.** When you close one PR as "superseded by #X", the residue (the marks/pin/delta #X exists to
+  carry) must already be provably on `main`, or you strand it on an open PR whose merge is not yours to
+  force. Sequence: the co-owned PR gets co-owner consent for the close (rule 14 — never close/arm/merge
+  a co-owned PR unilaterally), the replacement MERGES, you read back its marks/pin on the default
+  branch, THEN close. Closing a superseded PR while its carrier is OPEN is a premature close that
+  silently re-opens the gap if the carrier never lands — and, because the owner can close it at any
+  time regardless, re-read `--json state` before doing anything the close authorizes.
 
 - **A failing test is evidence, and evidence is not a hold (fleet rule 13, issue #948).** Report the
   failing test name, the job id and the sha. If the failure is real, the issue is the remedy; if it is
@@ -217,8 +263,11 @@ Fleet rules themselves are changed through `agents/<profile>/`, not by editing t
 
 - **A result lives on the PR, with the run id and the sha** (fleet rule 14, #873): the shape is
   `run <id> · <sha> · <n> passed / <n> failed · <failing test names>`. A verdict delivered to one
-  person is invisible to the lane that must fix it and to the next reader who must trust it — so the
-  comment goes on the PR, and only the *pointer* to it goes into a message.
+  one person is invisible to the lane that must fix it and to the next reader who must trust it — so the
+    comment goes on the PR, and only the *pointer* to it goes into a message. The FINISH line (head sha +
+    PR number + what stands) also goes to the inbox/triage bot in the same turn (the orchestration
+    protocol): "done" is not complete until that lane has the finish line, and new reviewable PRs it
+    routes go to the reviewing lane — this lane does not review its own PR.
 - **When another lane is repairing the PR, message it with the failing test and the run id instead of
   re-running into its push.** Re-running is a push into `cancel-in-progress`: it destroys the matrix
   that lane is waiting on, and the result it was going to produce.
@@ -235,6 +284,24 @@ same issue and read its comments — this repo closes several duplicates a day, 
 usually belongs ON the owner's branch (push it, or leave it as a named branch + sha in a comment).
 **Verify absorption by diff, not by claim**: `git show origin/<their-branch>:<file> > /tmp/theirs`
 then `diff` against yours and count lines/cases, before you believe "your work is already there".
+- **"It's already on main" is an existence claim — check the CRITERION attribute, not the file.**
+  A change that lands via another merge can carry the whole seam (workflow, marker, pin file, the
+  gate check) yet still lack the coverage the acceptance criterion actually requires: the file
+  `test_network_marker.py` and a working `-m "not network"` seam are on main, but if zero of the
+  real-Hub tests carry `@pytest.mark.network`, ci-unit executes them for real while reading green —
+  the exact directive the criterion forbids. Before declaring a branch superseded/redundant, count
+  the criterion's OWN attribute per element (the marks ON the real-call tests, not the marker
+  registered;  the coverage enum, not the roster file existing; the routing decorators, not the pin
+  present). Artifact existence is not criterion met — file-present + green is exactly the shape that
+  hides a still-open gap.
+- **An exact-equality membership pin and the routing marks are ONE decision, edited in the same
+  change.** A pin that asserts `marked == EXPECTED` (the network-membership census) must have its
+  `EXPECTED` set widened to the new mark count in the SAME change that adds the marks — a mark that
+  lands without the census update reds the pin that was protecting the set, and a census left at the
+  old count while the marks grow is the pin failing closed, not a spurious red. When you widen the
+  marked set, grep the pin file for the exact-equality assertion and update both sides together;
+  verify afterwards by counting marks total across the changed files (mark count == census entry
+  count).
 
 ## 8. Fix the baseline before any expectation
 
@@ -253,8 +320,61 @@ is a red row that is not a defect. Before promising or measuring rows:
    check out its own branch in the directory you were using, so `git rev-parse --short HEAD` before
    and after every command batch, and create a worktree named for YOUR task rather than reusing a
    branch-named one.
+- **Two lanes on one shared branch: push `HEAD:<branch>` with `--force-with-lease` pinned to the
+  just-fetched sha, never a bare force.** When the branch is checked out in ANOTHER lane's worktree,
+  `git checkout -B <branch>` fails ("already used by worktree"); set up by pushing your rebased
+  detached head directly:
+
+  ```
+  git fetch origin <branch>; R=$(git ls-remote origin <branch> | cut -f1)
+  git rebase origin/<branch>                      # your commit on top of THEIR latest
+  ... re-run the changed tests (their push landed under you) ...
+  git push origin HEAD:<branch> --force-if-includes --force-with-lease=<branch>:$R
+  ```
+
+  The lease pinned to the fetched sha makes a concurrent push between your fetch and push REJECT
+  instead of clobbering — then re-fetch, re-rebase, retry. Read `$R` immediately before the push; a
+  shared branch moves even while you are writing the message.
 
 If two PRs claim the same change, say so and ask which is canonical instead of picking one.
+
+## 8b. A shared rewrite's failure modes: the route through them, not the retreat
+
+- **`origin/main` is not a stable onto target on this repo — name the sha.** An ambiguous ref that
+  resolves to the wrong base lets a rebase absorb real commits as patch-equivalent noise and SILENTLY
+  DROP them (a replay stopped ~6 commits short of the documented tip). Never
+  `git rebase --onto origin/main …`; fetch then pass the explicit full sha
+  (`git rebase --onto <full main sha> …`). Before trusting a re-cut, diff the net tree against the
+  documented tip (`git log --oneline <dropped-candidate>..<new head>`); a content check
+  (`git diff <head> <owned compose>`) that is empty is the real convergence proof, not "my pin passes".
+- **`git rebase --continue` can hang in a worktree that has done a lot of this, even with
+  `core.hooksPath=/dev/null`.** The hang is in `--continue`'s COMMIT step, not in the pick or the
+  restart: a bare `--continue` on an unresolved conflict returns fast (\"fix conflicts\"); it only
+  hangs once it actually creates the commit. When you are already mid-rebase, resolve the conflict,
+  `git add`, then create the pick yourself with `git commit --no-edit` and call `--continue` again —
+  it resumes cleanly. A fresh worktree does NOT dodge it, so don't restart hoping for a clean run.
+  Alternatively `git cherry-pick` the commits in order is the robust substitute: it applies or STOPS
+  per commit (never silently skips), so a re-cut advances with a visible stop at a real conflict —
+  resolution becomes per-commit, not a mystery drop. `--skip` any pick whose content already landed
+  via another merge (the old name/lineage of a renamed-and-merged file renders it empty on the
+  rebased base). Prove the net tree (commits present, wiring/test invariants green) BEFORE any push.
+- **`mergeable_state=dirty/CONFLICTING` right after a force-rewrite is usually a stale recompute, not
+  a real conflict — verify lineage, then wait for a fresh event.** The head is literally `main` +
+  commits when `git merge-base --is-ancestor origin/main <head>` is true; combined with a clean
+  `git merge-tree $(git merge-base origin/main <head>) origin/main <head>` it cannot fail to
+  auto-merge, so GitHub's `mergeable=false` is its cached merge-base from before the force. Do NOT
+  re-force-push to "fix" it; a fresh CI run or push event recomputes it. Settle a "my commit is not on
+  your head" dispute the same way: ancestry/content, or `git log` for the origin sha, not by pushing
+  again.
+- **The decisive clean/conflict test is `git merge-tree --write-tree <base> <head>`, exit=0 = clean.**
+  The old 3-arg form prints `changed in both` for ANY same-file edit and reads as a conflict even when
+  the hunks are far apart (a PR marking tests at :949/:964 and a base commit editing unrelated
+  assertions at :597 of the SAME file). `--write-tree` decides on the tree, not the file list — exit 0
+  means the PR merges cleanly into that base, period. When a dispatch says "rebase your assigned PR
+  onto fresh main", FIRST measure `--write-tree base fresh-main`: a clean exit VETS the branch against
+  the new base with no rewrite, and force-rebasing a co-owner's non-Conflicting branch is an
+  unnecessary rewrite + a pointless fresh CI run. "Rebase only when actually CONFLICTING" means: prove
+  the conflict with the exit code, or leave the branch alone.
 
 ## 9. Triage a batch of red PRs — reproduce locally, fix nothing
 
@@ -330,6 +450,13 @@ When dispatched to verify the PR that closes the triage issue, the question is n
    empty authors list — and treat a bot identity outside the allowlist as the usual cause; the gate's
    own message names the remedy (`git config user.email <allowed>`, `git rebase --reset-author`,
    `git push --force-with-lease`,   in the SAME push as any test change or it reds again).
+   **But first rule out the stale-base artifact, or you will reset-author a clean branch.** When the
+   CI ran with an old `PR_BASE` (a bot PR's base lagging `main`), main's newer commits sweep into the
+   range through the merge ref — an ALLOWED identity with a differently-spelled name (the gate matches
+   on email+name) triggers the red even though none of the PR's own commits violate it. Diagnose
+   before touching history: run `check_pr_authors --base <current main sha> --head <branch head>`
+   locally — RC 0 means the branch's own commits are clean and REBASING onto current main clears the
+   red by itself; `--reset-author` is only for a genuinely unallowlisted commit.
 9. **Re-check the other reds by patch identity, not by eyeballing the head.** Once the fix merges, a
    red PR can be "main-wide" (nothing of its own changed) or "own" (its content changed too) — and
    the only cheap proof is the patch id of the PR's own diff:
@@ -357,3 +484,31 @@ When dispatched to verify the PR that closes the triage issue, the question is n
    node ids at the default-branch sha and quote the merge commit + the run id whose job was green;
    "the PR was green" and "the branch is green" are two different statements a reviewer will ask for
    separately.
+
+## 11. A per-PR "measured at" census pointer is a gate-defect symptom — do not chase it per PR
+
+`scripts/check_architecture_census.py` reads a `measured at \`<sha>\`` pointer from
+`docs/ARCHITECTURE.md` and asserts the doc counts match the tree. When a PR reds because that pointer
+is a now-dangling sha (a rebase/squash gc'd it) or the counts are stale, the instinct to *re-point it*
+on the PR is the wrong fix: the gate takes the checked-out HEAD as ground truth, so **every
+file-adding PR must rewrite the pointer, and it dangles again after the squash** — an endless
+per-PR chase, and a second vehicle on a branch the rebase lane may already have moved.
+
+Diagnose the class before touching the pointer:
+
+1. **Is the gate's ground truth the PR head or the merge commit?** If it re-measures at HEAD (it does),
+   the pointer is not a per-PR fact — it is a gate-design defect (#1053).
+2. **Does the red vanish on a plain rebase onto current main?** A branch behind `main` carries a stale
+   copy of `ARCHITECTURE.md`; rebasing onto current main inherits the correct pointer + counts, with no
+   per-PR edit. Check with `git merge-tree --write-tree <main> <head>` (clean) and diff the two
+   `ARCHITECTURE.md` pointers — if the branch does not *modify* the file, main owns it.
+3. **Many PRs redding the same way is ONE gate bug, not N branch bugs.** Hold the per-PR pointer edit,
+   do **not** push a second fix onto a branch the rebase lane already rebased (that cancels their live
+   run and duplicates the fix), and wait for the gate-source fix (#1053) to land. Then rebase +
+   re-verify (unit green + the marks/pin) after it lands and main moves.
+
+Rule: a `measured at <dangling sha>` or stale-count red is a **gate-ownership smell first, a branch
+defect second**. Re-pointing it per PR is the symptom-chase #1053 exists to end. (Learned on #1016:
+the pointer `348f7b4e` was a non-object; the real fix was #1053 at the gate source plus a rebase onto
+current main — my independent rebase and the rebase lane's landed on the identical tree, and no push
+was needed.)

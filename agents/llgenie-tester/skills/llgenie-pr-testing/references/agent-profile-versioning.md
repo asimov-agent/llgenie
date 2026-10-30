@@ -97,6 +97,12 @@ deliberately, top first.
   in-flight edit. Read the diff, decide which side is correct (canonical-block comparison above), and
   if the tree is the defective side, take live → tree **on your own branch** — never push to a branch
   you were not dispatched for, and say in the thread which sha the copy came from.
+- **A from-live re-take of a SKILL.md must carry every `references/<name>.md` it now links, in the
+  same commit.** Landing the SKILL without a reference its body links re-creates the
+  `skill-reference-missing` red (a tree copy goes from N references to N+1, and a single-file cp
+  leaves a dangling link). List the references the live SKILL's body actually names and copy them
+  live → tree byte-for-byte WITH it; verify with `agent_profile_sync.py --profile <name> --check`
+  that the count moved.
 - **`sync ... REFUSED ... the live file was edited AFTER the tree copy was committed`** — the guard is
   **mtime**, not content, so it fires on your own earlier sync too. Diff first (`diff` the live file
   against the tree copy) and only force when the bytes are identical. **`make sync-agent-profile`
