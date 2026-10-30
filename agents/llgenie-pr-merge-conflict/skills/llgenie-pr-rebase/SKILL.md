@@ -12,6 +12,17 @@ metadata:
 
 # Rebase a conflicting llgenie PR
 
+<!-- host-bot-tools:begin -->
+
+## Tools
+
+This lane's chat session is pinned to these Hermes toolsets and no others: `clarify`, `file`, `memory`, `session_search`, `skills`, `terminal`, `todo`.
+
+Skills that stay enabled: `github`, `llgenie-pr-rebase`.
+Every other installed skill is listed in `skills.disabled`.
+The pin is `tests/fixtures/host-bot-capabilities.json` in asimov-agent/llgenie (issue #1038).
+<!-- host-bot-tools:end -->
+
 ## When to Use
 
 Use when a pull request in `asimov-agent/llgenie` shows `mergeable: CONFLICTING` / `mergeStateStatus: DIRTY` or `BEHIND`, and it must be brought onto the current `main` tip while staying a single reviewable commit.
@@ -102,7 +113,23 @@ Present on main + not an ancestor = superseded. Do not rebase it: post the tree 
 
 Keep the branch at **one commit**. Author must remain `Asimov Agent <support@docondee.com>` or `Andy Holst` — a rebase preserves the original author; never re-author.
 
+## Salvage audit before an owner prune — `scripts/salvage-audit.sh`
+
+The owner's prune is irreversible for work that exists on no remote, and **uncommitted files are invisible to every ancestry test**, so a clean-looking branch list can still hide the only copy of a lane's run. Run `scripts/salvage-audit.sh [<repo>]` (read-only; deletes nothing) and report its four buckets plus the worktree flags.
+
+Two refinements the script encodes, each of which a hand audit got wrong:
+
+1. **A branch that ADDS a path main lacks is not automatically unique — test its CONTENT against every open PR head.** A rebase lane's own scratch branches (`rb<N>*`, `pr<N>-*`) hold replays whose content already sits in an open PR under a *different branch name*; classifying them UNIQUE inflates the preserve list and buries the real work. Measured: 13 raw UNIQUE collapsed to **5** once the added paths were checked against open PR heads.
+2. **Fingerprint the added-file blobs to expose duplicate branches.** Two branches can hold the identical artifact (`agents/security-agent-soul-versioning` and `tmp/asv-trial` both carried blob `e22242fe6932`) — one preserve entry, not two.
+
+Also: a path main *does* carry at a different path or in a different form is **not** byte-superseded (main had a file under `agents/llgenie-security/skills/security-scan-ops/references/`, while the branch held a standalone skill directory under `agents/llgenie-security/skills/`) — say that nuance rather than collapsing it into "already on main".
+
+**Measure against `refs/remotes/origin/main`, never the bare name** — a stray `refs/heads/origin/main` shadows it and corrupts every quoted sha. The script prints whether that shadow exists.
+
 ## 5. Gates before push
+
+**Run `scripts/post-rebase-verify.sh <base-sha>` first — it catches the two silent traps that each cost a ~40-minute CI cycle.** Both are invisible to `git rebase`'s "Successfully rebased":
+
 ```bash
 make check-docs
 make openspec-validate NAME=<change-name>
