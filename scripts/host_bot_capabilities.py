@@ -25,6 +25,15 @@ MARKER_BEGIN = "<!-- host-bot-tools:begin -->"
 MARKER_END = "<!-- host-bot-tools:end -->"
 NAME_RE = re.compile(r"^name:\s*[\"']?([^\"'\n]+)", re.M)
 
+# The HOST skills this repository carries, and the lane each one belongs to. The applier and
+# its test both read this map, so the block a lane stamps and the block the test compares it
+# against cannot come from two different hand-kept lists. A lane skill under ``agents/<profile>/``
+# needs no entry: its path names the lane (see ``profile_for_skill``).
+REPO_SKILL_PROFILES = {
+    "llgenie-engine-improver": Path(".hermes/skills/llgenie-engine-improver/SKILL.md"),
+    "llgenie-architect": Path(".hermes/skills/llgenie-architecture-pass/SKILL.md"),
+}
+
 
 def load_fixture(path: Path | None = None) -> dict:
     return json.loads((path or FIXTURE).read_text(encoding="utf-8"))
@@ -60,12 +69,19 @@ def disabled_names(discovered: list[dict], keep: list[str]) -> list[str]:
 
 
 def tools_block(spec: dict, profile: str) -> str:
-    """The marker block a lane skill carries so the loaded contract matches the fixture."""
+    """The marker block a lane skill carries so the loaded contract matches the fixture.
+
+    Every heading in it is preceded by a blank line: the block is written into a SKILL.md
+    that ``make ci-lint`` reads, and ``scripts/lint_linefeeds.py`` fails a markdown heading
+    with no blank line before it, while the marker renders immediately above ``## Tools``
+    (issue #1119).
+    """
     row = spec["profiles"][profile]
     toolsets = ", ".join(f"`{name}`" for name in toolsets_for(spec, profile))
     keep = ", ".join(f"`{name}`" for name in sorted(row["keep_skills"]))
     return (
         f"{MARKER_BEGIN}\n"
+        "\n"
         "## Tools\n"
         "\n"
         f"This lane's chat session is pinned to these Hermes toolsets and no others: {toolsets}.\n"
@@ -168,17 +184,30 @@ def apply_profile(profile_dir: Path, spec: dict, profile: str) -> list[str]:
 def apply_repo_skills(repo: Path, spec: dict) -> list[str]:
     """Stamp the host-skill copies that live in the repository."""
     actions: list[str] = []
-    mapping = {
-        "llgenie-engine-improver": repo / ".hermes" / "skills" / "llgenie-engine-improver" / "SKILL.md",
-        "llgenie-architect": repo / ".hermes" / "skills" / "llgenie-architecture-pass" / "SKILL.md",
-    }
-    for profile, path in mapping.items():
+    for profile, rel in REPO_SKILL_PROFILES.items():
+        path = repo / rel
         if not path.is_file():
             continue
         block = tools_block(spec, profile)
         path.write_text(insert_tools_block(path.read_text(encoding="utf-8"), block), encoding="utf-8")
         actions.append(str(path.relative_to(repo)))
     return actions
+
+
+def profile_for_skill(rel: Path) -> str | None:
+    """The lane a tree SKILL.md belongs to, or None when its path does not name one.
+
+    ``agents/<profile>/…`` states its lane in the path; a HOST skill under ``.hermes/skills/``
+    is one of ``REPO_SKILL_PROFILES``' entries. Both the applier and its test read this, so a
+    committed block cannot be stamped for one lane while the test checks another.
+    """
+    parts = Path(rel).parts
+    if len(parts) > 2 and parts[0] == "agents":
+        return parts[1]
+    for profile, path in REPO_SKILL_PROFILES.items():
+        if parts == path.parts:
+            return profile
+    return None
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -6,6 +6,7 @@ against a fake profile tree. They do not read ``~/.hermes``.
 """
 from __future__ import annotations
 
+import difflib
 import sys
 from pathlib import Path
 
@@ -15,6 +16,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "scripts"))
 
 import host_bot_capabilities as pin  # noqa: E402  (scripts/host_bot_capabilities.py)
+import lint_linefeeds  # noqa: E402  (scripts/lint_linefeeds.py — the `make ci-lint` gate)
 
 
 def _skill(directory: Path, name: str, title: str) -> None:
@@ -119,6 +121,78 @@ def test_tools_block_is_idempotent_and_names_the_pin():
     assert twice.count(pin.MARKER_BEGIN) == 1
     assert "`web`" in twice
     assert "issue #1038" in twice
+
+
+def _marker_span(text: str) -> str:
+    """The marker block a file carries, from ``MARKER_BEGIN`` through ``MARKER_END``'s line."""
+    begin = text.index(pin.MARKER_BEGIN)
+    end = text.index(pin.MARKER_END, begin) + len(pin.MARKER_END)
+    newline = text.find("\n", end)
+    return text[begin:] if newline == -1 else text[begin:newline + 1]
+
+
+def _carriers() -> dict[Path, str]:
+    """Every tracked skill in this tree that carries the tools marker, keyed by repo path."""
+    found: dict[Path, str] = {}
+    for path in sorted(REPO.rglob("SKILL.md")):
+        if any(part.startswith(".") and part not in (".hermes",) for part in path.relative_to(REPO).parts):
+            continue
+        text = path.read_text(encoding="utf-8")
+        if pin.MARKER_BEGIN in text:
+            found[path.relative_to(REPO)] = text
+    return found
+
+
+def test_the_rendered_block_is_byte_identical_to_every_committed_one():
+    """The generator reproduces the block the tree already carries, lane by lane (issue #1119)."""
+
+    # Given every SKILL.md in this tree that carries the tools marker
+    spec = pin.load_fixture()
+    carriers = _carriers()
+    assert carriers, "no SKILL.md in this tree carries the tools marker — the check would prove nothing"
+
+    # When each committed block is compared with what the fixture renders for its own lane
+    checked: list[str] = []
+    for rel, text in carriers.items():
+        profile = pin.profile_for_skill(rel)
+        assert profile in spec["profiles"], f"{rel}: no fixture lane owns this skill"
+        committed = _marker_span(text)
+        rendered = pin.tools_block(spec, profile)
+
+        # Then the rendered block IS the committed block, byte for byte
+        assert rendered == committed, "".join(
+            difflib.unified_diff(
+                committed.splitlines(True), rendered.splitlines(True),
+                f"{rel} (committed)", f"tools_block('{profile}')",
+            )
+        )
+
+        # And re-running the generator over that file changes nothing. insert_tools_block
+        # replaces the whole marker span, so a shape difference does not merely fail to
+        # match — it STRIPS the blank line a committed file needs and reds `make ci-lint`.
+        assert pin.insert_tools_block(text, rendered) == text
+        checked.append(profile)
+
+    # And every lane this tree carries a block for was one of the lanes checked
+    assert set(checked) <= set(spec["profiles"])
+
+
+def test_every_profile_renders_a_lint_clean_block():
+    """`make ci-lint` accepts what the generator writes, for every lane in the fixture."""
+
+    # Given the fixture's profiles and a skill body to stamp the block into
+    spec = pin.load_fixture()
+    body = "---\nname: llgenie-lane\n---\n\n# Lane\n\nBody.\n"
+
+    for profile in spec["profiles"]:
+        # When the lane's block is rendered and stamped into that skill
+        block = pin.tools_block(spec, profile)
+        stamped = pin.insert_tools_block(body, block)
+
+        # Then neither the block on its own nor the file it lands in has a heading the
+        # real lint gate rejects (scripts/lint_linefeeds.py, run by `make ci-lint`)
+        assert lint_linefeeds._check_markdown_sections(f"tools_block({profile})", block.split("\n")) == []
+        assert lint_linefeeds._check_markdown_sections(f"{profile}/SKILL.md", stamped.split("\n")) == []
 
 
 def test_repo_host_skills_carry_the_marker():
