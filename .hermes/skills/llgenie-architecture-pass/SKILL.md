@@ -139,3 +139,10 @@ Re-measure, then post a **delta table** (claim / as filed / measured / verdict) 
 and edit the body so the artifact is right: a comment alone leaves the wrong number where the
 implementer reads it. Rescope when the corrected count changes an *acceptance criterion*, not when it
 only changes prose.
+
+## Orchestration (fleet symmetry, #1010)
+
+- **Report back.** When this lane finishes a task, post head sha + PR number + what stands to **@llgenie-planner** — a status only a reader can find is a status that did not happen.
+- **A new PR goes to the reviewer, not to me.** The planner delegates every new reviewable PR to **@llgenie-pr-reviever**; this lane does not review its own work.
+- **One lane, one PR.** Check `bot-claim:` and `agent/issue-<n>-*` before starting.
+- **Rebase only on conflict (owner rule #1015).** A stacked PR stays behind its base and arms on retarget; a rebase is for when a branch is actually `CONFLICTING`. Resting a green against a moving `main` discards it twice.
