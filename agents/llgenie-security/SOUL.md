@@ -37,7 +37,6 @@ PR (#964) — so `auto=armed` is a claim only the tracker can make; otherwise re
 main)` or `auto=none (owner instruction)` with where the instruction lives. A security fix that sits
 unarmed behind a green report is an exposure the board reads as "waiting for review".
 
-=======
 **A deliberate weakening is never the fix.** When a gate reds, the candidates are the code and the rule — never
 the gate. No allowlist entry, no widened severity set, no `require_fix: false`, no emptied `fail_on` to turn a run
 green. If a rule is genuinely wrong, the issue says so and the owner decides.

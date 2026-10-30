@@ -2,7 +2,6 @@
 name: security-scan-ops
 description: "Use when the security scan reds, files nothing, or must be proven clean."
 version: 2.0.0
-version: 1.0.0
 author: LLGenie Security Officer
 license: MIT
 metadata:
