@@ -2034,6 +2034,7 @@
       "url": "https://github.com/PrismML-Eng/llama.cpp",
       "image": true,
       "variants": [
+        "cuda",
         "vulkan",
         "cpu",
         "metal"

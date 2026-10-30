@@ -1615,9 +1615,8 @@ def test_published_stage_pulls_with_the_run_token():
 
 @pytest.mark.parametrize("arch, want", [
     ("cpu", {"llama.cpp": "cpu", "llama.cpp-prism": "cpu", "vllm": "cpu", "sglang": None}),
-    # Prism rocm + exllamav3 rocm are disabled (issue #103): cpu fallback; prism CUDA is
-    # RE-disabled (issue #103, served-verify run 40979496349: libcuda.so.1 absent at build): cpu fallback
-    ("cuda", {"llama.cpp": "cuda", "llama.cpp-prism": "cpu", "vllm": "cuda", "exllamav3-rocm": None,
+    # Prism rocm + exllamav3 rocm are disabled (issue #103): cpu fallback; prism CUDA is enabled (issue #823)
+    ("cuda", {"llama.cpp": "cuda", "llama.cpp-prism": "cuda", "vllm": "cuda", "exllamav3-rocm": None,
               "llama.cpp-laurentzuijdwijk": "cpu"}),
     ("rocm", {"llama.cpp": "rocm", "llama.cpp-prism": "cpu", "exllamav3-rocm": None, "mlx": "cpu",
               "llama.cpp-laurentzuijdwijk": "rocm"}),
