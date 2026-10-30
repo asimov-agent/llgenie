@@ -130,6 +130,14 @@ and the `CHECK=1` result, and the push + ordinary PR (re-fetch `main`, rebase, r
 the merged tree) happens only after. The skill `version` field is part of the bytes you compare, so bump it
 when the SKILL.md content changes, before the copy.
 
+**Never run `sync-agent-profile` in write mode for a lane you are versioning.** Write mode treats the
+tree as authoritative and would silently truncate a live rulebook that nothing lints — the `live-longer`
+finding is the guard against exactly that; use `CHECK=1` (compare only). And **fix any lint defect in the
+LIVE copy, not only the tree**: a live skill sits where `ci-lint` never runs, so a markdown defect (a
+`## Tools` heading with no blank line above it, say) survives there indefinitely; patching only the tree
+copy reds `CHECK=1` and the next sync reverts it. The live file belongs to that lane — ask its owner to
+apply the one-liner (or be explicitly directed to), then re-copy and re-verify `CHECK=1` byte-identical.
+
 ## Reloading when `agents/` is not on `main` yet
 
 `make sync-agent-profile PROFILE=<name>` copies the tree at the CURRENT repo into the profile home, so **while the `agents/` branch is unmerged the check must run in the branch's worktree, never in a `main` checkout.** `git ls-tree -r --name-only refs/remotes/origin/main -- agents | wc -l` is `0` until the tree lands — a sync against `main` has nothing to copy and would clobber the live rulebook. When the owner asks to "reload from the tree", verify the real source first, then run `python3 scripts/agent_profile_sync.py --profile <name> --check` in the worktree that holds the tree (it must report byte-identical and exit 0), and say in the report that the authoritative copy is the vehicle branch's tree, not empty `main`. The gate's own functions cannot be trusted against a base that has none of the files (`fleet_block()` returns `None` when `agents/standing-rules.md` is absent).

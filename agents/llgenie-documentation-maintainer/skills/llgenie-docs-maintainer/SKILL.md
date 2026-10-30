@@ -83,6 +83,30 @@ the issue's numbered list before it is trusted, the `live-longer` refusal `make 
 raises and how to settle it deliberately, what the manifest's rule check actually matches, and why
 such a PR must never land before the tree it is stacked on, and the recipe for versioning a lane's live-only skill bundle with its byte-compare proof.
 
+## Host behaviour vs the versioned tree (ongoing issues and docs PRs)
+
+`agents/<profile>/SOUL.md` and `agents/<profile>/skills/**` on `main` are the **versioned** copy; each
+`llgenie` bot's **live** profile under `~/.hermes/profiles/<profile>/` is what actually runs. They drift:
+a lane edits its live SOUL/skill and nothing watches the repo copy. So **every ongoing issue and every
+docs PR whose subject is (or cites) a SOUL/skill must be checked against the live host profile**, not
+assumed true from the repo copy alone — the host is where the behaviour actually executes, so a gap
+between `agents/**` and `~/.hermes/profiles/**` is a finding, and a **new issue** is filed for it.
+
+Concretely, treat this as part of comparing the behaviour of existing issues and their implementations:
+
+- `make check-agent-profiles` names the gaps: `live-longer`, `live-edited-not-tree`, `fleet-block-drift`
+  (the last is tree-only and reds CI; the first two need a live profile, so CI never sees them).
+- `make sync-agent-profile PROFILE=<p> CHECK=1` byte-compares the tree copy to live — exit 0 means the
+  pair is identical, a `differ` line names the first divergent file.
+- **Direction is judged on content, per hunk, never copied blindly:** a tree copy that is a *prefix* of
+  live means live is newer — re-take live→tree; a live file edited *after* the tree commit means the
+  lane's behaviour outran the repo — commit it via an issue+PR under `agents/<profile>/`.
+- **Never run `sync-agent-profile` in write mode for a lane whose live is richer** — it truncates and no
+  gate notices (#791). `CHECK=1` only.
+- A gap found while reviewing someone else's PR is a **new issue**, scoped to the owning lane; the docs
+  lane writes the fix only under explicit dispatch (name the delegation in the PR body — e.g. #1062 to
+  the planner, #885 to the rebase lane).
+
 ## Fixing a measured defect (issue first)
 
 A defect the audit measures is a change, and this repo's contract is issue → branch → PR that closes
@@ -191,11 +215,14 @@ the review/check requirements clear. Read it back — `gh pr view <n> --json aut
    and `closes #<n>`). If another open PR edits the same doc, name it in the body and state the
    ordering: whichever lands second re-measures the census at the new base, and that re-measure is
    the second landing, not a defect to prevent.
-9. **Try the merge before you approve it.** `gh pr merge --squash --match-head-commit <sha>` is the
-   smaller action: this repo carries no classic branch protection, so a `REVIEW_REQUIRED` decision
-   frequently does not block the merge, and nothing is self-approved. Only if GitHub refuses on the
-   review do you submit the approving review and retry — the review that blocked it was submitted by
-   the same account that pushes, which works because the PR *author* is `asimov-agent`.
+9. **Try the merge before any approval — but you cannot supply the approval yourself.** `gh pr merge
+   --squash --match-head-commit <sha>` is the smaller action; this repo carries no classic branch
+   protection, so a `REVIEW_REQUIRED` decision sometimes does not block the merge. When it does, note
+   the identities: the PR *author* is `andyholst` (the push token) and approvals come from the separate
+   `asimov-agent` identity, so `gh pr review --approve` from your lane is the owner approving the
+   owner's own PR — invalid. Route the `asimov-agent` approval to the owner/planner, and hand the PR to
+   the reviewer lane for the review itself (its SOUL forbids it from approving). Arming alone will not
+   merge a ruleset-pinned `REVIEW_REQUIRED`.
 10. In the merge comment, quote the authority you acted under — the owner's words, when they said
     it, and the narrowed form a reviewer recorded — so a reader a month later sees who authorised
     the merge rather than a bot's initiative. Then confirm the label is gone and the linked issue
@@ -239,11 +266,7 @@ fragments by `make changes-index` (`scripts/changes_index.py`). Rules that follo
   `gh run watch <id> --interval 60 --exit-status` in the **background** and let its completion wake
   you; a foreground `sleep`/poll loop is clamped (~3 min) and dies mid-wait, which reads like the
   run failed when nothing happened.
-- **A stale `CHANGES_REQUESTED` review blocks the merge even after the finding is fixed.** The
-  review that blocked it was submitted by the same account that pushes, which is fine because the
-  PR *author* is `asimov-agent`: `gh pr review --approve --body-file …` flips `reviewDecision` to
-  `APPROVED`. Confirm with `gh pr view --json reviewDecision,mergeStateStatus` (`UNSTABLE` =
-  checks pending, not a rejection).
+- **`REVIEW_REQUIRED` is not something your lane can clear — the author and the approver are different identities.** The PR *author* is `andyholst` (the push token); approvals come from the separate `asimov-agent` identity. So `gh pr review --approve` from your lane is the owner approving the owner's own PR (invalid), and the reviewer lane will not approve either (its SOUL forbids grading the code it could fix). Where a ruleset pins `REVIEW_REQUIRED`, only an `asimov-agent` approval (owner, or the planner acting under it) unlocks it — arming alone will not merge. Read `gh pr view --json reviewDecision,mergeStateStatus,author` before calling it blocked, and route the approval rather than self-approving.
 - **`main` has no classic branch protection** (`/branches/main/protection` 404s; rulesets own it).
   So `mergeStateStatus: BLOCKED` is always the review decision, a pending check, or the label —
   `make auto-merge-explain PR=<n> REPO=asimov-agent/llgenie` names which.
@@ -371,6 +394,7 @@ fragments by `make changes-index` (`scripts/changes_index.py`). Rules that follo
 - **A census a gate asserts must be measured at the FINAL PR head, not the base you branched from.** When the change adds tracked files (a new script, an OpenSpec change dir, a note, a fragment), the count at the merge base is stale the moment you commit. Write all the assets, commit once, then measure at that head and set the document's numbers to it — never compute them from the pre-commit tree and assume the operand files don't move the total. The gate turning green at the committed head is itself the proof the numbers match.
 - **Adding a gate to a `ci-*` job also needs it classified in `scripts/issue_bot_gates.py` — and only the FULL suite tells you.** After `check-wiring` is satisfied (line above), a new `$(MAKE) check-<gate>` in `ci-unit` still reds `tests/test_issue_bot_gates.py::test_the_real_tree_is_wired`: the guard faults any `ci-unit` gate that is neither in `FAST_GATES` nor in `DEFERRED`. `FAST_GATES` is the pinned #475 six — never widen it; add the gate to `DEFERRED` with a one-line reason instead. The fast gates (`lint check-docs check-wiring`) do **not** run this test, so a `scripts/`/`Makefile` change is not done until you run the full `make test-unit` (or at least `python -m pytest tests/test_issue_bot_gates.py`) — a green fast-gate set is not a green suite.
 - **A census's `measured at <sha>` pointer is a real, reachable commit whose tree COUNT equals `HEAD` — not a sha string equal to `HEAD`.** The literal `pointer == HEAD` check is unsatisfiable for a document that lives inside the tree it measures (every commit that updates the pointer re-heads it). Implement it as: the pointer resolves to a real commit (`git cat-file -e <sha>^{commit}`, so an amend-orphaned sha reds), and `git ls-tree -r --name-only <pointer> | wc -l == HEAD` — so the census describes the tree the gate sees and reds only when a real file is added. And after a **squash-merge onto a `main` that moved** between your push and the merge, the merged tree can be larger than your branch's (other PRs' files land under the squash): `main` then reds until a refresh — file that refresh as its own issue with the measured delta; it is the gate working, not a defect in your PR.
+- **Rebasing onto `main` after the base PR was SQUASH-merged replays far too much — cut fresh, or `--onto` your own base.** A branch cut from a PR head that later merges as a squash is not an ancestor of `main`, so `git rebase origin/main` finds a much older merge-base and replays hundreds of commits, colliding on every shared file (`Makefile`, `agents/*`). Safe shapes: `git checkout -b <new> origin/main` then copy/apply only your own files (clean when the merged blobs equal your base's), or `git rebase --onto origin/main <the-sha-your-branch-was-cut-from>` which replays only `base..HEAD` (your own commits). A one-commit replay on a one-file change is the signal it worked; confirm the count before pushing.
 - **A repository-wide queue stall is capacity, not a red check — do not rerun-loop it.** A run at
   `guard` with `0/N` jobs plus dozens `queued` repo-wide and ~zero `in_progress` means nothing is being
   scheduled (`gh api "repos/<repo>/actions/runs?status=queued&per_page=1" --jq .total_count`). Rerun,

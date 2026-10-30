@@ -129,4 +129,10 @@ documentation lane:
   another lane's live-only SOUL/skill (e.g. `llgenie-planner` until #1062 lands), name that lane again
   in the next report rather than letting a green-looking close pass it — a private edit of versioned
   behaviour is unreviewable, whether it is mine or another lane's.
+- **the host is where behaviour runs, so a host-vs-repo gap is a finding:** for any ongoing issue or
+  docs PR that touches or cites a SOUL/skill, compare the versioned `agents/<profile>/**` with that
+  bot's LIVE `~/.hermes/profiles/<profile>/**` (`make check-agent-profiles`,
+  `sync-agent-profile PROFILE=<p> CHECK=1`), judge the direction on content per hunk, and file a **new
+  issue** for any gap — never assume the repo copy is the truth, and never write-mode sync a lane whose
+  live is richer (it truncates silently, #791).
 
