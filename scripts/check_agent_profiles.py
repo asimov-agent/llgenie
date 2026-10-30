@@ -23,9 +23,12 @@ Hermes itself loads) and this gate is what keeps it honest:
 * a secret-shaped value in any committed file of the tree — the whole point is that these are read
   by an agent that holds write credentials, so a key in here is a leak with a diff;
 * a `SOUL.md` that stops stating a standing rule the manifest declares for that profile (the
-  orchestrator must keep "never implement" and "never merge"), or a manifest that declares
+  orchestrator must keep "never implement" and "never merge") — searched in the file's OWN VOICE,
+  so a rule the SOUL merely quotes (an owner instruction it documents, a fenced sample, a
+  blockquote of another lane's block) satisfies nothing (issue #922); a manifest that declares
   `never-merge` for no profile at all — the rule the issue exists to protect, deletable only in
-  public;
+  public — and a profile whose entry declares `rules: []`, reported `UNPROTECTED` because an entry
+  that gates nothing must not read as an entry that passed;
 * `state.db`, `sessions/`, `memories/`, `config.yaml` or `.env` in the tree — the profile's data is
   not behaviour, and it must never be committed.
 
@@ -66,6 +69,20 @@ STANDING_RULES = {
 #: The one rule every manifest must keep for at least one profile: the orchestrator is the agent
 #: that can dispatch a merge, and the rule was once a file nobody diffed.
 REQUIRED_RULE = "never-merge"
+
+#: A SOUL is read for what it INSTRUCTS, not for every string it contains (issue #922). A rule the
+#: file merely quotes — an owner instruction it documents, a fenced sample, a blockquote of another
+#: lane's block — is not a rule the agent runs under, and must not satisfy the gate for the rule it
+#: quotes. These are the three shapes a quotation takes in this tree, each measured against all seven
+#: committed SOULs before the strip was chosen: no legitimate statement lives in any of them.
+FENCED_BLOCK = re.compile(r"^```.*?^```", re.M | re.S)
+QUOTED_LINE = re.compile(r"^[ \t]*>.*$", re.M)
+QUOTED_SPAN = re.compile(r'"[^"]*"', re.S)
+#: Single quotes are deliberately NOT a quotation marker: `owner's` opens a span that would swallow
+#: the rest of the sentence, and a stripper that deletes a legitimately stated rule is worse than the
+#: bug it fixes (the same reason the imperative-form and exact-heading candidates were rejected:
+#: `**Never merge, …**` and `**You never merge, …**` are both correct statements, and seven SOULs do
+#: not share one heading).
 #: The canonical fleet block, committed ONCE in `agents/standing-rules.md` so the same text can be compared
 #: across profiles instead of trusted. A profile's SOUL must state it verbatim: thirteen paraphrases of one
 #: rule is thirteen chances for it to stop being the rule (issue #873, acceptance criterion 1).
@@ -168,6 +185,32 @@ def profiles_from_manifest(agents: Path) -> list[dict]:
     """Just the profiles, for the sync target (one manifest reader, never two)."""
     profiles, _ = read_manifest(agents)
     return profiles
+
+
+def stated_text(text: str) -> str:
+    """The SOUL's own voice: fenced blocks, blockquote lines and `"…"` spans removed (issue #922).
+
+    A standing rule must be STATED, not merely mentioned: a lane that documents the owner's
+    instruction it overrides ("Never merge PRs …") quotes the rule without being put under a new one,
+    and that quotation must not keep the gate green while the actual statement is deleted. Quotations
+    are removed here and the rule is matched against what remains, so the two cases cannot be
+    confused. Every committed SOUL was measured against this strip: each one that states a rule keeps
+    stating it afterwards, and #921's architect SOUL (statement on one line, quote on another) keeps
+    its statement while losing its quote.
+    """
+    without_fences = FENCED_BLOCK.sub("\n", text)
+    without_quoted_lines = QUOTED_LINE.sub("", without_fences)
+    return QUOTED_SPAN.sub("", without_quoted_lines)
+
+
+def unprotected(profiles: list[dict]) -> list[str]:
+    """Profiles whose manifest entry declares no rule: nothing in their SOUL is gated (issue #922).
+
+    `rules: []` is not "no rules to check" — it is "this profile's rules are unenforced". It is
+    reported, never failed: five of the seven committed profiles legitimately declare none yet, and a
+    gate that is red for a reason nobody can act on is a gate that gets filtered.
+    """
+    return [profile["name"] for profile in profiles if not profile["rules"]]
 
 
 def _text_files(profile: Path) -> list[Path]:
@@ -497,15 +540,29 @@ def findings(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR) -> list[dict
             })
         else:
             text = soul.read_text(encoding="utf-8")
+            stated = stated_text(text)
+            where = f"{agents.name}/{name}/{SOUL}"
             for rule in profile["rules"]:
-                if not STANDING_RULES[rule].search(text):
+                if STANDING_RULES[rule].search(stated):
+                    continue
+                if STANDING_RULES[rule].search(text):
                     items.append({
-                        "key": "standing-rule",
-                        "where": f"{agents.name}/{name}/{SOUL}",
-                        "detail": f"no longer states `{rule}` — the manifest says this profile's "
-                                  "SOUL must carry it, and dropping it silently is the change this "
-                                  "gate exists to make loud",
+                        "key": "standing-rule-quoted",
+                        "where": where,
+                        "detail": f"mentions `{rule}` only inside a quotation — a fenced code block, "
+                                  "a blockquote line or a `\"…\"` span — and the manifest says this "
+                                  "profile's SOUL must STATE it. Quoting an instruction (the owner's, "
+                                  "another lane's block) does not put this profile under it, so this "
+                                  "file no longer states the rule it is gated on (issue #922)",
                     })
+                    continue
+                items.append({
+                    "key": "standing-rule",
+                    "where": where,
+                    "detail": f"no longer states `{rule}` — the manifest says this profile's "
+                              "SOUL must carry it, and dropping it silently is the change this "
+                              "gate exists to make loud",
+                })
         skills_dir = base / SKILLS
         if skills_dir.is_dir():
             for skill_dir in sorted(p for p in skills_dir.iterdir() if (p / SKILL_FILE).is_file()):
@@ -616,6 +673,12 @@ def report(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR) -> str:
         rules = ",".join(profile["rules"]) or "(none)"
         lines.append(f"  {profile['name']}: SOUL.md={'yes' if soul.is_file() else 'MISSING'} "
                      f"({size} b) skills={','.join(skill_names) or '(none)'} rules={rules}")
+    idle = unprotected(profiles)
+    if idle:
+        # issue #922: an entry that gates nothing must not read as an entry that passed. A report,
+        # not a finding - a profile may legitimately declare no rule yet.
+        lines.append(f"[check-agent-profiles] UNPROTECTED: {', '.join(idle)} declare(s) no standing "
+                     "rule, so nothing in that SOUL.md is gated (not the same as passing)")
     items = findings(root, agents_dir)
     lines.append(f"[check-agent-profiles] {len(items)} finding(s)")
     for item in items:
@@ -668,8 +731,13 @@ def main(argv: list[str] | None = None) -> int:
         print("[check-agent-profiles] live-profile comparison SKIPPED: no profiles directory at "
               f"{live_source} — tree checks only, and the live rulebooks were NOT compared", file=sys.stderr)
     items = findings(root, agents_dir)
+    profiles, _ = read_manifest((root / agents_dir) if not agents_dir.is_absolute() else agents_dir)
+    for name in unprotected(profiles):
+        # issue #922: an entry with no rule gates nothing. Named, never failed - and never silent,
+        # because a green line is what made "rules: []" read as compliance.
+        print(f"[check-agent-profiles] UNPROTECTED {name}: the manifest declares no standing rule for "
+              "this profile, so nothing in its SOUL.md is gated — that is not the same as passing")
     if not items:
-        profiles, _ = read_manifest((root / agents_dir) if not agents_dir.is_absolute() else agents_dir)
         caveat = (" — tree checks only, LIVE RULEBOOKS NOT COMPARED" if live_base is None else "")
         print(f"[check-agent-profiles] OK: {len(profiles)} host-agent profile(s), each with a "
               "SOUL.md stating the rules its manifest declares; every skill's frontmatter name "
