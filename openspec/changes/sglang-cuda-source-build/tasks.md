@@ -6,7 +6,7 @@
 - [x] 4. `tests/test_engine_skills.py::test_official_upstream_images_are_used_as_bases`: sglang/cuda now compiles on the shared base, never FROM `lmsysorg/sglang`.
 - [x] 5. `make check-engine-source`, `make check-engine-params`, `make check-engine-coverage` are green; affected tests pass.
 - [x] 6. Per-cell build + detect service verified on the CI `engine-image-sglang-cuda` job (`make build-engine ENGINE=sglang ARCH=cuda` then `make test-engine-stage TEST=detect`); this lane never builds an engine image locally, it pulls and verifies the published artifact (skill rule).
-- [ ] 7. `make test-unit` green (full hermetic suite).
+- [x] 7. `make test-unit` green (full hermetic suite).
 - [x] 8. `README.md` + `docs/ENGINES.md` "prebuilt cells" passage updated (sglang/cuda now a source build).
 - [x] 9. `agent-wiki/2026-10-30-sglang-cuda-source-build.md`, `CHANGES.md` row (+ `docs/changes.d/`), OpenSpec `tasks.md` all ticked.
 - [x] 10. `make openspec-validate NAME=sglang-cuda-source-build` exits 0.
