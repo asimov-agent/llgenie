@@ -28,7 +28,7 @@ note, so the numbers are reproducible.
 - **The gate checks counted facts only** — the prose claims are `architecture-bot`'s regeneration scope
   (#896 "Not covered"), which is the same boundary as the doc's own generator.
 
-Measured at `d9377b96`: 1951 tracked files; data 9, skills 17, containers 57, tests 199, scripts 117,
-openspec 1011, agent-wiki 236, docs 243; `tests/test_*.py` 169; openspec changes 259.
+Measured at `348f7b4e`: 1966 tracked files; data 9, skills 17, containers 57, tests 199, scripts 118,
+openspec 1019, agent-wiki 239, docs 246; `tests/test_*.py` 169; openspec changes 261.
 
 Issue: #896, #1033
