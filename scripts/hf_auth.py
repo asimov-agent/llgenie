@@ -169,7 +169,8 @@ def hub_open(req: urllib.request.Request, timeout: float = 30, opener=None):
       `t`, else 5 minutes, capped at 10) and may spend at most TWO such waits; a
       third consecutive 429 raises. Waiting less spends the next window on another
       429, and an unbounded wait would park a CI job for hours.
-    - the waits are ALSO bounded by a total, `RATE_LIMIT_TOTAL_BUDGET` (60 s): a wait
+    - the waits are ALSO bounded by a total, `RATE_LIMIT_TOTAL_BUDGET` (300 s, the Hub's
+      real 5-minute window): a wait
       that does not fit what is left of it raises immediately instead of sleeping, so
       a single lookup's wall clock is a small constant rather than 2 x 600 s. The
       raised 429 names the attempts and the seconds spent (issue #872).

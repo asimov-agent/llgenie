@@ -33,7 +33,7 @@ generous waits get a total.
   default is ~2x the child's own retry ladder (`hf_download.py`: `MAX_RETRY = 20` on a 90 s
   stall-watch and a 5 s pause ≈ 1900 s), so a healthy download that retries still finishes.
 - **`scripts/hf_auth.py::hub_open`** bounds its 429 sleeps by a **total**, not only by a count:
-  `RATE_LIMIT_TOTAL_BUDGET` (default 60 s, `HUB_RATE_LIMIT_BUDGET` overrides it). A 429 whose Hub
+  `RATE_LIMIT_TOTAL_BUDGET` (default 300 s — the Hub's real 5-minute window, `HUB_RATE_LIMIT_BUDGET` overrides it). A 429 whose Hub
   window does not fit what is left of that budget raises immediately instead of sleeping — sleeping
   less than the Hub's stated `t` only spends the next window on another 429. The count rule
   (`RATE_LIMIT_WAITS`) still applies; the two are independent ceilings. The raised 429 keeps the

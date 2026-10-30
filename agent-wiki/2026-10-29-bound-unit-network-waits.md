@@ -11,7 +11,7 @@
     `subprocess.TimeoutExpired`, re-raising `SystemExit` that names the repo/file, the seconds exceeded
     and the full command. Before this, the call had no `timeout=` at all.
 - `scripts/hf_auth.py`
-  - `RATE_LIMIT_TOTAL_BUDGET` (default 60 s, `HUB_RATE_LIMIT_BUDGET` overrides) — the total ONE
+  - `RATE_LIMIT_TOTAL_BUDGET` (default 300 s — the Hub's real 5-minute window, `HUB_RATE_LIMIT_BUDGET` overrides) — the total ONE
     `hub_open` lookup may sleep on 429s, **in addition to** the existing `RATE_LIMIT_WAITS` count.
   - `hub_open` keeps per-lookup `waits`/`slept`, and raises when the count ceiling is passed OR when
     the next Hub window would not fit the remaining total. A 429 whose window does not fit raises at

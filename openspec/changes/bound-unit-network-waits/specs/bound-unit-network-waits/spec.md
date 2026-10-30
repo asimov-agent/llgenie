@@ -34,7 +34,7 @@ THEN the caller fails with a message naming that command, instead of waiting ind
 ### Requirement: one Hub lookup spends at most a small, stated total on 429 waits
 
 `scripts/hf_auth.py::hub_open` MUST bound the time ONE lookup spends sleeping on Hub 429s by a total,
-`RATE_LIMIT_TOTAL_BUDGET` (default 60 s, overridable with `HUB_RATE_LIMIT_BUDGET`), in addition to the
+`RATE_LIMIT_TOTAL_BUDGET` (default 300 s — the Hub's real 5-minute window, overridable with `HUB_RATE_LIMIT_BUDGET`), in addition to the
 existing count ceiling `RATE_LIMIT_WAITS`.
 
 A 429 whose window (`rate_limit_wait`) does not fit what is left of that total MUST raise immediately
