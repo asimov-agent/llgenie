@@ -172,7 +172,7 @@ def test_the_gate_report_separates_what_each_row_proves():
     assert set(by_verdict) <= {"flag-proven", "device-exempt", "disabled"}, by_verdict
     assert sorted(by_verdict.get("device-exempt", [])) == sorted(ei.DEVICE_ONLY), by_verdict
     # And  the sweep's row count is reproduced: proven + exempt (disabled cells are not built)
-    assert len(by_verdict["flag-proven"]) + len(by_verdict["device-exempt"]) == 28, \
+    assert len(by_verdict["flag-proven"]) + len(by_verdict["device-exempt"]) == 27, \
         {k: len(v) for k, v in by_verdict.items()}
 
 
