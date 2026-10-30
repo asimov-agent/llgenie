@@ -26,7 +26,7 @@ SCRIPTS = (REPO / "agents" / "llgenie-pr-merge-conflict" / "skills"
 
 # Subset check, never equality: the lane is meant to add scripts, and an exact list would red
 # on the next legitimate addition.
-EXPECTED = {"post-rebase-verify.sh", "salvage-audit.sh"}
+EXPECTED = {"post-rebase-verify.sh", "salvage-audit.sh", "salvage-four-bucket.py"}
 
 
 def _shell_scripts() -> list[Path]:

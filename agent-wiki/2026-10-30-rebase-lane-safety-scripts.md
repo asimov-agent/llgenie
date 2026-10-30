@@ -14,6 +14,12 @@ shell-syntax clean:
   markers, every changed `.py` parses, every changed `.json` parses, `CHANGES.md` equals a fresh
   render, census, linefeeds, base is an ancestor of HEAD, and a clean `merge-tree` against the base.
 - `salvage-audit.sh` — the four-bucket branch/worktree census, read-only by construction.
+- `salvage-four-bucket.py` — the same census at the granularity a prune decision needs:
+  `merged-and-clean` / `merged-but-dirty` / `unmerged-with-a-PR` / `orphan`, with an
+  *added-path* test for "content exists only here" (a sha-diff is meaningless for squash-merged
+  work, which is how a first pass over-reported unique branches by 20 instead of 6). It also
+  tests whether an orphan's added paths are all carried by an open PR, because a scratch branch
+  whose content is reviewable elsewhere loses nothing when deleted.
 
 ## Decisions taken
 
