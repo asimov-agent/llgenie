@@ -116,3 +116,27 @@ deliberately, top first.
 Every `##`-documented option on a repo make target is prose until you read the recipe under it. Open
 `Makefile` and confirm the flag is actually passed (`$(if $(FORCE),--force,)`) before you rely on it —
 a target that documents an escape hatch it does not forward turns a two-minute sync into a detour.
+
+## Pitfall: a green `--check` in your worktree is NOT a fix on the branch that lands
+
+`sync-agent-profile … CHECK=1 → OK, N file(s) byte for byte` compares the tree in YOUR checkout
+against your live profile. It says nothing about the branch the PR will merge: a commit that exists
+only locally leaves the PR head's tree still carrying the truncated files, so the divergence the
+planner flagged is still open on the vehicle. **A local sha is not a landed fix** — verify against the
+FETCHED branch head, never your worktree:
+
+```
+git fetch origin <branch>
+git show origin/<branch>:agents/<profile>/SOUL.md | wc -c   # must equal live size, not the truncated one
+```
+
+If those bytes are still the old (truncated) size, the fix is local-only — commit it onto the branch
+head and push, and report the BRANCH-HEAD sha that carries it, not your worktree's.
+
+- **A push that would cancel a live run WAITS; automate the landing, do not force it.** If the branch
+  head has a run `in_progress`/`queued` and the workflow sets `cancel-in-progress`, a push to land your
+  commit destroys that run's matrix. Do not push into it, and do not sit idle waiting for a re-ping:
+  launch a background `gh run watch <run-id> --exit-status --interval 30` whose next step is
+  `git push origin HEAD:<branch>` — it lands the instant the run concludes, with no cancelled matrix.
+  Push through the live run ONLY if the owner explicitly says so; absent that the hold stands, and you
+  report the landed head sha when the watcher fires.
