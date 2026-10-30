@@ -99,13 +99,14 @@ def _card_order(gb: float) -> list[str]:
     return tables[tier]
 
 
-def _fits_names(gb: float, ram_gb: float = 64.0) -> list[str]:
+def _fits_names(gb: float, ram_gb: float = 64.0, arch: str | None = "cuda") -> list[str]:
     """The registry's models this host fits, in the CARD's order — membership is the product's
     own decision (measured evidence + the stated RAM floor, issue #669/#414), and the order is
     the published tier ranking, then the computed store order. Never one field, never the
-    file's line numbers."""
+    file's line numbers. `arch` defaults to cuda (the offer these tests assert) so Apple-only
+    models are excluded from both sides consistently."""
     reg = mp.load_registry()
-    fit = {m["name"]: m for m in reg["models"] if mp.fits(m, gb, ram_gb)}
+    fit = {m["name"]: m for m in reg["models"] if mp.fits(m, gb, ram_gb, arch)}
     ranked = [n for n in _card_order(gb) if n in fit]
     today = mp.registry_today(reg)
     rest = sorted((fit[n] for n in fit if n not in set(ranked)),

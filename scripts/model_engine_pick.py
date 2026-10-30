@@ -616,18 +616,36 @@ GATE_EVIDENCE = ("run", "min", "weights", "label", "unknown", "")
 #: `RTX 3060 12GB + 16GB DDR4`. A unified-memory box says `unified`, which is its card's pool,
 #: so it is not read here (the host's own RAM is what `ram_gb` states).
 _RAM_IN_HW = re.compile(r"(\d+(?:\.\d+)?)\s*GB\s*(?:of\s+)?(?:system\s+ram|ram|ddr\d?)\b", re.I)
+# Apple / Metal "unified memory" boxes: a measurement on one is never a cuda/vulkan/rocm/cpu
+# card a container host can reproduce, so it must not admit a model there (issue #669).
+_APPLE_RUN = ("apple", "mac", "macbook", "imac", "m1 ", "m2 ", "m3 ", "m4 ", "m5 ",
+              "unified memory", "metal", " mlx")
 
 
-def admitting_measurement(model: dict, gb: float) -> dict | None:
+def _is_apple_run(hardware: str) -> bool:
+    return any(k in (hardware or "").lower() for k in _APPLE_RUN)
+
+
+def admitting_measurement(model: dict, gb: float, arch: str | None = None) -> dict | None:
     """The measurement that proves this model runs on a card of `gb`: the smallest `ran on`
-    card at or below the card, or None when no run is at that size."""
+    card at or below the card, or None when no run is at that size.
+
+    A run is evidence only on hardware this host can reproduce: a datacenter part is never a
+    card a reader owns, and — for a container/GPU host (`arch` not a Metal/Apple one) — an
+    Apple/Metal "unified memory" run is never a cuda/vulkan/rocm/cpu card at all, so it cannot
+    admit the model there (issue #669: an MLX "M1 Pro 16GB" row beside a "M4 Max 128GB" must not
+    gate a 16 GB cuda host). `arch=None` (a bare gate call) counts every card-sized run.
+    """
     card = card_class_gb(gb)
+    apple_excluded = arch is not None and arch not in ("metal", "mlx", "apple")
     best, best_card = None, None
     for e in model.get("engines") or []:
         if not _num(e.get("tps")):
             continue
         hw = e.get("hardware", "")
         if datacenter_hardware(hw):
+            continue
+        if apple_excluded and _is_apple_run(hw):
             continue
         run_card = measurement_card_gb(hw)
         if run_card is None or run_card > card:
@@ -637,7 +655,7 @@ def admitting_measurement(model: dict, gb: float) -> dict | None:
     return best
 
 
-def card_evidence(model: dict, gb: float) -> str:
+def card_evidence(model: dict, gb: float, arch: str | None = None) -> str:
     """WHICH evidence admits `model` on a card of `gb`: `"run"`, `"min"`, `"weights"`,
     `"label"`, `"unknown"` (no card on this host) or `""` (nothing admits it).
 
@@ -649,16 +667,10 @@ def card_evidence(model: dict, gb: float) -> str:
     """
     if gb <= 0:
         return "unknown"  # no card on this host: the gate has nothing to compare against
+    if admitting_measurement(model, gb, arch) is not None:
+        return "run"
     card = card_class_gb(gb)
     need = vram_min_gb(model)
-    # The declared measured minimum is the authoritative floor (issue #669): a model the store
-    # says needs a 128GB card must not be offered at 16 GB just because a stray smaller-card run
-    # exists (e.g. an MLX "M1 Pro 16GB unified memory" row beside a "M4 Max 128GB" — the card
-    # gate then reads the 128 GB minimum, not the spurious smaller measurement).
-    if need is not None and need > card:
-        return ""
-    if admitting_measurement(model, gb) is not None:
-        return "run"
     if need is not None and need <= card:
         return "min"
     weight = stated_budget_gb(model)
@@ -689,7 +701,7 @@ def ram_floor_gb(model: dict, evidence: str, gb: float) -> float | None:
     return stated_gb(model.get("system_ram_min"))
 
 
-def fits(model: dict, gb: float, ram_gb: float | None = None) -> bool:
+def fits(model: dict, gb: float, ram_gb: float | None = None, arch: str | None = None) -> bool:
     """True when the store's measured evidence places this model on a card of `gb` — a run on a
     card that size or smaller, else `vram_min`, else the stated `weight_gb` (issue #669) — and,
     when the admitting evidence states one, this host's RAM is at least its `system_ram_min`.
@@ -698,8 +710,10 @@ def fits(model: dict, gb: float, ram_gb: float | None = None) -> bool:
     "the CPU and Metal tables are RAM-bound … partial offload keeps the un-offloaded layers +
     KV cache in system RAM"). It is a hard floor, never derived from `vram_min`, so a host
     below it cannot run the model at the stated quality however much VRAM it has.
+    `arch` threads the host's compute kind into the run evidence (Apple runs never gate a
+    container/GPU host). `None` counts every card-sized run.
     """
-    evidence = card_evidence(model, gb)
+    evidence = card_evidence(model, gb, arch)
     if not evidence:
         return False
     floor = ram_floor_gb(model, evidence, gb)
@@ -793,7 +807,8 @@ def card_order(rows: list[dict], gb: float | None, registry: dict) -> list[dict]
     return sorted(rows, key=lambda m: (rank.get(str(m.get("name")), len(rank)), *trend_key(m, today)))
 
 
-def trend_list(registry: dict, gb: float | None = None, ram_gb: float | None = None) -> list[dict]:
+def trend_list(registry: dict, gb: float | None = None, ram_gb: float | None = None,
+               arch: str | None = None) -> list[dict]:
     """The models this card fits, in the card's own order.
 
     Membership is the gate (`fits`: measured evidence, plus the stated `system_ram_min` floor);
@@ -803,7 +818,8 @@ def trend_list(registry: dict, gb: float | None = None, ram_gb: float | None = N
     global order (which this used to return) is `Bonsai 2 9B`, `Qwen3.6-35B-A3B`, …
     """
     gb = card_gb() if gb is None else gb
-    return card_order([m for m in registry.get("models") or [] if fits(m, gb, ram_gb)], gb, registry)
+    return card_order([m for m in registry.get("models") or [] if fits(m, gb, ram_gb, arch)],
+                      gb, registry)
 
 
 
@@ -830,7 +846,7 @@ def recommend(registry: dict, arch: str | None = None, gb: float | None = None,
     keeps only rows with an engine."""
     ids = engine_ids()
     rows = []
-    for m in trend_list(registry, gb, ram_gb):
+    for m in trend_list(registry, gb, ram_gb, arch):
         everything = rank_engines(m, arch, ids, gb)
         engines = [e for e in everything if fmt is None or fmt in e.get("formats", [])]
         if engines:
