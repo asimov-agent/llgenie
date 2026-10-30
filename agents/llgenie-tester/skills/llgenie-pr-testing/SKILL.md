@@ -6,6 +6,7 @@ description: Test a llgenie PR against its issue's acceptance criteria.
 # Testing an LLGenie PR against its issue
 
 <!-- host-bot-tools:begin -->
+
 ## Tools
 
 This lane's chat session is pinned to these Hermes toolsets and no others: `clarify`, `code_execution`, `file`, `memory`, `session_search`, `skills`, `terminal`, `todo`.
