@@ -194,7 +194,7 @@ the review/check requirements clear. Read it back — `gh pr view <n> --json aut
    nobody edited.
 4. Sweep the doc for surfaces that landed *after* the refresh was generated — every `scripts/*.py`
    and every gate should be named somewhere in `docs/ARCHITECTURE.md` (the audit script lists the
-   gaps). A deprecated alias (`llama_serve.py`) and a helper the doc deliberately omits may stay
+   gaps). A deprecated alias (the retired serve script) and a helper the doc deliberately omits may stay
    out; say which and why in the PR body so the omission reads as a decision. Nothing enters the doc
    unless it exists at the head it describes: `git merge-base --is-ancestor <commit> HEAD` for a
    commit, `git ls-tree -r --name-only HEAD -- <path>` for a path, `grep -n '^<target>:' Makefile`
