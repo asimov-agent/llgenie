@@ -118,3 +118,56 @@ def test_trend_list_matches_the_committed_matrix(arch, vram, ram):
     served = [row for row in got if row["server"]]
     assert [row["model"] for row in got] == [row["model"] for row in expected]
     assert all(row["tps"] >= 0 for row in served)
+
+
+def test_the_1073_ternary_routing_defect_is_still_present():
+    """CANARY (#1073, #1092): the cuda golden still renders the ternary `Bonsai 2 4B` on plain
+    `llama.cpp`, which cannot load a ternary GGUF. This test DOCUMENTS the defect as present.
+
+    When the ternary routing lands (ternary → prism only) and the matrix is regenerated, zero
+    such rows remain and THIS TEST REDS — forcing this canary to be deleted together with the
+    fix (and the #1073 paragraph removed from PR #1099), so the defect cannot be forgotten. It
+    is deliberately NOT a skip/xfail (AGENTS.md forbids those).
+    """
+    import json
+    from pathlib import Path
+
+    fx = Path(__file__).resolve().parent / "fixtures" / "trend-list-matrix.json"
+    mx = json.loads(fx.read_text())
+    n = sum(
+        1
+        for c in mx["cases"]
+        for r in c["rows"]
+        if r.get("model") == "Bonsai 2 4B" and r.get("server") == "llama.cpp"
+    )
+    assert n > 0, (
+        "zero Bonsai rows on plain llama.cpp — the ternary routing LANDED: delete this canary "
+        "and remove the #1073 paragraph from #1099"
+    )
+
+
+def test_the_golden_was_not_regenerated_while_ternary_routing_is_broken():
+    """GUARD (#1099 / #1073): this PR deliberately does NOT regenerate the golden while the
+    ternary routing is broken — a regen changes `server`/`tps` on 8 models and would REGRESS
+    main's correct `Bonsai 2 4B = 'llama.cpp (PrismML fork)' @ 128` to plain `llama.cpp @ 6.0`.
+    Assert the fixture still names the PrismML fork, so an accidental regen (or a well-meaning
+    "fix the red" by regenerating) fails HERE instead of silently landing. Delete this guard
+    together with the canary when #1073 lands and the golden is regenerated for real."""
+    import json
+    from pathlib import Path
+
+    fx = json.loads(
+        (Path(__file__).resolve().parent / "fixtures" / "trend-list-matrix.json").read_text()
+    )
+    servers = [
+        r.get("server") or ""
+        for c in fx["cases"]
+        for r in c["rows"]
+        if r.get("model") == "Bonsai 2 4B"
+    ]
+    assert servers, "fixture has no Bonsai 2 4B rows at all"
+    assert any("PrismML" in s for s in servers), (
+        "the golden was regenerated while ternary routing is broken: Bonsai 2 4B no longer names "
+        "the PrismML fork. That is #1073's defect baked in — see #1099's held-red note"
+    )
+

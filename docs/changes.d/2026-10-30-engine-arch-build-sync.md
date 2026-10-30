@@ -1,0 +1,1 @@
+| 2026-10-30 | engine arch → build → offer → sync loop recorded; `measurement_backend` CUDA-default fixed (#1099), ternary routing blocked on the registry's missing per-file tensor type (#1073), install-leg fixed (#1093), registry-sync owner-disabled | [2026-10-30-engine-arch-build-sync.md](agent-wiki/2026-10-30-engine-arch-build-sync.md) | #1092, #1093, #1099, #1073, #103 |
