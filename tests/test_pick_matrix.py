@@ -88,8 +88,16 @@ def _no_catalog(monkeypatch):
     """These hermetic matrix tests stub the Hub tree (deterministic sizes) and
     assert exact URLs via the LIVE-resolving path — disable the committed quant
     catalog so it does not override the stubbed tree. The catalog's own path is
-    asserted by test_engine_supported_quants and the full-registry system test."""
+    asserted by test_engine_supported_quants and the full-registry system test.
+
+    The Hub is stubbed for the SEARCH endpoint too: a model this registry cannot
+    plan (`_no_fit_reason` for a Strata-only row) otherwise makes `gguf_repo` ask
+    `https://huggingface.co/api/models?search=…` — a real, unbounded Hub call from
+    the hermetic gate, which 429'd `linux / unit` (issue #872). An empty search
+    answer is the honest fixture: this registry's Hub repos are the stubbed trees,
+    so nothing exists to find."""
     monkeypatch.setenv("LLGENIE_QUANT_CATALOG", "0")
+    monkeypatch.setattr(mp, "_hub_json", lambda url: [])
 
 
 @pytest.fixture()
@@ -207,9 +215,15 @@ def test_matrix_scales_with_vram(monkeypatch):
 # -- spec scenario: llgenie --matrix prints rows and exits 0 --------------------
 def test_llgenie_matrix_prints_urls(tmp_path):
     """The CLI prints every permutation's HF URL and exits 0 on non-tty stdin
-    (the smoke registry points at the real, small health-check GGUF repo)."""
+    (the smoke registry points at the real, small health-check GGUF repo).
+
+    The pick is answered from the committed quant table for that model, so the
+    subprocess resolves the download plan with NO Hub call (#872: the hermetic gate
+    must not wait on — or 429 against — the live Hub). The URL it prints is the
+    committed table's real, resolvable link."""
     smoke = REPO / "tests" / "fixtures" / "matrix-smoke-registry.json"
     env = {**os.environ, "LLGENIE_REGISTRY_SRC": str(smoke),
+           "LLGENIE_QUANT_CATALOG": str(mp.QUANT_CATALOG),
            "LLAMA_MODELS_ROOT": str(tmp_path), "LLAMA_BACKEND": "cpu"}
     # Given --matrix 24 32 on stdin that is not a tty
     r = subprocess.run([sys.executable, str(REPO / "scripts" / "llgenie_serve.py"),

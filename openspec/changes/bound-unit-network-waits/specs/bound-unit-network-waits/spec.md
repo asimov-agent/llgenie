@@ -89,3 +89,50 @@ THEN `hub_open` sleeps them exactly as before, and a later answer is returned.
 - **When** `hub_open` is called
 - **Then** the third 429 raises and no fourth attempt is made
 - **Test:** `tests/test_hf_download_retry.py::test_hub_open_fails_on_the_third_429`
+
+### Requirement: the hermetic unit gate executes no live-Hub pick or trend case
+
+A test that answers its question by reading the live Hub MUST carry `@pytest.mark.network`
+(or a module-level `pytestmark = pytest.mark.network`) so `scripts/unit_tests.py run`
+(`-m "not network"`, the `linux / unit` gate) never executes it. `linux / unit` MUST NOT
+depend on Hub availability, and a Hub 429 MUST NOT red it.
+
+A hermetic test that would otherwise fall back to a live Hub lookup MUST answer from a
+fixture instead: a stubbed Hub tree, a stubbed search response, or the committed quant
+table (`data/trending-quant-catalog.json`) — never a real GET and never a widened timeout.
+
+WHEN `linux / unit` runs
+THEN no case it executes opens a Hub URL.
+
+#### Scenario: the hermetic matrix never asks the Hub for a search result
+
+- **Given** the synthetic registry whose Strata-only model cannot be planned
+- **When** `mp.matrix()` computes its rows
+- **Then** `gguf_repo`'s search endpoint is answered by the fixture (`[]`), no GET is made,
+  and the RAM/VRAM assertions still hold
+- **Test:** `tests/test_pick_matrix.py::test_matrix_binds_moe_quant_to_ram`
+
+#### Scenario: the `--matrix` CLI test resolves its plan from the committed table
+
+- **Given** the smoke registry and the committed quant table
+- **When** `llgenie_serve.py --matrix 24 32` runs on non-tty stdin
+- **Then** it exits 0 and prints the committed table's real Hub URL, with no Hub call
+- **Test:** `tests/test_pick_matrix.py::test_llgenie_matrix_prints_urls`
+
+#### Scenario: a whole live-Hub module is routed off the unit gate in one line
+
+- **Given** `tests/test_pick_full_registry.py`, whose cases resolve real repo trees and
+  probe real links over HTTP
+- **When** the unit gate collects with `-m "not network"`
+- **Then** none of that module's cases is in the set, and every one of them is collected by
+  `-m network`
+- **Test:** `tests/test_network_marker.py::test_a_module_level_pytestmark_routes_the_whole_module_off_the_unit_gate`
+
+#### Scenario: the genuinely live cases are owned by the network pipeline
+
+- **Given** the live Hub cache test, the catalog's link probe, and the two `offer()` rules
+  that resolve the Hub for anything the table does not cover
+- **When** the unit gate collects with `-m "not network"`
+- **Then** each is excluded, and the data-path census records the one that lives in a
+  data-path file
+- **Test:** `tests/test_check_model_links.py::test_the_network_membership_of_the_hf_data_path_files_is_exact`

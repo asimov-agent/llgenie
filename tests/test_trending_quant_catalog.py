@@ -6,10 +6,13 @@ data/models.json + the live Hub by scripts/gen_trending_quant_catalog.py
 (make sync-quant-catalog). The generator is separate tooling, not llgenie runtime
 logic, and makes no LLM calls.
 
-Unit assertions (hermetic except a bounded HTTP-200 probe): the catalog is well-formed,
-every model is a real registry model, every engine is a real engine with an image, and
-every URL is a concrete, resolvable `https://huggingface.co/<repo>/resolve/<rev>/<file>`
-download link. It never downloads a model — it only checks that links exist.
+Unit assertions (hermetic): the catalog is well-formed, every model is a real registry
+model, every engine is a real engine with an image, and every URL is a concrete,
+resolvable `https://huggingface.co/<repo>/resolve/<rev>/<file>` download link. It never
+downloads a model — it only checks that links exist. The live half — the bounded HTTP-200
+link probe and the two `offer()` rules that resolve the Hub for anything the table does
+not cover — carries `@pytest.mark.network` (#872), so `linux / unit` never waits on the
+Hub; `make test-unit-network` (issue #1002) owns them.
 
 Regression guard: the committed fixture must EXACTLY match the canonical data/ table,
 so a sync that changes a link or drops a section is caught here, not silently shipped.
@@ -117,11 +120,16 @@ def test_every_url_is_a_concrete_resolvable_download_link():
             assert it["path"] != "." and it["path"] in it["url"], it
 
 
+@pytest.mark.network
 def test_bounded_sample_of_real_links_exist_http_200():
     """A bounded sample of the catalog's links must exist on the live Hub (no model
     download — a 1-byte ranged probe). This guards that the committed table points at
     real files, not fabricated ones; the full pick-matrix suite probes every offered
-    quant of the real run."""
+    quant of the real run.
+
+    It opens one real Hub URL per (model, engine) — 271 of them on the 2026-10-30 table —
+    so it runs in the network pipeline (`make test-unit-network`, issue #1002) beside the
+    bounded liveness gate, never in `linux / unit` (#872)."""
     # one link per (model, engine) — bounded, still representative
     sample = []
     for engines in catalog()["files"].values():
@@ -153,7 +161,13 @@ def _offered_rows(arch: str = "cuda") -> list[dict]:
     return mp.offer(reg, arch=arch, gb=1024, ram_gb=1024)
 
 
+@pytest.mark.network
 def test_every_engine_and_arch_that_llgenie_offers_is_catalogued():
+    """`offer()` resolves the LIVE Hub for any (model, engine) the committed table does
+    not cover, which is what gives this rule its teeth: only a real Hub answer can show
+    that llgenie offers something the catalog is missing. It therefore belongs to the
+    network pipeline, not the hermetic gate (#872/#1016) — a Hub 429 there starved the
+    trees, offered nothing, and red-ed `linux / unit` while the tree was fine."""
     # Given every (model, engine) that llgenie actually offers on a host that fits the store
     d = catalog()
     rows = _offered_rows()
@@ -171,7 +185,11 @@ def test_every_engine_and_arch_that_llgenie_offers_is_catalogued():
                 f"list {cell['arch']} excludes it"
 
 
+@pytest.mark.network
 def test_every_registry_model_has_a_catalog_entry_or_a_documented_skip():
+    """The same live `offer()` surface as the rule above (see its docstring): a model the
+    table omits is only known to be servable because the Hub answered, so this runs in
+    the network pipeline rather than the hermetic gate (#872/#1016)."""
     # Given every row plain llgenie prints for a host that fits the whole store
     d = catalog()
     rows = _offered_rows()

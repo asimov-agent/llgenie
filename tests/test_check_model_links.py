@@ -115,6 +115,7 @@ EXPECTED_NETWORK_TESTS = {
         "test_gguf_repo_prefers_registry_repo_then_named_gguf_repo",
         "test_pick_file_fits_the_card_and_skips_shards_and_mmproj",
         "test_full_download_through_hf_download_places_the_complete_gguf",
+        "test_hub_json_caches_and_survives_a_missing_repo",
     },
     "test_model_engine_pick.py": {
         "test_download_fetches_a_real_chunk_of_the_chosen_file",

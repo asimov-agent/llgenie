@@ -244,6 +244,11 @@ _LOOPBACK_RE = re.compile(
     r"localhost|127\.0\.0\.1|0\.0\.0\.0|::1|TestClient|make_server|server|thread",
     re.I,
 )
+#: A scope that replaces the `hf_download.py` CHILD (the only thing `mp.download` reaches the
+#: Hub through): `subprocess.run` stubbed, or `HF_BIN` pointed at a local script.
+_STUBBED_CHILD_RE = re.compile(
+    r"monkeypatch\.setattr\(\s*mp\.subprocess|monkeypatch\.setenv\(\s*[\"']HF_BIN"
+)
 
 
 def _hub_opens(file_text: str) -> list[tuple[str, str]]:
@@ -305,7 +310,14 @@ def _hub_opens(file_text: str) -> list[tuple[str, str]]:
             # unmarked Hub reach, whether the arg is a model dict, a `mp.repo_for(...)` call, or a
             # plain repo string. NOT plan_download (planning only — the engine lane's carve-out) and
             # NOT resolve_local (local disk only).
-            if not nono and re.search(
+            # EXCEPTION — a call whose download CHILD is replaced makes no reach: `mp.download`
+            # never opens the Hub itself, it runs `scripts/hf_download.py` in a child, so a scope
+            # that stubs that child (`monkeypatch.setattr(mp.subprocess, "run", …)`) or points it
+            # at a local script (`HF_BIN=<tmp stub>`) downloads nothing (#872's bounded-child
+            # tests: one records the argv, the other runs a `sleep` script). The tree/stub half
+            # of those scopes is separately stubbed as a fixture — same doctrine as the
+            # `def urlopen(...)` stub carve-out above.
+            if not nono and not _STUBBED_CHILD_RE.search(body) and re.search(
                 r"\b(mp\.download|mp\.gguf_files|mp\.hf_size)\s*\(", s
             ):
                 problems.append((name, s[:140]))
@@ -345,3 +357,30 @@ def test_no_unmarked_real_open_reaches_the_hub():
         + "\nRoute each to `@pytest.mark.network` (owned by the #1002 network pipeline), to a "
         "loopback server, or to `hub_probe` liveness; never a silent real call in the unit path."
     )
+
+
+_MODULE_MARK_RE = re.compile(r"(?m)^pytestmark\s*=\s*pytest\.mark\.network\b")
+
+
+def test_a_module_level_pytestmark_routes_the_whole_module_off_the_unit_gate():
+    """A whole live-Hub module says so ONCE (`pytestmark = pytest.mark.network`) instead of
+    decorating 40 cases — and that must still move every case to the network pipeline, on the
+    gate's own collect (#872: `tests/test_pick_full_registry.py` resolved the live Hub and its
+    429s starved 36 cases in `linux / unit`). A module-level mark that collected nothing, or
+    that left a node in `-m "not network"`, is the silent unit-gate leak this pins."""
+    files = [d for d in ut.select(REPO) if _MODULE_MARK_RE.search((REPO / d).read_text())]
+    assert files, "no module-level `pytestmark = pytest.mark.network` — nothing to route"
+
+    network = {_net_node_parts(ln) for ln in _collect_marker(REPO, "network")}
+    hermetic = {_net_node_parts(ln) for ln in _collect_marker(REPO, "not network")}
+
+    for doc in files:
+        routed = {p for p in network if p[0] == doc}
+        # Then every case in the module is owned by the network pipeline ...
+        assert routed, f"{doc}: the module-level network mark selected no test under -m network"
+        # ... and none of it is executed by the hermetic gate
+        leaked = sorted(p[1] for p in hermetic if p[0] == doc)
+        assert not leaked, (
+            f"{doc}: {len(leaked)} case(s) with a module-level network mark are still in the "
+            f"`-m \"not network\"` set, e.g. {leaked[:5]}"
+        )

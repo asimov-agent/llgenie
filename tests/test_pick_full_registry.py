@@ -48,6 +48,15 @@ import engine_skills as es  # noqa: E402
 import hf_auth  # noqa: E402
 import model_engine_pick as mp  # noqa: E402
 
+# The whole module is the SYSTEM pick matrix: it resolves the real registry against the
+# LIVE Hub (real repo trees, real sizes, a ranged HTTP 200/206 probe per offered link).
+# Nothing here can be answered from a committed fixture, so it belongs to the network
+# pipeline (`-m network`, issue #1002), never to the hermetic gate (#872/#1016): a Hub
+# 429 emptied the trees, 36 cases asserted `[]`, and `linux / unit` went red while the
+# tree was fine. The hermetic half of the same rules is tests/test_pick_matrix.py —
+# synthetic registry + stubbed Hub tree, no network — and tests/test_trend_list_matrix.py.
+pytestmark = pytest.mark.network
+
 REGISTRY = REPO / "data" / "models.json"
 GB = 2**30
 SERVE = REPO / "scripts" / "llgenie_serve.py"

@@ -1293,9 +1293,14 @@ def test_tree_does_not_cache_a_transport_failure(monkeypatch):
     mp._TREE_CACHE.clear()
 
 
+@pytest.mark.network
 def test_hub_json_caches_and_survives_a_missing_repo(tmp_path, monkeypatch):
     """Live Hub: a tree lookup is cached on disk (second call does not hit the
-    network), and a repo that does not exist gives no files instead of crashing."""
+    network), and a repo that does not exist gives no files instead of crashing.
+
+    It needs the real Hub (a real tree for a real repo, and a real 404 for the
+    missing one), so it belongs to the network pipeline, not the hermetic gate
+    (#872/#1016): a 429 there reds `linux / unit` while the tree is fine."""
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
     url = f"{mp.HF}/api/models/aladar/tiny-random-LlamaForCausalLM-GGUF/tree/main?recursive=true"
     first = mp._hub_json(url)

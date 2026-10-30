@@ -20,6 +20,28 @@
   - `_rate_limited_error()` re-raises the **same** 429 (Hub status and headers unchanged, so callers
     reading `e.code`/`e.headers` are unaffected) with a message stating the attempts, the 429 waits,
     the seconds slept and the budget.
+- **The same bound, applied to the gate's own traffic** (the `linux / unit` red at `1bf1eea7`, job
+  `124213872957`: `42 failed, 14987 passed`): the suite behind that gate still resolved live Hub
+  answers, so the first 429 window it met starved 36 `tests/test_pick_full_registry.py` cases
+  (`assert []`), red `tests/test_trending_quant_catalog.py`'s two `offer()` rules and
+  `tests/test_trend_pick.py::test_hub_json_caches_and_survives_a_missing_repo`, and raised inside
+  `tests/test_pick_matrix.py`'s two matrix cases. Now:
+  - `tests/test_pick_matrix.py` answers `gguf_repo`'s **search** from the fixture
+    (`monkeypatch.setattr(mp, "_hub_json", lambda url: [])`) in its autouse fixture, and its
+    `--matrix` CLI case resolves the plan from the committed quant table
+    (`LLGENIE_QUANT_CATALOG`) instead of the live tree — the module makes no Hub call at all.
+  - `tests/test_pick_full_registry.py` (the SYSTEM matrix: real trees, real ranged HTTP 200 probes)
+    carries a **module-level** `pytestmark = pytest.mark.network`, so all 40+ cases move to the
+    `-m network` pipeline (#1002) in one line.
+  - `test_trend_pick.py::test_hub_json_caches_and_survives_a_missing_repo`,
+    `test_trending_quant_catalog.py::test_bounded_sample_of_real_links_exist_http_200` and its two
+    `offer()` rules carry `@pytest.mark.network`; the data-path census
+    (`tests/test_check_model_links.py::EXPECTED_NETWORK_TESTS`) records the `test_trend_pick` one.
+  - `tests/test_network_marker.py` pins the module-level route (every case collected by
+    `-m network`, none by `-m "not network"`), and its `mp.download` reach carve-out now recognises
+    a **stubbed download child** — the regime #872's own bound tests use (one stubs
+    `mp.subprocess.run` and records argv, the other points `HF_BIN` at a `sleep` script), so the pin
+    stops calling hermetic #872 tests real reaches.
 
 ## Why
 
@@ -59,7 +81,11 @@ no `timeout-minutes`, so GitHub's 6-hour default was the only limit. `pytest.ini
   observed green maximum (1:45:46).
 - Killing the child's grandchildren on timeout (process-group kill): the runner's orphan cleanup
   handles it today; a separate change with its own evidence.
-- The suite's 14.5 k live-Hub calls behind a PR gate — its own decision.
+- The suite's remaining live-Hub calls behind a PR gate — its own decision. Measured while proving this
+  round (`netlog` sitecustomize, `linux / unit`'s four routed modules excluded): `tests/test_trend_pick.py`'s
+  `offer()`-driven list/CLI cases still resolve the Hub for models the committed table does not cover, so
+  a 429 window can still red them; they are green on `main@564e938` and were not in this run's 42, so they
+  are left for their own change rather than folded in here.
 
 Refs: #872 (the bound), #797 (a timeout must never look like empty output), #339 / #163 (the shared
 429 policy this bounds), #549 (the read-phase timeout in the sibling seam).
