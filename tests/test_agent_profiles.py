@@ -125,15 +125,120 @@ def test_manifest_lists_every_host_profile():
 
 
 def test_committed_planner_soul_states_both_standing_rules():
-    """The committed orchestrator SOUL still forbids implementing and merging."""
+    """The committed orchestrator SOUL states both rules in its own voice, not by quoting them."""
 
     # Given the committed planner SOUL.md
     text = (REPO / "agents" / "llgenie-planner" / "SOUL.md").read_text(encoding="utf-8")
 
-    # When  each standing rule is matched
-    # Then  both are stated
+    # When  each standing rule is matched against what the file STATES
+    stated = guard.stated_text(text)
+
+    # Then  both are stated, and the strip that removes quotations kept them
     for rule, pattern in guard.STANDING_RULES.items():
-        assert pattern.search(text), f"agents/llgenie-planner/SOUL.md no longer states {rule}"
+        assert pattern.search(stated), f"agents/llgenie-planner/SOUL.md no longer states {rule}"
+
+
+QUOTED_ONLY_SOUL = """# LLGenie Orchestrator
+
+**Role:** fixture orchestrator
+
+You do not implement. A branch or a PR from you is a mistake.
+
+This lane does not arm auto-merge: the owner's instruction to this profile is the stricter one:
+*"Never merge PRs (no squash/auto-merge/push to main): every merge needs the user's approval; stop at
+the reviewable PR."* Where a fleet rule and a direct owner instruction disagree, the owner wins.
+"""
+
+STATED_AND_QUOTED_SOUL = """# LLGenie Architect
+
+**Role:** fixture architect
+
+**You do not implement and you never merge.** You measure, file and refine issues, and review other
+lanes' PRs.
+
+**This lane does not arm auto-merge — a standing owner instruction overrides the fleet rule.** The
+owner's instruction to this profile is the stricter one:
+*"Never merge PRs (no squash/auto-merge/push to main): every merge needs the user's approval; stop at
+the reviewable PR."* Where a fleet rule and a direct owner instruction disagree, the owner wins.
+"""
+
+
+def test_a_soul_that_only_quotes_never_merge_is_rejected(tmp_path):
+    """Issue #922's sabotage: quoting the rule must not satisfy the gate for stating it.
+
+    Before this test existed, ``re.compile(r"never\\s+merge").search(text)`` matched the QUOTE, so a
+    SOUL whose statement was deleted — while its lane section still cited the owner's instruction —
+    printed OK and exited 0.
+    """
+
+    # Given a SOUL whose only mention of never-merge is a quotation of the owner's instruction
+    root = fixture_tree(tmp_path)
+    write_soul(root / "agents", "llgenie-planner", QUOTED_ONLY_SOUL)
+
+    # When  the gate reads the tree
+    items = guard.findings(root, guard.AGENTS_DIR)
+
+    # Then  the quotation is not a statement: the finding names the file AND the rule
+    quoted = [item for item in items if item["key"] == "standing-rule-quoted"]
+    assert quoted, items
+    assert quoted[0]["where"] == "agents/llgenie-planner/SOUL.md"
+    assert "never-merge" in quoted[0]["detail"]
+    # And it is a DIFFERENT finding from a rule that was deleted outright, so a reader knows which
+    assert "standing-rule" not in {item["key"] for item in items}
+
+
+def test_a_rule_inside_a_fence_or_a_blockquote_is_also_only_quoted(tmp_path):
+    """A fenced sample and a blockquote are the other two shapes a quotation takes (issue #922)."""
+
+    # Given one SOUL that mentions never-merge only in a fenced block, and one only in a blockquote
+    fenced = fixture_tree(tmp_path / "fenced")
+    write_soul(fenced / "agents", "llgenie-planner",
+               "# LLGenie Orchestrator\n\nYou do not implement.\n\n```\nNever merge PRs.\n```\n")
+    quoted_line = fixture_tree(tmp_path / "quoted")
+    write_soul(quoted_line / "agents", "llgenie-planner",
+               "# LLGenie Orchestrator\n\nYou do not implement.\n\n> Never merge without approval.\n")
+
+    # When  the gate reads each tree
+    # Then  neither shape puts the agent under the rule
+    for root in (fenced, quoted_line):
+        assert "standing-rule-quoted" in keys(root), root
+
+
+def test_a_stated_rule_passes_even_when_the_soul_also_quotes_it(tmp_path):
+    """The live shape of #921's architect SOUL: statement plus quotation must PASS, not fail.
+
+    This is the case a naive "fail any file containing the words inside quotation marks" reds — a
+    correct SOUL that states its rule *and* documents the owner instruction it overrides.
+    """
+
+    # Given a SOUL that states the rule and also quotes the owner's instruction
+    root = fixture_tree(tmp_path)
+    write_soul(root / "agents", "llgenie-planner", STATED_AND_QUOTED_SOUL)
+
+    # When  the gate reads the tree and the strip is applied directly
+    stated = guard.stated_text(STATED_AND_QUOTED_SOUL)
+
+    # Then  nothing is a finding, the statement survives the strip, and the quotation does not
+    assert guard.findings(root, guard.AGENTS_DIR) == []
+    assert "you never merge" in stated.lower()
+    assert "owner's approval; stop at the reviewable" not in stated
+
+
+def test_a_profile_with_no_declared_rules_is_reported_unprotected(tmp_path):
+    """`rules: []` is "unenforced", not "nothing to check" — it must never read as a pass (#922)."""
+
+    # Given a manifest entry that declares no standing rule
+    root = fixture_tree(tmp_path, profiles=[{"name": "llgenie-planner", "rules": []}])
+
+    # When  the gate reports what it reads
+    rendered = guard.report(root)
+
+    # Then  the profile is named UNPROTECTED, and no standing-rule finding claims it passed
+    assert "UNPROTECTED" in rendered
+    assert "llgenie-planner" in rendered.split("UNPROTECTED", 1)[1]
+    assert guard.unprotected(guard.profiles_from_manifest(root / "agents")) == ["llgenie-planner"]
+    assert "standing-rule" not in keys(root)
+    assert "standing-rule-quoted" not in keys(root)
 
 
 # ---- one rejection per gate rule -------------------------------------------------
