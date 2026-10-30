@@ -263,6 +263,17 @@ cuda image** (disabled: "fat CUDA build runs > 50 min on hosted runners") and it
 was unpublished here, so on this card such a model is not runnable at all until CI
 publishes or the disable is revisited. Never solve that by building locally.
 
+**The producer workflow runs its own test legs per row (#1027).** `engine-build.yml`'s build job,
+after `push-engine` (only when `push=true`), runs `make test-published-engine` (serve-leg: pull the
+JUST-published image, digest == :ARCH, re-check the binary version, then SERVE it and answer a
+prompt; GPU-only rows get the version test via `--no-gpu` so the published binary is still
+exercised) and `make test-engine-install` (install-leg: install + the installed launcher's engine
+version + `llgenie --dry` + uninstall the image that row published). The engine-build.yml chain is
+`build-engine -> test-engine-stage -> push-engine -> test-published-engine -> test-engine-install`;
+the install-leg's make-seam + serve-leg seam details live in `references/engine-install-leg.md`.
+On the host the same legs are `make test-built-engine` (every launcher prints its version) and a
+real serve (above).
+
 ## Step 3c — a wait on an image is a TWO-LANE dependency (#873 rule 14)
 
 Before any wait for an artifact another job produces, **name the producer on the PR and to the lane
