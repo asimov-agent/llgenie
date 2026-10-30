@@ -814,6 +814,7 @@ def main(argv: list[str] | None = None) -> int:
         # because a green line is what made "rules: []" read as compliance.
         print(f"[check-agent-profiles] UNPROTECTED {name}: the manifest declares no standing rule for "
               "this profile, so nothing in its SOUL.md is gated — that is not the same as passing")
+<<<<<<< HEAD
     snapshot = snapshot_caveat(root, agents_dir, live_base)
     if snapshot:
         # Audible, and never a failure: the tree is not at fault when another lane rewrites the reference
@@ -833,6 +834,8 @@ def main(argv: list[str] | None = None) -> int:
                                               "were NOT compared)"))
     if args.summary:
         write_step_summary(compared)
+=======
+>>>>>>> 202d38c (fix(agents): a standing rule must be stated, not quoted (#922) (#944))
     if not items:
         caveat = (" — tree checks only, LIVE RULEBOOKS NOT COMPARED" if live_base is None else "")
         if snapshot:
