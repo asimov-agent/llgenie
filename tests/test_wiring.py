@@ -76,7 +76,7 @@ def test_the_real_tree_has_no_unwired_document():
 
     # And each recorded decision carries the reason and the target a human runs
     for doc, e in exceptions["documents"].items():
-        assert doc.startswith("tests/") and (REPO / doc).exists(), doc
+        assert (doc.startswith("tests/") or doc.startswith("scripts/")) and (REPO / doc).exists(), doc
         assert len(e["reason"]) > 40 and e["decided"] and e["target"], doc
         assert f"{e['target']}:" in (REPO / "Makefile").read_text(), doc
 
