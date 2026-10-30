@@ -92,11 +92,13 @@ RATE_LIMIT_WAITS = int(os.environ.get("HUB_RATE_LIMIT_WAITS", "2"))
 #: The count above bounds the NUMBER of waits, never their sum: two capped waits are
 #: 1200 seconds, and a probe that spends them holds a shared CI runner for 20 minutes
 #: while `pytest`'s 300 s faulthandler only prints a traceback. So the waits are bounded
-#: by a TOTAL: a 429 whose window does not fit what is left of this budget raises at once
-#: (the Hub's `t` is the seconds left in a fixed 5-minute window, so sleeping less spends
-#: the next window on another 429 — failing fast is the honest answer), and the raised
-#: message states the attempts and the seconds spent, so the lookup never fails silently.
-RATE_LIMIT_TOTAL_BUDGET = float(os.environ.get("HUB_RATE_LIMIT_BUDGET", "60"))
+#: by a TOTAL: `RATE_LIMIT_TOTAL_BUDGET` is sized to the Hub's REAL 5-minute window
+#: (300 s) so a transient 429's window fits and is waited out, yet a probe still cannot
+#: hold a shared CI runner for the 10-minute cap. A 429 whose window (the Hub's `t`, up to
+#: the 600 s CAP when the header is absent) exceeds this total still raises at once (issue
+#: #872: the 20-minute hop stays impossible). The raised message states the attempts and
+#: the seconds spent, so the lookup never fails silently.
+RATE_LIMIT_TOTAL_BUDGET = float(os.environ.get("HUB_RATE_LIMIT_BUDGET", "300"))
 
 
 def rate_limit_wait(err: urllib.error.HTTPError) -> int:
@@ -195,6 +197,11 @@ def hub_open(req: urllib.request.Request, timeout: float = 30, opener=None):
             if e.code == 429:
                 _rate_limited += 1
                 wait = rate_limit_wait(e)
+                # The total is sized to the Hub's REAL window (300 s), not 60 s: a
+                # transient 429 whose window is the Hub's 5-minute default used to raise at
+                # 0 s spent and 1 attempt — a fail-fast that never waits, which turned a
+                # transient 429 into a suite failure (#932). The 600 s CAP stays refused
+                # (issue #872), so the 20-minute hop is still impossible.
                 if _rate_limited > RATE_LIMIT_WAITS or slept + wait > RATE_LIMIT_TOTAL_BUDGET:
                     # Two ceilings, and either one ends the lookup: too many windows, or
                     # the next window does not fit what is left of the total budget.
