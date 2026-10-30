@@ -457,8 +457,18 @@ silent pass.
 - a `SOUL.md` no longer states a standing rule its manifest entry declares. The orchestrator declares
   both `never-implement` and `never-merge`; a manifest that declares `never-merge` for **no** profile
   is itself a failure, so the rule cannot be emptied out of the manifest;
+- a `SOUL.md` that mentions a declared rule **only inside a quotation** — a fenced code block, a
+  blockquote line or a `"…"` span. A rule is read from the file's own voice: quoting the owner's
+  instruction (or another lane's block) documents that instruction without putting this profile under
+  it, so the `standing-rule-quoted` finding is what a deleted statement looks like (issue #922). A SOUL
+  that states the rule *and* quotes it is correct and passes;
 - `state.db`, `sessions/`, `memories/`, `logs/` or `.env` appears in the tree — a profile's data is
   not its behaviour, and it is never committed.
+
+A manifest entry with `rules: []` declares no rule, so nothing in that profile's `SOUL.md` is gated.
+`check` and `report` name it `UNPROTECTED` instead of counting it as a pass — "no rule to check" and
+"the rule held" must not read the same line (issue #922). It is a report, not a failure: a profile may
+legitimately declare no rule, and a permanently red gate is a filtered gate.
 
 **Changing a host agent's behaviour is a change like any other**: its own issue, its own branch, an
 OpenSpec change, the text committed under `agents/<profile>/`, a PR a human approves, then
