@@ -321,7 +321,13 @@ def test_install_steps_are_idempotent(skills):
             # When it is read
             # Then it is guarded so a second run skips it
             if "git clone" in step:
-                assert step.startswith("test -d {src}/.git || "), (sid, step)
+                # Every clone is idempotency-guarded: `test -d <dest>/.git || git clone … <dest>`.
+                # The guard names the SAME directory the clone writes, so a re-run skips it. Issue
+                # #615 lets an engine clone a second, nested tree (mlx clones the ml-explore/mlx
+                # core into `{prefix}/mlx` next to mlx-lm in `{src}`), so the guard is not limited
+                # to `{src}` — what matters is that guard-path and clone-destination agree.
+                m = re.match(r"test -d (.+?)/\.git \|\| git clone .+ (\S+)$", step)
+                assert m and m.group(1) == m.group(2), (sid, step)
 
 
 def test_env_prelude_lets_bash_expand_skill_env():
@@ -355,8 +361,9 @@ def test_ollama_tarball_is_checksum_verified_before_extract(skills):
     assert "install.sh" not in " ".join(steps)
 
 
-def test_mlx_cuda_extra_follows_detected_cuda_major(skills):
-    """mlx[cuda13] on a CUDA 13 toolkit, mlx[cuda12] on CUDA 12."""
+def test_mlx_cuda_install_builds_the_core_from_source(skills):
+    """mlx/cuda builds its C++ core from the pinned ml-explore/mlx tree (issue #615),
+    for any detected CUDA major — never an `mlx[cudaNN]` wheel."""
 
     # Given the MLX skill on two CUDA versions
     skill = skills["mlx"]
@@ -365,9 +372,31 @@ def test_mlx_cuda_extra_follows_detected_cuda_major(skills):
     s13 = " ".join(es.plan(skill, "cuda", ADA_16GB)["steps"])
     s12 = " ".join(es.plan(skill, "cuda", {**ADA_16GB, "cuda_version": "12.8", "cuda_major": "12"})["steps"])
 
-    # Then the extra matches the toolkit
-    assert "mlx[cuda13]" in s13
-    assert "mlx[cuda12]" in s12
+    # Then both build the core from the pinned source tree, not a wheel
+    assert "git clone https://github.com/ml-explore/mlx.git" in s13
+    assert "-DMLX_BUILD_CUDA=ON" in s13
+    for s in (s13, s12):
+        assert "mlx[cuda13]" not in s and "mlx[cuda12]" not in s, s
+
+
+def test_mlx_image_install_clones_both_trees_from_source(skills):
+    """mlx/cpu and mlx/cuda build from source (issue #615): the ml-explore/mlx core AND
+    mlx-lm are cloned at their pins and built from their trees — a regression guard for the
+    idempotent multi-clone shape (mlx core lands in {prefix}/mlx, mlx-lm in {src})."""
+
+    # Given the MLX skill
+    skill = skills["mlx"]
+
+    # When the cpu and cuda image installs are rendered
+    for backend in ("cpu", "cuda"):
+        steps = " ".join(es.plan(skill, backend, ADA_16GB)["steps"])
+
+        # Then both trees are cloned from source, built with --no-build-isolation, and no
+        # `mlx[cudaNN]`/`mlx[cpu]` wheel extra remains in the image install
+        assert "git clone https://github.com/ml-explore/mlx.git" in steps, backend
+        assert "git clone https://github.com/ml-explore/mlx-lm.git" in steps, backend
+        assert "--no-build-isolation" in steps, backend
+        assert "mlx[" not in steps, backend
 
 
 def test_detect_hardware_env_seams(monkeypatch):
