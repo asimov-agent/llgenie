@@ -267,6 +267,16 @@ implement the remediation. The one file it may write is its own `agents/llgenie-
   `?ref=<base-sha>` for the base, then `diff -u`. Review the gate's own code at the head against the base, not at
   the PR body's description of it — a description can be right about the intent and wrong about the diff.
 
+## Live profile vs tree (the sync direction)
+
+`make check-agent-profiles` reports `live-edited-not-tree` when the live profile was changed after the tree copy,
+and `live-longer` / `live-lines-missing` when live and tree differ in length. **Sync is one-way — tree → live.**
+So the fix is never "copy the live file back into the tree": author the change deliberately under
+`agents/<profile>/` (issue + PR), then `make sync-agent-profile PROFILE=<p> CHECK=1` to prove byte-identity. A
+`--force` sync would overwrite live content nobody diffed, which is the destructive direction the gate exists to
+refuse; a protected `SOUL.md` write that times out is not consent — put the exact sentence in the PR body and
+report it as the one open item.
+
 <!-- host-bot-tools:begin -->
 
 ## Tools
