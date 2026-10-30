@@ -422,7 +422,7 @@ sync-agent-profile: ## Copy agents/<PROFILE>/ into that profile's Hermes home (P
 	@test -n "$(PROFILE)" || { echo "Usage: make sync-agent-profile PROFILE=<profile> [CHECK=1] [FORCE=1]"; exit 2; }
 	python3 scripts/agent_profile_sync.py --profile "$(PROFILE)" $(if $(CHECK),--check,) $(if $(FORCE),--force,)
 
-check-agent-profiles: ## CI: fail when a listed host-agent profile has no SOUL.md, a skill's frontmatter name disagrees with its directory, a skill names a missing reference or carries a secret value, or a SOUL.md dropped a standing rule (issue #791)
+check-agent-profiles: ## CI: fail when a listed host-agent profile has no SOUL.md, a skill's frontmatter name disagrees with its directory, a skill names a missing reference or carries a secret value, or a SOUL.md dropped a standing rule — searched in the file's own voice, so a QUOTED rule satisfies nothing (issue #791, #922)
 	python3 scripts/check_agent_profiles.py check
 
 agent-profiles-report: ## Print every host-agent profile with its SOUL.md size, its skills and its standing rules, then every finding (issue #791)
