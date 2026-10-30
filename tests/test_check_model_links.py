@@ -97,6 +97,7 @@ DATA_PATH_FILES = (
     "test_pick_full_registry.py",
     "test_trend_pick.py",
     "test_install_trend.py",
+    "test_registry_sync_trend.py",  # issue #1067: live sr.fetch into raw.githubusercontent.com
 )
 
 # The complete real-Hub ownership set across those files, from the widened routing census (issue
@@ -119,6 +120,7 @@ EXPECTED_NETWORK_TESTS = {
         "test_pick_file_fits_the_card_and_skips_shards_and_mmproj",
         "test_full_download_through_hf_download_places_the_complete_gguf",
         "test_hub_json_caches_and_survives_a_missing_repo",
+        "test_the_vendored_contract_is_upstreams_and_the_store_satisfies_it",  # issue #1067
     },
     "test_model_engine_pick.py": {
         "test_download_fetches_a_real_chunk_of_the_chosen_file",
@@ -138,6 +140,13 @@ EXPECTED_NETWORK_TESTS = {
         "test_pick_matrix_edge_case_golden",
         "test_pick_matrix_edge_case_golden_ram",
         "test_the_ram_ladder_never_shrinks_the_chosen_quant",
+    },
+    # issue #1067: the whole file is the one that motivated the widened scan — its module
+    # fixture synced the live upstream registry inside the hermetic gate. The hermetic twins
+    # that keep the same behaviour on committed data carry no mark on purpose.
+    "test_registry_sync_trend.py": {
+        "test_live_sync_adopts_a_higher_skilled_tps_for_models_that_fit_48gb",
+        "test_rank_follows_the_given_vram_ram_and_arch",
     },
 }
 

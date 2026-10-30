@@ -453,9 +453,17 @@ def test_check_contract_refuses_a_bad_id_a_bad_backend_and_a_format_without_hf()
         sr.check_contract(bad_format, schema)
 
 
+@pytest.mark.network
 def test_the_vendored_contract_is_upstreams_and_the_store_satisfies_it():
     """Live GitHub: the vendored contract is upstream's byte for byte, and the vendored store
-    satisfies it — the guard is upstream's definition of valid, not a guess (issue #694)."""
+    satisfies it — the guard is upstream's definition of valid, not a guess (issue #694).
+
+    NETWORK (issue #1067): this fetches `raw.githubusercontent.com` twice through
+    `sr.fetch`, reached inside `sync_registry` rather than spelled as a URL here — which is
+    exactly why the Hub-only #1000 scan could not see it. Owned by `make test-unit-network` /
+    `ci-hf-live.yml`; `test_the_vendored_store_satisfies_the_vendored_contract` below keeps the
+    hermetic half in `make test-unit`.
+    """
     # Given the vendored copies and the live upstream ones
     upstream_schema = sr.fetch(sr.UPSTREAM_CONTRACT)
     upstream_doc = sr.fetch(sr.UPSTREAM_CONTRACT_DOC)
@@ -466,6 +474,19 @@ def test_the_vendored_contract_is_upstreams_and_the_store_satisfies_it():
 
     # And the vendored store satisfies the contract it is committed with
     sr.check_contract(json.loads(VENDORED.read_bytes()), json.loads(upstream_schema))
+
+
+def test_the_vendored_store_satisfies_the_vendored_contract():
+    """The hermetic half of the check above (issue #1067): the committed store is valid under the
+    committed contract, with no network. What needs the live upstream is only the byte-equality of
+    the two contract copies, and that moved to the `-m network` pipeline."""
+
+    # Given the committed store and the committed contract
+    data = json.loads(VENDORED.read_bytes())
+    schema = json.loads(sr.VENDORED_CONTRACT.read_bytes())
+
+    # Then the store satisfies it
+    sr.check_contract(data, schema)
 
 
 @pytest.mark.network
