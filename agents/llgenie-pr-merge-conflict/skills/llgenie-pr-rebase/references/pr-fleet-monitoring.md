@@ -78,3 +78,19 @@ just read, because a new push invalidates all earlier counts — including ones 
   were cancelled an hour ago.
 - Rejected `--force-with-lease` means another actor moved the branch: re-fetch, check whether it is
   already resolved, report and stop. Never escalate to a bare `--force`.
+
+## A state-file delta watch must timestamp its lines
+The two designs above make opposite demands, and mixing them is a real bug:
+| design | dedupe mechanism | timestamps in stdout |
+| monitor-gated agent | hash of stdout must be byte-identical | **forbidden** — a timestamp changes the bytes and defeats suppression |
+| `no_agent` + state file | state file diffs the previous measurement | **required** — nothing else dates the output |
+A `no_agent` job's delivery can arrive **hours late** (a `queue_full` queue, a retry, a resumed host) while the text still reads exactly like a fresh alarm. Answering it as live is expensive: it means re-measuring PRs that may have merged since. Stamp every emitted line with the measurement time so staleness is self-evident rather than inferable:
+```
+NEW-FAILURE     #101 @abcdef12  linux / unit   [measured 22:58:26Z]
+```
+Diagnose a suspicious alert in this order, cheapest first:
+1. `gh api repos/<o>/<r>/pulls/<n> --jq .state` — closed means it is not a job at all.
+2. `git merge-base --is-ancestor <quoted-sha> origin/main` — a head from superseded history cannot be rebased even if the PR is open.
+3. the job's own `last_delivery_error` in the profile's `cron/jobs.json` — a `queue_full` delivery failure explains a late message with no measurement change.
+Then re-run the reporter by hand and report what it measures **now**; never relay the delivered text. After a long delivery gap, re-baseline the state file rather than trusting the diff.
+Prove a stamping change by re-baselining the state file (clear the recorded failures so real ones read as NEW), running the reporter, confirming the stamp appears, then restoring the baseline.
