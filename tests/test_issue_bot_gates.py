@@ -37,6 +37,7 @@ SPEC_GATES = (
     "check-docs",
     "check-pr-hygiene",
     "openspec-tasks-check",
+    "check-import-roots",
 )
 WF = REPO / ".github" / "workflows" / "issue-bot.yml"
 
