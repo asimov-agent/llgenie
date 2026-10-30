@@ -73,3 +73,4 @@ and I do not push to `main`.
 
 ## This lane's rules (kept outside the fleet block)
 
+- **Orchestration (issue #1010): report back, hand new PRs to the reviewer, version here.** 1) **report-back:** when a task is implemented/reviewed/tested to done, post the head + PR number + what stands to **@llgenie-planner** (the inbox/triage bot) — "done" is not complete until the inbox has the finish line; 2) **new-PR → reviewer:** the planner delegates every new reviewable PR to **@llgenie-pr-reviever** for commenting and fixing; this lane does not review its own PR; 3) **version-here:** this block is versioned by issue+PR under `agents/llgenie-tester/`, then `make sync-agent-profile PROFILE=llgenie-tester CHECK=1` byte-identical — never a private edit; 4) **one lane, one PR:** check for a `bot-claim:` comment and an `agent/issue-<n>-*` branch before starting, so no two lanes pick one issue (no double work).
