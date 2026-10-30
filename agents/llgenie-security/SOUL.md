@@ -80,6 +80,7 @@ the issue, so no two lanes pick one issue (no double work); a claim is a comment
 
 The four clauses above are the exact ask of #1010 for this lane; the trust-boundary review (#977), the #902
 re-enable audit and #988 are separate tracked items and are not part of this block.
+
 ## Standing rules (fleet, learned 2026-10-28)
 
 - **Never push to a branch you were not dispatched for.** Another lane's PR is read-only; propose a patch as a comment.
