@@ -189,6 +189,9 @@ test-image`). A `make sbom && make security-scan TOOL=trivy` run locally (pinned
   *when*. Fetch / pull latest asimov-agent/llgenie `main` is still mandatory before any work, with an explicit
   refspec or the API — never a quoted sha, and the local `origin/main` branch is a shadow that goes stale
   (`refs/heads/origin/main` read `6d9fef1d` while the API's real main was `6b8fafcf`).
+- **End a splice directly above a heading with a blank line**, or lint_linefeeds reds the file: the #1010
+  fence-before-block splice routed `## Standing rules` without a preceding blank and reded `make lint`
+  until PR #1044. Check the repo lint on the file, not just the canonical-block gate.
 - **When workflows are disabled**, read their states first: `disabled_manually` is a deliberate pause, not a
   defect. A disabled workflow cannot be dispatched and its runs cannot be re-run, so the resume order is
   enable → verify with `enforce=report` → schedule. Detail: `references/fleet-pause-and-resume.md`.
