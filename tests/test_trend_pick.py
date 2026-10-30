@@ -880,7 +880,7 @@ def test_bands_match_the_readme_status_column():
 
 def test_llgenie_no_args_is_the_interactive_trend_pick(tmp_path):
     # Given the vendored registry, an empty models dir and a 16 GB cpu host
-    env = _env(tmp_path, "cpu", 16)
+    env = _env(tmp_path, "cpu", 16, LLGENIE_SYSTEM_RAM_BYTES=RAM64)
     rows = _offer(tmp_path, "cpu", 16)
     pickable = [r for r in rows if not r["why"]]
     top = pickable[0]
@@ -1135,7 +1135,7 @@ def test_local_marker_and_reuse_in_the_trend_list(tmp_path):
 
 def test_model_pick_reprompts_on_invalid_input(tmp_path):
     # Given the trend list in a terminal
-    env = _env(tmp_path, "cpu", 16)
+    env = _env(tmp_path, "cpu", 16, LLGENIE_SYSTEM_RAM_BYTES=RAM64)
     n = len([r for r in _offer(tmp_path, "cpu", 16) if not r["why"]])
     p = Pty([sys.executable, str(SERVE), "--dry"], env, cwd=str(REPO))
     try:
