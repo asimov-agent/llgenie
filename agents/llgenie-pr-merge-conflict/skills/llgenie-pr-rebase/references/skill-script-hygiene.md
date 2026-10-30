@@ -89,3 +89,41 @@ gh run list --repo <owner>/<repo> --branch <branch> --limit 5 \
 ```
 
 `commits/<sha>/check-runs` can lag and report zero runs immediately after a force-push. An armed PR whose CI never triggered never merges, so `0 failures` alongside `0 runs` is **not** green — query the branch view to tell those apart before reporting a PR as waiting on its matrix.
+
+## "SOUL.md is protected" is two rules about two different files
+
+Never collapse them, in either direction:
+
+| path | what it is | write rule |
+|---|---|---|
+| `~/.hermes/profiles/<lane>/SOUL.md` | the **live profile the agent runs under** | needs owner approval |
+| `agents/<lane>/SOUL.md` | an **ordinary versioned repo file** | commit by issue + PR like any other |
+
+Measured: a dispatch asking for a one-line blank-line fix to `agents/llgenie-pr-merge-conflict/SOUL.md` was declined as "owner-gated". It was not — that path is a normal repo file every lane edits under #1060, and declining it left a PR red on a defect this lane could fix.
+
+The inverse error is worse: treating the live-profile path as ordinary and writing it without approval changes the running behaviour of an agent mid-run.
+
+## A skill file can hit a hard size ceiling
+
+`SKILL.md` is capped at ~100,000 characters, and this lane's reached **100,330** — every later lesson then fails to save with `SKILL.md content is 100218 characters (limit: 100000)` and the whole `skill_manage` batch rolls back. When a skill is at the cap, the lesson must go into a `references/<topic>.md` cited by a one-line pointer. Check `wc -c` before appending a long entry.
+
+## Two skill copies can drift; a union must be formatted, not concatenated
+
+A profile may hold one skill under two paths (`skills/<skill>/` and `skills/<category>/<skill>/`), and `sync-agent-profile` writes **one** while the resolver may load the **other** — editing or executing the copy you did not sync is a silent no-op that looks like verification. Detect it:
+
+```bash
+# which path does the session actually resolve?
+python3 -c "import json;d=json.load(open('<profile>/.skills_prompt_snapshot.json'));s=json.dumps(d);print([k for k in ('<category>/<skill>','<skill>') if k in s])"
+# are the two copies identical right now?
+diff -rq <profile>/skills/<skill> <profile>/skills/<category>/<skill>
+```
+
+The symptom is that a bug you fixed in the tree is **still present when run through the skill**.
+
+When one copy holds content the other lacks this is a **two-way union**, never a copy-in: collect the lines unique to each side, add the missing ones, and re-assert the set difference is empty in both directions. **But a line-wise union destroys markdown structure** — measured: appending raw lines stripped every blank line and code fence, so shell comments starting with `#` began reading as headings and `lint_linefeeds.py` rejected three lines (`117, 119, 137`). Union by *section*, or re-run the lint per file, and restore from the commit rather than trying to repair merged prose.
+
+The sync itself is guarded: it **refuses** with `live-edited-not-tree` when the live file was edited after the tree commit. That refusal is correct — merge the live file's unique lines deliberately, never reach for `--force`. A recurring cause is a `skill_manage` patch that wrote the same lesson with different typography (curly vs straight quotes); the fix is to delete the redundant copy and keep the tree's text.
+
+## A detector must not conflate "nothing found" with "couldn't tell"
+
+A monitor whose gate suppresses unchanged output turns a false negative into a **permanent** one: wrong-but-stable output suppresses the very tick that would catch it. Measured: a DIRTY detector read GitHub's `mergeable` field, which returns `UNKNOWN` while computing, and mapped that to "no conflicts" — at one moment **every open PR read `UNKNOWN`**, so it printed `conflicting: none` and would have suppressed every subsequent tick even with a real conflict present. Fold the undetermined set through the authoritative measurement (`git merge-tree`) instead, and keep the output stable so quiet ticks still suppress.
