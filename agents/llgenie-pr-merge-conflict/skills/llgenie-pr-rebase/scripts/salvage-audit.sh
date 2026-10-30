@@ -19,11 +19,28 @@
 # open PR head is covered by that PR even under a different branch name (this is what
 # catches a rebase lane's own scratch replays), leaving the genuinely-only-here set.
 #
-# Usage: salvage-audit.sh [<repo>]        (default: /home/asimov/repository/git/llgenie)
+# Usage: salvage-audit.sh [<repo>]
+#   default: $LLGENIE_REPO, else the nearest parent of this script containing .git, else cwd.
+#   Never a hardcoded host path: this script ships to every checkout and to CI, where the
+#   repository lives at a different absolute path (measured: the python sibling pinned
+#   /home/asimov/... and would have failed on every runner).
 # Exit 0 always unless git itself fails; this is a report, not a gate.
 
 set -uo pipefail
-REPO="${1:-/home/asimov/repository/git/llgenie}"
+if [ -n "${1:-}" ]; then
+  REPO="$1"
+elif [ -n "${LLGENIE_REPO:-}" ]; then
+  REPO="$LLGENIE_REPO"
+else
+  # walk up from this script's own directory to the checkout root
+  _d=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+  REPO=""
+  while [ "$_d" != "/" ]; do
+    if [ -e "$_d/.git" ]; then REPO="$_d"; break; fi
+    _d=$(dirname -- "$_d")
+  done
+  [ -n "$REPO" ] || REPO="$(pwd)"
+fi
 cd "$REPO" || exit 2
 
 command -v gh >/dev/null || { echo "gh CLI required (open/merged PR sets)" >&2; exit 2; }
