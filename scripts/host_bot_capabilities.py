@@ -66,7 +66,6 @@ def tools_block(spec: dict, profile: str) -> str:
     keep = ", ".join(f"`{name}`" for name in sorted(row["keep_skills"]))
     return (
         f"{MARKER_BEGIN}\n"
-        "\n"
         "## Tools\n"
         "\n"
         f"This lane's chat session is pinned to these Hermes toolsets and no others: {toolsets}.\n"
