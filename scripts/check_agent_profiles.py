@@ -46,6 +46,8 @@ import json
 import os
 import re
 import sys
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -313,6 +315,55 @@ def live_root(root: Path = REPO_ROOT) -> Path | None:
     return live_root_info()[0]
 
 
+def _iso(ts: float) -> str:
+    """A UTC stamp a reader can compare against their own run (#924)."""
+    return datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+#: When this process started. A live file edited after this moment changed *during* the check, which makes
+#: the comparison a snapshot rather than a verdict (issue #924).
+_STARTED = time.time()
+
+
+def snapshot_caveat(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR,
+                    live: Path | None = None, started: float | None = None) -> str | None:
+    """The line that says the live reference moved while we were reading it, or None.
+
+    The live profile is not frozen: another lane rewrites it mid-review, so a `FAIL live-longer` can become
+    `OK` with the tree byte-identical — measured on #919 (tree 22,175 b; live 24,791 b then 21,349 b minutes
+    later). The gate cannot make a moving target stand still; what it can do is stop implying it compared
+    against a still one (issue #924).
+    """
+    agents = (root / agents_dir) if not agents_dir.is_absolute() else agents_dir
+    base = live if live is not None else live_root(root)
+    moment = _STARTED if started is None else started
+    if base is None or not agents.is_dir():
+        return None
+    profiles, _ = read_manifest(agents)
+    moved: list[str] = []
+    for profile in profiles:
+        live_profile = base / profile["name"]
+        tree_profile = agents / profile["name"]
+        if not live_profile.is_dir() or not tree_profile.is_dir():
+            continue
+        for path in sorted(tree_profile.rglob("*")):
+            if not path.is_file():
+                continue
+            counterpart = live_profile / path.relative_to(tree_profile)
+            if not counterpart.is_file():
+                continue
+            mtime = counterpart.stat().st_mtime
+            if mtime >= moment:
+                moved.append(f"{profile['name']}/{path.relative_to(tree_profile)} "
+                             f"(live mtime {_iso(mtime)})")
+    if not moved:
+        return None
+    return ("the live reference changed WHILE this check was reading it: "
+            + ", ".join(moved[:3])
+            + (" …" if len(moved) > 3 else "")
+            + " — this comparison is a SNAPSHOT of a moving file; re-run to confirm")
+
+
 def shrink_findings(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR,
                     live: Path | None = None) -> list[dict]:
     """Every live rulebook LONGER than its in-tree copy — the truncated seed, caught before a sync.
@@ -351,7 +402,8 @@ def shrink_findings(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR,
                 items.append({
                     "key": "live-longer",
                     "where": f"{tree_profile.name}/{rel}",
-                    "detail": f"the tree has {tree} b, the live profile has {there} b and carries "
+                    "detail": f"the tree has {tree} b, the live profile has {there} b "
+                              f"(live mtime {_iso(counterpart.stat().st_mtime)}) and carries "
                               f"{len(missing)} line(s) the tree lacks — the seed is a prefix of the "
                               f"rulebook, so `make sync-agent-profile` would replace {there} bytes with "
                               f"{tree} and no gate would notice (issue #791). First: "
@@ -737,8 +789,16 @@ def main(argv: list[str] | None = None) -> int:
         # because a green line is what made "rules: []" read as compliance.
         print(f"[check-agent-profiles] UNPROTECTED {name}: the manifest declares no standing rule for "
               "this profile, so nothing in its SOUL.md is gated — that is not the same as passing")
+    snapshot = snapshot_caveat(root, agents_dir, live_base)
+    if snapshot:
+        # Audible, and never a failure: the tree is not at fault when another lane rewrites the reference
+        # mid-run, but a reader must not take the comparison for a verdict (#924).
+        print(f"[check-agent-profiles] live-profile comparison is a SNAPSHOT: {snapshot}",
+              file=sys.stderr)
     if not items:
         caveat = (" — tree checks only, LIVE RULEBOOKS NOT COMPARED" if live_base is None else "")
+        if snapshot:
+            caveat += " — the live reference moved DURING this run, so the comparison is a snapshot"
         print(f"[check-agent-profiles] OK: {len(profiles)} host-agent profile(s), each with a "
               "SOUL.md stating the rules its manifest declares; every skill's frontmatter name "
               f"matches its directory and carries no secret value{caveat}")
