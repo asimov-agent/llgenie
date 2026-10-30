@@ -119,6 +119,13 @@ def test_tools_block_is_idempotent_and_names_the_pin():
     assert twice.count(pin.MARKER_BEGIN) == 1
     assert "`web`" in twice
     assert "issue #1038" in twice
+    # And every heading it emits stays blank-line separated, so `make ci-lint` does not
+    # red on the generator's own output (measured: the block used to put `## Tools`
+    # directly after the marker, which lint_linefeeds flags as a heading with no
+    # preceding blank line — and a re-run then STRIPPED the blank line a hand-fixed file
+    # needed, turning a green tree red).
+    assert f"{pin.MARKER_BEGIN}\n\n## Tools" in twice
+    assert f"{pin.MARKER_END}\n" in twice
 
 
 def test_repo_host_skills_carry_the_marker():
