@@ -14,6 +14,10 @@ What it never does: it writes only the files the tree carries, so the profile's 
 `state.db`, sessions and `.env` are untouched — and there is no delete path at all, because a sync
 that removed a skill from a live profile would be a behaviour change nobody reviewed.
 
+The sync is ONE-WAY: the tree is the source, the live profile is a copy, and a live-only edit is a
+*finding* in `check_agent_profiles.py` (which profile, by how many bytes, and the remedy), never
+silent drift that the tree re-takes (issue #968).
+
 Destination: `--dest`, else `$HERMES_PROFILE_HOME` (the PROFILE's home, not a profiles/ directory),
 else `~/.hermes/profiles/<profile>/`.
 
@@ -27,14 +31,14 @@ import argparse
 import filecmp
 import os
 import shutil
-import subprocess
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from check_agent_profiles import AGENTS_DIR, MANIFEST, profiles_from_manifest  # noqa: E402
+from check_agent_profiles import (  # noqa: E402
+    AGENTS_DIR, MANIFEST, _stamp, profiles_from_manifest, source_time,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -87,7 +91,9 @@ def check(agents: Path, name: str, dest: Path) -> int:
         for rel, tree_size, live_size in truncated:
             print(f"[agent-profile] TRUNCATED? {agents.name}/{name}/{rel}: the tree copy is {tree_size} b "
                   f"and the profile's is {live_size} b — syncing would REPLACE {live_size - tree_size} b of "
-                  f"live behaviour. Re-copy the file FROM the profile before syncing", file=sys.stderr)
+                  f"live behaviour. Sync is one-way (tree → live), so fix the TREE: a live-only edit "
+                  f"is a finding in check_agent_profiles.py — commit it via an issue+PR under "
+                  f"agents/{name}/, then re-sync.", file=sys.stderr)
         print(f"[agent-profile] {len(differing)} of {len(files)} file(s) differ from {dest} — "
               f"first: {differing[0].split(' (')[0]}. "
               + (f"{len(truncated)} of them would SHRINK the live profile, so the tree copy is the "
@@ -138,28 +144,6 @@ def shrinks(agents: Path, name: str, dest: Path) -> list[tuple[str, int, int, in
         if lost and (subset or (live and tree < live * SHRINK_FLOOR)):
             out.append((rel, tree, live, lost))
     return out
-
-
-def _stamp(ts: float) -> str:
-    return datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def source_time(agents: Path, name: str, path: Path) -> float:
-    """When the tree copy was COMMITTED — not its mtime, which a fresh clone resets to now.
-
-    A clone sets every file's mtime to checkout time, so an mtime comparison would say the tree is newer
-    than any live file and quietly disarm this guard on exactly the checkout that runs it. The commit
-    that last touched the path is the stable answer; an untracked fixture file falls back to its mtime.
-    """
-    rel = path.relative_to(agents.parent).as_posix()
-    try:
-        out = subprocess.run(["git", "-C", str(agents.parent), "log", "-1", "--format=%ct", "--", rel],
-                             capture_output=True, text=True, timeout=20, check=False)
-        if out.returncode == 0 and out.stdout.strip():
-            return float(out.stdout.strip())
-    except (OSError, subprocess.SubprocessError, ValueError):
-        pass
-    return path.stat().st_mtime
 
 
 def _loses_live_lines(tree_text: str, live_text: str) -> bool:

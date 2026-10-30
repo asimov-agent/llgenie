@@ -434,7 +434,6 @@ profile-drift: ## Fail when a tree copy is a PREFIX of the live rulebook (issue 
 	@python3 scripts/check_agent_profiles.py check --only live-longer
 
 .PHONY: profile-drift
-
 agent-profiles-report: ## Print every host-agent profile with its SOUL.md size, its skills and its standing rules, then every finding (issue #791)
 	python3 scripts/check_agent_profiles.py report
 
