@@ -69,3 +69,33 @@ def test_a_gate_script_is_not_left_empty():
     for p in _shell_scripts() + _python_scripts():
         body = [ln for ln in p.read_text().splitlines() if ln.strip()]
         assert len(body) > 5, f"{p.name} is effectively empty ({len(body)} non-blank lines)"
+
+
+def test_the_audit_tools_count_deletion_the_same_way():
+    """Two audits of one repository must not disagree, or one of them is lying to the owner.
+
+    `salvage-audit.sh` and `salvage-four-bucket.py` answer the same question -- "what is safe to
+    delete, what must be preserved" -- so a divergence means a prune decision taken on the wrong
+    number. This asserts the *rules*, not a snapshot of the counts (the repository changes every
+    minute, and an exact-count test would red on every unrelated push).
+
+    Measured divergence that motivated this: the python tool first reported
+    `safe to delete: 45 branches / 132 worktrees` against the shell's `162 / 125`, because it
+    (a) counted `total - dirty` worktrees, marking CLEAN worktrees on unique branches as safe,
+    and (b) excluded lossless orphans from the deletable branch count.
+    """
+    sh = (SCRIPTS / "salvage-audit.sh").read_text()
+    py = (SCRIPTS / "salvage-four-bucket.py").read_text()
+
+    # Each tool must derive its preserve set as a UNION of dirty and unique-branch worktrees.
+    # A plain `total - dirty` subtraction is the bug; it is not allowed to reappear.
+    assert "len(keep)" in py, "python tool must subtract the union, not just dirty"
+    assert "len(wts)-len(dirty_all)" not in py, "python tool regressed to total-minus-dirty"
+    assert "set(wt_uniq)" in sh, "shell tool must union its unique-branch worktrees"
+
+    # And the deletable-branch count must be "everything except the unique set", never a
+    # bucket enumeration that silently drops lossless orphans.
+    assert "len(rows) - len(unique_orphans)" in py, \
+        "deletable branches must be total-minus-unique, not a bucket sum"
+    assert "for r in rows if r['bucket'] in ('merged-and-clean', 'unmerged-with-a-PR')" not in py, \
+        "deletable branches regressed to a bucket enumeration that drops lossless orphans"

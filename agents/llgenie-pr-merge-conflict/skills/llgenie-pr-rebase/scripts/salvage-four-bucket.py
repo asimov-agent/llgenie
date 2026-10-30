@@ -169,18 +169,36 @@ def main() -> int:
     dirty_all = [w for w in wts if w["dirty"]]
     orphans = [r for r in rows if r["bucket"] == "orphan"]
     unique_orphans = [r for r in orphans if r.get("added") and not r.get("held_by_pr")]
+    # A worktree is only safe to delete when it is BOTH clean and its HEAD carries nothing unique.
+    # Counting `total - dirty` alone (the first version of this tool did) marks a CLEAN worktree
+    # sitting on a unique branch as safe -- which tells the owner to delete work that exists
+    # nowhere else. Measured: 6 clean worktrees were on unique branches, so the two figures
+    # disagreed (132 vs 126) and the wrong one was the optimistic one.
+    unique_shas = {r["tip"] for r in unique_orphans}
+    unique_wt = [w for w in wts if w.get("head") in unique_shas or w.get("unique")]
+    keep_wt = {w["path"]: w for w in dirty_all}
+    for w in unique_wt:
+        keep_wt.setdefault(w["path"], w)
+    keep = list(keep_wt.values())
     print(f"conclusion: {len([r for r in rows if r['bucket']=='merged-and-clean'])} merged-and-clean"
           f" · {len(dirty_merged)} merged-but-dirty"
           f" · {len([r for r in rows if r['bucket']=='unmerged-with-a-PR'])} unmerged-with-a-PR"
           f" · {len(orphans)} orphan ({len(unique_orphans)} with content only here)")
-    print(f"worktrees: {len(wts)} total · {len(dirty_all)} dirty · 0 removed")
-    nodel = len([r for r in rows if r['bucket'] in ('merged-and-clean', 'unmerged-with-a-PR')])
-    print(f"\nsafe in principle to delete: {nodel} branches, {len(wts)-len(dirty_all)} worktrees")
-    print(f"must be preserved: {len(unique_orphans)} branches + {len(dirty_all)} dirty worktrees")
+    print(f"worktrees: {len(wts)} total · {len(dirty_all)} dirty · "
+          f"{len(unique_wt)} on a unique branch · 0 removed")
+    # Deletable = everything that is not one of the preserved unique orphans: merged-and-clean,
+    # unmerged-with-a-PR, AND the orphans that add nothing main lacks. The first version counted
+    # only the first two and reported 45 where the truth was 162 -- it silently excluded 117
+    # lossless orphans, making the owner think a third of the deletable set had to be kept.
+    nodel = len(rows) - len(unique_orphans)
+    print(f"\nsafe in principle to delete: {nodel} branches, {len(wts)-len(keep)} worktrees")
+    print(f"must be preserved: {len(unique_orphans)} branches + {len(keep)} worktrees "
+          f"(dirty ∪ on-a-unique-branch)")
     for r in sorted(unique_orphans, key=lambda x: x["branch"]):
         print(f"  branch {r['branch']:44} {r['tip'][:8]}  +{len(r.get('added') or [])}")
-    for w in dirty_all:
-        print(f"  worktree {w['path']:56} {w['branch'][:26]} dirty={w['dirty']}")
+    for w in keep:
+        why = "dirty=%d" % w["dirty"] if w["dirty"] else "unique-branch"
+        print(f"  worktree {w['path']:56} {w['branch'][:26]} {why}")
     print("\nNothing was deleted, pruned or removed.")
     return 0
 
