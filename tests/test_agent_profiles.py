@@ -25,10 +25,9 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO / "scripts"))
 
-import check_agent_profiles as guard  # noqa: E402  (the real gate, never a copy)
-import profile_drift_alarm as drift   # noqa: E402  (the drift-alarm caller, real, wired here)
+import scripts.check_agent_profiles as guard  # noqa: E402  (the real gate, never a copy)
+import scripts.profile_drift_alarm as drift   # noqa: E402  (the drift-alarm caller, real, wired here)
 
 SOUL_ORCHESTRATOR = """# LLGenie Orchestrator
 
