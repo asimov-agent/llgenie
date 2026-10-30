@@ -144,6 +144,32 @@ jobs:
           EVENT: ${{ github.event_name }}
           LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: make ci-slow-rows
+      # THE DECISION THIS RUN IS HELD TO (issue #1111). A cancelled run and a legitimately skipped job
+      # produce the same check-run row (`skipped`, or no row at all: measured on run 41134761297, where
+      # `linux` was skipped and no `linux / unit` row existed while the summary read `0 failures`).
+      # The scope decision is therefore published as DATA, and `ci-verdict.yml` holds the finished run
+      # to it. It is computed here, in the cheapest job, because a decision nobody published cannot be
+      # read back — and `guard` is the one job no fan-out depends on.
+      - name: Publish the scope decision this run is held to (make ci-scope DECISION=...)
+        env:
+          # A pull request measures its own base sha; a push to main keeps the full matrix, which is
+          # the classifier's documented contract for a push (scripts/ci_scope.py).
+          BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+        run: |
+          export DECISION="$RUNNER_TEMP/ci-scope-decision.json"
+          if [ -n "$BASE_SHA" ]; then
+            make ci-scope BASE="$BASE_SHA"
+          else
+            make ci-scope ALL=1
+          fi
+      - name: Upload the decision (the artifact `make ci-verdict` reads back on the finished run)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ci-scope-decision
+          path: ${{ runner.temp }}/ci-scope-decision.json
+          # A run that cannot publish its decision must fail HERE, not look decided.
+          if-no-files-found: error
+          retention-days: 7
       - name: Owner / collaborator trigger guard
         env:
           ACTOR: ${{ github.actor }}

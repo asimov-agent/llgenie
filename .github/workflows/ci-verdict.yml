@@ -1,0 +1,117 @@
+name: ci-verdict — holds a finished CI run to its published scope decision, and says "no verdict" out loud
+
+# CI-VERDICT (issue #1111) — the consumer a cancelled fan-out did not have.
+#
+# MEASURED, run 41134761297 (`CI`, head 0bd5ac6e, conclusion `cancelled`):
+#
+#     guard success · ci-images cancelled · scanner-images cancelled · linux skipped
+#     => success=3, failed=0, other=5, pending=0        (no `linux / unit` row existed at all)
+#
+# The same class of change at d92ee6a3 (run 41126873965) had the full set with `linux / unit failure`.
+# So one head proved the change was wrong and the next head - after a push cancelled the fan-out -
+# reported nothing, and the summary every board line quotes read "0 failures".
+#
+# WHY A `workflow_run` WORKFLOW AND NOT A JOB IN ci.yml: a cancelled run cancels ITS OWN jobs, so a
+# terminal job inside the run cannot survive the very event it is meant to report. This workflow runs
+# in the base repository after the run completes, whatever the conclusion, exactly like `auto-merge`
+# and `run-failure-reactor` do.
+#
+# WHY IT POSTS A CHECK-RUN: a `workflow_run` run creates NO check-run of its own on the commit
+# (measured on 0bd5ac6e - the cancelled CI run's rows are the only ones; `auto-merge`'s own run is
+# absent), so a verdict that only reds its own workflow is invisible to every check-run reader. The
+# `checks: write` permission below plus `POST /repos/{owner}/{repo}/check-runs` puts the answer where
+# the question is asked: one `ci-verdict` row on the head, `failure` for a run with no verdict and
+# `neutral` for a head a later run of the same workflow already owns.
+#
+# Flow: read the finished run's job rows -> read back the `ci-scope-decision` artifact (absent = no
+#       decision, never an error) -> `make ci-verdict` (scripts/ci_verdict.py) decides ->
+#       post the check-run it wrote.
+# Never: dispatches, re-runs or merges anything, edits no branch, and reads no repository secret.
+# The verdict's decisions live in scripts/ci_verdict.py (tested in tests/test_ci_verdict.py), never in
+# a job-level `if:` - a skipped job is invisible in the job list and
+# tests/test_ci_images.py::test_no_ci_step_or_job_is_skipped forbids that shape.
+on:
+  workflow_run:
+    workflows:
+      # Matched VERBATIM against each workflow's top-level `name:` (no wildcard, #349): a rename here
+      # or there stops this consumer silently, which is why `make check-workflows` compares the roster
+      # with the workflows on disk.
+      - CI
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read          # read the finished run's jobs and its artifacts
+  checks: write          # post the verdict as a check-run on the head
+
+# ONE GROUP PER FINISHED RUN, never superseded (issue #917's lesson: a shared group makes sweeps stack,
+# and `cancel-in-progress: true` would let a verdict kill a verdict - the failure mode this whole file
+# exists to report). Keyed by the run id, so two different CI runs never cancel each other.
+concurrency:
+  group: ci-verdict-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  verdict:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # The BASE branch, never the head: this job holds a `checks: write` token, so it runs trusted
+      # code only - the same rule `auto-merge` follows.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Read the finished run (jobs + the scope decision it published)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/verdict"
+          gh api "repos/$REPO/actions/runs/$RUN_ID/jobs?per_page=100" > "$RUNNER_TEMP/verdict/jobs.json"
+          if gh run download "$RUN_ID" --repo "$REPO" -n ci-scope-decision \
+               -D "$RUNNER_TEMP/verdict/decision" >/dev/null 2>&1; then
+            echo "Decision artifact read from run $RUN_ID."
+          else
+            # A cancelled run may never have reached the step that writes it. That is the VERDICT's
+            # input (a run with no decision), not this step's failure - `make ci-verdict` reports it.
+            echo "[ci-verdict] run $RUN_ID published no ci-scope-decision artifact."
+          fi
+
+      - name: make ci-verdict (hold the run to its decision; a skipped selected job or no decision is RED)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          CHECK_RUN_OUT: ${{ runner.temp }}/verdict/check-run.json
+        # The verdict's exit code IS the job's: a red verdict fails this run, so the reactor routes it
+        # to a remedy instead of the board reading "0 failures" (issue #286). A superseded head exits 0
+        # and posts a `neutral` check-run, because a later run of this workflow owes that head its
+        # verdict - never because the skip was fine.
+        run: |
+          set -euo pipefail
+          JOBS="$RUNNER_TEMP/verdict/jobs.json"
+          DECISION="$RUNNER_TEMP/verdict/decision/ci-scope-decision.json"
+          test -f "$DECISION" || DECISION=""
+          make ci-verdict REPO="$REPO" RUN_ID="$RUN_ID" JOBS="$JOBS" DECISION="$DECISION" \
+               HEAD_SHA="$HEAD_SHA" CHECK_RUN_OUT="$CHECK_RUN_OUT"
+
+      - name: Post the verdict as a check-run on the head
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          CHECKS_FILE: ${{ runner.temp }}/verdict/check-run.json
+        # `always()`: the check-run is the REPORT, so it must be posted for a red verdict too - that is
+        # the one case the reader needs it. An unreadable payload is a failure (a verdict nobody can
+        # read is not a verdict); it never silently passes.
+        run: |
+          set -euo pipefail
+          test -s "$CHECKS_FILE" || {
+            echo "[ci-verdict] no check-run payload: the verdict step did not reach a verdict"
+            exit 1
+          }
+          gh api -X POST "repos/$REPO/check-runs" --input "$CHECKS_FILE"

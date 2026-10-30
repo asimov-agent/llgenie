@@ -1972,12 +1972,32 @@ make queued-alarm      # report CI jobs stuck in `queued` too long (a runner tha
                        # label, for runs no PR tracks) and a delivery that fails is exit 3, never silent; DRY=1 previews
 make ci-requeue-cancelled  # re-run the CI runs a bulk cancel killed, ONLY where the head sha has no other run
                            # (a superseded run already has its verdict): WINDOW=2h, DRY=1 previews; issue #843
+make ci-verdict            # hold a FINISHED run to the scope decision it published (scripts/ci_verdict.py,
+                           # issue #1111): RUN_ID=<id> judges the run through `gh`, or JOBS=<file>
+                           # [DECISION=<file>] replays one locally; CHECK_RUN_OUT=<path> writes the
+                           # POST /check-runs body. Exit 0 = green, 1 = no verdict (a selected job that is
+                           # skipped/cancelled/absent, or a run that published no decision at all),
+                           # 2 = the verdict could not be reached. It NEVER scores a skip as a pass by
+                           # itself: a skip is green only when the published `ci-scope-decision` artifact
+                           # says that job was not selected, and a head a LATER run of the same workflow
+                           # superseded is neutral, never success
 
 Scheduled: `.github/workflows/ci-requeue.yml` runs that same target every 30 minutes (`23,53 * * * *`,
 off the hour and off the other bots' minutes) with `concurrency: cancel-in-progress: false`, so one
 round can never be cancelled by the next — the exact bug the healer exists to undo. It holds only
 `contents: read` / `actions: write` / `pull-requests: read` (what `gh run rerun` needs) and it is named
 in `run-failure-reactor.yml`'s roster, so its own red is routed like every other workflow's.
+
+The verdict exists because "nothing ran" and "nothing needed to run" produced the same check-runs row
+(issue #1111). `ci.yml`'s `guard` job publishes the classifier's decision as the `ci-scope-decision`
+artifact on every run; `.github/workflows/ci-verdict.yml` reads it back once the run completes — for
+ANY conclusion, because a cancelled run cancels its own jobs and no terminal job inside it could
+survive — and posts a `ci-verdict` check-run on the head: `failure` for a run with no verdict,
+`neutral` for a head a later run owns. Measured on run 41134761297 (`cancelled`): `guard success`,
+`ci-images cancelled`, `scanner-images cancelled`, `linux skipped`, and no `linux / unit` row at all —
+the summary every board line quotes read `success=3, failed=0`, while the same class of change at
+`d92ee6a3` had failed that gate for real. The verdict writes `verdict=none — 0 failures is not a
+verdict` for that head. Its own red is routed by `run-failure-reactor.yml`'s roster.
 
 make run-failure-reactor  # route a failed CI run to a remedy (REPO=; RUN_ID=; DRY=1 previews): a PR this bot can push
                        # (this repo or the owner's fork) -> dispatch the fix-bot as the OWNER (DISPATCH_TOKEN); else file

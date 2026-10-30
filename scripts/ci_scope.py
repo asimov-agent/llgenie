@@ -46,6 +46,13 @@ TAG = "[ci-scope]"
 #: Exit code for a path no class claims, or a diff we could not read.
 EXIT_UNCLASSIFIED = 1
 
+#: Exit code for a run that has NO scope decision at all (issue #1111): a different answer from a
+#: red verdict, and the one a cancelled fan-out must produce — "nobody decided" is not "all clear".
+EXIT_NO_VERDICT = 2
+
+#: The shape `decision()` writes and `verify()` refuses to guess at. Bump it when the JSON moves.
+DECISION_SCHEMA = 1
+
 #: class -> the globs it owns. Order is the order the report prints them in.
 CLASSES: dict[str, tuple[str, ...]] = {
     "docs": ("docs/**", "agent-wiki/**", "openspec/**", "README.md", "CHANGES.md"),
@@ -254,6 +261,202 @@ def github_output(rows: list[tuple[str, bool, str]], classes: list[str], path: P
         handle.write("docs_only=%d\n" % int(set(classes) == {"docs"}))
 
 
+# ---- the DECISION a finished run is held to (issue #1111) --------------------------------
+#
+# A run's check-runs answer "which jobs reported, and with what conclusion". They do NOT answer
+# "was a job ALLOWED to be missing", because a check-run row and the decision that produced it live
+# in different places: `linux / unit` never reported on run 41134761297 (its parent `linux` was
+# `skipped` because `ci-images` had been cancelled), and every reader counting conclusions saw
+# `success=3, failed=0` for a head whose unit gate never ran.
+#
+# So the decision is DATA: the scope job publishes it (`decision()` below, written by
+# `--decision-out`), and a verdict compares a finished run against it (`verify()`), where "skipped"
+# is legitimate only when the decision says that job was not needed. No decision is a verdict of its
+# own: `none`, never "0 failures" — the failure mode this module exists to end.
+
+#: The verdict words. `none` is not a softer `red`: it means nothing decided, which is exactly what a
+#: cancelled fan-out leaves behind and what a summary must never print as a pass.
+GREEN = "green"
+RED = "red"
+NONE = "none"
+
+#: Conclusions that mean "this job did not produce a verdict" rather than "this job passed/failed".
+_NOT_A_VERDICT = ("skipped", "cancelled")
+
+
+def decision(classes: list[str], rows: list[tuple[str, bool, str]], paths: list[str],
+             wide: str | None) -> dict:
+    """The scope decision as data — the artifact a verdict reads back (issue #1111).
+
+    Deliberately small and dependency-free: it is written by `ci.yml`'s `guard` job, uploaded as the
+    `ci-scope-decision` artifact, and read by `scripts/ci_verdict.py` on the finished run. `paths` is
+    carried for a reader, never re-classified: the decision is the answer the run was held to, not a
+    second opinion about the same diff.
+    """
+    return {
+        "schema": DECISION_SCHEMA,
+        "classes": list(classes),
+        "paths": list(paths),
+        "wide": wide,
+        "jobs": {job: {"run": bool(runs), "why": why} for job, runs, why in rows},
+    }
+
+
+def normalise_job_name(name: str) -> str:
+    """A check-run/job name as the classifier spells it: `linux / unit` -> `linux/unit`.
+
+    GitHub prints a called workflow's jobs as `<caller> / <callee>` and a matrix row with its value in
+    parentheses (`linux / top-tier (none)`). The table in `JOBS` spells the first without spaces and
+    the row's value is not part of its identity, so both are folded here — one place, so the report
+    and the verdict cannot drift.
+    """
+    stripped = re.sub(r"\s*\([^()]*\)\s*$", "", str(name).strip())
+    return re.sub(r"\s*/\s*", "/", stripped)
+
+
+def verify(decision_obj: dict | None, jobs: list[dict]) -> dict:
+    """Hold a finished run to its decision: one finding per job, a verdict, and a summary line.
+
+    `jobs` is the payload of `GET /repos/{owner}/{repo}/actions/runs/<id>/jobs`. The answer is a dict
+    with `verdict` (green | red | none), per-finding `lines`, and `counts` — because the reader this
+    exists for quotes a SUMMARY, and `success=6, failed=0` must never be printed for a run in which a
+    selected job was `skipped` or never reported (issue #1111).
+
+    The four answers, and no fifth:
+      * a decision selected a job and it reported `success` -> counted as success;
+      * a decision selected a job and it is skipped/cancelled/absent -> `no_verdict` (red);
+      * a decision did NOT select a job and it is skipped/absent -> `skipped_by_decision` (green);
+      * there is no decision at all -> every non-success row is `no_verdict`, and `verdict=none`.
+    """
+    lines: list[str] = []
+    counts = {"success": 0, "failure": 0, "skipped_by_decision": 0, "no_verdict": 0, "pending": 0}
+    observed: dict[str, list[dict]] = {}
+    for job in jobs:
+        observed.setdefault(normalise_job_name(job.get("name") or ""), []).append(job)
+
+    def conclusion_of(job: dict) -> str:
+        conclusion = (job.get("conclusion") or "").strip().lower()
+        if conclusion:
+            return conclusion
+        # A row that is not completed has no conclusion yet: on a completed run that is a job that
+        # never started, which is a non-verdict and never a pass (issue #1111).
+        return "pending"
+
+    table = (decision_obj or {}).get("jobs") or {}
+    #: The CALLERS whose children `JOBS` names (`linux` -> `linux/unit`, ...): the children are the
+    #: accounting unit, so the caller's own row is reported and never counted twice.
+    container_names = {job.split("/", 1)[0] for job in table if "/" in job}
+
+    def no_answer(conclusion: str) -> None:
+        """Count a row that is not a verdict: `pending` is its own bucket, every other its own."""
+        counts["pending" if conclusion == "pending" else "no_verdict"] += 1
+
+    if not decision_obj:
+        # No decision exists: nothing can make a missing or skipped gate legitimate.
+        lines.append(f"{TAG} NO DECISION: this run published no scope decision — no skip is legitimate")
+        for name, rows in sorted(observed.items()):
+            for job in rows:
+                conclusion = conclusion_of(job)
+                if conclusion == "success":
+                    counts["success"] += 1
+                    lines.append(f"{TAG} {name} success")
+                elif conclusion == "failure":
+                    counts["failure"] += 1
+                    lines.append(f"{TAG} {name} FAILED")
+                else:
+                    no_answer(conclusion)
+                    lines.append(f"{TAG} {name} {conclusion} — no decision says it may be {conclusion}")
+        verdict = RED if counts["failure"] else (
+            NONE if (counts["no_verdict"] or counts["pending"]) else GREEN)
+    else:
+        for job, spec in table.items():
+            requires = bool(spec.get("run"))
+            why = str(spec.get("why") or "")
+            rows = observed.get(job)
+            if not rows:
+                if requires:
+                    counts["no_verdict"] += 1
+                    lines.append(f"{TAG} {job} ABSENT — the decision selected it ({why}) and no row reported")
+                else:
+                    counts["skipped_by_decision"] += 1
+                    lines.append(f"{TAG} {job} absent — not selected by the decision ({why})")
+                continue
+            for observed_job in rows:
+                conclusion = conclusion_of(observed_job)
+                if conclusion == "success":
+                    counts["success"] += 1
+                    lines.append(f"{TAG} {job} success")
+                elif conclusion == "failure":
+                    counts["failure"] += 1
+                    lines.append(f"{TAG} {job} FAILED")
+                elif not requires:
+                    counts["skipped_by_decision"] += 1
+                    lines.append(f"{TAG} {job} {conclusion} — the decision did not select it ({why})")
+                else:
+                    no_answer(conclusion)
+                    lines.append(f"{TAG} {job} {conclusion} — the decision selected it ({why})")
+        for name in sorted(set(observed) - set(table)):
+            # A row the table does not name (a new job nobody classified, or another workflow's job):
+            # reported, never silently counted as covered.
+            for job in observed[name]:
+                conclusion = conclusion_of(job)
+                if name in container_names:
+                    # `linux` is the CALLER of the `linux / *` rows, not one of them: its children
+                    # are the accounting unit (they are what `JOBS` names), so the container row is
+                    # printed for the reader and never counted — counting it would double-count a
+                    # matrix, and counting it as "unaccounted" would red every legitimate skip.
+                    lines.append(f"{TAG} {name} {conclusion} — caller of the {name}/* rows, accounted per row")
+                elif conclusion in _NOT_A_VERDICT or conclusion == "pending":
+                    no_answer(conclusion)
+                    lines.append(f"{TAG} {name} {conclusion} — no job in the scope table owns this name")
+                elif conclusion == "failure":
+                    counts["failure"] += 1
+                    lines.append(f"{TAG} {name} FAILED")
+                else:
+                    counts["success"] += 1
+                    lines.append(f"{TAG} {name} success — not in the scope table")
+        verdict = RED if counts["failure"] else (
+            NONE if (counts["no_verdict"] or counts["pending"]) else GREEN)
+
+    unaccounted = counts["failure"] + counts["no_verdict"] + counts["pending"]
+    lines.append(
+        f"{TAG} summary: verdict={verdict} success={counts['success']} failure={counts['failure']} "
+        f"skipped-by-decision={counts['skipped_by_decision']} no-verdict={counts['no_verdict']} "
+        f"pending={counts['pending']}"
+    )
+    if verdict != GREEN:
+        # The sentence a summary must print instead of "0 failures": the number is what made this
+        # defect invisible, so the summary names it rather than repeating it (issue #1111).
+        lines.append(
+            f"{TAG} NO VERDICT: {unaccounted} job(s) unaccounted for — 0 failures is not a verdict"
+        )
+    return {"verdict": verdict, "lines": lines, "counts": counts, "has_decision": bool(decision_obj)}
+
+
+def check_run_payload(verdict: str, head_sha: str, lines: list[str],
+                      conclusion: str | None = None, run_label: str = "") -> dict:
+    """The `POST /repos/{owner}/{repo}/check-runs` body the verdict posts on the run's head.
+
+    A `workflow_run` run creates NO check-run of its own on the commit (measured on 0bd5ac6e: the
+    cancelled CI run's rows are the only ones, `auto-merge`'s own run is absent), so a verdict that is
+    only a red workflow would still read clean to every check-run reader. Posting it is what puts the
+    answer where the question is asked. `conclusion` overrides the verdict's mapping for the
+    SUPERSEDED case, where the head is owed nothing because a later run owns it.
+    """
+    mapped = {"green": "success", "red": "failure", "none": "failure"}
+    summary = "\n".join(lines)
+    return {
+        "name": "ci-verdict",
+        "head_sha": head_sha,
+        "status": "completed",
+        "conclusion": conclusion or mapped[verdict],
+        "output": {
+            "title": (f"ci-verdict: {verdict}" + (f" ({run_label})" if run_label else ""))[:255],
+            "summary": summary[:65000],
+        },
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Select CI stages from a pull request's changed paths (#824).")
     parser.add_argument("--base", default=None, help="the PR base ref, e.g. origin/main (diffs <base>...HEAD)")
@@ -263,6 +466,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--all", action="store_true", help="select every class (a push to main keeps the full matrix)")
     parser.add_argument("--github-output", default=os.environ.get("GITHUB_OUTPUT"),
                         help="append classes=/jobs=/docs_only= to this file (default: $GITHUB_OUTPUT)")
+    parser.add_argument("--decision-out", default=os.environ.get("SCOPE_DECISION") or None,
+                        help="write the DECISION this run will be held to as JSON (issue #1111); "
+                             "default: $SCOPE_DECISION, unset = do not write one")
     parser.add_argument("--cwd", default=None, help="the repository to diff (default: the current directory)")
     args = parser.parse_args(argv)
 
@@ -295,6 +501,14 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_UNCLASSIFIED
 
     github_output(rows, classes, Path(args.github_output) if args.github_output else None)
+    if args.decision_out:
+        # The artifact a finished run is held to (issue #1111). Written even when the diff is wide:
+        # the decision says which jobs MUST report, so "everything runs" is a decision too.
+        Path(args.decision_out).write_text(
+            json.dumps(decision(classes, rows, paths, wide), indent=2, sort_keys=False) + "\n",
+            encoding="utf-8",
+        )
+        print(f"{TAG} decision written to {args.decision_out} (issue #1111)")
     return 0
 
 
