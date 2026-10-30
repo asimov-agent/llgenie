@@ -7,13 +7,18 @@ the `AGENTS.md` sha — it does NOT run the gates. `scripts/issue_bot_gates.py` 
 defines the right set, but only the **issue-bot** workflow runs it, and 16 workflow files are
 disabled (issue #902), so in practice nothing runs it for host lanes.
 
-Four PRs failed tonight on a gate that `FAST_GATES` already covers, each costing a full `linux/unit`
-matrix before the error was visible:
+Four PRs failed tonight on a gate a lane could have run before the push, each costing a full
+`linux/unit` matrix before the error was visible — three are in `FAST_GATES` and run by default,
+the fourth is a DEFERRED gate reachable on demand with `--gates check-import-roots`:
 
-  #919   tests/fixtures/host-only-wiring.json malformed        -> check-wiring
-  #919   agent-wiki/...-doc-soul-take.md missing trailing NL   -> lint
-  #1056  openspec/.../tasks.md line 8 unchecked                -> openspec-tasks-check
-  #953   import-roots ratchet: bare 52 vs 47, sys-path 32 vs 26 -> check-import-roots
+  #919   tests/fixtures/host-only-wiring.json malformed        -> check-wiring        (FAST_GATES)
+  #919   agent-wiki/...-doc-soul-take.md missing trailing NL   -> lint                (FAST_GATES)
+  #1056  openspec/.../tasks.md line 8 unchecked                -> openspec-tasks-check (FAST_GATES)
+  #953   import-roots ratchet: bare 52 vs 47, sys-path 32 vs 26 -> check-import-roots  (--gates)
+
+`check-import-roots` is NOT in `FAST_GATES`: it is DEFERRED (issue #475 owns widening that fixed
+list), so this command does not run it by default — pass `--gates check-import-roots` to include it.
+
 
 `make lane-preflight` runs the same set the issue-bot runs — the `FAST_GATES` tuple from
 `scripts/issue_bot_gates.py`, **imported, never restated** so the "one list" property of #475 holds
