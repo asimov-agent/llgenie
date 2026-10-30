@@ -64,6 +64,21 @@ def test_default_gate_set_matches_fast_gates():
     assert tuple(lane_preflight.FAST_GATES) == tuple(issue_bot_gates.FAST_GATES)
 
 
+def test_check_import_roots_is_deferred_not_a_fast_gate():
+    """Pins the docstring's claim: `check-import-roots` is DEFERRED, so `lane-preflight` does not
+    run it by default — it is reachable only via `--gates check-import-roots`.
+
+    This is the invariant the docstring states. It is asserted against the real classification so a
+    future edit that widens FAST_GATES (or drops the DEFERRED entry) reds here, instead of silently
+    making the docstring false again — which is exactly how the false claim got in.
+    """
+    assert "check-import-roots" not in issue_bot_gates.FAST_GATES, (
+        "check-import-roots must NOT be in FAST_GATES: widening that fixed list is #475's follow-up, "
+        "and lane-preflight's docstring depends on it being deferred")
+    assert "check-import-roots" in issue_bot_gates.DEFERRED, (
+        "check-import-roots must be a classified DEFERRED gate with a reason, not an unclassified one")
+
+
 # --------------------------------------------------------------------------
 # runner semantics: every gate reported, verdict printed, exit code honest
 # --------------------------------------------------------------------------
