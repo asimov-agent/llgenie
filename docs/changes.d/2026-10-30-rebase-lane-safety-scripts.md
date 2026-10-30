@@ -1,0 +1,1 @@
+| 2026-10-30 | the rebase lane's safety scripts, versioned and executed at last | [2026-10-30-rebase-lane-safety-scripts.md](agent-wiki/2026-10-30-rebase-lane-safety-scripts.md) | #1116, #1060, #1117 |
