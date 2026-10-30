@@ -26,8 +26,10 @@ a gate.
 - New `scripts/check_architecture_census.py` (stdlib only): `check` parses the census sentence and the
   two count cells out of `docs/ARCHITECTURE.md`, counts `HEAD` with `git ls-tree -r --name-only`, and
   exits 1 on any disagreement naming both values; `report` prints the census and always exits 0.
-- `Makefile`: new user-facing target `check-architecture-census`, registered in `.PHONY`, and invoked
-  as part of `check-docs` so it runs whenever the docs gate runs.
+- `Makefile`: new user-facing target `check-architecture-census`, registered in `.PHONY`, run as part
+  of `check-docs`, and called directly by the `ci-unit` job (so `check-wiring` sees a CI job reach it).
+  Because `ci-unit` runs it, `scripts/issue_bot_gates.py` classifies it in `DEFERRED` with the reason
+  that a census change is re-checked on the bot's own PR.
 - `docs/ARCHITECTURE.md`: the census updated to the current tree with a `measured at <sha>` note, and
   the new gate named in the structural-gates row.
 

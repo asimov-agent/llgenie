@@ -83,6 +83,7 @@ DEFERRED: dict[str, str] = {
     "check-engine-skill-gap": "walks every registry engine against the skills; slow",
     "check-engine-params": "regenerates the engine params and Dockerfiles and compares them; slow",
     "check-engine-coverage": "a static read of the skills and the committed params: ci-unit re-checks the issue-bot's own PR, which is where a new skill and its params land, and widening FAST_GATES past the #475 six is that issue's follow-up",
+    "check-architecture-census": "a static read of docs/ARCHITECTURE.md's census against the tree (issue #896): a doc/census change is re-checked by ci-unit on the bot's own PR, which is where the refreshed census would land, and widening FAST_GATES past the #475 six is that issue's follow-up",
     "check-model-links": "a static read of data/models.json and data/trending-quant-catalog.json for well-formed /resolve/<rev>/<file> links plus the LIVE probe gate (#256) when run with LIVE=1: a link that would rot is a data-edit change, re-checked by ci-unit (make check-model-links) on the bot's own PR, not something this bot's own push can break; fast, but not in #475's list (follow-up issue, not this change)",
     "check-engine-source": "reads every engine's upstream source at its pin; network-bound",
     "check-engine-launchers": "reads this host's ~/bin launchers against the committed params: a host-local file the bot's PR cannot change, and ci-unit (where the bot's own PR is re-checked) has no launchers at all, so it is informational there by design (issue #842)",
