@@ -884,11 +884,13 @@ CI_VARIANTS = ("cpu", "cuda", "rocm", "vulkan")   # one image per backend (fat G
 DISABLED = {
     ("llama.cpp-laurentzuijdwijk", "cuda"): "#103 build-time --help needs libcuda.so.1",
     ("exllamav3-rocm", "rocm"): "#103 cuda_shim needs torch >= 2.13 ROCm headers",
-    # Prism's CUDA cell is ENABLED: the only engine that reads Ternary Bonsai 2's PQ2_0/PTQ1_0
-    # tensor types had no runnable image on an NVIDIA host (the launcher fell back to its cpu
-    # image, and a ternary GGUF on stock llama.cpp dies with "invalid ggml type 142"). The old
-    # objection was build cost, not correctness: the sweep's job timeout is 240 min and it is
-    # dispatch-only, and a same-repo PR builds only the cell its params changed.
+    # Prism's CUDA cell is RE-DISABLED: the served-verify sweep (engine-build arch=cuda push=false,
+    # run 40979496349) built every cuda cell and llama.cpp-prism-cuda was the sole red — 'error while
+    # loading shared libraries: libcuda.so.1: cannot open shared object file' at `make build-engine`
+    # on the GPU-less build host, the #103 blocker. An unbuildable cell enabled would red every later
+    # PR's matrix, so the cell stays off until #103 is fixed; the launcher falls back to the prism cpu
+    # image on a cuda host, which the same sweep verified green.
+    ("llama.cpp-prism", "cuda"): "#103 build-time --help needs libcuda.so.1 (served-verify run 40979496349)",
     ("llama.cpp-prism", "rocm"): "#103 fat ROCm build runs > 50 min on hosted runners, and no AMD "
                                  "host has verified the result yet",
 }
