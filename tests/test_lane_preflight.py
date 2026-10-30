@@ -24,10 +24,8 @@ import textwrap
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO / "scripts"))
-
-import lane_preflight  # noqa: E402  (the module under test)
-import issue_bot_gates  # noqa: E402  (the source of the one gate list)
+from scripts import lane_preflight  # noqa: E402  (the module under test)
+from scripts import issue_bot_gates  # noqa: E402  (the source of the one gate list)
 
 
 def _git(root: Path, *args: str) -> None:

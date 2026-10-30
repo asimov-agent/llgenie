@@ -44,13 +44,20 @@ import subprocess
 import sys
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[1]
+# `python3 scripts/lane_preflight.py` puts scripts/ on sys.path, so `from scripts.x import` is
+# missing unless the repo root is added first (the engine_bump_rebase.py pattern).
+_REPO = Path(__file__).resolve().parents[1]
+if str(_REPO) not in sys.path:
+    sys.path.insert(0, str(_REPO))
 
 # Import the ONE list. `FAST_GATES` is the fleet's decision about which gates are cheap enough to
 # run every time (issue #475); restating it here would let the two drift, so we import it and fail
-# loudly if it ever moves out from under us.
-sys.path.insert(0, str(REPO / "scripts"))
-from issue_bot_gates import FAST_GATES  # noqa: E402  (the single gate list, issue #475)
+# loudly if it ever moves out from under us. `from scripts.issue_bot_gates` (not bare) so a test
+# importing `scripts.issue_bot_gates` gets the SAME module object — the one-list property is identity.
+from scripts.issue_bot_gates import FAST_GATES  # noqa: E402  (the single gate list, issue #475)
+
+REPO = _REPO
+
 
 
 def dirty_tracked_files(root: Path) -> list[str]:
