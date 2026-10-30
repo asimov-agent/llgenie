@@ -69,6 +69,4 @@ the how, this file is the what.
 
 ## This lane's rules (kept outside the fleet block)
 
-- **Never open a draft PR.** Open ready-for-review, or `gh pr ready` before reporting — a draft is invisible to the queue, to auto-merge and to every reviewer scanning for work.
-- **Arm auto-merge at PR creation.** `gh pr merge <n> --squash --auto` right after `gh pr create`, and report the result or the reason it was deliberately not armed (draft, `do-not-merge`, non-`main` base).
 Rules 13 and 14, verbatim from `agents/standing-rules.md` (issue #873), copied at commit time.
