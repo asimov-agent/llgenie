@@ -77,14 +77,33 @@ def _load_audit_module():
     Testing `summarise` directly rather than shelling out to both tools: the tools need `gh` and
     a real repository, which CI does not have, and AGENTS.md forbids skipped tests. The counting
     RULES are what went wrong twice, and they are pure.
+
+    `dont_write_bytecode` is disabled around the exec ON PURPOSE: importlib would otherwise drop a
+    `__pycache__/*.pyc` next to the shipped scripts, and `sync-agent-profile` copies the skill
+    directory wholesale — so the bytecode lands in the live profile. Measured consequence: the
+    binary `.pyc` made `check_agent_profiles.py` raise `UnicodeDecodeError` and the gate stopped
+    checking anything at all. A test must not leave artifacts that break a gate.
     """
     import importlib.util
+    import sys
 
     path = SCRIPTS / "salvage-four-bucket.py"
     spec = importlib.util.spec_from_file_location("salvage_four_bucket", path)
     assert spec and spec.loader, f"cannot load {path}"
     mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
+    prior = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        spec.loader.exec_module(mod)
+    finally:
+        sys.dont_write_bytecode = prior
+        # belt and braces: remove any cache dir this exec created beside the scripts
+        cache = SCRIPTS / "__pycache__"
+        if cache.is_dir():
+            for f in cache.glob("salvage_four_bucket*.pyc"):
+                f.unlink(missing_ok=True)
+            if not any(cache.iterdir()):
+                cache.rmdir()
     return mod
 
 
