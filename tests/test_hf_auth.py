@@ -350,3 +350,27 @@ def test_the_429_failure_names_the_attempts_it_spent_and_the_budget(monkeypatch)
     assert "1 429 wait(s)" in message, message
     assert "40s of the 60s budget" in message, message
     assert "429" in str(raised.value)
+
+
+def test_a_429_window_that_fits_the_300s_budget_is_waited_not_failed_at_zero(monkeypatch):
+    """#932: a transient 429 whose window fits the 300 s total is WAITED, not raised at 0 s.
+
+    The default budget used to be 60 s, so the Hub's 5-minute default window raised on the
+    FIRST 429 at "1 attempt(s), 0 429 wait(s) totalling 0s" — a fail-fast that never waits,
+    which turned a transient 429 into a suite failure (test_trend_list_matrix / test_trend_pick
+    red on the branch while main's un-budgeted retry passes). Sized to the Hub's real window it
+    waits it out once.
+    """
+
+    # Given the DEFAULT budget (300 s) and a Hub naming its 5-minute (300 s) window forever
+    monkeypatch.setattr(auth, "RATE_LIMIT_WAITS", 2)
+    slept = _open_hub(monkeypatch, 300)
+
+    # When the shared opener asks it
+    with pytest.raises(urllib.error.HTTPError) as raised:
+        auth.hub_open(urllib.request.Request("https://huggingface.co/api/models/org/repo"))
+
+    # Then the FIRST window WAS waited (not failed at 0 s spent), and the second one is refused
+    assert raised.value.code == 429
+    assert slept == [300], "a window that fits the 300s total must be waited, not fail-fast"
+    assert auth.RATE_LIMIT_TOTAL_BUDGET == 300.0
