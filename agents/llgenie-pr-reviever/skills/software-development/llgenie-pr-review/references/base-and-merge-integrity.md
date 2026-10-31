@@ -36,6 +36,28 @@ specific check that failed and say which of your findings survived:
 
 Report both outcomes explicitly. "Merged" answers a different question from "the defect is gone".
 
+## A squash merge rewrites the sha — verify content, not ancestry
+
+After a **squash** merge the branch's commits are not on `main`; they are collapsed into one new
+commit with a different sha. So `git merge-base --is-ancestor <branch-head> refs/remotes/live/main`
+returns **non-zero** for a merge that succeeded, and reading that as "it did not land" is a false
+alarm about a PR that is already in.
+
+Verify by **content** instead — the files the PR was supposed to change, at the merged tip:
+
+```bash
+git show refs/remotes/live/main:<the/changed/file> | grep -c '<a phrase the change introduced>'
+git ls-tree -r --name-only refs/remotes/live/main -- <dir>/ | grep -c '<the file the PR added>'
+```
+
+And state which verification you ran, because they answer different questions: `state: MERGED` +
+`mergedAt` is the merge decision, ancestry is a property of the commit graph, and only the content
+check says the change is in the tree. Quote the merge commit sha beside them.
+
+The same rewrite makes every downstream expectation shift: the merged file may be **older than the
+live copy** if work continued on the live side while the PR was in flight, so a `cmp -s` mismatch
+after a merge is not a failed merge — it is new drift to version, which is a separate PR.
+
 ## A versioned skill is the first time a live skill meets CI
 
 A lane's live skill lives under the agent home, where **nothing lints it**. The first time it is

@@ -55,6 +55,36 @@ comment, and lifting it is the planner's call. If the run at the head has no con
 "no verdict exists yet — run `<id>` is queued" and stop; never manufacture a verdict and never move
 a head to produce a fresh run.
 
+## A versioning PR is a checkpoint, not a state
+
+"All N files match live" is a measurement at a named head, and it expires the moment the merge lands.
+Measured twice in one night on this lane:
+
+```
+23:54Z  branch b08c1ef4 vs live  → 0 of 10 differ      (true, and reported as a state)
+00:09Z  #1136 merges → main 864fffaa
+00:37Z  main 864fffaa  vs live  → 4 of 10 differ, ~8,197 b live-only
+        SKILL.md +1,860 · base-and-merge-integrity +1,267 · evidence-and-bases +1,196 · gate-auditing +3,874
+```
+
+Nothing was merged wrong — the merge froze the tree at the branch's content, and the lane kept writing
+to the profile afterwards. **That is the second-order form of the drift a versioning PR fixes:** the
+first is "live grew and the tree was never updated"; this one is "the merge is a snapshot, and
+everything after it drifts again".
+
+So the comparison is a **post-merge** step, not a pre-merge one, and it is run against `origin/main` —
+the only baseline that survives a merge:
+
+```bash
+git -C <repo> fetch origin main
+for f in $(git -C <repo> ls-tree -r --name-only origin/main agents/<lane>/); do
+  git show "origin/main:$f" | sha256sum; sha256sum ~/.hermes/profiles/<lane>/${f#agents/<lane>/}
+done
+```
+
+Report it as *"N of M differ at `<sha>`, measured `<hh:mm>Z`"* — never as "the tree matches live",
+because that sentence has no expiry and will be false within the hour.
+
 ## The skill body has a size ceiling, and it fails silently
 
 `skill_manage` refuses a save once `SKILL.md` passes roughly **100,000 characters**, and the refusal
@@ -70,6 +100,22 @@ succeeds. **A lesson recorded in the same edit that clears the cap is the only e
 So: when a lesson will not save, `wc -c SKILL.md` first. If it is near the ceiling, move the largest
 self-contained section **verbatim** into `references/`, leave a one-line pointer, then verify with a
 line-by-line `missing: 0` check — never eyeball a split, and never split by concatenation.
+
+**Verify a split by grepping for the rules that must STAY, not by reading the pointer you wrote.**
+A split moves whatever you selected, and the section boundaries do not know which sentences were
+load-bearing. The check is mechanical and it fails in the direction you least expect:
+
+```bash
+for p in 'does not approve and does not merge' 'No squash, no auto-merge' 'working on #' 'REVIEW_REQUIRED';
+  do printf '%-40s ' "$p"; grep -ci "$p" SKILL.md; done     # every count must be >= 1
+```
+
+Measured: after moving a 628-line rules section out, the lane that wrote the acceptance criterion
+("never-approve/never-merge stays in the body") still had `grep -ci 'never approve' → 0` — the rule
+survived only in the reference, behind the hop the acceptance existed to forbid. **An acceptance you
+authored is not evidence you met it**; grep the body for the sentence, and if it moved, put it back
+above the pointer. The pointer should name what is behind it, never carry the only copy of the rule a
+review cannot start without.
 
 ## Standing rules for this repo (they override generic review habits)
 
@@ -132,6 +178,16 @@ would bypass the lane that owns it, and `agents/manifest.json` declares `never-m
 retired **"arm at PR creation"** bullet is not part of this lane: it exists for lanes that open pull
 requests, and a file carrying both it and rule 16 contradicts itself (measured on #919 at `4fb3bf3a`:
 `:20` "no auto-merge, no `gh pr merge`" beside `:73` "arm at PR creation").
+
+**When a dispatch asks for an act this lane's own SOUL forbids, decline once — and route, never
+re-litigate.** A versioned lane charter outranks a dispatcher's instruction, so the answer does not
+change when the request is repeated: state the ground (the charter sentence that names the act), name
+who *can* do it (the owner, or a lane holding that grant), and stop. Repeating the reasoning on each
+request spends the shift on a settled question; silence looks like non-compliance and compliance
+breaks the chain that makes the verdict worth anything. **A reviewer that queues or approves its own
+PR has removed the check the board exists for**, and holding the credential to do it is not consent to
+use it — say that gap out loud, because a rule that survives only because a lane remembers it is one
+hand-off from being broken.
 
 **Companion owner rules (#948), same block:** `do-not-merge` only for genuinely wrong or conflicting work,
 never as a default or a placeholder, and the tag comment must name the issue that resolves it or the tag

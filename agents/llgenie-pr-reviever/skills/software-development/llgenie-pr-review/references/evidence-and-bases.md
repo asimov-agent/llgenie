@@ -133,3 +133,24 @@ subfield means that attribute is unset, not that the feature is missing. The sam
 null precisely *while* `status` is `in_progress`, which is why a run in flight must never be read as
 a conclusion or as an absence.
 
+## A frozen timestamp is not evidence of a hang
+
+When a job has been running past the norm, the tempting read is a stale `updated_at` or an
+unavailable log: *"it has not moved in 40 minutes."* Neither is evidence. `updated_at` on a run
+advances on **status changes**, not while a step executes, and a job's log is not retrievable until
+it completes — so both are silent by design during exactly the window you are worried about.
+
+What the fields *can* support:
+
+```bash
+gh api "repos/<o>/<r>/actions/jobs/<id>" \
+  --jq '{status, started_at, steps: [.steps[] | "\(.status)/\(.conclusion // "-") \(.name)"]}'
+```
+
+If the setup steps are `completed/success` and the long step is `in_progress`, the job is **executing**,
+not frozen — the hang signature is a job stuck *before* the long step, on a network fetch or a runner
+that never picked it up. Otherwise say what is true: the duration against the band you have actually
+measured on that runner, and explicitly that the fields cannot distinguish slow from stuck. Naming an
+insufficient reading is more useful than picking the more alarming of two unsupported ones, and it
+stops a "hung run" claim from being filed against someone else's CI.
+

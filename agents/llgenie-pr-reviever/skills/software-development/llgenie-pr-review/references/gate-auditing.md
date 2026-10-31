@@ -129,5 +129,75 @@ This also changes what a fix should be. "Make the red go away" and "relocate thi
 conservatively" produce different diffs, and only the second keeps the gate meaningful; a fix that
 silences a safety check converts a caught mistake into an unguarded one.
 
+## 7. A cancelled fan-out forges a legitimate `skipped`
+
+A deciding gate can be absent from a head's check list in two ways that render **identically**:
+*something decided this diff needs no such job* (a real scope decision) and *a cancelled fan-out
+never produced a job list* (nothing was verified). Both appear as the dependent job's conclusion
+`skipped`, and `0 failures` is true in both readings.
+
+Measured across three heads of one PR, same class of change:
+
+```
+head A  scope success    → linux ran      → 2 failed          a verdict
+head B  scope CANCELLED  → linux SKIPPED  → 3 success, 0 fail no verdict, reads fine
+head C  scope success    → linux ran      → 13 success, 1 run verdict restored
+```
+
+So `cancelled` is not only "no verdict" for its own row — it **removes rows** downstream, and the
+absence wears another state's meaning. Before reporting a `skipped` as benign, ask what produced it:
+
+```bash
+gh api "repos/<o>/<r>/commits/<sha>/check-runs?per_page=100" \
+  --jq '.check_runs[]|"\(.name): \(.conclusion // .status)"'
+```
+
+and look for a `cancelled` sibling — a `cancelled` `scope`/fan-out job beside `skipped` matrix legs
+means the jobs were never scheduled. Say "no verdict — the fan-out was cancelled, so `<job>` never
+ran", never "`<job>` passed/does not apply". The fix is a fresh run at a frozen head, or a fan-out
+that marks its dependents `cancelled` rather than `skipped`; it is never a code change on the PR.
+
+## 8. Two tools, one count, different answers — diff the IDENTIFICATION KEY, not the arithmetic
+
+When two scripts report different totals for the same measurement, the instinct is to compare the
+formulas. Usually the arithmetic is identical and the disagreement is in **what each one matches on**.
+Find the line that decides membership in the protected set, in both, and compare those two lines.
+
+Measured — a safety audit exists twice, once as a shell script and once as a pure function:
+
+```python
+# pure function: identifies a worktree by the COMMIT it points at
+keep = {w for w in wts if w["dirty"] or w.get("head") in unique_shas or w.get("unique")}
+
+# shell: identifies a worktree by its BRANCH NAME
+uniq_b = {r["branch"] for r in uniq}
+if w.get("branch") in uniq_b: wt_uniq.append(w["path"])
+```
+
+The second is structurally blind to a **detached** worktree: the porcelain parser invents
+`branch="(detached)"`, which is never a member of a set of real branch names, so every detached tree
+falls through the unique test and is preserved only if it happens to be dirty. Measured on one clone:
+27 of 147 worktrees were detached, and **8 of those were clean with a HEAD reachable from no origin
+branch** — each one called "safe in principle to delete" by the name-matching tool while holding a
+commit that exists nowhere else.
+
+```bash
+git worktree list --porcelain | grep -c '^detached'          # how many have no branch name at all
+# per detached tree: clean, and is its HEAD reachable from any remote branch?
+git -C "$w" status --porcelain            # empty ⇒ clean
+git -C "$w" rev-parse HEAD                # then merge-base --is-ancestor against each origin tip
+```
+
+**Rules that follow:**
+
+- **Match on content (a sha), not on a name, whenever the name can be absent.** A branch name is a
+  label a worktree may not have; a HEAD is a fact every worktree has.
+- **When two implementations of one rule exist, test the case where they structurally diverge**, not a
+  case where they agree. A shared expected count passes while both are wrong together — assert the
+  divergent input in each tool separately.
+- **A read-only tool's verdict is still an action.** "Safe to delete" is what an owner prunes on, so an
+  over-report in that direction destroys unrecoverable work while an under-report merely wastes space.
+  Say which direction a disagreement resolves in before deciding it is cosmetic.
+
 Gate hygiene is never a `do-not-merge` reason: file the issue, link it into any verdict it touches, and
 let the PR under review proceed.
