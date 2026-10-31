@@ -715,6 +715,7 @@ def test_weight_budget_rules():
     ("ravenx-conjecture-qwen3-8b-mlx", "mlx-safetensors", "deadbydawn101/RavenX-Conjecture-Qwen3-8B-MLX", ""),
     ("qwen3-8b", "gguf", "Qwen/Qwen3-8B-GGUF", "Qwen3-8B-"),
 ])
+@pytest.mark.network
 def test_plan_download_per_format_live_hub(model_id, fmt, repo_part, file_part):
     """Live Hub: the download plan for each format a 16 GB card would fetch."""
     m = next(x for x in mp.load_registry()["models"] if x["id"] == model_id)
@@ -728,6 +729,7 @@ def test_plan_download_per_format_live_hub(model_id, fmt, repo_part, file_part):
         assert not mp._LITERT_VARIANT.search(plan["path"])  # the generic build, not gpu/web/vendor
 
 
+@pytest.mark.network
 def test_moe_model_on_16gb_is_planned_with_system_ram():
     m = next(x for x in mp.load_registry()["models"] if x["id"] == "qwen3.8-flash-next-125b")
     assert mp.plan_download(m, 16, 8, "gguf", "cuda") is None           # 8 GB RAM: nothing fits
@@ -1034,6 +1036,7 @@ def test_pick_file_fits_the_card_and_skips_shards_and_mmproj():
     assert mp.pick_file("Qwen/Qwen2.5-0.5B-Instruct-GGUF", 0.01)[1] == min(s for _, s in files)
 
 
+@pytest.mark.network
 def test_unsloth_repo_skips_mtp_heads_and_imatrix():
     """Live Hub: unsloth repos ship MTP draft heads (MTP/mtp-*.gguf) and an imatrix
     next to the model; they are not loadable models and must never be picked."""

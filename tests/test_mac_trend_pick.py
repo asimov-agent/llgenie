@@ -161,6 +161,7 @@ def test_metal_budget_is_the_gpu_working_set_minus_reserves(gb, want):
 # ---------------------------------------------------------------------------
 # the list itself, tested without the prompt
 # ---------------------------------------------------------------------------
+@pytest.mark.network
 def test_trend_on_a_48gb_mac_is_the_readme_list_with_metal_engines(tmp_path):
     """The reporter's list, fixed: header says metal, TensorFold is #1 for
     Qwen3.8-27B, Metal t/s figures are this host's, and Flash Next says exactly why."""
