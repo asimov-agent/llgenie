@@ -112,3 +112,24 @@ not be read as an invitation to move main (re-record) to accommodate the branch.
 the 429 in the same job was a SUCCEEDED retry (a red herring), and the failing step was
 `make ci-unit` -> check-import-roots — read the exact failing STEP, not the job name, before
 naming a cause.
+
+## When the paths predate the PR, only the PER-FILE CONTENT diff exposes a duplicate vehicle
+
+The duplicate-vehicle pair (`ls-tree` shows the paths on main + `--is-ancestor` says the commit never
+merged) is VACUOUS for skill/versioning PRs whose directory shipped long ago (the tester skill
+landed via #919): the paths are trivially on main and the commit is trivially not an ancestor — that
+says nothing about the CONTENT. Measured #1084 at main `329d9d6c` (2026-10-31): head `6d068af8`
+`CONFLICTING` (merge-tree exit 1, 2 conflicts: `SKILL.md` content + `post-merge-verification.md`
+add/add), but the same-day sync `f447b471` (#1152, `sync(agents): llgenie-tester live->tree
+byte-identical CHECK=1 6/6`, merged 07:22+01:00) had already absorbed the PR's whole #1060 content.
+
+The instrument: for every file in the PR's own stat, `git diff origin/main:<f> <head>:<f>` and count
+each side's unique lines (`grep -cE '^\+[^+]'` and `'^-[^-]'`). #1084: SKILL.md branch-unique 3
+(only an older rewrite of the hang-band paragraph main already EXTENDS with a newer generation),
+`agent-profile-versioning.md` byte-identical (0/0), `post-merge-verification.md` branch-unique 0 with
+main a 15-line superset. Branch-unique ≈ 0 or only older rewrites of blocks main extends = superseded.
+A live->tree sync landing WHILE a versioning PR sits open supersedes it by design: the sync captures
+the live profile, which contains the open PR's work. Correct action: post per-file counts + the sync
+sha on the PR, recommend closing as superseded, push nothing, label nothing, leave the branch
+untouched — a "correct" rebase here replays an older generation that REGRESSES main's newer
+paragraphs or lands an empty PR.
