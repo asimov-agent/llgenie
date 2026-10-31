@@ -11,6 +11,7 @@ NO-SKIP POLICY: a missing prerequisite is a LOUD FAILURE, never a skip.
 """
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -220,3 +221,95 @@ def test_make_changes_index_renders_and_the_gate_runs_it_in_ci():
 
     # And this test file is in the discovered unit suite
     assert "tests/test_changes_index.py" in ut.select(REPO)
+
+
+# ---------------------------------------------------------------------------
+# the merge-time resolution helper (issue #1103)
+# ---------------------------------------------------------------------------
+def _git(root: Path, *args: str) -> subprocess.CompletedProcess:
+    """One `git` command in a scratch repo with a deterministic identity set."""
+    env = dict(os.environ)
+    env.update(GIT_AUTHOR_NAME="Test", GIT_AUTHOR_EMAIL="test@example.com",
+               GIT_COMMITTER_NAME="Test", GIT_COMMITTER_EMAIL="test@example.com")
+    return subprocess.run(["git", "-C", str(root), *args],
+                          capture_output=True, text=True, env=env, timeout=120)
+
+
+def _commit(root: Path, message: str) -> None:
+    res = _git(root, "add", "-A")
+    assert res.returncode == 0, res.stderr
+    res = _git(root, "commit", "-m", message)
+    assert res.returncode == 0, res.stderr
+
+
+def test_resolve_repairs_a_real_two_commit_changes_md_conflict(tmp_path):
+    """The helper reproduces `git checkout <base> -- CHANGES.md && make changes-index` on a real
+    two-commit conflict (issue #1103): take the base's file, re-render from the merged fragments,
+    stage it — no conflict markers, the committed table equals the render, determinism holds."""
+
+    # Given a real git repo whose main carries one note+row, and a branch `other` cut from it
+    base_stem = "2026-10-01-base"
+    root = _tree(tmp_path, {base_stem: "# Base\n\n#257\n"},
+                 {base_stem: _row("2026-10-01", base_stem, base_stem, "#257")})
+    _git(root, "init", "-q")
+    _git(root, "config", "user.name", "Test")
+    _git(root, "config", "user.email", "test@example.com")
+    ci.write(root)  # the base CHANGES.md
+    _commit(root, "base")
+
+    # When two commits each add a row and each rewrite CHANGES.md (the schema's conflict)
+    _git(root, "-c", "checkout.index=1", "checkout", "-qb", "other")
+    other_stem = "2026-10-02-other"
+    (root / "agent-wiki").mkdir(parents=True, exist_ok=True)
+    (root / "docs/changes.d").mkdir(parents=True, exist_ok=True)
+    (root / "agent-wiki" / f"{other_stem}.md").write_text("# Other\n\n#257\n")
+    (root / "docs/changes.d" / f"{other_stem}.md").write_text(_row("2026-10-02", other_stem, other_stem, "#257"))
+    ci.write(root)
+    _commit(root, "other adds row")
+
+    _git(root, "checkout", "-q", "main")
+    main_stem = "2026-10-03-main"
+    (root / "agent-wiki" / f"{main_stem}.md").write_text("# Main\n\n#257\n")
+    (root / "docs/changes.d" / f"{main_stem}.md").write_text(_row("2026-10-03", main_stem, main_stem, "#257"))
+    ci.write(root)
+    _commit(root, "main adds row")
+
+    merged = _git(root, "merge", "other")
+    assert merged.returncode != 0, merged.stdout
+    assert "CHANGES.md" in merged.stdout or "CHANGES.md" in merged.stderr, "merge must conflict on CHANGES.md"
+    conflicted = (root / "CHANGES.md").read_text()
+    assert "<<<<<<<" in conflicted, "the conflict marker must be present before resolve"
+
+    # resolve takes main's CHANGES.md and re-renders from the merged fragments' union
+    before_stems = set(ci._stems(root).keys())
+    rcode = ci.resolve(root, base="main")
+    assert rcode == 0
+
+    # Then no conflict markers remain, the file equals the render, and every merged row survives
+    after = (root / "CHANGES.md").read_text()
+    assert "<<<<<<<" not in after and ">>>>>>>" not in after and "=======" not in after
+    assert after == ci.render(root), "the committed table must equal the render of the merged fragments"
+    after_stems = set(ci._stems(root).keys())
+    assert {base_stem, other_stem, main_stem} <= after_stems, "both merged fragment sets must survive"
+    assert set(after_stems) == before_stems, "resolve must not add or drop fragments"
+
+    # And the determinism pattern holds: write is idempotent and check is green
+    rendered = ci.render(root)
+    assert ci.check(root) == []
+    assert ci.write(root) == 0
+    assert (root / "CHANGES.md").read_text() == rendered == after
+
+
+def test_resolve_is_wired_as_make_changes_resolve_and_documented():
+    """`make changes-resolve` runs exactly the issue's recipe (`git checkout <base> -- CHANGES.md
+    && make changes-index`) and is documented in docs/BOTS.md (issue #1103)."""
+
+    mk = (REPO / "Makefile").read_text()
+    phony = mk.split(".PHONY:", 1)[1].split("\n\n", 1)[0]
+    bots = (REPO / "docs/BOTS.md").read_text()
+
+    assert "\nchanges-resolve:" in mk
+    assert "changes_index.py resolve" in mk.split("\nchanges-resolve:", 1)[1].split("\n", 1)[0]
+    assert "changes-resolve" in phony
+    assert "make changes-resolve" in bots
+    assert "take base + re-render" in bots
