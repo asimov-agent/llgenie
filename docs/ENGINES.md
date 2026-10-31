@@ -238,6 +238,14 @@ do the same locally.
   `make test-engine-stage ENGINE=… ARCH=… TEST=<row.test>` — `serve` for cpu (the image answers on
   the OpenAI API), `detect` for GPU (the binary reports its version and answers the flags a user
   types). Same make path as CI, so the verification is identical.
+- after `make push-engine` (when `push=true`), each row runs its serve-leg
+  (`make test-published-engine`: re-pull AS published, digest == `:<arch>`, re-check the binary,
+  serve) and its install-leg (`make test-engine-install`: install + the installed launcher's
+  version + `llgenie --dry` + uninstall; issue #1027). The **cuda install-leg is not exercisable
+  on GitHub-hosted (GPU-less) `ubuntu-latest` runners** — it needs an NVIDIA GPU on the run host
+  to docker-run `--device nvidia.com/gpu=all` through the nvidia-container-toolkit CDI (which can
+  only be generated where a GPU exists) — and SKIPS there with a documented reason, running on a
+  GPU+CDI-capable host instead (issue #1240).
 - no `pull_request`, `push` or `schedule` trigger. The row is **built, then verified, then**
   published — `make push-engine` is its own step, runs only when `push=true`, and re-checks the
   binary's flags before it pushes, so an image whose binary does not answer never reaches GHCR.

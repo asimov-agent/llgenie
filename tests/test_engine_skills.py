@@ -1333,6 +1333,30 @@ def test_cuda_containers_get_the_host_driver_via_cdi(tmp_path, monkeypatch):
     assert "libcuda" not in (REPO / es.dockerfile_path("llama.cpp", "cuda")).read_text()
 
 
+def test_cuda_install_leg_skips_on_a_gpu_less_runner_but_runs_on_a_gpu_host(monkeypatch):
+    """Issue #1240: the producer's cuda install-leg needs an NVIDIA GPU on the run host
+    (its launchers docker-run `--device nvidia.com/gpu=all`, the CDI device mounts the host
+    driver), and GitHub-hosted ubuntu-latest has none — so on a GPU-less runner the install-leg
+    SKIPS with a documented reason instead of redding. A GPU host proceeds (a GPU host that merely
+    lacks the CDI spec still fails loudly inside install(), the existing CDI test above covers it)."""
+
+    import importlib
+    import scripts.install_engine_launchers as il
+    importlib.reload(il)
+
+    # Given a GPU-less runner (nvidia-smi lists no GPU, as on GitHub-hosted ubuntu-latest)
+    monkeypatch.setattr(il, "cuda_install_exercisable", lambda: False)
+    assert il.install_leg_skip_reason("cpu") == ""   # cpu install-leg still runs
+    assert "cuda" in il.install_leg_skip_reason("cuda").lower()
+    assert il.main(["--install-leg-skip-reason", "--arch", "cuda"]) == 0
+
+    # Given a host WITH an NVIDIA GPU: the cuda install-leg is exercisable, no skip
+    monkeypatch.setattr(il, "cuda_install_exercisable", lambda: True)
+    assert il.install_leg_skip_reason("cuda") == ""
+    assert il.main(["--install-leg-skip-reason", "--arch", "cuda"]) == 0
+    assert il.main(["--install-leg-skip-reason", "--arch", "cpu"]) == 0
+
+
 def test_cuda_start_script_creates_nvidia_modeset_before_cdi():
     """CDI aborts when /dev/nvidia-modeset is missing. The cuda script creates it first."""
 
