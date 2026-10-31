@@ -56,16 +56,16 @@ def test_a_file_that_does_not_parse_is_its_own_finding(tmp_path):
     assert [i["key"] for i in guard.findings(root)] == ["syntax"]
 
 
-def test_the_ratchet_passes_at_the_recorded_count_and_refuses_an_increase(tmp_path):
+def test_the_ratchet_passes_at_the_recorded_set_and_refuses_an_added_root(tmp_path):
     root = tree(tmp_path, {"tests/test_x.py": "import sys\nsys.path.insert(0, 'scripts')\n"})
     (root / "tests" / "fixtures").mkdir()
-    (root / guard.BASELINE).write_text(json.dumps({"sys-path": 1, "bare": 0, "syntax": 0}))
+    (root / guard.BASELINE).write_text(_set_baseline({"sys-path": ["tests/test_x.py:2"]}))
     assert guard.ratchet(root) == []
 
     (root / "tests" / "test_new.py").write_text("import sys\nsys.path.insert(0, 'scripts')\n")
     items = guard.ratchet(root)
-    assert [i["key"] for i in items] == ["sys-path"]
-    assert "may only shrink" in items[0]["detail"]
+    assert [i["key"] for i in items if i.get("new")] == ["sys-path"]
+    assert [i["new"] for i in items if i.get("new")] == [["tests/test_new.py:2"]]
 
 
 def test_the_ratchet_refuses_a_missing_baseline_rather_than_passing_silently(tmp_path):
@@ -119,24 +119,31 @@ def test_the_guard_says_a_baseline_is_a_measurement_and_not_a_constant():
         assert phrase in doc, f"the guard does not document the ratchet's first rule: {phrase}"
 
 
-def _ratchet_tree(tmp_path: Path, files: dict[str, str], recorded: dict[str, int]) -> Path:
-    """A real tree with a committed-shape baseline, so the ratchet runs exactly as CI runs it."""
+def _set_baseline(recorded: dict[str, list[str]]) -> str:
+    """A set-shaped baseline: each rule records its counted `file:line` sites and the aggregate."""
+    return json.dumps({k: {"count": len(v), "sites": sorted(v)} for k, v in recorded.items()},
+                      indent=2, sort_keys=True)
+
+
+def _ratchet_tree(tmp_path: Path, files: dict[str, str], recorded: dict[str, list[str]]) -> Path:
+    """A real tree with a committed set-shaped baseline, so the ratchet runs exactly as CI runs it."""
     root = tree(tmp_path, files)
     (root / "tests" / "fixtures").mkdir()
-    (root / guard.BASELINE).write_text(json.dumps({"sys-path": 0, "bare": 0, "syntax": 0, **recorded}))
+    (root / guard.BASELINE).write_text(_set_baseline(recorded))
     return root
 
 
-def test_the_ratchet_names_the_offending_file_and_line(tmp_path, capsys):
-    """The refusal knows which file pushed the count over; it must say so (issue #1066).
+def test_the_ratchet_refusal_names_exactly_the_new_file_and_line(tmp_path, capsys):
+    """The refusal is a set difference: it names the ONE new root, not every site the rule counted (#1101).
 
-    Measured on `main`: the only output was the aggregate `bare: 53 now, 52 recorded`, so the author of
-    the new root had to run `report` to find their own file — a gate that withholds the answer it holds.
+    Measured on `main@769964a1` after #1066: the output listed all 33 `sys-path` sites and the
+    assertion claimed the offender was "among them" — a reader who did not add it must still diff the
+    list. Set-shaped, the ratchet names exactly the site present now and absent at the baseline.
     """
 
-    # Given a tree at its recorded count, and a new test file that adds its own module-level root
+    # Given a tree at its recorded set, and a new test file that adds its own module-level root
     root = _ratchet_tree(tmp_path, {"tests/test_x.py": "import sys\nsys.path.insert(0, 'scripts')\n"},
-                         {"sys-path": 1})
+                         {"sys-path": ["tests/test_x.py:2"], "bare": [], "syntax": []})
     (root / "tests" / "test_new.py").write_text("import sys\nsys.path.insert(0, 'scripts')\n")
 
     # When  the ratchet runs
@@ -144,43 +151,63 @@ def test_the_ratchet_names_the_offending_file_and_line(tmp_path, capsys):
     code = guard.main(["ratchet", "--root", str(root)])
     named = capsys.readouterr().err
 
-    # Then  it refuses, and the refusal names that exact file and line
+    # Then  it refuses, naming that exact file and line — and never the recorded one alongside it
     assert code == 1
-    assert [i["key"] for i in items] == ["sys-path"]
-    assert "tests/test_new.py:2" in items[0]["sites"]
+    assert [i["new"] for i in items if i.get("new")] == [["tests/test_new.py:2"]]
     assert "tests/test_new.py:2" in named
+    assert "tests/test_x.py:2" not in named
 
 
 def test_the_ratchet_is_green_and_names_no_site_when_nothing_was_added(tmp_path, capsys):
-    """Negative control: at the recorded count the gate is silent about sites and exits 0."""
+    """Negative control: at the recorded set the gate is silent about sites and exits 0."""
 
-    # Given a tree whose counts equal its baseline
+    # Given a tree whose current set equals its baseline
     root = _ratchet_tree(tmp_path, {"tests/test_x.py": "import sys\nsys.path.insert(0, 'scripts')\n"},
-                         {"sys-path": 1})
+                         {"sys-path": ["tests/test_x.py:2"], "bare": [], "syntax": []})
 
     # When  the ratchet runs
     code = guard.main(["ratchet", "--root", str(root)])
     out = capsys.readouterr().out
 
-    # Then  it passes, and prints no site line at all
+    # Then  it passes, and prints no site
     assert code == 0
     assert "tests/test_x.py:2" not in out
 
 
-def test_the_ratchet_stays_green_when_a_root_is_removed(tmp_path, capsys):
-    """Negative control: the count may shrink, so fewer findings than recorded is green (issue #796)."""
+def test_the_ratchet_reports_a_removed_root_as_the_allowed_shrink(tmp_path, capsys):
+    """The count may only shrink: removing a root is green AND reports which one went (issue #796)."""
 
-    # Given a tree with no path entry at all and a baseline that recorded two
-    root = _ratchet_tree(tmp_path, {"tests/test_ok.py": "from scripts.hf_auth import x\n"},
-                         {"sys-path": 2})
+    # Given a tree missing one of the two recorded roots
+    root = _ratchet_tree(tmp_path, {"tests/test_x.py": "import sys\nsys.path.insert(0, 'scripts')\n"},
+                         {"sys-path": ["tests/test_x.py:2", "tests/test_y.py:1"], "bare": [], "syntax": []})
 
     # When  the ratchet runs
     code = guard.main(["ratchet", "--root", str(root)])
-    out = capsys.readouterr().out
 
-    # Then  it passes and prints no offender list
+    # Then  it passes, and names the shrunken site as allowed
     assert code == 0
-    assert "sys-path" not in out or "OK" in out
+    out = capsys.readouterr().out
+    assert "tests/test_y.py:1" in out
+    assert "allowed" in out
+
+
+def test_a_legacy_count_baseline_still_ratchets(tmp_path, capsys):
+    """A pre-#1101 count-shaped entry still refuses an overshoot and says to re-record once."""
+
+    # Given a baseline whose sys-path entry is a plain integer
+    root = tree(tmp_path, {"tests/test_x.py": "import sys\nsys.path.insert(0, 'scripts')\n",
+                           "tests/test_y.py": "import sys\nsys.path.insert(0, 'scripts')\n"})
+    (root / "tests" / "fixtures").mkdir()
+    (root / guard.BASELINE).write_text(json.dumps({"sys-path": 1, "bare": 0, "syntax": 0}))
+
+    # When  the ratchet runs
+    code = guard.main(["ratchet", "--root", str(root)])
+    named = capsys.readouterr().err
+
+    # Then  it refuses, names the sites it cannot split, and says to re-record once
+    assert code == 1
+    assert "re-record" in named
+    assert "tests/test_x.py:2" in named and "tests/test_y.py:2" in named
 
 
 def test_report_still_lists_every_finding_and_exits_zero(tmp_path, capsys):

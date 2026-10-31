@@ -15,14 +15,20 @@ Both are refusals, not warnings. `--allow` takes a path prefix that is exempt (t
 deliberate exception recorded with its reason in the same list), so the list is the record of every
 exception rather than a comment somewhere.
 
-The ratchet: `tests/fixtures/import-roots-baseline.json` records the counts, `check` fails when they
-RISE, and a batch that converts files lowers them — so the guard is green on today's tree and still
-refuses tomorrow's new offender. **A baseline is a MEASUREMENT, not a constant.** It was `34 bare /
-14 sys-path` when this branch was cut and `107 / 151` on `main` a day later, because other lanes added
-tests that bootstrap their own path; recorded as-is, the guard would have been red on `main` itself.
-Re-record at what the branch actually produces (`--root <exported tree> report` measures any tree
-without touching it) and the meaning is preserved — it may fall, never rise. A baseline copied from an
-old cut asserts the past, and a guard that asserts the past is a guard people disable.
+The ratchet: `tests/fixtures/import-roots-baseline.json` records each rule's counted sites, `check`
+fails when they RISE, and a batch that converts files lowers them — so the guard is green on today's
+tree and still refuses tomorrow's new offender. **A baseline is a MEASUREMENT, not a constant.** It was
+`34 bare / 14 sys-path` when this branch was cut and `107 / 151` on `main` a day later, because other
+lanes added tests that bootstrap their own path; recorded as-is, the guard would have been red on
+`main` itself. Re-record at what the branch actually produces (`--root <exported tree> report` measures
+any tree without touching it) and the meaning is preserved — it may fall, never rise. A baseline copied
+from an old cut asserts the past, and a guard that asserts the past is a guard people disable.
+
+The baseline is SET-shaped: each rule records `{"count": N, "sites": ["tests/…:line", …]}`. The ratchet
+diffs the sets, so a red names the ONE new `file:line` (a site present now and absent at the baseline)
+instead of listing every site the rule counted and making the reader diff it (issue #1101). A site
+recorded then and gone now is the reported shrink — allowed, because the migration may only shrink
+(issue #796).
 
 Usage:
     python3 scripts/check_import_roots.py check      # exit 1 on any finding
@@ -121,8 +127,16 @@ def findings(root: Path = REPO_ROOT, allow: tuple[str, ...] = ALLOWED) -> list[d
     return items
 
 
-def counts(root: Path = REPO_ROOT) -> dict[str, int]:
-    items = findings(root)
+def sites_by_rule(root: Path = REPO_ROOT, allow: tuple[str, ...] = ALLOWED) -> dict[str, set[str]]:
+    """Every finding's `file:line` grouped by rule — the set the set-shaped baseline records."""
+    out: dict[str, set[str]] = {}
+    for it in findings(root, allow):
+        out.setdefault(it["key"], set()).add(it["where"])
+    return out
+
+
+def counts(root: Path = REPO_ROOT, allow: tuple[str, ...] = ALLOWED) -> dict[str, int]:
+    items = findings(root, allow)
     out = {"sys-path": 0, "bare": 0, "syntax": 0}
     for it in items:
         out[it["key"]] = out.get(it["key"], 0) + 1
@@ -130,42 +144,56 @@ def counts(root: Path = REPO_ROOT) -> dict[str, int]:
 
 
 def ratchet(root: Path = REPO_ROOT, allow: tuple[str, ...] = ALLOWED) -> list[dict]:
-    """Findings that push a count above the recorded baseline — the only ones a landed guard can red on.
+    """Refusals that push a rule past its recorded baseline — the only ones a landed guard can red on.
 
-    Each over-count names the `file:line` of every finding its own rule counted (`sites`), from the
-    same `findings()` output `report` prints: the aggregate says the migration regressed, the sites say
-    where, so a reader never has to run `report` to find the offending file (issue #1066). The baseline
-    records a COUNT and not a set, so the ratchet cannot claim which one site is the new one — it names
-    them all and the author's own diff picks it out.
+    Set-shaped (issue #1101): the baseline records each rule's counted `file:line` sites, so the
+    refusal is a genuine set difference — a site present now and absent at the baseline is the ONE new
+    root, named exactly (issue #1066 could only list every site and let the reader diff). A site
+    recorded then and gone now is the reported, allowed shrink (issue #796). A legacy count-shaped
+    baseline entry (a plain number, the pre-#1101 shape) still ratchets by count and names all its
+    sites, with a note to re-record once with `--update`.
     """
     path = root / BASELINE
-    now = counts(root)
+    now = sites_by_rule(root, allow)
     if not path.exists():
-        return [{"key": "baseline", "where": str(BASELINE),
-                 "detail": f"missing; record the current counts with `--update` ({now})"}]
+        return [{"key": "baseline", "where": str(BASELINE), "missing": True,
+                 "detail": f"missing; record the current sites with `--update` "
+                           f"({{k: len(v) for k, v in now.items()}})"}]
     recorded = json.loads(path.read_text())
-    sites: dict[str, list[str]] = {}
-    for finding in findings(root, allow):
-        sites.setdefault(finding["key"], []).append(finding["where"])
     items: list[dict] = []
-    for key, value in sorted(now.items()):
-        was = int(recorded.get(key, 0))
-        if value > was:
-            items.append({
-                "key": key,
-                "where": str(BASELINE),
-                "over": value - was,
-                "sites": sites.get(key, []),
-                "detail": f"{key}: {value} now, {was} recorded — the migration may only shrink this "
-                          f"count (issue #796); a new file adding its own root is refused here",
-            })
+    for key in sorted(set(recorded) | set(now)):
+        rec = recorded.get(key)
+        cur = now.get(key, set())
+        if isinstance(rec, (int, float)) or rec is None:   # legacy count-shaped entry
+            was = int(rec or 0)
+            if len(cur) > was:
+                items.append({"key": key, "where": str(BASELINE), "legacy": True,
+                              "now": len(cur), "was": was, "new": sorted(cur),
+                              "detail": f"{key}: {len(cur)} now, {was} recorded — this baseline "
+                                        f"entry is count-shaped; re-record once with `--update` so a "
+                                        f"red names the new file (issue #1101)"})
+            continue
+        rec_sites = set(rec.get("sites", []))
+        was = int(rec.get("count", len(rec_sites)))
+        new = sorted(cur - rec_sites)
+        removed = sorted(rec_sites - cur)
+        if new:
+            items.append({"key": key, "where": str(BASELINE), "new": new,
+                          "now": len(cur), "was": was,
+                          "detail": f"{key}: a NEW import root is refused — this exactly (issue #1101):"})
+        if removed:
+            items.append({"key": key, "removed": removed,
+                          "detail": f"{key}: removed site(s), allowed — the migration may only shrink "
+                                    f"(issue #796):"})
     return items
 
 
-def update_baseline(root: Path = REPO_ROOT) -> Path:
+def update_baseline(root: Path = REPO_ROOT, allow: tuple[str, ...] = ALLOWED) -> Path:
     path = root / BASELINE
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(counts(root), indent=2, sort_keys=True) + "\n")
+    now = sites_by_rule(root, allow)
+    data = {k: {"count": len(v), "sites": sorted(v)} for k, v in sorted(now.items())}
+    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
     return path
 
 
@@ -178,23 +206,30 @@ def render(items: list[dict]) -> str:
 
 
 def render_ratchet(items: list[dict]) -> str:
-    """The aggregate line per over-count, then the `file:line` of every site that rule counted.
+    """The refusal (a new site named exactly), the allowed shrink, and a legacy-baseline note.
 
-    Same information `report` prints for the offending rule, so the author of the new root reads it
-    here instead of running a second command (issue #1066).
+    Issue #1101: a site present now and absent at the baseline is named exactly, the one new root
+    (#1066 could only list every site the rule counted and let the reader diff).
     """
     lines: list[str] = []
     for it in items:
-        if "over" not in it:                            # a missing baseline: no rule counted anything
+        if it.get("missing"):
             lines.append(f"[import-roots] {it['where']}: {it['detail']}")
             continue
-        lines.append(f"[import-roots] {it['detail']}")
-        sites = it.get("sites") or []
-        if sites:
-            lines.append(f"[import-roots] {it['key']}: over by {it['over']} — the {len(sites)} site(s) "
-                         f"this rule counts, and the new one is among them ({BASELINE} records a "
-                         f"count, not a set):")
-            lines += [f"  {site}" for site in sites]
+        if it.get("legacy"):
+            lines.append(f"[import-roots] {it['detail']}")
+            for site in it.get("new") or []:
+                lines.append(f"  {site}")
+            continue
+        if it.get("new"):
+            lines.append(f"[import-roots] {it['detail']}  ({it['now']} now, {it['was']} recorded)")
+            for site in it["new"]:
+                lines.append(f"  {site}")
+            continue
+        if it.get("removed"):
+            lines.append(f"[import-roots] {it['detail']}")
+            for site in it["removed"]:
+                lines.append(f"  {site}")
     return "\n".join(lines)
 
 
@@ -213,10 +248,11 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.cmd == "ratchet":
         items = ratchet(root, tuple(args.allow))
+        refused = [it for it in items if it.get("new") or it.get("legacy")]
         print(render_ratchet(items) if items else
               f"[import-roots] OK: counts at or below the recorded baseline {counts(root)}",
-              file=sys.stderr if items else sys.stdout)
-        return 1 if items else 0
+              file=sys.stderr if refused else sys.stdout)
+        return 1 if refused else 0
     items = findings(root, tuple(args.allow))
     if args.cmd == "report":
         print(render(items))
