@@ -12,6 +12,17 @@ metadata:
 
 # Keep the llgenie security pipeline reporting
 
+<!-- host-bot-tools:begin -->
+
+## Tools
+
+This lane's chat session is pinned to these Hermes toolsets and no others: `clarify`, `file`, `memory`, `session_search`, `skills`, `terminal`, `todo`.
+
+Skills that stay enabled: `github`, `security-scan-ops`.
+Every other installed skill is listed in `skills.disabled`.
+The pin is `tests/fixtures/host-bot-capabilities.json` in asimov-agent/llgenie (issue #1038).
+<!-- host-bot-tools:end -->
+
 ## When to Use
 
 Any task on `asimov-agent/llgenie` in the security lane: the daily scan is red, no issues were filed, no
@@ -103,7 +114,17 @@ against the issue body (bodies carry stale line numbers and closed-PR references
    the fix must carry; mechanism gone → close with the evidence; parent tracker whose children are all closed
    and re-verified → close it and name what you re-checked.
 4. **Review the FIX, not only the defect** — an issue can be right about the problem and dangerous in its
-   remedy. Checklist: `references/security-issue-review.md`.
+   remedy. Checklist: `references/security-issue-review.md`. In particular, when the fix **widens the accept-set
+   of a merge-blocking gate** (an identity/allowlist/severity set), review the invariant, not the diff size:
+   the commit **address** is the identity and the allowlist of addresses is the only real boundary — a display
+   name is not a security control, because GitHub writes a squash commit's author name from the account *profile*,
+   a field the commit's author cannot set. So: (a) aliasing the display name of an already-allowlisted address
+   adds names, not identities — the trust set is unchanged; (b) a "lookalike address" (allowed name, wrong
+   domain-local) must still fail, which is the half of the rule that survives; (c) do NOT "fix" the widening by
+   re-adding a name check to the commit path, it reintroduces the squash reds that motivated the change; keep the
+   strict name+email pair only on the *producer* path (a workflow a human authors is committer-controlled). A gate
+   that accepts "any display name under an allowlisted email" is looser than exact-pair but is NOT an equivalence
+   hole, because the address is still allowlisted.
 
 ## Trust-boundary audit of the pipeline itself
 
@@ -125,6 +146,12 @@ docker run --rm --user $(id -u):$(id -g) -v "$PWD":/repo -w /repo -e HOME=/tmp l
 Local `python3` has no pytest — always use the `llgenie/test:latest` image (pulled/built by `make
 test-image`). A `make sbom && make security-scan TOOL=trivy` run locally (pinned images via docker) plus
 `python3 scripts/security_scan.py verdict --event schedule` is the cheapest real proof a finding set is gone.
+
+**When the diff touches `agents/**/*.md` (SOUL, skills, references), also run `make lint`** — it carries
+`scripts/lint_linefeeds.py`, which reds a markdown heading not preceded by a blank line. A section spliced
+directly above the canonical fleet-rules heading drops that blank line and reds the whole tree gate while
+every other check passes; insert a blank line before each heading and re-run `make lint` (expect
+`LINT OK`), not just `make check-agent-profiles`.
 
 ## Standing rules for this lane
 
@@ -167,6 +194,15 @@ test-image`). A `make sbom && make security-scan TOOL=trivy` run locally (pinned
   sensitive detail goes to the private channel first, but the existence and the reference stay traceable.
   An overlap with another lane is a message carrying the scanned sha before it is a filing.
   Detail: `references/holds-and-publishing.md`.
+- **A merged fix is not a clean scan — report absence, not silence.** "Clean" may only be claimed by a run
+  that scanned a named sha and printed `0 finding(s)`. An issue whose fix merged but whose scan has not run
+  since is **"fix merged, absence unproven"**: the `cleared` path that closes it needs a scan to execute, so
+  open findings with a merged fix are a scan gap, not a failed fix. When the workflow is
+  `disabled_manually`, say so with a measured gap — compute it from the last run's timestamp in a command,
+  never eyeball it (an eyeballed gap understates an exposure by a day or more and changes how urgently it
+  escalates) — name the open findings including any `critical`, and hand over the exact re-enable proof you
+  will run (a report-only dispatch that cannot red). A silent security lane and a scanned-clean one look identical from outside; only the run id tells
+  them apart.
 - **A deliberate weakening is never the fix.** No allowlist entry, no widened severity set, no
   `require_fix: false`, no emptied `fail_on` to turn a run green.
 - **Report scope, not remediation-by-patch.** What is exposed, the measurement (command + output + sha),
@@ -176,6 +212,11 @@ test-image`). A `make sbom && make security-scan TOOL=trivy` run locally (pinned
 - **Never add `push:`/`pull_request:` triggers** to `security-scan.yml`: `make check-security-scan` refuses
   them, and a pre-existing advisory must never red a PR. Artefact steps carry
   `if: always() && hashFiles('security-reports/*') != ''` so a scanner that died files nothing.
+- **`gh pr diff <n> -- <path>` takes no path argument** ("accepts at most 1 arg(s), received 2"). To review
+  one file of another lane's PR, read it at the head sha and diff locally:
+  `gh api "repos/<o>/<r>/contents/<path>?ref=<head-sha>" --jq .content | base64 -d > /tmp/new`, the same with
+  `?ref=main` for the base, then `diff -u`. Review the gate's own code at the head against the base, not the
+  PR body's description of it.
 - **Compose issue/PR/comment bodies in a file and pass `--body-file`.** A bash heredoc with backticks,
   fences or quotes gets mangled by the shell and the step is silently wrong; `write_file` then
   `gh issue create --body-file <path>` / `gh pr comment <n> --body-file <path>`.
@@ -184,6 +225,18 @@ test-image`). A `make sbom && make security-scan TOOL=trivy` run locally (pinned
 - **History rewrites are scoped to a branch, not to a range computed from the wrong HEAD.** Assert
   `git branch --show-current` first; a rebase started from a shared checkout on `main` rewrites other
   sessions' merged commits. Full procedure: `references/branch-and-push-hygiene.md`.
+- **An interrupted rebase in a worktree is finished, not restarted.** `git status` saying "interactive rebase
+  in progress" with `rebase-merge/` present means a lane stopped mid-conflict; read `msgnum`/`done`, resolve
+  the remaining `both modified` file, `git add` it and `git rebase --continue`. Aborting and redoing discards a
+  resolution that was usually correct — the same measure-before-discard rule as a diverged worktree.
+- **A diverged worktree is "stale", never "unique", until line-set containment proves otherwise.** Before
+  discarding or resetting a branch whose head moved (`ahead N, behind M` vs its remote), measure `git diff
+  <base>..local` against `git diff <base>..remote` per changed file: if every line local added/removed is a
+  subset of remote's (`local-adds ⊆ remote-adds` and `local-removes ⊆ remote-removes`, tested in Python, not
+  by eye), the work is an OLDER version already carried upstream — reset to the remote tip is safe and loses
+  nothing. Blob equality against a single source is insufficient (a file can match the remote AND a stale base
+  at once, or match neither while still being older); the decisive test is the line-set subset, and a file
+  that is byte-identical to an ancestor upstream is "older", not unique even when it matches no current source.
 - **Rebase only when the PR is actually `CONFLICTING` (issue #1015).** Do not rebase onto every `main` move —
   let `main` advance under the PR until a merge needs it; a license covers *what*, the conflict decides
   *when*. Fetch / pull latest asimov-agent/llgenie `main` is still mandatory before any work, with an explicit
