@@ -30,3 +30,28 @@ no longer accept new lessons. Content is verbatim.
 3. **version-here:** this behaviour is versioned by issue + PR under agents/llgenie-pr-merge-conflict/, then sync-agent-profile PROFILE=llgenie-pr-merge-conflict CHECK=1 comes back byte-identical.
 2. **new-PR -> reviewer:** the planner sends new reviewable PRs to @llgenie-pr-reviever; this lane never reviews its own PR.
 1. **report-back:** rebase/resolve to done (last push, gates green, head fixed) -> post head sha + PR number + what stands to @llgenie-planner.
+
+## A line number is a property of a SHA, not of a file
+
+A dispatch that says "insert one blank line above line 39" is only actionable against the exact
+commit those line numbers were read from. Measured: three separate requests to fix
+`agents/<lane>/SOUL.md:39` named a heading that on the current main sat at line **49** — the
+referenced commit's copy was **84 lines** and main's was **94**, because other lanes' merges had
+added rules to the same file in between. Following the number literally would have inserted a blank
+line four rules early, in a file whose real defect was already fixed.
+
+Before acting on any line-numbered instruction:
+
+    git show <the-sha-in-the-request>:<file> | sed -n '<n-1>,<n+1>p'   # does it match the quote?
+    git show origin/main:<file>            | sed -n '<n-1>,<n+1>p'     # where is it NOW?
+    git rev-parse <sha>:<file> ; git rev-parse origin/main:<file>      # blob identity
+
+If the two blobs are equal, the fix is already in the tree and the request is answered by evidence,
+not by an edit. Report the pair of line numbers and the blob ids: that is what lets the asker
+retract the request instead of repeating it.
+
+Related, same class: an identifier match is not a record match. `grep architect@llgenie.local` over
+a commit range found 2 hits; `grep -i '^co-authored-by'` filtered to that address found 0 — the
+hits were PROSE describing the trailer rule inside commits about it. A trailer is a line-anchored
+construct, so the only valid check anchors at column 0. An unanchored grep for an identifier finds
+documentation about the identifier and reads it as an instance.
