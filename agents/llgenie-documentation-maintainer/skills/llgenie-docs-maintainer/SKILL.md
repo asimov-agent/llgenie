@@ -1,7 +1,7 @@
 ---
 name: llgenie-docs-maintainer
 description: "Use when auditing, filing or landing LLGenie docs changes."
-version: 1.0.7
+version: 1.0.13
 author: Hermes Agent
 license: MIT
 metadata:
@@ -215,9 +215,18 @@ the review/check requirements clear. Read it back — `gh pr view <n> --json aut
 7. `git push origin HEAD:<branch>`. After a rebase the push is refused ("tip is behind its remote
    counterpart"): prove the rebase changed nothing but the base first —
    `git range-diff <old-base>..<old-head> origin/main..HEAD` must show `=` on every replayed
-   commit — then `git push --force-with-lease=<branch>:<old-remote-sha> origin HEAD:<branch>`.
+   commit — then force-push under a lease. **The lease expects a literal SHA, not a ref path:**
+   `--force-with-lease=<branch>:refs/heads/<branch>` is rejected with `! [rejected] … (stale info)`
+   because the expected value is compared as a sha and a ref path never matches. Either form works:
+   `git fetch origin +refs/heads/<branch>:refs/remotes/origin/<branch>` and then plain
+   `git push --force-with-lease origin HEAD:refs/heads/<branch>` (the remote-tracking ref you just
+   fetched becomes the expectation), or `--force-with-lease=<branch>:<literal-old-sha>`. Fetch
+   immediately before either: the lease protects against a stranger's push, not against your own
+   stale memory of where the branch was.
 8. Update the PR body (`gh pr edit --body-file`, then **read it back** and grep for the new head
-   and `closes #<n>`). If another open PR edits the same doc, name it in the body and state the
+   and `closes #<n>`) — **after the last push, never before.** A body that names a "final head" sha
+   is invalidated by the very next commit, so any further push (a re-copy, a rebase, a lint fix)
+   re-opens the edit step; write the head line last or it lies. If another open PR edits the same doc, name it in the body and state the
    ordering: whichever lands second re-measures the census at the new base, and that re-measure is
    the second landing, not a defect to prevent.
 9. **Try the merge before any approval — but you cannot supply the approval yourself.** `gh pr merge
@@ -254,7 +263,10 @@ fragments by `make changes-index` (`scripts/changes_index.py`). Rules that follo
   it touches a behavioural surface (`scripts/**`, `agents/*/SOUL.md`, `agents/*/skills/**`,
   `agents/manifest.json`, `docs/**/*.md`, `.github/workflows/**`, `Makefile`, `data/**`,
   `containers/**`, `openspec/**`), while `tests/**`, `agent-wiki/**`, `docs/changes.d/**` and
-  `CHANGES.md` are exempt. Assert the surface set **additively** — a behaviour/subset check, never a
+  `CHANGES.md` are exempt. A live→tree skill sync is such a change even though it only copies
+  bytes the live profile already ran — it *edits* `agents/*/skills/**`, so it owes its own note;
+  ship the note in the same PR as the sync, not as a follow-up, or the gate reds the sync the
+  moment the gate PR merges. Assert the surface set **additively** — a behaviour/subset check, never a
   pinned file list — or the gate reds on the next legitimate surface and gets edited to match the
   code. Prove both lines: a no-note behavioural change fails, an exempt change passes.
 - Prove the property structurally, not by assertion: two scratch branches each adding a note +
@@ -274,6 +286,8 @@ fragments by `make changes-index` (`scripts/changes_index.py`). Rules that follo
 
 ## Pitfalls
 
+- **A `success` on the WRONG run at the right head is as misleading as a `cancelled` sibling — resolve the run id from `gh pr checks`, never guess it.** Some pushes spawn several runs at one sha (a `guard`/`holds`-only quick run plus the full matrix). A watcher polling the quick one sees `completed/success` within minutes and a report then calls the head green while the real matrix's `linux / unit` has not concluded. Before arming any watcher, read `gh pr checks <n> --repo asimov-agent/llgenie`, which prints each job's own `actions/runs/<id>`, and pick the id that carries `linux / unit`; poll that run's jobs (not just `.status`) and report the unit job's own conclusion. `gh run list --commit <sha>` alone does not tell you which duplicate is the matrix.
+- **Heartbeat-coalesced watcher output can quote a stale head — re-read the PR directly before acting on a poll line.** A 5-minute poll loop's lines can arrive batched and show `headRefOid` from before your force-push plus a transient `DIRTY`, contradicting a measured `MERGEABLE` at the new head. Treat any poll line older than the moment of a push as history: run `gh pr view <n> --json headRefOid,mergeable,mergeStateStatus` now, timestamp it, and only then decide whether a rebase is needed (a `DIRTY` that survives the direct read after `git fetch origin refs/heads/main:refs/remotes/origin/main` is real).
 - **`gh pr checks` lags the push by a minute and then lies.** Right after a push it prints
   `no checks reported on the '<branch>' branch`; the run exists. Use
   `gh run list --repo … --commit <sha> --json databaseId,status,event` and poll
@@ -312,8 +326,11 @@ fragments by `make changes-index` (`scripts/changes_index.py`). Rules that follo
   *any* run at that sha, so a `cancelled` duplicate can read as `fail` while a sibling run at the
   SAME head is `success`. Run `gh run list --branch <b> --json databaseId,headSha,status,conclusion`;
   if a sibling at the head is `success` and the reported job is `cancelled`, `gh run rerun
-  <cancelled-run-id>` at that same head — **never push** — then confirm the gate has a real
-  conclusion in a completed run before calling it green or red.
+  <cancelled-run-id> --failed` at that same head — **never push** — then confirm the gate has a real
+  conclusion in a completed run before calling it green or red. Two identical cancellations
+  (`Timeout (0:05:00)!` xN in `make ci-unit`, siblings green) mean a starved runner, not your diff:
+  stop rerun-looping and wait for a quiet window — the fingerprint is in
+  `references/ci-triage-for-docs-prs.md`.
 - **`closingIssuesReferences` is eventually-consistent — a `none` right after a PR is created is not evidence the `Closes #<n>` keyword failed.** The field is populated asynchronously, so `gh pr view --json closingIssuesReferences` returns empty for minutes after creation; do **not** edit the body in response. Re-read later, or confirm the link from the body text and the issue's own timeline. A positive is proof; a negative is only "not yet, or genuinely absent".
 - **A local full `make test-unit` pass is evidence, not the CI verdict.** CI runs with a clean HOME where live-vs-tree profile comparison is skipped, so a test that reads the host profile can pass locally for a different reason than CI runs it (or vice versa). Report a local suite as evidence — its exit code and the head sha — and still wait for the CI job's own conclusion before calling a head green; the two can disagree, and the CI one is the one that gates.
 - **Your own versioned `SKILL.md`/`SOUL.md` is scanned by the suite — a retired symbol in it reds CI,
@@ -437,7 +454,9 @@ fragments by `make changes-index` (`scripts/changes_index.py`). Rules that follo
   are about to edit. Two lanes writing the same doc row is a rebase conflict and a wasted PR; a
   confirmation comment on the issue is the correct contribution from the second lane.
 - **A new `make` gate the docs lane must own: `check-wiring` refuses it unless a CI job calls the target DIRECTLY.** Wiring the check into another target's recipe (e.g. `check-docs` runs it) is not enough — `check-wiring` faults a target whose `##` help claims CI coverage when no `ci-*` job invokes it by name, because the wiring check does not traverse one target into another. Fix: add `$(MAKE) check-<gate>` to the `ci-*` job's recipe that a pipeline job actually runs (e.g. `ci-unit`), give the target a `##` user-facing help line, and register it in `.PHONY`. A gate that changes `scripts/`, `Makefile` or a workflow also needs an OpenSpec change (`openspec/changes/<name>/{proposal.md,specs/<cap>/spec.md,tasks.md,.openspec.yaml}`) validated with `make openspec-validate NAME=<name>` — the fragment-only `docs/changes.d/` shortcut covers doc changes, not code ones.
+- **A gate that will police your change may still live in an unmerged PR — prove your head green under THAT version before it lands, or the race reds you.** Your CI is green today only because the new gate is not on `main` yet; if the gate PR merges first, a re-run reds your untouched head. Fetch the gate PR's head and run its checker against your own worktree: `git fetch origin +refs/pull/<n>/head:refs/remotes/origin/pr<n>`, `git show origin/pr<n>:scripts/check_docs.py > /tmp/gate.py`, then `PYTHONPATH="$PWD:$PWD/scripts" python3 /tmp/gate.py check --root "$PWD" --base origin/main`. Two gotchas: the checker imports sibling modules (`changes_index`) from `scripts/`, so `scripts/` must be on `PYTHONPATH` or it dies with `ModuleNotFoundError` — and your *own* branch's `check_docs.py` may still reject `--base` ("unrecognized arguments") until the gate PR merges, which is exactly why you run the PR's file, not yours. Exit 0 there is the proof the gate will not bite your head; add the missing note/fragment now rather than after the merge.
 - **A census a gate asserts must be measured at the FINAL PR head, not the base you branched from.** When the change adds tracked files (a new script, an OpenSpec change dir, a note, a fragment), the count at the merge base is stale the moment you commit. Write all the assets, commit once, then measure at that head and set the document's numbers to it — never compute them from the pre-commit tree and assume the operand files don't move the total. The gate turning green at the committed head is itself the proof the numbers match.
+- **Every "verified at `<sha>`" sentence must be true AT that sha — name the sha you actually ran the command on, never the branch head you assume is equivalent.** A note claiming "the battery passed at the final head `X`" while the check actually errored at `X` and passed at an earlier `Y` is the same defect as a census with no `measured at`: it reads as proof and is a coincidence. The safe shape when a commit must follow the measurement is a **prose-only follow-up commit** whose subject says it records the battery run at the earlier sha — the numbers were measured on a completed run, so a later edit cannot retroactively falsify them. When a late commit genuinely changes the tree, re-run the battery and update the sha; never delete the evidence paragraph to escape the mismatch, because the record's whole purpose is that proof.
 - **Adding a gate to a `ci-*` job also needs it classified in `scripts/issue_bot_gates.py` — and only the FULL suite tells you.** After `check-wiring` is satisfied (line above), a new `$(MAKE) check-<gate>` in `ci-unit` still reds `tests/test_issue_bot_gates.py::test_the_real_tree_is_wired`: the guard faults any `ci-unit` gate that is neither in `FAST_GATES` nor in `DEFERRED`. `FAST_GATES` is the pinned #475 six — never widen it; add the gate to `DEFERRED` with a one-line reason instead. The fast gates (`lint check-docs check-wiring`) do **not** run this test, so a `scripts/`/`Makefile` change is not done until you run the full `make test-unit` (or at least `python -m pytest tests/test_issue_bot_gates.py`) — a green fast-gate set is not a green suite.
 - **A census's `measured at <sha>` pointer is a real, reachable commit whose tree COUNT equals `HEAD` — not a sha string equal to `HEAD`.** The literal `pointer == HEAD` check is unsatisfiable for a document that lives inside the tree it measures (every commit that updates the pointer re-heads it). Implement it as: the pointer resolves to a real commit (`git cat-file -e <sha>^{commit}`, so an amend-orphaned sha reds), and `git ls-tree -r --name-only <pointer> | wc -l == HEAD` — so the census describes the tree the gate sees and reds only when a real file is added. And after a **squash-merge onto a `main` that moved** between your push and the merge, the merged tree can be larger than your branch's (other PRs' files land under the squash): `main` then reds until a refresh — file that refresh as its own issue with the measured delta; it is the gate working, not a defect in your PR.
 - **Rebasing onto `main` after the base PR was SQUASH-merged replays far too much — cut fresh, or `--onto` your own base.** A branch cut from a PR head that later merges as a squash is not an ancestor of `main`, so `git rebase origin/main` finds a much older merge-base and replays hundreds of commits, colliding on every shared file (`Makefile`, `agents/*`). Safe shapes: `git checkout -b <new> origin/main` then copy/apply only your own files (clean when the merged blobs equal your base's), or `git rebase --onto origin/main <the-sha-your-branch-was-cut-from>` which replays only `base..HEAD` (your own commits). A one-commit replay on a one-file change is the signal it worked; confirm the count before pushing.
@@ -456,6 +475,17 @@ fragments by `make changes-index` (`scripts/changes_index.py`). Rules that follo
   `gh run rerun <id> --failed` — same head, no new commit, no cancelled matrix. Two reds on the same
   live-data gate means the fix is upstream, not a rerun loop: say so on the tracking issue and keep
   your PR open rather than landing behind a flaky green.
+- **A live→tree skill sync copies ONE directory, never the live `skills/` root.** The live profile's
+  `~/.hermes/profiles/<profile>/skills/` is the shared store — every skill the host has installed, not
+  just the lane's own. `cp -a "$L/skills" "$T/agents/<profile>/"` therefore mirrors hundreds of
+  foreign skills into `agents/<profile>/skills/**` and turns a five-file sync into a tree-wide diff
+  that CI and the drift gate both read as a lane shipping skills it does not own. Copy the lane's own
+  bundle only (`cp -a "$L/skills/llgenie-docs-maintainer" "$T/agents/<profile>/skills/"`) and confirm
+  `git status --porcelain agents/<profile>/` lists exactly the files you meant to version — a stray
+  `curator/`, `_runtime/` or another lane's skill dir is the tell, and it is removed from the worktree
+  only, never from live.
+- **A branch of yours that reds `check-import-roots` is usually your own new test — fix the import, never the baseline.** The ratchet (issue #796) records counts in `tests/fixtures/import-roots-baseline.json` (`bare` / `sys-path`) and exits 1 the moment a count RISES, so a PR that adds a test inserting its own `sys.path` entry or importing a `scripts/` module bare (`import check_docs`) reds `ci-unit` even when every other job is green — the failing site it names may be an OLD offender, not your file, because it lists all sites. The allowed shape is the conftest seam: `from scripts import check_docs` (sibling `tests/test_check_docs.py` shows it). A baseline is a measurement and may fall, never rise, so the fix is the import in the PR, never a fixture bump. Verify with `python3 scripts/check_import_roots.py ratchet` on the branch before pushing — and read the exit with `echo ${PIPESTATUS[0]}`, not `$?` after a pipe.
+- **A `pull_request` run evaluates the workflow at its MERGE REF (head merged into base), so a CI-ceiling raise merged on main does NOT apply to an unrebased PR — its runs are judged against the ceiling text at its BASE.** A `linux / unit` `completed/cancelled` at ~60 min with zero test output and siblings green is the OLD-ceiling fingerprint when the PR's base predates the ceiling merge — not (necessarily) starvation, and not a defect. Diagnose before any rerun: `gh pr view <n> --json baseRefOid` vs the ceiling-merge sha on main. Recovery is a rebase onto the fresh main + `--force-with-lease` (own branch) so the fresh run evaluates at the new ceiling — do NOT `gh run rerun` a run doomed by the old ceiling (it replays the recorded 60 and lands a second identical cancel that reads as starvation on the ledger), and if you already reran by mistake, cancel your own rerun rather than feed the ledger another copy.
 - **Search the open issues before filing the gap you just measured.** The audit findings are
   exactly what the repo's triage legs file, so `gh issue list --repo asimov-agent/llgenie --state
   open --search '<page/metric>'` first; if an issue exists, verify its quoted numbers against the

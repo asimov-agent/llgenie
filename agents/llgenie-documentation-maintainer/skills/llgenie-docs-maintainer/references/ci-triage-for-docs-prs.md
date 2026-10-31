@@ -18,9 +18,78 @@ cancelling matrices or pushing noise.
 | gate over `data/` or the live registry: `fixture is stale`, link/advisory counts | live-data drift | run that gate locally at the same head; if it passes, comment both outputs and `gh run rerun <id> --failed` |
 | `guard` never starts, `0/N` jobs, dozens `queued` repo-wide | capacity | report to the fleet; rerun/cancel/dispatch only adds to the queue |
 | several jobs cancelled within seconds, earlier ones green | fleet sweep | `gh api …/actions/runs?head_sha=<sha>`; nothing newer exists = rerun at the same head |
+| `linux / unit` cancelled at ~1h with repeated `Timeout (0:05:00)!` in its step log, while every sibling job of the same run is green | runner starvation of the long job | `gh run rerun <id> --failed` at the same head; if the same signature repeats, wait for a quiet window rather than rerun-looping |
 | one job `in_progress` far past its measured duration (see below), and it has no `timeout-minutes` | hang | owner decides; cancel the run, then `gh run rerun <id> --job <jobId>`; tell the fleet first |
 | `check_pr_authors` red on a commit you did not write | base branch | name the sha and its owner; never re-author another lane's history |
 | `linux / unit` red on a real unit test | genuine | reproduce in the repo's test image before touching anything |
+
+## The ~1h `ci-unit` cancellation fingerprint
+
+The long unit step can be killed by the runner without any test failing, and the log reads like a
+timeout of the suite:
+
+```
+linux / unit  UNKNOWN STEP  ... Timeout (0:05:00)!
+linux / unit  UNKNOWN STEP  ... Timeout (0:05:00)!
+linux / unit  UNKNOWN STEP  ... ##[error]The operation was canceled.
+```
+
+Recognise it by three facts together, because any one alone is ambiguous: the captured step is
+`make ci-unit`, the cancellations are spaced tens of minutes apart, and **every other job in the same
+run is `success`** (guard, lint, install, top-level, openspec). A genuinely red test would fail with a
+pytest traceback, not with a watchdog line. `gh pr checks` renders this job as `fail`; the job's own
+`conclusion` is `cancelled`.
+
+- Diagnose with `gh run view <id> --json jobs --jq '.jobs[]|{name,conclusion,steps:[.steps[]|select(.conclusion!="success")|.name]}'`
+  — the cancelled job names the one step that never completed.
+- Recover with `gh run rerun <id> --failed` (reruns the failed/cancelled jobs only, reusing the same run
+  and the same head) — never a push, never an empty commit.
+- A rerun inside the same congestion window can produce the identical signature. Two identical
+  cancellations mean the window, not the diff: stop, report it, and re-run when a sibling run at some
+  head shows `ci-unit` succeeding. The run's own log cannot tell you the runner was starved; another
+  run's success at a later time can.
+- While a rerun is in flight `gh pr view --json mergeable,mergeStateStatus` answers `UNKNOWN`; that is
+  churn, not a conflict. Re-read after the run concludes before writing anything about its state.
+
+## The `check-import-roots` ratchet red
+
+`check-import-roots` (Makefile `ci-unit`, issue #796) is a **ratchet**: it records offender counts in
+`tests/fixtures/import-roots-baseline.json` (`bare` / `sys-path`) and exits 1 the moment a count RISES.
+A docs or gate PR that adds a test which inserts its own `sys.path` or imports a `scripts/` module bare
+reds `ci-unit` with `Makefile:402: check-import-roots Error 1` — and the site named in the log may be an
+**old** offender (`tests/test_engine_runner_failfast.py:21` is a well-known one), because the check
+lists every site, not only the new one. Key facts:
+
+- Baseline is a measurement: `bare`/`sys-path` may fall, never rise. A new offender is a **code fix in
+  the PR** (`from scripts import check_docs` via the conftest seam — see `tests/test_check_docs.py`),
+  never a fixture bump.
+- Diagnose/verify on the branch before pushing, and capture the exit correctly:
+  `python3 scripts/check_import_roots.py ratchet; echo ${PIPESTATUS[0]}` — `$?` after a pipe reads the
+  last stage, which lies.
+- The fix is exempt from the change→note gate (#1123): it changes only a test file.
+
+## The old-ceiling cancel (merge-ref evaluation)
+
+A `pull_request` workflow run is evaluated at the **merge ref** (head merged into base), i.e. the
+workflow YAML comes from the base unless the PR itself changed it. So a CI-ceiling raise merged on
+`main` does **not** apply to an unrebased PR: its runs are still judged by the OLD ceiling text.
+
+- **Fingerprint:** `linux / unit` `completed/cancelled` at ~the old ceiling (60 min) with **zero test
+  output** (the `make ci-unit` step shows `cancelled`, no failure log) while every sibling — `install`,
+  `lint`, `cpu-health`, guard/holds — is green, and no newer run exists at the head (not a respawn).
+- **First check before any action:** `gh pr view <n> --json baseRefOid` vs the ceiling-merge sha on
+  main (`git fetch origin refs/heads/main:refs/remotes/origin/main && git log --oneline
+  origin/main -- .github/workflows/pipeline.yml | head`, or the planner's relay). If the base is an
+  ancestor of the ceiling merge and the PR does not touch `pipeline.yml`, the cancel is the
+  old-ceiling fingerprint — neither a code defect (like the ratchet red) nor necessarily a starved
+  runner.
+- **Recovery:** rebase onto the fresh `main` and force-push with lease (own branch), so the fresh run
+  evaluates at the new ceiling; then re-judge. Do **not** `gh run rerun` a run doomed by the old
+  ceiling: it replays the recorded 60 and lands a second identical cancel that reads as starvation on
+  the ledger. If you already reran by mistake, cancel your own doomed rerun (documented) rather than
+  feed the ledger another copy.
+- Re-evaluate after the fresh run: a 120-budget cancel at ~1h is the real starved-runner signal and
+  goes to the queue-shaping ledger (#882/#1146/#1139), not to another rerun loop.
 
 ## How long the long jobs actually take
 
