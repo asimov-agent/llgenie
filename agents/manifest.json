@@ -21,7 +21,9 @@
     },
     {
       "name": "llgenie-security",
-      "rules": []
+      "rules": [
+        "never-implement"
+      ]
     },
     {
       "name": "llgenie-documentation-maintainer",
