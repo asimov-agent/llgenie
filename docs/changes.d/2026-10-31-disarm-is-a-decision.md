@@ -1,0 +1,1 @@
+| 2026-10-31 | A deliberate disarm survives an automation pass: `arm_auto_merge` treats a `disarmed:` comment as a decision (skipped and named) and a later `re-armed:` clears it, so the tick can never re-arm a PR its author stopped on purpose (#1084). | [2026-10-31-disarm-is-a-decision.md](agent-wiki/2026-10-31-disarm-is-a-decision.md) | #912 #1106 |
