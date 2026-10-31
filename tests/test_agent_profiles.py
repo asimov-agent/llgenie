@@ -626,13 +626,51 @@ def test_only_with_an_unknown_key_exits_2_and_names_the_known_keys(tmp_path, cap
     root, agents, live_home = _mirror(tmp_path)
 
     code = cap.main(["check", "--root", str(root), "--agents-dir", "agents",
-                     "--only", "live-longgers"])
+                     "--only", "live-longers"])
     captured = capsys.readouterr()
     text = captured.out + captured.err
     assert code == 2, text
     assert "--only" in text, text
     assert "never-merge" not in text and "FAIL live-longer" not in text, text  # a caller error, not a red
     assert "live-longer" in text, text       # the valid key is named so the caller can correct it
+
+
+def test_only_accepts_a_comma_separated_list_through_real_main(tmp_path, monkeypatch, capsys):
+    """`--only` filters to the union of several classes via real `main()` (issue #1087).
+
+    The advertised syntax is one key *or a comma-separated list*; a caller that wants the gate to look
+    at two classes at once (e.g. while a lane works one down) must not need two invocations.
+    """
+    import check_agent_profiles as cap
+
+    root, agents, live_home = _mirror(tmp_path)
+    monkeypatch.setenv("HERMES_PROFILES_HOME", str(live_home))
+
+    # A union naming two classes that are both absent is a clean gate.
+    code = cap.main(["check", "--root", str(root), "--agents-dir", "agents",
+                     "--only", "absent-from-tree,secret"])
+    captured = capsys.readouterr()
+    text = captured.out + captured.err
+    assert code == 0, text
+
+
+def test_only_rejects_an_unknown_key_among_valid_ones_through_real_main(tmp_path, capsys):
+    """A bad key anywhere in the comma list still exits 2 — never a silent partial filter (issue #1087).
+
+    `--only live-longer,bogus` must not quietly check only `live-longer`; a misspelt filter is exactly
+    the caller error exit 2 exists to make loud, and the known keys must be named for correction.
+    """
+    import check_agent_profiles as cap
+
+    root, agents, live_home = _mirror(tmp_path)
+
+    code = cap.main(["check", "--root", str(root), "--agents-dir", "agents",
+                     "--only", "live-longer,bogus-thing"])
+    captured = capsys.readouterr()
+    text = captured.out + captured.err
+    assert code == 2, text
+    assert "bogus-thing" in text, text
+    assert "live-longer" in text, text       # a valid sibling key is still named so the caller can fix it
 
 
 def test_a_live_write_to_a_skill_reference_is_a_cron_path_finding(tmp_path, monkeypatch):
