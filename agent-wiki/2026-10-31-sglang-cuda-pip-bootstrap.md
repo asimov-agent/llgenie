@@ -19,13 +19,18 @@ uv for two pip steps.
 1. `skills/engines/sglang/SKILL.md`: the two `install.cuda` steps that called
    `python3 -m pip install` now use `uv pip install --system --break-system-packages`
    (dropping `--no-cache-dir`, matching the sibling CUDA engines vllm / tensorrt-llm /
-   litert / freetoken, and sglang's own torch preinstall step).
+   litert / freetoken, and sglang's own torch preinstall step). Because the uv read
+   surfaced it (the pip path never ran — pip was missing), the editable spec was also
+   corrected from `-e 'python[all]'` to `-e '.[all]'`: the step already `cd`s into
+   `{src}/python`, so `python` resolved to the non-existent `{src}/python/python`
+   path (`error: Distribution not found`, engine-build run 41251817822).
 2. `make generate-engine-params ENGINE=sglang` regenerated `containers/engines/params/
    sglang.json` (only `variants.cuda.install` changed; rocm untouched — its base
    `rocm/pytorch:…` ships pip).
 3. Added `tests/test_engine_skills.py::test_sglang_cuda_install_uses_uv_not_pip`:
    sglang/cuda's install recipe must not invoke `python3 -m pip` (the pip-less base),
-   and must run through the uv bootstrap.
+   must run through the uv bootstrap, and must not carry the `-e 'python[all]'`
+   relative-path form.
 
 ## What was verified
 

@@ -3,7 +3,9 @@
 - [x] 1. `skills/engines/sglang/SKILL.md`: the two `install.cuda` steps that call
   `python3 -m pip install` change to `uv pip install --system
   --break-system-packages` (dropping `--no-cache-dir`), matching the sibling
-  cuda engines' recipe.
+  cuda engines' recipe; the editable main-package spec is corrected from
+  `-e 'python[all]'` to `-e '.[all]'` (the step `cd`s into `{src}/python`, so
+  `python` was a non-existent relative path that fails the uv install).
 - [x] 2. `make generate-engine-params ENGINE=sglang`: the regenerated
   `containers/engines/params/sglang.json` + `containers/engines/dockerfiles/sglang/Dockerfile.cuda`
   are committed.

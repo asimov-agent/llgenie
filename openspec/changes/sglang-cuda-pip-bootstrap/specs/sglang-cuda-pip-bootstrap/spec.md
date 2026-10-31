@@ -20,7 +20,9 @@ Given the `sglang` skill and shared generator,
 When  `make generate-engine-params ENGINE=sglang` renders the cuda variant,
 Then  `install.cuda` contains two `uv pip install --system --break-system-packages`
 steps — the `python[all]` editable install and the AOT-kernels editable install —
-and NO `python3 -m pip` string appears in the cuda install recipe.
+and NO `python3 -m pip` string appears in the cuda install recipe. The editable
+main-package step uses `-e '.[all]'` (the step already `cd`s into `{src}/python`;
+`-e 'python[all]'` would resolve to the non-existent `{src}/python/python` path).
 
 - **Test:** `tests/test_engine_skills.py::test_sglang_cuda_install_uses_uv_not_pip`
   and `tests/test_engine_params_live.py` (regenerated params match committed).

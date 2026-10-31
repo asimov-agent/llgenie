@@ -23,7 +23,12 @@ this cell alone fails on the shared base.
    call `python3 -m pip install` to `uv pip install --system
    --break-system-packages` (dropping `--no-cache-dir`, as uv's default is
    off-build caching and the Dockerfile already removes `/root/.cache`), so
-   they run with the same uv bootstrap every other CUDA engine uses.
+   they run with the same uv bootstrap every other CUDA engine uses. Because
+   the uv read surfaced it (the old pip path never ran — pip was missing),
+   also correct the editable spec from `-e 'python[all]'` to `-e '.[all]'`:
+   the step already `cd`s into `{src}/python`, so `python` was resolved as a
+   non-existent relative path (`{src}/python/python`), failing the install
+   (`error: Distribution not found`).
 2. `make generate-engine-params ENGINE=sglang`; commit the regenerated
    `containers/engines/params/sglang.json` + `containers/engines/dockerfiles/sglang/Dockerfile.cuda`.
 3. Verify with `make build-engine ENGINE=sglang ARCH=cuda` (this lane never

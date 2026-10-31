@@ -305,9 +305,13 @@ def test_sglang_cuda_install_uses_uv_not_pip(skills):
     steps = " ".join(str(x) for x in es._flatten(es._per_backend(skills["sglang"].get("install"), "cuda")))
     # When it is scanned
     # Then no step calls the pip-less cuda python, and the editable installs
-    # run through the uv bootstrap the base provides.
+    # run through the uv bootstrap the base provides. The main-package editable
+    # spec must be `-e '.[all]'` (the step `cd`s into `{src}/python`): `-e
+    # 'python[all]'` resolves to the non-existent `{src}/python/python` path and
+    # fails the uv install (`error: Distribution not found`, run 41251817822).
     assert "python3 -m pip" not in steps, "sglang/cuda must run pip installs through uv (issue #1242)"
     assert "uv pip install --system --break-system-packages" in steps
+    assert "python[all]" not in steps, "after `cd {src}/python`, the editable spec is '.[all]', never 'python[all]' (non-existent path)"
 
 
 def test_native_install_is_refused_except_metal(skills, capsys):
