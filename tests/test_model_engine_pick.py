@@ -85,6 +85,7 @@ def test_local_model_is_found_under_models_dir(reg, tmp_path):
     assert mp.resolve_local(m, tmp_path) == f
 
 
+@pytest.mark.network
 def test_llgenie_dry_run_prints_model_engine_and_container_command(tmp_path):
     # Given the fixture registry and an empty models dir on a 8 GB CPU host
     env = {**os.environ, "LLGENIE_REGISTRY_SRC": str(FIXTURE), "LLAMA_MODELS_ROOT": str(tmp_path),

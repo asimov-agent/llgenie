@@ -604,6 +604,7 @@ def _tensorfold_row(tmp_path):
     ("0.6.4", f"(installed 0.6.4 -> updates to {PINNED} on pick)"),
     (PINNED, f"(installed {PINNED})"),
 ])
+@pytest.mark.network
 def test_select_shows_what_picking_tensorfold_will_do(host, tmp_path, seed, label):
     # Given TensorFold absent / outdated / current on a 48 GB Mac
     if seed:
@@ -624,6 +625,7 @@ def test_select_shows_what_picking_tensorfold_will_do(host, tmp_path, seed, labe
     assert host.installs() == []
 
 
+@pytest.mark.network
 def test_llgenie_pick_installs_tensorfold_then_execs_its_start_script(host, tmp_path):
     """The whole seamless path without the 21 GB model: a local TensorFold checkpoint
     dir, `llgenie --select 1 --engine tensorfold`, no TensorFold on the host. llgenie
@@ -656,6 +658,7 @@ def test_llgenie_pick_installs_tensorfold_then_execs_its_start_script(host, tmp_
         r.stdout + r.stderr + calls
 
 
+@pytest.mark.network
 def test_interactive_llgenie_lists_pick_qwen38_27b_then_tensorfold_which_installs_and_serves(host, tmp_path):
     """The INTERACTIVE path, hermetic (make test-unit, every CI run): plain `llgenie` in a
     pty, no --select. The test reads the printed trend list, types Qwen3.8-27B's number,

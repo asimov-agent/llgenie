@@ -52,6 +52,7 @@ def test_default_registry_is_the_vendored_file(monkeypatch):
     #  hermetic gate by `make test-hub-live` — issue #438)
 
 
+@pytest.mark.network
 def test_the_vendored_registry_links_all_answer():
     """Every README link in the vendored registry answers — network, so `make test-hub-live` runs it."""
     # Given the vendored registry and the README links it carries
@@ -123,6 +124,7 @@ def _offer(tmp_path: Path, backend: str, gb: int, ram_gb: float | None = None) -
     return mp.offer(mp.load_registry(), backend, gb, root=tmp_path, ram_gb=ram)
 
 
+@pytest.mark.network
 def test_sync_writes_valid_registry_and_rejects_invalid(tmp_path, capsys):
     # Given a valid source (the vendored file + its README) and an invalid one
     bad = tmp_path / "bad.json"
@@ -156,6 +158,7 @@ def test_sync_rejects_a_registry_whose_order_is_not_the_readme(tmp_path):
     assert not (tmp_path / "out" / "models.json").exists()
 
 
+@pytest.mark.network
 def test_readme_copy_passes_and_a_modified_copy_is_rejected(tmp_path):
     """The business rule, both ways, against copies of the README (the vendored file
     is never touched). A byte-for-byte copy matches the registry and is accepted. A
@@ -218,6 +221,7 @@ def test_readme_copy_passes_and_a_modified_copy_is_rejected(tmp_path):
     assert sr.sync(str(VENDORED), tmp_path / "out3" / "models.json", str(renamed)) == 1
 
 
+@pytest.mark.network
 def test_readme_links_answer_and_a_broken_copy_is_caught():
     """Every link in the README "Most loved" table answers: the Hugging Face model
     pages and the GitHub engine repos. A copy of the README with one link pointed at
@@ -515,6 +519,7 @@ def test_vendored_registry_is_the_vendored_readme_list():
 
 @pytest.mark.parametrize("backend,gb", [("cuda", 16), ("cuda", 24), ("cpu", 16), ("rocm", 8),
                                         ("vulkan", 48), ("cpu", 2)])
+@pytest.mark.network
 def test_llgenie_list_is_the_readme_list_that_fits_the_card(tmp_path, backend, gb):
     """Every README model whose VRAM fits the card is listed, in README order;
     nothing else is listed. A row that cannot run here stays and says why."""
@@ -544,6 +549,7 @@ def test_llgenie_list_is_the_readme_list_that_fits_the_card(tmp_path, backend, g
 RAM64 = str(64 * 2**30)
 
 
+@pytest.mark.network
 def test_card_16gb_list_on_this_readme(tmp_path, monkeypatch):
     """The 16 GB cuda list for the vendored README, 64 GB RAM: every README model
     with VRAM <= 16 GB, in README order, every one selectable (nvidia-smi's 15.99 GiB
@@ -570,6 +576,7 @@ def test_card_16gb_list_on_this_readme(tmp_path, monkeypatch):
         assert top["tps"] == max(e["tps"] for e in r["engines"] if e["rank"] == top["rank"])
 
 
+@pytest.mark.network
 def test_every_readme_model_maps_to_its_best_engine(tmp_path, monkeypatch):
     """The whole README list that fits a 16 GB cuda card, each row mapped to the engine
     with the best figure measured on this hardware and the format llgenie fetches for it.
@@ -589,6 +596,7 @@ def test_every_readme_model_maps_to_its_best_engine(tmp_path, monkeypatch):
         assert r["engines"][0]["engine"] in line, line
 
 
+@pytest.mark.network
 def test_the_printed_row_shows_the_figure_the_gate_used(tmp_path, monkeypatch):
     """The list is gated by `mp.fits()` — the store's measured minimum — so the VRAM column
     it prints is that same figure, never the display bucket: a row admitted at its 12 GB
@@ -738,6 +746,7 @@ def test_moe_model_on_16gb_is_planned_with_system_ram():
     assert plan["size"] <= mp.weight_budget_gb(16, True, 64) * 2**30
 
 
+@pytest.mark.network
 def test_unservable_row_says_why(tmp_path, monkeypatch):
     # Given an 8 GB RAM host: llama.cpp has no GGUF of the 125B that fits, but Strata
     # installs its own choice whatever the RAM (setup.py recommends, never forces), so
@@ -763,6 +772,7 @@ def _cli(tmp_path, *args, backend="cuda", gb=15.9921875, ram=RAM64,
                           capture_output=True, text=True, timeout=timeout)
 
 
+@pytest.mark.network
 def test_trend_flag_prints_the_numbered_readme_list(tmp_path):
     r = _cli(tmp_path, "--trend")
     assert r.returncode == 0, r.stderr
@@ -780,6 +790,7 @@ def test_trend_flag_prints_the_numbered_readme_list(tmp_path):
             assert line.strip().startswith(f"{n}."), line
 
 
+@pytest.mark.network
 def test_select_every_row_plans_a_download_and_the_right_engine(tmp_path, monkeypatch):
     """--select N for EVERY row of the 16 GB list on an empty models dir: each model
     is planned for download (repo + file/dir that fit) and served by that row's top
@@ -798,6 +809,7 @@ def test_select_every_row_plans_a_download_and_the_right_engine(tmp_path, monkey
     assert _cli(tmp_path, "--select", str(len(rows) + 1), "--dry").returncode != 0
 
 
+@pytest.mark.network
 def test_select_with_engine_overrides_the_top_engine(tmp_path):
     # The first servable row that llama.cpp is NOT the top engine for: --engine overrides it
     rows = [row for row in _offer(tmp_path, "cuda", 15.9921875) if not row["why"]]
@@ -902,6 +914,7 @@ def test_bands_match_the_readme_status_column():
         assert mp.BAND_LABEL[mp.band(m, today)] == status[m["name"]], m["name"]
 
 
+@pytest.mark.network
 def test_llgenie_no_args_is_the_interactive_trend_pick(tmp_path):
     # Given the vendored registry, an empty models dir and a 16 GB cpu host
     env = _env(tmp_path, "cpu", 16, LLGENIE_SYSTEM_RAM_BYTES=RAM64)
@@ -934,6 +947,7 @@ def test_llgenie_no_args_is_the_interactive_trend_pick(tmp_path):
     assert "llgenie-engine-" + top["engines"][0]["id"].replace(".", "-") in out
 
 
+@pytest.mark.network
 def test_auto_and_no_tty_take_the_top_pick(tmp_path):
     # Given no terminal (stdin closed)
     env = _env(tmp_path, "cuda", 24)
@@ -1096,6 +1110,7 @@ def test_choose_reprompts_on_invalid_input(tmp_path):
     assert p.out.count("enter 1-3") == 2 and "PICKED b" in p.out
 
 
+@pytest.mark.network
 def test_manual_registry_pick_errors_and_engines_for_registry_model(tmp_path):
     env = _env(tmp_path, "cuda", 24)
     run = lambda *a: subprocess.run([sys.executable, str(SERVE), *a], env=env, stdin=subprocess.DEVNULL,  # noqa: E731
@@ -1139,6 +1154,7 @@ def test_ambiguous_local_model_with_engine_is_rejected(tmp_path):
     assert "llgenie-engine-ollama" in r.stdout and str(f) in r.stdout
 
 
+@pytest.mark.network
 def test_local_marker_and_reuse_in_the_trend_list(tmp_path):
     # Given the first servable cpu/16 GB README model already downloaded (a file named like it)
     top = [r for r in _offer(tmp_path, "cpu", 16) if not r["why"]][0]
@@ -1161,6 +1177,7 @@ def test_local_marker_and_reuse_in_the_trend_list(tmp_path):
     assert str(f) in p.out and "would download" not in p.out
 
 
+@pytest.mark.network
 def test_model_pick_reprompts_on_invalid_input(tmp_path):
     # Given the trend list in a terminal
     env = _env(tmp_path, "cpu", 16, LLGENIE_SYSTEM_RAM_BYTES=RAM64)

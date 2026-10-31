@@ -230,6 +230,7 @@ def test_metal_never_offers_cpu_image(matrix_env, vram=16, ram=32):
 
 # -- spec scenario: --matrix accepts an arch override ----------------------------
 @pytest.mark.parametrize("arch", ["cuda", "metal", "cpu"])
+@pytest.mark.network
 def test_llgenie_matrix_arch_override_in_header(matrix_env, arch, tmp_path):
     """llgenie --matrix [GB] [RAM_GB] [ARCH] prints the chosen architecture's engine
     variants in the header and exits 0 (no download/serve)."""
@@ -247,6 +248,7 @@ def test_llgenie_matrix_arch_override_in_header(matrix_env, arch, tmp_path):
 
 
 @pytest.mark.parametrize("arch", ["cuda", "rocm", "metal"])
+@pytest.mark.network
 def test_llgenie_matrix_explicit_flags(matrix_env, arch, tmp_path):
     """llgenie --matrix --vram V --ram R --arch A is the explicit, unambiguous form:
     the flags (not the positionals) drive VRAM, RAM and architecture, so the header
@@ -265,6 +267,7 @@ def test_llgenie_matrix_explicit_flags(matrix_env, arch, tmp_path):
     assert "huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/" in r.stdout
 
 
+@pytest.mark.network
 def test_llgenie_matrix_flag_wins_over_positional(matrix_env, tmp_path):
     """An explicit --vram flag beats a conflicting positional GB so the matrix always
     tests exactly what the caller asked for."""

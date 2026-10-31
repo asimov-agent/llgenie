@@ -80,6 +80,7 @@ def qs_repos(qs):
 
 @pytest.mark.parametrize("arch", ARCHES)
 @pytest.mark.parametrize("model_id", [m["id"] for m in mp.load_registry(str(REGISTRY))["models"]])
+@pytest.mark.network
 def test_pick_is_a_real_catalog_link(model_id, arch):
     """For every real (model x engine x arch), the engine's chosen quant (pick_quant —
     the highest that fits) must be a real link in the committed trending-quant catalog.

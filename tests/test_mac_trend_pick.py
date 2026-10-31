@@ -198,6 +198,7 @@ def test_trend_on_a_48gb_mac_is_the_readme_list_with_metal_engines(tmp_path):
     assert mp.tps_label(top) in first_line
 
 
+@pytest.mark.network
 def test_flash_next_on_48gb_says_tensorfold_needs_more_memory(tmp_path):
     """A row whose checkpoints are all bigger than a 48 GB Mac's GPU working set is listed,
     not pickable, and its reason names the sizes it lacks AND the budget — no name pinned
@@ -220,6 +221,7 @@ def test_flash_next_on_48gb_says_tensorfold_needs_more_memory(tmp_path):
     assert "GB this host can hold" in row["why"]
 
 
+@pytest.mark.network
 def test_flash_next_is_number_one_with_tensorfold_on_a_128gb_mac(tmp_path):
     # Given a Mac whose GPU working set holds TensorFold's smallest Flash Next checkpoint
     rows = _offer(tmp_path, BIG_MAC_GB)
@@ -236,6 +238,7 @@ def test_flash_next_is_number_one_with_tensorfold_on_a_128gb_mac(tmp_path):
     assert plan["size"] <= mp.weight_budget_gb(BIG_MAC_GB, True, BIG_MAC_GB, "metal") * 2**30
 
 
+@pytest.mark.network
 def test_select_1_on_a_48gb_mac_serves_qwen38_27b_with_tensorfold(tmp_path):
     # Given a 48 GB Mac with no local models
 
@@ -251,6 +254,7 @@ def test_select_1_on_a_48gb_mac_serves_qwen38_27b_with_tensorfold(tmp_path):
     assert "llgenie-engine-" in r.stdout      # the start script the pick would run
 
 
+@pytest.mark.network
 def test_select_flash_next_with_tensorfold_on_a_128gb_mac(tmp_path):
     # Given a 128 GB Mac
 
@@ -265,6 +269,7 @@ def test_select_flash_next_with_tensorfold_on_a_128gb_mac(tmp_path):
     assert "would download TensorFold/Qwen3.8-Flash-Next-MLX-" in r.stdout
 
 
+@pytest.mark.network
 def test_mlx_only_model_finds_its_mlx_conversion_on_a_mac(tmp_path):
     """Ornith 1.5 was "not here" on the Mac: the registry names only the base repo;
     its MLX conversions (ornith-ai/Ornith-1.5-9B-MLX-*) are on the Hub."""
@@ -285,6 +290,7 @@ def test_mlx_only_model_finds_its_mlx_conversion_on_a_mac(tmp_path):
     assert "-mlx" in plan["repo"].lower() and plan.get("dir")
 
 
+@pytest.mark.network
 def test_interactive_listing_is_the_trend_listing(tmp_path):
     """The prompt shows exactly what --trend prints, so the non-interactive tests above
     cover the interactive list."""

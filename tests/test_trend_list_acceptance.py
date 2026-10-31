@@ -140,6 +140,7 @@ def test_readme_parser_reads_the_vendored_list():
 
 
 @pytest.mark.parametrize("platform,backend,gb", HOSTS, ids=IDS)
+@pytest.mark.network
 def test_ac1_rows_are_the_readme_models_that_fit_in_readme_order(tmp_path, platform, backend, gb):
     # Given the README list and a host
     ram = _ram(backend, gb)
@@ -202,6 +203,7 @@ def test_the_vendored_store_states_two_distinct_vram_figures():
 
 
 @pytest.mark.parametrize("platform,backend,gb", HOSTS, ids=IDS)
+@pytest.mark.network
 def test_ac3_every_engine_runs_on_this_host(tmp_path, platform, backend, gb):
     # Given the list for a host
     rows = _offer(tmp_path, backend, gb)
@@ -224,6 +226,7 @@ def test_ac3_every_engine_runs_on_this_host(tmp_path, platform, backend, gb):
 
 
 @pytest.mark.parametrize("platform,backend,gb", HOSTS, ids=IDS)
+@pytest.mark.network
 def test_ac4_engines_are_ranked_same_hardware_then_other_then_supported(tmp_path, platform, backend, gb):
     # Given the list for a host
     rows = _offer(tmp_path, backend, gb)
@@ -242,6 +245,7 @@ def test_ac4_engines_are_ranked_same_hardware_then_other_then_supported(tmp_path
 
 
 @pytest.mark.parametrize("platform,backend,gb", HOSTS, ids=IDS)
+@pytest.mark.network
 def test_ac5_every_engine_has_a_fitting_download_or_local_copy(tmp_path, platform, backend, gb):
     # Given the list for a host and its weight budget
     rows = _offer(tmp_path, backend, gb)
@@ -266,6 +270,7 @@ def test_ac5_every_engine_has_a_fitting_download_or_local_copy(tmp_path, platfor
 
 
 @pytest.mark.parametrize("platform,backend,gb", HOSTS, ids=IDS)
+@pytest.mark.network
 def test_ac6_unservable_rows_say_why_and_offer_nothing(tmp_path, platform, backend, gb):
     # Given the list for a host
     rows = _offer(tmp_path, backend, gb)
@@ -277,6 +282,7 @@ def test_ac6_unservable_rows_say_why_and_offer_nothing(tmp_path, platform, backe
 
 
 @pytest.mark.parametrize("platform,backend,gb", HOSTS, ids=IDS)
+@pytest.mark.network
 def test_ac2_ac7_ac8_printed_list_numbering_labels_and_header(tmp_path, platform, backend, gb):
     # Given the rows llgenie computed for a host
     rows = _offer(tmp_path, backend, gb)
@@ -310,6 +316,7 @@ def test_ac2_ac7_ac8_printed_list_numbering_labels_and_header(tmp_path, platform
 
 @pytest.mark.parametrize("platform,backend,gb", [h for h in HOSTS if h[2] in (16, 48)],
                          ids=[i for i, h in zip(IDS, HOSTS) if h[2] in (16, 48)])
+@pytest.mark.network
 def test_ac2_select_n_and_auto_take_the_numbered_row(tmp_path, platform, backend, gb):
     # Given the servable rows of a host
     pick = [r for r in _offer(tmp_path, backend, gb) if not r["why"]]
@@ -334,6 +341,7 @@ def test_ac2_select_n_and_auto_take_the_numbered_row(tmp_path, platform, backend
     assert bad.returncode != 0 and f"pick 1-{len(pick)}" in bad.stderr
 
 
+@pytest.mark.network
 def test_same_readme_different_hardware_gives_each_host_its_own_top_engine(tmp_path):
     """For each host, a row that HAS a figure measured on that host's hardware ranks it first.
 
