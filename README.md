@@ -12,6 +12,7 @@ on how it works. The references it points at:
 | Document | What it answers |
 |---|---|
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | how the code is laid out and how a request flows through it — the map of this repository |
+| [`docs/TESTING.md`](docs/TESTING.md) | the test suite's one rule: no skips and no `xfail`, how the guard enforces it in the exit status, and how a tracked defect is recorded so its removal is forced |
 | [`docs/ENGINES.md`](docs/ENGINES.md) | one inference server per engine: how each image is built, tested and published, and which llama.cpp build this card gets |
 | [`docs/BOTS.md`](docs/BOTS.md) | the automation: which bot does what, its cron slot, the skills its legs run under, where secrets go, and every CI/verification target |
 | [`docs/SCANNERS.md`](docs/SCANNERS.md) | the security scanners: one immutable Wolfi image per scanner (digest-pinned base, exact version, content-hash tag), how to bump one, and the gate that keeps `digests.json` true |

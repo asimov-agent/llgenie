@@ -56,30 +56,79 @@ def server_bin() -> str:
 
 # ---------------------------------------------------------------------------
 # NO-SKIP GUARD (mandatory): a skipped test is a LOUD FAILURE, never silent.
-# This is the durable "no skips ever" guarantee — any test that calls
-# pytest.skip()/skipif() (or is skipped for any reason) turns the run red so a
-# broken/absent prerequisite can never silently pass CI. See AGENTS.md.
+#
+# THE CONTRACT (issue #1110 — one rule, read by BOTH hooks below):
+# a SKIP is any report pytest marks `skipped`, in any phase and from any cause —
+# `pytest.skip()`, `@pytest.mark.skipif`, a conditional skip inside the test, or an
+# `xfail` marker whose test failed (pytest reports that as skipped with `wasxfail`
+# set). An XFAIL is therefore NOT an exemption: this repo has no "known failure"
+# bucket in the gate, because a green gate must mean every test ran and passed
+# (AGENTS.md, "NO SKIPPED TESTS"). A tracked defect is locked instead by a test that
+# asserts the defect's CURRENT behaviour, so fixing the defect reds that test and
+# its deletion is forced mechanically rather than remembered.
+# `_skip_violation()` is the ONLY place that decides what counts as a violation, so
+# the two hooks cannot drift apart again. Who owns what: `pytest_runtest_logreport`
+# owns the call-phase verdict (the failure lands on the test that skipped), and
+# `pytest_report_teststatus` owns EVERY phase (a setup/teardown or whole-module skip
+# produces no call-phase report to catch it). Mutating a report's outcome only changes
+# what the terminal PRINTS — pytest computes its exit status from its own failure
+# counter — so `pytest_sessionfinish` owns the one thing both hooks need: a recorded
+# violation turns the process exit RED. Before issue #1110 a skipped test printed
+# `FAILED` and still exited 0, so the whole guard was decorative.
 # ---------------------------------------------------------------------------
+def _skip_violation(report) -> bool:
+    """The one contract both hooks ask: is this report a skip — xfail included?"""
+    return bool(getattr(report, "skipped", False))
+
+
+def _skip_violation_message(hook: str) -> str:
+    return (
+        "TEST SKIPPED — no skips allowed (AGENTS.md). A skipped test means a broken "
+        "prerequisite is being masked. Provision the prerequisite (e.g. run "
+        "`make download-test-model` / `make install` / set LLAMA_SERVER) so the test "
+        "genuinely runs, or fix the test — never leave a skip. An `xfail` marker is a "
+        "skip too (issue #1110): lock a tracked defect with a test that asserts its "
+        "current behaviour instead. "
+        f"[flagged by {hook}]"
+    )
+
+
+# Node ids the guard has failed in this process (one entry per test, never per phase).
+_SKIP_VIOLATIONS: list[str] = []
+
+
+def _fail_report(report, hook: str) -> None:
+    """Mark the report failed for the reader, and remember it for the exit status."""
+    report.outcome = "failed"
+    report.longrepr = _skip_violation_message(hook)
+    nodeid = getattr(report, "nodeid", None) or "?"
+    if nodeid not in _SKIP_VIOLATIONS:
+        _SKIP_VIOLATIONS.append(nodeid)
+
+
 def pytest_report_teststatus(report, config):
-    if getattr(report, "skipped", False):
-        # Mark a skipped test as a failure in the exit code (loud), not silent.
-        report.outcome = "failed"
-        report.longrepr = (
-            "TEST SKIPPED — no skips allowed (AGENTS.md). A skipped test means a "
-            "broken prerequisite is being masked. Provision the prerequisite (e.g. "
-            "run `make download-test-model` / `make install` / set LLAMA_SERVER) so "
-            "the test genuinely runs, or fix the test — never leave a skip."
-        )
+    if _skip_violation(report):
+        # Mark a skipped test as a failure in the output (loud), not silent.
+        _fail_report(report, "pytest_report_teststatus")
     return None
 
 
 def pytest_runtest_logreport(report):
-    if report.when == "call" and getattr(report, "skipped", False):
-        # Convert a (non-xfail) skip into a hard failure right at the call site.
-        if not getattr(report, "wasxfail", False):
-            report.outcome = "failed"
-            report.longrepr = (
-                "TEST SKIPPED — no skips allowed (AGENTS.md). A skipped test masks a "
-                "broken prerequisite. Provision it (make download-test-model / make "
-                "install / LLAMA_SERVER) so the test runs — never leave a skip."
-            )
+    if report.when == "call" and _skip_violation(report):
+        # Convert a skip into a hard failure at the call site (any phase is covered
+        # by pytest_report_teststatus above; xfail is NOT exempt).
+        _fail_report(report, "pytest_runtest_logreport")
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """The exit status is the contract: one recorded skip turns a green run red."""
+    if not _SKIP_VIOLATIONS:
+        return
+    reporter = session.config.pluginmanager.getplugin("terminalreporter")
+    if reporter is not None:
+        reporter.write_line(
+            f"NO-SKIP GUARD: {len(_SKIP_VIOLATIONS)} skipped test(s) failed this run "
+            "(AGENTS.md): " + ", ".join(sorted(_SKIP_VIOLATIONS))
+        )
+    if session.exitstatus == 0:
+        session.exitstatus = 1  # pytest ExitCode.TESTS_FAILED

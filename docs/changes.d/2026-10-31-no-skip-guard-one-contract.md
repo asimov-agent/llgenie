@@ -1,0 +1,1 @@
+| 2026-10-31 | `tests/conftest.py` states ONE no-skip contract (`xfail` is a skip), both hooks ask one predicate, and `pytest_sessionfinish` makes a recorded violation exit red (#1110) | [2026-10-31-no-skip-guard-one-contract.md](agent-wiki/2026-10-31-no-skip-guard-one-contract.md) | #1110 |
