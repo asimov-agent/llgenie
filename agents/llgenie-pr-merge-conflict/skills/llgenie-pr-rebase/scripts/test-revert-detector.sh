@@ -2,16 +2,18 @@
 # Negative control for the "-X theirs silent revert" detector inside post-rebase-verify.sh.
 #
 # Asserts EXIT STATUS, not message text: a test that greps the wording passes on a harmless
-# rephrase while the logic is broken. Run in a throwaway repo so the detector's precondition
+# rephrase while the logic is broken. Runs in a throwaway repo so the detector's precondition
 # ("base is an ancestor of HEAD") genuinely holds -- on this lane's real branch it does not,
 # because the branch is behind main, so the check is skipped by design there.
 #
-# Three cases, because the FIRST draft of this control only covered one of them:
-#   1. pure deletion      base line removed, unrelated file added     -> verify MUST exit 1
-#   2. MODIFICATION       base line changed back to an older value   -> verify MUST exit 1
-#      (this is the shape that actually bit: `ci_images.py latest agent` -> `ref agent`,
-#       which is a one-line change, not a deletion, and case 1 alone did not cover it)
-#   3. restored           the base line put back                     -> verify MUST exit 0
+# Three cases, in the order the semantics were learned:
+#   1. SUBSTITUTION   base's line replaced by a different one  -> rc=1 (FAIL)
+#      The shape that actually bit: `ci_images.py latest agent` -> `ref agent`.
+#   2. PURE DELETION  a line removed, nothing added            -> rc=0 (NOTE, not a failure)
+#      A branch may legitimately delete an obsolete line. Failing here rejects correct work,
+#      which this lane's rules forbid a check from doing (measured: a synthetic intentional
+#      deletion was first reported as a revert).
+#   3. RESTORED       the base's wording put back              -> rc=0
 set -uo pipefail
 
 HERE=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
@@ -24,45 +26,41 @@ git init -q .
 git config user.email t@t.example
 git config user.name t
 
-printf 'line-one\nkeep-me\n' > file.txt
-printf 'run the tool with latest\n' > recipe.mk
+printf 'run the tool with latest agent\n' > recipe.mk
+printf 'alpha\nobsolete\n' > notes.txt
 git add -A && git commit -qm base
-BASE=$(git rev-parse HEAD)   # the real base; every case is measured against THIS, not HEAD~1
+BASE=$(git rev-parse HEAD)   # every case is measured against THIS, not HEAD~1
 
-# --- case 1: pure deletion -------------------------------------------------
-printf 'line-one\n' > file.txt
-printf 'new\n' > added.txt
-git add -A && git commit -qm 'case1 delete'
+# --- case 1: SUBSTITUTION (the real -X theirs shape) -----------------------
+printf 'run the tool with ref agent\n' > recipe.mk
+git add -A && git commit -qm 'case1 substitution'
 bash "$VERIFY" "$BASE" >/tmp/rev_c1.$$ 2>&1
 rc_c1=$?
 
-# --- case 2: MODIFICATION back to an older value ---------------------------
-# restore case 1, then change the base's line to an older spelling + add an unrelated file,
-# which is precisely what a strategy-flag resolution leaves behind.
-printf 'line-one\nkeep-me\n' > file.txt
-printf 'run the tool with ref\n' > recipe.mk
-printf 'new\n' > added.txt
-git add -A && git commit -qm 'case2 modify'
+# --- case 2: PURE DELETION (legitimate removal) ----------------------------
+printf 'run the tool with latest agent\n' > recipe.mk
+printf 'alpha\n' > notes.txt
+git add -A && git commit -qm 'case2 pure deletion'
 bash "$VERIFY" "$BASE" >/tmp/rev_c2.$$ 2>&1
 rc_c2=$?
 
-# --- case 3: restored ------------------------------------------------------
-printf 'run the tool with latest\n' > recipe.mk
+# --- case 3: RESTORED ------------------------------------------------------
+printf 'alpha\nobsolete\n' > notes.txt
 git add -A && git commit -qm 'case3 restored'
 bash "$VERIFY" "$BASE" >/tmp/rev_c3.$$ 2>&1
 rc_c3=$?
 
-echo "  case1 pure deletion:  verify rc=$rc_c1  (want 1)"
-echo "  case2 MODIFICATION:   verify rc=$rc_c2  (want 1)"
-echo "  case3 restored:       verify rc=$rc_c3  (want 0)"
-grep -E 'drops base lines|pure deletions' /tmp/rev_c1.$$ | sed 's/^/    c1: /'
-grep -E 'drops base lines|pure deletions' /tmp/rev_c2.$$ | sed 's/^/    c2: /'
-grep -E 'drops base lines|pure deletions' /tmp/rev_c3.$$ | sed 's/^/    c3: /'
+echo "  case1 SUBSTITUTION:  verify rc=$rc_c1  (want 1)"
+echo "  case2 pure deletion: verify rc=$rc_c2  (want 0 — NOTE, not failure)"
+echo "  case3 restored:      verify rc=$rc_c3  (want 0)"
+grep -E 'base lines replaced|base lines deleted|no base lines lost' /tmp/rev_c1.$$ | sed 's/^/    c1: /'
+grep -E 'base lines replaced|base lines deleted|no base lines lost' /tmp/rev_c2.$$ | sed 's/^/    c2: /'
+grep -E 'base lines replaced|base lines deleted|no base lines lost' /tmp/rev_c3.$$ | sed 's/^/    c3: /'
 rm -f /tmp/rev_c1.$$ /tmp/rev_c2.$$ /tmp/rev_c3.$$
 
 fail=0
-[ "$rc_c1" -eq 0 ] && { echo "FAIL: missed a pure deletion of a base line" >&2; fail=1; }
-[ "$rc_c2" -eq 0 ] && { echo "FAIL: missed a MODIFICATION that reverted a base line" >&2; fail=1; }
+[ "$rc_c1" -eq 0 ] && { echo "FAIL: missed a SUBSTITUTION that reverted a base line" >&2; fail=1; }
+[ "$rc_c2" -ne 0 ] && { echo "FAIL: rejected a legitimate pure deletion" >&2; fail=1; }
 [ "$rc_c3" -ne 0 ] && { echo "FAIL: false-positive on a restored tree" >&2; fail=1; }
 [ "$fail" -eq 0 ] || exit 1
-echo "PASS: detector catches a deletion AND a reverted modification, and clears a restored tree"
+echo "PASS: catches the substitution revert, allows a deliberate deletion, clears a restored tree"

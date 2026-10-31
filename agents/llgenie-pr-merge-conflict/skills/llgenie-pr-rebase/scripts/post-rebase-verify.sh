@@ -128,29 +128,44 @@ fi
 # confuse, and any base line missing from HEAD was dropped by the resolution.
 GEN_RE='^(CHANGES\.md|docs/ARCHITECTURE\.md|.*/\.openspec\.yaml)$'
 rev_files=""
+del_files=""
 if git merge-base --is-ancestor "$BASE" HEAD 2>/dev/null; then
+  # What is provable: a -X-strategy revert is a SUBSTITUTION -- base's line is gone and a different
+  # line took its place (`ci_images.py latest agent` -> `ref agent`). Intent is NOT provable: after
+  # a rebase the merge-base IS the base, so a replayed revert sits inside the branch's own commits
+  # and any "did the branch mean this" test classifies it as intended. And a PURE deletion may be
+  # entirely correct (a branch removing an obsolete line), so failing on it would reject correct
+  # work -- the thing this lane's rules forbid a test from doing.
+  #
+  # So: substitution FAILS (the confirmed defect shape), pure deletion is REPORTED for a human
+  # without failing the push.
   while IFS= read -r f; do
     [ -n "$f" ] || continue
-    # Include every tracked text file: a whitelist of extensions silently skips .txt, .json,
-    # .cfg and everything else, which is exactly how a real revert hides (measured: a synthetic
-    # revert in file.txt passed the check while the whitelist only matched .md/.sh/.py/.yml).
     case "$f" in
       *.png|*.jpg|*.jpeg|*.gif|*.ico|*.pdf|*.zip|*.gz|*.woff*|*.ttf|*.lock) continue ;;
     esac
     printf '%s\n' "$f" | grep -Eq "$GEN_RE" && continue
     gone=$(git diff --no-color "$BASE" HEAD -- "$f" 2>/dev/null | grep -c '^-[^-]')
-    if [ "$gone" -gt 0 ]; then
-      rev_files="$rev_files $(printf '%s(%s)' "$f" "$gone")"
+    added=$(git diff --no-color "$BASE" HEAD -- "$f" 2>/dev/null | grep -c '^+[^+]')
+    if [ "$gone" -gt 0 ] && [ "$added" -gt 0 ]; then
+      rev_files="$rev_files $(printf '%s(%s-%s)' "$f" "$gone" "$added")"
+    elif [ "$gone" -gt 0 ]; then
+      del_files="$del_files $(printf '%s(%s)' "$f" "$gone")"
     fi
   done < <(git diff --name-only "$BASE" HEAD 2>/dev/null)
 fi
-if [ -z "$rev_files" ]; then
-  ok "no pure deletions of base lines"
+if [ -n "$rev_files" ]; then
+  bad "base lines replaced:$rev_files"
+  echo "     These files lost base lines AND gained others — the shape a --strategy flag"
+  echo "     (-X theirs / -X ours) leaves when it resolves a hunk that never should have differed:"
+  echo "     measured, main's 'ci_images.py latest agent' became an older 'ref agent'. Diff each"
+  echo "     file against $BASE_SHA by hand and restore the base's wording, keeping your additions."
+elif [ -n "$del_files" ]; then
+  say "base lines deleted (review):$del_files" "NOTE"
+  echo "     No file above added anything while losing base lines, so this reads as a deliberate"
+  echo "     removal rather than a revert — NOT a failure. Confirm each is intended."
 else
-  bad "drops base lines:$rev_files"
-  echo "     Each file above lost content the base has. If a --strategy flag (-X theirs /"
-  echo "     -X ours) was used, that is the likely cause: diff the file against $BASE_SHA by"
-  echo "     hand and restore the base's line, keeping the branch's additions."
+  ok "no base lines lost"
 fi
 
 echo
