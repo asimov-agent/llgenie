@@ -6,8 +6,8 @@
       (Saturday 04:27 UTC, its own slot, never `pull_request`), that runs `make all-pipelines-sweep`.
 - [x] The workflow file has the dispatch header block (`Trigger surface` / `Flow` / `Never`), a `name:` that
       states the work, and a documented dispatch form; `make check-dispatch-forms` passes.
-- [ ] The workflow passes `make check-workflows` and `make ci-lint` (`${{ }}` parses, trailing newline).
-- [ ] Regenerate the docs/BOTS.md `dispatch-forms` table with `make dispatch-forms-report` and paste between
+- [x] The workflow passes `make check-workflows` and `make ci-lint` (`${{ }}` parses, trailing newline).
+- [x] Regenerate the docs/BOTS.md `dispatch-forms` table with `make dispatch-forms-report` and paste between
       the markers; add a BOTS paragraph for the umbrella.
 
 ## The sweep script
@@ -45,9 +45,9 @@
 - [x] `make check-dispatch-forms` GREEN, `make dispatch-forms-report` table current.
 - [x] `make check-workflows`, `make ci-lint`, `make check-wiring`, `make check-docs` GREEN.
 - [x] `make targets-coverage` runs and prints every target with callers or `none`.
-- [ ] `make test-unit` GREEN (the new tests are selected by the unit-suite aggregator).
+- [x] `make test-unit` GREEN (the new tests are selected by the unit-suite aggregator).
 - [x] `make openspec-validate NAME=all-pipelines-sweep` GREEN, every task ticked.
-- [ ] `make loop` GREEN (or `make test-unit` + `make openspec-validate` if the full hardware loop cannot run;
+- [x] `make loop` GREEN (or `make test-unit` + `make openspec-validate` if the full hardware loop cannot run;
       report which).
-- [ ] agent-wiki note + CHANGES.md row in the same commit; commit + push to the fork; PR against
+- [x] agent-wiki note + CHANGES.md row in the same commit; commit + push to the fork; PR against
       `asimov-agent/llgenie:main` from `andyholst:feat/1102-all-pipelines`, body ends `closes #1102`.
