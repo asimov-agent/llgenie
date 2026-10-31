@@ -200,6 +200,13 @@ head and push, and report the BRANCH-HEAD sha that carries it, not your worktree
   `sha256sum < "$LIVE/<path>"`. Confirm with the sha256 pair before concluding anything, and quote the
   matching hash in the report — a size read that disagrees with the hash is the artifact.
 
+- **Version live-only edits by carrying them on the SAME open reconstruction PR, not a new branch.** When
+  a live-skill lesson is discovered mid-PR (the checker flags a live-only edit), copy the current live
+  byte-for-byte onto the PR branch, commit, fast-forward-push (never force — the base never moved, so it
+  is a clean fast-forward), and let the same PR carry it. A `--auto` arm request on a PR with non-null
+  `enabled_at` stays live and the PR head update is the vehicle. Re-run `sync-agent-profile CHECK=1`
+  (7/7) and post the new head sha.
+
 - **A rebase rewrites shas without changing a byte — verify by CONTENT, not by ancestry.** After
   another lane rebases the branch, your commit's sha changes (the same tree replayed under a new
   parent); `git merge-base --is-ancestor <your-old-sha> <head>` then reads NO even though NOTHING was

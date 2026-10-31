@@ -170,6 +170,10 @@ A populated auto-merge request object does NOT mean the PR is armed. GraphQL `au
 
 Check: `gh api repos/<owner>/<repo>/pulls/<n> | jq '.auto_merge.enabled_at'` — NON-NULL is the only state that fires on approval; null means "pending request, not enabled". For a PR blocked on `REVIEW_REQUIRED`, enablement often stays null until the required review is granted (that repopulates `enabled_at`). Post honest status; never claim armed until a fresh read shows `enabled_at` non-null.
 
+## 10.5a The arm-fact lives in raw REST `auto_merge.enabled_at`, not GraphQL `enabledAt` (#964, 5-lane recurrence)
+
+For an `--auto` request, the *request identity* is always populated (`enabledBy`, `mergeMethod`), but only a genuinely-enabled arm populates the *enablement fact*. On GraphQL `autoMergeRequest` the field is `enabledAt`; on raw REST `auto_merge` it is `enabled_at`. Read the one the checker keys on: `gh api repos/<o>/<r>/pulls/<n> --jq '.auto_merge.enabled_at'`. Null = "pending request, not enabled" — quote that verbatim instead of "armed". Verify the SAME call the checker uses; a GraphQL identity-enabler is never a REST enablement fact.
+
 ## 10. Verify a census-repoint PR (shared-gate unblocker, #1221/#1222)
 
 When a PR exists only to re-point `docs/ARCHITECTURE.md`'s `measured at <sha>` off a non-ancestor
