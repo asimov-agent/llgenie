@@ -1715,9 +1715,18 @@ def engine_supported_quants(model: dict, eng: dict, gb: float, ram_gb: float | N
     if catalog_plans is not None:
         supported = catalog_supported_archs(str(model.get("id") or ""),
                                             str(eng.get("engine") or eng.get("id") or ""))
-        # an engine whose table row does not list this arch is not runnable for the
-        # model on this hardware: offer nothing (arch-driven engine support, #122)
-        if supported and arch not in supported:
+        # An engine whose table row does not list this arch is not runnable for the
+        # model on this hardware: offer nothing (arch-driven engine support, #122).
+        # The catalog `supported` list is the engine's IMAGE-VARIANT archs, so the
+        # runnable check must apply the SAME cpu-fallback `rank_engines`/`host_engines`
+        # use — otherwise an engine whose only card-capable image is `cpu` (e.g. the
+        # PrismML fork, variants [vulkan, cpu, metal]) is dropped on a cuda/rocm host
+        # while `rank_engines` ranks it first on that same host: the two selection
+        # paths disagree (issue #1124). A literal `arch not in supported` compares the
+        # host arch against the image variants, not against what can actually run it.
+        variant = arch if arch in supported else (
+            None if arch == "metal" else ("cpu" if "cpu" in supported else None))
+        if supported and variant is None:
             return []
         for plan in catalog_plans:
             _add(plan)

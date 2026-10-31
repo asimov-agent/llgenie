@@ -59,6 +59,26 @@ def test_supported_quants_are_ascending_and_fit_budget():
     assert qs[-1]["size"] == max(q["size"] for q in qs)
 
 
+def test_ranked_engine_is_obtainable_on_the_host_arch():
+    """(#1124) the engine `rank_engines` ranks FIRST for a model+host must actually be
+    obtainable there — `engine_supported_quants` must not drop it.
+
+    The divergence this guards: `rank_engines(bonsai-2-4b, arch_cuda)` ranks
+    `llama.cpp (PrismML fork) @ 128 tps` first (a run on this host's kind of hardware),
+    but its image variants are [vulkan, cpu, metal] — no cuda image. The catalog arch
+    gate used to compare the host arch to that list literally and returned [] for the
+    fork, so `matrix()` served the phone's plain `llama.cpp @ 6.0` instead: the matrix
+    recorded a row the ranking would never choose. The gate now applies the same
+    cpu-fallback the ranking uses, so the ranked-top engine has a plan here.
+    """
+    _stub_host(24, 64, "cuda")
+    m = next(x for x in mp.load_registry(str(REGISTRY))["models"] if x["id"] == "bonsai-2-4b")
+    top = mp.rank_engines(m, "cuda", gb=24)[0]
+    assert top["engine"] == "llama.cpp (PrismML fork)"
+    qs = mp.engine_supported_quants(m, top, 24, 64, "cuda")
+    assert qs, f"#{top['engine']} is ranked first for this model+host but the pick cannot obtain a quant for it"
+
+
 def test_supported_quants_narrow_to_the_engines_own_format():
     # Given a model served by engines of DIFFERENT formats (LLM cached GGUF + MLX)
     _stub_host(24, 64, "cuda")
