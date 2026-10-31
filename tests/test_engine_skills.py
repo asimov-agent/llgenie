@@ -1745,7 +1745,8 @@ def test_gpu_scripts_can_run_on_cpu_for_tests():
 def test_install_published_lives_in_the_engine_build_producer_not_the_ci_pipeline():
     """#1027: the install/dry/uninstall consumer test of every published engine image runs in
     the engine-build PRODUCER workflow — after push-engine, on the image that row just published
-    (make test-engine-install: install -> test-built-engine -> ci-install-dry -> ci-install-uninstall) —
+    (make test-engine-install: install -> test-built-engine -> ci-install-uninstall; the product
+    `llgenie --dry` is NOT here because the producer is product-LESS — #1196, ci-install owns it) —
     NOT as a ci.yml / linux-published / published.yml install stage. The ci pipeline must not own an
     engine build/test surface."""
 
@@ -1764,8 +1765,9 @@ def test_install_published_lives_in_the_engine_build_producer_not_the_ci_pipelin
 
     mk = (REPO / "Makefile").read_text()
     recipe = mk.split("\ntest-engine-install:", 1)[1].split("\n\n", 1)[0]
-    for needle in ("engine-install", "test-built-engine", "ci-install-dry", "ci-install-uninstall"):
+    for needle in ("engine-install", "test-built-engine", "ci-install-uninstall"):
         assert needle in recipe, needle
+    assert "ci-install-dry" not in recipe, "the producer install-leg must not call the product-only ci-install-dry (#1196)"
 
 
 def test_pre_publish_jobs_build_and_the_pull_only_install_runs_last():
@@ -1796,7 +1798,7 @@ def test_published_install_step_runs_gpu_images_on_cpu():
     assert "ubuntu" in str(job["runs-on"])
     mk = (REPO / "Makefile").read_text()
     recipe = mk.split("\ntest-engine-install:", 1)[1].split("\n\n", 1)[0]
-    assert "ci-install-dry" in recipe and "ci-install-uninstall" in recipe
+    assert "ci-install-uninstall" in recipe and "ci-install-dry" not in recipe
 
 
 def test_only_engines_with_a_cpu_fallback_are_chat_tested_on_gpu_images():
