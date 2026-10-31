@@ -98,6 +98,31 @@ A PR whose `openspec/changes/<change>/tasks.md` still contains `- [ ]` lines fai
 - Timing: work the tick only after the head's in-flight runs conclude, then push one commit — never cancel a matrix to
   land a checkbox.
 
+## 8.7 A live-network test inside a hermetic gate shows up as slow, then timeout-at-low-percent
+
+A hermetic CI gate (unit job running `-m "not network"` over `tests/`) that still contains a test reaching a real
+live service — the HF Hub, GHCR, any remote — is not a flake and not "slow hardware". It is a **misclassification**:
+the test belongs to the `network`-marked set (a separate main-merge/scheduled pipeline), not the hermetic PR gate.
+
+Attribution fingerprints, in order:
+
+- **`Timeout (N:MM:SS)!` at a low progress % restarts nothing**: a per-test timeout firing early in the run (e.g. at
+  14%) with the suite otherwise sailing past means one specific test is hanging on I/O, not the suite being slow.
+- **Per-test timeout duration equals the ceiling budget** (e.g. `pytest-timeout` 5:00): the test is spending its whole
+  budget on one upstream wait (HTTP 429 rate-limit under concurrency, a dropped connection, a hub that never answers).
+  A remote service under rate-limit 429s: the fail is *the test's own network reach*, independent of the branch.
+- **A hermetic-local contract is broken**: `make test-unit` without `HF_TOKEN` should be offline-runnable; if it
+  genuinely reaches the Hub it violates that. "Green in CI with the token, red offline" is the tell.
+- **Progress lines separate by minutes** (23:31 → 23:35 → 23:40 → 23:45): those gaps are remote stalls/retries.
+
+Consequence and fix: *moving the test to the network-marked set is a fix, not a workaround* — it is what `-m network`
+exists for, and it changes *where* the test runs (main-merge/scheduled pipeline), not *whether* it runs. Classify fast:
+find every un-marked scope that reaches a live hub (`grep` for `hub_open`/`hub_json`/ranged GETs to `huggingface.co`,
+and check the network-marker pin actually asserts no un-marked scope reaches the Hub), mark them `@pytest.mark.network`,
+and let the pin (`test_network_marker.py`'s AST reach check) catch the class, not the instance. Verify by running the
+*selection* — `make test-unit` must deselect the marked tests and `make test-unit-network` must still collect them —
+do not hand-pick one marked file and call the class fixed.
+
 ## 9. Failure shapes worth naming in the report
 
 Write the verdict as a sentence a merger can act on: *green at `<sha>`, run `<id>`, N success / 0 failure / 0 cancelled, mergeable* — or *not green, because X*. Name cancelled jobs explicitly; never summarise a run with cancelled rows as "green modulo timeouts".
