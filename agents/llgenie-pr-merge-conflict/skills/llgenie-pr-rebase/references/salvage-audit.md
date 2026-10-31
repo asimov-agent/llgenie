@@ -78,6 +78,53 @@ and clear it (`git merge --abort`, else `git reset --hard HEAD`) rather than pad
 preserve list. Prove no loss by **blob identity**, never ancestry (a squash merge leaves your tip a
 non-ancestor): `git rev-parse <mergeCommit>:<path>` must equal `git rev-parse <main>:<path>`.
 
+## Two audits of one question must agree — run both, it is the cheapest test there is
+
+When a repository has two independent implementations of the same census (a shell script and a
+python one, a fast path and a careful one), **run both back to back and compare their two
+conclusion lines**. Same repo, same instant, two different answers means one of them is lying to
+the owner about what is safe to delete — and a single audit has no way to be wrong out loud.
+
+Measured divergence that motivated this rule:
+
+```
+shell   SAFE 162 branches / 125 worktrees   PRESERVE 7 + 18
+python  SAFE  45 branches / 132 worktrees   PRESERVE 7 + 11
+```
+
+Two independent arithmetic defects in the second tool:
+
+1. **Worktrees: `total - dirty` marks CLEAN work on a unique branch as deletable.** A worktree is
+   safe only when it is clean **and** its HEAD carries nothing unique. Subtracting only the dirty
+   set called six clean-but-unique worktrees safe — the optimistic answer, instructing the owner to
+   delete work that exists nowhere else. Preserve set = **union** of dirty and on-a-unique-branch,
+   never `total - dirty`.
+2. **Branches: enumerating buckets silently drops the lossless orphans.** Summing
+   `landed + on-a-PR + merged-replay` reported 45 where the truth was 162, because every orphan
+   that adds nothing main lacks is also deletable. Deletable = **`total - unique`**, never a bucket
+   sum.
+
+## Assert the RULES, not the numbers, and never the source text
+
+An exact-count assertion reds on every unrelated push (the repo moves minute to minute). A
+grep-the-source-text assertion is worse: it passes while the arithmetic bug is live and fails on a
+harmless whitespace change — exactly inverted. Measured: a test grepping for the subtraction
+expression failed after the fix merely reformatted it, while the real divergence was invisible to it.
+
+Extract the verdict into a **pure function** (`summarise(rows, wts)` returning `keep`,
+`safe_branches`, `safe_worktrees`) and unit-test that against synthetic rows and worktrees. It needs
+no `gh`, no network and no repository, so it runs anywhere and needs no skip. Then prove each rule
+bites with a negative control — reintroduce the defect and require the test to FAIL:
+
+```
+union loop removed          -> "a clean worktree on a unique branch was called safe"
+bucket-enum deletable back  -> "lossless/held-by-PR orphans must count as deletable"
+restored                    -> all pass
+```
+
+AGENTS.md forbids skipped tests outright, so a test that needs `gh` must be rewritten to test the
+pure part rather than guarded with `pytest.skip`.
+
 ## Report shape
 
 One table, then the numbers, then the sentence the owner actually needs — with the measurement

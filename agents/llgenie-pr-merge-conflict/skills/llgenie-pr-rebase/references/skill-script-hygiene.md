@@ -142,3 +142,33 @@ When a defect is found in one of two near-identical scripts, the same bug is alm
 
 The corollary for this lane's two skill copies: a fix applied to the canonical profile only does not reach the copy the skill resolver loads. After any skill edit, mirror canonical → served and re-check `diff -rq`.
 
+## A shipped script must resolve its repo, never pin one host path
+
+A default that is correct on exactly one machine is not a default, it is a latent failure: on any
+other checkout or in CI it measures the wrong tree, or exits non-zero because the path is absent.
+Resolve in this order, and accept an explicit argument first:
+
+```bash
+if [ -n "${1:-}" ]; then REPO="$1"
+elif [ -n "${LLGENIE_REPO:-}" ]; then REPO="$LLGENIE_REPO"
+else   # walk up from the script's OWN directory to the .git root, else cwd
+  _d=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd); REPO=""
+  while [ "$_d" != "/" ]; do [ -e "$_d/.git" ] && { REPO="$_d"; break; }; _d=$(dirname -- "$_d"); done
+  [ -n "$REPO" ] || REPO="$(pwd)"
+fi
+```
+
+**"Nearest `.git` parent" alone is not sufficient for a script that runs from inside a profile home**
+— there no parent holds `.git`, so it resolves to the scripts directory and every measurement is
+taken against the wrong tree, confidently. Such a script needs a documented final fallback, and the
+resolved path must be asserted to be a real checkout before use:
+
+```python
+for p in pathlib.Path(__file__).resolve().parents:
+    if (p / ".git").exists(): return str(p)
+return "/home/<user>/repository/git/<repo>"   # documented fallback, not a silent default
+```
+
+Verify every branch of the resolution: no-arg resolves the worktree the script lives in, the env
+var overrides, and an explicit argument wins.
+
