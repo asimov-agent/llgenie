@@ -127,3 +127,18 @@ The sync itself is guarded: it **refuses** with `live-edited-not-tree` when the 
 ## A detector must not conflate "nothing found" with "couldn't tell"
 
 A monitor whose gate suppresses unchanged output turns a false negative into a **permanent** one: wrong-but-stable output suppresses the very tick that would catch it. Measured: a DIRTY detector read GitHub's `mergeable` field, which returns `UNKNOWN` while computing, and mapped that to "no conflicts" — at one moment **every open PR read `UNKNOWN`**, so it printed `conflicting: none` and would have suppressed every subsequent tick even with a real conflict present. Fold the undetermined set through the authoritative measurement (`git merge-tree`) instead, and keep the output stable so quiet ticks still suppress.
+
+## An aborted gate reads as a passing one
+
+A crash is more dangerous than a finding, because a finding prints `FAIL` and a crash prints a traceback that every `grep FAIL` caller — including this lane's own habit — silently filters out. Measured: `check_agent_profiles.py` raised `UnicodeDecodeError` on a `__pycache__/*.pyc` in a live profile and **stopped checking the whole fleet**; the next run appeared clean, and two real `absent-from-tree` findings only reappeared once the bytecode was removed. This lane reported "the FAIL is gone" from an aborted run — the single most expensive wrong conclusion of that session.
+
+Two rules follow:
+- **Never conclude "clean" from an absence of FAIL.** Check the command's exit status and that it produced a summary line, or the check has not run. `grep FAIL | wc -l` returning 0 is not evidence.
+- **A test must not leave artifacts that break a gate.** `importlib`-loading a shipped script writes a `.pyc` beside it, and `sync-agent-profile` copies the skill directory wholesale — so a unit test silently installed a binary into the live profile. Set `sys.dont_write_bytecode = True` around the exec and clean up any cache dir it creates.
+
+## Fix one of a pair → grep the sibling for the same shape
+
+When a defect is found in one of two near-identical scripts, the same bug is almost always in the other, and finding it costs one grep. Measured: a hardcoded absolute repo path was fixed in `salvage-four-bucket.py`; a `grep -rn '/home/<user>'` across the skill scripts then found the identical pin in `batch-rebase.sh`, `stack-replay.sh` and a monitor — the three that actually perform rebases. A hardcoded absolute path in a shipped script is invisible on the machine it was written on, which is exactly what lets it survive review.
+
+The corollary for this lane's two skill copies: a fix applied to the canonical profile only does not reach the copy the skill resolver loads. After any skill edit, mirror canonical → served and re-check `diff -rq`.
+
