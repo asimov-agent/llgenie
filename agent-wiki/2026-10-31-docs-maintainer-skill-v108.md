@@ -38,7 +38,10 @@ one-way (tree→live), a live write can never return to the tree on its own, so
 clean superset of the tree for all five files (no tree line is dropped — a pure union). Final
 verification battery re-run and recorded **at head `ae4c350e`** (measured 2026-10-31 13:12Z) after the
 v1.0.12 fold: `CHECK=1` byte-for-byte (5 files), 42 hermetic gating tests passed, `check_docs` 0,
-module-name guard 0, import-roots ratchet 0, `lint_linefeeds` OK.
+module-name guard 0, import-roots ratchet 0, `lint_linefeeds` OK. The v1.0.13 fold was absorbed at the
+same standard: battery re-run and recorded **at head `d17474b5`** (measured 2026-10-31 13:16Z)
+— `CHECK=1` byte-for-byte (5 files), 42 hermetic gating tests passed, `check_docs` 0, guard 0,
+ratchet 0, `lint_linefeeds` OK, real change→note gate probe exit 0.
 Real change→note gate probe (the un-merged #1133
 `check_docs.py --base origin/main`) re-run at the final head `60aee889` (measured 13:10Z):
 **exit 0** — the note is exactly what keeps this PR green under the gate once #1133 merges.
