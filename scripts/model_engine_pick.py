@@ -57,7 +57,7 @@ REGISTRY_FILE = REPO / "data" / "models.json"  # vendored; make sync-registry re
 RECOMMEND_LIMIT = None  # the whole README trend list that fits the card
 SHARD = re.compile(r"-\d{5}-of-\d{5}\.gguf$")
 HF = "https://huggingface.co"
-APPLE = re.compile(r"apple|\bM[1-9]\b|\bM[1-9] (pro|max|ultra)|mac", re.I)
+APPLE = re.compile(r"apple|iphone|ipad|\bM[1-9]\b|\bM[1-9] (pro|max|ultra)|mac", re.I)
 #: Outer ceiling, in seconds, on ONE `scripts/hf_download.py` child (a file or a whole
 #: repo). The child bounds its own attempts (hf_download.py: MAX_RETRY=20 on a 90 s
 #: stall-watch and a 5 s pause, i.e. a ~1900 s retry ladder before transfer time), but
@@ -266,7 +266,7 @@ def _num(s) -> float:
 # vulkan, a CPU number for cpu. Apple numbers never describe a container host.
 _CUDA_HW = ("rtx", "nvidia", "cuda", "geforce", "tesla", "a100", "h100", "l40", "aic", "dgx", "gb10", "jetson")
 _CPU_HW = ("cpu", "intel", "amd ryzen", "ryzen", "epyc", "xeon", "threadripper", "no gpu", "raspberry",
-           "arm64", "snapdragon")
+           "arm64", "snapdragon", "phone", "on-device", "on device", "android", "galaxy", "pixel")
 _CPU_ONLY = re.compile(r"\bcpu[\s-]only\b|\bno[\s-]gpu\b|\bwithout (?:a )?gpu\b", re.I)
 _AMD_GPU = re.compile(
     r"\bradeon\b|\brx\s?-?\d{3,4}\b|\b(?:9070|9060|7900|7800|7700|7600|6950|6900|6800|6750|6700|6650|6600|5700)"
@@ -368,7 +368,21 @@ def measurement_backend(e: dict) -> str:
     text = hw + (e.get("quant") or "").lower()
     if _AMD_GPU.search(text) and not any(k in text for k in _CUDA_HW):
         return "ROCm"
-    return "CUDA"
+    # An explicit CUDA-GPU token IS a cuda measurement (RTX/NVIDIA/etc.); this used to be
+    # implicit in the CUDA default, so it must be stated now that the default is CPU.
+    if any(k in hw for k in _CUDA_HW):
+        return "CUDA"
+    # A generic, unnamed GPU ("8GB GPU", "an 8 GB card") is a cuda measurement by the
+    # registry's convention; "no gpu"/"cpu only" are already CPU above, so this only
+    # catches a positive but unnamed GPU — never a phone, laptop or "no gpu".
+    if re.search(r"\bgpu\b", hw):
+        return "CUDA"
+    # Default CPU, never CUDA: a run that names no recognised CUDA GPU is not a cuda
+    # measurement. Defaulting to CUDA admitted phone/edge and unknown-hardware runs on a
+    # cuda host (a "CMF Phone 2 Pro (on-device)" 6 tok/s run became `measured_on: CUDA`,
+    # and a ternary model was offered as `llama.cpp cuda@6.0` — issue #1092). A new GPU
+    # must be named (a `_CUDA_HW` / `_AMD_GPU` token), not inferred from silence.
+    return "CPU"
 
 
 # ---- trend (the upstream index's ranking: band -> trend score -> posts) ------

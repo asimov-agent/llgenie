@@ -1190,6 +1190,7 @@
           "qwen3-6-27b"
         ],
         "cpu": [
+          "lfm2.5-24b-a2b",
           "bonsai-2-9b-apple-silicon-yukon",
           "qwen3-8-flash-next-125b",
           "nanbeige4.3-33b",
@@ -1519,7 +1520,6 @@
       ],
       "top_engine": {
         "cuda": [
-          "qwen3.8-27b",
           "qwen3.8-27b-dgx-spark-sglang",
           "qwen3.8-27b-dgx-spark-sglang-nvfp4",
           "qwen3.8-27b-dgx-spark-nvfp4-dflash2",
@@ -1667,6 +1667,7 @@
       ],
       "top_engine": {
         "cuda": [
+          "qwen3.8-27b",
           "qwen3-8-27b",
           "qwen3.8-27b-thinkingcap-tensorfold-1spark",
           "thinkingcap-27b",
@@ -1999,7 +2000,6 @@
         ],
         "cpu": [
           "qwen3.8-27b",
-          "lfm2.5-24b-a2b",
           "raon-1-mini-preview",
           "bonsai-2-2b",
           "qwen3.8-27b-twin-turbo",
@@ -2010,6 +2010,7 @@
           "qwen3.8-flash-next-125b-4090-hybrid",
           "qwen3.8-27b-coder390",
           "gemma-4-e4b",
+          "bonsai-2-4b",
           "gemma-4-26b-a4b",
           "muse-glimmer-30b",
           "qwopus3.6-35b-a3b-coder-mtp",
@@ -2136,7 +2137,6 @@
         "cpu": [
           "bonsai-2-9b",
           "bonsai-2-27b",
-          "bonsai-2-4b",
           "qwen3.8-27b-bonsai-2",
           "bonsai-2-27b-3090-bonsai-agent"
         ]

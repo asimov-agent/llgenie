@@ -901,6 +901,80 @@ def test_engine_tps_comes_from_the_hosts_hardware_first():
     assert mp.measurement_backend({"hardware": "Raspberry Pi 5 (CPU)"}) == "CPU"
     assert mp.measurement_backend({"hardware": "M5 Max (Apple Silicon)"}) == "Metal"
     assert mp.measurement_backend({"hardware": "DGX Spark"}) == "CUDA"
+    # and a phone/edge/unknown run is NEVER a cuda measurement (#1092): the default is CPU,
+    # not CUDA — the bug that let a "CMF Phone 2 Pro (on-device)" 6 tok/s run become
+    # `measured_on: CUDA` and a ternary model be offered as `llama.cpp cuda@6.0`
+    assert mp.measurement_backend({"hardware": "CMF Phone 2 Pro (on-device)"}) == "CPU"
+    assert mp.measurement_backend({"hardware": "Google Pixel 9"}) == "CPU"
+    assert mp.measurement_backend({"hardware": "some unknown device"}) == "CPU"
+    assert mp.measurement_backend({"hardware": "iPhone 18 Pro Max"}) == "Metal"
+    # and the other Apple-mobile spelling, plus a hardware string that names NO accelerator at
+    # all: the default must be CPU, never CUDA (#1092/#1099)
+    assert mp.measurement_backend({"hardware": "iPad Pro M4"}) == "Metal"
+    assert mp.measurement_backend({"hardware": "an average laptop"}) == "CPU"
+    assert mp.measurement_backend({"hardware": "Raspberry Pi 5 (CPU)"}) == "CPU"
+
+
+def test_an_unnamed_gpu_is_cuda_and_an_explicit_cpu_only_string_is_not():
+    """#1092: the two boundary cases the vendored store actually contains. A generic `8GB GPU`
+    is a cuda measurement by the registry's convention, while `no gpu` / `cpu only` are CPU.
+    Both must keep working after the default flipped to CPU — the fix must not turn a named
+    GPU into CPU, nor a no-accelerator string into CUDA."""
+
+    assert (
+        mp.measurement_backend({"hardware": "8GB GPU (est, vendor-claimed MoE weight offload)"})
+        == "CUDA"
+    )
+    assert mp.measurement_backend({"hardware": "no gpu"}) == "CPU"
+    assert mp.measurement_backend({"hardware": "cpu only"}) == "CPU"
+
+
+def test_a_missing_hardware_string_is_cpu_not_cuda():
+    """#1092/#1099: a row with no hardware at all must fall to CPU, never CUDA. An
+    unclassifiable row is not evidence of a cuda run — that assumption is precisely what let a
+    phone run become `measured_on: CUDA`. The vendored store has no such row today (another test
+    pins that), so this guards the classifier itself against a future default flip."""
+
+    assert mp.measurement_backend({}) == "CPU"
+    assert mp.measurement_backend({"hardware": None}) == "CPU"
+    assert mp.measurement_backend({"hardware": ""}) == "CPU"
+    assert mp.measurement_backend({"hardware": "   "}) == "CPU"
+
+
+def test_the_vendored_registry_engine_rows_all_name_their_hardware():
+    """Every engine row in the vendored store carries a non-empty `hardware`, so
+    `measurement_backend` can classify it (#1092). A row with no hardware cannot be bucketed
+    and silently falls to the CPU default — the sync must never drop the field."""
+
+    reg = mp.load_registry()
+    missing = [
+        m.get("name")
+        for m in reg["models"]
+        for e in (m.get("engines") or [])
+        if not str(e.get("hardware") or "").strip()
+    ]
+    assert not missing, f"{len(missing)} engine rows name no hardware: {sorted(set(missing))[:5]}"
+
+
+def test_the_real_registry_never_classifies_a_phone_run_as_cuda():
+    """Every hardware string in the vendored store maps to a valid backend, and NO
+    phone/on-device run is CUDA (#1092) — the bug that let Bonsai 2 4B's CMF Phone 2 Pro
+    run become `measured_on: CUDA` and be offered as `llama.cpp cuda@6.0`."""
+
+    reg = mp.load_registry()
+    seen: dict[str, str] = {}
+    for m in reg["models"]:
+        for e in m.get("engines") or []:
+            hw = e.get("hardware") or ""
+            seen[hw] = mp.measurement_backend(e)
+
+    # every string resolves to a real backend
+    assert set(seen.values()) <= {"CUDA", "ROCm", "CPU", "Metal"}, set(seen.values())
+    # and a phone / on-device / iPhone run is never a cuda measurement
+    for hw, backend in seen.items():
+        low = hw.lower()
+        if "phone" in low or "on-device" in low or "iphone" in low or "ipad" in low:
+            assert backend != "CUDA", f"{hw!r} classifies as CUDA"
 
 
 def test_bands_match_the_readme_status_column():
