@@ -195,6 +195,9 @@ def test_the_revert_detector_catches_a_revert_and_clears_a_restored_tree():
         r.stdout[-800:]
     assert "case4 authorship:    verify rc=1" in r.stdout, \
         "the authorship assertion must be wired AND able to fail:\n" + r.stdout[-500:]
+    assert "case7 divergent+clean: verify rc=0" in r.stdout, \
+        "a divergent branch that merges cleanly is the ordinary PR state and must not block:\n" \
+        + r.stdout[-600:]
 
 
 def test_every_python_script_is_executable_and_prints_usage_without_args():

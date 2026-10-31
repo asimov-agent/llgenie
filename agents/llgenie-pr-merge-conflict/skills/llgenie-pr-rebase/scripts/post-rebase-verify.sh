@@ -88,11 +88,37 @@ if [ -f scripts/lint_linefeeds.py ]; then
   rm -f /tmp/_lint.$$
 fi
 
-# 8. The branch must actually be on top of the base we claim.
-if git merge-base --is-ancestor "$BASE" HEAD 2>/dev/null; then ok "base is an ancestor of HEAD"; else bad "base $BASE_SHA is NOT an ancestor"; fi
-
-# 9. Merge-tree must be clean against that base (exit code, not a path grep).
-if git merge-tree --write-tree "$BASE" HEAD >/dev/null 2>&1; then ok "merge-tree clean vs base"; else bad "merge-tree reports conflicts"; fi
+# 8/9. Relationship to the base, judged by whether the base's change actually merges.
+# A PR branch is almost never an ANCESTOR of the base: main moves on while the branch carries its
+# own commits, so neither tip is an ancestor of the other in the normal state. Failing on that
+# blocks the exact state #1015 blesses (behind-but-mergeable) and pushes a reader into a rebase the
+# rule says not to do — measured on this very branch: `base 864fffaa is NOT an ancestor FAIL` while
+# the PR was MERGEABLE with 0 conflicts.
+# The question that matters is whether the base's work can still be joined to the branch:
+#   base under HEAD            -> rebased onto it
+#   merges cleanly, no conflict-> merely behind; leave it (#1015)
+#   conflicts                  -> genuinely needs the rebase, or the rebase did not take
+if ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+  bad "base $BASE_SHA does not exist"
+  echo "     Fetch it before verifying: git fetch origin +refs/heads/main:refs/remotes/origin/main"
+elif git merge-base --is-ancestor "$BASE" HEAD 2>/dev/null; then
+  ok "base is an ancestor of HEAD"
+  if git merge-tree --write-tree "$BASE" HEAD >/dev/null 2>&1; then
+    ok "merge-tree clean vs base"
+  else
+    bad "merge-tree reports conflicts"
+  fi
+else
+  if git merge-tree --write-tree "$BASE" HEAD >/dev/null 2>&1; then
+    say "not rebased onto $BASE_SHA, merges cleanly" "NOTE"
+    echo "     The base has commits you lack and you have commits it lacks — the ordinary state"
+    echo "     while main moves. Nothing is owed (#1015) until a merge actually conflicts."
+  else
+    bad "conflicts with $BASE_SHA"
+    echo "     The base's work does not join to HEAD. Either the rebase did not take, or the base"
+    echo "     moved and this branch now genuinely needs one. merge-base: $(git merge-base "$BASE" HEAD 2>/dev/null | cut -c1-8)"
+  fi
+fi
 
 # 10. Live-head guard: has the remote moved past us since we fetched?
 br=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)

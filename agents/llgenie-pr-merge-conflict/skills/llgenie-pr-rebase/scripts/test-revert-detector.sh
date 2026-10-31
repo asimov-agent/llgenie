@@ -61,10 +61,35 @@ bash "$VERIFY" "$BASE" >/tmp/rev_c4.$$ 2>&1
 rc_c4=$?
 rm -rf scripts
 
+# --- case 5: BEHIND the base must NOT fail (#1015) --------------------------
+# main advancing under a mergeable PR is legitimate; a gate that reds here pushes a reader into a
+# rebase the owner's rule says not to do. Built with a divergent branch that is strictly behind.
+git checkout -q "$BASE" 2>/dev/null
+printf 'forward\n' > ahead.txt && git add -A && git commit -qm 'case5 base advances'
+AHEAD=$(git rev-parse HEAD)
+git checkout -q -B behind "$BASE" 2>/dev/null
+bash "$VERIFY" "$AHEAD" >/tmp/rev_c5.$$ 2>&1
+rc_c5=$?
+# --- case 6: a base never fetched (unknown sha) must FAIL -------------------
+bash "$VERIFY" "0000000000000000000000000000000000000000" >/tmp/rev_c6.$$ 2>&1
+rc_c6=$?
+
+# --- case 7: DIVERGENT but merging cleanly must NOT fail (the real PR state) --
+# Neither tip is an ancestor of the other; main advanced and the branch carries its own commits.
+# This is the ordinary state #1015 blesses, and it must not read as DO NOT PUSH.
+git checkout -q -B diverge "$BASE" 2>/dev/null
+printf 'branchwork\n' > branch.txt && git add -A && git commit -qm 'case7 branch commit'
+git checkout -q - 2>/dev/null
+bash "$VERIFY" "$AHEAD" >/tmp/rev_c7.$$ 2>&1
+rc_c7=$?
+
 echo "  case1 SUBSTITUTION:  verify rc=$rc_c1  (want 1)"
 echo "  case2 pure deletion: verify rc=$rc_c2  (want 0 — NOTE, not failure)"
 echo "  case3 restored:      verify rc=$rc_c3  (want 0)"
 echo "  case4 authorship:    verify rc=$rc_c4  (want 1 — a stub bad-author check must red it)"
+echo "  case5 behind base:   verify rc=$rc_c5  (want 0 — #1015 blesses behind-but-mergeable)"
+echo "  case6 unknown base:  verify rc=$rc_c6  (want 1 — a base never fetched cannot be verified)"
+echo "  case7 divergent+clean: verify rc=$rc_c7 (want 0 — the ordinary PR state, #1015)"
 grep -E 'base lines replaced|base lines deleted|no base lines lost' /tmp/rev_c1.$$ | sed 's/^/    c1: /'
 grep -E 'base lines replaced|base lines deleted|no base lines lost' /tmp/rev_c2.$$ | sed 's/^/    c2: /'
 grep -E 'base lines replaced|base lines deleted|no base lines lost' /tmp/rev_c3.$$ | sed 's/^/    c3: /'
@@ -75,6 +100,10 @@ fail=0
 [ "$rc_c2" -ne 0 ] && { echo "FAIL: rejected a legitimate pure deletion" >&2; fail=1; }
 [ "$rc_c3" -ne 0 ] && { echo "FAIL: false-positive on a restored tree" >&2; fail=1; }
 [ "$rc_c4" -eq 0 ] && { echo "FAIL: a failing check_pr_authors did not stop the push (assertion 12 is decorative)" >&2; fail=1; }
+[ "$rc_c5" -ne 0 ] && { echo "FAIL: rejected a branch that is merely BEHIND the base (#1015 allows it)" >&2; fail=1; }
+[ "$rc_c6" -eq 0 ] && { echo "FAIL: accepted a base sha that was never fetched" >&2; fail=1; }
+[ "$rc_c7" -ne 0 ] && { echo "FAIL: rejected a divergent branch that merges cleanly (the ordinary PR state)" >&2; fail=1; }
 [ "$fail" -eq 0 ] || exit 1
 echo "PASS: catches the substitution revert, allows a deliberate deletion, clears a restored tree,"
-echo "      and a bad-author check reds the push"
+echo "      a bad-author check reds the push; behind and divergent-but-clean are NOTEs,"
+echo "      and only a real conflict or an unfetched base reds the push"
