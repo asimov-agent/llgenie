@@ -1,0 +1,1 @@
+| 2026-10-31 | scripts/changes_index.py: the malformed-fragment diagnostic names the stem rule and prints a working example, with a behaviour test that fails on the old message | [note](agent-wiki/2026-10-31-malformed-fragment-diagnostic.md) | #1127 |

@@ -93,8 +93,13 @@ def parse_row(text: str, stem: str) -> tuple[dict | None, list[str]]:
     m = ROW_RE.match(body[0])
     if not m:
         return None, [
-            f"{FRAGMENTS}/{stem}.md: is not a row "
-            "(shape: `| date | summary | [note](agent-wiki/<stem>.md) | #issue |`)"
+            f"{FRAGMENTS}/{stem}.md: is not a row. This file must contain ONE row and nothing else "
+            "(no prose, no heading):\n"
+            "    | date | summary | [note](agent-wiki/<stem>.md) | #issue |\n"
+            f"  the note column must point at `agent-wiki/{stem}.md` - this file's own name without "
+            f"`.md` - and the issue column must be a real `#<n>`.\n"
+            "  working example:\n"
+            f"    | 2026-10-31 | what changed, in one sentence | [note](agent-wiki/{stem}.md) | #123 |"
         ]
     errors: list[str] = []
     if not DATE_RE.match(m.group("date")):

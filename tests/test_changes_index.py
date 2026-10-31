@@ -314,3 +314,26 @@ def test_resolve_is_wired_as_make_changes_resolve_and_documented():
     assert "changes-resolve" in phony
     assert "make changes-resolve" in bots
     assert "take base + re-render" in bots
+
+
+def test_a_prose_fragment_reports_the_rule_it_broke_not_only_the_shape(tmp_path: Path):
+    """The diagnostic names the two facts people actually get wrong (issue #1129).
+
+    A fragment written as prose is the commonest mistake, and the old message gave only the column
+    shape - leaving the stem rule (the note column must point at the fragment's OWN name) and a
+    usable example to be inferred from the parser. Asserting the facts, not the sentence, so the
+    wording stays free to improve.
+    """
+
+    # Given a fragment that is prose rather than a table row
+    root = _tree(tmp_path, notes={"a-note": "# a note\n"}, rows={"a-note": "just prose, no row\n"})
+
+    # When the real CLI checks the tree
+    r = _run(root, "check")
+
+    # Then it fails, and the message separates the three facts a reader needs
+    assert r.returncode != 0
+    out = r.stdout + r.stderr
+    assert "is not a row" in out
+    assert "agent-wiki/a-note.md" in out, "the message must name this fragment's own stem concretely"
+    assert "#123" in out, "the message must carry a copy-pasteable example row"
