@@ -6,10 +6,10 @@ Idleness is a defect even when it wears the label "holding". A lane parked on a 
 - Which lane is idle-capable RIGHT NOW (no held-gate blocker, and there is an open unassigned issue it can complete without that gate)?
 - The owner's rule, blunt: "if you delegate to bots and they are still idling, you are supposed to force them to go to work."
 
-**The three re-fits that closed a real gap:**
-- engine-improver -> #974 (trend-matrix reads live HF, the data path) + #990 (publish-agent-image force) while its #1029 producer half sat at the ci lane's consumer-half gate.
-- pr-reviever -> #976 + #988 (doc-vs-gate contradictions from the author-gate merge) with no verdict in flight.
-- architect -> #973 (its own filed `agents.parents[1]` path bug) which it had parked under a "the file is another lane's to write" shelter.
+**The re-fits that close real gaps (shapes, not incidents):**
+- a lane whose active PR sits at a coordination gate (producer half waiting on a co-owner's consumer half) is still idle-capable for OTHER work — force it onto an unassigned live-HF/data issue or a `force`-never-passed publish bug instead of letting it sit on the gate.
+- a reviewer with no verdict in flight takes the doc-vs-gate contradictions a recent merge created (a still-open branch that reverts main's shipped fix).
+- a lane that filed its own gate bug then parked it under "the file is another lane's to write" is idle-capable — force it onto its own filed finding before accepting the shelter.
 
 **The test of the rule:** a lane whose completion does NOT depend on the blocked gate, sitting with an unassigned open issue it can do, is not waiting — it is idle-capable, and finding that is mine to fix, not observe. "This waits on #919" stops being an excuse for "so I do nothing" the moment there is an issue that doesn't.
 

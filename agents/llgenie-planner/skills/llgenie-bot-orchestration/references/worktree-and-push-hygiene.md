@@ -27,6 +27,27 @@ Only after that proof may a worktree be re-pointed — and re-pointing never for
 
 `git rev-parse --abbrev-ref HEAD` before writing a single line. A worktree reused for a second PR is how a one-file change becomes an unrelated diff that a reviewer has to reverse-engineer.
 
+## A push exits 0 yet the ref is not on the remote — verify with `ls-remote`
+
+`git push -q -u origin $BR` can report success and still leave the branch off the remote. Two mechanisms
+produce a false green, and both are silent:
+
+- a **non-exported shell variable** set in an *earlier* terminal call is **gone** in the next call, so `$BR`
+expands to empty and the refspec is garbled or defaults to the wrong thing — `-q` swallows the complaint and
+  the exit code is not the fact;
+- `-u` on a first push of a branch with no upstream resolves the tracking ref to whatever it can (often
+  `origin/main`), so `git rev-parse --symbolic-full-name @{u}` returning a ref is **not** proof the branch landed.
+
+The only fact is the remote's ref. After every push, before believing it:
+
+```
+git ls-remote origin refs/heads/<branch>      # empty => it did NOT land
+```
+
+If empty, re-push with the literal ref, never a variable whose scope you did not just set:
+`git push -v origin HEAD:refs/heads/<branch>`. Carrying a shell variable across `terminal` calls is a coin flip —
+re-declare it in the same command or inline the value.
+
 ## Never push while a run at the head is in progress
 
 `concurrency: <workflow>-${{ github.ref }}` with `cancel-in-progress: true` means a push destroys the verdict the previous head was earning. Trigger a push on *the run concluding*, never on the licence arriving. A run that is **queued and has never acquired a runner** owes no verdict, so superseding it is legitimate where superseding a running one is not.
