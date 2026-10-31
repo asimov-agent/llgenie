@@ -115,8 +115,8 @@ git for-each-ref | grep -i <short-sha>            # a local ref?
 gh api repos/<o>/<r>/commits/<PR-head>/check-runs --jq '.check_runs[]|"\(.name): \(.status)/\(.conclusion)"'
 ```
 
-- A sha that `ls-remote` cannot name is **not a diagnosis, it is a fabrication.** A relayed "the gate reds at X" where X
-  is unreachable describes nothing; re-anchor the call on the PR's real `headRefOid` and read the check-runs there.
+- A sha cannot be called a phantom on reachability alone. **A run that carried it as `head_sha` is authoritative proof the branch was there** — force-pushing past it makes it unreachable *now*, not fabricated *then*. Before calling any reported sha a phantom, query `actions/runs?head_sha=<sha>`; a match ends the question. Reachability is absence-of-evidence-now, not evidence-of-fabrication. (Cost a lane a retracted false accusation: a real `913049ee` guard FAILURE I labelled fabricated because I measured the PR's current head instead of the run's head.)
+- **A gate verdict is bound to the head it ran at.** A lane may truthfully report a failure at an intermediate head that has since advanced past it; measuring only the current head then calling the report "fabricated" is precisely the measurement-error class this rule exists to stop. To adjudicate, read the run's `head_sha` + `jobs[]` log, then the current head's check-runs — both, in that order.
 - Gate verdicts travel: a phantom head diffuses across lanes within minutes, each attribution sounding more authoritative than the last. Break the chain by insisting the head exists before believing the verdict.
 - A **fabricated finding is worse than a stale one**: stale says "I measured earlier", fabricated says "I measured something that is not there". Paste the check-runs at the reachable head as the floor for any future "failure".
 
