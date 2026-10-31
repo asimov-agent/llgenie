@@ -55,6 +55,28 @@ count in the human report and let the watch carry only transitions.
 The detector must print a hard error (never "nothing conflicting") when the API read fails, or the
 watch has a silent blind spot that reads as an all-clear.
 
+### The byte-stable rule is scoped to the QUIET path, and the conflict path carries the predicate
+
+The "no timestamps, byte-identical output for identical input" rule above is load-bearing for the
+**quiet** line — `conflicting: none` must stay byte-identical across runs, or every clean tick
+changes bytes and stops suppressing. It is NOT a rule against ever printing a measurement. A
+CONFLICT report is fresh output that is *supposed* to tick, and a report naming a PR and head but no
+main cannot be reconciled against the tree the claim was measured at — a re-delivered line (the
+`queue_full` failure mode) would look live for hours. So `dirty-detector.py` prints its basis on
+the conflict path only:
+
+    conflicting: 789 f9c60f59 DIRTY
+    measured at main 9da3ee2e
+
+Verified: two consecutive clean runs emit identical `conflicting: none` (contract held) while the
+conflict line carries the sha. If a future edit must add something per-run, put it on the conflict
+path, never on the quiet line.
+
+Same fold belongs in the report: `mergeable: UNKNOWN` is a real, measured state (all open PRs read it
+at once), treated as clean it is a false negative that also stops future ticks because the output is
+byte-stable. Fold the UNKNOWN set through `git merge-tree --write-tree` and report the authoritative
+answer (#1015).
+
 ## Query per commit, never from a window
 
 A repo-wide run list (`gh run list --limit N`) is not a stable source for per-PR facts: after a burst of
