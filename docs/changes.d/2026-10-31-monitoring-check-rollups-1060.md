@@ -1,0 +1,1 @@
+| 2026-10-31 | version the ci-pipelines-maintainer `references/monitoring-check-rollups.md` into the tree (live→tree drift, #1060 class; sha256 `2c26cb82…`; folds in the #1208 Makefile `--repo "$(REPO)"` shape lesson) so the versioned tree equals live | [note](agent-wiki/2026-10-31-monitoring-check-rollups-1060.md) | #1060 |
