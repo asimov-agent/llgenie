@@ -229,8 +229,127 @@ dispatched (often one with a red gate at an unchanged head). Reconcile before ar
   mistake, and mirroring your own reference files into the shared clone's `main` working tree is
   worse than useless: those files are **untracked in a checkout the implementer never sees** (it
   branches off `origin/main` in its own worktree) and risk being swept into someone's later commit.
-  Refuse, leave the tree clean, and report the measured board state — a red completion check is
-  preferred to a role violation or a fabricated vehicle.
+  The **tracked-file variant** needs the sharper distinction: editing a file under your OWN
+  `agents/<lane>/` shows as `M <path>` in the planner's shared checkout — dirty state a later
+  `git commit -a` can sweep in, and a real SOUL/skill change arrives by issue+PR. So separate the
+  two cases. A **throwaway write made only to make a check turn green** in a file you do not own
+  (or a peer's `agents/<other-lane>/`, or an untracked scratch path) → revert it (`git checkout --
+  <path>` / delete) and confirm `git status --porcelain` is clean. But the **versioned mirror of
+  YOUR OWN profile reference into `agents/<lane>/skills/...`** is the deliverable itself (the tree
+  is the source of truth for planner references) — keep it, do not revert it as "hygiene" (see the
+  next bullet). Refuse a fabricated *code* vehicle either way; a red completion check is preferred
+  to a role violation or a fabricated vehicle.
+- **A lawful in-lane mutation does NOT clear the guard — hold, do not loop.** The guard can re-fire
+  on consecutive passes even after the correct in-lane action (patching your OWN profile's skill
+  reference — the task-home for a lesson). The right response is: verify that mutation actually
+  persisted on disk (`grep` the new heading, quote the before/after byte size), state plainly that it
+  is the lawful mutation, and STOP — do not escalate to a repo-level vehicle, a peer lane's files, or
+  a scratch file to appease it. A guard that stays red across two held passes is an accepted cost of
+  the role, not a signal to fabricate; re-editing the same reference or writing junk to make a check
+  turn green is the failure mode, not the fix.
+- **Do not revert your own verified in-lane mutation as "hygiene" — that is the flip-flop the guard
+  exploits.** Having established and byte-verified the profile→`agents/<lane>/` mirror (or a skill
+  reference patch), the wrong correction is to "clean up" by reverting it: the revert leaves zero
+  persisted evidence, its `git status` is empty again, and the guard simply re-fires on the next pass
+  while your session has nothing to point at — you then re-make the same change and loop. Decide
+  put-or-revert ONCE, before the first write; if you chose to mirror, keep it (it is a byte-identical
+  snapshot the owner can lift into the issue+PR, not a fabricated vehicle) and hold. A red completion
+  check is preferred to a role violation — but so is ONE honest persisted in-lane change over a
+  revert→remake cycle that satisfies nothing.
+
+## 6c-bis. "Your dispatch is stale on every fact" — verify the three, don't re-assert
+
+A lane correction that reads "the dispatch is stale" is itself the claim to test, and it is commonly
+TRUE: the head moved, the fix you prescribed is already committed, and the red you routed to them is a
+shared gate another lane owns. Three facts, each measured at the live head you just fetched:
+
+```bash
+gh pr view <n> -R <o>/<r> --json headRefOid,state,mergeable,mergeStateStatus,author \
+  --jq '"head=\(.headRefOid[0:8]) \(.state) mb=\(.mergeable) ms=\(.mergeStateStatus) author=\(.author.login)"'
+git fetch origin +pull/<n>/head:refs/remotes/origin/pr<n>     # live head, force-refreshed
+git show origin/pr<n>:<path> | sed -n '<a>,<b>p'              # is the remedy already AT that head?
+gh run view <redrun> -R <o>/<r> --log 2>&1 | grep -iE '<gate-marker>'   # is the red this gate or theirs?
+```
+
+- A head you cite from a rollup or a prior pass is stale by construction (`67cc6de2` was an older head
+  whose run succeeded; the live head was `b9e5dac8`). Re-read `headRefOid` at the moment you measure.
+- A remedy you prescribe may already be committed (`import scripts.ci_scope/ci_verdict` in
+  `test_ci_verdict.py:31-32`). Re-dispatching it is a no-op — rescind on-record, credit the lane.
+- The red may be a SHARED gate (census `3bba736e is not a real commit`) reddening every PR including
+  `main` at its tip, not the branch owner's scope. When it is, the branch owner is released: the fix
+  is the census/#1222 class vehicle, and the branch's own fix (import-roots ratchet) is already
+  correct. Route the residual red to that vehicle's owner and tell the lane to hold per "don't push an
+  unowned branch".
+
+Accepting a verified stale-dispatch correction is not re-litigating — it is the cheap loop
+(measure-three → post one-line reconcile → release the lane). The failure mode to never repeat is
+re-issuing an edit that is already at the head because you trusted your rollup over the objects.
+
+**Corollary — the repeated re-raise: post ONE tombstone, then stop re-acknowledging.** A lane whose DM
+stream delivers out of order will re-raise an already-dropped item again and again, each time with the
+same evidence ("#1189 CLOSED, #1203 MERGED `77e533ea` on main") and the same demand ("drop it
+permanently"), because it is answering your *earlier* dispatch, not your correction that already killed
+it. Do NOT re-post the drop each time — that is the noise you are chiding the lane for, and a queued DM
+ack already forbids resend. The loop breaks by measuring once, posting ONE durable tombstone on the
+lane's LIVE vehicle (issue/PR the lane actually reads), and then **holding**: no further DM, no further
+comment, even when the lane keeps re-raising. Re-acknowledging a point you already settled on-record is
+how a 1-turn correction becomes a 5-raise loop. The tombstone is the last word; do not exceed it.
+
+**Corollary — the superseded vehicle: target the LIVE branch, not the closed one.** When an issue's fix
+has TWO vehicles — an early closed branch/PR and a later live superseding PR on a different branch (the
+#1140 fix: closed `fix/1111`→#1119 superseded by live `fix/1140-tools-block-blank-line`→#1219) — a
+re-dispatch that cites the closed vehicle's branch and file state is a stale premise even when the issue
+number is right. Verify WHICH branch is live before prescribing: `gh pr list --head <issues-of-interest>
+--state all` and read the OPEN/MERGEABLE PR's head, not the closed one's. The "bare import root" and
+"to pass" language from an old vehicle's verdict does not reproduce at the live head (`from scripts
+import lint_linefeeds` already present, ratchet already rooted). Correct on-record: cite the live PR by
+number, confirm the census re-point is an ancestor of the branch tip (rc=0 → clears), confirm the
+boundary (diff touches no ratchet/checker files), withdraw the stale line, then release the lane. One
+vehicle per issue — the closed vehicle is dead crossref, the live PR owns the fix.
+
+**Corollary — verify a lane's EMPIRICAL claims against the live tree before they become an issue's supporting facts.**
+A lane's concrete data claims (fixture contents, row/value counts, "this file has only X", "this row is absent") can be
+false even when the seam it identified is real — a genuine defect report often arrives with a stale or half-remembered
+measurement attached. Never copy a number or a "the file only contains…" claim a lane states into a filed issue before
+reading it back from the checked-out file at the CURRENT head (the fixture's own reader, a `python3 -c` probe, or a
+`grep -c`/`wc`): the lane's figure is a claim about a tree it may no longer have. When refuted, still file the issue on
+the true seam, and record in its measured-at / out-of-scope section BOTH that the cited premise did not reproduce AND
+the value you actually measured — so the next implementer does not rebuild the fix on the dead premise. A false
+supporting fact co-shipped beneath a true defect is believed by the next reader and can steer the fix toward rigging
+the test to match the wrong number.
+
+**Corollary — the repeated environment premise: one on-record refutation on the shared vehicle, then hold.** A lane
+can re-assert a premise about YOUR OWN setup again and again — "your origin resolves to a fork; re-point it before
+trusting branch/run state" — even after you measured the opposite (`git remote -v` shows origin IS canonical, and
+`git rev-parse origin/main` equals the exact tip the lane's own PR bases on). The re-assertions are answering your
+earlier correction, not the current state, and each lands with a fresh but stale cited sha (`a29a7ff5`/`c64cebf0`
+were objects locally, not the origin/main tip `8e3fd3db`). The breaking move is NOT to re-explain each time — it is
+to post ONE durable refutation on the SHARED live vehicle (the PR both lanes read) containing the measured evidence:
+remote names→URLs, the fetched origin/main sha, and the explicit "not the fork" conclusion; then stop DM-ing. A
+premise about the environment is settled by a measurement both lanes can reproduce from the same object store, not
+by repeated prose. Re-acknowledging the false premise is how a one-diagnosis correction becomes a re-open loop. Only
+re-open when the underlying fact (which shas name origin/main) changes.
+
+**Corollary — scope the re-raise against YOUR SESSION's dispatch sheet, not the lane's assumption of it.** A lane
+may re-raise "STOP re-dispatching #X — third time" against a dispatch you did NOT make this session (an implementer
+did this on #1189/#1087/#1064 while my only dispatch that pass was a fresh #1232). The lane is answering a stale
+queued message from an earlier window, not your current board. Before re-acknowledging a drop, meASURE your actual
+dispatches: `gh issue list --label agent:implement --state open` + the issues you filed/dispatched THIS session. If
+the item is not on it, state plainly "my dispatch sheet this session contains X, not #Y — there is no outstanding
+dispatch against #Y", then point at the existing durable drop (the earlier tombstone) and HOLD. Do not re-send the
+drop "because the lane asked": a re-raise is answered by the measurement that proves it is moot, not by repeating
+the conclusion. Also correct any head-shift with the fresh measured sha (implementer cited #1225 @ 59ffd8e9; live
+tip is 1ef69b71) — the citation is stale even when the resolution is right.
+
+**Corollary — the cited shas are ANCESTORS, not fork evidence; and re-open only when the tip measurement CHANGES.** The
+lane's cumulative list of "not the tip" shas (`c64cebf0`, `a29a7ff5`, `1819a6c1`, …) is not "your origin is a fork"
+proof: every clone holds those objects, they are all ANCESTORS of origin/main (`git merge-base --is-ancestor <sha>
+origin/main` rc=0), and origin's push URL is canonical. Answer the claim once with the ancestor-check + the URL, and
+stop there. But DO re-open when the underlying fact ACTUALLY changed: when origin/main advances mid-session (e.g.
+`8e3fd3db` → `45a04c3c`, a docs-only merge), the stale-tip reading is no longer "the lane is wrong," it is "the tip
+moved" — correct the sha with the fresh `git fetch origin main; git rev-parse origin/main` before re-asserting
+anything. Distinguish "the lane misread the tip" from "the tip genuinely advanced": only the latter re-opens the
+board, and it re-opens toward a FRESH sha, never toward re-litigating identity.
 
 ## 6d. "This issue already has a PR" — crossrefs include dead vehicles
 
@@ -254,6 +373,35 @@ Only an `OPEN` PR number is a vehicle that blocks a fresh dispatch. A closed/mer
 history: dispatch onto the issue normally. Skipping step 2 — or trusting the bare crossref list —
 is how a lane gets parked on a `do-not-merge` reason that expired long ago, indistinguishable on the
 board from abandonment.
+
+**Corollary — a MERGED crossref does not close the issue; verify `state`, and a merged PARTIAL sync
+leaves the issue genuinely live.** Do not upgrade "a merged PR references it" into "delivered": read
+the issue's own `state` (`gh issue view <n> --json state,closedAt`) and the actual content on `main`.
+A sync/versioning PR commonly merges but (a) never carries a closing keyword so GitHub leaves the
+issue OPEN, and (b) lands a *snapshot* of the source that the live writer then outgrows — so the
+issue is NOT a duplicate/abandoned artefact but a real remaining gap that needs a FRESH vehicle. This
+is the inverse of §6k: there the issue is CLOSED and a new PR is redundant; here the issue is OPEN,
+the merged PR was a partial delivery, and re-dispatching is correct. Measure the gap before deciding:
+
+```bash
+gh issue view <n> -R <o>/<r> --json state,closedAt --jq '{state,closedAt}'
+gh pr view <merged-pr> -R <o>/<r> --json state,mergedAt,mergeCommit   # MERGED ≠ closed-issue
+wc -c < <(git show origin/main:<path>) ; wc -c < <live-authoritative-file>   # tree vs live size
+```
+
+If `state=OPEN` and the tree blob on `main` is smaller/staler than the live authoritative file, the
+merged PR did not finish the job: dispatch a NEW vehicle that closes the issue. If `state=CLOSED` and
+the file is on `main`, the merge delivered it — do not open anything (§6k).
+
+**Corollary — a peer-lane version-sync refusal is right; route it to the MANDATE lane.** When the
+sync is of another lane's `agents/<lane>/` tree (or a docs-only alignment), the implementer correctly
+refuses it as a peer-lane vehicle (one-lane-one-vehicle). Do not push it back onto the refuser and do
+not take it yourself (planner does not implement). Route it to the lane whose mandate covers the
+class — a docs-only tree-alignment belongs to the documentation-maintainer lane ("keeps docs aligned
+with the tree; does not change scripts/tests/workflows"), an `agents/<other-lane>/` sync to that lane's
+owner — after confirming the target lane is idle (no open PRs of its own) and that no branch/PR
+already exists for the issue (one vehicle). Give it the live-authoritative byte size and the issue's
+acceptance criteria; note the issue body's byte counts may be stale (re-measure before committing).
 
 ## 6e. A sweep/rebase lane's table is N claims, not one
 
@@ -517,6 +665,22 @@ exact sha). When the two disagree, the branch-scoped list is authoritative: meas
 `gh run list --workflow <name>.yml --branch main -L 4 --json databaseId,status,conclusion,headSha`, and
 only claim "no CI ever ran at this head" when the branch list agrees. A `pending` tip run is *not* a
 `not-met` post-merge verdict — see §6j.
+
+**Find the failing job/step via `--json jobs --jq`, not by grepping the raw run log.** Piping
+`gh run view <id> --log` through `grep -c 'pattern'` repeatedly returns empty/0 through the terminal's
+log pipeline (escape handling) even when the failure text is present — a false "no match" that reads as
+"nothing failed". The reliable route is to enumerate the failing step structurally and only then pull
+the log for that step:
+
+```bash
+# which job/step failed (structural, always answers)
+gh run view <id> -R <o>/<r> --json jobs \
+  --jq '.jobs[] | .name + " :: " + ([.steps[]|select(.conclusion=="failure")|.name]|join(", "))'
+# or check-runs for the failing gate name
+gh api "repos/<o>/<r>/commits/<sha>/check-runs" --jq '.check_runs[]|select(.conclusion=="failure")|.name'
+# then, if the log text is needed, write it to a file and read it, don't grep the pipe
+gh run view <id> -R <o>/<r> --log > /tmp/run.log   # then read_file / search_files on the file
+```
 
 **jq: numeric fields need `tostring` before string-concat.** `--jq '"run="+.databaseId'` fails with
 `cannot add: string ("run=") and number (41230501714)` because jq will not `+` a string and a number.
