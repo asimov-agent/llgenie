@@ -312,17 +312,6 @@ def _hub_opens(file_text: str) -> list[tuple[str, str]]:
         if not _ENTRY_CALL.search(s):
             return False
         return not ("plan_download" in s and _PLAN_HERMETIC.search(s))
-    # The STRATA/TENSORFOLD planning-only carve-out (issue #1189): a `plan_download` whose call
-    # carries engine="strata"/"tensorfold" resolves its plan from the committed registry/quant
-    # table and never reaches the Hub — it is NOT an entry call. Every OTHER plan_download
-    # (default engine, engine="llama.cpp", etc.) is a GENERIC-format plan that unwinds
-    # gguf_repo/_snapshot/_tree to the Hub API, so it IS an entry call.
-    _PLAN_HERMETIC = re.compile(r"engine\s*=\s*[\"'](?:strata|tensorfold)[\"']")
-
-    def _is_entry(s: str) -> bool:
-        if not _ENTRY_CALL.search(s):
-            return False
-        return not ("plan_download" in s and _PLAN_HERMETIC.search(s))
 
     # Slice the file at top-level defs; each scope's body ends where the NEXT def's decorator
     # block begins (the decorator belongs to the def it decorates).
