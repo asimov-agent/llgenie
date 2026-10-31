@@ -1,7 +1,7 @@
 ---
 name: llgenie-docs-maintainer
 description: "Use when auditing, filing or landing LLGenie docs changes."
-version: 1.0.13
+version: 1.0.15
 author: Hermes Agent
 license: MIT
 metadata:
@@ -91,6 +91,9 @@ a lane edits its live SOUL/skill and nothing watches the repo copy. So **every o
 docs PR whose subject is (or cites) a SOUL/skill must be checked against the live host profile**, not
 assumed true from the repo copy alone — the host is where the behaviour actually executes, so a gap
 between `agents/**` and `~/.hermes/profiles/**` is a finding, and a **new issue** is filed for it.
+The step-by-step runbook — the triggers, the two commands, the delta-record table the PR/issue body
+must carry, and the new-issue routing — is the sibling reference `references/live-vs-tree-drift.md`;
+load it before a SOUL/skill review so the captured delta is the reproducible one, not a prose guess.
 
 Concretely, treat this as part of comparing the behaviour of existing issues and their implementations:
 
@@ -108,9 +111,11 @@ Concretely, treat this as part of comparing the behaviour of existing issues and
   gained lessons twice during one PR) and `sync-agent-profile CHECK=1` then reds on `main` against
   the newer live. Re-run the live→tree copy and `CHECK=1` at the final head before pushing/landing;
   if a held branch's snapshot is behind, re-copy — do not ship the stale snapshot.
-- A gap found while reviewing someone else's PR is a **new issue**, scoped to the owning lane; the docs
-  lane writes the fix only under explicit dispatch (name the delegation in the PR body — e.g. #1062 to
-  the planner, #885 to the rebase lane).
+- A gap found while reviewing someone else's PR is a **new issue**, scoped to the owning lane, with the
+  delta (profile, file, class, tree/live bytes, direction) recorded in the issue and PR body per
+  `references/live-vs-tree-drift.md`; a gap that lives only in a comment is not trackable and gets one.
+  The docs lane writes the fix only under explicit dispatch (name the delegation in the PR body — e.g.
+  #1062 to the planner, #885 to the rebase lane).
 
 ## Fixing a measured defect (issue first)
 
@@ -373,8 +378,19 @@ fragments by `make changes-index` (`scripts/changes_index.py`). Rules that follo
 - **Pushing while the head's run is `queued` is safe; pushing while it is `in_progress` is not.** A
   queued run has done no work, so a new commit supersedes it harmlessly — that is the window to add a
   last commit to a PR. Once any job is running, `cancel-in-progress` makes the same push destructive:
-  finish the run, merge, and carry the extra commit in a follow-up PR instead. Read
+  finish the  run, merge, and carry the extra commit in a follow-up PR instead. Read
   `gh run view <id> --json jobs --jq '[.jobs[]|select(.status=="in_progress")|.name]'` before deciding.
+  **When the pending commit is a live→tree fold the PR cannot merge without** (the tree is stale and the
+  drift gate reds on it), do not idle and do not cancel the run to free the branch: build the fold
+  **locally** — functional commit, battery measured at that local head, then the prose-only record
+  commit — keep the PR-body edit staged but unapplied (a body naming a head that was never pushed is a
+  lie), and push as the next head the moment the in-flight run concludes, letting a fresh matrix give
+  the merge verdict. A run at a head you know will be superseded is not wasted work when its question
+  was behavioural (does the new ceiling complete or cancel); cancelling it to save queue time throws
+  away the only measurement it was launched to produce. **Re-run the live↔tree comparison immediately
+  before that deferred push** (`make sync-agent-profile PROFILE=<p> CHECK=1` plus a byte size on both
+  copies): live is written while you wait, so a copy that was identical hours ago can be the stale
+  snapshot the drift gate reds on main — fold the new growth before pushing, not after the matrix.
 - **One occurrence per canonical rule — a count is not a dedupe.** Copying #873's fence *and* keeping a
   lane-section restatement of the same rules leaves every rule twice, and the two copies then drift by
   a full stop while each still "appears once" to a grep on a single spelling. After any fence re-sync
@@ -486,6 +502,7 @@ fragments by `make changes-index` (`scripts/changes_index.py`). Rules that follo
   only, never from live.
 - **A branch of yours that reds `check-import-roots` is usually your own new test — fix the import, never the baseline.** The ratchet (issue #796) records counts in `tests/fixtures/import-roots-baseline.json` (`bare` / `sys-path`) and exits 1 the moment a count RISES, so a PR that adds a test inserting its own `sys.path` entry or importing a `scripts/` module bare (`import check_docs`) reds `ci-unit` even when every other job is green — the failing site it names may be an OLD offender, not your file, because it lists all sites. The allowed shape is the conftest seam: `from scripts import check_docs` (sibling `tests/test_check_docs.py` shows it). A baseline is a measurement and may fall, never rise, so the fix is the import in the PR, never a fixture bump. Verify with `python3 scripts/check_import_roots.py ratchet` on the branch before pushing — and read the exit with `echo ${PIPESTATUS[0]}`, not `$?` after a pipe.
 - **A `pull_request` run evaluates the workflow at its MERGE REF (head merged into base), so a CI-ceiling raise merged on main does NOT apply to an unrebased PR — its runs are judged against the ceiling text at its BASE.** A `linux / unit` `completed/cancelled` at ~60 min with zero test output and siblings green is the OLD-ceiling fingerprint when the PR's base predates the ceiling merge — not (necessarily) starvation, and not a defect. Diagnose before any rerun: `gh pr view <n> --json baseRefOid` vs the ceiling-merge sha on main. Recovery is a rebase onto the fresh main + `--force-with-lease` (own branch) so the fresh run evaluates at the new ceiling — do NOT `gh run rerun` a run doomed by the old ceiling (it replays the recorded 60 and lands a second identical cancel that reads as starvation on the ledger), and if you already reran by mistake, cancel your own rerun rather than feed the ledger another copy.
+- **A cancel is three classes, not one — identify it before acting, and never push an unclassified one into the starvation ledger.** Old-ceiling (base predates the ceiling raise), starved runner (~1h on a ~1h45 job, `Timeout (0:05:00)!` in the step log, siblings green), and the third: **a short cancel (~25-30 min) of the long job with every sibling green, no `concurrency:` block at the base, and a `head_sha` already superseded** — that is an owner/API cancel of a vanity run, so nothing to rerun and nothing wrong with the diff; the deferral it justified is over and the push is safe. Always read `head_sha` before treating an `in_progress` run as "the head's run": a leftover run pinned commits behind cannot be destroyed by pushing the current head. Report such a cancel as *unclassified* with its measurements — the class table and commands are in `references/ci-triage-for-docs-prs.md`.
 - **Search the open issues before filing the gap you just measured.** The audit findings are
   exactly what the repo's triage legs file, so `gh issue list --repo asimov-agent/llgenie --state
   open --search '<page/metric>'` first; if an issue exists, verify its quoted numbers against the
