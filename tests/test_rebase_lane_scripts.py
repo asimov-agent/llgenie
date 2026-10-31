@@ -326,3 +326,60 @@ def test_the_phony_resolver_writes_a_makefile_make_accepts(tmp_path):
                            timeout=60, cwd=tmp_path)
         assert p.returncode == 0, (
             "make rejects the resolver's own output:\n" + (p.stdout + p.stderr)[-500:])
+
+
+def test_the_standing_rules_reference_exists_and_carries_the_current_rules(tmp_path):
+    """The splice tool must read its rules from the versioned tree, not a scratch file.
+
+    Measured defect: `splice-fleet-block.py` resolved its source to `/tmp/873.md`, a file that
+    exists on one machine until the next reboot. On this host that copy was TWO GENERATIONS STALE,
+    and running the tool on a correct SOUL rewrote four standing rules to older wording while
+    printing `block in soul: True`. A tool that silently degrades the text it exists to propagate
+    is the same defect as a `-X` strategy resolution.
+    """
+    ref = SCRIPTS.parent / "references" / "standing-rules.md"
+    assert ref.is_file(), (
+        "references/standing-rules.md is missing — the splice tool would fall back to a scratch "
+        "path and may splice an older generation of the rules")
+    text = ref.read_text()
+    for probe in ("Never hold a PR without a remedy",
+                  "Announce the work where the work lives",
+                  "Start from a fresh upstream main",
+                  "Arm auto-merge when the work is done"):
+        assert probe in text, f"the canonical rules file lacks a current rule: {probe!r}"
+
+
+def test_the_fleet_splice_is_idempotent_and_refuses_an_older_source(tmp_path):
+    """Behaviour, not text: a correct SOUL must be unchanged, and a stale source must be refused."""
+    splice = SCRIPTS / "splice-fleet-block.py"
+    ref = SCRIPTS.parent / "references" / "standing-rules.md"
+    if not splice.exists() or not ref.is_file():
+        return
+    soul_src = REPO / "agents" / "llgenie-pr-merge-conflict" / "SOUL.md"
+    soul = tmp_path / "SOUL.md"
+    soul.write_text(soul_src.read_text())
+
+    # 1. with the versioned source it must be a no-op
+    before = soul.read_text()
+    r = subprocess.run([str(splice), str(soul)], capture_output=True, text=True, timeout=120,
+                       env={**os.environ, "REBASE_STANDING_RULES": str(ref)})
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert soul.read_text() == before, (
+        "the splice rewrote a SOUL that already carried the canonical block:\n"
+        + r.stdout[-400:])
+    assert "MISSING" not in r.stdout, f"a current rule was reported missing:\n{r.stdout}"
+
+    # 2. with an older source it must refuse and write nothing
+    stale = tmp_path / "stale.md"
+    stale.write_text(
+        "```\n## Standing rules (fleet, learned 2026-10-28)\n"
+        "- **Never hold a PR without a remedy.**\n"
+        "- **Announce the work where the work lives.**\n"
+        "- **Start from a fresh upstream main.**\n"
+        "- **Arm when done, and only on a base of main.**\n```\n")
+    before = soul.read_text()
+    r = subprocess.run([str(splice), str(soul)], capture_output=True, text=True, timeout=120,
+                       env={**os.environ, "REBASE_STANDING_RULES": str(stale)})
+    assert r.returncode != 0, "a source missing a current rule was accepted"
+    assert "REFUSING" in r.stderr, r.stderr[-400:]
+    assert soul.read_text() == before, "the refused splice still wrote the file"
