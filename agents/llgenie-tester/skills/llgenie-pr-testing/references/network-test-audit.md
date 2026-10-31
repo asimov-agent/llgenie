@@ -106,6 +106,17 @@ ending at `hub_open`, not at a fixtures comparison.
   Keep the reach to direct primitives + `plan_download`; handle an indirect reach by MARKING the test
   (docstring "Live Hub"/network), not by chasing helper resolution. Confirm a flagged test reaches via
   its OWN body before widening the reach — a misattributed red is the pin reading a neighbour's helper.
+- **Before calling a marker carve-out a live hole, separate STALE PROSE from an uncovered path.** A
+  docstring that says "this entry is not a reach / not called directly" can survive the change that
+  closed the carve-out, and re-litigating a closed decision costs a cycle. Decide it in three reads:
+  the entry-call list the pin ACTUALLY uses; whether the reach is already covered by an entry that IS
+  listed (`offer → plan_download → _snapshot/_tree → hub_open` is covered when `offer` is an entry, so
+  `plan_download` need not be added); and the census test's own comment, which usually records which
+  issue closed the carve-out. A hole exists only when an UNMARKED call reaches the hub-open leaf —
+  otherwise the residue is a one-line docs fix that rides the next touch of the census doc, not a gate
+  change, and the honest verdict to the other lane is "carve-out closed; stale sentence only". Also
+  re-measure the lane's claims before answering them: an "issue/comment does not exist" report is
+  refutable in one call (`gh api repos/<o>/<r>/issues/<n>/comments` and check the id is present).
 - **Some live tests are EXTRACTED to a separate gate, not the unit gate.** `make test-hub-live` (issue
   #438) runs the README/trend link checks the unit gate keeps out by a dated `tests/fixtures/unit-suite.json`
   entry, not by a marker. So an UNMARKED test whose docstring mentions network can be correctly OUT of

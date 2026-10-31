@@ -1,0 +1,1 @@
+| 2026-10-31 | llgenie-tester live→tree sync post-#1161: SKILL.md (+ pad-short-sha-in-head_sha, + re-run-inherits-DISPATCH-time-config) and agent-profile-versioning.md (+ rebase-can-surface-live-drift) versioned byte-for-byte, clearing the llgenie-tester rows of #961 | [note](agent-wiki/2026-10-31-tester-live-state-2.md) | #961 |

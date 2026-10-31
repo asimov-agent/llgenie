@@ -147,6 +147,19 @@ the stage name (`linux / unit`), and check the run's `workflowName`, before citi
 For every changed path ask "which gate fails if this is wrong", then check a test proves it. The PR
 body's "Measured:" block is a claim, not evidence — reproduce the counts.
 
+- **A guard's exemption is CODE, not the docstring that describes it.** Before calling a carve-out a
+  live hole, read the resolver's entry set and its transitive reach set: if the exempted call is
+  reachable through an entry that IS already in the set (`helper → entry → … → the I/O primitive`,
+  sliced through helpers), the exemption is correct by construction and the prose merely describes it.
+  A docstring sentence saying "X is not flagged" is DERIVED text; the names the guard actually matches
+  on are the fact. Judging the prose manufactures false "gap" findings against a sound guard.
+- **An exemption restored by the newest commit touching the same file is a DECISION, not a
+  regression.** `git log --oneline -1 -- <guard file> origin/main` names that commit; if its message
+  says seal/carve-out/exempt, the current state is intentional. Before filing residue on it, check
+  whether the exempted callers are hermetic (planning-only paths that never open the live host) — an
+  exemption that keeps a set of hermetic callers from false-redding is doing its job, and "the docs
+  still mention the carve-out" is not a defect.
+
 ## 4. Path-selection / CI-scope PRs: test the trigger against the repository
 
 A `paths-ignore` filter and a classifier are two halves of one decision. Compare them over
@@ -221,6 +234,11 @@ against `name:` prefixes, not ids).
   **current** head. A force-push leaves runs at a dead head; they prove nothing about the branch now.
   `cancelled`/`queued` = **no verdict**, and `gh pr checks`'s `fail` column is never a failure count
   (it collapses cancelled runs and duplicate check names onto one word).
+- **Never pad a short sha into a `head_sha=` filter — a fabricated full sha returns `[]`, which reads
+  as "no run was scheduled".** The API matches the exact 40-hex string, so a prefix completed from
+  memory silently selects nothing and you conclude CI never triggered when it did. Take the full sha
+  from `gh pr view <n> --json headRefOid` (or `git rev-parse HEAD`) and quote it verbatim, or filter
+  client-side on the prefix (`--jq 'select(.headSha|startswith("<8>")'`).
 - **Judge the JOB, not only the run.** A run's conclusion can read `cancelled` while the job inside it
   reads `conclusion=failure` — cancelling the run after a job failed rewrites the run-level word. The
   job endpoint (`gh api repos/<owner>/<repo>/actions/jobs/<id>`) is the finer truth, and its `steps[]`
@@ -318,9 +336,14 @@ against `name:` prefixes, not ids).
   control (a same-suite run that concluded `success` in an overlapping window at a fraction of the
   duration). Clearing it is `gh run rerun <run-id> --failed`, which is safe where a push is not: it
   re-executes the same head and cancels nothing, so it cannot destroy another lane's matrix (the
-  warning against re-running into a lane's push is about PUSHING into `cancel-in-progress`). Re-run
+  warning against re-running into a lane's push is about PUSHING into `cancel-in-progress`).  Re-run
   ONCE, disclose it, and if it hits the ceiling again stop — a loop of hour-long units is a queue hog,
-  not evidence. Recipe and pitfalls: `references/red-job-triage.md` §8.
+  not evidence. **A re-run inherits the run's DISPATCH-time config: a ceiling raise merged to `main`
+  does not reach a run that was already dispatched, so re-running before rebasing buys a second,
+  identical cancel.** When the ceiling fix is on `main` but not in the head's base, rebase the head
+  onto that `main` and push it — the new head schedules a fresh run under the raised budget — and
+  judge THAT run; do not loop `gh run rerun --failed` on a run that will always resolve the old
+  number. Recipe and pitfalls: `references/red-job-triage.md` §8.
 
 ## 6. Selection invariants to check before per-stage work (#824b)
 
@@ -405,6 +428,11 @@ that pushes on the run's conclusion, never a push that cancels it).
   pushing a competing head.** Pushing schedules a run for a NEW head, and `cancel-in-progress` kills the
   matrix that lane is waiting on, plus the result it was going to produce. (Re-running the SAME head —
   `gh run rerun --failed` — is not that: it cancels nothing. See §5 for when a re-run is the right move.)
+- **A routed message can fail admission (`queue_full` / ambiguous) — do not resend it; put the
+  substance in the thread.** When the send reports it could not confirm delivery, the durable record is
+  the issue/PR comment, not the DM: post the same conclusion where the work lives and let the message
+  be the pointer. Resending into a full queue duplicates on the receiver's side, and a conclusion that
+  exists only in an undelivered message does not exist for the next reader.
 
 Comment on the PR with the run ids / command output that proves each claim, plus the RED test that
 exposes each gap and the patch that turns it green. Comment on the issue too when the follow-up
@@ -505,6 +533,17 @@ If two PRs claim the same change, say so and ask which is canonical instead of p
   re-force-push to "fix" it; a fresh CI run or push event recomputes it. Settle a "my commit is not on
   your head" dispute the same way: ancestry/content, or `git log` for the origin sha, not by pushing
   again.
+- **A landed change a later merge appears to have removed is usually a DELIBERATE supersede — compare
+  file CONTENT at each squash merge; `--is-ancestor` cannot answer it.** Squash merges are
+  single-parent, so a commit that lived on the source branch is not an ancestor of any later squashed
+  merge: `git merge-base --is-ancestor <my commit> <later merge>` returns "no" even when the work
+  landed and was then replaced. The facts are `git log --oneline -3 -- <path> origin/main` (which
+  commit touched it LAST, and whether its message adds or reverts), then the line itself at each merge:
+  `git show <merge-a>:<path> | grep '<the line>'` and `git show <merge-b>:<path> | grep '<the line>'`.
+  Absent at the earlier merge and PRESENT at the newer one is the deliberate restore — and the proof
+  that re-pushing the earlier shape would revert someone's decision. Verify BEFORE drafting a rebuttal:
+  two `git show` reads settle it, where a rebuttal sent on a stale read costs a public retraction.
+  Concede on the tree, not on social pressure.
 - **The decisive clean/conflict test is `git merge-tree --write-tree <base> <head>`, exit=0 = clean.**
   The old 3-arg form prints `changed in both` for ANY same-file edit and reads as a conflict even when
   the hunks are far apart (a PR marking tests at :949/:964 and a base commit editing unrelated
