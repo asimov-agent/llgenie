@@ -38,5 +38,20 @@ echo "  dropped:   LOST=[$LOST_B]        (want 'the PRs own change')"
 fail=0
 [ -n "$LOST_A" ] && { echo "FAIL: a preserved commit was reported lost" >&2; fail=1; }
 [ "$LOST_B" != "the PRs own change" ] && { echo "FAIL: a dropped commit was not caught: [$LOST_B]" >&2; fail=1; }
+
+# case C: the DRIVER sequence — WANTED captured before replay, then a replay that DROPS one commit.
+# The standalone B case proves the set-compare; this proves the capture-and-replay path the two
+# drivers actually run (stack-replay.sh: WANTED=$PLUS subjects before the cherry-pick loop, LOST
+# checked after). A control that only exercises the compare in isolation can pass while the drivers
+# capture the wrong set.
+git checkout -q -b drop-replay "$MB" 2>/dev/null
+git cherry-pick "$(git rev-list --reverse "$MB..HEAD" 2>/dev/null | head -1)" >/dev/null 2>&1  # keep only the FIRST own commit
+GOTC=$(git log --format=%s HEAD | sort -u)
+LOST_C=$(printf '%s\n' "$OWN" | while read -r s; do
+  [ -n "$s" ] && ! printf '%s\n' "$GOTC" | grep -Fxq "$s" && printf '%s\n' "$s"; done)
+echo "  driver-drop: LOST=[$LOST_C]  (want 'the PRs own change' -- the dropped second commit)"
+[ "$LOST_C" != "the PRs own change" ] && { echo "FAIL: the DRIVER path missed the dropped commit" >&2; fail=1; }
+
 [ "$fail" -eq 0 ] || exit 1
 echo "PASS: the set-compare catches a dropped commit by subject and is silent when preserved"
+echo "      (incl. the driver capture-and-replay path)"
