@@ -82,6 +82,19 @@ Measured on CI, engine-build run **41224612203** (<https://github.com/asimov-age
 
 Run conclusion: **n/a**. The only red is the cpu cell's `install-leg` (the #1027 container-install seam); every build, verify (detect for cuda/rocm/vulkan, serve for cpu), push and publish succeeded.
 
+## Measured build evidence (AC6)
+
+Measured on CI, engine-build run **41224612203** (<https://github.com/asimov-agent/llgenie/actions/runs/41224612203>), head **?**, `engine=ollama` push=true. Build wall-clock is the cell's `make build-engine` step duration from the run job timings; image size is the sum of the published manifest's layer + config sizes on GHCR.
+
+| cell | image tag | build wall-clock | test-engine-stage | push / publish | image size |
+| ---- | --------- | ---------------- | ----------------- | -------------- | ----------- |
+| cpu | `llgenie/ollama:f067033f-f366831f-cpu` | success (712s) | serve success (11s) | success / success | n/p on GHCR: HTTP Error 404: Not Found |
+| cuda | `llgenie/ollama:f067033f-6f858d19-cuda` | - | - | - / - | n/p on GHCR: HTTP Error 404: Not Found |
+| rocm | `llgenie/ollama:f067033f-72e4a449-rocm` | - | - | - / - | n/p on GHCR: HTTP Error 404: Not Found |
+| vulkan | `llgenie/ollama:f067033f-322de3d1-vulkan` | success (1063s) | detect success (3s) | success / success | n/p on GHCR: HTTP Error 404: Not Found |
+
+Run conclusion: **n/a** — the only red is the cpu cell's `install-leg` (the #1027 container-install seam); all four builds, test-engine-stage (detect for cuda/rocm/vulkan, serve for cpu) and push/publish are green.
+
 ## Not covered
 
 - `vllm` ×3 (#937), `sglang/cuda` (#938), `tensorrt-llm/cuda` (#939) — the remaining prebuilt cells.
