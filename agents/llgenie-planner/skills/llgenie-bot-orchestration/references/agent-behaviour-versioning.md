@@ -87,3 +87,29 @@ decide authority, then reconcile:
   "route it to the approving identity".
 - Lanes must not self-approve, and must not tick another lane's task boxes. Both refusals are correct
   behaviour; the parked board that results is a throughput bound to state plainly, not a lane defect.
+
+## The propagated-rules tool that falls back to a stale source
+
+A rules-/fleet-*propagating* tool (one that copies a canonical block into each lane's SOUL/skill) is safe only as
+long as its **source resolution is pinned to a versioned file in the tree**. The failure class: the loader resolves
+`$ENV`, else the versioned reference *beside the SKILL*, else a **historical scratch path** (`/tmp/873.md`). When a
+middle path does not exist on a given host, it silently falls through to the scratch file — dated two generations
+stale — and *rewrites four standing rules to older wording while printing "block in soul: True"*. Every check that
+reads the resulting file for *presence of a block* passes; nothing reads it for *the exact current wording*, so a
+keys-only verification cannot see the degradation (same blind spot as mode-100644 scripts and a `make` that refuses
+to parse).
+
+- **Pin the source to a versioned file, never a scratch path.** A rules source must resolve to a path committed in
+  the tree (`agents/<lane>/skills/…/references/…`), updated *in the tree* when a rule changes — never `/tmp`.
+- **A fallback to a host-local scratch file is a defect, not a nicety.** The default should fail loudly, not
+  degrade silently to whatever `/tmp` holds.
+- **Verify the output differs the way you expect, then verify they are identical.** For a splice: run it on the
+  *correct current* SOUL, confirm `git diff` shows **no** rule line changed (idempotent, 4/4 kept), and confirm the
+  file is byte-unchanged. A tool that prints success while degrading is the tell.
+- **Add a no-regression guard**: if the source would *drop* a rule the target already carries, refuse and write
+  nothing (compare on a signature ignoring emphasis and trailing punctuation, so a legitimately versionless rule
+  like #16 doesn't read as "changed").
+- **Audit the lanes' current wording after such a finding, not before.** Even when your own lane is clean (grep
+  for the *stale* wording, not the canonical — the absence of "Arm when done, and only on a base of main" is the
+  cleanliness proof), say which lanes *could* have run the tool, and list the safe override invocation + the
+  `git diff`-before-commit rule in the relay.
