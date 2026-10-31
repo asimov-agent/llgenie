@@ -91,14 +91,14 @@
           "model": "Bonsai 2 4B",
           "server": "llama.cpp",
           "tps": 6.0,
-          "measured_on": "CUDA",
+          "measured_on": "CPU",
           "variant": "cuda",
           "why": ""
         },
         {
           "model": "Gemma 4 26B A4B",
           "server": "llama.cpp",
-          "tps": 0.39,
+          "tps": 500.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -131,7 +131,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "cuda",
           "why": ""
         },
@@ -418,14 +418,14 @@
           "model": "Bonsai 2 4B",
           "server": "llama.cpp",
           "tps": 6.0,
-          "measured_on": "CUDA",
+          "measured_on": "CPU",
           "variant": "cuda",
           "why": ""
         },
         {
           "model": "Gemma 4 26B A4B",
           "server": "llama.cpp",
-          "tps": 0.39,
+          "tps": 500.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -464,9 +464,9 @@
         },
         {
           "model": "MiniCPM-V 4.7",
-          "server": "llama.cpp",
-          "tps": 13.0,
-          "measured_on": "CUDA",
+          "server": "MLX",
+          "tps": 90.0,
+          "measured_on": "Metal",
           "variant": "cuda",
           "why": ""
         },
@@ -761,14 +761,14 @@
           "model": "Bonsai 2 4B",
           "server": "llama.cpp",
           "tps": 6.0,
-          "measured_on": "CUDA",
+          "measured_on": "CPU",
           "variant": "cuda",
           "why": ""
         },
         {
           "model": "Gemma 4 26B A4B",
           "server": "llama.cpp",
-          "tps": 0.39,
+          "tps": 500.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -807,9 +807,9 @@
         },
         {
           "model": "MiniCPM-V 4.7",
-          "server": "llama.cpp",
-          "tps": 13.0,
-          "measured_on": "CUDA",
+          "server": "MLX",
+          "tps": 90.0,
+          "measured_on": "Metal",
           "variant": "cuda",
           "why": ""
         },
@@ -1120,14 +1120,14 @@
           "model": "Bonsai 2 4B",
           "server": "llama.cpp",
           "tps": 6.0,
-          "measured_on": "CUDA",
+          "measured_on": "CPU",
           "variant": "cuda",
           "why": ""
         },
         {
           "model": "Gemma 4 26B A4B",
           "server": "llama.cpp",
-          "tps": 0.39,
+          "tps": 500.0,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -1166,9 +1166,9 @@
         },
         {
           "model": "MiniCPM-V 4.7",
-          "server": "llama.cpp",
-          "tps": 13.0,
-          "measured_on": "CUDA",
+          "server": "MLX",
+          "tps": 90.0,
+          "measured_on": "Metal",
           "variant": "cuda",
           "why": ""
         },
@@ -1471,7 +1471,7 @@
           "model": "Bonsai 2 4B",
           "server": "llama.cpp",
           "tps": 6.0,
-          "measured_on": "CUDA",
+          "measured_on": "CPU",
           "variant": "cuda",
           "why": ""
         },
@@ -1525,9 +1525,9 @@
         },
         {
           "model": "MiniCPM-V 4.7",
-          "server": "llama.cpp",
-          "tps": 13.0,
-          "measured_on": "CUDA",
+          "server": "MLX",
+          "tps": 90.0,
+          "measured_on": "Metal",
           "variant": "cuda",
           "why": ""
         },
@@ -1942,7 +1942,7 @@
           "model": "Bonsai 2 4B",
           "server": "llama.cpp",
           "tps": 6.0,
-          "measured_on": "CUDA",
+          "measured_on": "CPU",
           "variant": "cuda",
           "why": ""
         },
@@ -2004,9 +2004,9 @@
         },
         {
           "model": "MiniCPM-V 4.7",
-          "server": "llama.cpp",
-          "tps": 13.0,
-          "measured_on": "CUDA",
+          "server": "MLX",
+          "tps": 90.0,
+          "measured_on": "Metal",
           "variant": "cuda",
           "why": ""
         },
@@ -2493,7 +2493,7 @@
           "model": "Bonsai 2 4B",
           "server": "llama.cpp",
           "tps": 6.0,
-          "measured_on": "CUDA",
+          "measured_on": "CPU",
           "variant": "cuda",
           "why": ""
         },
@@ -2555,9 +2555,9 @@
         },
         {
           "model": "MiniCPM-V 4.7",
-          "server": "llama.cpp",
-          "tps": 13.0,
-          "measured_on": "CUDA",
+          "server": "MLX",
+          "tps": 90.0,
+          "measured_on": "Metal",
           "variant": "cuda",
           "why": ""
         },
@@ -3060,7 +3060,7 @@
           "model": "Bonsai 2 4B",
           "server": "llama.cpp",
           "tps": 6.0,
-          "measured_on": "CUDA",
+          "measured_on": "CPU",
           "variant": "cuda",
           "why": ""
         },
@@ -3122,9 +3122,9 @@
         },
         {
           "model": "MiniCPM-V 4.7",
-          "server": "llama.cpp",
-          "tps": 13.0,
-          "measured_on": "CUDA",
+          "server": "MLX",
+          "tps": 90.0,
+          "measured_on": "Metal",
           "variant": "cuda",
           "why": ""
         },
@@ -3563,7 +3563,7 @@
           "model": "Bonsai 2 4B",
           "server": "llama.cpp",
           "tps": 6.0,
-          "measured_on": "CUDA",
+          "measured_on": "CPU",
           "variant": "cuda",
           "why": ""
         },
@@ -3633,9 +3633,9 @@
         },
         {
           "model": "MiniCPM-V 4.7",
-          "server": "llama.cpp",
-          "tps": 13.0,
-          "measured_on": "CUDA",
+          "server": "MLX",
+          "tps": 90.0,
+          "measured_on": "Metal",
           "variant": "cuda",
           "why": ""
         },
@@ -4106,7 +4106,7 @@
           "model": "Bonsai 2 4B",
           "server": "llama.cpp",
           "tps": 6.0,
-          "measured_on": "CUDA",
+          "measured_on": "CPU",
           "variant": "cuda",
           "why": ""
         },
@@ -4184,9 +4184,9 @@
         },
         {
           "model": "MiniCPM-V 4.7",
-          "server": "llama.cpp",
-          "tps": 13.0,
-          "measured_on": "CUDA",
+          "server": "MLX",
+          "tps": 90.0,
+          "measured_on": "Metal",
           "variant": "cuda",
           "why": ""
         },
@@ -4737,7 +4737,7 @@
           "model": "Bonsai 2 4B",
           "server": "llama.cpp",
           "tps": 6.0,
-          "measured_on": "CUDA",
+          "measured_on": "CPU",
           "variant": "cuda",
           "why": ""
         },
@@ -4823,9 +4823,9 @@
         },
         {
           "model": "MiniCPM-V 4.7",
-          "server": "llama.cpp",
-          "tps": 13.0,
-          "measured_on": "CUDA",
+          "server": "MLX",
+          "tps": 90.0,
+          "measured_on": "Metal",
           "variant": "cuda",
           "why": ""
         },
@@ -5392,7 +5392,7 @@
           "model": "Bonsai 2 4B",
           "server": "llama.cpp",
           "tps": 6.0,
-          "measured_on": "CUDA",
+          "measured_on": "CPU",
           "variant": "cuda",
           "why": ""
         },
@@ -5478,9 +5478,9 @@
         },
         {
           "model": "MiniCPM-V 4.7",
-          "server": "llama.cpp",
-          "tps": 13.0,
-          "measured_on": "CUDA",
+          "server": "MLX",
+          "tps": 90.0,
+          "measured_on": "Metal",
           "variant": "cuda",
           "why": ""
         },
@@ -5935,7 +5935,7 @@
           "model": "Bonsai 2 4B",
           "server": "llama.cpp",
           "tps": 6.0,
-          "measured_on": "CUDA",
+          "measured_on": "CPU",
           "variant": "cuda",
           "why": ""
         },
@@ -6005,9 +6005,9 @@
         },
         {
           "model": "MiniCPM-V 4.7",
-          "server": "llama.cpp",
-          "tps": 13.0,
-          "measured_on": "CUDA",
+          "server": "MLX",
+          "tps": 90.0,
+          "measured_on": "Metal",
           "variant": "cuda",
           "why": ""
         },
@@ -6502,7 +6502,7 @@
           "model": "Bonsai 2 4B",
           "server": "llama.cpp",
           "tps": 6.0,
-          "measured_on": "CUDA",
+          "measured_on": "CPU",
           "variant": "cuda",
           "why": ""
         },
@@ -6588,9 +6588,9 @@
         },
         {
           "model": "MiniCPM-V 4.7",
-          "server": "llama.cpp",
-          "tps": 13.0,
-          "measured_on": "CUDA",
+          "server": "MLX",
+          "tps": 90.0,
+          "measured_on": "Metal",
           "variant": "cuda",
           "why": ""
         },
@@ -7189,7 +7189,7 @@
           "model": "Bonsai 2 4B",
           "server": "llama.cpp",
           "tps": 6.0,
-          "measured_on": "CUDA",
+          "measured_on": "CPU",
           "variant": "cuda",
           "why": ""
         },
@@ -7251,8 +7251,8 @@
         },
         {
           "model": "GLM-5.3-Flash",
-          "server": "vLLM",
-          "tps": 62.2,
+          "server": "llama.cpp",
+          "tps": 27.5,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -7283,9 +7283,9 @@
         },
         {
           "model": "MiniCPM-V 4.7",
-          "server": "llama.cpp",
-          "tps": 13.0,
-          "measured_on": "CUDA",
+          "server": "MLX",
+          "tps": 90.0,
+          "measured_on": "Metal",
           "variant": "cuda",
           "why": ""
         },
@@ -7900,7 +7900,7 @@
           "model": "Bonsai 2 4B",
           "server": "llama.cpp",
           "tps": 6.0,
-          "measured_on": "CUDA",
+          "measured_on": "CPU",
           "variant": "cuda",
           "why": ""
         },
@@ -7962,8 +7962,8 @@
         },
         {
           "model": "GLM-5.3-Flash",
-          "server": "vLLM",
-          "tps": 62.2,
+          "server": "llama.cpp",
+          "tps": 27.5,
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
@@ -7994,9 +7994,9 @@
         },
         {
           "model": "MiniCPM-V 4.7",
-          "server": "llama.cpp",
-          "tps": 13.0,
-          "measured_on": "CUDA",
+          "server": "MLX",
+          "tps": 90.0,
+          "measured_on": "Metal",
           "variant": "cuda",
           "why": ""
         },
@@ -8411,7 +8411,7 @@
           "model": "Bonsai 2 4B",
           "server": "llama.cpp",
           "tps": 6.0,
-          "measured_on": "CUDA",
+          "measured_on": "CPU",
           "variant": "rocm",
           "why": ""
         },
@@ -8451,7 +8451,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "rocm",
           "why": ""
         },
@@ -8738,7 +8738,7 @@
           "model": "Bonsai 2 4B",
           "server": "llama.cpp",
           "tps": 6.0,
-          "measured_on": "CUDA",
+          "measured_on": "CPU",
           "variant": "rocm",
           "why": ""
         },
@@ -8786,7 +8786,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "rocm",
           "why": ""
         },
@@ -9081,7 +9081,7 @@
           "model": "Bonsai 2 4B",
           "server": "llama.cpp",
           "tps": 6.0,
-          "measured_on": "CUDA",
+          "measured_on": "CPU",
           "variant": "rocm",
           "why": ""
         },
@@ -9129,7 +9129,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "rocm",
           "why": ""
         },
@@ -9440,7 +9440,7 @@
           "model": "Bonsai 2 4B",
           "server": "llama.cpp",
           "tps": 6.0,
-          "measured_on": "CUDA",
+          "measured_on": "CPU",
           "variant": "rocm",
           "why": ""
         },
@@ -9488,7 +9488,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "rocm",
           "why": ""
         },
@@ -9791,7 +9791,7 @@
           "model": "Bonsai 2 4B",
           "server": "llama.cpp",
           "tps": 6.0,
-          "measured_on": "CUDA",
+          "measured_on": "CPU",
           "variant": "rocm",
           "why": ""
         },
@@ -9847,7 +9847,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "rocm",
           "why": ""
         },
@@ -10262,7 +10262,7 @@
           "model": "Bonsai 2 4B",
           "server": "llama.cpp",
           "tps": 6.0,
-          "measured_on": "CUDA",
+          "measured_on": "CPU",
           "variant": "rocm",
           "why": ""
         },
@@ -10326,7 +10326,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "rocm",
           "why": ""
         },
@@ -10813,7 +10813,7 @@
           "model": "Bonsai 2 4B",
           "server": "llama.cpp",
           "tps": 6.0,
-          "measured_on": "CUDA",
+          "measured_on": "CPU",
           "variant": "rocm",
           "why": ""
         },
@@ -10877,7 +10877,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "rocm",
           "why": ""
         },
@@ -11380,7 +11380,7 @@
           "model": "Bonsai 2 4B",
           "server": "llama.cpp",
           "tps": 6.0,
-          "measured_on": "CUDA",
+          "measured_on": "CPU",
           "variant": "rocm",
           "why": ""
         },
@@ -11444,7 +11444,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "rocm",
           "why": ""
         },
@@ -11883,7 +11883,7 @@
           "model": "Bonsai 2 4B",
           "server": "llama.cpp",
           "tps": 6.0,
-          "measured_on": "CUDA",
+          "measured_on": "CPU",
           "variant": "rocm",
           "why": ""
         },
@@ -11955,7 +11955,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "rocm",
           "why": ""
         },
@@ -12426,7 +12426,7 @@
           "model": "Bonsai 2 4B",
           "server": "llama.cpp",
           "tps": 6.0,
-          "measured_on": "CUDA",
+          "measured_on": "CPU",
           "variant": "rocm",
           "why": ""
         },
@@ -12506,7 +12506,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "rocm",
           "why": ""
         },
@@ -13057,7 +13057,7 @@
           "model": "Bonsai 2 4B",
           "server": "llama.cpp",
           "tps": 6.0,
-          "measured_on": "CUDA",
+          "measured_on": "CPU",
           "variant": "rocm",
           "why": ""
         },
@@ -13145,7 +13145,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "rocm",
           "why": ""
         },
@@ -13712,7 +13712,7 @@
           "model": "Bonsai 2 4B",
           "server": "llama.cpp",
           "tps": 6.0,
-          "measured_on": "CUDA",
+          "measured_on": "CPU",
           "variant": "rocm",
           "why": ""
         },
@@ -13800,7 +13800,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "rocm",
           "why": ""
         },
@@ -14255,7 +14255,7 @@
           "model": "Bonsai 2 4B",
           "server": "llama.cpp",
           "tps": 6.0,
-          "measured_on": "CUDA",
+          "measured_on": "CPU",
           "variant": "rocm",
           "why": ""
         },
@@ -14327,7 +14327,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "rocm",
           "why": ""
         },
@@ -14557,7 +14557,7 @@
         {
           "model": "Qwen3.8-27B",
           "server": "vLLM",
-          "tps": 159.0,
+          "tps": 80.0,
           "measured_on": "ROCm",
           "variant": "rocm",
           "why": ""
@@ -14822,7 +14822,7 @@
           "model": "Bonsai 2 4B",
           "server": "llama.cpp",
           "tps": 6.0,
-          "measured_on": "CUDA",
+          "measured_on": "CPU",
           "variant": "rocm",
           "why": ""
         },
@@ -14910,7 +14910,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "rocm",
           "why": ""
         },
@@ -15220,7 +15220,7 @@
         {
           "model": "Qwen3.8-27B",
           "server": "vLLM",
-          "tps": 159.0,
+          "tps": 80.0,
           "measured_on": "ROCm",
           "variant": "rocm",
           "why": ""
@@ -15509,7 +15509,7 @@
           "model": "Bonsai 2 4B",
           "server": "llama.cpp",
           "tps": 6.0,
-          "measured_on": "CUDA",
+          "measured_on": "CPU",
           "variant": "rocm",
           "why": ""
         },
@@ -15605,7 +15605,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "rocm",
           "why": ""
         },
@@ -15923,7 +15923,7 @@
         {
           "model": "Qwen3.8-27B",
           "server": "vLLM",
-          "tps": 159.0,
+          "tps": 80.0,
           "measured_on": "ROCm",
           "variant": "rocm",
           "why": ""
@@ -16220,7 +16220,7 @@
           "model": "Bonsai 2 4B",
           "server": "llama.cpp",
           "tps": 6.0,
-          "measured_on": "CUDA",
+          "measured_on": "CPU",
           "variant": "rocm",
           "why": ""
         },
@@ -16316,7 +16316,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "rocm",
           "why": ""
         },
@@ -16771,7 +16771,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "vulkan",
           "why": ""
         },
@@ -17106,7 +17106,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "vulkan",
           "why": ""
         },
@@ -17449,7 +17449,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "vulkan",
           "why": ""
         },
@@ -17808,7 +17808,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "vulkan",
           "why": ""
         },
@@ -18167,7 +18167,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "vulkan",
           "why": ""
         },
@@ -18646,7 +18646,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "vulkan",
           "why": ""
         },
@@ -19197,7 +19197,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "vulkan",
           "why": ""
         },
@@ -19764,7 +19764,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "vulkan",
           "why": ""
         },
@@ -20275,7 +20275,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "vulkan",
           "why": ""
         },
@@ -20826,7 +20826,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "vulkan",
           "why": ""
         },
@@ -21465,7 +21465,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "vulkan",
           "why": ""
         },
@@ -22120,7 +22120,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "vulkan",
           "why": ""
         },
@@ -22647,7 +22647,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "vulkan",
           "why": ""
         },
@@ -23230,7 +23230,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "vulkan",
           "why": ""
         },
@@ -23925,7 +23925,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "vulkan",
           "why": ""
         },
@@ -24636,7 +24636,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "vulkan",
           "why": ""
         },
@@ -25091,7 +25091,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "metal",
           "why": ""
         },
@@ -25426,7 +25426,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "metal",
           "why": ""
         },
@@ -25769,7 +25769,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "metal",
           "why": ""
         },
@@ -26128,7 +26128,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "metal",
           "why": ""
         },
@@ -26487,7 +26487,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "metal",
           "why": ""
         },
@@ -26966,7 +26966,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "metal",
           "why": ""
         },
@@ -27517,7 +27517,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "metal",
           "why": ""
         },
@@ -28084,7 +28084,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "metal",
           "why": ""
         },
@@ -28595,7 +28595,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "metal",
           "why": ""
         },
@@ -29146,7 +29146,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "metal",
           "why": ""
         },
@@ -29785,7 +29785,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "metal",
           "why": ""
         },
@@ -30440,7 +30440,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "metal",
           "why": ""
         },
@@ -33369,9 +33369,9 @@
         },
         {
           "model": "Bonsai 2 4B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 128.0,
-          "measured_on": "CUDA",
+          "server": "llama.cpp",
+          "tps": 6.0,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -33411,7 +33411,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "cpu",
           "why": ""
         },
@@ -33696,9 +33696,9 @@
         },
         {
           "model": "Bonsai 2 4B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 128.0,
-          "measured_on": "CUDA",
+          "server": "llama.cpp",
+          "tps": 6.0,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -33746,7 +33746,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "cpu",
           "why": ""
         },
@@ -34039,9 +34039,9 @@
         },
         {
           "model": "Bonsai 2 4B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 128.0,
-          "measured_on": "CUDA",
+          "server": "llama.cpp",
+          "tps": 6.0,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -34089,7 +34089,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "cpu",
           "why": ""
         },
@@ -34398,9 +34398,9 @@
         },
         {
           "model": "Bonsai 2 4B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 128.0,
-          "measured_on": "CUDA",
+          "server": "llama.cpp",
+          "tps": 6.0,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -34448,7 +34448,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "cpu",
           "why": ""
         },
@@ -34630,8 +34630,8 @@
         {
           "model": "LFM2.5-24B-A2B",
           "server": "MLX",
-          "tps": 184.0,
-          "measured_on": "Metal",
+          "tps": 25.4,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -34749,9 +34749,9 @@
         },
         {
           "model": "Bonsai 2 4B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 128.0,
-          "measured_on": "CUDA",
+          "server": "llama.cpp",
+          "tps": 6.0,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -34807,7 +34807,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "cpu",
           "why": ""
         },
@@ -35005,7 +35005,7 @@
         {
           "model": "Qwen3.8-27B",
           "server": "llama.cpp",
-          "tps": 0.0167,
+          "tps": 14.06,
           "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
@@ -35045,16 +35045,16 @@
         {
           "model": "Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
-          "tps": 300.0,
-          "measured_on": "CUDA",
+          "tps": 2.5,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
         {
           "model": "LFM2.5-24B-A2B",
           "server": "MLX",
-          "tps": 184.0,
-          "measured_on": "Metal",
+          "tps": 25.4,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -35220,9 +35220,9 @@
         },
         {
           "model": "Bonsai 2 4B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 128.0,
-          "measured_on": "CUDA",
+          "server": "llama.cpp",
+          "tps": 6.0,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -35286,7 +35286,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "cpu",
           "why": ""
         },
@@ -35548,7 +35548,7 @@
         {
           "model": "Qwen3.8-27B",
           "server": "llama.cpp",
-          "tps": 0.0167,
+          "tps": 14.06,
           "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
@@ -35588,16 +35588,16 @@
         {
           "model": "Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
-          "tps": 300.0,
-          "measured_on": "CUDA",
+          "tps": 2.5,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
         {
           "model": "LFM2.5-24B-A2B",
           "server": "MLX",
-          "tps": 184.0,
-          "measured_on": "Metal",
+          "tps": 25.4,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -35771,9 +35771,9 @@
         },
         {
           "model": "Bonsai 2 4B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 128.0,
-          "measured_on": "CUDA",
+          "server": "llama.cpp",
+          "tps": 6.0,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -35837,7 +35837,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "cpu",
           "why": ""
         },
@@ -36107,7 +36107,7 @@
         {
           "model": "Qwen3.8-27B",
           "server": "llama.cpp",
-          "tps": 0.0167,
+          "tps": 14.06,
           "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
@@ -36147,16 +36147,16 @@
         {
           "model": "Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
-          "tps": 300.0,
-          "measured_on": "CUDA",
+          "tps": 2.5,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
         {
           "model": "LFM2.5-24B-A2B",
           "server": "MLX",
-          "tps": 184.0,
-          "measured_on": "Metal",
+          "tps": 25.4,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -36338,9 +36338,9 @@
         },
         {
           "model": "Bonsai 2 4B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 128.0,
-          "measured_on": "CUDA",
+          "server": "llama.cpp",
+          "tps": 6.0,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -36404,7 +36404,7 @@
           "model": "MiniCPM-V 4.7",
           "server": "llama.cpp",
           "tps": 13.0,
-          "measured_on": "CUDA",
+          "measured_on": "Metal",
           "variant": "cpu",
           "why": ""
         },
@@ -36697,9 +36697,9 @@
         },
         {
           "model": "LFM2.5-24B-A2B",
-          "server": "llama.cpp",
-          "tps": 184.0,
-          "measured_on": "Metal",
+          "server": "MLX",
+          "tps": 25.4,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -36841,9 +36841,9 @@
         },
         {
           "model": "Bonsai 2 4B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 128.0,
-          "measured_on": "CUDA",
+          "server": "llama.cpp",
+          "tps": 6.0,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -37129,7 +37129,7 @@
         {
           "model": "Qwen3.8-27B",
           "server": "llama.cpp",
-          "tps": 0.0167,
+          "tps": 14.06,
           "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
@@ -37169,16 +37169,16 @@
         {
           "model": "Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
-          "tps": 300.0,
-          "measured_on": "CUDA",
+          "tps": 2.5,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
         {
           "model": "LFM2.5-24B-A2B",
-          "server": "llama.cpp",
-          "tps": 184.0,
-          "measured_on": "Metal",
+          "server": "MLX",
+          "tps": 25.4,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -37384,9 +37384,9 @@
         },
         {
           "model": "Bonsai 2 4B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 128.0,
-          "measured_on": "CUDA",
+          "server": "llama.cpp",
+          "tps": 6.0,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -37744,7 +37744,7 @@
         {
           "model": "Qwen3.8-27B",
           "server": "llama.cpp",
-          "tps": 0.0167,
+          "tps": 14.06,
           "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
@@ -37784,16 +37784,16 @@
         {
           "model": "Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
-          "tps": 300.0,
-          "measured_on": "CUDA",
+          "tps": 2.5,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
         {
           "model": "LFM2.5-24B-A2B",
-          "server": "llama.cpp",
-          "tps": 184.0,
-          "measured_on": "Metal",
+          "server": "MLX",
+          "tps": 25.4,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -38015,9 +38015,9 @@
         },
         {
           "model": "Bonsai 2 4B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 128.0,
-          "measured_on": "CUDA",
+          "server": "llama.cpp",
+          "tps": 6.0,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -38391,7 +38391,7 @@
         {
           "model": "Qwen3.8-27B",
           "server": "llama.cpp",
-          "tps": 0.0167,
+          "tps": 14.06,
           "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
@@ -38431,16 +38431,16 @@
         {
           "model": "Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
-          "tps": 300.0,
-          "measured_on": "CUDA",
+          "tps": 2.5,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
         {
           "model": "LFM2.5-24B-A2B",
-          "server": "llama.cpp",
-          "tps": 184.0,
-          "measured_on": "Metal",
+          "server": "MLX",
+          "tps": 25.4,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -38670,9 +38670,9 @@
         },
         {
           "model": "Bonsai 2 4B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 128.0,
-          "measured_on": "CUDA",
+          "server": "llama.cpp",
+          "tps": 6.0,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -39069,9 +39069,9 @@
         },
         {
           "model": "LFM2.5-24B-A2B",
-          "server": "llama.cpp",
-          "tps": 184.0,
-          "measured_on": "Metal",
+          "server": "MLX",
+          "tps": 25.4,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -39213,9 +39213,9 @@
         },
         {
           "model": "Bonsai 2 4B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 128.0,
-          "measured_on": "CUDA",
+          "server": "llama.cpp",
+          "tps": 6.0,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -39517,7 +39517,7 @@
         {
           "model": "Qwen3.8-27B",
           "server": "llama.cpp",
-          "tps": 0.0167,
+          "tps": 14.06,
           "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
@@ -39557,16 +39557,16 @@
         {
           "model": "Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
-          "tps": 300.0,
-          "measured_on": "CUDA",
+          "tps": 2.5,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
         {
           "model": "LFM2.5-24B-A2B",
-          "server": "llama.cpp",
-          "tps": 184.0,
-          "measured_on": "Metal",
+          "server": "MLX",
+          "tps": 25.4,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -39780,9 +39780,9 @@
         },
         {
           "model": "Bonsai 2 4B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 128.0,
-          "measured_on": "CUDA",
+          "server": "llama.cpp",
+          "tps": 6.0,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -40180,7 +40180,7 @@
         {
           "model": "Qwen3.8-27B",
           "server": "llama.cpp",
-          "tps": 0.0167,
+          "tps": 14.06,
           "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
@@ -40220,16 +40220,16 @@
         {
           "model": "Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
-          "tps": 300.0,
-          "measured_on": "CUDA",
+          "tps": 2.5,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
         {
           "model": "LFM2.5-24B-A2B",
-          "server": "llama.cpp",
-          "tps": 184.0,
-          "measured_on": "Metal",
+          "server": "MLX",
+          "tps": 25.4,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -40467,9 +40467,9 @@
         },
         {
           "model": "Bonsai 2 4B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 128.0,
-          "measured_on": "CUDA",
+          "server": "llama.cpp",
+          "tps": 6.0,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -40883,7 +40883,7 @@
         {
           "model": "Qwen3.8-27B",
           "server": "llama.cpp",
-          "tps": 0.0167,
+          "tps": 14.06,
           "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
@@ -40923,16 +40923,16 @@
         {
           "model": "Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
-          "tps": 300.0,
-          "measured_on": "CUDA",
+          "tps": 2.5,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
         {
           "model": "LFM2.5-24B-A2B",
-          "server": "llama.cpp",
-          "tps": 184.0,
-          "measured_on": "Metal",
+          "server": "MLX",
+          "tps": 25.4,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -41178,9 +41178,9 @@
         },
         {
           "model": "Bonsai 2 4B",
-          "server": "llama.cpp (PrismML fork)",
-          "tps": 128.0,
-          "measured_on": "CUDA",
+          "server": "llama.cpp",
+          "tps": 6.0,
+          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -41835,7 +41835,7 @@
           "model": "Bonsai 2 4B",
           "server": "llama.cpp",
           "tps": 6.0,
-          "measured_on": "CUDA",
+          "measured_on": "CPU",
           "variant": "cuda",
           "why": ""
         },
@@ -41897,9 +41897,9 @@
         },
         {
           "model": "MiniCPM-V 4.7",
-          "server": "llama.cpp",
-          "tps": 13.0,
-          "measured_on": "CUDA",
+          "server": "MLX",
+          "tps": 90.0,
+          "measured_on": "Metal",
           "variant": "cuda",
           "why": ""
         },
