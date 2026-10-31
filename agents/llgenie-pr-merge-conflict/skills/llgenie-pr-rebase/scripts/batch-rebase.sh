@@ -40,6 +40,11 @@ for spec in "$@"; do
   git worktree add -B "b$N-$STAMP" "$WT" "refs/remotes/$REMOTE/$BR" >/dev/null 2>&1 || { echo "  worktree failed"; continue; }
   echo "  worktree: $WT (left in place — never removed by this script)"
   cd "$WT" || continue
+  # Commit preservation: record the branch's own commit subjects (those NOT already on main) so a
+  # rebase that silently drops one is caught before push. Rewrites change shas, so subjects are the
+  # stable identity. Measured: two lanes lost a fix to a silent discard this way and only a human
+  # diff found it — no content gate notices a semantically-dropped commit while the tree parses.
+  OWN=$(git rev-list --no-merges "$MAIN..HEAD" 2>/dev/null | while read -r c; do git log -1 --format=%s "$c"; done)
   # CHANGES.md is generated and conflicts on every rebase (main + branch both added rows). Resolve it by
   # taking main's table wholesale and continuing; the final make changes-index regenerates from fragments,
   # so no row is lost or hand-merged.
@@ -61,6 +66,17 @@ for spec in "$@"; do
     fi
   fi
   make changes-index >/dev/null 2>&1
+  # Verify no own commit was dropped by the rebase: every subject we set out to lose-not is still
+  # in the new history. A squashed-away or skipped commit shows as a missing subject and refuses
+  # the push, instead of pushing a branch that quietly lost work.
+  GOT=$(git log --format=%s "$(git rev-parse --short HEAD)" 2>/dev/null | sort -u)
+  LOST=$(printf '%s\n' "$OWN" | while read -r s; do
+    [ -n "$s" ] && ! printf '%s\n' "$GOT" | grep -Fxq "$s" && printf '%s\n' "$s"; done)
+  if [ -n "$LOST" ]; then
+    echo "  COMMIT LOST during rebase — not pushing:"
+    printf '      %s\n' $LOST | sed 's/^/    /'
+    cd "$P"; continue
+  fi
   if [ -n "$(git status --porcelain)" ]; then
     git add -A
     git -c user.name='Andy Holst' -c user.email='andy.holst@protonmail.com' commit -q --amend --no-edit

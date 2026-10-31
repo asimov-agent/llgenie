@@ -41,6 +41,13 @@ for spec in "$@"; do
   echo "  worktree: $WT (left in place — never removed by this script)"
   cd "$WT" || continue
   OK=1
+  # Commit preservation: a cherry-pick that silently skips or drops one of this PR's own commits
+  # (a rebase-resolution error) is invisible to every content gate — the tree parses, the tests
+  # pass, one semantic change is just gone. Record the subjects of the commits we MEANT to replay
+  # (the cherry-pick rewrites shas, so subjects are the stable identity), then assert after the
+  # loop that each still exists in the replayed history. Measured: two lanes lost a fix to a
+  # silent discard this way and only a human diff found it.
+  WANTED=$(printf '%s\n' $PLUS | while read -r c; do git log -1 --format=%s "$c"; done)
   for c in $PLUS; do
     git cherry-pick "$c" >/dev/null 2>&1 && continue
     echo "  conflict at $(echo "$c" | cut -c1-8): $(git diff --name-only --diff-filter=U | tr '\n' ' ')"
@@ -68,6 +75,17 @@ for spec in "$@"; do
     GIT_EDITOR=true git cherry-pick --continue >/dev/null 2>&1 || { echo "  continue failed — aborting"; OK=0; break; }
   done
   [ "$OK" = 0 ] && { git cherry-pick --abort 2>/dev/null; cd "$P"; continue; }
+  # Verify no replayed commit was dropped: every subject we set out to replay must be in the new
+  # history. `git log --format=%s` is order-insensitive set comparison, so a squashing or a skip
+  # shows as a missing subject and refuses the push.
+  GOT=$(git log --format=%s "$(git rev-parse --short HEAD)" 2>/dev/null | sort -u)
+  LOST=$(printf '%s\n' "$WANTED" | while read -r s; do
+    [ -n "$s" ] && ! printf '%s\n' "$GOT" | grep -Fxq "$s" && printf '%s\n' "$s"; done)
+  if [ -n "$LOST" ]; then
+    echo "  COMMIT LOST during replay — not pushing:"
+    printf '      %s\n' "$LOST" | sed 's/^/    /'
+    cd "$P"; continue
+  fi
   make changes-index >/dev/null 2>&1
   if [ -n "$(git status --porcelain)" ]; then
     git add -A; git -c user.name='Andy Holst' -c user.email='andy.holst@protonmail.com' commit -q --amend --no-edit

@@ -513,3 +513,19 @@ def test_no_replay_script_resolves_a_conflict_by_silently_choosing_a_side():
         # the refusal path for the resolver, if the script does replay
         if "cherry-pick" in src:
             assert "REFUSING" in src, f"{f} has no refusal when the resolver cannot union a file"
+
+
+def test_the_rebase_drivers_verify_commit_preservation():
+    """A rebase that silently drops one of the branch's own commits must refuse the push.
+
+    Measured: two lanes lost a fix to a silent discard this way and only a HUMAN diff found it --
+    the tree parses, the tests pass, one semantic change is just gone, so no content gate notices.
+    The drivers capture the branch's own commit subjects before the replay and assert each is still
+    in the history afterwards (rewrites change shas, so subjects are the stable identity). A check
+    that is never wired to stop the push is a ritual, so assert the refusal message is reachable.
+    """
+    for f in ("stack-replay.sh", "batch-rebase.sh"):
+        src = (SCRIPTS / f).read_text()
+        assert "OWN=" in src or "WANTED=" in src, f"{f} does not capture the pre-rebase own commits"
+        assert "COMMIT LOST" in src, f"{f} has no preservation refusal when a commit is dropped"
+        assert "grep -Fxq" in src, f"{f} compares subjects, not shas (rewrites change shas)"
