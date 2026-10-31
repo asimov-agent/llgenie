@@ -208,5 +208,22 @@ if [ -f scripts/check_pr_authors.py ]; then
   rm -f /tmp/_auth.$$
 fi
 
+# 13. Import-roots ratchet. CI runs `check import-roots` and reds when a NEW file carries its own
+# sys.path entry or imports a scripts module bare -- the exact regression measured on #919, where a
+# rebase brought in a branch file written before the gate landed. Nothing else here would notice.
+# Two subcommands exist and the naming trap is real: `check` is a raw SHAPE scan that returns 1 on
+# ANY vestige (main still has ~104 grandfathered roots, so `check` reds a clean tree by design);
+# `ratchet` compares the COUNT to the baseline and fails only when it ROSE -- that is what CI runs
+# and what this assertion must use. Sat on the conftest seam (no per-file roots) whenever the
+# baseline fixture exists.
+if [ -f scripts/check_import_roots.py ] && [ -f tests/fixtures/import-roots-baseline.json ]; then
+  if python3 scripts/check_import_roots.py ratchet >/tmp/_ir.$$ 2>&1; then
+    ok "import-roots ratchet"
+  else
+    bad "import-roots ratchet"; tail -4 /tmp/_ir.$$ | sed 's/^/     /'
+  fi
+  rm -f /tmp/_ir.$$
+fi
+
 echo
 if [ "$fail" = "0" ]; then echo "SAFE TO PUSH"; exit 0; else echo "DO NOT PUSH — see FAIL lines above"; exit 1; fi

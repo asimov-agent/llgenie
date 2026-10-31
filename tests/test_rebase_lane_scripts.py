@@ -470,3 +470,22 @@ def test_loading_the_shipped_scripts_leaves_no_bytecode_in_the_tree():
     assert not strays, (
         "loading a shipped script wrote bytecode into the tree, which sync-agent-profile then "
         "copies into the live profile: " + ", ".join(strays[:3]))
+
+
+def test_the_pre_push_gate_runs_ratchet_not_check_for_import_roots():
+    """The gate must use the `ratchet` subcommand, never `check`.
+
+    Measured: on a pristine clean main, `check` returns rc=1 (84 grandfathered root findings)
+    while `ratchet` returns rc=0 -- because `check` is a raw shape scan and `ratchet` compares the
+    COUNT to the baseline. CI runs `ratchet`. If this gate used `check` it would DO NOT PUSH on
+    every clean tree, teaching the reader to disarm it. Pinned here because the one-line change
+    `check` -> `ratchet` (or back) reds exactly this behaviour and there is no cheaper assertion:
+    asserting the exit code would require a full tree with fixtures.
+    """
+    v = (SCRIPTS / "post-rebase-verify.sh").read_text()
+    assert "ratchet" in v, "the pre-push gate must invoke the import-roots RATCHET (the CI path)"
+    # The subcommand must be used, not merely mentioned: a comment saying 'use ratchet' with the
+    # code calling `check` is exactly the foot-gun in check_import_roots.py:18.
+    call_line = [l for l in v.splitlines() if "check_import_roots.py" in l and "ratchet" in l]
+    assert call_line, "the gate must CALL check_import_roots.py ratchet:\n" + \
+        "\n".join(l for l in v.splitlines() if "check_import_roots" in l)
