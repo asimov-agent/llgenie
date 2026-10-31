@@ -6,10 +6,11 @@ green; the owner of that PR had to cancel the run and re-run one job, because a 
 cannot be `gh run rerun --job`'d. The cancellations that follow are how a green matrix loses its verdict —
 exactly the failure #846's healer exists to undo.
 
-The ceiling is a hang detector, not a budget: `unit` measures minutes on `ubuntu-latest` and gets 60,
-while `install` legitimately pulls large images and gets 120. The bound asserted here is wide on purpose —
-it catches "no timeout at all" and absurd values, and leaves the per-job number a judgement call that a
-reviewer can see in the diff.
+The ceiling is a hang detector, not a budget: `unit` was raised 60→120 minutes on issue #1174 when the
+hermetic suite proved to be a >1 h working set (the 60-min cap was cancelling otherwise-green runs),
+while `install` keeps 120 for legitimate large-image pulls. The bound asserted here is wide on
+purpose — it catches "no timeout at all" and absurd values, and leaves the per-job number a judgement
+call that a reviewer can see in the diff.
 """
 
 from __future__ import annotations
@@ -65,14 +66,21 @@ def test_every_timeout_is_a_hang_ceiling_and_not_a_budget():
                               f"{out_of_range}")
 
 
-def test_the_unit_gate_has_the_tightest_ceiling_of_the_long_jobs():
-    """`unit` is the gate every PR needs, so its hang is the most expensive one to hide."""
+def test_the_unit_gate_has_a_tight_ceiling_and_never_one_tighter_than_param_check():
+    """`unit` is the gate every PR needs, so its hang is the most expensive one to hide — but the
+    ceiling must be a hang detector, not a budget. #1174 raised it 60→120 minutes (issue #1139 and
+    #1173: the hermetic suite is a >1 h working set, and cancelling a green unit at the 1 h cap
+    destroyed the verdict on four PRs in #1146). 120 minutes is the same class as the image-pulling
+    `install` job — both below the 360-minute default that hides a hang for six hours — and it is
+    never allowed to EXCEED install, on the model that a param-check/image path needs no less time
+    than the unit bar."""
 
     jobs = _jobs(PIPELINE)
 
-    assert int(jobs["unit"]["timeout-minutes"]) <= 60, jobs["unit"]
-    # and it is never *tighter* than the long install path, which legitimately pulls images
-    assert int(jobs["unit"]["timeout-minutes"]) < int(jobs["install"]["timeout-minutes"]), (
+    assert int(jobs["unit"]["timeout-minutes"]) <= 120, jobs["unit"]
+    # Set the same-class ceiling as the long install path, which legitimately pulls images, at the
+    # newest; it must never be *given more* than install (a caller ceiling is illegal, #846).
+    assert int(jobs["unit"]["timeout-minutes"]) <= int(jobs["install"]["timeout-minutes"]), (
         "the unit suite should not be given a longer ceiling than install")
 
 

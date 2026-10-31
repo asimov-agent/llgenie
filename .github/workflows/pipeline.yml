@@ -75,7 +75,10 @@ jobs:
 
   # unit: hermetic unit tests + registry/skill/param checks
   unit:
-    timeout-minutes: 60   # measured minutes on ubuntu-latest; 60 catches a hang that the 360-min default hides
+    timeout-minutes: 120   # a hang ceiling, not a budget: the hermetic suite needs >1 h on ubuntu-latest
+                           # (measured 60 m is a real working set since #1173 routed live HF calls out);
+                           # 120 min is the same class as the install job below, catching a hang a
+                           # 360-min default would hide
     runs-on: ${{ inputs.runner }}
     continue-on-error: false
     permissions:
