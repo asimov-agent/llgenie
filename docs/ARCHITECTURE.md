@@ -156,7 +156,7 @@ picks which start script or image to run.
 
 ## Repository layout
 
-The tree is 2009 tracked files: `data/` 9, `skills/` 17 (16 engine directories plus their
+The tree is 2010 tracked files: `data/` 10, `skills/` 17 (16 engine directories plus their
 `README.md`), `containers/` 57, `tests/` 203, `scripts/` 121, `openspec/` 1038, `agent-wiki/`
 246 and `docs/` 253. (measured at `564e938`)
 

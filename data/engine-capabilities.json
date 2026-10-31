@@ -1,0 +1,133 @@
+{
+  "note": "The canonical, docs-cited per-engine capacity table (issue #1214). One entry per shipped servable engine. `archs` = the backends the engine's upstream documentation/releases actually support (a SUPERSET accepted: a skill backend or a params variant must be a subset of it). `formats` = the model/llm formats the engine reads (a skill `formats:` must be a subset). `ternary` = true ONLY when the engine can serve the low-bit ternary GGUF tensor types (`GGML_TYPE_PQ2_0`=142 / `PTQ1_0`=143) — a file of that tensor type must route ONLY to a ternary:true engine, never hang a stock llama.cpp. Each row is a fact read from the upstream repository's own README/releases, not the registry's one-line auto-registration note. When the sync lands a NEW engine or NEW arch/format, add the entry (docs-cited) HERE first — the check reds until it matches.",
+  "engines": {
+    "llama.cpp": {
+      "reg_name": "llama.cpp",
+      "repo": "https://github.com/ggml-org/llama.cpp",
+      "archs": ["cuda", "rocm", "vulkan", "metal", "cpu"],
+      "formats": ["gguf"],
+      "ternary": false,
+      "cite": "SKILL.md: quants lacks PQ2_0/PTQ1_0; docs/ENGINES.md ':100 use llama.cpp-prism for those'"
+    },
+    "llama.cpp-prism": {
+      "reg_name": "llama.cpp (PrismML fork)",
+      "repo": "https://github.com/PrismML-Eng/llama.cpp",
+      "archs": ["cuda", "rocm", "vulkan", "metal", "cpu"],
+      "formats": ["gguf", "gguf-ternary"],
+      "ternary": true,
+      "cite": "SKILL.md: quants lists PQ2_0/PTQ1_0/TQ1_0/TQ2_0 + description 'required for Ternary Bonsai PQ2_0/PTQ1_0 GGUFs'; docs/ENGINES.md ':47 superset loads PTQ1_0/PQ2_0/TQ1_0/TQ2_0'"
+    },
+    "llama.cpp-laurentzuijdwijk": {
+      "reg_name": "llama.cpp (LaurentZuijdwijk fork)",
+      "repo": "https://github.com/agentionai/llama.cpp",
+      "archs": ["cuda", "rocm", "vulkan", "cpu"],
+      "formats": ["gguf"],
+      "ternary": false,
+      "cite": "SKILL.md: quants lacks PQ2_0/PTQ1_0; backends vulkan/rocm/cuda/cpu"
+    },
+    "ollama": {
+      "reg_name": "Ollama",
+      "repo": "https://github.com/ollama/ollama",
+      "archs": ["cuda", "rocm", "vulkan", "metal", "cpu"],
+      "formats": ["gguf"],
+      "ternary": false,
+      "cite": "SKILL.md backends+formats"
+    },
+    "vllm": {
+      "reg_name": "vLLM",
+      "repo": "https://github.com/vllm-project/vllm",
+      "archs": ["cuda", "rocm", "cpu"],
+      "formats": ["safetensors", "awq", "gptq", "fp8", "gguf"],
+      "ternary": false,
+      "cite": "SKILL.md backends+formats"
+    },
+    "sglang": {
+      "reg_name": "SGLang",
+      "repo": "https://github.com/sgl-project/sglang",
+      "archs": ["cuda", "rocm"],
+      "formats": ["safetensors", "awq", "gptq", "fp8", "gguf"],
+      "ternary": false,
+      "cite": "SKILL.md backends+formats"
+    },
+    "tensorrt-llm": {
+      "reg_name": "TensorRT-LLM",
+      "repo": "https://github.com/NVIDIA/TensorRT-LLM",
+      "archs": ["cuda"],
+      "formats": ["safetensors", "trtllm-engine", "fp8", "nvfp4", "awq", "gptq"],
+      "ternary": false,
+      "cite": "SKILL.md backends+formats"
+    },
+    "freetoken": {
+      "reg_name": "FreeToken",
+      "repo": "https://github.com/FlashML-org/FreeToken",
+      "archs": ["cuda", "rocm"],
+      "formats": ["safetensors", "ftw", "gguf"],
+      "ternary": false,
+      "cite": "SKILL.md backends+formats"
+    },
+    "strata": {
+      "reg_name": "Strata",
+      "repo": "https://github.com/Niko1221/Strata",
+      "archs": ["cuda", "rocm"],
+      "formats": ["gguf", "strata-pack"],
+      "ternary": false,
+      "cite": "SKILL.md backends+formats"
+    },
+    "mlx": {
+      "reg_name": "MLX",
+      "repo": "https://github.com/ml-explore/mlx-lm",
+      "archs": ["metal", "cuda", "cpu"],
+      "formats": ["mlx-safetensors"],
+      "ternary": false,
+      "cite": "SKILL.md backends+formats"
+    },
+    "litert": {
+      "reg_name": "LiteRT",
+      "repo": "https://github.com/google-ai-edge/LiteRT-LM",
+      "archs": ["cpu", "metal"],
+      "formats": ["litertlm"],
+      "ternary": false,
+      "cite": "SKILL.md backends+formats"
+    },
+    "tensorfold": {
+      "reg_name": "TensorFold",
+      "repo": "https://github.com/ashhart/TensorFold",
+      "archs": ["cuda", "metal"],
+      "formats": ["mlx-safetensors", "nvfp4", "fp8", "exl3"],
+      "ternary": false,
+      "cite": "SKILL.md backends+formats"
+    },
+    "exllamav3-rocm": {
+      "reg_name": "ExLlamaV3 (ROCm fork)",
+      "repo": "https://github.com/CarouselAether/rocm_exl3",
+      "archs": ["rocm"],
+      "formats": ["exl3", "safetensors"],
+      "ternary": false,
+      "cite": "SKILL.md backends+formats"
+    },
+    "dflash2": {
+      "reg_name": "DFlash2",
+      "repo": "https://github.com/z-lab/dflash",
+      "archs": ["cuda"],
+      "formats": ["safetensors"],
+      "ternary": false,
+      "cite": "SKILL.md backends+formats; servable: via (sglang drafter)"
+    },
+    "mlx-fast-bonsai2": {
+      "reg_name": "MLX-fast (Bonsai 2)",
+      "repo": "https://github.com/Layr-Labs/mlxfast-bonsai2-27b-engine",
+      "archs": ["metal"],
+      "formats": ["mlx-safetensors"],
+      "ternary": false,
+      "cite": "SKILL.md: Swift/Metal benchmark harness, servable: via (rides mlx/tensorfold), not an image; quasi-low-bit Bonsai 2 via mlx/tensorfold"
+    },
+    "webllm": {
+      "reg_name": "WebLLM",
+      "repo": "https://github.com/mlc-ai/web-llm",
+      "archs": [],
+      "formats": ["mlc"],
+      "ternary": false,
+      "cite": "SKILL.md: browser-only, servable: false, no linux image"
+    }
+  }
+}

@@ -83,7 +83,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	security-bumps security-bumps-plan check-security-bumps \
 	agent-shell-keys-check \
 	agent-fetch search-smoke require-env web-coverage issue-evidence \
-	engine-bump-rebase generate-engine-params check-engine-params check-engine-coverage engine-coverage-report check-engine-source engine-source-report check-engine-launchers engine-launchers-report check-model-links model-links-report build-engine run-engine stop-engine list-engine-images engine-build-matrix ci-lint ci-unit ci-agents-read \
+	engine-bump-rebase generate-engine-params check-engine-params check-engine-coverage engine-coverage-report check-engine-source engine-source-report check-engine-capabilities engine-capabilities-report check-engine-launchers engine-launchers-report check-model-links model-links-report build-engine run-engine stop-engine list-engine-images engine-build-matrix ci-lint ci-unit ci-agents-read \
 	ci-openspec ci-cpu-health ci-top-tier ci-install ci-install-dry-args ci-free-disk ci-slow-rows ci-scope test-engine-stage bot-sync-main bot-sync-branch ci-wait-engine-images \
 	ci-install-dry ci-install-run ci-install-uninstall test-env test-top-tier test-top-tier-ci test-top-tier-cli-ci test-top-tier-serve test-top-tier-serve-ci \
 	check-agent-model model-pin-report check-agent-skills agent-skills-report test-agent-skills-live hermes-skills-register \
@@ -1203,6 +1203,10 @@ engine-coverage-report: ## Print every shipped engine and whether CI builds it, 
 	python3 scripts/engine_coverage.py report
 check-engine-source: ## CI: fail if a cell claims a source build (prebuilt=false) but its install steps only download a wheel/archive
 	python3 scripts/engine_source_guard.py check
+check-engine-capabilities: ## CI: every engine→arch and engine→format claim in the tree (skill backends/formats, params variants, ternary tensor routing) is a docs-cited subset of data/engine-capabilities.json (issue #1214)
+	python3 scripts/check_engine_capabilities.py check
+engine-capabilities-report: ## Print the docs-cited engine capacity census (data/engine-capabilities.json) and every mismatch, never fails
+	python3 scripts/check_engine_capabilities.py report
 engine-source-report: ## Print the source-vs-prebuilt census of every engine x arch cell, and every tracked exception
 	python3 scripts/engine_source_guard.py report
 check-engine-launchers: ## CI: fail when a ~/bin/llgenie-engine-* launcher names a different image tag than the committed params compute (a stale launcher silently runs an older pinned engine; issue #842; CHECK_REGISTRY=1 also fails a tag no manifest resolves)
@@ -1692,6 +1696,7 @@ ci-unit: bash-check ## CI job unit: hermetic unit tests + registry / skill / Str
 	$(MAKE) check-engine-params
 	$(MAKE) check-engine-coverage
 	$(MAKE) check-engine-source
+	$(MAKE) check-engine-capabilities
 	$(MAKE) check-engine-launchers
 	$(MAKE) check-model-links
 	$(MAKE) check-wiring

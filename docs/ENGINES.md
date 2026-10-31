@@ -308,6 +308,8 @@ make check-engine-params             # CI: fail if the committed params are stal
 make check-engine-coverage           # CI: fail if a shipped servable engine has no buildable CI cell (disabled / no linux / no params) and no recorded exception
 make engine-coverage-report          # the census: every shipped engine -> built | not-an-image | unbuilt (with its #103 reason)
 make check-engine-source             # CI: fail if a cell says prebuilt=false but its install steps only download a wheel/archive
+make check-engine-capabilities       # CI: every engine→arch and engine→format claim (skill backends/formats, params variants, ternary routing) is a docs-cited subset of data/engine-capabilities.json (issue #1214)
+make engine-capabilities-report      # the census: each engine -> its docs-cited archs + formats (+ TERNARY) and every mismatch
 make check-model-links              # CI: every committed model/GGUF link a test depends on resolves (static, hermetic; LIVE=1 probes the real Hub via tests/hub_probe, the ONE liveness authority, issue #1000)
 make model-links-report              # print those links and their callers (issue #1000)
 make engine-source-report            # the census: source-built vs prebuilt cells, and every tracked exception
