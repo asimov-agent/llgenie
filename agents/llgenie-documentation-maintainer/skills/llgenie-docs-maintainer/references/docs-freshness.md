@@ -24,6 +24,36 @@ Checklist, per merge:
 3. Is the description still truthful at the new head? (`make check-docs` exit 0; re-read the sentence)
 4. Gap → fix the doc in the same pass; no gap → record "checked <sha>, no gap" and move on.
 
+## When the monitor finds a RED gate on `main`
+
+A merge whose gate is red on a **pure `origin/main`** tree is a repo-wide blocker, not your diff's
+problem: a census pointer that no longer resolves reds `check-docs` on every branch and blocks the
+`scope` job of every open PR. Notice it before the fleet does, and classify it with one command —
+`git cat-file -e <pointer>^{commit}`:
+
+- exits non-zero ("Not a valid object name"): the pointer is a **sha that was never a commit** — a PR
+  hand-edited the census line instead of taking the generator's output. This is the usual cause of a
+  red `check-docs` on `main`.
+- resolves, but `git merge-base --is-ancestor <pointer> HEAD` is false: a **real commit the branch
+  does not contain** (a squash-orphaned pointer); a plain refresh fixes it.
+
+Fix shape (docs-only, this lane):
+1. File the issue with the measured red — the `[census-gate]` lines from `make -s check-docs` on a
+   scratch pure-main worktree, plus the `cat-file` result. A red gate on `main` is an issue with
+   numbers, never a chat narrative.
+2. Re-point the doc at a real ancestor and set **every** count from the gate's own measure output
+   (`python3 scripts/check_architecture_census.py measure <sha>`) — never hand-typed, never a
+   hand-picked sha. The gate measures the claim tokens at the doc's pointer, so the pointer and the
+   counts must come from the same commit.
+3. Prove green in both states the gate sees: `make -s check-docs` on the fix head **and** on a
+   merge-tree of the fix onto `origin/main` (`git worktree add /tmp/mt origin/main`, merge, run the
+   gate, remove the worktree). Green on the head alone is the weaker measurement.
+4. Leave the durable generator fix as its own issue — the re-point is a short-term unblock, not a fix
+   for the script that let a fabricated sha reach the doc.
+
+Re-fetch `main` in the moment you cut the fix worktree, and write the base sha into the issue's start
+comment; do not fix against a `main` read minutes earlier.
+
 ## Never a private profile edit
 
 Any refinement to HOW this lane does documentation (a new checklist, a new gate, a new cadence) is
