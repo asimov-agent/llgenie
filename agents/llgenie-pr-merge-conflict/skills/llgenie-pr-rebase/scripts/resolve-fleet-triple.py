@@ -56,6 +56,13 @@ def union_exemptions(repo: pathlib.Path) -> None:
 
 
 def main() -> int:
+    if len(sys.argv) < 2:
+        sys.stderr.write(
+            "usage: resolve-fleet-triple.py <repo>\n"
+            "  Resolves the standing-rules.md / fleet-block-exemptions.json / SOUL.md triple that a\n"
+            "  stacked branch collides with once a rule lands: canonical file wins, exemptions union\n"
+            "  by profile, fleet section regenerated. Run it in a worktree with conflicts staged.\n")
+        return 2
     repo = pathlib.Path(sys.argv[1])
     conflicted = sh("git", "diff", "--name-only", "--diff-filter=U").split()
     print(f"  conflicted: {' '.join(conflicted)}")

@@ -193,3 +193,41 @@ def test_the_revert_detector_catches_a_revert_and_clears_a_restored_tree():
     # script itself, so this line is the evidence that it reached the verdict.
     assert "PASS: detector catches a deletion AND a reverted modification" in r.stdout, \
         r.stdout[-800:]
+
+
+def test_every_python_script_is_executable_and_prints_usage_without_args():
+    """The documented invocation must work, and a missing argument must not traceback.
+
+    Measured: SKILL.md tells a reader to run `scripts/resolve-phony-union.py <Makefile>`, but the
+    four `.py` scripts shipped mode 100644 -- so the documented form failed with
+    `Permission denied` on every machine. Two of them then crashed with a raw traceback when
+    invoked without an argument (one read sys.argv[1] at import time). Both are silent to CI:
+    nothing executes a skill script, so the only reader who discovers it is the one in a hurry.
+    """
+    for p in _python_scripts():
+        assert os.access(p, os.X_OK), f"{p.name} is not executable — the documented form fails"
+        r = subprocess.run([str(p)], capture_output=True, text=True, timeout=120)
+        combined = r.stdout + r.stderr
+        # No skill script may ever surface a raw traceback to a reader.
+        assert "Traceback" not in combined, (
+            f"{p.name} raises a traceback with no arguments:\n{combined[-400:]}")
+        # A script that REQUIRES an argument (it reads sys.argv[1]) must say so, not guess.
+        # The audit tools legitimately take none -- they measure the repo they resolve -- so
+        # requiring "usage" of every script would red a correct implementation.
+        if "sys.argv[1]" in p.read_text():
+            assert "usage" in combined.lower(), (
+                f"{p.name} reads sys.argv[1] but prints no usage line when invoked without it:\n"
+                f"{combined[:300]}")
+
+
+def test_the_fleet_splice_does_not_depend_on_a_scratch_path():
+    """A shipped script must not read its canonical input from /tmp.
+
+    Measured: `splice-fleet-block.py` pinned `ISSUE = /tmp/873.md`, a scratch file that exists on
+    one machine until the next reboot, so the script failed for every reader but its author. It
+    now resolves $REBASE_STANDING_RULES, then the versioned reference, then that legacy path.
+    """
+    src = (SCRIPTS / "splice-fleet-block.py").read_text()
+    assert "REBASE_STANDING_RULES" in src, "the rules source must be overridable"
+    assert "references" in src and "standing-rules.md" in src, \
+        "it must prefer the versioned reference beside the SKILL"

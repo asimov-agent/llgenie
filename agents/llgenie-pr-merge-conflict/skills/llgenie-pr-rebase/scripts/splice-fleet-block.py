@@ -5,11 +5,32 @@ Punctuation is load-bearing: rules 13/14/15 have no period inside the bold, rule
 "fixes" that fails `block in soul` on punctuation alone (#972). So the block is extracted verbatim from the
 issue body and asserted present afterwards, rather than rewritten by hand.
 """
+import os
 import pathlib
 import re
 import sys
 
-ISSUE = pathlib.Path("/tmp/873.md")
+# The standing-rules source. Historically pinned to a /tmp scratch file, which does not exist on
+# any other machine or after a reboot -- so the script failed for every reader but its author.
+# Resolve it: $REBASE_STANDING_RULES, else the versioned reference beside the SKILL, else the
+# historical scratch path.
+def _standing_rules() -> pathlib.Path:
+    env = os.environ.get("REBASE_STANDING_RULES")
+    if env:
+        return pathlib.Path(env)
+    here = pathlib.Path(__file__).resolve().parent.parent / "references" / "standing-rules.md"
+    if here.is_file():
+        return here
+    return pathlib.Path("/tmp/873.md")
+
+
+ISSUE = _standing_rules()
+if len(sys.argv) < 2:
+    sys.stderr.write(
+        "usage: splice-fleet-block.py <SOUL.md>...\n"
+        "  Regenerates the fleet standing-rules block in each given file from the canonical\n"
+        "  rules. Override the rules source with $REBASE_STANDING_RULES.\n")
+    raise SystemExit(2)
 SOUL = pathlib.Path(sys.argv[1])
 
 
