@@ -1,7 +1,7 @@
 ---
 name: llgenie-docs-maintainer
 description: "Use when auditing, filing or landing LLGenie docs changes."
-version: 1.0.3
+version: 1.0.7
 author: Hermes Agent
 license: MIT
 metadata:
@@ -103,6 +103,11 @@ Concretely, treat this as part of comparing the behaviour of existing issues and
   lane's behaviour outran the repo — commit it via an issue+PR under `agents/<profile>/`.
 - **Never run `sync-agent-profile` in write mode for a lane whose live is richer** — it truncates and no
   gate notices (#791). `CHECK=1` only.
+- **Re-copy live→tree at PR time, not when you cut the branch.** A versioning PR stays open while the
+  lane keeps editing its live skill, so a tree copy committed early is already stale by merge (live
+  gained lessons twice during one PR) and `sync-agent-profile CHECK=1` then reds on `main` against
+  the newer live. Re-run the live→tree copy and `CHECK=1` at the final head before pushing/landing;
+  if a held branch's snapshot is behind, re-copy — do not ship the stale snapshot.
 - A gap found while reviewing someone else's PR is a **new issue**, scoped to the owning lane; the docs
   lane writes the fix only under explicit dispatch (name the delegation in the PR body — e.g. #1062 to
   the planner, #885 to the rebase lane).
@@ -241,6 +246,17 @@ fragments by `make changes-index` (`scripts/changes_index.py`). Rules that follo
   `make changes-index-report` prints how far behind it is; the docs lane refreshes it.
 - Keep the gate falsifiable in both directions: note with no row → red, row whose note is gone →
   red, malformed row → red. Deriving rows purely from note frontmatter loses the dangling case.
+- **A rule is only enforced where a gate checks BOTH directions — a one-directional gate is the
+  blind spot.** The change-record rule was gated note→fragment (a note must have a row) but never
+  change→note, so a behavioural change with no `agent-wiki/` note merged green (measured: roughly a
+  third of recent merged PRs touching `scripts/`, `agents/` or `docs/` carried no note). When you
+  add or review a gate, name the direction it is silent on and close it: a change owes a note when
+  it touches a behavioural surface (`scripts/**`, `agents/*/SOUL.md`, `agents/*/skills/**`,
+  `agents/manifest.json`, `docs/**/*.md`, `.github/workflows/**`, `Makefile`, `data/**`,
+  `containers/**`, `openspec/**`), while `tests/**`, `agent-wiki/**`, `docs/changes.d/**` and
+  `CHANGES.md` are exempt. Assert the surface set **additively** — a behaviour/subset check, never a
+  pinned file list — or the gate reds on the next legitimate surface and gets edited to match the
+  code. Prove both lines: a no-note behavioural change fails, an exempt change passes.
 - Prove the property structurally, not by assertion: two scratch branches each adding a note +
   fragment, then `git merge-tree --write-tree a b` must print a single tree sha and no conflicted
   path.
@@ -287,7 +303,35 @@ fragments by `make changes-index` (`scripts/changes_index.py`). Rules that follo
   `gh api repos/<repo>/actions/runs/<id> --jq '{attempt:.run_attempt,status,conclusion}'` and
   `gh api "repos/<repo>/actions/runs?head_sha=<sha>"`. One run and no new head means nothing
   superseded it, so recover with `gh run rerun <id>` at the **same** head. Never push an empty commit
-  to manufacture a fresh run: it moves the head and voids a grant pinned to a sha.
+  to manufacture a fresh run: it moves the head and voids a grant pinned to a sha. **A cancelled
+  upstream job also makes the downstream jobs `skipped`, and `skipped` is not a pass:** a cancelled
+  `scope`/gateway step means the matrix never received its job list, so `linux/unit: skipped` proves
+  nothing ran — count  the `success` jobs and confirm the specific gate has a real conclusion before
+  calling a head green, and never report `failed=0` as "verified" while checks are `skipped`/`cancelled`.
+  **A duplicate run at the same head is the other face of this:** `gh pr checks` renders a job from
+  *any* run at that sha, so a `cancelled` duplicate can read as `fail` while a sibling run at the
+  SAME head is `success`. Run `gh run list --branch <b> --json databaseId,headSha,status,conclusion`;
+  if a sibling at the head is `success` and the reported job is `cancelled`, `gh run rerun
+  <cancelled-run-id>` at that same head — **never push** — then confirm the gate has a real
+  conclusion in a completed run before calling it green or red.
+- **`closingIssuesReferences` is eventually-consistent — a `none` right after a PR is created is not evidence the `Closes #<n>` keyword failed.** The field is populated asynchronously, so `gh pr view --json closingIssuesReferences` returns empty for minutes after creation; do **not** edit the body in response. Re-read later, or confirm the link from the body text and the issue's own timeline. A positive is proof; a negative is only "not yet, or genuinely absent".
+- **A local full `make test-unit` pass is evidence, not the CI verdict.** CI runs with a clean HOME where live-vs-tree profile comparison is skipped, so a test that reads the host profile can pass locally for a different reason than CI runs it (or vice versa). Report a local suite as evidence — its exit code and the head sha — and still wait for the CI job's own conclusion before calling a head green; the two can disagree, and the CI one is the one that gates.
+- **Your own versioned `SKILL.md`/`SOUL.md` is scanned by the suite — a retired symbol in it reds CI,
+  and it is the file you least expect.** A live skill that still names the retired underscore module/CLI
+  that `scripts/module_name_guard.py` forbids (the pre-rename spelling replaced by `llgenie_serve`) fails
+  `test_rename_llgenie_serve` and spends a full ~1 h matrix — and the lesson's own text must not spell
+  the token it warns about, or it trips the very guard it describes. Before pushing a SOUL/skill sync,
+  grep the versioned copy for every retired identifier (`grep -rn '<old-name>' agents/<profile>/`, using
+  the placeholder rather than the literal) and run the one targeted test that names the class
+  (`python -m pytest tests/test_rename_llgenie_serve.py -q`) — seconds versus a matrix. Doubly
+  self-referential: the lane whose job is tree==live shipped a tree that reds the suite.
+- **When the head is stale or wrong and you cannot push yet (a run is `in_progress`), DISARM
+  auto-merge so an approval cannot land it; re-arm on the corrected head.** A PR can be armed and
+  `REVIEW_REQUIRED` at once; if its tree went stale (live moved) or red while you wait for the run to
+  conclude, an owner approval plus a green check would merge the stale or wrong tree. `gh pr merge <n>
+  --disable-auto`, fix and rebase on the corrected head, push once it is safe, then `gh pr merge <n>
+  --squash --auto` and read `autoMergeRequest` back. A fleet automation sweep can re-arm a disarmed PR,
+  so re-read `autoMergeRequest` after disarming and re-disarm if a tick put it back.
 - **`.status` on a run lags its jobs; read the jobs, not the run.** A run answers `queued` for many
   minutes while its jobs are plainly `in_progress`, and a `queued` run with twenty completed jobs
   means only lag. Poll `gh run view <id> --json jobs` and count `done/total` plus every job whose
