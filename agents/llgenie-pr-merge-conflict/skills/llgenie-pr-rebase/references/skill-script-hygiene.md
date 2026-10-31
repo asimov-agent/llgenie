@@ -252,3 +252,94 @@ return "/home/<user>/repository/git/<repo>"   # documented fallback, not a silen
 Verify every branch of the resolution: no-arg resolves the worktree the script lives in, the env
 var overrides, and an explicit argument wins.
 
+## The OUTPUT is the contract, not the return value
+
+A code-generating helper is judged by whether its consumer accepts the result, never by whether it
+computed the right values. Measured: a `.PHONY` union resolver joined the keys correctly — it printed
+`3 key(s) kept, 1 added from the branch` — and emitted them as `"\t" + " ".join(keys) + " \\\n"`.
+The TAB made the line a **recipe** and the trailing backslash promised a next line that did not
+exist, so `make` refused the entire file:
+
+```
+Makefile:1: *** recipe commences before first target.  Stop.
+```
+
+A keys-only test passes on that. Nothing reads `.PHONY` for correctness and no gate compiles a
+Makefile, so the first thing to notice was the next `make` invocation.
+
+Assert with the consumer, not with an inspection of the value:
+
+```bash
+./scripts/<generator>.py Makefile && make -n -f Makefile >/dev/null   # must parse
+bash -n script.sh ; python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read())' f.py
+```
+
+The same class covers a generator that emits a stray marker, an unbalanced brace, or a line at the
+wrong indentation: **the union can be semantically right and the artifact still unusable.** When a
+generator writes a file the repo parses, make the generator itself refuse to write output that will
+not parse (check the invariant before `write_text`) so a future renderer bug fails loudly instead of
+shipping an unbuildable tree.
+
+## A regenerator must refuse to DROP what the target already has
+
+A tool that rewrites a section from a canonical source silently **downgrades** the file when the
+source is older than the target — the same failure as a `-X` strategy resolution, and it reports
+success while doing it. Measured: a fleet-block splicer read its source from a `/tmp` scratch copy two
+generations stale and replaced four standing rules with older wording, printing `block in soul: True`
+throughout.
+
+Compare before writing, on a signature that survives cosmetic edits (strip markdown emphasis and
+trailing punctuation, or rules 13/14/15 which carry no period and rule 16 which does will all read as
+changed):
+
+```python
+lost = [ln for sig, ln in existing_rules.items() if sig not in new_rules]
+if lost and not force:
+    sys.exit(f"REFUSING: source is older; would drop {len(lost)} rule(s): {lost[:3]}")
+```
+
+Three behaviours to verify, not two: canonical source → **byte-identical no-op**; stale source →
+**refusal, file untouched**; stale source with an explicit override → proceeds and says what it
+dropped. A tool that has no no-regression guard is worse than one that refuses, because the damage
+looks like a successful run.
+
+## Never make a tool delete to make room for itself
+
+A fixed scratch path forces the next run to destroy the previous one. Measured: two shipped scripts
+opened with `git worktree remove --force "$P/../llgenie-wt/b$N"` plus `git worktree prune` against a
+**fixed** path — delete-and-recreate — so a second run silently removed whatever a human had left
+there, and `prune` swept every stale entry in the repository as a side effect. Both commands were
+owner-only by this lane's own rule, so the rule was invisible to anyone who ran the script.
+
+Give the path a per-run stamp and never remove anything:
+
+```bash
+STAMP=$(date +%Y%m%d-%H%M%S)-$$
+WT="$P/../llgenie-wt/b$N-$STAMP"
+git worktree add -B "b$N-$STAMP" "$WT" "$REF"
+echo "  worktree: $WT (left in place — never removed by this script)"
+```
+
+Leftovers accumulate and are the owner's to prune. Assert both properties together — no executable
+`worktree remove|prune` **and** the path assignment carries the stamp — because a script that keeps a
+fixed path regrows the deletion. Assert on the **path line**, not on the file as a whole: a whole-file
+search for `$STAMP` passed while the `WT=` assignment was still fixed, so the control did not bite.
+
+## An assertion that cannot fail is indistinguishable from an absent one
+
+Before trusting a check, ask what its failing input looks like — and construct it. Three measured
+cases, all of which reported healthy:
+
+- a pre-push gate asserted eleven other things and **never ran `check_pr_authors`**, the one gate that
+  had already cost a full matrix; adding it needed a control that stubs a failing author check and
+  requires the gate to exit non-zero;
+- `out[-limit:]` with `limit == 0` is `out[0:]` — the whole list. A cap that returns everything at
+  zero is not a cap; guard it (`return out[-limit:] if limit > 0 else []`) and let the self-test pass
+  `limit=0`;
+- a path-uniqueness assertion searched the file for the stamp rather than the assignment that builds
+  the path, and passed on a fixed path.
+
+So: every guard gets one negative control that **must** red, run in the same session. A control whose
+first version does not bite is not a spare — it is a second defect. Two of this lane's controls were
+decorative on first write and only a run revealed it.
+
