@@ -544,12 +544,15 @@ issue-bot-dispatch: ## The issue-implementer's dispatcher: cap (3/day) -> pick o
 # to an append-only OUTBOX and fsyncs it BEFORE the state advances, then prints the pending lines and
 # acknowledges them. `NO_ACK=1` prints and acknowledges nothing — the exact shape of a delivery that
 # was lost — and the next run re-emits the same bytes from the outbox.
+# The recipes are prefixed with `@` on purpose: STDOUT IS THE DELIVERY. make echoes a recipe line to
+# stdout otherwise, so the receiver would get the command as its first "dispatch line" (measured: 54
+# stdout lines for 53 outbox records). The numbers go to stderr; stderr is not the payload.
 orchestrator-tick: ## The orchestrator tick's dispatch producer (issue #1125): measure -> append to the outbox BEFORE advancing state -> emit the pending lines, each stamped [measured HH:MM:SSZ]; a merged PR / closed issue is never emitted (REPO=; STATE=; OUTBOX=; NO_ACK=1 simulates a lost delivery; NOW= pins the clock)
-	python3 scripts/orchestrator_tick.py emit --repo "$(GH_REPO)" $(if $(STATE),--state "$(STATE)",) $(if $(OUTBOX),--outbox "$(OUTBOX)",) $(if $(NO_ACK),--no-ack,) $(if $(NOW),--now "$(NOW)",)
+	@python3 scripts/orchestrator_tick.py emit --repo "$(GH_REPO)" $(if $(STATE),--state "$(STATE)",) $(if $(OUTBOX),--outbox "$(OUTBOX)",) $(if $(NO_ACK),--no-ack,) $(if $(NOW),--now "$(NOW)",)
 orchestrator-tick-pending: ## Print the lines the tick's outbox still holds undelivered — what a lost delivery would have said, with each fact's [measured HH:MM:SSZ] — and acknowledge nothing (issue #1125; REPO=; STATE=; OUTBOX=)
-	python3 scripts/orchestrator_tick.py pending --repo "$(GH_REPO)" $(if $(STATE),--state "$(STATE)",) $(if $(OUTBOX),--outbox "$(OUTBOX)",)
-orchestrator-tick-report: ## The tick producer's outbox numbers: facts, records, acknowledged, suppressed, pending, suppressible — no dispatch line on stdout (issue #1125)
-	python3 scripts/orchestrator_tick.py report --repo "$(GH_REPO)" $(if $(STATE),--state "$(STATE)",) $(if $(OUTBOX),--outbox "$(OUTBOX)",)
+	@python3 scripts/orchestrator_tick.py pending --repo "$(GH_REPO)" $(if $(STATE),--state "$(STATE)",) $(if $(OUTBOX),--outbox "$(OUTBOX)",)
+orchestrator-tick-report: ## The tick producer's outbox numbers: facts, records, acknowledged, suppressed, pending, suppressible — no dispatch line on stdout (issue #1125; REPO=; STATE=; OUTBOX=)
+	@python3 scripts/orchestrator_tick.py report --repo "$(GH_REPO)" $(if $(STATE),--state "$(STATE)",) $(if $(OUTBOX),--outbox "$(OUTBOX)",)
 .PHONY: orchestrator-tick orchestrator-tick-pending orchestrator-tick-report
 issue-bot-open-pr: ## Open the draft-free PR linking ISSUE from BRANCH, its body built from the agent's pr-body.md + the commit's stat and titled from the issue (never merges; refuses a body with missing Issue:/Fix:/Benefit:/Technical: parts; REPO=/ISSUE=/BRANCH= from the workflow)
 	@test -n "$(ISSUE)" && test -n "$(BRANCH)" || { echo "Usage: make issue-bot-open-pr REPO=<owner/repo> ISSUE=<n> BRANCH=<agent/issue-n-slug>"; exit 1; }

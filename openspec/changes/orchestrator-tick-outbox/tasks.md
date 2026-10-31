@@ -25,5 +25,5 @@
 - [x] `agent-wiki/2026-10-31-orchestrator-tick-outbox.md` + its `docs/changes.d/` row rendered into
       `CHANGES.md`; `make check-docs` green.
 - [x] `make openspec-validate NAME=orchestrator-tick-outbox` passes.
-- [ ] Verification: `make test-unit` (the new module in the aggregator), `make check-wiring`,
+- [x] Verification: `make test-unit` (the new module in the aggregator), `make check-wiring`,
       `make check-docs`, `make lint`, `make check-import-roots` — real output recorded in the wiki note.

@@ -1762,6 +1762,12 @@ what the message would have said. A failed `gh` read exits 2 and leaves the outb
 untouched: a read that failed must never look like "no change". `STATE=` / `OUTBOX=` point the
 producer at another pair of files (the tests do), and `NOW=` pins the clock.
 
+**STDOUT IS THE PAYLOAD.** The three recipes are prefixed with `@` so `make` does not echo its own
+command line onto the stream the receiver reads — measured before the fix, a 53-fact pass produced 54
+stdout lines, the first being the command. The producer's counts go to **stderr**, which is not the
+payload. `diff <(make orchestrator-tick-pending …) <(jq -r .line ~/.llgenie/tick/outbox.log)` is therefore
+an exact identity, and is how a lost delivery is checked after the fact.
+
 ## Verification, loop & CI (containerized — same everywhere)
 
 Every verification stage runs **inside the test container** so behaviour is
