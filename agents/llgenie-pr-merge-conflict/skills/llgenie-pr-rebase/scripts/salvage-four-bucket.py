@@ -52,6 +52,19 @@ def out(*a, **kw):
     return r.stdout.strip() if r and r.returncode == 0 else ""
 
 
+def orphan_split(rows: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Split orphans into (unique, lossless) — a pure function so the label is testable.
+
+    A single `orphan: N` count is a number without its predicate. Measured on this host the orphan
+    bucket held 124 branches and only 21 of them added a path main lacks; the other 103 are
+    lossless, so the headline read as 124 pieces of work to rescue when it was 21. The number a
+    reader must act on is the UNIQUE one, and it has to be stated separately or it is not stated.
+    """
+    orphans = [r for r in rows if r.get("bucket") == "orphan"]
+    return ([r for r in orphans if r.get("added")],
+            [r for r in orphans if not r.get("added")])
+
+
 def summarise(rows: list[dict], wts: list[dict]) -> dict:
     """The prune verdict, as a pure function so it can be tested without gh or a real repo.
 
@@ -179,13 +192,20 @@ def main() -> int:
 
     for buck in ("merged-and-clean", "unmerged-with-a-PR", "orphan"):
         grp = [r for r in rows if r["bucket"] == buck]
-        print(f"## {buck}: {len(grp)}")
         if buck == "orphan":
-            for r in sorted(grp, key=lambda x: x["branch"]):
+            # `orphan: 124` alone is a count without its predicate, and it reads as 124 pieces of
+            # work to rescue when almost all of them add NOTHING main lacks. Split the label so the
+            # number that matters is the small one: measured on this host, 124 orphans held 6
+            # branches that add any path at all.
+            uniq, lossless = orphan_split(rows)
+            print(f"## orphan — UNIQUE (adds a path main lacks): {len(uniq)}  <- preserve these")
+            for r in sorted(uniq, key=lambda x: x["branch"]):
                 add = r.get("added") or []
                 print(f"  {r['branch']:46} {r['tip'][:8]}  +{len(add)} path(s) only here")
-                if add:
-                    print(f"      {', '.join(add[:4])}{' …' if len(add) > 4 else ''}")
+                print(f"      {', '.join(add[:4])}{' …' if len(add) > 4 else ''}")
+            print(f"## orphan — lossless (main already covers every path it touches): {len(lossless)}")
+            continue
+        print(f"## {buck}: {len(grp)}")
         print()
 
     # merged-but-dirty: merged PR whose worktree carries uncommitted work

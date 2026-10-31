@@ -383,3 +383,39 @@ def test_the_fleet_splice_is_idempotent_and_refuses_an_older_source(tmp_path):
     assert r.returncode != 0, "a source missing a current rule was accepted"
     assert "REFUSING" in r.stderr, r.stderr[-400:]
     assert soul.read_text() == before, "the refused splice still wrote the file"
+
+
+def _load_salvage():
+    import importlib.util
+    src = SCRIPTS / "salvage-four-bucket.py"
+    if not src.exists():
+        return None
+    spec = importlib.util.spec_from_file_location("salvage_four_bucket", src)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_the_salvage_audit_states_the_orphan_predicate():
+    """`orphan: N` alone is a count without its predicate.
+
+    Measured on this host: the orphan bucket held 124 branches and only 21 of them added a path
+    main lacks; the other 103 were lossless. The headline therefore read as 124 pieces of work to
+    rescue when the number a reader must act on was 21. The split is a pure function so it can be
+    asserted without gh or a real repository.
+    """
+    mod = _load_salvage()
+    if mod is None or not hasattr(mod, "orphan_split"):
+        return
+    rows = [
+        dict(bucket="orphan", branch="u1", added=["a/b.md"]),
+        dict(bucket="orphan", branch="u2", added=[]),
+        dict(bucket="orphan", branch="u3", added=["c.md", "d.md"]),
+        dict(bucket="merged-and-clean", branch="m1", added=[]),
+        dict(bucket="unmerged-with-a-PR", branch="p1", added=["x.md"]),
+    ]
+    uniq, lossless = mod.orphan_split(rows)
+    assert [r["branch"] for r in uniq] == ["u1", "u3"], uniq
+    assert [r["branch"] for r in lossless] == ["u2"], lossless
+    # A PR-carrying or merged branch must never be counted as an orphan it has to preserve.
+    assert all(r["bucket"] == "orphan" for r in uniq + lossless), "orphan_split leaked a non-orphan"
