@@ -107,9 +107,11 @@ The inverse error is worse: treating the live-profile path as ordinary and writi
 
 `SKILL.md` is capped at ~100,000 characters, and this lane's reached **100,330** — every later lesson then fails to save with `SKILL.md content is 100218 characters (limit: 100000)` and the whole `skill_manage` batch rolls back. When a skill is at the cap, the lesson must go into a `references/<topic>.md` cited by a one-line pointer. Check `wc -c` before appending a long entry.
 
-## Two skill copies can drift; a union must be formatted, not concatenated
+## ONE canonical skill copy in the tree; a second live copy is drift, never something to keep patched (issue #1156)
 
-A profile may hold one skill under two paths (`skills/<skill>/` and `skills/<category>/<skill>/`), and `sync-agent-profile` writes **one** while the resolver may load the **other** — editing or executing the copy you did not sync is a silent no-op that looks like verification. Detect it:
+`make sync-agent-profile` copies `agents/<profile>/` **over** the live profile, one direction, tree wins. So the tree holds the **one** canonical copy of a skill — `agents/<profile>/skills/<skill>/` — and any second live copy (a bare-name collision like `skills/development/llgenie-pr-rebase/` beside `skills/llgenie-pr-rebase/`) is *drift to clear*, not a second artifact to keep in lockstep. **Never patch both colliding copies to agree**: that is how the dirty-watch cron regenerated the `live-longer` drift (#1156) — a live-only write re-created a live→tree row after every PR that cleared it, because `sync` can never pull a live-only edit back. A skill lesson always lands the same way every other behaviour does: **issue + PR under `agents/llgenie-pr-merge-conflict/`, then `make sync-agent-profile` pulls it down into live**. A live-only `skill_manage` patch is erased by the next sync and never reaches the tree.
+
+The two live copies can still *drift* (the resolver loads one while the sync writes the other) — detect it, then consolidate, never re-union:
 
 ```bash
 # which path does the session actually resolve?
@@ -118,11 +120,9 @@ python3 -c "import json;d=json.load(open('<profile>/.skills_prompt_snapshot.json
 diff -rq <profile>/skills/<skill> <profile>/skills/<category>/<skill>
 ```
 
-The symptom is that a bug you fixed in the tree is **still present when run through the skill**.
+The symptom is that a bug you fixed in the tree is **still present when run through the skill**. When the copies differ, the answer is to land the tree's single copy by issue + PR and re-sync — never to hand-edit the live pair. A line-wise union of two copies also destroys markdown structure — measured: appending raw lines stripped every blank line and code fence, so shell comments starting with `#` began reading as headings and `lint_linefeeds.py` rejected three lines (`117, 119, 137`). Union by *section*, or re-run the lint per file, and restore from the commit rather than trying to repair merged prose — but the durable fix is one canonical copy, not a second one to patch.
 
-When one copy holds content the other lacks this is a **two-way union**, never a copy-in: collect the lines unique to each side, add the missing ones, and re-assert the set difference is empty in both directions. **But a line-wise union destroys markdown structure** — measured: appending raw lines stripped every blank line and code fence, so shell comments starting with `#` began reading as headings and `lint_linefeeds.py` rejected three lines (`117, 119, 137`). Union by *section*, or re-run the lint per file, and restore from the commit rather than trying to repair merged prose.
-
-The sync itself is guarded: it **refuses** with `live-edited-not-tree` when the live file was edited after the tree commit. That refusal is correct — merge the live file's unique lines deliberately, never reach for `--force`. A recurring cause is a `skill_manage` patch that wrote the same lesson with different typography (curly vs straight quotes); the fix is to delete the redundant copy and keep the tree's text.
+The sync itself is guarded: it **refuses** with `live-edited-not-tree` when the live file was edited after the tree commit. That refusal is correct — merge the live file's unique lines *into the tree* deliberately (issue + PR), never reach for `--force`. A recurring cause is a `skill_manage` patch that wrote the same lesson with different typography (curly vs straight quotes); the fix is to delete the redundant live copy and keep the tree's text.
 
 ## A detector must not conflate "nothing found" with "couldn't tell"
 
@@ -220,7 +220,7 @@ the rest; a whitelist is a growing list of holes you have to keep remembering to
 
 When a defect is found in one of two near-identical scripts, the same bug is almost always in the other, and finding it costs one grep. Measured: a hardcoded absolute repo path was fixed in `salvage-four-bucket.py`; a `grep -rn '/home/<user>'` across the skill scripts then found the identical pin in `batch-rebase.sh`, `stack-replay.sh` and a monitor — the three that actually perform rebases. A hardcoded absolute path in a shipped script is invisible on the machine it was written on, which is exactly what lets it survive review.
 
-The corollary for this lane's two skill copies: a fix applied to the canonical profile only does not reach the copy the skill resolver loads. After any skill edit, mirror canonical → served and re-check `diff -rq`.
+The corollary for this lane: a fix applied to the canonical copy only still leaves the resolver-loading twin stale, but the answer is **one canonical copy**, not a second one to mirror. Any divergence in the live pair is drift to clear by landing the tree's single copy (issue + PR) and re-syncing — never by patching both copies to agree, which is how the document-copy collision is regenerated (issue #1156).
 
 ## A shipped script must resolve its repo, never pin one host path
 

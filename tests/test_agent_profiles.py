@@ -521,6 +521,51 @@ def test_a_live_rulebook_longer_than_the_tree_copy_is_a_finding(tmp_path):
     assert "prefix of the rulebook" in items[0]["detail"]
 
 
+def test_a_live_write_to_a_skill_reference_is_a_cron_path_finding(tmp_path, monkeypatch):
+    """A live-only write to a skill's `references/*.md` (the dirty-watch cron's own path class) is caught.
+
+    Issue #1156 measured the exact shape: the dirty-watch cron appended lesson lines to the LIVE
+    `references/pitfalls.md` (17391 -> 19096 b) after a PR had just cleared the lane's drift row.
+    `make sync-agent-profile` is one-way (tree -> live), so that write can never return to the tree
+    and the gate must report it. The gate walks every tree file including a skill's `references/`,
+    so this asserts behaviour on the skill-reference path, not on SOUL.md (which prior tests cover).
+    """
+    import os
+
+    import check_agent_profiles as cap
+
+    agents = tmp_path / "agents"
+    prof = agents / "someone"
+    skill = prof / "skills" / "llgenie-pr-rebase" / "references"
+    skill.mkdir(parents=True)
+    (prof / "SOUL.md").write_text("short\n")
+    tree_pit = skill / "pitfalls.md"
+    tree_pit.write_text("- a versioned lesson line\n")
+    (agents / "manifest.json").write_text('{"profiles": [{"name": "someone", "rules": ["never-merge"]}]}')
+
+    # Given a live mirror that a cron appended a lesson to (longer + edited AFTER the tree commit).
+    live = tmp_path / "live" / "someone"
+    live_ref = live / "skills" / "llgenie-pr-rebase" / "references"
+    live_ref.mkdir(parents=True)
+    (live / "SOUL.md").write_text("short\n")
+    live_pit = live_ref / "pitfalls.md"
+    live_pit.write_text("- a versioned lesson line\n- a cron lesson written only into the live profile\n")
+    src = cap.source_time(agents, "someone", tree_pit)
+    os.utime(live_pit, (src + 600, src + 600))
+
+    # When the gate reads it (the live home is the parent of the per-profile directory)
+    monkeypatch.setenv("HERMES_PROFILES_HOME", str(live.parent))
+    items = cap.findings(tmp_path, agents)
+
+    # Then the live-only skill-reference write fires the drift keys
+    keys = {i["key"] for i in items}
+    assert "live-longer" in keys, items
+    assert "live-edited-not-tree" in keys, items
+    pitfalls = [i for i in items if "pitfalls.md" in i["where"]]
+    assert pitfalls, items
+    assert {"live-longer", "live-edited-not-tree"} <= {i["key"] for i in pitfalls}, items
+
+
 def test_a_tree_copy_LARGER_than_live_while_dropping_live_lines_is_a_finding(tmp_path):
     """The shape every size guard misses, and the one that actually shipped four times tonight.
 
