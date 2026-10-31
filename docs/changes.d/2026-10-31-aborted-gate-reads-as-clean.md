@@ -1,0 +1,1 @@
+| 2026-10-31 | scripts/check_agent_profiles.py: skip `__pycache__`/`*.pyc` by construction and report an undecodable file as an `unreadable-live-file` finding instead of aborting the gate, because an abort printed no FAIL and read as clean | [note](agent-wiki/2026-10-31-aborted-gate-reads-as-clean.md) | #1134 |
