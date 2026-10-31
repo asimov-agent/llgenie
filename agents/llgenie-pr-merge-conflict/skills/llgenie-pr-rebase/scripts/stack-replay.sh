@@ -51,8 +51,18 @@ for spec in "$@"; do
       esac
     done
     python3 "$RESOLVER" . >/tmp/res-$N.log 2>&1
-    # any file the resolver does not know how to union: keep the base side, never a side we cannot read
-    for f in $(git diff --name-only --diff-filter=U); do git checkout --ours "$f" 2>/dev/null; done
+    # Anything the resolver did not union must NOT be resolved by picking a side: during a
+    # cherry-pick `--ours` is the BASE side, so `git checkout --ours` silently DROPS the replayed
+    # commit's own change -- a member of the exact silent-revert class this lane repairs. Measured
+    # by reading this file: the fallback kept base lines for every conflicted file the resolver
+    # could not judge, and the commit still proceeded. Refuse and abort instead; the author should
+    # reconcile the two real intents, never inherit one silently.
+    remaining=$(git diff --name-only --diff-filter=U)
+    if [ -n "$remaining" ]; then
+      echo "  unresolved conflict(s) the resolver did not union: $remaining"
+      echo "  REFUSING to silently take a side (--ours would drop the replayed commit's own change)"
+      OK=0; break
+    fi
     git add -A
     if [ -n "$(git grep -l -E '^(<<<<<<<|>>>>>>>)' -- . 2>/dev/null)" ]; then echo "  MARKERS REMAIN — aborting"; OK=0; break; fi
     GIT_EDITOR=true git cherry-pick --continue >/dev/null 2>&1 || { echo "  continue failed — aborting"; OK=0; break; }

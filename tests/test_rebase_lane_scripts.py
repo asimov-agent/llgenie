@@ -489,3 +489,27 @@ def test_the_pre_push_gate_runs_ratchet_not_check_for_import_roots():
     call_line = [l for l in v.splitlines() if "check_import_roots.py" in l and "ratchet" in l]
     assert call_line, "the gate must CALL check_import_roots.py ratchet:\n" + \
         "\n".join(l for l in v.splitlines() if "check_import_roots" in l)
+
+
+def test_no_replay_script_resolves_a_conflict_by_silently_choosing_a_side():
+    """A stacked-replay driver must never `git checkout --ours` a conflict it cannot union.
+
+    Measured by reading stack-replay.sh and then proving it in a throwaway cherry-pick:
+    `--ours` during a cherry-pick means the BASE side, so its fallback silently DROPPED the
+    replayed commit's own change (base.txt `--ours` -> 'mainline-change', losing 'pr-own-work')
+    and the commit still proceeded. That is the silent-revert class this lane exists to repair,
+    inverted. The fix refuses when the resolver leaves an unmerged file, so the author reconciles
+    two real intents instead of inheriting one silently.
+    """
+    for f in ("stack-replay.sh", "batch-rebase.sh"):
+        src = (SCRIPTS / f).read_text()
+        # drop comments FIRST, then look for a real `--ours` side-choice in CODE: a comment that
+        # merely names the foot-gun (this file's own note does) must not count as the defect.
+        call_lines = [code for code in (ln.split("#", 1)[0] for ln in src.splitlines())
+                      if "git checkout" in code and "--ours" in code]
+        assert not call_lines, (
+            f"{f} resolves a conflict with `--ours`, which silently drops the replayed commit's "
+            f"own change: {call_lines}")
+        # the refusal path for the resolver, if the script does replay
+        if "cherry-pick" in src:
+            assert "REFUSING" in src, f"{f} has no refusal when the resolver cannot union a file"
