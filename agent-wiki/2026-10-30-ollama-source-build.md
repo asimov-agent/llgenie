@@ -64,10 +64,10 @@ Measured on CI in engine-build run **41224612203** (<https://github.com/asimov-a
 | ---- | --------- | ---------------- | ----------------- | -------------- | ----------- |
 | cpu | `ghcr.io/asimov-agent/llgenie/ollama:f067033f-f366831f-cpu` | **712s** (success) | serve success (11s) | push success / publish success | **73.2 MiB** |
 | vulkan | `ghcr.io/asimov-agent/llgenie/ollama:f067033f-322de3d1-vulkan` | **1063s** (success) | detect success (3s) | push success / publish success | **164.1 MiB** |
-| cuda | `ghcr.io/asimov-agent/llgenie/ollama:f067033f-6f858d19-cuda` | *still building at note time* | (pending) | (pending) | (pending) |
-| rocm | `ghcr.io/asimov-agent/llgenie/ollama:f067033f-72e4a449-rocm` | *still building at note time* | (pending) | (pending) | (pending) |
+| cuda | `ghcr.io/asimov-agent/llgenie/ollama:f067033f-6f858d19-cuda` | **4436s** (success) | detect success (3s) | push success / publish success | **2245.2 MiB** |
+| rocm | `ghcr.io/asimov-agent/llgenie/ollama:f067033f-72e4a449-rocm` | **3633s** (success) | detect success (2s) | push success / publish success | **6220.8 MiB** |
 
-The cpu and vulkan cells completed their whole cold leg green (the only red on their jobs is the cpu `install-leg`, the known #1027 container-install seam). cuda and rocm were still inside their cold `make build-engine` step when this was recorded (~1h in — fat CUDA/ROCm cross-compiles, the heaviest of the four); their wall-clock and image sizes publish when **the same run id** concludes. Every number above carries its run id (`41224612203`, head `e48cbb1f`); a cached `available → no rebuild` was never substituted for a measurement.
+All four cells completed their whole cold leg with build, test-engine-stage (cpu `serve`; cuda/rocm/vulkan `detect`), push and publish **success**. The only red on every cell is the `install-leg` (`make test-engine-install`), the known #1027 container-install seam that calls the exit-3 host-install path — red on all four, not a build/serve/publish failure. Run conclusion **failure** draws solely from that seam. Every number above carries its run id (`41224612203`, head `e48cbb1f`); a cached `available → no rebuild` was never substituted for a measurement. cuda and rocm are the heaviest fat cross-compiles (4436s and 3633s build wall-clock; 2245.2 MiB and 6220.8 MiB images on the CUDA-13 / ROCm-7 complete bases), exactly as #1075's change note recorded.
 
 ## Not covered
 
