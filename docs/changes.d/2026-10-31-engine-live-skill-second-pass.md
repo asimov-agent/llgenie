@@ -1,0 +1,1 @@
+| 2026-10-31 | engine-improver live skill second-pass sync — SKILL.md (+8) and references/agent-profile-soul.md (+22) verbatim from live | [2026-10-31-engine-live-skill-second-pass.md](agent-wiki/2026-10-31-engine-live-skill-second-pass.md) | #1204, #1115 |
