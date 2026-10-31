@@ -36,7 +36,9 @@ close that never happened. Signature: the claims are *internally* consistent and
   not dispatch harder into it. Delivery-result semantics (queued / failed / queue_full):
   `references/stalled-lane-and-dispatch-delivery.md`.
 
-## 3. A tool call that "ran" may have aborted atomically
+## 3. A tool call that "ran" may have aborted atomically — and one that printed nothing may have succeeded
+
+Both directions are the same rule: the exit status and the output are not the fact; the remote state is.
 
 `gh issue create ... --label <label-that-does-not-exist>` fails the WHOLE call — no issue is created — and prints
 only the label error. Piping through `tail -1` hides everything except that line, which reads like success.
@@ -48,6 +50,21 @@ only the label error. Piping through `tail -1` hides everything except that line
 - If a prompt or doc is being hardened to cite an issue number, FILE the issue first and patch the real number in.
   A citation is itself an id and must survive `gh issue view`; writing the number before it exists recreates the
   exact defect the hardening is meant to prevent.
+
+**Silent success is the dangerous mirror.** A host lane whose shell returns `rc 0` with *no stdout* often
+concludes its `git push` / `gh pr create` "did not take" and re-runs it — manufacturing a duplicate branch
+push or a second PR for an issue that already has a vehicle. The command frequently *did* land; the terminal
+just swallowed its output. Before anyone re-runs a push or a create, prove what already exists on the remote:
+
+```bash
+git ls-remote origin refs/heads/<branch>     # branch present at the head the lane meant to push?
+gh pr list --head <branch> --json number,state,headRefOid
+```
+
+If the branch and PR already exist at the expected head, the correct instruction to the lane is **do not
+re-push, do not open a second PR — your work landed, update the existing vehicle**. A re-push after silent
+success is how one issue accrues two vehicles (the "one vehicle per issue" rule). Verify before re-running;
+never read empty output as failure.
 
 ## 4. Count findings, not mentions
 

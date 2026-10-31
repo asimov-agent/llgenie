@@ -56,6 +56,31 @@ if the file is in the pin's selection. Retracting a wrong premise after it produ
 two corrected lanes; confirming the roster first costs one command. Same discipline as verifying a
 lane's claim — a report is a claim, and so is your own "the gate is broken" diagnosis.
 
+## Rule: a failed run stamped with main's head sha is not proof main is red
+
+A red run whose `head_sha` equals the current `origin/main` tip does **not** mean the tree's gates
+went red — a `workflow_run`-triggered workflow (auto-merge, registry-sync, run-failure-reactor)
+checks out the base repo at that sha but executes an unrelated job, and its own guards can fail. The
+auto-merge lane did exactly this: a stale `workflow_run` event delivered `PR=""` plus an orphaned
+branch sha (a just-closed PR's head), and `make auto-merge PR=""` exited with a Usage error (exit 2)
+while two other auto-merge runs at the same head concluded `success`. Nothing about the commit was red.
+
+So before filing a `main is red` incident:
+
+1. **Name the failing JOB and read its log**, not just `run list`'s `conclusion`. `gh run view
+   <id> --log-failed | head` — a Usage/argument error, an empty env var (`PR:` blank), or an
+   invocation referencing a sha that is not main's tip are all *the workflow's own misfire*.
+2. **Split the run set by workflow name.** `gh api ".../actions/runs?head_sha=<tip>"` and filter
+   out the meta workflows (`auto-merge`, etc.); the actual gate workflows (`ci`, `unit`, `guard`,
+   `scope`) are the ones whose red would mean the tree. If none of those ran red at the tip, main
+   is not red.
+3. **Confirm the head sha in a failing run is really the tip**, and whether it belongs to an
+   orphan/closed PR. A `HEAD_SHA` on a `workflow_run` job is the triggering run's head, not
+   necessarily `main` — quote the sha you measured, not the one the job inherited.
+
+A self-refusing guard that stopped a wrong merge is the guard working, not a defect — report it as
+an auto-merge lane misfire to route, never as a tree regression that blocks the board.
+
 ## Rule: answer both halves of the owner's question separately
 
 "Are the live tests refactored out?" and "why did it time out?" are two facts. Report them as two:
