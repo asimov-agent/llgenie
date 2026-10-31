@@ -6,10 +6,11 @@ green; the owner of that PR had to cancel the run and re-run one job, because a 
 cannot be `gh run rerun --job`'d. The cancellations that follow are how a green matrix loses its verdict —
 exactly the failure #846's healer exists to undo.
 
-The ceiling is a hang detector, not a budget: `unit` measures minutes on `ubuntu-latest` and gets 60,
-while `install` legitimately pulls large images and gets 120. The bound asserted here is wide on purpose —
-it catches "no timeout at all" and absurd values, and leaves the per-job number a judgement call that a
-reviewer can see in the diff.
+The ceiling is a hang detector, not a budget: `unit` measures minutes on `ubuntu-latest` and gets 120
+(raised from 60 on 2026-10-31, #1173: legitimately long 30-90 min runs were being cancelled at 60),
+while `install` legitimately pulls large images and also gets 120. The bound asserted here is wide on
+purpose — it catches "no timeout at all" and absurd values, and leaves the per-job number a judgement
+call that a reviewer can see in the diff.
 """
 
 from __future__ import annotations
@@ -70,9 +71,9 @@ def test_the_unit_gate_has_the_tightest_ceiling_of_the_long_jobs():
 
     jobs = _jobs(PIPELINE)
 
-    assert int(jobs["unit"]["timeout-minutes"]) <= 60, jobs["unit"]
-    # and it is never *tighter* than the long install path, which legitimately pulls images
-    assert int(jobs["unit"]["timeout-minutes"]) < int(jobs["install"]["timeout-minutes"]), (
+    assert int(jobs["unit"]["timeout-minutes"]) <= 120, jobs["unit"]
+    # and it is never *longer* than the long install path, which legitimately pulls images
+    assert int(jobs["unit"]["timeout-minutes"]) <= int(jobs["install"]["timeout-minutes"]), (
         "the unit suite should not be given a longer ceiling than install")
 
 
