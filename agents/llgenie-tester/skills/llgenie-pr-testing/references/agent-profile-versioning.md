@@ -95,6 +95,18 @@ deliberately, top first.
   One block and `[True]` in the live profile against `[False, True]` in the tree means the **live
   side is the good one** and the re-take runs live → tree, even though the guard's message is phrased
   about a newer live mtime. Decide the direction from this comparison, never from the mtime alone.
+- **A rebase can surface drift that was NOT there when you started — and it is LIVE that is ahead;
+  re-take the whole drifted set in ONE amended head, never ship the older tree.** Live is edited by
+  other lanes while your PR sits open, so a head that read `CHECK=1 … OK` an hour ago can, after a
+  rebase onto newer `main`, report `live-longer` + `live-edited-not-tree` on files outside your
+  change's topic (the pre-push gate doing its job, not a false positive). Pushing that tree
+  downlevels live — `skill-reference-missing` reds CI and the runtime silently loses the newer
+  lessons — and re-copying only the file you were editing leaves the rest still flagged. So: copy
+  EVERY file the guard names live → tree byte-for-byte, re-run
+  `agent_profile_sync.py --profile <n> --check` (must print OK, N of N) and the guard's `findings()`
+  (zero naming your profile), then **re-hash the live files immediately before the push** — another
+  lane may still be writing, and a byte that moved after your capture means the copy you are about to
+  push is already stale; re-copy rather than push.
 - **Never force a sync over a live file another lane just edited without reading both.** The live
   profile is edited by other lanes too; a `REFUSED … live newer than the source commit` can be a real
   in-flight edit. Read the diff, decide which side is correct (canonical-block comparison above), and

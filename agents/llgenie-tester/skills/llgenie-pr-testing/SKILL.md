@@ -221,6 +221,11 @@ against `name:` prefixes, not ids).
   **current** head. A force-push leaves runs at a dead head; they prove nothing about the branch now.
   `cancelled`/`queued` = **no verdict**, and `gh pr checks`'s `fail` column is never a failure count
   (it collapses cancelled runs and duplicate check names onto one word).
+- **Never pad a short sha into a `head_sha=` filter — a fabricated full sha returns `[]`, which reads
+  as "no run was scheduled".** The API matches the exact 40-hex string, so a prefix completed from
+  memory silently selects nothing and you conclude CI never triggered when it did. Take the full sha
+  from `gh pr view <n> --json headRefOid` (or `git rev-parse HEAD`) and quote it verbatim, or filter
+  client-side on the prefix (`--jq 'select(.headSha|startswith("<8>")'`).
 - **Judge the JOB, not only the run.** A run's conclusion can read `cancelled` while the job inside it
   reads `conclusion=failure` — cancelling the run after a job failed rewrites the run-level word. The
   job endpoint (`gh api repos/<owner>/<repo>/actions/jobs/<id>`) is the finer truth, and its `steps[]`
@@ -318,9 +323,14 @@ against `name:` prefixes, not ids).
   control (a same-suite run that concluded `success` in an overlapping window at a fraction of the
   duration). Clearing it is `gh run rerun <run-id> --failed`, which is safe where a push is not: it
   re-executes the same head and cancels nothing, so it cannot destroy another lane's matrix (the
-  warning against re-running into a lane's push is about PUSHING into `cancel-in-progress`). Re-run
+  warning against re-running into a lane's push is about PUSHING into `cancel-in-progress`).  Re-run
   ONCE, disclose it, and if it hits the ceiling again stop — a loop of hour-long units is a queue hog,
-  not evidence. Recipe and pitfalls: `references/red-job-triage.md` §8.
+  not evidence. **A re-run inherits the run's DISPATCH-time config: a ceiling raise merged to `main`
+  does not reach a run that was already dispatched, so re-running before rebasing buys a second,
+  identical cancel.** When the ceiling fix is on `main` but not in the head's base, rebase the head
+  onto that `main` and push it — the new head schedules a fresh run under the raised budget — and
+  judge THAT run; do not loop `gh run rerun --failed` on a run that will always resolve the old
+  number. Recipe and pitfalls: `references/red-job-triage.md` §8.
 
 ## 6. Selection invariants to check before per-stage work (#824b)
 
