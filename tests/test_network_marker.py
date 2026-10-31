@@ -260,13 +260,22 @@ def _hub_opens(file_text: str) -> list[tuple[str, str]]:
       - a network primitive (`urlopen`, `requests.get`, `urlretrieve`, `snapshot_download`, ...)
         whose URL resolves to a Hub host — inline literal, or a variable assigned a Hub-host
         literal earlier in the scope;
-      - a Hub entry point BY CONSTRUCTION: `mp.download`/`mp.gguf_files`/`mp.hf_size`/`mp.offer`.
+      - a Hub entry point BY CONSTRUCTION: `mp.download`/`mp.gguf_files`/`mp.hf_size`/`mp.offer`
+        and `mp.plan_download`. The `plan_download` entry point is the #1189 pin: a direct call
+        reaches the Hub exactly when it is a GENERIC-format plan (default engine, or
+        `engine="llama.cpp"`/any engine other than the two labelled below) — it unwinds
+        `gguf_repo`/`_snapshot`/`_tree`/`mlx_repos` to the Hub API. It is the STRATA/TENSORFOLD
+        planning-only carve-out that is hermetic: a `plan_download(..., engine="strata")` or
+        `engine="tensorfold"` call resolves its plan from the committed registry/quant table and
+        never touches the Hub, so it is NOT a Hub call and must not red the pin. The old shape of
+        this paragraph said "NOT plan_download called DIRECTLY (the engine lane's planning-only
+        carve-out)" — that READ AS an exemption for every direct call, which hid exactly the
+        generic-format reaches #1189 now flags.
         `mp.offer` joins the list because its snapshot phase reaches: the live unit-path timeout
         measured 2026-10-31 (run 41126714284, test_mac_trend_pick.py:169) unwinds
         `offer` → `plan_download` → `_snapshot` → `_tree` → `hf_auth.hub_open` → the Hub API, and
         offline (`--network none`) bisection shows every unmarked `offer`-consuming trend test
-        hangs there. NOT plan_download called DIRECTLY (the engine lane's planning-only
-        carve-out), NOT resolve_local (local disk only);
+        hangs there. NOT resolve_local (local disk only);
       - a call into a SAME-FILE helper whose own scope carries one of those entry calls,
         transitively (helper calling helper). Helper indirection (`_offer(tmp)`, `_cli(...)`,
         `_tensorfold_row`) is exactly how the live-Hub chain escaped the pin: the entry call lives
@@ -291,7 +300,29 @@ def _hub_opens(file_text: str) -> list[tuple[str, str]]:
     module_hf_models = {m.group(1) for m in _MODEL_DICT.finditer(file_text)}
     _ENTRY_CALL = re.compile(
         r"\b(mp\.(download|gguf_files|hf_size|offer|_hub_json|_tree|gguf_repo|mlx_repos|"
-        r"tensorfold_repos)|sr\.check_links)\s*\(")
+        r"tensorfold_repos|plan_download)|sr\.check_links)\s*\(")
+    # The STRATA/TENSORFOLD planning-only carve-out (issue #1189): a `plan_download` whose call
+    # carries engine="strata" or engine="tensorfold" resolves its plan from the committed
+    # registry/quant table and never reaches the Hub — it is NOT an entry call. Every other
+    # plan_download (default engine / engine="llama.cpp" / any other engine) is a GENERIC-format
+    # plan that unwinds gguf_repo/_snapshot/_tree to the Hub API, so it IS an entry call.
+    _PLAN_HERMETIC = re.compile(r"engine\s*=\s*[\"'](?:strata|tensorfold)[\"']")
+
+    def _is_entry(s: str) -> bool:
+        if not _ENTRY_CALL.search(s):
+            return False
+        return not ("plan_download" in s and _PLAN_HERMETIC.search(s))
+    # The STRATA/TENSORFOLD planning-only carve-out (issue #1189): a `plan_download` whose call
+    # carries engine="strata"/"tensorfold" resolves its plan from the committed registry/quant
+    # table and never reaches the Hub — it is NOT an entry call. Every OTHER plan_download
+    # (default engine, engine="llama.cpp", etc.) is a GENERIC-format plan that unwinds
+    # gguf_repo/_snapshot/_tree to the Hub API, so it IS an entry call.
+    _PLAN_HERMETIC = re.compile(r"engine\s*=\s*[\"'](?:strata|tensorfold)[\"']")
+
+    def _is_entry(s: str) -> bool:
+        if not _ENTRY_CALL.search(s):
+            return False
+        return not ("plan_download" in s and _PLAN_HERMETIC.search(s))
 
     # Slice the file at top-level defs; each scope's body ends where the NEXT def's decorator
     # block begins (the decorator belongs to the def it decorates).
@@ -398,7 +429,7 @@ def _hub_opens(file_text: str) -> list[tuple[str, str]]:
             if name == "<module>" or name in tainted or name in pure or name.startswith("test_"):
                 continue
             lines = _own_code_lines(body)
-            if any(_ENTRY_CALL.search(s) for s in lines):
+            if any(_is_entry(s) for s in lines):
                 tainted.add(name)
                 grew = True
                 continue
@@ -437,7 +468,7 @@ def _hub_opens(file_text: str) -> list[tuple[str, str]]:
                     v for k, v in hub_vars.items() if re.search(r"\b%s\b" % re.escape(k), s))
                 if _HUB_RE.search(to):
                     problems.append((name, s[:140]))
-            if _ENTRY_CALL.search(s):
+            if _is_entry(s):
                 problems.append((name, s[:140]))
                 continue
             for h in tainted:
