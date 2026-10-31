@@ -35,4 +35,4 @@ workflow; the sweep reports `DISABLED`, it does not re-enable.
 
 ## Refs
 
-Issue: #1102 · PR: #__PR__
+Issue: #1102 · PR: #1179
