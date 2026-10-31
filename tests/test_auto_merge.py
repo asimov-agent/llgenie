@@ -833,7 +833,15 @@ def test_the_merge_is_a_workflow_run_on_ci():
     # When  its trigger, scope and inputs are read
     # Then  it runs after a successful CI pull-request run, from the base branch, with the PAT
     assert "name: auto-merge" in wf
-    assert 'workflows: ["CI"]' in wf, "a workflow_run must name the workflow it reacts to"
+    assert 'workflows: ["CI"]' in wf or \
+        ("workflows:" in wf and "\n      - CI" in wf), \
+        "a workflow_run must name the workflow it reacts to"
+    # …and the docs-class workflow too: a docs-only PR never runs CI (ci.yml paths-ignore, issue #824),
+    # so its green completion is the ci-scope workflow. If this list loses that name, a green, armed,
+    # un-held docs PR is excluded from the engine again with NO run to trigger it (issue #1227, AC4).
+    assert "ci-scope — selects the CI stages a diff needs, and runs the docs gates a docs-only PR still needs" in wf or \
+        ("workflows:" in wf and "ci-scope" in wf), \
+        "a docs-class completion (ci-scope) must also engage the merge job, not only a CI run (issue #1227)"
     assert "types: [completed]" in wf
     assert "github.event.workflow_run.event == 'pull_request'" in wf, "a push run has no PR to merge"
     assert "github.event.workflow_run.conclusion == 'success'" in wf, "only a green run may merge"

@@ -1,0 +1,1 @@
+| 2026-10-31 | auto-merge now engages on a green docs-class completion (`ci-scope`), not only a `CI` run, so a green, armed, un-held docs-only PR is no longer excluded from the engine | [2026-10-31-auto-merge-docs-class-trigger.md](agent-wiki/2026-10-31-auto-merge-docs-class-trigger.md) | #1227, #824 |

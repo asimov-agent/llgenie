@@ -35,7 +35,23 @@ name: auto-merge
 
 on:
   workflow_run:
-    workflows: ["CI"]
+    # React to BOTH pipelines a PR head can be green on (issue #1227): a docs-only PR never runs
+    # `CI` at all — ci.yml `paths-ignore` strips the docs class at the trigger (issue #824) — so it
+    # has no `CI` run whose completion could open this job. The docs gates (lint, check-docs,
+    # check-wiring, check-issue-bodies, openspec) run in `ci-scope` (scope.yml), which carries NO path
+    # filter and reports the always-present `ci-scope` check, so a green docs-class PR has exactly one
+    # workflow_run: `ci-scope` completing. That completion must engage the merge job or a green, armed,
+    # un-held docs PR sits BLOCKED forever with no lane able to clear it. GitHub matches this list
+    # against each workflow's top-level `name:` verbatim (no wildcards, issue #463) — the ci-scope name
+    # below is byte-identical to scope.yml's `name:` and to run-failure-reactor.yml's roster. Firing on
+    # a scope completion is NOT a gate weakening: a scope run fires for EVERY PR (ci-scope has no path
+    # filter), so a code PR's scope completion just starts the merge job EARLY; auto_merge.py then
+    # re-reads the PR and defers until mergeStateStatus is CLEAN, which for a code PR requires the CI
+    # required-check to be green too. Only a PR that is genuinely green, conflict-free and un-held is
+    # merged (AC3).
+    workflows:
+      - CI
+      - ci-scope — selects the CI stages a diff needs, and runs the docs gates a docs-only PR still needs
     types: [completed]
   # A deferral is exit 0 by design, so nothing retries it: this sweep re-runs the same decision for the PRs
   # the gate itself deferred at the head they still have (issue #545). Every 30 minutes; by hand with
