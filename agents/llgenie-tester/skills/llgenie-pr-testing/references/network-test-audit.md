@@ -65,8 +65,7 @@ OR-rules that must not cross-fire:
   whose first argument is a model dict (module- or test-scope) with a live `hf` id, in a scope with
   no loopback server;
 - must NOT fire on: `def urlopen(...)` redefinitions (a monkeypatch STUB, not a call — drop `def`
-  lines before scanning), planning-only entry points (`plan_download`), local-resolve entry points
-  (`resolve_local`), or loopback probes — the loopback indicator often lives in a helper
+  lines before scanning), local-resolve entry points (`resolve_local`), or loopback probes — the loopback indicator often lives in a helper
   contextmanager/fixture, NOT in each test body, so per-test loopback detection is unreliable; a test
   that BINDS a server is offline by construction.
 
@@ -89,6 +88,30 @@ hover in one script while the workflow/make target silently stops reaching it: a
 `ci.yml → (reused pipeline job) → make ci-unit → test-unit → scripts/unit_tests.py run` (whose
 default carries the `-m` expression), and that the network twin (`test-unit-network`) runs `--marker
 network` on the SAME expression.
+
+### 4c. `plan_download` is a Hub reach, not "planning-only" — and the pin cannot follow helper calls
+
+Treating `mp.plan_download` as planning-only (no i/o) is a FALSE NEGATIVE: the chain is
+`offer → mp.plan_download → _snapshot → _tree → hub_open`, so a `plan_download` call fetches the real
+repo file tree. Put `mp.plan_download` in the SAME reach set as `mp.download`/`mp.gguf_files`/
+`mp.hf_size`; a test whose docstring says "Live Hub" and calls `plan_download` WILL reach the Hub in
+the unit gate if unmarked. The carve-out's rationale ("it only plans") is disproved by the traceback
+ending at `hub_open`, not at a fixtures comparison.
+
+- **The pin is a STATIC scope scan and does NOT follow helper calls.** A test that reaches the Hub
+  indirectly (`test → _offer() → mp.offer → plan_download`) is invisible to a reach list that names
+  only direct primitives. Adding the helper's callee (`mp.offer`) to the reach does NOT fix it
+  cleanly: a module-level helper sits in the PRECEDING test's scan range, so the callee reds unrelated
+  tests by misattribution (measured: adding `mp.offer` reds a neighbouring test that never calls it).
+  Keep the reach to direct primitives + `plan_download`; handle an indirect reach by MARKING the test
+  (docstring "Live Hub"/network), not by chasing helper resolution. Confirm a flagged test reaches via
+  its OWN body before widening the reach — a misattributed red is the pin reading a neighbour's helper.
+- **Some live tests are EXTRACTED to a separate gate, not the unit gate.** `make test-hub-live` (issue
+  #438) runs the README/trend link checks the unit gate keeps out by a dated `tests/fixtures/unit-suite.json`
+  entry, not by a marker. So an UNMARKED test whose docstring mentions network can be correctly OUT of
+  the unit gate and NOT a leak. Before calling one a unit leak, check `tests/fixtures/unit-suite.json`
+  and the separate-gate target; a docstring audit of the whole selection often finds ZERO unmarked
+  network-docstring tests because the named-live ones are extracted.
 
 ## 5. Coordinate before editing
 

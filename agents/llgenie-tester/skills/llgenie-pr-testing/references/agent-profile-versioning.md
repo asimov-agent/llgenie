@@ -65,7 +65,10 @@ deliberately, top first.
   commit it, then `--check` again. Re-run `--check` at the start of every editing round for that
   reason: the profile is the half that changes while your PR sits open (including from a lane that is
   not you), so a green `--check` ten minutes ago says nothing about now, and the direction to fix it
-  is whichever side the guard calls truncated.
+  is whichever side the guard calls truncated. **The size to sync to is the live file measured NOW
+  (`wc -c`, or a fresh `--check`), never a byte count quoted in the dispatch or remembered from an
+  earlier round** — a quoted size is a snapshot, so syncing the tree up to it REVERTS whatever the live
+  profile gained since (a later round's lessons), while passing a stale check and losing the content.
 - **`live-longer` finding** — "the tree has N b, the live profile has M b — the seed is a prefix of the
   rulebook". This fires on lanes whose SOUL is still a seed. Prove it is not yours: run the same gate
   on a clean worktree at the base sha and report the identical finding count, naming whose PR clears it.
@@ -117,6 +120,16 @@ Every `##`-documented option on a repo make target is prose until you read the r
 `Makefile` and confirm the flag is actually passed (`$(if $(FORCE),--force,)`) before you rely on it —
 a target that documents an escape hatch it does not forward turns a two-minute sync into a detour.
 
+## Pitfall: the live profile is EXEMPT from the repo's markdown lint
+
+A from-live copy can carry markdown the TREE's gate rejects: `scripts/lint_linefeeds.py` fails
+"markdown headings not preceded by a blank line" on a `## Heading` that sits directly under an HTML
+comment (the live SKILL's `<!-- host-bot-tools:begin -->` above `## Tools` is the known one). The live
+profile is never linted, so the defect is invisible until the sync PR's `scope`→`ci-lint` job reds it
+AFTER you have opened and armed it. Run `python3 scripts/lint_linefeeds.py` on the synced tree BEFORE
+pushing, and fix the blank line in the LIVE source too (live→tree: add it to live, then re-copy) — a
+tree-only fix leaves the two divergent and the next `CHECK=1` reds on the one-byte difference.
+
 ## Pitfall: a green `--check` in your worktree is NOT a fix on the branch that lands
 
 `sync-agent-profile … CHECK=1 → OK, N file(s) byte for byte` compares the tree in YOUR checkout
@@ -133,10 +146,26 @@ git show origin/<branch>:agents/<profile>/SOUL.md | wc -c   # must equal live si
 If those bytes are still the old (truncated) size, the fix is local-only — commit it onto the branch
 head and push, and report the BRANCH-HEAD sha that carries it, not your worktree's.
 
+- **A rebase rewrites shas without changing a byte — verify by CONTENT, not by ancestry.** After
+  another lane rebases the branch, your commit's sha changes (the same tree replayed under a new
+  parent); `git merge-base --is-ancestor <your-old-sha> <head>` then reads NO even though NOTHING was
+  dropped. Do not read "not an ancestor" as "lost": compare the content at the FETCHED head
+  (`git show <head>:agents/<profile>/SOUL.md | wc -c`, or a sha256) against live — byte-identical
+  means the reload is intact under a new sha. Quote the head sha fetched in the moment PLUS its
+  content hash, never a sha from a prior snapshot, or every rebase turns your report into a claim
+  about a tree that no longer exists. Confirm the whole 6-file gate at that head with
+  `make sync-agent-profile PROFILE=<n> CHECK=1` at a worktree checked out on the fetched head, not
+  on your old commit.
+
 - **A push that would cancel a live run WAITS; automate the landing, do not force it.** If the branch
   head has a run `in_progress`/`queued` and the workflow sets `cancel-in-progress`, a push to land your
   commit destroys that run's matrix. Do not push into it, and do not sit idle waiting for a re-ping:
   launch a background `gh run watch <run-id> --exit-status --interval 30` whose next step is
   `git push origin HEAD:<branch>` — it lands the instant the run concludes, with no cancelled matrix.
   Push through the live run ONLY if the owner explicitly says so; absent that the hold stands, and you
-  report the landed head sha when the watcher fires.
+  report the landed head sha when the watcher fires. **Exception — a run that is HUNG, not merely
+  slow, is superseded rather than waited on:** when the run's `updated_at` (or step `started_at`) is
+  frozen past ~2× its normal duration, the Hub probes healthy, and OTHER PRs' same stage is stalled too
+  (the systemic-stall compare in the SKILL §5), the run will never conclude — so a docs-only diff that
+  provably cannot affect the stuck job may be pushed to supersede it, with that evidence stated. This
+  is the one case the wait does not bind; never push past a run that is merely SLOW.
