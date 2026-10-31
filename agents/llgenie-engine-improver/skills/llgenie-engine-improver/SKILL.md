@@ -693,6 +693,12 @@ gate no longer reaches as a host-only document, and any `WORKFLOWS = ("ci.yml", 
   NAMED sha, not HEAD (issue #1053). So: a file-adding PR that only reds the census gate is HELD for
   #1053, not given a per-PR pointer rewrite; re-verify its unit green once #1053 merges + main moves
   (re-base then). Rewriting the pointer per-PR is a second vehicle that the squash re-breaks.
+- **Read `autoMergeRequest` and `pulls/<n>.head.sha` from the API at the moment you write the sentence
+  that names them.** Both are writable fields with no history: an arm can be set by an automation acting
+  against the lane's charter, cleared by a peer, or re-armed a minute later, and a remembered value is a
+  guess. Stale arm reads err consistently toward "calmer than reality" (a PR believed parked is MERGEABLE
+  and armed), so quote `mergeMethod` + `enabledAt` from `gh pr view <n> --json autoMergeRequest` before
+  any claim about arming.
 - **Report the PR head from the API (`gh api repos/asimov-agent/llgenie/pulls/<n> --jq .head.sha`),
   never the sha you believe you are on.** A commit that exists in your tree but was never pushed
   leaves the PR head stale while your local HEAD is ahead — the single largest source of false
@@ -765,9 +771,20 @@ verify its `## Rules` carry THIS lane's contract — a stale copy can hold a dif
 the moment they read it. Keep the repo copy's structure, add the missing producer/workflow facts into
 the section that covers them, and re-run `make check-agent-skills` + its test to green before the PR.
 
+**Find the live skill's actual directory before editing or syncing it — the profile can hold it at a
+different path than the tree versions.** `skill_manage` writes to whatever path the live profile already
+uses, so a skill living at `skills/<category>/<name>/` keeps receiving edits there while the repo reads
+`agents/<profile>/skills/<name>/`; the two never meet and the lane looks like it forgets rules it keeps
+recording. Locate every copy first (`find ~/.hermes/profiles/<profile>/skills -maxdepth 3 -type d -name
+<skill>`), then `diff -rq` the live copy against the repo copy: a **path-only** divergence needs a `mv`
+into the canonical location (no content merge — the files are already identical), while a genuinely
+different pair is unioned **by section**, never wholesale, because a line-wise copy strips blank lines
+and fences and the linefeeds lint then reads shell comments as headings. Removing the duplicate path is
+host state, not a repo change, and it is what stops the next write landing in the wrong copy.
+
 ## Non-negotiables
 
-- **A check that does not run cannot pass, fail, or hold.** Before claiming a PR is `held red` or `green`, read the *run* at its current head (`gh run view <id> --json status,conclusion,attempt,headSha` and its `jobs`) — not just the check-run names, and never a local `pytest`. #1099's `faf5943a` carried four sub-minute greens (`scope`/`holds`/`guard`) while **`linux/unit` never ran**; the "held red" was a local measurement reported as though a gate shared it, and a green board row meant nothing in either direction (#1137). Three pushes in two minutes had cancelled each CI in turn — `cancel-in-progress` turns a verdict into no verdict.
+- **A check that does not run cannot pass, fail, or hold.** Before claiming a PR is `held red` or `green`, read the *run* at its current head (`gh run view <id> --json status,conclusion,attempt,headSha` and its `jobs`) — not just the check-run names, and never a local `pytest`. #1099's `faf5943a` carried four sub-minute greens (`scope`/`holds`/`guard`) while **`linux/unit` never ran**; the "held red" was a local measurement reported as though a gate shared it, and a green board row meant nothing in either direction (#1137). Three pushes in two minutes had cancelled each CI in turn — `cancel-in-progress` turns a verdict into no verdict. The same holds for a gate that CRASHES: an aborted check prints no FAIL line, so its caller sees an empty scan and reads it as clean — "found nothing" and "could not tell" produce identical output, and only the exit status plus a non-empty summary distinguishes them. Push nothing until the run at the head concludes; recovery from a cancelled run is `gh run rerun <id>` (same sha), never another push.
 
 - **Unreachable is not nonexistent.** `git log --all` and `for-each-ref --points-at <sha>` enumerate **refs**; a head that a force-push replaced is reachable from no ref, so both return nothing while the commit still exists on the server. To decide whether a sha exists use `git cat-file -t <sha>` (a local object) or `gh api repos/<owner>/<repo>/commits/<sha>` (the server) — and to decide whether it is *the PR's* head use `gh api repos/<owner>/<repo>/pulls/<n> --jq .head.sha`, nothing else. Report "unreachable from any ref", never "does not exist", unless `cat-file` also fails.
 
