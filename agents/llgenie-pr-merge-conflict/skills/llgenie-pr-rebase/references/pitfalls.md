@@ -55,3 +55,22 @@ a commit range found 2 hits; `grep -i '^co-authored-by'` filtered to that addres
 hits were PROSE describing the trailer rule inside commits about it. A trailer is a line-anchored
 construct, so the only valid check anchors at column 0. An unanchored grep for an identifier finds
 documentation about the identifier and reads it as an instance.
+
+## A ratchet red on a rebase is "your new file added roots", not "re-record the baseline"
+
+An import-roots ratchet (#953) records a baseline and refuses any file that raises the count. When
+a rebase brings this branch onto a main that carries the gate, a branch-side file written before
+the gate landed will red it — measured twice tonight: a branch adding `sys.path.insert(0, …/scripts)`
+plus bare `import check_agent_profiles` pushed bare 52→54 and sys-path 32→33, and the same class came
+back as a later dispatch.
+
+The two fixes are NOT interchangeable:
+  - on `main`, a NEWER file with grandfathered roots, carried in by a REBASE, is the case for
+    re-recording the baseline to the new count (the file predates the convention);
+  - on a BRANCH, a brand-new file adding its own roots is EXACTLY what the gate exists to refuse
+    (#796) — fix the file to use the established seam (`import scripts.<module>`, or the conftest
+    root), and re-running the gate must return to the ORIGINAL baseline, never a raised one.
+
+Choosing wrong re-records an inflated baseline and silently disables the ratchet for the next new
+file too. After the fix, `make check-import-roots` must print counts at or below the recorded
+baseline — not "OK: counts at a new higher baseline". The seam is the fix; the baseline is not.
