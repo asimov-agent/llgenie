@@ -338,8 +338,23 @@ cases, all of which reported healthy:
   `limit=0`;
 - a path-uniqueness assertion searched the file for the stamp rather than the assignment that builds
   the path, and passed on a fixed path.
+- an executable-bit test scanned the tree with an aggregate `git ls-files -s scripts/*.sh`; that
+  pathspec-glob returned **empty inside the test container**, so the assertion ran against zero files
+  and passed — a green over nothing;
+- the obvious fix (one `git -C <repo> ls-files -s -- <path>` per file) then returned **nothing for
+  every file**, because root-in-container refuses a repo owned by another uid (`dubious ownership`),
+  so it wrongly flagged all six — the same wrong verdict inverted;
+- `assert Path.glob("*.sh")` never fires: a `glob` result is a generator object and is **always
+  truthy**, so a "did we find anything" guard written that way is a vacuum by construction.
 
 So: every guard gets one negative control that **must** red, run in the same session. A control whose
 first version does not bite is not a spare — it is a second defect. Two of this lane's controls were
 decorative on first write and only a run revealed it.
+
+**Run the assertion in the environment that will actually execute it.** A check that passes on the
+host can be a vacuum or a false red inside the container it ships to. For file-mode checks, ask the
+checkout, not git: `os.access(p, os.X_OK)` reads the real worktree mode (which is what a tracked
+`100755` restores on checkout), whereas `git ls-files` can silently return empty or refuse under
+container ownership. Wrap any "found nothing" guard in `list(<glob>)` so an empty scan reds instead
+of passing, and confirm the control in-container, not on the host.
 
