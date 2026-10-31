@@ -76,6 +76,18 @@ SOUL = "SOUL.md"
 SKILLS = "skills"
 SKILL_FILE = "SKILL.md"
 
+#: The finding keys `findings()` can emit. `--only` accepts any subset as a comma-separated list,
+#: and a key outside this set is a bad invocation (exit 2 naming the known keys, issue #1087).
+KNOWN_FINDING_KEYS = frozenset({
+    "agents-dir", "manifest-missing", "manifest-invalid", "manifest-empty", "manifest-entry",
+    "manifest-rule-unknown", "manifest-rule", "profile-directory", "soul-missing",
+    "standing-rule-quoted", "standing-rule", "forbidden-path", "profile-unlisted", "unreadable",
+    "secret", "skill-frontmatter", "skill-name", "skill-description", "skill-reference-missing",
+    "live-edited-not-tree", "unreadable-live-file", "live-longer", "live-lines-missing",
+    "absent-from-tree", "fleet-exemptions", "fleet-block-source", "fleet-exemption-unknown",
+    "fleet-exemption-stale", "fleet-block-drift",
+})
+
 #: The standing rules a profile's `SOUL.md` must keep stating. The manifest names which apply to
 #: which profile; a rule key that is not here is a manifest defect, not a silent pass.
 STANDING_RULES = {
@@ -1059,6 +1071,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", default=str(REPO_ROOT), help="tree to read (the tests use this)")
     parser.add_argument("--agents-dir", default=str(AGENTS_DIR),
                         help="path of the agents tree, relative to --root (the tests use this)")
+    parser.add_argument("--only", default=None, metavar="KEY[,KEY...]",
+                        help="report and fail only findings with one of these keys (comma-separated); "
+                             "a key outside the known set exits 2 naming the known keys (issue #1087)")
     args = parser.parse_args(argv)
     root = Path(args.root).resolve()
     if not root.is_dir():
@@ -1084,6 +1099,15 @@ def main(argv: list[str] | None = None) -> int:
               f"library at {live_base.parent / SKILLS} — without it a lane's own skill cannot be told "
               "from the library every profile is seeded from", file=sys.stderr)
     items = findings(root, agents_dir)
+    if args.only is not None:
+        wanted = {k.strip() for k in args.only.split(",") if k.strip()}
+        unknown = wanted - KNOWN_FINDING_KEYS
+        if unknown:
+            print("[check-agent-profiles] FAIL: unknown --only key(s): " +
+                  ",".join(sorted(unknown)) + ". Known keys: " +
+                  ",".join(sorted(KNOWN_FINDING_KEYS)), file=sys.stderr)
+            return 2
+        items = [item for item in items if item["key"] in wanted]
     profiles, _ = read_manifest((root / agents_dir) if not agents_dir.is_absolute() else agents_dir)
     for name in unprotected(profiles):
         # issue #922: an entry with no rule gates nothing. Named, never failed - and never silent,

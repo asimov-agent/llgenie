@@ -719,6 +719,69 @@ def test_a_tree_copy_that_matches_or_exceeds_the_live_one_is_clean(tmp_path):
     assert cap.shrink_findings(tmp_path, agents, live.parent) == []
 
 
+def test_only_filters_findings_through_real_main(tmp_path, monkeypatch, capsys):
+    """`--only` narrows the check to one finding class, driven through the real CLI (issue #1087)."""
+    import check_agent_profiles as cap
+
+    agents = tmp_path / "agents"
+    prof = agents / "someone"
+    prof.mkdir(parents=True)
+    (prof / "SOUL.md").write_text("short\n")
+    live = tmp_path / "live" / "someone"
+    live.mkdir(parents=True)
+    (live / "SOUL.md").write_text("a much longer live rulebook\n" * 40)   # tree is a prefix -> live-longer
+    (agents / "manifest.json").write_text(
+        '{"profiles": [{"name": "someone", "rules": ["never-merge"]}]}')
+    monkeypatch.setenv("HERMES_PROFILES_HOME", str(live.parent))
+    monkeypatch.setattr(cap, "_STARTED", 0.0)   # every live file counts as changed during the run
+
+    # A filter that names a class which IS present keeps failing, but only on that class.
+    rc = cap.main(["check", "--root", str(tmp_path), "--agents-dir", "agents",
+                   "--only", "live-longer"])
+    out = capsys.readouterr()
+    assert rc == 1, out
+    assert "FAIL live-longer:" in (out.out + out.err)
+    assert "FAIL absent-from-tree:" not in (out.out + out.err)
+
+    # A class that is absent makes the check pass (the filtered set is empty).
+    rc = cap.main(["check", "--root", str(tmp_path), "--agents-dir", "agents",
+                   "--only", "absent-from-tree"])
+    out = capsys.readouterr()
+    assert rc == 0, out
+
+    # A comma-separated list selects the union.
+    rc = cap.main(["check", "--root", str(tmp_path), "--agents-dir", "agents",
+                   "--only", "absent-from-tree,secret"])
+    out = capsys.readouterr()
+    assert rc == 0, out
+
+    # An unknown key is a bad invocation: exit 2 naming the known keys.
+    rc = cap.main(["check", "--root", str(tmp_path), "--agents-dir", "agents",
+                   "--only", "not-a-key"])
+    out = capsys.readouterr()
+    assert rc == 2, out
+    assert "unknown --only key" in (out.out + out.err)
+    assert "known keys" in (out.out + out.err).lower()
+    assert "live-longer" in (out.out + out.err)
+
+
+def test_only_rejects_an_unknown_key_among_valid_ones(tmp_path, capsys):
+    """A bad key anywhere in the comma list still exits 2 — not a silent partial filter."""
+    import check_agent_profiles as cap
+
+    agents = tmp_path / "agents"
+    (agents / "someone").mkdir(parents=True)
+    (agents / "someone" / "SOUL.md").write_text("short\n")
+    (agents / "manifest.json").write_text(
+        '{"profiles": [{"name": "someone", "rules": ["never-merge"]}]}')
+    rc = cap.main(["check", "--root", str(tmp_path), "--agents-dir", "agents",
+                   "--only", "live-longer,bogus-thing"])
+    out = capsys.readouterr()
+    assert rc == 2, out
+    assert "bogus-thing" in (out.out + out.err)
+    assert "Known keys:" in (out.out + out.err)
+
+
 def test_the_live_finding_names_the_reference_age_not_only_its_size(tmp_path):
     """A size without an age cannot be reproduced; the same numbers minutes later read differently (#924).
 
