@@ -279,3 +279,50 @@ def test_every_worktree_a_script_creates_is_unique_per_run():
             assert ("$STAMP" in line or "$(date" in line or "mktemp" in line), (
                 f"{p.name}: worktree path is fixed ({line.strip()!r}), which forces the script to "
                 f"remove the previous run's worktree; give it a per-run stamp")
+
+
+def test_the_phony_resolver_writes_a_makefile_make_accepts(tmp_path):
+    """End-to-end: a real `.PHONY` conflict resolved by the documented tool must still be a Makefile.
+
+    Measured defect: the renderer emitted a hardcoded TAB plus a trailing backslash, so the resolved
+    line became a RECIPE and `make` refused the whole file --
+        Makefile:1: *** recipe commences before first target.  Stop.
+    Nothing reads `.PHONY` for correctness and no gate compiles a Makefile, so the only way to find
+    out was the next `make` invocation. The keys were all present, which is why a keys-only check
+    passed: the union was right and the file was still unusable.
+    """
+    resolver = SCRIPTS / "resolve-phony-union.py"
+    if not resolver.exists():
+        return
+    mk = tmp_path / "Makefile"
+    mk.write_text(
+        "<<<<<<< HEAD\n"
+        ".PHONY: alpha delta\n"
+        "=======\n"
+        ".PHONY: alpha gamma\n"
+        ">>>>>>> side\n"
+        "\n"
+        "run:\n"
+        "\techo hi\n")
+    r = subprocess.run([str(resolver), str(mk)], capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stdout + r.stderr
+    out = mk.read_text()
+
+    # Behavioural invariants, asserted whether or not `make` is installed.
+    phony = [ln for ln in out.splitlines() if ln.lstrip().startswith(".PHONY")]
+    assert phony, "the resolver lost the .PHONY line entirely"
+    assert not phony[0].startswith("\t"), (
+        f".PHONY rendered at tab indentation -- it becomes a recipe and the file is unparseable: "
+        f"{phony[0]!r}")
+    assert not phony[0].rstrip().endswith("\\"), (
+        f".PHONY rendered with a dangling continuation: {phony[0]!r}")
+    for key in ("alpha", "delta", "gamma"):
+        assert key in phony[0], f"union dropped {key!r}: {phony[0]!r}"
+
+    # And if make is present, the stronger check: it must actually parse.
+    make = shutil.which("make")
+    if make:
+        p = subprocess.run([make, "-n", "-f", str(mk)], capture_output=True, text=True,
+                           timeout=60, cwd=tmp_path)
+        assert p.returncode == 0, (
+            "make rejects the resolver's own output:\n" + (p.stdout + p.stderr)[-500:])

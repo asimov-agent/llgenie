@@ -23,6 +23,19 @@ def keys(side: str) -> list[str]:
     return [t for t in body.split() if t != "\\"]
 
 
+def indent_of(side: str) -> str:
+    """The leading whitespace of the hunk's first line.
+
+    Measured defect: this renderer used to hardcode a TAB, which turns `.PHONY:` into a RECIPE line
+    and makes the whole Makefile unparseable -- `Makefile:1: *** recipe commences before first
+    target. Stop.` It also appended a trailing `\\` with nothing after it, a dangling continuation.
+    A resolver that writes a Makefile `make` refuses is worse than one that refuses: nothing reads
+    `.PHONY` for correctness, so only the next `make` invocation finds out.
+    """
+    first = side.split("\n", 1)[0]
+    return first[: len(first) - len(first.lstrip())]
+
+
 def main() -> int:
     if len(sys.argv) != 2:
         print("usage: resolve-phony-union.py <Makefile>", file=sys.stderr)
@@ -35,6 +48,7 @@ def main() -> int:
         return 0
 
     union_per_hunk: list[list[str]] = []
+    indent_per_hunk: list[str] = []
     for m in matches:
         ours, theirs = keys(m.group(1)), keys(m.group(2))
         if not ours or not theirs:
@@ -45,14 +59,25 @@ def main() -> int:
             if token not in merged:
                 merged.append(token)
         union_per_hunk.append(merged)
+        indent_per_hunk.append(indent_of(m.group(1)))
 
     def render(match: "re.Match[str]") -> str:
         merged = union_per_hunk.pop(0)
-        return "\t" + " ".join(merged) + " \\\n"
+        indent = indent_per_hunk.pop(0)
+        # ONE line, the hunk's own indentation (normally none), no trailing continuation: a `\`
+        # promises a next line, and a union that fits on one line has none to promise.
+        return indent + " ".join(merged) + "\n"
 
     resolved, count = HUNK.subn(render, text)
     if re.search(r"^(<<<<<<<|=======$|>>>>>>>)", resolved, re.M):
         print("markers remain - nothing written", file=sys.stderr)
+        return 1
+    # Refuse to write a Makefile that cannot parse. A `.PHONY` line must start at column 0 (a TAB
+    # makes it a recipe), and no line may end with a continuation whose successor is blank.
+    bad = [i for i, ln in enumerate(resolved.split("\n"), 1)
+           if ln.lstrip().startswith(".PHONY") and ln[:1] == "\t"]
+    if bad:
+        print(f"refusing: .PHONY rendered at tab indentation on line(s) {bad}", file=sys.stderr)
         return 1
     path.write_text(resolved)
 
