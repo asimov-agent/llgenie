@@ -105,7 +105,20 @@ deliberately, top first.
   `skill-reference-missing` red (a tree copy goes from N references to N+1, and a single-file cp
   leaves a dangling link). List the references the live SKILL's body actually names and copy them
   live → tree byte-for-byte WITH it; verify with `agent_profile_sync.py --profile <name> --check`
-  that the count moved.
+  that the count moved. Enumerate live-only files mechanically before pushing:
+  `find ~/.hermes/profiles/<name>/skills -type f | sort` minus
+  `git ls-files agents/<name>/skills | sed 's|^agents/|~/.hermes/profiles/|' | sort`.
+  Measured (#1152 @ `bf2796e9`, job 124452357268, 3 failed/3321 passed): `skill-reference-missing`
+  is a HARD finding — `scripts/check_agent_profiles.py check` exits **rc=1** — and three
+  `tests/test_agent_profiles.py` legs (`test_committed_tree_passes_the_gate`,
+  `..._names_duplicate_canonical_rules_and_the_gate_does_not_fail_on_them`,
+  `..._check_command_names_duplicate_rules_but_stays_green`) read that rc, so it reds
+  `linux / unit` IN CI. By contrast the `live-longer` / `live-edited-not-tree` /
+  `absent-from-tree` findings CANNOT fire in CI (the runner has no live home — its check logs
+  `live-profile comparison SKIPPED`), which is why main sat green with 58 locally-measured
+  findings: only TREE-INTERNAL inconsistencies (dangling reference links, tree-side duplicates)
+  gate CI. A sync PR therefore owes one pre-push check beyond the lint: the guard's
+  `findings()` over the synced tree must carry ZERO entries naming YOUR profile.
 - **`sync ... REFUSED ... the live file was edited AFTER the tree copy was committed`** — the guard is
   **mtime**, not content, so it fires on your own earlier sync too. Diff first (`diff` the live file
   against the tree copy) and only force when the bytes are identical. **`make sync-agent-profile`
