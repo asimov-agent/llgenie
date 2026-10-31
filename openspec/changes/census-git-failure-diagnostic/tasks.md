@@ -18,5 +18,5 @@
 - [x] `make test-unit` green with the new/edited census tests in the discovered suite.
 - [x] `make check-architecture-census`, `make check-docs`, `make check-wiring`, `make ci-unit` green.
 - [x] `make openspec-validate NAME=census-git-failure-diagnostic` passes.
-- [ ] PR opened ready-for-review against `asimov-agent/llgenie:main` from
+- [x] PR opened ready-for-review against `asimov-agent/llgenie:main` from
       `andyholst:fix/1141-census-git-failure-diagnostic` with `closes #1141`.
