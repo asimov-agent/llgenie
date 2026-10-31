@@ -251,14 +251,14 @@ def test_resolve_repairs_a_real_two_commit_changes_md_conflict(tmp_path):
     base_stem = "2026-10-01-base"
     root = _tree(tmp_path, {base_stem: "# Base\n\n#257\n"},
                  {base_stem: _row("2026-10-01", base_stem, base_stem, "#257")})
-    _git(root, "init", "-q")
+    _git(root, "init", "-q", "-b", "main")
     _git(root, "config", "user.name", "Test")
     _git(root, "config", "user.email", "test@example.com")
     ci.write(root)  # the base CHANGES.md
     _commit(root, "base")
 
     # When two commits each add a row and each rewrite CHANGES.md (the schema's conflict)
-    _git(root, "-c", "checkout.index=1", "checkout", "-qb", "other")
+    _git(root, "checkout", "-qb", "other")
     other_stem = "2026-10-02-other"
     (root / "agent-wiki").mkdir(parents=True, exist_ok=True)
     (root / "docs/changes.d").mkdir(parents=True, exist_ok=True)
@@ -309,7 +309,8 @@ def test_resolve_is_wired_as_make_changes_resolve_and_documented():
     bots = (REPO / "docs/BOTS.md").read_text()
 
     assert "\nchanges-resolve:" in mk
-    assert "changes_index.py resolve" in mk.split("\nchanges-resolve:", 1)[1].split("\n", 1)[0]
+    block = mk.split("\nchanges-resolve:", 1)[1].split("\n\n", 1)[0]
+    assert "python3 scripts/changes_index.py resolve" in block, block
     assert "changes-resolve" in phony
     assert "make changes-resolve" in bots
     assert "take base + re-render" in bots
