@@ -34,3 +34,19 @@ Same PR, the docs lane folded its own live→tree drift so `sync-agent-profile C
 - [ ] `make -s check-agent-profiles` clean at the PR head.
 - [ ] `make sync-agent-profile PROFILE=llgenie-documentation-maintainer CHECK=1` → 6 files byte-identical.
 - [ ] routed gaps: every SOUL/skill review carries the delta record and names an owning-lane issue.
+
+## Evidence (measured at `860c04f6`, 17:13Z)
+
+Full battery run on the functional head `860c04f6` (measured 17:13Z):
+
+```
+[changes-index] ok: 305 fragment(s) index every agent-wiki/ note ...
+[check-docs] ok: every one of the 276 user-facing make targets is documented ...
+check_docs=0          # includes the change->note gate (#1133); explicit probe against --base origin/main also exit 0
+check_live=0          # sync-agent-profile PROFILE=llgenie-documentation-maintainer CHECK=1: 6 files byte-identical
+ratchet=0             # check-import-roots: {'sys-path':32,'bare':52,'syntax':0} at/below baseline
+guard=0               # module_name_guard.py check --root .
+```
+
+The hermetic `linux / unit` suite does not run in this profile's venv (no `pytest`); its verdict comes from
+the CI matrix at the final PR head.
