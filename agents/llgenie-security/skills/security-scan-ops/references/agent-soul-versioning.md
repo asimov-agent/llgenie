@@ -104,13 +104,16 @@ agents/<profile>/skills/<name>/SKILL.md
   whole block from the new base after every rebase, and check that each rule appears exactly once
   (`grep -c "^- \*\*<rule opening>"`) — merges that carry the same stream of rule additions leave the
   closing bullet followed by a second copy of the last three rules.
-- **Sync is one-way: tree → live, and a live edit after the tree commit is never re-taken backwards.**
-  `check-agent-profiles` distinguishes `fleet-block-drift` (a bullet missing from the SOUL), `live-longer` /
+- **The live profile inside Hermes is the newest authority; the tree is always catching up to it, and `sync-agent-profile` copies tree → live — so never run that sync against a live-ahead profile.** A live edit after the tree commit is never re-taken backwards *by the sync*: doing so would silently truncate the lessons the curator accumulated in live, so the tree must be folded up to live FIRST. `check-agent-profiles` distinguishes `fleet-block-drift` (a bullet missing from the SOUL), `live-longer` /
   `live-lines-missing` (a live file larger, or carrying lines the tree lacks), `live-edited-not-tree` (live
   mtime after the tree commit) and `UNPROTECTED`. For the live-ahead cases the gate's own instruction is the
-  rule: *commit the live content via an issue+PR under `agents/<lane>/`, then `make sync-agent-profile`* —
-  never copy the live file back into the tree, and never `--force` the sync. Forcing discards lines nobody
-  diffed; the reload is only "byte-identical" once the tree catches up.
+  rule: *commit the live content via an issue+PR under `agents/<lane>/`, then `make sync-agent-profile`* — and never `--force` the sync. Do not treat the tree as "source of truth" and sync it over a live-ahead profile: that truncates live lessons the curator added — it is the trap, not a repair; when live carries lessons the tree lacks, fold live→tree (union where the tree has a rulebook live lacks, per the bullet below) so the tree matches live. Forcing discards lines nobody
+  diffed; the reload is only "byte-identical" once the tree catches up. Prove a byte-safe fold in code
+  before trusting it: `comm -23 <(sort tree) <(sort live)` empty means live is a strict superset of the
+  tree, so folding a tree-missing line in loses nothing. And read a row by its `First:` line, not its
+  summary sentence — `live-lines-missing: … the tree copy carries N line(s) the live profile has` actually
+  means the **LIVE side has N lines the TREE lacks** (measured: a new skill section); it is a live-ahead fold,
+  not the reverse the wording suggests.
 - **A live profile that regrows after you sync has a WRITER — name it from the live ledger, not from memory.**
   The re-growth shows up as `live-edited-not-tree` again with a newer mtime, so `sync-agent-profile` can never
   close it. Read the live profile's own ledger before blaming a human or a cron:
@@ -125,6 +128,13 @@ agents/<profile>/skills/<name>/SKILL.md
   deletes it from the running profile too. Union the sections explicitly and say in the PR which section is
   tree-only and why it survives. Each fold round gets its own issue+PR — content that regenerates mid-review is
   the next vehicle, not a reason to reopen the PR you already armed.
+- **`live-edited-not-tree` still firing after your union already contains every live line is a TIMESTAMP
+  artifact, not a failed fold — commit, then re-run the gate.** The row fires when the live mtime is newer
+  than the last **committed** tree time; in an uncommitted worktree the gate reads HEAD, so it reports the
+  row even when your working-tree union lost 0 live lines. Commit the fold and re-run `check_agent_profiles`:
+  the tree commit time jumps past live's mtime and the row clears. Do NOT start a second sync round or
+  re-take the live file because the row survived your build step — measure by `comm -23` (0 lost lines),
+  then commit and re-gate, not by the raw row.
 - **A section spliced above a markdown heading keeps a blank line in front of it.** `lint_linefeeds` reds a
   `##` heading that directly follows text, and it is a different gate from `check-agent-profiles` — so
   splicing a block in front of `## Standing rules` can pass the canonical-block assertion and still red
