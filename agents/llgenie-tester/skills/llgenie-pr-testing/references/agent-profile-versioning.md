@@ -107,6 +107,16 @@ deliberately, top first.
   (zero naming your profile), then **re-hash the live files immediately before the push** — another
   lane may still be writing, and a byte that moved after your capture means the copy you are about to
   push is already stale; re-copy rather than push.
+- **A sync is a CYCLE, not a one-shot: expect live to have grown again AFTER your sync PR merges.**
+  The same working cycle that produces the sync also produces lessons, and live accumulates them while
+  the PR sits open and after it lands — so a post-merge `--check` commonly reports fresh drift on files
+  you just shipped, and the merged snapshot is already one round behind. That is the expected shape,
+  not a failed sync: open a follow-up vehicle for the delta with its own `CHECK`/guard/lint gates, say
+  in its body what it clears (and what it does NOT close), and never report "the sync is done" from
+  the merged head. **Before copying, prove the live file is not MID-WRITE:** hash it, wait a couple of
+  seconds, hash again — copy only when two reads agree, and treat a hash that moves between reads as
+  another lane's active edit (re-read, do not snapshot). A capture taken mid-write ships a half-written
+  file that passes `--check` because both sides carry the same truncation.
 - **Never force a sync over a live file another lane just edited without reading both.** The live
   profile is edited by other lanes too; a `REFUSED … live newer than the source commit` can be a real
   in-flight edit. Read the diff, decide which side is correct (canonical-block comparison above), and
