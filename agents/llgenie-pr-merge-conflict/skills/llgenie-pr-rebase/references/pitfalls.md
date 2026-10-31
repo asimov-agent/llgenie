@@ -113,6 +113,18 @@ the 429 in the same job was a SUCCEEDED retry (a red herring), and the failing s
 `make ci-unit` -> check-import-roots — read the exact failing STEP, not the job name, before
 naming a cause.
 
+That decisive `origin/main` — like a PR head — must be RE-FETCHED at the moment of measurement.
+A base fetched "a few commands earlier" is stale and has produced a false main-level verdict here:
+the ~78-findings import-roots scan was measured at `28b279f1` (the main fetched before #1159
+merged) and reported as "MAIN is red"; the merge advanced main and the ratchet reconciled, and
+`make check-import-roots` at the merged `c3a0860d` returns rc=0. A stale base even delayed nothing
+real — my PR's auto-merge fired on the green base, contradicting the red I had claimed. Before
+asserting a main-level verdict, `git rev-parse refs/remotes/origin/main` immediately before the
+archive, and prefer `git archive origin/main` over the branch's working tree (a checkout on the
+wrong/stale branch reads the same way, and a `git fetch` moves refs only, never the working tree).
+The "read the head at report time" discipline applies to the base of my OWN verdicts, not only
+to PR head shas.
+
 ## When the paths predate the PR, only the PER-FILE CONTENT diff exposes a duplicate vehicle
 
 The duplicate-vehicle pair (`ls-tree` shows the paths on main + `--is-ancestor` says the commit never
