@@ -2895,3 +2895,24 @@ def test_an_undecodable_file_is_reported_never_raised(tmp_path: Path):
     unreadable = [i for i in items if i["key"] == "unreadable-live-file"]
     assert len(unreadable) == 1, items
     assert "NOT compared" in unreadable[0]["detail"]
+
+
+def test_an_unexpected_abort_exits_non_zero_and_says_nothing_was_checked(monkeypatch, capsys):
+    """The entry-point backstop: a crash must not look like a pass (issue #1134).
+
+    A traceback exits non-zero but prints no FAIL, and callers here grep for FAIL — so the abort has
+    to say, in the gate's own vocabulary, that it failed *and* that nothing was checked.
+    """
+    def boom(_argv=None):
+        raise RuntimeError("simulated unexpected abort")
+
+    monkeypatch.setattr(guard, "main", boom)
+
+    # When the gate aborts unexpectedly
+    code = guard.run_cli([])
+
+    # Then it is a non-zero exit that prints the word callers grep for, plus what it did not do
+    captured = capsys.readouterr()
+    assert code == 2, code
+    assert "FAIL" in captured.err
+    assert "NOTHING was checked" in captured.err

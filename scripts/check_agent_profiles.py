@@ -1128,5 +1128,22 @@ def main(argv: list[str] | None = None) -> int:
     return 1
 
 
+def run_cli(argv: list[str] | None = None) -> int:
+    """Run the gate, and make an unexpected abort unmistakable (issue #1134).
+
+    A traceback exits non-zero but prints no FAIL, and every caller on this board greps for FAIL —
+    so an unhandled exception read as a clean gate. This says both things: that it failed, and that
+    nothing was checked.
+    """
+    try:
+        return main(argv)
+    except SystemExit:
+        raise
+    except BaseException as exc:  # noqa: BLE001 — an abort must never read as a pass
+        print(f"[check-agent-profiles] FAIL: the gate aborted before finishing "
+              f"({type(exc).__name__}: {exc}) — NOTHING was checked (issue #1134)", file=sys.stderr)
+        return 2
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(run_cli())
