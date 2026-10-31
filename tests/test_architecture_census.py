@@ -202,6 +202,35 @@ def test_a_doc_with_no_pointer_reds(tmp_path, capsys):
     assert "docs/ARCHITECTURE.md states no `measured at <sha>` pointer" in out
 
 
+def test_an_unreadable_checkout_is_unreadable_not_a_bad_pointer(tmp_path, capsys):
+    """A checkout git cannot read reports UNREADABLE (exit 2), never a bad doc pointer (issue #1141).
+
+    A bare copy of the doc with no repository, or a worktree whose `.git` file points at an
+    unmounted bare repo, makes every git call fail. That is an environment failure: the census was
+    NOT checked, and the gate must say so and name the checkout — not accuse the document of naming
+    a bad commit.
+    """
+
+    # Given a directory that has the ARCHITECTURE doc but no repository git can read
+    where = tmp_path / "bare"
+    where.mkdir()
+    sha = "0123456789abcdef0123456789abcdef01234567"
+    write_doc(where, f"The tree is 1 tracked file. ({sha} tracked files and cells omitted—this "
+                     f"doc's numbers are irrelevant: git itself cannot run here) (measured at `{sha}`).\n")
+    gate = load_gate(where)
+    assert gate.git_unreadable()
+
+    # When  the gate runs there
+    rc = gate.check()
+
+    # Then  it names the checkout / git (an UNREADABLE finding), not the doc's pointer, and exits 2
+    out = capsys.readouterr().out
+    assert rc == 2, out
+    assert "UNREADABLE" in out
+    assert "git could not read this checkout" in out
+    assert "not a real commit" not in out
+
+
 def gate_is_real(where: Path, sha: str) -> bool:
     r = subprocess.run(["git", "cat-file", "-e", f"{sha}^{{commit}}"], cwd=where,
                        capture_output=True, text=True)

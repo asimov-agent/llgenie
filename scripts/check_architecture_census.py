@@ -15,8 +15,14 @@ commit, so that commit — not `HEAD` — is the referent (issue #1053):
   find, on `main` and in a PR alike.
 
 Usage:
-    python3 scripts/check_architecture_census.py check     # exit 1 on any drift
+    python3 scripts/check_architecture_census.py check     # exit 0 = OK, 1 = census defect, 2 = unreadable
     python3 scripts/check_architecture_census.py report    # print the census, exit 0 always
+
+Exit codes for `check` are part of the contract (issue #1141): 0 = the census matches the tree at
+the `measured at <sha>` pointer, 1 = the document is wrong (a stale number, an absent pointer, or a
+pointer to a sha that is not a real commit an ancestor of HEAD), and 2 = git could not read THIS
+checkout (no repository, a `.git` file pointing at an unmounted bare repo, dubious ownership, or no
+git binary) — the census was NOT checked, and the caller should fix the checkout, not the document.
 
 Stdlib only; runs in the repo checkout (`HEAD` = the working tree's commit). Wired into `check-docs`
 via the Makefile.
@@ -114,6 +120,23 @@ def doc_measured_sha() -> str | None:
     return m.group(1) if m else None
 
 
+def git_unreadable() -> bool:
+    """True when git itself cannot read this checkout (the environment failed, not the document).
+
+    The probe is the gate's own plumbing failing, never a guess at the document: a
+    `git rev-parse --git-dir` that returns non-zero (no repository, a worktree whose
+    `.git` file points at an unmounted bare repo, `dubious ownership`), returns nothing,
+    or cannot even be invoked (git is not installed). In all those cases the census was
+    NOT checked — the failure is a property of the checkout, and must not be rendered as
+    if the document had named a bad commit.
+    """
+    try:
+        probe = _git("rev-parse", "--git-dir")
+    except FileNotFoundError:
+        return True  # git is not installed
+    return probe.returncode != 0 or not probe.stdout.strip()
+
+
 def commit_is_real(sha: str) -> bool:
     """A real, non-dangling commit (not a sha from an amend that vanished)."""
     return _git("cat-file", "-e", f"{sha}^{{commit}}").returncode == 0
@@ -128,12 +151,15 @@ def check() -> int:
     problems: list[str] = []
     stated = doc_measured_sha()
     measured: dict[str, int] | None = None
+    if git_unreadable():
+        print("[census-gate] UNREADABLE: git could not read this checkout — the census was NOT "
+              "checked (run this from a full clone or mount the whole repository)")
+        return 2
     if stated is None:
         problems.append("measured-at: docs/ARCHITECTURE.md states no `measured at <sha>` pointer; it must "
                         "name the commit its census was counted on")
     elif not commit_is_real(stated):
-        problems.append(f"measured-at: the doc's pointer `{stated}` is not a real commit (dangling from "
-                        "an amend?)")
+        problems.append(f"measured-at: the doc's pointer `{stated}` is not a real commit")
     elif not commit_is_ancestor(stated):
         problems.append(f"measured-at: the doc's pointer `{stated}` is not an ancestor of HEAD "
                         f"({short_sha()}); the census must name a commit this branch contains")
