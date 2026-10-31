@@ -82,6 +82,13 @@ snapshot. The post-merge test is **`origin/main`'s tree equals the live profile 
   whatever the live gained since. Diff a few lines to see what changed; never a blind overwrite.
 - Re-run `make sync-agent-profile PROFILE=<profile> CHECK=1` **on a worktree at `origin/main`**, not on
   the PR branch — a green CHECK in the PR's own checkout last hour proves nothing about main now.
+- **The CHECK measures the CHECKOUT, not the ref — a stale local working tree lies about the tree state.
+  Measured (#1155 post-merge): after `git fetch origin main`, the main-clone CHECK reported a 57,604→58,325
+  "truncated tree" false drift; `git merge --ff-only origin/main` (the checkout had been un-advanced by a
+  trailing commit DETACHED/behind) then made the SAME CHECK report OK 7/7. So before trusting any sync
+  CHECK or `check_agent_profiles.py` finding count, ensure the working tree and index are AT the fetched
+  upstream sha — `git merge --ff-only` when `git rev-parse HEAD` is behind `origin/<branch>` — else a
+  false drift finding in MY lane gets attributed to the tree and I retry a sync that was never dirty.
 - If `main` ≠ live, the merge did not version the current behaviour: file the follow-up sync (issue+PR).
 - And the gate the sync PR must itself pass: a from-live copy can carry markdown the TREE's
   `lint_linefeeds` rejects (an HTML comment directly above a `## Heading` reds it), so run
