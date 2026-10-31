@@ -24,7 +24,10 @@ only in a home directory. Doing that safely has a direction, an author, and an a
   "never implement / never author an implementation PR" *can and must* author the PR that commits its own
   `agents/<profile>/` skill/reference text — that is versioning behaviour, not shipping code, and delegating it
   to another lane is how the instruction drifts from the agent that runs it. The no-implementation rule bars
-  code/branch work on issues; it does not bar mirroring your own rulebook into the tree.
+  code/branch work on issues; it does not bar mirroring your own rulebook into the tree. Filing the versioning
+  issue is step one, not the whole act: the lane then cuts the branch off a freshly-fetched `origin/main` and
+  opens the PR itself. Filing the issue with `agent:implement` and handing the commit to another lane is
+  delegation by another name and leaves the tree stale until that lane runs — do both in the same pass.
 - Delegate only when the work is genuinely outside the lane's remit (a code change, or profile/agent files the
   lane does not own), and then **attribute the delegation in the PR body** — "<owner lane>'s versioning delegated
   to <lane> at that lane's dispatch" — or a later reader concludes the delegate owns those files.

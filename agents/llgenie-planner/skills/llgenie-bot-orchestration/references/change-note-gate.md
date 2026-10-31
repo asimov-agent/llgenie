@@ -22,6 +22,12 @@ row)
   the red one step along.
 - Anything touching workflows, Make targets or `scripts/` is behavioural for this gate — check for both
   artefacts before routing a reviewer, or the reviewer's whole pass is wasted on an unmergeable PR.
+- **A lane's "change-note duty included" is still a claim.** A same-topic note from an *earlier* issue
+  (a prior `*-install-leg-container.md` for a different ticket) does not satisfy the gate for this
+  change: the error names the changed files, so confirm the note you find is the one whose stem covers
+  *this* branch's change, not a look-alike. `git ls-tree -r <head> -- agent-wiki/ | grep -i <topic>`
+  and `git diff --name-only origin/main <head> -- agent-wiki/` — if neither shows a new note for this
+  change, the duty was not paid and the gate is red for real.
 
 ## Dispatch wording that fixes it in one round
 
