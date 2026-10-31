@@ -1515,6 +1515,32 @@ own state, readable only through the API, so a hermetic `ci-unit` cannot assert 
 prove is that nothing in the repository makes the workflow unreachable or inert. `allow_auto_merge` — the
 repository-level switch `gh pr merge --auto` needs — is owner-only for the same reason.
 
+Since #902, the API half is guarded where the API is reachable — the **all-pipelines sweep**
+(`make all-pipelines-sweep`, issue #1102), which already reads live `gh api .../actions/workflows`
+state for every workflow. `scripts/all_pipelines.py` reads `bots/pause.toml` (`never_pause`) and a
+workflow in that set that the API reports `disabled_manually` is **FORBIDDEN disabled**: it fails the
+sweep loudly instead of being a benign `DISABLED` row, because a green PR has no path to a merged one
+(the `state == disabled_manually` half of the #874 guard). The tree half below stays the hermetic
+boundary; the API half makes the mute itself a red run instead of a review argument.
+
+### The pause is recorded as data; the restore condition is a measurement (issue #902)
+
+The 2026-10-28 pause (16 bot workflows `disabled_manually`, 15:50–15:51Z, under runner starvation
+#817) is recorded as data in **`bots/pause.toml`** — the pause's *source of truth*: `paused`
+(the set), `never_pause` (the workflows that must never be paused: `auto-merge`, `ci`, `pipeline`,
+`published`), `restore_first`/`restore_after` (the re-enable order), and `restore`
+(N/K/L — the queue-health measurement). `gh workflow list --all` is the *observation* that confirms
+or contradicts it; a workflow the API reports `disabled_manually` that `pause.toml` does not list is a
+silent break, not a decision.
+
+The restore condition is measured, not guessed: `make bots-restore-health CMD=measure REPO=owner/repo`
+samples the live queue and the queue is healthy when N consecutive readings, K minutes apart, each
+show every queued `pull_request` CI run reaching `in_progress` within L minutes of creation
+(`bots/pause.toml` `restore.*`). When healthy, `make bots-restore-health CMD=restore` prints the
+ordered re-enable list — the cheap common bots (`fix-bot`, `security-bot`, `registry-sync`,
+`engine-bump`, `issue-dedupe`) first so the board wakes early, the heaviest (`security-scan`,
+`engine-build`) last so they do not re-saturate a just-drained queue.
+
 ### Which workflows may be paused — and which never
 
 Pausing a bot leg is legitimate. Pausing the merge path is the defect #874 is about. Measured 2026-10-28

@@ -32,10 +32,21 @@ import sys
 import time
 from pathlib import Path
 
+import tomllib
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WORKFLOWS = ".github/workflows"
 SELF = "all-pipelines.yml"
 DISABLED_MARK = "DISABLED (owner re-enable required)"
+FORBIDDEN_DISABLED_MARK = "FORBIDDEN DISABLED (never pause — issue #902)"
+# The `never_pause` set is DERIVED from bots/pause.toml (issue #902), never a hand-kept list here:
+# #874 established that auto-merge must never be paused, and #902 extends it to every workflow that
+# turns a green PR into a mergeable, tested, published one. A hand-listed tuple here is the roster
+# defect of issue #301 — if someone adds a merge-path workflow without recording it in the pause
+# data, this guard must start protecting it, not silently keep an old list.
+_NEVER_PAUSE = frozenset(
+    tomllib.loads((REPO_ROOT / "bots" / "pause.toml").read_text())["never_pause"])
+
 # A non-dispatchable ACTIVE workflow (auto-merge, ci, pipeline) cannot be swept: it has no
 # `workflow_dispatch`, so the one thing this umbrella can do — dispatch it — is impossible. It is
 # reported separately, not counted as ok/failed/disabled.
@@ -139,6 +150,8 @@ def classify(root: Path, states: dict[str, dict]) -> list[dict]:
             role = "dispatch"
         elif active and not dispatchable:
             role = "not_dispatchable"
+        elif name in _NEVER_PAUSE:
+            role = "forbidden_disabled"
         else:
             role = "disabled"
         rows.append({"file": name, "role": role, "id": (st or {}).get("id", ""), "active": active,
@@ -201,6 +214,8 @@ def dispatch_one(repo: str, gh: str, wf_file: str, wf_id: str, ref: str, timeout
 
 def ok(row: dict, concluded: dict | None) -> str:
     """The table cell for this row's outcome, or a marker."""
+    if row["role"] == "forbidden_disabled":
+        return FORBIDDEN_DISABLED_MARK
     if row["role"] == "disabled":
         return DISABLED_MARK
     if row["role"] == "not_dispatchable":
@@ -223,6 +238,7 @@ def render_report(rows: list[dict], concluded: dict[str, dict], sha: str) -> tup
              "|---|---|---|---|", ""]
     excluded_disabled: list[str] = []
     excluded_nd: list[str] = []
+    forbidden: list[str] = []
     failed = 0
     for row in rows:
         c = concluded.get(row["file"])
@@ -230,7 +246,9 @@ def render_report(rows: list[dict], concluded: dict[str, dict], sha: str) -> tup
         run_id = c["run_id"] if c and row["role"] == "dispatch" else "—"
         completed = (c.get("completed_at") or "—") if (c and row["role"] == "dispatch") else "—"
         lines.append(f"| `{row['file']}` | {run_id} | {outcome} | {completed} |")
-        if row["role"] == "disabled":
+        if row["role"] == "forbidden_disabled":
+            forbidden.append(row["file"])
+        elif row["role"] == "disabled":
             excluded_disabled.append(row["file"])
         elif row["role"] == "not_dispatchable":
             excluded_nd.append(row["file"])
@@ -244,7 +262,13 @@ def render_report(rows: list[dict], concluded: dict[str, dict], sha: str) -> tup
                      "conclusion"] not in (None, "success"))
     disabled_n = sum(1 for row in rows if row["role"] == "disabled")
     lines.append("")
-    lines.append(f"Summary: {ok_n} ok · {failed} failed · {disabled_n} disabled")
+    lines.append(f"Summary: {ok_n} ok · {failed} failed · {disabled_n} disabled"
+                 f" · {len(forbidden)} FORBIDDEN disabled")
+    if forbidden:
+        lines.append("")
+        lines.append("FORBIDDEN disabled (issue #902 — these must never be paused, the merge path "
+                     "is how a green PR becomes a merged one):")
+        lines.append(", ".join(f"`{f}`" for f in forbidden))
     if excluded_disabled:
         lines.append("")
         lines.append("Excluded — disabled (owner re-enable required):")
@@ -253,7 +277,7 @@ def render_report(rows: list[dict], concluded: dict[str, dict], sha: str) -> tup
         lines.append("")
         lines.append("Not dispatchable (no workflow_dispatch) — not swept:")
         lines.append(", ".join(f"`{f}`" for f in excluded_nd))
-    return "\n".join(lines) + "\n", 1 if failed else 0
+    return "\n".join(lines) + "\n", 1 if (failed or forbidden) else 0
 
 
 def sweep(repo: str, ref: str, gh: str, timeout: int, root: Path = REPO_ROOT) -> tuple[str, int]:
