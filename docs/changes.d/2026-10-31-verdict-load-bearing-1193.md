@@ -1,0 +1,1 @@
+| 2026-10-31 | reviewer verdict is load-bearing state (#1193): `gh pr review -r` when the head fails an acceptance criterion, `gh pr review -a` when every criterion is met, never a neutral body-only conclusion — never-merge/never-implement stay intact | [note](agent-wiki/2026-10-31-verdict-load-bearing-1193.md) | #1193 |
