@@ -168,5 +168,19 @@ else
   ok "no base lines lost"
 fi
 
+# 12. Commit authorship/trailers. `linux/guard` runs check_pr_authors and reds the whole matrix on a
+# wrong author or a stray Co-authored-by trailer, and nothing else in this script would notice —
+# measured: a rebase that dropped an architect trailer was only found after a full unit cycle.
+# This is a pre-push assertion precisely because the failure is cheap to fix locally and expensive
+# to discover in CI.
+if [ -f scripts/check_pr_authors.py ]; then
+  if python3 scripts/check_pr_authors.py check --base "$BASE" --head HEAD >/tmp/_auth.$$ 2>&1; then
+    ok "check_pr_authors"
+  else
+    bad "check_pr_authors"; grep -vE '^\s*$' /tmp/_auth.$$ | head -4 | sed 's/^/     /'
+  fi
+  rm -f /tmp/_auth.$$
+fi
+
 echo
 if [ "$fail" = "0" ]; then echo "SAFE TO PUSH"; exit 0; else echo "DO NOT PUSH — see FAIL lines above"; exit 1; fi

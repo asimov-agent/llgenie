@@ -193,6 +193,8 @@ def test_the_revert_detector_catches_a_revert_and_clears_a_restored_tree():
     # script itself, so this line is the evidence that it reached the verdict.
     assert "PASS: catches the substitution revert, allows a deliberate deletion" in r.stdout, \
         r.stdout[-800:]
+    assert "case4 authorship:    verify rc=1" in r.stdout, \
+        "the authorship assertion must be wired AND able to fail:\n" + r.stdout[-500:]
 
 
 def test_every_python_script_is_executable_and_prints_usage_without_args():
