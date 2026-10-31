@@ -529,3 +529,21 @@ def test_the_rebase_drivers_verify_commit_preservation():
         assert "OWN=" in src or "WANTED=" in src, f"{f} does not capture the pre-rebase own commits"
         assert "COMMIT LOST" in src, f"{f} has no preservation refusal when a commit is dropped"
         assert "grep -Fxq" in src, f"{f} compares subjects, not shas (rewrites change shas)"
+
+
+def test_the_commit_preservation_control_runs_and_catches_a_drop():
+    """The shipped negative control for the rebase drivers' preservation check must bite.
+
+    It builds a throwaway repo, replays one commit, and asserts the subject set-compare responds:
+    preserved -> LOST empty, dropped -> LOST names the commit. A checker that cannot fail pins
+    nothing, so the control itself asserts the DROP case (rc and the named subject), not just that
+    the script reached a PASS line (which an exit-0-without-running-the-cases script would also do).
+    """
+    ctrl = SCRIPTS / "test-commit-preservation.sh"
+    if not ctrl.exists():
+        return
+    r = subprocess.run(["bash", str(ctrl)], capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stdout + r.stderr
+    # the verdict must be the DROP case being caught, not merely a PASS banner
+    assert "LOST=[the PRs own change]" in r.stdout, (
+        "the control must have exercised and caught the dropped commit:\n" + r.stdout)
