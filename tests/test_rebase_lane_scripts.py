@@ -559,21 +559,15 @@ def test_every_shipped_control_is_tracked_executable():
     scripts/ is tracked with the executable bit; it is what a reinstall restores and what the sync
     should preserve.
     """
-    # NODOC: ls-files -s emits `100755 <hash> 0\t<path>` (mode, then SPACE). An aggregate
-    # pathspec-glob (`ls-files -s scripts/*.sh`) is unreliable under `git -C` in the container
-    # (measured: returned EMPTY, so a first draft of this test PASSED with no files scanned --
-    # a vacuum). The reliable scan is the filesystem glob below (the tree is mounted) with one
-    # exact-path `ls-files` per file.
-    non_exec = []
-    for sh in sorted(SCRIPTS.glob("*.sh")):
-        rel = str(sh.relative_to(REPO))
-        line = subprocess.run(["git", "-C", str(REPO), "ls-files", "-s", "--", rel],
-                              capture_output=True, text=True).stdout.splitlines()
-        assert len(line) == 1, f"expected one tracked path for {rel}, got {line}"
-        # mode is the first whitespace-delimited field of the line; executable is 100755.
-        mode = line[0].split()[0]
-        if mode != "100755":
-            non_exec.append(f"{rel} (mode {mode})")
+    # NODOC: two previous drafts were unreliable. (1) An aggregate pathspec-glob
+    # (`git ls-files -s scripts/*.sh`) returned EMPTY in the container, so the test PASSED with
+    # no files scanned -- a vacuum. (2) Per-path `git -C ls-files` then returned NOTHING for every
+    # file because git refuses "dubious ownership" inside the container (repo owned by another uid)
+    # -- so it wrongly flagged every script. The faithful, container-safe check is os.access on the
+    # checkout: git's recorded 100755 mode BECOMES the worktree mode on checkout, so a non-exec
+    # tracked script is a non-exec worktree file, and this test IS what git would restore.
+    non_exec = [str(sh) for sh in sorted(SCRIPTS.glob("*.sh")) if not os.access(sh, os.X_OK)]
+    assert SCRIPTS.glob("*.sh"), "no .sh scripts found to scan -- the lane scripts dir is empty"
     assert not non_exec, (
         "these shipped scripts are tracked non-executable, so their documented form fails "
         "Permission denied on every checkout: " + ", ".join(sorted(non_exec)))
