@@ -108,8 +108,9 @@ DATA_PATH_FILES = (
 # dict — NOT a 0-open-primitive hermetic test, as the earlier census wrongly claimed). Everything
 # else is hermetic by construction or reaches only a localhost serve / non-Hub, apart from
 # test_pick_full_registry.py (added by issue #1059: its whole surface is the live matrix, below).
-# So nothing else may be marked. test_plan_download_per_format_live_hub is deliberately ABSENT: it
-# only plans, no i/o.
+# So nothing else may be marked. #1000 CLOSED the old plan_download carve-out (the comment here
+# once claimed test_plan_download_per_format_live_hub "only plans, no i/o" — it reaches the Hub via
+# offer -> plan_download -> _tree/_snapshot -> hub_open), so its three live-Hub siblings joined.
 EXPECTED_NETWORK_TESTS = {
     "test_trend_pick.py": {
         "test_live_upstream_registry_is_the_live_readme_list",
@@ -121,6 +122,9 @@ EXPECTED_NETWORK_TESTS = {
         "test_full_download_through_hf_download_places_the_complete_gguf",
         "test_hub_json_caches_and_survives_a_missing_repo",
         "test_the_vendored_contract_is_upstreams_and_the_store_satisfies_it",  # issue #1067
+        "test_plan_download_per_format_live_hub",           # #1000: plan_download reaches the Hub
+        "test_moe_model_on_16gb_is_planned_with_system_ram",  # #1000: docstringed "Live Hub"
+        "test_unsloth_repo_skips_mtp_heads_and_imatrix",      # #1000: docstringed "Live Hub"
     },
     "test_model_engine_pick.py": {
         "test_download_fetches_a_real_chunk_of_the_chosen_file",
