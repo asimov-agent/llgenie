@@ -1,0 +1,1 @@
+| 2026-10-31 | version the docs-maintainer lane's post-#1083 live skill lessons back into the tree (SKILL.md v1.0.8 + the `~1h ci-unit` cancellation fingerprint reference; measured at `c3a0860d`); clears the lane's reappeared live-longer rows (does not close #961/#1060) | [2026-10-31-docs-maintainer-skill-v108.md](agent-wiki/2026-10-31-docs-maintainer-skill-v108.md) | #1165 |
