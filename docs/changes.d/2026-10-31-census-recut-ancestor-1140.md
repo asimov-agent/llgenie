@@ -1,0 +1,1 @@
+| 2026-10-31 | re-cut `docs/ARCHITECTURE.md`'s census `measured at` pointer from the dangling `3bba736e` (a real commit that is NOT an ancestor of main, so `check-docs` reddened every open PR) to `d98c569c` with the tree measured at that commit (2442 tracked, 187 `tests/test_*.py`, 291 changes, 323 entries) | [note](agent-wiki/2026-10-31-census-recut-ancestor-1140.md) | #1140 |
