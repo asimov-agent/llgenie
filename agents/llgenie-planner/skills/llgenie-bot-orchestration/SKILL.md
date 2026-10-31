@@ -316,6 +316,8 @@ So **every message that names a sha or a count re-reads it in the same turn** �
 
 **When a lane reports a head it pushed, resolve the real head before crediting or rejecting it.** A lane saying "pushed to `<sha>`, all gates green" can quote a tree/blob hex, a pre-rebase commit, or a stale ref that exists on no ref at all, while the PR actually advanced to a *different* sha. Resolve the truth from the API, not the message: `gh pr view <n> --json headRefOid` for the real head; `git cat-file -t <quoted>` / `git ls-remote origin | grep <quoted>` to prove the quoted sha is reachable; `git grep '<the claimed content>' <real-head>` to prove the work landed. **The two verdicts are independent:** a wrong quoted sha does not make the work wrong — credit the substance if it is in the tree at the real head, and correct the sha in the same message ("reachable nowhere; the real head is `<x>`; the versioning is present there"). Say plainly that its "remote==local at `<quoted>`" claim is false.
 
+**A line number is a property of a sha, not of the file.** Before sending a per-line instruction ("insert a blank line above line 39 of `agents/<lane>/SOUL.md`"), prove the fix is not already in the tree by comparing blobs, not counting lines: `git rev-parse <quoted-sha>:<path>` vs `git rev-parse origin/main:<path>`. Equal blob ids mean the content is byte-identical and the per-line request is moot — a merged PR whose branch introduced exactly `main`'s content needs nothing, and an insertion at a remembered line number lands wherever the file has since grown (measured: a "line 39" request sat four rules early in a 94-line file whose line 49 was the real anchor). When a lane replies that its fix already merged, the tell is usually the line count differing between the sha the numbers were read at and current `main` — verify with `git rev-parse` before re-dispatching, and retract the request as factually moot rather than defending it. Same class as **a count reported without the predicate that produced it**: an unanchored `grep identifier` finds prose *about* the identifier and reads it as an instance; always quote the predicate (the file, the sha, the anchor) beside the count.
+
 **A lane's named "gates" can be its own local make targets, not CI check-runs.** "All six gates green" frequently means it ran `make lint skills changes docs authors census` locally; the API at that head may show only `guard`/`holds`/`scope` with `mergeStateStatus=UNKNOWN` (checks not yet posted, or a single job rendering them). "All gates green" is then **unverifiable from the API at that moment** — ask for the run id and job that prove it, and never repeat "0 failing checks" against a head whose checks the API has not posted. Local green is a claim by the author; a posted run at the head is evidence.
 
 ## Cite the invariant, not a single number
@@ -823,6 +825,18 @@ tick queues twelve items while you strip the queue to one, and the bot follows w
 naming the order once, in writing, to that bot (*"this supersedes the earlier brief: #X only, everything else is
 parked"*), and keep the tick out of lanes that already have an order. Two orchestrators is the same failure as two
 builders: duplicated, contradictory work that looks like activity. See `references/fleet-failure-modes.md`.
+
+## Split a hardening job across two lanes when the pin itself has the blind spot
+
+A hardening pin is a test that makes a class of regression red *if the detection covers the offender*. When the pin
+deliberately carves out an ENTRY POINT that is actually on the offender's live-call chain — e.g. a "planning only,
+not a real call" exemption for `plan_download` when the real chain is `offer → plan_download → _snapshot → _tree →
+hub_open` — the pin is GREEN on the exact leak it was built to catch, and a one-lane dispatch ("mark the test
+network") fixes the instance while the class stays open for the next un-marked scope that reaches the Hub the same
+way. Verify **both sides of the gap before dispatching**: (a) does `-m "not network"` deselect the offender? (b)
+does the pin red a brand-new un-marked scope reaching the Hub? If (a) is no, the marker is missing; if (b) is no,
+the pin has the carve-out. Each no is a separate lane's work; say so in the dispatch and name both in the "done"
+bar. One vehicle, two lanes, coordinated on the issue (#1000's shape).
 
 ## A closed PR stops tracking its branch
 
