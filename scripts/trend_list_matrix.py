@@ -29,6 +29,7 @@ the recording does not carry. Regenerating: `make render-trend-list-matrix`.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -39,6 +40,33 @@ import model_engine_pick as mp  # noqa: E402
 
 FIXTURE = REPO / "tests" / "fixtures" / "trend-list-matrix.json"
 SNAPSHOT = REPO / "tests" / "fixtures" / "hub-snapshot.json"
+#: The fixture records the engine-variant signature the matrix was rendered
+#: against, so a change to `containers/engines/params/*.json` (an engine added,
+#: an arch/variant gained or lost) RE-PINS the fixture by showing up as a
+#: fingerprint mismatch -- the add/params path has no other forcing step (issue
+#: #1232). Cosmetic param edits that do not change the engine->variant map the
+#: matrix consumes (a version/ref/base bump, an apt/env change under an existing
+#: variant) leave it untouched and do not force a re-render.
+FINGERPRINT_KEY = "engine_variant_fingerprint"
+
+
+def params_signature() -> str:
+    """The engine id -> sorted arch variants map the matrix consumes, as JSON.
+
+    This is exactly what `model_engine_pick.engine_ids()` returns (read from the
+    generated `containers/engines/params/*.json`), so a params/arch delta that
+    shifts the matrix is guaranteed to change this signature, and one that cannot
+    shift the matrix (no variant added/removed, no engine added/removed) does not.
+    """
+    return json.dumps({name: sorted(info["variants"])
+                       for name, info in sorted(mp.engine_ids().items())}, sort_keys=True)
+
+
+def fingerprint() -> str:
+    """sha256 of the engine->variants signature; the fixture records it."""
+    return hashlib.sha256(params_signature().encode()).hexdigest()[:16]
+
+
 ARCHS = ("cuda", "rocm", "vulkan", "metal", "cpu")
 VRAMS = (8, 16, 24, 48)
 RAMS = (8, 32, 60, 64)
@@ -86,6 +114,7 @@ def trend_rows(registry: dict, vram: float, ram: float, arch: str) -> list[dict]
 def build() -> dict:
     registry = mp.load_registry()
     return {
+        FINGERPRINT_KEY: fingerprint(),
         "generated_utc": registry.get("generated_utc", ""),
         "order": ORDER,
         "cases": [{"arch": arch, "vram": vram, "ram": ram,
@@ -105,6 +134,14 @@ def main() -> int:
             with mp.hub_snapshot_file(SNAPSHOT):
                 fresh = json.dumps(build(), indent=2) + "\n"
         have = FIXTURE.read_text() if FIXTURE.exists() else ""
+        # The param/arch coupling (issue #1232): the committed fixture records
+        # the engine->variant signature it was rendered against (build() already
+        # computed `fresh` from the same injected Hub source above -- live or the
+        # recorded snapshot). A params/arch delta that changed the engine->variant
+        # map -- even one that leaves the rows byte-identical -- makes that
+        # recorded signature stale, so the add/params path is forced to re-render
+        # and re-pin. Name the required target; the hermetic replay is what the
+        # added engine/arch is measured against.
         if have != fresh:
             print(f"[trend-list-matrix] {FIXTURE.relative_to(REPO)} is stale. "
                   "Run make render-trend-list-matrix.", file=sys.stderr)

@@ -171,3 +171,56 @@ def test_the_golden_was_not_regenerated_while_ternary_routing_is_broken():
         "the PrismML fork. That is #1073's defect baked in — see #1099's held-red note"
     )
 
+
+def test_committed_matrix_records_the_engine_variant_fingerprint():
+    """GUARD (#1232): the committed fixture names the engine->variant signature
+    it was rendered against, and that recorded value matches the current tree.
+
+    The add/params seam: nothing couples an engine params/arch change to a
+    re-render of the trend-list matrix, so a params delta that leaves the rows
+    byte-identical (only the engine->variant map shifted) could land green through
+    `check-trend-list-matrix`. The recorded fingerprint closes it: `--check`
+    recomputes the signature from `containers/engines/params/*.json` and fails
+    when it differs from the committed value, even if no row changed."""
+    import shutil, tempfile
+    from pathlib import Path
+
+    # the committed fixture records a fingerprint (and the recorded value is what
+    # the current params tree produces)
+    m = tlm.mp  # the EXACT model_engine_pick module trend_list_matrix reads (not the
+    # test module's `scripts.model_engine_pick` alias -- two import systems, #796)
+    with m.hub_snapshot_file(tlm.SNAPSHOT):
+        fresh = json.loads(json.dumps(tlm.build(), indent=2))
+    assert GOLDEN.get(tlm.FINGERPRINT_KEY), "fixture must record the engine-variant fingerprint"
+    assert fresh[tlm.FINGERPRINT_KEY] == GOLDEN[tlm.FINGERPRINT_KEY]
+
+    # A TRUE arch delta (an engine gains a variant it did not have) must change
+    # the matrix-consuming engine->variant map, so the recorded fingerprint is
+    # stale until `make render-trend-list-matrix` re-pins it.
+    orig_dir = m.PARAMS
+    files = sorted(orig_dir.glob("*.json"))
+    assert files, "there must be engine params to fingerprint"
+    with tempfile.TemporaryDirectory() as td:
+        d = Path(td)
+        for f in files:
+            shutil.copy(f, d / f.name)
+        # pick an engine without a vulkan variant (vLLM: cpu/cuda/rocm)
+        chosen = next(p for p in d.glob("*.json") if json.loads(p.read_text()).get("engine") == "vLLM")
+        p = json.loads(chosen.read_text())
+        assert "vulkan" not in p["variants"], "test assumption: vLLM starts without a vulkan variant"
+        p["variants"]["vulkan"] = dict(p["variants"]["cpu"])
+        p["variants"]["vulkan"]["backend"] = "vulkan"
+        chosen.write_text(json.dumps(p, indent=2) + "\n")
+        old = m.PARAMS
+        m.PARAMS = d
+        try:
+            assert tlm.fingerprint() != fresh[tlm.FINGERPRINT_KEY], \
+                "an engine that gained a variant must change the matrix fingerprint"
+            # and the stale fingerprint is exactly what fails `--check`/the render
+            with m.hub_snapshot_file(tlm.SNAPSHOT):
+                alt = json.dumps(tlm.build(), indent=2) + "\n"
+            assert alt != FIXTURE.read_text()  # the committed fixture is now stale
+        finally:
+            m.PARAMS = old
+
+
