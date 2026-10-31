@@ -1340,7 +1340,8 @@ Two consequences that decide how a stacked PR is handled:
 ## A green, conflict-free PR is merged by CI (issue #482)
 
 Landing a PR no longer waits at a keyboard. The `auto-merge` workflow
-(`.github/workflows/auto-merge.yml` — a `workflow_run` on `CI`, see #493 below) squash-merges a pull request
+(`.github/workflows/auto-merge.yml` — a `workflow_run` on `CI` **and** on the docs-class `ci-scope`
+completion, see #493 below; issue #1227 makes a green docs-only head reach it too) squash-merges a pull request
 the moment its run is green **and** the PR is conflict-free, and deletes the branch. The shape is
 `trending-local-llms`' `auto-merge` job in `qa-validate.yml`, which is the model for every bot in this repo.
 
@@ -1360,6 +1361,7 @@ make auto-merge-explain PR=<n> REPO=asimov-agent/llgenie     # why it was (or wa
 make auto-merge-recheck REPO=asimov-agent/llgenie [MAX=5] [DRY=1]  # retry the PRs the gate deferred at their current head
 make verify-closure PR=<n> REPO=asimov-agent/llgenie         # did `closes #n` actually close?
 make auto-merge-resolve REPO=<owner/repo> RUN_ID=<id> HEAD_OWNER=<owner> HEAD_BRANCH=<branch>  # run -> PR number
+make auto-merge-channel REPO=<owner/repo> HEAD_SHA=<sha>  # which engine merges the head: CI, or this sweep (a docs-only head has no CI run)
 ```
 
 **Every number this box reports names the sha it was measured at (fleet rule 15, #873).** `auto-merge` fetches
