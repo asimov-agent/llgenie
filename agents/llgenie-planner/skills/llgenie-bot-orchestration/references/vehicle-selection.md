@@ -59,6 +59,26 @@ A closed vehicle is history, not a licence to stop thinking: its branch, its tes
 cheapest place to lift a fix into a reopened issue. Keep a local branch for a reopen only when a reopen bar exists;
 otherwise delete it, because a stale local branch is itself a misleading artefact.
 
+## A branch named for the issue is not a vehicle for the issue
+
+`refs/heads/fix/<issue>-<slug>` existing on origin proves someone once pushed *something* under a plausible name —
+not that the issue's work is on it. Measured: `fix/1000-hf-network-tests` sat on origin, 26 commits ahead, head
+commit unrelated to the issue, base stale (did not contain current `main`), and **zero** of the markers the issue
+required. A name-matching branch with the wrong content flips "the half is unlanded" to "the half looks landed".
+
+Verify content before naming a branch as the vehicle:
+
+```bash
+git fetch -q origin refs/heads/<b>:refs/remotes/origin/<b>
+git log --oneline -5 origin/<b>                     # does the head describe the issue at all?
+git merge-base --is-ancestor origin/main origin/<b> # stale base => red for reasons main already fixed
+git show origin/<b>:<file> | grep -c '<exact token the issue wants>'   # the work, not the name
+gh pr list --json number,body --jq '.[]|select(.body|test("#<n>"))'   # a branch never implies a PR
+```
+
+When the branch's content is empty of the issue's work, report the literal count (`marker count: 0`) rather than
+"the branch exists", and keep the halves assigned to lanes.
+
 ## Labels outrank a planned order
 
 A `do-not-merge` hold is a stop, not a step. When a sweep list contains a held PR that is also the first step of a

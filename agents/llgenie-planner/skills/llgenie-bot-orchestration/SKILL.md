@@ -12,6 +12,18 @@ metadata:
 
 # llgenie bot orchestration: idle bot → waiting issue
 
+> Reconciling a lane's CI report (run attempts, job ids, 60m cancellations): see
+> `references/actions-run-attempt-reconciliation.md` — a re-run reuses the run id, increments
+> `run_attempt`, and mints new job ids, so a stale `in_progress` reading is a prior attempt, not a lie.
+>
+> Before repeating any lane claim to the owner (a commit sha, a head, a duration): see
+> `references/verifying-lane-claims.md` — lane "committed on main" commits usually live in the lane's
+> own sibling clone, and run-level durations include queue dwell.
+>
+> A lane that never starts, verifying a finisher's PR in one API block, retrying a bot DM that failed
+> during the peer's context compression, and updating an exact-match census pin in the same vehicle:
+> see `references/stalled-lane-and-dispatch-delivery.md`.
+
 <!-- host-bot-tools:begin -->
 
 ## Tools
@@ -835,8 +847,12 @@ hub_open` — the pin is GREEN on the exact leak it was built to catch, and a on
 network") fixes the instance while the class stays open for the next un-marked scope that reaches the Hub the same
 way. Verify **both sides of the gap before dispatching**: (a) does `-m "not network"` deselect the offender? (b)
 does the pin red a brand-new un-marked scope reaching the Hub? If (a) is no, the marker is missing; if (b) is no,
-the pin has the carve-out. Each no is a separate lane's work; say so in the dispatch and name both in the "done"
-bar. One vehicle, two lanes, coordinated on the issue (#1000's shape).
+the pin has the carve-out. Prove (b) the way "Prove a guard by sabotage" describes — add an un-marked scope that
+reaches the host and watch the pin stay green; that red-control is the evidence the second lane must produce. Each no
+is a separate lane's work; say so in the dispatch and name both in the "done"
+bar. One vehicle, two lanes, coordinated on the issue. This is the shape whenever a guard that is supposed to catch
+a class of regression is GREEN on a live offender — the guard's own blind spot is a second lane's work, not a detail
+to fold into the first lane's brief.
 
 ## A closed PR stops tracking its branch
 

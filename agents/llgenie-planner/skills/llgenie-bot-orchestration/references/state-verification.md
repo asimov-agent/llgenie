@@ -64,6 +64,25 @@ gh pr view <n> --json headRefOid --jq '.headRefOid[0:8]'
 asynchronously; poll it again (a few seconds) until it settles to `MERGEABLE` or `CONFLICTING`. Reporting
 `UNKNOWN` as "conflicted" or "can't merge" is a measurement taken mid-recompute, not a verdict.
 
+## A lane's reported head may be a pre-merge intermediate tip
+
+A lane reporting "PR #N is at `<sha>`" can be **true about a tip that has already been superseded**: the PR may
+have MERGED at a later merge commit, or advanced past `<sha>` with another push. Before relaying "pushed `<sha>`"
+as live state — or calling it wrong — read the PR's current state and head in the same turn:
+
+```
+gh pr view <n> --json state,headRefOid,mergeCommit,mergeStateStatus,labels
+```
+
+- `state: MERGED` with a head that differs from the quoted `<sha>` means the quoted sha was an **intermediate
+tip**: the lane's engineering landed, its state line is a stale snapshot, not a false claim. Report it as
+"landed via merge `<mergeCommit>`; the quoted tip was intermediate", never as "wrong" or "fabricated".
+- Keep the three outcomes distinct, because they have different remedies: **stale** (measured earlier — no action),
+**fabricated** (a sha reachable on no ref and carried by no run — correct the lane), **not-yet-pushed** (a claim
+with no evidence — wait or re-ask). Collapsing them into one verdict mis-corrects a lane that was right.
+- The same care applies in reverse: an owner/bot reporting a PR head that a follow-up push moved is a normal
+race, not a lie. Re-read `headRefOid` before quoting any head as current.
+
 ## "Diff is non-empty" is not evidence of unique work
 
 An older base guarantees a non-empty tree diff. To decide whether a worktree holds unpublished work, test
