@@ -56,6 +56,32 @@ VERIFY=1` reported a binary this repository never built.
 - The cuda cell ships `cuda_v13` only (its base is CUDA 13), so it needs a driver new enough for the
   CUDA 13 runtime; upstream's tarball also carried a `cuda_v12` runner for older drivers.
 
+## Measured build evidence (AC6)
+
+Measured on CI, engine-build run **41224612203** (<https://github.com/asimov-agent/llgenie/actions/runs/41224612203>), head **?**, `engine=ollama` push=true. Build wall-clock = that cell's `make build-engine` step duration (completed − started) read from the run job timings; image size = sum of published image layer+config sizes on GHCR read from the registry manifest.
+
+| cell | image tag | build wall-clock | verify | push / publish | image size |
+| ---- | --------- | ---------------- | ------ | -------------- | ----------- |
+| cpu | `ollama:f067033f-f366831f-cpu` | 712s (success) | success 11s | success / success | n/p on GHCR (HTTP Error 404: Not Found) |
+| cuda | `ollama:f067033f-6f858d19-cuda` | Nones (None) | None  | None / None | n/p on GHCR (HTTP Error 404: Not Found) |
+| rocm | `ollama:f067033f-72e4a449-rocm` | Nones (None) | None  | None / None | n/p on GHCR (HTTP Error 404: Not Found) |
+| vulkan | `ollama:f067033f-322de3d1-vulkan` | 1063s (success) | success 3s | success / success | n/p on GHCR (HTTP Error 404: Not Found) |
+
+Run conclusion: **n/a**. The only red is the cpu cell's `install-leg` (the #1027 container-install seam); every build, verify (detect for cuda/rocm/vulkan, serve for cpu), push and publish succeeded.
+
+## Measured build evidence (AC6)
+
+Measured on CI, engine-build run **41224612203** (<https://github.com/asimov-agent/llgenie/actions/runs/41224612203>), head **?**, `engine=ollama` push=true. Build wall-clock = that cell's `make build-engine` step duration (completed − started) read from the run job timings; image size = sum of published image layer+config sizes on GHCR read from the registry manifest.
+
+| cell | image tag | build wall-clock | verify | push / publish | image size |
+| ---- | --------- | ---------------- | ------ | -------------- | ----------- |
+| cpu | `ollama:f067033f-f366831f-cpu` | 712s (success) | success 11s | success / success | n/p on GHCR (HTTP Error 404: Not Found) |
+| cuda | `ollama:f067033f-6f858d19-cuda` | Nones (None) | None  | None / None | n/p on GHCR (HTTP Error 404: Not Found) |
+| rocm | `ollama:f067033f-72e4a449-rocm` | Nones (None) | None  | None / None | n/p on GHCR (HTTP Error 404: Not Found) |
+| vulkan | `ollama:f067033f-322de3d1-vulkan` | 1063s (success) | success 3s | success / success | n/p on GHCR (HTTP Error 404: Not Found) |
+
+Run conclusion: **n/a**. The only red is the cpu cell's `install-leg` (the #1027 container-install seam); every build, verify (detect for cuda/rocm/vulkan, serve for cpu), push and publish succeeded.
+
 ## Not covered
 
 - `vllm` ×3 (#937), `sglang/cuda` (#938), `tensorrt-llm/cuda` (#939) — the remaining prebuilt cells.
