@@ -33,10 +33,11 @@ install:
     # The main pyproject needs torch preinstalled for --no-build-isolation.
     - "test -d {src}/.git || git clone -b v{version} --depth 1 {repo}.git {src}"
     - "uv pip install --system --break-system-packages torch==2.14.1 --index-url https://download.pytorch.org/whl/{torch_backend}"
-    # cuda-tile (an `all`-extra dependency) builds with the `wheel_stub` backend; under
-    # --no-build-isolation uv will not fetch it, so preinstall it (uv's own diagnostic,
-    # run 41253216593).
-    - "uv pip install --system --break-system-packages wheel_stub"
+    # The `[all]` extra pulls source dependencies whose build backends uv will
+    # not fetch under --no-build-isolation, so preinstall them (uv's own
+    # diagnostics): cuda-tile builds with `wheel_stub` (run 41253216593) and
+    # sglang-kernel's aot package builds with `scikit-build-core` (run 41253604264).
+    - "uv pip install --system --break-system-packages wheel_stub scikit-build-core"
     - "cd {src}/python && SETUPTOOLS_SCM_PRETEND_VERSION={version} uv pip install --system --break-system-packages --no-build-isolation -e '.[all]'"
     # AOT kernels: upstream's CUDA kernel build is aot/CMakeLists via scikit-build-core;
     # the arch list is passed as the same fat list every compiled engine uses. The shared

@@ -312,6 +312,12 @@ def test_sglang_cuda_install_uses_uv_not_pip(skills):
     assert "python3 -m pip" not in steps, "sglang/cuda must run pip installs through uv (issue #1242)"
     assert "uv pip install --system --break-system-packages" in steps
     assert "python[all]" not in steps, "after `cd {src}/python`, the editable spec is '.[all]', never 'python[all]' (non-existent path)"
+    # The `[all]`-extra source backends --no-build-isolation will not fetch must be
+    # preinstalled or the cell fails mid-install: cuda-tile needs `wheel_stub`
+    # (run 41253216593) and sglang-kernel's aot package needs `scikit-build-core`
+    # (run 41253604264). Both must ride the same preinstall step.
+    for backend in ("wheel_stub", "scikit-build-core"):
+        assert backend in steps, f"sglang/cuda must preinstall {backend} for the --no-build-isolation install"
 
 
 def test_native_install_is_refused_except_metal(skills, capsys):

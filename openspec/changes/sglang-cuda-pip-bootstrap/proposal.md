@@ -32,8 +32,11 @@ this cell alone fails on the shared base.
 2. `make generate-engine-params ENGINE=sglang`; commit the regenerated
    `containers/engines/params/sglang.json` + `containers/engines/dockerfiles/sglang/Dockerfile.cuda`.
 3. sglang's `all`-extras cuda-tile dependency builds with the `wheel_stub`
-   backend, which `--no-build-isolation` does not fetch — preinstall
-   `wheel_stub` in the cuda install steps (uv's own diagnostic from the run).
+   backend and sglang-kernel's aot package with `scikit-build-core`, both of
+   which `--no-build-isolation` does not fetch — preinstall both
+   (`wheel_stub scikit-build-core`) in the cuda install steps (uv's own
+   diagnostics from the runs: wheel_stub on run 41253216593, scikit-build-core
+   on run 41253604264).
 4. Verify with `make build-engine ENGINE=sglang ARCH=cuda` (this lane never
    builds an engine image locally — CI is the builder — so the cell is proven
    on the CI `engine-image-sglang-cuda` run from this PR head), then
