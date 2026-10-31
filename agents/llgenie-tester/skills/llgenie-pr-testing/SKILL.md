@@ -296,12 +296,31 @@ against `name:` prefixes, not ids).
   `pytest.skip`. Give invariants a loud failure when their input is empty too — a worktree's `.git`
   points outside the tree, so `git ls-files` is empty inside a container unless the parent repo is
   mounted, and an empty list makes per-path assertions pass vacuously.
+- **`cancelled` at a round wall-clock duration is the workflow TIMEOUT, not a red — read the log tail and re-run ONCE.** A unit job cancelled at ~60m47s had a 51 290 b log whose last lines were post-job cleanup with orphan `make`/`docker` processes terminated and **zero** `FAILED`/`Error`/`faulthandler` markers: that is a ceiling stop, not a suite failure, so report `cancelled @ the ceiling` and never a test name. Re-run once with `gh run rerun <run> --failed` (creates a NEW job id under the same run — poll that id, not the old one), then stop: a second ceiling-cancel means the worker is too small for the suite, and looping re-runs hides that.
+  `linux / unit` is a called workflow, so its ceiling is in `pipeline.yml`, not `ci.yml` — the `timeout-minutes:` lines in `ci.yml` (10 / 60 / 45) belong to `guard`, `ci-images`, `scanner-images`. Grep with the job heading before quoting a timeout value.
+- **Prove a duration outlier with a SAME-WINDOW control on a DIFFERENT branch, not with the same-suite baseline.** The unit suite's green duration varies enough (14m37s one window, 49m in another) that a 60m run reads as either contention or a defect depending on the comparator. The honest control is another PR's unit job that ran the same discovered suite in the same wall-clock window and concluded: `fix/1173-unit-ceiling-2h` unit = 14m37s green while my docs-only head sat through 60m to the ceiling — same window, same suite, so the ceiling is the variable. That pair is the acceptance evidence for the ceiling raise, and it goes to the pipeline lane as their signal, not a fix PR from this lane.
 - **A supersede-cancelled run says so in its job list, no logs needed.** `concurrency:
   cancel-in-progress` on `pull_request` means the next push kills the previous run; that run's jobs show
   the reusable caller (`linux`) as `completed/skipped` and **no child stage jobs at all** (`linux/unit`
   absent). That is "nothing ran", which is different from "a job failed and then the run was cancelled"
   (completed jobs with conclusions). Either way it is no verdict — find the run at the CURRENT head and
   judge that one.
+- **A job that ends `cancelled` exactly on a whole-minute boundary is a configured TIMEOUT CEILING — no
+  verdict, not a red, and not a hang.** The signature is three reads together: `started_at →
+  completed_at` on a round N minutes (GitHub's default is 360, so 60/90/120 is somebody's config), a
+  log whose tail is `Post job cleanup.` + `Terminate orphan process: … (make)`, and ZERO
+  `FAILED`/`Error`/`assertion` lines anywhere in it. Do not attribute the cap by a grep line number: a
+  `timeout-minutes` belongs to the nearest preceding 2-space job key, and a row that is
+  `uses: ./.github/workflows/<callee>.yml` is bounded by the CALLEE's timeout, never the caller's —
+  reading a caller-side `timeout-minutes: 60` that belongs to a different job sends you to the wrong
+  file. Report it as an observation with run/job id, duration and the zero-marker evidence, hand the
+  ceiling to the pipeline lane, and prove it is configuration rather than the diff with a SAME-WINDOW
+  control (a same-suite run that concluded `success` in an overlapping window at a fraction of the
+  duration). Clearing it is `gh run rerun <run-id> --failed`, which is safe where a push is not: it
+  re-executes the same head and cancels nothing, so it cannot destroy another lane's matrix (the
+  warning against re-running into a lane's push is about PUSHING into `cancel-in-progress`). Re-run
+  ONCE, disclose it, and if it hits the ceiling again stop — a loop of hour-long units is a queue hog,
+  not evidence. Recipe and pitfalls: `references/red-job-triage.md` §8.
 
 ## 6. Selection invariants to check before per-stage work (#824b)
 
@@ -383,8 +402,9 @@ that pushes on the run's conclusion, never a push that cancels it).
     protocol): "done" is not complete until that lane has the finish line, and new reviewable PRs it
     routes go to the reviewing lane — this lane does not review its own PR.
 - **When another lane is repairing the PR, message it with the failing test and the run id instead of
-  re-running into its push.** Re-running is a push into `cancel-in-progress`: it destroys the matrix
-  that lane is waiting on, and the result it was going to produce.
+  pushing a competing head.** Pushing schedules a run for a NEW head, and `cancel-in-progress` kills the
+  matrix that lane is waiting on, plus the result it was going to produce. (Re-running the SAME head —
+  `gh run rerun --failed` — is not that: it cancels nothing. See §5 for when a re-run is the right move.)
 
 Comment on the PR with the run ids / command output that proves each claim, plus the RED test that
 exposes each gap and the patch that turns it green. Comment on the issue too when the follow-up

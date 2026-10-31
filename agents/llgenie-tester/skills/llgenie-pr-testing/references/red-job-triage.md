@@ -99,7 +99,64 @@ commit that deleted a workflow group, so two of the six belonged to a *later* co
 unrelated part of the same file. Each cause needs its own decision, and the issue title (written from
 the first cause) is usually wrong about the rest — say so explicitly rather than folding them together.
 
-## 8. Rename greps: search BOTH names before believing a rename is complete
+## 8. A job cancelled on an exact-minute boundary is a TIMEOUT CEILING, not a red
+
+A `linux / unit` job that ends `completed / cancelled` after N minutes is the most misread red in this
+repo: it is neither `failure` nor a hang, and it is not evidence about the diff.
+
+**The three-read signature** (all three, or it is something else):
+
+1. `started_at → completed_at` lands on a whole number of minutes, ±1 s (e.g. 11:30:08 → 12:30:24).
+   GitHub's *default* job timeout is 360 min, so a 60/90/120 boundary is a number somebody configured;
+   arbitrary durations (37 min, 51 min) are not a ceiling.
+2. The log's last lines are teardown, not tests: `Post job cleanup.`, then
+   `Terminate orphan process: pid (<n>) (make)` / `(docker)`, then the job's `##[warning]` epilogue.
+3. The log contains **zero** `FAILED`, `Error`, `assertion`, `Killed` or `exit code` lines across its
+   whole length — grep each and count. A red has these; a ceiling cancel has only cleanup chatter.
+
+**Attribute the ceiling with the JOB BLOCK, never a grep line number.** `grep -n timeout-minutes`
+returns bare line numbers, and the nearest preceding 2-space key is what owns each one:
+
+```bash
+awk '/^  [a-z0-9-]+:|timeout-minutes/{print NR": "$0}' .github/workflows/ci.yml
+```
+
+A row that is `uses: ./.github/workflows/<callee>.yml` (reusable workflow call) is bounded by a
+`timeout-minutes` in the CALLEE, never by the caller's — a caller-side `timeout-minutes: 60` sitting
+100 lines above the `linux:` row belongs to a different job (`ci-images`) and reading it as unit's cap
+sends you to the wrong file. Grep the callee (`pipeline.yml`) for the stage's own bound, and if no
+bound is found, say the boundary was measured and the source was not pinned — do not invent one.
+
+**What it is worth, and what it is not:**
+
+- It is **no verdict** (row vocabulary §6), never a `do-not-merge`, and never "unit hangs". The
+  duration matched its configured cap, so the suite may well have been finishing.
+- It is a **configuration/contention observation**, and the pipeline lane owns the remedy — hand it the
+  run id, job id, head sha, the exact duration and the zero-marker log evidence, and say explicitly
+  that you are not claiming a hang.
+- **Get the same-window control before you say anything about the suite.** A same-suite run that
+  concluded `success` while your job was in flight, at a fraction of the duration, is what separates
+  "the ceiling is too low" from "this head is abnormal". Its branch name often IS the fix vehicle
+  already open; never open a competing one.
+
+**Clearing it is a re-run, and a re-run is safe where a push is not.**
+
+```bash
+gh run rerun <run-id> --failed      # re-executes the same head; cancels nothing
+```
+
+A re-run re-executes one run at its current sha — it does not push, does not create a run for a new
+head, and triggers no `concurrency: cancel-in-progress`, so it cannot destroy another lane's matrix
+(the warning against re-running into a lane's push is about pushing). It still has rules:
+
+- Re-run **once**. Disclose it in the same comment (`attempt-2 job <id>, in_progress since <hh:mmZ>`) so
+  the next reader is not comparing two runs at one sha without knowing why.
+- If attempt-2 hits the ceiling too, **stop**. Do not loop: a loop of 60-minute units is a queue hog,
+  not evidence, and the second identical cancel has told you everything the third would.
+- A cancelled check keeps `mergeStateStatus=BLOCKED`; the PR stays OPEN and armed, which is correct —
+  the queue waits for a green, it does not need the check deleted.
+
+## 9. Rename greps: search BOTH names before believing a rename is complete
 
 A rename PR commonly lands half-applied: the test definitions and the roster/fixture entries move to
 the new symbol, while guard assertions and truth tables still name the old one. Grep the old AND the
