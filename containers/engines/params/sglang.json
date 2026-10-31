@@ -30,6 +30,7 @@
       "install": [
         "test -d /opt/llgenie/engines/sglang/src/.git || git clone -b v0.5.22 --depth 1 https://github.com/sgl-project/sglang.git /opt/llgenie/engines/sglang/src",
         "uv pip install --system --break-system-packages torch==2.14.1 --index-url https://download.pytorch.org/whl/cu130",
+        "uv pip install --system --break-system-packages wheel_stub",
         "cd /opt/llgenie/engines/sglang/src/python && SETUPTOOLS_SCM_PRETEND_VERSION=0.5.22 uv pip install --system --break-system-packages --no-build-isolation -e '.[all]'",
         "cd /opt/llgenie/engines/sglang/src/python/sglang/kernels/aot && CMAKE_ARGS='-DCMAKE_CUDA_ARCHITECTURES=75;80;86;89;90;120' uv pip install --system --break-system-packages --no-build-isolation -e ."
       ],

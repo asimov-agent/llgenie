@@ -31,7 +31,10 @@ this cell alone fails on the shared base.
    (`error: Distribution not found`).
 2. `make generate-engine-params ENGINE=sglang`; commit the regenerated
    `containers/engines/params/sglang.json` + `containers/engines/dockerfiles/sglang/Dockerfile.cuda`.
-3. Verify with `make build-engine ENGINE=sglang ARCH=cuda` (this lane never
+3. sglang's `all`-extras cuda-tile dependency builds with the `wheel_stub`
+   backend, which `--no-build-isolation` does not fetch — preinstall
+   `wheel_stub` in the cuda install steps (uv's own diagnostic from the run).
+4. Verify with `make build-engine ENGINE=sglang ARCH=cuda` (this lane never
    builds an engine image locally — CI is the builder — so the cell is proven
    on the CI `engine-image-sglang-cuda` run from this PR head), then
    `make test-engine-stage TEST=detect`.
