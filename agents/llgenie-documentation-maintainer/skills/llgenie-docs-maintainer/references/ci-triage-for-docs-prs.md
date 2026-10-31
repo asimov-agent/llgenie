@@ -51,6 +51,23 @@ pytest traceback, not with a watchdog line. `gh pr checks` renders this job as `
 - While a rerun is in flight `gh pr view --json mergeable,mergeStateStatus` answers `UNKNOWN`; that is
   churn, not a conflict. Re-read after the run concludes before writing anything about its state.
 
+## The `check-import-roots` ratchet red
+
+`check-import-roots` (Makefile `ci-unit`, issue #796) is a **ratchet**: it records offender counts in
+`tests/fixtures/import-roots-baseline.json` (`bare` / `sys-path`) and exits 1 the moment a count RISES.
+A docs or gate PR that adds a test which inserts its own `sys.path` or imports a `scripts/` module bare
+reds `ci-unit` with `Makefile:402: check-import-roots Error 1` — and the site named in the log may be an
+**old** offender (`tests/test_engine_runner_failfast.py:21` is a well-known one), because the check
+lists every site, not only the new one. Key facts:
+
+- Baseline is a measurement: `bare`/`sys-path` may fall, never rise. A new offender is a **code fix in
+  the PR** (`from scripts import check_docs` via the conftest seam — see `tests/test_check_docs.py`),
+  never a fixture bump.
+- Diagnose/verify on the branch before pushing, and capture the exit correctly:
+  `python3 scripts/check_import_roots.py ratchet; echo ${PIPESTATUS[0]}` — `$?` after a pipe reads the
+  last stage, which lies.
+- The fix is exempt from the change→note gate (#1123): it changes only a test file.
+
 ## How long the long jobs actually take
 
 Calibrate before calling anything hung: a wrong "stalled" call costs a re-run of a ~1h45 matrix.
