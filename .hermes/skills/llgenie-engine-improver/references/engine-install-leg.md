@@ -39,10 +39,9 @@ NOT hand-roll a third surface:
 ```make
 test-engine-install: bash-check   # NO `##` help line — make it deliberately internal
 	@test -n "$(ENGINE)" || { echo "Usage: make test-engine-install ENGINE=<id> ARCH=<variant>"; exit 1; }
-	make engine-install ENGINE="$(ENGINE)" BACKEND="$(ARCH)"   # install the row's just-published image
+	make engine-launchers ENGINES="$(ENGINE)" ARCH="$(ARCH)"   # install the row's just-published image
 	make test-built-engine
-	make ci-install-dry
-	make ci-install-uninstall
+	make ci-install-uninstall    # NO ci-install-dry: the producer is product-LESS (#1027) — the llgenie tool + its --dry live in pipeline.yml's ci-install
 ```
 
 A `ci-engines BACKEND=` whole-backend leg installs every engine of a backend; the row-exact
@@ -86,8 +85,10 @@ words.
 values are not allowed"); spell it with a hyphen, or the workflow won't parse.
 
 **Flow / step / make-target comments must name EVERY step the leg actually runs.** `test-engine-install` is
-`engine-install` + `test-built-engine` + `ci-install-dry` + `ci-install-uninstall`; describing it as "install +
-dry + uninstall" silently hides the installed-binary version check. A flow comment, a step `name:` and the
+`engine-launchers` + `test-built-engine` + `ci-install-uninstall` — and explicitly NOT the product-only
+`ci-install-dry` (the producer is product-LESS #1027; the llgenie tool + its `--dry` live in pipeline.yml's
+`ci-install`, #1196); describing it as "install + dry + uninstall" silently hides the installed-binary version
+check AND implies a product dry-run the producer cannot do. A flow comment, a step `name:` and the
 make-target `#` line must list the real steps, or a reader takes a weaker check for a stronger one. Fix the
 sentence that misled; don't append "actually it also…" beneath it.
 

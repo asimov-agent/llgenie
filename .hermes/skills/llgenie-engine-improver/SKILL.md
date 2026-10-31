@@ -268,7 +268,8 @@ after `push-engine` (only when `push=true`), runs `make test-published-engine` (
 JUST-published image, digest == :ARCH, re-check the binary version, then SERVE it and answer a
 prompt; GPU-only rows get the version test via `--no-gpu` so the published binary is still
 exercised) and `make test-engine-install` (install-leg: install + the installed launcher's engine
-version + `llgenie --dry` + uninstall the image that row published). The engine-build.yml chain is
+version + uninstall the image that row published; the product `llgenie --dry` is NOT here — the producer is
+product-LESS #1027 and ci-install already drives it, #1196). The engine-build.yml chain is
 `build-engine -> test-engine-stage -> push-engine -> test-published-engine -> test-engine-install`;
 the install-leg's make-seam + serve-leg seam details live in `references/engine-install-leg.md`.
 On the host the same legs are `make test-built-engine` (every launcher prints its version) and a
