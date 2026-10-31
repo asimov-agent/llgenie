@@ -165,3 +165,61 @@ def test_fixture_covers_the_ten_live_profiles():
     for row in spec["profiles"].values():
         assert "browser" not in row["extra_toolsets"]
         assert "computer_use" not in row["extra_toolsets"]
+
+
+def test_the_rendered_block_is_byte_identical_to_every_committed_one():
+    """Every tree SKILL.md carrying the marker matches what tools_block() would stamp, byte-for-byte.
+
+    Walks EVERY marker-carrying SKILL.md, derives its lane via profile_for_skill(), and asserts the
+    committed marker span equals the freshly-rendered block exactly — so no lane can drift from the
+    generator, and re-running it is a no-op.
+    """
+    spec = pin.load_fixture()
+    checked = 0
+    for path in sorted((pin.REPO).rglob("SKILL.md")):
+        if ".git" in path.parts:
+            continue
+        rel = str(path.relative_to(pin.REPO))
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if pin.MARKER_BEGIN not in text:
+            continue
+        profile = pin.profile_for_skill(rel)
+        assert profile is not None, f"{rel} carries the marker but REPO_SKILL_PROFILES does not map it"
+        assert profile in spec["profiles"], f"{rel} maps to unknown profile {profile}"
+        begin = text.find(pin.MARKER_BEGIN)
+        end_marker = text.find(pin.MARKER_END)
+        end_line = text.find("\n", end_marker)
+        if end_line == -1:
+            end_line = len(text)
+        else:
+            end_line += 1
+        committed = text[begin:end_line]
+        rendered = pin.tools_block(spec, profile)
+        assert rendered == committed, (
+            f"{rel} (profile {profile}) committed block != freshly rendered block; re-stamp required"
+        )
+        # re-running the generator is a no-op
+        assert pin.insert_tools_block(text, rendered) == text, f"{rel}: generator not idempotent"
+        checked += 1
+    assert checked > 0, "no marker-carrying SKILL.md found to check"
+
+
+def test_every_profile_renders_a_lint_clean_block():
+    """All ten fixture profiles render a block the REAL lint_linefeeds gate accepts.
+
+    Uses the actual check (lint_linefeeds._check_markdown_sections) rather than a local look-alike,
+    so the block can never redden `make ci-lint` after being stamped into a file.
+    """
+    from scripts import lint_linefeeds
+
+    spec = pin.load_fixture()
+    for profile in spec["profiles"]:
+        block = pin.tools_block(spec, profile)
+        issues = lint_linefeeds._check_markdown_sections("block.md", block.splitlines(keepends=True))
+        assert issues == [], f"{profile} block has headings not preceded by a blank line: {issues}"
+        # and a file stamped with it is clean too
+        stamped = pin.insert_tools_block(
+            "---\nname: x\n---\n\n# Lane\n\nBody.\n", block
+        )
+        issues = lint_linefeeds._check_markdown_sections("stamped.md", stamped.splitlines(keepends=True))
+        assert issues == [], f"{profile} stamped file has lint issues: {issues}"
