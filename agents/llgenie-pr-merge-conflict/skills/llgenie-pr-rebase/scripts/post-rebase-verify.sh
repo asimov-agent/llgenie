@@ -111,5 +111,47 @@ if [ -n "$br" ] && [ "$br" != "HEAD" ]; then
   done
 fi
 
+# 11. No SILENT REVERT of base content. `-X theirs`/`-X ours` resolve every conflicting hunk in
+# the chosen direction, so a hunk that was never meant to differ can be reverted and nothing
+# conflicts to flag it. Measured: a strategy-flag rebase reverted main's `ci_images.py latest`
+# back to an older `ref` in a Makefile recipe; the only symptom was a unit test asserting a
+# command string, after a ~35-minute matrix.
+#
+# The test: every line the base has in a tracked text file, and HEAD lacks, must correspond to a
+# deletion the branch actually intends. We cannot read intent, so instead we surface the deletions
+# of base lines in files the branch does NOT otherwise add to -- that is the reverting shape.
+# Generated files are excluded: they are re-rendered, not merged, so their diffs are expected.
+# The test must distinguish a REVERT from simply being BEHIND. A file the branch never touched
+# appears to "lose" every line main added after the merge-base — that is staleness, not a revert.
+# So this check runs ONLY when the base is genuinely an ancestor of HEAD (a real post-rebase
+# state, the condition assertion 8 already tests). In that state there is no staleness to
+# confuse, and any base line missing from HEAD was dropped by the resolution.
+GEN_RE='^(CHANGES\.md|docs/ARCHITECTURE\.md|.*/\.openspec\.yaml)$'
+rev_files=""
+if git merge-base --is-ancestor "$BASE" HEAD 2>/dev/null; then
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    # Include every tracked text file: a whitelist of extensions silently skips .txt, .json,
+    # .cfg and everything else, which is exactly how a real revert hides (measured: a synthetic
+    # revert in file.txt passed the check while the whitelist only matched .md/.sh/.py/.yml).
+    case "$f" in
+      *.png|*.jpg|*.jpeg|*.gif|*.ico|*.pdf|*.zip|*.gz|*.woff*|*.ttf|*.lock) continue ;;
+    esac
+    printf '%s\n' "$f" | grep -Eq "$GEN_RE" && continue
+    gone=$(git diff --no-color "$BASE" HEAD -- "$f" 2>/dev/null | grep -c '^-[^-]')
+    if [ "$gone" -gt 0 ]; then
+      rev_files="$rev_files $(printf '%s(%s)' "$f" "$gone")"
+    fi
+  done < <(git diff --name-only "$BASE" HEAD 2>/dev/null)
+fi
+if [ -z "$rev_files" ]; then
+  ok "no pure deletions of base lines"
+else
+  bad "drops base lines:$rev_files"
+  echo "     Each file above lost content the base has. If a --strategy flag (-X theirs /"
+  echo "     -X ours) was used, that is the likely cause: diff the file against $BASE_SHA by"
+  echo "     hand and restore the base's line, keeping the branch's additions."
+fi
+
 echo
 if [ "$fail" = "0" ]; then echo "SAFE TO PUSH"; exit 0; else echo "DO NOT PUSH — see FAIL lines above"; exit 1; fi

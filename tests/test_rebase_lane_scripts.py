@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import ast
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -26,7 +27,8 @@ SCRIPTS = (REPO / "agents" / "llgenie-pr-merge-conflict" / "skills"
 
 # Subset check, never equality: the lane is meant to add scripts, and an exact list would red
 # on the next legitimate addition.
-EXPECTED = {"post-rebase-verify.sh", "salvage-audit.sh", "salvage-four-bucket.py"}
+EXPECTED = {"post-rebase-verify.sh", "salvage-audit.sh", "salvage-four-bucket.py",
+            "test-revert-detector.sh"}
 
 
 def _shell_scripts() -> list[Path]:
@@ -163,3 +165,27 @@ def test_the_shipped_tools_exist_and_are_independent_implementations():
     assert "salvage-audit.sh" not in py.replace("# ", ""), "python audit delegates to the shell"
     assert "MUST BE PRESERVED" in sh and "must be preserved" in py, \
         "both must report the same two conclusion lines for a reader to compare"
+
+
+def test_the_revert_detector_catches_a_revert_and_clears_a_restored_tree():
+    """Run the shipped negative control for the `-X theirs` detector, in-container.
+
+    The detector lives inside `post-rebase-verify.sh` and asserts that no tracked text file loses
+    a line the base has without gaining anything. Its control builds a throwaway repo, because on
+    this lane's real branch the precondition ("base is an ancestor of HEAD") does not hold, so the
+    check is skipped by design there. Running the control here means a regression in the detector
+    reds CI instead of waiting for the next bad rebase to find it.
+    """
+    import subprocess
+
+    if not shutil.which("git"):
+        # git is required by the control itself; its absence is a broken environment, not a pass.
+        raise AssertionError("git absent — the revert-detector control cannot run")
+    r = subprocess.run(["bash", str(SCRIPTS / "test-revert-detector.sh")],
+                       capture_output=True, text=True, timeout=300,
+                       env={**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t.example",
+                            "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t.example"})
+    assert r.returncode == 0, (
+        "the revert-detector control failed — the detector no longer distinguishes a revert "
+        f"from a clean tree:\n{r.stdout[-800:]}\n{r.stderr[-400:]}")
+    assert "PASS: detector catches the revert" in r.stdout, r.stdout[-600:]
