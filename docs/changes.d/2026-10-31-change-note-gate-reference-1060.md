@@ -1,0 +1,1 @@
+| 2026-10-31 | version the ci-pipelines-maintainer change-note-gate reference into the tree (live→tree drift post-#1164: merged main f75e54da carried 11 refs, not references/change-note-gate.md added this session; byte-identical sha256), restoring the #1060 versioned-tree-equals-live mandate | [note](agent-wiki/2026-10-31-change-note-gate-reference-1060.md) | #1060 |
