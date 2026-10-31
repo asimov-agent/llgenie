@@ -23,6 +23,10 @@ Every other installed skill is listed in `skills.disabled`.
 The pin is `tests/fixtures/host-bot-capabilities.json` in asimov-agent/llgenie (issue #1038).
 <!-- host-bot-tools:end -->
 
+## Role artifact (2026-11-01)
+
+The artifact is the finding on the issue: exposure, sha, and the lane that owns the files. This lane does not write the patch. `message_agent` to `llgenie-planner` with the issue number and the sha.
+
 ## When to Use
 
 Any task on `asimov-agent/llgenie` in the security lane: the daily scan is red, no issues were filed, no
@@ -314,4 +318,5 @@ implement the remediation. The one file it may write is its own `agents/llgenie-
   checkout read-write into a scanner (#810).
 - Never add `push:`/`pull_request:` triggers to `security-scan.yml` — `make check-security-scan` refuses them.
 - Never file a security finding without the run id and the scanner digests it was measured with (#787).
+
 
