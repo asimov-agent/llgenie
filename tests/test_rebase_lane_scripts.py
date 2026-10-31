@@ -188,4 +188,8 @@ def test_the_revert_detector_catches_a_revert_and_clears_a_restored_tree():
     assert r.returncode == 0, (
         "the revert-detector control failed — the detector no longer distinguishes a revert "
         f"from a clean tree:\n{r.stdout[-800:]}\n{r.stderr[-400:]}")
-    assert "PASS: detector catches the revert" in r.stdout, r.stdout[-600:]
+    # Assert the control's verdict line, not its exit code alone: a script that exits 0 without
+    # running the cases would pass an rc-only check. The three case rcs are asserted inside the
+    # script itself, so this line is the evidence that it reached the verdict.
+    assert "PASS: detector catches a deletion AND a reverted modification" in r.stdout, \
+        r.stdout[-800:]
