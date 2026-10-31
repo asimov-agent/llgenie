@@ -1,7 +1,7 @@
 ---
 name: llgenie-docs-maintainer
 description: "Use when auditing, filing or landing LLGenie docs changes."
-version: 1.0.7
+version: 1.0.8
 author: Hermes Agent
 license: MIT
 metadata:
@@ -312,8 +312,11 @@ fragments by `make changes-index` (`scripts/changes_index.py`). Rules that follo
   *any* run at that sha, so a `cancelled` duplicate can read as `fail` while a sibling run at the
   SAME head is `success`. Run `gh run list --branch <b> --json databaseId,headSha,status,conclusion`;
   if a sibling at the head is `success` and the reported job is `cancelled`, `gh run rerun
-  <cancelled-run-id>` at that same head — **never push** — then confirm the gate has a real
-  conclusion in a completed run before calling it green or red.
+  <cancelled-run-id> --failed` at that same head — **never push** — then confirm the gate has a real
+  conclusion in a completed run before calling it green or red. Two identical cancellations
+  (`Timeout (0:05:00)!` xN in `make ci-unit`, siblings green) mean a starved runner, not your diff:
+  stop rerun-looping and wait for a quiet window — the fingerprint is in
+  `references/ci-triage-for-docs-prs.md`.
 - **`closingIssuesReferences` is eventually-consistent — a `none` right after a PR is created is not evidence the `Closes #<n>` keyword failed.** The field is populated asynchronously, so `gh pr view --json closingIssuesReferences` returns empty for minutes after creation; do **not** edit the body in response. Re-read later, or confirm the link from the body text and the issue's own timeline. A positive is proof; a negative is only "not yet, or genuinely absent".
 - **A local full `make test-unit` pass is evidence, not the CI verdict.** CI runs with a clean HOME where live-vs-tree profile comparison is skipped, so a test that reads the host profile can pass locally for a different reason than CI runs it (or vice versa). Report a local suite as evidence — its exit code and the head sha — and still wait for the CI job's own conclusion before calling a head green; the two can disagree, and the CI one is the one that gates.
 - **Your own versioned `SKILL.md`/`SOUL.md` is scanned by the suite — a retired symbol in it reds CI,

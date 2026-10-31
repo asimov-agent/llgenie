@@ -18,9 +18,38 @@ cancelling matrices or pushing noise.
 | gate over `data/` or the live registry: `fixture is stale`, link/advisory counts | live-data drift | run that gate locally at the same head; if it passes, comment both outputs and `gh run rerun <id> --failed` |
 | `guard` never starts, `0/N` jobs, dozens `queued` repo-wide | capacity | report to the fleet; rerun/cancel/dispatch only adds to the queue |
 | several jobs cancelled within seconds, earlier ones green | fleet sweep | `gh api …/actions/runs?head_sha=<sha>`; nothing newer exists = rerun at the same head |
+| `linux / unit` cancelled at ~1h with repeated `Timeout (0:05:00)!` in its step log, while every sibling job of the same run is green | runner starvation of the long job | `gh run rerun <id> --failed` at the same head; if the same signature repeats, wait for a quiet window rather than rerun-looping |
 | one job `in_progress` far past its measured duration (see below), and it has no `timeout-minutes` | hang | owner decides; cancel the run, then `gh run rerun <id> --job <jobId>`; tell the fleet first |
 | `check_pr_authors` red on a commit you did not write | base branch | name the sha and its owner; never re-author another lane's history |
 | `linux / unit` red on a real unit test | genuine | reproduce in the repo's test image before touching anything |
+
+## The ~1h `ci-unit` cancellation fingerprint
+
+The long unit step can be killed by the runner without any test failing, and the log reads like a
+timeout of the suite:
+
+```
+linux / unit  UNKNOWN STEP  ... Timeout (0:05:00)!
+linux / unit  UNKNOWN STEP  ... Timeout (0:05:00)!
+linux / unit  UNKNOWN STEP  ... ##[error]The operation was canceled.
+```
+
+Recognise it by three facts together, because any one alone is ambiguous: the captured step is
+`make ci-unit`, the cancellations are spaced tens of minutes apart, and **every other job in the same
+run is `success`** (guard, lint, install, top-level, openspec). A genuinely red test would fail with a
+pytest traceback, not with a watchdog line. `gh pr checks` renders this job as `fail`; the job's own
+`conclusion` is `cancelled`.
+
+- Diagnose with `gh run view <id> --json jobs --jq '.jobs[]|{name,conclusion,steps:[.steps[]|select(.conclusion!="success")|.name]}'`
+  — the cancelled job names the one step that never completed.
+- Recover with `gh run rerun <id> --failed` (reruns the failed/cancelled jobs only, reusing the same run
+  and the same head) — never a push, never an empty commit.
+- A rerun inside the same congestion window can produce the identical signature. Two identical
+  cancellations mean the window, not the diff: stop, report it, and re-run when a sibling run at some
+  head shows `ci-unit` succeeding. The run's own log cannot tell you the runner was starved; another
+  run's success at a later time can.
+- While a rerun is in flight `gh pr view --json mergeable,mergeStateStatus` answers `UNKNOWN`; that is
+  churn, not a conflict. Re-read after the run concludes before writing anything about its state.
 
 ## How long the long jobs actually take
 
