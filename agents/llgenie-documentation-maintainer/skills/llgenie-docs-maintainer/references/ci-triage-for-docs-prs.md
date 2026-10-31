@@ -19,6 +19,7 @@ cancelling matrices or pushing noise.
 | `guard` never starts, `0/N` jobs, dozens `queued` repo-wide | capacity | report to the fleet; rerun/cancel/dispatch only adds to the queue |
 | several jobs cancelled within seconds, earlier ones green | fleet sweep | `gh api …/actions/runs?head_sha=<sha>`; nothing newer exists = rerun at the same head |
 | `linux / unit` cancelled at ~1h with repeated `Timeout (0:05:00)!` in its step log, while every sibling job of the same run is green | runner starvation of the long job | `gh run rerun <id> --failed` at the same head; if the same signature repeats, wait for a quiet window rather than rerun-looping |
+| `linux / unit` cancelled at only ~25-30 min, siblings green, base already on the new ceiling, workflow has NO `concurrency:` block, run's `head_sha` is a superseded head | superseded-head cancel (owner/API) | nothing to rerun; confirm no run at the *current* head is in flight, then push the next head; report as *not classified* |
 | one job `in_progress` far past its measured duration (see below), and it has no `timeout-minutes` | hang | owner decides; cancel the run, then `gh run rerun <id> --job <jobId>`; tell the fleet first |
 | `check_pr_authors` red on a commit you did not write | base branch | name the sha and its owner; never re-author another lane's history |
 | `linux / unit` red on a real unit test | genuine | reproduce in the repo's test image before touching anything |
@@ -90,6 +91,36 @@ workflow YAML comes from the base unless the PR itself changed it. So a CI-ceili
   feed the ledger another copy.
 - Re-evaluate after the fresh run: a 120-budget cancel at ~1h is the real starved-runner signal and
   goes to the queue-shaping ledger (#882/#1146/#1139), not to another rerun loop.
+
+## The short cancel at a superseded head (a third class)
+
+Not every cancel is the old ceiling or starvation. A `completed/cancelled` whose long job dies well
+**before** any ceiling (~25-30 min of a ~1h45 job), with every sibling green and no failure anywhere,
+is a separate class — usually an owner/API cancel of a run at a **superseded** head (one that was never
+going to be the merge verdict), taken to free the runner.
+
+Discriminating facts, all cheap to read:
+
+```bash
+gh api repos/asimov-agent/llgenie/actions/runs/<id> --jq '{name,created_at,updated_at,head_sha:.head_sha[0:7],actor:.actor.login,triggering_actor:.triggering_actor.login}'
+gh api repos/asimov-agent/llgenie/actions/runs/<id>/jobs --jq '.jobs[]|"\(.name) \(.conclusion) \(.started_at) \(.completed_at)"'
+git show <base>:.github/workflows/pipeline.yml | grep -n -A5 concurrency   # no match = no cancel-in-progress
+```
+
+- **Duration rules it out of both known classes:** the ~1h45 job ending at ~27 min is neither a
+  ceiling hit nor a starvation watchdog.
+- **No `concurrency:` block** at the base means no newer run could have cancelled it by the usual
+  mechanism — so the cancel came from an actor, not from a push.
+- **`head_sha` != the PR's current head** means the run was already superseded: its verdict could never
+  be the merge verdict, so there is nothing to rerun and nothing to fix in the diff.
+- **Report it as *unclassified*, with the measurements.** Never file "too short, wrong shape" cancels
+  into the starvation ledger — a polluted ledger makes the real capacity signal unreadable. State the
+  facts, state which classes it is *not*, and leave the classification to the ledger's owner.
+- **A leftover `in_progress` run at an OLD head does not block a push.** Before deferring a push because
+  "a run is in flight", read the run's `head_sha`:
+  `gh api "repos/<r>/actions/runs?status=in_progress" --jq '[.workflow_runs[]|select(.head_branch=="<branch>")|{id,head:(.head_sha[0:7])}]'`
+  — a run pinned two commits behind cannot be destroyed by pushing the current head, so the push window
+  is open.
 
 ## How long the long jobs actually take
 
