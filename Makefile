@@ -89,7 +89,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	check-agent-model model-pin-report check-agent-skills agent-skills-report test-agent-skills-live hermes-skills-register \
 	sync-agent-profile check-agent-profiles agent-profiles-report \
 	test-hub-live test-strata-live test-engine-bump-live test-native-engines test-native-engine-light test-variant-image \
-	bash-check engine-bump engine-bump-daily engine-bump-plan engine-derive generate-requirements openspec-tasks-check check-registry-keys ci-engines
+	bash-check engine-bump engine-bump-daily engine-bump-plan engine-derive generate-requirements openspec-tasks-check check-registry-keys ci-engines all-pipelines-sweep targets-coverage
 
 # ---- container runtime: docker -------------------------------------------
 RUNTIME ?= docker
@@ -869,6 +869,10 @@ check-dispatch-forms: ## CI: fail when a dispatchable workflow does not state th
 	python3 scripts/check_dispatch_forms.py check
 dispatch-forms-report: ## Print the dispatch table in docs/BOTS.md (generated from the workflow files; paste it between the dispatch-forms markers)
 	python3 scripts/check_dispatch_forms.py report
+all-pipelines-sweep: ## CI: umbrella sweep — enumerate the tree's workflows, dispatch + await every dispatchable one (except itself), report every disabled one and the `N ok · M failed · K disabled` summary (issue #1102; REPO= owner/repo, REF= the branch to dispatch at)
+	python3 scripts/all_pipelines.py sweep --repo "$(if $(REPO),$(REPO),$(GH_REPO))" --ref "$(if $(REF),$(REF),main)"
+targets-coverage: ## Print every Makefile target with the callers found (workflow step, script reference, or none), marking `_`-prefixed targets internal, so "which targets does nothing run" is a measurement (issue #1102)
+	python3 scripts/targets_coverage.py
 issue-cleaner-scan: ## Which OPEN issue a merged PR already implemented (the linkage guard cannot see, issue #325): prints each finding and its evidence, closes nothing (REPO= picks the repo)
 	python3 scripts/issue_cleaner.py --repo "$(GH_REPO)" --dry
 issue-cleaner-apply: ## Close the issues a merged PR implemented but left open, each with a comment citing the PR and its merge commit (issue #325; REPO= picks the repo)
