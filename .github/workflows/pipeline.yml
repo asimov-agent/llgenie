@@ -75,7 +75,7 @@ jobs:
 
   # unit: hermetic unit tests + registry/skill/param checks
   unit:
-    timeout-minutes: 60   # measured minutes on ubuntu-latest; 60 catches a hang that the 360-min default hides
+    timeout-minutes: 120   # measured minutes on ubuntu-latest; a 2 h hang ceiling catches the suite's long-valid 30-90 min runs while still redding the 360-min-default hang this value replaced
     runs-on: ${{ inputs.runner }}
     continue-on-error: false
     permissions:
