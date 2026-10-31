@@ -162,8 +162,21 @@ def test_the_shipped_tools_exist_and_are_independent_implementations():
     """
     sh = (SCRIPTS / "salvage-audit.sh").read_text()
     py = (SCRIPTS / "salvage-four-bucket.py").read_text()
-    assert "salvage-four-bucket" not in sh, "shell audit delegates to the python one"
-    assert "salvage-audit.sh" not in py.replace("# ", ""), "python audit delegates to the shell"
+
+    # Delegation is an EXECUTION property, not a mention. An earlier version asserted the other
+    # program's NAME was absent from the file, which failed the moment the python tool printed a
+    # reconciliation line naming the shell one -- a text assertion rejecting a correct change, and
+    # exactly what this lane's rules forbid a test from doing. Only a line that both names the other
+    # program AND invokes it counts as delegation.
+    def invokes(src: str, other: str) -> bool:
+        for line in src.splitlines():
+            code = line.split("#", 1)[0]
+            if other in code and any(t in code for t in ("subprocess", "os.system", "run(", "exec ")):
+                return True
+        return False
+
+    assert not invokes(sh, "salvage-four-bucket"), "shell audit delegates to the python one"
+    assert not invokes(py, "salvage-audit.sh"), "python audit delegates to the shell"
     assert "MUST BE PRESERVED" in sh and "must be preserved" in py, \
         "both must report the same two conclusion lines for a reader to compare"
 
@@ -411,11 +424,16 @@ def test_the_salvage_audit_states_the_orphan_predicate():
         dict(bucket="orphan", branch="u1", added=["a/b.md"]),
         dict(bucket="orphan", branch="u2", added=[]),
         dict(bucket="orphan", branch="u3", added=["c.md", "d.md"]),
+        dict(bucket="orphan", branch="h1", added=["e.md"], held_by_pr=1147),
         dict(bucket="merged-and-clean", branch="m1", added=[]),
         dict(bucket="unmerged-with-a-PR", branch="p1", added=["x.md"]),
     ]
-    uniq, lossless = mod.orphan_split(rows)
+    uniq, held, lossless = mod.orphan_split(rows)
     assert [r["branch"] for r in uniq] == ["u1", "u3"], uniq
+    assert [r["branch"] for r in held] == ["h1"], held
     assert [r["branch"] for r in lossless] == ["u2"], lossless
     # A PR-carrying or merged branch must never be counted as an orphan it has to preserve.
-    assert all(r["bucket"] == "orphan" for r in uniq + lossless), "orphan_split leaked a non-orphan"
+    assert all(r["bucket"] == "orphan" for r in uniq + held + lossless), "orphan_split leaked a non-orphan"
+    # Content carried by an open PR head is NOT unique: deleting the branch loses nothing
+    # reviewable. This is the predicate that made the two shipped audit tools disagree (6 vs 21).
+    assert not any(r.get("held_by_pr") for r in uniq), "a PR-carried branch was called unique"

@@ -52,17 +52,30 @@ def out(*a, **kw):
     return r.stdout.strip() if r and r.returncode == 0 else ""
 
 
-def orphan_split(rows: list[dict]) -> tuple[list[dict], list[dict]]:
-    """Split orphans into (unique, lossless) — a pure function so the label is testable.
+def orphan_split(rows: list[dict]) -> tuple[list[dict], list[dict], list[dict]]:
+    """Split orphans into (unique, held-by-an-open-PR, lossless) — pure, so the labels are testable.
 
     A single `orphan: N` count is a number without its predicate. Measured on this host the orphan
-    bucket held 124 branches and only 21 of them added a path main lacks; the other 103 are
-    lossless, so the headline read as 124 pieces of work to rescue when it was 21. The number a
-    reader must act on is the UNIQUE one, and it has to be stated separately or it is not stated.
+    bucket held 124 branches; 21 added a path main lacks, and of those 21 only 6 had content that
+    existed NOWHERE else — the other 15 were carried by an open PR head, so deleting them loses
+    nothing reviewable. Reporting 21 as the preserve list over-conserves by 15; reporting 124 states
+    the wrong thing entirely.
+
+    The third group is why the two shipped audit tools disagreed on the same repo at the same main
+    (shell 6 vs python 21): the shell already tested "is this content in SOME open PR head?" and
+    this one tested only "does the branch have its own PR?". Same word, different predicate. Now
+    both state the stronger one, and the numbers reconcile: unique + held_by_pr == added-paths.
     """
     orphans = [r for r in rows if r.get("bucket") == "orphan"]
-    return ([r for r in orphans if r.get("added")],
-            [r for r in orphans if not r.get("added")])
+    uniq, held, lossless = [], [], []
+    for r in orphans:
+        if not r.get("added"):
+            lossless.append(r)
+        elif r.get("held_by_pr"):
+            held.append(r)
+        else:
+            uniq.append(r)
+    return uniq, held, lossless
 
 
 def summarise(rows: list[dict], wts: list[dict]) -> dict:
@@ -197,13 +210,17 @@ def main() -> int:
             # work to rescue when almost all of them add NOTHING main lacks. Split the label so the
             # number that matters is the small one: measured on this host, 124 orphans held 6
             # branches that add any path at all.
-            uniq, lossless = orphan_split(rows)
-            print(f"## orphan — UNIQUE (adds a path main lacks): {len(uniq)}  <- preserve these")
+            uniq, held, lossless = orphan_split(rows)
+            print(f"## orphan — UNIQUE (content exists nowhere else): {len(uniq)}  <- preserve these")
             for r in sorted(uniq, key=lambda x: x["branch"]):
                 add = r.get("added") or []
                 print(f"  {r['branch']:46} {r['tip'][:8]}  +{len(add)} path(s) only here")
                 print(f"      {', '.join(add[:4])}{' …' if len(add) > 4 else ''}")
+            print(f"## orphan — carried by an open PR head (nothing lost if deleted): {len(held)}")
+            for r in sorted(held, key=lambda x: x["branch"]):
+                print(f"  {r['branch']:46} {r['tip'][:8]}  PR #{r['held_by_pr']}")
             print(f"## orphan — lossless (main already covers every path it touches): {len(lossless)}")
+            print(f"    (reconciles with salvage-audit.sh: its UNIQUE == this UNIQUE == {len(uniq)})")
             continue
         print(f"## {buck}: {len(grp)}")
         print()
