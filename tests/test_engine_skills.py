@@ -295,6 +295,21 @@ def test_engines_install_into_images_not_venvs(skills):
                 assert "uv tool install" in steps, (sid, backend)
 
 
+def test_sglang_cuda_install_uses_uv_not_pip(skills):
+    """The shared cuda build base (llgenie/base-cuda) ships uv but no pip
+    module (issue #1242): sglang/cuda's pip-equivalent install steps must run
+    through the uv bootstrap, never `python3 -m pip` — which failed the
+    engine-build cell with `/usr/bin/python3: No module named pip`."""
+
+    # Given the sglang skill's cuda install recipe
+    steps = " ".join(str(x) for x in es._flatten(es._per_backend(skills["sglang"].get("install"), "cuda")))
+    # When it is scanned
+    # Then no step calls the pip-less cuda python, and the editable installs
+    # run through the uv bootstrap the base provides.
+    assert "python3 -m pip" not in steps, "sglang/cuda must run pip installs through uv (issue #1242)"
+    assert "uv pip install --system --break-system-packages" in steps
+
+
 def test_native_install_is_refused_except_metal(skills, capsys):
     """Linux backends run from images; `engine-install` points at build-engine."""
 

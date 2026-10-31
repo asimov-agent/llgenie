@@ -33,10 +33,11 @@ install:
     # The main pyproject needs torch preinstalled for --no-build-isolation.
     - "test -d {src}/.git || git clone -b v{version} --depth 1 {repo}.git {src}"
     - "uv pip install --system --break-system-packages torch==2.14.1 --index-url https://download.pytorch.org/whl/{torch_backend}"
-    - "cd {src}/python && SETUPTOOLS_SCM_PRETEND_VERSION={version} python3 -m pip install --no-cache-dir --no-build-isolation -e 'python[all]'"
+    - "cd {src}/python && SETUPTOOLS_SCM_PRETEND_VERSION={version} uv pip install --system --break-system-packages --no-build-isolation -e 'python[all]'"
     # AOT kernels: upstream's CUDA kernel build is aot/CMakeLists via scikit-build-core;
-    # the arch list is passed as the same fat list every compiled engine uses.
-    - "cd {src}/python/sglang/kernels/aot && CMAKE_ARGS='-DCMAKE_CUDA_ARCHITECTURES={cuda_arch}' python3 -m pip install --no-cache-dir --no-build-isolation -e ."
+    # the arch list is passed as the same fat list every compiled engine uses. The shared
+    # cuda base ships uv (not pip), so every pip-equivalent step runs through uv (issue #1242).
+    - "cd {src}/python/sglang/kernels/aot && CMAKE_ARGS='-DCMAKE_CUDA_ARCHITECTURES={cuda_arch}' uv pip install --system --break-system-packages --no-build-isolation -e ."
   rocm:
     - "test -d {src}/.git || git clone -b v{version} --depth 1 {repo}.git {src}"
     # same steps as upstream docker/rocm.Dockerfile (CI #98: the generic

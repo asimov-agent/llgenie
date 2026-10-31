@@ -1,0 +1,1 @@
+| 2026-10-31 | sglang/cuda installs run through the shared base's uv, not its missing pip (#1242): the two `python3 -m pip` steps became `uv pip install --system --break-system-packages` | [2026-10-31-sglang-cuda-pip-bootstrap.md](agent-wiki/2026-10-31-sglang-cuda-pip-bootstrap.md) | #1242 |
