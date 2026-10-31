@@ -1,0 +1,1 @@
+| 2026-10-31 | issue #1214: engine capacity mapper — check-engine-capabilities gates every engine→arch/format claim against the docs-cited data/engine-capabilities.json | [2026-10-31-engine-capacity-mapper-1214.md](agent-wiki/2026-10-31-engine-capacity-mapper-1214.md) | #1214, #1107, #614, #229 |
