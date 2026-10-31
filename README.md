@@ -84,11 +84,12 @@ make install
    only pulls a wheel or a release archive). One cell is a recorded exception: `litert/cpu`
    installs upstream's Bazel wheel, whose runtime is a Git-LFS `prebuilt/<os>/libLiteRt.so`, so
    building it here would still ship upstream's binary — the measurement and the dated decision
-   are in `skills/engines/litert/SKILL.md` and `docs/ENGINES.md`. The five cells that
-   `prebuilt: true` on this branch (`ollama` ×4, `tensorrt-llm/cuda`) start from the engine's
-   own upstream image; `sglang/cuda` (#938) and vLLM's three cells (#937) were converted to
-   source builds at their pinned shas, and each remaining prebuilt cell is tracked by its own
-   issue (`ollama` ×4 / `tensorrt-llm/cuda` are #936 / #939).
+   are in `skills/engines/litert/SKILL.md` and `docs/ENGINES.md`. One cell still says
+   `prebuilt: true` (`tensorrt-llm/cuda`) and starts from the engine's own upstream image;
+   `sglang/cuda` (#938), vLLM's three cells (#937) and ollama's four cells (#936) were converted
+   to source builds at their pinned shas, and the remaining prebuilt cell is tracked by its own
+   issue (`tensorrt-llm/cuda` is #939). For ollama that is upstream's own Go build plus the
+   llama.cpp runners it vendors in the same tree.
 4. **symlink + smoke** — symlinks `~/bin/llgenie.py` → this repo's launcher (`scripts/llgenie_serve.py`),
    then runs `~/bin/llgenie --list`. Succeeds even when `~/models` is empty (you populate it with
    `llgenie --download-top-tier`), failing only on a genuine gguf/launch error.

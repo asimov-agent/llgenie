@@ -344,21 +344,42 @@ def test_env_prelude_lets_bash_expand_skill_env():
     assert out == "expanded|/x:" + os.environ["HOME"]
 
 
-def test_ollama_tarball_is_checksum_verified_before_extract(skills):
-    """Ollama comes from the release tarball, checked against sha256sum.txt."""
+def test_ollama_builds_from_the_pinned_go_source(skills):
+    """Every Linux ollama cell compiles the pinned sha (issue #936): upstream's own Go
+    build plus the llama.cpp runner from the tree's `llama/server` presets — no release
+    archive, no upstream image."""
 
-    # Given the ollama skill on a CUDA host
-    plan = es.plan(skills["ollama"], "cuda", ADA_16GB)
-    steps = plan["steps"]
+    # Given the ollama skill on each container backend
+    skill = skills["ollama"]
+    steps = {b: " || ".join(es.plan(skill, b, RDNA3 if b == "rocm" else ADA_16GB)["steps"])
+             for b in ("cpu", "cuda", "rocm", "vulkan")}
 
-    # When the order of the steps is read
-    check_i = next(i for i, s in enumerate(steps) if "sha256sum -c" in s)
-    extract_i = next(i for i, s in enumerate(steps) if "tar -xf" in s)
+    # When each backend's install plan is rendered
+    # Then every cell clones the pinned tag and builds the engine with Go
+    for backend, text in steps.items():
+        assert "git clone -b v0.40.12 https://github.com/ollama/ollama.git" in text, backend
+        assert "CGO_ENABLED=1 go build -trimpath -buildmode=pie" in text, backend
+        assert "-X=github.com/ollama/ollama/version.Version=0.40.12" in text, backend
+        # nothing is downloaded ready-made: the tarball release path is gone
+        assert "releases/download" not in text, backend
+        assert "tar -xf" not in text and ".tar.zst" not in text, backend
+        # the CPU runner rides in every image (ollama's fallback when no GPU loads)
+        assert "--preset cpu" in text and "--component llama-server" in text, backend
 
-    # Then the checksum runs before extraction, from the pinned release
-    assert check_i < extract_i
-    assert "releases/download/v0.40.12/ollama-linux-amd64.tar.zst" in " ".join(steps)
-    assert "install.sh" not in " ".join(steps)
+    # And each GPU backend compiles its own runner from the same tree
+    assert "--preset llama_cuda_v13_linux" in steps["cuda"]
+    assert "-DCMAKE_CUDA_ARCHITECTURES=" in steps["cuda"]
+    assert "-DGGML_HIP=ON" in steps["rocm"] and "-DAMDGPU_TARGETS=" in steps["rocm"]
+    assert "--preset vulkan" in steps["vulkan"]
+
+    # And the rendered image is a source build on the shared devel base, shipped slim
+    params = es.generate_params(skill)
+    assert params is not None
+    for backend in ("cpu", "cuda", "rocm", "vulkan"):
+        variant = params["variants"][backend]
+        assert variant["prebuilt"] is False, backend
+        assert variant["base"] == es.DEFAULT_BASE[backend], backend
+        assert variant["runtime_base"] and variant["runtime_copy"], backend
 
 
 def test_mlx_cuda_install_builds_the_core_from_source(skills):
@@ -589,11 +610,11 @@ def test_one_generated_dockerfile_per_engine_arch(skills):
 
 
 def test_official_upstream_images_are_used_as_bases(skills):
-    """Engines that still ship an upstream image use it as the base (Ollama/TRT-LLM).
+    """Engines that still ship an upstream image use it as the base (TRT-LLM).
 
-    llama.cpp compiles every variant from its pinned sha (#615); SGLang/cuda (#938) and vLLM's
-    three cells (#937) are both source builds now — their Dockerfiles start FROM the shared
-    devel base and run engine_runner.py install.
+    llama.cpp compiles every variant from its pinned sha (#615); SGLang/cuda (#938), vLLM's
+    three cells (#937) and ollama's four cells (#936) are source builds now — their Dockerfiles
+    start FROM the shared devel base and run engine_runner.py install.
     """
 
     # Given the generated Dockerfiles
@@ -601,7 +622,6 @@ def test_official_upstream_images_are_used_as_bases(skills):
 
     # When their FROM lines are read
     # Then the still-prebuilt cells keep the official image, and the converted ones compile
-    assert "FROM ollama/ollama:0.40.12-rocm" in df("ollama", "rocm")
     assert "FROM nvcr.io/nvidia/tensorrt-llm/release:1.2.1" in df("tensorrt-llm", "cuda")
     # Both #938 (sglang/cuda) and #937 (vllm x3) are source builds on this merged tree
     assert "FROM lmsysorg/sglang:v0.5.22" not in df("sglang", "cuda")
@@ -609,10 +629,12 @@ def test_official_upstream_images_are_used_as_bases(skills):
     for b in ("cuda", "rocm", "cpu"):
         assert "FROM vllm/vllm-openai" not in df("vllm", b)
         assert "engine_runner.py install" in df("vllm", b)
-    # And llama.cpp compiles every variant, never FROM its official server image
+    # And llama.cpp and ollama compile every variant, never FROM their official images
     for b in ("cpu", "cuda", "rocm", "vulkan"):
         assert "FROM ghcr.io/ggml-org/llama.cpp:server" not in df("llama.cpp", b)
         assert "engine_runner.py install" in df("llama.cpp", b)
+        assert "FROM ollama/ollama" not in df("ollama", b)
+        assert "engine_runner.py install" in df("ollama", b)
 
 
 def test_compiled_engines_build_on_the_shared_base_and_ship_slim(skills):
