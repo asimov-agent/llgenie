@@ -1,7 +1,7 @@
 ---
 name: llgenie-docs-maintainer
 description: "Use when auditing, filing or landing LLGenie docs changes."
-version: 1.0.10
+version: 1.0.11
 author: Hermes Agent
 license: MIT
 metadata:
@@ -215,9 +215,18 @@ the review/check requirements clear. Read it back — `gh pr view <n> --json aut
 7. `git push origin HEAD:<branch>`. After a rebase the push is refused ("tip is behind its remote
    counterpart"): prove the rebase changed nothing but the base first —
    `git range-diff <old-base>..<old-head> origin/main..HEAD` must show `=` on every replayed
-   commit — then `git push --force-with-lease=<branch>:<old-remote-sha> origin HEAD:<branch>`.
+   commit — then force-push under a lease. **The lease expects a literal SHA, not a ref path:**
+   `--force-with-lease=<branch>:refs/heads/<branch>` is rejected with `! [rejected] … (stale info)`
+   because the expected value is compared as a sha and a ref path never matches. Either form works:
+   `git fetch origin +refs/heads/<branch>:refs/remotes/origin/<branch>` and then plain
+   `git push --force-with-lease origin HEAD:refs/heads/<branch>` (the remote-tracking ref you just
+   fetched becomes the expectation), or `--force-with-lease=<branch>:<literal-old-sha>`. Fetch
+   immediately before either: the lease protects against a stranger's push, not against your own
+   stale memory of where the branch was.
 8. Update the PR body (`gh pr edit --body-file`, then **read it back** and grep for the new head
-   and `closes #<n>`). If another open PR edits the same doc, name it in the body and state the
+   and `closes #<n>`) — **after the last push, never before.** A body that names a "final head" sha
+   is invalidated by the very next commit, so any further push (a re-copy, a rebase, a lint fix)
+   re-opens the edit step; write the head line last or it lies. If another open PR edits the same doc, name it in the body and state the
    ordering: whichever lands second re-measures the census at the new base, and that re-measure is
    the second landing, not a defect to prevent.
 9. **Try the merge before any approval — but you cannot supply the approval yourself.** `gh pr merge
@@ -277,6 +286,8 @@ fragments by `make changes-index` (`scripts/changes_index.py`). Rules that follo
 
 ## Pitfalls
 
+- **A `success` on the WRONG run at the right head is as misleading as a `cancelled` sibling — resolve the run id from `gh pr checks`, never guess it.** Some pushes spawn several runs at one sha (a `guard`/`holds`-only quick run plus the full matrix). A watcher polling the quick one sees `completed/success` within minutes and a report then calls the head green while the real matrix's `linux / unit` has not concluded. Before arming any watcher, read `gh pr checks <n> --repo asimov-agent/llgenie`, which prints each job's own `actions/runs/<id>`, and pick the id that carries `linux / unit`; poll that run's jobs (not just `.status`) and report the unit job's own conclusion. `gh run list --commit <sha>` alone does not tell you which duplicate is the matrix.
+- **Heartbeat-coalesced watcher output can quote a stale head — re-read the PR directly before acting on a poll line.** A 5-minute poll loop's lines can arrive batched and show `headRefOid` from before your force-push plus a transient `DIRTY`, contradicting a measured `MERGEABLE` at the new head. Treat any poll line older than the moment of a push as history: run `gh pr view <n> --json headRefOid,mergeable,mergeStateStatus` now, timestamp it, and only then decide whether a rebase is needed (a `DIRTY` that survives the direct read after `git fetch origin refs/heads/main:refs/remotes/origin/main` is real).
 - **`gh pr checks` lags the push by a minute and then lies.** Right after a push it prints
   `no checks reported on the '<branch>' branch`; the run exists. Use
   `gh run list --repo … --commit <sha> --json databaseId,status,event` and poll
@@ -463,6 +474,15 @@ fragments by `make changes-index` (`scripts/changes_index.py`). Rules that follo
   `gh run rerun <id> --failed` — same head, no new commit, no cancelled matrix. Two reds on the same
   live-data gate means the fix is upstream, not a rerun loop: say so on the tracking issue and keep
   your PR open rather than landing behind a flaky green.
+- **A live→tree skill sync copies ONE directory, never the live `skills/` root.** The live profile's
+  `~/.hermes/profiles/<profile>/skills/` is the shared store — every skill the host has installed, not
+  just the lane's own. `cp -a "$L/skills" "$T/agents/<profile>/"` therefore mirrors hundreds of
+  foreign skills into `agents/<profile>/skills/**` and turns a five-file sync into a tree-wide diff
+  that CI and the drift gate both read as a lane shipping skills it does not own. Copy the lane's own
+  bundle only (`cp -a "$L/skills/llgenie-docs-maintainer" "$T/agents/<profile>/skills/"`) and confirm
+  `git status --porcelain agents/<profile>/` lists exactly the files you meant to version — a stray
+  `curator/`, `_runtime/` or another lane's skill dir is the tell, and it is removed from the worktree
+  only, never from live.
 - **A branch of yours that reds `check-import-roots` is usually your own new test — fix the import, never the baseline.** The ratchet (issue #796) records counts in `tests/fixtures/import-roots-baseline.json` (`bare` / `sys-path`) and exits 1 the moment a count RISES, so a PR that adds a test inserting its own `sys.path` entry or importing a `scripts/` module bare (`import check_docs`) reds `ci-unit` even when every other job is green — the failing site it names may be an OLD offender, not your file, because it lists all sites. The allowed shape is the conftest seam: `from scripts import check_docs` (sibling `tests/test_check_docs.py` shows it). A baseline is a measurement and may fall, never rise, so the fix is the import in the PR, never a fixture bump. Verify with `python3 scripts/check_import_roots.py ratchet` on the branch before pushing — and read the exit with `echo ${PIPESTATUS[0]}`, not `$?` after a pipe.
 - **Search the open issues before filing the gap you just measured.** The audit findings are
   exactly what the repo's triage legs file, so `gh issue list --repo asimov-agent/llgenie --state
