@@ -1,0 +1,79 @@
+# all-pipelines — the weekly umbrella sweep: dispatch every dispatchable workflow, await its run, report every disabled one (issue #1102)
+#
+# There is no single pipeline that triggers all the others, and 16 of 26 workflows are disabled_manually and
+# invisible from a green board. One weekly run of THIS workflow dispatches every dispatchable workflow except
+# itself, awaits each dispatched run's own verdict (never `gh workflow run` exit 0 — the #964 trap), prints a
+# table `workflow · dispatched run id · status/conclusion · completed_at` plus a `N ok · M failed · K disabled`
+# summary, and names every disabled workflow so a green summary can never hide dead pipelines.
+# Trigger surface: weekly schedule Saturday 04:27 UTC (its own odd minute — issue #275) + workflow_dispatch.
+# Flow: this is a repo-write sweep a collaborator can start by hand (check-dispatch-forms exempts it with
+#       `# dispatch: no inputs` below) -> make all-pipelines-sweep (scripts/all_pipelines.py: enumerate the
+#       tree's workflows, classify active/disabled/self via the API, dispatch + await every dispatchable
+#       non-self, render the table + `N ok · M failed · K disabled`, fail at the end iff any non-disabled run
+#       failed).
+# Never: never dispatches the umbrella itself (it would recurse), never cancels or re-runs a lane's in-flight
+#       matrix, never edits code, never merges.
+# dispatch: no inputs — the sweep has nothing to parameterise: it sweeps every dispatchable workflow in the
+#           checked-out tree and reports what it finds; a hand run re-audits the board exactly like the weekly one.
+name: all-pipelines — weekly sweep of every dispatchable pipeline (awaits each run, reports every disabled one)
+
+on:
+  schedule:
+    - cron: "27 4 * * 6"   # weekly Saturday 04:27 UTC — its own odd minute, never a busy slot (issue #275)
+  workflow_dispatch:
+
+permissions:
+  actions: write          # to dispatch the swept workflows and read their runs
+  contents: read
+
+# One static group, no cancellation: the sweep is a read + dispatch of live state, and killing a run mid-sweep
+# would abandon the very runs it just dispatched ("never cancel anything", issue #1102 design).
+concurrency:
+  group: all-pipelines-sweep
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Owner / collaborator trigger guard
+        env:
+          ACTOR: ${{ github.actor }}
+          TRIGGER: ${{ github.triggering_actor }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.repository }}
+          # The run's head repository: empty for every non-PR event (issue #510).
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name || '' }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for u in "$ACTOR" "$TRIGGER"; do
+            if [ "$u" = "$OWNER" ]; then continue; fi
+            # The repository's own bot is a GitHub App login, so it is never a collaborator and the
+            # permission read below answers 404 -> `none`: every bot-opened PR was refused (run
+            # 39650944430, #495). It may pass ONLY when the run's head is a branch in THIS repository —
+            # a same-repo head can be produced only by a token with write access — while the bot as the
+            # actor of a FOREIGN head (a bot commenting on a stranger's PR) is still refused (#510).
+            if [ "$u" = "github-actions[bot]" ] && [ -n "${HEAD_REPO:-}" ] && [ "${HEAD_REPO:-}" = "$REPO" ]; then
+              echo "Repository bot $u on a same-repo head ($HEAD_REPO) - allowed."
+              continue
+            fi
+            perm=$(gh api "repos/$REPO/collaborators/$u/permission" --jq .permission 2>/dev/null || echo none)
+            case "$perm" in
+              admin|maintain|write) echo "Collaborator $u has $perm - allowed." ;;
+              *) echo "Refused: $u is not the owner or a collaborator with write access (permission: ${perm:-none})."; exit 1 ;;
+            esac
+          done
+          echo "Allowed: actor=$ACTOR triggering_actor=$TRIGGER"
+  sweep:
+    needs: [guard]
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Sweep every dispatchable workflow, await each run, report every disabled one
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: make all-pipelines-sweep REPO="$GH_REPO"

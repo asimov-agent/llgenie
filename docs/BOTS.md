@@ -1672,6 +1672,7 @@ from the pipeline that will run.
 <!-- dispatch-forms:begin -->
 | workflow | what the run does | dispatch inputs |
 |---|---|---|
+| `all-pipelines.yml` | weekly sweep of every dispatchable pipeline (awaits each run, reports every disabled one) | none — the sweep has nothing to parameterise: it sweeps every dispatchable workflow in the |
 | `architecture-bot.yml` | rewrites docs/ARCHITECTURE.md from the tree and opens a linked issue + PR (never merges) | `dry` (optional, default `false`) — Preview the issue and PR bodies this run would file, filing nothing<br>`doc` (optional, default `docs/ARCHITECTURE.md`) — Repository-relative markdown document to refresh |
 | `arms.yml` | fails when an open, mergeable, default-based PR is finished but carries no auto-merge (rule 16, #873) | none — it audits the whole board; a hand run just re-checks what the daily sweep checks. |
 | `ci-hf-live.yml` | the merge-to-main real-Hub test pipeline (HF live tests + the committed-link liveness gate), never a PR check | none — the pipeline runs exactly the @pytest.mark.network ownership set, gated first |
@@ -1695,6 +1696,25 @@ from the pipeline that will run.
 | `security-bot.yml` | turns ONE auto-fixable vulnerability issue into a green PR (never merges) | `dry` (optional, default `false`) — Preview the issue it would take and the edit it would make, pushing nothing |
 | `security-scan.yml` | the daily vulnerability pipeline (Trivy + Syft + Grype + Semgrep), never a PR or push check | `tools` (optional, default `all`) — Which scanners to run: all, or one of syft / trivy / grype / semgrep<br>`enforce` (optional, default `full`) — Failure policy for THIS dispatch: full = the daily policy, report = never gate |
 <!-- dispatch-forms:end -->
+
+## The weekly umbrella sweep (issue #1102)
+`.github/workflows/all-pipelines.yml` is the one pipeline that exercises every pipeline. It runs on a weekly
+`schedule` (Saturday 04:27 UTC — its own odd minute, never a busy slot, issue #275) and on `workflow_dispatch`
+(a hand run re-audits the board exactly like the weekly one). It dispatches every **dispatchable** workflow in
+the tree **except itself**, awaits each dispatched run's own verdict (a `gh workflow run` exit 0 is never a
+verdict), and prints a table plus a `N ok · M failed · K disabled` summary.
+
+- A workflow whose live state is not `active` is rendered `DISABLED (owner re-enable required)`, excluded from
+  ok/failed, and named in the printed excluded list — so a green summary can never hide dead pipelines.
+- A `cancel-in-progress: false` concurrency group means the sweep never cancels a lane's in-flight matrix.
+- **Failure isolation:** one red pipeline does not abort the sweep; the full table is printed and the job fails
+  at the end iff any non-disabled dispatched run failed.
+- The report states the sha it swept, so a green is a fact about a tree, not a date.
+- `make all-pipelines-sweep REPO=owner/repo` drives it (the workflow's one make target; `scripts/all_pipelines.py`).
+
+**`make targets-coverage`** is the sibling audit: it lists every `Makefile` target (from `make -qp`) with the
+callers found — a workflow step, a script reference, or none — marking `_`-prefixed targets **internal**, so
+"which targets does nothing run" becomes a measurement rather than a guess (`scripts/targets_coverage.py`).
 
 ## Verification, loop & CI (containerized — same everywhere)
 
