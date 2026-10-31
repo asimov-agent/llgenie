@@ -158,7 +158,7 @@ picks which start script or image to run.
 
 The tree is 2010 tracked files: `data/` 10, `skills/` 17 (16 engine directories plus their
 `README.md`), `containers/` 57, `tests/` 204, `scripts/` 122, `openspec/` 1038, `agent-wiki/`
-247 and `docs/` 254. (measured at `c4e4ccf`)
+247 and `docs/` 254. (measured at `6c90837b`)
 
 | Path | Role |
 |---|---|
