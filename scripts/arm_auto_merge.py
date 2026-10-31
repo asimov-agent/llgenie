@@ -25,12 +25,43 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 
 BASE_REPO = "asimov-agent/llgenie"
 #: Squash, because the repository's own merge is a squash and a PR is one atomic commit anyway.
 METHOD = "squash"
+
+
+#: A deliberate disarm is a DECISION carrying memory: a comment whose body contains
+#: ``disarmed:`` (issue #1106). ``autoMergeRequest`` is one writable field with no
+#: history, so "not armed" reads identically whether nobody armed it or the author
+#: stopped it on purpose. The comment list is the field that carries the history.
+DISARM_RE = re.compile(r"\bdisarmed:\s*(?P<reason>.*)", re.I)
+REARM_RE = re.compile(r"\bre-?armed:\s*(?P<reason>.*)", re.I)
+
+
+def disarm_state(gh: str, repo: str, pr: int) -> str | None:
+    """Return the disarm comment text iff the latest decision marker is a disarm.
+
+    A later ``re-armed:`` comment clears it, so a disarm is not permanent (issue #1106).
+    """
+    out = _gh(gh, ["api", f"repos/{repo}/issues/{pr}/comments", "--paginate",
+                   "--jq", ".[] | {body, created_at}"])
+    markers: list[tuple[str, str, str]] = []
+    for row in json.loads(out or "[]"):
+        body = row.get("body") or ""
+        if DISARM_RE.search(body):
+            markers.append((row.get("created_at") or "", "disarm", body.strip()))
+            continue
+        if REARM_RE.search(body):
+            markers.append((row.get("created_at") or "", "rearm", body.strip()))
+    if not markers:
+        return None
+    markers.sort(key=lambda t: t[0])
+    _, kind, text = markers[-1]
+    return text if kind == "disarm" else None
 
 
 def _gh(gh: str, args: list[str]) -> str:
@@ -114,8 +145,23 @@ def main(argv: list[str] | None = None) -> int:
     print(report(prs, args.repo))
     if args.command == "report":
         return 0
-    missed = [int(pr["number"]) for pr in sorted(unarmed(prs), key=lambda p: p.get("number") or 0)
-              if not arm(args.gh, args.repo, int(pr["number"]), dry=args.dry)]
+    todo = sorted(unarmed(prs), key=lambda p: p.get("number") or 0)
+    skipped: list[tuple[int, str]] = []
+    missed: list[int] = []
+    for pr in todo:
+        n = int(pr["number"])
+        reason = disarm_state(args.gh, args.repo, n)
+        if reason is not None:
+            # A disarm is a decision, not an absence (#1106): never arm over it.
+            skipped.append((n, reason))
+            print(f"[arm-auto-merge] SKIP PR #{n}: author-disarmed — {reason}")
+            continue
+        if not arm(args.gh, args.repo, n, dry=args.dry):
+            missed.append(n)
+    if skipped:
+        armed_ok = len(todo) - len(skipped) - len(missed)
+        print(f"[arm-auto-merge] armed {armed_ok}, skipped {len(skipped)} (author-disarmed): "
+              f"{[n for n, _ in skipped]}")
     if missed and not args.dry:
         print(f"[arm-auto-merge] {len(missed)} PR(s) were NOT armed: {missed}", file=sys.stderr)
         return 1

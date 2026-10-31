@@ -25,7 +25,7 @@ def pr(number: int, draft: bool = False, armed: bool = False, author: str = "and
             "autoMergeRequest": {"mergeMethod": "SQUASH"} if armed else None}
 
 
-def run(tmp_path: Path, prs: list[dict], *args: str, arms: bool = True) -> subprocess.CompletedProcess:
+def run(tmp_path: Path, prs: list[dict], *args: str, arms: bool = True, comments: list[dict] | None = None) -> subprocess.CompletedProcess:
     """Drive the real CLI. `arms=False` simulates `gh pr merge --auto` succeeding while nothing changes —
     the case a read-back exists to catch (auto-merge disabled at the repository, a PR that became a draft)."""
     log = tmp_path / "gh.log"
@@ -38,6 +38,8 @@ with open(log, "a") as fh:
     fh.write(json.dumps(sys.argv[1:]) + chr(10))
 if sys.argv[1:3] == ["pr", "list"]:
     print({listing!r})          # the JSON itself, not a JSON-encoded string
+elif sys.argv[1] == "api":
+    print({json.dumps(comments or [])!r})
 elif sys.argv[1:3] == ["pr", "view"]:
     calls = [json.loads(l) for l in log.read_text().splitlines()]
     merged = any(c[:2] == ["pr", "merge"] for c in calls) and {arms!r}
@@ -124,3 +126,26 @@ def test_a_successful_arm_says_it_read_the_pr_back(tmp_path):
 
     assert result.returncode == 0, result.stderr
     assert "verified by reading it back" in result.stdout, result.stdout
+
+
+def test_a_deliberately_disarmed_pr_is_skipped_not_rearmed(tmp_path):
+    """A `disarmed:` comment is a DECISION, not an absence (#1106): automation may arm what was never
+    armed, but must never arm over a deliberate disarm. Here #42 is green and unarmed — the exact PR the
+    old sweep would have re-armed — and the marker vetoes it, naming the comment."""
+    comments = [{"body": "chore: trying a rule", "created_at": "2026-10-30T21:00:00Z"},
+                {"body": "disarmed: the rule was proven wrong - re-arm when #999 lands",
+                 "created_at": "2026-10-30T21:45:02Z"}]
+    out = run(tmp_path, [pr(42)], "arm", comments=comments)
+    assert "SKIP PR #42: author-disarmed" in out.stdout, out.stdout
+    assert "skipped 1 (author-disarmed): [42]" in out.stdout, out.stdout
+    # and it must NOT have called `pr merge` on it
+    assert not any(c[:2] == ["pr", "merge"] for c in calls(tmp_path)), calls(tmp_path)
+
+
+def test_a_later_re_arm_comment_clears_the_veto(tmp_path):
+    """A disarm is not permanent: a later `re-armed:` comment lets the sweep arm again."""
+    comments = [{"body": "disarmed: wrong", "created_at": "2026-10-30T21:00:00Z"},
+                {"body": "re-armed: fixed in #1000", "created_at": "2026-10-30T22:00:00Z"}]
+    out = run(tmp_path, [pr(42)], "arm", comments=comments)
+    assert "SKIP PR #42" not in out.stdout, out.stdout
+    assert any(c[:2] == ["pr", "merge"] for c in calls(tmp_path)), "the re-armed PR must be armed"
