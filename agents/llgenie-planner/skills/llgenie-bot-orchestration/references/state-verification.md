@@ -49,6 +49,21 @@ git fetch <upstream> main && git rev-parse --short <upstream>/main
 gh pr view <n> --json mergeable,mergeStateStatus,headRefOid,baseRefId
 ```
 
+## Prove a push landed before reporting it
+
+`git push` exiting 0 is not proof the remote moved — a lease mismatch, a hook, or a wrong ref prints
+plausible output. Read three refs back and require all three equal:
+
+```bash
+git push -q origin HEAD:refs/heads/<b>
+echo "local=$(git rev-parse --short HEAD) remote=$(git ls-remote origin refs/heads/<b> | cut -c1-8)"
+gh pr view <n> --json headRefOid --jq '.headRefOid[0:8]'
+```
+
+**`mergeable` reads `UNKNOWN` immediately after a large push.** GitHub recomputes the merge base
+asynchronously; poll it again (a few seconds) until it settles to `MERGEABLE` or `CONFLICTING`. Reporting
+`UNKNOWN` as "conflicted" or "can't merge" is a measurement taken mid-recompute, not a verdict.
+
 ## "Diff is non-empty" is not evidence of unique work
 
 An older base guarantees a non-empty tree diff. To decide whether a worktree holds unpublished work, test

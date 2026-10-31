@@ -35,6 +35,12 @@ only in a home directory. Doing that safely has a direction, an author, and an a
   is a real, reviewable mutation inside your remit. Make that change and verify it. Do not clear the counter by
   editing a peer lane's files (boundary violation) or by committing a throwaway edit (theater); both are the
   failure the counter is meant to catch, not a way past it.
+- **A completion counter that fires again after a verified, pushed mutation is not evidence you failed to
+  mutate.** The instrument measures a working-tree window it controls; work already committed and pushed to a
+  PR is invisible to it, so it can read zero while the mutation is real. When it fires after you have proven
+  the push landed (PR head sha == local == `git ls-remote`), restate that evidence and keep refusing — do not
+  invent a throwaway commit to turn a structurally-unsatisfiable counter green. The API is the verdict; the
+  counter is a proxy that can be blind to the exact thing it asks for.
 
 ## Mirroring a live reference into the tree: prove byte-identical and additive
 
