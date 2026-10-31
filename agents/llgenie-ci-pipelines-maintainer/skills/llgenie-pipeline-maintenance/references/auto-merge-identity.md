@@ -124,3 +124,38 @@ gates nothing: any PR can merge over a red, and the only thing actually blocking
 in the header — a board that implies "green = mergeable" teaches the fleet to trust a control that does
 not exist. Verify before claiming any check gates a merge: `gh api repos/<o>/<r>/rulesets` to list them,
 `gh api repos/<o>/<r>/rulesets/<id>` to read `required_status_checks` (absent = nothing gates).
+
+## A red `check-pr-authors` is fixed by RE-AUTHORING, never by editing the allowlist
+
+`scripts/check_pr_authors.py` reds a branch whose commit AUTHOR EMAIL is not in `ALLOWED` — the failure
+message names the remedy verbatim. This happens when a bot commit is authored under a local identity such
+as `bot@llgenie.local` that nobody added to the allowlist. Do not "fix" it by adding that address to
+`ALLOWED` — the allowlist is the security control; re-author the commit instead:
+
+```bash
+git config user.name  "Andy Holst"
+git config user.email "andy.holst@protonmail.com"   # an allowed pair the branch already carries
+git add <the files you actually changed>
+git commit --amend --reset-author --no-edit
+git rev-parse HEAD^{tree}                            # MUST be identical to the pre-amend tree sha
+git push --force-with-lease=<branch>:<remote-head-sha> origin <branch>
+```
+
+Why each part matters: `--amend --reset-author` is METADATA-ONLY — the tree sha is unchanged, so it is
+safe on a reviewed branch; but it still rewrites history, so it MUST be `--force-with-lease` with the
+remote's ACTUAL head sha in the lease (never a bare `--force`). Before amending, confirm you are on YOUR
+own branch (`git rev-parse --abbrev-ref HEAD`) — re-authoring another lane's branch is not yours to do.
+
+Two verification habits that caught real mistakes here:
+
+- **Judge a red guard by its LOG, not the check colour.** `gh pr checks` reports `fail` for a red guard AND
+  for a cancelled run AND for a job that never started — read the guard job's `##[error]` line to name the
+  gate before editing anything.
+- **Run the guard locally before pushing:** `python3 scripts/check_pr_authors.py check --base origin/main
+  --head HEAD` (expect `OK`), then confirm CI's lightweight guard job goes green on the new head — do not
+  wait on the full suite for a metadata-only fix.
+
+When the skill tree you are editing is itself the deliverable (a lane versioning its own SKILL.md), the
+versioned copy of this lesson belongs in the SAME amended commit as the re-author — a metadata-only
+force-push with no content delta leaves the tree sha unchanged and the lesson (the real task-relevant
+change) still unshipped.
