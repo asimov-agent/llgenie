@@ -1,0 +1,1 @@
+| 2026-10-31 | version the implementer lane's `bulk-mechanical-migration` skill under `agents/llgenie-issse-implementer/skills/` (live→tree, byte-identical 9,327 b, flat layout); clears the llgenie-issse-implementer absent-from-tree row of #1060 | [2026-10-31-implementser-bulk-mechanical-skill-1060.md](agent-wiki/2026-10-31-implementser-bulk-mechanical-skill-1060.md) | #1060 |
