@@ -28,6 +28,11 @@ only in a home directory. Doing that safely has a direction, an author, and an a
 - Delegate only when the work is genuinely outside the lane's remit (a code change, or profile/agent files the
   lane does not own), and then **attribute the delegation in the PR body** — "<owner lane>'s versioning delegated
   to <lane> at that lane's dispatch" — or a later reader concludes the delegate owns those files.
+- **Adopting a new standing rule means writing it into the LIVE skill in the same pass, not only filing a
+  versioning issue.** The live profile skill/reference is the copy the agent executes every turn; the
+  `agents/<profile>/` mirror exists for review. File the versioning issue for the tree mirror AND edit the live
+  skill now — a rule that exists only as an issue changes nothing until some later PR lands it, so the pass that
+  "filed it" leaves the fleet still running the old behaviour while reading as work that moved.
 - A behaviour that contradicts a fleet rule is fixed by **amending the versioned instruction** (issue + PR under
   `agents/<profile>/`), never by a private edit and never by a standing one-off override.
 - **When a completion check demands a "task-relevant mutation" and the lane has no legitimate code work, the
