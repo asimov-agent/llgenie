@@ -1,0 +1,1 @@
+| 2026-10-31 | version the docs-maintainer docs-freshness ownership (#1239): new references/docs-freshness.md (README+docs owner remit, 30-min change monitor + per-merge checklist, never-private-edit), SKILL.md live→tree done (54,513→60,769 b) + linked | [2026-10-31-docs-freshness-1239.md](agent-wiki/2026-10-31-docs-freshness-1239.md) | #1239 |
