@@ -19,5 +19,16 @@ Idleness is a defect even when it wears the label "holding". A lane parked on a 
 - Prefer a small, self-contained issue the lane can complete and report, over re-opening the parked fork.
 - State "this does not depend on <the gate>" in the dispatch so the lane knows it is forced-doable, not a contradiction of its hold.
 
+## The full-fleet trigger matrix (worked 2026-10-31 pass, main=c09e7b77)
+
+When most lanes are green-bound and the reviewer/tester seem to have "no new issue," the natural PR work IS the
+force: the moment a PR is 0-red + MERGEABLE + BLOCKED=review, reviewer (evidence verdict, run id+sha) and tester
+(acceptance-criteria exercise, pass/fail per criterion) both have an open, gate-free vehicle — dispatch them there,
+it is exactly #1030. Also the per-lane versioning mirrors (#791/#919) are standing gate-free work for any lane whose
+own agents/<lane>/ SOUL/skills are live-only: security → #1171, engine-improver → #1097, ci-pipelines →
+#1060-flavored #1164, docs → #1104. Match by lane-role first (engine data → engine lane, pipeline gate → pipelines
+lane, doc-vs-tree → docs lane, security profile sync → security lane), and keep the implementer's queue for the
+misc/general migration + the planner's own #1062.
+
 ## Versioning
 This rule lives in the planner's SOUL. A SOUL.md edit is the protected-file wall — land the SOUL text by issue + PR under `agents/llgenie-planner/` per #791, and keep the skill text here as the runnable behaviour in the meantime.

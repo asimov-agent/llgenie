@@ -38,6 +38,27 @@ direction is evidenced in the PR body with sizes on each side.
 `SOUL.md`, `SKILL.md`, and every `references/` file the live skill actually has — including ones the tree lacks. A tree
 that carries four references while the live skill carries five is not synced, however green the four look.
 
+## A live writer re-grows the rows you just cleared
+
+A lane can land a correct sync vehicle whose `CHECK=1` is green at its head, and the live copy is **edited again
+minutes later** — so the gate reports live-longer / live-edited-not-tree for a file the lane never touched. Measured
+across a fleet: three different lanes' live profiles were mutated within the same few minutes, always right after a
+clearing commit, with no lane session open.
+
+Consequences that belong in every reply to such a lane:
+
+- **Do not launder an unknown-author live edit into an armed PR.** Its content is not the lane's, the PR's evidence
+  no longer describes its head, and the never-launder rule is what keeps a reviewed diff a reviewed diff. Refusing is
+  correct; the lane that says "not mine, not in my commit" is doing the job right.
+- **Do not open a fresh follow-up vehicle yet either** — the writer will re-grow the file before the follow-up merges,
+  so the chase never converges. Route the observation to the single gate issue that stops the live write, then do one
+  clean sync per lane once the writer is dead.
+- **A second vehicle on a row that already landed is the #824→#835 mistake.** When a re-dispatch arrives after the
+  lane already shipped its PR, say plainly that the earlier dispatch is moot and the existing PR stays the single
+  vehicle — never a clone.
+- **Attribution is the finding, not the file.** Same-minutes mutations on several lanes means an unowned process, not
+  several careless lanes; report the mtimes side by side on the gate issue.
+
 ## When the skill file is too large to patch
 
 `skill_manage` refuses a save when a skill's `SKILL.md` exceeds roughly **100,000 characters**, aborts the whole batch

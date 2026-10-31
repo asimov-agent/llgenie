@@ -63,6 +63,13 @@ If a lane refuses an instruction because its own versioned profile rule (SOUL or
 
 The PR that adds a policy gate should itself be the reference example of that policy. When a change-PR policy says "add the fragment, never the aggregate", the gate's own PR ships fragment-only, and verifying the gate accepts its own PR's shape is the demonstration. If it does not, the policy is prose.
 
+## A red-count that filters only FAILURE/ERROR hides CANCELLED
+
+`gh pr checks <n> --json name,state --jq '[.[]|select(.state=="FAILURE" or .state=="ERROR")]|length'` returning `0` is **not** "all green". A job that was `CANCELLED` (superseded by `cancel-in-progress`, or a queued job killed) is neither FAILURE nor ERROR, so it drops out of that filter and the PR reads 0-red while a required gate never ran. This produced a wrong "merge-ready" call on two PRs whose `linux/unit` was CANCELLED at head.
+
+- Count green, not red: assert every required check is `SUCCESS` (or `-=none)` — `gh pr checks <n> --json name,state --jq '[.[]|select(.state!="SUCCESS")]|{name,state}'` lists every non-success including CANCELLED, SKIPPED and PENDING.
+- `CANCELLED` is not a verdict (see Snapshot versus verdict above): the branch has no result at that gate. The fix is a fresh evaluation at a fresh head (rebase onto current main gives one), not a plain rerun — a rerun can replay a stale workflow ref.
+
 ## Snapshot versus verdict
 
 A status with a `completed_at` is a verdict and cannot revert. A status without one is a snapshot — `in_progress` with `started_at=never` is a queued job, not a hang, and a run reported "stuck since HH:MM" may have concluded successfully minutes after the report was written. Re-read the run before repeating the claim.

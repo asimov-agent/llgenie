@@ -139,6 +139,54 @@ def test_committed_planner_soul_states_both_standing_rules():
         assert pattern.search(stated), f"agents/llgenie-planner/SOUL.md no longer states {rule}"
 
 
+def test_planner_soul_carries_the_post_merge_verification_duty():
+    """#1062 Proposal A: the orchestrator must verify every merge AFTER the merge, on main.
+
+    A green pre-merge PR proves the branch passed at that head on that base; it does not prove the
+    squashed result on `main` is green, that a stacked PR reached `main` at all, or that the
+    acceptance criteria hold on `main`. The duty has to be in the SOUL — the text a session actually
+    reads — not only in a skill reference (a skill is loaded only when its trigger matches, which a
+    merge review does not). #1032/#999/#1045 merged into a non-main base while a board counted them
+    landed, which is the measured failure this rule exists to catch.
+    """
+    soul = " ".join((REPO / "agents" / "llgenie-planner" / "SOUL.md").read_text().split())
+
+    assert "verify every merge, after the merge" in soul.lower(), \
+        "the post-merge duty heading is missing from the planner SOUL"
+    for phrase in [
+        "read `baserefname`",
+        "a stacked pr did not land on `main`",
+        "confirm `main` is green at the merge tip",
+        "measure each acceptance criterion **on `main`**",
+        "file a new issue naming the merged pr",
+        "never reopen a merged pr",
+    ]:
+        norm = " ".join(phrase.split())
+        assert norm.lower() in soul.lower(), f"the post-merge duty is not whole: {phrase}"
+
+
+def test_post_merge_reference_teaches_the_not_landed_discriminator():
+    """#1062 negative control: a stacked merge (baseRefName != main) is 'not landed on main'.
+
+    The acceptance says *behaviour asserted, not text* — the reference must teach the operative
+    discriminator, not merely mention post-merge review. #1032/#999/#1045 all showed state=MERGED
+    while baseRefName was another lane's branch, so the check reads the base, never the state, and a
+    MERGED stacked PR is reported 'not landed on main', not landed.
+    """
+    ref = " ".join((REPO / "agents" / "llgenie-planner" / "skills" / "llgenie-bot-orchestration"
+                    / "references" / "post-merge-verification.md").read_text().split())
+
+    for phrase in [
+        "every merged pr must be re-verified after the merge",
+        "baserefname != main",
+        "merged into a parent branch",
+        "nothing of theirs was on `main`",
+        "always read `baserefname` before crediting a merge",
+    ]:
+        norm = " ".join(phrase.lower().split())
+        assert norm in ref.lower(), f"the not-landed discriminator is missing: {phrase}"
+
+
 QUOTED_ONLY_SOUL = """# LLGenie Orchestrator
 
 **Role:** fixture orchestrator

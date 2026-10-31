@@ -49,6 +49,33 @@ defect at that head, while `conclusion=cancelled` at ~3600s is contention. A can
 blob is typically empty, so an un-nameable failing test is consistent with ceiling/contention —
 but the duration, not the empty log, is what makes the call.
 
+## Rule: a red-count that filters FAILURE/ERROR reads `cancelled` as green
+
+`gh pr checks <n> --json state` returns a `state` that includes `PENDING`, `SUCCESS`, `FAILURE`,
+`ERROR`, **and `CANCELLED`**. Counting only `FAILURE`/`ERROR` therefore reports `0 red` on a PR
+whose only unresolved leg is `linux / unit = CANCELLED` — the exact "green is not mergeable" trap.
+Never reduce a PR to a red-count; enumerate the checks and require the load-bearing leg be
+`SUCCESS`:
+
+```bash
+gh pr checks <n> -R <owner>/<repo> --json name,state \
+  --jq '.[] | "\(.name)=\(.state)"'
+```
+
+A PR is merge-ready only when every leg reads `SUCCESS` — `CANCELLED` on `linux/unit` means the
+suite never produced a verdict, so "0 failing checks" and "ready" are different claims.
+
+## Rule: rebase onto fresh main to re-verdict a cancelled gate; a plain rerun replays the stale ref
+
+When `linux/unit` is `CANCELLED` at a PR head and the base has since moved (any merge to main
+leaves every open PR 1-behind), the correct unblock is a **rebase onto the new main**, not
+`gh run rerun`: a rebase produces a fresh head commit, which starts a fresh run evaluated at the
+merge ref, whereas a rerun replays the same workflow ref against the same stale base. Dispatch it
+to the rebase lane (rebase-on-latest-main after every merge) and state per PR: new head sha,
+measured mergeable/behind state, and the resolved conflicts. This is also how the whole board is
+un-stuck after a merge — measure `headRefOid`, `mergeable`, and base-ahead-by for every open PR in
+one pass.
+
 ## "I'm holding the re-run" is a claim; the run's `run_attempt` is the fact
 
 A lane that says "re-run held until in-flight < N" may already be running attempt N+1 — a re-run

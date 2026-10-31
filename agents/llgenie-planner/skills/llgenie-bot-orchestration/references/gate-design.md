@@ -82,6 +82,30 @@ file presents as a sequence of discoveries rather than a set. When several round
 failure in the same file" occur, suspect the gate's control flow before suspecting bad luck, and file the masking as
 its own defect rather than editing it on the way past.
 
+## A carve-out in a scan gate is usually implemented by omission
+
+A reach/marker pin that exempts an entry point does it by leaving the symbol out of the regex, not by a
+branch that skips it — so "the exemption" is invisible in control flow and visible only in the list. The
+docstring then states the exemption as doctrine ("NOT `plan_download` called DIRECTLY / planning-only"),
+and the doctrine can be false for every argument except the one it was written for: `plan_download` returns
+early for `engine="strata"` before any Hub call, while its default gguf branch calls `gguf_repo` → the
+search API.
+
+Measure the exemption, do not read the sentence:
+
+```bash
+git grep -n '<exempted_symbol>(' <base> -- tests/ | grep -v '<the pin file>'
+git show <base>:<the pin file> | grep -c 'pytest.mark.network'   # zero in the whole file = nothing marked
+git show <base>:<module>.py | sed -n '/def <exempted_symbol>/,+30p'   # does it reach the network?
+```
+
+A test file with **zero** marks whose tests call the exempted symbol, where the symbol's callee reaches
+the network, is a live hole on the base — the pin is green over the exact leak it was built to catch.
+Closing it is a change **with acceptance**, never a one-line delete: add the symbol to the reach set, then
+network-mark or stub every newly-flagged direct site, keeping the deselected suite and the pin green.
+Where a direct call and an indirect one hit the same leaker, cover both — `mp.offer` in the entry list
+gates only the `offer → …` path, so direct calls bypass it entirely.
+
 ## New files follow the tree's import convention from the first commit
 
 Where a repo has migrated to a single import root (a conftest seam) and gates the migration with a count-based

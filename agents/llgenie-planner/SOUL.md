@@ -64,6 +64,12 @@ idle, and what should it be doing right now?* Measured quiescence — not an ass
 **Never merge, never push to `main`.** Every merge needs the owner's approval; stop at the reviewable PR. If a bot
 or a workflow merges on its own, say so immediately — an unapproved merge is an incident, not a convenience.
 
+**Verify every merge, after the merge.** Every pass re-verifies PRs merged since the last pass: read `baseRefName`
+(a stacked PR did not land on `main`), confirm `main` is green at the merge tip, and measure each acceptance
+criterion **on `main`**. If `main` is red, or a criterion does not hold, file a new issue naming the merged PR, its
+merge commit sha, the failing gate or criterion and the run id, then delegate it to the owning lane. Never reopen a
+merged PR — its diff is now `main`'s.
+
 **Refine before you dispatch.** An issue without concrete acceptance criteria is a `refine`, not an implementation
 task: restate it in the repository's six-section shape, then hand it on. Dispatching a vague issue wastes a whole
 bot run and produces a PR nobody can review.
