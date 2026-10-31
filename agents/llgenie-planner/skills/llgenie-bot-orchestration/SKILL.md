@@ -12,6 +12,17 @@ metadata:
 
 # llgenie bot orchestration: idle bot → waiting issue
 
+<!-- host-bot-tools:begin -->
+
+## Tools
+
+This lane's chat session is pinned to these Hermes toolsets and no others: `clarify`, `file`, `memory`, `session_search`, `skills`, `terminal`, `todo`.
+
+Skills that stay enabled: `github`, `github-issue-triage`, `github-workflow-admission`, `llgenie-bot-orchestration`.
+Every other installed skill is listed in `skills.disabled`.
+The pin is `tests/fixtures/host-bot-capabilities.json` in asimov-agent/llgenie (issue #1038).
+<!-- host-bot-tools:end -->
+
 ## When to Use
 
 Not a code task. Use it on every llgenie pass, and whenever the owner asks "what are the bots doing?": a bot is
@@ -173,59 +184,7 @@ advice, never as measured fact:
 
 ## 3c. A starved runner queue is a finding, not a reason to push harder
 
-Before dispatching, count `gh run list --repo <o>/<r> --limit 40 --json status` by `queued` versus `in_progress`.
-Many queued with none running means the platform is not scheduling: every extra `workflow_dispatch` lengthens the
-queue without starting anything. Do the blocking fix through the host implementer instead (a rebase, a one-line
-guard) and hold further CI dispatches until it drains. “Queued” is never “red” — say so in the brief, or an
-implementer will chase a phantom failure.
-
-**Distinguish a stuck queue from a churning one by the age of the oldest queued run.** Queue length alone says nothing:
-43 queued with the oldest created minutes ago is a backlog being consumed while new runs arrive (one runner against
-many PRs, every push adding one); 43 queued with the oldest hours old is a queue nothing is draining. Read the count
-beside `gh api '.../runs?status=queued&per_page=3' --jq '.workflow_runs[0].created_at'` and beside `status=in_progress`,
-then diagnose: churn is fixed by fewer triggers per PR (sha-keyed `concurrency`), a stuck queue by finding the runs
-holding the runners — often matrices for **already-merged** PRs, whose verdicts nobody will read.
-
-**A job queued on a label no runner matches never concludes — and that reads as "blocked on review".** Count queue length and you will blame pressure; read the job's `runs-on` and you find the real cause. The repo ships the instrument (`scripts/queued_run_alarm.py`), and its output names the mechanism: every stalled job carries the same label, GitHub does not fail a job whose label matches nothing, so the run never concludes and every PR's checks stay pending.
-
-```bash
-python3 scripts/queued_run_alarm.py --repo <o>/<r> --minutes 30   # prints label + age per stuck job
-gh api repos/<o>/<r>/actions/runs?status=queued --jq '.workflow_runs[]|"\(.id) \(.head_sha[0:8]) \(.created_at)"'
-```
-
-Two consequences. **A PR whose every remaining job is that label is complete, not unfinished** — say "supply-limited, 0 failures" rather than "waiting on review", or the owner reads a verdict problem into a capacity problem. And **prove the cause before proposing the fix**: change ONE row to a neighbouring label on a scratch branch and record whether the job picks up (picks up ⇒ the label is not provisionable on this account's plan; still queues ⇒ capacity/billing, which is the owner's to fix and no workflow edit will clear). **Carry a control leg in the same probe run** — a cheap `ubuntu-latest` job beside the suspect labels. Without it, "all suspect labels queued" cannot distinguish a broken workflow from starved labels; with it, a control that finishes in seconds while the suspects queue for minutes settles the question in one run, and a probe whose suspect leg merely queues for "about the normal lag" proves nothing either way. Delete the probe afterwards: it is evidence, not a PR. Run this in a *separate* lane from the queue-clearing: cancelling runs and pausing schedules cannot conjure a runner, which is why a sweep earlier in the evening frees nothing.
-
-**Two matrices competing for one runner pool is one matrix.** Before letting a lane open a new PR (or push a fresh
-branch) while another verdict run is live, count what is already running: a 27-job matrix queued behind a 25-job matrix
-means the second verdict arrives after the first, and the first is the one the board is waiting on. Hold the new PR,
-say the release condition out loud ("open it the moment <run id> concludes, green or red"), and prefer making that
-condition self-executing — a watcher on the run id — over a promise to remember. The same arithmetic applies to
-dispatching probes: a probe that cannot answer its question until another change merges should wait, not compete.
-
-How to read what CI is actually saying — check-run conclusions, `mergeStateStatus` versus "all checks green",
-queue-age diagnosis, and how to run a cancel campaign without killing the runs you meant to keep — is in
-`references/ci-state-and-queue.md`. Three rules from it are always-on:
-
-- **`gh pr checks`'s "fail" column is not a failure count.** Only `check-runs` conclusions are: `success`, `failure`,
-  `cancelled`. `cancelled` means *not yet* — a newer run superseded it (`cancel-in-progress` on PRs), so the PR has no
-  verdict and needs one fresh completed run. Use `gh pr view <n> --json statusCheckRollup` and count the conclusions.
-- **"All checks green" is not "mergeable".** Auto-merge gates on `mergeStateStatus == CLEAN`, not on check names;
-  `BLOCKED` + `REVIEW_REQUIRED` means the checks passed and a human approval is outstanding — a different sentence for
-  the owner than "not ready".
-- **`BLOCKED` cannot tell you whether a check was enforcing.** Where `REVIEW_REQUIRED` is on for every PR, that state
-  masks `UNSTABLE`, so a PR with a failing check and one with none read identically (`BLOCKED` both). A probe that
-  plants a failure and observes `BLOCKED` therefore proves nothing about checks. **`UNSTABLE` is just as blind in the
-  other direction:** a PR with eight checks still running and **zero failures** reads `UNSTABLE`, so the value
-  cannot distinguish "a non-required check failed" from "checks have not finished" either. Four states, three of them
-  collapsing to "not mergeable": failed check → `UNSTABLE`; still running → `UNSTABLE`; review required → `BLOCKED`;
-  green + approved → `CLEAN`. Record `reviewDecision` and `isDraft`
-  **beside** `mergeStateStatus`, take a before/after pair on the same PR, and treat "advisory vs blocking" as
-  answerable only by the merge decision (`auto_merge.decide()` refusing on `!= CLEAN`), not by the badge.
-- **Check whether the repo has required status checks before designing a gate contract.**
-  `gh api repos/<o>/<r>/branches/main/protection` (404 = none) and `gh api repos/<o>/<r>/rulesets/<id> --jq '[.rules[].type]'`.
-  A "skipped class deadlocks branch protection" premise is wrong on a repo with no required checks; the surviving risk
-  is legibility — a skipped stage nobody can see afterwards — and the fix is an always-running scope report, not a
-  required-check redesign.
+See `references/push-and-rerun-discipline.md`.
 
 ## 3d. Two PRs, one seam: prove the merge before you pick an order
 
@@ -355,6 +314,10 @@ So **every message that names a sha or a count re-reads it in the same turn** �
 - **A verdict, a finding or an "urgent" label is only valid at its head.** "`check-dispatch-forms` is red" and "the exit code is 2" were both true at a superseded sha and false at the live one; before pressing urgency, re-run the command at the head you are about to name. When a lane says your finding is stale, believe the measurement, not your memory of it.
 - **A sha that appears nowhere is worse than no sha.** `gh api repos/<o>/<r>/commits/<sha>` returning a 404, or a `git branch -r --contains` returning empty, means the id came from a closed PR or an abandoned branch — say so and stop quoting it, rather than letting the next reader chase a tree that cannot merge.
 
+**When a lane reports a head it pushed, resolve the real head before crediting or rejecting it.** A lane saying "pushed to `<sha>`, all gates green" can quote a tree/blob hex, a pre-rebase commit, or a stale ref that exists on no ref at all, while the PR actually advanced to a *different* sha. Resolve the truth from the API, not the message: `gh pr view <n> --json headRefOid` for the real head; `git cat-file -t <quoted>` / `git ls-remote origin | grep <quoted>` to prove the quoted sha is reachable; `git grep '<the claimed content>' <real-head>` to prove the work landed. **The two verdicts are independent:** a wrong quoted sha does not make the work wrong — credit the substance if it is in the tree at the real head, and correct the sha in the same message ("reachable nowhere; the real head is `<x>`; the versioning is present there"). Say plainly that its "remote==local at `<quoted>`" claim is false.
+
+**A lane's named "gates" can be its own local make targets, not CI check-runs.** "All six gates green" frequently means it ran `make lint skills changes docs authors census` locally; the API at that head may show only `guard`/`holds`/`scope` with `mergeStateStatus=UNKNOWN` (checks not yet posted, or a single job rendering them). "All gates green" is then **unverifiable from the API at that moment** — ask for the run id and job that prove it, and never repeat "0 failing checks" against a head whose checks the API has not posted. Local green is a claim by the author; a posted run at the head is evidence.
+
 ## Cite the invariant, not a single number
 
 Two agents can measure the same artifact and report different numbers without either being wrong: bytes vs characters
@@ -398,8 +361,24 @@ still read `BLOCKED / REVIEW_REQUIRED`. So before diagnosing the decision logic,
 condition it gated on. A `reviewDecision` that is empty rather than `REVIEW_REQUIRED` at decision time is a two-line
 condition fix; a workflow that was still queued is not a bug at all.
 
+**An arm is a writable field with no history, so record the intent or lose it.** `autoMergeRequest` has no author and
+no timestamped trail beyond `enabledAt`, which **records a time, never a head and never who wrote it**. Consequently
+these three states are indistinguishable from the field alone: a lane armed its own PR as its rules require; a lane
+deliberately did not arm and a human agreed; an automation armed it against the lane's own charter. A pass that arms on
+every tick will therefore re-arm a PR twenty seconds after its author deliberately disarmed it, and will supply an arm a
+lane's SOUL forbids that lane from giving — and in both cases the board reads a state its author believes is wrong.
+
+The fix is a record, not a stronger field: the intent lives in a **comment on the PR** naming the condition under which
+the arm may be re-applied ("intent: deliberately unarmed until <measurable condition>"), the automation reads it before
+writing and reports the skip, and a declined arm is written down as one line — a null field is indistinguishable from
+an omission. Corollary for reporting: quote `.autoMergeRequest` for the head you are discussing, every time, and when it
+is set by something other than the author, say "armed, not by this lane" rather than "armed" or "none".
+
 Worktree/push hygiene: `references/worktree-and-push-hygiene.md`. Red CI runs: `references/ci-failure-attribution.md`.
 Reading a failing job's log, `run.status` lying, queued-vs-running verdicts: `references/ci-state-and-queue.md`.
+Engine build changes (delegated build+test follow-up, #1085): `references/engine-build-followup.md`.
+Posting a comment or dispatch body that contains a command: `references/shell-and-body-safety.md`.
+Measurement discipline, Actions concurrency, and local-host contention (a wall-time on a saturated host is not a baseline): `references/measurement-and-concurrency.md`.
 Gates that fire, shape changes, subset assertions, sync direction: `references/assertions-and-gates.md`.
 Two PRs for one issue — pick by stack, close with a comparison: `references/vehicle-selection.md`.
 
@@ -445,6 +424,8 @@ Corollary for dispatch wording: name the head sha and say "do not push while a r
 
 **The rule does not enforce itself, and a stall is the exact pressure that breaks it.** The combination that defeats it is predictable: an explicit instruction, a run frozen at a `updated_at` timestamp for twenty minutes, and a queue that makes finishing look expensive. Whoever holds the rule must **accept the wait** when someone with authority says "do it now" — that is a decision, not a reflex, and the planner's side of it is a standing preference stated in writing: **a body-, doc- or SOUL-only change never justifies cancelling a run**; it can wait for the conclusion. A rule about not destroying matrices must not be delivered by destroying one, and a lane that pushes anyway will report it honestly — record the cost and the standing preference, never a flattering version of the story.
 
+**An automated progress check is not an authority.** A stall detector that demands "a task-relative change" every turn will eventually fire on a turn whose only remaining work is waiting — and the cheapest way to silence it is a push. That trade is never right: a red check is an acceptable state, a cancelled verdict is not. Answer the check with the work that is legitimately available (a document, a dispatch, a verification) or with a plain refusal naming what it asked for and why the rule forbids it, and check that a detector's `requested paths` are not simply the files the last message happened to mention — they usually are, and they are usually another lane's. **And know what the counter actually reads:** a detector that counts repo-worktree `changed_paths` registers a legitimate profile-skill edit and a filed issue as **zero** mutations, so a run of real orchestration work can still trip it with nothing wrong. That absence is the detector's blindness, not an idle turn — the answer is the refusal above, never a manufactured repo edit or a dummy test to move the number.
+
 ## A merge is a dispatch trigger
 
 After any merge to `main`, dispatch `llgenie-pr-merge-conflict` with the new `main` sha and the named trigger PR. The sweep is: measure staleness first (`gh pr view --json baseRefName,mergeable` per PR, `git merge-base --is-ancestor <tip> origin/main`) and report the list **before** rebasing; rebase in dependency order; resolve union-additions as unions and name every conflicted file with its resolution; one push per PR then freeze until that PR's run concludes (`cancel-in-progress` kills the verdict otherwise); never prune a worktree.
@@ -462,6 +443,8 @@ git -C <repo> merge-base --is-ancestor <old-head> origin/<branch>; echo $?   # 0
 
 A commit whose message belongs to a different issue, or an old head that is no longer an ancestor, means the sweep rebuilt the tree rather than rebasing it. On a **closed** PR that is harmless and stays where it is — say so instead of ordering a third shape. On an open one it is a duplicate of unmerged work and must be dropped before anyone reviews it.
 
+**A squash-merge's commit message names the headline, not the full content.** Verify a merged PR's real scope from the tree (files on main, a 404 for a deleted file), never from the merge title — a title reading "engine-build producer install-leg" carried a whole ci-refactor squash. A branch whose work already merged is not "needs to land" and must not be rebased or re-offered: read `state=mergedAt` (and `mergeCommit`) before acting, and remember that a squash rewrites the commits, so `merge-base --is-ancestor <old-head> main` returning false does NOT prove the work is unmerged — the tree/content check does.
+
 ## Every dispatch states the assignment; every bot states its state
 A bot that has not been told the assignment invents one, and a bot that does not report cannot be delegated to. So every dispatch names: the **id** (issue or PR), the **scope** (what to change), what is **not** in scope, and the **exact thing to report**. And every dispatch asks for a status line in one fixed shape:
 
@@ -472,67 +455,8 @@ BOT <name> · working on #<id> · branch <ref> · since <hh:mmZ> · blocked on <
 A report without an id, a branch or a run id is not a report — it is a mood. When a bot reports work I did not dispatch, that is the first thing to reconcile, not the last: it means two lanes are on one issue or a lane has invented scope. Repeat the status request in every follow-up until the bot answers in that shape, and carry the current assignment in the message rather than expecting it to remember.
 
 ## Rerun never re-push; a PR under review is frozen
-A run that ended `cancelled` at a head with no successor is repaired with `gh run rerun <id>` (same sha, no new commit). Pushing again cancels the rerun too and burns a whole matrix; each force-push on a queued PR costs ~25 jobs and discards any successes already paid for. Never cancel a run that is mid-flight and two-thirds green just to rebase — let it complete and report the verdict at that head first.
 
-**A rerun is only permitted on a completed run.** While a run is in flight, both forms refuse:
-
-```
-gh run rerun <id>                                    # "cannot be rerun; This workflow is already running"
-gh api -X POST .../runs/<id>/rerun                   # 403 {"message":"This workflow is already running"}
-```
-
-So for a *hung* in-flight run the only lever is `cancel` — which destroys its successes — and "just rerun it" is not an available action. Distinguish hung from slow by the step timestamps: four steps finishing in 27 seconds followed by 50 minutes inside one step with no transition is hung, and the honest report says so with both numbers. **Check `gh pr view <n> --json state,mergedAt` before any rerun or cancel** — a merged PR's run is history, not work, and rerunning it spends a matrix to prove something nobody will read. The durable fix is the deadline: a job with no `timeout-minutes` inherits the platform default (six hours on GitHub), so "hung" and "slow" stay indistinguishable and a held runner is invisible. File the timeout gap as its own issue; do not try to schedule around it.
-
-**A caller's ceiling must exceed the longest job it calls, and the relation needs a test in both directions.** Adding a
-`timeout-minutes` to a reusable-workflow caller is the easy half; a caller ceiling *tighter* than its callee kills a
-healthy job mid-step and looks exactly like a legitimate timeout, while a callee with no ceiling at all makes the caller's
-number meaningless (a six-hour default behind a 60-minute caller). Set the caller above its slowest callee, and pin the
-relation (`caller.timeout > max(callee.timeout)`) so the next person who raises a job remembers the caller. A job that
-has never completed in the sample gets no ceiling from observation — say so and derive the bound from the closest
-analogue instead of inventing a number.
-
-**The fix landing and the freeze are one event.** With `concurrency: group: <workflow>-<ref>` and `cancel-in-progress: true` on `pull_request`, the next push to the same PR always wins: a run can sit ten jobs green with the deciding job eight minutes into its suite, and a three-line push kills it. So a fix followed by a cosmetic push buys a cancellation, not a verdict. When a lane pushes while a run is live, name the cost with the timeline (`started 17:06:58 → push 17:10:10 → cancelled 8m44s in`) and restate the rule as one event — **the fix and the freeze go together, nothing rides along.**
-
-So **a PR under review gets no cosmetic pushes**: batch review feedback into one push after the current verdict lands, and put text-only changes in a comment. When a bot amends a PR repeatedly, the honest diagnosis is not "CI is broken" — it is that the head moved before any run could finish, so no run will ever be cited. State that, name the sha to freeze at, and ask whether a push is genuinely needed before allowing one.
-
-**Verdict the superset, never force a rewind.** When the last push before the freeze added only what you asked for (a missing pin, an exit code), that head is a strict superset of the one you froze and the right call is to verdict **it** — going back is a force-push, and a force-push is a push, so "restore the frozen sha" spends a matrix to arrive at a tree that is strictly worse. Confirm it only adds the requested work (`git diff <frozen> <new> --stat`, or check the files), then say plainly that the sha you verify is the sha that merges. The property that matters is *the verified tree is the merged tree*, not *the sha has a particular value*.
-
-**Compare the tree before you decide what a moved head cost.** A re-push can be metadata-only or a real change, and the two have opposite consequences:
-
-```bash
-gh api repos/<o>/<r>/commits/<old> --jq .commit.tree.sha
-gh api repos/<o>/<r>/commits/<new> --jq .commit.tree.sha      # identical ⇒ nothing was re-proven
-```
-
-Identical trees mean the cancelled run's successes still describe this code — the missing thing is a **conclusion**, not a result, and nobody should present the cancellation as "the code changed, the greens are void". Different trees void them, and a *commit rewrite* (an author fix, a rebase) changes the tree even when the diff is empty. Also check `parents`: a commit whose parent is the default branch rather than the previous head was rebuilt from scratch, not amended.
-
-**When the same requirement is missing at successive heads, stop re-briefing in prose.** Rephrasing a demand a lane
-has already ignored twice is the mistake; a measurement per head is not. Fetch the file from each ref and run it, then
-post the table:
-
-| head | empty diff | unknown path | pin in tests |
-|---|---|---|---|
-| `<sha>` | exit 2 | exit 1 | 0 |
-| `<sha>` | exit 2 | exit 1 | 0 |
-
-Then: **apply exactly this, prove it with these four one-liners, push once, freeze.** Paste the commands whose output
-the lane must return (`jobs >/dev/null; echo $?` …), because a requirement stated as behaviour keeps being satisfied
-"in spirit" while the exit code never changes. Four heads in one hour with the same two items open is a process finding
-to name out loud — *"you have pushed four times and neither item moved"* — and then the rule: if either item is wrong
-on the merits, argue in one message and the planner rules; do not push.
-
-**Read the commit message of the next head, not only its diff.** A lane that disagrees with the ruling will encode the
-opposite contract in prose — "no paths → exit 2, so the check is loud rather than quietly green" against a ruling that
-says exit 0 — while the diff adds tests and docs. That is a disagreement, not an oversight, and it will not resolve by
-re-briefing: state the ruling once more with the issue row that carries it, then take the branch off the lane rather
-than negotiating through a sixth push.
-
-**When the second proof table still shows no movement, take the branch off the lane.** That is what the table exists to trigger, and it is not a judgement of the lane's competence — a lane can add good tests for an hour and never touch the two lines the verdict waits on. Two messages, in this order:
-
-1. **Stand the owner down explicitly**: no more pushes, no re-cut, no comments on that PR, and name what stays theirs so it does not read as a demotion.
-2. **Hand the exact diff to a different implementer**: branch, PR number, current head sha, the lines with file and line reference, the proof commands, and *one push then stop*, in a worktree off that branch rather than the primary checkout.
-
-Two lanes on one branch is the collision this avoids; one lane on it too long is the failure it fixes. Say which is which in both messages — the stand-down reads as blame unless it is framed as "the queue is not yours any more".
+See `references/push-and-rerun-discipline.md`.
 
 ## A mechanism change ships with a verification issue
 When a change alters which work CI does (path filters, class gates, skip lists), the accompanying issue must prove it with **one real change per file class**, each row backed by a run id, and the architect / implementer / tester split the work. Shape, row set, negative controls and probe hygiene: `references/verification-issue-design.md`. The one always-on rule from it: **expectations are derived from the classifier code, never from the workflow YAML** — if both sides come from the same file, the test agrees with the bug.
@@ -885,7 +809,7 @@ git -C <worktree> rev-parse --abbrev-ref HEAD        # the branch the task owns,
 git -C <worktree> log --oneline -1                     # parent should be origin/main, not another PR's tip
 ```
 
-Keep the primary checkout on `main` and clean, and say so in every brief: it is the workspace other lanes read as `origin/main`. **One worktree per PR.** Reusing a worktree for a second branch is how a one-file change becomes an unrelated diff: the
+Keep the primary checkout on `main` and clean, and say so in every brief: it is the workspace other lanes read as `origin/main`. **Re-measure at dispatch time, not once:** a concurrent session re-takes that checkout, so `git rev-parse --abbrev-ref HEAD` immediately before you create the tasks — measured this pass, a checkout returned to `main` twenty minutes earlier was already parked on a 19-commit PR branch, and three queued worktrees were about to inherit it as their parent. The same two commands find the other half of the hazard: `git rev-list --count origin/<branch>..<branch>` > 0 means a lane's work exists only on the local branch — report it to that branch's author and never push it yourself. **One worktree per PR.** Reusing a worktree for a second branch is how a one-file change becomes an unrelated diff: the
 second edit lands on the first branch's tree, and only `git rev-parse --abbrev-ref HEAD` before the first edit catches
 it. Cut a tree per branch, or check the branch name immediately before writing; a lane that discovers it edited the
 wrong branch after committing has to unwind a push, not an edit.
@@ -1029,6 +953,42 @@ When the owner says a line of work is *not needed yet* (its pressure disappeared
 Deferring is a decision you make and record; a PR left open under the old premise costs a reviewer an hour and teaches nobody why it stopped mattering.
 
 ## Pitfalls
+
+- **Four gates on this board print the same output for "found nothing" and "could not tell."** #1086 compared one
+  direction only; #1108 printed `OK` for profiles that declare zero rules; #1123 enforced note→fragment but never
+  change→note; **#1134 aborted with a `UnicodeDecodeError` and printed no FAIL at all, so every caller read a
+  crashed check as clean.** That last one hid, for hours, a **125 KB skill directory existing only on one host**.
+  **A check that cannot say "I did not run" is not a check** — whenever you read a green from a gate, ask what its
+  "could not tell" path prints, and if the answer is "the same thing", the green is not evidence.
+- **Before asserting any check gates a merge, read the ruleset.** A repository whose `main` ruleset is only
+  `deletion, non_fast_forward` has **no required status checks**, so no cancelled or red suite blocks anything — the
+  review is the only gate, and a green-except-matrix board is *information, not protection*. The armed-vs-gated
+  question (should a PR wait on a leg that cannot block?) is answered with the ruleset, never with the check list:
+  `gh api repos/<o>/<r>/rulesets/24862727 --jq '[.rules[].type]'`. Measured asimov-agent/llgenie: five legs dead at
+  the same 60m ceiling, all cancelled, none of them load-bearing against a merge.
+- **A cancelled leg is two opposite events; only the duration separates them.** `cancelled` at ~18 s is a supersede
+  (a newer push superseded the run); `cancelled` at the `timeout-minutes` ceiling — ~60m2x on five independent
+  branches and start times — is the declared timeout doing its job, and a constant that tight is a ceiling, not a
+  coincidence. Report the **attempt number and the duration** beside every `cancelled` reading; the conclusion alone
+  is meaningless.
+- **When a lane regresses to the same wrong numbers despite two corrections, stop re-correcting and post the
+  authoritative state on the PR** where every future reader — bot or human — hits it before acting. The repair that
+  works is the one that replaces the unreliable prose as the record, not a third DM. Then say once, plainly, that the
+  ground rule is `paste the command output, not a sentence about it`, and refuse to be the correction loop a fourth
+  time.
+- **Check your own work the way this fleet checks others.** `references/proving-bot-claims.md` now carries the
+  instruments that caught the most errors tonight, each written as a rule: `created_at` is not a start time; the
+  positive value of an eventually-consistent field is proof and the negative is not; a compound shell command is
+  classified by its first matching segment, so a test chained onto an edit is invisible; a versioning PR is a
+  checkpoint rather than a state; and a sentence that says `closes #n` is not a link. Read that file before
+  reporting a verdict, not after being corrected.
+
+- **A skill file that hits the ~100,000-character cap becomes un-patchable, silently.** `skill_manage` refuses the
+  save and rolls back every touched skill, so the lesson you believe you recorded lands nowhere - or lands only in
+  the duplicate profile copy, which is how a lane "keeps forgetting" a rule it keeps writing down. `wc -c` the file
+  before blaming the lane; the remedy is a reference file plus a pointer, never an edit to the cap. Recipe (size the
+  sections, move one verbatim, prove `missing: 0`, re-lint, prove with a real save) and the extraction-not-worktree
+  check for another lane's scripts: `references/agent-profile-sync.md`.
 
 - **A claim with no branch is theatre.** The 3h TTL blocks every other implementer from the issue that may be
   reddening all PRs. Release it in a comment with the 404 as evidence, then re-dispatch.
