@@ -569,6 +569,72 @@ def test_a_live_rulebook_longer_than_the_tree_copy_is_a_finding(tmp_path):
     assert "prefix of the rulebook" in items[0]["detail"]
 
 
+def test_only_live_longer_scopes_the_clean_tree_to_zero(tmp_path, monkeypatch, capsys):
+    """`--only live-longer` on a byte-identical host is a green gate: the class it owns, filtered to it.
+
+    The #928 caller must not fail on the #1069 reverse findings while a lane works them down, so the
+    scoped check ignores every key it is not asked for and exits 0 when the scoped set is empty.
+    """
+    import check_agent_profiles as cap
+
+    root, agents, live_home = _mirror(tmp_path)
+    monkeypatch.setenv("HERMES_PROFILES_HOME", str(live_home))
+
+    code = cap.main(["check", "--root", str(root), "--agents-dir", "agents", "--only", "live-longer"])
+    captured = capsys.readouterr()
+    text = captured.out + captured.err
+    assert code == 0, text
+    assert "OK:" in text, text
+    assert "live-longer" not in text, text  # nothing to report, and no drifted file is named
+
+
+def test_only_live_longer_names_only_that_class_while_another_class_is_red(tmp_path, monkeypatch, capsys):
+    """A tree that carries BOTH classes still reports ONLY `live-longer` under `--only live-longer`.
+
+    The scoped check is how #928's caller fails on the prefix-truncation it owns while ignoring the
+    reverse direction a lane is actively working down.
+    """
+    import check_agent_profiles as cap
+
+    root, agents, live_home = _mirror(tmp_path)
+    monkeypatch.setenv("HERMES_PROFILES_HOME", str(live_home))
+    # make the live SOUL a truncated-seed victim (live-longer) ...
+    (live_home / "someone" / "SOUL.md").write_text("a much longer live rulebook\n" * 200)
+    # ... and plant a live-only skill file (absent-from-tree) the scoped check must NOT report.
+    live_only = live_home / "someone" / "skills" / "llgenie-bot-orchestration" / "references" / "live-only.md"
+    live_only.parent.mkdir(parents=True, exist_ok=True)
+    live_only.write_text("unversioned live rule\n")
+
+    code = cap.main(["check", "--root", str(root), "--agents-dir", "agents", "--only", "live-longer"])
+    captured = capsys.readouterr()
+    text = captured.out + captured.err
+    assert code == 1, text
+    assert "FAIL live-longer" in text, text
+    assert "live-only.md" not in text, text          # the other class is filtered out
+    assert "absent-from-tree" not in text, text
+
+
+def test_only_with_an_unknown_key_exits_2_and_names_the_known_keys(tmp_path, capsys):
+    """A broken `--only` invocation must not read as a clean or failing tree (issue #1087).
+
+    The whole defect was that a misspelt filter looked like the gate's own "could not compare" code; the
+    fix reuses exit 2 for the caller error BUT says what was wrong and what the valid keys are, so a
+    broken invocation can never again be conflated with an unreadable tree.
+    """
+    import check_agent_profiles as cap
+
+    root, agents, live_home = _mirror(tmp_path)
+
+    code = cap.main(["check", "--root", str(root), "--agents-dir", "agents",
+                     "--only", "live-longgers"])
+    captured = capsys.readouterr()
+    text = captured.out + captured.err
+    assert code == 2, text
+    assert "--only" in text, text
+    assert "never-merge" not in text and "FAIL live-longer" not in text, text  # a caller error, not a red
+    assert "live-longer" in text, text       # the valid key is named so the caller can correct it
+
+
 def test_a_live_write_to_a_skill_reference_is_a_cron_path_finding(tmp_path, monkeypatch):
     """A live-only write to a skill's `references/*.md` (the dirty-watch cron's own path class) is caught.
 
