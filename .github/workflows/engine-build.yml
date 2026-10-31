@@ -27,8 +27,9 @@
 #       == :ARCH, re-check the binary version, then SERVE it and answer "hi"; cpu-fallback rows serve,
 #       GPU-only rows get the version test via --no-gpu) ->
 #       make test-engine-install ENGINE= ARCH= (install-leg: install + the installed launcher's engine
-#       version (test-built-engine) + llgenie --dry + uninstall the
-#       image this row just published, #1027).
+#       version (test-built-engine) + uninstall the image this row just published; the product
+#       `llgenie --dry` (ci-install-dry) is NOT here — the producer is product-LESS (#1027), the tool
+#       installs in pipeline.yml's ci-install, which already drives it).
 # Never: never merges, never pushes to `main`, never runs on a schedule, never publishes an image
 #        whose binary has not answered its test, and never builds the `none` placeholder row.
 #
@@ -174,6 +175,6 @@ jobs:
       - name: "serve-leg: make test-published-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} — pull the JUST-published image (digest == :ARCH), re-check the binary version, then SERVE it and answer 'hi' (cpu-fallback rows; GPU-only rows get the version test via --no-gpu so the published binary is still exercised)"
         if: ${{ matrix.engine != 'none' && inputs.push == 'true' }}
         run: make test-published-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}
-      - name: "install-leg: make test-engine-install ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} — install + the installed launcher's engine version (test-built-engine) + llgenie --dry + uninstall the image this row just published (#1027)"
+      - name: "install-leg: make test-engine-install ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} — install + the installed launcher's engine version (test-built-engine) + uninstall the image this row just published (product `llgenie --dry` lives in pipeline.yml's ci-install, not here; #1027)"
         if: ${{ matrix.engine != 'none' && inputs.push == 'true' }}
         run: make test-engine-install ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}

@@ -46,11 +46,13 @@ def test_the_none_placeholder_row_never_runs_the_legs():
 
 
 def test_the_install_leg_installs_versions_and_uninstalls_the_just_published_image():
-    """Install + the installed launcher's engine version + llgenie --dry + uninstall."""
+    """Install + the installed launcher's engine version + uninstall (no product `llgenie --dry` — the
+    producer is product-LESS #1027; the product tool installs and dry-runs in pipeline.yml's ci-install)."""
     mk = (REPO / "Makefile").read_text()
     recipe = mk.split("\ntest-engine-install:", 1)[1].split("\n\n", 1)[0]
-    for needle in ("engine-install", "test-built-engine", "ci-install-dry", "ci-install-uninstall"):
+    for needle in ("engine-install", "test-built-engine", "ci-install-uninstall"):
         assert needle in recipe, needle
+    assert "ci-install-dry" not in recipe, "the producer install-leg must not call the product-only ci-install-dry (#1196)"
 
 
 def test_the_serve_leg_serves_the_published_image():

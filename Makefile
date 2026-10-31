@@ -282,11 +282,10 @@ engine-launchers: ## Pull this host's published engine images (default: llama.cp
 test-built-engine: ## After make install: every ~/bin/llgenie-engine-* start script must print its engine version via docker (Metal-only engines excluded)
 	python3 scripts/install_engine_launchers.py --bin "$(BIN)" --test
 
-test-engine-install: bash-check # Internal CI seam (issue #1027, deliberately internal like test-unit-network): after ENGINE's image was built + published in the engine-build producer, install + test-built-engine (the installed launcher must report the engine's version) + llgenie --dry + uninstall the just-published image — the producer-owned install leg. Gating lives in the engine-build workflow (`inputs.push == 'true'`).
+test-engine-install: bash-check # Internal CI seam (issue #1027, deliberately internal like test-unit-network): after ENGINE's image was built + published in the engine-build producer, install + test-built-engine (the installed launcher must report the engine's version) + uninstall the just-published image — the producer-owned install leg. The product `llgenie --dry` (ci-install-dry) is deliberately NOT here: the producer is product-LESS (#1027 — the llgenie tool installs in pipeline.yml's ci-install, which already drives ci-install-dry), so a producer that calls it can never satisfy it. Gating lives in the engine-build workflow (`inputs.push == 'true'`).
 	@test -n "$(ENGINE)" || { echo "Usage: make test-engine-install ENGINE=<id> ARCH=<variant>"; exit 1; }
 	make engine-launchers ENGINES="$(ENGINE)" ARCH="$(ARCH)"
 	make test-built-engine
-	make ci-install-dry
 	make ci-install-uninstall
 
 # ---- engine skills (issue #98) ------------------------------------------
