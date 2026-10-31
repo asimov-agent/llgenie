@@ -284,7 +284,7 @@ test-built-engine: ## After make install: every ~/bin/llgenie-engine-* start scr
 
 test-engine-install: bash-check # Internal CI seam (issue #1027, deliberately internal like test-unit-network): after ENGINE's image was built + published in the engine-build producer, install + test-built-engine (the installed launcher must report the engine's version) + llgenie --dry + uninstall the just-published image — the producer-owned install leg. Gating lives in the engine-build workflow (`inputs.push == 'true'`).
 	@test -n "$(ENGINE)" || { echo "Usage: make test-engine-install ENGINE=<id> ARCH=<variant>"; exit 1; }
-	make engine-install ENGINE="$(ENGINE)" BACKEND="$(ARCH)"
+	make engine-launchers ENGINES="$(ENGINE)" ARCH="$(ARCH)"
 	make test-built-engine
 	make ci-install-dry
 	make ci-install-uninstall

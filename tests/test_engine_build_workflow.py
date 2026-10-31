@@ -134,9 +134,12 @@ def test_every_published_row_install_tests_the_image_it_just_published():
     assert text.index("run: make push-engine") < text.index("run: make test-engine-install")
 
     # And the make seam is a real target wrapping install + built-engine-check + dry + uninstall,
-    # so the producer's install leg reuses the host install path (no third surface)
+    # so the producer's install leg reuses the LAUNCHER install path (engine-launchers pulls the
+    # just-published image and writes the start script). It is NOT the host `engine-install`
+    # (engine_skills.py install): a container-only engine correctly exits 3 there ("installed in
+    # its container image, not on the host"), which red the leg for every cuda cell (#1092).
     tail = MAKEFILE.split("\ntest-engine-install:", 1)[1].split("\n\n", 1)[0]
-    for marker in ("engine-install", "test-built-engine", "ci-install-dry", "ci-install-uninstall"):
+    for marker in ("engine-launchers", "test-built-engine", "ci-install-dry", "ci-install-uninstall"):
         assert marker in tail, f"test-engine-install must wrap {marker}"
 
 
