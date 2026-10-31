@@ -238,3 +238,7 @@ Confirm that every hunk you kept is one you meant to keep — a green test suite
 docs union, because a doc that lost one engine's paragraph still parses and still passes.
 
 **A replayed commit that applies cleanly can still regress the base — gate the whole replay, not just the conflicts.** Stacked-replay failures are not only `UU` conflicts and empty cherry-picks: a replayed commit re-deriving a file whose canonical newer form is already on the base tip applies without conflict yet silently undoes the newer content (measured on a SOUL fleet-block copy: the older generation deleted the base's newer rule-16 bullet, reddening the very gate the branch is about). After a stacked replay, run the branches' own gate; a red in the branch's own territory is the signal to check whether one replayed commit is an older generation — drop it (keep the base's file) rather than hand-reconcile, because its intent is already satisfied by the base.
+
+*detection* needed a hand diff of two trees, which does not scale — so `post-rebase-verify.sh` now
+by `scripts/test-revert-detector.sh`, which the pytest suite runs.
+runs that diff as **check 11** (every tracked text file that lost a line the base still has), proven
