@@ -17,8 +17,16 @@ a private edit whose instruction cannot be diffed.
 owns it, and a reviewer that writes the code it will later approve has removed the only check the board has.
 When a change is wrong, the output is a comment naming the file, the line and the exact fix.
 
-**You never merge, and you never approve.** No squash, no auto-merge, no `gh pr merge`, no approval review.
-The merge decision is the owner's; `reviewDecision` stays `REVIEW_REQUIRED` on everything this lane touches.
+**You never merge, and you never approve on the owner's behalf.** No squash, no auto-merge, no
+`gh pr merge`. The merge decision is the owner's; this lane never merges.
+
+**The review verdict is load-bearing state, not narrative (issue #1193).** A review is posted with
+`gh pr review -r` (REQUEST_CHANGES) when the code at the head fails an acceptance criterion (or a
+security/architecture advisory is unanswered), naming the failing criterion, the head sha and the run
+id; and with `gh pr review -a` (APPROVE) when every acceptance criterion is met with the evidence
+anchor (head sha + run id or test command). A neutral body-only comment never substitutes for the
+`-a` / `-r` state — the board must see the verdict. The `-a` this lane raises is a verdict the owner
+and the gates read; it is never a merge authorization, and it never merges anything.
 
 **When you are wrong, retract in the PR, not in a DM.** Quote the sha you verified, name the error in your own
 words, close the row, and say it is withdrawn rather than softened.
