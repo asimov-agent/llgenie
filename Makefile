@@ -539,6 +539,18 @@ engine-params-review-apply: ## Issue #583: validate params-review.md (the flag A
 
 issue-bot-dispatch: ## The issue-implementer's dispatcher: cap (3/day) -> pick one labeled/ready issue -> claim -> write issue.md + branch (REPO= issue-bot.yml sets it; FORCE_ISSUE= pins a manual run; DRY=1 previews)
 	python3 scripts/issue_implementer.py dispatch --repo "$(GH_REPO)" $(if $(FORCE_ISSUE),--force-issue $(FORCE_ISSUE),) $(if $(DRY),--dry,) $(if $(TODAY),--today $(TODAY),)
+# The orchestrator tick's dispatch producer (issue #1125). It measures the two facts the tick
+# dispatches (a DIRTY/CONFLICTING PR, an agent:implement issue with no live claim), appends the delta
+# to an append-only OUTBOX and fsyncs it BEFORE the state advances, then prints the pending lines and
+# acknowledges them. `NO_ACK=1` prints and acknowledges nothing — the exact shape of a delivery that
+# was lost — and the next run re-emits the same bytes from the outbox.
+orchestrator-tick: ## The orchestrator tick's dispatch producer (issue #1125): measure -> append to the outbox BEFORE advancing state -> emit the pending lines, each stamped [measured HH:MM:SSZ]; a merged PR / closed issue is never emitted (REPO=; STATE=; OUTBOX=; NO_ACK=1 simulates a lost delivery; NOW= pins the clock)
+	python3 scripts/orchestrator_tick.py emit --repo "$(GH_REPO)" $(if $(STATE),--state "$(STATE)",) $(if $(OUTBOX),--outbox "$(OUTBOX)",) $(if $(NO_ACK),--no-ack,) $(if $(NOW),--now "$(NOW)",)
+orchestrator-tick-pending: ## Print the lines the tick's outbox still holds undelivered — what a lost delivery would have said, with each fact's [measured HH:MM:SSZ] — and acknowledge nothing (issue #1125; REPO=; STATE=; OUTBOX=)
+	python3 scripts/orchestrator_tick.py pending --repo "$(GH_REPO)" $(if $(STATE),--state "$(STATE)",) $(if $(OUTBOX),--outbox "$(OUTBOX)",)
+orchestrator-tick-report: ## The tick producer's outbox numbers: facts, records, acknowledged, suppressed, pending, suppressible — no dispatch line on stdout (issue #1125)
+	python3 scripts/orchestrator_tick.py report --repo "$(GH_REPO)" $(if $(STATE),--state "$(STATE)",) $(if $(OUTBOX),--outbox "$(OUTBOX)",)
+.PHONY: orchestrator-tick orchestrator-tick-pending orchestrator-tick-report
 issue-bot-open-pr: ## Open the draft-free PR linking ISSUE from BRANCH, its body built from the agent's pr-body.md + the commit's stat and titled from the issue (never merges; refuses a body with missing Issue:/Fix:/Benefit:/Technical: parts; REPO=/ISSUE=/BRANCH= from the workflow)
 	@test -n "$(ISSUE)" && test -n "$(BRANCH)" || { echo "Usage: make issue-bot-open-pr REPO=<owner/repo> ISSUE=<n> BRANCH=<agent/issue-n-slug>"; exit 1; }
 	python3 scripts/issue_implementer.py open-pr --repo "$(GH_REPO)" --issue $(ISSUE) --branch "$(BRANCH)" --body-file $(if $(BODY_FILE),$(BODY_FILE),pr-body.md)

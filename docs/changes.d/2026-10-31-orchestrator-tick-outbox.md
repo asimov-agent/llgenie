@@ -1,0 +1,1 @@
+| 2026-10-31 | issue #1125: the orchestrator tick's dispatch producer writes its append-only outbox before it advances state, stamps every line with the fact's measurement time, and suppresses a merged PR / closed issue at emit time | [2026-10-31-orchestrator-tick-outbox.md](agent-wiki/2026-10-31-orchestrator-tick-outbox.md) | #1125 |

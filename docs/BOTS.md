@@ -1716,6 +1716,52 @@ verdict), and prints a table plus a `N ok · M failed · K disabled` summary.
 callers found — a workflow step, a script reference, or none — marking `_`-prefixed targets **internal**, so
 "which targets does nothing run" becomes a measurement rather than a guess (`scripts/targets_coverage.py`).
 
+### The tick's dispatch producer: the outbox is written before the state (issue #1125)
+
+The orchestrator tick dispatched work that had **already merged** — `#919` as "rebase it, head
+e21e7b22" 2.5 h after it merged, `#1049`/`#1050` and `#885` after theirs — and every receiving lane
+spent a turn proving the dispatch stale. A stale dispatch reads exactly like a fresh one, which is
+what made it expensive.
+
+The mechanism was an order of operations, not a stale queue: the producer advanced its **durable
+state** (what it had already said) *before* the side effect that consumes its output (the delivered
+message). When the delivery failed — `queue_full` is measured on that job — the delta existed
+nowhere, so the next pass diffed against the already-advanced state, found nothing, and re-sent a
+task list from memory.
+
+`scripts/orchestrator_tick.py` is the producer, and it encodes the four properties that make a lost
+delivery recoverable. It mirrors the shape the rebase lane proved in its own delta reporter
+(`tally-delta.py`), with the ordering corrected:
+
+1. the delta is appended to an **append-only outbox** (`~/.llgenie/tick/outbox.log`, one JSON record
+   per fact) and `fsync`ed **before** the state advances, so a lost delivery is retried from the file;
+2. every emitted line carries the **measurement time of the fact it reports** —
+   `REBASE-NEEDED   #919 @e21e7b22  mergeStateStatus=DIRTY  [measured 21:14:07Z]` — persisted in the
+   record, so a re-emitted line is visibly old instead of looking fresh;
+3. at **emit time** the subject's live state is asked (`gh pr view <n> --json state,mergedAt`,
+   `gh issue view <n> --json state`); a subject whose PR merged or whose issue closed is dropped and
+   recorded as suppressed, and no later pass emits it;
+4. the delta key is the **fact set** (`REBASE-NEEDED #919 @e21e7b22 mergeStateStatus=DIRTY`), never
+   the run time — a second pass over unchanged state emits nothing and leaves the outbox
+   byte-identical.
+
+The facts are the two things the tick dispatches: an open PR that is `DIRTY`/`CONFLICTING` (dispatch
+the rebase bot) and an open `agent:implement` issue with no live claim, read through
+`scripts/bot_claims.py` (dispatch an implementer).
+
+```bash
+make orchestrator-tick           # measure -> outbox (durable) -> state -> emit -> acknowledge
+make orchestrator-tick NO_ACK=1  # print and acknowledge nothing: exactly a delivery that was lost
+make orchestrator-tick-pending   # print what the outbox still holds undelivered, acknowledge nothing
+make orchestrator-tick-report    # facts / records / acknowledged / suppressed / pending, no dispatch line
+```
+
+A delivery that fails to print does not acknowledge, and the next pass re-emits the same bytes — so
+`queue_full` is a retry rather than a loss, and `orchestrator-tick-pending` is how a reader recovers
+what the message would have said. A failed `gh` read exits 2 and leaves the outbox and the state
+untouched: a read that failed must never look like "no change". `STATE=` / `OUTBOX=` point the
+producer at another pair of files (the tests do), and `NOW=` pins the clock.
+
 ## Verification, loop & CI (containerized — same everywhere)
 
 Every verification stage runs **inside the test container** so behaviour is
