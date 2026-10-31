@@ -1,0 +1,1 @@
+| 2026-10-31 | llgenie-tester live→tree sync cycle-2 post-#1185: SKILL.md (+ gh-pr-view-headRefOid-lags-a-push) and agent-profile-versioning.md (+ change→note gate reads COMMITTED paths, untracked notes invisible to it) versioned byte-for-byte, clearing the fresh llgenie-tester rows of #961 | [note](agent-wiki/2026-10-31-tester-live-state-3.md) | #961 |

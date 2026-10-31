@@ -234,6 +234,12 @@ against `name:` prefixes, not ids).
   **current** head. A force-push leaves runs at a dead head; they prove nothing about the branch now.
   `cancelled`/`queued` = **no verdict**, and `gh pr checks`'s `fail` column is never a failure count
   (it collapses cancelled runs and duplicate check names onto one word).
+- **`gh pr view --json headRefOid` LAGS a push — it can still return the pre-push head.** Reading it
+  right after a push shows the old sha (flagged internally as a max-cached head), so "the PR head is
+  the old sha" is not evidence that your push failed. The authoritative tip in that moment is
+  `git ls-remote origin <branch>` (the ref you just wrote); the PR field catches up on the next read a
+  minute later. Judge a verdict only after the two agree — and when they disagree, report both shas and
+  say which read produced each, rather than concluding the push was rejected.
 - **Never pad a short sha into a `head_sha=` filter — a fabricated full sha returns `[]`, which reads
   as "no run was scheduled".** The API matches the exact 40-hex string, so a prefix completed from
   memory silently selects nothing and you conclude CI never triggered when it did. Take the full sha

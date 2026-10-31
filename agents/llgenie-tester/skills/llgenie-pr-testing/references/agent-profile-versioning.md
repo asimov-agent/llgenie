@@ -51,6 +51,17 @@ block against one SOUL).
    the rendered `CHANGES.md` fails `check-docs` with "is not indexed", because the page is generated.
    Baseline the finding count: run `check-docs` on a clean worktree at the base sha too and report the
    identical count rather than assuming the red is yours.
+   **The change→note gate reads COMMITTED paths, so an untracked note does not satisfy it.**
+   `check_docs.py` derives the changed set from `git diff <base>...HEAD`; a freshly written
+   `agent-wiki/<stem>.md` and `docs/changes.d/<stem>.md` that are still untracked are invisible to it
+   and `make check-docs` keeps reding with the same "adds no agent-wiki/<stem>.md note" — which reads
+   as though your note was wrong rather than unseen. `git add` + commit them, then re-run the gate;
+   `make check-docs` passes on the committed tree. Order the cycle: write note + fragment → `make
+   changes-index` (renders `CHANGES.md`) → `git add -A` + commit → `make check-docs`. Two more
+   mechanical reds in the same edit: `lint_linefeeds.py` wants a trailing newline on every NEW file
+   (a note/fragment written without one reds `ci-lint` after `check-docs` was already green), and a
+   gate that maps the note to a `<stem>` wants the note stem to match the fragment stem and the
+   branch identity, so pick one stem and use it for both files.
 7. **Open it ready, never draft**, and state in the body that a base other than `main` schedules **no
    CI at all** — list the local gate results and the sha they were measured at, so an empty rollup is
    not later read as a verdict. That same fact decides the merge step: a stacked base has no required
