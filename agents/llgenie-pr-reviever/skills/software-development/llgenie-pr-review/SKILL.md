@@ -106,24 +106,33 @@ A split moves whatever you selected, and the section boundaries do not know whic
 load-bearing. The check is mechanical and it fails in the direction you least expect:
 
 ```bash
-for p in 'does not approve and does not merge' 'No squash, no auto-merge' 'working on #' 'REVIEW_REQUIRED';
+for p in 'never merges' 'gh pr review -a' 'gh pr review -r' 'working on #' 'REVIEW_REQUIRED';
   do printf '%-40s ' "$p"; grep -ci "$p" SKILL.md; done     # every count must be >= 1
 ```
 
 Measured: after moving a 628-line rules section out, the lane that wrote the acceptance criterion
 ("never-approve/never-merge stays in the body") still had `grep -ci 'never approve' → 0` — the rule
-survived only in the reference, behind the hop the acceptance existed to forbid. **An acceptance you
-authored is not evidence you met it**; grep the body for the sentence, and if it moved, put it back
+survived only in the reference, behind the hop the acceptance existed to forbid.
+`never-merges, no squash, no auto-merge` are the constants that must stay in the body (issue #1193
+changed the approve side to the load-bearing `-a` / `-r` verdict, never the merge side). **An
+acceptance you authored is not evidence you met it**; grep the body for the sentence, and if it moved,
+put it back
 above the pointer. The pointer should name what is behind it, never carry the only copy of the rule a
 review cannot start without.
 
 ## Standing rules for this repo (they override generic review habits)
 
-**The one rule that must never need a second lookup: this lane does not approve and does not merge.**
-No squash, no auto-merge, no `gh pr merge`, no approval review — `reviewDecision` stays
-`REVIEW_REQUIRED` on everything this lane touches, and a green PR is handed off in one line to the lane
-that owns it. `agents/manifest.json` declares `never-merge` for this profile, and rule 16's carve-out
-applies: report `auto=none (lane owner instruction)` and name where that instruction lives.
+**One rule never needs a second lookup: this lane never merges.** No squash, no auto-merge, no
+`gh pr merge` — a merge is the owner's, never this lane's. `agents/manifest.json` declares
+`never-merge` for this profile.
+
+**The review verdict is load-bearing state (issue #1193):** `gh pr review -r` when the head fails an
+acceptance criterion — naming the criterion, the head sha and the run id — and `gh pr review -a` when
+every criterion is met, with the same evidence anchor. `gh pr review -a` means the code met the issue's
+acceptance criteria at the measured head and sha; it is a verdict the owner and the gates read, never a
+merge authorization. This lane never merges what it approves, and never approve-merges bypassing rule 16.
+A neutral body-only comment with no `-a` / `-r` is not a conclusion; re-post it as a review with the
+verdict state the board can see. A green PR is handed off in one line to the lane that owns it.
 
 The rest of the standing rules live in
 **`references/standing-rules-for-this-repo.md`** — 628 lines covering the author gate, hold discipline,
@@ -466,13 +475,17 @@ rebase for the first, the code question for the second.
 
 ## Verdicts
 
-- **Request changes / block** — a factual claim in the diff or body is false (stale census,
-  a gate that does not do what it says), a gate is red for a reason the diff caused, the
-  diff is out of scope, or secrets/permissions weaken.
-- **Comment** — everything verified green with only non-blocking notes (doc omissions,
-  nits, merge-order advice). State exactly what you ran and what it returned.
-- **Nothing** — a PR whose head sha, checks and review state you already reported and that
-  has not changed.
+- **Request changes — `gh pr review -r`** — a factual claim in the diff or body is false (stale census,
+  a gate that does not do what it says), a gate is red for a reason the diff caused, the diff is out of
+  scope, or secrets/permissions weaken. Post as a REQUEST_CHANGES review naming the failing acceptance
+  criterion, the head sha and the run id (issue #1193) — a verdict the merge gate and the owner can read
+  at a glance, not a body-only comment.
+- **Approve — `gh pr review -a`** — every acceptance criterion is verified green with only non-blocking
+  notes (doc omissions, nits, merge-order advice). Post as an APPROVE review with the same evidence
+  anchor (head sha + run id or exact test command). This is the load-bearing good verdict (#1193); the
+  `-a` is a statement the criteria met at that head, never a merge this lane performs.
+- **Nothing** — a PR whose head sha, checks and review state you already reported and that has not
+  changed.
 
 **A verdict is about a sha, so it expires; a cause is not, so post that once on the umbrella.**
 When every head in a family has moved past the shas you read, do not post a late verdict dressed as a
@@ -493,9 +506,10 @@ the same re-measure in the direction that clears your own finding, instead of ac
 A green PR that still cannot move is a **defect in the merge path, not on the PR**: if
 `mergeable=MERGEABLE` and the required run concluded green but `mergeStateStatus` stays `BLOCKED`
 on `REVIEW_REQUIRED`, the approve step or its gate is at fault — report it against the automation's
-own issue and leave the PR alone, rather than approving it yourself to unblock the queue (nobody here
-may approve). Equally, never derive "green" from a job count that is still moving: a run with rows
-queued or in progress has no verdict, and the pending row is often the deciding one.
+own issue, and post the green verdict as `gh pr review -a` per #1193 so the board records that the
+criteria were met at that head, without this lane merging anything. Equally, never derive "green" from
+a job count that is still moving: a run with rows queued or in progress has no verdict, and the pending
+row is often the deciding one.
 
 ## Evidence block to include in every review
 
