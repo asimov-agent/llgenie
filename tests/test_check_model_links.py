@@ -85,6 +85,10 @@ def test_a_live_limit_bounds_the_probe(monkeypatch):
 # pinned HERE, deterministically, so the network pipeline's membership set cannot drift: a hermetic
 # test marked `.network` silently loses coverage, and an unmarked real-Hub test escapes the gate.
 DATA_PATH_FILES = (
+    # issue #1020: the committed-matrix comparison runs `matrix()`, whose `_no_fit_reason()` sizes a
+    # model off the LIVE Hub tree (`gguf_weights -> _tree`) and whose `mlx_repos()` searches the Hub,
+    # so it is a real-Hub scope even though its expected rows are a committed fixture.
+    "test_trend_list_matrix.py",
     "test_native_engine_real.py",
     "test_interactive_tensorfold_real.py",
     "test_top_tier_serve.py",
@@ -121,6 +125,13 @@ DATA_PATH_FILES = (
 # once claimed test_plan_download_per_format_live_hub "only plans, no i/o" — it reaches the Hub via
 # offer -> plan_download -> _tree/_snapshot -> hub_open), so its three live-Hub siblings joined.
 EXPECTED_NETWORK_TESTS = {
+    # issue #1020: `test_trend_list_matches_the_committed_matrix` is the one live test in
+    # test_trend_list_matrix.py — `matrix()` sizes a model no engine can run off the live Hub tree
+    # (`_no_fit_reason -> gguf_weights -> _tree`). The file's two hermetic pins (the parameter grid +
+    # stamp, and the RAM ladder) read only the committed fixture and stay mark-free in the gate.
+    "test_trend_list_matrix.py": {
+        "test_trend_list_matches_the_committed_matrix",
+    },
     "test_trend_pick.py": {
         "test_live_upstream_registry_is_the_live_readme_list",
         "test_every_model_in_the_list_downloads_the_first_bytes_of_its_planned_file",

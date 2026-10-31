@@ -6,6 +6,24 @@ the highest t/s server on that architecture whose quant fits the card and the
 RAM. A registry sync rewrites the fixture (`make render-trend-list-matrix`).
 Until that rewrite lands, this test fails, and the pull-request diff is the
 new list.
+
+ROUTING (issue #1020): `matrix()` is NOT a pure function of the vendored
+registry. For a model no engine can run, `_no_fit_reason()` reads the smallest
+download's size off the LIVE Hugging Face tree (`gguf_weights -> _tree`), and
+`mlx_repos()` searches the live Hub, so the committed-matrix comparison can only
+be made against the Hub's answer of the hour. That comparison therefore carries
+the **network** marker (`pytest.ini`; the #1000/#1002 seam): `make test-unit`
+runs `-m "not network"` and collects ZERO nodes from it, and the network
+pipeline (`make test-unit-network`) owns it. The hermetic pins in this file —
+the parameter grid and the stamp, and the RAM ladder — read only the committed
+fixture and stay in the gate, and the same live comparison also runs in `ci-unit`
+through `make check-trend-list-matrix` (`scripts/trend_list_matrix.py --check`),
+which is the documented guard of that fixture (`docs/ARCHITECTURE.md`).
+
+The marker is spelled only on the decorator below, never quoted in prose: the
+#1000 routing census in `tests/test_check_model_links.py` attributes the marker
+TEXT to the next `def test_`, so a quoted mention here would claim a mark this
+file's hermetic tests do not carry.
 """
 from __future__ import annotations
 
@@ -82,7 +100,12 @@ def test_ram_changes_which_cuda_16gb_model_is_served():
 @pytest.mark.parametrize("arch,vram,ram", tlm.CASES, ids=IDS)
 @pytest.mark.network
 def test_trend_list_matches_the_committed_matrix(arch, vram, ram):
-    """One (arch, vram, ram): the list matrix() returns is the committed list."""
+    """One (arch, vram, ram): the list matrix() returns is the committed list.
+
+    LIVE (the network marker, issue #1020): `matrix()` sizes a model no engine
+    can run off the live Hub tree, so this comparison belongs to the network seam
+    (`make test-unit-network`), never to the hermetic gate.
+    """
 
     # Given the committed rows for this card, RAM, and architecture
     expected = _expected(arch, vram, ram)
