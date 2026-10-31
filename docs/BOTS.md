@@ -9,6 +9,22 @@ merged. The user guide is `README.md`; the code map is `docs/ARCHITECTURE.md`; e
 own record is a dated note in `agent-wiki/` with its own row under `docs/changes.d/` — one row per
 file, rendered into `CHANGES.md` by `make changes-index` (issue #934).
 
+`CHANGES.md` is the fleet's one contended rendered file. A change PR adds its fragment and never
+edits `CHANGES.md`, but a merge that lands before a fork re-renders can still conflict on the
+single shared table. The resolution is always the same shape — **take base + re-render** — so it
+is one command, not a rebase (issue #1103):
+
+    make changes-resolve              # take origin/main's CHANGES.md, re-render from the
+                                      #   merged fragments, stage for the merge to commit
+    make changes-resolve BASE=other   # take a different base's version
+
+`changes_index.py resolve` runs exactly `git checkout <base> -- CHANGES.md` then the renderer
+(what `make changes-index` runs), then `git add`. Determinism is unchanged: the committed table
+still equals the render of the merged fragments, so the `committed == rendered` invariant (issue
+#1063) holds at every commit. The documentation lane refreshes `CHANGES.md` (`make changes-index`);
+a conflicted one is repaired with `make changes-resolve` — never merged by hand.
+
+
 The sections below follow the legs in the order a change travels: pipeline and skills, the
 implementer, credentials and redaction, review and merge, the architecture bot, failure handling,
 manual dispatch, verification/CI, contributor rules, and the guards that keep the bots apart.

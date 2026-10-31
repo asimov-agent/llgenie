@@ -16,6 +16,9 @@ row. Two changes add two different files, so git has nothing to conflict on. `CH
   changes_index.py render   print the rendered `CHANGES.md`
   changes_index.py write    write `CHANGES.md` from the fragments (what `make changes-index` runs)
   changes_index.py report   print the fragment census and how far `CHANGES.md` is behind them
+  changes_index.py resolve  repair a conflicted `CHANGES.md` (issue #1103): take `<base>`'s file
+                            and re-render from the merged fragments, then stage it (`make
+                            changes-resolve`; BASE defaults to origin/main)
 
 `CHANGES.md` stays a committed file a reader can open on GitHub. It is not a merge surface: the
 gate never requires it to be current, so a change PR never has to touch it. The documentation lane
@@ -27,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -166,6 +170,46 @@ def write(root: Path = REPO) -> int:
     return 0
 
 
+def _git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    """One `git` command scoped to `root` (never the inheriting cwd's repo)."""
+    return subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True)
+
+
+def resolve(root: Path = REPO, base: str = "origin/main") -> int:
+    """Repair a conflicted `CHANGES.md` by taking `<base>`'s file and re-rendering (issue #1103).
+
+    A `CHANGES.md` conflict is never about content: the rows live in the fragments, and the
+    renderer rebuilds `CHANGES.md` from them deterministically. So the resolution is always
+    ``git checkout <base> -- CHANGES.md && make changes-index`` — drop the base's committed
+    file, let `write` re-render from the merged fragments (one row per file means both sides'
+    fragments merged cleanly), then stage so the merge can complete.
+    """
+    errors = check(root)
+    if errors:
+        for err in errors:
+            print(f"[changes-index] resolve: ERROR: {err}", file=sys.stderr)
+        print(f"[changes-index] resolve: {len(errors)} problem(s); nothing resolved "
+              "(the fragments themselves disagree)", file=sys.stderr)
+        return 1
+    co = _git(root, "checkout", base, "--", CHANGES)
+    if co.returncode != 0:
+        print(f"[changes-index] resolve: `git checkout {base} -- {CHANGES}` failed: "
+              f"{co.stderr.strip() or co.stdout.strip()}", file=sys.stderr)
+        return 1
+    wrc = write(root)
+    if wrc != 0:
+        print(f"[changes-index] resolve: re-render after checkout failed", file=sys.stderr)
+        return wrc
+    add = _git(root, "add", CHANGES)
+    if add.returncode != 0:
+        print(f"[changes-index] resolve: `git add {CHANGES}` failed: "
+              f"{add.stderr.strip() or add.stdout.strip()}", file=sys.stderr)
+        return 1
+    print(f"[changes-index] resolve: took {base}'s {CHANGES}, re-rendered from "
+          f"{len(_stems(root))} fragment(s), staged for the merge to commit")
+    return 0
+
+
 def report(root: Path = REPO) -> str:
     """The fragment census, plus how many rows `CHANGES.md` is behind."""
     parsed, errors = rows(root)
@@ -189,8 +233,10 @@ def report(root: Path = REPO) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="changes_index.py", description=__doc__)
-    parser.add_argument("mode", choices=("check", "render", "write", "report"))
+    parser.add_argument("mode", choices=("check", "render", "write", "report", "resolve"))
     parser.add_argument("--root", default=str(REPO), help="checkout to read (default: this repo)")
+    parser.add_argument("--base", default="origin/main",
+                        help="ref whose CHANGES.md to take for `resolve` (default: origin/main)")
     args = parser.parse_args(argv)
     root = Path(args.root)
     if args.mode == "render":
@@ -201,6 +247,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.mode == "report":
         print(report(root))
         return 0
+    if args.mode == "resolve":
+        return resolve(root, args.base)
     errors = check(root)
     for err in errors:
         print(f"[changes-index] ERROR: {err}", file=sys.stderr)
