@@ -26,7 +26,16 @@ from datetime import datetime, timezone
 
 REPO = "asimov-agent/llgenie"
 HERE = pathlib.Path(__file__).resolve().parent
-STATE = HERE / "tally-state.json"
+# STATE and OUTBOX must NOT live beside __file__: for a script shipped into the repo tree that is
+# the checkout itself, so running the reporter dirties tracked-adjacent files (measured: the
+# versioned copy put tally-state.json and tally-outbox.log next to itself under agents/). Resolve
+# to a runtime state dir, overridable per deployment. The profile copy and the repo copy then stay
+# behaviourally identical without sharing files.
+_STATE_DIR = pathlib.Path(os.environ.get("LLGENIE_STATE_DIR",
+                                        str(pathlib.Path.home() / ".local/state/llgenie")))
+_STATE_DIR.mkdir(parents=True, exist_ok=True)
+STATE_DIR = _STATE_DIR
+STATE = _STATE_DIR / "tally-state.json"
 # Record of the lines this reporter has emitted that are still ACTIONABLE. A `--no-agent` job's
 # delivery can fail with `queue_full`; the state file is already advanced by then, so without this
 # the delta exists nowhere. Read it to recover a lost alarm instead of re-deriving one.
@@ -36,7 +45,7 @@ STATE = HERE / "tally-state.json"
 # A file that only grows is a replay machine -- a late `queue_full` drain re-delivers an hours-old
 # "NEW-FAILURE #932" naming a PR that merged two hours earlier, which is exactly the confusion this
 # reporter exists to prevent. `merge_outbox` therefore prunes closed PRs and collapses duplicates.
-OUTBOX = HERE / "tally-outbox.log"
+OUTBOX = _STATE_DIR / "tally-outbox.log"
 OUTBOX_MAX = 200
 
 PASS = {"success", "skipped", "neutral"}
