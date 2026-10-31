@@ -119,8 +119,13 @@ def test_the_guard_says_a_baseline_is_a_measurement_and_not_a_constant():
         assert phrase in doc, f"the guard does not document the ratchet's first rule: {phrase}"
 
 
-def _ratchet_tree(tmp_path: Path, files: dict[str, str], recorded: dict[str, int]) -> Path:
-    """A real tree with a committed-shape baseline, so the ratchet runs exactly as CI runs it."""
+def _ratchet_tree(tmp_path: Path, files: dict[str, str], recorded: dict) -> Path:
+    """A real tree with a committed-shape baseline, so the ratchet runs exactly as CI runs it.
+
+    `recorded` is either set-shaped (issue #1101: `{"sys-path": {"count": 1, "sites": [...]}}`) or
+    count-shaped (the pre-#1101 `{"sys-path": 1}`), each written verbatim so the loader's back-compat
+    path is exercised too.
+    """
     root = tree(tmp_path, files)
     (root / "tests" / "fixtures").mkdir()
     (root / guard.BASELINE).write_text(json.dumps({"sys-path": 0, "bare": 0, "syntax": 0, **recorded}))
@@ -128,15 +133,18 @@ def _ratchet_tree(tmp_path: Path, files: dict[str, str], recorded: dict[str, int
 
 
 def test_the_ratchet_names_the_offending_file_and_line(tmp_path, capsys):
-    """The refusal knows which file pushed the count over; it must say so (issue #1066).
+    """The refusal knows WHICH file pushed the count over; it must name it — not a list of every site (issues #1066/#1101).
 
     Measured on `main`: the only output was the aggregate `bare: 53 now, 52 recorded`, so the author of
     the new root had to run `report` to find their own file — a gate that withholds the answer it holds.
+    #1066 fixed naming the sites; #1101 makes the baseline set-shaped so the NEW site is told apart
+    from the pre-existing ones.
     """
 
-    # Given a tree at its recorded count, and a new test file that adds its own module-level root
+    # Given a tree at its recorded count (one sys-path root in the baseline's site set), and a new test
+    # file that adds its OWN module-level root
     root = _ratchet_tree(tmp_path, {"tests/test_x.py": "import sys\nsys.path.insert(0, 'scripts')\n"},
-                         {"sys-path": 1})
+                         {"sys-path": {"count": 1, "sites": ["tests/test_x.py:2"]}})
     (root / "tests" / "test_new.py").write_text("import sys\nsys.path.insert(0, 'scripts')\n")
 
     # When  the ratchet runs
@@ -144,11 +152,12 @@ def test_the_ratchet_names_the_offending_file_and_line(tmp_path, capsys):
     code = guard.main(["ratchet", "--root", str(root)])
     named = capsys.readouterr().err
 
-    # Then  it refuses, and the refusal names that exact file and line
+    # Then  it refuses, and the NEW site is named — the pre-existing one is not re-printed
     assert code == 1
     assert [i["key"] for i in items] == ["sys-path"]
-    assert "tests/test_new.py:2" in items[0]["sites"]
+    assert items[0]["new"] == ["tests/test_new.py:2"], "must name only the added site"
     assert "tests/test_new.py:2" in named
+    assert "tests/test_x.py:2" not in named
 
 
 def test_the_ratchet_is_green_and_names_no_site_when_nothing_was_added(tmp_path, capsys):
@@ -181,6 +190,23 @@ def test_the_ratchet_stays_green_when_a_root_is_removed(tmp_path, capsys):
     # Then  it passes and prints no offender list
     assert code == 0
     assert "sys-path" not in out or "OK" in out
+
+
+def test_a_set_shaped_baseline_reports_a_removed_root_and_stays_green(tmp_path, capsys):
+    """On a set-shaped baseline, a root removed from the COUNTED SET is the #796 shrink: reported, not refused."""
+    # Given a set-shaped baseline that recorded a site the current tree does not have
+    root = _ratchet_tree(tmp_path, {"tests/test_ok.py": "from scripts.hf_auth import x\n"},
+                         {"sys-path": {"count": 1, "sites": ["tests/test_old.py:2"]}})
+
+    # When  the ratchet runs
+    items = guard.ratchet(root)
+    code = guard.main(["ratchet", "--root", str(root)])
+    out = capsys.readouterr().out
+
+    # Then  it is green, and the CLI names the removed site as an allowed shrink
+    assert items == []
+    assert code == 0
+    assert "removed" in out and "tests/test_old.py:2" in out
 
 
 def test_report_still_lists_every_finding_and_exits_zero(tmp_path, capsys):
