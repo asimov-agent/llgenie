@@ -192,6 +192,11 @@ def test_sync_writes_canonical_and_fixture_together(monkeypatch, tmp_path):
     fx = tmp_path / "fixture.json"
     monkeypatch.setattr(gen, "OUT", dst)
     monkeypatch.setattr(gen, "FIXTURE", fx)
+    # the sync also records the Hub snapshot; isolate it to tmp so the committed
+    # tests/fixtures/quant-catalog-hub-snapshot.json is never clobbered by a unit run
+    # (issue #1178): the recording is empty here (the generator is stubbed), so writing
+    # it over the real fixture would erase the hermetic recording the gate replays.
+    monkeypatch.setattr(gen, "SNAPSHOT", tmp_path / "hub-snapshot.json")
     monkeypatch.setattr(sys, "argv", ["gen_trending_quant_catalog.py"])  # default -o = OUT
     monkeypatch.setattr(gen, "_probe_status", lambda u, timeout=20.0: gen.PROBE_OK)
 

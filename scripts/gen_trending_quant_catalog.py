@@ -38,6 +38,11 @@ import model_engine_pick as mp  # noqa: E402
 OUT = REPO / "data" / "trending-quant-catalog.json"
 FIXTURE = REPO / "tests" / "fixtures" / "trending-quant-catalog.json"
 REGISTRY = REPO / "data" / "models.json"
+# The recorded Hub answers this generator reads (issue #1080 pattern, like
+# check-trend-list-matrix): `--check --snapshot` replays them so the drift gate is
+# hermetic — no live Hub GET inside `make ci-unit` (issue #1178). Recorded during a
+# live `sync-quant-catalog` via `mp.hub_recording()`/`mp.write_hub_snapshot`.
+SNAPSHOT = REPO / "tests" / "fixtures" / "quant-catalog-hub-snapshot.json"
 GB = 2**30
 
 
@@ -191,6 +196,17 @@ def _probe_status(url, timeout=20.0) -> str:
 def _probe_exists(url, timeout=20.0) -> bool:
     """True when the file is really there (readable, or gated but present)."""
     return _probe_status(url, timeout) != PROBE_DEAD
+
+
+def _snapshot_probe(url, timeout=20.0) -> str:
+    """The hermetic `--check --snapshot` probe (issue #1178): a dropped plan's liveness
+    cannot be decided from the recorded Hub answers (they hold trees/searches, not the
+    resolve-link answer), so the hermetic gate reports the drop as a NOTE and never a
+    failure. Deciding dead-vs-reachable is the live seam's job (`make check-quant-catalog
+    LIVE=1`), which probes the real Hub. Structural drift — a gone section, a changed plan,
+    a changed arch — still fails the hermetic gate; only the link-liveness verdict is
+    deferred to the live probe."""
+    return PROBE_OK
 
 
 def _all_urls(cat: dict) -> set:
@@ -374,12 +390,32 @@ def main():
     ap.add_argument("--skip-link-check", action="store_true",
                     help="generate without probing any link (default: probe only the "
                          "NEWLY-ADDED links vs the prior generated file, all on first run)")
+    ap.add_argument("--snapshot", action="store_true",
+                    help="check mode only: replay the recorded Hub answers in "
+                         "tests/fixtures/quant-catalog-hub-snapshot.json instead of reading "
+                         "the live Hub (issue #1178 — the hermetic ci-unit drift gate)")
     ap.add_argument("-o", "--out", default=str(OUT), help="output path")
     args = ap.parse_args()
 
     reg = mp.load_registry(str(REGISTRY))
-    catalog = {"generated_utc": reg.get("generated_utc", ""),
-               "models": {m["id"]: _model_catalog(m) for m in reg["models"]}}
+    if args.check and args.snapshot:
+        # Hermetic drift gate (issue #1178): regenerate the payload from the recorded Hub
+        # answers, never the live Hub. A URL the recording lacks raises HubSnapshotMissing —
+        # loud, so a stale snapshot cannot silently bless a drift.
+        with mp.hub_snapshot_file(SNAPSHOT):
+            catalog = {"generated_utc": reg.get("generated_utc", ""),
+                       "models": {m["id"]: _model_catalog(m) for m in reg["models"]}}
+        _recorded = None
+    elif args.check:
+        catalog = {"generated_utc": reg.get("generated_utc", ""),
+                   "models": {m["id"]: _model_catalog(m) for m in reg["models"]}}
+        _recorded = None
+    else:
+        # A live sync records the Hub answers it read, so the hermetic drift gate can replay
+        # them (issue #1178, the #1080 pattern). The snapshot is written with the catalog.
+        with mp.hub_recording() as _recorded:
+            catalog = {"generated_utc": reg.get("generated_utc", ""),
+                       "models": {m["id"]: _model_catalog(m) for m in reg["models"]}}
     out = {mid: engs for mid, engs in catalog["models"].items() if engs}
     payload = {"meta": {"generated_utc": catalog["generated_utc"],
                         "source": "data/models.json + live Hugging Face Hub",
@@ -432,7 +468,8 @@ def main():
         if not dest.exists():
             print(f"FAIL: committed catalog missing at {dest} (run make sync-quant-catalog)", file=sys.stderr)
             return 1
-        failures, notes = compare(json.loads(dest.read_text()), payload)
+        failures, notes = compare(json.loads(dest.read_text()), payload,
+                                  probe=_snapshot_probe if args.snapshot else None)
         if failures:
             print(f"FAIL: {dest} is stale (run make sync-quant-catalog)", file=sys.stderr)
             for line in failures[:40]:
@@ -459,6 +496,10 @@ def main():
     if dest.resolve() == OUT.resolve():
         FIXTURE.parent.mkdir(parents=True, exist_ok=True)
         FIXTURE.write_text(text)
+        if _recorded is not None:
+            mp.write_hub_snapshot(SNAPSHOT, _recorded,
+                                  note="Hub answers replayed by `make check-quant-catalog` "
+                                       "(issue #1178); regenerate with `make sync-quant-catalog`")
     n_files = sum(len(cell["quants"]) for engs in out.values() for cell in engs.values())
     loc = " + fixture %s" % FIXTURE if dest.resolve() == OUT.resolve() else ""
     print(f"wrote {dest}{loc}: {len(out)} models, {n_files} real quant links")

@@ -17,9 +17,13 @@ name: ci-hf-live — the merge-to-main real-Hub test pipeline (HF live tests + t
 #       make test-unit-network (the @pytest.mark.network ownership set, via the tester's seam,
 #       scripts/unit_tests.py run --marker network, issue #393). Order is the contract: a dead link
 #       fails before any test runs, so the red names the URL, not a test's 404.
-# Trigger surface: push to branches main (merge-to-main) + schedule daily 06:59 UTC (its own odd
-#                  minute — issue #275) + workflow_dispatch (owner / repository bot / collaborator
-#                  with write), and NOTHING else — no pull_request and no non-main branch trigger.
+# Trigger surface: push to branches main (merge-to-main) + schedule twice-hourly (minutes 25/57,
+#                  issue #1178: upstream HF drift is the failure source, so a time-based probe is
+#                  required, not just push-time; odd minutes because GitHub drops :00/:30 slots —
+#                  issue #560 — and 25/57 are the only free odd pair, issue #275) + the nightly
+#                  06:59 UTC + workflow_dispatch
+#                  (owner / repository bot / collaborator with write), and NOTHING else — no
+#                  pull_request and no non-main branch trigger.
 # Never: never runs in a pull request, never on a non-main branch push, never replaces ci-unit,
 #        never merges, never pushes to `main` itself, and never hand-edits a fixture (issue #987).
 # dispatch: no inputs — the pipeline runs exactly the @pytest.mark.network ownership set, gated first
@@ -28,6 +32,7 @@ on:
   push:
     branches: [main]
   schedule:
+    - cron: "25,57 * * * *"  # twice-hourly live probe (odd minutes: GitHub drops :00/:30 slots, issue #560; 25/57 are free on all seven weekdays, issue #275) — upstream HF drift is the failure source (issue #1178)
     - cron: "59 6 * * *"    # nightly 06:59 UTC — own odd minute free on all seven weekdays (issue #275: no bot shares a slot; minute 15 is now taken by the every-hour set and ci-requeue)
   workflow_dispatch:
 
@@ -90,9 +95,47 @@ jobs:
         if: runner.os == 'Linux'
       - name: make test-env (Python 3.11 - Linux pulls llgenie/test from GHCR)
         run: make test-env
+      - name: Debounce — skip when the last successful live run is fresh and main has not moved (issue #1178)
+        id: debounce
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Only the scheduled twice-hourly runs debounce (a merge-to-main push or manual
+          # dispatch always runs). Skip when the last SUCCESSFUL run of this workflow is
+          # fresh (<20 min) AND main's tip has not moved since that run started — upstream
+          # HF drift is the failure source, so a run that already probed the same tree
+          # state within the window adds nothing but rate-limit cost. The window stays
+          # below the :25/:57 gap (28-32 min) so it never swallows the next scheduled
+          # probe (issue #560 killed :00/:30; the window stays under the gap).
+          if [ "${{ github.event_name }}" != "schedule" ]; then
+            echo "not a schedule run — always run"; echo "skip=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          last=$(gh api "repos/${{ github.repository }}/actions/workflows/ci-hf-live.yml/runs" \
+            --jq '[.workflow_runs[] | select(.conclusion=="success")][0] | {started_at, head_sha}' 2>/dev/null || echo '{}')
+          last_ts=$(echo "$last" | jq -r '.started_at // ""')
+          last_sha=$(echo "$last" | jq -r '.head_sha // ""')
+          if [ -z "$last_ts" ] || [ -z "$last_sha" ]; then
+            echo "no prior successful run — run"; echo "skip=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          now=$(date -u +%s); last_epoch=$(date -u -d "$last_ts" +%s); age=$(( (now - last_epoch) / 60 ))
+          main_sha=$(git rev-parse origin/main)
+          if [ "$age" -lt 20 ] && [ "$last_sha" = "$main_sha" ]; then
+            echo "last successful run ${age}m old on the same main tip — skip"; echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "last successful run ${age}m old, main moved or stale — run"; echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Liveness gate — every committed model/GGUF link a test depends on must resolve (issue #1000)
+        if: steps.debounce.outputs.skip != 'true'
         run: make check-model-links LIVE=1 LIMIT=25
+      - name: Live check-registry — every README link answers on the real Hub (issue #1178)
+        if: steps.debounce.outputs.skip != 'true'
+        run: make check-registry LIVE=1
+      - name: Live check-quant-catalog — the HF class table matches a fresh live regeneration (issue #1178)
+        if: steps.debounce.outputs.skip != 'true'
+        run: make check-quant-catalog LIVE=1
       - name: make test-unit-network (the @pytest.mark.network ownership set, via the seam, issue #1000)
+        if: steps.debounce.outputs.skip != 'true'
         run: make test-unit-network
       - name: Prune orphaned test containers
         if: always()
