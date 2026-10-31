@@ -56,6 +56,19 @@ VERIFY=1` reported a binary this repository never built.
 - The cuda cell ships `cuda_v13` only (its base is CUDA 13), so it needs a driver new enough for the
   CUDA 13 runtime; upstream's tarball also carried a `cuda_v12` runner for older drivers.
 
+## Measured build evidence (AC6)
+
+Measured on CI in engine-build run **41224612203** (<https://github.com/asimov-agent/llgenie/actions/runs/41224612203>), dispatched at head **e48cbb1f7599664339e460386f4e7ba4dabea216** (`engine=ollama`, push=true — build → test-engine-stage → push → publish → serve-leg → install-leg per cell, cold no-cache build of the pinned Go source `f067033f` = ollama v0.40.12). Build wall-clock is each cell's `make build-engine` step duration (completed − started) read from the run's job timings; image size is the sum of the published manifest's layer + config sizes on GHCR, read with `docker manifest inspect`.
+
+| cell | image tag | build wall-clock | test-engine-stage | push / publish | image size |
+| ---- | --------- | ---------------- | ----------------- | -------------- | ----------- |
+| cpu | `ghcr.io/asimov-agent/llgenie/ollama:f067033f-f366831f-cpu` | **712s** (success) | serve success (11s) | push success / publish success | **73.2 MiB** |
+| vulkan | `ghcr.io/asimov-agent/llgenie/ollama:f067033f-322de3d1-vulkan` | **1063s** (success) | detect success (3s) | push success / publish success | **164.1 MiB** |
+| cuda | `ghcr.io/asimov-agent/llgenie/ollama:f067033f-6f858d19-cuda` | *still building at note time* | (pending) | (pending) | (pending) |
+| rocm | `ghcr.io/asimov-agent/llgenie/ollama:f067033f-72e4a449-rocm` | *still building at note time* | (pending) | (pending) | (pending) |
+
+The cpu and vulkan cells completed their whole cold leg green (the only red on their jobs is the cpu `install-leg`, the known #1027 container-install seam). cuda and rocm were still inside their cold `make build-engine` step when this was recorded (~1h in — fat CUDA/ROCm cross-compiles, the heaviest of the four); their wall-clock and image sizes publish when **the same run id** concludes. Every number above carries its run id (`41224612203`, head `e48cbb1f`); a cached `available → no rebuild` was never substituted for a measurement.
+
 ## Not covered
 
 - `vllm` ×3 (#937), `sglang/cuda` (#938), `tensorrt-llm/cuda` (#939) — the remaining prebuilt cells.
