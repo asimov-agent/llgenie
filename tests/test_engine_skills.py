@@ -1483,6 +1483,7 @@ def test_pull_published_refuses_a_local_build_and_a_digest_mismatch(monkeypatch)
 
 
 
+@pytest.mark.network
 def test_digest_reads_the_live_registry_and_retries_a_failed_lookup(capsys):
     """Live GHCR, no mocks: the published llama.cpp :cpu tag resolves to a sha256
     digest; a missing tag is retried, then "". The pinned content-hash tag is only

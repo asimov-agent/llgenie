@@ -257,89 +257,198 @@ def _hub_opens(file_text: str) -> list[tuple[str, str]]:
 
     Real reach is judged on the HOST of a URL actually handed to a network primitive, exactly as
     #1000's acceptance states ("zero unmarked real urllib/requests calls TO huggingface.co/hf.co"):
-      - a network primitive (`urlopen`, `requests.get`, `urlretrieve`, `snapshot_download`, …)
-        whose URL resolves to a Hub host — inline literal, or a variable assigned a Hub-host literal
-        earlier in the scope;
+      - a network primitive (`urlopen`, `requests.get`, `urlretrieve`, `snapshot_download`, ...)
+        whose URL resolves to a Hub host — inline literal, or a variable assigned a Hub-host
+        literal earlier in the scope;
+      - a Hub entry point BY CONSTRUCTION: `mp.download`/`mp.gguf_files`/`mp.hf_size`/`mp.offer`.
+        `mp.offer` joins the list because its snapshot phase reaches: the live unit-path timeout
+        measured 2026-10-31 (run 41126714284, test_mac_trend_pick.py:169) unwinds
+        `offer` → `plan_download` → `_snapshot` → `_tree` → `hf_auth.hub_open` → the Hub API, and
+        offline (`--network none`) bisection shows every unmarked `offer`-consuming trend test
+        hangs there. NOT plan_download called DIRECTLY (the engine lane's planning-only
+        carve-out), NOT resolve_local (local disk only);
+      - a call into a SAME-FILE helper whose own scope carries one of those entry calls,
+        transitively (helper calling helper). Helper indirection (`_offer(tmp)`, `_cli(...)`,
+        `_tensorfold_row`) is exactly how the live-Hub chain escaped the pin: the entry call lives
+        in the helper, and slicing a test body to the NEXT TEST swallowed whichever helper defs
+        sat between the two tests — attributing the helper's reach to the preceding test while the
+        calling test escaped. Here every scope is sliced at the next top-level def, and a def's
+        decorator block belongs to ITS OWN scope, so `@pytest.mark.network` shields the test it
+        decorates, not whatever came before it.
+        `sr.check_links` joins the entry list by construction the same way (`check_links` →
+        `hf_auth.hub_open` → the Hub API): offline bisection hung at `test_readme_links_answer_
+        and_a_broken_copy_is_caught` inside `check_links` at sync_registry.py:244.
       - at module level, the same.
 
-    A line that merely names the domain without opening it, or that re-defines a primitive as a
-    stub (`def urlopen(...)`) to monkeypatch, or that opens a LOOPBACK/hub_probe server URL, is NOT
-    a real Hub call and must not flag. Returns (test_scope_name, line).
+    Carve-outs (asserted behaviour, not text): a scope that redefines a primitive as a stub
+    (`def urlopen(...)`), replaces the download child (`monkeypatch.setattr(mp.subprocess, "run",
+    ...)` or an `HF_BIN=<tmp stub>` child — #872's bounded-child tests: one records the argv, the
+    other runs a `sleep` script), or binds a LOOPBACK/hub_probe server makes no real call. A line
+    that merely names the domain without opening it is not a call. Returns (scope_name, line).
     """
-    tests = list(
-        re.finditer(
-            r"^(?P<dec>(?:@[A-Za-z_][\w.]*\s*\n)*)\s*(?:async\s+)?def\s+(?P<name>test_\w+)\(",
-            file_text, re.M,
-        )
-    )
     problems: list[tuple[str, str]] = []
-    # a model dict defined at module/test scope that carries a live Hub id (`X = {... "hf": "org/repo" ...}`)
-    # is a real-call source: `mp.download(X, ...)` / `mp.gguf_files(X["hf"])` reach the Hub even when
-    # the call line itself shows no huggingface.co literal (the model id is the host reference).
     _MODEL_DICT = re.compile(r"([A-Za-z_]\w*)\s*=\s*\{[^}]*?\bhf\b[\"']?\s*:")
     module_hf_models = {m.group(1) for m in _MODEL_DICT.finditer(file_text)}
+    _ENTRY_CALL = re.compile(
+        r"\b(mp\.(download|gguf_files|hf_size|offer|_hub_json|_tree|gguf_repo|mlx_repos|"
+        r"tensorfold_repos)|sr\.check_links)\s*\(")
 
-    def _scan_scope(body: str, name: str) -> None:
+    # Slice the file at top-level defs; each scope's body ends where the NEXT def's decorator
+    # block begins (the decorator belongs to the def it decorates).
+    defs = list(re.finditer(
+        "(?m)^(?P<dec>(?:@[\\w.()\\[\\]\"' ,=]*\\n)*)def\\s+(?P<n>\\w+)\\(", file_text))
+    seg: list[tuple[str, str]] = []  # (name, body); "<module>" for inter-def top level
+    prev = 0
+    for i, d in enumerate(defs):
+        between = file_text[prev:d.start("dec")]
+        if between.strip():
+            seg.append(("<module>", between))
+        stop = defs[i + 1].start("dec") if i + 1 < len(defs) else len(file_text)
+        seg.append((d.group("n"), file_text[d.start():stop]))
+        prev = stop
+    if file_text[prev:].strip():
+        seg.append(("<module>", file_text[prev:]))
+
+    network_marked = {d.group("n") for d in defs if "@pytest.mark.network" in (d.group("dec") or "")}
+
+    def _own_code_lines(body: str, *, at_start: bool = False) -> list[str]:
+        """This scope's own code lines: skip comments and docstrings (multi-line aware), and stop
+        at the first NESTED def (indented) — a top-level def never appears inside a slice.
+        `at_start=True` marks the body's first statement as a docstring when it opens with a
+        triple quote — the case that matters is the MODULE segment, whose leading module
+        docstring sits before every def and would otherwise be scanned as code."""
+        out: list[str] = []
+        in_doc: str | None = None
+        seen_first = not at_start
+        for ln in body.splitlines():
+            s = ln.strip()
+            if in_doc is not None:
+                # only a delimiter AT END OF LINE (or a bare delimiter line) closes the docstring;
+                # apostrophes inside prose must not end it early
+                if s.endswith(in_doc):
+                    in_doc = None
+                continue
+            if not s or s.startswith("#"):
+                continue
+            if s.startswith(("'", '"')):
+                # a string literal / docstring line: prose or fixture DATA (this pin's own
+                # negative controls embed fake test sources as strings) — never this scope's code
+                if not seen_first:
+                    for q in ('"""', "'''"):
+                        if s.startswith(q) and not (
+                            s.endswith(q) and len(s) > 3 and q in s[3:]
+                        ):
+                            in_doc = q
+                            break
+                seen_first = True
+                continue
+            seen_first = True
+            if re.match(r"(?:async\s+)?def\s+[\w.]+\s*\(", s) and ln[:1].isspace():
+                break
+            for q in ('"""', "'''"):
+                if s.startswith(q):
+                    rest = s[len(q):]
+                    if rest.endswith(q) or q in rest:
+                        pass  # one-line docstring: its body is prose, no code emitted
+                    else:
+                        in_doc = q
+                    break
+            else:
+                out.append(s)
+        return out
+
+    # A scope is PURE BY CONSTRUCTION when its own code installs a substitute: a loopback server,
+    # a stubbed download child, a transport replaced via monkeypatch, or the hub-snapshot replay
+    # (#1080). Purity must propagate through helper indirection: `_hub(monkeypatch)` starts the
+    # loopback server, and a test calling `_hub` then passing `mp._tree` is hermetic — flagging it
+    # would push a real hermetic coverage node into the network lane, losing it from ci-unit.
+    def _pure_signals(body: str) -> bool:
+        return bool(
+            _LOOPBACK_RE.search(body)
+            or _STUBBED_CHILD_RE.search(body)
+            or _STUB_RE.search(body)
+            or re.search(r"HUB_SNAPSHOT_ENV|LLGENIE_HUB_SNAPSHOT|hub_snapshot_file", body)
+        )
+
+    pure = {name for name, body in seg if _pure_signals(body)}
+    # Purity is transitive the same way taint is: a test that calls `_hub(monkeypatch)` (which
+    # installs the substitute) is pure by the helper's construction, not its own text.
+    for _ in range(len(seg) + 1):
+        grew_p = False
+        for name, body in seg:
+            if name in pure:
+                continue
+            for s in _own_code_lines(body):
+                if any(p != name and re.search(r"\b%s\s*\(" % re.escape(p), s) for p in pure):
+                    pure.add(name)
+                    grew_p = True
+                    break
+            if name in pure:
+                continue
+        if not grew_p:
+            break
+
+    # Helper taint, to fixpoint: a non-test, non-module scope is tainted when its own lines carry
+    # an entry call or call (directly or via an already-tainted scope) into a tainted scope. A
+    # PURE scope never taints.
+    tainted: set[str] = set()
+    for _ in range(len(seg) + 1):
+        grew = False
+        for name, body in seg:
+            if name == "<module>" or name in tainted or name in pure or name.startswith("test_"):
+                continue
+            lines = _own_code_lines(body)
+            if any(_ENTRY_CALL.search(s) for s in lines):
+                tainted.add(name)
+                grew = True
+                continue
+            for s in lines:
+                if any(h != name and re.search(r"\b%s\s*\(" % re.escape(h), s) for h in tainted):
+                    tainted.add(name)
+                    grew = True
+                    break
+        if not grew:
+            break
+
+    for name, body in seg:
+        if name in network_marked:
+            continue  # routed to the #1002 network pipeline by its own decorator
+        if not (name.startswith("test_") or name == "<module>"):
+            # A helper is not itself a reportable scope — it cannot carry a test mark. It taints
+            # (computed above), and every unmarked caller of the taint is reported instead; the
+            # caller report names the helper line the reach hides behind.
+            continue
+        if name in pure:
+            # a substitute (loopback server / stub / snapshot replay) is installed in this scope's
+            # own code or in a helper it calls — the entry call cannot reach a real host
+            continue
         nono = _LOOPBACK_RE.search(body)
+        stubbed = _STUBBED_CHILD_RE.search(body)
         hf_models = dict.fromkeys(module_hf_models) | dict.fromkeys(
             f.group(1) for f in _MODEL_DICT.finditer(body)
         )
         hub_vars: dict[str, str] = {}
-        non_def = [
-            ln for ln in body.splitlines()
-            if not re.match(r"^\s*def\s+[\w.]+\s*\(", ln)
-        ]
-        for line in non_def:
-            s = line.strip()
-            if s.startswith(("#", '"', "'")):
-                continue
-            # variable assigned a hub-host literal: name = "…huggingface.co…"
-            m = re.match(r"([A-Za-z_]\w*)\s*=\s*([\"'])(.*?)\2", s)
-            if m and _HUB_RE.search(m.group(3)):
+        for s in _own_code_lines(body, at_start=(name == "<module>")):
+            m = re.match(r"([A-Za-z_]\w*)\s*=\s*(['\"])(.*?)\2", s)
+            if m and m.group(3) and _HUB_RE.search(m.group(3)):
                 hub_vars[m.group(1)] = m.group(3)
-            # a primitive call whose URL (literal or tracked var) is a hub host
             if _OPEN_RE.search(s):
-                to = " ".join(match.group(2) for match in re.finditer(
-                    r"([\"'])(.*?)\1", s)) + " " + " ".join(
+                to = " ".join(mm.group(2) for mm in re.finditer(r"(['\"])(.*?)\1", s)) + " " + " ".join(
                     v for k, v in hub_vars.items() if re.search(r"\b%s\b" % re.escape(k), s))
                 if _HUB_RE.search(to):
                     problems.append((name, s[:140]))
-            # the repo's OWN Hub entry points (no loopback): a real reach, whatever the arg shape —
-            # `mp.download`/`mp.plan_download`/`mp.gguf_files`/`mp.hf_size` are Hub entry points by
-            # construction (they call the Hub API / download via `_hub_json(f"{HF}/api/…")`), so there
-            # is no hermetic call form of them. A call in an unmarked scope that binds no loopback
-            # server IS a real unmarked Hub reach, whether the arg is a model dict, a
-            # `mp.repo_for(...)` call, or a plain repo string. `plan_download` is NOT planning-only:
-            # it reaches the Hub (`offer → plan_download → _tree/_snapshot → hub_open`) — #1000 closed
-            # the old carve-out. NOT resolve_local (local disk only).
-            # EXCEPTION — a call whose download CHILD is replaced makes no reach: `mp.download`
-            # never opens the Hub itself, it runs `scripts/hf_download.py` in a child, so a scope
-            # that stubs that child (`monkeypatch.setattr(mp.subprocess, "run", …)`) or points it
-            # at a local script (`HF_BIN=<tmp stub>`) downloads nothing (#872's bounded-child
-            # tests: one records the argv, the other runs a `sleep` script). The tree/stub half
-            # of those scopes is separately stubbed as a fixture — same doctrine as the
-            # `def urlopen(...)` stub carve-out above.
-            if not nono and not _STUBBED_CHILD_RE.search(body) and re.search(
-                r"\b(mp\.download|mp\.plan_download|mp\.gguf_files|mp\.hf_size)\s*\(", s
-            ):
+            if _ENTRY_CALL.search(s):
                 problems.append((name, s[:140]))
-            elif _HUB_RE.search(s):
-                pass  # a mention with no open is not a call
-
-    if not tests:
-        _scan_scope(file_text, "<module>")
-        return problems
-
-    for i, t in enumerate(tests):
-        if "@pytest.mark.network" in (t.group("dec") or ""):
-            continue
-        body = file_text[t.end() : (tests[i + 1].start() if i + 1 < len(tests) else len(file_text))]
-        _scan_scope(body, t.group("name"))
+                continue
+            for h in tainted:
+                if h != name and re.search(r"\b%s\s*\(" % re.escape(h), s):
+                    problems.append((name, s[:140]))
+                    break
 
     seen: list[tuple[str, str]] = []
-    for p in problems:
-        if p not in seen:
-            seen.append(p)
+    for pbl in problems:
+        if pbl not in seen:
+            seen.append(pbl)
     return seen
 
 
@@ -359,6 +468,43 @@ def test_no_unmarked_real_open_reaches_the_hub():
         + "\nRoute each to `@pytest.mark.network` (owned by the #1002 network pipeline), to a "
         "loopback server, or to `hub_probe` liveness; never a silent real call in the unit path."
     )
+
+
+def test_a_helper_hiding_a_hub_entry_point_taints_its_callers(tmp_path):
+    """The class that produced the live unit-path Hub timeout (run 41126714284,
+    test_mac_trend_pick.py:169, 2026-10-31): the entry call lives in a same-file helper
+    (`_offer(tmp)` calling `mp.offer`), and the tests call the helper. Scopes are sliced at
+    top-level defs, so the helper's reach must land on every UNMARKED caller — and a marked
+    caller must stay clean. Without this control the pin's slicing silently reverts to the
+    next-test slice that hid the whole class. (Transitive helper-calls-helper is locked too:
+    `_cached_offer` calls `_offer` and taints its own callers.)"""
+    rel = "tests/test_helpers.py"
+    (tmp_path / "tests").mkdir()
+    (tmp_path / rel).write_text(
+        "import model_engine_pick as mp\n"
+        "import pytest\n"
+        "def _offer(tmp):\n"
+        "    return mp.offer(mp.load_registry(), \"metal\", 48, root=tmp)\n"
+        "def _cached_offer(tmp):\n"
+        "    return _offer(tmp)\n"
+        "def test_unmarked_calls_helper():\n"
+        "    rows = _offer('/tmp')\n"
+        "    assert rows\n"
+        "def test_unmarked_calls_transitive_helper():\n"
+        "    rows = _cached_offer('/tmp')\n"
+        "    assert rows\n"
+        "@pytest.mark.network\n"
+        "def test_marked_calls_helper():\n"
+        "    rows = _offer('/tmp')\n"
+        "    assert rows\n"
+        "def test_hermetic_twin_touches_no_entry_point():\n"
+        "    assert mp.load_registry is not None\n"
+    )
+    offenders = {name for name, _line in _hub_opens((tmp_path / rel).read_text())}
+    assert offenders == {
+        "test_unmarked_calls_helper",
+        "test_unmarked_calls_transitive_helper",
+    }, offenders
 
 
 _MODULE_MARK_RE = re.compile(r"(?m)^pytestmark\s*=\s*pytest\.mark\.network\b")

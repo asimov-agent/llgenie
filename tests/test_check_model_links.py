@@ -98,6 +98,15 @@ DATA_PATH_FILES = (
     "test_trend_pick.py",
     "test_install_trend.py",
     "test_registry_sync_trend.py",  # issue #1067: live sr.fetch into raw.githubusercontent.com
+    # issue #1000: one live node each, the rest of the file hermetic — kept in the census so the
+    # routing decision (network for n, unit for the rest) is pinned by a test, not by habit.
+    "test_engine_skills.py",
+    "test_engine_supported_quants.py",
+    # test_hf_download_throttle.py stays OUT of the census: its fake-`hf` child is hermetic by
+    # construction (#872), so its network-mark set must remain empty (the membership assertion
+    # demands every census file with no entry be mark-free).
+    "test_registry_normalise.py",
+    "test_trend_list_matrix.py",
 )
 
 # The complete real-Hub ownership set across those files, from the widened routing census (issue
@@ -122,13 +131,53 @@ EXPECTED_NETWORK_TESTS = {
         "test_full_download_through_hf_download_places_the_complete_gguf",
         "test_hub_json_caches_and_survives_a_missing_repo",
         "test_the_vendored_contract_is_upstreams_and_the_store_satisfies_it",  # issue #1067
+        # issue #1000: helper-hidden Hub reach (`_offer`/`_cli` → `mp.offer` → snapshot → `_tree`),
+        # the live `sync`/`check_links` fetches, and the sizing call paths. Measured: each hangs
+        # offline (`--network none`) inside `hf_auth.hub_open`; the strengthened network pin flags
+        # every one that lost its mark.
+        "test_auto_and_no_tty_take_the_top_pick",
+        "test_card_16gb_list_on_this_readme",
+        "test_every_readme_model_maps_to_its_best_engine",
+        "test_llgenie_list_is_the_readme_list_that_fits_the_card",
+        "test_llgenie_no_args_is_the_interactive_trend_pick",
+        "test_local_marker_and_reuse_in_the_trend_list",
+        "test_model_pick_reprompts_on_invalid_input",
         "test_plan_download_per_format_live_hub",           # #1000: plan_download reaches the Hub
-        "test_moe_model_on_16gb_is_planned_with_system_ram",  # #1000: docstringed "Live Hub"
-        "test_unsloth_repo_skips_mtp_heads_and_imatrix",      # #1000: docstringed "Live Hub"
+        "test_readme_copy_passes_and_a_modified_copy_is_rejected",
+        "test_readme_links_answer_and_a_broken_copy_is_caught",
+        "test_select_every_row_plans_a_download_and_the_right_engine",
+        "test_select_with_engine_overrides_the_top_engine",
+        "test_sync_writes_valid_registry_and_rejects_invalid",
+        "test_the_printed_row_shows_the_figure_the_gate_used",
+        "test_the_vendored_registry_links_all_answer",
+        "test_trend_flag_prints_the_numbered_readme_list",
+        "test_unservable_row_says_why",
+        "test_moe_model_on_16gb_is_planned_with_system_ram",  # #1000: sizes a MoE row → `gguf_weights`
+        "test_unsloth_repo_skips_mtp_heads_and_imatrix",      # #1000: reaches the unsloth repo tree
+        "test_manual_registry_pick_errors_and_engines_for_registry_model",  # #1000: dry --pick sizes the card
     },
     "test_model_engine_pick.py": {
         "test_download_fetches_a_real_chunk_of_the_chosen_file",
+        "test_llgenie_dry_run_prints_model_engine_and_container_command",  # #1000: dry-run sizes the
+        # plan against the Hub tree, so it reaches `_hub_json` even for a CUDA model in the card
     },
+    # issue #1000: one live test per file whose reach hides behind a same-file helper or a
+    # parametrized matrix that touches the Hub tree; each measured to hang offline in `hub_open`.
+    "test_engine_supported_quants.py": {"test_pick_is_a_real_catalog_link"},
+    "test_engine_skills.py": {"test_digest_reads_the_live_registry_and_retries_a_failed_lookup"},
+    # test_hf_download_throttle.py is NOT in the network census: its fake-`hf` child is hermetic
+    # by construction (#872). It hangs offline only because the fake child DNS-reaches a host it
+    # otherwise never contacts — it passes online with zero real Hub calls, so it stays in ci-unit.
+    "test_pick_matrix_arch_perms.py": {
+        "test_llgenie_matrix_arch_override_in_header",
+        "test_llgenie_matrix_explicit_flags",  # #1000: subprocess --matrix sizes the real Hub
+        "test_llgenie_matrix_flag_wins_over_positional",  # #1000: same subprocess reach
+    },
+    "test_registry_normalise.py": {"test_sync_writes_the_normalised_store_and_check_accepts_it"},
+    # the live matrix over the real Hub repo trees (issue #1000): this one node drives the whole
+    # committed-matrix comparison through `engine_supported_quants` → the Hub API.
+    "test_trend_list_matrix.py": {"test_trend_list_matches_the_committed_matrix"},
+
     # test_pick_full_registry.py is the FULL-registry live matrix: every one of its tests drives
     # `_live_matrix()` (mp.matrix -> the live Hub repo trees) or the wired `llgenie --matrix` CLI
     # over them, so the whole file is a real-Hub scope (issue #1059 — the quant-links test was the

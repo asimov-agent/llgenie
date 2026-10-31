@@ -13,6 +13,7 @@ NO-SKIP POLICY: a missing prerequisite is a LOUD FAILURE, never a skip.
 """
 from __future__ import annotations
 
+import pytest
 import json
 from pathlib import Path
 
@@ -119,6 +120,7 @@ def test_every_distinct_row_is_kept_and_only_a_duplicate_id_is_dropped():
 # ---------------------------------------------------------------------------
 # the sync itself, end to end on a local pair
 # ---------------------------------------------------------------------------
+@pytest.mark.network
 def test_sync_writes_the_normalised_store_and_check_accepts_it(tmp_path):
     """`make sync-registry` writes the normalised store; `make check-registry` reads it back."""
 

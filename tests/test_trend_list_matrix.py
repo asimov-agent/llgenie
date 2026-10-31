@@ -80,6 +80,7 @@ def test_ram_changes_which_cuda_16gb_model_is_served():
 
 
 @pytest.mark.parametrize("arch,vram,ram", tlm.CASES, ids=IDS)
+@pytest.mark.network
 def test_trend_list_matches_the_committed_matrix(arch, vram, ram):
     """One (arch, vram, ram): the list matrix() returns is the committed list."""
 
