@@ -184,4 +184,31 @@ diverged worktrees" is a report; "mostly done" is not.
 4. **one lane, one PR:** before a sweep touches a PR, check bot-claim: and agent/issue-<n>-* branch; a claimed PR is another lane's (issue #994 rule 1).
 
 
+## After ANY strategy-flag rebase, diff the tree against main and read what you did not intend
+
+`-X theirs` (and `-X ours`) is a statement about **conflicts**, not about correctness. It resolves
+every conflicting hunk in the chosen direction — and the damage it does is precisely in hunks that
+*never showed up as conflicts*, so nothing flags them.
+
+Measured on a 128-commit stack root: `-X theirs` silently reverted main's `ci_images.py latest
+agent` back to an older `ref agent` in the `fix-loop-image` recipe. The only symptom was a unit test
+asserting a command string (`tests/test_fix_loop.py:284`), which cost a 35-minute matrix on the PR
+six others were stacked behind. The regression was real and later repaired by its own commit; the
+*detection* came from a human diffing two trees by hand, which does not scale.
+
+The check costs one command per file you did not mean to touch:
+
+```bash
+git diff origin/main -- Makefile        # expect: NO hunks, or only the ones you added
+grep -c 'the exact string main has'    Makefile
+```
+
+Rules that follow:
+- **Resolve a shared recipe/Makefile/CI file per hunk against main**, not by a strategy flag.
+- **After any `-X` rebase, diff every non-generated file against main** and confirm the absent hunks
+  are the ones you meant to be absent. Generated files (`CHANGES.md`, census) are regenerated, so
+  they are excluded from this check by construction.
+- **A test asserting a command string is a regression detector for a bad resolution**, not noise —
+  when one fails after a rebase, read the string it expected before editing the test.
+
 **A replayed commit that applies cleanly can still regress the base — gate the whole replay, not just the conflicts.** Stacked-replay failures are not only `UU` conflicts and empty cherry-picks: a replayed commit re-deriving a file whose canonical newer form is already on the base tip applies without conflict yet silently undoes the newer content (measured on a SOUL fleet-block copy: the older generation deleted the base's newer rule-16 bullet, reddening the very gate the branch is about). After a stacked replay, run the branches' own gate; a red in the branch's own territory is the signal to check whether one replayed commit is an older generation — drop it (keep the base's file) rather than hand-reconcile, because its intent is already satisfied by the base.
