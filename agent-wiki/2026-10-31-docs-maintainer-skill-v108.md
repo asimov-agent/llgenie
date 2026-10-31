@@ -20,16 +20,19 @@ genuine and forward-only:
   baseline, and read the ratchet's exit with `${PIPESTATUS[0]}`, not `$?` after a pipe.
 
 `references/ci-triage-for-docs-prs.md` grew with it (8,683 b), gaining the ratchet section
-alongside the cancellation fingerprint, and SKILL.md reached **v1.0.12** (51,128 b) with five more
+alongside the cancellation fingerprint, and SKILL.md reached **v1.0.13** (51,972 b) with six more
 lessons the lane earned while landing this PR: the `--force-with-lease` lease expects a **literal sha,
 not a ref path** (`:refs/heads/x` → `stale info`; fetch then push plain
 `--force-with-lease`); a PR body that names a "final head" must be written **after the last push**,
 never before; `gh pr checks` is the only safe way to resolve the **matrix run id** from the
 guard/holds duplicates at one sha; a heartbeat-coalesced watcher line can quote a **stale head** —
-re-read the PR directly, timestamped, before acting on a poll; and a `pull_request` run evaluates the
+re-read the PR directly, timestamped, before acting on a poll; a `pull_request` run evaluates the
 workflow at its **merge ref**, so the 120-min ceiling raised on main (#1175) does not apply to an
 unrebased PR — its ~60-min `completed/cancelled` is the **old-ceiling fingerprint**, fixed by a rebase,
-never by rerunning the doomed run. Because `make sync-agent-profile` is
+never by rerunning the doomed run; and every **"verified at `<sha>`" sentence must be true AT that
+sha** — a measured battery followed by a prose-only record commit (subject saying it records the
+battery run at the earlier sha) keeps the numbers unfalsifiable, and a note that names a sha its
+command never ran on is the same defect as a census with no `measured at`. Because `make sync-agent-profile` is
 one-way (tree→live), a live write can never return to the tree on its own, so
 `check_agent_profiles.py` re-reports the files `live-longer` until this PR lands. Verified live is a
 clean superset of the tree for all five files (no tree line is dropped — a pure union). Final
