@@ -1,4 +1,5 @@
 {
+  "engine_variant_fingerprint": "fe3155e206893f3c",
   "generated_utc": "2026-10-27T21:47:11Z",
   "order": "Card's list order: the README's tier-local 'Up to N GB' ranking for the card, then the rows it does not rank in the store's own trend order (band -> trend score -> posts -> peak t/s, computed \u2014 never the store file's positions), issue #669. The server is the best fit for this card on this arch with a quant that fits this vram and ram (a figure proven on a card of this vram class or smaller first, then a bigger card's figure, then another backend, then a datacenter figure; issue #225).",
   "cases": [
