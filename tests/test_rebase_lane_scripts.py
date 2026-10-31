@@ -399,14 +399,28 @@ def test_the_fleet_splice_is_idempotent_and_refuses_an_older_source(tmp_path):
 
 
 def _load_salvage():
+    """Import the shipped script WITHOUT writing bytecode into the tree.
+
+    Measured: importing it normally creates `scripts/__pycache__/*.pyc` inside agents/. Those are
+    git-ignored, so no gate notices -- but `make sync-agent-profile` walks the working tree, hit the
+    .pyc, and died with `UnicodeDecodeError: 'utf-8' codec can't decode byte 0xa7`. A test must not
+    change the tree it is testing: suppress bytecode writing for the duration of the import.
+    """
     import importlib.util
+    import sys as _sys
     src = SCRIPTS / "salvage-four-bucket.py"
     if not src.exists():
         return None
-    spec = importlib.util.spec_from_file_location("salvage_four_bucket", src)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+    prev = _sys.dont_write_bytecode
+    _sys.dont_write_bytecode = True
+    try:
+        spec = importlib.util.spec_from_file_location("salvage_four_bucket", src)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    finally:
+        _sys.dont_write_bytecode = prev
+
 
 
 def test_the_salvage_audit_states_the_orphan_predicate():
@@ -437,3 +451,22 @@ def test_the_salvage_audit_states_the_orphan_predicate():
     # Content carried by an open PR head is NOT unique: deleting the branch loses nothing
     # reviewable. This is the predicate that made the two shipped audit tools disagree (6 vs 21).
     assert not any(r.get("held_by_pr") for r in uniq), "a PR-carried branch was called unique"
+
+
+def test_loading_the_shipped_scripts_leaves_no_bytecode_in_the_tree():
+    """A test must not mutate the tree it tests.
+
+    Measured: importing `salvage-four-bucket.py` normally writes `scripts/__pycache__/*.pyc` under
+    agents/. They are git-ignored, so no review and no gate sees them -- but `make sync-agent-profile`
+    copies every file under the profile directory into the live profile, so the .pyc were shipped
+    there (sync went from 18 files to 20), and once one was half-written the sync died outright:
+
+        UnicodeDecodeError: 'utf-8' codec can't decode byte 0xa7 in position 0
+
+    which blocked the sanctioned tree -> live direction for this lane.
+    """
+    _load_salvage()
+    strays = [str(p) for p in (REPO / "agents").rglob("__pycache__")]
+    assert not strays, (
+        "loading a shipped script wrote bytecode into the tree, which sync-agent-profile then "
+        "copies into the live profile: " + ", ".join(strays[:3]))
