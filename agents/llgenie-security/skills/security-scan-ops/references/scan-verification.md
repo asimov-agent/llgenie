@@ -47,3 +47,17 @@ gh workflow run security-scan.yml --repo asimov-agent/llgenie --ref main -f tool
 [security-scan] OK (event=schedule, mode=full): 0 finding(s) recorded, none blocking
   (fail_on=['critical', 'high'], require_fix=True)
 ```
+
+## Absence, not silence
+
+- **"Clean" is a run, not an inference.** Only a scan at a named sha printing `0 finding(s)` supports it. A
+  merged fix, a green CI, or an empty-looking tracker prove nothing about the tree.
+- **A finding whose fix merged stays OPEN until a scan closes it.** `make security-issues` closes an issue
+  through its `cleared` path only when a later scan stops reporting the advisory — so open findings plus a
+  merged fix means no scan has run, not that the fix failed. Report it as **"fix merged, absence unproven"**
+  and list the open advisories by severity.
+- **Measure the gap; never estimate it.** Compute from the last run's `createdAt` in a command (a `python3
+  -c` datetime subtraction); a guessed number understates an exposure and changes how urgently it escalates.
+- **Hand over the re-enable proof.** While the workflow is disabled the only legitimate next step is the
+  owner's: enable it, then dispatch `-f enforce=report` (cannot red), expect `0 finding(s)`, and watch the
+  `cleared` path close the issues. State that plan instead of dispatching, forcing, or claiming clean.

@@ -55,6 +55,11 @@ agents/<profile>/skills/<name>/SKILL.md
    (`never-implement`, `never-merge`); an unknown key is a manifest defect, and a declared rule the
    `SOUL.md` stops stating is a finding. A lane that lands work through the repo's green-PR auto-merge
    declares `never-implement` only — declaring `never-merge` there would be false.
+5b. **`rules: []` is not "nothing to declare" — it is `UNPROTECTED`.** The gate prints "the manifest
+   declares no standing rule for this profile, so nothing in its SOUL.md is gated — that is not the same as
+   passing". Declare the rule the SOUL actually states (`never-implement` where the SOUL says "does not
+   implement"), and never a rule the SOUL does not carry — that is the manifest defect the same gate exists
+   to catch. One declared rule is enough to make the profile gated.
 6. **Gate before the PR:** `python3 scripts/check_agent_profiles.py check` → OK, and it reports how many
    profiles it read (an unchecked tree passes vacuously).
 
@@ -99,6 +104,17 @@ agents/<profile>/skills/<name>/SKILL.md
   whole block from the new base after every rebase, and check that each rule appears exactly once
   (`grep -c "^- \*\*<rule opening>"`) — merges that carry the same stream of rule additions leave the
   closing bullet followed by a second copy of the last three rules.
+- **Sync is one-way: tree → live, and a live edit after the tree commit is never re-taken backwards.**
+  `check-agent-profiles` distinguishes `fleet-block-drift` (a bullet missing from the SOUL), `live-longer` /
+  `live-lines-missing` (a live file larger, or carrying lines the tree lacks), `live-edited-not-tree` (live
+  mtime after the tree commit) and `UNPROTECTED`. For the live-ahead cases the gate's own instruction is the
+  rule: *commit the live content via an issue+PR under `agents/<lane>/`, then `make sync-agent-profile`* —
+  never copy the live file back into the tree, and never `--force` the sync. Forcing discards lines nobody
+  diffed; the reload is only "byte-identical" once the tree catches up.
+- **A section spliced above a markdown heading keeps a blank line in front of it.** `lint_linefeeds` reds a
+  `##` heading that directly follows text, and it is a different gate from `check-agent-profiles` — so
+  splicing a block in front of `## Standing rules` can pass the canonical-block assertion and still red
+  `make lint`. After any splice check both: `block in soul_text` AND `make lint` on the changed file.
 - **Do not edit another lane's SOUL or skill to make a gate green.** When the gate names a different profile,
   report the numbers and hand it to that lane; only a lane edits its own behaviour files. A pre-existing
   failure is proved pre-existing by stashing your change and re-running the gate, not by assuming it.
