@@ -29,10 +29,11 @@ guard/holds duplicates at one sha; and a heartbeat-coalesced watcher line can qu
 re-read the PR directly, timestamped, before acting on a poll. Because `make sync-agent-profile` is
 one-way (tree→live), a live write can never return to the tree on its own, so
 `check_agent_profiles.py` re-reports the files `live-longer` until this PR lands. Verified live is a
-clean superset of the tree for all five files (no tree line is dropped — a pure union). Gating checks
-at the final PR head `846c99e2` (rebased onto `origin/main` `5ad07fa9`, after the 120-min unit-ceiling
-merge #1175 + #1172 + #1126): `CHECK=1` byte-for-byte (5 files), 42 hermetic gating tests passed,
-`check_docs` 0, module-name guard 0, import-roots ratchet 0.
+clean superset of the tree for all five files (no tree line is dropped — a pure union). Final
+verification battery re-run and recorded **at head `73e66da4`** (measured 2026-10-31 13:09Z, after
+the rebase onto `origin/main` `5ad07fa9` and the lint newline fix, before the note edit): `CHECK=1`
+byte-for-byte (5 files), 42 hermetic gating tests passed, `check_docs` 0, module-name guard 0,
+import-roots ratchet 0, `lint_linefeeds` OK.
 
 The recurrence (a live skill that keeps absorbing lessons between clearing PRs) is the subject of
 #1156, whose landed rule (#1168) now says lessons land as issue + tree PR **under the lane's own
