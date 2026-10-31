@@ -52,6 +52,10 @@ VENDORED_README = REPO / "data" / "trending-README.md"  # the list a user reads;
 VENDORED_CONTRACT = REPO / "data" / "model_contract.json"
 VENDORED_CONTRACT_DOC = REPO / "data" / "MODEL_CONTRACT.md"
 MOST_LOVED = "## ❤️ Most loved"
+# The recorded README-link answers `make check-registry` replays instead of the live Hub
+# (issue #1178). Recorded during a live `sync-registry`; a link the recording lacks is a
+# stale snapshot (loud), so it cannot silently bless a new dead link.
+README_LINK_ANSWERS = REPO / "tests" / "fixtures" / "readme-link-answers.json"
 
 
 def validate(raw: bytes) -> dict:
@@ -407,12 +411,22 @@ def sync(src: str, dest: Path, readme_src: str | None = UPSTREAM_README,
         contract_dest.write_bytes(contract)
     if contract_doc is not None:
         contract_doc_dest.write_text(contract_doc)
+    # Record the README-link answers the hermetic `check-registry` replays (issue #1178),
+    # only when writing the canonical location — a -o override must not clobber the fixture.
+    if readme is not None and dest.resolve() == VENDORED.resolve():
+        links = readme_links(readme)
+        answers = {u: ("dead" if check_links([u]) else "ok") for u in links}
+        README_LINK_ANSWERS.parent.mkdir(parents=True, exist_ok=True)
+        README_LINK_ANSWERS.write_text(
+            json.dumps({"note": "README-link answers replayed by `make check-registry` "
+                                "(issue #1178); regenerate with `make sync-registry`.",
+                        "links": answers}, indent=2) + "\n")
     print(f"[sync-registry] updated {dest}: {before} -> {_summary(store)}"
           f"{' (+contract)' if contract is not None else ''}")
     return 0
 
 
-def check(dest: Path, readme: Path | None = None) -> int:
+def check(dest: Path, readme: Path | None = None, snapshot: Path | None = None) -> int:
     if not dest.exists():
         print(f"[check-registry] missing {dest}: run make sync-registry", file=sys.stderr)
         return 1
@@ -425,9 +439,25 @@ def check(dest: Path, readme: Path | None = None) -> int:
         check_contract(data, json.loads(contract.read_bytes()))
         if readme.exists():
             check_readme_matches(data, readme.read_text())
-            dead = check_links(readme_links(readme.read_text()))
-            if dead:
-                raise ValueError("dead README links:\n  " + "\n  ".join(dead))
+            links = readme_links(readme.read_text())
+            if snapshot is not None:
+                # Hermetic link probe (issue #1178): read the recorded README-link answers
+                # instead of the live Hub. A link the recording lacks is a stale snapshot —
+                # loud, so a snapshot cannot silently bless a new dead link. The live probe
+                # lives on the ci-hf-live seam (`make check-registry LIVE=1`).
+                answers = json.loads(snapshot.read_text()).get("links", {})
+                dead = [f"{u} -> {answers[u]}" for u in links if answers.get(u) == "dead"]
+                stale = [u for u in links if u not in answers]
+                if stale:
+                    raise ValueError(f"README links not in the recorded answers ({snapshot}); "
+                                     "run make sync-registry to refresh it:\n  "
+                                     + "\n  ".join(stale))
+                if dead:
+                    raise ValueError("dead README links (recorded):\n  " + "\n  ".join(dead))
+            else:
+                dead = check_links(links)
+                if dead:
+                    raise ValueError("dead README links:\n  " + "\n  ".join(dead))
         elif dest == VENDORED:
             raise ValueError(f"missing {readme}: run make sync-registry")
     except ValueError as e:
@@ -443,8 +473,17 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("cmd", choices=("sync", "check"))
     ap.add_argument("--src", default=UPSTREAM)
     ap.add_argument("--dest", default=str(VENDORED))
+    ap.add_argument("--snapshot", default=str(README_LINK_ANSWERS),
+                    help="check mode: read the README-link answers from this recorded file "
+                         "instead of the live Hub (issue #1178). Pass --no-snapshot for the "
+                         "live probe (the ci-hf-live seam).")
+    ap.add_argument("--no-snapshot", action="store_true",
+                    help="check mode: probe the README links live (the ci-hf-live seam)")
     a = ap.parse_args(argv)
-    return sync(a.src, Path(a.dest)) if a.cmd == "sync" else check(Path(a.dest))
+    if a.cmd == "sync":
+        return sync(a.src, Path(a.dest))
+    snap = None if a.no_snapshot else Path(a.snapshot)
+    return check(Path(a.dest), snapshot=snap)
 
 
 if __name__ == "__main__":

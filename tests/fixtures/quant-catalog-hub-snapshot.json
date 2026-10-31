@@ -1,0 +1,6 @@
+{
+ "note": "Hub answers replayed by `make check-quant-catalog` (issue #1178); regenerate with `make sync-quant-catalog`",
+ "trees": {},
+ "searches": {},
+ "errors": {}
+}

@@ -306,15 +306,15 @@ ENGINE_ARGS = $(if $(BACKEND),--backend $(BACKEND),)
 # workflow runs `make sync-registry` weekly (cron 17 5 * * 1) and opens a PR when it changed.
 sync-registry: ## Download trending-local-llms data/models.json (+ its README and data/model_contract.json, the contract the store must satisfy) into data/ (validated against that contract; written only when changed)
 	python3 scripts/sync_registry.py sync
-check-registry: ## Validate the vendored data/models.json against the vendored upstream contract, then fail when the sync LOST anything vs the committed copy (CI unit job)
-	python3 scripts/sync_registry.py check
+check-registry: ## Validate the vendored data/models.json against the vendored upstream contract, then fail when the sync LOST anything vs the committed copy — hermetic: the README-link probe replays the recorded answers in tests/fixtures/readme-link-answers.json, never the live Hub (issue #1178; LIVE=1 for the live probe on the ci-hf-live seam) (CI unit job)
+	python3 scripts/sync_registry.py check $(if $(LIVE),--no-snapshot,)
 	$(MAKE) check-registry-keys
 check-registry-keys: ## Fail when the vendored registry dropped a key, model, measurement, t/s or counter vs the committed copy (additive only)
 	python3 scripts/registry_keys.py
 sync-quant-catalog: ## Regenerate data/trending-quant-catalog.json + its test fixture (the HF class table llgenie's pick reads) from the REAL registry + live Hub (read-only: lists quant plans + resolve links, never downloads a model; validates the newly-added links vs the prior generated table)
 	python3 scripts/gen_trending_quant_catalog.py
-check-quant-catalog: ## CI: fail when data/trending-quant-catalog.json differs from what the generator produces (the HF class table is a committed, generator-maintained artifact — not llgenie runtime logic)
-	python3 scripts/gen_trending_quant_catalog.py --check
+check-quant-catalog: ## CI: fail when data/trending-quant-catalog.json differs from what the generator produces — hermetic: it replays the recorded Hub answers in tests/fixtures/quant-catalog-hub-snapshot.json, never the live Hub (issue #1178; LIVE=1 for the live comparison on the ci-hf-live seam)
+	python3 scripts/gen_trending_quant_catalog.py --check $(if $(LIVE),,--snapshot)
 render-trend-list-matrix: ## Rewrite tests/fixtures/trend-list-matrix.json from matrix(registry, vram, ram, arch) for the vendored registry, and record the Hub answers it read into tests/fixtures/hub-snapshot.json
 	python3 scripts/trend_list_matrix.py
 check-trend-list-matrix: ## CI: fail when the committed trend-list matrix differs from matrix() on the vendored registry — hermetic: it replays tests/fixtures/hub-snapshot.json (issue #1080; LIVE=1 for the live comparison)

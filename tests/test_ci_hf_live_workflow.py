@@ -67,11 +67,17 @@ def test_ci_hf_live_runs_the_liveness_gate_then_the_seam():
 
 
 def test_ci_hf_live_schedule_is_an_odd_own_minute():
-    """Issue #275: no bot shares a slot; GitHub drops top-of-hour runs, so the minute is odd."""
+    """Issue #275: no bot shares a slot; GitHub drops top-of-hour runs, so the minute is odd.
+    #1178 adds a twice-hourly live probe (minute 0/30) — its even minutes are the deliberate
+    #1178 schedule, so the odd-minute rule now applies only to the nightly 06:59 slot."""
 
-    m = re.search(r"cron:\s*\"([0-9]+) ([0-9]+) \* \* \*\"", _text())
+    text = _text()
+    # the nightly slot keeps its odd own minute (issue #275)
+    m = re.search(r"cron:\s*\"([0-9]+) 6 \* \* \*\"", text)
     assert m, "ci-hf-live.yml must declare a nightly cron"
-    assert int(m.group(1)) % 2 == 1, f"ci-hf-live cron minute is not odd (issue #275)"
+    assert int(m.group(1)) % 2 == 1, f"ci-hf-live nightly cron minute is not odd (issue #275)"
+    # and the twice-hourly live probe exists (issue #1178)
+    assert "25,57 * * * *" in text, "ci-hf-live.yml must carry the twice-hourly live probe on free odd minutes (issue #1178/#560/#275)"
 
 
 def test_the_hermetic_unit_gate_never_runs_the_network_set():
