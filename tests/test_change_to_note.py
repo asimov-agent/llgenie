@@ -8,13 +8,11 @@ produce none. They assert behaviour, not an exact file list.
 from __future__ import annotations
 
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-import check_docs  # noqa: E402
+from scripts import check_docs  # via the conftest seam, the one allowed import root (issue #796)
 
 
 def _git(repo: Path, *args: str) -> None:
