@@ -92,3 +92,23 @@ Two rules:
   - in a report, name the subcommand with the verdict. "import-roots 84 finding(s)" is unreadable
     until the reader knows whether that is `check` (a scan) or `ratchet` (a rise vs baseline) — the
     same predicate-less-count failure as quoting a number without the branch that produced it.
+
+## A ratchet red is the BRANCH'S defect when main passes the same baseline — do not rebase it
+
+When a PR's `linux/unit` fails `check-import-roots` with a count over the recorded baseline
+(`bare: 54 now, 52 recorded`), decide WHOSE defect it is before acting. The decisive measurement is
+a clean archive of `main`:
+
+    git archive origin/main | (mkdir -p /tmp/t && cd /tmp/t && tar -xf - && make check-import-roots)
+
+If that returns `OK: counts at or below the recorded baseline`, main is clean, so the two extra
+bare sites live on the BRANCH — and a rebase onto clean main leaves them exactly where they are:
+still red on the same count. The remedy is converting the branch's over-baseline sites to the
+baseline pattern, not rebasing.
+
+An earlier drafting of this lesson said "on a BRANCH, a brand-new file adding roots is refused —
+fix the file to the conftest seam." This is the same rule applied to the whole branch, and it must
+not be read as an invitation to move main (re-record) to accommodate the branch. Measured on #1128:
+the 429 in the same job was a SUCCEEDED retry (a red herring), and the failing step was
+`make ci-unit` -> check-import-roots — read the exact failing STEP, not the job name, before
+naming a cause.
