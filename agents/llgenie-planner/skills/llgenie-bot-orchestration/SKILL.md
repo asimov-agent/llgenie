@@ -161,6 +161,24 @@ When a specialist owns the class, dispatch there even if the general implementer
 specialist's brief is shorter, it already carries the repo's constraints, and it does not serialise behind unrelated
 work.
 
+## 2c. Solicit the security and architect advisory before a boundary change is treated as mergeable
+
+When a change in review — or one whose PR just merged — touches a **security boundary** or an **architecture
+surface**, the planner **classifies** it and **solicits the advisory lane's verdict on-record** (issue #1195).
+
+- Security boundary: `auth`, network egress, file/pipe writes, credential handling, downloads / `hub_open`.
+- Architecture surface: pipeline shape, admittance/gates, engine-variant coherence.
+- Classification is one of `security` / `arch` / `both` / `none`; the routing comment on the PR names it, so a
+  reader sees the boundary was *assessed*, not assumed. `security` → dispatch `llgenie-security`; `arch` →
+  `llgenie-architect`; `both` → both; `none` → no advisory, and say `none` in the comment so the absence is a
+  decision, not an omission.
+- The advisory is **solicited and answered, never silently skipped** because the lane is "busy" — a busy advisory
+  lane is forced onto the advisory the same way any other forced-delegation is, and a lane that cannot answer
+  reports `cannot answer: <reason>` on the PR rather than staying silent (#1030).
+- The lane's verdict is **advisory, not a merge gate** — approval stays the owner's (#1088). The solicitation
+  precedes "this is mergeable" because an opinion a reviewer unfamiliar with the security or architecture premise
+  would have missed matters, not because it blocks.
+
 ## 3. Dispatch
 
 - **In-repo CI bot**: ensure the label, and post a comment naming the scope and the acceptance criteria. Do not
