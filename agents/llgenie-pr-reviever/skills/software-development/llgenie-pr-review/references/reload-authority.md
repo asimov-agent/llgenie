@@ -1,0 +1,1 @@
+The Hermes live profile (SOUL + skills) is the authoritative source; the repo tree catches up to it via #791/#1062 versioning. Never overwrite live with tree content — it truncates accumulated live lessons. Version live→tree by issue+PR. Owner directive 2026-11-01.

@@ -14,6 +14,10 @@ metadata:
 
 # Reviewing PRs on asimov-agent/llgenie
 
+## Live profile is authoritative; never sync tree over live (owner, 2026-11-01)
+
+The Hermes live SOUL/skills are the LATEST and authoritative — the tree's `agents/<lane>/` catches up to live via #791/#1062 versioning, never the reverse. Do NOT sync tree-content over the live profile (silently truncates accumulated live lessons). If live carries lessons the tree lacks, file+dispatch the versioning; do not self-edit to force green, do not trim live. A tree→live sync is legitimate ONLY for a versioned landing already merged on main (e.g. the #1193 SOUL wording, my own merged PR #1197).
+
 <!-- host-bot-tools:begin -->
 
 ## Tools
@@ -25,12 +29,17 @@ Every other installed skill is listed in `skills.disabled`.
 The pin is `tests/fixtures/host-bot-capabilities.json` in asimov-agent/llgenie (issue #1038).
 <!-- host-bot-tools:end -->
 
+## Role artifact (2026-11-01)
+
+The artifact is the review comment: file, line, verdict, sha, and run id. Do not write the fix. `message_agent` to `llgenie-planner` with the PR number, the sha, the run id, and the verdict.
+
 ## Local verification depth
 
 `references/local-verification.md` — the repo's own test venv and the `-s`/`-x` trap, golden/fixture
 freshness (a golden can be in the PR diff *and* stale), measuring on the data path the test actually
-uses, the control shape, and the clean-HOME split for profile gates. Read it before publishing a
-local red **or** a local green as evidence.
+uses, the control shape, the clean-HOME split for profile gates, and — for a baseline — the rule that
+`git stash` is a no-op on committed work so the base needs a detached worktree. Read it before
+publishing a local red **or** a local green as evidence.
 
 ## Dispatch protocol (fleet under the planner)
 
@@ -54,6 +63,16 @@ is that a verdict cites the run id at that head. Verdicts are **comment-only by 
 comment, and lifting it is the planner's call. If the run at the head has no conclusion yet, say
 "no verdict exists yet — run `<id>` is queued" and stop; never manufacture a verdict and never move
 a head to produce a fresh run.
+
+**One settlement, one acknowledgement — a re-acknowledgment reopens a closed loop.** Once a
+correction or finding is conceded on-record by both lanes (the peer's message states `status: settled`
+and both facts are measured), the thread is closed. A further *"confirming your confirmation"* message
+is not politeness, it is a ping-pong turn: it forces the peer to either reply (loop) or hold silent
+(reads as non-compliance), and it spends a shift on a settled question. Post the settlement **once** —
+the facts, the sha, the on-record comment id — then stop. If a second delivery arrives that only
+re-states your own already-acknowledged point, it needs no reply at all; noting it as delivery-only in
+the status line is the whole action. The same applies to a settlement the peer already conceded: do not
+re-post it to "close the loop harder".
 
 ## A versioning PR is a checkpoint, not a state
 
@@ -84,6 +103,13 @@ done
 
 Report it as *"N of M differ at `<sha>`, measured `<hh:mm>Z`"* — never as "the tree matches live",
 because that sentence has no expiry and will be false within the hour.
+
+**The other direction — a reload directive — syncs the LIVE profile FROM main; see
+`references/live-profile-reload.md`.** The versioning-PR comparison above fixes *live grew, tree behind*;
+a "reload SOUL and skills from main" directive is the opposite — `main` landed a change and the live copy
+is stale, so the remedy is `git show live/main:agents/<lane>/<rel> > ~/.hermes/profiles/<lane>/<rel>` per
+diverged file, re-diffed to `MATCH`. No PR: the behaviour is already merged, you are only aligning a
+derived copy.
 
 ## The skill body has a size ceiling, and it fails silently
 
