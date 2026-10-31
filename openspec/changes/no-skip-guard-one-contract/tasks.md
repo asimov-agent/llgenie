@@ -20,10 +20,11 @@
       pattern with its mechanical removal; a test asserts the page keeps saying it.
 - [x] `agent-wiki/2026-10-31-no-skip-guard-one-contract.md` + its `docs/changes.d/` row;
       `make check-docs` green.
-- [ ] `make test-unit` green with the new file inside the discovered suite (and no existing test
-      relying on a skipped report).
-- [ ] `make ci-unit` green, `make check-wiring`, `make check-docs`, `make check-workflows`,
+- [x] `make test-unit` green with the new file inside the discovered suite (and no existing test
+      relying on a skipped report). CI `linux / unit` passed 3349 tests including
+      `tests/test_no_skip_guard.py`.
+- [x] `make ci-unit` green, `make check-wiring`, `make check-docs`, `make check-workflows`,
       `make check-pr-hygiene` green.
-- [ ] `make openspec-validate NAME=no-skip-guard-one-contract` passes.
-- [ ] PR opened ready-for-review against `asimov-agent/llgenie:main` from
+- [x] `make openspec-validate NAME=no-skip-guard-one-contract` passes.
+- [x] PR #1172 opened ready-for-review against `asimov-agent/llgenie:main` from
       `andyholst:fix/1110-conftest-hooks-agree` with `closes #1110`; auto-merge armed and read back.
