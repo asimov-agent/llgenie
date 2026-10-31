@@ -74,3 +74,21 @@ The two fixes are NOT interchangeable:
 Choosing wrong re-records an inflated baseline and silently disables the ratchet for the next new
 file too. After the fix, `make check-import-roots` must print counts at or below the recorded
 baseline — not "OK: counts at a new higher baseline". The seam is the fix; the baseline is not.
+
+## A gate's SUBCOMMAND can change its verdict: call the one CI runs, not the one the help names first
+
+`scripts/check_import_roots.py` exposes `{check, report, ratchet}`. On a pristine clean main,
+`check` returns rc=1 (84 findings) while `ratchet` returns rc=0 (`OK {sys-path:32, bare:52}`) — the
+SAME tree, two verdicts, because `check` is a raw SHAPE scan (any vestige is a finding) and
+`ratchet` compares the COUNT to a baseline and fails only when it rose. `make check-import-roots`
+calls `ratchet`; CI gates on that. Reported twice tonight as a false green-is-red, and the cause is
+the script's own docstring naming the ratchet's behavior "`check` fails when they RISE" — a reader
+runs `check` expecting a baseline comparison and concludes the gate is broken.
+
+Two rules:
+  - when an assertion or a driver wraps a gate with several subcommands, CALL THE SAME SUBCOMMAND CI
+    RUNS. `ratchet` here; anything else either reds a clean tree (and teaches the reader to disarm
+    the gate) or silently checks a weaker/different predicate.
+  - in a report, name the subcommand with the verdict. "import-roots 84 finding(s)" is unreadable
+    until the reader knows whether that is `check` (a scan) or `ratchet` (a rise vs baseline) — the
+    same predicate-less-count failure as quoting a number without the branch that produced it.
