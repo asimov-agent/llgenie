@@ -44,6 +44,13 @@ test-engine-install: bash-check   # NO `##` help line — make it deliberately i
 	make ci-install-uninstall    # NO ci-install-dry: the producer is product-LESS (#1027) — the llgenie tool + its --dry live in pipeline.yml's ci-install
 ```
 
+`ci-install-uninstall` must `mkdir -p ~/bin` before its foreign-file witness `touch ~/bin/not-ours`
+on the Linux/container branch. The producer install-leg never runs `make install` (which is what
+creates `~/bin` on the full witness path at `Makefile:1561`), so reaching this step in the producer
+for the first time reds with "No such file or directory" unless `~/bin` is created first. The
+recipe line is `$(ENGINE_TEST_RUN) sh -c 'mkdir -p ~/bin && touch ~/bin/not-ours && make uninstall
+&& make test-uninstalled && test -e ~/bin/not-ours'` (confirm run `41236321425` exposed the gap).
+
 A `ci-engines BACKEND=` whole-backend leg installs every engine of a backend; the row-exact
 `engine-install ENGINE= BACKEND=` proves THAT row's image installs, which is the producer-owned property.
 

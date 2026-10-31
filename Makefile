@@ -1789,7 +1789,7 @@ ifeq ($(HOST_OS),Darwin)
 	$(MAKE) test-uninstalled
 	@test -e "$(BIN)/not-ours" && rm -f "$(BIN)/not-ours"
 else
-	$(ENGINE_TEST_RUN) sh -c 'touch ~/bin/not-ours && make uninstall && make test-uninstalled && test -e ~/bin/not-ours'
+	$(ENGINE_TEST_RUN) sh -c 'mkdir -p ~/bin && touch ~/bin/not-ours && make uninstall && make test-uninstalled && test -e ~/bin/not-ours'
 endif
 
 ci-engines: bash-check ## Per-backend engine install for a host (BACKEND=cpu|cuda|rocm|vulkan|metal -> make test-install-published / each native-Metal engine + \"hi\" via scripts/ci_engines.py). No longer a CI stage: the engine install/serve test lives in the engine-build producer (#1027).

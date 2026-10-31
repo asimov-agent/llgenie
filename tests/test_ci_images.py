@@ -499,6 +499,11 @@ def test_every_pipeline_job_runs_one_ci_make_target():
     assert "$$HOME/bin/llgenie --dry" in dry.split("else", 1)[1]
     undo = mk.split("\nci-install-uninstall:", 1)[1].split("\n\n", 1)[0]
     assert "$(MAKE) uninstall" in undo and "Darwin" in undo
+    # The in-container Linux branch must create ~/bin before placing the foreign-file witness,
+    # because the producer install-leg (@ test-engine-install) never ran `make install` here
+    # (which is what creates ~/bin on the witness path): otherwise `touch ~/bin/not-ours`
+    # fails with "No such file or directory" and the leg reds (run 41236321425).
+    assert "mkdir -p ~/bin && touch ~/bin/not-ours" in undo.split("else", 1)[1]
 
     # And the install job also exercises the INSTALLED launcher's argument surface in dry
     # run (issue #236): bare --dry is not the whole CLI, and every grid dry run in the unit
