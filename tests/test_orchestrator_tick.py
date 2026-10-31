@@ -279,11 +279,16 @@ def test_a_failed_read_fails_loud_and_leaves_the_outbox_and_state_untouched(tmp_
     assert (tmp_path / "state.json").read_bytes() == state_before
 
 
-def test_a_failed_delivery_leaves_the_line_pending(tmp_path):
+def test_a_failed_delivery_leaves_the_line_pending(tmp_path, monkeypatch):
     """A print that raises is a `queue_full`: the record stays pending and the caller exits non-zero."""
     bindir, fixture_path = stub(tmp_path, {"prs": [PR_919]})
-    os.environ["PATH"] = f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}"
-    os.environ["TICK_FIXTURE"] = str(fixture_path)
+    # Use monkeypatch (auto-restored after the test): a bare `os.environ["PATH"]` assignment LEAKS the gh
+    # stub onto the process PATH for every later test — `test_orchestrator_tick` sorts before
+    # `test_rebase_lane_scripts`, so the salvage audit's live `gh pr list` hit the stub, got a fixture PR
+    # with no `state` key, and redded `KeyError: 'state'` on every run of this PR while green `main`
+    # (which has no such module) never tripped it.
+    monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}")
+    monkeypatch.setenv("TICK_FIXTURE", str(fixture_path))
 
     class Refuses:
         def write(self, _text):
