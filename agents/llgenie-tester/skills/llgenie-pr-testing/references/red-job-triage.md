@@ -163,3 +163,42 @@ the new symbol, while guard assertions and truth tables still name the old one. 
 new name across `tests/` and the fixtures, not just the diff — a red guard test asserting a roster key
 that no longer exists is the signature, and the fix belongs inside the PR's own test file, not in the
 roster.
+
+## 10. Verify a census-repoint PR (shared-gate unblocker)
+
+When a PR exists only to re-point `docs/ARCHITECTURE.md`'s `measured at <sha>` off a non-ancestor
+(merged-but-squashed-away sha) onto a real ancestor with re-measured counts, `scope/check-docs` is red
+for everyone on `main` and this PR is the fleet unblocker. Verify it as carefully as the gate it fixes,
+and do not let a re-point weaken the ancestor + re-measure requirement.
+
+1. **Fetch the PR head into a LOCAL ref first — `refs/pull/<n>/head` is not a mergeable argument.**
+   `git merge-tree --write-tree origin/main refs/pull/<n>/head` dies with `not something we can merge`:
+   `refs/pull/*` lives on the remote only and no local object happens to have that name yet. Fetch it,
+   then use the local ref everywhere: `git fetch origin refs/pull/<n>/head:refs/remotes/pr/<n>` and
+   `git merge-tree --write-tree origin/main refs/remotes/pr/<n>`. The same local ref feeds the
+   worktree add — one fetch, then never re-reference `refs/pull/*` locally.
+2. **Prove the merge is clean BEFORE trusting any count.** `git merge-tree --write-tree <main>
+   refs/remotes/pr/<n>` exit 0 = merges into current `main` with no conflict; the printed tree id is
+   your clean-tree evidence. A conflict here makes every later count meaningless.
+3. **Check the pointer on the SHA, not the file.** `git cat-file -t <pointer>` must be `commit` and
+   `git merge-base --is-ancestor <pointer> HEAD` must be YES. A pointer to the `main` you just fetched
+   is trivially an ancestor of anything built on it — that is why re-pointing onto current `main` is
+   the cheap correct fix.
+4. **Run the REAL gate on the clean tree, never the PR body's claim.** `git worktree add --detach <dir>
+   refs/remotes/pr/<n>` (base is current `main`, so the checkout IS the post-merge content), then
+   `make check-architecture-census` and `make check-docs`. Expect RC 0 and the gate's own line:
+   `[census-gate] OK — census measured at \`<sha>\` (tracked=…, testspp=…, changes=…); referent
+   \`<sha>\` is an ancestor of HEAD (<head>)`. **Prove the gate is not weakened:** read
+   `scripts/check_architecture_census.py` — `commit_is_ancestor` + `measure(<pointer>)` must still be in
+   `check()`. A legitimate re-point PR changes ONLY the pointer sha + numbers, never the gate.
+5. **Cross-check the CI leg.** `gh pr checks <n>` plus the check-runs on that exact head; the `scope`
+   job's log must show `make check-docs` invoking `check_architecture_census.py`. Report run id, job id
+   and conclusions — a local RC 0 alone is not the PR's verdict.
+6. **`mergeStateStatus=BLOCKED` here is usually `reviewDecision=REVIEW_REQUIRED`, not a red.** Read
+   `--json mergeable,mergeStateStatus,reviewDecision`: `MERGEABLE` + BLOCKED + REVIEW_REQUIRED means a
+   required owner approval is pending. `gh pr merge --auto` exits 0 and leaves `autoMergeRequest=null`
+   because the arm cannot engage before the approval exists. Report `auto=none (blocked on required
+   review)` and hand the arm decision on — never hand-approve, never `--admin`.
+7. **Clean up the verify worktrees** — the evidence lives in the PR comment, not the tree: `git
+   worktree remove --force <dir>` + `git worktree prune`, then confirm `git worktree list` no longer
+   shows it. A verify-only dispatch that leaves a worktree behind is unfinished housekeeping.

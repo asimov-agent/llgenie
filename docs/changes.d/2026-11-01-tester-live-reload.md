@@ -1,0 +1,1 @@
+- tester live→tree versioning round (fleet reload directive): sync SOUL + skill + refs

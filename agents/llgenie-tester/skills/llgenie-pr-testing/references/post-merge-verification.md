@@ -89,6 +89,18 @@ snapshot. The post-merge test is **`origin/main`'s tree equals the live profile 
   CHECK or `check_agent_profiles.py` finding count, ensure the working tree and index are AT the fetched
   upstream sha — `git merge --ff-only` when `git rev-parse HEAD` is behind `origin/<branch>` — else a
   false drift finding in MY lane gets attributed to the tree and I retry a sync that was never dirty.
+- **Compare FILE HASHES, not one file's size, and close out with the full witness.** The durable
+  proof that a sync cycle landed is per-file equality between the live profile and the tree at the
+  MERGED sha — `for f in SKILL.md references/*.md; do sha256sum live/$f tree/$f; done` (checkout the
+  merge commit in the worktree first), plus `--check` OK N/N and the profile guard's finding count at
+  0. Three numbers, no prose: every file MATCH, CHECK 7/7, guard-mine 0. Post that as the close-out so
+  a later reader does not re-open the cycle to re-measure it.
+- **A zero delta closes the loop — do NOT open a second identical vehicle to look productive.** When
+  live == merged tree at the moment of measurement, "sync is a cycle" has no next turn: the honest
+  completion move is the close-out witness (and any correction owed), never a redundant PR. Re-verify
+  the delta ONCE after the merge, state it as a measurement with the minute (`live == d9c186cd at
+  15:52Z`), and stop. Fabricating a follow-up PR to satisfy a to-do/guard turns a clean close into
+  churn another lane has to read.
 - If `main` ≠ live, the merge did not version the current behaviour: file the follow-up sync (issue+PR).
 - And the gate the sync PR must itself pass: a from-live copy can carry markdown the TREE's
   `lint_linefeeds` rejects (an HTML comment directly above a `## Heading` reds it), so run
