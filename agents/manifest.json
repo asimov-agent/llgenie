@@ -10,7 +10,9 @@
     },
     {
       "name": "llgenie-issse-implementer",
-      "rules": []
+      "rules": [
+        "never-merge"
+      ]
     },
     {
       "name": "llgenie-architect",
@@ -27,11 +29,15 @@
     },
     {
       "name": "llgenie-documentation-maintainer",
-      "rules": []
+      "rules": [
+        "never-implement"
+      ]
     },
     {
       "name": "llgenie-ci-pipelines-maintainer",
-      "rules": []
+      "rules": [
+        "never-merge"
+      ]
     },
     {
       "name": "llgenie-pr-reviever",

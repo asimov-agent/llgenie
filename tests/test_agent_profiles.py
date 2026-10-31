@@ -2857,6 +2857,7 @@ def test_the_exemption_path_and_the_drift_path_share_the_convention(tmp_path):
         assert i["where"] != "agents/agents/", i["key"]
 
 
+
 def test_bytecode_beside_a_shipped_script_is_skipped_not_decoded(tmp_path: Path):
     """A .pyc that reached a skill directory must not be compared (issue #1134).
 
@@ -2916,3 +2917,69 @@ def test_an_unexpected_abort_exits_non_zero_and_says_nothing_was_checked(monkeyp
     assert code == 2, code
     assert "FAIL" in captured.err
     assert "NOTHING was checked" in captured.err
+
+
+def test_the_four_lanes_that_declared_no_rule_now_declare_what_their_soul_states():
+    """#1108: four profiles shipped `rules: []`, so nothing in their SOUL was gated — a deleted rule
+    would pass CI silently. This pins both halves per lane: the manifest declares at least one rule AND
+    that rule's pattern is present in the SOUL's stated text (the same view the gate matches).
+
+    A subset check, not an exact list: a lane may legitimately declare MORE later, and an equality
+    assertion would red on that addition (the "never assert a list the tree is meant to extend" rule).
+    """
+    profiles = {p["name"]: p for p in guard.profiles_from_manifest(REPO / "agents")}
+    for name in ["llgenie-issse-implementer", "llgenie-security",
+                 "llgenie-documentation-maintainer", "llgenie-ci-pipelines-maintainer"]:
+        declared = set(profiles[name]["rules"])
+        assert declared, f"{name} declares no standing rule — its SOUL is ungated (issue #1108)"
+        assert declared <= set(guard.STANDING_RULES), f"{name} declares an unknown rule: {declared}"
+        stated = guard.stated_text((REPO / "agents" / name / "SOUL.md").read_text(encoding="utf-8"))
+        for rule in declared:
+            assert guard.STANDING_RULES[rule].search(stated), (
+                f"{name} declares `{rule}` but its SOUL.md does not state it — a declaration the file "
+                f"lacks is a lie the gate would then enforce (issue #1108)"
+            )
+
+
+def test_deleting_a_declared_rule_from_one_of_the_four_reds_the_gate(tmp_path):
+    """#1108 negative control, automated: for each of the four freshly-declared lanes, blanking the
+    statement the manifest declares must produce a `standing-rule` finding naming that profile.
+
+    The registration alone is not the fix — a declaration with no matching statement is a lie the gate
+    would then enforce. This proves the gate actually goes red for each of the four, on a throwaway
+    copy of the real tree (the live repo is never mutated).
+    """
+    import shutil
+    root = tmp_path / "tree"
+    root.mkdir()
+    # findings(root) reads root/agents, so the real agents/ tree goes to root/agents
+    shutil.copytree(REPO / "agents", root / "agents", dirs_exist_ok=True)
+    profiles = {p["name"]: p for p in guard.profiles_from_manifest(root / "agents")}
+
+    for name in ["llgenie-issse-implementer", "llgenie-security",
+                 "llgenie-documentation-maintainer", "llgenie-ci-pipelines-maintainer"]:
+        declared = set(profiles[name]["rules"])
+        soul = root / "agents" / name / "SOUL.md"
+        original = soul.read_text(encoding="utf-8")
+        stated = guard.stated_text(original)
+        # blank ONLY the stated sentences that carry the declared rule
+        lines = []
+        for line in original.splitlines(True):
+            if any(guard.STANDING_RULES[r].search(line) for r in declared if r):
+                lines.append("")
+            else:
+                lines.append(line)
+        soul.write_text("".join(lines), encoding="utf-8")
+        items = guard.findings(root)
+        hits = [i for i in items if i["key"] == "standing-rule" and name in i["where"]]
+        assert hits, (
+            f"deleting {name}'s declared rule ({declared}) did NOT red the gate — a declaration "
+            f"with no statement would pass silently (issue #1108)"
+        )
+        for rule in declared:
+            assert any(rule in i["detail"] for i in hits), \
+                f"{name}: the standing-rule finding does not name `{rule}`"
+        soul.write_text(original, encoding="utf-8")  # restore before the next lane
+
+    # the tree is back to the shipped state after every restore
+    assert guard.findings(root) == guard.findings(root), "restore not idempotent"
