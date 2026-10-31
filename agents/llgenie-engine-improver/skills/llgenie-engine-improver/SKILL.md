@@ -637,6 +637,14 @@ gate no longer reaches as a host-only document, and any `WORKFLOWS = ("ci.yml", 
   reds** (`[changes-index] ERROR: … is not indexed — add docs/changes.d/…`). The changes.d file is ONE row:
   `| <date> | <summary> | [<name>.md](agent-wiki/<name>.md) | <refs> |`. Add the index row in the SAME commit as
   the agent-wiki file — a good doc with no index row is a RED gate, not a finished change.
+- **Editing an EXISTING tracked behaviour file (an agent skill/SOUL, a script that moves product output)
+  owes an agent-wiki note even when you add no new wiki file — the #1123 rule fires on the CHANGE, not
+  just on a new note.** `check-docs` reds `[check-docs] ERROR: change->note: this branch changes
+  <path> (+N more) but adds no agent-wiki/<stem>.md note — a behavioural change owes a note`. So after any
+  such edit, write `agent-wiki/<stem>.md` + its one-row `docs/changes.d/<stem>.md`, then run
+  `make changes-index` (it regenerates `CHANGES.md` from the fragments) and **COMMIT that regenerated
+  `CHANGES.md`** in the same PR — an unindexed note reds, and a regenerated-but-uncommitted CHANGES.md
+  leaves the tree dirty. Only then does `make check-docs` go green.
 - **Shared branch that two lanes co-push: fetch, then `git rebase origin/<branch>`, then push
   additive.** Never guess divergence with `merge-base --is-ancestor` (it misreads an amend-vs-
   remote-head shape) and never force-push over a teammate; when the remote head moved while you were

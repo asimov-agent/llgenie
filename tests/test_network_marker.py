@@ -265,8 +265,10 @@ def _hub_opens(file_text: str) -> list[tuple[str, str]]:
         measured 2026-10-31 (run 41126714284, test_mac_trend_pick.py:169) unwinds
         `offer` → `plan_download` → `_snapshot` → `_tree` → `hf_auth.hub_open` → the Hub API, and
         offline (`--network none`) bisection shows every unmarked `offer`-consuming trend test
-        hangs there. NOT plan_download called DIRECTLY (the engine lane's planning-only
-        carve-out), NOT resolve_local (local disk only);
+        hangs there. `mp.plan_download` is itself in the set: it reaches the Hub on general
+        formats. NOT the strata/tensorfold branches (those are truly planning-only — the engine
+        lane's carve-out; strata/tensorfold planning never opens the Hub), NOT resolve_local
+        (local disk only);
       - a call into a SAME-FILE helper whose own scope carries one of those entry calls,
         transitively (helper calling helper). Helper indirection (`_offer(tmp)`, `_cli(...)`,
         `_tensorfold_row`) is exactly how the live-Hub chain escaped the pin: the entry call lives
@@ -290,7 +292,7 @@ def _hub_opens(file_text: str) -> list[tuple[str, str]]:
     _MODEL_DICT = re.compile(r"([A-Za-z_]\w*)\s*=\s*\{[^}]*?\bhf\b[\"']?\s*:")
     module_hf_models = {m.group(1) for m in _MODEL_DICT.finditer(file_text)}
     _ENTRY_CALL = re.compile(
-        r"\b(mp\.(download|gguf_files|hf_size|offer|_hub_json|_tree|gguf_repo|mlx_repos|"
+        r"\b(mp\.(download|gguf_files|hf_size|plan_download|offer|_hub_json|_tree|gguf_repo|mlx_repos|"
         r"tensorfold_repos)|sr\.check_links)\s*\(")
 
     # Slice the file at top-level defs; each scope's body ends where the NEXT def's decorator

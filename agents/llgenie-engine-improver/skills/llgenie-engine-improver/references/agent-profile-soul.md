@@ -59,6 +59,28 @@ no copy — CI then validates nothing about what that lane actually runs under.
 6. The PR body says it **clears the row**, and never closes the tracker issue — a close is the tracker
    owner's decision.
 
+### Second pass: the tree copy DRIFTS after the first merge
+
+The verbatim mirror above is not a one-time job. Once the skill is versioned and merged, the live profile
+keeps growing while the tree copy freezes, so a later "version the skill" dispatch is really a **sync of
+the drifted files**, not a fresh first-time copy:
+
+- **Measure per-file bytes, tree vs live, before assuming the whole job remains.** `git archive
+  origin/main agents/<profile>/skills/<name> | tar -x` into a temp dir, then for each file `cmp -s` and
+  print `tree=<bytes> live=<bytes>`. Often only one or two files drifted (live added a few lessons) while
+  the rest and the SOUL are already byte-identical — sync just those, and say in the body that SOUL was
+  unchanged.
+- **`diff -rq` empty on the WHOLE directory is still the proof**, not a per-file count. Copy the drifted
+  files verbatim and confirm the directory matches live exactly.
+- **Before re-opening the work, check whether the earlier PR already MERGED** (`gh pr view <n> --json
+  state,mergedAt` + `git log origin/main --oneline -- agents/<profile>/`). A merged skill PR means the row
+  is cleared on main; a second copy of the same directory is a duplicate, not a completion. Ship only the
+  real delta and cite the merge commit it builds on.
+- **The two repo copies obey OPPOSITE rules — do not swap them.** `agents/<profile>/skills/<name>/` is a
+  **verbatim mirror** (`diff -rq` empty is the gate); `.hermes/skills/<profile>/SKILL.md` is a
+  **content-add into a `## Inputs`/`## Output`/`## Rules` structure** (a blind copy drops those headers and
+  reds `check_agent_skills`). Mirror the `agents/` copy; content-add the `.hermes/` copy.
+
 ## Writing the file needs explicit consent — and a timeout is not consent
 
 `SOUL.md` (like other agent-instruction files) is a **protected write**. The tool asks the user and

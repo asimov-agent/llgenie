@@ -1,0 +1,39 @@
+# The 2026-10-28 bot pause, recorded as data (issue #902).
+#
+# GitHub's `disabled_manually` is API-only — `gh workflow list` sees it, the tree does not
+# (docs/BOTS.md section "Which workflows may be paused"). This file is the source of truth for WHY a
+# workflow is paused and WHAT restores it; `gh workflow list --all` is the observation that may
+# confirm or contradict it. A workflow not listed here that the API reports `disabled_manually`
+# is a silent break, not a decision.
+
+paused_utc = "2026-10-28T15:50:00Z"
+
+# The workflows paused 2026-10-28 (the whole bot fleet at the deployment the pause was measured on).
+paused = [
+  "architecture-bot", "bench-disk", "code-review-bot", "engine-bump-rebase", "fix-bot", "issue-bot",
+  "issue-dedupe", "issue-refiner", "queued-alarm", "rebase-bot", "registry-sync-review",
+  "registry-sync", "run-failure-reactor", "search-smoke", "security-bot", "security-scan",
+]
+
+# Workflows NEVER paused, in any pause: #874 established this for the merge path; #902 extends it to
+# every workflow that turns a green PR into a mergeable, tested, published one. If the live API
+# reports any of these `disabled_manually`, the all-pipelines sweep fails loudly instead of treating
+# it as a benign DISABLED (the `state == disabled_manually` half of the #874 guard).
+never_pause = ["auto-merge.yml", "ci.yml", "pipeline.yml", "published.yml"]
+
+# Restore order once the queue is healthy (scripts/bots_restore_health.py): cheap common bots first
+# so the board wakes early; the heaviest last so they do not re-saturate a just-drained queue.
+restore_first = ["fix-bot", "security-bot", "registry-sync", "engine-bump", "issue-dedupe"]
+restore_after = ["security-scan", "engine-build"]
+
+[pause_reason.runner_starvation]
+severity = "owner decision, not a broken workflow"
+detail = "Queue saturated under runner starvation (#817); pausing was deliberate (owner) so the merge path stayed live."
+
+# The restore condition, as a measurement (issue #902, #817): the queue is healthy when N
+# consecutive readings, K minutes apart, each show every queued `pull_request` CI run reaching
+# `in_progress` within L minutes of creation.
+[restore]
+N_readings = 3
+K_minutes_apart = 10
+in_progress_within_minutes = 10
