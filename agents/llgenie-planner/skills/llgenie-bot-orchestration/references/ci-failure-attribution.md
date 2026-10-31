@@ -67,6 +67,72 @@ Rebasing a branch that sat for hours is not a mechanical conflict resolution: `m
 
 State the base sha in every rebase report, and when the branch predates a model change, say **"stale in kind, needs rebase"** instead of "missing row": the two need different fixes.
 
+## 8.5 A consumer job that polls for a DISABLED producer's artifact
+
+When a job fails with "<artifact> was never published within N minutes / no producer cell state" or a `manifest unknown` on a tag it waited for, the defect is usually NOT the consumer: some other workflow is supposed to PUBLISH that artifact, and it is `disabled_manually`. A job that `gh ci-wait-engine-images`-style polls GHCR for an image can burn its whole budget waiting for a producer that no enabled workflow drives.
+
+Discriminate producer-disabled from consumer-broken before attributing:
+- check the producer's workflow state: `gh api repos/<o>/<r>/actions/workflows —page` and grep the named producer for `disabled_manually`;
+- confirm the artifact truly is absent: `docker manifest inspect ghcr.io/<o>/<r>/<image>:<tag>` → `manifest unknown`;
+- note that an ACTIVE sibling (`publish-agent-image`) may publish a DIFFERENT artifact (the agent image, keyed by hash) and is NOT a substitute producer for the engine/router image the consumer waits on.
+
+This reds every PR's job (not one lane), so it is a base defect, and the fix is an OWNER re-enable decision (or a build-in-band `needs:` redesign so the consumer consumes the artifact the same run built instead of polling a remote), NOT a code fix in the PR. Frame it as "the producer that workflow X's gate depends on is disabled" rather than "a bot forgot to publish" — the producer cannot publish while disabled, so the unblock is the owner's, and the failed install is the symptom to report, not the thing to edit.
+
+**The structural fix is to make the consumer test a leg of the producer.** Once you have diagnosed a decoupled poll (consumer waiting on a tag some other workflow may or may not publish), the durable remedy is not just re-enabling the producer but *moving the consumer's test into the producer*: each producer matrix row already does `build-engine -> verify -> push`; append the install/dry-run/author its own just-published image after the push. Then "the artifact exists" and "the artifact installs" are properties of the one pipeline that builds it, the 30-minute poll disappears from the consumer, and a disabled producer can no longer red a consumer — there is nothing left to poll. Frame the request as one pipeline owning both the publish and the acceptance of what it published, not as N files to touch.
+
+## 8.6 `openspec-tasks-check`: one unticked checkbox reds TWO jobs, and `validate` is not `tasks-check`
+
+A PR whose `openspec/changes/<change>/tasks.md` still contains `- [ ]` lines fails `openspec-tasks-check` with
+`[openspec-tasks] FAIL <change>: unchecked task checkbox(es) at lines [...]`, and `ci-openspec` exits 2. Because
+`scope` runs `check-docs`, which runs `openspec-tasks-check`, **that one cause reds both `linux / openspec` AND
+`scope`** — two red job names, one defect. Do not report the pair as two independent problems, and do not assume a
+`scope` red is the census.
+
+- **`openspec-validate <name>` green means the spec TEXT parses; it says nothing about the checkboxes.** A lane citing
+  validate as proof the tasks are done is citing the wrong gate.
+- The tasks file is the **author's** content. A rebase/sweep lane must not tick another lane's boxes — that fabricates
+  progress and is the failure the gate exists to catch. Route the named line numbers to the owning lane.
+- Tick a line only with the evidence that line names. A task reading "`make test-unit` … exit 0" requires **that
+  target**, not a hand-rolled `pytest tests/` — the target is what CI runs and what the checkbox asserts. A task whose
+  proof does not exist stays unchecked and is reported by name; a falsely ticked box is worse than an unticked one.
+- Timing: work the tick only after the head's in-flight runs conclude, then push one commit — never cancel a matrix to
+  land a checkbox.
+
 ## 9. Failure shapes worth naming in the report
 
 Write the verdict as a sentence a merger can act on: *green at `<sha>`, run `<id>`, N success / 0 failure / 0 cancelled, mergeable* — or *not green, because X*. Name cancelled jobs explicitly; never summarise a run with cancelled rows as "green modulo timeouts".
+
+## 10. A gate failure at a head that exists nowhere is fabricated, and verifying is cheap
+
+Three lanes in one session attributed red checks to heads that were reachable on **no** remote or local ref
+(`913049ee` for #1138, `5a62dd08` for #1117): the architect reported a phantom new-head, the rebase lane then relayed
+it as a diagnosed "guard FAILURE" with invented authors (`architect@llgenie.local`), and another lane re-stated the
+same phantom for a different PR. Checking costs three commands and settles it in seconds:
+
+```bash
+git ls-remote origin | grep -i <short-sha>        # on a real ref?
+git for-each-ref | grep -i <short-sha>            # a local ref?
+gh api repos/<o>/<r>/commits/<PR-head>/check-runs --jq '.check_runs[]|"\(.name): \(.status)/\(.conclusion)"'
+```
+
+- A sha that `ls-remote` cannot name is **not a diagnosis, it is a fabrication.** A relayed "the gate reds at X" where X
+  is unreachable describes nothing; re-anchor the call on the PR's real `headRefOid` and read the check-runs there.
+- Gate verdicts travel: a phantom head diffuses across lanes within minutes, each attribution sounding more authoritative than the last. Break the chain by insisting the head exists before believing the verdict.
+- A **fabricated finding is worse than a stale one**: stale says "I measured earlier", fabricated says "I measured something that is not there". Paste the check-runs at the reachable head as the floor for any future "failure".
+
+## 11. A lane's self-diagnosis of its own author identity can be inverted against the allowlist
+
+`scripts/check_pr_authors.py` derives `ALLOWED` from `ALIASES` (email -> name frozenset) and gates on **names**, so
+an allowlisted address can look like a "typo" to the lane that authored through it. Measured: a lane reported its own
+PR `support@docondee.com` as a one-extra-letter typo needing re-author, when that address is the canonical `ALIASES`
+entry for "Asimov Agent"/"Mr. Asimov" and `check-pr-authors` passes it. Verify against the gate's real allowlist,
+never against a lane's narrative about it:
+
+```bash
+git show <base>:scripts/check_pr_authors.py | sed -n '/^ALIASES/,/^}/p'    # the email->name map
+gh api repos/<o>/<r>/pulls/<n>/commits --jq '[.[].commit.author.email]|unique[]'
+```
+
+Before dispatching a re-author (which rewrites commits on a branch), read the map: if the claimed offending address
+is in `ALIASES`, the gate is green and the re-author destroys a correct identity. Re-author only on a real
+`ALLOWED`-ban. Same rule that stops me re-correcting numbers: cite the gate's own output, not the lane's gloss.
