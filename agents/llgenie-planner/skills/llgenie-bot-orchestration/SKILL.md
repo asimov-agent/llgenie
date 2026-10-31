@@ -479,6 +479,28 @@ A commit whose message belongs to a different issue, or an old head that is no l
 
 **A squash-merge's commit message names the headline, not the full content.** Verify a merged PR's real scope from the tree (files on main, a 404 for a deleted file), never from the merge title — a title reading "engine-build producer install-leg" carried a whole ci-refactor squash. A branch whose work already merged is not "needs to land" and must not be rebased or re-offered: read `state=mergedAt` (and `mergeCommit`) before acting, and remember that a squash rewrites the commits, so `merge-base --is-ancestor <old-head> main` returning false does NOT prove the work is unmerged — the tree/content check does.
 
+## The planner is the propagation hub
+
+The planner is the hub through which a PR's new_head reaches its dependents. A dependent lane discovers a fresh
+head by **routing**, never by polling: the moment a lane's finish lands (or a PR reaches a fresh head, or a
+merge lands), the planner routes the dependent lanes — tester, security, architect, reviewer — onto that same
+PR in the **same pass**, on-record, so no pass ends with a dependent lane untriggered.
+
+1. **Read the finish as evidence, not prose.** When a lane reports a finished PR, the trigger is the measured
+   fact — `gh pr view <n> --json headRefOid,mergeStateStatus` and the head sha / run id the lane cites — never
+   the claim alone. A "done" that names no sha is a report, not a finish.
+2. **In the same pass, post the routing comment on the PR** naming which dependent lane(s) look now and why
+   ("tester: verify #<n> acceptance at <head>; security: advisory on the engine-build path"). The assignment is
+   a comment a stranger can find, so it lands on the PR, not only in a DM.
+3. **Dispatch each named lane**, and say in the routing comment when one is **not** dispatched and why: it
+   already holds a vehicle on that PR, or it is gate-blocked. A dependent lane that is real but cannot be
+   dispatched is named with its unblock condition, never silently dropped. When `message_agent` is not in the
+   toolset, use the kanban board channel (the §3 fallback) and put the same trail on the PR.
+4. **Record the routing and disposition** so the next pass does not re-dispatch a lane already on the vehicle
+   — the re-dispatch test is why the routing lives on the PR in the first place.
+
+The unit is the pass, not the tick: a finish that lands mid-pass is routed before that pass ends. (issue #1194)
+
 ## Every dispatch states the assignment; every bot states its state
 A bot that has not been told the assignment invents one, and a bot that does not report cannot be delegated to. So every dispatch names: the **id** (issue or PR), the **scope** (what to change), what is **not** in scope, and the **exact thing to report**. And every dispatch asks for a status line in one fixed shape:
 
