@@ -1,7 +1,7 @@
 ---
 name: llgenie-docs-maintainer
 description: "Use when auditing, filing or landing LLGenie docs changes."
-version: 1.0.15
+version: 1.0.17
 author: Hermes Agent
 license: MIT
 metadata:
@@ -54,6 +54,14 @@ owner grant, a PR you already own — say that first; reporting "idle" while a P
 flight is read by the fleet as a lane going quiet, and it invites a dispatch that collides with
 your branch.
 
+**A suspicious tool return is confirmed by one clean re-run, never reported as a degraded environment.**
+An oversized batch of *dependent* commands sent as parallel calls comes back interleaved or blank, and
+blank reads exactly like a broken tool. Re-issue the failed piece alone and act on that result; the
+cause is almost always the batch (dependent steps must be serialized), not the environment. Sending a
+teammate "tools degraded, work blocked" off the first odd return manufactures an alarm the lane then
+has to retract — and a retraction costs more trust than the delay did. Diagnose, re-run, and report only
+the state you re-read.
+
 **A claim about what is pending includes draft state.** Before writing "blocked on approvals" or
 "waiting on review", run `gh pr list --repo asimov-agent/llgenie --state open --json number,isDraft`:
 a draft is invisible to the merge queue, to auto-merge and to a reviewer scanning for work, so a
@@ -95,6 +103,10 @@ The step-by-step runbook — the triggers, the two commands, the delta-record ta
 must carry, and the new-issue routing — is the sibling reference `references/live-vs-tree-drift.md`;
 load it before a SOUL/skill review so the captured delta is the reproducible one, not a prose guess.
 
+The lane's docs-freshness ownership — README + `docs/` are this lane's against the tree, the 30-min
+change monitor that answers "does any user-facing doc/README need an update?" before other work, and
+the never-a-private-edit rule — is `references/docs-freshness.md` (versioned via #1239).
+
 Concretely, treat this as part of comparing the behaviour of existing issues and their implementations:
 
 - `make check-agent-profiles` names the gaps: `live-longer`, `live-edited-not-tree`, `fleet-block-drift`
@@ -110,7 +122,7 @@ Concretely, treat this as part of comparing the behaviour of existing issues and
   lane keeps editing its live skill, so a tree copy committed early is already stale by merge (live
   gained lessons twice during one PR) and `sync-agent-profile CHECK=1` then reds on `main` against
   the newer live. Re-run the live→tree copy and `CHECK=1` at the final head before pushing/landing;
-  if a held branch's snapshot is behind, re-copy — do not ship the stale snapshot.
+  if a held branch's snapshot is behind, re-copy — do not ship the stale snapshot. **For a multi-file sync, `cmp` every live file against its committed tree copy AFTER the commit and before the push** — live is written while you work, so a copy that was byte-identical minutes ago can drift before the commit; amend the re-copy at that head rather than discovering the drift on `main` after landing. Record the per-file byte counts (tree@base → head==live) in the PR body so a reviewer can re-run `cmp`.
 - A gap found while reviewing someone else's PR is a **new issue**, scoped to the owning lane, with the
   delta (profile, file, class, tree/live bytes, direction) recorded in the issue and PR body per
   `references/live-vs-tree-drift.md`; a gap that lives only in a comment is not trackable and gets one.
@@ -177,6 +189,18 @@ the review/check requirements clear. Read it back — `gh pr view <n> --json aut
 `enabledAt` in the report, because "I armed it" without the timestamp is the same unverifiable claim as
 "CI looks green".
 
+**The arm read-back proves itself by `enabledAt`+`enabledBy`+`mergeMethod`, NEVER a field called `enabled`.**
+GitHub's GraphQL `PullRequest.autoMergeRequest` object exposes only `enabledAt`, `enabledBy` and
+`mergeMethod` — there is NO boolean `enabled` field, so a teammate who queries `.autoMergeRequest.enabled`
+gets `null`, reads it as `FALSE`, and flags a perfectly armed PR under the #964 failure mode. When a
+teammate reports "autoMergeRequest shows enabled:FALSE", do not re-theorize — pull the FULL object
+(`gh pr view <n> --repo <r> --json autoMergeRequest --jq '.autoMergeRequest'`) and quote it. An
+`enabledAt` that is non-null, an `enabledBy` set to the enabling actor (here the PR owner `andyholst`)
+and `mergeMethod: SQUASH` IS the armed state; a null `authorEmail`/`commitBody`/`commitHeadline` is just
+"no merge-commit overrides set", not a disarmed flag. Re-running `gh pr merge <n> --squash --auto` is
+idempotent and removes all doubt — do it, read the full object back, and answer with the JSON, not an
+argument about which field is real.
+
 ## Landing a docs PR (the loop that works)
 
 1. Work in the PR's own worktree. `git worktree list` names it (`…/llgenie-wt/pr<N>`); never
@@ -231,7 +255,12 @@ the review/check requirements clear. Read it back — `gh pr view <n> --json aut
 8. Update the PR body (`gh pr edit --body-file`, then **read it back** and grep for the new head
    and `closes #<n>`) — **after the last push, never before.** A body that names a "final head" sha
    is invalidated by the very next commit, so any further push (a re-copy, a rebase, a lint fix)
-   re-opens the edit step; write the head line last or it lies. If another open PR edits the same doc, name it in the body and state the
+   re-opens the edit step; write the head line last or it lies. **The head can move without a push of
+   yours** — a rebase lane, the reviewer, or an automation rebases the branch under you, so "my last
+   push" is not the head. Before reading a PR's state or refreshing its body, re-derive it from the API
+   (`gh pr view <n> --json headRefOid,baseRefName`) and, if it differs from the sha the body names,
+   treat the body as stale and refresh it: a body naming a pre-rebase base or head is a live defect that
+   reads as fact, exactly like a census with no `measured at`. If another open PR edits the same doc, name it in the body and state the
    ordering: whichever lands second re-measures the census at the new base, and that re-measure is
    the second landing, not a defect to prevent.
 9. **Try the merge before any approval — but you cannot supply the approval yourself.** `gh pr merge
@@ -286,8 +315,7 @@ fragments by `make changes-index` (`scripts/changes_index.py`). Rules that follo
 - The OpenSpec CLI runs as root in its container: `make openspec-new` leaves the new change dir
   root-owned, so `write_file` fails with `Permission denied`. Fix it without sudo by
   `docker run --rm -v "$PWD":/repo alpine chown -R "$(id -u):$(id -g)" /repo/openspec/changes/<name>`.
-- In this checkout `origin` is the upstream (`asimov-agent/llgenie`) and `fork` is
-  `andyholst/llgenie` — check `git remote -v` before pushing; a PR head is `andyholst:<branch>`.
+- In this checkout `origin` is the upstream (`asimov-agent/llgenie`) and `fork` is `andyholst/llgenie` — check `git remote -v` before pushing. A new branch and PR can be created on `origin` (`gh pr create --head <branch>`); only an **existing** PR whose head sits on the fork needs `git push fork` (read `headRepositoryOwner` first).
 
 ## Pitfalls
 
@@ -337,7 +365,22 @@ fragments by `make changes-index` (`scripts/changes_index.py`). Rules that follo
   stop rerun-looping and wait for a quiet window — the fingerprint is in
   `references/ci-triage-for-docs-prs.md`.
 - **`closingIssuesReferences` is eventually-consistent — a `none` right after a PR is created is not evidence the `Closes #<n>` keyword failed.** The field is populated asynchronously, so `gh pr view --json closingIssuesReferences` returns empty for minutes after creation; do **not** edit the body in response. Re-read later, or confirm the link from the body text and the issue's own timeline. A positive is proof; a negative is only "not yet, or genuinely absent".
-- **A local full `make test-unit` pass is evidence, not the CI verdict.** CI runs with a clean HOME where live-vs-tree profile comparison is skipped, so a test that reads the host profile can pass locally for a different reason than CI runs it (or vice versa). Report a local suite as evidence — its exit code and the head sha — and still wait for the CI job's own conclusion before calling a head green; the two can disagree, and the CI one is the one that gates.
+- **A local full `make test-unit` pass is evidence, not the CI verdict.** CI runs with a clean HOME where live-vs-tree profile comparison is skipped, so a test that reads the host profile can pass locally for a different reason than CI runs it (or vice versa).  Report a local suite as evidence — its exit code and the head sha — and still wait for the CI job's own conclusion before calling a head green; the two can disagree, and the CI one is the one that gates.
+- **Verify at the exact STATE the acceptance criterion names — a weaker proxy does not satisfy it.** When an
+  issue's `## Acceptance criteria` says "green on a clean merge-tree of `origin/main`" (or "on every PR
+  rebased onto it", or "under the gate PR's version"), a green on your branch head — locally and in CI —
+  is a *different* measurement, and the integrity check treats it as not passed. Reproduce the named
+  state and run the gate there, in code:  `git fetch origin +refs/heads/main:refs/remotes/origin/main`,
+  `git worktree add /tmp/mt <origin/main>`, `git merge --no-ff --no-commit refs/remotes/origin/<branch>`,
+  then `make -s check-architecture-census` and `make -s check-docs` on that merged tree. **A PR head that
+  lives only at `refs/pull/<n>/head` (a fork head, or a branch ref that was never fetched) cannot be
+  merged directly** — `git merge refs/pull/<n>/head` fails `not something we can merge` because that ref
+  is not in the worktree's ref namespace. Fetch it to a named remote-tracking ref first:
+  `git fetch origin +refs/pull/<n>/head:refs/remotes/origin/pr<n>`, then `git merge refs/remotes/origin/pr<n>`. — a conflict-free
+  merge plus `[census-gate] OK … referent … is an ancestor of HEAD` is the proof the criterion asks for,
+  and it also proves the change cannot conflict on landing. Run the subtle-but-required variant too when
+  the criterion names it (e.g. the gate PR's own checker via its head blob). Remove the scratch worktree
+  after (`git worktree remove /tmp/mt --force`); it is your own verification artifact, not a lane's.
 - **Your own versioned `SKILL.md`/`SOUL.md` is scanned by the suite — a retired symbol in it reds CI,
   and it is the file you least expect.** A live skill that still names the retired underscore module/CLI
   that `scripts/module_name_guard.py` forbids (the pre-rename spelling replaced by `llgenie_serve`) fails
@@ -407,7 +450,7 @@ fragments by `make changes-index` (`scripts/changes_index.py`). Rules that follo
   implementer's comparator `_stated_block == fleet_block()` — before declaring `block in soul == True`, and when the
   two disagree, re-type from `agents/standing-rules.md` rather than trusting the count.
 - **To make a lane's SOUL state the canonical fleet block verbatim, relocate ONLY the extras — moving whole bullets that restate canonical rules reds the duplicate gate.** A SOUL's `## Standing rules (fleet…)` section is often interleaved with lane-specific material: an appended sentence inside a canonical bullet, a lane *variant* of a canonical rule (e.g. a different "Arm…" bullet), and extra `#`-cited bullets. Set the section body to the exact text of `agents/standing-rules.md`, and put the lane-specific material in a separate `## Lane rules (<profile>)` section. Do **not** relocate the modified *full* bullet — that duplicates the canonical rule and fails `tests/test_agent_profiles.py::test_the_report_names_duplicate_canonical_rules_and_the_gate_does_not_fail_on_them`; move only the added clause/sentence/clause-bearing bullet, not the whole rule. Verify with `python3 scripts/check_agent_profiles.py check` (no `fleet-block-drift` for that lane) and `python -m pytest tests/test_agent_profiles.py` (the duplicate test included) before pushing. When a `## This lane` heading immediately follows a bullet, add the blank line the markdown linter wants in the same edit.
-- **A PR's head may live on the FORK, so `git push origin HEAD:<branch>` can leave the PR unmoved and create a stray upstream branch.** `origin` is the upstream (`asimov-agent/llgenie`) but a PR's `headRepository` is often the fork (`andyholst/llgenie`). Pushing to `origin` then prints `[new branch]`, creates `agents/…` on the upstream, and the PR head does not change. Check `gh pr view <n> --json headRepositoryOwner,headRepository` first; push to `fork` (`git push fork HEAD:<branch>`), delete the stray (`git push origin --delete <branch>`), and confirm the head moved (`gh pr view <n> --json headRefOid`).
+- **A PR's head may live on the FORK, so `git push origin HEAD:<branch>` can leave an existing PR unmoved and create a stray upstream branch.** `origin` is the upstream (`asimov-agent/llgenie`) but an existing PR's `headRepository` is often the fork (`andyholst/llgenie`). Pushing to `origin` then prints `[new branch]`, creates the branch on the upstream, and **the PR head does not change**. Check `gh pr view <n> --json headRepositoryOwner,headRepository` first; push to `fork` (`git push fork HEAD:<branch>`), delete the stray (`git push origin --delete <branch>`), and confirm the head moved (`gh pr view <n> --json headRefOid`). **This applies only to a PR that already exists** — for a brand-new branch there is no PR head yet, so pushing to `origin` (upstream) and `gh pr create --base main --head <branch>` records a same-repo head and is valid; verify it with `gh pr view <n> --json headRepositoryOwner,headRefOid` after creation. Read `git remote -v` before deciding, not a remembered layout.
 - **Do not re-derive a bot's numbers by hand in prose.** Copy them from a command output you just
   ran, and quote the command in the PR body so a reviewer can reproduce it.
 - **A raw audit is mostly false positives — filter before you report or file anything.** Only
@@ -475,6 +518,7 @@ fragments by `make changes-index` (`scripts/changes_index.py`). Rules that follo
 - **Every "verified at `<sha>`" sentence must be true AT that sha — name the sha you actually ran the command on, never the branch head you assume is equivalent.** A note claiming "the battery passed at the final head `X`" while the check actually errored at `X` and passed at an earlier `Y` is the same defect as a census with no `measured at`: it reads as proof and is a coincidence. The safe shape when a commit must follow the measurement is a **prose-only follow-up commit** whose subject says it records the battery run at the earlier sha — the numbers were measured on a completed run, so a later edit cannot retroactively falsify them. When a late commit genuinely changes the tree, re-run the battery and update the sha; never delete the evidence paragraph to escape the mismatch, because the record's whole purpose is that proof.
 - **Adding a gate to a `ci-*` job also needs it classified in `scripts/issue_bot_gates.py` — and only the FULL suite tells you.** After `check-wiring` is satisfied (line above), a new `$(MAKE) check-<gate>` in `ci-unit` still reds `tests/test_issue_bot_gates.py::test_the_real_tree_is_wired`: the guard faults any `ci-unit` gate that is neither in `FAST_GATES` nor in `DEFERRED`. `FAST_GATES` is the pinned #475 six — never widen it; add the gate to `DEFERRED` with a one-line reason instead. The fast gates (`lint check-docs check-wiring`) do **not** run this test, so a `scripts/`/`Makefile` change is not done until you run the full `make test-unit` (or at least `python -m pytest tests/test_issue_bot_gates.py`) — a green fast-gate set is not a green suite.
 - **A census's `measured at <sha>` pointer is a real, reachable commit whose tree COUNT equals `HEAD` — not a sha string equal to `HEAD`.** The literal `pointer == HEAD` check is unsatisfiable for a document that lives inside the tree it measures (every commit that updates the pointer re-heads it). Implement it as: the pointer resolves to a real commit (`git cat-file -e <sha>^{commit}`, so an amend-orphaned sha reds), and `git ls-tree -r --name-only <pointer> | wc -l == HEAD` — so the census describes the tree the gate sees and reds only when a real file is added. And after a **squash-merge onto a `main` that moved** between your push and the merge, the merged tree can be larger than your branch's (other PRs' files land under the squash): `main` then reds until a refresh — file that refresh as its own issue with the measured delta; it is the gate working, not a defect in your PR.
+- **When a gate reds on a tree you did not branch from, prove it is upstream by running the SAME gate on a pure `origin/main` worktree before blaming or fixing your diff.** A census pointer left on a pre-squash commit reds `check-docs` on every branch, including PRs that touch no census file — the pointer names a commit the branch does not contain. Cut a scratch worktree at fresh `origin/main` (`git worktree add /tmp/mt origin/main`), run `make -s check-docs` (or the one gate) there, and quote both outputs: a red on the pure-main tree proves the defect is upstream and belongs to its own issue (route it to the generator's owner), NOT to a `do-not-merge` on your PR. Do not disarm the PR, rebase-loop it, or hand-edit the pointer to force green — one shared upstream red is one issue and one fix, and it clears for every open PR the moment that fix lands. The same move applies to any gate: an unrelated tree reds it, so the pure-base run is the discriminator between your diff and the tree.
 - **Rebasing onto `main` after the base PR was SQUASH-merged replays far too much — cut fresh, or `--onto` your own base.** A branch cut from a PR head that later merges as a squash is not an ancestor of `main`, so `git rebase origin/main` finds a much older merge-base and replays hundreds of commits, colliding on every shared file (`Makefile`, `agents/*`). Safe shapes: `git checkout -b <new> origin/main` then copy/apply only your own files (clean when the merged blobs equal your base's), or `git rebase --onto origin/main <the-sha-your-branch-was-cut-from>` which replays only `base..HEAD` (your own commits). A one-commit replay on a one-file change is the signal it worked; confirm the count before pushing.
 - **A repository-wide queue stall is capacity, not a red check — do not rerun-loop it.** A run at
   `guard` with `0/N` jobs plus dozens `queued` repo-wide and ~zero `in_progress` means nothing is being
@@ -502,7 +546,7 @@ fragments by `make changes-index` (`scripts/changes_index.py`). Rules that follo
   only, never from live.
 - **A branch of yours that reds `check-import-roots` is usually your own new test — fix the import, never the baseline.** The ratchet (issue #796) records counts in `tests/fixtures/import-roots-baseline.json` (`bare` / `sys-path`) and exits 1 the moment a count RISES, so a PR that adds a test inserting its own `sys.path` entry or importing a `scripts/` module bare (`import check_docs`) reds `ci-unit` even when every other job is green — the failing site it names may be an OLD offender, not your file, because it lists all sites. The allowed shape is the conftest seam: `from scripts import check_docs` (sibling `tests/test_check_docs.py` shows it). A baseline is a measurement and may fall, never rise, so the fix is the import in the PR, never a fixture bump. Verify with `python3 scripts/check_import_roots.py ratchet` on the branch before pushing — and read the exit with `echo ${PIPESTATUS[0]}`, not `$?` after a pipe.
 - **A `pull_request` run evaluates the workflow at its MERGE REF (head merged into base), so a CI-ceiling raise merged on main does NOT apply to an unrebased PR — its runs are judged against the ceiling text at its BASE.** A `linux / unit` `completed/cancelled` at ~60 min with zero test output and siblings green is the OLD-ceiling fingerprint when the PR's base predates the ceiling merge — not (necessarily) starvation, and not a defect. Diagnose before any rerun: `gh pr view <n> --json baseRefOid` vs the ceiling-merge sha on main. Recovery is a rebase onto the fresh main + `--force-with-lease` (own branch) so the fresh run evaluates at the new ceiling — do NOT `gh run rerun` a run doomed by the old ceiling (it replays the recorded 60 and lands a second identical cancel that reads as starvation on the ledger), and if you already reran by mistake, cancel your own rerun rather than feed the ledger another copy.
-- **A cancel is three classes, not one — identify it before acting, and never push an unclassified one into the starvation ledger.** Old-ceiling (base predates the ceiling raise), starved runner (~1h on a ~1h45 job, `Timeout (0:05:00)!` in the step log, siblings green), and the third: **a short cancel (~25-30 min) of the long job with every sibling green, no `concurrency:` block at the base, and a `head_sha` already superseded** — that is an owner/API cancel of a vanity run, so nothing to rerun and nothing wrong with the diff; the deferral it justified is over and the push is safe. Always read `head_sha` before treating an `in_progress` run as "the head's run": a leftover run pinned commits behind cannot be destroyed by pushing the current head. Report such a cancel as *unclassified* with its measurements — the class table and commands are in `references/ci-triage-for-docs-prs.md`.
+- **A cancel is three classes, not one — identify it before acting, and never push an unclassified one into the starvation ledger.** Old-ceiling (base predates the ceiling raise), starved runner (~1h on a ~1h45 job, `Timeout (0:05:00)!` in the step log, siblings green), and the third: **a short cancel (~25-30 min) of the long job with every sibling green, no `concurrency:` block at the base, and a `head_sha` already superseded** — that is an owner/API cancel of a vanity run, so nothing to rerun and nothing wrong with the diff; the deferral it justified is over and the push is safe. Always read `head_sha` before treating an `in_progress` run as "the head's run": a leftover run pinned commits behind cannot be destroyed by pushing the current head. **And when you list runs by `head_branch`, compare each `head_sha` to YOUR head before attributing anything** — `gh api "repos/<r>/actions/runs?head_branch=<b>"` can return runs whose `head_sha` is an unrelated commit (another lane's PR sharing the branch-name filter, or a pre-fix push), so a red `ci-scope` in that list may belong to a commit that is not your head; confirm `git merge-base --is-ancestor <that-sha> <your-head>` is false before discounting it as noise. Report such a cancel as *unclassified* with its measurements — the class table and commands are in `references/ci-triage-for-docs-prs.md`.
 - **Search the open issues before filing the gap you just measured.** The audit findings are
   exactly what the repo's triage legs file, so `gh issue list --repo asimov-agent/llgenie --state
   open --search '<page/metric>'` first; if an issue exists, verify its quoted numbers against the
