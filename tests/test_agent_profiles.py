@@ -2855,3 +2855,64 @@ def test_the_exemption_path_and_the_drift_path_share_the_convention(tmp_path):
     for i in items:
         assert i["where"].startswith("agents/"), f"{i['key']} where is not repo-relative: {i['where']}"
         assert i["where"] != "agents/agents/", i["key"]
+
+
+def test_bytecode_beside_a_shipped_script_is_skipped_not_decoded(tmp_path: Path):
+    """A .pyc that reached a skill directory must not be compared (issue #1134).
+
+    It reached one for real: a lane's test importlib-loaded a shipped script, `__pycache__/` appeared
+    beside it, `sync-agent-profile` copied the directory wholesale, and the gate then raised
+    `UnicodeDecodeError` — which prints no FAIL, so every caller read the abort as clean.
+    """
+    root, agents, profiles = _mirror(tmp_path)
+    skill = Path("someone") / "skills" / "llgenie-bot-orchestration"
+    tree_pyc = root / "agents" / skill / "scripts" / "__pycache__" / "gen.cpython-311.pyc"
+    live_pyc = profiles / skill / "scripts" / "__pycache__" / "gen.cpython-311.pyc"
+    for p in (tree_pyc, live_pyc):
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(b"\xa7\x00\x00\x00 not utf-8 \xff\xfe")
+
+    # Then the pair is skipped by construction, and nothing raises
+    items = guard.shrink_findings(root, agents, profiles)
+    assert [i for i in items if "pycache" in i["where"]] == [], items
+
+
+def test_an_undecodable_file_is_reported_never_raised(tmp_path: Path):
+    """The backstop: if a non-UTF-8 file slips past the exclusion, it is a FINDING, not an abort.
+
+    "Found nothing" and "could not tell" must never print the same thing — that equivalence is what
+    turned a crash into a green (issue #1134).
+    """
+    root, agents, profiles = _mirror(tmp_path)
+    skill = Path("someone") / "skills" / "llgenie-bot-orchestration"
+    for base in (root / "agents", profiles):
+        bad = base / skill / "references" / "binary.md"
+        bad.parent.mkdir(parents=True, exist_ok=True)
+        bad.write_bytes(b"\xa7 not utf-8 \xff")
+
+    # Then it is reported as unreadable rather than aborting the gate
+    items = guard.shrink_findings(root, agents, profiles)
+    unreadable = [i for i in items if i["key"] == "unreadable-live-file"]
+    assert len(unreadable) == 1, items
+    assert "NOT compared" in unreadable[0]["detail"]
+
+
+def test_an_unexpected_abort_exits_non_zero_and_says_nothing_was_checked(monkeypatch, capsys):
+    """The entry-point backstop: a crash must not look like a pass (issue #1134).
+
+    A traceback exits non-zero but prints no FAIL, and callers here grep for FAIL — so the abort has
+    to say, in the gate's own vocabulary, that it failed *and* that nothing was checked.
+    """
+    def boom(_argv=None):
+        raise RuntimeError("simulated unexpected abort")
+
+    monkeypatch.setattr(guard, "main", boom)
+
+    # When the gate aborts unexpectedly
+    code = guard.run_cli([])
+
+    # Then it is a non-zero exit that prints the word callers grep for, plus what it did not do
+    captured = capsys.readouterr()
+    assert code == 2, code
+    assert "FAIL" in captured.err
+    assert "NOTHING was checked" in captured.err

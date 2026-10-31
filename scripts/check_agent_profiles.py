@@ -453,6 +453,27 @@ def live_edited_findings(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR,
     return items
 
 
+_SKIP_SUFFIXES = (".pyc", ".pyo")
+_SKIP_DIRS = ("__pycache__",)
+
+
+def _is_binary_path(path: Path) -> bool:
+    """Bytecode and cache artefacts are compared by nothing and decoded by nobody (issue #1134)."""
+    return path.suffix in _SKIP_SUFFIXES or any(part in _SKIP_DIRS for part in path.parts)
+
+
+def _text_lines(path: Path) -> set[str] | None:
+    """The file's non-blank lines, or None when it cannot be decoded.
+
+    Returning None rather than raising is the point: an exception here aborts the whole gate, and an
+    aborted gate prints no FAIL, so every caller reads it as clean (issue #1134).
+    """
+    try:
+        return {ln.strip() for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()}
+    except (UnicodeDecodeError, OSError):
+        return None
+
+
 def shrink_findings(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR,
                     live: Path | None = None) -> list[dict]:
     """Every live rulebook LONGER than its in-tree copy — the truncated seed, caught before a sync.
@@ -478,14 +499,26 @@ def shrink_findings(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR,
             counterpart = live_profile / rel
             if not counterpart.is_file():
                 continue
+            if _is_binary_path(path) or _is_binary_path(counterpart):
+                continue
             tree, there = path.stat().st_size, counterpart.stat().st_size
             # CONTENT decides, and size is only context. A live file can be bigger because it repeats a
             # block (measured: five SOULs carried the canonical fleet block twice after an append), and a
             # size test calls that a truncated seed when the tree carries every live rule already. The
             # question that matters is the one `sync` asks: would a copy delete a line the live file has?
-            tree_lines = {ln.strip() for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()}
-            live_lines = {ln.strip() for ln in counterpart.read_text(encoding="utf-8").splitlines()
-                          if ln.strip()}
+            tree_lines = _text_lines(path)
+            live_lines = _text_lines(counterpart)
+            if tree_lines is None or live_lines is None:
+                # Reported, never raised: an exception aborts the gate and prints no FAIL, which every
+                # caller reads as clean (issue #1134).
+                bad = path if tree_lines is None else counterpart
+                items.append({
+                    "key": "unreadable-live-file",
+                    "where": f"{tree_profile.name}/{rel}",
+                    "detail": f"{bad.name} is not valid UTF-8, so this pair was NOT compared — "
+                              f"report it rather than aborting the gate (issue #1134)",
+                })
+                continue
             missing = live_lines - tree_lines
             if missing and there > tree:
                 items.append({
@@ -1095,5 +1128,22 @@ def main(argv: list[str] | None = None) -> int:
     return 1
 
 
+def run_cli(argv: list[str] | None = None) -> int:
+    """Run the gate, and make an unexpected abort unmistakable (issue #1134).
+
+    A traceback exits non-zero but prints no FAIL, and every caller on this board greps for FAIL —
+    so an unhandled exception read as a clean gate. This says both things: that it failed, and that
+    nothing was checked.
+    """
+    try:
+        return main(argv)
+    except SystemExit:
+        raise
+    except BaseException as exc:  # noqa: BLE001 — an abort must never read as a pass
+        print(f"[check-agent-profiles] FAIL: the gate aborted before finishing "
+              f"({type(exc).__name__}: {exc}) — NOTHING was checked (issue #1134)", file=sys.stderr)
+        return 2
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(run_cli())
