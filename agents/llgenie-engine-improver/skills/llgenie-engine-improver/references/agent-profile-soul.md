@@ -29,6 +29,36 @@ make check-agent-profiles                the gate over this tree
 5. **Keep the two copies in step** if the profile also has an installed copy under
    `~/.hermes/profiles/<profile>/`: patch both in the same change set, then `--check` the sync.
 
+## Clearing an `absent-from-tree` row for a skill directory
+
+The profile gate also compares `~/.hermes/profiles/<profile>/skills/<name>/` against
+`agents/<profile>/skills/<name>/`. A row `absent-from-tree` means the live skill exists and the tree has
+no copy — CI then validates nothing about what that lane actually runs under.
+
+1. **Measure the live directory name; never trust the row label.** A dispatch names a path, and that path
+   can be stale or wrong (a renamed/unrenamed skill, a lane whose live dir is `<lane-name>` while the
+   tracker says something else). Enumerate first:
+   `find ~/.hermes/profiles/<profile>/skills -maxdepth 2 -type d` and compare sizes (`du -sb`) against the
+   row's reported bytes. Size + file count is what identifies the row, not the path string.
+2. **Cut a fresh worktree off current `origin/main`** and copy the whole directory verbatim —
+   `mkdir -p tree/references && cp live/SKILL.md tree/ && cp live/references/*.md tree/references/`.
+   Then prove it: `diff -rq live tree` must be **empty**. A content-add that silently drops a reference
+   is the failure mode, not an honest edit.
+3. **Every `references/*.md` SKILL.md names must ship in the same change.** List them mechanically
+   (`grep -oE 'references/[A-Za-z0-9_/.-]+\.md' live/SKILL.md | sort -u`) and confirm each file exists in
+   the tree copy. A skill-reference-missing finding is a hard rc=1 and reds three `test_agent_profiles`
+   legs — the guard reads the live profile and the tree together.
+4. **Attribute the test failures to a base, not to your change.** Run the profile tests on the branch AND
+   on a detached worktree at `origin/main`; if the same set fails on main (same names, fewer passes because
+   main has fewer new cases), it is other lanes' live drift and belongs in the PR body as measured, not
+   chased. Quote both counts — `branch: N failed/M passed` vs `main: N failed/M' passed`.
+5. **Grep for your lane's name in the failure output is not proof of a finding.** pytest echoes every
+   test's `tmp_path` (which lives under the profile's cache dir and therefore contains the profile name)
+   in the traceback preamble; a name match on those lines is noise. Match on the finding's `where`/`key`
+   field, or re-run with `-k` on the specific guard legs.
+6. The PR body says it **clears the row**, and never closes the tracker issue — a close is the tracker
+   owner's decision.
+
 ## Writing the file needs explicit consent — and a timeout is not consent
 
 `SOUL.md` (like other agent-instruction files) is a **protected write**. The tool asks the user and

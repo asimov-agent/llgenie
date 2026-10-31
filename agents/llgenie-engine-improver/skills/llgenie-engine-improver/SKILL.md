@@ -771,6 +771,17 @@ verify its `## Rules` carry THIS lane's contract — a stale copy can hold a dif
 the moment they read it. Keep the repo copy's structure, add the missing producer/workflow facts into
 the section that covers them, and re-run `make check-agent-skills` + its test to green before the PR.
 
+**A dispatch's path label for a profile row is a claim about a filename, not a measurement** — enumerate
+`~/.hermes/profiles/<profile>/skills/*/` with sizes and match the row by bytes/file-count before copying
+anything; clearing the row (verbatim dir copy, `diff -rq` empty, every named reference shipped, base-diff
+attribution of the failing test legs) is the recipe in `references/agent-profile-soul.md`.
+
+**Build a PR body with a heredoc file, not a long quoted `printf`/`--body "…"` string.** A body with
+backticks, `$`, parens and nested quotes gets re-parsed by the shell wrapper and fails with
+`unexpected EOF while looking for matching` — write `/tmp/body.md` with `cat > … <<'EOF' … EOF`, then
+`gh pr edit/create --body-file`. Then read it back (`--json body --jq '(.body|test("<phrase>"))'`) to
+confirm the line landed.
+
 **Find the live skill's actual directory before editing or syncing it — the profile can hold it at a
 different path than the tree versions.** `skill_manage` writes to whatever path the live profile already
 uses, so a skill living at `skills/<category>/<name>/` keeps receiving edits there while the repo reads
