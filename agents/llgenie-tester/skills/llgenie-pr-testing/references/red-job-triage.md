@@ -164,7 +164,13 @@ new name across `tests/` and the fixtures, not just the diff — a red guard tes
 that no longer exists is the signature, and the fix belongs inside the PR's own test file, not in the
 roster.
 
-## 10. Verify a census-repoint PR (shared-gate unblocker)
+## 10.5 The arm enablement FACT is `auto_merge.enabled_at`, never the request identity (#964-class)
+
+A populated auto-merge request object does NOT mean the PR is armed. GraphQL `autoMergeRequest` and REST `auto_merge` both expose `enabledBy`/`enabled_by` and `mergeMethod`/`merge_method` as soon as the arm REQUEST is created — but the enablement TIMER is a separate field: REST `auto_merge.enabled_at` (GraphQL `enabledAt`). READ THAT: `enabled_at=null` with `enabled_by` populated means the request was created but NOT enabled — auto-merge cannot fire on its own. Claiming "armed" from a populated `enabled_by`+`merge_method` is the slip that recurred on #1247, #1256×3, #1259, #1260.
+
+Check: `gh api repos/<owner>/<repo>/pulls/<n> | jq '.auto_merge.enabled_at'` — NON-NULL is the only state that fires on approval; null means "pending request, not enabled". For a PR blocked on `REVIEW_REQUIRED`, enablement often stays null until the required review is granted (that repopulates `enabled_at`). Post honest status; never claim armed until a fresh read shows `enabled_at` non-null.
+
+## 10. Verify a census-repoint PR (shared-gate unblocker, #1221/#1222)
 
 When a PR exists only to re-point `docs/ARCHITECTURE.md`'s `measured at <sha>` off a non-ancestor
 (merged-but-squashed-away sha) onto a real ancestor with re-measured counts, `scope/check-docs` is red

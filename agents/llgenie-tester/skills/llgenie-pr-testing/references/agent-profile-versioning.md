@@ -192,6 +192,14 @@ git show origin/<branch>:agents/<profile>/SOUL.md | wc -c   # must equal live si
 If those bytes are still the old (truncated) size, the fix is local-only — commit it onto the branch
 head and push, and report the BRANCH-HEAD sha that carries it, not your worktree's.
 
+- **Do not measure remote bytes with `git show <ref>:<path>` piped through the shell — it truncates at
+  ~50 KB and strips the trailing newline, so a byte-identical file reads as a 1-byte (or 50 KB) DIFF.**
+  An apparent `wc -c` skew of one byte, or a SKILL.md showing "50 KB", is the shell munging, not
+  divergence. The authoritative comparison is a content hash of the blob, not a size read of streamed
+  text: `git cat-file blob <fetched-head>:<path> | sha256sum` against
+  `sha256sum < "$LIVE/<path>"`. Confirm with the sha256 pair before concluding anything, and quote the
+  matching hash in the report — a size read that disagrees with the hash is the artifact.
+
 - **A rebase rewrites shas without changing a byte — verify by CONTENT, not by ancestry.** After
   another lane rebases the branch, your commit's sha changes (the same tree replayed under a new
   parent); `git merge-base --is-ancestor <your-old-sha> <head>` then reads NO even though NOTHING was

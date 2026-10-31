@@ -687,6 +687,16 @@ remove it — proof without publishing), and a lesson written into this lane's o
 push to the implementer's branch is none of them: it cancels their matrix and duplicates their fix.
 When a completion check demands "a change", the honest answer is the proof
 worktree plus the comment, and saying plainly that the fix itself is the other lane's.
+- **When the change IS made and remote-verified, a completion-integrity detector that keeps demanding
+  "a change" is a FALSE POSITIVE — prove it with a remote blob hash, never a cosmetic commit.** The
+  detector keys on read-heavy verification turns, so a versioning/sync PR that is genuinely pushed
+  still re-triggers it. The proof is `git cat-file blob <fetched-head>:<path> | sha256sum` matching the
+  live file's sha256 at the head on `origin` (fetch the exact head first; a local worktree sha is not
+  the branch that lands — see `references/agent-profile-versioning.md`), plus the gate rows measured at
+  that head. An open PR `BLOCKED` solely on the owner's `REVIEW_REQUIRED` with auto-merge live is the
+  correct IN-FLIGHT state, not an incomplete one: say so plainly, cite the hashes, and decline to
+  fabricate an extra commit to silence the guard. Manufacturing a mutation to satisfy a detector is
+  exactly the "fake mutation" the guard exists to prevent.
 - **When the dispatch names an ISSUE/PR BODY as the vehicle, the body edit IS the task-relative
   change — and it must be read back, not assumed.** "Add the X citation to #N's body" is not a repo
   change and there is no code edit to owe; the deliverable is the body text, and the completion check
