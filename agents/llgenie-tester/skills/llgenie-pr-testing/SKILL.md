@@ -334,6 +334,14 @@ run <id> · head <sha> · main <sha> · <n> passed / <n> failed · fails on main
   An arm that reports `MERGEABLE` and then `MERGED` within seconds is the stacked-base tell, not a
   quiet queue position; report the merge commit and the arm time so the reviewer sees which of the two
   happened. `mergeStateStatus` alone cannot distinguish "waiting" from "already merged".
+  **The read-back LAGS around `mergeable=UNKNOWN` — a null `autoMergeRequest` while UNKNOWN is not a
+  stable fact.** Measured (#1154 @ `c924538f`): `--auto` at open read `arm=false`, two retries over
+  ~4 min each read `arm=false` with `mergeable=UNKNOWN` while all 14 checks were already passing —
+  and the queue still fired and MERGED at 08:40:29Z with the merge commit as the only durable truth.
+  Shape: arm ONCE, and while `mergeable` is UNKNOWN do not keep re-arming or conclude "not armed"
+  from null reads; judge the outcome by `.state`/`.mergedAt`/`mergeCommit`. The null-read warning
+  below guards against arming NOTHING; it does not license believing a null read when UNKNOWN is the
+  mergeable value.
 - **`gh pr merge --auto` exits 0 and arms NOTHING when `mergeable` is UNKNOWN — a no-op arm is not an arm.** Read `--json mergeable,autoMergeRequest` back: a null `autoMergeRequest` beside `rc=0` means it did NOT arm, and `mergeable: UNKNOWN` (GitHub still recomputing — common right after the base moves under the PR, e.g. the PR it stacked on merges) is the usual cause beyond the stacked-base case: the arm cannot be set until `mergeable` is a real value. Re-check or rebase onto current `main` until `mergeable` is `MERGEABLE`, then arm; report `auto=none` until `autoMergeRequest` is non-null. The exit code is not the fact — verify the arm exists, never that the command returned 0.
 - **Read the CHECKS back, not only the arm — "opened + armed" is not "done" if a gate is red.**
   `gh pr view <n> --json statusCheckRollup` right after opening: a `scope`/`lint` (or any) failure is a
