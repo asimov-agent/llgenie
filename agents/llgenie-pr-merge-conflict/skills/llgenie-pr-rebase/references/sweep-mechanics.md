@@ -211,4 +211,30 @@ Rules that follow:
 - **A test asserting a command string is a regression detector for a bad resolution**, not noise —
   when one fails after a rebase, read the string it expected before editing the test.
 
+## Sibling PRs that touch the same doc for DIFFERENT subjects are a union, not a class
+
+When two PRs merge in sequence and both edit `README.md`, `docs/ENGINES.md` and the same test file,
+it is tempting to call the collision "one class, take main's side". That is wrong whenever the two
+PRs describe **different subjects** — measured: #1050 built **sglang** from source and #1049 built
+**vllm**'s three cells from source, and both legitimately edited the same three files. Taking either
+side deletes a real engine's documentation, and every gate stays green because the result is
+well-formed prose about one engine instead of two.
+
+Sort the conflicted files into two shapes before resolving anything:
+
+| shape | files | resolution |
+|---|---|---|
+| **aggregate** | `CHANGES.md`, a rendered index | take main's file, then regenerate from fragments (`make changes-index`); the branch's own row lives in its `docs/changes.d/<note>.md` fragment, which is the correct vehicle. Hand-merging the aggregate re-creates the collision for the next PR. |
+| **sibling content** | `README.md`, `docs/ENGINES.md`, a shared test | **merge both intents**, per hunk. Read both sides. |
+
+Never use a blanket `-X ours`/`-X theirs` on the sibling-content files. Prove the union by grepping
+for both subjects after the rebase:
+```bash
+git show HEAD:README.md | grep -ci vllm    # both must be non-zero
+git show HEAD:README.md | grep -ci sglang
+git diff origin/main -- README.md docs/ENGINES.md tests/test_engine_skills.py
+```
+Confirm that every hunk you kept is one you meant to keep — a green test suite does not prove a
+docs union, because a doc that lost one engine's paragraph still parses and still passes.
+
 **A replayed commit that applies cleanly can still regress the base — gate the whole replay, not just the conflicts.** Stacked-replay failures are not only `UU` conflicts and empty cherry-picks: a replayed commit re-deriving a file whose canonical newer form is already on the base tip applies without conflict yet silently undoes the newer content (measured on a SOUL fleet-block copy: the older generation deleted the base's newer rule-16 bullet, reddening the very gate the branch is about). After a stacked replay, run the branches' own gate; a red in the branch's own territory is the signal to check whether one replayed commit is an older generation — drop it (keep the base's file) rather than hand-reconcile, because its intent is already satisfied by the base.
