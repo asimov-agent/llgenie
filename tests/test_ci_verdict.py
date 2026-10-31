@@ -24,15 +24,14 @@ from __future__ import annotations
 import json
 import os
 import stat
-import sys
 from pathlib import Path
 
 import pytest
 
+import scripts.ci_scope as cs
+import scripts.ci_verdict as cv
+
 REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO / "scripts"))
-import ci_scope as cs  # noqa: E402
-import ci_verdict as cv  # noqa: E402
 
 WF = REPO / ".github" / "workflows"
 
