@@ -138,3 +138,20 @@ worktrees: N total · N dirty (list) · N with a UNIQUE head (list) · 0 removed
 safe in principle to delete: N branches, N worktrees
 must be preserved: <UNIQUE branches> + <dirty worktrees>
 ```
+
+## Two tools, one UNIQUE label — verify the SETS agree, not just the counts
+
+The lane ships BOTH `salvage-audit.sh` (shell) and `salvage-four-bucket.py` (python) for the same
+audit. They reconciled at UNIQUE=7 on main 7640feae, but a count match does not prove agreement:
+two implementations can both count N while naming DIFFERENT branches, and then "they agree" is a
+lie. The load-bearing check is the set comparison:
+
+    # python output → branch names of the "orphan — UNIQUE" block
+    # shell output  → names under "=== UNIQUE — content that exists only on these branches ==="
+    comm -23 <(sort pu.txt) <(sort su.txt)   # only-in-python: must be EMPTY
+    comm -13 <(sort pu.txt) <(sort su.txt)   # only-in-shell:  must be EMPTY
+
+Verified at 7640feae: both name the SAME 7 branches as UNIQUE (empty in both directions), and the
+python reconciliation line prints `its UNIQUE == this UNIQUE == {len(uniq)}` from a live length,
+not a hardcoded count. Run this every time the salvage logic changes; a count-only "they agree"
+does not exercise the predicate that matters.
