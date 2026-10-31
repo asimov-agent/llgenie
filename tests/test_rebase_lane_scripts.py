@@ -547,3 +547,33 @@ def test_the_commit_preservation_control_runs_and_catches_a_drop():
     # the verdict must be the DROP case being caught, not merely a PASS banner
     assert "LOST=[the PRs own change]" in r.stdout, (
         "the control must have exercised and caught the dropped commit:\n" + r.stdout)
+
+
+def test_every_shipped_control_is_tracked_executable():
+    """A shipped script's MODE in the git index is part of its contract.
+
+    Measured: the new commit-preservation control shipped with mode 100755 in git, but the sync
+    had copied it into the live profile as 0644 in BOTH profile copies -- so the documented direct
+    invocation (./scripts/test-commit-preservation.sh) would have failed Permission denied for
+    anyone running it from the profile. Git is the source of truth: assert every *.sh control under
+    scripts/ is tracked with the executable bit; it is what a reinstall restores and what the sync
+    should preserve.
+    """
+    # NODOC: ls-files -s emits `100755 <hash> 0\t<path>` (mode, then SPACE). An aggregate
+    # pathspec-glob (`ls-files -s scripts/*.sh`) is unreliable under `git -C` in the container
+    # (measured: returned EMPTY, so a first draft of this test PASSED with no files scanned --
+    # a vacuum). The reliable scan is the filesystem glob below (the tree is mounted) with one
+    # exact-path `ls-files` per file.
+    non_exec = []
+    for sh in sorted(SCRIPTS.glob("*.sh")):
+        rel = str(sh.relative_to(REPO))
+        line = subprocess.run(["git", "-C", str(REPO), "ls-files", "-s", "--", rel],
+                              capture_output=True, text=True).stdout.splitlines()
+        assert len(line) == 1, f"expected one tracked path for {rel}, got {line}"
+        # mode is the first whitespace-delimited field of the line; executable is 100755.
+        mode = line[0].split()[0]
+        if mode != "100755":
+            non_exec.append(f"{rel} (mode {mode})")
+    assert not non_exec, (
+        "these shipped scripts are tracked non-executable, so their documented form fails "
+        "Permission denied on every checkout: " + ", ".join(sorted(non_exec)))
