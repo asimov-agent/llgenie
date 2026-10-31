@@ -25,6 +25,29 @@ MARKER_BEGIN = "<!-- host-bot-tools:begin -->"
 MARKER_END = "<!-- host-bot-tools:end -->"
 NAME_RE = re.compile(r"^name:\s*[\"']?([^\"'\n]+)", re.M)
 
+# ONE source of truth from a tree SKILL.md (relative to REPO) to the host lane it belongs to.
+# `apply_repo_skills()` reads it and so does the block-identity test, so a block cannot be
+# stamped for one lane while the test checks another (#1140).
+REPO_SKILL_PROFILES: dict[str, str] = {
+    "agents/llgenie-architect/skills/software-development/llgenie-architecture-issue-pass/SKILL.md": "llgenie-architect",
+    "agents/llgenie-ci-pipelines-maintainer/skills/llgenie-pipeline-maintenance/SKILL.md": "llgenie-ci-pipelines-maintainer",
+    "agents/llgenie-documentation-maintainer/skills/llgenie-docs-maintainer/SKILL.md": "llgenie-documentation-maintainer",
+    "agents/llgenie-engine-improver/skills/llgenie-engine-improver/SKILL.md": "llgenie-engine-improver",
+    "agents/llgenie-issse-implementer/skills/bulk-mechanical-migration/SKILL.md": "llgenie-issse-implementer",
+    "agents/llgenie-planner/skills/llgenie-bot-orchestration/SKILL.md": "llgenie-planner",
+    "agents/llgenie-pr-merge-conflict/skills/llgenie-pr-rebase/SKILL.md": "llgenie-pr-merge-conflict",
+    "agents/llgenie-pr-reviever/skills/software-development/llgenie-pr-review/SKILL.md": "llgenie-pr-reviever",
+    "agents/llgenie-security/skills/security-scan-ops/SKILL.md": "llgenie-security",
+    "agents/llgenie-tester/skills/llgenie-pr-testing/SKILL.md": "llgenie-tester",
+    ".hermes/skills/llgenie-architecture-pass/SKILL.md": "llgenie-architect",
+    ".hermes/skills/llgenie-engine-improver/SKILL.md": "llgenie-engine-improver",
+}
+
+
+def profile_for_skill(rel: str) -> str | None:
+    """The host profile a tree SKILL.md (repo-relative) belongs to, or None."""
+    return REPO_SKILL_PROFILES.get(rel)
+
 
 def load_fixture(path: Path | None = None) -> dict:
     return json.loads((path or FIXTURE).read_text(encoding="utf-8"))
@@ -66,6 +89,7 @@ def tools_block(spec: dict, profile: str) -> str:
     keep = ", ".join(f"`{name}`" for name in sorted(row["keep_skills"]))
     return (
         f"{MARKER_BEGIN}\n"
+        "\n"
         "## Tools\n"
         "\n"
         f"This lane's chat session is pinned to these Hermes toolsets and no others: {toolsets}.\n"
@@ -166,18 +190,15 @@ def apply_profile(profile_dir: Path, spec: dict, profile: str) -> list[str]:
 
 
 def apply_repo_skills(repo: Path, spec: dict) -> list[str]:
-    """Stamp the host-skill copies that live in the repository."""
+    """Stamp every host-skill copy that lives in the repository, from the ONE profile map."""
     actions: list[str] = []
-    mapping = {
-        "llgenie-engine-improver": repo / ".hermes" / "skills" / "llgenie-engine-improver" / "SKILL.md",
-        "llgenie-architect": repo / ".hermes" / "skills" / "llgenie-architecture-pass" / "SKILL.md",
-    }
-    for profile, path in mapping.items():
+    for rel, profile in REPO_SKILL_PROFILES.items():
+        path = repo / rel
         if not path.is_file():
             continue
         block = tools_block(spec, profile)
         path.write_text(insert_tools_block(path.read_text(encoding="utf-8"), block), encoding="utf-8")
-        actions.append(str(path.relative_to(repo)))
+        actions.append(rel)
     return actions
 
 
