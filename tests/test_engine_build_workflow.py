@@ -133,14 +133,18 @@ def test_every_published_row_install_tests_the_image_it_just_published():
     assert "run: make test-engine-install ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}" in text
     assert text.index("run: make push-engine") < text.index("run: make test-engine-install")
 
-    # And the make seam is a real target wrapping install + built-engine-check + dry + uninstall,
+    # And the make seam is a real target wrapping install + built-engine-check + uninstall,
     # so the producer's install leg reuses the LAUNCHER install path (engine-launchers pulls the
     # just-published image and writes the start script). It is NOT the host `engine-install`
     # (engine_skills.py install): a container-only engine correctly exits 3 there ("installed in
-    # its container image, not on the host"), which red the leg for every cuda cell (#1092).
+    # its container image, not on the host"), which red the leg for every cuda cell (#1092). The
+    # product `llgenie --dry` (ci-install-dry) is deliberately NOT in the seam — the producer is
+    # product-LESS (#1027); the product tool + its --dry live in pipeline.yml's ci-install (#1196).
     tail = MAKEFILE.split("\ntest-engine-install:", 1)[1].split("\n\n", 1)[0]
-    for marker in ("engine-launchers", "test-built-engine", "ci-install-dry", "ci-install-uninstall"):
+    for marker in ("engine-launchers", "test-built-engine", "ci-install-uninstall"):
         assert marker in tail, f"test-engine-install must wrap {marker}"
+    assert "ci-install-dry" not in tail, \
+        "the producer install-leg must not call the product-only ci-install-dry (#1196)"
 
 
 

@@ -39,11 +39,17 @@ NOT hand-roll a third surface:
 ```make
 test-engine-install: bash-check   # NO `##` help line — make it deliberately internal
 	@test -n "$(ENGINE)" || { echo "Usage: make test-engine-install ENGINE=<id> ARCH=<variant>"; exit 1; }
-	make engine-install ENGINE="$(ENGINE)" BACKEND="$(ARCH)"   # install the row's just-published image
+	make engine-launchers ENGINES="$(ENGINE)" ARCH="$(ARCH)"   # install the row's just-published image
 	make test-built-engine
-	make ci-install-dry
-	make ci-install-uninstall
+	make ci-install-uninstall    # NO ci-install-dry: the producer is product-LESS (#1027) — the llgenie tool + its --dry live in pipeline.yml's ci-install
 ```
+
+`ci-install-uninstall` must `mkdir -p ~/bin` before its foreign-file witness `touch ~/bin/not-ours`
+on the Linux/container branch. The producer install-leg never runs `make install` (which is what
+creates `~/bin` on the full witness path at `Makefile:1561`), so reaching this step in the producer
+for the first time reds with "No such file or directory" unless `~/bin` is created first. The
+recipe line is `$(ENGINE_TEST_RUN) sh -c 'mkdir -p ~/bin && touch ~/bin/not-ours && make uninstall
+&& make test-uninstalled && test -e ~/bin/not-ours'` (confirm run `41236321425` exposed the gap).
 
 A `ci-engines BACKEND=` whole-backend leg installs every engine of a backend; the row-exact
 `engine-install ENGINE= BACKEND=` proves THAT row's image installs, which is the producer-owned property.
@@ -86,10 +92,35 @@ words.
 values are not allowed"); spell it with a hyphen, or the workflow won't parse.
 
 **Flow / step / make-target comments must name EVERY step the leg actually runs.** `test-engine-install` is
-`engine-install` + `test-built-engine` + `ci-install-dry` + `ci-install-uninstall`; describing it as "install +
-dry + uninstall" silently hides the installed-binary version check. A flow comment, a step `name:` and the
+`engine-launchers` + `test-built-engine` + `ci-install-uninstall` — and explicitly NOT the product-only
+`ci-install-dry` (the producer is product-LESS #1027; the llgenie tool + its `--dry` live in pipeline.yml's
+`ci-install`, #1196); describing it as "install + dry + uninstall" silently hides the installed-binary version
+check AND implies a product dry-run the producer cannot do. A flow comment, a step `name:` and the
 make-target `#` line must list the real steps, or a reader takes a weaker check for a stronger one. Fix the
 sentence that misled; don't append "actually it also…" beneath it.
+
+**When you change a target's recipe, every shape test that pins that recipe's markers must move too** — the
+`test_engine_build_workflow.py`, `test_published_gate.py` and `test_engine_skills.py` install-leg tests all
+enumerate the same `(engine-launchers, test-built-engine, ci-install-dry, ci-install-uninstall)` marker list.
+After dropping `ci-install-dry` from the recipe, each such test must (a) drop it from its `for marker in …`
+needle list AND (b) pin the new invariant (`ci-install-dry not in tail`) — otherwise pytest reds in one file
+(`test_engine_build_workflow.py`) while the other two flip green with a bare `in`-list change. Grep the whole
+test tree for the old marker before editing one.
+
+**The maker rebuilds / census pointer after a rebase:** the whole `docs/ARCHITECTURE.md` census is re-measured at
+the *new* HEAD (`git ls-tree -r --name-only <sha>`); the gate reads BOTH the `## Repository layout` tracked-file
+counts AND the later `| agent-wiki/ | … (N entries)` row — two claim sites for the same number, so edit both
+(re-point the `measured at` sha + every `(N entries)`). A census that points at a commit only on another lane's
+branch (or at an orphaned pre-rebase sha) reds `check-architecture-census` because the referent isn't an ancestor
+of HEAD — that is a base-stale PR symptom, not an engine-fix regression.
+
+**Dispatching a re-confirm: use the BRANCH name, not the commit SHA, and track the dispatch run by its workflow.**
+`gh api …/engine-build.yml/dispatches` with `ref=<sha>` returns 422 "No ref found" even though the sha is the
+current PR head — `ref` must be a branch or tag name. Then, when polling for the run, filter by
+`event=workflow_dispatch` AND `head_sha` AND the `engine-build.yml` workflow: the PR head also has a parallel
+`pull_request`-event CI run (guard+holds) with a *different* run id, so grabbing "the run whose head_sha matches"
+can return the wrong (green, non-engine) run and you'd write AC6 from the wrong evidence. The engine-build
+dispatch is the `workflow_dispatch` event on that workflow.
 
 **The producer matrix builds/publishes EVERY arch (cpu/cuda/rocm/vulkan) for every engine by default — `none`
 is the empty-matrix placeholder, never a real build.** CI is a GPU-less x86_64 runner, so the build/publish does

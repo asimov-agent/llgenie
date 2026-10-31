@@ -282,11 +282,10 @@ engine-launchers: ## Pull this host's published engine images (default: llama.cp
 test-built-engine: ## After make install: every ~/bin/llgenie-engine-* start script must print its engine version via docker (Metal-only engines excluded)
 	python3 scripts/install_engine_launchers.py --bin "$(BIN)" --test
 
-test-engine-install: bash-check # Internal CI seam (issue #1027, deliberately internal like test-unit-network): after ENGINE's image was built + published in the engine-build producer, install + test-built-engine (the installed launcher must report the engine's version) + llgenie --dry + uninstall the just-published image — the producer-owned install leg. Gating lives in the engine-build workflow (`inputs.push == 'true'`).
+test-engine-install: bash-check # Internal CI seam (issue #1027, deliberately internal like test-unit-network): after ENGINE's image was built + published in the engine-build producer, install + test-built-engine (the installed launcher must report the engine's version) + uninstall the just-published image — the producer-owned install leg. The product `llgenie --dry` step is deliberately NOT here: the producer is product-LESS (#1027 — the llgenie tool installs in pipeline.yml's ci-install, which already drives the product dry-run), so a producer that calls that product target can never satisfy it. Gating lives in the engine-build workflow (`inputs.push == 'true'`).
 	@test -n "$(ENGINE)" || { echo "Usage: make test-engine-install ENGINE=<id> ARCH=<variant>"; exit 1; }
 	make engine-launchers ENGINES="$(ENGINE)" ARCH="$(ARCH)"
 	make test-built-engine
-	make ci-install-dry
 	make ci-install-uninstall
 
 # ---- engine skills (issue #98) ------------------------------------------
@@ -1790,7 +1789,7 @@ ifeq ($(HOST_OS),Darwin)
 	$(MAKE) test-uninstalled
 	@test -e "$(BIN)/not-ours" && rm -f "$(BIN)/not-ours"
 else
-	$(ENGINE_TEST_RUN) sh -c 'touch ~/bin/not-ours && make uninstall && make test-uninstalled && test -e ~/bin/not-ours'
+	$(ENGINE_TEST_RUN) sh -c 'mkdir -p ~/bin && touch ~/bin/not-ours && make uninstall && make test-uninstalled && test -e ~/bin/not-ours'
 endif
 
 ci-engines: bash-check ## Per-backend engine install for a host (BACKEND=cpu|cuda|rocm|vulkan|metal -> make test-install-published / each native-Metal engine + \"hi\" via scripts/ci_engines.py). No longer a CI stage: the engine install/serve test lives in the engine-build producer (#1027).
