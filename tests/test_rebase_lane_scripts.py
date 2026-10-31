@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import ast
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -236,3 +237,45 @@ def test_the_fleet_splice_does_not_depend_on_a_scratch_path():
     assert "REBASE_STANDING_RULES" in src, "the rules source must be overridable"
     assert "references" in src and "standing-rules.md" in src, \
         "it must prefer the versioned reference beside the SKILL"
+
+
+def test_no_shipped_script_removes_or_prunes_a_worktree():
+    """`git worktree remove`/`prune` are owner-only (issue #794): they delete a directory and cannot
+    see uncommitted work inside it.
+
+    Measured: TWO shipped scripts ran them on every invocation, against a FIXED path --
+    `git worktree remove --force "$P/../llgenie-wt/b$N"` plus `git worktree prune` -- so a second
+    run destroyed whatever a human had left in that worktree, and `prune` swept every other stale
+    entry in the repository as a side effect. A lane whose own rule forbids the command must not
+    ship a script that executes it: the rule is invisible to the reader who runs the script.
+    """
+    offenders = []
+    for p in _shell_scripts():
+        for i, line in enumerate(p.read_text().splitlines(), 1):
+            code = line.split("#", 1)[0]   # comments may explain the rule; only real code counts
+            if re.search(r"\bgit\s+worktree\s+(remove|prune)\b", code):
+                offenders.append(f"{p.name}:{i}")
+    assert not offenders, (
+        "shipped script executes an owner-only worktree deletion: " + ", ".join(offenders))
+
+
+def test_every_worktree_a_script_creates_is_unique_per_run():
+    """A fixed scratch path forces the script to destroy the previous run's worktree.
+
+    Measured: with `WT=b$N`, a re-run had no choice but `remove --force` first. Making the path
+    per-run is what lets the script stop deleting anything at all, so the two properties are
+    asserted together -- a script that keeps a fixed path will regrow the deletion.
+    """
+    for p in _shell_scripts():
+        src = p.read_text()
+        if not re.search(r"\bgit\s+worktree\s+add\b", src):
+            continue
+        # Assert on the PATH itself, not on the file as a whole: a stray $STAMP elsewhere in the
+        # script says nothing about whether the worktree path is unique. Measured -- a whole-file
+        # check passed while the WT assignment was a fixed path, so the control did not bite.
+        wt = [l for l in src.splitlines() if re.match(r"\s*WT=\S", l)]
+        assert wt, f"{p.name} creates a worktree but has no WT= assignment to inspect"
+        for line in wt:
+            assert ("$STAMP" in line or "$(date" in line or "mktemp" in line), (
+                f"{p.name}: worktree path is fixed ({line.strip()!r}), which forces the script to "
+                f"remove the previous run's worktree; give it a per-run stamp")

@@ -18,33 +18,43 @@ else
 fi
 cd "$P" || exit 1
 MAIN=$(git rev-parse origin/main)
+MAIN_SHORT=$(git rev-parse --short "$MAIN")
+# Every rebase below uses $MAIN, the sha captured ONCE at start. Using the mutable `origin/main`
+# ref means a fetch mid-run moves the base between branches while the report quotes one sha --
+# the report then cannot be reproduced from the tree.
+echo "batch-rebase against main $MAIN_SHORT"
 
 for spec in "$@"; do
   N=${spec%%:*}; REST=${spec#*:}; REMOTE=${REST%%:*}; BR=${REST#*:}
-  WT="$P/../llgenie-wt/b$N"
+  # NEVER remove or prune a worktree. `git worktree remove` deletes a directory and cannot see
+  # uncommitted work in it; deleting one is the owner's call (issue #794). An earlier version of
+  # this script called `git worktree remove --force` and `git worktree prune` on a fixed path, so a
+  # re-run silently destroyed whatever was there. A unique per-run path removes the need entirely:
+  # leftovers accumulate and are the owner's to prune. This is reported, not cleaned up.
+  STAMP=$(date +%Y%m%d-%H%M%S)-$$
+  WT="$P/../llgenie-wt/b$N-$STAMP"
   echo "=== #$N $REMOTE/$BR ==="
-  git worktree remove --force "$WT" 2>/dev/null
-  git worktree prune >/dev/null 2>&1
   git fetch "$REMOTE" "$BR:refs/remotes/$REMOTE/$BR" --quiet || { echo "  fetch failed"; continue; }
   BEFORE=$(git rev-parse --short "$REMOTE/$BR")
-  if git merge-base --is-ancestor "$REMOTE/$BR" origin/main; then echo "  no-op (already an ancestor of main)"; continue; fi
-  git worktree add -B "b$N" "$WT" "refs/remotes/$REMOTE/$BR" --force >/dev/null 2>&1 || { echo "  worktree failed"; continue; }
+  if git merge-base --is-ancestor "$REMOTE/$BR" "$MAIN"; then echo "  no-op (already an ancestor of main $MAIN_SHORT)"; continue; fi
+  git worktree add -B "b$N-$STAMP" "$WT" "refs/remotes/$REMOTE/$BR" >/dev/null 2>&1 || { echo "  worktree failed"; continue; }
+  echo "  worktree: $WT (left in place — never removed by this script)"
   cd "$WT" || continue
   # CHANGES.md is generated and conflicts on every rebase (main + branch both added rows). Resolve it by
   # taking main's table wholesale and continuing; the final make changes-index regenerates from fragments,
   # so no row is lost or hand-merged.
-  if ! GIT_EDITOR=true git rebase origin/main >/tmp/rb-$N.log 2>&1; then
+  if ! GIT_EDITOR=true git rebase "$MAIN" >/tmp/rb-$N.log 2>&1; then
     CONF=$(git diff --name-only --diff-filter=U)
     CONFLIST=$(echo "$CONF" | sed '/^$/d' | sort -u)
     ONLY_CHANGES=1
     for f in $CONFLIST; do [ "$f" = "CHANGES.md" ] || ONLY_CHANGES=0; done
     if [ "$ONLY_CHANGES" = 1 ] && [ -n "$CONFLIST" ]; then
-      git checkout origin/main -- CHANGES.md && git add CHANGES.md
+      git checkout "$MAIN" -- CHANGES.md && git add CHANGES.md
       if ! GIT_EDITOR=true git rebase --continue >/tmp/rb-$N.log 2>&1; then
         echo "  continue conflict: $(git diff --name-only --diff-filter=U | tr '\n' ' ')"
         git rebase --abort 2>/dev/null; cd "$P"; continue
       fi
-      echo "  (CHANGES.md resolved via main's table + regenerate)"
+      echo "  (CHANGES.md resolved via main's table at $MAIN_SHORT + regenerate)"
     else
       echo "  REBASE CONFLICT (files: $CONFLIST)"
       git rebase --abort 2>/dev/null; cd "$P"; continue

@@ -27,14 +27,18 @@ BASE=refs/remotes/origin/$BASE_BRANCH
 
 for spec in "$@"; do
   N=${spec%%:*}; BR=${spec#*:}
-  WT="$P/../llgenie-wt/s$N"
+  # Never remove or prune a worktree: the owner-only commands delete a directory and cannot
+  # see uncommitted work (issue #794). A unique per-run path makes removal unnecessary; the
+  # leftovers are reported here and are the owner's to prune.
+  STAMP=$(date +%Y%m%d-%H%M%S)-$$
+  WT="$P/../llgenie-wt/s$N-$STAMP"
   echo "=== #$N $BR ==="
-  git worktree remove --force "$WT" 2>/dev/null; git worktree prune >/dev/null 2>&1
   git fetch origin "$BR:refs/remotes/origin/$BR" --quiet || { echo "  fetch failed"; continue; }
   BEFORE=$(git rev-parse --short "origin/$BR")
   PLUS=$(git cherry "$BASE" "origin/$BR" | grep '^+' | awk '{print $2}')
   if [ -z "$PLUS" ]; then echo "  no unique commits — already contained in the stack base"; continue; fi
-  git worktree add -B "s$N" "$WT" "$BASE" --force >/dev/null 2>&1 || { echo "  worktree failed"; continue; }
+  git worktree add -B "s$N-$STAMP" "$WT" "$BASE" >/dev/null 2>&1 || { echo "  worktree failed"; continue; }
+  echo "  worktree: $WT (left in place — never removed by this script)"
   cd "$WT" || continue
   OK=1
   for c in $PLUS; do
