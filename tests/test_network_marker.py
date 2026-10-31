@@ -305,12 +305,13 @@ def _hub_opens(file_text: str) -> list[tuple[str, str]]:
                 if _HUB_RE.search(to):
                     problems.append((name, s[:140]))
             # the repo's OWN Hub entry points (no loopback): a real reach, whatever the arg shape —
-            # `mp.download`/`mp.gguf_files`/`mp.hf_size` are Hub entry points by construction (they
-            # call the Hub API / download via `_hub_json(f"{HF}/api/…")`), so there is no hermetic
-            # call form of them. A call in an unmarked scope that binds no loopback server IS a real
-            # unmarked Hub reach, whether the arg is a model dict, a `mp.repo_for(...)` call, or a
-            # plain repo string. NOT plan_download (planning only — the engine lane's carve-out) and
-            # NOT resolve_local (local disk only).
+            # `mp.download`/`mp.plan_download`/`mp.gguf_files`/`mp.hf_size` are Hub entry points by
+            # construction (they call the Hub API / download via `_hub_json(f"{HF}/api/…")`), so there
+            # is no hermetic call form of them. A call in an unmarked scope that binds no loopback
+            # server IS a real unmarked Hub reach, whether the arg is a model dict, a
+            # `mp.repo_for(...)` call, or a plain repo string. `plan_download` is NOT planning-only:
+            # it reaches the Hub (`offer → plan_download → _tree/_snapshot → hub_open`) — #1000 closed
+            # the old carve-out. NOT resolve_local (local disk only).
             # EXCEPTION — a call whose download CHILD is replaced makes no reach: `mp.download`
             # never opens the Hub itself, it runs `scripts/hf_download.py` in a child, so a scope
             # that stubs that child (`monkeypatch.setattr(mp.subprocess, "run", …)`) or points it
@@ -319,7 +320,7 @@ def _hub_opens(file_text: str) -> list[tuple[str, str]]:
             # of those scopes is separately stubbed as a fixture — same doctrine as the
             # `def urlopen(...)` stub carve-out above.
             if not nono and not _STUBBED_CHILD_RE.search(body) and re.search(
-                r"\b(mp\.download|mp\.gguf_files|mp\.hf_size)\s*\(", s
+                r"\b(mp\.download|mp\.plan_download|mp\.gguf_files|mp\.hf_size)\s*\(", s
             ):
                 problems.append((name, s[:140]))
             elif _HUB_RE.search(s):
