@@ -109,3 +109,26 @@ gh pr list --json autoMergeRequest --jq '[.[]|select((.autoMergeRequest|type)=="
 
 - **Quote a nested `jq` filter in single quotes and avoid escaped double quotes inside it** — a half-escaped expression
   fails to parse and reads like an empty result.
+
+## Armed is not merged: measure the trigger path, not the review state
+
+`autoMergeRequest` on a PR proves the *arms*, not that anything will ever fire. The merge job is a `workflow_run`
+consumer: it runs only when the **CI** workflow completes green on a `pull_request` event. If the PR's diff never starts
+that workflow, no event is emitted and the merge job stays `skipped` for the life of that head.
+
+```bash
+gh api "repos/O/R/actions/runs?head_sha=<head>" --jq '.workflow_runs[].name' | sort | uniq -c
+gh run view <sweep-id> --json jobs -q '[.jobs[]|select(.name=="merge")|.conclusion]'
+```
+
+- **`paths-ignore` decides which PRs can ever merge.** A diff class excluded at the trigger (`docs/**`, `agent-wiki/**`,
+  `openspec/**`, `README.md`, `CHANGES.md` — their gates run in the always-present `scope` workflow instead) produces no
+  CI run, so its green head lists only `scope`/`holds`. Auto-merge is unreachable for that class however green, armed or
+  un-labeled it is — and the PR sits `BLOCKED / REVIEW_REQUIRED` looking exactly like an approval wall.
+- **The scheduled recheck is not a fallback.** It only re-evaluates PRs carrying a deferral marker; a PR that never
+  entered the merge path has no marker and is never revisited.
+- **`merge: completed/skipped` across sweeps is the tell** that the engine was never invoked — a statement about the
+  trigger, not a verdict on the PR.
+- **Never name an approval blocker before checking the trigger path.** `reviewDecision=REVIEW_REQUIRED` with zero reviews,
+  and a ruleset carrying no review rule at all, are symptoms of the merge job never running. File the wiring fix for the
+  lane that owns the workflow; do not conjure a second approving identity to force it.
