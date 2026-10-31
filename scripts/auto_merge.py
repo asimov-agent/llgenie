@@ -566,7 +566,20 @@ def recheck(gh: str, repo: str, max_prs: int = 5, dry: bool = False) -> int:
         num = int(pr["number"])
         head = (pr.get("headRefOid") or "")
         if not deferred_for_head(gh, repo, num, head):
-            print(f"[recheck] #{num}: no deferral marker for {(head or '?')[:8]} — not a retry")
+            state = pr_state(gh, repo, num)
+            if not review_blocked(state):
+                print(f"[recheck] #{num}: no deferral marker for {(head or '?')[:8]} — not a retry")
+                continue
+            if seen >= max_prs:
+                print(f"[recheck] cap reached ({max_prs} PRs this sweep); the rest waits for the next one")
+                break
+            seen += 1
+            print(f"[recheck] #{num}: review is the only blocker at {(head or '?')[:8]} — approving")
+            if dry:
+                print(f"[recheck] #{num}: --dry, decision not run")
+                continue
+            run(gh, repo, num, head, dry=False, approve_when_review_required=True,
+                actor=token_login(gh))
             continue
         if seen >= max_prs:
             print(f"[recheck] cap reached ({max_prs} PRs this sweep); the rest waits for the next one")
