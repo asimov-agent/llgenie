@@ -68,6 +68,29 @@ lists every site, not only the new one. Key facts:
   last stage, which lies.
 - The fix is exempt from the change→note gate (#1123): it changes only a test file.
 
+## The old-ceiling cancel (merge-ref evaluation)
+
+A `pull_request` workflow run is evaluated at the **merge ref** (head merged into base), i.e. the
+workflow YAML comes from the base unless the PR itself changed it. So a CI-ceiling raise merged on
+`main` does **not** apply to an unrebased PR: its runs are still judged by the OLD ceiling text.
+
+- **Fingerprint:** `linux / unit` `completed/cancelled` at ~the old ceiling (60 min) with **zero test
+  output** (the `make ci-unit` step shows `cancelled`, no failure log) while every sibling — `install`,
+  `lint`, `cpu-health`, guard/holds — is green, and no newer run exists at the head (not a respawn).
+- **First check before any action:** `gh pr view <n> --json baseRefOid` vs the ceiling-merge sha on
+  main (`git fetch origin refs/heads/main:refs/remotes/origin/main && git log --oneline
+  origin/main -- .github/workflows/pipeline.yml | head`, or the planner's relay). If the base is an
+  ancestor of the ceiling merge and the PR does not touch `pipeline.yml`, the cancel is the
+  old-ceiling fingerprint — neither a code defect (like the ratchet red) nor necessarily a starved
+  runner.
+- **Recovery:** rebase onto the fresh `main` and force-push with lease (own branch), so the fresh run
+  evaluates at the new ceiling; then re-judge. Do **not** `gh run rerun` a run doomed by the old
+  ceiling: it replays the recorded 60 and lands a second identical cancel that reads as starvation on
+  the ledger. If you already reran by mistake, cancel your own doomed rerun (documented) rather than
+  feed the ledger another copy.
+- Re-evaluate after the fresh run: a 120-budget cancel at ~1h is the real starved-runner signal and
+  goes to the queue-shaping ledger (#882/#1146/#1139), not to another rerun loop.
+
 ## How long the long jobs actually take
 
 Calibrate before calling anything hung: a wrong "stalled" call costs a re-run of a ~1h45 matrix.

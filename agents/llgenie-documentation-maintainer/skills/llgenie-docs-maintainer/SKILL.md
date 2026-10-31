@@ -1,7 +1,7 @@
 ---
 name: llgenie-docs-maintainer
 description: "Use when auditing, filing or landing LLGenie docs changes."
-version: 1.0.11
+version: 1.0.12
 author: Hermes Agent
 license: MIT
 metadata:
@@ -484,6 +484,7 @@ fragments by `make changes-index` (`scripts/changes_index.py`). Rules that follo
   `curator/`, `_runtime/` or another lane's skill dir is the tell, and it is removed from the worktree
   only, never from live.
 - **A branch of yours that reds `check-import-roots` is usually your own new test — fix the import, never the baseline.** The ratchet (issue #796) records counts in `tests/fixtures/import-roots-baseline.json` (`bare` / `sys-path`) and exits 1 the moment a count RISES, so a PR that adds a test inserting its own `sys.path` entry or importing a `scripts/` module bare (`import check_docs`) reds `ci-unit` even when every other job is green — the failing site it names may be an OLD offender, not your file, because it lists all sites. The allowed shape is the conftest seam: `from scripts import check_docs` (sibling `tests/test_check_docs.py` shows it). A baseline is a measurement and may fall, never rise, so the fix is the import in the PR, never a fixture bump. Verify with `python3 scripts/check_import_roots.py ratchet` on the branch before pushing — and read the exit with `echo ${PIPESTATUS[0]}`, not `$?` after a pipe.
+- **A `pull_request` run evaluates the workflow at its MERGE REF (head merged into base), so a CI-ceiling raise merged on main does NOT apply to an unrebased PR — its runs are judged against the ceiling text at its BASE.** A `linux / unit` `completed/cancelled` at ~60 min with zero test output and siblings green is the OLD-ceiling fingerprint when the PR's base predates the ceiling merge — not (necessarily) starvation, and not a defect. Diagnose before any rerun: `gh pr view <n> --json baseRefOid` vs the ceiling-merge sha on main. Recovery is a rebase onto the fresh main + `--force-with-lease` (own branch) so the fresh run evaluates at the new ceiling — do NOT `gh run rerun` a run doomed by the old ceiling (it replays the recorded 60 and lands a second identical cancel that reads as starvation on the ledger), and if you already reran by mistake, cancel your own rerun rather than feed the ledger another copy.
 - **Search the open issues before filing the gap you just measured.** The audit findings are
   exactly what the repo's triage legs file, so `gh issue list --repo asimov-agent/llgenie --state
   open --search '<page/metric>'` first; if an issue exists, verify its quoted numbers against the
