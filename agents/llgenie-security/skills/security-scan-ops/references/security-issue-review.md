@@ -101,3 +101,32 @@ and run it bare. Endpoints that answer with an array need the array form of `--j
 `expected an object but got: array`, and the POST itself already succeeded, so it reads like the
 label write failed when it did not. Verify the label write by reading the issue back
 (`gh api repos/o/r/issues/<n> --jq '[.labels[].name]|join(",")'`).
+
+## Proving a finding set clean while the pipeline is disabled
+
+`disabled_manually` does not stop you proving the tree clean — only the not-yet-created run id does.
+Run the pinned scanners yourself on a fresh worktree at the exact sha (never the dirty main checkout):
+
+```bash
+cd /home/asimov/repository/git/llgenie && git worktree add ../llgenie-wt/scan-<sha> <sha>
+cd ../llgenie-wt/scan-<sha>
+make sbom && make security-scan TOOL=trivy        # pinned images from containers/scanners/digests.json
+python3 scripts/security_scan.py verdict --event schedule
+# -> [security-scan] OK (event=schedule, mode=full): 0 finding(s) recorded, none blocking (...)
+python3 -c "import json;d=json.load(open('security-reports/trivy.json'));print(sum(len(r.get('Vulnerabilities',[])) for r in d.get('Results',[])))"  # -> 0
+```
+
+That `0 finding(s)` line plus the sha IS a publishable result — quote both in the issue comment. It does
+NOT close the finding: the `cleared` close path needs the workflow's own run id, so the issue stays OPEN
+and a merged fix is never closed by hand. `security-reports/` is gitignored, so the scan leaves the tree
+untouched; leave the worktree in place (never prune — the owner decides).
+
+Two free checks ride along in that run:
+
+- **"Fix present in the tree" without trusting the issue body.** The advisory floors live in
+  `tools/requirements{,-dev}.in` and resolve in the `*.txt`; a stale committed copy of a build-time lockfile
+  (the never-clears mechanism) is gone when `git ls-tree -r <sha> -- containers/*/requirements*.txt` prints
+  nothing.
+- **Trust-boundary peek from stdout.** The scan prints the exact `docker run` line it used; read the mount
+  suffix — `-v <repo>:/work:rw` means the scanner can write the tree the later steps execute, the opposite
+  of the read-only invariant (`:ro` + reports to `$RUNNER_TEMP`).

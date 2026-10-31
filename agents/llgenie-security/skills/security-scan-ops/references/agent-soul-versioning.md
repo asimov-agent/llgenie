@@ -111,6 +111,20 @@ agents/<profile>/skills/<name>/SKILL.md
   rule: *commit the live content via an issue+PR under `agents/<lane>/`, then `make sync-agent-profile`* —
   never copy the live file back into the tree, and never `--force` the sync. Forcing discards lines nobody
   diffed; the reload is only "byte-identical" once the tree catches up.
+- **A live profile that regrows after you sync has a WRITER — name it from the live ledger, not from memory.**
+  The re-growth shows up as `live-edited-not-tree` again with a newer mtime, so `sync-agent-profile` can never
+  close it. Read the live profile's own ledger before blaming a human or a cron:
+  `~/.hermes/profiles/<p>/skills/.curator_ledger.jsonl` carries per-patch `{actor, action, skill, before, after}`,
+  and `actor:curator` means Hermes's native lesson-capture patched the live skill mid-session (it appends the
+  procedure just demonstrated). Quote the timestamps and the `before`/`after` hashes in the issue as writer
+  evidence; the root fix (curator exclusion / live-write gate) belongs to the issue that owns it, not to your
+  sync PR.
+- **Fold live-ahead content into the tree; never byte-copy it over a rulebook.** When the live file is a strict
+  superset, a byte copy is safe; when the tree carries a section the live file lacks (this lane's `## Rules` /
+  `## Procedure` / `## Never` block), copying live→tree **deletes it**, and the next one-way tree→live sync then
+  deletes it from the running profile too. Union the sections explicitly and say in the PR which section is
+  tree-only and why it survives. Each fold round gets its own issue+PR — content that regenerates mid-review is
+  the next vehicle, not a reason to reopen the PR you already armed.
 - **A section spliced above a markdown heading keeps a blank line in front of it.** `lint_linefeeds` reds a
   `##` heading that directly follows text, and it is a different gate from `check-agent-profiles` — so
   splicing a block in front of `## Standing rules` can pass the canonical-block assertion and still red

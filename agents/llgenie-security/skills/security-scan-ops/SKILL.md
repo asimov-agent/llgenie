@@ -201,8 +201,13 @@ every other check passes; insert a blank line before each heading and re-run `ma
   `disabled_manually`, say so with a measured gap — compute it from the last run's timestamp in a command,
   never eyeball it (an eyeballed gap understates an exposure by a day or more and changes how urgently it
   escalates) — name the open findings including any `critical`, and hand over the exact re-enable proof you
-  will run (a report-only dispatch that cannot red). A silent security lane and a scanned-clean one look identical from outside; only the run id tells
-  them apart.
+  will run (a report-only dispatch that cannot red). While the workflow is off you can still prove the *tree*
+  clean at a named sha without it: `git worktree add <tmp> <sha>` then `make sbom && make security-scan
+  TOOL=trivy` and `python3 scripts/security_scan.py verdict --event schedule` — expect `0 finding(s) recorded`
+  — and quote that line plus the sha in the issue comment. But a tree-local scan is evidence for the comment,
+  NOT the `cleared` close path: the finding still needs the workflow's run id to close, so leave it OPEN and
+  never close a merged-fix finding by hand. A silent security lane and a scanned-clean one look identical
+  from outside; only the run id tells them apart.
 - **A deliberate weakening is never the fix.** No allowlist entry, no widened severity set, no
   `require_fix: false`, no emptied `fail_on` to turn a run green.
 - **Report scope, not remediation-by-patch.** What is exposed, the measurement (command + output + sha),
@@ -242,9 +247,6 @@ every other check passes; insert a blank line before each heading and re-run `ma
   *when*. Fetch / pull latest asimov-agent/llgenie `main` is still mandatory before any work, with an explicit
   refspec or the API — never a quoted sha, and the local `origin/main` branch is a shadow that goes stale
   (`refs/heads/origin/main` read `6d9fef1d` while the API's real main was `6b8fafcf`).
-- **End a splice directly above a heading with a blank line**, or lint_linefeeds reds the file: the #1010
-  fence-before-block splice routed `## Standing rules` without a preceding blank and reded `make lint`
-  until PR #1044. Check the repo lint on the file, not just the canonical-block gate.
 - **When workflows are disabled**, read their states first: `disabled_manually` is a deliberate pause, not a
   defect. A disabled workflow cannot be dispatched and its runs cannot be re-run, so the resume order is
   enable → verify with `enforce=report` → schedule. Detail: `references/fleet-pause-and-resume.md`.
@@ -253,8 +255,9 @@ every other check passes; insert a blank line before each heading and re-run `ma
   write to `SOUL.md` is **blocked by a protected-file approval that times out**, and a timeout is not
   consent — never route it around, put the exact sentence in the PR body and report it as the one open
   item; and when the live profile skill is richer than its tree copy, **migrate → sync → `CHECK=1` → retire
-  the host-only copy**, never delete first. Layout, manifest gate, exemptions, stacked-branch rule and the
-  canonical-block extraction: `references/agent-soul-versioning.md`.
+  the host-only copy**, never delete first. Layout, manifest gate, exemptions, stacked-branch rule, the
+  canonical-block extraction, and how to name the writer of live drift (curator ledger) and fold its patches
+  without a byte-copy deleting a tree-only rulebook: `references/agent-soul-versioning.md`.
 - Open a repo-style issue FIRST (`## Problem` / `## Why it matters` / `## How we fix it` / `## Benefit` /
   `## Acceptance criteria` / `## Technical`, with measured command output), then commit
   `type(scope): subject (#NNN)` + `Closes #NNN`, push, `gh pr create --base main`.
@@ -311,3 +314,4 @@ implement the remediation. The one file it may write is its own `agents/llgenie-
   checkout read-write into a scanner (#810).
 - Never add `push:`/`pull_request:` triggers to `security-scan.yml` — `make check-security-scan` refuses them.
 - Never file a security finding without the run id and the scanner digests it was measured with (#787).
+
