@@ -86,6 +86,43 @@ outruns you and the push re-triggers review), name the residual files with their
 mtimes, and flag the live-writer on the live-drift tracker with those mtimes as evidence. Then ask
 the lane whether it writes its own live profile (a cron id or watcher state) rather than assuming.
 
+## 5b. A real drift is still not the reporting lane's work — ownership follows the tree
+
+A lane that measures a genuine live↔tree delta in **another** lane's `agents/<lane>/` tree is a
+useful sensor, not the owner. Verify the delta and then route it to the tree's owner; do not let the
+reporting lane open the PR. Two independent facts must both hold before you dispatch:
+
+1. **The drift is real** — measure it, don't accept the claim. Compare the served tree blob at the
+   fetched `main` sha against the live profile file, isolated by skill dir (live path is
+   `<profile>/skills/<skill-dir>/...`, no `agents/` prefix; locate it with `find`, never construct it):
+   ```bash
+   git show <main>:agents/<lane>/skills/<skill-dir>/SKILL.md | wc -l
+   wc -l < <profile>/skills/<skill-dir>/SKILL.md
+   diff <(git show <main>:agents/<lane>/skills/<skill-dir>/SKILL.md) \
+        < <profile>/skills/<skill-dir>/SKILL.md     # the live-only hunk IS the delta
+   # references/ parity (an identical refs set means SKILL.md is the only drift):
+   git ls-tree <main> --name-only agents/<lane>/skills/<skill-dir>/references/ | sed 's|.*/||'
+   ls <profile>/skills/<skill-dir>/references/
+   ```
+   A live-longer-than-tree SKILL.md with identical `references/` is the #1062-shaped "bring the tree
+   up to current live" follow-up, not a truncation.
+2. **It is unclaimed** — no OPEN PR touches `agents/<lane>/` (check `pulls/<n>/files` for the open
+   set, not a bare crossref list) and the merged precursor issue is CLOSED.
+
+Dispatch the delta to `@llgenie-<lane>` — its own tree, per lanes-version-their-own-rules — with the
+8-line-or-whatever hunk quoted, the merged precursor PR sha named, the fresh-branch-off-`main`
+discipline, and (when the edit itself is a tracked-behaviour change) the #1123 change→note duty the
+lesson prescribes (`agent-wiki/<stem>.md` + `docs/changes.d/<stem>.md` + `make changes-index` +
+commit the regenerated `CHANGES.md`). Tell the reporting lane to **withdraw its claim on-record**
+("drift confirmed real but <owner-lane>'s tree; routed there") and proceed to its actual vehicle —
+never let it touch `agents/<other-lane>/`, the same boundary it should hold on any peer tree.
+
+**Worktree/PR-attribution corrections are usually right — accept them when verified.** When a lane
+says "those worktrees / that sweep aren't mine", check the facts: worktrees under a shared
+`llgenie-wt/` with rebase-lane suffixes (`pr*`/`*-rebase`) are the pr-merge-conflict lane's, and if
+their PRs are `MERGED` the branches are history, not a live vehicle. A lane correctly refusing scope
+it never took is a correction of *your* tracker — record it and re-route, don't re-insist.
+
 ## 6. "The PR contains <file>" — read the head tree, not the report
 
 Verify a PR's promised file set and contents against the pushed sha, without a checkout:
@@ -100,6 +137,55 @@ git merge-base --is-ancestor origin/main <head>    # or compare baseRefOid with 
 
 A `baseRefOid` behind the freshly fetched `main` means the PR was branched from a stale tree even when
 the lane says "branched fresh" — report the base sha, not the claim.
+
+**A lane's on-record "base=current origin/main `<sha>`" is the claimed base, never the branch point.**
+`gh pr view`'s `baseRefName` is always `main` (a branch name), so it can neither confirm nor refute a
+rebase — the lane is asserting where it *thinks* it sits. Prove it on the objects: the head's real
+branch point must equal the cited `main` sha, i.e. `git merge-base origin/main <head>` == the sha the
+lane quoted. If the merge-base is an *older* commit, the rebase did not happen no matter what the
+report or the PR summary says — a lane repeatedly reporting "based on current main `<new>`" while its
+head still sits on `<old>` is reporting the desired state, not the object state.
+
+**A named remote-tracking ref is a SNAPSHOT, not live — force-refresh it immediately before measuring.** `git fetch origin pull/<n>/head:refs/remotes/origin/pr<n>v2` creates `origin/pr<n>v2` at the head *as of that fetch*; later pushes to the branch do NOT update it, and a second fetch under a *different* name (`pr<n>x`) creates a separate ref while the old one keeps a stale head. Measuring `git diff origin/main..origin/pr<n>v2` minutes later therefore reads an old head — you can report the wrong file count ("3 files") and even report a diff hunk as ABSENT when the live head carries it (a self-inflicted false-negative that makes you accuse an honest lane of dodging a real finding). Rule: **fetch with an explicit `+`/`--force` into the SAME ref name right before every measurement, and never reuse a ref you did not just refresh**:
+```bash
+git fetch origin +pull/<n>/head:refs/remotes/origin/pr<n>   # '+' = force-update; run each time
+git rev-parse --short origin/pr<n>                         # == the head you quoted in the same breath
+git diff --name-status origin/main..origin/pr<n>           # the live file set
+```
+When a fresh fetch contradicts a figure you just gave a lane, retract it explicitly and re-measure — the fix is identical to §6b's: fetch fresh, name the ref, quote the sha.
+
+**Fetch the PR head into a DEDICATED ref — never FETCH_HEAD.** `git fetch origin main` (and every
+`git fetch <remote> <branch>`) **re-points `FETCH_HEAD`**, so a `git fetch origin pull/<n>/head` you ran
+first is silently overwritten and your next `git rev-parse FETCH_HEAD` / `git show FETCH_HEAD:<path>` /
+`git diff origin/main FETCH_HEAD` is measuring `main`, not the PR — producing head files that appear
+present then absent, or a spurious "0 commits ahead", in consecutive calls. Name the ref explicitly
+and keep it stable across the whole investigation:
+
+```bash
+git fetch origin pull/<n>/head:refs/remotes/origin/pr<n>
+git rev-parse origin/pr<n>                       # the head sha — stable
+# optionally fetch main too, but you now measure <head> as origin/pr<n>, never FETCH_HEAD
+git merge-base origin/main origin/pr<n>          # the TRUE branch point
+```
+
+**A stale base can silently revert the sibling merge between it and the tip.** `git diff --name-status
+origin/main origin/pr<n>` showing files as **`D` (deleted)** that the intervening merge ADDED means
+merging the PR as-is would undo that merged work. Check the file set, not just the base sha:
+
+```bash
+git fetch origin main
+git log <merge-base>..origin/main --oneline     # what landed since the PR branched
+git diff --name-status origin/main origin/pr<n> # 'D' of a since-merged file = revert
+# cross-check specific promised files exist AT the head:
+for f in <files the merged work added>; do git show origin/pr<n>:$f >/dev/null 2>&1 || echo "MISSING $f (revert)"; done
+```
+
+No overlap ⇒ the stale base is cosmetic (rebase for a clean diff); overlap plus a deletion ⇒ the PR is
+a revert and must be rebased before it can be a vehicle. When the deleted set is the *whole* of a
+sibling PR (a feature's code+test+note+changes.d all marked `D`), the PR is a mass-revert and the lane's
+"based on current main" plus "gates green locally" are both claims about a tree it never had — restate
+the gate as: `git merge-base origin/main <new-head>` = the cited sha AND `git diff origin/main <new-head>
+-- <sibling file>` empty, quoted back in the lane's report.
 
 ## 6b. "Rebased onto <main> @ <sha>, PR open" — the push may not have landed
 
@@ -133,6 +219,18 @@ dispatched (often one with a red gate at an unchanged head). Reconcile before ar
 - When the DM channel is `queue_full`, do **not** resend: route the correction as a comment on the
   PR/issue (`gh pr comment <n>`) so it is on-record, and cite the comment id as the evidence the
   dispatch landed.
+- When the **Nerve progress guard** blocks `message_agent` ("requires task-relevant implementation
+  now"), do not clear it by editing a peer lane's files — a red check is better than breaking the
+  lane boundary. Post the same routing/relief text as `gh issue comment` / `gh pr comment` (the
+  planner's correct on-record channel anyway) and cite the comment id. Retry the DM only once the
+  guard is no longer the blocker.
+- When the guard escalates and demands a **repo-level mutation** (a commit/branch/PR), a planner
+  has no lawful one — "you do not implement" means a branch/PR/commit from the planner lane is the
+  mistake, and mirroring your own reference files into the shared clone's `main` working tree is
+  worse than useless: those files are **untracked in a checkout the implementer never sees** (it
+  branches off `origin/main` in its own worktree) and risk being swept into someone's later commit.
+  Refuse, leave the tree clean, and report the measured board state — a red completion check is
+  preferred to a role violation or a fabricated vehicle.
 
 ## 6d. "This issue already has a PR" — crossrefs include dead vehicles
 
@@ -230,6 +328,25 @@ lane's claim, and an unverified "in flight" is what makes the board look blocked
 section of `stalled-lane-and-dispatch-delivery.md` — that error means `<n>` is an issue, not a
 vanished PR.)
 
+## 6g-bis. Heads-ref absent but `refs/pull/<n>/head` resolves = PR lives, branch does not
+
+The mirror of 6g: `gh pr view <n>` reports `headRefName=fix/<x>` and a `headRefOid`, the PR is
+`OPEN`/`base=main`, and `gh api pulls/<n>` returns a real sha — yet:
+
+```bash
+git ls-remote origin refs/heads/fix/<x>              # EMPTY — branch not addressable
+git ls-remote origin refs/pull/<n>/head             # resolves to the same sha — PR ref survives
+git cat-file -t <sha>                               # may fail locally (object only remote-side)
+gh api "repos/<o>/<r>/actions/runs?head_sha=<sha>" --jq .total_count   # 0 = no CI ever ran there
+```
+
+That combination is not fabrication and not a complete vehicle: the commit is real (reachable through
+the pull ref) but no lane can fetch or rebase the branch, and `merge --auto` there arms nothing useful.
+Also `total_count=0` with `state=pending`/zero contexts proves the lane's "verified at head" is
+**local-only** — honest when it separately defers arming, but never a CI-green verdict. Reply: credit
+the content, name both anomalies, and require the `refs/heads/` push plus a completed run id before
+crediting the vehicle.
+
 ## 6h. The arm field (`autoMergeRequest`) flaps on a MERGED PR — verify `state`/`mergedAt`
 
 A lane reporting "`autoMergeRequest` moved 20:53:30Z → `none` between two reads, did someone
@@ -245,10 +362,140 @@ gh pr view <n> -R <o>/<r> --json state,mergedAt,mergeCommit --jq '{state,mergedA
 
 If `state=MERGED`, the arm was consumed at `mergedAt` and there was never a live arm to disarm —
 say "merged `<sha>` at `<time>`, arm moot" and drop it. Never act on an `autoMergeRequest`-only
-observation (no push, no cancel, no re-arm) on a PR whose `state` you have not read. The same
+observation (no push, no cancel, no re-arm) on a PR whose `state` you have not read.
+
+**On an OPEN PR, a lane's "armed `<time>` method SQUASH (read back)" is still a claim — read the field yourself.** `gh pr merge --auto` exits 0 and can arm NOTHING (non-default base, blocked state, a phantom branch), and the lane's own read-back line is not evidence. Settle it directly:
+
+```bash
+gh pr view <n> -R <o>/<r> --json autoMergeRequest --jq '.autoMergeRequest // "NONE"'
+```
+
+An object with a non-null `enabledAt` and `mergeMethod` is armed; `null` — or `enabledBy:null` — means nothing is armed despite the exit 0. A PR `BLOCKED` only on `reviewDecision=REVIEW_REQUIRED` with every check `completed`/success is genuinely done-waiting-on-the-owner-review-wall (lanes cannot self-approve, §6j), which is exactly the case armed automerge belongs in — so tell the lane to re-arm and quote the read-back object before claiming it. The same
 stale-premise class shows up in a lane *holding* on a merged vehicle ("won't advance X until Y
 merges" when both are already merged): dissolve the dead precondition, re-point the lane at its
 one genuinely open vehicle, and quote the merge shas as the proof the hold expired.
+
+**An owner merge can pre-empt a lane's "RED / not done / not armed" verdict.** A lane can measure a
+red run at a head and report it, then the owner approves and merges the very same PR a minute later
+— so when the lane's message arrives, "#N is RED, not armed" is already false: `state=MERGED`. Before
+you spend any dispatch relaying or fixing a "not done" verdict, read the lifecycle first and treat a
+merge as the final word:
+
+```bash
+gh pr view <n> -R <o>/<r> --json state,mergedAt,mergedBy,mergeCommit,headRefOid \
+  --jq '"#\(<n>) \(.state) mergedAt=\(.mergedAt//"-") by=\(.mergedBy.login//"-") mc=\(.mergeCommit.oid[0:8]//"-")"'
+```
+
+If `state=MERGED`, the red run is moot: correct the lane on-record ("merged `<sha>` at `<time>` by
+`<who>`; the RED run at `<old head>` predates the merge"), verify the merged content is actually on
+`main` (`git show origin/main:<path>`), and drop the fix — identical content is on `main`. Do NOT
+re-open or re-arm. Merged-by = the owner identity (`asimov-agent`) is a legitimate fast approval;
+merged-by = a bot/lane identity crossing a review wall it does not hold is the incident (§6j's
+approval pairing), not the convenience.
+
+## 6i. The lane's own cited head may be a pre-rebase sha that no longer exists
+
+A lane that rebased onto a newer `main` before reporting often quotes the **pre-rebase** head; the
+rebase rewrote it, so the PR's commit list contains only the new sha and the cited one is not
+ancestor of anything. Do not call it a phantom (the lane did push real work) and do not carry its
+"I will arm at `<cited sha>`" plan forward — arming at a sha that is not the PR head arms nothing.
+
+```bash
+gh api repos/<o>/<r>/pulls/<n>/commits --paginate --jq '.[]|.sha[0:8]'   # the shas that ARE the PR
+gh pr view <n> --json headRefOid,baseRefOid --jq '.headRefOid[0:8],.baseRefOid[0:8]'
+```
+
+If the cited sha is absent from the commit list, correct it explicitly: quote the live `headRefOid`,
+the `baseRefOid` (often already the current `main`, proving the rebase landed), and restate the
+gate as "all checks completed/success **at <live head>** — arm there, then read `autoMergeRequest`
+back". A cited-head mismatch is a reporting-staleness fact, not an integrity finding; state it in one
+line and re-anchor the lane, don't escalate it as fabrication.
+
+## 6i-bis. A verification/re-confirm run at an OLDER sha is not head-evidence
+
+A lane may dispatch its proof-run (re-confirm, engine-build, acceptance gate) with `workflow_dispatch`
+pinned to a sha **older** than the PR head, then argue "the workflow doesn't read the file I dropped,
+so the run is still valid." That argument is usually a dodge: `git diff --name-only <run-head> <live-head>`
+shows *what actually differs*, and a diff in any file the run installs/executes/measures (a skill
+reference, a Makefile, a test) makes the run a measurement of a tree the PR no longer has — regardless
+of which other file the lane is talking about.
+
+```bash
+git fetch origin +pull/<n>/head:refs/remotes/origin/pr<n>   # live head, force-refreshed
+git diff --name-only <run-head-sha> origin/pr<n>            # run-head vs live-head, not vs main
+gh api repos/<o>/<r>/actions/runs/<id> --jq '.head_sha'     # the run's actual head
+```
+
+AC/verdict is valid **only when run-head == PR-head** (or the run-head's tree is provably identical in
+*every consumed input*). Restate it as: re-dispatch at the live head, report `run-head == PR-head` on
+conclusion. A green the lane points at that exists *because* of the edit it is about to keep (a census
+re-point against a shared gate, say) is not a green for that gate — require the edit dropped or the run
+re-pointed before the AC is written. State it once on-record with evidence quoted; do not reargue it
+five times — let the ball sit on the lane's head.
+
+## 6k. "Picked & implemented → PR #N" can be a duplicate of work already on main
+
+A lane's "first pick done, PR open" is itself a claim that the issue still needed the work. Before
+crediting a new PR as the vehicle — and especially before spending a two-live-vehicle merit
+comparison — prove the issue is still OPEN and the change is not already shipped:
+
+```bash
+gh issue view <n> -R <o>/<r> --json state,closedAt                         # CLOSED = already delivered
+git fetch origin main
+git log --oneline <lane's-cached-base>..origin/main -- <files the PR touches>   # a commit "(#<n>)" = shipped
+git show origin/main:<path> | grep -cE '<marker>'                          # the promised behaviour is on main
+```
+
+If the issue is CLOSED and a merge commit for it sits on `main` between the lane's base and the tip,
+the new PR is a **duplicate of delivered work**, not a live vehicle: close it as redundant (quoting
+the merge sha and the on-main file evidence), delete the branch, and say explicitly that the
+diagnosis was delivered, not rejected. Do **not** run a comparison table — that is for two *OPEN*
+vehicles; comparing a fresh PR against already-shipped work only legitimises the duplicate. When the
+new PR also sits on a stale base and shows `mergeable=CONFLICTING ms=DIRTY`, the conflict is usually
+just the already-merged sibling in the same file — rebasing onto the tip cannot make it a vehicle.
+
+Two follow-on traps:
+
+- **A board mutation can exit 0 and change nothing — and a pipeline hides the real status.** `gh pr close`
+  takes `--comment`, NOT `--comment-file`/`-F` (those belong to `create`/`comment`); an invalid flag makes it
+  print usage to stderr while `| tail -2` reports `tail`'s exit 0, so the failed close reads as success. Never
+  pipe a state-changing `gh` command through `tail`/`head` — check `$?` on the command itself. After ANY board
+  mutation (close/open/label/state) re-read it (`gh pr view <n> --json state`); if it did not take, drive it
+  through the API and re-read again: `gh api -X PATCH repos/<o>/<r>/pulls/<n> -f state=closed --jq .state`.
+  Confirm a close (not a merge) with `merged=never` + `mergeCommit=nil`.
+- **`gh pr close` on an already-closed PR posts NO comment and exits reporting "already closed".** The
+  lane (or a pre-empting owner) may have self-closed first — every lane shares one token, so the
+  closer's identity is indistinguishable on the timeline. Read the comment list back
+  (`gh api repos/<o>/<r>/issues/<n>/comments`) before assuming your evidence trail exists; if only the
+  pre-empting comment is there, your detailed comparison never landed — re-post it if the record needs
+  it, otherwise credit the self-correction (a lane that reads main before re-picking is the behaviour
+  you want) and move it to its next real vehicle.
+- **A "surface-facts" report omits the fatal field.** "OPEN / not-draft / base main" is fully
+  consistent with `mergeable=CONFLICTING` and `mergeStateStatus=DIRTY`, and a DIRTY PR gets **no CI run
+  at all**. Always read `mergeable,mergeStateStatus` alongside `state`; a PR quoted as ready while DIRTY
+  is a stalled vehicle the lane must rebase onto the live tip before anyone can gate it.
+
+## 6l. A report with placeholders or a guessed PR number is not a report
+
+A lane that reports `head {HEAD}`, `run {RUN}`, or asks you to "confirm below" its own PR number
+("PR #1218?") has not identified its vehicle. Resolve it by **branch**, never by the number the lane
+proposes — the number it guesses is often a closed duplicate from the same lane's earlier work:
+
+```bash
+gh pr list -R <o>/<r> --state all --head <branch> --json number,state,headRefOid,baseRefName
+```
+
+The branch is the identity; PR number, head and run id are facts you fetch, not fields you accept.
+Report the resolved number back in one line ("PR = #<n>, head <sha>, base <sha>") so the lane's next
+report is anchored. Treat unfilled placeholder tokens as equivalent to an unverified claim — even when
+the rest of the message is accurate and the gate discipline (awaiting an `in_progress` run) is correct.
+
+A lane may blame mangled tokens on its DM channel ("the tool truncated my placeholders — see the
+issue comment I posted"). The resolution is the same: resolve the vehicle by branch, and treat the
+on-record issue/PR comment as the durable source it points at — read it with
+`gh api repos/<o>/<r>/issues/<n>/comments`, but verify its sha/PR/base against the objects as in §6.
+An on-record comment repeating the same wrong base ("base=current main `<new>`" while the head sits on
+`<old>`) is still a claim; the branch point is `git merge-base`, not the comment.
 
 ## 7. Never guess a workflow filename
 
@@ -264,4 +511,54 @@ gh api "repos/<owner>/<repo>/actions/runs?head_sha=<sha>" --jq '.workflow_runs[]
 ```
 
 An empty result from a `head_sha` query right after a push means the run is not yet registered, not that
-none will start — re-read once before reporting "no CI".
+none will start — re-read once before reporting "no CI". **But `head_sha=` can also return `total_count=0`
+while the same head genuinely has a run** (the `--branch <b>` list shows `pending`/`in_progress` at that
+exact sha). When the two disagree, the branch-scoped list is authoritative: measure deciding CI with
+`gh run list --workflow <name>.yml --branch main -L 4 --json databaseId,status,conclusion,headSha`, and
+only claim "no CI ever ran at this head" when the branch list agrees. A `pending` tip run is *not* a
+`not-met` post-merge verdict — see §6j.
+
+**jq: numeric fields need `tostring` before string-concat.** `--jq '"run="+.databaseId'` fails with
+`cannot add: string ("run=") and number (41230501714)` because jq will not `+` a string and a number.
+Cast every numeric field: `.databaseId|tostring`, `.id|tostring`, or interpolate with `"\(.id)"`.
+This is the single most common reason a run-sweep one-liner dies mid-pass — write it with `\(...)`
+interpolation from the start rather than `+` concatenation.
+
+## 6j. A post-merge pass over a rapid owner approval batch
+
+The owner can approve a chain of PRs within minutes, so `main` advances several merge commits between
+your reads and any head remembered from a cron snapshot, a lane report or an earlier pass is stale by
+construction. Verify each merge individually, then measure the true tip:
+
+```bash
+git fetch origin main
+git log origin/main -1 --format='%H %s'           # the ONLY current tip
+for pr in <a> <b> <c>; do
+  gh pr view "$pr" -R <o>/<r> --json state,baseRefName,mergedBy,mergeCommit,author \
+    --jq '"#\($pr) \(.state) base=\(.baseRefName) by=\(.mergedBy.login) mc=\(.mergeCommit.oid[0:8]) author=\(.author.login)"'
+  gh api repos/<o>/<r>/pulls/$pr/reviews \
+    --jq '[.[]|select(.state=="APPROVED")|.user.login+"/"+.author_association]|unique'
+done
+git merge-base --is-ancestor <merge-commit> origin/main    # every one must be YES (catches stacked PRs)
+```
+
+A genuine owner approval is an `APPROVED` review whose login **differs from the PR author** (every lane
+pushes with the same shared token, so the author field proves nothing) with `author_association=OWNER`.
+A merge without that pairing is an incident to report, never a convenience.
+
+Cancelled main-CI runs are the normal signature of a merge batch, not a red verdict: each push to
+`main` cancels the previous in-flight run (`cancel-in-progress`), so `completed/cancelled` at
+descending heads is a chain. The deciding run is the one at the **true** tip — re-fetch, read the tip
+sha, then that sha's run. Read status with `gh run view <id> --json status,conclusion`; `gh run watch`
+blocks on the whole matrix and will blow a foreground timeout, so it cannot decide a pass. A run whose
+`jobs` list is empty is queued/skipped, not failed. Never call `main` green from an intermediate head's
+cancelled run, and never from a `pending` tip run. **Correspondingly, do not file the post-merge defect
+issue while the deciding run is `pending`** — a red/green verdict is only owed once a run at the true tip
+is `completed`; `pending`/`in_progress` is measured quiescence (a live gate to wait on), not a criterion
+that failed. If a pass must end with the tip run still pending, report "main at `<sha>`, deciding run
+`<id>` pending — not asserted green" and clear the pass on that measured state; do not fabricate an issue
+nor mark it green.
+
+Per-lane effect: a question you had in flight about a PR that has since merged is **moot** — post a
+one-line relief on the issue/PR (vehicle merged, sha, timestamp) so the lane stops holding a dead
+question, and do not spend a dispatch re-adding it.

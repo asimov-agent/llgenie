@@ -127,6 +127,17 @@ add them on its own branch, and do not arm until scope+guard+unit are all green 
 rebase does NOT cure it — base moves and label/linked-issue fixes never add a note to the branch. This is a
 per-file, on-branch, owning-lane duty, so route it to the branch owner, never to the rebase lane.
 
+## A lane's stated "queue now" line is a claim — verify it against the dispatch list
+
+A lane that reports "Queue now: #A → #B" is asserting ownership and order, not reporting the queue. It can
+silently drop a queued issue: the implementer reported "#1087 → #1064" while the planner's ordering was
+"#1140 → #1087 → #1064", and #1140 (a real, still-unfixed content defect on main) vanished from the line with
+no reason given. The drop is discovered only by cross-checking: `gh pr view <queued-n>` (still OPEN head), and
+`git show origin/main:<defect-site>` / `grep` the named outputs to confirm the issue's acceptance is genuinely
+NOT on main. When dropped but truly unfixed, re-dispatch it on-record (issue comment, not a resend of the DM)
+stating the queue order explicitly and naming the stale vehicle to supersede. One branch rebased off tip + one
+PR; never two live reviewable PRs for one issue.
+
 ## Guard reds read authoritative `gh pr checks`, not raw check-runs
 
 At a head, `commits/<sha>/check-runs` returns EVERY run including stale earlier attempts; `gh pr checks`
@@ -162,3 +173,35 @@ branch, re-read the arm. A second PR for the census is the two-vehicle mistake.
 Read the assertion diff before triaging: `actual - expected` naming exactly the entries the PR
 introduced means the PR is correct and the census is stale. Entries in `expected - actual` mean the
 lane dropped coverage it did not intend to drop — that one is a real defect.
+
+## A census POINTER gate attracts a re-point storm — pick ONE vehicle, close the rest
+
+When the gate is an *ancestor-pointer* check (`measured at <sha>` must be a real commit AND an
+ancestor of `HEAD`, and the stated counts must match at that sha), EVERY open PR boots on the same
+red and each lane "fixes" it independently by editing the same block to its own referent. That is the
+storm: several PRs each re-pointing one gate block at different shas (`main` tip, another PR's head,
+a sha that is not an ancestor of `main` at all), each believing it is the one fix.
+
+Procedure:
+
+1. **Find the canonical vehicle first.** The root-fix issue (not the symptom PRs) owns it; the
+   canonical PR is the one whose pointer resolves to the real `main` tip, is CI-verified, and is
+   armed — its sole blocker being `REVIEW_REQUIRED` confirms it is only waiting on the owner. Every
+   other re-point is a duplicate even when the diff differs.
+2. **Close duplicates as superseded, with a comparison table ON the closed PR** (pointer sha,
+   counts, root issue, status row). Say explicitly the diagnosis was NOT rejected — it is identical
+   and already carried by the canonical PR. Do not open a separate "closure record" issue.
+3. **Redirect, don't close, a lane whose re-point is incidental to a real feature PR.** Tell that
+   lane to DROP the census edit from its branch, keep only its genuine change set, rebase onto the
+   canonical after it merges, and re-confirm the gated file is absent from the diff at the new head.
+   Same shape as the set-census rule above: no second vehicle, no competing pointer.
+4. **Reject a pointer that is not an ancestor of `main`.** `git merge-base --is-ancestor <sha>
+   origin/main` — a re-point to the PR's own head is self-consistent but drifts the root fix and
+   conflicts on merge order; it goes, the canonical `main`-tip pointer stays.
+5. Before closing, grep each candidate PR body for the issue numbers it claims — a duplicate that
+   cites an already-CLOSED superseded issue instead of the live root issue is a strong signal it is a
+   re-derived copy, not the canonical vehicle.
+
+One root cause ⇒ one vehicle holds the gate block. The others drop the block and rebase; that is the
+only merge-order-safe resolution. See also the report-integrity rule: closing a PR and then quoting
+it as "done" is a claim — re-read `state,merged=never` before reporting.
