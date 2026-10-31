@@ -1,7 +1,7 @@
 ---
 name: llgenie-architecture-issue-pass
 description: "Audit llgenie architecture and file refactor issues."
-version: 1.3.0
+version: 1.4.0
 metadata:
   hermes:
     tags: [llgenie, architecture, github, issues, refactor]
@@ -174,6 +174,7 @@ HOST half of the fleet: no CI leg preloads it, and it is admitted by name in `HO
   Name the order by dependency, not by roster: a lane that is the SINK of a collaboration contract (every
   other lane messages it) lands before the lanes that message it, or the contract cannot exist. Put renames
   (dir moves, e.g. a typo'd profile dir) as one atomic manifest+dir+test PR, not folded into a reshape.
+- **A PR that changes a behavioural surface OWES a dated note + a `docs/changes.d/` row, or `check-docs` reds the `scope` job — this is the first thing to add, not a surprise.** `agents/<lane>/SOUL.md`, `agents/<lane>/skills/**` and `agents/manifest.json` are all in `NOTE_SURFACE_RES` (the `change->note` rule), so a lane PR that versions a SOUL or a skill (the most common shape this lane ships) is a behavioural change and needs `agent-wiki/<stem>.md` plus a matching `docs/changes.d/<stem>.md` fragment citing the issue/PR. Write both before you push: the note is cheap, and finding the red after a green-looking local gate costs a whole CI cycle. **The gate that fails is the `ci-scope` run (`scope.yml`), NOT the `CI` run** — `ci.yml` carries `paths-ignore: docs/**, agent-wiki/**, openspec/**, *.md`, so the docs gates deliberately live in `scope.yml` (no path filter, one always-present `scope` check). When a docs gate is red, read `gh run list --branch <head>` for the `ci-scope` entry and its job log; looking at `CI` shows the matrix, not the docs verdict. And re-run `make check-docs` locally AFTER `git add`-ing/committing the note — see the next bullet for why an untracked note is invisible to it.
 - **A diff-based gate cannot see an uncommitted artifact, so "I added the note and it still says I didn't"
   usually means you have not committed yet.** A change→note rule reads the PR's diff (`base...HEAD`), not
   the working tree, so a note file sitting untracked is invisible and the gate reports exactly what it would
@@ -421,6 +422,7 @@ count of how many the SOUL has, which hides a carrier that never gained the rule
   nothing and the gap is invisible until it bites. Revert the sabotage either way, and confirm the clean
   tree is green again.
 - **`gh pr edit` has no `--head` flag — an existing PR cannot be pointed at a different branch; close it and open a new one.** `gh pr edit <n> --head <branch>` errors `unknown flag: --head` (verified against this account), so a PR left pinned to a tangled branch cannot be retargeted in place: comment the resolution on the tangled PR, close it, and `gh pr create` from the clean branch. Do not cycle flag spellings — the CLI exposes `--base` mutation but not head mutation. `--force-with-lease` per branch and plain (below) still do the branch-side work; only the PR object needs the close-and-reopen.
+- **`gh pr merge --auto` exiting 0 arms NOTHING when the base is not the default branch, and `enabled_at` is ABSENT from the read-back rather than null — dump the KEYS, not the object.** GitHub omits null fields from the REST payload, so `gh api repos/<o>/<r>/pulls/<n> --jq '.auto_merge'` prints `{commit_message, commit_title, enabled_by, merge_method}` with no `enabled_at` at all when auto-merge was never armed, and a reader who greps for `enabled_at` finds nothing and concludes "armed". Measure the keys explicitly (`--jq '.auto_merge | keys'`) and the value (`--jq '.auto_merge.enabled_at'` → `null` means NOT armed), and quote the arm time in the same PR comment as the arm command. The exit code of `gh pr merge --auto` is not the fact.
 - **A closed PR does not follow its branch.** Pushing to the branch of a closed PR moves the ref and
   leaves the PR pinned at its pre-close sha (`pulls?head=<repo>:<branch>&state=all` is how you find the
   successor). Verify `pr.head.sha` against `git ls-remote` before claiming a push is visible to reviewers.
@@ -769,7 +771,13 @@ test is a subset check on lines: extract the live file's non-blank lines and the
 lines** (added) separately from **live lines absent from the tree** (lost). Zero novel plus N lost is a
 *truncation*, not a divergence, and it is what a seed copied from a partial or outdated source looks like.
 Unsynced direction matters too: `live << tree` is just a stub awaiting its first sync, while `live >> tree` is a
-rulebook about to shrink — only the second is a defect.
+rulebook about to shrink — only the second is a defect. **A "reload your SOUL/skills — sync any drift"
+directive assumes tree→live, so on a `live >> tree` diff its own prescribed action is the DESTRUCTIVE one:**
+running `sync-agent-profile` would overwrite the newer live file with the older tree copy. The correct reconcile
+is the opposite direction — version live→tree as a per-lane PR (files committed byte-identical to the live
+profile, `check_agent_profiles.py check` green in CI mode with `HERMES_PROFILES_HOME=/nonexistent`), which makes
+the two agree so any later sync is a no-op. Never sync DOWN while live is ahead; take the direction from the
+owner when a directive's wording leaves it ambiguous, because the wording does not carry it.
 
 **The sync tool's own "verified … identical" claims only that it wrote what it copied.** A sync that replaces a
 7,509-byte file with 5,149 bytes and prints `verified: 3 file(s) read back identical` exits 0 and is green in
