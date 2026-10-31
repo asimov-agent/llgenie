@@ -107,6 +107,7 @@
       },
       "install": [
         "test -d /opt/llgenie/engines/vllm/src/.git || git clone -b v0.32.0 --depth 1 https://github.com/vllm-project/vllm.git /opt/llgenie/engines/vllm/src",
+        "uv pip install --system --break-system-packages torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu",
         "uv pip install --system --break-system-packages -r /opt/llgenie/engines/vllm/src/requirements/build/cpu.txt --index-strategy unsafe-best-match",
         "cd /opt/llgenie/engines/vllm/src && VLLM_TARGET_DEVICE=cpu uv pip install --system --break-system-packages --no-build-isolation -e ."
       ],

@@ -43,6 +43,10 @@ install:
     - "cd {src} && PYTORCH_ROCM_ARCH='{gpu_targets}' VLLM_TARGET_DEVICE=rocm uv pip install --system --break-system-packages --no-build-isolation -e ."
   cpu:
     - "test -d {src}/.git || git clone -b {ref} --depth 1 {repo}.git {src}"
+    # the pinned cpu.txt requests torch==2.13.0+cpu, which only the cpu repack
+    # index serves (default PyPI has no +cpu wheel); preinstall it first so the
+    # -r cpu.txt row is satisfiable (issue #1241). torch_backend renders to 'cpu'.
+    - "uv pip install --system --break-system-packages torch==2.13.0 --index-url https://download.pytorch.org/whl/{torch_backend}"
     - "uv pip install --system --break-system-packages -r {src}/requirements/build/cpu.txt --index-strategy unsafe-best-match"
     - "cd {src} && VLLM_TARGET_DEVICE=cpu uv pip install --system --break-system-packages --no-build-isolation -e ."
 binary: "vllm"
