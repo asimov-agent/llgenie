@@ -193,3 +193,30 @@ def test_the_derived_key_reproduces_the_published_store_order(reg):
     # Then the committed order is already sorted by it — 112 of 112 rows, non-decreasing
     assert len(keys) == len(reg["models"]) > 100
     assert keys == sorted(keys)
+
+
+def test_a_metal_measured_figure_never_gates_a_card_host(reg):
+    """#669 / #1064: at a card arch, a Metal-measured figure is other-hardware evidence — a Metal
+    run never gates a cuda/rocm/vulkan host, and Metal is Apple-native. So such a row must carry
+    the engine's CPU build, never be dressed as the requested card's variant. The defect was
+    `rank_engines(trending-qwen, "cuda")` surfacing MLX as `{variant: cuda, measured_on: Metal}` —
+    a Metal-measured number claimed as the cuda build's. The engine is still offered (live
+    resolution) but honestly labelled: variant is cpu, never the card arch.
+    """
+
+    qwen = next(m for m in reg["models"] if m["id"] == "qwen3.8-27b")
+
+    # At a card arch, a Metal-measured row carries the cpu variant, never the requested card's.
+    for arch in ("cuda", "rocm", "vulkan"):
+        for gb in (8, 16, 48):
+            for row in mp.rank_engines(qwen, arch, gb=gb):
+                if row.get("measured_on") == "Metal":
+                    assert row["variant"] == "cpu", row
+                else:
+                    assert row["variant"] in (arch, "cpu"), row
+
+    # The specific defect is gone: no MLX/cuda/Metal row at any cuda card size.
+    for gb in (8, 16, 48):
+        rows = mp.rank_engines(qwen, "cuda", gb=gb)
+        assert not any(r["engine"] == "MLX" and r["variant"] == "cuda"
+                       and r["measured_on"] == "Metal" for r in rows), rows

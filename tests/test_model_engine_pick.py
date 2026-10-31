@@ -39,7 +39,13 @@ def test_engines_ranked_by_tps_then_trending_for_this_host(reg):
     assert all(r["rank"] > 0 for r in rows if r["measured_on"] != "CUDA")
     # (an engine whose cuda image is disabled, issue #103, falls back to its cpu image)
     import scripts.engine_image as ei
-    assert all(r["variant"] == ("cpu" if ei.disabled(r["id"], "cuda") else "cuda") for r in rows)
+    # #1064/#669: on a card host, a Metal-measured row is other-hardware evidence (a Metal run never
+    # gates a cuda/rocm/vulkan host), so it falls back to the engine's CPU build — never dressed as
+    # the requested card's variant. Same pattern as a ROCm/CPU figure at a card host.
+    assert all(
+        r["variant"] == ("cpu" if (r["measured_on"] == "Metal"
+                                   or ei.disabled(r["id"], "cuda")) else "cuda")
+        for r in rows)
     assert all(r["measured_on"] == "Metal" for r in rows if "Apple" in r["hardware"])
     assert rows[0]["same_hw"] and rows[0]["measured_on"] == "CUDA"
     lz = next(r for r in rows if r["id"] == "llama.cpp-laurentzuijdwijk")  # Strix Halo figure only

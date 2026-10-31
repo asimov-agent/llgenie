@@ -68,7 +68,7 @@
           "server": "MLX",
           "tps": 300.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -108,7 +108,7 @@
           "server": "MLX",
           "tps": 74.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -132,7 +132,7 @@
           "server": "llama.cpp",
           "tps": 13.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -180,7 +180,7 @@
           "server": "MLX",
           "tps": 42.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -196,7 +196,7 @@
           "server": "MLX",
           "tps": 40.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -228,7 +228,7 @@
           "server": "MLX",
           "tps": 18.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -315,7 +315,7 @@
           "server": "MLX",
           "tps": 115.5,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -331,7 +331,7 @@
           "server": "MLX",
           "tps": 26.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -395,7 +395,7 @@
           "server": "MLX",
           "tps": 300.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -435,7 +435,7 @@
           "server": "MLX",
           "tps": 74.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -451,7 +451,7 @@
           "server": "MLX",
           "tps": 106.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -467,7 +467,7 @@
           "server": "MLX",
           "tps": 90.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -499,7 +499,7 @@
           "server": "MLX",
           "tps": 56.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -523,7 +523,7 @@
           "server": "MLX",
           "tps": 42.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -539,7 +539,7 @@
           "server": "MLX",
           "tps": 40.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -571,7 +571,7 @@
           "server": "MLX",
           "tps": 18.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -658,7 +658,7 @@
           "server": "MLX",
           "tps": 115.5,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -674,7 +674,7 @@
           "server": "MLX",
           "tps": 26.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -738,7 +738,7 @@
           "server": "MLX",
           "tps": 300.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -778,7 +778,7 @@
           "server": "MLX",
           "tps": 74.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -794,7 +794,7 @@
           "server": "MLX",
           "tps": 106.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -810,7 +810,7 @@
           "server": "MLX",
           "tps": 90.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -832,8 +832,8 @@
         {
           "model": "Qwen3-0.6B",
           "server": "SGLang",
-          "tps": 65.9,
-          "measured_on": "Metal",
+          "tps": 0.0,
+          "measured_on": "",
           "variant": "cuda",
           "why": ""
         },
@@ -850,7 +850,7 @@
           "server": "MLX",
           "tps": 56.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -874,7 +874,7 @@
           "server": "MLX",
           "tps": 42.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -890,7 +890,7 @@
           "server": "MLX",
           "tps": 40.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -922,7 +922,7 @@
           "server": "MLX",
           "tps": 18.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -1017,7 +1017,7 @@
           "server": "MLX",
           "tps": 115.5,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -1033,7 +1033,7 @@
           "server": "MLX",
           "tps": 26.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -1097,7 +1097,7 @@
           "server": "MLX",
           "tps": 300.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -1137,7 +1137,7 @@
           "server": "MLX",
           "tps": 74.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -1153,7 +1153,7 @@
           "server": "MLX",
           "tps": 106.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -1169,7 +1169,7 @@
           "server": "MLX",
           "tps": 90.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -1191,8 +1191,8 @@
         {
           "model": "Qwen3-0.6B",
           "server": "SGLang",
-          "tps": 65.9,
-          "measured_on": "Metal",
+          "tps": 0.0,
+          "measured_on": "",
           "variant": "cuda",
           "why": ""
         },
@@ -1209,7 +1209,7 @@
           "server": "MLX",
           "tps": 56.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -1233,7 +1233,7 @@
           "server": "MLX",
           "tps": 42.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -1249,7 +1249,7 @@
           "server": "MLX",
           "tps": 40.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -1289,7 +1289,7 @@
           "server": "MLX",
           "tps": 18.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -1432,7 +1432,7 @@
           "server": "MLX",
           "tps": 300.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -1440,7 +1440,7 @@
           "server": "MLX",
           "tps": 184.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -1496,7 +1496,7 @@
           "server": "MLX",
           "tps": 74.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -1512,7 +1512,7 @@
           "server": "MLX",
           "tps": 106.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -1528,7 +1528,7 @@
           "server": "MLX",
           "tps": 90.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -1592,7 +1592,7 @@
           "server": "MLX",
           "tps": 42.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -1616,7 +1616,7 @@
           "server": "MLX",
           "tps": 40.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -1648,7 +1648,7 @@
           "server": "MLX",
           "tps": 18.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -1791,7 +1791,7 @@
           "server": "MLX",
           "tps": 26.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -1799,7 +1799,7 @@
           "server": "MLX",
           "tps": 115.5,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -1895,7 +1895,7 @@
           "server": "MLX",
           "tps": 300.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -1903,7 +1903,7 @@
           "server": "MLX",
           "tps": 184.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -1919,7 +1919,7 @@
           "server": "MLX",
           "tps": 40.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -1967,7 +1967,7 @@
           "server": "MLX",
           "tps": 74.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -1983,7 +1983,7 @@
           "server": "MLX",
           "tps": 106.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -1991,7 +1991,7 @@
           "server": "MLX",
           "tps": 106.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -2007,7 +2007,7 @@
           "server": "MLX",
           "tps": 90.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -2047,7 +2047,7 @@
           "server": "llama.cpp",
           "tps": 58.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -2055,7 +2055,7 @@
           "server": "MLX",
           "tps": 56.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -2095,7 +2095,7 @@
           "server": "MLX",
           "tps": 42.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -2119,7 +2119,7 @@
           "server": "MLX",
           "tps": 40.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -2175,7 +2175,7 @@
           "server": "MLX",
           "tps": 18.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -2334,7 +2334,7 @@
           "server": "MLX",
           "tps": 26.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -2342,7 +2342,7 @@
           "server": "MLX",
           "tps": 115.5,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -2422,7 +2422,7 @@
           "server": "MLX",
           "tps": 80.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -2446,7 +2446,7 @@
           "server": "MLX",
           "tps": 300.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -2454,7 +2454,7 @@
           "server": "MLX",
           "tps": 184.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -2470,7 +2470,7 @@
           "server": "MLX",
           "tps": 40.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -2518,7 +2518,7 @@
           "server": "MLX",
           "tps": 74.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -2534,7 +2534,7 @@
           "server": "MLX",
           "tps": 106.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -2542,7 +2542,7 @@
           "server": "MLX",
           "tps": 106.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -2558,7 +2558,7 @@
           "server": "MLX",
           "tps": 90.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -2580,8 +2580,8 @@
         {
           "model": "Qwen3-0.6B",
           "server": "SGLang",
-          "tps": 65.9,
-          "measured_on": "Metal",
+          "tps": 0.0,
+          "measured_on": "",
           "variant": "cuda",
           "why": ""
         },
@@ -2606,7 +2606,7 @@
           "server": "llama.cpp",
           "tps": 58.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -2614,7 +2614,7 @@
           "server": "MLX",
           "tps": 56.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -2654,7 +2654,7 @@
           "server": "MLX",
           "tps": 42.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -2678,7 +2678,7 @@
           "server": "MLX",
           "tps": 40.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -2734,7 +2734,7 @@
           "server": "MLX",
           "tps": 18.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -2901,7 +2901,7 @@
           "server": "MLX",
           "tps": 26.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -2909,7 +2909,7 @@
           "server": "MLX",
           "tps": 115.5,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -2989,7 +2989,7 @@
           "server": "MLX",
           "tps": 80.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -3013,7 +3013,7 @@
           "server": "MLX",
           "tps": 300.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -3021,7 +3021,7 @@
           "server": "MLX",
           "tps": 184.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -3037,7 +3037,7 @@
           "server": "MLX",
           "tps": 40.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -3085,7 +3085,7 @@
           "server": "MLX",
           "tps": 74.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -3101,7 +3101,7 @@
           "server": "MLX",
           "tps": 106.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -3109,7 +3109,7 @@
           "server": "MLX",
           "tps": 106.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -3125,7 +3125,7 @@
           "server": "MLX",
           "tps": 90.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -3147,8 +3147,8 @@
         {
           "model": "Qwen3-0.6B",
           "server": "SGLang",
-          "tps": 65.9,
-          "measured_on": "Metal",
+          "tps": 0.0,
+          "measured_on": "",
           "variant": "cuda",
           "why": ""
         },
@@ -3173,7 +3173,7 @@
           "server": "llama.cpp",
           "tps": 58.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -3181,7 +3181,7 @@
           "server": "MLX",
           "tps": 56.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -3221,7 +3221,7 @@
           "server": "MLX",
           "tps": 42.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -3245,7 +3245,7 @@
           "server": "MLX",
           "tps": 40.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -3309,7 +3309,7 @@
           "server": "MLX",
           "tps": 18.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -3482,8 +3482,8 @@
         {
           "model": "Qwen3.8-27B (Apple Silicon)",
           "server": "TensorFold",
-          "tps": 200.7,
-          "measured_on": "Metal",
+          "tps": 0.0,
+          "measured_on": "",
           "variant": "cuda",
           "why": ""
         },
@@ -3508,7 +3508,7 @@
           "server": "MLX",
           "tps": 300.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -3524,7 +3524,7 @@
           "server": "MLX",
           "tps": 184.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -3532,7 +3532,7 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -3588,7 +3588,7 @@
           "server": "MLX",
           "tps": 74.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -3620,7 +3620,7 @@
           "server": "MLX",
           "tps": 106.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -3636,7 +3636,7 @@
           "server": "MLX",
           "tps": 90.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -3658,8 +3658,8 @@
         {
           "model": "Qwen3.8-27B (TensorFold + DFlash2, Mac mini M6)",
           "server": "TensorFold",
-          "tps": 61.9,
-          "measured_on": "Metal",
+          "tps": 0.0,
+          "measured_on": "",
           "variant": "cuda",
           "why": ""
         },
@@ -3668,7 +3668,7 @@
           "server": "MLX",
           "tps": 56.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -3700,7 +3700,7 @@
           "server": "MLX",
           "tps": 42.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -3724,7 +3724,7 @@
           "server": "MLX",
           "tps": 40.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -3756,7 +3756,7 @@
           "server": "MLX",
           "tps": 18.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -3764,7 +3764,7 @@
           "server": "MLX",
           "tps": 18.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -3836,7 +3836,7 @@
           "server": "MLX",
           "tps": 17.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         }
       ]
@@ -3923,7 +3923,7 @@
           "server": "MLX",
           "tps": 26.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -3931,7 +3931,7 @@
           "server": "MLX",
           "tps": 115.5,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -3993,8 +3993,8 @@
         {
           "model": "Qwen3.8-27B (Apple Silicon)",
           "server": "TensorFold",
-          "tps": 200.7,
-          "measured_on": "Metal",
+          "tps": 0.0,
+          "measured_on": "",
           "variant": "cuda",
           "why": ""
         },
@@ -4019,7 +4019,7 @@
           "server": "MLX",
           "tps": 25.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -4035,7 +4035,7 @@
           "server": "MLX",
           "tps": 300.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -4051,7 +4051,7 @@
           "server": "MLX",
           "tps": 184.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -4059,7 +4059,7 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -4067,7 +4067,7 @@
           "server": "MLX",
           "tps": 45.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -4075,7 +4075,7 @@
           "server": "MLX",
           "tps": 40.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -4131,7 +4131,7 @@
           "server": "MLX",
           "tps": 74.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -4163,7 +4163,7 @@
           "server": "MLX",
           "tps": 106.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -4171,7 +4171,7 @@
           "server": "MLX",
           "tps": 106.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -4187,7 +4187,7 @@
           "server": "MLX",
           "tps": 90.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -4217,8 +4217,8 @@
         {
           "model": "Qwen3.8-27B (TensorFold + DFlash2, Mac mini M6)",
           "server": "TensorFold",
-          "tps": 61.9,
-          "measured_on": "Metal",
+          "tps": 0.0,
+          "measured_on": "",
           "variant": "cuda",
           "why": ""
         },
@@ -4227,7 +4227,7 @@
           "server": "llama.cpp",
           "tps": 58.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -4235,7 +4235,7 @@
           "server": "MLX",
           "tps": 56.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -4275,7 +4275,7 @@
           "server": "MLX",
           "tps": 42.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -4299,7 +4299,7 @@
           "server": "MLX",
           "tps": 40.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -4355,7 +4355,7 @@
           "server": "MLX",
           "tps": 18.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -4363,7 +4363,7 @@
           "server": "MLX",
           "tps": 18.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -4435,7 +4435,7 @@
           "server": "MLX",
           "tps": 17.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -4538,7 +4538,7 @@
           "server": "MLX",
           "tps": 26.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -4546,7 +4546,7 @@
           "server": "MLX",
           "tps": 115.5,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -4616,8 +4616,8 @@
         {
           "model": "Qwen3.8-27B (Apple Silicon)",
           "server": "TensorFold",
-          "tps": 200.7,
-          "measured_on": "Metal",
+          "tps": 0.0,
+          "measured_on": "",
           "variant": "cuda",
           "why": ""
         },
@@ -4634,7 +4634,7 @@
           "server": "MLX",
           "tps": 80.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -4642,7 +4642,7 @@
           "server": "MLX",
           "tps": 25.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -4650,7 +4650,7 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -4666,7 +4666,7 @@
           "server": "MLX",
           "tps": 300.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -4682,7 +4682,7 @@
           "server": "MLX",
           "tps": 184.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -4690,7 +4690,7 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -4698,7 +4698,7 @@
           "server": "MLX",
           "tps": 45.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -4706,7 +4706,7 @@
           "server": "MLX",
           "tps": 40.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -4762,7 +4762,7 @@
           "server": "MLX",
           "tps": 74.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -4802,7 +4802,7 @@
           "server": "MLX",
           "tps": 106.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -4810,7 +4810,7 @@
           "server": "MLX",
           "tps": 106.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -4826,7 +4826,7 @@
           "server": "MLX",
           "tps": 90.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -4848,8 +4848,8 @@
         {
           "model": "Qwen3-0.6B",
           "server": "SGLang",
-          "tps": 65.9,
-          "measured_on": "Metal",
+          "tps": 0.0,
+          "measured_on": "",
           "variant": "cuda",
           "why": ""
         },
@@ -4864,8 +4864,8 @@
         {
           "model": "Qwen3.8-27B (TensorFold + DFlash2, Mac mini M6)",
           "server": "TensorFold",
-          "tps": 61.9,
-          "measured_on": "Metal",
+          "tps": 0.0,
+          "measured_on": "",
           "variant": "cuda",
           "why": ""
         },
@@ -4874,7 +4874,7 @@
           "server": "llama.cpp",
           "tps": 58.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -4882,7 +4882,7 @@
           "server": "MLX",
           "tps": 56.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -4922,7 +4922,7 @@
           "server": "MLX",
           "tps": 42.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -4946,7 +4946,7 @@
           "server": "MLX",
           "tps": 40.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -5002,7 +5002,7 @@
           "server": "MLX",
           "tps": 18.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -5010,7 +5010,7 @@
           "server": "MLX",
           "tps": 18.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -5082,7 +5082,7 @@
           "server": "MLX",
           "tps": 17.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -5193,7 +5193,7 @@
           "server": "MLX",
           "tps": 26.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -5201,7 +5201,7 @@
           "server": "MLX",
           "tps": 115.5,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -5271,8 +5271,8 @@
         {
           "model": "Qwen3.8-27B (Apple Silicon)",
           "server": "TensorFold",
-          "tps": 200.7,
-          "measured_on": "Metal",
+          "tps": 0.0,
+          "measured_on": "",
           "variant": "cuda",
           "why": ""
         },
@@ -5289,7 +5289,7 @@
           "server": "MLX",
           "tps": 80.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -5297,7 +5297,7 @@
           "server": "MLX",
           "tps": 25.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -5305,7 +5305,7 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -5321,7 +5321,7 @@
           "server": "MLX",
           "tps": 300.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -5337,7 +5337,7 @@
           "server": "MLX",
           "tps": 184.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -5345,7 +5345,7 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -5353,7 +5353,7 @@
           "server": "MLX",
           "tps": 45.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -5361,7 +5361,7 @@
           "server": "MLX",
           "tps": 40.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -5417,7 +5417,7 @@
           "server": "MLX",
           "tps": 74.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -5457,7 +5457,7 @@
           "server": "MLX",
           "tps": 106.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -5465,7 +5465,7 @@
           "server": "MLX",
           "tps": 106.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -5481,7 +5481,7 @@
           "server": "MLX",
           "tps": 90.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -5503,8 +5503,8 @@
         {
           "model": "Qwen3-0.6B",
           "server": "SGLang",
-          "tps": 65.9,
-          "measured_on": "Metal",
+          "tps": 0.0,
+          "measured_on": "",
           "variant": "cuda",
           "why": ""
         },
@@ -5519,8 +5519,8 @@
         {
           "model": "Qwen3.8-27B (TensorFold + DFlash2, Mac mini M6)",
           "server": "TensorFold",
-          "tps": 61.9,
-          "measured_on": "Metal",
+          "tps": 0.0,
+          "measured_on": "",
           "variant": "cuda",
           "why": ""
         },
@@ -5529,7 +5529,7 @@
           "server": "llama.cpp",
           "tps": 58.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -5537,7 +5537,7 @@
           "server": "MLX",
           "tps": 56.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -5577,7 +5577,7 @@
           "server": "MLX",
           "tps": 42.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -5601,7 +5601,7 @@
           "server": "MLX",
           "tps": 40.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -5665,7 +5665,7 @@
           "server": "MLX",
           "tps": 18.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -5673,7 +5673,7 @@
           "server": "MLX",
           "tps": 18.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -5745,7 +5745,7 @@
           "server": "MLX",
           "tps": 17.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -5880,7 +5880,7 @@
           "server": "MLX",
           "tps": 300.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -5904,7 +5904,7 @@
           "server": "MLX",
           "tps": 184.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -5992,7 +5992,7 @@
           "server": "MLX",
           "tps": 106.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -6008,7 +6008,7 @@
           "server": "MLX",
           "tps": 90.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -6016,7 +6016,7 @@
           "server": "MLX",
           "tps": 80.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -6038,8 +6038,8 @@
         {
           "model": "Qwen3.8-27B (TensorFold + DFlash2, Mac mini M6)",
           "server": "TensorFold",
-          "tps": 61.9,
-          "measured_on": "Metal",
+          "tps": 0.0,
+          "measured_on": "",
           "variant": "cuda",
           "why": ""
         },
@@ -6048,7 +6048,7 @@
           "server": "MLX",
           "tps": 56.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -6080,7 +6080,7 @@
           "server": "MLX",
           "tps": 42.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -6104,7 +6104,7 @@
           "server": "MLX",
           "tps": 40.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -6136,7 +6136,7 @@
           "server": "MLX",
           "tps": 18.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -6144,7 +6144,7 @@
           "server": "MLX",
           "tps": 18.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -6224,7 +6224,7 @@
           "server": "MLX",
           "tps": 17.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         }
       ]
@@ -6311,7 +6311,7 @@
           "server": "MLX",
           "tps": 26.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -6319,7 +6319,7 @@
           "server": "MLX",
           "tps": 115.5,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -6389,8 +6389,8 @@
         {
           "model": "Qwen3.8-27B (Apple Silicon)",
           "server": "TensorFold",
-          "tps": 200.7,
-          "measured_on": "Metal",
+          "tps": 0.0,
+          "measured_on": "",
           "variant": "cuda",
           "why": ""
         },
@@ -6415,7 +6415,7 @@
           "server": "MLX",
           "tps": 25.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -6431,7 +6431,7 @@
           "server": "MLX",
           "tps": 300.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -6455,7 +6455,7 @@
           "server": "MLX",
           "tps": 184.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -6463,7 +6463,7 @@
           "server": "MLX",
           "tps": 45.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -6471,7 +6471,7 @@
           "server": "MLX",
           "tps": 40.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -6527,7 +6527,7 @@
           "server": "MLX",
           "tps": 74.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -6567,7 +6567,7 @@
           "server": "MLX",
           "tps": 106.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -6575,7 +6575,7 @@
           "server": "MLX",
           "tps": 106.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -6591,7 +6591,7 @@
           "server": "MLX",
           "tps": 90.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -6607,7 +6607,7 @@
           "server": "MLX",
           "tps": 80.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -6629,8 +6629,8 @@
         {
           "model": "Qwen3.8-27B (TensorFold + DFlash2, Mac mini M6)",
           "server": "TensorFold",
-          "tps": 61.9,
-          "measured_on": "Metal",
+          "tps": 0.0,
+          "measured_on": "",
           "variant": "cuda",
           "why": ""
         },
@@ -6639,7 +6639,7 @@
           "server": "llama.cpp",
           "tps": 58.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -6647,7 +6647,7 @@
           "server": "MLX",
           "tps": 56.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -6687,7 +6687,7 @@
           "server": "MLX",
           "tps": 42.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -6711,7 +6711,7 @@
           "server": "MLX",
           "tps": 40.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -6783,7 +6783,7 @@
           "server": "MLX",
           "tps": 18.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -6791,7 +6791,7 @@
           "server": "MLX",
           "tps": 18.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -6871,7 +6871,7 @@
           "server": "MLX",
           "tps": 17.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -6974,7 +6974,7 @@
           "server": "MLX",
           "tps": 26.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -6982,7 +6982,7 @@
           "server": "MLX",
           "tps": 115.5,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -7060,8 +7060,8 @@
         {
           "model": "Qwen3.8-27B (Apple Silicon)",
           "server": "TensorFold",
-          "tps": 200.7,
-          "measured_on": "Metal",
+          "tps": 0.0,
+          "measured_on": "",
           "variant": "cuda",
           "why": ""
         },
@@ -7078,7 +7078,7 @@
           "server": "MLX",
           "tps": 80.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -7086,7 +7086,7 @@
           "server": "MLX",
           "tps": 25.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -7094,7 +7094,7 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -7110,7 +7110,7 @@
           "server": "MLX",
           "tps": 300.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -7134,7 +7134,7 @@
           "server": "MLX",
           "tps": 184.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -7142,7 +7142,7 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -7150,7 +7150,7 @@
           "server": "MLX",
           "tps": 45.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -7158,7 +7158,7 @@
           "server": "MLX",
           "tps": 40.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -7214,7 +7214,7 @@
           "server": "MLX",
           "tps": 74.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -7262,7 +7262,7 @@
           "server": "MLX",
           "tps": 106.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -7270,7 +7270,7 @@
           "server": "MLX",
           "tps": 106.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -7286,7 +7286,7 @@
           "server": "MLX",
           "tps": 90.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -7302,7 +7302,7 @@
           "server": "MLX",
           "tps": 80.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -7316,8 +7316,8 @@
         {
           "model": "Qwen3-0.6B",
           "server": "SGLang",
-          "tps": 65.9,
-          "measured_on": "Metal",
+          "tps": 0.0,
+          "measured_on": "",
           "variant": "cuda",
           "why": ""
         },
@@ -7332,8 +7332,8 @@
         {
           "model": "Qwen3.8-27B (TensorFold + DFlash2, Mac mini M6)",
           "server": "TensorFold",
-          "tps": 61.9,
-          "measured_on": "Metal",
+          "tps": 0.0,
+          "measured_on": "",
           "variant": "cuda",
           "why": ""
         },
@@ -7342,7 +7342,7 @@
           "server": "llama.cpp",
           "tps": 58.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -7350,7 +7350,7 @@
           "server": "MLX",
           "tps": 56.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -7390,7 +7390,7 @@
           "server": "MLX",
           "tps": 42.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -7414,7 +7414,7 @@
           "server": "MLX",
           "tps": 40.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -7486,7 +7486,7 @@
           "server": "MLX",
           "tps": 18.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -7494,7 +7494,7 @@
           "server": "MLX",
           "tps": 18.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -7574,7 +7574,7 @@
           "server": "MLX",
           "tps": 17.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -7685,7 +7685,7 @@
           "server": "MLX",
           "tps": 26.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -7693,7 +7693,7 @@
           "server": "MLX",
           "tps": 115.5,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -7771,8 +7771,8 @@
         {
           "model": "Qwen3.8-27B (Apple Silicon)",
           "server": "TensorFold",
-          "tps": 200.7,
-          "measured_on": "Metal",
+          "tps": 0.0,
+          "measured_on": "",
           "variant": "cuda",
           "why": ""
         },
@@ -7789,7 +7789,7 @@
           "server": "MLX",
           "tps": 80.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -7797,7 +7797,7 @@
           "server": "MLX",
           "tps": 25.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -7805,7 +7805,7 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -7821,7 +7821,7 @@
           "server": "MLX",
           "tps": 300.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -7845,7 +7845,7 @@
           "server": "MLX",
           "tps": 184.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -7853,7 +7853,7 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -7861,7 +7861,7 @@
           "server": "MLX",
           "tps": 45.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -7869,7 +7869,7 @@
           "server": "MLX",
           "tps": 40.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -7925,7 +7925,7 @@
           "server": "MLX",
           "tps": 74.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -7973,7 +7973,7 @@
           "server": "MLX",
           "tps": 106.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -7981,7 +7981,7 @@
           "server": "MLX",
           "tps": 106.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -7997,7 +7997,7 @@
           "server": "MLX",
           "tps": 90.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -8013,7 +8013,7 @@
           "server": "MLX",
           "tps": 80.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -8027,8 +8027,8 @@
         {
           "model": "Qwen3-0.6B",
           "server": "SGLang",
-          "tps": 65.9,
-          "measured_on": "Metal",
+          "tps": 0.0,
+          "measured_on": "",
           "variant": "cuda",
           "why": ""
         },
@@ -8043,8 +8043,8 @@
         {
           "model": "Qwen3.8-27B (TensorFold + DFlash2, Mac mini M6)",
           "server": "TensorFold",
-          "tps": 61.9,
-          "measured_on": "Metal",
+          "tps": 0.0,
+          "measured_on": "",
           "variant": "cuda",
           "why": ""
         },
@@ -8053,7 +8053,7 @@
           "server": "llama.cpp",
           "tps": 58.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -8061,7 +8061,7 @@
           "server": "MLX",
           "tps": 56.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -8101,7 +8101,7 @@
           "server": "MLX",
           "tps": 42.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -8125,7 +8125,7 @@
           "server": "MLX",
           "tps": 40.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -8205,7 +8205,7 @@
           "server": "MLX",
           "tps": 18.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -8213,7 +8213,7 @@
           "server": "MLX",
           "tps": 18.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -8301,7 +8301,7 @@
           "server": "MLX",
           "tps": 17.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -8452,7 +8452,7 @@
           "server": "llama.cpp",
           "tps": 13.0,
           "measured_on": "Metal",
-          "variant": "rocm",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -9152,8 +9152,8 @@
         {
           "model": "Qwen3-0.6B",
           "server": "SGLang",
-          "tps": 65.9,
-          "measured_on": "Metal",
+          "tps": 0.0,
+          "measured_on": "",
           "variant": "rocm",
           "why": ""
         },
@@ -9511,8 +9511,8 @@
         {
           "model": "Qwen3-0.6B",
           "server": "SGLang",
-          "tps": 65.9,
-          "measured_on": "Metal",
+          "tps": 0.0,
+          "measured_on": "",
           "variant": "rocm",
           "why": ""
         },
@@ -10367,7 +10367,7 @@
           "server": "llama.cpp",
           "tps": 58.0,
           "measured_on": "Metal",
-          "variant": "rocm",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -10900,8 +10900,8 @@
         {
           "model": "Qwen3-0.6B",
           "server": "SGLang",
-          "tps": 65.9,
-          "measured_on": "Metal",
+          "tps": 0.0,
+          "measured_on": "",
           "variant": "rocm",
           "why": ""
         },
@@ -10926,7 +10926,7 @@
           "server": "llama.cpp",
           "tps": 58.0,
           "measured_on": "Metal",
-          "variant": "rocm",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -11467,8 +11467,8 @@
         {
           "model": "Qwen3-0.6B",
           "server": "SGLang",
-          "tps": 65.9,
-          "measured_on": "Metal",
+          "tps": 0.0,
+          "measured_on": "",
           "variant": "rocm",
           "why": ""
         },
@@ -11493,7 +11493,7 @@
           "server": "llama.cpp",
           "tps": 58.0,
           "measured_on": "Metal",
-          "variant": "rocm",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -11852,7 +11852,7 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
-          "variant": "rocm",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -12379,7 +12379,7 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
-          "variant": "rocm",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -12547,7 +12547,7 @@
           "server": "llama.cpp",
           "tps": 58.0,
           "measured_on": "Metal",
-          "variant": "rocm",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -12970,7 +12970,7 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
-          "variant": "rocm",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -13010,7 +13010,7 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
-          "variant": "rocm",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -13168,8 +13168,8 @@
         {
           "model": "Qwen3-0.6B",
           "server": "SGLang",
-          "tps": 65.9,
-          "measured_on": "Metal",
+          "tps": 0.0,
+          "measured_on": "",
           "variant": "rocm",
           "why": ""
         },
@@ -13194,7 +13194,7 @@
           "server": "llama.cpp",
           "tps": 58.0,
           "measured_on": "Metal",
-          "variant": "rocm",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -13625,7 +13625,7 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
-          "variant": "rocm",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -13665,7 +13665,7 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
-          "variant": "rocm",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -13823,8 +13823,8 @@
         {
           "model": "Qwen3-0.6B",
           "server": "SGLang",
-          "tps": 65.9,
-          "measured_on": "Metal",
+          "tps": 0.0,
+          "measured_on": "",
           "variant": "rocm",
           "why": ""
         },
@@ -13849,7 +13849,7 @@
           "server": "llama.cpp",
           "tps": 58.0,
           "measured_on": "Metal",
-          "variant": "rocm",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -14959,7 +14959,7 @@
           "server": "llama.cpp",
           "tps": 58.0,
           "measured_on": "Metal",
-          "variant": "rocm",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -15414,7 +15414,7 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
-          "variant": "rocm",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -15462,7 +15462,7 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
-          "variant": "rocm",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -15636,8 +15636,8 @@
         {
           "model": "Qwen3-0.6B",
           "server": "SGLang",
-          "tps": 65.9,
-          "measured_on": "Metal",
+          "tps": 0.0,
+          "measured_on": "",
           "variant": "rocm",
           "why": ""
         },
@@ -15662,7 +15662,7 @@
           "server": "llama.cpp",
           "tps": 58.0,
           "measured_on": "Metal",
-          "variant": "rocm",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -16125,7 +16125,7 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
-          "variant": "rocm",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -16173,7 +16173,7 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
-          "variant": "rocm",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -16347,8 +16347,8 @@
         {
           "model": "Qwen3-0.6B",
           "server": "SGLang",
-          "tps": 65.9,
-          "measured_on": "Metal",
+          "tps": 0.0,
+          "measured_on": "",
           "variant": "rocm",
           "why": ""
         },
@@ -16373,7 +16373,7 @@
           "server": "llama.cpp",
           "tps": 58.0,
           "measured_on": "Metal",
-          "variant": "rocm",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -16652,7 +16652,7 @@
           "server": "llama.cpp (PrismML fork)",
           "tps": 913.1,
           "measured_on": "Metal",
-          "variant": "vulkan",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -16772,7 +16772,7 @@
           "server": "llama.cpp",
           "tps": 13.0,
           "measured_on": "Metal",
-          "variant": "vulkan",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -16939,7 +16939,7 @@
           "server": "llama.cpp (PrismML fork)",
           "tps": 913.1,
           "measured_on": "Metal",
-          "variant": "vulkan",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -17282,7 +17282,7 @@
           "server": "llama.cpp (PrismML fork)",
           "tps": 913.1,
           "measured_on": "Metal",
-          "variant": "vulkan",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -17633,7 +17633,7 @@
           "server": "llama.cpp (PrismML fork)",
           "tps": 913.1,
           "measured_on": "Metal",
-          "variant": "vulkan",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -17984,7 +17984,7 @@
           "server": "llama.cpp (PrismML fork)",
           "tps": 913.1,
           "measured_on": "Metal",
-          "variant": "vulkan",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -18399,7 +18399,7 @@
           "server": "llama.cpp (PrismML fork)",
           "tps": 913.1,
           "measured_on": "Metal",
-          "variant": "vulkan",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -18687,7 +18687,7 @@
           "server": "llama.cpp",
           "tps": 58.0,
           "measured_on": "Metal",
-          "variant": "vulkan",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -18942,7 +18942,7 @@
           "server": "llama.cpp (PrismML fork)",
           "tps": 913.1,
           "measured_on": "Metal",
-          "variant": "vulkan",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -19246,7 +19246,7 @@
           "server": "llama.cpp",
           "tps": 58.0,
           "measured_on": "Metal",
-          "variant": "vulkan",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -19501,7 +19501,7 @@
           "server": "llama.cpp (PrismML fork)",
           "tps": 913.1,
           "measured_on": "Metal",
-          "variant": "vulkan",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -19813,7 +19813,7 @@
           "server": "llama.cpp",
           "tps": 58.0,
           "measured_on": "Metal",
-          "variant": "vulkan",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -20052,7 +20052,7 @@
           "server": "llama.cpp (PrismML fork)",
           "tps": 913.1,
           "measured_on": "Metal",
-          "variant": "vulkan",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -20172,7 +20172,7 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
-          "variant": "vulkan",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -20523,7 +20523,7 @@
           "server": "llama.cpp (PrismML fork)",
           "tps": 913.1,
           "measured_on": "Metal",
-          "variant": "vulkan",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -20699,7 +20699,7 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
-          "variant": "vulkan",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -20867,7 +20867,7 @@
           "server": "llama.cpp",
           "tps": 58.0,
           "measured_on": "Metal",
-          "variant": "vulkan",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -21138,7 +21138,7 @@
           "server": "llama.cpp (PrismML fork)",
           "tps": 913.1,
           "measured_on": "Metal",
-          "variant": "vulkan",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -21290,7 +21290,7 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
-          "variant": "vulkan",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -21330,7 +21330,7 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
-          "variant": "vulkan",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -21514,7 +21514,7 @@
           "server": "llama.cpp",
           "tps": 58.0,
           "measured_on": "Metal",
-          "variant": "vulkan",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -21785,7 +21785,7 @@
           "server": "llama.cpp (PrismML fork)",
           "tps": 913.1,
           "measured_on": "Metal",
-          "variant": "vulkan",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -21945,7 +21945,7 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
-          "variant": "vulkan",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -21985,7 +21985,7 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
-          "variant": "vulkan",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -22169,7 +22169,7 @@
           "server": "llama.cpp",
           "tps": 58.0,
           "measured_on": "Metal",
-          "variant": "vulkan",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -22424,7 +22424,7 @@
           "server": "llama.cpp (PrismML fork)",
           "tps": 913.1,
           "measured_on": "Metal",
-          "variant": "vulkan",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -22911,7 +22911,7 @@
           "server": "llama.cpp (PrismML fork)",
           "tps": 913.1,
           "measured_on": "Metal",
-          "variant": "vulkan",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -23279,7 +23279,7 @@
           "server": "llama.cpp",
           "tps": 58.0,
           "measured_on": "Metal",
-          "variant": "vulkan",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -23574,7 +23574,7 @@
           "server": "llama.cpp (PrismML fork)",
           "tps": 913.1,
           "measured_on": "Metal",
-          "variant": "vulkan",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -23734,7 +23734,7 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
-          "variant": "vulkan",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -23782,7 +23782,7 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
-          "variant": "vulkan",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -23982,7 +23982,7 @@
           "server": "llama.cpp",
           "tps": 58.0,
           "measured_on": "Metal",
-          "variant": "vulkan",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -24277,7 +24277,7 @@
           "server": "llama.cpp (PrismML fork)",
           "tps": 913.1,
           "measured_on": "Metal",
-          "variant": "vulkan",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -24445,7 +24445,7 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
-          "variant": "vulkan",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -24493,7 +24493,7 @@
           "server": "Ollama",
           "tps": 89.0,
           "measured_on": "Metal",
-          "variant": "vulkan",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -24693,7 +24693,7 @@
           "server": "llama.cpp",
           "tps": 58.0,
           "measured_on": "Metal",
-          "variant": "vulkan",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -41676,7 +41676,7 @@
           "server": "MLX",
           "tps": 26.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -41684,7 +41684,7 @@
           "server": "MLX",
           "tps": 115.5,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -41764,7 +41764,7 @@
           "server": "MLX",
           "tps": 80.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -41788,7 +41788,7 @@
           "server": "MLX",
           "tps": 300.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -41796,7 +41796,7 @@
           "server": "MLX",
           "tps": 184.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -41812,7 +41812,7 @@
           "server": "MLX",
           "tps": 40.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -41860,7 +41860,7 @@
           "server": "MLX",
           "tps": 74.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -41876,7 +41876,7 @@
           "server": "MLX",
           "tps": 106.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -41884,7 +41884,7 @@
           "server": "MLX",
           "tps": 106.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -41900,7 +41900,7 @@
           "server": "MLX",
           "tps": 90.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -41922,8 +41922,8 @@
         {
           "model": "Qwen3-0.6B",
           "server": "SGLang",
-          "tps": 65.9,
-          "measured_on": "Metal",
+          "tps": 0.0,
+          "measured_on": "",
           "variant": "cuda",
           "why": ""
         },
@@ -41948,7 +41948,7 @@
           "server": "llama.cpp",
           "tps": 58.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -41956,7 +41956,7 @@
           "server": "MLX",
           "tps": 56.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -41996,7 +41996,7 @@
           "server": "MLX",
           "tps": 42.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -42020,7 +42020,7 @@
           "server": "MLX",
           "tps": 40.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
@@ -42076,7 +42076,7 @@
           "server": "MLX",
           "tps": 18.0,
           "measured_on": "Metal",
-          "variant": "cuda",
+          "variant": "cpu",
           "why": ""
         },
         {
