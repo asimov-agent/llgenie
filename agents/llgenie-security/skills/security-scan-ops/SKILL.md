@@ -147,9 +147,23 @@ docker run --rm --user $(id -u):$(id -g) -v "$PWD":/repo -w /repo -e HOME=/tmp l
     tests/test_issue_body.py tests/test_check_issue_body.py -q -p no:cacheprovider
 ```
 
+**Waiting on CI: set the tool's `timeout` parameter, not a shell `timeout` prefix.** A foreground
+`gh run watch <run-id> --exit-status` dies at the tool's default 180s (an inner `timeout 540` prefix does not
+raise the tool limit) and the `unit`/`install` jobs routinely run 2–10 min. For anything past ~2 min, launch
+the watch with `background=true, notify_on_complete=true` and reap the exit code, or poll
+`gh pr checks <n>` in a bounded loop; a timed-out watch is not a red run.
+
 Local `python3` has no pytest — always use the `llgenie/test:latest` image (pulled/built by `make
 test-image`). A `make sbom && make security-scan TOOL=trivy` run locally (pinned images via docker) plus
 `python3 scripts/security_scan.py verdict --event schedule` is the cheapest real proof a finding set is gone.
+
+**A change-note fragment reds `scope`/`check-docs` unless it matches the parser's shape.** The fragment is
+parsed by `scripts/changes_index.py`: it must be **exactly one row**, and its note column must point at an
+`agent-wiki/<stem>.md` work record **that exists in the tree** — a multi-row fragment, or a note column naming
+anything other than an in-tree `agent-wiki/*.md`, reds `scope` in ~15s while `lint`, `openspec`, `guard` and
+`holds` stay green (so a lone `scope` failure on a docs/`agents/**` PR is the fragment schema, not the content).
+Validate locally before pushing: `python3 scripts/changes_index.py` (expect every fragment indexed) and re-run
+the exact `make check-docs` the gate calls.
 
 **When the diff touches `agents/**/*.md` (SOUL, skills, references), also run `make lint`** — it carries
 `scripts/lint_linefeeds.py`, which reds a markdown heading not preceded by a blank line. A section spliced
@@ -179,9 +193,16 @@ every other check passes; insert a blank line before each heading and re-run `ma
   is another branch, `gh pr merge <n> --squash --auto` does not arm — it **merges within seconds** into that
   branch, because there are no protected-branch rules to wait for (measured four times in eight minutes:
   #958, #954, #965, #966; #964). So a stacked PR is reported `auto=none (stacked base: arms into <base>)` and
-  the flag is never passed. On a `main`-based PR, `auto=armed` may only be claimed when the read-back shows
-  `state == OPEN` **and** `autoMergeRequest != null` — GitHub clears `autoMergeRequest` when a PR merges, so
-  checking it alone reads "armed nothing" on a PR that already merged. A merged PR is `merged`, never `armed`.
+  the  flag is never passed. On a `main`-based PR, `auto=armed` may only be claimed when the read-back shows
+  `state == OPEN` **and** the raw REST `auto_merge.enabled_at` is a **non-null timestamp**. `autoMergeRequest
+  != null` is necessary but NOT sufficient: the queue object keeps `enabled_by`/`merge_method` populated from a
+  request that GitHub has NOT turned on (`enabled_at` still `null`, `mergeable_state=blocked` on an
+  owner-gated review) — a fresh request or a prior identity can make the GraphQL `enabledAt` non-null while the
+  enablement fact is still absent. So the only honest read-back is
+  `gh api repos/<o>/<r>/pulls/<n> --jq '.auto_merge.enabled_at'` (and cross-check `.state`): non-null → `armed`,
+  `null` → `auto=none (request queued, not enabled)`. Never quote a timestamp from `gh pr view --json
+  autoMergeRequest` as the enablement proof. GitHub also clears `autoMergeRequest` when a PR merges, so
+  checking it alone reads "armed nothing" on an already-merged PR; a merged PR is `merged`, never `armed`.
 - **Never hold a PR without a remedy.** `do-not-merge` means "a concrete defect with a tracked fix". If
   this lane places one, the same comment names the issue that makes the tag removable and the exact
   condition for removal, and the lane removes the tag itself when that evidence exists. Detail:
@@ -258,7 +279,7 @@ every other check passes; insert a blank line before each heading and re-run `ma
   `agents/<profile>/`, never by a private edit of `~/.hermes/profiles/<profile>/`. Two hard edges: a direct
   write to `SOUL.md` is **blocked by a protected-file approval that times out**, and a timeout is not
   consent — never route it around, put the exact sentence in the PR body and report it as the one open
-  item; and when the live profile skill is richer than its tree copy, **migrate → sync → `CHECK=1` → retire
+  item; the **live profile inside Hermes is the newest authority and its tree copy catches up to it, never the reverse** — never `sync-agent-profile` a tree over a live-ahead profile (silent truncation of accumulated live lessons), never self-edit or trim live; when live carries lessons the tree lacks, file an issue and fold live→tree (union where the tree has rules live lacks), then `sync → CHECK=1`. And when the live profile skill is richer than its tree copy, **migrate → sync → `CHECK=1` → retire
   the host-only copy**, never delete first. Layout, manifest gate, exemptions, stacked-branch rule, the
   canonical-block extraction, and how to name the writer of live drift (curator ledger) and fold its patches
   without a byte-copy deleting a tree-only rulebook: `references/agent-soul-versioning.md`.
