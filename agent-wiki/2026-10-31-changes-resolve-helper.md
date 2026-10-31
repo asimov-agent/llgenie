@@ -19,5 +19,7 @@ row and re-rendering `CHANGES.md`, `git merge` conflicts on `CHANGES.md`, `resol
 render with no conflict markers, and the committed table equals `render(fragments)`. Wiring test
 asserts the target + `.PHONY` + `docs/BOTS.md`.
 
-PR: #TBD (this record updated on the PR number). Gates: `make openspec-validate
-NAME=changes-merges-auto-resolve`, `make check-docs check-wiring test-unit`, loop gate.
+PR: opened 2026-10-31 for #1103 (number in the PR body; the note reference is the issue, per the
+work-record rule). Gates: `make openspec-validate NAME=changes-merges-auto-resolve`,
+`make check-docs check-wiring test-unit` (hermetic suite 2623 passed / 0 failed at head
+`b5344e3b`), loop gate.
