@@ -533,6 +533,7 @@ make issue-bot-verdict ISSUE=<n>   # step 2: apply that verdict — implement | 
 make issue-bot-changed    # did the implement step change the tree? changed=true|false (run inputs excluded)
 make issue-bot-gates      # re-check the FAST gates in order, stopping at the first failure and naming it
 make issue-bot-gates-check  # CI: fail when a ci-unit gate is classified nowhere, a fast gate is unwired, or the bot's gate step is not between the detection and the push
+make lane-preflight       # a HOST lane's pre-push check: run the FAST gates, one line per gate + a final OK|FAILED verdict, refusing a dirty tree (issue #1058)
 ```
 
 #### The fast gates are re-checked before the push (issue #475)
@@ -553,6 +554,28 @@ issue-bot runs it as a step between `Detect what the implementation changed` and
 `make test-image` step runs first, because `lint` (one of the gates) executes in `llgenie/test`
 exactly as `ci-lint` does, and a fresh runner has no such tag — the check fails a workflow that
 forgets it.
+
+#### A host lane runs the same gates before its push (issue #1058)
+
+The issue-bot is not the only lane that pushes. A host lane (an implementer, a tester, a
+rebase lane) can open a PR whose own head fails a gate `FAST_GATES` already covers, and before
+#1058 there was no single command to re-check them: `make bot-preflight` fetches `main` and records
+the `AGENTS.md` sha but runs nothing, and 16 workflow files are disabled (issue #902), so in
+practice nothing ran the fast set for a host lane. Measured tonight, four PRs each spent a full
+`linux/unit` matrix (~16–33 min) to discover a red a host-side gate catches in seconds: a malformed
+wiring fixture (`check-wiring`), a missing trailing newline (`lint`), an unchecked OpenSpec task
+(`openspec-tasks-check`) and an import-roots ratchet regression (`check-import-roots`).
+
+`make lane-preflight` runs the same set — the `FAST_GATES` tuple imported from
+`scripts/issue_bot_gates.py`, never restated, so #475's "one list" property holds — and prints one
+line per gate (`<gate>: rc=<n>`) plus a final `preflight: OK` or `preflight: FAILED (n)`. Two things
+it does differently from `make issue-bot-gates`: it runs **every** gate (the issue-bot stops at the
+first red because it gates a push; a lane wants the whole picture in one pass), and it **refuses a
+dirty tree** — a tracked file that differs from `HEAD` means the filesystem is not what the PR would
+carry, so the verdict would describe the wrong tree (the #919 failure mode where a change was
+verified against a worktree but the pushed head differed). Commit or stash first. A gate outside the
+fast six can be run on demand with `python3 scripts/lane_preflight.py run --gates <gate> [...]`,
+which is how the import-roots class is checked without widening `FAST_GATES`.
 
 The gate list lives in **one** module, `scripts/issue_bot_gates.py`: `FAST_GATES` (what the target
 runs) and `DEFERRED` (every other gate `ci-unit` runs, with the reason it is not re-checked before

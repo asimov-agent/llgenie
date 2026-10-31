@@ -161,7 +161,14 @@ git merge-base --is-ancestor origin/main HEAD 2>/dev/null \
   git merge-base --is-ancestor origin/main HEAD 2>/dev/null || git rebase origin/main
   ```
 - **Right before you push / open a PR**, from that same worktree, re-run the
-  fetch+rebase above ONE final time so the PR is never behind.
+  fetch+rebase above ONE final time so the PR is never behind. Then run
+  `make lane-preflight` (issue #1058): it runs the FAST gates (`lint`,
+  `check-workflows`, `check-wiring`, `check-docs`, `check-pr-hygiene`,
+  `openspec-tasks-check`) and prints one line per gate plus a final `preflight: OK`
+  or `preflight: FAILED (n)` — commit first, because it refuses a dirty tree so the
+  verdict describes the tree the PR would actually carry, not an unpushed worktree.
+  A gate outside that set can be checked on demand with
+  `python3 scripts/lane_preflight.py run --gates <gate> [...]`.
 
 - **Why:** `main` moves whenever another PR merges. A branch that falls behind
   `main` will be rejected at the merge gate (issue #9: never merge a PR that is
