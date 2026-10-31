@@ -134,6 +134,19 @@ SECRET_PATTERNS = (
 #: A skill body may point at a recipe it expects beside itself.
 REFERENCE_RE = re.compile(r"references/[A-Za-z0-9._-]+\.md")
 
+#: Every finding key the gate can emit. `--only` accepts any subset of these; a caller that names a key
+#: not listed here has broken the invocation and gets the list back (exit 2), instead of a silent
+#: "compared and nothing matched" that would read as a clean gate.
+KNOWN_KEYS = frozenset({
+    "agents-dir", "manifest-missing", "manifest-invalid", "manifest-empty", "manifest-entry",
+    "manifest-rule-unknown", "manifest-rule", "profile-directory", "soul-missing",
+    "standing-rule-quoted", "standing-rule", "skill-frontmatter", "skill-name", "skill-description",
+    "skill-reference-missing", "forbidden-path", "profile-unlisted", "secret", "unreadable",
+    "live-longer", "live-lines-missing", "unreadable-live-file", "live-edited-not-tree",
+    "absent-from-tree", "fleet-block-drift", "fleet-block-source", "fleet-exemption-unknown",
+    "fleet-exemption-stale", "fleet-exemptions",
+})
+
 
 def read_manifest(agents: Path) -> tuple[list[dict], list[dict]]:
     """The manifest's profiles as `[{name, rules}]`, plus every finding the manifest itself carries."""
@@ -1059,12 +1072,26 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", default=str(REPO_ROOT), help="tree to read (the tests use this)")
     parser.add_argument("--agents-dir", default=str(AGENTS_DIR),
                         help="path of the agents tree, relative to --root (the tests use this)")
+    parser.add_argument("--only", default=None, metavar="KEYS",
+                        help="only report findings whose key is in this comma-separated list "
+                             "(e.g. `--only live-longer`); an unknown key is a broken invocation, "
+                             "exit 2 with the known keys named")
     args = parser.parse_args(argv)
     root = Path(args.root).resolve()
     if not root.is_dir():
         print(f"[check-agent-profiles] FAIL: {root} is not a directory", file=sys.stderr)
         return 2
     agents_dir = Path(args.agents_dir)
+    selected = None
+    if args.only:
+        wanted = {part.strip() for part in args.only.split(",") if part.strip()}
+        unknown = sorted(wanted - KNOWN_KEYS)
+        if unknown:
+            print(f"[check-agent-profiles] FAIL: --only names key(s) this gate does not emit: "
+                  f"{', '.join(unknown)} — known keys: {', '.join(sorted(KNOWN_KEYS))}",
+                  file=sys.stderr)
+            return 2
+        selected = wanted
     if args.mode == "report":
         print(report(root, agents_dir))
         return 0
@@ -1084,6 +1111,8 @@ def main(argv: list[str] | None = None) -> int:
               f"library at {live_base.parent / SKILLS} — without it a lane's own skill cannot be told "
               "from the library every profile is seeded from", file=sys.stderr)
     items = findings(root, agents_dir)
+    if selected is not None:
+        items = [item for item in items if item["key"] in selected]
     profiles, _ = read_manifest((root / agents_dir) if not agents_dir.is_absolute() else agents_dir)
     for name in unprotected(profiles):
         # issue #922: an entry with no rule gates nothing. Named, never failed - and never silent,
