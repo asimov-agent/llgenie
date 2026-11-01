@@ -23,6 +23,10 @@ Every other installed skill is listed in `skills.disabled`.
 The pin is `tests/fixtures/host-bot-capabilities.json` in asimov-agent/llgenie (issue #1038).
 <!-- host-bot-tools:end -->
 
+## Role artifact (2026-11-01)
+
+A doc gap is this lane's pull request, not an issue for `llgenie-issse-implementer`. Paths are `docs/**`, `agent-wiki/**`, `CHANGES.md`, and a doc-only refresh. Do not edit scripts, tests, or workflows. When the PR is up, `message_agent` to `llgenie-planner` with the PR number, the head sha, and what changed.
+
 ## When to Use
 
 The work is `docs/**` (chiefly `docs/ARCHITECTURE.md`), `agent-wiki/**` or `CHANGES.md` on
@@ -185,9 +189,22 @@ which base it merges into instead of implying it lands on `main`.
 
 **Arming works while the PR still reads `BLOCKED`.** `gh pr merge <n> --squash --auto` is accepted with
 `mergeStateStatus: BLOCKED` and `REVIEW_REQUIRED`; it records the intent and GitHub merges the moment
-the review/check requirements clear. Read it back — `gh pr view <n> --json autoMergeRequest` — and quote
-`enabledAt` in the report, because "I armed it" without the timestamp is the same unverifiable claim as
-"CI looks green".
+the review/check requirements clear. Read it back from the **REST** endpoint and quote `enabled_at` in
+the report, because "I armed it" without the timestamp is the same unverifiable claim as "CI looks
+green":
+
+```bash
+gh api repos/asimov-agent/llgenie/pulls/<n> --jq '.auto_merge | {enabled_at,enabled_by,merge_method}'
+```
+
+**GraphQL `gh pr view --json autoMergeRequest.enabledAt` is NOT authoritative — it can print a non-null
+`enabledAt` while REST `auto_merge.enabled_at` is `null`, i.e. the PR is NOT armed.** A phantom
+`enabledAt` (a leftover timestamp from an earlier arm attempt, surfaced by the GraphQL cache) reads
+exactly like a successful arm and produces a wrong "armed" claim that a teammate then has to correct.
+When the two disagree, **REST wins**: `gh pr merge <n> --squash --auto` exits 0 even when it arms
+nothing under the #964 failure mode, so the exit code is not the fact — read `auto_merge.enabled_at`
+back, and re-arm if it is still `null`. Before calling a null a silent no-op, check `state` (a fully
+approved, green PR can merge instantly and then show a null pending request — see the paragraph below).
 
 **The arm read-back proves itself by `enabledAt`+`enabledBy`+`mergeMethod`, NEVER a field called `enabled`.**
 GitHub's GraphQL `PullRequest.autoMergeRequest` object exposes only `enabledAt`, `enabledBy` and
@@ -200,6 +217,17 @@ and `mergeMethod: SQUASH` IS the armed state; a null `authorEmail`/`commitBody`/
 "no merge-commit overrides set", not a disarmed flag. Re-running `gh pr merge <n> --squash --auto` is
 idempotent and removes all doubt — do it, read the full object back, and answer with the JSON, not an
 argument about which field is real.
+
+**A NULL `autoMergeRequest` read-back is NOT proof the arm no-op'd — read `state` first, because the merge
+may have ALREADY COMPLETED.** When the PR is `APPROVED` and fully green at the moment you arm, GitHub fires
+auto-merge immediately: the merge lands before your read-back and `autoMergeRequest` then returns `null`
+(no *pending* request) — which looks identical to the #964 silent failure but is a success. Before calling
+it a failed arm, run `gh pr view <n> --repo <r> --json state,mergeCommit,mergedAt`: `state=MERGED` plus a
+real `mergeCommit.oid` plus a `mergedAt` at/near your arm timestamp means the arm worked by landing
+instantly. Only diagnose the #964 silent no-op (base not the default branch, nothing armed) when the PR is
+still `OPEN` with a null object; and even then, `mergeStateStatus: UNKNOWN` right after an arm is the
+tell that the merge-ref is being re-evaluated — re-read `state` and `mergeStateStatus` a moment later
+before reverting to "nothing armed".
 
 ## Landing a docs PR (the loop that works)
 
@@ -319,6 +347,8 @@ fragments by `make changes-index` (`scripts/changes_index.py`). Rules that follo
 
 ## Pitfalls
 
+- **A force-push RESETS CI on the new head — every check re-pends, `mergeStateStatus` returns `BLOCKED`, and the arm gate REOPENS; never treat a prior head's greens as inherited, and make the arm mechanical with an executing arm-on-green watcher.** The fold/rebase that fixes a PR lands as a new head, and GitHub starts a fresh run set for it (`gh pr checks` shows all `pending`, then fills back in); an arm earned at the old head does not carry to the new one. Because the long-pole `linux / unit` then re-runs in full (~1h45), do not burn a foreground poll on it — a foreground arm loop is clamped (~7 min) and can never span the job, so it always ends on `pending=1` and looks like a stall. Instead run a **background arm-on-green watcher that performs the mutation itself**: poll `gh pr checks <n>` until `pending=0` and `fail=0` with a `pass` present, then `gh pr merge <n> --squash --auto`, read REST `auto_merge.enabled_at` back, post the read-back on the PR, and `notify` on a sentinel (e.g. `ARM_DONE_<n>`). A notify-only watcher defers the arm to a turn that may never come; the executing watcher puts the arm on the critical path. Kill the notify-only watcher before starting the executing one so two loops do not double-post, and keep the watcher machine-guarded (`pending=0 fail=0 pass`) so it never arms on an in-progress unit.
+- **A `message_agent` return of `status: ambiguous` with `queue_full` and "Do not resend" is NOT a lost report — the on-record comment is the durable channel.** When a DM delivery cannot be confirmed, do not resend it into the same full queue; the same content lives on the issue/PR thread (the record a stranger can find), and you re-notify the teammate at the next milestone (the arm read-back, the finish bookend). Treat the DM as best-effort and the thread comment as authoritative.
 - **A `success` on the WRONG run at the right head is as misleading as a `cancelled` sibling — resolve the run id from `gh pr checks`, never guess it.** Some pushes spawn several runs at one sha (a `guard`/`holds`-only quick run plus the full matrix). A watcher polling the quick one sees `completed/success` within minutes and a report then calls the head green while the real matrix's `linux / unit` has not concluded. Before arming any watcher, read `gh pr checks <n> --repo asimov-agent/llgenie`, which prints each job's own `actions/runs/<id>`, and pick the id that carries `linux / unit`; poll that run's jobs (not just `.status`) and report the unit job's own conclusion. `gh run list --commit <sha>` alone does not tell you which duplicate is the matrix.
 - **Heartbeat-coalesced watcher output can quote a stale head — re-read the PR directly before acting on a poll line.** A 5-minute poll loop's lines can arrive batched and show `headRefOid` from before your force-push plus a transient `DIRTY`, contradicting a measured `MERGEABLE` at the new head. Treat any poll line older than the moment of a push as history: run `gh pr view <n> --json headRefOid,mergeable,mergeStateStatus` now, timestamp it, and only then decide whether a rebase is needed (a `DIRTY` that survives the direct read after `git fetch origin refs/heads/main:refs/remotes/origin/main` is real).
 - **`gh pr checks` lags the push by a minute and then lies.** Right after a push it prints
@@ -328,7 +358,12 @@ fragments by `make changes-index` (`scripts/changes_index.py`). Rules that follo
   a starved runner — that is not a red check. To wait on a long run, start
   `gh run watch <id> --interval 60 --exit-status` in the **background** and let its completion wake
   you; a foreground `sleep`/poll loop is clamped (~3 min) and dies mid-wait, which reads like the
-  run failed when nothing happened.
+  run failed when nothing happened. **If you hand-roll the poll, format the `jq` flat —
+  `.status + "/" + (.conclusion // "")` — and check the first poll prints a NON-EMPTY status before
+  trusting the loop.** A nested-escaped form (`"\(.status)/\(.conclusion//\"\")"`) fails `jq`
+  parsing, so `$A`/`$B` are empty and a `case "$A $B" in *completed*)` guard never matches: the
+  watcher spins forever with no status and no `FINAL_*` wake — it looks healthy and silently never
+  reports the job finishing. `gh run watch` avoids the whole class; prefer it over a bespoke loop.
 - **`REVIEW_REQUIRED` is not something your lane can clear — the author and the approver are different identities.** The PR *author* is `andyholst` (the push token); approvals come from the separate `asimov-agent` identity. So `gh pr review --approve` from your lane is the owner approving the owner's own PR (invalid), and the reviewer lane will not approve either (its SOUL forbids grading the code it could fix). Where a ruleset pins `REVIEW_REQUIRED`, only an `asimov-agent` approval (owner, or the planner acting under it) unlocks it — arming alone will not merge. Read `gh pr view --json reviewDecision,mergeStateStatus,author` before calling it blocked, and route the approval rather than self-approving.
 - **`main` has no classic branch protection** (`/branches/main/protection` 404s; rulesets own it).
   So `mergeStateStatus: BLOCKED` is always the review decision, a pending check, or the label —
@@ -518,7 +553,7 @@ fragments by `make changes-index` (`scripts/changes_index.py`). Rules that follo
 - **Every "verified at `<sha>`" sentence must be true AT that sha — name the sha you actually ran the command on, never the branch head you assume is equivalent.** A note claiming "the battery passed at the final head `X`" while the check actually errored at `X` and passed at an earlier `Y` is the same defect as a census with no `measured at`: it reads as proof and is a coincidence. The safe shape when a commit must follow the measurement is a **prose-only follow-up commit** whose subject says it records the battery run at the earlier sha — the numbers were measured on a completed run, so a later edit cannot retroactively falsify them. When a late commit genuinely changes the tree, re-run the battery and update the sha; never delete the evidence paragraph to escape the mismatch, because the record's whole purpose is that proof.
 - **Adding a gate to a `ci-*` job also needs it classified in `scripts/issue_bot_gates.py` — and only the FULL suite tells you.** After `check-wiring` is satisfied (line above), a new `$(MAKE) check-<gate>` in `ci-unit` still reds `tests/test_issue_bot_gates.py::test_the_real_tree_is_wired`: the guard faults any `ci-unit` gate that is neither in `FAST_GATES` nor in `DEFERRED`. `FAST_GATES` is the pinned #475 six — never widen it; add the gate to `DEFERRED` with a one-line reason instead. The fast gates (`lint check-docs check-wiring`) do **not** run this test, so a `scripts/`/`Makefile` change is not done until you run the full `make test-unit` (or at least `python -m pytest tests/test_issue_bot_gates.py`) — a green fast-gate set is not a green suite.
 - **A census's `measured at <sha>` pointer is a real, reachable commit whose tree COUNT equals `HEAD` — not a sha string equal to `HEAD`.** The literal `pointer == HEAD` check is unsatisfiable for a document that lives inside the tree it measures (every commit that updates the pointer re-heads it). Implement it as: the pointer resolves to a real commit (`git cat-file -e <sha>^{commit}`, so an amend-orphaned sha reds), and `git ls-tree -r --name-only <pointer> | wc -l == HEAD` — so the census describes the tree the gate sees and reds only when a real file is added. And after a **squash-merge onto a `main` that moved** between your push and the merge, the merged tree can be larger than your branch's (other PRs' files land under the squash): `main` then reds until a refresh — file that refresh as its own issue with the measured delta; it is the gate working, not a defect in your PR.
-- **When a gate reds on a tree you did not branch from, prove it is upstream by running the SAME gate on a pure `origin/main` worktree before blaming or fixing your diff.** A census pointer left on a pre-squash commit reds `check-docs` on every branch, including PRs that touch no census file — the pointer names a commit the branch does not contain. Cut a scratch worktree at fresh `origin/main` (`git worktree add /tmp/mt origin/main`), run `make -s check-docs` (or the one gate) there, and quote both outputs: a red on the pure-main tree proves the defect is upstream and belongs to its own issue (route it to the generator's owner), NOT to a `do-not-merge` on your PR. Do not disarm the PR, rebase-loop it, or hand-edit the pointer to force green — one shared upstream red is one issue and one fix, and it clears for every open PR the moment that fix lands. The same move applies to any gate: an unrelated tree reds it, so the pure-base run is the discriminator between your diff and the tree.
+- **When a gate reds on a tree you did not branch from, prove it is upstream by running the SAME gate on a pure `origin/main` worktree before blaming or fixing your diff.** A census pointer left on a pre-squash commit reds `check-docs` on every branch, including PRs that touch no census file — the pointer names a commit the branch does not contain. Cut a scratch worktree at fresh `origin/main` (`git worktree add /tmp/mt origin/main`), run `make -s check-docs` (or the one gate) there, and quote both outputs: a red on the pure-main tree proves the defect is upstream and belongs to its own issue (route it to the generator's owner), NOT to a `do-not-merge` on your PR. Do not disarm the PR, rebase-loop it, or hand-edit the pointer to force green — one shared upstream red is one issue and one fix, and it clears for every open PR the moment that fix lands. The same move applies to any gate: an unrelated tree reds it, so the pure-base run is the discriminator between your diff and the tree. For a `check-docs` red, classify the census pointer with `git cat-file -e <sha>^{commit}` before fixing — non-zero means a sha no commit ever had (a hand-edited pointer, not a squash orphan), and the re-point recipe is in `references/docs-freshness.md`.
 - **Rebasing onto `main` after the base PR was SQUASH-merged replays far too much — cut fresh, or `--onto` your own base.** A branch cut from a PR head that later merges as a squash is not an ancestor of `main`, so `git rebase origin/main` finds a much older merge-base and replays hundreds of commits, colliding on every shared file (`Makefile`, `agents/*`). Safe shapes: `git checkout -b <new> origin/main` then copy/apply only your own files (clean when the merged blobs equal your base's), or `git rebase --onto origin/main <the-sha-your-branch-was-cut-from>` which replays only `base..HEAD` (your own commits). A one-commit replay on a one-file change is the signal it worked; confirm the count before pushing.
 - **A repository-wide queue stall is capacity, not a red check — do not rerun-loop it.** A run at
   `guard` with `0/N` jobs plus dozens `queued` repo-wide and ~zero `in_progress` means nothing is being
