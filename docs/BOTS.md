@@ -1815,6 +1815,7 @@ from the pipeline that will run.
 | `security-bot.yml` | turns ONE auto-fixable vulnerability issue into a green PR (never merges) | `dry` (optional, default `false`) — Preview the issue it would take and the edit it would make, pushing nothing |
 | `security-scan.yml` | the daily vulnerability pipeline (Trivy + Syft + Grype + Semgrep), never a PR or push check | `tools` (optional, default `all`) — Which scanners to run: all, or one of syft / trivy / grype / semgrep<br>`enforce` (optional, default `full`) — Failure policy for THIS dispatch: full = the daily policy, report = never gate |
 | `stale-branch-cleanup.yml` | delete non-main branches with no live vehicle, older than 3 days (daily cron) | `APPLY` (optional, default `false`) — delete the selected stale branches (default false = report-only, never mutates) |
+| `zero-job-pending.yml` | a dispatched run that instantiates no jobs must be named, not left pending | `minutes` (optional, default `30`) — flag runs pending/queued longer than this many minutes |
 <!-- dispatch-forms:end -->
 
 ## The weekly umbrella sweep (issue #1102)
@@ -1975,6 +1976,10 @@ make check-strata-models     # fail when data/strata_models.json differs from St
 make queued-alarm      # report CI jobs stuck in `queued` too long (a runner that never picks them up, issue #254);
                        # COMMENT=1 delivers it to the run's pull request (else ONE deduped issue per stuck runner
                        # label, for runs no PR tracks) and a delivery that fails is exit 3, never silent; DRY=1 previews
+make check-zero-job-pending  # fail when a dispatched run has been pending/queued longer than MINUTES with ZERO
+                       # jobs instantiated (a runner-starvated dispatch neither queued_run_alarm's job-row scan nor
+                       # run-failure-reactor's conclusion gate names; issue #1410); FILE=1 files ONE deduped issue
+                       # per stuck run (idempotent by run-id marker) — scheduled twice-hourly by zero-job-pending.yml
 make stale-branch-cleanup  # delete non-main remote branches that are >=3 days old AND fully delivered (issue #1344),
                            #   REPORTING (never deleting) a branch with an open PR or commits origin/main lacks;
                            #   default report-only, APPLY=1 deletes, AGE_DAYS= overrides the 3-day threshold

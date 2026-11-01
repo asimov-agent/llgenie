@@ -69,7 +69,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	sync-quant-catalog check-quant-catalog render-trend-list-matrix check-trend-list-matrix render-engine-skill-gap check-engine-skill-gap \
 	engine-gate-report engine-skill-gap engine-skill-gap-md spawn-engine-skill-issues engine-skill-scaffold registry-change-report sync-change-issue registry-review-brief registry-sync-review registry-review-publish sync-strata-models check-strata-models check-wiring wiring-report check-secret-output secret-output-report \
 	secret-scan secret-scan-history secret-scan-self-test \
-	queued-alarm stale-branch-cleanup issue-cleaner-scan issue-cleaner-apply worktree-report worktree-prune fix-loop fix-loop-image fix-bot-sweep fix-bot-report agent-image-ref issue-bot-dispatch issue-bot-open-pr issue-bot-image ci-requeue-cancelled issue-bot-pr-body-check agent-repo-ownership \
+	queued-alarm check-zero-job-pending stale-branch-cleanup issue-cleaner-scan issue-cleaner-apply worktree-report worktree-prune fix-loop fix-loop-image fix-bot-sweep fix-bot-report agent-image-ref issue-bot-dispatch issue-bot-open-pr issue-bot-image ci-requeue-cancelled issue-bot-pr-body-check agent-repo-ownership \
 	issue-bot-triage issue-bot-changed issue-bot-verdict issue-bot-gates issue-bot-gates-check lane-preflight implement-issue hermes-smoke agent-jev-preflight jev-preflight-required nerve-profile-check code-review-scan code-review-file rebase-bot-sweep rebase-bot rebase-bot-abort \
 	engine-params-review-brief engine-params-review engine-params-review-apply \
 	architecture-bot-brief architecture-bot-doc architecture-bot-publish architecture-bot check-arms arms-report \
@@ -909,6 +909,8 @@ worktree-prune: ## Remove the worktrees and local branches whose PR already merg
 	python3 scripts/worktree_prune.py --repo $(if $(SLUG),$(SLUG),asimov-agent/llgenie) --base $(if $(BASE),$(BASE),origin/main) $(if $(DRY),--dry,)
 queued-alarm: ## Report jobs stuck in `queued` far too long (a runner that never picks them up, issue #254); COMMENT=1 delivers the report, DRY=1 previews it
 	python3 scripts/queued_run_alarm.py --repo $(GH_REPO) --minutes $(if $(MINUTES),$(MINUTES),30) $(if $(COMMENT),--comment,) $(if $(DRY),--dry,)
+check-zero-job-pending: ## Fail when a dispatched run has been pending/queued longer than MINUTES with ZERO jobs instantiated (none named it: queued-alarm scans job rows, reactor needs a conclusion; issue #1410); FILE=1 files ONE deduped issue per stuck run
+	python3 scripts/check_zero_job_pending.py --repo $(GH_REPO) --minutes $(if $(MINUTES),$(MINUTES),30) $(if $(filter 1,$(FILE)),--file,)
 stale-branch-cleanup: ## Delete non-main branches older than 3 days with no open PR and fully delivered commits (issue #1344); APPLY=1 deletes, default report-only, AGE_DAYS overrides
 	python3 scripts/stale_branch_cleanup.py --repo $(GH_REPO) --age-days $(if $(AGE_DAYS),$(AGE_DAYS),3) $(if $(filter 1,$(APPLY)),--apply,)
 sweep-concurrency-report: ## Report every scheduled workflow whose runs stack instead of superseding, with the measurement and the decision each one needs (issue #917)

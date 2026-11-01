@@ -1,0 +1,34 @@
+# Zero-job-pending monitor (#1410)
+
+A dispatched run whose workflow instantiates **zero jobs** stays `pending`/`queued` until cancelled,
+and before this change no committed gate named it:
+
+- `queued_run_alarm` (issue #254) scans a run's **job rows** — a zero-job run has none, so it
+  renders "no job has been queued longer than 30 minutes" and reads clean.
+- `run_failure_reactor` fires only on a run **conclusion** of `failure`/`cancelled`/`timed_out` — a
+  `pending` run has `conclusion: null`, so it never reacts.
+- `all_pipelines` treats `conclusion: null` as not-a-failure, and `ci_requeue` heals `cancelled`
+  runs, not permanently-`pending` ones.
+
+So a runner-starved dispatch (no large/self-hosted runner matches the requested labels; the pool
+read 403 on this host) was indistinguishable from work-in-progress, forever.
+
+## Evidence (2026-11-01)
+
+Run `41321206783` (event `workflow_dispatch`, head `f41685f3`, `engine-build.yml`) was
+`pending`/`queued` with `jobs.total_count == 0` from 15:26:09Z until cancelled 15:47:45Z. The
+`engine-build-push` concurrency group was empty and the runner pool read returned 403. Nothing
+named the run.
+
+## What ships
+
+- `scripts/check_zero_job_pending.py` — on `make check-zero-job-pending REPO=<owner/repo>`: lists
+  the queued/in-progress runs, flags the ones past `--minutes` (default 30) with `jobs.total_count
+  == 0`, names run id + head sha + created time. Exit 0 clean, 1 stuck, 2 read failed. `FILE=1`
+  files **one deduped issue per stuck run** (idempotent by a run-id marker).
+- `.github/workflows/zero-job-pending.yml` — scheduled twice-hourly + `workflow_dispatch`
+  (`MINUTES`), guard-gated, `issues: write`, `FILE=1`; never runs in a pull request, never merges.
+- Mirrors the queued-alarm/registry-liveness monitor pattern (a control the board reads).
+
+It complements (does not replace) `queued_run_alarm`: that reads the job pool's health, this reads
+the liveness of any one dispatch.
