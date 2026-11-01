@@ -32,4 +32,6 @@ This is the same conclusion as #1258.
 
 ## Arm
 
-(this section filled by the lane at PR time.)
+Auto-merge **requested** with SQUASH, but **NOT enabled**: REST `auto_merge.enabled_at` = null,
+`mergeable_state` = blocked on the owner-gated review (#1088). `auto=none (pending request, not enabled)`.
+Owner approval is the singular merge path. (Same as prior fold #1261.)
