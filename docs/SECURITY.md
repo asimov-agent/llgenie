@@ -79,3 +79,10 @@ So a security change owes two things: a new or renamed security workflow passes
 `make check-workflows` (it is watched by name), and a run that is meant to red carries either a
 consumer or a `reason` in the exemption file. Adding the workflow without either is how a control
 becomes a log nobody reads.
+
+**The gate itself is a gated condition, not the status of any one run** (issue #1285). The daily
+scan's *absence* — `disabled_manually`, or active but with no run within the daily cadence — is its
+own control: `make all-pipelines-sweep` renders a down security-scan as `ADMISSION GATE DOWN` /
+`ADMISSION GATE STALE` and fails the sweep, so the board cannot read a silently-silent scanner as
+"scanned clean". A merged fix on `main` is not a clean scan; only a run id at a named sha is, and
+this guard makes *not having one* visible.

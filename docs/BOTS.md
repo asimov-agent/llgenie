@@ -1523,6 +1523,13 @@ sweep loudly instead of being a benign `DISABLED` row, because a green PR has no
 (the `state == disabled_manually` half of the #874 guard). The tree half below stays the hermetic
 boundary; the API half makes the mute itself a red run instead of a review argument.
 
+**A second API half exists for the daily security scan** (issue #1285). `security-scan.yml` — the
+daily vulnerability admission gate — is *not* in `never_pause` (it may legitimately be paused under
+#902's recorded starvation pause), but a `disabled_manually` or never-ran (no recent run within the
+daily cadence) gate is nonetheless a red industrial alarm, not a benign `DISABLED` row: `make
+all-pipelines-sweep` renders it `ADMISSION GATE DOWN`/`ADMISSION GATE STALE` and FAILS the sweep, so
+the board can never read a silently-silent scanner as "scanned clean".
+
 ### The pause is recorded as data; the restore condition is a measurement (issue #902)
 
 The 2026-10-28 pause (16 bot workflows `disabled_manually`, 15:50–15:51Z, under runner starvation
@@ -1771,9 +1778,14 @@ verdict), and prints a table plus a `N ok · M failed · K disabled` summary.
 
 - A workflow whose live state is not `active` is rendered `DISABLED (owner re-enable required)`, excluded from
   ok/failed, and named in the printed excluded list — so a green summary can never hide dead pipelines.
+- **The one exception is the security admission gate** (`security-scan.yml`, issue #1285). A `disabled_manually`
+  or never-ran (no run within the daily cadence) daily scan is NOT a benign `DISABLED` row: it renders
+  `ADMISSION GATE DOWN`/`ADMISSION GATE STALE`, is named in a dedicated alarm line, and FAILS the sweep — a
+  down daily scan means main has no answer to "is a package old today", and a green summary that hides it is
+  exactly the silent gap #1285 exists to close.
 - A `cancel-in-progress: false` concurrency group means the sweep never cancels a lane's in-flight matrix.
 - **Failure isolation:** one red pipeline does not abort the sweep; the full table is printed and the job fails
-  at the end iff any non-disabled dispatched run failed.
+  at the end iff any non-disabled dispatched run failed **or the admission gate is down**.
 - The report states the sha it swept, so a green is a fact about a tree, not a date.
 - `make all-pipelines-sweep REPO=owner/repo` drives it (the workflow's one make target; `scripts/all_pipelines.py`).
 

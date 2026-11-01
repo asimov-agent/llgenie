@@ -13,9 +13,13 @@ invisible from a green board. This module is the engine behind `.github/workflow
   `gh workflow run` exiting 0 is not a verdict (#964's `gh pr merge --auto` trap applies to dispatch too);
 - a disabled workflow is rendered `DISABLED (owner re-enable required)`, excluded from ok/failed, and named
   in a printed excluded list so a green summary can never hide dead pipelines;
+- the SECURITY ADMISSION GATE is the one exception: `security-scan.yml` disabled_manually (or with no
+  recent run — never-ran within the daily cadence) is NOT a benign DISABLED row. A down daily scan means
+  main has no answer to "is a package old today", and a green summary that hides it is the silent gap issue
+  #1285 exists to close — so the gate renders `ADMISSION GATE DOWN` and FAILS the sweep (issue #1285);
 - emit the table `workflow · dispatched run id · status/conclusion · completed_at`, state the sha swept, and
-  exit non-zero at the END only if any non-disabled dispatched run failed (failure isolation — one red
-  pipeline never aborts the sweep).
+  exit non-zero at the END only if any non-disabled dispatched run failed or the admission gate is down
+  (failure isolation — one red pipeline never aborts the sweep).
 
 Commands:
     all_pipelines.py sweep --repo owner/repo [--ref main] [--gh /path/to/gh] [--timeout 300]
@@ -30,6 +34,7 @@ import os
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import tomllib
@@ -39,6 +44,20 @@ WORKFLOWS = ".github/workflows"
 SELF = "all-pipelines.yml"
 DISABLED_MARK = "DISABLED (owner re-enable required)"
 FORBIDDEN_DISABLED_MARK = "FORBIDDEN DISABLED (never pause — issue #902)"
+ADMISSION_DOWN_MARK = "ADMISSION GATE DOWN (issue #1285)"
+ADMISSION_STALE_MARK = "ADMISSION GATE STALE — no scan within the daily cadence (issue #1285)"
+# The SECURITY ADMISSION GATE: the daily vulnerability scan (`security-scan.yml`). It is the ONE
+# workflow whose `disabled_manually` (or never-ran) state is a RED industrial alarm, not a benign
+# DISABLED row — a down daily scan leaves main with no answer to "is a package old today", and the
+# all-pipelines sweep is the guard that must say so (issue #1285). The file name is the tree's own
+# workflow file, the same stable identifier every other classification uses; it is not a hand-kept
+# roster that must be extended when a new scanner arrives — it is the single daily security pipeline.
+SECURITY_GATE = "security-scan.yml"
+# A healthy daily scan (04:05 UTC schedule) always has a run within ~1 day; "never ran recently"
+# means the gate is genuinely not answering. Allow one missed daily slot + a margin, so a scan whose
+# cron is silently broken (but did not get disabled) is still caught without false-reds on scheduler
+# jitter. This is the freshness half of the admission alarm (issue #1285).
+ADMISSION_GATE_MAX_AGE_HOURS = 50
 # The `never_pause` set is DERIVED from bots/pause.toml (issue #902), never a hand-kept list here:
 # #874 established that auto-merge must never be paused, and #902 extends it to every workflow that
 # turns a green PR into a mergeable, tested, published one. A hand-listed tuple here is the roster
@@ -131,8 +150,42 @@ def is_dispatchable(path: Path) -> bool:
     return False
 
 
+def security_gate_last_run(repo: str, gh: str, wf_id: str) -> str:
+    """The security gate's most recent run `created_at` (ISO-8601), or '' if it has never run.
+
+    The freshness half of the #1285 admission alarm: a gate that is NOT disabled_manually but whose
+    schedule has silently stopped firing still leaves main with no clean-scan proof. `gh run list`
+    for the workflow (`/actions/workflows/{id}/runs`) answers newest-first; an empty list (never ran)
+    or a failed call (brand-new workflow) both mean "no clean-scan evidence" — return '' so the caller
+    treats absence of a run exactly like a stale one. The jq extracts `.workflow_runs[0].created_at`;
+    a stub that does not emulate `--jq` returns the whole JSON document, so parse defensively either way.
+    """
+    try:
+        raw = run_gh(["api", f"repos/{repo}/actions/workflows/{wf_id}/runs", "--jq",
+                      ".workflow_runs[0].created_at"], gh)
+    except SystemExit:
+        return ""
+    text = raw.splitlines()[-1].strip() if raw.splitlines() else ""
+    if not text:
+        return ""
+    try:  # stub shape: {"workflow_runs": [{"created_at": "..."}]}
+        doc = json.loads(text)
+        runs = doc.get("workflow_runs") if isinstance(doc, dict) else None
+        if runs:
+            return str(runs[0].get("created_at") or "")
+        return ""
+    except json.JSONDecodeError:
+        return text  # real gh already applied --jq: the line IS the ISO-8601 timestamp
+
+
+def _age_hours(created_at: str) -> float:
+    """Hours between an ISO-8601 run timestamp (from the API) and now."""
+    t = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+    return (datetime.now(timezone.utc) - t).total_seconds() / 3600.0
+
+
 def classify(root: Path, states: dict[str, dict]) -> list[dict]:
-    """`[{file, role: dispatch|disabled|not_dispatchable|self, id, active}]` from the tree + live states.
+    """`[{file, role: dispatch|disabled|not_dispatchable|self|admission_down, id, active}]` from the tree + live states.
 
     A file not present in the API response (brand-new, or the API is a step behind the tree) is treated as
     active: dispatching it fails loudly if it truly cannot run, and a sweep that silently skips a new
@@ -146,6 +199,12 @@ def classify(root: Path, states: dict[str, dict]) -> list[dict]:
         dispatchable = is_dispatchable(path)
         if name == SELF:
             role = "self"
+        elif name == SECURITY_GATE and not active:
+            # The security admission gate disabled is a RED alarm, not a benign DISABLED row (issue
+            # #1285): a down daily scan leaves main with no "is a package old today" answer, and the
+            # sweep is the one guard the board reads. Marking it `admission_down` (instead of
+            # `disabled`) is what makes the sweep fail loudly for THIS workflow and nothing else.
+            role = "admission_down"
         elif active and dispatchable:
             role = "dispatch"
         elif active and not dispatchable:
@@ -216,6 +275,10 @@ def ok(row: dict, concluded: dict | None) -> str:
     """The table cell for this row's outcome, or a marker."""
     if row["role"] == "forbidden_disabled":
         return FORBIDDEN_DISABLED_MARK
+    if row["role"] == "admission_down":
+        return ADMISSION_DOWN_MARK
+    if row["role"] == "admission_stale":
+        return ADMISSION_STALE_MARK
     if row["role"] == "disabled":
         return DISABLED_MARK
     if row["role"] == "not_dispatchable":
@@ -239,6 +302,7 @@ def render_report(rows: list[dict], concluded: dict[str, dict], sha: str) -> tup
     excluded_disabled: list[str] = []
     excluded_nd: list[str] = []
     forbidden: list[str] = []
+    admission_down: list[str] = []
     failed = 0
     for row in rows:
         c = concluded.get(row["file"])
@@ -246,7 +310,11 @@ def render_report(rows: list[dict], concluded: dict[str, dict], sha: str) -> tup
         run_id = c["run_id"] if c and row["role"] == "dispatch" else "—"
         completed = (c.get("completed_at") or "—") if (c and row["role"] == "dispatch") else "—"
         lines.append(f"| `{row['file']}` | {run_id} | {outcome} | {completed} |")
-        if row["role"] == "forbidden_disabled":
+        if row["role"] == "admission_down":
+            admission_down.append(row["file"])
+        elif row["role"] == "admission_stale":
+            admission_down.append(row["file"])
+        elif row["role"] == "forbidden_disabled":
             forbidden.append(row["file"])
         elif row["role"] == "disabled":
             excluded_disabled.append(row["file"])
@@ -263,7 +331,11 @@ def render_report(rows: list[dict], concluded: dict[str, dict], sha: str) -> tup
     disabled_n = sum(1 for row in rows if row["role"] == "disabled")
     lines.append("")
     lines.append(f"Summary: {ok_n} ok · {failed} failed · {disabled_n} disabled"
-                 f" · {len(forbidden)} FORBIDDEN disabled")
+                 f" · {len(forbidden)} FORBIDDEN disabled · {len(admission_down)} ADMISSION GATE DOWN")
+    if admission_down:
+        lines.append("")
+        lines.append(f"ADMISSION GATE DOWN (issue #1285 — the daily security scan is not answering,"
+                     f" so main has no clean-scan proof): {', '.join(f'`{a}`' for a in admission_down)}")
     if forbidden:
         lines.append("")
         lines.append("FORBIDDEN disabled (issue #902 — these must never be paused, the merge path "
@@ -277,7 +349,7 @@ def render_report(rows: list[dict], concluded: dict[str, dict], sha: str) -> tup
         lines.append("")
         lines.append("Not dispatchable (no workflow_dispatch) — not swept:")
         lines.append(", ".join(f"`{f}`" for f in excluded_nd))
-    return "\n".join(lines) + "\n", 1 if (failed or forbidden) else 0
+    return "\n".join(lines) + "\n", 1 if (failed or forbidden or admission_down) else 0
 
 
 def sweep(repo: str, ref: str, gh: str, timeout: int, root: Path = REPO_ROOT) -> tuple[str, int]:
@@ -291,6 +363,16 @@ def sweep(repo: str, ref: str, gh: str, timeout: int, root: Path = REPO_ROOT) ->
                              cwd=root).stdout.strip()
     except Exception:
         sha = "unknown"
+    # The freshness half of the #1285 admission alarm: an ACTIVE security gate that silently stopped
+    # producing runs is as unsafe as a disabled one. A `disabled_manually` gate is already
+    # `admission_down` from classify; here we also demote an active gate with no run within the daily
+    # cadence (a broken cron never re-fires a run, but never flips the state to disabled_manually) so
+    # the board cannot read a silently-silent scanner as "scanned clean".
+    for row in rows:
+        if row["file"] == SECURITY_GATE and row["role"] in ("dispatch", "not_dispatchable"):
+            last = security_gate_last_run(repo, gh, row["id"])
+            if not last or _age_hours(last) > ADMISSION_GATE_MAX_AGE_HOURS:
+                row["role"] = "admission_stale"
     for row in rows:
         if row["role"] != "dispatch":
             continue
