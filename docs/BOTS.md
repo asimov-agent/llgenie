@@ -1668,6 +1668,21 @@ run predates the PR head (`re-push or re-run`). The engine-build workflow record
 verdict (self-binding evidence), and `make check-holds` labels a held PR whose proof is superseded
 `superseded-proof` (fix = re-push or re-run) instead of reading every red as the `#948` no-remedy shape.
 
+### A reporting leg names the evidence a sha, or stays silent about ownership (issue #1292)
+
+A finding in this fleet is measured at a sha and names its evidence. Ownership-blame is the one measurement a
+harness cannot make from a diff — a changed file has no author-of-record in the commit graph — so "whose work
+did that" is always a guess unless a specific sha is named. When two lanes touch the same files, report the
+collision as an **order-of-operations** with the two side shas (the producer's advance, the consumer's stale
+proof) — never as "another lane advanced it", "someone else's fault", or any blame sentence that says whose
+work did an adverse thing without anchoring it to a sha. Name the evidence or stay silent: the #1250
+"another lane advanced it" misattribution is exactly this guess, and a reporting leg that reintroduces it
+reds `make check-report-hygiene` (`scripts/check_report_hygiene.py`, in the `ci-unit` job and classified in
+`scripts/issue_bot_gates.py`).
+
+`make report-hygiene-report` prints every reporting leg the guard reads and its verdict.
+
+
 ## The run-failure reactor (issue #286)
 
 A bot that reacts to a **failed CI run** — any run, not just a PR check — and routes it to a remedy.
@@ -1979,6 +1994,8 @@ make agent-image | agent-image-pull | agent-image-ref | publish-agent-image  # t
 make check-docs        # fail when a user-facing make target is not documented here, or a work record names no issue (issue #257)
 make docs-report       # show every user-facing target: documented, missing, or a recorded exception
 make check-pr-hygiene  # fail when a producer's commit message or PR body is empty, a placeholder, a subject with no body, or when AGENTS.md lost the mandate (issue #313)
+make check-report-hygiene  # fail when a reporting leg blames ownership (another lane, someone else, this lane) without a @<sha> evidence anchor — evidence-or-silence (issue #1292)
+make report-hygiene-report # show every reporting leg the ownership-guard reads, and its verdict
 make pr-hygiene-report # show every producer the PR/commit-message guard reads, and its verdict
 make check-pr-authors  # fail when a PR commit is authored by anyone but Andy Holst or Asimov Agent, when a Co-authored-by trailer names anyone else, or when a producer commits off the allowlist (issue #345)
 make pr-authors-report # show every commit in the range with its author verdict, and the identity each producer assigns
