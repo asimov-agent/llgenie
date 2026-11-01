@@ -366,8 +366,8 @@ opening the issue. An empty, placeholder or subject-only message is a defect, ne
 `make check-pr-hygiene` (`scripts/check_pr_hygiene.py`, run by `ci-unit`) is the gate: it reads every
 producer the repository owns and fails on a commit with no message, a placeholder message, a subject
 that is not a typed Conventional Commit or no body, on a PR opened with an empty or placeholder body,
-makes empty or placeholder body, on a PR opened with an empty or placeholder body, and on an
-`AGENTS.md` that no longer carries this section. `make pr-hygiene-report` prints what it reads.
+and on an `AGENTS.md` that no longer carries this section. `make pr-hygiene-report` prints what it
+reads.
 
 ## A PR that implements an issue closes it — the keyword must be adjacent to #N in the body (MANDATORY, durable)
 
