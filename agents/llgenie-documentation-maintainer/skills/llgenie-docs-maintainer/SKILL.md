@@ -252,6 +252,18 @@ Every finding is filed as a refined six-section issue tagged `agent:implement`, 
 normal queue — never implemented by the same pass; otherwise record "re-audited at `<sha>`, no
 findings". One-pass scope, no infinite loop; never overrides real reactive work.
 
+**Run the audit in a fresh scratch worktree at `refs/remotes/origin/main`, never the repo's
+main checkout.** That checkout usually sits on a local `main` branch many merges behind the remote
+tip, so `make check-docs` / `docs_audit.py` run there measure an OLD tree and report the census
+referent as "no usable referent" plus lower agent-wiki/tracked counts — figures that read as defects
+but describe a branch that no longer exists. `git fetch origin refs/heads/main:refs/remotes/origin/main;
+git worktree add /tmp/aud refs/remotes/origin/main`, run the gates there, `git worktree remove`
+after; name the fetched sha in the record. **Prove change-note coverage with `make -s check-docs`
+(green = every note has a fragment row AND the change→note gate passes), not by globbing
+`docs/changes.d/*<pr-number>*`** — fragments are named by note stem or issue, never the PR number,
+so a PR-number glob returns 0 and reads as a missing note that is not missing; trust the gate over
+the glob.
+
 ## Landing a docs PR (the loop that works)
 
 1. Work in the PR's own worktree. `git worktree list` names it (`…/llgenie-wt/pr<N>`); never

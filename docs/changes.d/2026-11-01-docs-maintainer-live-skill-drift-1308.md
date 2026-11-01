@@ -1,0 +1,1 @@
+| 2026-11-01 | the docs-maintainer lane's live SKILL.md gained +991 b (audit-run-in-scratch-worktree + change-note-proved-by-check-docs lessons) since #1279; folded live→tree byte-identical (71,239 b), SOUL already aligned | [2026-11-01-docs-maintainer-live-skill-drift-1308.md](agent-wiki/2026-11-01-docs-maintainer-live-skill-drift-1308.md) | #1308 |
