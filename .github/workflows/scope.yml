@@ -95,6 +95,12 @@ jobs:
         run: make check-wiring
       - name: make check-issue-bodies
         run: make check-issue-bodies
+      - name: make check-pr-closing (an agent/* PR must close its issue in the body — issue #1329)
+        env:
+          PR_BODY: ${{ github.event.pull_request.body || '' }}
+          PR_HEAD: ${{ github.head_ref || '' }}
+        run: |
+          if [ -n "$PR_BODY" ]; then printf '%s\n' "$PR_BODY" > /tmp/pr-body.md; make check-pr-closing PR_BODY=/tmp/pr-body.md PR_HEAD="$PR_HEAD"; else make check-pr-closing; fi
       - name: make openspec-image-pull (the OpenSpec CLI image the docs gates run in)
         # `ci.yml`'s `ci-images` job builds and tags this image; a workflow that runs `ci-openspec`
         # without it fails at `docker run llgenie/openspec:latest` with "pull access denied", which is
