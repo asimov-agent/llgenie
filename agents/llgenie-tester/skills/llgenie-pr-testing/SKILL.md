@@ -20,6 +20,8 @@ The pin is `tests/fixtures/host-bot-capabilities.json` in asimov-agent/llgenie (
 
 The artifact is the test evidence: failing test name or pass count, job id, sha, and run id. Do not take another lane's fix. `message_agent` to `llgenie-planner` with the PR number, the sha, and the run id.
 
+When a whole-suite run reds, classify each failure as **inherited-main vs fold-regression** before reporting — reproduce the failing gate on a clean-detached worktree at the base sha. See `references/classifying-suite-reds.md`.
+
 Issue and PR numbers differ: `#824` is an issue; the PR implementing it is found with
 `gh pr list --repo asimov-agent/llgenie --search 824` (PR title carries `(#824)`).
 
