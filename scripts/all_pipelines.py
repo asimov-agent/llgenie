@@ -46,6 +46,7 @@ DISABLED_MARK = "DISABLED (owner re-enable required)"
 FORBIDDEN_DISABLED_MARK = "FORBIDDEN DISABLED (never pause — issue #902)"
 ADMISSION_DOWN_MARK = "ADMISSION GATE DOWN (issue #1285)"
 ADMISSION_STALE_MARK = "ADMISSION GATE STALE — no scan within the daily cadence (issue #1285)"
+SWEEP_UNSEEN_MARK = "SWEEP UNSEEN (issue #1291)"
 # The SECURITY ADMISSION GATE: the daily vulnerability scan (`security-scan.yml`). It is the ONE
 # workflow whose `disabled_manually` (or never-ran) state is a RED industrial alarm, not a benign
 # DISABLED row — a down daily scan leaves main with no answer to "is a package old today", and the
@@ -58,6 +59,13 @@ SECURITY_GATE = "security-scan.yml"
 # cron is silently broken (but did not get disabled) is still caught without false-reds on scheduler
 # jitter. This is the freshness half of the admission alarm (issue #1285).
 ADMISSION_GATE_MAX_AGE_HOURS = 50
+# The observatory of observatories (issue #1291): the #1289 daily-scan alarm only reaches a reader when the
+# WEEKLY all-pipelines sweep runs AND is read, so the sweep itself must prove it recently completed — a
+# weekly sweep older than its cadence means "no one has asked this week" and is admission-stale exactly like
+# an aged daily scan. The sweep's own cadence is 7 days (Saturday 04:27 UTC, cron `27 4 * * 6`); allow one
+# missed weekly slot + a margin so a suspended cron is a red while scheduler jitter is not. This is the 
+# sweep-self-freshness window, deliberately a superset of the daily 50 h because it guards a WEEKLY run.
+SWEEP_GATE_MAX_AGE_HOURS = 24 * 8  # weekly cadence (~168 h) + one missed slot + a margin
 # The `never_pause` set is DERIVED from bots/pause.toml (issue #902), never a hand-kept list here:
 # #874 established that auto-merge must never be paused, and #902 extends it to every workflow that
 # turns a green PR into a mergeable, tested, published one. A hand-listed tuple here is the roster
@@ -178,6 +186,53 @@ def security_gate_last_run(repo: str, gh: str, wf_id: str) -> str:
         return text  # real gh already applied --jq: the line IS the ISO-8601 timestamp
 
 
+def sweep_self_last_run(repo: str, gh: str, wf_id: str) -> tuple[str, str]:
+    """(created_at, head_sha) of the sweep's own MOST RECENT COMPLETED run, or ('', '').
+
+    The observatory-of-observatories half of the #1289/ADMISSION alarm (issue #1291): the daily-scan
+    alarm only ever reaches a reader through the weekly all-pipelines sweep, so this sweep itself must
+    prove it recently ran — otherwise a down daily scanner sits un-alarmed for up to a week AND a broken
+    sweep reads identically to a clean one. We read the sweep's own `/actions/workflows/{id}/runs`
+    newest-first, but filter to COMPLETED runs: the sweep is RUNNING right now, so the newest run is this
+    in-progress one (age ~0, never stale) and the real question is how long since the previous COMPLETED
+    sweep finished. An empty list (never completed) or a failed call both mean "no completed-sweep
+    evidence" — ('', '') so the caller treats absence exactly like a stale completed run. The jq extracts
+    `created_at` AND `head_sha` (the alarm names the sha a reader can go look at); a stub that does not
+    emulate `--jq` returns the whole document, so parse defensively either way.
+    """
+    try:
+        raw = run_gh(["api", f"repos/{repo}/actions/workflows/{wf_id}/runs", "--jq",
+                      "[ .workflow_runs[] | select(.status == \"completed\") "
+                      "| {created_at, head_sha} ][0]"], gh)
+    except SystemExit:
+        return "", ""
+    text = raw.splitlines()[-1].strip() if raw.splitlines() else ""
+    if not text:
+        return "", ""
+    try:  # real gh already applied --jq: the line IS the singular {created_at, head_sha} object
+        doc = json.loads(text)
+        if isinstance(doc, dict):
+            runs = doc.get("workflow_runs") if "workflow_runs" in doc else None
+            if runs is not None:  # stub did not apply --jq: a full {"workflow_runs": [...]} document
+                for r in runs:
+                    if (r.get("status") or "completed") == "completed":
+                        return str(r.get("created_at") or ""), str(r.get("head_sha") or "")
+                return "", ""
+            return str(doc.get("created_at") or ""), str(doc.get("head_sha") or "")
+        return "", ""
+    except json.JSONDecodeError:
+        try:  # a stub that returns the whole document as one JSON line, healthily completed
+            doc = json.loads(text)
+            runs = doc.get("workflow_runs") if isinstance(doc, dict) else None
+            if runs:
+                for r in runs:
+                    if (r.get("status") or "completed") == "completed":
+                        return str(r.get("created_at") or ""), str(r.get("head_sha") or "")
+        except json.JSONDecodeError:
+            pass
+    return "", ""
+
+
 def _age_hours(created_at: str) -> float:
     """Hours between an ISO-8601 run timestamp (from the API) and now."""
     t = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
@@ -186,6 +241,10 @@ def _age_hours(created_at: str) -> float:
 
 def classify(root: Path, states: dict[str, dict]) -> list[dict]:
     """`[{file, role: dispatch|disabled|not_dispatchable|self|admission_down, id, active}]` from the tree + live states.
+
+    `sweep()` later demotes the SELF row to `sweep_unseen` when the sweep's own last completed run has aged past
+    its weekly cadence, and demotes an ACTIVE security gate to `admission_stale` when its last run is too old
+    (issue #1285/#1291) — classify returns the static tree+state roles; the freshness demotions own the time axis.
 
     A file not present in the API response (brand-new, or the API is a step behind the tree) is treated as
     active: dispatching it fails loudly if it truly cannot run, and a sweep that silently skips a new
@@ -279,6 +338,8 @@ def ok(row: dict, concluded: dict | None) -> str:
         return ADMISSION_DOWN_MARK
     if row["role"] == "admission_stale":
         return ADMISSION_STALE_MARK
+    if row["role"] == "sweep_unseen":
+        return SWEEP_UNSEEN_MARK
     if row["role"] == "disabled":
         return DISABLED_MARK
     if row["role"] == "not_dispatchable":
@@ -303,6 +364,7 @@ def render_report(rows: list[dict], concluded: dict[str, dict], sha: str) -> tup
     excluded_nd: list[str] = []
     forbidden: list[str] = []
     admission_down: list[str] = []
+    sweep_unseen: list[dict] = []
     failed = 0
     for row in rows:
         c = concluded.get(row["file"])
@@ -316,6 +378,8 @@ def render_report(rows: list[dict], concluded: dict[str, dict], sha: str) -> tup
             admission_down.append(row["file"])
         elif row["role"] == "forbidden_disabled":
             forbidden.append(row["file"])
+        elif row["role"] == "sweep_unseen":
+            sweep_unseen.append(row)
         elif row["role"] == "disabled":
             excluded_disabled.append(row["file"])
         elif row["role"] == "not_dispatchable":
@@ -331,11 +395,20 @@ def render_report(rows: list[dict], concluded: dict[str, dict], sha: str) -> tup
     disabled_n = sum(1 for row in rows if row["role"] == "disabled")
     lines.append("")
     lines.append(f"Summary: {ok_n} ok · {failed} failed · {disabled_n} disabled"
-                 f" · {len(forbidden)} FORBIDDEN disabled · {len(admission_down)} ADMISSION GATE DOWN")
+                 f" · {len(forbidden)} FORBIDDEN disabled · {len(admission_down)} ADMISSION GATE DOWN"
+                 f" · {len(sweep_unseen)} SWEEP UNSEEN")
     if admission_down:
         lines.append("")
         lines.append(f"ADMISSION GATE DOWN (issue #1285 — the daily security scan is not answering,"
                      f" so main has no clean-scan proof): {', '.join(f'`{a}`' for a in admission_down)}")
+    if sweep_unseen:
+        lines.append("")
+        for row in sweep_unseen:
+            last_run = row.get("sweep_last_run") or "never"
+            last_sha = row.get("sweep_last_sha") or "?"
+            lines.append(f"SWEEP UNSEEN (issue #1291 — the weekly admission sweep has not completed within its "
+                         f"cadence, so a down daily scan sits un-alarmed): last completed run "
+                         f"{last_run} @ {last_sha} — `{row['file']}`")
     if forbidden:
         lines.append("")
         lines.append("FORBIDDEN disabled (issue #902 — these must never be paused, the merge path "
@@ -349,7 +422,7 @@ def render_report(rows: list[dict], concluded: dict[str, dict], sha: str) -> tup
         lines.append("")
         lines.append("Not dispatchable (no workflow_dispatch) — not swept:")
         lines.append(", ".join(f"`{f}`" for f in excluded_nd))
-    return "\n".join(lines) + "\n", 1 if (failed or forbidden or admission_down) else 0
+    return "\n".join(lines) + "\n", 1 if (failed or forbidden or admission_down or sweep_unseen) else 0
 
 
 def sweep(repo: str, ref: str, gh: str, timeout: int, root: Path = REPO_ROOT) -> tuple[str, int]:
@@ -373,6 +446,19 @@ def sweep(repo: str, ref: str, gh: str, timeout: int, root: Path = REPO_ROOT) ->
             last = security_gate_last_run(repo, gh, row["id"])
             if not last or _age_hours(last) > ADMISSION_GATE_MAX_AGE_HOURS:
                 row["role"] = "admission_stale"
+    # The observatory-of-observatories half (issue #1291): the daily-scan alarm above only ever reaches a
+    # reader through THIS sweep, so the sweep itself must prove it recently ran. A sweep whose last COMPLETED
+    # run has aged past the weekly cadence (or that has never completed) is admission-stale exactly like an
+    # aged daily scan — the board has no one watching the watcher. Demote the SELF row so it renders `SWEEP
+    # UNSEEN` and reds the sweep. The real question (how long since the PREVIOUS completed sweep) is an
+    # attribute of the SELF row, not of the daily gate, so we resolve it here off the same `/runs` API.
+    for row in rows:
+        if row["file"] == SELF and row.get("id"):
+            last, last_sha = sweep_self_last_run(repo, gh, row["id"])
+            if not last or _age_hours(last) > SWEEP_GATE_MAX_AGE_HOURS:
+                row["role"] = "sweep_unseen"
+                row["sweep_last_run"] = last or "never"
+                row["sweep_last_sha"] = last_sha
     for row in rows:
         if row["role"] != "dispatch":
             continue

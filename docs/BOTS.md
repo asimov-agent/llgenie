@@ -1800,9 +1800,15 @@ verdict), and prints a table plus a `N ok · M failed · K disabled` summary.
   `ADMISSION GATE DOWN`/`ADMISSION GATE STALE`, is named in a dedicated alarm line, and FAILS the sweep — a
   down daily scan means main has no answer to "is a package old today", and a green summary that hides it is
   exactly the silent gap #1285 exists to close.
+- **The sweep must itself prove it recently ran** (issue #1291, the #1289 observatory-of-observatories). The
+  daily-scan alarm above only ever reaches a reader through THIS weekly sweep, so a sweep whose own last
+  COMPLETED run is older than the weekly cadence (or has never completed) renders `SWEEP UNSEEN (last run
+  <date> @ <sha>)` and FAILS the sweep — a gate nobody watches is not a gate, and a down daily scanner must
+  not sit un-alarmed for a week because the watcher itself stopped.
 - A `cancel-in-progress: false` concurrency group means the sweep never cancels a lane's in-flight matrix.
 - **Failure isolation:** one red pipeline does not abort the sweep; the full table is printed and the job fails
-  at the end iff any non-disabled dispatched run failed **or the admission gate is down**.
+  at the end iff any non-disabled dispatched run failed **or the admission gate is down** **or the sweep is
+  itself unseen** (issue #1291).
 - The report states the sha it swept, so a green is a fact about a tree, not a date.
 - `make all-pipelines-sweep REPO=owner/repo` drives it (the workflow's one make target; `scripts/all_pipelines.py`).
 

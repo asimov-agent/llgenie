@@ -35,23 +35,38 @@ NO_DISPATCH = "name: c-bot — passive\non:\n  push:\n\njobs:\n  go:\n    runs-o
 
 
 def make_stub(tmp_path: Path, workflows: list[dict], runs: list[dict],
-              gate_last_run: str | None = None) -> Path:
+              gate_last_run: str | None = None,
+              sweep_last_run: str | None = None,
+              sweep_last_sha: str | None = "deadbeef") -> Path:
     """A real stub `gh` binary (python, executable) serving the API the sweep calls.
 
     `workflows`: [{file, state, id}]; `runs`: a base list of workflow_dispatch runs to serve; the stub
     records every `workflow run` dispatch into a JSON state file so the test can assert what was dispatched.
     `gate_last_run`: when not None, an ISO-8601 created_at the stub serves for the security gate's
     `/actions/workflows/<id>/runs` call — the freshness half of the #1285 admission alarm.
+    `sweep_last_run`/`sweep_last_sha`: when set, the stub serves a COMPLETED run for the all-pipelines.yml
+    workflow's OWN `/runs` call — the sweep-self-freshness half of the admission alarm (issue #1291).
     """
     stub = tmp_path / "gh-stub"
     state_file = tmp_path / "dispatched.json"
     state_file.write_text("[]")
+    # The sweep's own freshness: when a test does not care about the sweep-self check (it is only running
+    # other rows), default the sweep's last COMPLETED run to a FRESH timestamp so the sweep is not spuriously
+    # marked `SWEEP UNSEEN`. A test that cares passes an explicit `sweep_last_run` (+ sha); the staleness test
+    # passes an old one, the control passes a recent one (issue #1291).
+    if sweep_last_run is None:
+        from datetime import datetime, timezone, timedelta
+        sweep_last_run = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        if sweep_last_sha is None:
+            sweep_last_sha = "freshsha000000"
     body = f'''#!/usr/bin/env python3
 import sys, json, pathlib
 WF = {json.dumps(workflows)}
 RUNS = {json.dumps(runs)}
 STATE = pathlib.Path({str(state_file)!r})
 GATE_RUN = {repr(gate_last_run)}
+SWEEP_RUN = {repr(sweep_last_run)}
+SWEEP_SHA = {repr(sweep_last_sha)}
 args = sys.argv[1:]
 def out(doc):
     sys.stdout.write(json.dumps(doc))
@@ -60,21 +75,23 @@ def out(doc):
 if args[0] == "api" and args[1].endswith("/actions/workflows"):
     out([{{"path": ".github/workflows/"+w["file"], "state": w["state"], "id": w["id"]}} for w in WF])
     sys.exit(0)
-# gh api repos/X/actions/workflows -> the workflows roster
-if args[0] == "api" and args[1].endswith("/actions/workflows"):
-    out([{{"path": ".github/workflows/"+w["file"], "state": w["state"], "id": w["id"]}} for w in WF])
-    sys.exit(0)
-# gh api repos/X/actions/workflows/<id>/runs -> prior runs OR the security gate's last run
-# (newest-first, .workflow_runs[0].created_at). GATE_RUN, when set, is served for the security gate's
-# workflow id so the staleness check has something real to read.
+# gh api repos/X/actions/workflows/<id>/runs -> prior runs OR the security gate's last run OR the
+# sweep's OWN last completed run. GATE_RUN, when set, is served for the security-gate workflow id. The
+# sweep's completed run (SWEEP_RUN/SWEEP_SHA), when set, is served for the all-pipelines.yml workflow id.
+# The sweep runs RIGHT NOW, so it reads its own PREVIOUS COMPLETED run (issue #1291).
+by_file = {{w["file"]: w["id"] for w in WF}}
+gate_id = by_file.get("security-scan.yml")
+sweep_id = by_file.get("all-pipelines.yml")
 if args[0] == "api" and "/actions/workflows/" in args[1] and args[1].endswith("/runs"):
-    gate_id = {{w["file"]: w["id"] for w in WF}}.get("security-scan.yml")
-    if GATE_RUN is not None and args[1].endswith("/workflows/" + gate_id + "/runs"):
+    wid = args[1].split("/actions/workflows/")[1].split("/runs")[0]
+    if GATE_RUN is not None and wid == gate_id:
         out({{"workflow_runs": [{{"id": "1", "created_at": GATE_RUN}}]}})
+    elif SWEEP_RUN is not None and wid == sweep_id:
+        out({{"workflow_runs": [{{"id": "0", "status": "completed", "created_at": SWEEP_RUN,
+                               "head_sha": SWEEP_SHA}}]}})
     else:
         sys.stdout.write("")
     sys.exit(0)
-# gh workflow run <file> --repo X --ref ref  -> record dispatch, exit 0 (NOT a verdict)
 if args[0] == "workflow" and args[1] == "run":
     d = json.loads(STATE.read_text())
     d.append(args[2])
@@ -387,4 +404,55 @@ def test_an_active_gate_with_a_recent_run_is_swept_normally(tmp_path):
     dispatched = json.loads((tmp_path / "dispatched.json").read_text())
     assert "security-scan.yml" in dispatched         # healthy gate is swept like any other
     assert "0 ADMISSION GATE DOWN" in report
+    assert code == 0
+
+
+# ---- the sweep-self-freshness clamp (issue #1291, the #1289 observatory-of-observatories) -----------
+
+def test_a_stale_sweep_reds_with_a_sweep_unseen_line(tmp_path):
+    """The sweep itself must prove it recently ran: a down DAILY scan is un-alarmed up to a WEEK because the
+    weekly sweep is the only reader, so a sweep whose last COMPLETED run has aged past the weekly cadence is
+    admission-stale — it renders `SWEEP UNSEEN (last run <date> @ <sha>)` and reds (issue #1291)."""
+    from datetime import datetime, timezone, timedelta
+    stale_sweep = (datetime.now(timezone.utc) - timedelta(hours=24 * 9)).isoformat()  # > SWEEP_GATE_MAX_AGE_HOURS
+    workflows = [
+        {"file": "all-pipelines.yml", "state": "active", "id": "10"},
+        {"file": "a-bot.yml", "state": "active", "id": "20"},
+    ]
+    stub = make_stub(tmp_path, workflows, runs=[],
+                     sweep_last_run=stale_sweep, sweep_last_sha="abc123deadbeef")
+    root = tmp_path / "wf"
+    (root / ".github" / "workflows").mkdir(parents=True)
+    for f in ("all-pipelines.yml", "a-bot.yml"):
+        (root / ".github" / "workflows" / f).write_text(ACTIVE_DISPATCHABLE)
+
+    report, code = ap.sweep("owner/repo", "main", gh=str(stub), timeout=30, root=root)
+
+    assert "SWEEP UNSEEN" in report
+    assert "abc123deadbeef" in report
+    assert code == 1
+
+
+def test_a_fresh_sweep_is_not_marked_unseen(tmp_path):
+    """A sweep whose last COMPLETED run landed within the weekly cadence is NOT `SWEEP UNSEEN` — the gate reads a
+    healthy watcher and passes (issue #1291 control)."""
+    from datetime import datetime, timezone, timedelta
+    fresh_sweep = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    workflows = [
+        {"file": "all-pipelines.yml", "state": "active", "id": "10"},
+        {"file": "a-bot.yml", "state": "active", "id": "20"},
+    ]
+    stub = make_stub(tmp_path, workflows, runs=[],
+                     sweep_last_run=fresh_sweep, sweep_last_sha="aaaabbbb")
+    root = tmp_path / "wf"
+    (root / ".github" / "workflows").mkdir(parents=True)
+    for f in ("all-pipelines.yml", "a-bot.yml"):
+        (root / ".github" / "workflows" / f).write_text(ACTIVE_DISPATCHABLE)
+
+    report, code = ap.sweep("owner/repo", "main", gh=str(stub), timeout=30, root=root)
+
+    # The summary's "0 SWEEP UNSEEN" counter is expected (it always names the category); the ALARM detail
+    # line (with the "last completed run <date> @ <sha>" message) is what a healthy sweep must NOT emit.
+    assert "last completed run" not in report
+    assert "SWEEP UNSEEN (issue #1291" not in report
     assert code == 0

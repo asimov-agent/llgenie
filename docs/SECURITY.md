@@ -86,3 +86,10 @@ own control: `make all-pipelines-sweep` renders a down security-scan as `ADMISSI
 `ADMISSION GATE STALE` and fails the sweep, so the board cannot read a silently-silent scanner as
 "scanned clean". A merged fix on `main` is not a clean scan; only a run id at a named sha is, and
 this guard makes *not having one* visible.
+
+**The watcher is fresh-clamped too** (issue #1291, the #1289 observatory-of-observatories). That daily
+alarm only ever reaches a reader through the WEEKLY all-pipelines sweep, so the sweep itself must prove it
+recently completed: a sweep whose last COMPLETED run is older than its weekly cadence (or that has never
+completed) renders `SWEEP UNSEEN (last run <date> @ <sha>)` and fails the sweep. A gate nobody watches is
+not a gate — a down daily scan must not sit un-alarmed for a week just because the watcher that would have
+raised it stopped running.
