@@ -1,0 +1,1 @@
+| 2026-11-01 | agents(llgenie-tester): fold live SKILL +1 & agent-profile-versioning +9 onto #1079 (fold-is-a-sequential-dependency-chain; check_docs issue-reference #<n> gate) | [note](agent-wiki/2026-11-01-tester-live-lessons-8.md) | #1079 |
