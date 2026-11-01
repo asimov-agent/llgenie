@@ -58,6 +58,24 @@ No such PR can go green until that test learns the same four inputs. Name that o
 artifact → the job that did not produce it → the issue that closes the gap) instead of hunting the diff
 for a bug that is not there.
 
+## A from-source (AOT) kernel dependency needs its whole build toolchain in the params install row
+
+An install row that does `uv pip install -e '.[all]'` can end up BUILDING a kernel extension (an AOT
+wheel) rather than downloading it. That build reads only what the image has, so every build backend and
+build tool the wheel's `pyproject.toml`/CMakeLists assumes must be preinstalled in the row — and a
+missing one surfaces as a red build cell, never at params authoring time:
+
+- `ModuleNotFoundError: No module named 'scikit_build_core'` — the PEP 517 backend is absent even though
+  the row already installs `wheel_stub`; `wheel_stub` is not `scikit-build-core`, so install both.
+- `CMake Error: Policy CMP0169/CMP0177 is not known to this version of CMake` — the wheel's CMakeLists
+  calls a CMake **4.x** policy unguarded while the base image ships a 3.28 distro cmake. Install the
+  `cmake` PyPI wheel (4.x) in the same row: it shadows the distro binary on PATH, which is the fix; the
+  alternative "let the engine fail" is a cell that can never publish.
+
+Regenerate the variant's params from the engine skill after editing the row (the tag hashes the params),
+and expect one red stage to reveal the next: fixing the backend exposes the toolchain error, and each is a
+separate defect in the same cell.
+
 ## What a Prism cell proves once published
 
 `llama.cpp-prism` is the only build that reads a fork-specific ternary quant (`PQ2_0 = 142`,
