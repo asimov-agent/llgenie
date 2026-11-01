@@ -197,6 +197,91 @@ shared runner IPs summing into one 5-minute window, not a single caller exceedin
 The defect is the caller's seat (live call inside the hermetic gate), not the retry logic; the fix
 is vendored-replay / a separate live pipeline, never tightening or removing the wait.
 
+## Rule: `check-pr-closing` reds a `scope` job on a close-SET mismatch, not a missing `closes`
+
+The PR-text gate requires the squash commit text and the PR body to adjacently close the **same set**
+of issues (`closes|fixes|resolves #N`). Read the three violations it emits, because each is a different
+fix and the message names it verbatim:
+
+- "squash commit text does not adjacently close a claimed issue" — a commit subject ending `(#N)` or an
+  `Issue: #N` line is a CLAIM; it needs a matching adjacent `closes #N` in the commit text.
+- "PR body does not adjacently close …" — the body claims issues it never closes; note `closes **#N**`
+  (markdown emphasis) does NOT close — the keyword must be adjacent to a bare `#N`.
+- "squash text and body close different issues" — the two close-sets must be identical. A branch rebased
+  so its joined commit messages pick up a **sibling PR's** issue numbers (`#1414`/`#1415` appearing in
+  commit text) reds here even though the PR only intends to close its own issue.
+
+Fix on the SAME branch: align so both the commit text/trailer and the body claim **only the intended
+issue**, neutralise stray sibling claims in the commit messages, push, re-run — one vehicle, never a
+second PR to clear a text gate.
+
+## Rule: a red `unit` leg whose pytest is all-green is a NON-test gate step — name the failing make target
+
+The `unit` job is not one command: `ci-unit` chains `test-unit` and then a column of repo-wide make
+gates (`skills-validate`, `check-registry*`, `check-wiring`, `check-docs`, `check-dispatch-forms`,
+`check-pr-hygiene`, `check-report-hygiene`, `check-proc-gate`, …). So a job that concludes `failure`
+while its pytest summary reads `NNNN passed` has NOT failed a test — it failed a trailing gate, and
+the gate's own output is the only thing that names the cause. Always extract the failing target before
+touching the conclusion:
+
+```bash
+gh run view <run-id> --log-failed > /tmp/leg.log
+# 1. which make target failed (the Makefile:line: target is authoritative)
+grep -E "make(\[[0-9]+\])?: \*\*\*" /tmp/leg.log
+# 2. what that gate actually said (llgenie gates prefix their findings with [tag])
+grep -E "\[[a-z0-9-]+\]" /tmp/leg.log | tail -20
+```
+
+Never attribute such a red to "the known pre-existing red" on the strength of the job name. The
+attribution test is whether the SAME gate reds on a base where the branch's new file does not exist —
+say, `git diff --name-only origin/main...origin/<branch>` listing the file the gate names, and the gate
+not firing on `main`. A repo-wide policy gate reding on a file the PR itself ADDS (e.g. bare
+`subprocess.run` in `scripts/` with no `# proc-allow: <reason>`, which the policy seam confines to
+`scripts/proc.py`) is a **net-new, branch-own acceptance defect**, not a tree red inherited from the
+base: the file exists nowhere else, so the gate cannot be red for anyone else's reason.
+
+Consequence for accepting a lane's verdict: "zero net-new failures / blocked only on <other PR>" is
+falsified the moment the leg's conclusion is `failure`, whatever the pytest count says. Re-measure the
+log at the CURRENT head and quote the failing target; if the base already contains the fix the lane
+blames, the remaining red is that lane's own and routes to the branch owner (fix the two named sites,
+push to the SAME branch, re-run — one vehicle, never a second). A lane's verdict measured at a
+superseded head proves nothing about the live one; its being queued-late is the usual reason it
+arrived after the branch already moved.
+
+### A recorded-count RATCHET gate fails because the branch's NEW file added a root
+
+Same shape, distinct fix: `check_import_roots.py ratchet` (issue-#1101 class) refuses when the count of
+import roots exceeds the committed baseline and names the offender verbatim:
+
+```
+[import-roots] bare: a NEW import root is refused — this exactly (issue #1101):  (53 now, 52 recorded)
+  tests/test_check_zero_job_pending.py:23
+[import-roots] sys-path: a NEW import root is refused — this exactly (issue #1101):  (33 now, 32 recorded)
+  tests/test_check_zero_job_pending.py:22
+```
+
+Read it as: the PR's own added test/script introduced two unrecorded roots (a bare `scripts.` import and a
+direct `sys.path` entry) and tripped a baseline that is deliberately a one-way ratchet. Fix on the SAME
+branch, and choose deliberately:
+
+- **Preferred: drop the root.** Import through an already-recorded module, or write the check against the
+  public helper the test should be exercising. New files should not add roots at all.
+- **Bump the recorded counts** (bare→53, sys-path→33, with the offending lines noted) ONLY if the new site
+  genuinely needs its own root. Never bump merely to clear the gate — the ratchet is the guard, and a silent
+  bump converts an acceptance criterion into a rubber stamp.
+
+Attribution: because the offender is a file the PR ADDS, this is a net-new branch-own defect, not a tree red
+— route it to the branch owner with the exact `file:line` and counts, not to the lane that owns the ratchet.
+
+**Log extraction for tagged gates.** A plain `gh api .../jobs/<id>/logs` aborts with "response contains
+terminal escape sequences"; and the raw log is dominated by `git fetch` creating remote-tracking branches,
+so grepping a word like "import" returns fetch noise. Grep the gate's own `[tag]` prefix and strip escape
+codes:
+
+```bash
+gh run view <run-id> --log-failed 2>&1 | tr -d '\033' | grep -aE "\[[a-z0-9-]+\]|make(\[[0-9]+\])?: \*\*\*" | tail -20
+```
+
 ## Filing the resulting issue from latest main
 
 - Pin the body to the current `main` sha and say so in the body.

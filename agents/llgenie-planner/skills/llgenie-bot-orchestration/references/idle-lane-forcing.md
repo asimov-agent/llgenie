@@ -42,6 +42,33 @@ finding be filed as a refined six-section `agent:implement` issue (routed throug
 auditing lane's own pass), and require a clean audit be recorded as `re-audited at <sha>, no findings` on the
 lane's tracking issue. This does not override real reactive work — the sweep runs only when the queue is empty.
 
+## Scope an owner-gated issue down to its gate-free half
+
+A refined `agent:implement` issue whose acceptance criteria are only **partly** gated (one criterion waits on an
+owner ruleset change, a producer's direct word, an un-merged base) is **not** undispatchable. Split its criteria and
+dispatch only the subset that no gate touches:
+
+- Read the criteria list, name each one, and label it gate-free vs owner-gated. In practice most issues of this shape
+  have 3–5 gate-free criteria (a script guard, a detection job, a negative-control test, a docs line) and exactly one
+  owner-gated criterion that rides a separate tracking issue.
+- Dispatch with the scope written as "**acceptance criteria N–M only**", list them, and put the gated criterion
+  explicitly **out of scope**, naming the issue that carries it. Add: "if you cannot finish N–M without it, that is a
+  scope error, not a block" — otherwise the lane parks on the gated criterion and treats the whole issue as blocked.
+- This is how a lane parked on a real gate still lands work: the gate blocks one criterion, not the ticket.
+
+Before dispatching any candidate, confirm it is genuinely unclaimed with all three checks in one call — the label,
+no open PR on the branch prefix, and **no `bot-claim:` comment**, no remote branch:
+
+```bash
+gh issue view <n> --json state,labels,body --jq '{state,labels:[.labels[].name],refined:(.body|test("Acceptance criteria";"i"))}'
+gh pr list --state open --json number,headRefName --jq '.[]|select(.headRefName|test("<n>"))'
+git ls-remote origin 'refs/heads/*<n>*'
+gh api repos/<o>/<r>/issues/<n>/comments --jq '[.[]|select(.body|test("bot-claim:"))]|length'
+```
+
+A dispatch must also cite the idle evidence in the comment itself (workflow, last run timestamp, and that its prior
+dispatch is unpicked) — "force an idle lane" without the measurement is indistinguishable from padding the board.
+
 ## Pitfalls
 
 - **"Parked on a real gate" is not the same as "idle-capable."** A lane blocked on a producer's direct word

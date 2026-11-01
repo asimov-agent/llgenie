@@ -132,6 +132,49 @@ Consequences that belong in every reply to such a lane:
 - **Attribution is the finding, not the file.** Same-minutes mutations on several lanes means an unowned process, not
   several careless lanes; report the mtimes side by side on the gate issue.
 
+## A fold green at its PR head can be red at its MERGE head — that is a new drift, not a merge defect
+
+After a fold PR merges, run the gate at the **merge commit**, not the PR head you already watched go green. If rows
+reappear, compare each row's live mtime to the fold's tree-commit time:
+
+- Rows whose live mtime is **after** the tree commit were re-grown on top of the fold (the live writer above), so the
+  merge itself was valid and the residual drift is a **fresh instance** of the same class — not evidence the merged
+  fold was wrong.
+- Adjudicate it on a **new** tracker, naming the merge commit, the per-row live mtimes, and the gate rc/class counts.
+  A closed `COMPLETED` fold issue is **not** a retry vehicle: a closed issue carries no new work, and reopening it
+  re-opens a claim its merge already settled. State plainly that the old issue stays closed and the new issue is the
+  correct vehicle — do not reopen it, and do not call the surviving merge a defect.
+
+This is the standing post-merge mandate applied to a fold: the fold's own acceptance ("0 rows for my lane at the PR
+head") can fail to survive its merge head without the merge being at fault. Say which it is with the mtime comparison.
+
+## Measure the writer dead before any re-cut — a freeze test, not a hunch
+
+A fold whose target is a live file only holds if the file stopped growing. Requesting a re-cut while the target is
+still moving guarantees the fold lands behind live again and the next pass repeats the whole exchange — the chase
+never converges. But refusing every re-cut "because it keeps moving" is the opposite failure: the gate can never
+close and the lane waits forever. Decide with a measurement, not a mood:
+
+```bash
+F=~/.hermes/profiles/<lane>/skills/<skill>/references/<file>.md
+S1=$(stat -c%s "$F"); sleep 20; S2=$(stat -c%s "$F")
+stat -c '%y %s' "$F"   # mtime + size; compare mtime to `date -u`
+echo "S1=$S1 S2=$S2"
+```
+
+- **Frozen** = size unchanged across the window AND no mtime change for a couple of minutes. Only then is a re-cut
+  valid, and it is **exactly one** re-cut on the **same** vehicle at that frozen size — never a new PR, never a
+  re-fold per pass.
+- **Unfrozen** = size or mtime still moving. Do **not** request a re-cut (it will be shot at a moving target); state
+  the freeze condition explicitly on the PR and tracker so the lane knows what unblocks, and re-measure next pass.
+- Re-check the freeze immediately before the lane copies, and tell it to do capture→copy→commit→verify in one shot:
+  if live moves again mid-fold, stop-and-report rather than chase. The acceptance is byte-identity at the fold
+  moment, and a fold that lands while frozen is the acceptance.
+- **Keep in-session working notes in your scratch ledger, not appended into a live gate-authoritative reference.**
+  A live profile ref is versioned content under a drift gate; writing pass notes into it re-grows exactly the row the
+  fold just cleared, so the note that "stops the drift" is itself drift. Stage notes in scratch, then let the single
+  fold PR carry the durable lesson.
+
 ## When the skill file is too large to patch
 
 `skill_manage` refuses a save when a skill's `SKILL.md` exceeds roughly **100,000 characters**, aborts the whole batch

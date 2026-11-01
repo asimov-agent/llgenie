@@ -18,7 +18,41 @@ hermes kanban list | grep <task-id>                # a task you claim exists
 
 If a claim cannot be read back, report it as NOT DONE with the error text. Never narrate a dispatch,
 close, or comment the API does not show — a plausible narrative is indistinguishable from a fabricated one
-until someone re-fetches it.
+until someone re-fetches it. And a claim that DID land but was read back badly must be corrected to landed,
+not left as "failed to post": a false negative misleads the next reader into re-posting.
+
+### A POST is not idempotent — never retry the POST itself; retry the READ
+
+When a post "cannot be confirmed", the temptation is to re-issue `gh issue comment` / the REST POST. That
+manufactures duplicates: one guard-driven pass re-posted the same verdict six times, all six landed, and the
+ledger then recorded "board post failed to land" — both halves wrong. `gh issue comment` returns the new
+comment URL on success; keep that id and verify with the read path, never by posting again:
+
+- Post ONCE. Capture the returned `#issuecomment-<id>` (or the REST `id`).
+- If the readback looks empty ("0 new comments", a stale slice), switch the READ tool/path once — a
+  different filter, `--paginate`, or the by-id endpoint — before concluding anything. A `cd: <stale-dir>`
+  error or a cached `.[-1]` in the read command is a read artifact, not evidence the post failed.
+- Only a by-id read that 404s is proof of non-landing; then re-post once and say so.
+- Correcting a ledger entry that said "not landed" must state the true result (id + time + count) rather
+  than deleting the history — a wrong entry left uncorrected makes the whole record untrustworthy.
+
+### Read a comment back by its OWN id, never from a "newest" slice of the list
+
+`repos/<o>/<r>/issues/<n>/comments` returns comments in **ascending creation order**. A read-back built as
+`... | jq '.[0]'` (or any naive slice) therefore returns the OLDEST comment and you will "verify" a comment
+that is not the one you posted — or conclude yours never landed. Both happened in one pass.
+
+The only read-back that is proof: fetch the comment you created by the id the POST returned.
+
+```bash
+gh issue comment <n> --body-file /tmp/body.md      # prints ...#issuecomment-<id>
+gh api repos/<o>/<r>/issues/comments/<id> --jq '{id,at:.created_at,who:.user.login,head:(.body[0:60])}'
+```
+
+If you want the newest comment in a list anyway, sort explicitly (`sort_by(.id) | reverse | .[0]`) — never
+trust the API's order or `.[-1]` on a payload you have not checked. Note that a comment id returned by the
+POST is an *issue* comment: `repos/<o>/<r>/issues/comments/<id>`, not `.../pulls/comments/<id>`; the wrong
+path 404s and reads like a phantom comment.
 
 ## 2. A cron-generated report can confabulate a whole board
 
@@ -93,3 +127,27 @@ In a fast fleet an id that 404'd ten minutes ago can exist now — often for an 
 title. Before writing "does not exist" or "exists", re-fetch in the same breath as the report; and when a
 number turns up that you previously proved phantom, say which one it is and what its title is, rather than
 quietly reusing the number.
+
+### Write the measured figure into the body at POST time — a body written before a re-measure carries the stale one
+
+A finding body drafted, re-measured, then posted from the file written *before* the re-measure publishes the OLD
+figure with no trace it was superseded. Pattern: draft says "N total", you re-measure to a different N, refine
+in chat, but the POST reads the pre-refine file — the stale number and any garbled line in it go live on the
+board. Rule: the moment a count/list/number is re-measured, **rewrite the body file in that same step, then
+post from the rewritten file** — never post from a path last written before the correction. After any post that
+carried a figure, read it back by id and assert the EXACT number is present; if a stale figure landed, post a
+correction on the same thread naming the true figure and which line was wrong (a correction that lives only in
+a DM or your ledger does not exist for the next reader), then record that you own the error.
+
+### Readback assertions must be case- and markdown-tolerant
+
+A literal phrase test fails on legitimate markdown content (`does **not** exist`, `not MET` vs `NOT MET`,
+en-dashes) and reads as "the post is wrong" when the post is correct. Use `test("<phrase>";"i")` and match
+words, not punctuation. Full rule and examples: `references/stalled-lane-and-dispatch-delivery.md`
+("Body-content assertions must be case-insensitive AND markdown-tolerant").
+
+When a marker assertion comes back `false`, **dump the raw body before concluding the post is wrong**:
+`gh api repos/<o>/<r>/issues/comments/<id> --jq .body`. Match the phrase you actually wrote, not a paraphrase —
+`test("bare 53")` fails against a body saying `bare: 53`, and `test("ancestor of main")` fails against
+`ancestor of origin/main`. A punctuation-only false negative here is what drives the duplicate re-post the
+section above forbids: fix the assertion, never re-POST.

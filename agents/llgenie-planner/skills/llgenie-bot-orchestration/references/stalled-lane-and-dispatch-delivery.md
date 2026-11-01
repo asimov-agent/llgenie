@@ -1,5 +1,68 @@
 # Reassigning a frozen lane, and getting the dispatch to land
 
+## Measure idleness before you dispatch, never assume it
+
+"Which lane is idle right now" is a measurement, and the naive reads all lie:
+
+```bash
+python3 $(dirname $0)/../scripts/measure_lane_idleness.py <owner>/<repo>
+```
+
+`scripts/measure_lane_idleness.py` lists every workflow whose *path* contains a bot keyword with its
+newest run state and age in hours, then every open `agent:implement` issue with no assignee, no claim
+comment and no open PR. Three mechanics it encodes, each of which cost a pass when got wrong:
+
+- **Match workflows on `.path`, not `.name`.** A bot workflow's display name differs from its filename,
+  so a name-based lookup (`--jq --arg n ...select(.name|contains($n))`) returns nothing or 404s, and you
+  wrongly conclude the lane has never run. Enumerate `repos/<o>/<r>/actions/workflows?per_page=100` once
+  and match on the path fragment.
+- **The runs payload is `{"workflow_runs": [...]}`**, not a bare array — a `--jq '.[]'` over the root
+  errors out and reads like "no runs".
+- **Idle = newest run far older than the lane's own cron slot**, or every recent run `skipped`. A stale
+  *failure* (e.g. an age of ~100h on a lane that should run hourly) is both idle and itself a finding:
+  the lane has not picked up work since some earlier merge, so the dispatch contract is not landing.
+- **A workflow can be `state: disabled_manually` — then NO dispatch, label or comment can ever start it.**
+  Before concluding "the lane is ignoring the dispatch," read the workflow object:
+  `gh api repos/<o>/<r>/actions/workflows/<file>.yml --jq '{name,state}'`. `disabled_manually` means every
+  dispatch you post is a void — no branch, no claim, no run is the EXPECTED state, not evidence of a stalled
+  lane. Surface it as a routing decision for the owner/workflow-owner: either deliberately paused (stop
+  re-dispatching, re-face the boards, say the dispatches are parked-on-a-toggle not ignored) or accidentally
+  disabled (re-enable is the fix). Do not keep re-dispatching into a disabled workflow, and do not report
+  that lane as idle-capable when its trigger literally cannot fire.
+
+Then pick the assignment in this order: (1) refined, six-section issue *with* acceptance criteria — a
+vague issue is a REFINE task, not an implementation dispatch; (2) unassigned, no `bot-claim:`, no open
+PR; (3) the lane you route it to is not already holding a different open vehicle (see the one-vehicle
+blind spot below — run-age idleness does not mean the lane has nothing on its plate). Prefer the issue
+whose subject matches the measured symptom (a stale rebase lane ⇒ the rebase-dispatch-contract issue).
+
+### Route an UNREFINED issue to the refiner lane, not the implementer
+
+An `agent:implement` issue whose body has no six-section **Acceptance criteria** heading is not
+implementation work — dispatching it to an implementer burns a run and yields a PR nobody can review.
+Match an idle refine lane (e.g. `issue-refiner`) to it instead, and word the brief as: restate in the
+six-section shape with gate-measurable criteria (exact command + expected rc per criterion), no
+implementation, no upstream-data edit, keep `agent:implement`, no branch/PR/arm, and "flag the owner
+on-record if a criterion genuinely needs a ruling" rather than assuming the answer.
+Detect unrefined-ness cheaply: `gh issue view <n> --json body --jq '(.body|test("Acceptance criteria";"i"))'`
+— a `false` on an OPEN `agent:implement` issue with no claim/PR is a refine candidate. A body that ends
+at a "## Done when" list is *typical* of this: the acceptance exists as prose, not as checkable criteria.
+
+### Before dispatching any issue, grep its comment tail for a planner no-dispatch note
+
+An issue can already carry a planner note saying "no dispatch — capacity full" or "work exists as branch
+commits, open the PR instead." Re-dispatching past it steps on a recorded decision and re-opens settled
+work. Read the newest comments first: a note whose body names a branch sha and "no PR" means the real
+action is `gh pr create` from that existing branch by whoever holds it — NOT a fresh refine/implement
+dispatch. Only dispatch when the issue has no such note (or the note's stated blocker is now cleared).
+
+### Do not test "has an open PR" via the search API
+
+`repos/<o>/<r>/search/issues?q=...is:pr+<n>` returns `404 Not Found` for a numeric qualifier and reads
+like "no PR" — a false negative that dispatching depends on. Use the local, reliable pair instead:
+`gh pr list --state open --json number,headRefName --jq '.[]|select(.headRefName|test("<n>"))'` and
+`git ls-remote origin 'refs/heads/*<n>*'`. Empty from both is real evidence of "no vehicle".
+
 ## A lane that will not start
 
 A lane that freezes on an issue produces the same signature every pass: no branch on the remote, no
@@ -63,6 +126,36 @@ The correction is immediate and dual: post it on the vehicle's own thread so the
 (`gh issue comment <n>` naming the fabricated id, the 404 that proves it, and the clause to disregard),
 then send the lane ONE corrected dispatch. Do not leave the correction only in the DM — the board is
 what the next reader sees — and do not silently let the lane act on the invented dependency.
+
+## A posted comment's `.[-1]` read-back can be a stale cache — verify by direct id
+
+`gh api .../issues/<n>/comments --jq '.[-1].body'` occasionally returns a PREVIOUS comment, not the one you
+just posted (the list endpoint's cache lags the write). "token present: false" from that read is a false
+negative that tempts you to re-post a duplicate. Verify the write by the id `gh issue comment` printed:
+
+```bash
+gh api repos/<o>/<r>/issues/comments/<id> --jq '{id,created:.created_at,ok:(.body|test("<token>";"i"))}'
+```
+
+A comment id that resolves with your token present IS the evidence, whatever the list endpoint served — bind
+`created_at` to the second you posted. 
+
+**Body-content assertions must be case-insensitive AND markdown-tolerant.** `test("x")` reports false on
+correct posts when the body carries markdown or typography: `does **not** exist` fails a `does not exist`
+regex, `not MET` fails a `NOT MET` literal, a typographic en-dash `2–5` fails a hyphen `2-5`, and `has scope
+2-5` fails when the body wrote `2–5`. Use `test("<semantic phrase>";"i")` and match the words, not the
+punctuation; a failed substring check on a comment you just read is far more often YOUR regex than the post.
+
+## A comment titled "Owner ruling" is not the owner's word — find its author and its retraction
+
+A lane (often the ci-pipelines maintainer) may post a comment titled "Owner ruling on X" recording its OWN
+inference from a terse owner aside. A bot-authored post carries no scope authority however it is titled: it
+is that lane's reading, not a decision. Check `gh api .../issues/comments/<id> --jq .user.login` — a login
+that is a lane/app, not the owner, means it is not a ruling to act on. The trap compounds when the SAME lane
+later retracts it in a newer comment ("correction to my earlier inference"). Treat the underlying terse owner
+note as the only real signal, name the retraction on-record so the next reader is not misled by the bold
+title, and put the genuine (a)/(b) choice back to the owner rather than consuming a retracted inference as
+the answer.
 
 ## Getting a DM to a peer bot at all
 
@@ -448,6 +541,34 @@ lane's branch is never the mutation to invent. The safe mutations, in order of p
    versioned; it is never a scratch/pass-record file (which does NOT clear the guard) and never a
    peer-lane edit. Prefer it when the reactive packet is settled and no board mutation is honestly owed:
    capture the lesson that cost the pass rather than manufacture an unrelated artifact.
+
+When the guard's demand is *specifically* a peer lane's implementation edit (fix this lane's file, push
+to this lane's branch), it is the refused pattern whatever the wording — the planner does not implement.
+Answer it once: name the completed planner mutation with the id you read back, name the routed dispatch,
+and say the peer edit is the owning lane's. If the guard repeats an identical demand against an
+unchanged (already-mutated, already-dispatched) state, restate the refusal in one terse line and stop;
+re-narrating or re-posting the same verdict on the board to appease it is the duplicate-delivery
+mistake, and caving to it is the real integrity failure.
+
+## Parking on an owner ruling is not escalating it — surface the decision in answerable form
+
+When an issue's acceptance criterion depends on a decision only the owner can make (a trade-off between
+two mutually-exclusive routes, a policy latitude, a "which way" choice), a park comment on the issue
+that says "blocked on owner ruling, here are (a) and (b)" is **record-keeping, not escalation**. The owner
+does not watch issue threads for decision requests; the park is invisible to their attention and the lane
+stays parked forever while everyone believes it was surfaced. The planner's job is to put the ruling in
+front of the owner as an **answerable question** — one call, each option a pickable choice, the
+consequence of each stated in a clause — and read the answer back onto the issue.
+
+- Do not re-post the park comment as the escalation. The park names the dependency for the *next reader*;
+the escalation is a direct ask to the owner whose answer unblocks the lane.
+- Never invent the ruling, and never let a lane invent it either — a fabricated owner decision is the same
+class of error as a fabricated sha. The constraint is real; the missing input is the owner's word.
+- If the owner answers with a counter-question instead of a choice ("why would we do X?"), answer it in
+plain human words and re-offer the same pickable options — an unanswered counter-question leaves the gate
+just as parked as before, and treating "they replied" as "they ruled" is the mistake to avoid.
+- Only after a real (a)/(b) choice lands do you post the ruling on the issue and hand the lane an
+unblocked, non-deadlocking scope.
 
 ## A lane's stated "queue now" line is a claim — verify it against the dispatch list
 

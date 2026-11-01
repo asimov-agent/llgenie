@@ -15,7 +15,15 @@ gh pr view <n> --json headRefOid,state,updatedAt --jq '{head:(.headRefOid[0:8]),
 
    Compare against the sha your last verdict names. Same sha ⇒ restate; different sha ⇒ your verdict is
    void and the branch must be re-measured (step 2). A lane folding your correction and force-pushing is
-   the common case, not an anomaly.
+   the common case, not an anomaly. When a lane *quotes* a head in a report, do not trust the quote —
+   the tip is `headRefOid`; confirm the relationship with
+
+```bash
+git -C <planner-tree> merge-base --is-ancestor <quoted-sha> <tip> ; echo $?   # exit 1 = quoted sha is not even behind
+```
+
+   A quoted sha that is not an ancestor sits on an abandoned line: a "final" naming a non-ancestor is
+   stale by inheritance, however confidently it is stated — treat it as no head at all and measure the tip.
 
 2. Measure at that sha in a clean detached worktree off a freshly fetched ref:
 
@@ -30,6 +38,16 @@ git -C <planner-tree> worktree add --detach /tmp/wt-<n>-<short> <full-sha>
    a `| tail -1` on the end hides it. Same for `rm -rf <dir>; git worktree add ...; <measure>` chains: keep
    delete, add and measure in separate calls so a failure is visible instead of swallowed.
 
+   If `worktree add` keeps refusing (`fatal: '<dir>' already exists`) and you only need to READ the tree,
+   skip worktree registration entirely and extract exactly that sha:
+
+```bash
+git -C <planner-tree> archive <full-sha> | tar -x -C /tmp/arch-<short>
+```
+
+   It is a read-only copy of the committed tree, immune to stale worktree metadata, and safe to `rm -rf`
+   and redo when a measurement needs a clean slate.
+
 3. Scope the measurement to the criterion, not to the whole gate. A fleet-wide run reports every lane's
    residual and cannot answer "did this PR meet ITS acceptance":
 
@@ -39,6 +57,11 @@ python3 scripts/check_agent_profiles.py check --only <scopes> 2>&1 | grep -ci '<
 
    Take the count twice in two separate invocations and require agreement before reporting the number.
    Report the un-scoped total separately as context ("fleet residual fell 69 → 65"), never as the verdict.
+   **When the criterion is "zero rows for my lane", the authoritative measurement is the NO-ARGS gate
+   counting that lane's rows — never a `--only` subset.** A filter that omits one class the gate also
+   emits (e.g. `live-edited-not-tree` sitting alongside `live-longer`) reports a false `0` while the
+   no-args gate reads several rows; a lane quoting "0 rows via `--only <classes>`" is therefore not
+   evidence that the criterion holds. Read the full gate output and count lane rows yourself.
 
 4. Post the verdict where the work and the tracker both live — the PR **and** the issue it closes — and read
    back that your comment is newest (`.comments[-1].id`). When the new verdict supersedes your own earlier
@@ -87,3 +110,16 @@ gh api repos/<o>/<r>/contents/<path>?ref=<sha> --jq .content | base64 -d | grep 
   pending on <tracked red>" — instead of compressing them into one word.
 - **No acceptance claim without the sha in the sentence.** "It passes now" without a sha is a claim about
   time, not about the branch.
+- **A verdict change on the PR must be mirrored on the tracker in the same pass.** Re-enabling a re-cut, or
+  flipping met↔not-met, on only one surface leaves the issue tracker stating the superseded state; the owner reads
+  the tracker, sees "wait for freeze / no re-cut owed" next to a PR comment that says "re-enabled", and reads two
+  planners in contradiction. Post the new state to the PR and the issue it closes together, each naming the
+  comment it supersedes. Three consistent surfaces (PR, issue tracker, ledger) is the deliverable — one correct
+  post next to one stale post is not.
+- **A fold whose target is a growing live file cannot be accepted until it stops growing, and no new fold
+  may be dispatched while it is still growing.** Measure the target's freeze (stable size + mtime, two
+  samples apart) before judging the head; a red gate caused by live drifting *after* the fold snapshot is
+  not an implementer defect and does not justify a new vehicle — and cutting another re-cut before the
+  freeze just yields a fold that is overtaken seconds later, a loop that cannot land. Close only when the
+  no-args gate reads zero lane rows at a pushed head; until the live set holds still, hold and re-measure
+  rather than re-cutting. See `references/agent-profile-sync.md`.
