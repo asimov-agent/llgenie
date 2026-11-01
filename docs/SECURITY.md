@@ -86,3 +86,12 @@ own control: `make all-pipelines-sweep` renders a down security-scan as `ADMISSI
 `ADMISSION GATE STALE` and fails the sweep, so the board cannot read a silently-silent scanner as
 "scanned clean". A merged fix on `main` is not a clean scan; only a run id at a named sha is, and
 this guard makes *not having one* visible.
+
+**The observatory has to prove it is still watching** (issue #1291). The all-pipelines sweep is
+itself a pipeline, and a gate nobody runs is not a gate — so a stopped weekly sweep reads as clean
+wallpaper exactly the way a stopped daily scan used to. `make all-pipelines-sweep` now reads the
+sweep's own previous run: when it is older than the weekly cadence (`ADMISSION_GATE_MAX_AGE_HOURS`
+for the daily scan; its own `SWEEP_GATE_MAX_AGE_HOURS` window for the weekly sweep), the report
+renders `SWEEP UNSEEN` and FAILS the sweep. A sweep whose Saturday cron silently stopped is as
+visible as a scan that did — freshness is a property of the watcher every bit as much as of the
+thing watched.

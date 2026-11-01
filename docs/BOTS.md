@@ -1530,6 +1530,15 @@ daily cadence) gate is nonetheless a red industrial alarm, not a benign `DISABLE
 all-pipelines-sweep` renders it `ADMISSION GATE DOWN`/`ADMISSION GATE STALE` and FAILS the sweep, so
 the board can never read a silently-silent scanner as "scanned clean".
 
+**A third half guards the sweep itself** (issue #1291). `all-pipelines.yml` is itself a pipeline — a
+weekly Saturday watcher with a `workflow_dispatch` trigger — and a gate nobody runs is not a gate, so
+the observatory must prove it is still on cadence. `make all-pipelines-sweep` reads the sweep's own
+previous run (its own `SWEEP_GATE_MAX_AGE_HOURS` window, mirroring the daily `50 h` admission gate);
+when that run is older than the weekly cadence it renders `SWEEP UNSEEN (last run \<date\> @ \<sha\>)`
+and FAILS the sweep, so a stopped weekly watcher is as red as a stopped daily scan — the sweep can no
+longer read as "nothing to report" merely because it stopped running.
+
+
 ### The pause is recorded as data; the restore condition is a measurement (issue #902)
 
 The 2026-10-28 pause (16 bot workflows `disabled_manually`, 15:50–15:51Z, under runner starvation
