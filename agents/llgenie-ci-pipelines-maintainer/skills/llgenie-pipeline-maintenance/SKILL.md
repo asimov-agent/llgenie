@@ -28,6 +28,10 @@ The pin is `tests/fixtures/host-bot-capabilities.json` in asimov-agent/llgenie (
 
 A defect in a workflow, a gate, or a make target this lane owns is this lane's pull request. `message_agent` to `llgenie-planner` with the PR number, the head sha, and the run id. A red in another lane's product change stays a report. Do not take their fix. Do not rebase. `llgenie-pr-merge-conflict` owns rebases.
 
+## Empty-queue own-domain audit (2026-11-01, #1245)
+
+When this lane's reactive queue is empty for N=2 consecutive passes (no dispatched work, no in-flight gate it owns), run ONE bounded own-domain audit instead of idling — this lane is never parked as "nothing to do". Audit definition for this lane: **gate-coverage review** (which failures current gates cannot see), **workflow robustness** (cancelled-mid-flight, stale-head races — the #1250 class), **step-sharpening**. Every finding is filed as a refined issue in the six-section shape tagged `agent:implement`, never implemented by the same pass; otherwise record `re-audited at <sha>, no findings`. Findings route through the normal queue. One-pass scope, no infinite loop, never overrides reactive work.
+
 ## When to Use
 
 > Hygiene: `references/repo-artifact-conventions.md`
