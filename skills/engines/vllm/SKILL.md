@@ -33,7 +33,7 @@ install:
     - "test -d {src}/.git || git clone -b {ref} --depth 1 {repo}.git {src}"
     # --no-build-isolation builds against a preinstalled torch: bump >= the sha's own
     # torch pin from the matching PyTorch repack index, then the rest of vLLM's build deps.
-    - "uv pip install --system --break-system-packages torch==2.13.0 --index-url https://download.pytorch.org/whl/{torch_backend}"
+    - "uv pip install --system --break-system-packages torch==2.13.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/{torch_backend}"
     - "uv pip install --system --break-system-packages -r {src}/requirements/build/cuda.txt --index-strategy unsafe-best-match"
     # vllm 5df63a72 ships a vendored Rust frontend (vllm-rs, channel 1.95): setup.py falls back to a
     # local `cargo` build when the precompiled vllm/vllm-rs + _rust_*.so artifacts are absent, so the
@@ -61,7 +61,12 @@ install:
     # the pinned cpu.txt requests torch==2.13.0+cpu, which only the cpu repack
     # index serves (default PyPI has no +cpu wheel); preinstall it first so the
     # -r cpu.txt row is satisfiable (issue #1241). torch_backend renders to 'cpu'.
-    - "uv pip install --system --break-system-packages torch==2.13.0 --index-url https://download.pytorch.org/whl/{torch_backend}"
+    # cpu.txt also asks bare 'torchvision'/'torchaudio' (no +cpu suffix) — resolving
+    # them from default PyPI installs _C built against the non-cpu torch ABI, so
+    # torchvision::nms/SGD ops never register and 'vllm --version' dies with
+    # 'operator torchvision::nms does not exist' at import (issue #1365 run
+    # 41345449621 cpu). Preinstall the ABI-matched +cpu wheels from the SAME index.
+    - "uv pip install --system --break-system-packages torch==2.13.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/{torch_backend}"
     - "uv pip install --system --break-system-packages -r {src}/requirements/build/cpu.txt --index-strategy unsafe-best-match"
     # vendored Rust frontend (vllm-rs): build_rust.sh precompiles the artifacts so -e . skips cargo
     - "cd {src} && bash tools/build_rust.sh"
