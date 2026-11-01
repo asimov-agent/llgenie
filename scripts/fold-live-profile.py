@@ -93,7 +93,7 @@ def main() -> int:
         lh, stable = stable_sha(lpath, args.pause)
         if not stable:
             midwrite.append(rel)
-            print(f"  MID-WRITE  {rel} -- live hash moved between two reads (another lane editing); re-read later")
+            print(f"  MID-WRITE  {rel} -- live hash moved between two reads; re-read later")
             continue
         if th != lh:
             drift.append((rel, th, lh))
