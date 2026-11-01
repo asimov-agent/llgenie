@@ -4,10 +4,15 @@ Mechanics for the two writes a planner makes constantly — creating a refined i
 one — plus the read-back that proves each landed. Every step here exists because the naive version
 produced a silent wrong result.
 
-## 1. Never batch `gh issue create`
+## 1. Never batch a write that CREATES a row
 
 Two `gh issue create` calls issued in one parallel tool block both fire, and you get two identical
-issues. Create one, read its number back, then create the next. If duplicates exist anyway: keep
+issues. The same holds for comments: two parallel `gh api .../issues/<n>/comments -f body="$(cat /tmp/body.md)"`
+commands post the SAME body twice, ~1 second apart, and the second is invisible in the first command's
+exit code. Post a comment ONCE, capture the returned `.id`, and only then read it back (§5). If a duplicate
+lands anyway: **GitHub's REST API cannot delete an issue comment** — `PATCH` the later one to a one-line
+pointer (`_Duplicate of <id> (posted 1s later by the same pass). See that comment._`) so exactly one
+full-body comment remains, then verify the count with `[.[]|select(.body|startswith(<header>))]`. Create one, read its number back, then create the next. If duplicates exist anyway: keep
 one, close the other with a comment naming the survivor, and fix the survivor's body so it says
 `closes #<survivor>` — a draft placeholder number left in the body points the PR at the wrong issue
 and reds `check-pr-closing` later.
@@ -42,6 +47,12 @@ gh issue view <n> --json body --jq .body | grep -c '<new-sha>'     # expect the 
 ```
 
 ## 5. Prove a comment landed on the issue you meant
+
+**Listing shape:** `GET /repos/{owner}/{repo}/issues/<n>/comments` returns a **bare JSON array**, not
+`{comments:[...]}`. A query written `[.comments[]|...]` fails with `expected an object but got: array` and
+reads as "zero matching comments" if you swallow the error — you then conclude your post did not land (or
+that no duplicate exists) when it did. Use `[.[]|...]` for the list endpoint and `[.comments[]|...]` only
+for a wrapped response.
 
 ```bash
 gh api repos/{owner}/{repo}/issues/comments/<id> --jq \
