@@ -2010,6 +2010,7 @@ make openspec-status                   # list the changes and their task state
 make openspec-shell                    # interactive shell with the openspec CLI in a container
 make engine-detect ENGINE=<id>         # is ENGINE installed? runs that skill's detect
 make engine-smoke ENGINE=<id>          # HOST entry: install the engine via its skill, serve a tiny model, assert llm-local answers
+make test-engine-host                   # HOST loop (issue #1322): serve EVERY engine the host's arch type supports, one at a time, its smallest model, assert llm-local + report the measured t/s (engine-build's last step runs the same)
 make generate-build-engine-params      # alias of generate-engine-params
 make run-engine-<engine>-<arch> MODEL=…  # run one engine x arch image (e.g. run-engine-vllm-cuda PORT=11434)
 make fix-bot-sweep | fix-loop | fix-loop-image | fix-bot-report  # the PR fix-bot (issues #222, #238): sweep, loop, loop-in-the-agent-image, report

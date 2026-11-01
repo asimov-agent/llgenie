@@ -83,7 +83,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	security-bumps security-bumps-plan check-security-bumps \
 	agent-shell-keys-check \
 	agent-fetch search-smoke require-env web-coverage issue-evidence \
-	engine-bump-rebase generate-engine-params check-engine-params check-engine-coverage engine-coverage-report check-engine-source engine-source-report check-engine-capabilities engine-capabilities-report check-engine-launchers engine-launchers-report check-model-links model-links-report build-engine run-engine stop-engine list-engine-images engine-build-matrix ci-lint ci-unit ci-agents-read \
+	engine-bump-rebase generate-engine-params check-engine-params check-engine-coverage engine-coverage-report check-engine-source engine-source-report check-engine-capabilities engine-capabilities-report check-engine-launchers engine-launchers-report check-model-links model-links-report build-engine run-engine stop-engine list-engine-images engine-build-matrix test-engine-host ci-lint ci-unit ci-agents-read \
 	ci-openspec ci-cpu-health ci-top-tier ci-install ci-install-dry-args ci-free-disk ci-slow-rows ci-scope ci-verdict test-engine-stage bot-sync-main bot-sync-branch ci-wait-engine-images \
 	ci-install-dry ci-install-run ci-install-uninstall test-env test-top-tier test-top-tier-ci test-top-tier-cli-ci test-top-tier-serve test-top-tier-serve-ci \
 	check-agent-model model-pin-report check-agent-skills agent-skills-report test-agent-skills-live hermes-skills-register \
@@ -1310,6 +1310,8 @@ test-engine: ## Run ENGINE's image with a tiny model and curl its OpenAI API on 
 engine-smoke: ## Install ENGINE via its skill, serve a tiny model, assert llm-local answers (a HOST entry point; CI's per-engine serve check is `make test-engine-stage TEST=serve` inside the engine-image jobs, and `make test-published-engine` on the published image)
 	@test -n "$(ENGINE)" || { echo "Usage: make engine-smoke ENGINE=<id> [BACKEND=cpu]"; exit 1; }
 	python3 scripts/engine_smoke.py "$(ENGINE)" $(ENGINE_ARGS)
+test-engine-host: ## Serve EVERY engine in the committed params whose arch type THIS HOST supports, one engine at a time, with its smallest supported model, assert llm-local and report the measured t/s (issue #1322). The engine-build workflow's LAST step runs the same command on the CI runner; a GPU-less runner skips the GPU legs with a documented reason (#1240) and never reddens them. Never builds an image — only pulls the published one and runs it.
+	@python3 scripts/engine_host_test.py $(if $(ENGINE),--engine $(ENGINE),) $(if $(HOST_ARCH),--arch $(HOST_ARCH),) $(if $(PORT),--port $(PORT),) $(if $(TIMEOUT),--timeout $(TIMEOUT),)
 engine-detect: ## Is ENGINE installed? Runs the skill's detect (ENGINE=<id> [BACKEND=])
 	@test -n "$(ENGINE)" || { echo "Usage: make engine-detect ENGINE=<id> [BACKEND=cuda]"; exit 1; }
 	python3 scripts/engine_skills.py detect "$(ENGINE)" $(ENGINE_ARGS)
