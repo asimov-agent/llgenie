@@ -43,6 +43,24 @@ block against one SOUL).
    tree already covers (the `skill-reference-missing` class), and with `--copy` moves only the drifted
    ones live → tree and re-hashes the destination. Re-run it at the start of EVERY round — the live
    half moves while the PR sits open.
+
+   **Invoke it by its TREE path, which is NOT its live path.** The live profile keeps the tool under
+   `skills/<skill>/scripts/fold-live-profile.py`; the tree holds it at repo-root **`scripts/`**
+   (alongside the versioned `agent_profile_sync.py`). Running the live path from a branch worktree
+   fails `Errno 2 … No such file or directory`, which reads like the file was never versioned. Get the
+   path from the tree, not from memory: `git ls-files | grep -i 'fold-live-profile\|profile_sync'`.
+   Run it from the worktree's root with the live home explicit, because its `--repo` default is `.`
+   and its `--live-home` default is `~/.hermes/profiles`:
+
+   ```
+   cd <worktree> && python3 scripts/fold-live-profile.py --profile <n> --repo . \
+       --live-home /home/asimov/.hermes/profiles
+   ```
+
+   Exit **rc=1** means drift (it prints the `DRIFT` lines and a `N same, M drifted` table) — that is a
+   finding, not a crash. Add `--copy` to land the drifted files and print the `copied … OK` lines;
+   re-hash both sides to confirm `tree == live` before committing. `rc=0` means already in sync, so a
+   `0 drifted` result with no DRIFT rows is the no-op answer, never a tool failure.
 3. **Register it** in `agents/manifest.json` with the rules the SOUL must state (`never-implement`,
    `never-merge`). The gate fails if a declared rule is absent from the SOUL.
 4. **Adding a fleet rule:** write the bullet into `agents/standing-rules.md` **and** into every SOUL that

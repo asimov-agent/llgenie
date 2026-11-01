@@ -324,11 +324,26 @@ against `name:` prefixes, not ids).
   empty string must branch to a STATE read (`gh pr view <n> --json state,mergedAt,mergeCommit`), never be
   folded into the "head moved" case: comparing `"${h:0:8}"` against a watched sha makes the empty ref
   satisfy the inequality and report `HEAD_MOVED to` with a blank sha, which sends you looking for a new CI
-  cycle on a branch that no longer exists.
+  cycle on a branch that no longer exists. **Hardcode the PR number in that state read, do not expand it
+  from a shell variable** — a `$PR` captured by an earlier `--jq` that matched nothing expands empty and
+  `gh pr view --json …` with no number prints nothing at all, so the one read that resolves the
+  ambiguity returns 0 bytes and the loop reports a bare `BRANCH_GONE` with no state: identical to a
+  crashed read, and it costs a whole turn re-deriving which PR the watcher was watching.
 
   Compare the tip **at the top of each cycle**, before reading check state; and when a completion
   notification arrives, check its sha against the current head before acting on it. A wake-up naming a
   head that is no longer the tip is stale-on-arrival — say so and re-poll; never turn it into a verdict.
+- **The owner can MERGE while the run is still in flight, so a poller waiting for "every leg
+  concluded" never fires — the merge IS the verdict it was waiting for.** A loop keyed on
+  `all(status == completed)` over every workflow at the head spins forever when the PR merges mid-run:
+  the branch is reclaimed, `ls-remote` goes empty, and the BRANCH_GONE → state read is what resolves
+  it. Poll `.state` alongside the runs, and when it reads `MERGED` report THAT as the outcome — the
+  merge commit, `mergedAt`, which legs had concluded green, and which leg was still `in_progress` when
+  the owner merged through it. Do not call such a merge "unverified" and do not describe the pending
+  leg as if it failed: state plainly that the owner merged ahead of the deciding leg, and cite
+  `autoMergeRequest.enabledAt` staying null as the proof that no arm of yours ever landed — that null
+  plus `state: MERGED` is the pair a reviewer needs, and neither field alone distinguishes "my arm did
+  not register" from "the PR was already gone".
 - **`gh pr view --json headRefOid` LAGS a push — it can still return the pre-push head.** Reading it
   right after a push shows the old sha (flagged internally as a max-cached head), so "the PR head is
   the old sha" is not evidence that your push failed. The authoritative tip in that moment is
@@ -660,7 +675,11 @@ is a red row that is not a defect. Before promising or measuring rows:
 
   The lease pinned to the fetched sha makes a concurrent push between your fetch and push REJECT
   instead of clobbering — then re-fetch, re-rebase, retry. Read `$R` immediately before the push; a
-  shared branch moves even while you are writing the message.
+  shared branch moves even while you are writing the message. **For a branch YOU own, the plain
+  `git push origin <branch> --force-with-lease` is the right form** — the pinned `=<ref>:<sha>` variant
+  is only needed when the branch is shared. Do not reach for the pinned form on your own branch after
+  an amend: the plain form against your own tracking ref is enough, and a malformed/partial-sha lease
+  expression fails as an unrecognized ref instead of pushing.
 - **A per-PR sweep across many heads uses `git checkout --detach <sha>`, never `git reset --hard` per
   iteration.** A loop of hard resets stalls on an approval prompt per iteration and times out having
   measured nothing; `checkout --detach` needs no approval, keeps the worktree clean, and reaches the
@@ -754,7 +773,7 @@ worktree plus the comment, and saying plainly that the fix itself is the other l
   that head. An open PR `BLOCKED` solely on the owner's `REVIEW_REQUIRED` with auto-merge live is the
   correct IN-FLIGHT state, not an incomplete one: say so plainly, cite the hashes, and decline to
   fabricate an extra commit to silence the guard. Manufacturing a mutation to satisfy a detector is
-  exactly the "fake mutation" the guard exists to prevent. When it still fires AFTER the three-hash proof, the one remaining legitimate mutation is the on-record comment on the PR — progress rows while a matrix is in flight, the run-keyed verdict when it concludes — because that comment is the deliverable a reviewer reads; a `/tmp` status note is scratch and satisfies nothing, and a cosmetic commit on a merge-gated branch satisfies it the wrong way.
+  exactly the "fake mutation" the guard exists to prevent. When it still fires AFTER the three-hash proof, the one remaining legitimate mutation is the on-record comment on the PR — progress rows while a matrix is in flight, the run-keyed verdict when it concludes — because that comment is the deliverable a reviewer reads; a `/tmp` status note is scratch and satisfies nothing, and a cosmetic commit on a merge-gated branch satisfies it the wrong way. **When the only remaining step is a CI-gated arm and no commit is owed, the real mutation is EXERCISING what you built** — run the wired make target or the exact command end-to-end (`make <target> PROFILE=<p>`) and report the result. That is genuine verification, not busywork, and it is the honest answer to a detector that fires on a turn where the work is already pushed and only the verdict is pending; never manufacture an unrelated commit or edit to look productive.
   **Explain the false positive with THREE hashes, not two** — the detector scans the MAIN working tree
   at the base sha, so a branch's changed paths are structurally absent from it until the merge and no
   amount of re-verifying changes that: `git cat-file blob <base>:<path>`, `git cat-file blob
@@ -889,6 +908,38 @@ When dispatched to verify the PR that closes the triage issue, the question is n
    confirm the fail-closed case too.
 5. **Re-run the PR's own gates** (`check-workflows`, `check-wiring`, `check-docs`,
    `check-dispatch-forms`, `check-pr-hygiene`; add `check-pr-authors` when the branch came from a bot).
+   - **A new `scripts/*.py` is WIRED in the SAME PR, or it reddens the NEXT scope run.** `check-wiring`
+     treats a `scripts/` file as reachable only when some make target NAMES it, so a tool that lands in
+     `scripts/` unregistered passes a CI that never runs `check-wiring` and then fails the next one with
+     `scripts/<tool>.py is wired to nothing`. Land the target WITH the tool: a `.PHONY:` row plus a
+     recipe target (it need not be called by CI — a host-only target still satisfies the gate), and for
+     a tool that cannot run on a CI runner (no live profile to read) add a dated entry to
+     `tests/fixtures/host-only-wiring.json`. Prove the wiring by RUNNING it
+     (`make <target> PROFILE=<p>`): a nonzero exit from the TOOL (drift found, usage guard) is the tool
+     working, not a wiring failure — `check-wiring` green alone only proves the NAME is referenced.
+     A sibling `profile-*`/`sync-agent-profile` target is the precedent to copy; the tester lane's
+     own tool is wired as `make tester-fold-live PROFILE=<p>`, with its `.PHONY:` row in the phony
+     block and a dated entry in `tests/fixtures/host-only-wiring.json` (a CI runner has no live
+     profile to fold from) — copy that pair verbatim for any other host-only tool.
+   - **A regression TEST for that wiring gate must NOT name the real host-only script.** The gate
+     finds "documents" from exactly two rosters — `tests/test_*.py` and `scripts/*.py` — and derives a
+     make target's reachability from the union of those files' SOURCE text. So a test in
+     `tests/test_wiring.py` that literally mentions the real tool makes it look CI-reachable and reds
+     the real-tree invariant its host-only entry exists to satisfy; name a GENERIC scratch tool
+     (`folded_lane_tool.py`) so the test's concern (the wiring MECHANISM) stays decoupled from the
+     real tool's host-only DECISION. Put the scratch tool under `scripts/`, never beside the test:
+     only a `tests/test_*.py` file is counted there, so a helper dropped into `tests/` is invisible to
+     the scan and the "stays loud when unwired" half passes vacuously. The resolution graph is keyed
+     by FULL path, so the subset assert is
+     `{"scripts/<tool>.py"} <= set(graph["named_by_target"][target])` — the bare filename misses and
+     reds. Prove the whole arc: loud when unwired (gate exits non-zero NAMING the tool), then wired +
+     dated host-only record → green, with `expected <= set(actual)` so the next legitimate
+     `scripts/*.py` addition does not red a brittle roster.
+   - **The `lint_linefeeds` trailing-newline rule (documented for notes/fragments in
+     `references/agent-profile-versioning.md`) also bites JSON fixtures you rewrite through a parsed
+     dict** — `json.dump` emits no final newline, so `tests/fixtures/host-only-wiring.json` comes back
+     a byte short and the next `make lint` reds on a file you never meant to touch. Re-append and
+     amend before the chain runs.
 6. **State the CI leg separately.** Local green + a `queued` run is NOT a verification: report
    "local verified, run `<id>` still queued — capacity, not a verdict" and post the job conclusion
    when it lands. Never let a local pass stand in for the run id a reviewer will look for.
@@ -956,8 +1007,17 @@ per-PR chase, and a second vehicle on a branch the rebase lane may already have 
 
 Diagnose the class before touching the pointer:
 
-1. **Is the gate's ground truth the PR head or the merge commit?** If it re-measures at HEAD (it does),
-   the pointer is not a per-PR fact — it is a gate-design defect (#1053).
+1. **Is the gate's ground truth the PR head or the `measured at` pointer?** Read the gate's OWN output
+   line before theorising: it prints
+   `[census-gate] OK — census measured at \`<sha>\` (tracked=N, …); referent \`<sha>\` is an ancestor of
+   HEAD (<head>)`. When it counts at the POINTER and only requires that pointer to be an ancestor of
+   HEAD, a file-adding PR does **not** owe a pointer rewrite — the counts are the pointer-tree's, and
+   the tree at your head can differ from them (that is the design, post-#1053). Verify by reading the
+   line: `counts at the pointer` + `referent … is an ancestor` = the gate is anchored, so leave
+   `ARCHITECTURE.md` alone; a red naming a DANGLING pointer sha or mismatched counts at the pointer is
+   the separate stale-pointer class below. (The pre-#1053 gate re-measured at HEAD, which is what made
+   every file-adding PR rewrite the pointer — that history is why the defect exists, not a description
+   of the current gate.)
 2. **Does the red vanish on a plain rebase onto current main?** A branch behind `main` carries a stale
    copy of `ARCHITECTURE.md`; rebasing onto current main inherits the correct pointer + counts, with no
    per-PR edit. Check with `git merge-tree --write-tree <main> <head>` (clean) and diff the two
