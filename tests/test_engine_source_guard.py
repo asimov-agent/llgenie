@@ -103,10 +103,13 @@ def test_a_tracked_exception_passes_the_gate_but_is_reported():
 
 
 def test_the_census_matches_the_committed_params():
-    """30 source cells compile, 1 is prebuilt, and one wheel cell is tracked with its dated decision.
+    """29 source cells compile, 2 are prebuilt, and one wheel cell is tracked with its dated decision.
 
-    #938 (sglang/cuda), #937 (vllm x3) and #936 (ollama x4) all convert prebuilt cells to source
-    builds; only tensorrt-llm/cuda still starts FROM an upstream image on this branch (#939)."""
+    #938 (sglang/cuda AOT kernels), #937 (vllm x3) and #936 (ollama x4) all convert prebuilt cells to
+    source builds; but #1306 restored sglang/cuda to PREBUILT (the in-SKILL dated decision: its source
+    AOT fp8_gemm_kernel.cu nvcc pass OOM-kills at every arch set and thread cap), so sglang/cuda and
+    tensorrt-llm/cuda both start FROM an upstream image on this branch, and litert/cpu is the one
+    wheel cell tracked with its dated decision."""
 
     rows = guard.cells()
 
@@ -116,10 +119,10 @@ def test_the_census_matches_the_committed_params():
     source = [r for r in rows if not r["prebuilt"]]
     bad = guard.findings(rows)
 
-    # Then the counts reflect all three conversions (sglang/cuda + vllm x3 + ollama x4)
+    # Then the counts reflect the source conversions plus sglang/cuda's prebuilt restoration (#1306)
     assert len(rows) == 31
-    assert len(prebuilt) == 1
-    assert len(source) == 30
+    assert len(prebuilt) == 2
+    assert len(source) == 29
     assert len(bad) == 1 and all(issue for _w, _m, issue in bad)
     assert {w for w, _m, _i in bad} == {"litert/cpu"}
 

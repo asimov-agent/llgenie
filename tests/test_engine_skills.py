@@ -295,35 +295,45 @@ def test_engines_install_into_images_not_venvs(skills):
                 assert "uv tool install" in steps, (sid, backend)
 
 
-def test_sglang_cuda_install_uses_uv_not_pip(skills):
-    """The shared cuda build base (llgenie/base-cuda) ships uv but no pip
-    module (issue #1242): sglang/cuda's pip-equivalent install steps must run
-    through the uv bootstrap, never `python3 -m pip` — which failed the
-    engine-build cell with `/usr/bin/python3: No module named pip`."""
+def test_sglang_cuda_install_is_consistent_with_its_prebuilt_flag(skills):
+    """The cuda backend must not contradict its own prebuilt decision (issue #1306).
 
-    # Given the sglang skill's cuda install recipe
-    steps = " ".join(str(x) for x in es._flatten(es._per_backend(skills["sglang"].get("install"), "cuda")))
-    # When it is scanned
-    # Then no step calls the pip-less cuda python, and the editable installs
-    # run through the uv bootstrap the base provides. The main-package editable
-    # spec must be `-e '.[all]'` (the step `cd`s into `{src}/python`): `-e
-    # 'python[all]'` resolves to the non-existent `{src}/python/python` path and
-    # fails the uv install (`error: Distribution not found`, run 41251817822).
-    assert "python3 -m pip" not in steps, "sglang/cuda must run pip installs through uv (issue #1242)"
-    assert "uv pip install --system --break-system-packages" in steps
-    assert "python[all]" not in steps, "after `cd {src}/python`, the editable spec is '.[all]', never 'python[all]' (non-existent path)"
-    # The `[all]`-extra source backends --no-build-isolation will not fetch must be
-    # preinstalled or the cell fails mid-install: cuda-tile needs `wheel_stub`
-    # (run 41253216593), sglang-kernel's aot package needs `scikit-build-core`
-    # (run 41253604264), and a 4.x cmake wheel shadows the distro one whose 3.28
-    # hard-errors on the aot build's CMake-4.x-only cmake_policy calls
-    # (CMP0169/CMP0177, run 41254674809). All three ride the same preinstall step.
-    for backend in ("wheel_stub", "scikit-build-core", "cmake"):
-        assert backend in steps, f"sglang/cuda must preinstall {backend} for the --no-build-isolation install"
-    # The aot nvcc pass defaults to --threads=32 upstream, which OOMs the CI hosted
-    # build runner (it "lost communication" mid-compile, run 41255470647); the skill
-    # must cap SGL_KERNEL_COMPILE_THREADS so the fat-arch compile fits the runner.
-    assert "-DSGL_KERNEL_COMPILE_THREADS" in steps, "sglang/cuda aot build must cap nvcc compile threads (OOM'd the CI runner)"
+    #1306 shipped with `container.cuda.prebuilt: true` (the in-SKILL dated decision:
+    the source AOT fp8_gemm_kernel.cu nvcc pass OOM-kills at every arch set/thread cap,
+    run 41251817822, 41254674809, 41255470647), which the renderer turns into ZERO
+    install steps. The runs / validated skill must agree:
+      * prebuilt  -> zero install steps, and the validator must not flag "no install steps
+                     for backend cuda" (its `if prebuilt: steps=[]` special-case reconciles
+                     the renderer and the CLI validator on the same backend).
+      * source    -> the pip-equivalent installs run through the shared cuda base's uv, never
+                     its missing pip module (`/usr/bin/python3: No module named pip`, #1242);
+                     the editable spec must be `.[all]` after `cd {src}/python`, never the
+                     non-existent `python[all]` path; and the aot install preinstalls
+                     wheel_stub / scikit-build-core / cmake and caps nvcc threads."""
+
+    # Given the sglang skill
+    skill = skills["sglang"]
+    spec = es.container_spec(skill, "cuda") or {}
+    prebuilt = bool(spec.get("prebuilt"))
+    raw = es._flatten(es._per_backend(skill.get("install"), "cuda"))
+    steps = " ".join(str(x) for x in raw)
+
+    # When it is scanned against the shipped prebuilt/source intent
+    if prebuilt:
+        # Then a PREBUILT cuda backend renders zero install steps and validates clean
+        assert raw == [], "a prebuilt cuda image ships its engine: zero install steps"
+        assert not any("sglang" in e and "no install steps for backend cuda" in e
+                       for e in es.validate({"sglang": skill})), \
+            "the validator must not flag a prebuilt backend for having no install steps"
+    else:
+        # Then a SOURCE cuda backend runs its pip-equivalents through uv, never pip,
+        # preinstalls the --no-build-isolation deps, and caps the OOMing aot nvcc pass
+        assert "python3 -m pip" not in steps, "sglang/cuda must run pip installs through uv (issue #1242)"
+        assert "uv pip install --system --break-system-packages" in steps
+        assert "python[all]" not in steps, "after `cd {src}/python`, the editable spec is '.[all]', never 'python[all]' (non-existent path)"
+        for backend in ("wheel_stub", "scikit-build-core", "cmake"):
+            assert backend in steps, f"sglang/cuda must preinstall {backend} for the --no-build-isolation install"
+        assert "-DSGL_KERNEL_COMPILE_THREADS" in steps, "sglang/cuda aot build must cap nvcc compile threads (OOM'd the CI runner)"
 
 
 def test_native_install_is_refused_except_metal(skills, capsys):
@@ -641,11 +651,15 @@ def test_one_generated_dockerfile_per_engine_arch(skills):
 
 
 def test_official_upstream_images_are_used_as_bases(skills):
-    """Engines that still ship an upstream image use it as the base (TRT-LLM).
+    """Engines that still ship an upstream image use it as the base (TRT-LLM,
+    and sglang/cuda restored to prebuilt in #1306).
 
-    llama.cpp compiles every variant from its pinned sha (#615); SGLang/cuda (#938), vLLM's
-    three cells (#937) and ollama's four cells (#936) are source builds now — their Dockerfiles
-    start FROM the shared devel base and run engine_runner.py install.
+    llama.cpp compiles every variant from its pinned sha (#615); vLLM's three
+    cells (#937) and ollama's four cells (#936) are source builds — their
+    Dockerfiles start FROM the shared devel base and run engine_runner.py
+    install. sglang/cuda is PREBUILT again (#1306: its source AOT
+    fp8_gemm_kernel.cu nvcc pass OOMs at every arch set/thread cap), so its
+    cell keeps the official lmsysorg image and runs no install steps.
     """
 
     # Given the generated Dockerfiles
@@ -654,9 +668,11 @@ def test_official_upstream_images_are_used_as_bases(skills):
     # When their FROM lines are read
     # Then the still-prebuilt cells keep the official image, and the converted ones compile
     assert "FROM nvcr.io/nvidia/tensorrt-llm/release:1.2.1" in df("tensorrt-llm", "cuda")
-    # Both #938 (sglang/cuda) and #937 (vllm x3) are source builds on this merged tree
-    assert "FROM lmsysorg/sglang:v0.5.22" not in df("sglang", "cuda")
-    assert "engine_runner.py install" in df("sglang", "cuda")
+    # #1306: sglang/cuda is prebuilt (OOM-safe) — it starts FROM its official image
+    # and runs no install; sglang/rocm and vllm x3 / ollama x4 still compile.
+    assert "FROM lmsysorg/sglang:v0.5.22" in df("sglang", "cuda")
+    assert "engine_runner.py install" not in df("sglang", "cuda")
+    assert "engine_runner.py install" in df("sglang", "rocm")
     for b in ("cuda", "rocm", "cpu"):
         assert "FROM vllm/vllm-openai" not in df("vllm", b)
         assert "engine_runner.py install" in df("vllm", b)
