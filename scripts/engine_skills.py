@@ -1173,6 +1173,11 @@ def validate(skills: dict, registry: dict | None = None, unsupported: dict | Non
             if "{port}" not in launch:
                 errors.append(f"{where}: launch must bind {{port}}")
             for b in s.get("backends") or []:
+                # A prebuilt backend ships the engine in its base image: the renderer's
+                # `if prebuilt: steps=[]` emits zero install steps, so the validator must
+                # not demand steps a prebuilt backend legitimately has none of (#1306).
+                if (container_spec(s, b) or {}).get("prebuilt"):
+                    continue
                 if not _per_backend(s.get("install"), b):
                     errors.append(f"{where}: no install steps for backend {b}")
         if s.get("servable") == "via":
