@@ -119,7 +119,6 @@ def test_served_failure_returns_nonzero(monkeypatch):
 def test_smallest_model_retries_transient_503(monkeypatch):
     """A transient Hub 503/5xx during the model fetch is retried, not fatal (measured in the sweep)."""
     calls = {"n": 0}
-    real_sleep = eht.time.sleep
     monkeypatch.setattr(eht.time, "sleep", lambda s: None)  # no real backoff wait in test
     def _flakey(fmt):
         calls["n"] += 1
