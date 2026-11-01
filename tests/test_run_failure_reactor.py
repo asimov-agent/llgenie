@@ -112,12 +112,13 @@ def run_reactor(tmp_path: Path, args: list[str], dispatch_token: str | None = OW
 
 
 def failed_run(workflow="ci.yml", job="unit", head_sha="abcdef1234567890", event="push",
-               conclusion="failure", job_id=42, created_at=""):
+               conclusion="failure", job_id=42, created_at="", job_conclusion=None):
     return {"conclusion": conclusion, "headSha": head_sha, "event": event,
             "workflowName": workflow, "displayTitle": f"{workflow} run",
             "createdAt": created_at,
-            "jobs": [{"name": job, "conclusion": "failure", "databaseId": job_id,
-                      "steps": [{"name": "run tests", "conclusion": "failure"}]}]}
+            "jobs": [{"name": job, "conclusion": job_conclusion or conclusion,
+                      "databaseId": job_id,
+                      "steps": [{"name": "run tests", "conclusion": job_conclusion or conclusion}]}]}
 
 
 def pr(num, branch="feat/x", owner=OWNER):
@@ -500,3 +501,61 @@ def test_a_cancelled_run_a_later_run_took_over_is_superseded(tmp_path):
     assert "took over at 2026-10-28T15:20:00Z" in r.stdout, r.stdout
     assert "superseded, nothing to do" in r.stdout, r.stdout
     assert not [c for c in log.read_text().splitlines() if c.startswith("issue create")]
+
+
+# ---------------------------------------------------------------------------
+# A `timed_out` run is a verdict, not a cancellation (issue #1465): it routes
+# exactly like `failure` — and `cancelled` is NOT folded in
+# ---------------------------------------------------------------------------
+def test_a_timed_out_run_with_no_pr_files_one_issue(tmp_path):
+    """A run whose job blew its timeout cap is a verdict: route B files ONE deduped issue."""
+
+    # Given a run-level `timed_out` run with no pull request
+    log = gh_stub(tmp_path, failed_run(conclusion="timed_out", job_conclusion="timed_out"), [])
+
+    # When  the reactor routes it
+    r = run_reactor(tmp_path, ["--repo", f"{OWNER}/llgenie", "--run-id", "123"])
+
+    # Then  it files exactly one agent:implement issue, exactly like a `failure`
+    assert r.returncode == 0, r.stdout + r.stderr
+    creates = [l for l in log.read_text().splitlines() if l.startswith("issue create")]
+    assert len(creates) == 1, creates
+    assert "--label" in creates[0] and "agent:implement" in creates[0]
+    body = _body_of(creates[0])
+    assert "ci.yml" in body and "unit" in body
+    # And it was NOT reported as cancelled/pending — a verdict routes, it is not deferred
+    assert "CANCELLED" not in r.stdout and "not a failure, nothing to do" not in r.stdout, r.stdout
+
+
+def test_a_timed_out_run_on_a_same_repo_pr_dispatches_the_fix_bot(tmp_path):
+    """A timed-out round of a PR run is a verdict: route A dispatches the fix-bot, like a failure."""
+
+    # Given a run-level `timed_out` run whose pull_requests names a same-repo PR
+    log = gh_stub(tmp_path, failed_run(conclusion="timed_out", job_conclusion="timed_out"),
+                  [pr(252)], checks={"252": RED})
+
+    # When  the reactor routes it
+    r = run_reactor(tmp_path, ["--repo", f"{OWNER}/llgenie", "--run-id", "123"])
+
+    # Then  it claims the PR and dispatches fix-bot.yml for it, filing no issue
+    assert r.returncode == 0, r.stdout + r.stderr
+    calls = log.read_text().splitlines()
+    dispatch = [l for l in calls if l.startswith("workflow run")]
+    assert len(dispatch) == 1 and "fix-bot.yml" in dispatch[0] and "pr_number=252" in dispatch[0]
+    assert not [l for l in calls if l.startswith("issue create")], calls
+
+
+def test_a_cancelled_run_is_not_folded_into_the_timed_out_route(tmp_path):
+    """The negative control: `cancelled` still takes the supersession path, never the failure route."""
+
+    # Given a CANCELLED run with no later run and a run-level `timed_out` run next to it
+    log = gh_stub(tmp_path, failed_run(conclusion="cancelled", created_at="2026-10-28T15:00:00Z"), [],
+                  rest=_main_rest(), newer_runs=[])
+    # When  the reactor routes the cancelled run
+    r = run_reactor(tmp_path, ["--repo", f"{OWNER}/llgenie", "--run-id", "123"])
+    # Then  it reports PENDING and files/dispatches nothing — `cancelled` is NOT a verdict
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "PENDING, not a verdict" in r.stdout, r.stdout
+    calls = log.read_text().splitlines()
+    assert not [c for c in calls if c.startswith("issue create")], calls
+    assert not [c for c in calls if "workflow run" in c], calls

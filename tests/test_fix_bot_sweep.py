@@ -279,7 +279,8 @@ def test_a_workflow_run_trigger_is_wired_to_the_ci_workflow():
     wf = (REPO / ".github" / "workflows" / "fix-bot.yml").read_text()
 
     assert "workflow_run:" in wf and 'workflows: ["CI"]' in wf, "CI failures must wake the bot"
-    assert "conclusion == 'failure'" in wf, "only a failed run may dispatch a repair"
+    assert "conclusion == 'failure'" in wf, "a failed run must be able to dispatch a repair"
+    assert "conclusion == 'timed_out'" in wf, "a timed-out run must also be able to dispatch a repair (#1465)"
     assert "ATTEMPTS=5" in wf, "the sweep cap is five"
     assert 'default: "5"' in wf, "a manual dispatch defaults to five rounds"
 

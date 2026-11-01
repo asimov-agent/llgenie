@@ -490,7 +490,10 @@ def route(repo: str, run_id: int, check: str = "make ci-unit", dry: bool = False
     """Route one completed failed run to a remedy. Returns the exit code."""
     run = run_detail(repo, run_id)
     conclusion = (run.get("conclusion") or "").lower()
-    if conclusion != "failure":
+    # A `timed_out` run is a verdict, not a cancellation (#1465): its job blew a timeout cap and the
+    # run RAN — so it routes exactly like `failure` (route A dispatches the fix-bot, route B files
+    # one deduped issue). Only `cancelled` has the separate supersession path below (#843).
+    if conclusion not in ("failure", "timed_out"):
         if conclusion == "cancelled":
             # A cancellation is not a verdict (#843): the run was killed, and whether it still owes
             # one depends on whether a later run of the same workflow took over.

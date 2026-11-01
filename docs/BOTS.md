@@ -60,7 +60,8 @@ A bot never works from a stale base:
   fork, so without the allowlist the scheduled sweep passed over every PR and repaired nothing;
   the branch is now checked out from — and pushed to — the PR's own head remote.
 - **The fix-bot is woken by the failure it repairs** (issue #538). `fix-bot.yml` runs on `workflow_run` for
-  `CI` when a `pull_request` run concluded `failure`, resolves that run's PR with `make fix-bot-resolve`
+  `CI` when a `pull_request` run concluded `failure` **or `timed_out`** (a timeout-capped run is a verdict,
+  not a cancellation — issue #1465), resolves that run's PR with `make fix-bot-resolve`
   (issue #629), captures the failed run's log, and dispatches the repair for **that** PR
   (`make fix-bot-sweep PR=<n>`). The hourly sweep stays as a fallback. Up to **5** attempts per head
   (`FIX_ROUNDS`/`rounds`, counted by the PR's `fix(bot):` commits); a failure this runner cannot reproduce
