@@ -8,15 +8,13 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 import types
 import urllib.error
 from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-import engine_host_test as eht  # noqa: E402
+from scripts import engine_host_test as eht
 
 
 @pytest.fixture(autouse=True)

@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
+from scripts import check_pr_closing as cpc
+from scripts.check_pr_closing import main as run_cli
+
 REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO / "scripts"))
-import check_pr_closing as cpc  # noqa: E402
-from check_pr_closing import main as run_cli  # noqa: E402
 
 FIXTURES = REPO / "tests" / "fixtures"
 PR1328 = FIXTURES / "pr-1328-body.md"   # the no-keyword defect: left #1327 open
