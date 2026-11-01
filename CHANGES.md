@@ -16,6 +16,7 @@ a note that does not exist, or when a row is malformed.
 
 | Date | Change | Record | Issue / PR |
 |---|---|---|---|
+| 2026-11-02 | agents(tester): round-16 live fold — references/fold-residual-and-corrections.md live→tree byte-identical (`ef008b7b`, 5,184 B, +2,758 B over tree) | [2026-11-02-tester-live-round16.md](agent-wiki/2026-11-02-tester-live-round16.md) | #1360 |
 | 2026-11-02 | agents(tester): round-15 live fold — references/agent-profile-versioning.md live→tree byte-identical (`93ab714e`, 30,082 B, +2,225 B over tree) | [2026-11-02-tester-live-round15.md](agent-wiki/2026-11-02-tester-live-round15.md) | #1358 |
 | 2026-11-02 | agents(tester): round-14 live fold — SKILL.md (`0bc09907`, +231 B, classify-reds rule) + references/classifying-suite-reds.md (2,397 B, live-only) live→tree, both byte-identical at fold time | [2026-11-02-tester-live-round14.md](agent-wiki/2026-11-02-tester-live-round14.md) | #1356 |
 | 2026-11-02 | agents(llgenie-tester): round-13 live fold — agent-profile-versioning.md live `9a5a0696` (+1,364 B, 27,857 B) → tree, postdating #1335; SKILL byte-identical | [2026-11-02-tester-live-round13.md](agent-wiki/2026-11-02-tester-live-round13.md) | #1339 |
