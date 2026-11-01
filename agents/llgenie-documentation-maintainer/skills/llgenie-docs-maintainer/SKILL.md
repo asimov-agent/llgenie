@@ -1,7 +1,7 @@
 ---
 name: llgenie-docs-maintainer
 description: "Use when auditing, filing or landing LLGenie docs changes."
-version: 1.0.17
+version: 1.0.20
 author: Hermes Agent
 license: MIT
 metadata:
@@ -11,6 +11,19 @@ metadata:
 ---
 
 # Maintaining the LLGenie docs
+
+> A dispatch may race a fix already merged by another lane: verify issue state, the closing PR and
+> `make check-docs` before cutting a branch — see `references/dispatch-race-verification.md`.
+>
+> **A lane that keeps re-serving a stale snapshot is not argued down by repeat DMs.** When the
+> planner/reviewer inbox re-delivers the same "main RED at <old sha>" frame after your correction,
+> one settlement is already made: stop re-messaging that lane. Break the loop through the two
+> channels the acting lane actually reads — (1) post the current truth durably on the issue
+> (main sha, CI run id, the green job id, issue state+reason), and (2) message the lane that is
+> *about to act* (e.g. the implementer force-delegated to redo merged work) telling it to reconcile
+> against those run/job/sha ids before branching, so it does not open a redundant no-op PR.
+> Then stand by: the stale cache is the other lane's defect, not a work item to keep re-adjudicating.
+> "Green on merged main" needs the CI run, not a liveness run: `references/merged-ci-verification.md`.
 
 <!-- host-bot-tools:begin -->
 
@@ -25,7 +38,24 @@ The pin is `tests/fixtures/host-bot-capabilities.json` in asimov-agent/llgenie (
 
 ## Role artifact (2026-11-01)
 
+**Never write "green", "ready" or `mss CLEAN` unless you just re-read it.** `mergeStateStatus`
+`UNSTABLE` means a check is still `in_progress` — that is *pending*, not green and not red, and a
+`gh pr checks` pipeline hides it because the command exits non-zero on pending rows. Re-read the
+check-runs API (`status` + `conclusion` per run) and `--json mergeStateStatus` before any status
+sentence; if you already posted a wrong verdict, post a correction on the same thread naming the
+accurate state. **A merged PR is not a green merged result** — the merge triggers a separate push
+run that finishes minutes later; verify it job-level (the specific failing leg, not just the run
+verdict) before calling the merged result accepted. Mechanics, field names, worktree-cwd and lint-scope traps:
+`references/pr-merge-state-verification.md`.
+
 A doc gap is this lane's pull request, not an issue for `llgenie-issse-implementer`. Paths are `docs/**`, `agent-wiki/**`, `CHANGES.md`, and a doc-only refresh. Do not edit scripts, tests, or workflows. When the PR is up, `message_agent` to `llgenie-planner` with the PR number, the head sha, and what changed.
+
+Before folding a **live** agent-profile file (`~/.hermes/profiles/<lane>/**`) into the tree
+byte-identically, follow `references/live-fold-race.md` — it covers the authorship race (the owning
+lane may be authoring that file as you fold, and a stale fold or a live truncation are both worse
+than filing nothing), the **corrective fold** for a file that merged stale, re-cutting the fold
+branch from a fresh `origin/main` instead of rebasing an old base, verifying each acceptance ref
+file-by-file against the tree, and folding to the *measured* current live md5 rather than a quoted one.
 
 ## When to Use
 
@@ -121,6 +151,21 @@ Concretely, treat this as part of comparing the behaviour of existing issues and
   launched elsewhere compares live against *that* tree — a red it reports then belongs to whatever is
   checked out there (usually another lane's live-only skill), not to the branch you are versioning.
   A red you cannot reproduce from the branch worktree is the wrong-cwd signal, not a fleet finding.
+  **`CHECK=1` reads the on-disk WORKING TREE files, not a git ref — so moving a branch pointer does
+  not clear a stale red.** `git branch -f main refs/remotes/origin/main` moves `refs/heads/main` but
+  leaves the checkout's files at the OLD blobs, and `CHECK=1` keeps reporting the stale size until you
+  actually update the disk: `git checkout -f main` (or run CHECK in a fresh scratch worktree). Push the
+  ref and forget the working tree and you will conclude the fold is broken when the object store is
+  already correct.
+  **Distinguish "stale on-disk checkout" from "real drift" by measuring against the fetched tip's
+  OBJECTS, not the cwd:** `diff <(git show <tip>:<path>) <live>/<rel>` for each lane file. If every
+  object comparison is EMPTY while `CHECK=1` at the cwd reds, the red belongs to whatever is checked
+  out there — refresh the checkout; the tree at `<tip>` is already byte-identical to live.
+  **When iterating `git ls-tree -r --name-only <tip> -- agents/<profile>/`, the emitted paths are already
+  repo-relative — do NOT prefix `agents/<profile>/` again** (`rel=${p#agents/<profile>/}`), or every
+  comparison becomes `agents/<profile>/agents/<profile>/…`, silently fails `[ -f ]`, and reports
+  "0 identical" on a tree that actually matches 7/7.
+- **Before cutting a fold branch, measure whether the dispatch's TARGET FILE IS VERSIONED AT ALL — a versioning issue can name a path that has never existed in the tree.** A dispatch that reads "insert one bullet into `agents/<p>/skills/<skill>/SKILL.md`, other bullets unchanged" assumes the file is already on `main`; when the whole skill bundle was never committed, that acceptance is unsatisfiable (there are no tree bullets to leave unchanged, and the fold must CREATE the file — far more than "one bullet"). Prove it two ways before branching: `git log --all --oneline -- 'agents/<p>/skills/<skill>/**'` (empty = never versioned under any ref) and `git ls-tree -r --name-only <tip> -- agents/<p>/skills/` (is the dir there at all); cross-check with `git grep -c 'name: <skill>' HEAD -- agents/` (no hit = no profile versions that skill name). **Also diff the FULL live file against the tree, not just the named bullets** — a live profile accumulates lessons between trail issues, so the named bullets are usually a SUBSET of the live-only delta (two untrailed bullet groups can ride the same file). When either check surprises you — file absent, or delta bigger than the issues describe — do not silently narrow to "what the issue names" (that leaves the drift gate red on `main`) and do not silently widen scope yourself: `message_agent` the dispatching lane with the per-file byte table (tree@base, live, delta, and the untrailed bullets), state that the issue's "other content unchanged" criterion cannot be met as written, and ask whether to fold whole-file (tree==live, recommended) or stay literal. That is lane rule 14 again — an under-written scope is asked for, never reconstructed into a private guess.
 - **Direction is judged on content, per hunk, never copied blindly:** a tree copy that is a *prefix* of
   live means live is newer — re-take live→tree; a live file edited *after* the tree commit means the
   lane's behaviour outran the repo — commit it via an issue+PR under `agents/<profile>/`.
@@ -139,7 +184,9 @@ Concretely, treat this as part of comparing the behaviour of existing issues and
   lane keeps editing its live skill, so a tree copy committed early is already stale by merge (live
   gained lessons twice during one PR) and `sync-agent-profile CHECK=1` then reds on `main` against
   the newer live. Re-run the live→tree copy and `CHECK=1` at the final head before pushing/landing;
-  if a held branch's snapshot is behind, re-copy — do not ship the stale snapshot. **For a multi-file sync, `cmp` every live file against its committed tree copy AFTER the commit and before the push** — live is written while you work, so a copy that was byte-identical minutes ago can drift before the commit; amend the re-copy at that head rather than discovering the drift on `main` after landing. Record the per-file byte counts (tree@base → head==live) in the PR body so a reviewer can re-run `cmp`.
+  if a held branch's snapshot is behind, re-copy — do not ship the stale snapshot.  **A whole-file live→tree copy makes an expanded "N clusters" scope MOOT — prove it with `cmp`, not per-cluster greps.** When a dispatching lane later expands the issue body to name extra live clusters ("two more than the three you folded"), a fold that copied the WHOLE file already carries them: `git show <merge-sha>:<rel> | cmp - <live>/<rel>` printing nothing IS the proof all clusters landed, and grepping for a paraphrased bullet phrase can miss on wording and read as a gap that is not one. Answer such a dispatch with the empty diff plus the byte count, not a cluster-by-cluster grep sweep.
+  **A drift residual that survives your merged fold is PRE-EXISTING — prove it at the fold's merge-base and file a new issue; never fix it in the merged PR.** After your fold lands, `sync-agent-profile PROFILE=<p> CHECK=1` can still red on a *different* file set (your lane's SOUL, sibling references). Measure each differing file at the base your branch was cut from (`git show <base>:agents/<p>/<rel> | wc -c`) — a `differ` that is already present at `<base>` means your fold neither caused nor covered it, and `git show <base>:<path>` vs live is the direction test. This is a gap for its own six-section issue (delta table: tree@merged vs live, bytes, direction), routed to the owning lane — not a `do-not-merge`, not an edit to a PR that already merged, and not silent scope-widening. **Distinguish a PRE-EXISTING residual from NEW post-merge drift before you write the issue body:** the gate's own `live-edited-not-tree` line carries both timestamps — "the LIVE profile was edited at `<ts>` AFTER the tree copy was committed at `<ts>`". If the live mtime POST-dates your merge commit, the file moved *again* after you folded it: that is new growth (the lane kept editing its live), not a cluster your fold missed, so write it as "continuing drift since `<merge-sha>`" with the fresh live mtime and bytes — never "my fold was incomplete", which would be a false self-blame a reader then re-investigates. A `live-longer` with no edit timestamp, or a `differ` already present at the merge base, is the pre-existing shape and gets the merge-base proof above.
+  **For a multi-file sync, `cmp` every live file against its committed tree copy AFTER the commit and before the push** — live is written while you work, so a copy that was byte-identical minutes ago can drift before the commit; amend the re-copy at that head rather than discovering the drift on `main` after landing. Record the per-file byte counts (tree@base → head==live) in the PR body so a reviewer can re-run `cmp`.
 - A gap found while reviewing someone else's PR is a **new issue**, scoped to the owning lane, with the
   delta (profile, file, class, tree/live bytes, direction) recorded in the issue and PR body per
   `references/live-vs-tree-drift.md`; a gap that lives only in a comment is not trackable and gets one.
@@ -160,6 +207,12 @@ it. Do not push a doc fix straight to a branch of your own:
 2. Branch from `origin/main` in a **new** worktree, fix the doc, and put `Closes #<n>` in the PR body.
 3. Every number in the issue body and the PR body is a command output you just ran, with the base sha
    beside it — a reader must be able to re-run it and get the same count.
+4. When the PR merges, prove the close with the repo's own gate, not a bare state read:
+   `make -s verify-closure PR=<n> REPO=asimov-agent/llgenie` prints
+   `[verify-closure] OK: PR #<n> closed #<issue>` (rc 0) when the body keyword's integrity holds. This is
+   the AGENTS.md final-integrity act for an agent-implemented issue — run it as the closing step, not an
+   afterthought. (Reading closure fields directly: this `gh` has no `closedBy`; use
+   `--json state,stateReason,closedAt`.)
 
 ## Holds, and the other half of every claim
 
@@ -277,6 +330,52 @@ after; name the fetched sha in the record. **Prove change-note coverage with `ma
 so a PR-number glob returns 0 and reads as a missing note that is not missing; trust the gate over
 the glob.
 
+**Skill-freshness is NOT judged by an invented per-skill release count.** `CHANGES.md` keeps no
+per-skill release sequence — versions appear sporadically and most skills sit at a freshly-folded
+`1.0.0` — so a `version:` frontmatter cannot be "2+ releases behind" anything, and digging for a
+release ledger that does not exist wastes the pass. Measure the dimension the only way it is real:
+`cmp` each lane skill's tree copy against its live `~/.hermes/profiles/<p>/skills/**` (the standing
+live-vs-tree drift class, #791), and treat a live-ahead file — live newer/larger than the tree, e.g.
+the lane's own `SKILL.md` one version past the tree — as the finding, routed under that standing
+drift umbrella rather than filed as a new one-off. A skill with no live counterpart and no tree
+change since its last note is fresh; say so and move on.
+
+**A fleet-wide drift SNAPSHOT is ONE owner-facing issue that ROUTES; a single live-ahead skill stays
+under the standing umbrella.** When the live-vs-tree dimension surfaces many lanes' files at one sha
+(the `live-longer` / `live-lines-missing` / `live-edited-not-tree` set under #791) and no existing
+issue names *that measured snapshot*, the deliverable is a single six-section issue carrying a
+per-file table (tree bytes, live bytes, live mtime, class) that routes each file to its owning lane —
+never one issue per file (a dozen queue entries nobody can close together) and never a fold performed
+here (this lane does not implement; each lane owns its #791/#1060 vehicle). For a *single* already-
+tracked file, comment on the umbrella instead of opening a new one-off. Name the smallest in-queue
+unit in the body (one lane's lone file) so the issue has an entry point.
+
+**A CLOSED issue plus a MERGED fix is not proof the OpenSpec gate is green — the change-object
+itself can survive both with unchecked task boxes, redding `openspec-tasks-check` on every PR.
+Re-measure `make ci-openspec` at the true tip and check the change's OWN `tasks.md`, not the
+issue's closure or the fix PR's file list.** A triage relay can report "#N CLOSED COMPLETED, its
+fix #M MERGED" while `openspec/changes/<name>/tasks.md` still carries `- [ ]` boxes — the fix PR
+(MERGED) touched only the *classification* gates (`scripts/issue_bot_gates.py` DEFERRED entries) and
+docs/tests, never the OpenSpec change's own acceptance list, so the change stays ACTIVE and
+`make ci-openspec` exits rc=2 (`openspec-tasks FAIL <name>: unchecked task checkbox(es) at lines
+[…]`) on every balanced PR. The residual then has NO live owner issue (#N is closed, #M is merged)
+and the board keeps red while a reader thinks completion was real. File it as its own six-section
+issue with the current-head measurement (`make ci-openspec` at the fetched tip, the four unchecked
+lines), two allowed resolutions: complete the named tasks + archive the change out of the ACTIVE set,
+or record an explicit supersession-by-<fix-PR> + archive — either must make `ci-openspec` rc=0 at
+its merged head. This lane reports and routes; it does not implement the code task 6 may truthfully
+require.
+
+**A fold issue that JUST closed is not proof drift reached zero — re-measure its own target file
+against the current live mtime, and check whether the closing issue even named it.** A lane can merge
+a fold for `file A` and close its tracker while `A` was edited again in the live profile *after* the
+fold's snapshot. The gate's `live-edited-not-tree` line carries both timestamps (live edit vs the tree
+commit): compare `git show <fold-merge-sha>:<A> | wc -c` with the live file's size and mtime — if live
+post-dates the fold, the fold is already stale by its own acceptance; and if the closed issue never
+named `A` at all, "closed" reads to the next reader as tracked-to-zero while the file still drifts.
+Report it as continuing drift since the fold sha, with the fresh live size and mtime — the sharpest row
+in the fleet table is often the file a lane just thought it closed.
+
 ## Landing a docs PR (the loop that works)
 
 1. Work in the PR's own worktree. `git worktree list` names it (`…/llgenie-wt/pr<N>`); never
@@ -355,6 +454,8 @@ the glob.
 
 ## A shared index file is a conflict point — one row per file
 
+> Index rules, the stale-committed-row main-red (a fragment edited after merge but `make changes-index` never re-run → `test_changes_index.py` subset red), and the clean-worktree repro discipline: `references/changes-index-maintenance.md`.
+
 `CHANGES.md` was one table every PR prepended a row to; at `main@97a24063` 10 of 12 open `DIRTY`
 PRs conflicted on it alone (issue #934). The durable shape is **one index row per file**:
 `docs/changes.d/<note-stem>.md` holds exactly one row, and `CHANGES.md` is rendered from the
@@ -375,19 +476,10 @@ fragments by `make changes-index` (`scripts/changes_index.py`). Rules that follo
 - Keep the gate falsifiable in both directions: note with no row → red, row whose note is gone →
   red, malformed row → red. Deriving rows purely from note frontmatter loses the dangling case.
 - **A rule is only enforced where a gate checks BOTH directions — a one-directional gate is the
-  blind spot.** The change-record rule was gated note→fragment (a note must have a row) but never
-  change→note, so a behavioural change with no `agent-wiki/` note merged green (measured: roughly a
-  third of recent merged PRs touching `scripts/`, `agents/` or `docs/` carried no note). When you
-  add or review a gate, name the direction it is silent on and close it: a change owes a note when
-  it touches a behavioural surface (`scripts/**`, `agents/*/SOUL.md`, `agents/*/skills/**`,
-  `agents/manifest.json`, `docs/**/*.md`, `.github/workflows/**`, `Makefile`, `data/**`,
-  `containers/**`, `openspec/**`), while `tests/**`, `agent-wiki/**`, `docs/changes.d/**` and
-  `CHANGES.md` are exempt. A live→tree skill sync is such a change even though it only copies
-  bytes the live profile already ran — it *edits* `agents/*/skills/**`, so it owes its own note;
-  ship the note in the same PR as the sync, not as a follow-up, or the gate reds the sync the
-  moment the gate PR merges. Assert the surface set **additively** — a behaviour/subset check, never a
-  pinned file list — or the gate reds on the next legitimate surface and gets edited to match the
-  code. Prove both lines: a no-note behavioural change fails, an exempt change passes.
+  blind spot.** The change-record rule was gated note→fragment but never change→note, so a
+  behavioural change with no `agent-wiki/` note merged green. Close the silent direction; assert the
+  surface set additively, never a pinned list. Full rule (surface set, live→tree sync owes a note,
+  committed-diff not working-tree, stem need not match filename): `references/changes-index-maintenance.md`.
 - Prove the property structurally, not by assertion: two scratch branches each adding a note +
   fragment, then `git merge-tree --write-tree a b` must print a single tree sha and no conflicted
   path.
@@ -405,9 +497,11 @@ fragments by `make changes-index` (`scripts/changes_index.py`). Rules that follo
 ## Pitfalls
 
 - **A force-push RESETS CI on the new head — every check re-pends, `mergeStateStatus` returns `BLOCKED`, and the arm gate REOPENS; never treat a prior head's greens as inherited, and make the arm mechanical with an executing arm-on-green watcher.** The fold/rebase that fixes a PR lands as a new head, and GitHub starts a fresh run set for it (`gh pr checks` shows all `pending`, then fills back in); an arm earned at the old head does not carry to the new one. Because the long-pole `linux / unit` then re-runs in full (~1h45), do not burn a foreground poll on it — a foreground arm loop is clamped (~7 min) and can never span the job, so it always ends on `pending=1` and looks like a stall. Instead run a **background arm-on-green watcher that performs the mutation itself**: poll `gh pr checks <n>` until `pending=0` and `fail=0` with a `pass` present, then `gh pr merge <n> --squash --auto`, read REST `auto_merge.enabled_at` back, post the read-back on the PR, and `notify` on a sentinel (e.g. `ARM_DONE_<n>`). A notify-only watcher defers the arm to a turn that may never come; the executing watcher puts the arm on the critical path. Kill the notify-only watcher before starting the executing one so two loops do not double-post, and keep the watcher machine-guarded (`pending=0 fail=0 pass`) so it never arms on an in-progress unit. **The window between a force-push's old-head checks draining and the new head's checks reporting can read `pending=0` with NO `pass` line** — that empty window is exactly why the guard requires a `pass` present; the watcher must not arm there, and after such a window read REST `auto_merge.enabled_at` to confirm it is still `null` (nothing armed against the now-void old head) before trusting the next green.
+- **A planner dispatch can arrive hours late and describe a state that has since moved — verify its premise against the API before acting, and never re-execute a completed one.** Fleet DM delivery is queued, so a message written when `main` was `<old-sha>` can land after the PR it describes merged. The fingerprint: it names a PR as OPEN/claimed, or quotes a `main` you no longer have, while `gh pr view <n> --json state,mergedAt` says MERGED and `git rev-parse refs/remotes/origin/main` is a newer sha. Do NOT redo the work and do NOT re-ack the verdict — re-measure (`gh pr view`, `git fetch origin main`), state that the dispatch is an out-of-order replay with both timestamps, and only act if its instruction still holds at the real tip. The same rule answers a planner re-confirmation of an obligation you already discharged: re-verify the tip is unchanged (`git rev-parse refs/remotes/origin/main` == your audit sha) and re-report the measured result rather than re-running the whole audit against a premise that was already satisfied.
 - **A `message_agent` return of `status: ambiguous` with `queue_full` and "Do not resend" is NOT a lost report — the on-record comment is the durable channel.** When a DM delivery cannot be confirmed, do not resend it into the same full queue; the same content lives on the issue/PR thread (the record a stranger can find), and you re-notify the teammate at the next milestone (the arm read-back, the finish bookend). Treat the DM as best-effort and the thread comment as authoritative.
 - **A `success` on the WRONG run at the right head is as misleading as a `cancelled` sibling — resolve the run id from `gh pr checks`, never guess it.** Some pushes spawn several runs at one sha (a `guard`/`holds`-only quick run plus the full matrix). A watcher polling the quick one sees `completed/success` within minutes and a report then calls the head green while the real matrix's `linux / unit` has not concluded. Before arming any watcher, read `gh pr checks <n> --repo asimov-agent/llgenie`, which prints each job's own `actions/runs/<id>`, and pick the id that carries `linux / unit`; poll that run's jobs (not just `.status`) and report the unit job's own conclusion. `gh run list --commit <sha>` alone does not tell you which duplicate is the matrix.
 - **Heartbeat-coalesced watcher output can quote a stale head — re-read the PR directly before acting on a poll line.** A 5-minute poll loop's lines can arrive batched and show `headRefOid` from before your force-push plus a transient `DIRTY`, contradicting a measured `MERGEABLE` at the new head. Treat any poll line older than the moment of a push as history: run `gh pr view <n> --json headRefOid,mergeable,mergeStateStatus` now, timestamp it, and only then decide whether a rebase is needed (a `DIRTY` that survives the direct read after `git fetch origin refs/heads/main:refs/remotes/origin/main` is real).
+- **Never `pkill -f '<pattern>'` a watcher from a shell whose own command line matches the pattern — it SIGTERMs your own call.** `pkill -f 'gh run watch'` matches the invoking shell's `… && gh run watch …` command line and kills it mid-call (SIGTERM, exit -15, no output), which reads like the environment died. Kill background jobs by PID instead: `process_manage action=list` for the `pid`, then `kill <pid>`, or `process_manage action=kill session_id=proc_…`. And a merged PR's watcher is moot anyway (its run is history) — verify `state=MERGED` first, then just let the watcher exit or kill by PID rather than pattern-matching the whole process table.
 - **`gh pr checks` lags the push by a minute and then lies.** Right after a push it prints
   `no checks reported on the '<branch>' branch`; the run exists. Use
   `gh run list --repo … --commit <sha> --json databaseId,status,event` and poll
@@ -420,7 +514,15 @@ fragments by `make changes-index` (`scripts/changes_index.py`). Rules that follo
   trusting the loop.** A nested-escaped form (`"\(.status)/\(.conclusion//\"\")"`) fails `jq`
   parsing, so `$A`/`$B` are empty and a `case "$A $B" in *completed*)` guard never matches: the
   watcher spins forever with no status and no `FINAL_*` wake — it looks healthy and silently never
-  reports the job finishing. `gh run watch` avoids the whole class; prefer it over a bespoke loop.
+  reports the job finishing. `gh run watch` avoids the whole class; prefer it over a bespoke loop. **When a dispatch asks you to
+  "report run id + headSha" (or any run-id + conclusion), a `pending`/`in_progress` report is an
+  unfinished dispatch, not a verdict** — poll the run to a real `conclusion` (`gh api
+  repos/<r>/actions/runs/<id> --jq '{status,conclusion}'`, or background `gh run watch <id> --exit-status`
+  and read back when it wakes) before reporting; a docs-PR `ci-scope` run typically settles in ~1 min, so
+  there is rarely a reason to leave it pending in the reply. Prove the issue's own gate criterion
+  the issue's own gate criterion  deterministically from the committed branch head in the meantime (e.g. `make -s check-docs` rc 0 at
+  that head) so the record carries a measured verdict even before CI fills in.
+- **A dispatch is satisfied by a durable WRITE on the vehicle, not by a verification READ — re-measuring the same state repeatedly produces no mutation.** When a dispatch asks for a verdict (PR number + head sha, a run id + conclusion, a gate result), the completing artifact is a comment posted on the PR/issue thread carrying the measured proof, then read back to confirm it landed (`gh pr view <n> --json comments --jq '[.comments[]|select(.body|contains("<sentinel>"))]|length'`). A green re-run of `make check-docs`, a `cmp` tree==live, a `MERGEABLE` PR state, or a chat DM is evidence a stranger cannot find; a session that only ever re-verifies those (however many times) and never posts leaves the dispatch unfinished. **For a docs-only diff the deciding leg is the `ci-scope`/`scope` run** — it selects the stages a docs PR needs and runs the docs gates; once it concludes `success` the fold's CI verdict IS green and should be posted, while the still-`in_progress` full `CI` matrix (`linux / unit`, install, cpu-health, lint, scanner-images …) is the external long-pole and not the scope gate, so never hold the verdict for it. Post each measured proof (gate rc + deciding-run conclusion) as its own PR comment the moment it is measured, never as a promise to post once the run settles. **Post the proof on the vehicle the dispatch NAMES, not the one you assumed:** a dispatch worded "verify on the issue (#<n>, body PATCHed this pass)" wants the verification comment on that ISSUE thread (a cluster/scope confirmation belongs there, where the scope was written), even when the change itself shipped in a PR — measure the MERGED blob at the merge sha, then `gh issue comment <n> --body-file` and read it back. A verification that exists only on the PR, or only in a DM, leaves the issue's expanded scope looking unconfirmed to the next reader.
 - **`REVIEW_REQUIRED` is not something your lane can clear — the author and the approver are different identities.** The PR *author* is `andyholst` (the push token); approvals come from the separate `asimov-agent` identity. So `gh pr review --approve` from your lane is the owner approving the owner's own PR (invalid), and the reviewer lane will not approve either (its SOUL forbids grading the code it could fix). Where a ruleset pins `REVIEW_REQUIRED`, only an `asimov-agent` approval (owner, or the planner acting under it) unlocks it — arming alone will not merge. Read `gh pr view --json reviewDecision,mergeStateStatus,author` before calling it blocked, and route the approval rather than self-approving.
 - **`main` has no classic branch protection** (`/branches/main/protection` 404s; rulesets own it).
   So `mergeStateStatus: BLOCKED` is always the review decision, a pending check, or the label —
@@ -435,6 +537,14 @@ fragments by `make changes-index` (`scripts/changes_index.py`). Rules that follo
   that run belongs to is no longer the PR's head, so a rerun cannot produce a verdict anyone can use
   and a green result would attach to a stale sha. Check before diagnosing a stall and again before
   acting — a merge can land while you are waiting on a slow job.
+- **A body-only `gh pr edit` does NOT re-emit the `pull_request` event, so `gh run rerun` replays the
+  ORIGINAL push payload and a body-based gate still sees the STALE body.** When a CI job reads the body
+  from `${{ github.event.pull_request.body }}` (e.g. `check-pr-closing`), a rerun cannot pick up an edit
+  made after the push — the rerun's `PR_BODY` env is the payload captured at the original event, so
+  `grep -c '<your fix string>' <run log>` returns 0 (that zero is the confirmation of stale, not a bad
+  fix). Prove the content fix with the local gate on the edited body
+  (`make check-pr-closing PR_BODY=<file> PR_HEAD=<sha>` rc 0) and report that as the verdict; if CI itself
+  must turn green, push a commit so a fresh `synchronize` event fires — a body edit alone never will.
 - **A merge event is not proof its gates went green — verify the head's check-runs before ever
   reporting "CI green at the merge".** An owner/planner gate (or a relayed "it evidently completed
   green") can merge a PR while the deciding leg — the long `linux / unit` — is still `in_progress`,
@@ -442,8 +552,31 @@ fragments by `make changes-index` (`scripts/changes_index.py`). Rules that follo
   doc PR "green at the merge", read the *head sha's* checks directly, never the merge fact or a
   chat claim: `gh api "repos/<r>/commits/<head>/check-runs?per_page=100" --jq '.check_runs[]|{name,status,conclusion}'`
   (cross-check the matrix run with `gh api repos/<r>/actions/runs/<id> --jq '{status,conclusion}'`).
+  **`<head>` MUST be the full 40-char sha** — a short/truncated sha (`ccbf64e7`) returns
+  `422 No commit found for SHA` (the API does not resolve abbreviations the way git does), which reads
+  like "the commit is gone" but is only a bad argument. Get it from `gh pr view <n> --json headRefOid`
+  (or `git rev-parse HEAD`) and pass that literal, never the 7-char form you eyeballed from a report. A
+  422 here is a malformed query, not a red verdict — fix the sha and re-run before concluding anything.
   A `status: in_progress` / `conclusion: null` on the deciding job means it **never completed** — say
-  "merged through a pending deciding leg" and correct any teammate premise that called it green. Two
+  "merged through a pending deciding leg" and correct any teammate premise that called it green.
+  **The reverse shape is just as common: that pending leg concludes `failure` AFTER the merge, and a
+  watcher then hands you a red for a head nobody owns.** Do not report "CI failed" and do not report
+  "green": enumerate the failing test ids and re-judge each at merged `main` per test — a doc-gate red
+  that is only a count and passes at merged `main` is a head-instance red (head red, merged-main
+  green), while a live-data/registry test in the same set is another lane's. Report the set, the
+  per-test re-judgement and both shas. The recipe (including how to run a single gate test when the
+  pytest harness exits 2 with empty output) is in `references/ci-triage-for-docs-prs.md`.
+  **A merged PR's head is NOT an ancestor of `main` after a SQUASH-merge — never use
+  `git merge-base --is-ancestor <pr-head> origin/main` to prove content landed.** The squash creates a
+  NEW commit, so the PR head fails the ancestry test even though every byte landed; a teammate reading
+  that `false` as "my work is not on main" then re-verifies a branch that no longer exists. Prove the
+  content from the **merged commit's blobs**, not from ancestry or from the PR head:
+  `git show <merge-sha>:<path> | cmp - <live-or-expected>` and `git show --stat --oneline <merge-sha>`
+  (which lists exactly the files the squash carried). Get `<merge-sha>` from `gh pr view <n> --json
+  mergeCommit,mergedAt`. Cross-check the fold's own bookkeeping in that blob too — the change-note pair
+  (`agent-wiki/<stem>.md` + `docs/changes.d/<stem>.md` + the `CHANGES.md` row) must be in the 5-file
+  squash, and `make -s check-docs` rc 0 on the merged tree is the #1123 gate green over your own
+  `agents/*/skills/**` edit. Two
   disciplines stay separate: your arm watcher's `pending=0 fail=0 pass` guard protects *your* side
   (and a merge that already happened is not evidence your guard was ever satisfied — kill the moot
   watcher and report the merge sha plus the true check state, not an `enabled_at` read-back that
@@ -469,7 +602,17 @@ fragments by `make changes-index` (`scripts/changes_index.py`). Rules that follo
   (`Timeout (0:05:00)!` xN in `make ci-unit`, siblings green) mean a starved runner, not your diff:
   stop rerun-looping and wait for a quiet window — the fingerprint is in
   `references/ci-triage-for-docs-prs.md`.
-- **`closingIssuesReferences` is eventually-consistent — a `none` right after a PR is created is not evidence the `Closes #<n>` keyword failed.** The field is populated asynchronously, so `gh pr view --json closingIssuesReferences` returns empty for minutes after creation; do **not** edit the body in response. Re-read later, or confirm the link from the body text and the issue's own timeline. A positive is proof; a negative is only "not yet, or genuinely absent".
+- **`closingIssuesReferences` is eventually-consistent — a `none` right after a PR is created is not evidence the `Closes #<n>` keyword failed.** The field is populated asynchronously, so `gh pr view --json closingIssuesReferences` returns empty for minutes after creation; do **not** edit the body in response. Re-read later, or confirm the link from the body text and the issue's own timeline. A positive is proof; a negative is only "not yet, or genuinely absent". **A case-sensitive `grep 'closes #<n>'` is another false negative: the gate is case-insensitive** (`scripts/check_pr_closing.py` compiles its keyword pattern with `re.IGNORECASE`, and the docstring lists `Fixes`/`Closes`/`Resolves` alongside the lowercase forms), so a body whose first line is `Closes #<n>` matches the gate but returns rc=1 to a lowercase grep — grep both spellings (`grep -iE 'closes #<n>'`) before touching the body, or read the gate's own regex, rather than editing a body that was already correct.
+- **An `agent/*` PR that NAMES issues in its body must carry an ADJACENT closing keyword (`closes #<n>`)
+  or `check-pr-closing` reds — and a merge that lands before that keyword was added does NOT auto-close
+  the tracker.** "The body mentions #1273 and #1373 but closes none" fails the gate even when the work is
+  genuinely complete; pick the issue the PR actually advances, file one if none exists (a pure chore
+  opens its own tracker), and put `closes #<n>` next to that reference — a bare `#<n>` elsewhere in prose
+  does not count. GitHub fires auto-close only on the merge event that carries the keyword, so if you add
+  `closes #<n>` AFTER the owner already merged (a body edit does not retroactively close), the issue sits
+  OPEN as a merged-but-open phantom — close it yourself with a comment naming the merge sha and the
+  byte-identity (`git show <merge-sha>:<path> | cmp - <live>`) proof, exactly the state the gate exists
+  to prevent.
 - **A local full `make test-unit` pass is evidence, not the CI verdict.** CI runs with a clean HOME where live-vs-tree profile comparison is skipped, so a test that reads the host profile can pass locally for a different reason than CI runs it (or vice versa).  Report a local suite as evidence — its exit code and the head sha — and still wait for the CI job's own conclusion before calling a head green; the two can disagree, and the CI one is the one that gates.
 - **Verify at the exact STATE the acceptance criterion names — a weaker proxy does not satisfy it.** When an
   issue's `## Acceptance criteria` says "green on a clean merge-tree of `origin/main`" (or "on every PR
@@ -486,6 +629,23 @@ fragments by `make changes-index` (`scripts/changes_index.py`). Rules that follo
   and it also proves the change cannot conflict on landing. Run the subtle-but-required variant too when
   the criterion names it (e.g. the gate PR's own checker via its head blob). Remove the scratch worktree
   after (`git worktree remove /tmp/mt --force`); it is your own verification artifact, not a lane's.
+  **The never-prune rule is fleet-wide and covers your OWN worktree too — including a fold/rebase
+  vehicle on a branch of yours that has already merged.** "It is mine and its branch merged" is not an
+  exception: measure with `git worktree list --porcelain`, report the merged tip, and let the OWNER
+  prune.  Only a `/tmp`/scratch verification worktree you created for a one-off gate run is yours to
+  `git worktree remove`. A merged branch ref does not make a repo worktree disposable — the prune reads
+  branch refs only and cannot see uncommitted work, which is why deletion is the owner's call (#794).
+  **Your own verification scratch files written INSIDE a merged vehicle's worktree make that vehicle
+  read `holds uncommitted changes`, so `make worktree-prune DRY=1` says `keep`, not `would prune`.**
+  When you leave `*-body.md`, `verify*.txt`, a dispatch-correction note etc. in the vehicle, the
+  worktree is never prune-eligible; move those records out to the profile scratch dir
+  (`~/.hermes/profiles/<p>/cache/scratch/`) and `rm` them from the vehicle (`git status --porcelain`
+  empty = clean) so the owner's prune can see it. You still do NOT run the broad `make worktree-prune`
+  yourself — it prunes every merged branch fleet-wide, including other lanes' vehicles — you only
+  remove your own `/tmp` throwaway worktrees (`git worktree remove /tmp/<scratch> --force`) and report
+  the vehicle as clean/prune-eligible.
+  (Measured 2026-11-01: removed `docs/1318-skill-drift` post-merge; flagged as a process error, no
+  escalation, but not defensible — leave it and report.)
 - **Your own versioned `SKILL.md`/`SOUL.md` is scanned by the suite — a retired symbol in it reds CI,
   and it is the file you least expect.** A live skill that still names the retired underscore module/CLI
   that `scripts/module_name_guard.py` forbids (the pre-rename spelling replaced by `llgenie_serve`) fails
@@ -564,7 +724,15 @@ fragments by `make changes-index` (`scripts/changes_index.py`). Rules that follo
   has `build-engine-%:`); a workflow `*.yml` a doc cites may belong to the *model* repo
   (`qa-validate.yml` lives in `trending-local-llms`), so "no local file" is not by itself a
   defect; and `docs/BOTS.md` states cadence as `:43`/odd-minute prose in places and as a cron
-  expression in others, so match the table, not the regex. One check in `scripts/docs_audit.py` is
+  expression in others, so match the table, not the regex. **Two more lines that are false
+  positives until you check them by hand:** a `no slots-table row` line for a scheduled workflow is
+  a false negative when that workflow's row is already present in `docs/BOTS.md` under a different
+  table format — `grep -ci '<workflow>' docs/BOTS.md` and confirm a row exists before filing (every
+  workflow the audit listed as rowless had one); and the `AGENTS.md: targets named but not in the
+  Makefile` check false-positives on an explicit NON-target example — a line like "never a command
+  like `run make <x>` (which doesn't exist here)" names a target precisely *because* it does not
+  exist, so read the surrounding clause and verify every other named target resolves
+  (`grep -q '^<t>:' Makefile`) before believing the red. One check in `scripts/docs_audit.py` is
   known to false-negative: "engine-gap census present in ARCHITECTURE.md" compares a single-line
   string against text the doc wraps across lines, so `False` there means "wrapped", not "missing" —
   confirm by grep'ing the first three words before acting on it. **The census checks in that script
@@ -650,6 +818,23 @@ fragments by `make changes-index` (`scripts/changes_index.py`). Rules that follo
   `gh run rerun <id> --failed` — same head, no new commit, no cancelled matrix. Two reds on the same
   live-data gate means the fix is upstream, not a rerun loop: say so on the tracking issue and keep
   your PR open rather than landing behind a flaky green.
+- **`make -s check-docs` rc 0 does NOT mean the docs surface is green — `make ci-lint` is a separate gate, and a committed JSON *fixture* can red it alone.** The `tests/fixtures/*.json` files (notably `docs-exceptions.json`) must end in a newline; a merge that strips it reds `lint`/`ci-lint` on the trailing-newline rule while `check-docs` stays rc 0 and every doc still contains its rows. So when a dispatch names "undocumented targets" as the red, measure the two gates separately (`make -s check-docs`; `make -s ci-lint`) before cutting work — the premise can name the wrong defect (targets already documented, fixture newline missing), and the fix that clears `ci-lint` is a one-byte newline append (`printf '\n' >> <file>`, byte count rising by exactly one, `tail -c1 <file> | xxd` = `0a`), not a doc edit. `check-docs` reading green is not evidence the lane is green.
+  **The trailing-newline rule bites a newly ADDED `.md`, not only a stripped fixture** — a reference
+  file folded byte-for-byte from a live source that itself lacked a final newline reds `linux / lint`
+  on the change that adds it. Append `\n` to BOTH the tree copy and the live source, or the fold's own
+  byte-identity acceptance (`cmp` tree==live, md5 match) breaks the moment you fix only the tree: fixing
+  the tree alone makes tree≠live and the drift stays; fixing neither reds lint. Re-check the md5 after
+  and quote the new one — a reference folded "byte-identical" to a no-newline live file inherits the
+  red.
+  **When a dispatch claims "targets X and Y are undocumented", prove or refute it with the gate's OWN
+  per-target census — `make -s docs-report` — not with grep on the doc files.** `docs-report` (rc 0)
+  prints the authoritative line `[check-docs] N user-facing (## help) make targets, N documented in M
+  doc(s) …, 0 not, 0 recorded exception(s)`; if the count has `0 not` and neither target appears under
+  a missing/exception list, the targets ARE documented as check-docs counts it (README-linked pages,
+  not "mentioned anywhere") and no doc edit or exceptions entry is warranted. A grep that finds the
+  target name in one doc proves nothing about the gate's referent set; a grep that misses it in a
+  *stale local `main` checkout* proves even less — measure at the fetched remote tip. Report the
+  census line as the refutation; do not manufacture a doc change to satisfy a wrong premise.
 - **A live→tree skill sync copies ONE directory, never the live `skills/` root.** The live profile's
   `~/.hermes/profiles/<profile>/skills/` is the shared store — every skill the host has installed, not
   just the lane's own. `cp -a "$L/skills" "$T/agents/<profile>/"` therefore mirrors hundreds of
@@ -666,7 +851,21 @@ fragments by `make changes-index` (`scripts/changes_index.py`). Rules that follo
   exactly what the repo's triage legs file, so `gh issue list --repo asimov-agent/llgenie --state
   open --search '<page/metric>'` first; if an issue exists, verify its quoted numbers against the
   current tree and comment the confirmation instead of opening a duplicate (which the dedupe leg
-  will close into the original anyway).
+  will close into the original anyway). **A search hit is not a tracker — confirm the issue NAMES
+  your exact file/path before treating it as covering your finding.** `gh search issues "<file>.md"`
+  matches any issue whose title or body merely shares a word (a broad mechanism issue — a fleet
+  refactor, a live-drift umbrella — scores on almost any filename), and `gh issue list --search` can
+  hand back an unrelated stale issue that only loosely matches. Read each hit's title and body: a hit
+  that does not name the exact path (or the exact byte delta) is a false positive, your finding is
+  still untracked, and it is worth its own narrow six-section issue.
 - **Keep long audit commands out of a single `terminal` call.** A multi-statement shell one-liner or
   heredoc can trip the oversized-payload guard and get blocked outright; the audit belongs in the
-  skill's `scripts/` file, one command, no payload. Same for anything you will run twice.
+  skill's `scripts/` file, one command, no payload. Same for anything you will run twice. **An inline
+  `python3 - <<'PY'` heredoc that builds a regex or f-string containing nested quote characters is the
+  worst offender — it dies with `SyntaxError: unterminated string literal` or, worse, compiles but
+  matches nothing and prints an empty result that reads like "no rows", not like a broken query. Put
+  the per-file byte/mtime table you want as a `scripts/` probe, not a hand-typed heredoc:** the fail
+  log a gate already printed usually carries the tree bytes, live bytes and live mtime in-line
+  (`FAIL live-longer: <rel>: the tree has <N> b, the live profile has <M> b (live mtime <ts>) …`), so
+  reading that log is the measurement — do not re-derive it with a fragile regex. When you do need a
+  computed table, write it once to `scripts/`, run it, and let it emit the rows.

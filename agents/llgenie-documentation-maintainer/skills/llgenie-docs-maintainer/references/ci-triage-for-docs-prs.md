@@ -122,6 +122,46 @@ git show <base>:.github/workflows/pipeline.yml | grep -n -A5 concurrency   # no 
   — a run pinned two commits behind cannot be destroyed by pushing the current head, so the push window
   is open.
 
+## A post-merge `failure` at a superseded head is a head-instance red — classify per test
+
+An owner/planner merge can land while `linux / unit` is still `in_progress`, so a watcher on that run
+returns `failure` **after** the merge. That verdict is about a head nobody owns any more: it is neither
+"CI failed" nor "CI green", and reporting either is a claim about a branch that no longer exists.
+Enumerate the failing test ids from the run
+(`gh api repos/<r>/actions/runs/<id>/jobs --jq '.jobs[]|select(.conclusion=="failure")|.name'`, then the
+job log's `FAILED tests/…` lines) and re-judge each one **at merged `main`**, per test:
+
+- A doc-gate red whose whole content is a **count** (`289 vs 291 targets`) re-run at merged `main` and
+  passing there is head-instance: the merge commit's re-run clears on identical content. That is the
+  documented latitude for a merged fold — say "head-instance red, merged-main green", with both shas.
+- A **live-data / image-publish** test in the same failure set (e.g. a registry `404` on a published
+  image) is someone else's lane by construction; naming it keeps the classification from reading as
+  "my diff is fine because I only checked the one test I care about".
+- Report the set, the per-test re-judgement and the main sha — never a bare "the run failed".
+
+## Running one gate test when the suite harness will not start
+
+Symptom in a scratch venv: `python -m pytest tests/test_check_docs.py -q` exits **2** with a **0-byte**
+output file. Exit 2 with no output is a startup/collection failure (conftest/env or a missing import),
+not a test result — and `| tail` / `| head` hand back nothing while `$?` reads the last stage of the
+pipe, so both the code and the output lie. Redirect to a file and read it back; use `${PIPESTATUS[0]}`
+if you must pipe.
+
+Get a real verdict by calling the test function directly, bypassing conftest/plugin startup:
+
+```bash
+python -c "
+import importlib.util
+spec = importlib.util.spec_from_file_location('t','tests/test_check_docs.py')
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+getattr(m,'test_the_real_tree_documents_every_user_facing_target')()
+print('PASS t')"
+```
+
+- A `ModuleNotFoundError` at `exec_module` (e.g. `yaml`) is a **missing scratch dependency**, not a
+test defect — `pip install pyyaml` in the venv and re-run. Do not report it as a gate failure.
+- The test reads the repo root from its modules (`REPO`), so run it with the worktree as cwd.
+
 ## How long the long jobs actually take
 
 Calibrate before calling anything hung: a wrong "stalled" call costs a re-run of a ~1h45 matrix.

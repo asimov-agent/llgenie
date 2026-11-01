@@ -1,0 +1,1 @@
+| 2026-11-02 | folded the live `llgenie-documentation-maintainer` skill bundle into the tree (profile-sync #791/#1010): SKILL.md 73,822→100,417 b (v1.0.17→v1.0.20, now **99,828 chars — under the 100,000-char `skill_manage` cap**), 7 references added, 2 grown; tree==live byte-identical | [note](agent-wiki/2026-11-02-docs-maintainer-skill-fold-1468.md) | #1468 |
