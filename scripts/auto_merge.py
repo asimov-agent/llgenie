@@ -29,7 +29,11 @@ TWO things make a deferral honest rather than silent (issue #491):
     (the review block cannot be moved by an approval a bot is allowed to post), and a refusal is a
     deferral with the reason on the PR, never a red run;
   * every deferral posts ONE comment per head SHA (`<!-- auto-merge: deferred <sha> -->`) carrying the reason
-    and what would unblock it, so "why is this not merged?" is answerable from the PR, not from a run log.
+    and what would unblock it, so "why is this not merged?" is answerable from the PR, not from a run log;
+  * a red check-run on the head is not merged, whatever `mergeStateStatus` says (issue #1386). `BLOCKED` on
+    #1401 was the required review, while `scope` had already failed; the recheck approved that and
+    `gh pr merge --admin` bypassed protection. A conclusion of `failure`, `timed_out` or `startup_failure`
+    defers. `skipped` and `cancelled` are not a red pipeline (a docs-only head has no `linux` job; #843).
 
 The merge itself is `gh pr merge --squash [--delete-branch] --match-head-commit <sha>` with the OWNER PAT by
 the caller (a merge with the job's own token starts no workflows), and `--delete-branch` is omitted for a fork
@@ -46,12 +50,15 @@ with the reason ON the PR instead of dying red.
 Commands (stdlib only, the GitHub API only through a `gh` on PATH):
   auto-merge --repo R --pr N --head-sha S [--dry] [--approve-when-review-required] [--gh gh]
   explain    --repo R --pr N [--head-sha S] [--gh gh]      print the verdict, write nothing
+  red-check  --repo R --pr N [--gh gh]                     exit 1 when the head has a red check
+  alert-merged-red --repo R [--limit N] [--dry] [--gh gh]  comment once on a merged red head
 """
 from __future__ import annotations
 
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -78,6 +85,8 @@ WRITE_PERMISSIONS = ("admin", "maintain", "write")
 BOT_LOGINS = ("github-actions[bot]", "app/github-actions")
 #: One deferral comment per head SHA — re-posted only when the head moves.
 DEFERRAL_MARKER = "<!-- auto-merge: deferred {} -->"
+#: One comment per head on a PR that already merged while that head's pipeline was red (issue #1386).
+MERGED_RED_MARKER = "<!-- merged-over-red: {} -->"
 #: One MERGE announcement per head SHA (fleet rule 14, issue #873): the merger must publish what it acted on.
 #: A merger that merges silently is the same defect as two lanes on one branch — the next reader cannot tell
 #: work from coincidence, and "approval is not the blocker, scheduling is" stays an assertion instead of a record.
@@ -226,6 +235,73 @@ def review_blocked(state: dict) -> bool:
     return ((state.get("mergeable") or "").upper() == REQUIRED_MERGEABLE
             and (state.get("mergeStateStatus") or "").upper() == "BLOCKED"
             and (state.get("reviewDecision") or "").upper() == "REVIEW_REQUIRED")
+
+
+# A check-run conclusion that is a red pipeline. `cancelled` is not here: a cancelled run is not a
+# failed test, and treating it as red would freeze the board (issue #843). `skipped` is not red:
+# a docs-only pull request has no `linux` job, and `linux` on #1385 was skipped beside real failures.
+RED_CONCLUSIONS = frozenset({"failure", "timed_out", "startup_failure"})
+_RUN_JOB = re.compile(r"/actions/runs/(\d+)/job/(\d+)")
+_RUN_ONLY = re.compile(r"/runs/(\d+)")
+
+
+def _check_runs(gh: str, repo: str, sha: str) -> "list | None":
+    """The head's check-runs, or None when the payload is not a list. Raises SystemExit when `gh` fails."""
+    out = _gh(gh, ["api", f"repos/{repo}/commits/{sha}/check-runs?per_page=100",
+                   "--jq", "[.check_runs[] | {name: .name, conclusion: .conclusion, details_url: .details_url}]"])
+    try:
+        runs = json.loads(out or "[]")
+    except json.JSONDecodeError:
+        return None
+    return runs if isinstance(runs, list) else None
+
+
+def _failed_step(gh: str, repo: str, job_id: str) -> str:
+    """The first failing step of an Actions job, or "" when the job payload cannot be read."""
+    try:
+        out = _gh(gh, ["api", f"repos/{repo}/actions/jobs/{job_id}",
+                       "--jq", '[.steps[] | select(.conclusion=="failure") | .name][0] // ""'])
+    except SystemExit:
+        return ""
+    return (out or "").strip().strip('"')
+
+
+def failing_checks(gh: str, repo: str, sha: str) -> "str | None":
+    """The first red check on this commit, or None when every concluded check passed.
+
+    `mergeStateStatus` is not this. A failed `scope` job left #1401 `BLOCKED` on the review, and the
+    recheck then called the pull request green and merged it with `--admin` (issue #1386). The check
+    runs are the head pipeline. A conclusion that is not in `RED_CONCLUSIONS` is not a red: `skipped`
+    and `cancelled` stay mergeable, and a check that has not concluded yet is not a failure.
+    """
+    if not sha:
+        return None
+    try:
+        runs = _check_runs(gh, repo, sha)
+    except SystemExit as exc:
+        return f"head {sha[:8]} check-runs could not be read ({exc})"
+    if runs is None:
+        return f"head {sha[:8]} check-runs were not readable"
+    red = [r for r in runs if str((r or {}).get("conclusion") or "").lower() in RED_CONCLUSIONS]
+    if not red:
+        return None
+    first = red[0] or {}
+    url = str(first.get("details_url") or "")
+    where = ""
+    job = _RUN_JOB.search(url)
+    if job:
+        step = _failed_step(gh, repo, job.group(2))
+        where = f", run {job.group(1)}, job {job.group(2)}"
+        if step:
+            where += f", step `{step}`"
+    else:
+        only = _RUN_ONLY.search(url)
+        if only:
+            where = f", run {only.group(1)}"
+        elif url:
+            where = f", {url}"
+    return (f"head {sha[:8]} has a red check `{first.get('name')}` "
+            f"({first.get('conclusion')}{where}) — a red pipeline is not merged (issue #1386)")
 
 
 #: The account a workflow's own `GITHUB_TOKEN` acts as. `GET /user` cannot be read with an installation
@@ -469,8 +545,15 @@ def _clear_review(gh: str, repo: str, pr: int, head_sha: str, state: dict, dry: 
         why = (f"the approval landed, but the PR did not become mergeable within the wait "
                f"(mergeStateStatus {state.get('mergeStateStatus') or 'UNKNOWN'}: {reason})")
         print(f"[auto-merge] PR #{pr}: {why}")
-    else:
-        print(f"[auto-merge] PR #{pr} cannot be approved: {why}")
+        # The approval landed and the pull request is still not CLEAN. That is a red or unfinished
+        # pipeline (UNSTABLE on #1401 after the scope job failed). `--admin` would skip it. Defer.
+        defer(gh, repo, pr, head_sha, why, dry=dry)
+        return 0
+    print(f"[auto-merge] PR #{pr} cannot be approved: {why}")
+    red = failing_checks(gh, repo, head_sha)
+    if red:
+        defer(gh, repo, pr, head_sha, red, dry=dry)
+        return 0
     if dry:
         print(f"[auto-merge] would fall back to --admin for PR #{pr}")
         return 0
@@ -497,6 +580,10 @@ def _merge_review_cleared(gh: str, repo: str, pr: int, head_sha: str, state: dic
     merge is the `--admin` path that bypasses it. A refusal is a deferral with the reason ON the PR,
     never a red run: a repository that enforces the review rule for admins simply waits for a human.
     """
+    red = failing_checks(gh, repo, head_sha or (state.get("headRefOid") or ""))
+    if red:
+        defer(gh, repo, pr, head_sha, red, dry=dry)
+        return 0
     verdict = bot_verdict.verdict_for_head(state.get("comments") or [],
                                            (state.get("headRefOid") or ""))
     who = verdict["reviewer"] if verdict else "unknown"
@@ -528,6 +615,10 @@ def run(gh: str, repo: str, pr: int, head_sha: str, dry: bool = False,
     refused = author_may_merge(gh, repo, state, actor=actor)
     if refused:
         defer(gh, repo, pr, head_sha, refused, dry=dry)
+        return 0
+    red = failing_checks(gh, repo, head_sha or (state.get("headRefOid") or ""))
+    if red:
+        defer(gh, repo, pr, head_sha or (state.get("headRefOid") or ""), red, dry=dry)
         return 0
     reason = decide(state, head_sha, repo_owner=repo.split("/")[0])
     if reason and approve_when_review_required and review_blocked(state):
@@ -570,6 +661,13 @@ def recheck(gh: str, repo: str, max_prs: int = 5, dry: bool = False) -> int:
             if not review_blocked(state):
                 print(f"[recheck] #{num}: no deferral marker for {(head or '?')[:8]} — not a retry")
                 continue
+            # #1401: BLOCKED + REVIEW_REQUIRED while `scope` was already failure. That is not "review
+            # is the only blocker", and approving it is what reached `gh pr merge --admin`.
+            red = failing_checks(gh, repo, head)
+            if red:
+                print(f"[recheck] #{num}: {red}")
+                defer(gh, repo, num, head, red, dry=dry)
+                continue
             if seen >= max_prs:
                 print(f"[recheck] cap reached ({max_prs} PRs this sweep); the rest waits for the next one")
                 break
@@ -598,6 +696,51 @@ def recheck(gh: str, repo: str, max_prs: int = 5, dry: bool = False) -> int:
     return 0
 
 
+def alert_merged_red(gh: str, repo: str, limit: int = 20, dry: bool = False) -> int:
+    """Comment once on a merged PR whose head check-set was red (issue #1386).
+
+    The merge gate stops the next one. This is the owner-facing record of one that already landed:
+    the head sha that was red, the merge commit, and whether that merge commit's own checks are red
+    or clear. A later green re-run on the merge commit is not evidence the head was green.
+    """
+    out = _gh(gh, ["pr", "list", "--repo", repo, "--state", "merged", "--limit", str(limit),
+                   "--json", "number,headRefOid,mergeCommit"])
+    prs = json.loads(out or "[]")
+    posted = 0
+    for pr in prs:
+        num = int(pr["number"])
+        head = (pr.get("headRefOid") or "").strip()
+        if not head:
+            continue
+        red = failing_checks(gh, repo, head)
+        if not red:
+            continue
+        marker = MERGED_RED_MARKER.format(head)
+        if any(marker in body for body in pr_comments(gh, repo, num)):
+            print(f"[auto-merge] #{num} already carries the merged-over-red alert for {head[:8]}")
+            continue
+        merge_oid = ((pr.get("mergeCommit") or {}).get("oid") or "").strip()
+        if merge_oid:
+            merge_red = failing_checks(gh, repo, merge_oid)
+            if merge_red:
+                counter = (f"The merge commit `{merge_oid}` is red too: {merge_red}")
+            else:
+                counter = (f"The merge commit `{merge_oid}` has no red check. A later re-run can look "
+                           f"green while the head that was merged (`{head}`) was not.")
+        else:
+            counter = "GitHub did not report a merge commit for this pull request."
+        text = (f"{marker}\n\n**Merged over a red head** (issue #1386). {red}\n\n{counter}")
+        print(f"[auto-merge] #{num}: {red}")
+        if dry:
+            print(f"[auto-merge] would comment the merged-over-red alert on #{num}")
+            posted += 1
+            continue
+        _gh(gh, ["pr", "comment", str(num), "--repo", repo, "--body", text])
+        posted += 1
+    print(f"[auto-merge] merged-over-red: {posted} alert(s)")
+    return 0
+
+
 def explain(gh: str, repo: str, pr: int, head_sha: str = "") -> int:
     """The same decision, printed for a human. Writes nothing."""
     state = pr_state(gh, repo, pr)
@@ -609,6 +752,11 @@ def explain(gh: str, repo: str, pr: int, head_sha: str = "") -> int:
     verdict = bot_verdict.verdict_for_head(state.get("comments") or [], current_head)
     print(f"[auto-merge] bot verdict at this head: "
           f"{json.dumps(verdict) if verdict else 'none'}")
+    judged = head_sha or (state.get("headRefOid") or "")
+    red = failing_checks(gh, repo, judged)
+    if red:
+        print(f"[auto-merge] verdict: defers to a human — {red}")
+        return 0
     reason = decide(state, head_sha, repo_owner=repo.split("/")[0])
     if reason is None:
         via = " on the bot verdict at this head (--admin: the review cannot be self-approved)" \
@@ -659,6 +807,16 @@ def main(argv: list[str] | None = None) -> int:
     e.add_argument("--pr", type=int, required=True)
     e.add_argument("--head-sha", default="")
     e.add_argument("--gh", default="gh")
+    c = sub.add_parser("red-check", help="exit 1 when the PR head has a red check; merges nothing")
+    c.add_argument("--repo", required=True)
+    c.add_argument("--pr", type=int, required=True)
+    c.add_argument("--gh", default="gh")
+    a = sub.add_parser("alert-merged-red",
+                       help="comment once on a merged PR whose head pipeline was red; merges nothing")
+    a.add_argument("--repo", required=True)
+    a.add_argument("--limit", type=int, default=20)
+    a.add_argument("--gh", default="gh")
+    a.add_argument("--dry", action="store_true")
     r = sub.add_parser("recheck", help="re-evaluate the PRs whose deferral marker matches their head")
     r.add_argument("--repo", required=True)
     r.add_argument("--max-prs", type=int, default=5)
@@ -667,6 +825,17 @@ def main(argv: list[str] | None = None) -> int:
 
     args = p.parse_args(argv)
     _require_token()
+    if args.cmd == "red-check":
+        state = pr_state(args.gh, args.repo, args.pr)
+        sha = (state.get("headRefOid") or "").strip()
+        red = failing_checks(args.gh, args.repo, sha)
+        if red:
+            print(f"[auto-merge] PR #{args.pr}: {red}", file=sys.stderr)
+            return 1
+        print(f"[auto-merge] PR #{args.pr}: no red check on {sha[:8]}")
+        return 0
+    if args.cmd == "alert-merged-red":
+        return alert_merged_red(args.gh, args.repo, args.limit, args.dry)
     if args.cmd == "recheck":
         return recheck(args.gh, args.repo, args.max_prs, args.dry)
     if args.cmd == "explain":

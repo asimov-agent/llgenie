@@ -225,3 +225,8 @@ jobs:
           APPROVER_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: make auto-merge-recheck REPO="$REPO"
+      - name: Alert when a merged PR's head pipeline was red (issue #1386)
+        env:
+          GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: make alert-merged-red REPO="$REPO"

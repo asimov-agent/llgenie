@@ -1360,6 +1360,8 @@ removal condition is abandonment, and a hold on a merged PR blocks nothing.
 make auto-merge PR=<n> REPO=asimov-agent/llgenie [HEAD_SHA=<sha>] [APPROVE=1] [DRY=1]  # the decision + the merge
 make auto-merge-explain PR=<n> REPO=asimov-agent/llgenie     # why it was (or was not) merged — writes nothing
 make auto-merge-recheck REPO=asimov-agent/llgenie [MAX=5] [DRY=1]  # retry the PRs the gate deferred at their current head
+make check-merge-on-red PR=<n> REPO=asimov-agent/llgenie  # exit non-zero when the head has a red check (issue #1386)
+make alert-merged-red REPO=asimov-agent/llgenie [MAX=20] [DRY=1]  # comment once on a merged PR whose head was red
 make verify-closure PR=<n> REPO=asimov-agent/llgenie         # did `closes #n` actually close?
 make auto-merge-resolve REPO=<owner/repo> RUN_ID=<id> HEAD_OWNER=<owner> HEAD_BRANCH=<branch>  # run -> PR number
 make auto-merge-channel REPO=<owner/repo> HEAD_SHA=<sha>  # which engine merges the head: CI, or this sweep (a docs-only head has no CI run)
@@ -1387,6 +1389,7 @@ What it will and will not touch:
 | draft PR, a **third-party** fork (only `andyholst/llgenie` is trusted), head branch `main` | never merged |
 | head moved after the run started | deferred: the newer run decides |
 | `do-not-merge` label | **held** — the human escape hatch; remove it and the next green run merges |
+| a head check-run concluded `failure`, `timed_out`, or `startup_failure` (`scope`, `ci-verdict`, `linux / unit`, or any other job) | **not merged** — the gate defers and does not use `--admin`. `skipped` and `cancelled` are not a red pipeline (issue #1386) |
 
 **It publishes what it acted on (fleet rule 14, #873).** The automation is a lane too, so every act is
 written where a reader looks rather than only in a job log: a merge posts one comment naming the
