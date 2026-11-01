@@ -12,7 +12,7 @@ metadata:
 
 # llgenie bot orchestration: idle bot → waiting issue
 
-> A merge can land with a RED head-instance check-set (merge re-run may clear it) — verify on `commits/{sha}/check-runs`, never `mergeStateStatus`: `references/merged-over-red-gate.md`. Lane CI reports & 60m cancellations: `references/actions-run-attempt-reconciliation.md`. Any lane claim (sha, head, duration, file set, workflow names): `references/verifying-lane-claims.md`. Gate vs live pipeline, 1h-cancelled unit row = CEILING verdict on base: `references/ci-gate-vs-live-pipeline.md`, `references/ceiling-config-verdict-vs-defect.md`. Frozen lane, dispatch delivery (queue_full, out-of-order report), census pins: `references/stalled-lane-and-dispatch-delivery.md`. Behavioural change owes an `agent-wiki/<stem>.md` note + `docs/changes.d/<stem>.md`: `references/change-note-gate.md`.
+> A merge can land with a RED head-instance check-set (merge re-run may clear it) — verify on `commits/{sha}/check-runs`, never `mergeStateStatus`: `references/merged-over-red-gate.md`. Lane CI reports & 60m cancellations: `references/actions-run-attempt-reconciliation.md`. Any lane claim (sha, head, duration, file set, workflow names): `references/verifying-lane-claims.md`. Gate vs live pipeline, 1h-cancelled unit row = CEILING verdict on base: `references/ci-gate-vs-live-pipeline.md`, `references/ceiling-config-verdict-vs-defect.md`. Frozen lane, dispatch delivery (queue_full, out-of-order report), census pins: `references/stalled-lane-and-dispatch-delivery.md`. **Stale-reroute misread**: a lane that stands down "per your dispatch" may be citing the superseded one — before accepting a stand-down or a "leaving it to the other lane", read the issue's own comment trail and confirm whether the newest routing comment (post its id and the time) names it as owner and whether any PR already carries the issue. Correct with the reroute comment id in hand; a stand-down is only valid against the newest routing, never against a bot's memory of an older one. Reading a run's job log mid-flight (302 blob redirect, failed-step surfacing): `references/actions-job-log-reading-midrun.md`. A lane blocked on an already-settled run, or circling a void vehicle (head not on any remote ref / PR already merged / PR CLOSED as a duplicate while a different PR closed the issue): `references/settled-run-void-vehicle.md`. Verifying a "byte-identical copy" claim (tree==live via md5, trailing-newline trap, anchor updates, the cap-on-LIVE-file trap): `references/byte-identity-verification.md`. Behavioural change owes an `agent-wiki/<stem>.md` note + `docs/changes.d/<stem>.md`: `references/change-note-gate.md`. A PR that reads `BLOCKED` with `mergeable: true` is not a conflict — triage stale-base vs review vs red-gate, then read the red job's own error line: `references/actions-job-log-reading-midrun.md`.
 >
 > The owner files a dedicated issue after a PR is already open against the umbrella one:
 > see `references/closes-target-repointing.md` — the PR closes the dedicated issue, the original
@@ -334,54 +334,7 @@ while you rephrase. Full recipe in `references/fleet-failure-modes.md`.
 
 ## Your own rules are a repo artifact
 
-A host agent's `SOUL.md` and skills live outside version control by default, so an instruction change is the one
-behaviour change nobody reviews — and the host agents hold the write credentials. Any change to this skill or to the
-planner's `SOUL.md` goes through an llgenie issue and a PR that commits the text under `agents/<profile>/` (issue
-#791 is the tracking issue and the layout). File the issue first, dispatch the PR, then sync the profile from the
-repository; never edit the live `SOUL.md` and stop there.
-
-**Filing the trail issue is half the mutation; dispatching the owning lane is the other half.** A trail issue
-carrying a `bot-claim:` comment that *names* the owning lane is board state, not moved work — the lane does not read
-issue bodies on its own and will sit idle while the versioning debt stays un-landed. After `gh issue create` +
-claim, `message_agent` the owning lane (skill/doc files under `agents/<profile>/` → the documentation-maintainer
-lane) with the issue ids, the preflight (fresh `origin/main`, read `AGENTS.md` at that sha, name it in the PR body),
-fold-one-vehicle instruction, and never-merge. Treat "issue open + claim posted" as done only once a lane dispatch
-exists; a filed-but-undispatched trail is the same idleness defect as a filed-but-unassigned issue.
-
-**Validate a live edit is genuinely tree-absent before filing its trail.** Before opening a #791 issue for a rule
-you just wrote into the live profile, prove the tree copy lacks it: `git show origin/main:<skill.md> | grep -c
-'<distinctive phrase>'` must read `0` while the live file reads `1`. If the tree already carries the text, the
-"trail" is a phony duplicate against a merged rule, and the honest disposition is "already versioned at `<sha>`,
-no issue." One live edit → one trail issue; when a single session touches several bullets, each distinct lesson
-gets its own trail (do not silently fold a dispatch-race guard and a close-audit rule into one issue whose body
-names only one of them).
-
-**A rule learned by one lane must reach every lane, and verbatim.** When a session produces rules the whole fleet
-needs (destructive-action prohibitions, reporting shape, freeze semantics), file **one** issue carrying the rules as a
-single canonical block, then send every active profile the same instruction: copy the block *verbatim* under one
-heading, and add **one lane-specific rule the canonical text cannot express** (the reviewer's "retract in the PR, not
-in a DM"; the rebase lane's "one push per PR then freeze"; the CI lane's "authorised is not now"). Verbatim matters
-because the profiles are then diffable against each other — paraphrases drift within a week and each lane ends up
-with a subtly different fleet.
-
-**Prove the copy, do not assert it.** Each profile PR should show `block in soul` computed from the issue body (extract the block, test membership) rather than "copied verbatim", and the profile gate should be run with a **negative control** — delete one canonical rule and watch the gate red with a message naming the missing rule, restore, re-run green. A profile SOUL is a protected agent-instruction file: an approval prompt that times out is escalated in one line naming the file and the reason, never worked around with a heredoc or `cp`.
-
-**The canonical block grows after the copies are opened, so re-diff at merge time.** Rules are added while profile PRs are already in review, which silently makes every earlier copy stale: the issue body is the source of truth and the PR is a snapshot of it. Before approving or merging any copy, diff the artefact against the current body — extract the block, assert membership, and compare byte counts and bullet counts (`<n> bytes · <n> bullets`). A copy showing 1758 bytes / 10 bullets against a 2137-byte / 11-bullet body is *not* "verified in #<issue>", it is one rule behind, and merging it ships a SOUL missing the rule that lane earned. Hold the merge, put the hold as a comment on the PR so the owner sees it, and let the lane push the missing bullet once its current run concludes — the amendment is one line and needs no re-review. Applied to every copy: a "verified" status is a comparison against the source as it stands now, never a claim made when the file was written.
-
-**Base the profile PRs on whichever branch actually introduces `agents/`.** When that directory is not yet on the default branch, a profile PR based on `main` carries the whole introducing diff and cannot be reviewed on its own; base it on the branch that creates the tree, fetch it via `refs/pull/<n>/head` when the branch ref is not published, and say in the body that the diff collapses once the parent lands. Use `Refs #<issue>`, not `closes` — one of N profiles does not close a fleet-wide issue.
-
-**Decide *which* skills to version mechanically, not by reading them.** Asking "which of these sixty are
-behaviour-bearing?" invites either a 60-file PR nobody reviewed or an omission. Encode the answer instead: a profile
-file is in scope when it is **not byte-identical to the bundled copy**, recorded as a generated manifest (`path ·
-sha256 · authored|vendored`), with the profile gate failing when an *authored* hash no longer matches the tree or when
-a profile carries a skill absent from the manifest. That collapses the review to the authored diff, and it turns the
-next unversioned host edit into a gate failure rather than a confession — which is the whole point of the issue: hosts
-edit their own skills silently and self-report afterwards.
-
-Two practical notes. **The issue is the channel, not the DM:** half the fleet's inboxes refuse admission
-(`queue_full`), so the issue body carries the block and the DM only says "read it, then PR". And **each rule earns its
-line from a measured cost** — write the cost as the reason in the issue table, because a rule with no mechanism behind
-it is the first thing a future lane deletes as bureaucracy.
+`references/lane-own-rules-are-repo-artifact.md` — the full section lives verbatim in the reference.
 
 ## Never prune: report worktrees instead
 
@@ -492,6 +445,7 @@ is set by something other than the author, say "armed, not by this lane" rather 
 
 Worktree/push hygiene: `references/worktree-and-push-hygiene.md`. Red CI runs: `references/ci-failure-attribution.md`.
 Reading a failing job's log, `run.status` lying, queued-vs-running verdicts: `references/ci-state-and-queue.md`.
+Reading a **midrun** job log (while the job is still running): `references/actions-job-log-reading-midrun.md`.
 Engine build changes (delegated build+test follow-up, #1085): `references/engine-build-followup.md`.
 Posting a comment or dispatch body that contains a command: `references/shell-and-body-safety.md`.
 Measurement discipline, Actions concurrency, and local-host contention (a wall-time on a saturated host is not a baseline): `references/measurement-and-concurrency.md`.
@@ -697,14 +651,7 @@ And the meta-rule from both: **when CI catches a gate your local loop omitted, a
 
 ## A hold is board state; lifting one needs evidence
 
-`do-not-merge` and work-queue labels (`agent:implement`) are **yours to change, not a lane's** — a lane stripping a label it disagrees with is indistinguishable from a lane editing its own backlog, and only you can see every lane's queue. When a lane finds a stale label, it reports; you remove.
-
-The hold itself has two shapes and they need different handling:
-
-- **A hold with an open reason** is doing its job: leave it, and ask the holder for the one-line unblock condition so the next reader knows what would clear it.
-- **A hold with a closed reason is a blocker in disguise.** Once the stated defect is fixed, the label silently parks work that is ready and the PR looks blocked for a reason that no longer exists. Demand either a lift — with the removal itself evidenced (`check_pr_authors … → OK` at the reviewed head) — or a new unblock condition.
-
-Check what a hold is actually gating before worrying about it: with auto-merge disabled or absent, removing `do-not-merge` hands nothing to a bot.
+`do-not-merge` and work-queue labels (`agent:implement`) are **yours to change, not a lane's**. The hold has two shapes (open reason = leave it; closed reason = blocker-in-disguise), and a hold whose reason expired reads as abandoned on the board — full handling, the two shapes, and the unblock-evidence rule: `references/board-state-and-holds.md`.
 
 **A defect that cannot fire on any event the repo produces is a follow-up, not a merge blocker.** Before keeping a hold
 for a missing trigger, a wrong exit code or a broken branch, list the events the repository can actually emit:
@@ -1086,70 +1033,4 @@ Deferring is a decision you make and record; a PR left open under the old premis
 
 ## Pitfalls
 
-- **Four gates on this board print the same output for "found nothing" and "could not tell."** #1086 compared one
-  direction only; #1108 printed `OK` for profiles that declare zero rules; #1123 enforced note→fragment but never
-  change→note; **#1134 aborted with a `UnicodeDecodeError` and printed no FAIL at all, so every caller read a
-  crashed check as clean.** That last one hid, for hours, a **125 KB skill directory existing only on one host**.
-  **A check that cannot say "I did not run" is not a check** — whenever you read a green from a gate, ask what its
-  "could not tell" path prints, and if the answer is "the same thing", the green is not evidence.
-- **Before asserting any check gates a merge, read the ruleset.** A repository whose `main` ruleset is only
-  `deletion, non_fast_forward` has **no required status checks**, so no cancelled or red suite blocks anything — the
-  review is the only gate, and a green-except-matrix board is *information, not protection*. The armed-vs-gated
-  question (should a PR wait on a leg that cannot block?) is answered with the ruleset, never with the check list:
-  `gh api repos/<o>/<r>/rulesets/24862727 --jq '[.rules[].type]'`. Measured asimov-agent/llgenie: five legs dead at
-  the same 60m ceiling, all cancelled, none of them load-bearing against a merge.
-- **A cancelled leg is two opposite events; only the duration separates them.** `cancelled` at ~18 s is a supersede
-  (a newer push superseded the run); `cancelled` at the `timeout-minutes` ceiling — ~60m2x on five independent
-  branches and start times — is the declared timeout doing its job, and a constant that tight is a ceiling, not a
-  coincidence. Report the **attempt number and the duration** beside every `cancelled` reading; the conclusion alone
-  is meaningless.
-- **When a lane regresses to the same wrong numbers despite two corrections, stop re-correcting and post the
-  authoritative state on the PR** where every future reader — bot or human — hits it before acting. The repair that
-  works is the one that replaces the unreliable prose as the record, not a third DM. Then say once, plainly, that the
-  ground rule is `paste the command output, not a sentence about it`, and refuse to be the correction loop a fourth
-  time.
-- **Check your own work the way this fleet checks others.** `references/proving-bot-claims.md` now carries the
-  instruments that caught the most errors tonight, each written as a rule: `created_at` is not a start time; the
-  positive value of an eventually-consistent field is proof and the negative is not; a compound shell command is
-  classified by its first matching segment, so a test chained onto an edit is invisible; a versioning PR is a
-  checkpoint rather than a state; and a sentence that says `closes #n` is not a link. Read that file before
-  reporting a verdict, not after being corrected.
-
-- **A skill file that hits the ~100,000-character cap becomes un-patchable, silently.** `skill_manage` refuses the
-  save and rolls back every touched skill, so the lesson you believe you recorded lands nowhere - or lands only in
-  the duplicate profile copy, which is how a lane "keeps forgetting" a rule it keeps writing down. `wc -c` the file
-  before blaming the lane; the remedy is a reference file plus a pointer, never an edit to the cap. Recipe (size the
-  sections, move one verbatim, prove `missing: 0`, re-lint, prove with a real save) and the extraction-not-worktree
-  check for another lane's scripts: `references/agent-profile-sync.md`.
-
-- **A claim with no branch is theatre.** The 3h TTL blocks every other implementer from the issue that may be
-  reddening all PRs. Release it in a comment with the 404 as evidence, then re-dispatch.
-- **Never enumerate claims with `gh issue list --search`.** The search returns a subset, so a live claim is
-  invisible and the pass dispatches a second implementer onto work that is already in flight. Read *every* open
-  issue's comments and regex the marker, then compare it to the branch list:
-  `gh issue list --state open --limit 200 --json number,comments --jq '.[]|.number as $n|.comments[]|select(.body|test("bot-claim:"))|"\($n) \(.createdAt) \(.body)"'`.
-  A claim whose `run=<id>` already reports verdict `implement` + `PR: #<n>` is live work, not a dispatch target.
-- **A finished `refine` run leaves a live-looking claim.** `run=<id>` completed `success`, verdict `refine`, no
-  branch, TTL still counting: the issue is unowned. Release and hand it to the specialist for its class — the CI
-  bot will not pick it up again inside the TTL.
-- **Never run a prune to "tidy up" before a dispatch.** The worktree you would delete is often the in-flight work; the
-  destructive target is owner-only (#794) and a bot following `AGENTS.md:483` literally destroys its own run.
-- **Deleting a branch whose issue is open throws away the only work product.** Check
-  `compare/main...<branch>` first: 1 commit and a few behind is salvageable (hand it over to finish the PR); far
-  behind across generated files is a rebuild, so delete and re-implement fresh.
-- **An issue with an open PR is not dispatchable work.** Before handing an issue to an implementer, check
-  `gh pr list --state open` for a PR whose body closes it; a second branch for the same issue is a duplicate artifact,
-  and the correct instruction is "do not implement this, it is in review".
-- **An automated approval is not the owner's approval.** A PR can show `reviewDecision: APPROVED` and be merged by the
-  same non-human identity seconds later — read `gh api .../pulls/<n>/reviews` (`submitted_at`, `user.login`) against
-  `mergedAt`/`mergedBy`. When approve and merge come from one identity inside a few seconds, report it to the owner as
-  an incident; never present it as "your approval was given".
-- **Labelling everything `agent:implement` floods a 3/day bot** and builds a queue nothing drains — especially while
-  its implement leg is broken. Order the queue, label the head of it.
-- **A `success` run can be a decision with no artifact.** A CI triage leg that returns `refine` posts a restated spec,
-  labels the issue refined, opens no branch and still exits green. Treat that issue as unowned and hand it to the host
-  implementer; never read `success` as “being worked”. Check the verdict comment and the branch list, not the run's
-  colour.
-- **Two lanes converging on one gap is a sign the gap is real — and still one issue too many.** When a second issue appears minutes after yours describing the same defect, close the duplicate rather than merging the prose, but **read it first**: the newer filing often carries a criterion the survivor lacks (a failure mode, a second direction of the same check, a negative control). Fold that into the survivor as a supplement comment, name which issue keeps the trail and which acceptance criteria came from the closed one, and say plainly that two lanes reaching the same measurement is evidence for the gap rather than a mistake by either.
-- **Append to a workspace file, do not keep the fleet state in your head.** Write the run/claim/branch snapshot to a
-  JSON file and diff it on the next pass: a bot that was quiet last pass and is still quiet is a finding.
+`references/orchestration-pitfalls.md` — the pitfalls checklist lives verbatim in the reference.
