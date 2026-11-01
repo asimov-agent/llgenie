@@ -301,6 +301,25 @@ against `name:` prefixes, not ids).
   that only needs one. Before starting: `ps -o pid,etime,cmd -p <pid>` / `ps aux | grep '[w]<pr>'`; if
   the first one is alive, kill the new one (`kill <newpid>`) rather than the old, and carry on with the
   live one.
+- **A poller must re-check the branch tip EVERY iteration — a loop that only watches check state
+  reports a superseded head as a concluded verdict.** A rebase or force-push during the poll moves the
+  branch (and cancels the watched run) while the loop keeps reading the old run's `completed` result,
+  so its `ALL_CONCLUDED@<oldsha>` wake-up describes a tree the PR no longer carries — and each one
+  costs a turn re-litigating a run that cannot speak about the branch. Guard the head inside the loop:
+
+  ```
+  for i in $(seq 1 80); do
+    h=$(git ls-remote origin refs/heads/<branch> | cut -f1)
+    if [ "${h:0:8}" != "<watched-head-8>" ]; then echo "HEAD_MOVED to ${h:0:8} — new CI cycle"; exit 0; fi
+    r=$(gh pr checks <n> --repo <repo> 2>&1)
+    if ! printf '%s' "$r" | grep -qE 'pending|queued|in_progress|waiting'; then echo "CONCLUDED @ $h"; ...; exit 0; fi
+    sleep 30
+  done
+  ```
+
+  Compare the tip **at the top of each cycle**, before reading check state; and when a completion
+  notification arrives, check its sha against the current head before acting on it. A wake-up naming a
+  head that is no longer the tip is stale-on-arrival — say so and re-poll; never turn it into a verdict.
 - **`gh pr view --json headRefOid` LAGS a push — it can still return the pre-push head.** Reading it
   right after a push shows the old sha (flagged internally as a max-cached head), so "the PR head is
   the old sha" is not evidence that your push failed. The authoritative tip in that moment is
@@ -451,6 +470,14 @@ run <id> · head <sha> · main <sha> · <n> passed / <n> failed · fails on main
   `auto=none (stacked base: no required checks, no CI scheduled)` and is armed **on retarget**;
   merging one by hand is a bypass, not a handoff.
 - **After any arm, read it back** — `gh pr view <n> --json autoMergeRequest,mergedAt,mergeStateStatus`.
+  **Put `.state` in that same read-back, every time.** `enabled_at: null` with `enabled_by` populated
+  is the identical read for two opposite situations — the arm did not register, and the PR was
+  CLOSED/MERGED before the arm could register — and only `.state`/`.mergedAt` tells them apart. Skipping
+  it turns a finished PR into an endless "why won't it arm" loop: re-issuing `gh pr merge --auto` and
+  re-reading `auto_merge.*` in fresh jq variants returns the same null forever, because the field you
+  are staring at can no longer change. When the read-back does not flip, the FIRST next move is a full
+  `gh api repos/<o>/<r>/pulls/<n>` dump (one call, whole object) — the answer is usually a field you
+  did not filter for, and enumerating more jq filters instead of reading the object is the trap.
   An arm that reports `MERGEABLE` and then `MERGED` within seconds is the stacked-base tell, not a
   quiet queue position; report the merge commit and the arm time so the reviewer sees which of the two
   happened. `mergeStateStatus` alone cannot distinguish "waiting" from "already merged".
@@ -678,6 +705,15 @@ If two PRs claim the same change, say so and ask which is canonical instead of p
   the new base with no rewrite, and force-rebasing a co-owner's non-Conflicting branch is an
   unnecessary rewrite + a pointless fresh CI run. "Rebase only when actually CONFLICTING" means: prove
   the conflict with the exit code, or leave the branch alone.
+- **`main` moving under a head whose CI is in flight is NOT a rebase trigger — chasing it is an
+  infinite loop.** The unit matrix takes tens of minutes and a busy fleet merges every few minutes, so
+  any rebase "onto the newest main" is stale again before its run concludes, and each rewrite cancels
+  the matrix that was about to produce the verdict. A head on an older `main` still merges and its
+  green is a valid verdict FOR THAT HEAD — quote it with both shas (§5) and let the merge queue
+  rebase-if-needed. Re-base again only when the head actually goes `CONFLICTING`
+  (`git merge-tree --write-tree <fresh-main> <head>` non-zero) or when a fix landed on `main` that the
+  head must pick up to be judged fairly (a raised timeout ceiling, a repaired gate) — and say which of
+  the two made you rewrite, so the next reader knows the rebase was driven by a measurement.
 
 ## 9. Triage a batch of red PRs — reproduce locally, fix nothing
 
@@ -702,6 +738,12 @@ worktree plus the comment, and saying plainly that the fix itself is the other l
   correct IN-FLIGHT state, not an incomplete one: say so plainly, cite the hashes, and decline to
   fabricate an extra commit to silence the guard. Manufacturing a mutation to satisfy a detector is
   exactly the "fake mutation" the guard exists to prevent.
+  **Explain the false positive with THREE hashes, not two** — the detector scans the MAIN working tree
+  at the base sha, so a branch's changed paths are structurally absent from it until the merge and no
+  amount of re-verifying changes that: `git cat-file blob <base>:<path>`, `git cat-file blob
+  <head>:<path>`, and `sha256sum < "$LIVE/<path>"`. `head == live` proves the change; `base != head`
+  proves the scanned tree still holds the pre-PR copy, i.e. the guard's demand is only satisfiable by
+  a merge you are gated from. Quote all three in the reply and the guard reads as measured, not dodged.
 - **When the dispatch names an ISSUE/PR BODY as the vehicle, the body edit IS the task-relative
   change — and it must be read back, not assumed.** "Add the X citation to #N's body" is not a repo
   change and there is no code edit to owe; the deliverable is the body text, and the completion check
