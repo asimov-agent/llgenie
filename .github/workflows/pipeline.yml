@@ -90,7 +90,19 @@ jobs:
       - name: make test-env (Python 3.11 - Linux pulls llgenie/test from GHCR, macOS builds the 3.11 venv)
         run: make test-env
       - name: make ci-unit (test-unit, skills-validate, check-registry, check-strata-models, check-engine-params)
-        run: make ci-unit
+        env:
+          # The body, the title and the branch live on the pull_request event. A push to main has
+          # none of them. PR_BASE falls back to origin/main, which is then HEAD, so the squash range
+          # is empty and only the static half runs. PR_HEAD stays the git revision the author gate
+          # reads; the branch name is PR_BRANCH (issue #1417).
+          PR_BODY: ${{ github.event.pull_request.body || '' }}
+          PR_BRANCH: ${{ github.head_ref || '' }}
+          PR_BASE: ${{ github.event.pull_request.base.sha || 'origin/main' }}
+          PR_TITLE: ${{ github.event.pull_request.title || '' }}
+        run: |
+          set -euo pipefail
+          if [ -n "$PR_BODY" ]; then printf '%s\n' "$PR_BODY" > /tmp/pr-body.md; export PR_BODY=/tmp/pr-body.md; fi
+          make ci-unit
       - name: Prune orphaned test containers
         if: always()
         run: make test-clean
