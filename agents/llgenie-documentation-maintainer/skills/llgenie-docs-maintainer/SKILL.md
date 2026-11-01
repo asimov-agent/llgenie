@@ -116,12 +116,25 @@ Concretely, treat this as part of comparing the behaviour of existing issues and
 - `make check-agent-profiles` names the gaps: `live-longer`, `live-edited-not-tree`, `fleet-block-drift`
   (the last is tree-only and reds CI; the first two need a live profile, so CI never sees them).
 - `make sync-agent-profile PROFILE=<p> CHECK=1` byte-compares the tree copy to live — exit 0 means the
-  pair is identical, a `differ` line names the first divergent file.
+  pair is identical, a `differ` line names the first divergent file. **Run it from the branch's own
+  worktree, never the main checkout or a stale local `main`:** it reads the tree at the cwd, so a CHECK
+  launched elsewhere compares live against *that* tree — a red it reports then belongs to whatever is
+  checked out there (usually another lane's live-only skill), not to the branch you are versioning.
+  A red you cannot reproduce from the branch worktree is the wrong-cwd signal, not a fleet finding.
 - **Direction is judged on content, per hunk, never copied blindly:** a tree copy that is a *prefix* of
   live means live is newer — re-take live→tree; a live file edited *after* the tree commit means the
   lane's behaviour outran the repo — commit it via an issue+PR under `agents/<profile>/`.
 - **Never run `sync-agent-profile` in write mode for a lane whose live is richer** — it truncates and no
   gate notices (#791). `CHECK=1` only.
+- **Your own `skill_manage` patch to this lane's skill edits LIVE only, so it opens tree drift the moment
+  it lands.** The skill-write tools write the host profile; the versioned copy under
+  `agents/<profile>/skills/**` does not move with them. After any self-improvement pass, either fold it
+  live→tree in that same session (issue → branch → byte-identical copy → `CHECK=1` → PR) or record the
+  byte delta and file the fold on the next pass — an unfiled drift is precisely the host-vs-repo gap this
+  lane exists to close. **A "reload your SOUL and skills" instruction is the cheapest drift check the
+  lane gets:** after re-reading, `cmp` the live skill against the tree copy and treat any size gap as a
+  finding (new issue + fold PR), because live is what runs and the tree is what a reader trusts — a live
+  file that grew by one lesson is a tree that is silently wrong by that lesson.
 - **Re-copy live→tree at PR time, not when you cut the branch.** A versioning PR stays open while the
   lane keeps editing its live skill, so a tree copy committed early is already stale by merge (live
   gained lessons twice during one PR) and `sync-agent-profile CHECK=1` then reds on `main` against
