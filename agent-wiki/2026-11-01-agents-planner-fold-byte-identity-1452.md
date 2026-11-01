@@ -1,0 +1,1 @@
+Note for the `#1452` byte-identity verification reference fold: `references/byte-identity-verification.md` is committed to the tree byte-identical to the live planner profile (md5 `7fade46f…`, 6,822 B). See `docs/changes.d/2026-11-01-agents-planner-fold-byte-identity-1452.md`.
