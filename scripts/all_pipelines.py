@@ -19,7 +19,11 @@ invisible from a green board. This module is the engine behind `.github/workflow
   #1285 exists to close — so the gate renders `ADMISSION GATE DOWN` and FAILS the sweep (issue #1285);
 - emit the table `workflow · dispatched run id · status/conclusion · completed_at`, state the sha swept, and
   exit non-zero at the END only if any non-disabled dispatched run failed or the admission gate is down
-  (failure isolation — one red pipeline never aborts the sweep).
+  (failure isolation — one red pipeline never aborts the sweep);
+- the sweep also clamps its OWN freshness (issue #1291): the weekly observatory is itself a pipeline, so
+  it must prove it has run on cadence — a sweep whose previous own run is older than the weekly window
+  renders `SWEEP UNSEEN (last run <date> @ <sha>)` and FAILS the sweep, so a stopped weekly watcher is
+  as visible as a stopped daily scan (a gate nobody runs is not a gate).
 
 Commands:
     all_pipelines.py sweep --repo owner/repo [--ref main] [--gh /path/to/gh] [--timeout 300]
@@ -58,6 +62,13 @@ SECURITY_GATE = "security-scan.yml"
 # cron is silently broken (but did not get disabled) is still caught without false-reds on scheduler
 # jitter. This is the freshness half of the admission alarm (issue #1285).
 ADMISSION_GATE_MAX_AGE_HOURS = 50
+# The SWEEP's OWN freshness window (issue #1291): the all-pipelines sweep is itself a workflow_dispatch
+# + schedule pipeline, and a gate nobody watches is not a gate — so the weekly observatory must prove it
+# has run on its own cadence too. The week is 168 h; as with the daily gate, allow one missed weekly slot
+# + a margin, so a sweep whose Saturday cron silently stopped is still caught without false-reds on
+# scheduler jitter. `SWEEP UNSEEN` is the mark a stale sweep renders, naming the sweep itself.
+SWEEP_GATE_MAX_AGE_HOURS = 168 * 2 + 2  # = 338 h (one missed weekly slot + 2 h)
+SWEEP_UNSEEN_MARK = "SWEEP UNSEEN (issue #1291)"
 # The `never_pause` set is DERIVED from bots/pause.toml (issue #902), never a hand-kept list here:
 # #874 established that auto-merge must never be paused, and #902 extends it to every workflow that
 # turns a green PR into a mergeable, tested, published one. A hand-listed tuple here is the roster
@@ -184,6 +195,35 @@ def _age_hours(created_at: str) -> float:
     return (datetime.now(timezone.utc) - t).total_seconds() / 3600.0
 
 
+def sweep_self_run(repo: str, gh: str, wf_id: str) -> dict | None:
+    """The sweep's own most recent CONCLUDED run `{created_at, head_sha}`, or None if it has never run.
+
+    The self-freshness half of issue #1291: all-pipelines.yml is itself a pipeline, and a gate nobody
+    runs is not a gate — so the weekly observatory must be able to prove it has been running on cadence.
+    `/actions/workflows/{id}/runs` is newest-first, and `.workflow_runs[0]` is the CURRENTLY-EXECUTING
+    run (fresh by construction, the very checkpoint asking the question), so those are skipped: the run
+    that proves the sweep has been healthy is the PREVIOUS concluded one. `created_at` is when the sweep
+    last reported; `head_sha` is the tree it reported at. A failed or empty read means "no prior proof
+    the sweep ran on cadence" — return None so the caller treats absence of a prior run exactly like a
+    stale one.
+    """
+    try:
+        raw = run_gh(["api", f"repos/{repo}/actions/workflows/{wf_id}/runs"], gh)
+    except SystemExit:
+        return None
+    docs = load_json(raw)
+    runs = docs[0].get("workflow_runs", []) if docs and isinstance(docs[0], dict) else (docs if docs else [])
+    for r in runs:
+        if r.get("status") in ("in_progress", "queued"):
+            continue  # the run that is currently asking is not evidence of the previous cadence
+        created_at = r.get("created_at")
+        if not created_at:
+            continue
+        return {"created_at": created_at, "head_sha": r.get("head_sha") or ""}
+    return None
+
+
+
 def classify(root: Path, states: dict[str, dict]) -> list[dict]:
     """`[{file, role: dispatch|disabled|not_dispatchable|self|admission_down, id, active}]` from the tree + live states.
 
@@ -290,12 +330,15 @@ def ok(row: dict, concluded: dict | None) -> str:
     return f"{concluded['status']}/{concluded['conclusion'] or 'none'}"
 
 
-def render_report(rows: list[dict], concluded: dict[str, dict], sha: str) -> tuple[str, int]:
+def render_report(rows: list[dict], concluded: dict[str, dict], sha: str,
+                  sweep_unseen: dict | None = None) -> tuple[str, int]:
     """The table `workflow | dispatched run id | status/conclusion | completed_at`, the excluded list and
     the `N ok · M failed · K disabled` summary. Returns (text, exit_code).
 
-    exit_code is 1 iff any DISPATCHED (non-disabled, non-self, non-not_dispatchable) run failed —
-    computed at the END, so the full table is always emitted (failure isolation).
+    exit_code is 1 iff any DISPATCHED (non-disabled, non-self, non-not_dispatchable) run failed, the
+    admission gate is down/stale, or the sweep's OWN previous run is older than the weekly cadence
+    (`sweep_unseen` — issue #1291) — computed at the END, so the full table is always emitted (failure
+    isolation).
     """
     lines = [f"# all-pipelines sweep @ {sha}", "", "| workflow | dispatched run id | status/conclusion | completed_at |",
              "|---|---|---|---|", ""]
@@ -331,11 +374,19 @@ def render_report(rows: list[dict], concluded: dict[str, dict], sha: str) -> tup
     disabled_n = sum(1 for row in rows if row["role"] == "disabled")
     lines.append("")
     lines.append(f"Summary: {ok_n} ok · {failed} failed · {disabled_n} disabled"
-                 f" · {len(forbidden)} FORBIDDEN disabled · {len(admission_down)} ADMISSION GATE DOWN")
+                 f" · {len(forbidden)} FORBIDDEN disabled · {len(admission_down)} ADMISSION GATE DOWN"
+                 f" · {1 if sweep_unseen else 0} SWEEP UNSEEN")
     if admission_down:
         lines.append("")
         lines.append(f"ADMISSION GATE DOWN (issue #1285 — the daily security scan is not answering,"
                      f" so main has no clean-scan proof): {', '.join(f'`{a}`' for a in admission_down)}")
+    if sweep_unseen:
+        lines.append("")
+        lines.append(f"{SWEEP_UNSEEN_MARK}: the sweep's own previous run "
+                     f"({sweep_unseen.get('created_at') or 'never'} @ {sweep_unseen.get('head_sha') or 'none'}) "
+                     f"is older than the weekly cadence window ({SWEEP_GATE_MAX_AGE_HOURS} h, issue #1291) — "
+                     f"the observatory of observatories has itself gone unseen; main has no answer to "
+                     f"\"who ran the all-pipelines sweep this week\"")
     if forbidden:
         lines.append("")
         lines.append("FORBIDDEN disabled (issue #902 — these must never be paused, the merge path "
@@ -349,7 +400,7 @@ def render_report(rows: list[dict], concluded: dict[str, dict], sha: str) -> tup
         lines.append("")
         lines.append("Not dispatchable (no workflow_dispatch) — not swept:")
         lines.append(", ".join(f"`{f}`" for f in excluded_nd))
-    return "\n".join(lines) + "\n", 1 if (failed or forbidden or admission_down) else 0
+    return "\n".join(lines) + "\n", 1 if (failed or forbidden or admission_down or sweep_unseen) else 0
 
 
 def sweep(repo: str, ref: str, gh: str, timeout: int, root: Path = REPO_ROOT) -> tuple[str, int]:
@@ -373,11 +424,24 @@ def sweep(repo: str, ref: str, gh: str, timeout: int, root: Path = REPO_ROOT) ->
             last = security_gate_last_run(repo, gh, row["id"])
             if not last or _age_hours(last) > ADMISSION_GATE_MAX_AGE_HOURS:
                 row["role"] = "admission_stale"
+    # The SWEEP's OWN freshness clamp (issue #1291): the weekly observatory is itself a pipeline, so it
+    # must prove it has run on cadence. Read the sweep workflow's own previous run; if it is missing or
+    # older than the weekly window, the report renders `SWEEP UNSEEN` and FAILS — a stopped weekly watcher
+    # can never read as "nothing to report". The self row is `self`, so fetching its run history does not
+    # dispatch anything (recursion is still impossible).
+    sweep_unseen: dict | None = None
+    for row in rows:
+        if row["file"] != SELF or not row.get("id"):
+            continue
+        prev = sweep_self_run(repo, gh, row["id"])
+        if prev is None or _age_hours(prev["created_at"]) > SWEEP_GATE_MAX_AGE_HOURS:
+            sweep_unseen = prev or {"created_at": "", "head_sha": ""}
+        break
     for row in rows:
         if row["role"] != "dispatch":
             continue
         concluded[row["file"]] = dispatch_one(repo, gh, row["file"], row["id"], ref, timeout)
-    report, code = render_report(rows, concluded, sha)
+    report, code = render_report(rows, concluded, sha, sweep_unseen=sweep_unseen)
     print(report)
     return report, code
 
