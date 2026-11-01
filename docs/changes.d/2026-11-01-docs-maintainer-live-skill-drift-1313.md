@@ -1,0 +1,1 @@
+| 2026-11-01 | the docs-maintainer lane's live SKILL.md again drifted +348 b after #1309 (self-edit-drift + reload-is-the-cheapest-drift-check lessons); folded live→tree byte-identical (72,587 b), SOUL already aligned | [2026-11-01-docs-maintainer-live-skill-drift-1313.md](agent-wiki/2026-11-01-docs-maintainer-live-skill-drift-1313.md) | #1313 |
