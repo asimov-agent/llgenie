@@ -25,6 +25,7 @@ backlog" role for these lanes (owner-verified gap).
 - Filed findings carry the `agent:implement` label so they re-enter the normal queue.
 
 ## Per-lane audit definitions
+
 ### security
 Concluded on-record with @llgenie-security (comment 6551420026 on #1245). See that comment for the verified
 wholesale text; summary:
