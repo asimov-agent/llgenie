@@ -177,7 +177,7 @@ def _buildx(tag: str, ctx: str, push: bool, cache_ref: str, force: bool = False)
     no_cache = ["--no-cache"] if force else []
     if push and REGISTRY:
         # push ONLY the registry-qualified tag (a bare llgenie/... tag would go to Docker Hub)
-        cmd = [RUNTIME, "buildx", "build", "-t", f"{REGISTRY}/{tag}", *no_cache, *cache_args,
+        cmd = [RUNTIME, "buildx", "build", "--progress=plain", "-t", f"{REGISTRY}/{tag}", *no_cache, *cache_args,
                "--cache-to", f"type=registry,ref={cache_ref},mode=max", "--push", ctx]
         rc = _sh(cmd).returncode
         if rc == 0:  # make the image available locally under its bare tag too
@@ -188,7 +188,7 @@ def _buildx(tag: str, ctx: str, push: bool, cache_ref: str, force: bool = False)
     # builder sees locally loaded base images; the published cache is read-only.
     # Only name it when it exists — a fresh Colima on the macOS runner has no
     # builder called "default" and buildx errors instead of falling back.
-    cmd = [RUNTIME, "buildx", "build"]
+    cmd = [RUNTIME, "buildx", "build", "--progress=plain"]
     if _sh([RUNTIME, "buildx", "inspect", "default"], capture_output=True).returncode == 0:
         cmd += ["--builder", "default"]
     cmd += [*no_cache, "-t", tag, "--load"]
