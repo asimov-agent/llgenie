@@ -82,7 +82,21 @@ block against one SOUL).
    ```
 6. **Run the gates**: `make check-agent-profiles`, `pytest tests/test_agent_profiles.py`, plus
    `check-docs` and `check-wiring`. **The change record is a fragment, not a row in `CHANGES.md`**:
-   one row per file at `docs/changes.d/<note-stem>.md` (plus the `agent-wiki/` note itself). Hand-editing
+   one row per file at `docs/changes.d/<note-stem>.md` (plus the `agent-wiki/` note itself). **"One row"
+   is literal — the fragment file holds exactly one markdown table row and a trailing newline, nothing
+   else:**
+
+   ```
+   | 2026-11-02 | agents(<profile>): <what changed, with blob shas> | [note](agent-wiki/<stem>.md) | #<issue> |
+   ```
+
+   All prose — heading, sections, evidence tables — belongs in `agent-wiki/<stem>.md`; the paragraph
+   you feel like writing into `changes.d/` IS the wiki note. A multi-line document in the fragment reds
+   `make changes-index` with a PAIR of errors that read as two defects and are one: `holds N line(s); a
+   fragment is exactly one row` plus `agent-wiki/<stem>.md: is not indexed — add
+   docs/changes.d/<stem>.md with its row`. The second is not a missing file — the file is right there,
+   just unreadable as a row — so collapse the fragment to a single row and both clear at once, leaving
+   the wiki note untouched. Hand-editing
    the rendered `CHANGES.md` fails `check-docs` with "is not indexed", because the page is generated.
    Baseline the finding count: run `check-docs` on a clean worktree at the base sha too and report the
    identical count rather than assuming the red is yours.
