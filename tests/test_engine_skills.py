@@ -19,6 +19,7 @@ import pytest
 import yaml
 
 import scripts.engine_skills as es
+import scripts.proc as proc
 
 REPO = Path(__file__).resolve().parent.parent
 FIXTURE = REPO / "tests" / "fixtures" / "trending-models.json"
@@ -110,6 +111,24 @@ def test_cuda_arch_is_derived_from_compute_capability():
     # Then they are the CMake arch numbers
     assert archs == ["89", "86", "120", "75"]
     assert es.cuda_arch_from_compute_cap("") == ""
+
+
+def test_probe_command_exiting_1_is_loud_never_empty():
+    """A version/hardware probe whose command exits non-zero is loud, never '' (issue #797).
+
+    The old `engine_skills._run` returned '' on OSError/timeout, so `nvcc --version` / `nvidia-smi`
+    failing read "no version". The seam's `run_checked` policy raises naming the command and its stderr
+    — the loud-outcome test the acceptance requires.
+    """
+    # Given a probe path that runs a command which exits 1 on the binary path
+    cmd = ["python3", "-c", "import sys; sys.exit(1)"]
+    # When engine_skills._run runs the probe
+    # Then it raises a loud ProcError, never returning the empty string
+    with pytest.raises(proc.ProcError):
+        es._run(cmd)
+    # And the seam's own text policy agrees nothing silent is produced for an exiting-1 command
+    with pytest.raises(proc.ProcError):
+        proc.run_checked(cmd)
 
 
 def test_llama_cpp_cuda_build_targets_the_detected_gpu(skills):

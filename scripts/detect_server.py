@@ -37,6 +37,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
+try:  # the policy seam (issue #797): imported as scripts.proc or script mode
+    from .proc import run_checked as _run_checked  # type: ignore
+except ImportError:  # pragma: no cover - script mode
+    from proc import run_checked as _run_checked  # type: ignore
 try:
     from .env_seam import env_seam  # noqa: F401
 except ImportError:  # scripts/ on sys.path
@@ -44,7 +48,6 @@ except ImportError:  # scripts/ on sys.path
 import platform
 import re
 import shutil
-import subprocess
 import sys
 
 # ---------------------------------------------------------------------------
@@ -98,12 +101,14 @@ _NVCC_SEARCH = ["/opt/cuda/bin/nvcc", "/usr/local/cuda/bin/nvcc"]
 # Low-level subprocess helper (single implementation, reused everywhere)
 # ---------------------------------------------------------------------------
 def _run(cmd, capture=True, timeout=5) -> str:
-    """Run a command; return stdout (best-effort; returns '' on timeout)."""
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-        return r.stdout
-    except subprocess.TimeoutExpired:
-        return ""
+    """Run a probe command; return its stdout.
+
+    The single low-level subprocess call in this module lives in `scripts/proc.py` (the policy seam,
+    issue #797). The policy is `run_checked` — loud: a probe whose command exits non-zero RAISES naming
+    the command and its stderr (never returns ``''``). ``OSError``/`TimeoutExpired` propagate: a probe
+    that cannot even run is a failure the caller must not read as "no output".
+    """
+    return _run_checked(cmd, timeout=timeout)
 
 
 def _which(name: str) -> bool:
