@@ -1,0 +1,1 @@
+| 2026-11-01 | agents(llgenie-tester): fold live SKILL +1 and agent-profile-versioning +10 onto #1079 (tree-derived-file-set, fold-live-profile workflow) | [note](agent-wiki/2026-11-01-tester-live-lessons-5.md) | #1079 |

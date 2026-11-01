@@ -33,6 +33,16 @@ block against one SOUL).
 2. **Create the lane** by copying the live profile's SOUL and the skill you want versioned. Keep the
    skill at `agents/<profile>/skills/<name>/` — a category subdirectory (`skills/software-development/
    <name>/`) syncs as "missing in the profile" because the comparison is flat.
+
+   **Derive the lane's file set from the TREE (`git ls-files agents/<profile>`), never from an assumed
+   layout.** The live home holds every skill on the machine; the tree holds only the versioned ones, so
+   a hand-guessed path (`references/` one level above where they live, or a category directory) can
+   match nothing and still report "in sync" — a fold that copies zero files looks identical to a fold
+   with nothing to do. Use `scripts/fold-live-profile.py --profile <n>`: it enumerates the tracked tree
+   files, hash-compares each against its live counterpart, flags live-only files under directories the
+   tree already covers (the `skill-reference-missing` class), and with `--copy` moves only the drifted
+   ones live → tree and re-hashes the destination. Re-run it at the start of EVERY round — the live
+   half moves while the PR sits open.
 3. **Register it** in `agents/manifest.json` with the rules the SOUL must state (`never-implement`,
    `never-merge`). The gate fails if a declared rule is absent from the SOUL.
 4. **Adding a fleet rule:** write the bullet into `agents/standing-rules.md` **and** into every SOUL that
