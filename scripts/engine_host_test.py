@@ -2,21 +2,27 @@
 """Host-side engine serve test: `make test-engine-host`.
 
 The owner directive (#1322): a make command the engine-improver lane runs ON THIS HOST
-(and the engine-build pipeline's LAST step runs on the CI runner) that, for every engine in
-the committed params whose ARCH TYPE THIS HOST SUPPORTS, serves the engine's published image
-against its SMALLEST supported model, asserts an llm-local /v1/chat/completions answer, and
-reports the measured tokens/sec a real run produced.
+(and the engine-build pipeline's LAST step runs on the CI runner as a parallel matrix over the
+runner's supported cells) that serves ONE engine's published image against a MODEL that fits host
+VRAM and the engine supports, asserts an llm-local /v1/chat/completions answer, and reports the
+measured tokens/sec a real run produced.
 
 No engine image is BUILT here. The images are the CI-published ones (`engine-build.yml` builds
 and publishes); this command only PULLS and RUNS, exactly like `make test-published-engine`
 (issue #102). On a GPU-less host (or runner) the GPU legs are SKIPPED with a documented reason
 per issue #1240, never reddening; the cpu legs always run.
 
-  python3 scripts/engine_host_test.py [--engine ID] [--arch cpu|cuda|rocm|vulkan] [--port N]
-                                       [--timeout S] [--model <hf-id|path>]
+  python3 scripts/engine_host_test.py [--engine ID] [--arch cpu|cuda|rocm|vulkan] [--model <hf-id|path>]
+                                       [--port N] [--timeout S]
 
-Exit 0 = every host-arch-supported engine served its smallest model and answered llm-local
-(a real /v1/chat/completions with a non-empty message) and the measured t/s was reported.
+The command is parameterized exactly as the owner refined (#1322): `ENGINE=<id> ARCH=<arch>
+MODEL=<model>` all select what is served. `MODEL` already fits-host-VRAM and the engine supports
+it — when omitted the repository's smallest-model-per-format floor is served instead. Host use is
+sequential one engine at a time (never parallel — engines contend for the GPU); CI expands the
+supported (engine x arch) cells into a parallel matrix keyed off the runner's own arch types.
+
+Exit 0 = every directly-attempted host-arch-supported engine served the model and answered
+llm-local (a real /v1/chat/completions with a non-empty message) and the measured t/s was reported.
 Any directly-attempted supported engine that cannot serve exits non-zero (never a skip).
 
 The per-engine launch/env/detect/health/run args come from the GENERATED params
@@ -33,6 +39,7 @@ import re
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -74,9 +81,29 @@ def smallest_model(skill: dict) -> str:
     `engine_smoke.TEST_MODELS` is the repository's single smallest-model-per-format table; this
     command never invents its own list, so an engine's floor is the same one `make engine-smoke`
     already proves fits any host that can run the engine at all.
+
+    A transient Hub 503/5xx (measured during the full host sweep) must not abort the whole run:
+    the model download is retried with backoff, exactly like `hf_download.py` already retries a
+    429, so a Hub blip skips a breather and the serve still proves llm-local + measured t/s.
     """
     fmt = smoke.pick_format(skill)
-    return smoke.fetch_model(fmt)
+    last = None
+    for attempt in range(3):
+        try:
+            return smoke.fetch_model(fmt)
+        except SystemExit as exc:              # fetch_model raises SystemExit on download rc
+            last = exc
+            if attempt < 2 and "download exited" in str(exc):
+                print(f"[host] fetch {fmt}: retry {attempt + 1}/3 after {exc}", flush=True)
+                time.sleep(15 * (attempt + 1))
+            elif attempt < 2:
+                raise
+        except (urllib.error.HTTPError, OSError) as exc:   # raw Hub 503/5xx propagating in-process
+            last = exc
+            if attempt < 2:
+                print(f"[host] fetch {fmt}: retry {attempt + 1}/3 after {exc}", flush=True)
+                time.sleep(15 * (attempt + 1))
+    raise SystemExit(f"[host] FAIL {skill['id']}: smallest-model fetch failed after 3 attempts: {last}")
 
 
 def _chat(payload: dict, port: int, timeout: float, retries: int = 2) -> dict:
@@ -182,6 +209,8 @@ def main(argv=None) -> int:
     ap.add_argument("--engine", default=None, help="one engine id (default: every committed engine)")
     ap.add_argument("--arch", choices=list(es.CONTAINER_BACKENDS), default=None,
                     help="only this arch type (default: every arch this host supports)")
+    ap.add_argument("--model", default=None, help="the LLM model to serve with "
+                    "(hf-id or path; default: the engine's smallest supported model)")
     ap.add_argument("--port", type=int, default=0)
     ap.add_argument("--timeout", type=float, default=900)
     a = ap.parse_args(argv)
@@ -214,12 +243,16 @@ def main(argv=None) -> int:
             print(f"[host] SKIP {pid}: {skip_reason}")
             skipped.append(pid)
             continue
-        try:
-            model = smallest_model(skill)
-        except SystemExit as exc:
-            print(f"[host] SKIP {pid}: {exc}")
-            skipped.append(pid)
-            continue
+        if a.model:
+            # The parameterized form: serve EXACTLY this model (issue #1322 refinement).
+            model = a.model
+        else:
+            try:
+                model = smallest_model(skill)
+            except SystemExit as exc:
+                print(f"[host] SKIP {pid}: {exc}")
+                skipped.append(pid)
+                continue
         for arch in archs:
             spec = ei.resolve(pid, arch, arch)
             if ei.disabled(pid, spec["variant"]):
@@ -227,8 +260,8 @@ def main(argv=None) -> int:
                 print(f"[host] SKIP {pid}/{spec['variant']}: disabled ({reason})")
                 skipped.append(f"{pid}/{spec['variant']}")
                 continue
-            print(f"[host] --- serve {pid}/{spec['variant']} (one engine at a time, smallest model "
-                  f"{model.rsplit('/', 1)[-1] or model}) ---", flush=True)
+            print(f"[host] --- serve {pid}/{spec['variant']} (one engine at a time, model "
+                  f"{(model or '').rsplit('/', 1)[-1] or model}) ---", flush=True)
             rc = serve_published(spec, model, a.port or smoke.free_port(), a.timeout)
             if rc:
                 fail += 1

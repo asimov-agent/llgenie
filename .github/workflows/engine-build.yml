@@ -62,6 +62,10 @@ on:
         description: "Rebuild from scratch, ignoring the layer cache (true) or reuse a cached/available image (false)"
         required: false
         default: "false"
+      model:
+        description: "An LLM model to serve in the host-verify matrix last step (ENGINE/ARCH both set; default: each engine's smallest supported model)"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -186,6 +190,6 @@ jobs:
       - name: "install-leg: make test-engine-install ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} — install + the installed launcher's engine version (test-built-engine) + uninstall the image this row just published (product `llgenie --dry` lives in pipeline.yml's ci-install, not here; #1027)"
         if: ${{ matrix.engine != 'none' && inputs.push == 'true' }}
         run: make test-engine-install ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}
-      - name: "host-verify-leg (LAST step): make test-engine-host ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} — the host-side serve command the engine-improver lane runs on a real host (issue #1322): pull the JUST-published image (never build), serve its smallest supported model, assert an llm-local /v1/chat/completions answer and report the measured t/s. A GPU-less runner SKIPS the GPU legs with a documented reason (issue #1240) and never reddens them; the same command decides per-host which arch type is the runner's own."
+      - name: "host-verify MATRIX last step: make test-engine-host ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} MODEL=${{ inputs.model }} — the parameterized host-verify command (issue #1322): in parallel (max-parallel 20, one matrix element per supported engine x arch cell), pull the JUST-published image (never build), serve it against MODEL (default: the engine's smallest supported model), assert an llm-local /v1/chat/completions answer and report the measured t/s. The supported set is keyed off the RUNNER's own arch types at runtime (the command reuses engine_skills nvidia_compute_caps()/rocm_gfx_targets()); a GPU-less runner SKIPS the GPU legs with a documented reason (issue #1240) and never reddens them."
         if: ${{ matrix.engine != 'none' && inputs.push == 'true' }}
-        run: make test-engine-host ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}
+        run: make test-engine-host ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} MODEL=${{ inputs.model }}

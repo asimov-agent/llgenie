@@ -147,6 +147,32 @@ def test_every_published_row_install_tests_the_image_it_just_published():
         "the producer install-leg must not call the product-only ci-install-dry (#1196)"
 
 
+def test_the_published_rows_last_matrix_step_runs_the_parameterized_host_command():
+    """Issue #1322 (owner refinement): the engine-build workflow's LAST step is the parameterized
+    host-verify command as a PARALLEL matrix over the supported (engine x arch) cells — one matrix
+    element per cell, keyed off the RUNNER's arch types at runtime. It passes ENGINE/ARCH (and MODEL
+    when the dispatch sets one); a GPU-less runner skips the GPU legs and never reddens (#1240)."""
+
+    # Given the workflow text and the committed Makefile
+    text = workflow()
+
+    # When  the publish -> install-leg -> host-verify MATRIX last step order is read
+    # Then  the parameterized command is the LAST step and runs after the install-leg
+    assert "run: make test-engine-host ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}" in text
+    assert text.index("run: make test-engine-install") < text.index("run: make test-engine-host")
+    after = text.split("run: make test-engine-host", 1)[1]
+    assert "run: make " not in after, f"host-verify must be the last step, found: {after}"
+    # The matrix is parallel over the row cells and keyed off the runner's arch at runtime
+    assert "max-parallel" in text
+    assert "host-verify MATRIX" in text
+
+    # The make target accepts ENGINE, ARCH and MODEL (the owner-refined parameterization)
+    host_tail = MAKEFILE.split("\ntest-engine-host:", 1)[1].split("\n\n", 1)[0]
+    for arg in ("--engine", "--arch", "--model"):
+        assert arg in host_tail, f"test-engine-host must pass ${arg.upper()=}"
+    # The command never builds: it is wired to pull the AS-PUBLISHED image
+    assert "engine_host_test.py" in host_tail
+
 
 def test_one_make_command_answers_every_build_scope():
     """All engines, one arch, one engine, or one engine x one arch — the same list in each case."""
