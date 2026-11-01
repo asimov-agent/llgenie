@@ -22,6 +22,12 @@ correctness of this bot: #344 named #339-#343 under `Not covered` while implemen
 stale-open close and #339-#343 are remainders — and a bot that could not tell them apart would close
 work that is still being tracked.
 
+Only a PR merged into the default branch counts. A merge into a stack branch does not close an issue
+on the default branch, and this bot must not either (issue #1414). Two further title-only cases are
+reported and left open: several merged PRs name the same issue by title (a tracking vehicle — measured
+#1079 via #1310 and #1319), and a title that is an idle-audit record (measured #1282 via #1377). A
+single title-only slice that is neither of those can still close the issue; that gap is #1413.
+
 Reads GitHub through `gh`, which the tests stub on `PATH` (the repo's allowance for an external CLI).
 `--dry` prints the decision and mutates nothing; `--apply` posts the evidence comment and closes.
 """
@@ -46,6 +52,11 @@ CLEANER = bot_claims.CLEANER
 _ISSUE_IN_COMMIT = re.compile(r"(?im)^\s*Issue:\s*#(\d+)\b")
 #: The PR-title convention the repo already uses: `... (#<n>)` at the end.
 _ISSUE_IN_TITLE = re.compile(r"\(#(\d+)\)\s*$")
+#: An idle-audit record uses the issue number as its subject. It did not implement the issue.
+#: Measured: #1377 "idle audit (#1282)" and #1274 "idle continuous-improvement audit (#1245)".
+_IDLE_AUDIT_TITLE = re.compile(r"(?i)\bidle[\w\s-]*audit\b")
+#: PRs merged anywhere but the default branch do not close issues. llgenie's default is main.
+DEFAULT_BASE = "main"
 #: A `Not covered` heading — the section whose items are remainders, not missed closes.
 _NOT_COVERED = re.compile(r"(?im)^\s*#{0,6}\s*Not covered\b")
 _ANY_HEADING = re.compile(r"(?m)^\s*#{1,6}\s+\S")
@@ -60,11 +71,22 @@ def _gh(args: list[str]) -> str:
     return r.stdout
 
 
-def merged_prs(repo: str, limit: int = 60) -> list[dict]:
-    """Recently merged PRs with the fields the decision needs (one API call)."""
-    out = _gh(["pr", "list", "--repo", repo, "--state", "merged", "--limit", str(limit),
-               "--json", "number,title,body,mergedAt,closingIssuesReferences,mergeCommit"])
+def merged_prs(repo: str, limit: int = 60, base: str = DEFAULT_BASE) -> list[dict]:
+    """Recently merged PRs into `base`, with the fields the decision needs (one API call)."""
+    out = _gh(["pr", "list", "--repo", repo, "--state", "merged", "--base", base,
+               "--limit", str(limit),
+               "--json", "number,title,body,mergedAt,closingIssuesReferences,mergeCommit,baseRefName"])
     return json.loads(out or "[]")
+
+
+def merged_to_base(pr: dict, base: str = DEFAULT_BASE) -> bool:
+    """True when this PR merged into `base`. A payload that omits the base is kept.
+
+    `gh pr list --base` already filters. The field check is what a test (and a payload that
+    still names another base) can prove without trusting the flag.
+    """
+    named = (pr.get("baseRefName") or "").strip()
+    return not named or named == base
 
 
 def open_issues(repo: str) -> list[dict]:
@@ -127,20 +149,45 @@ def decide(pr: dict, open_by_number: dict[int, dict]) -> dict | None:
         return {"action": "remainder", "issue": issue_number, "pr": pr["number"],
                 "evidence": evidence, "title": issue.get("title", ""),
                 "reason": "named under the PR's `Not covered` — a tracked remainder, left open"}
+    if evidence.startswith("the title") and _IDLE_AUDIT_TITLE.search(pr.get("title") or ""):
+        return {"action": "audit", "issue": issue_number, "pr": pr["number"], "evidence": evidence,
+                "title": issue.get("title", ""),
+                "reason": "the title is an idle-audit record, left open"}
     return {"action": "close", "issue": issue_number, "pr": pr["number"], "evidence": evidence,
             "title": issue.get("title", ""),
             "reason": "the merged PR implemented it but its body carried no closing reference"}
 
 
-def scan(repo: str, limit: int = 60) -> list[dict]:
-    """Every finding across the recently merged PRs, newest first."""
+def demote_shared_title_vehicles(findings: list[dict]) -> None:
+    """A title shared by several merged PRs names a tracking vehicle, not one implementation.
+
+    Measured #1079, named by #1310 and #1319 in the same window. An `Issue:` line is a stronger
+    claim and is not demoted. One title-only PR still closes; that remaining gap is #1413.
+    """
+    titled = [f for f in findings if f.get("action") == "close"
+              and str(f.get("evidence", "")).startswith("the title")]
+    counts: dict[int, int] = {}
+    for f in titled:
+        counts[f["issue"]] = counts.get(f["issue"], 0) + 1
+    for f in titled:
+        if counts[f["issue"]] > 1:
+            f["action"] = "vehicle"
+            f["reason"] = ("several merged PRs name it by title only — a tracking vehicle, "
+                           "left open")
+
+
+def scan(repo: str, limit: int = 60, base: str = DEFAULT_BASE) -> list[dict]:
+    """Every finding across the recently merged PRs into `base`, newest first."""
     open_by_number = {i["number"]: i for i in open_issues(repo)}
     findings = []
-    for pr in merged_prs(repo, limit):
+    for pr in merged_prs(repo, limit, base):
+        if not merged_to_base(pr, base):
+            continue
         d = decide(pr, open_by_number)
         if d:
             d["mergedAt"] = pr.get("mergedAt")
             findings.append(d)
+    demote_shared_title_vehicles(findings)
     findings.sort(key=lambda f: f.get("mergedAt") or "", reverse=True)
     return findings
 
@@ -180,8 +227,11 @@ def main(argv: list[str] | None = None) -> int:
 
     closes = [f for f in findings if f["action"] == "close"]
     remainders = [f for f in findings if f["action"] == "remainder"]
+    held = [f for f in findings if f["action"] in ("audit", "vehicle")]
     for f in remainders:
         print(f"[cleaner] remainder #{f['issue']} ({f['title'][:60]}): {f['reason']}", flush=True)
+    for f in held:
+        print(f"[cleaner] {f['action']} #{f['issue']} ({f['title'][:60]}): {f['reason']}", flush=True)
     for f in closes:
         print(f"[cleaner] stale-open #{f['issue']} ({f['title'][:60]}): implemented by "
               f"#{f['pr']} per {f['evidence']}", flush=True)

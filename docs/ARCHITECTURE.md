@@ -957,8 +957,9 @@ key, text to `OUT`), with `make search-smoke` as its loud proof and `make web-co
 Coordination lives in the tree, not in the workflows: `scripts/bot_claims.py` says which bot
 is already working a subject, `scripts/rebase_bot_sweep.py` (`make rebase-bot-sweep`) and
 `scripts/fix_bot_sweep.py` decide the one PR a sweep acts on, `scripts/issue_cleaner.py`
-(`make issue-cleaner-scan` / `make issue-cleaner-apply`) finds an open issue a merged PR
-already implemented, and `scripts/issue_dedup.py` decides which pair of issues the dedupe
+(`make issue-cleaner-scan` / `make issue-cleaner-apply`) finds an open issue a PR merged
+into main already implemented. The stale-branch cleanup workflow runs the apply target
+daily (issue #1414). `scripts/issue_dedup.py` decides which pair of issues the dedupe
 sweep compares.
 
 `scripts/worktree_prune.py` (`make worktree-prune`, `DRY=1` prints the plan and mutates

@@ -2044,7 +2044,12 @@ make issue-cleaner-scan   # which OPEN issue a merged PR already implemented: Gi
                           # evidence and closes nothing; REPO= picks the repo
 make issue-cleaner-apply  # the same decision, then: an evidence comment on the issue and a close as
                           # completed. An issue the PR's own `Not covered` section names is a tracked
-                          # remainder and is left open; REPO= picks the repo
+                          # remainder and is left open. Only a PR merged into main counts. A title-only
+                          # match shared by several merged PRs (a tracking vehicle) and an idle-audit
+                          # title are reported and left open (issue #1414). REPO= picks the repo.
+                          # `.github/workflows/stale-branch-cleanup.yml` runs this target daily at
+                          # 03:39 UTC and on workflow_dispatch. Branch deletion in that workflow stays
+                          # behind APPLY; this close does not.
 make workflows-report  # show every YAML file the workflow gate reads, how many expressions it validated, and its verdict
 make worktree-report   # measure the bench before a bot starts, and mutate NOTHING (issue #794): one row per
                        # `git worktree list --porcelain` entry with its path, branch (`detached` when it holds

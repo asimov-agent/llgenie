@@ -9,9 +9,13 @@ name: stale-branch-cleanup — delete non-main branches with no live vehicle, ol
 
 # Trigger surface: schedule daily 03:39 UTC (an odd, unowned minute — computed from the other workflows'
 #                   crons so nothing collides) + workflow_dispatch; default report-only, APPLY=true deletes.
-# Flow: guard -> make stale-branch-cleanup (scripts/stale_branch_cleanup.py).
-# Never: cron never deletes silently (report-only without APPLY), never deletes a branch with an open PR
-#        or reachable-from-nothing commits, never touches main, never merges, never pushes to main.
+# Flow: guard -> make stale-branch-cleanup (scripts/stale_branch_cleanup.py)
+#       and, beside it, make issue-cleaner-apply (scripts/issue_cleaner.py, issue #1414).
+# Never: cron never deletes branches silently (report-only without APPLY), never deletes a branch with
+#        an open PR or reachable-from-nothing commits, never touches main, never merges, never pushes
+#        to main. Closing an issue a PR merged into main already implemented is the daily run; branch
+#        deletion stays behind APPLY. The closer does not run on a stack-branch merge, an idle-audit
+#        title, a title shared by several PRs, or a Not covered remainder.
 on:
   schedule:
     - cron: "39 3 * * *"   # daily 03:39 UTC — an odd minute no existing workflow owns (fresh slot)
@@ -84,3 +88,21 @@ jobs:
           esac
           make stale-branch-cleanup REPO="${{ github.repository }}" \
             $(if [ -n "$APPLY_FLAG" ]; then echo "APPLY=1"; fi)
+  close-implemented:
+    needs: [guard]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Close open issues a merged-to-main PR already implemented (issue #1414)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Daily, and on a hand dispatch. Branch deletion stays behind APPLY.
+          # This target posts the evidence comment and closes. It does not merge.
+          make issue-cleaner-apply REPO="${{ github.repository }}"
