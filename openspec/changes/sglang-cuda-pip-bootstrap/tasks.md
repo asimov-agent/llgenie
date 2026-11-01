@@ -15,7 +15,7 @@
 - [ ] 4. The `engine-image-sglang-cuda` cell is proven on a CI run from this PR
   head (`make build-engine ENGINE=sglang ARCH=cuda` then
   `make test-engine-stage TEST=detect`) — no `No module named pip`.
-- [x] 5. `make test-unit` green (full hermetic suite) — 2688 passed, RC=0.
+- [x] 5. `make test-unit` green (full hermetic suite) — 2690 passed, RC=0.
 - [x] 6. `agent-wiki/2026-10-31-sglang-cuda-pip-bootstrap.md` + `CHANGES.md` row
   (+ `docs/changes.d/`), OpenSpec `tasks.md` all ticked.
 - [x] 7. `make openspec-validate NAME=sglang-cuda-pip-bootstrap` exits 0.

@@ -36,7 +36,10 @@ this cell alone fails on the shared base.
    which `--no-build-isolation` does not fetch — preinstall both
    (`wheel_stub scikit-build-core`) in the cuda install steps (uv's own
    diagnostics from the runs: wheel_stub on run 41253216593, scikit-build-core
-   on run 41253604264).
+   on run 41253604264). Also preinstall a `cmake` (4.x) wheel: sglang-kernel's
+   aot/CMakeLists calls `cmake_policy(SET CMP0169/CMP0177 ...)` unguarded, and
+   those are CMake 4.x-only policies the distro 3.28 hard-errors on
+   (`Policy "CMP0169" is not known to this version of CMake`, run 41254674809).
 4. Verify with `make build-engine ENGINE=sglang ARCH=cuda` (this lane never
    builds an engine image locally — CI is the builder — so the cell is proven
    on the CI `engine-image-sglang-cuda` run from this PR head), then

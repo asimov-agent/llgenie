@@ -314,9 +314,11 @@ def test_sglang_cuda_install_uses_uv_not_pip(skills):
     assert "python[all]" not in steps, "after `cd {src}/python`, the editable spec is '.[all]', never 'python[all]' (non-existent path)"
     # The `[all]`-extra source backends --no-build-isolation will not fetch must be
     # preinstalled or the cell fails mid-install: cuda-tile needs `wheel_stub`
-    # (run 41253216593) and sglang-kernel's aot package needs `scikit-build-core`
-    # (run 41253604264). Both must ride the same preinstall step.
-    for backend in ("wheel_stub", "scikit-build-core"):
+    # (run 41253216593), sglang-kernel's aot package needs `scikit-build-core`
+    # (run 41253604264), and a 4.x cmake wheel shadows the distro one whose 3.28
+    # hard-errors on the aot build's CMake-4.x-only cmake_policy calls
+    # (CMP0169/CMP0177, run 41254674809). All three ride the same preinstall step.
+    for backend in ("wheel_stub", "scikit-build-core", "cmake"):
         assert backend in steps, f"sglang/cuda must preinstall {backend} for the --no-build-isolation install"
 
 
