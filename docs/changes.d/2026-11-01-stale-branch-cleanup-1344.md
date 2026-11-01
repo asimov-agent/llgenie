@@ -1,0 +1,1 @@
+| 2026-11-01 | add the `stale-branch-cleanup` pipeline (issue #1344): clears non-`main` remote branches >= 3 days old AND fully delivered (no open PR AND commits in `origin/main` or PR MERGED/CLOSED), daily 03:39 UTC + manual dispatch, deletion only via `APPLY=true` so the cron never silently deletes | [note](agent-wiki/2026-11-01-stale-branch-cleanup-1344.md) | #1344 |

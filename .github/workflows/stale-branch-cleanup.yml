@@ -1,0 +1,86 @@
+# Stale-branch cleanup pipeline (issue #1344).
+#
+# The repo accumulates non-`main` remote branches (measured: 48 at origin/main@793ac1dc); most are
+# squash-merged PR branches (tip NOT an ancestor of main — the #1317 lesson) or unmerged bot/verification
+# branches. No mechanism retires them. This pipeline clears branches that are BOTH at least 3 days old
+# AND fully delivered (no open PR; every commit already in origin/main, or the PR for that head is
+# MERGED/CLOSED). Branches with a live vehicle (open PR) or unreachable commits are REPORTED, never deleted.
+name: stale-branch-cleanup — delete non-main branches with no live vehicle, older than 3 days (daily cron)
+
+# Trigger surface: schedule daily 03:39 UTC (an odd, unowned minute — computed from the other workflows'
+#                   crons so nothing collides) + workflow_dispatch; default report-only, APPLY=true deletes.
+# Flow: guard -> make stale-branch-cleanup (scripts/stale_branch_cleanup.py).
+# Never: cron never deletes silently (report-only without APPLY), never deletes a branch with an open PR
+#        or reachable-from-nothing commits, never touches main, never merges, never pushes to main.
+on:
+  schedule:
+    - cron: "39 3 * * *"   # daily 03:39 UTC — an odd minute no existing workflow owns (fresh slot)
+  workflow_dispatch:
+    inputs:
+      APPLY:
+        description: "delete the selected stale branches (default false = report-only, never mutates)"
+        required: false
+        default: "false"
+
+permissions:
+  contents: read
+
+# concurrency: stacking is fine (report/deletion are idempotent per branch), but two concurrent sweeps
+# racing the same branch list could double-delete the same ref; cancel-in-progress: false keeps a run
+# that already started authoritative (issue #917).
+concurrency:
+  group: stale-branch-cleanup
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Owner / collaborator trigger guard
+        env:
+          ACTOR: ${{ github.actor }}
+          TRIGGER: ${{ github.triggering_actor }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.repository }}
+          # The run's head repository: empty for every non-PR event (issue #510).
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name || '' }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for u in "$ACTOR" "$TRIGGER"; do
+            if [ "$u" = "$OWNER" ]; then continue; fi
+            # The repository's own bot is a GitHub App login, so it is never a collaborator and the
+            # permission read below answers 404 -> `none`: every bot-opened PR was refused (run
+            # 39650944430, #495). It may pass ONLY when the run's head is a branch in THIS repository —
+            # a same-repo head can be produced only by a token with write access — while the bot as the
+            # actor of a FOREIGN head (a bot commenting on a stranger's PR) is still refused (#510).
+            if [ "$u" = "github-actions[bot]" ] && [ -n "${HEAD_REPO:-}" ] && [ "${HEAD_REPO:-}" = "$REPO" ]; then
+              echo "Repository bot $u on a same-repo head ($HEAD_REPO) - allowed."
+              continue
+            fi
+            perm=$(gh api "repos/$REPO/collaborators/$u/permission" --jq .permission 2>/dev/null || echo none)
+            case "$perm" in
+              admin|maintain|write) echo "Collaborator $u has $perm - allowed." ;;
+              *) echo "Refused: $u is not the owner or a collaborator with write access (permission: ${perm:-none})."; exit 1 ;;
+            esac
+          done
+          echo "Allowed: actor=$ACTOR triggering_actor=$TRIGGER"
+  cleanup:
+    needs: [guard]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Clean stale non-main branches (report-only by default)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APPLY: ${{ inputs.APPLY || 'false' }}
+        run: |
+          set -euo pipefail
+          case "$APPLY" in
+            1|true|TRUE|yes|YES) APPLY_FLAG=--apply ;;
+            *) APPLY_FLAG= ;;
+          esac
+          make stale-branch-cleanup REPO="${{ github.repository }}" \
+            $(if [ -n "$APPLY_FLAG" ]; then echo "APPLY=1"; fi)
