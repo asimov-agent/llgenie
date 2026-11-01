@@ -2702,6 +2702,11 @@ def test_the_architect_soul_states_the_rules_its_manifest_declares():
     `UNPROTECTED … declares no standing rule` — green, and protecting nothing. Declaring a rule the SOUL does
     not state is the other failure: it reds with `FAIL standing-rule … no longer states never-implement`. Both
     halves are asserted here because either one alone reads as fine. Whitespace is normalised: prose wraps.
+
+    The architect lane's contract (per its live SOUL, #873/#791) is now: never-merge kept, never-implement
+    dropped — the architect lane *opens* structural-design PRs, so it must not declare never-implement. The
+    rules list is asserted as a subset (never-merge required, never-implement absent), not as an exact list,
+    so a future legitimate standing-rule addition does not red this test.
     """
     import json
 
@@ -2709,9 +2714,10 @@ def test_the_architect_soul_states_the_rules_its_manifest_declares():
     manifest = json.loads((REPO / "agents" / "manifest.json").read_text())
     entry = next(p for p in manifest["profiles"] if p["name"] == "llgenie-architect")
 
-    assert entry["rules"] == ["never-implement", "never-merge"], entry["rules"]
-    assert "you do not implement" in soul, "the architect SOUL no longer states never-implement"
+    assert "never-merge" in entry["rules"], entry["rules"]
+    assert "never-implement" not in entry["rules"], entry["rules"]
     assert "never merge" in soul, "the architect SOUL no longer states never-merge"
+    assert "do not implement" not in soul, "the architect SOUL still binds never-implement"
     assert "auto=none" in soul, \
         "the lane's no-auto-merge instruction must sit beside the fleet rule it overrides"
 

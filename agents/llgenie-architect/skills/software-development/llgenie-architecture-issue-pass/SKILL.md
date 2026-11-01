@@ -1,7 +1,7 @@
 ---
 name: llgenie-architecture-issue-pass
 description: "Audit llgenie architecture and file refactor issues."
-version: 1.2.0
+version: 1.4.0
 metadata:
   hermes:
     tags: [llgenie, architecture, github, issues, refactor]
@@ -22,7 +22,11 @@ Every other installed skill is listed in `skills.disabled`.
 The pin is `tests/fixtures/host-bot-capabilities.json` in asimov-agent/llgenie (issue #1038).
 <!-- host-bot-tools:end -->
 
-A structural audit of this repository that ends in issues another bot implements. This is the contract a
+## Role artifact (2026-11-01)
+
+A structural design change is this lane's ready-for-review pull request: cross-lane boundaries, the `agents/` layout, or the architecture doc that defines that shape. You never merge. A refactor that is another lane's code stays an issue you file, naming that lane. Product features, docs prose, workflows, and engine files are not this PR. When the issue or the PR is up, `message_agent` to `llgenie-planner` with the number, the sha, and which lane owns the next step.
+
+A structural audit of this repository. When another lane owns the code, it ends in an issue that lane implements. When the change is the design itself, it ends in this lane's pull request. This is the contract a
 host agent runs when the owner says "go over the architecture and file the refactoring work". It is the
 HOST half of the fleet: no CI leg preloads it, and it is admitted by name in `HOST_SKILLS`
 (`scripts/check_agent_skills.py`) so every admission is a reviewed diff.
@@ -150,8 +154,27 @@ HOST half of the fleet: no CI leg preloads it, and it is admitted by name in `HO
   root` against a `rw` mount), so the first write fails with EACCES — `sudo chown -R $(id -u):$(id -g)` the
   directory, then write. `sudo` needs the terminal tool's tty; a `sudo` inside a non-interactive tool call
   fails with "a terminal is required".
-- A corrected number means correcting the BODY, not just adding a comment — the implementer reads the
-  body.
+- **A refine/restate dispatch targets the issue BODY as the primary artifact — edit the body first, not a
+  comment you upgrade later.** When the ask is "restate this issue into the repo's six-section shape", the
+  deliverable is the body an implementer reads; a comment is the discussion trail, secondary. Shipping the
+  comment first and only then editing the body (which a completion guard may have to push you into) does the
+  work in the wrong artifact and reads as an unfinished claim until the body moves. Generalises the
+  corrected-number rule: any change the implementer must act on lives in the BODY.
+- **Before restating an acceptance criterion, check it is SATISFIABLE against the live gates — rescope a
+  conflicting AC, do not hand it to an implementer.** A criterion that contradicts a gate the tree runs is
+  unsatisfiable by construction: an AC demanding "no SOUL quotes the whole fleet rulebook" collided with the
+  #873 fleet gate requiring every SOUL to state `standing-rules.md` verbatim (`fleet-block-exemptions.json`
+  empty), so satisfying it literally meant exempting lanes or breaking the gate — both regress a
+  NON-negotiable benefit. Rescope the AC to what the gate allows plus the real target, and name the target
+  by MEASUREMENT: the actual per-lane context cost was the skills trees (69–562KB), not the ~6.4KB shared SOUL
+  block, so "smaller context" was a skills-slimming job the AC as written never pointed at. Read the gate
+  (`grep` its findings function, its exemption file, its heading constant) before rewriting a criterion that
+  touches it.
+- **A refine that adds sequencing must land each step independently green and never regress a benefit.**
+  Name the order by dependency, not by roster: a lane that is the SINK of a collaboration contract (every
+  other lane messages it) lands before the lanes that message it, or the contract cannot exist. Put renames
+  (dir moves, e.g. a typo'd profile dir) as one atomic manifest+dir+test PR, not folded into a reshape.
+- **A PR that changes a behavioural surface OWES a dated note + a `docs/changes.d/` row, or `check-docs` reds the `scope` job — this is the first thing to add, not a surprise.** `agents/<lane>/SOUL.md`, `agents/<lane>/skills/**` and `agents/manifest.json` are all in `NOTE_SURFACE_RES` (the `change->note` rule), so a lane PR that versions a SOUL or a skill (the most common shape this lane ships) is a behavioural change and needs `agent-wiki/<stem>.md` plus a matching `docs/changes.d/<stem>.md` fragment citing the issue/PR. Write both before you push: the note is cheap, and finding the red after a green-looking local gate costs a whole CI cycle. **The gate that fails is the `ci-scope` run (`scope.yml`), NOT the `CI` run** — `ci.yml` carries `paths-ignore: docs/**, agent-wiki/**, openspec/**, *.md`, so the docs gates deliberately live in `scope.yml` (no path filter, one always-present `scope` check). When a docs gate is red, read `gh run list --branch <head>` for the `ci-scope` entry and its job log; looking at `CI` shows the matrix, not the docs verdict. And re-run `make check-docs` locally AFTER `git add`-ing/committing the note — see the next bullet for why an untracked note is invisible to it.
 - **A diff-based gate cannot see an uncommitted artifact, so "I added the note and it still says I didn't"
   usually means you have not committed yet.** A change→note rule reads the PR's diff (`base...HEAD`), not
   the working tree, so a note file sitting untracked is invisible and the gate reports exactly what it would
@@ -164,6 +187,16 @@ HOST half of the fleet: no CI leg preloads it, and it is admitted by name in `HO
   the issue. Match `lines.index("## Not covered")` for the heading itself, and re-read the body
   immediately before writing: another agent's append to the same issue is silently replaced by your
   `--body-file`, so verify their content survived instead of assuming it did.
+- **Never put backticks in an inline `gh ... --body "..."` string — the shell runs them and deletes the
+  word.** `gh pr comment <n> --body "the job was `` `cancelled` `` at the ceiling"` posts `the job was  at
+  the ceiling`: command substitution executed `cancelled`, printed `command not found` to the terminal, and
+  left two spaces where the word belonged. It exits 0 and prints a comment URL, so the failure is silent and
+  the truncated text is what every reader (and every later retraction pass) then quotes. Write the body to a
+  file with a quoted heredoc (`cat > /tmp/b.md <<'MD' … MD`) and pass `--body-file /tmp/b.md`, or build the
+  payload with `python3 -c 'json.dumps({"body": open(p).read()})'` and `gh api -X PATCH --input`. The same
+  interpolation hits `git commit -m` and any other `-m`/`--body` flag; a single stray backtick is enough.
+  **Read the posted body back** (`gh api repos/<owner>/<repo>/issues/comments/<id> --jq .body`) — a comment
+  you cannot see in the terminal output is a claim, and the mangled version differs by one missing word.
 - **Judge a run by one completed run at the PR's head sha, and read `conclusion` literally.** `gh pr checks`
   prints `cancelled` as `fail`, and any jq that buckets "not success" into `bad` reports cancelled jobs as
   failures — filter on the explicit values (`failure`, `timed_out`, `startup_failure`) and report cancelled
@@ -271,6 +304,15 @@ HOST half of the fleet: no CI leg preloads it, and it is admitted by name in `HO
   waiting on. The correct posture is: state the run's live step read (`gh api .../jobs/<id> --jq '.steps[]'`
   showing one step `in_progress`), say the work is done and the last gate is externally blocked, and hold a
   poller for the verdict — never push to make the guard stop firing.
+  **The guard is unsatisfiable by CONSTRUCTION on a read-only dispatch, and "nothing owed" is the whole
+  answer there.** A gap sweep, a findings report, a review of a PR you did not open: the owner says "do not
+  open issues yet — post findings", "do not implement or merge", so there is deliberately no tree path to
+  change. The task-relative artifact is the REPORT, and the mutation the guard is asking for does not exist.
+  Satisfying it by manufacturing a commit, a doc edit or a no-op push violates the dispatch and the #817
+  no-mutation-to-move-a-checker rule at once. Correct posture: deliver the report, verify it landed (the
+  `message_agent`/DM delivery id, the issue/comment sha), write the findings to a durable file, then state
+  in one line that the guard is a satisfiability mismatch for this dispatch and stop — do not loop re-proving
+  the same read. The sweep command set and the premise-invalidation checks are `references/landscape-sweep.md`.
 - **A PR stacked on a non-`main` base gets NO CI, silently.** Every workflow here gates on
   `on.pull_request.branches: ["main"]`, so a PR whose base is another feature branch produces an empty
   checks tab — `gh run list --branch <head>` returns nothing, which reads like "still starting" and never
@@ -380,6 +422,7 @@ count of how many the SOUL has, which hides a carrier that never gained the rule
   nothing and the gap is invisible until it bites. Revert the sabotage either way, and confirm the clean
   tree is green again.
 - **`gh pr edit` has no `--head` flag — an existing PR cannot be pointed at a different branch; close it and open a new one.** `gh pr edit <n> --head <branch>` errors `unknown flag: --head` (verified against this account), so a PR left pinned to a tangled branch cannot be retargeted in place: comment the resolution on the tangled PR, close it, and `gh pr create` from the clean branch. Do not cycle flag spellings — the CLI exposes `--base` mutation but not head mutation. `--force-with-lease` per branch and plain (below) still do the branch-side work; only the PR object needs the close-and-reopen.
+- **`gh pr merge --auto` exiting 0 arms NOTHING when the base is not the default branch, and `enabled_at` is ABSENT from the read-back rather than null — dump the KEYS, not the object.** GitHub omits null fields from the REST payload, so `gh api repos/<o>/<r>/pulls/<n> --jq '.auto_merge'` prints `{commit_message, commit_title, enabled_by, merge_method}` with no `enabled_at` at all when auto-merge was never armed, and a reader who greps for `enabled_at` finds nothing and concludes "armed". Measure the keys explicitly (`--jq '.auto_merge | keys'`) and the value (`--jq '.auto_merge.enabled_at'` → `null` means NOT armed), and quote the arm time in the same PR comment as the arm command. The exit code of `gh pr merge --auto` is not the fact.
 - **A closed PR does not follow its branch.** Pushing to the branch of a closed PR moves the ref and
   leaves the PR pinned at its pre-close sha (`pulls?head=<repo>:<branch>&state=all` is how you find the
   successor). Verify `pr.head.sha` against `git ls-remote` before claiming a push is visible to reviewers.
@@ -488,6 +531,25 @@ deletions on a vehicle named for a rule the base already has.**
   on a fact that is false here — check the fact (does this repo require any status checks?) before making
   an implementer satisfy the rule, and if the premise is gone, recommend amending the criterion rather
   than the code.
+- **A claim that a gate MISSES a site must first prove the site is inside that gate's ENUMERATION.** A
+  grep for unmarked calls proves the calls exist, not that they enter the gate. For the hermetic unit
+  gate the scan set is `ut.select()` (in `scripts/unit_tests.py`): a file listed under `excluded` in
+  `tests/fixtures/unit-suite.json` runs in some network-seam target instead, and a file with a
+  module-level `pytestmark = pytest.mark.network` (or per-test `@pytest.mark.network`) is dropped by the
+  suite's `-m "not network"`. So a reach-set helper that "omits `<symbol>`" is moot when every file
+  calling that symbol is roster-excluded or network-marked — the omission admits nothing into the
+  hermetic gate. Before filing, read the roster (`excluded` + `deselect`) and each candidate file's
+  marks, and name the surviving in-gate sites; if none survive, there is no finding. **Measure each
+  cited file, not just the two handed to you** — a dispatch premise can be right about the files it
+  names and wrong about a third you added yourself. **And an omission can be a deliberate false-red
+  guard, not a hole:** `git log -S '<symbol>' -- <file>` (or the issue the roster entry cites) names the
+  PR that introduced the carve-out, and a reach-set omission added to protect N hermetic callers from
+  live-Hub reds is a decision to re-open on that issue — never a gap to close silently. A finding that is
+  false on citation AND destructive on fix is a false fix on two counts, not one. **If the premise is disproven AFTER an issue is
+  already filed, do not silently walk away:** close it with cited evidence (`gh issue close <n>`, label
+  `agent:closed`, a comment restating the disproven mechanism with the roster/marker refs measured at
+  the current sha) so the board carries no false-premise issue, then report the close in the same
+  inbox message. A filed-and-withdrawn issue is honest; a filed-and-abandoned one is rot.
 - **A merge strategy that removes a conflict can manufacture silent corruption — check what the gate
   READS before trusting the merge.** `merge=union` on an append-only rendered file merges two branches'
   whole re-renders by concatenation: measured in throwaway repos, two branches adding different rows
@@ -535,6 +597,30 @@ deletions on a vehicle named for a rule the base already has.**
   merging. Write "once <PR> merges, <target> will additionally run it" — describing the intended state as
   the current one is the same error as citing a stale sha, and it is the error a corrective pass most needs
   to watch for in its own prose.
+
+## Filing a sibling issue vs widening an existing one
+
+When a defect shares a POLICY with an already-open issue but lives on a **different mechanism**, file a
+separate issue — do not widen the open one. The existing issue owns its own files and its own fix; the new
+one owns a distinct call path or seam. Two habits make the split safe:
+
+- **State the boundary explicitly, by issue number and by file**, as its own final section: "this does NOT
+touch `<the other issue>`'s `<file>`, whose defect is `<the other mechanism>`." The reader must be able to see
+why the two are not one issue without re-deriving it.
+- **Name the two mechanisms, not just the policy.** "Both are 'live HF in ci-unit'" is a policy; "this one is
+  a pytest mark + deselection fix, that one is a Make-target call site with no mark" is the discriminator that
+  justifies two issues. If you cannot state the differing mechanism in one line, it is the same issue.
+
+## A `--check`/dry-run flag's skip guard usually covers only ONE of several I/O paths
+
+Do not infer "hermetic" from a flag named `--check` or `--skip-<probe>`. Read every `if` on the check path:
+a generator that skips its update-time link probe under `--check` can still **rebuild the whole payload from
+live upstream state** (`_model_catalog()` per row over live Hub trees) and compare that to the committed
+file, so the check is a live read wearing a `--check` name. Grep the function for its guarded `if not args.X`
+lines and confirm which side the network call is on. The corollary for a "hermetic" gate: a Make-level
+sub-target can carry live network work that no `@pytest.mark.network` covers, so grep the gate's **Makefile
+recipe** for scripts doing I/O (`hub_open`, `urlopen`, `requests`) — the marker seam only ever covers pytest,
+never a `make` step one level above it.
 
 ## The audit checks that have produced real issues
 
@@ -685,7 +771,13 @@ test is a subset check on lines: extract the live file's non-blank lines and the
 lines** (added) separately from **live lines absent from the tree** (lost). Zero novel plus N lost is a
 *truncation*, not a divergence, and it is what a seed copied from a partial or outdated source looks like.
 Unsynced direction matters too: `live << tree` is just a stub awaiting its first sync, while `live >> tree` is a
-rulebook about to shrink — only the second is a defect.
+rulebook about to shrink — only the second is a defect. **A "reload your SOUL/skills — sync any drift"
+directive assumes tree→live, so on a `live >> tree` diff its own prescribed action is the DESTRUCTIVE one:**
+running `sync-agent-profile` would overwrite the newer live file with the older tree copy. The correct reconcile
+is the opposite direction — version live→tree as a per-lane PR (files committed byte-identical to the live
+profile, `check_agent_profiles.py check` green in CI mode with `HERMES_PROFILES_HOME=/nonexistent`), which makes
+the two agree so any later sync is a no-op. Never sync DOWN while live is ahead; take the direction from the
+owner when a directive's wording leaves it ambiguous, because the wording does not carry it.
 
 **The sync tool's own "verified … identical" claims only that it wrote what it copied.** A sync that replaces a
 7,509-byte file with 5,149 bytes and prints `verified: 3 file(s) read back identical` exits 0 and is green in

@@ -1,0 +1,1 @@
+| 2026-11-01 | llgenie-architect live→tree sync: SOUL.md (structural-design-is-your-PR mission), SKILL.md v1.3.0, references/landscape-sweep.md, and manifest drop of never-implement versioned byte-for-byte, clearing the fresh llgenie-architect rows of #1060/#1156 | [note](agent-wiki/2026-11-01-architect-live-sync-1259.md) | #1259 |
