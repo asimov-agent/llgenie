@@ -1,0 +1,1 @@
+| 2026-11-01 | agents(llgenie-pr-merge-conflict): fold live SKILL.md +3 references live→tree (live-ahead skill drift, #1010 version-here) | [note](agent-wiki/2026-11-01-merge-conflict-live-skill-fold.md) | #791 |
