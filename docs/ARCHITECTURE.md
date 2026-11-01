@@ -717,7 +717,8 @@ inert (issue #611). `scripts/nerve_profile_check.py` is a hash input of that ima
 change to the rule moves the tag.
 
 Merging is CI's action, not a job inside `ci.yml`.
-`.github/workflows/auto-merge.yml` is a `workflow_run` workflow on `CI`: a fork
+`.github/workflows/auto-merge.yml` is a `workflow_run` workflow on `CI` **and** on the `ci-scope`
+workflow (issue #1227): a fork
 `pull_request` run receives no repository secrets, so a merge job inside `ci.yml` would hold
 an empty token and report success while merging nothing (issue #493). Running in the base
 repository with the base repository's secrets, it resolves the PR from the finished run
@@ -826,7 +827,7 @@ in the git-ignored `security-reports/`.
 | `search-smoke.yml` | `11 7 * * *` | proves the masked web reach works (`scripts/fetch_smoke.py`) |
 | `architecture-bot.yml` | `47 */6 * * *` | rewrites `docs/ARCHITECTURE.md` and opens one linked issue + PR (`scripts/architecture_bot.py`) |
 | `run-failure-reactor.yml` | — (`workflow_run`) | reacts to a failed run of any workflow it lists and routes it: a PR it can push (this repository, or the owner's fork) becomes a fix-bot dispatch, made with the owner PAT because that bot's guard refuses a bot actor (issues #555, #556); anything else becomes ONE marker-deduped issue labelled `agent:implement` (`scripts/run_failure_reactor.py`, issue #286) |
-| `auto-merge.yml` | `3,33 * * * *` + `workflow_run` on `CI` | squash-merges the PR a green run belongs to when it is conflict-free; approves first as the other allowed identity, waits for that approval and for GitHub's mergeability to settle, and its `recheck` job retries a deferral without a push at the head it still has |
+| `auto-merge.yml` | `3,33 * * * *` + `workflow_run` on `CI` + `ci-scope` | squash-merges the PR a green run belongs to when it is conflict-free; approves first as the other allowed identity, waits for that approval and for GitHub's mergeability to settle, and its `recheck` job retries a deferral without a push at the head it still has |
 
 The on-demand engine sweep (`.github/workflows/engine-build.yml`) sits outside this table: it
 is a maintainer dispatch, not a bot, and it never merges, never runs on a schedule and never

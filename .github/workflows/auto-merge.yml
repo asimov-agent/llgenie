@@ -35,7 +35,18 @@ name: auto-merge
 
 on:
   workflow_run:
-    workflows: ["CI"]
+    # TWO workflows, because a docs-only PR has no `CI` run at all (issue #1227). `ci.yml` skips the
+    # docs class at the trigger (`pull_request.paths-ignore`, `scripts/ci_scope.py::DOCS_TRIGGER_IGNORE`),
+    # so the green head of a docs-only PR (diff restricted to docs/**, agent-wiki/**, openspec/**,
+    # README.md, CHANGES.md) would never fire the merge job: the only CI-class runs it has are `ci-scope`
+    # and `holds`. `ci-scope` runs on EVERY PR (no path filter) and is the docs-class completion, so it
+    # is watched HERE. A scope completion carries `event == 'pull_request'` for exactly the runs a merge
+    # may act on, and the `merge` job's own gate must not let a scope sweep decide a code PR ahead of its
+    # CI run — `make auto-merge-channel` (below) routes that. The roster names a workflow's `name:`
+    # verbatim, so it is derived from scope.yml and pinned by tests/test_auto_merge.py (AC4).
+    workflows:
+      - "CI"
+      - "ci-scope — selects the CI stages a diff needs, and runs the docs gates a docs-only PR still needs"
     types: [completed]
   # A deferral is exit 0 by design, so nothing retries it: this sweep re-runs the same decision for the PRs
   # the gate itself deferred at the head they still have (issue #545). Every 30 minutes; by hand with
@@ -138,7 +149,29 @@ jobs:
         # wrote the JSON blob to $GITHUB_OUTPUT and died with `Invalid format` (run 39735179724, #508).
         run: make auto-merge-resolve REPO="$REPO" RUN_ID="$RUN_ID" HEAD_OWNER="$HEAD_OWNER" HEAD_BRANCH="$HEAD_BRANCH"
 
+      # WHICH SWEEP DECIDES THIS HEAD (issue #1227). The job fires on a `CI` completion AND on a
+      # `ci-scope` completion — the docs-class run that is the only CI-class completion a green docs
+      # head has. But `ci-scope` finishes well before `CI` on a CODE PR, so a scope sweep must not
+      # decide a code head ahead of the green run that will itself merge it: it would defer a
+      # mid-flight PR and post a "Not auto-merged" comment the later CI completion contradicts. One
+      # fact separates the classes: does a `ci.yml` run exist at the head? A code head has one, so its
+      # merge belongs to the CI completion that will fire; a docs-only head has none, so this sweep is
+      # the one that must merge it. `make auto-merge-channel` answers that, and the merge step below
+      # runs only when the completion is `CI` itself, or the scope sweep is the only channel for the
+      # head. The CI-triggered run always decides, exactly as before.
+      - name: Which channel merges this head (a code PR's own CI completion; a docs-only head has no CI run and needs this sweep)
+        id: channel
+        if: github.event.workflow_run.name != 'CI'
+        env:
+          GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: make auto-merge-channel REPO="$REPO" HEAD_SHA="$HEAD_SHA"
+
       - name: make auto-merge (merge only a green, conflict-free PR; everything else defers to a human)
+        # A `CI` completion decides on its own; a `ci-scope` completion decides only a head with no
+        # CI run (a docs-only head) — a code head is left to the CI completion that will fire it.
+        if: github.event.workflow_run.name == 'CI' || steps.channel.outputs.channel == 'auto-merge'
         env:
           GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
           REPO: ${{ github.repository }}

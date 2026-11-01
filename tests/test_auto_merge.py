@@ -833,7 +833,13 @@ def test_the_merge_is_a_workflow_run_on_ci():
     # When  its trigger, scope and inputs are read
     # Then  it runs after a successful CI pull-request run, from the base branch, with the PAT
     assert "name: auto-merge" in wf
-    assert 'workflows: ["CI"]' in wf, "a workflow_run must name the workflow it reacts to"
+    # CI is the workflow_run trigger's primary name, and the docs-class completion joins it (issue
+    # #1227): a docs-only head never produces a CI run (`ci.yml` paths-ignore the docs class), so its
+    # green head can only reach the merge job through the `ci-scope` completion, which runs on every PR.
+    # The roster is the multi-line block form (one workflow per line), because the docs-class name holds
+    # a comma that a bracketed `["CI", "..."]` list would mis-split.
+    assert 'workflows:' in wf and '- "CI"' in wf and "- \"ci-scope" in wf, \
+        "a workflow_run must name the workflows it reacts to (CI and the docs-class ci-scope)"
     assert "types: [completed]" in wf
     assert "github.event.workflow_run.event == 'pull_request'" in wf, "a push run has no PR to merge"
     assert "github.event.workflow_run.conclusion == 'success'" in wf, "only a green run may merge"
@@ -843,6 +849,106 @@ def test_the_merge_is_a_workflow_run_on_ci():
     assert 'APPROVE: "1"' in wf, "the review-requirement path (#491) is enabled here"
     assert "make auto-merge PR=" in wf, "the merge must go through the one make target"
     assert "ACTOR=" in wf, "a bot PR is authorised by who triggered the CI run"
+
+
+def test_auto_merge_watches_the_docs_class_by_scope_yml_name():
+    """AC4: the merge job engages on a green docs-class completion, so a docs-only PR is never
+    silently re-excluded by a paths-ignore drift.
+
+    `ci.yml` ignores the docs class at the trigger (`pull_request.paths-ignore` == `DOCS_TRIGGER_IGNORE`),
+    so a docs-only head has no `CI` run; its only CI-class completion is `ci-scope` (no path filter), and
+    that workflow must therefore be named in auto-merge's `workflow_run.workflows`. GitHub matches that
+    roster against scope.yml's top-level `name:` VERBATIM, so the pin is the exact name, not a prefix.
+    Revert auto-merge.yml to watch only `CI` and the docs class is silently re-excluded again.
+    """
+    import scripts.ci_scope as cscope
+
+    scope_text = (REPO / ".github" / "workflows" / "scope.yml").read_text()
+    m = re.search(r"^name:\s*(.+?)\s*$", scope_text, re.M)
+    assert m, "scope.yml must declare a top-level name:"
+    scope_name = m.group(1)
+
+    # The two facts AC4 pins together: ci.yml skips the docs class (no CI run on a docs-only head),
+    # scope carries no path filter (it IS a docs-only head's completion), and auto-merge names that
+    # completion in the same roster as CI.
+    assert scope_name in MERGE_WF, "auto-merge must watch the docs-class completion by its exact name"
+    assert '"CI"' in MERGE_WF, "CI must stay a workflow_run trigger"
+    assert "paths-ignore" in CI, "ci.yml still skips the docs class (that is why docs needs scope)"
+    assert "paths-ignore" not in scope_text and "paths:" not in scope_text, \
+        "scope must run on a docs-only PR to be its completion"
+    assert set(cscope.DOCS_TRIGGER_IGNORE) == set(cscope.CLASSES["docs"]), \
+        "a docs trigger that drifts from the docs class re-excludes docs PRs from the merge job"
+
+
+def test_a_docs_only_head_is_the_auto_merge_channel_and_a_code_head_is_ci(tmp_path, monkeypatch):
+    """AC4: the channel split that keeps a code PR's merge with its own CI completion while giving a
+    docs-only head (no ci.yml run) to this sweep.
+
+    The routing is pinned so a future paths-ignore drift cannot silently move a code head to a premature
+    docs sweep or drop a docs head entirely: a head WITH a ci.yml run reports `channel=ci`, a head with
+    only the scope run reports `channel=auto-merge`.
+    """
+    import scripts.auto_merge_channel as ch
+
+    log = tmp_path / "gh.log"
+
+    def fake_gh(count: str):
+        gh = tmp_path / f"gh{count}"
+        gh.write_text(f'''#!{sys.executable}
+import json, sys
+with open({str(log)!r}, "a") as fh:
+    fh.write(json.dumps(sys.argv[1:]) + "\\n")
+print({count!r})
+''')
+        gh.chmod(0o755)
+        return str(gh)
+
+    # Given a head with one ci.yml run (a code PR): the CI completion will decide it.
+    monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path / "out1"))
+    gh = fake_gh("1")
+    assert ch.main(["channel", "--repo", "o/r", "--head-sha", HEAD, "--gh", gh]) == 0
+    assert "channel=ci" in (tmp_path / "out1").read_text(), (tmp_path / "out1").read_text()
+    # And the query filtered for the ci.yml workflow file at that head (the scope run at the same head
+    # must not count as a CI run); the log then says the decision.
+    call = json.loads(log.read_text().splitlines()[0])
+    assert call[1] == "repos/o/r/actions/runs"
+    assert "-f" in call and "path=.github/workflows/ci.yml" in call, call
+    assert "event=pull_request" in call and f"head_sha={HEAD}" in call, call
+
+    # Given a docs-only head with NO ci.yml run (only the scope run exists): this sweep decides.
+    monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path / "out2"))
+    gh0 = fake_gh("0")
+    assert ch.main(["channel", "--repo", "o/r", "--head-sha", HEAD, "--gh", gh0]) == 0
+    assert "channel=auto-merge" in (tmp_path / "out2").read_text()
+
+    # A count the API cannot produce is a LOUD failure, never a doc grabbed by a guessed channel.
+    gh_err = tmp_path / "ghbad"
+    gh_err.write_text(f"""#!{sys.executable}
+import sys
+sys.stderr.write("404 (no such run)\\n")
+sys.exit(1)
+""")
+    gh_err.chmod(0o755)
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+    assert ch.main(["channel", "--repo", "o/r", "--head-sha", HEAD, "--gh", str(gh_err)]) == 2
+
+
+def test_the_scope_sweep_skips_a_code_head_and_decides_once(tmp_path):
+    """The gate that keeps a scope-triggered sweep off a code PR: the merge job runs on the CI
+    completion, and on a scope completion only when the channel named this sweep.
+
+    The negative control: with auto-merge watching scope (a code head's scope run completes minutes
+    before its CI run), a sweep that decided the code head would defer a mid-flight PR ahead of the
+    green CI run that will itself merge it. This pins the `if:` on the merge step that prevents it.
+    """
+    block = MERGE_WF.split("Which channel merges this head", 1)[1]
+
+    # The channel step runs only for the docs-class completion (never for CI itself).
+    assert "if: github.event.workflow_run.name != 'CI'" in block, block[:600]
+    # And the merge step runs for a CI completion, or for a scope sweep that found no CI run at the head.
+    assert "make auto-merge-channel REPO" in block, block[:600]
+    assert ("if: github.event.workflow_run.name == 'CI' || "
+            "steps.channel.outputs.channel == 'auto-merge'") in block, block[:600]
 
 
 def test_a_fork_run_is_resolved_by_search():
