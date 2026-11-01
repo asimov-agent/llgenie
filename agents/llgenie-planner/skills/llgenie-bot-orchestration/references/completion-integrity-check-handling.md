@@ -43,6 +43,27 @@ branch/PR is a mistake) and the wrong fix (the defect belongs to the lane that i
 Every mutation you record carries the sha and timestamp it was measured at, and you verify the
 read-back before claiming it landed.
 
+## Productive resolution when nothing new exists on your own vehicles
+
+"Nothing new on my vehicles" is not the same as "nothing owed." The never-idle contract is part of
+the same pass: sweep the open board for a **refined-but-ownerless** issue — a six-section finding
+with no live `bot-claim:` and no actionable label, sitting red with no one on it. Dequeuing it *is*
+a genuinely owed board mutation, satisfies the probe, and closes an idle-capable hole in one move:
+
+```bash
+gh issue list --state open --limit 200 --json number,title,labels \
+  --jq '.[]|select((.labels|map(.name)|any(.=="agent:implement"))|not)|select((.labels|map(.name)|any(.=="documentation"))|not)|"#\(.number) \(.title|.[0:50])"'
+# then: read the candidate, confirm no bot-claim, pre-validate labels (gh label list), apply
+# `agent:implement`+owning-domain label, post a routing note naming the owner-on-deck and the
+# one-lane-per-issue constraint, and read the labels/comment id back.
+```
+
+This turn that hole was #1395 (`ci-openspec` red, refined, no labels, no claim): labelling it
+`documentation,agent:implement` + routing note (owner-on-deck = implementer after its current
+#1394, one-lane-per-issue) was the real mutation, not churn — and it was more useful than any
+comment on the settled #1365 anchor. Never fabricate a peer-lane edit to feed the probe; dequeue
+an ownerless issue instead.
+
 ## Recon-script pitfall
 
 When scripting `gh api ... --jq` inside a bash `for` loop, jq expressions containing parens such as

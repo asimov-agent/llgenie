@@ -87,6 +87,46 @@ itself so ownership is on-record without a resend: `gh issue comment <n> --body 
 brief>"`. Cite the DM evidence_file in that comment. A dispatch that exists only in a failed DM does
 not exist for the next reader.
 
+## A DM that lands successfully is still not a board vehicle
+
+A `status=queued` / "durably queued" dispatch is delivery, not discoverability: nothing on the board says
+the lane owns that work, so the next reader (or a completion gate) sees an idle lane and an unowned task.
+This bites hardest on the standing *own-domain audit* dispatches, which have no issue of their own to
+hang a `bot-claim:` on — the audit becomes invisible and unmeasurable.
+
+Rule: after any dispatch that assigns work with no existing open issue, file the tracking issue in the
+six-section shape, label it with labels that actually exist, and post the `bot-claim:` for the target
+lane naming the scopes and the exact "done" (refined six-section findings through the normal queue, or
+`re-audited at <sha>, no findings` closed on that issue). Opening the vehicle is the planner's work;
+closing it is the lane's.
+
+Two mechanics that silently fail here:
+- `gh issue create --label X` with a non-existent label creates nothing usable — validate first:
+  `gh label list --json name --jq '.[].name'`. Guessed labels (`continuous-improvement`) are the usual
+  offender; existing stand-ins are `documentation`, `enhancement`, `initiative`, `agent:implement`.
+- Read back (`gh issue view <n> --json number,state,labels` and
+  `.../issues/<n>/comments --jq '.[-1].body'`) before calling it landed.
+
+## Verifying a branchless `workflow_dispatch` lane actually picked up
+
+Some lanes work through a workflow (`engine-build` / `push-engine`) rather than a branch, so "no branch,
+no PR" proves nothing. Measure the workflow's own run list and look for a NEW run at the correct head:
+
+```bash
+gh workflow list --all --json name,id --jq '.[]|select(.name|contains("engine"))'   # find the workflow id
+gh api "repos/<o>/<r>/actions/workflows/<id>/runs?per_page=2" \
+  --jq '.workflow_runs[]|"id=\(.id) run=\(.run_number) head=\(.head_sha[0:8]) \(.status)/\(.conclusion // "na") \(.created_at)"'
+```
+
+- The fresh run's `head_sha` must be the sha you ruled on. A run at a superseded head that later reads
+  `cancelled` is the stale dispatch dying, not the lane working.
+- Track the pair: stale run `cancelled` at the old head + new run `pending` at the correct head is the
+  strongest evidence a reroute took effect — quote both ids, never a summary of intent.
+- `gh run view <run_number>` 404s: the run **number** is not the run **id**. Use the id from the runs
+  list, or `gh run list --workflow <name>`, which resolves it for you.
+- Branch-based lanes: measure pickup with the branches API too (`repos/<o>/<r>/branches?per_page=100 |
+  grep <issue>`) — a dispatched issue that has no branch is not started, however many DMs were queued.
+
 ## A report that arrives out of dispatch order
 
 A lane that finishes the *second* item on your line-up while the first shows no branch and no start
@@ -126,6 +166,16 @@ do not treat the report as false — it is scope-faithful to the pre-amendment b
    aggregate sha moving between branch and merge is normal, not an error).
 6. Expect docs-class merges to land before their own main-CI verdict: a main run `in_progress` at the
    merge tip is pending, not green — carry it to the next pass rather than quoting it as passed.
+7. **A file in the fold's changed-list ≠ folded to current live.** A fold that includes a file can still
+   carry a *stale* snapshot of it: the live profile was edited after the fold captured its copy but
+   before the merge, so the diff reads `+N -0` while live is longer than the merged tree. Symptom: the
+   post-merge gate at the merged sha still reports that lane's file `live-longer` (tree size < live size,
+   lines the tree lacks). Do not trust "it's in the PR's file set" or the lane's DONE report — measure the
+   merged blob against live at the merge-commit sha: `git show <merge-sha>:<path> | wc -c` vs the live
+   file's `wc -c`; a tree size short of live means a pre-edit snapshot landed. File a NEW follow-up issue
+   naming the merged PR + its merge sha + the failing gate + the exact sizes, delegate to the owning lane
+   (never reopen the merged PR — its diff is now `main`), and require the corrective fold to re-measure
+   live **immediately before commit** so it cannot reproduce the same race.
 
 ## A dispatched lane that is really a second lane on one vehicle
 
@@ -294,6 +344,48 @@ head). Pre-empt it in the dispatch: tell the lane "the +N files this agents-tree
 add them on its own branch, and do not arm until scope+guard+unit are all green at the head." A guard-red fix or a
 rebase does NOT cure it — base moves and label/linked-issue fixes never add a note to the branch. This is a
 per-file, on-branch, owning-lane duty, so route it to the branch owner, never to the rebase lane.
+
+## Post a comment body from a file — the shell eats backticks and pipes
+
+A body written inline as `gh issue comment <n> --body "... `completed` / `a | b` ..."` loses its
+backticks (they run as command substitution inside double quotes) and mangles anything pipe-shaped, so
+the posted comment reads `is / (updated …)` where the code spans should be. The quote rule: never build
+a markdown body inside a shell string.
+
+- **POST:** write the body with the file-writer tool, then `gh issue comment <n> --body-file <path>`
+  (or `gh pr comment <n> --body-file <path>`). Verify with a read-back of the newest comment body and a
+  substring check for the code spans you intended.
+- **PATCH an already-posted comment** (to repair a mangled one): the Update-comment endpoint wants a
+  JSON object `{"body": "…"}`, NOT raw markdown — `--input` takes the serialized JSON. Build it:
+  `python3 -c 'import json;open("p.json","w").write(json.dumps({"body":open("b.md").read()}))'`, then
+  `gh api -X PATCH repos/<o>/<r>/issues/comments/<id> --input p.json`. A 400 on the PATCH almost always
+  means you handed it raw markdown instead of `{"body": …}`.
+- Always read the comment back (`…/issues/<n>/comments --jq '.[-1].body'` or the specific comment id) and
+  assert the intended tokens are present before treating the anchor as durable — the anchor the next
+  reader and both lanes rely on is the posted text, not your intent.
+
+## An empty pass still owes a mutation — turn a scan finding into a labelled, routed issue
+
+When a completion/guard check demands "a task-relevant mutation" and the reactive packet is already
+settled (a lane re-claiming a vehicle you already measured and anchored), do NOT fabricate an artifact
+and do NOT re-assert the settled fact. Run a real board scan and convert a finding into a genuine
+mutation. This is the honest answer to the guard and satisfies the "every pass ends in a dispatch" rule:
+
+1. **Scan for ownerless actionable work:** `gh issue list --state open --json number,labels --jq
+   '.[]|select((.labels|map(.name)|any(.=="agent:implement")))'` — then for each, confirm it has no live
+   `bot-claim:` (read the comment tail). An actionable, refined issue sitting with no label and no claim
+   is a live defect on the board.
+2. **Pre-validate labels before applying them** — `gh label list --json name --jq '.[].name'` — then
+   `gh issue edit <n> --add-label <existing,…>`. A label that does not exist attaches nothing usable.
+3. **Find the real owner, hold one-lane-per-issue:** if the intended lane already holds a vehicle on
+   another issue (a live claim / open PR), do NOT dispatch to it concurrently. Post a routing note naming
+   it **owner-on-deck (next after its current vehicle)** instead of creating a competing `bot-claim:`.
+4. **Verify, then report** the two mutations (labels read back, routing comment id) — a labelled issue
+   with no routing note is not a dispatch, and a routing note with no read-back is not landed.
+
+Distinguish this from the refused pattern: manufacturing a peer lane's publish/build or editing another
+lane's branch is never the mutation to invent. The safe mutation is board-shaping the planner owns —
+labelling, routing, anchoring, closing-with-evidence.
 
 ## A lane's stated "queue now" line is a claim — verify it against the dispatch list
 
