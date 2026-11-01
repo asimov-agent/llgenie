@@ -48,3 +48,40 @@ gh api repos/<o>/<r>/actions/runs/<id> --jq '{name,event,head_sha,conclusion}'
   is attribution, not an excuse. Route it to the lane owning the failing surface (docs-alignment gate →
   documentation lane; workflow/gate design → ci-pipelines), with the run id, the failing job+step, and
   the commit that introduced it.
+
+## Re-running acceptance at the TRUE tip, not the lane's cited sha
+
+A lane's post-merge verification ("both red tests now PASS on main @ `<sha>`") is measured at whatever sha
+that lane fetched. `main` advances between its measurement and yours, so the report can be one or more
+merges behind. Never repeat "passes on main" — re-run the named tests yourself at a FRESHLY fetched tip:
+
+```bash
+git fetch origin main && TIP=$(git rev-parse origin/main)
+git worktree add /tmp/wt-verify "$TIP"     # clean checkout of the true tip, not the lane's tree
+```
+
+Run the repo's own test invocation, not a host `python`. The local/agent venv frequently has no `pytest`
+(`No module named pytest`); the project ships a test image — use it:
+
+```bash
+docker run --rm -v /tmp/wt-verify:/repo -w /repo -e HOME=/root llgenie/test:latest \
+  python -m pytest "tests/test_x.py::test_name" -q --no-header -p no:cacheprovider
+```
+
+- **`-k` applies across ALL files passed in one invocation.** `pytest a.py -k foo b.py -k bar` silently
+deselects one of them (the last `-k` wins over the whole argv). Confirm each named criterion by its
+**node id** (`file::test_name`) in a separate run so a deselected test can't masquerade as a pass.
+- **Container runs as `root` (the default) leave root-owned `__pycache__`/`.pytest_cache` in the worktree.**
+  `git worktree remove` and `rm -rf` then fail with `Permission denied` (passwordless sudo may be
+  unavailable). Wipe the caches with a root container BEFORE removing the worktree:
+
+```bash
+docker run --rm -u root -v /tmp/wt-verify:/wipe -w /wipe alpine \
+  sh -c 'rm -rf /wipe/tests/__pycache__ /wipe/scripts/__pycache__ /wipe/.pytest_cache /wipe/.git'
+git worktree remove /tmp/wt-verify --force && echo clean
+```
+
+- **A change→note gate that reads `rc=0` at main needs no follow-up PR for an unpushed local note.** If
+the file a merge edited already has an on-main `agent-wiki/` note covering it (e.g. the merge that
+introduced the edit shipped its note), the gate passes at the tip and a locally-held note for the SAME
+edit is redundant — say "no follow-up owed, do not push it," matching the no-churn-on-closed-vehicle rule.

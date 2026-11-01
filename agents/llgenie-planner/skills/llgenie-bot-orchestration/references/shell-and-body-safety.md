@@ -66,6 +66,33 @@ EOF
   `c<N>.md`. A fresh name never trips the guard; a reused one trips it every time the previous
   session's file is still on disk.
 
+## Recovery: repairing a comment that already posted mangled
+
+When the trap fires anyway — the URL comes back, the function exits 0, but the body reads
+`is / (updated 15:47:45Z)` where `completed/cancelled` should be — do **not** post a fresh
+corrective comment on top (that leaves two bodies, the broken one still authoritative to a
+reader scrolling up). Repair in place: fetch the comment, rebuild the full body correctly, and
+`PATCH` it. Build the JSON payload in **Python** (`json.dumps`) so the backticks never re-enter
+a shell string:
+
+```bash
+python3 - <<'PY'
+import json,urllib.request,os
+tok=os.popen('gh auth token').read().strip()
+body=open('/tmp/body.md').read()          # correct body written by write_file
+req=urllib.request.Request(
+  'https://api.github.com/repos/<o>/<r>/issues/comments/<id>',
+  data=json.dumps({'body':body}).encode(), method='PATCH',
+  headers={'Authorization':f'Bearer {tok}','Accept':'application/vnd.github+json'})
+print(json.load(urllib.request.urlopen(req))['updated_at'])
+PY
+```
+
+Then verify the read-back (`completed/cancelled present: True`, corrected first line) before
+moving on — the PATCH succeeding is not the fact; the corrected body on re-GET is. `gh api
+... -X PATCH -f body=...` also works but re-exposes the body to shell quoting; the Python
+payload does not. (Shorter forms: `gh api repos/<o>/<r>/issues/comments/<id> -X PATCH -F body=@/tmp/body.md`.)
+
 ## Checklist before any comment or dispatch containing code
 
 1. does the body contain backticks, `$(` or `$VAR`?  -> use `--body-file`;
