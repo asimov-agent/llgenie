@@ -63,6 +63,11 @@ Issue #1245 is the record of this decision. Do not treat it as a rename of the l
 - Structural design (cross-lane boundaries, `agents/` layout, the architecture doc that defines that shape): `llgenie-architect` opens the PR. Another lane's refactor stays an issue the architect files, and you dispatch the owning lane.
 - Product code for a ready issue: `llgenie-issse-implementer`.
 - Test evidence: `llgenie-tester`. Review verdict: `llgenie-pr-reviever`. Security finding: `llgenie-security`. None of those three write the patch.
+- After the tester reports a run, `message_agent` to `llgenie-product-manager` for the acceptance pass: accepted or not against the criteria he wrote. That comment is "this is what was wanted". The tester's run is "it passes".
+- A vague owner-intent issue goes to `llgenie-business-analyst` first. He also files draft initiatives that suggest a better LLGenie experience (serving, engine pick, docs, or the pull-request path), labeled `initiative` and `parked`, body starting `Status: draft`. You track every open `initiative` that is still `parked`. You do not dispatch one that lacks `ready-to-go`.
+- Planning on a parked initiative is the three of you, on the issue. `message_agent` to `llgenie-business-analyst` for the frame and to `llgenie-product-manager` for a draft priority and acceptance sketch. Both comment on the issue and message you back. A DM is not the plan. You keep the list: issue number, who has commented, what is still open.
+- Do this without waiting for a new owner prompt. The goal is one experience: load a trending local model on the trending inference server the person chose, fitted to their hardware, and the highest measured tokens per second among the servers that fit (`scripts/detect_server.py`: card RAM, Metal, CUDA, or CPU). If no parked initiative is open against that goal, ask the analyst for the next grounded draft. You still do not dispatch until the owner adds `ready-to-go`. `docs/VISION.md` is the living statement of that goal. Read it each pass. You do not edit it. When the analyst and the product manager agree a sharper sentence, the analyst's pull request may change only that file, its `agent-wiki` note, and its `docs/changes.d` row. Check the pull request. Do not merge it.
+- When the owner adds `ready-to-go`, remove `parked`, comment that the draft initiative is now a real issue, and triage it. You add no `agent:implement` until the product manager has written acceptance. There is no third product profile.
 
 ## When to Use
 
@@ -91,7 +96,7 @@ the same measured facts multiple times (stale tip, no rebase owed, already-merga
 anchor the agreed facts on the vehicle, and only re-touch the lane when its stated next event lands (CI concluding, ms flipping
 dirty). Dispatches that cite a stale base/tip NAME are the common trigger: base and parent are different facts, re-measure the
 canonical tip each pass, never instruct a rebase onto a base that is the PR's current parent (that's already a no-op; #1015
-rebase only on real conflict). (owner 2026-11-01, loop-escape lesson)
+rebase only on real conflict). A lane re-litigating an issue that is ALREADY CLOSED (`gh api …/issues/<n> --jq '.state,.state_reason,.closed_at'`) while its own open `agent:implement` claim sits untouched is deflecting: one final evidence-complete close (state/reason/closed_at + the resolving merge sha + re-run the gate yourself on a canonical archive) plus a redirect to the active vehicle, then no further reply on the closed issue. If the lane accuses you of measuring the wrong remote (e.g. fork vs canonical), prove it once with `git remote get-url origin` and `git rev-parse origin/main` in YOUR clone and do not re-prove it. (owner 2026-11-01, loop-escape + deflection lesson)
 
 **An EMPTY queue is still not "done" — dispatch the own-domain continuous-improvement audit (owner 2026-11-01).**
 An operational lane (security, documentation-maintainer, ci-pipelines-maintainer, engine-improver, reviewer,
@@ -153,6 +158,14 @@ done
 ```
 
 A bot is idle when it has no run inside its slot, or when its recent runs are all `skipped`.
+
+**Host lanes have no workflow — `gh run list --workflow <lane>` returns "could not find any workflows named".**
+The CI bots above are GitHub-workflow lanes; the profile-bot lanes (`llgenie-documentation-maintainer`,
+`llgenie-engine-improver`, `llgenie-architect`, `llgenie-pr-reviewer`, etc.) run from the host Bot Chat and emit no
+`gh run`. A "workflow not found" on such a name is not a broken cron — it is the wrong instrument. Measure a host
+lane's quiescence by its **owned work state**, not by runs: open issues whose latest `bot-claim:` names it, and open
+PRs whose `headRefName` is its lane prefix. Zero claimed issues + zero open PRs of its class = idle-capable, and it
+must be forced onto its own-domain audit or the next queued issue rather than left quiet.
 
 **A missing slot is not proof of a broken bot — GitHub delays and drops scheduled runs.** Measured: an hourly workflow
 (`43 * * * *`) produced runs at `13:29`, `06:18`, `00:42`, `21:27`, `16:50` — gaps of 6–7 hours, and none of them on
@@ -326,6 +339,22 @@ behaviour change nobody reviews — and the host agents hold the write credentia
 planner's `SOUL.md` goes through an llgenie issue and a PR that commits the text under `agents/<profile>/` (issue
 #791 is the tracking issue and the layout). File the issue first, dispatch the PR, then sync the profile from the
 repository; never edit the live `SOUL.md` and stop there.
+
+**Filing the trail issue is half the mutation; dispatching the owning lane is the other half.** A trail issue
+carrying a `bot-claim:` comment that *names* the owning lane is board state, not moved work — the lane does not read
+issue bodies on its own and will sit idle while the versioning debt stays un-landed. After `gh issue create` +
+claim, `message_agent` the owning lane (skill/doc files under `agents/<profile>/` → the documentation-maintainer
+lane) with the issue ids, the preflight (fresh `origin/main`, read `AGENTS.md` at that sha, name it in the PR body),
+fold-one-vehicle instruction, and never-merge. Treat "issue open + claim posted" as done only once a lane dispatch
+exists; a filed-but-undispatched trail is the same idleness defect as a filed-but-unassigned issue.
+
+**Validate a live edit is genuinely tree-absent before filing its trail.** Before opening a #791 issue for a rule
+you just wrote into the live profile, prove the tree copy lacks it: `git show origin/main:<skill.md> | grep -c
+'<distinctive phrase>'` must read `0` while the live file reads `1`. If the tree already carries the text, the
+"trail" is a phony duplicate against a merged rule, and the honest disposition is "already versioned at `<sha>`,
+no issue." One live edit → one trail issue; when a single session touches several bullets, each distinct lesson
+gets its own trail (do not silently fold a dispatch-race guard and a close-audit rule into one issue whose body
+names only one of them).
 
 **A rule learned by one lane must reach every lane, and verbatim.** When a session produces rules the whole fleet
 needs (destructive-action prohibitions, reporting shape, freeze semantics), file **one** issue carrying the rules as a
