@@ -44,6 +44,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from functools import lru_cache
 from pathlib import Path
 
 try:
@@ -89,6 +90,7 @@ def engine_formats() -> dict[str, list[str]]:
     return {sid: [str(f).lower() for f in (s.get("formats") or [])] for sid, s in es.load_skills().items()}
 
 
+@lru_cache(maxsize=1)
 def metal_engines() -> set[str]:
     """Engine ids that run natively on Apple-Silicon Metal (issue #114): a servable
     skill (servable: true, not a `via` harness) with `metal` in its backends and an
