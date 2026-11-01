@@ -1,0 +1,1 @@
+| 2026-11-01 | make(tester): wire the #1310 fold tool `scripts/fold-live-profile.py` into a `.PHONY` make target (`tester-fold-live`) so check-wiring no longer reds it as "wired to nothing" (regression from #1310) — docs: BOTS.md | [note](agent-wiki/2026-11-01-tester-fold-wiring.md) | #1079 |
