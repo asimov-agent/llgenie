@@ -85,6 +85,28 @@ def test_a_finding_without_a_fix_gets_no_issue(tmp_path):
     assert findings == []
 
 
+def test_a_committed_secret_becomes_an_issue_despite_no_fix(tmp_path):
+    """A committed credential has no 'fixed version' but is ALWAYS actionable (remove and rotate):
+    `require_fix` must not keep it off the tracker — it gets a `component:code` issue (issue #1283)."""
+
+    # Given a trivy report carrying a CRITICAL committed secret (a `trivy-secret` finding, no fix)
+    payload = {"Results": [{"Target": "tools/api_key.py", "Secrets": [
+        {"RuleID": "github-pat", "Severity": "CRITICAL", "Match": "ghp_*****************"}]}]}
+    d = _reports(tmp_path, payload)
+
+    # When  issues are selected under the policy (require_fix on)
+    findings = si.issue_findings(d, POLICY)
+
+    # Then  the secret becomes an issue, labelled as code (not python/container)
+    assert len(findings) == 1
+    f = findings[0]
+    assert f.advisory == "github-pat" and f.package == "tools/api_key.py"
+    assert f.source == "trivy-secret" and f.fixed == ""
+    assert f.component == "component:code"
+    assert "auto-fixable" not in f.labels  # a secret is removed, never version-bumped
+    assert "severity:critical" in f.labels
+
+
 def test_labels_and_components_follow_the_finding(tmp_path):
     """Every issue carries security, vulnerability, one severity, one component, and auto-fixable."""
 
