@@ -10,25 +10,29 @@ run-name: zero-job-pending
 # that makes a runner-starved dispatch loud instead of an eternal pending placeholder; it never
 # merges and never runs in a pull request.
 #
-# Trigger surface: `workflow_run` on `queued-alarm`, `types: [completed]`. REASONED, not inherited:
+# Trigger surface: `workflow_run` on `ci-requeue`, `types: [completed]`. REASONED, not inherited:
 # the fleet's bot scheduled-minute budget is EXHAUSTED — every odd minute is owned by a bot, and the
 # only three free odd minutes (`1`, `35`, `49`) are claimed by registry-liveness's resume (#1407's
 # #1416 moves it there) — so a new `schedule:`-declaring workflow would collide with an existing bot
 # (`test_no_workflow_shares_a_minute`, issues #275/#301), and every-hour dispatch would add a red.
-# Riding queued-alarm's completion reuses ITS verified `:07/:37` cadence (it is the sibling stuck-run
-# monitor; a run-level sweep right after its job-level sweep is the semantic pairing), so this monitor
-# exists without owning a minute of its own. Like run-failure-reactor (issue #295), a `workflow_run`
-# reaction is not startable by a human, so it carries no `workflow_dispatch` and no trigger guard.
+# The original trigger rode queued-alarm's completion (#1412/#1410), but queued-alarm is one of the
+# workflows `disabled_manually` (#1442) — a disabled source never runs, so its `workflow_run` event
+# never fires and this monitor NEVER ran (measured: zero-job-pending workflow has total_count=0 runs;
+# source disabled before #1412 existed). Re-pointed onto ci-requeue, the healer that is ACTIVE and
+# completes every 30 minutes on :15/:45 — a run-level sweep right after the requeue sweep is the
+# semantic pairing, and the succeeded source is the sibling runner-health workflow. Like the reactor
+# (issue #295), a `workflow_run` reaction is not startable by a human, so it carries no
+# `workflow_dispatch` and no trigger guard.
 # NOTHING else — no pull_request, no non-main branch (a PR-run monitor here would name PRs whose jobs
 # are legitimately not yet instantiated; this is about dispatched run liveness).
-# Flow: on queued-alarm completing -> make check-zero-job-pending FILE=1
+# Flow: on ci-requeue completing -> make check-zero-job-pending FILE=1
 #       -> on a stuck run, file ONE deduped issue naming it.
 # Never: never in a pull request, never gated by a PR, never merges, never cancels a run, never
 #        weakens a gate.
 on:
   workflow_run:
     workflows:
-      - queued-alarm — reports CI jobs queued far too long, once per affected run
+      - ci-requeue — re-runs only the cancelled runs no later run superseded, every 30 minutes
     types: [completed]
 
 permissions:

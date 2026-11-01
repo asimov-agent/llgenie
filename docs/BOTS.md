@@ -1978,9 +1978,12 @@ make queued-alarm      # report CI jobs stuck in `queued` too long (a runner tha
 make check-zero-job-pending  # fail when a dispatched run has been pending/queued longer than MINUTES with ZERO
                        # jobs instantiated (a runner-starvated dispatch neither queued_run_alarm's job-row scan nor
                        # run-failure-reactor's conclusion gate names; issue #1410); FILE=1 files ONE deduped issue
-                       # per stuck run (idempotent by run-id marker) — run once per queued-alarm completion by
-                       # zero-job-pending.yml (the robot scheduled-minute budget is exhausted; it rides the
-                       # sibling monitor's :07/:37 cadence rather than owning a minute of its own)
+                       # per stuck run (idempotent by run-id marker) — run once per ci-requeue completion by
+                       # zero-job-pending.yml (the robot scheduled-minute budget is exhausted; it rides an
+                       # active sibling workflow's completion rather than owning a minute of its own). It
+                       # originally rode queued-alarm (:07/:37), but queued-alarm is disabled_manually and
+                       # never completes, so the monitor never fired (#1442); re-pointed onto ci-requeue
+                       # (:15/:45, active) so the run-level sweep follows the requeue sweep
 make stale-branch-cleanup  # delete non-main remote branches that are >=3 days old AND fully delivered (issue #1344),
                            #   REPORTING (never deleting) a branch with an open PR or commits origin/main lacks;
                            #   default report-only, APPLY=1 deletes, AGE_DAYS= overrides the 3-day threshold
