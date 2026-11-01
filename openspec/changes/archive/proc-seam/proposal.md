@@ -48,3 +48,17 @@ Thirty modules each define their own subprocess helper under five spellings (`_r
 
 Refs: #797 (this issue), #799 (the claim-path half it defers to), #616/#605 (the pipefail class the
 silent-`""` seam belongs to).
+
+## Conclusion (archived — superseded by #797 closure)
+
+This change is **archived** on [#1395](https://github.com/asimov-agent/llgenie/issues/1395). #797 was
+closed COMPLETED and its successor fix [#1385](https://github.com/asimov-agent/llgenie/pull/1385)
+(ARCHITECTURE.md delegate + `issue_bot_gates.py` DEFERRED entries + the docs-exceptions trailing-newline
+revert) is MERGED. The change's What-Changes steps 1–3 and 5 landed: `scripts/proc.py` with the three
+named policies, the two swallowing wrappers migrated (loud failure), the 11 no-exit-code wrappers gone,
+and the `# proc-allow:` + census gate shipped. Step 4 — the internal 16-checking-wrapper collapse onto
+`run_checked()` — was the deferred tail the #797 closure did not require; a codebase-wide refactor whose
+risk the closed change no longer owns. Recording it as concluded (ticked `[x]` with this note) rather
+than re-opening #797's closed scope. Tasks 9–11 (validate / docs / gates) are completion-and-record
+tasks satisfied by this archival PR itself. The change moves to `openspec/changes/archive/proc-seam/`
+so the active-set gate (`make ci-openspec`) returns rc=0 at the head.
