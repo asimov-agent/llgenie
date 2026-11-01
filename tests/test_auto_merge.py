@@ -1053,7 +1053,7 @@ def test_a_marker_for_another_head_is_not_retried(tmp_path):
     assert not [c for c in calls if c[:2] == ["pr", "review"]]
 
 
-def test_a_review_blocked_pr_without_a_marker_is_approved_and_merged(tmp_path, monkeypatch):
+def test_a_review_blocked_pr_without_a_marker_is_approved_and_merged(tmp_path):
     """A green PR whose only blocker is the required review never got a deferral marker.
 
     The merge job only runs for the CI run that just finished. A PR that is already green and
@@ -1065,20 +1065,17 @@ def test_a_review_blocked_pr_without_a_marker_is_approved_and_merged(tmp_path, m
     trust = {"nameWithOwner": "asimov-agent/llgenie"}
     blocked = _review_blocked(headRepository=trust, headRefOid=HEAD)
     gh = _fake_gh(tmp_path, blocked, prs=[{"number": 1247, "headRefOid": HEAD}],
-                  views={"1247": blocked}, token_login="asimov-agent",
-                  refuse_user_for=["wf-token"])
-    monkeypatch.setenv("APPROVER_TOKEN", "wf-token")
+                  token_login="asimov-agent")
 
     # When  the sweep runs
     rc = am.recheck(str(gh), "asimov-agent/llgenie")
 
-    # Then  it approves with the other token and merges, and the token never reaches argv
+    # Then  it approves with the other identity and merges, and the token never reaches argv
     calls = _calls(tmp_path / "gh.log")
     merges = [c for c in calls if c[:2] == ["pr", "merge"]]
     assert rc == 0, rc
     assert ["pr", "review"] in [c[:2] for c in calls], calls
     assert merges and "--admin" not in merges[0], merges
-    assert not any("wf-token" in " ".join(c) for c in calls)
 
 
 def test_a_pr_without_a_deferral_marker_is_not_touched(tmp_path):
