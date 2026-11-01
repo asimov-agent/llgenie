@@ -1,0 +1,1 @@
+| 2026-11-01 | reactor: a run-level `timed_out` conclusion now routes like `failure` (claim+dispatch fix-bot or file one deduped issue); `cancelled` keeps the supersession path | [note](agent-wiki/2026-11-01-reactor-timed-out-routing.md) | #1465 |
