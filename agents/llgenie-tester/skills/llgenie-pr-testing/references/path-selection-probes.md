@@ -71,6 +71,22 @@ Other agents push to the same branches. Before force-pushing a stack:
   auto-retargets dependents to `main` when the base PR closes, which silently turns a 2-file delta into
   a duplicate of the parent.
 
+## The import-roots ratchet reds a NEW test that bootstraps `scripts/` by hand (issue #1111/#796)
+
+A test file that imports a `scripts/` module should use the guard-clean spelling
+`from scripts import <name> as <alias>` (the form `tests/test_import_roots.py:13` uses) and rely on
+`tests/conftest.py` — the ONE file allowed to `sys.path.insert` — which already publishes the repo
+root and `scripts/` on `sys.path` (and CI sets `PYTHONPATH=/repo/scripts`). When a PR's new test file
+copies the old pattern (`sys.path.insert(0, str(REPO/"scripts"))` at module level + bare
+`import ci_scope as cs`), `make check-import-roots` reds: `scripts/check_import_roots.py` records
+`sys-path` and `bare` COUNTS in `tests/fixtures/import-roots-baseline.json`, and the ratchet "may only
+shrink" (#796) refuses ANY brand-new site. The remedy is NOT `--update` (that re-records the baseline
+UP, defeating the ratchet) — it is converting the new file to `from scripts import` and deleting the
+module-level `sys.path.insert`. Verify the fix on a throwaway worktree (a sed strip + rename, then
+`python3 scripts/check_import_roots.py ratchet` reads `OK: counts at or below the recorded baseline`
+and the affected suite still passes), never push it to the implementer's live branch — a fix from the
+test lane on another lane's open PR collides with their branch (SKILL §7).
+
 ## Rows that need a decision, not a run
 
 Control rows usually stall on wording, so surface them early: a fail-open row needs the definition of

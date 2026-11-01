@@ -192,6 +192,21 @@ git show origin/<branch>:agents/<profile>/SOUL.md | wc -c   # must equal live si
 If those bytes are still the old (truncated) size, the fix is local-only — commit it onto the branch
 head and push, and report the BRANCH-HEAD sha that carries it, not your worktree's.
 
+- **Do not measure remote bytes with `git show <ref>:<path>` piped through the shell — it truncates at
+  ~50 KB and strips the trailing newline, so a byte-identical file reads as a 1-byte (or 50 KB) DIFF.**
+  An apparent `wc -c` skew of one byte, or a SKILL.md showing "50 KB", is the shell munging, not
+  divergence. The authoritative comparison is a content hash of the blob, not a size read of streamed
+  text: `git cat-file blob <fetched-head>:<path> | sha256sum` against
+  `sha256sum < "$LIVE/<path>"`. Confirm with the sha256 pair before concluding anything, and quote the
+  matching hash in the report — a size read that disagrees with the hash is the artifact.
+
+- **Version live-only edits by carrying them on the SAME open reconstruction PR, not a new branch.** When
+  a live-skill lesson is discovered mid-PR (the checker flags a live-only edit), copy the current live
+  byte-for-byte onto the PR branch, commit, fast-forward-push (never force — the base never moved, so it
+  is a clean fast-forward), and let the same PR carry it. A `--auto` arm request on a PR with non-null
+  `enabled_at` stays live and the PR head update is the vehicle. Re-run `sync-agent-profile CHECK=1`
+  (7/7) and post the new head sha.
+
 - **A rebase rewrites shas without changing a byte — verify by CONTENT, not by ancestry.** After
   another lane rebases the branch, your commit's sha changes (the same tree replayed under a new
   parent); `git merge-base --is-ancestor <your-old-sha> <head>` then reads NO even though NOTHING was
@@ -202,6 +217,41 @@ head and push, and report the BRANCH-HEAD sha that carries it, not your worktree
   about a tree that no longer exists. Confirm the whole 6-file gate at that head with
   `make sync-agent-profile PROFILE=<n> CHECK=1` at a worktree checked out on the fetched head, not
   on your old commit.
+
+## Rebasing a sync PR onto fresh `main`: three mechanics that stop you dead
+
+A sync PR that has sat open long enough to go `DIRTY` needs a rebase, and each of these three reads
+as an error when it is only an unfinished step. All three: stop, do the missing step, continue.
+
+- **`Terminal is dumb, but EDITOR unset` from `git rebase --continue` is a missing editor, not a
+  broken rebase.** The continue wants to write a commit message and has no TTY to ask in — your
+  conflict resolution is NOT lost. Re-run with `GIT_EDITOR=true git rebase --continue` (or
+  `git commit --no-edit` then `--continue`). Never `git rebase --abort` on this message: that
+  discards the resolution you just staged and replays the original broken pick.
+- **`--force-if-includes` REFUSES after a rebase, and that is correct, not a broken lease.** The flag
+  only permits the force when your local history already CONTAINS the remote tip. A rebase leaves you
+  on a fresh lineage that no longer contains `origin/<branch>`'s old commit, so the precondition is
+  unsatisfiable by construction. The safe replacement is an explicit lease pinned to the sha you just
+  read:
+
+  ```
+  git fetch origin <branch>
+  R=$(git ls-remote origin refs/heads/<branch> | cut -f1)   # the tip NOW, not one quoted in chat
+  git push origin HEAD:<branch> --force-with-lease=<branch>:$R
+  ```
+
+  Read `$R` immediately before the push and state in the report that the lease was pinned to it —
+  that pair (remote tip unchanged + lease pinned to that tip) is the safety argument, and it is what
+  you cite instead of `--force-if-includes`. A `--force-if-includes` refusal is likewise NOT evidence
+  the remote moved: confirm that separately with `git ls-remote`, or you re-fetch and re-rebase for
+  nothing.
+- **A rebase conflicting in a GENERATED file (`CHANGES.md`, a rendered index) is REGENERATED, never
+  hand-merged.** Those files are output: their conflict hunks are two renderings of the same source
+  set, so picking "ours" or "theirs" silently drops rows. Resolve by re-running the generator over
+  the rebased tree — `make changes-index` reconciles every fragment from both sides — then
+  `git add <file>` and `git rebase --continue`. Prove the resolution after the rebase: `git status
+  --short -- <file>` empty means the tree already matches the generator's output; a diff there means
+  you committed before the generator ran.
 
 - **A push that would cancel a live run WAITS; automate the landing, do not force it.** If the branch
   head has a run `in_progress`/`queued` and the workflow sets `cancel-in-progress`, a push to land your

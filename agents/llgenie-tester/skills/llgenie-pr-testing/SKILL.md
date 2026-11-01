@@ -16,6 +16,10 @@ Every other installed skill is listed in `skills.disabled`.
 The pin is `tests/fixtures/host-bot-capabilities.json` in asimov-agent/llgenie (issue #1038).
 <!-- host-bot-tools:end -->
 
+## Role artifact (2026-11-01)
+
+The artifact is the test evidence: failing test name or pass count, job id, sha, and run id. Do not take another lane's fix. `message_agent` to `llgenie-planner` with the PR number, the sha, and the run id.
+
 Issue and PR numbers differ: `#824` is an issue; the PR implementing it is found with
 `gh pr list --repo asimov-agent/llgenie --search 824` (PR title carries `(#824)`).
 
@@ -133,7 +137,14 @@ gh api repos/<owner>/<repo>/actions/jobs/<job-id>/logs --allow-escape-sequences 
 ```
 
 `gh run view --log-failed` additionally refuses while the RUN is in flight even when the JOB has
-completed — read the job by id instead. **A `completed/success` run is not the stage verdict if it
+completed — read the job by id instead. **`gh api …/jq` does NOT accept jq's own flags** —
+`gh api <path> --jq '…' --arg R "$R"` fails with `accepts 1 arg(s), received 4`, because `--arg` is
+handed to `gh`, not to the jq filter it runs. Interpolate in the shell instead (build the filter with
+the value already substituted, or loop in bash and echo the run id beside the output). A silent `[]`
+from a `--jq` that swallowed the value reads exactly like "no job matched". **`gh pr view --json
+mergeCommit` is an OBJECT, not a string** — `--jq '{mc:(.mergeCommit//"-")[0:8]}'` dies with
+`expected an array but got: object`; use `.mergeCommit.oid` or
+`--template '{{if .mergeCommit}}{{.mergeCommit.oid}}{{end}}'`, and expect it null while the PR is open. **A `completed/success` run is not the stage verdict if it
 is the WRONG workflow** — this repo has `guard`/`scope`/`holds` and `CI` workflows, and a green
 `holds` run (jobs `guard`,`holds`) says nothing about `linux / unit`. Enumerate the jobs and match
 the stage name (`linux / unit`), and check the run's `workflowName`, before citing a run id as
@@ -141,6 +152,27 @@ the stage name (`linux / unit`), and check the run's `workflowName`, before citi
 `cancelled` for a run whose job genuinely FAILED (a later push cancels the run); judge red/green with
 `gh api .../actions/jobs/<job-id>` (status+conclusion+steps), not the run conclusion, and never from
 `gh pr checks`'s fail column.
+
+- **A `pull_request` job's git HEAD is the MERGE ref, not the PR head — a gate log naming a different
+  sha is not evidence of a wrong tree.** `actions/checkout` on `pull_request` fetches
+  `+refs/pull/<n>/merge` and checks it out, so the job log reads `HEAD is now at <merge> Merge
+  <head> into <base>` and a gate inside it reports e.g. `referent <ptr> is an ancestor of HEAD
+  (<merge>)`. Before calling a run "measured the wrong commit", grep the log for the checkout line:
+  `gh api repos/<o>/<r>/actions/jobs/<id>/logs --allow-escape-sequences | sed 's/\x1b\[[0-9;]*m//g'
+  | grep -iE 'checkout|HEAD is now at'`. A `Merge <pr-head> into <main-side>` HEAD means the gate ran
+  on the post-merge tree — which for a "must be green on a clean merge-tree" criterion is the RIGHT
+  tree, and the strongest evidence available. Do not fetch that merge sha as a branch; it exists only
+  as the synthetic ref.
+- **For a docs-only diff, ci-scope's `scope` job IS the gate — a missing `linux / unit` run is correct,
+  not "unverified".** The `WRONG workflow` rule above bites a CODE PR cited off a green `guard`+`scope`
+  run. The mirror holds for a docs/doc-pointer re-point: `ci_scope` classifies the diff `docs`, and its
+  `scope` job runs the gates a docs-only PR still needs (`make check-docs` → `check_architecture_census.py
+  check`, `check-docs-fragment-only-agrees`, `openspec-tasks`) with NO unit matrix scheduled at all.
+  So state the verdict as "PASS on the dispatch's gate (scope/check-docs green at <head>) with the unit
+  matrix not run because the diff is docs-only" — explicitly naming the absent stage as an EXPECTED
+  selection beats both calling it unverified and silently implying a full suite ran. Confirm the gate
+  actually executed by grepping the scope job log for `make check-docs` and the gate's own OK line
+  (§2b), never from the job's `conclusion=success` alone.
 
 ## 3. Audit coverage against the diff, not against the PR body
 
@@ -153,6 +185,15 @@ body's "Measured:" block is a claim, not evidence — reproduce the counts.
   sliced through helpers), the exemption is correct by construction and the prose merely describes it.
   A docstring sentence saying "X is not flagged" is DERIVED text; the names the guard actually matches
   on are the fact. Judging the prose manufactures false "gap" findings against a sound guard.
+- **Probe a reach/scan helper by calling it on a STRING, not by dropping a synthetic test file in.**
+  These helpers are usually driven by a loop over the suite roster (`ut.select(repo)`); an in-memory
+  synthetic module is not in that roster, so the loop never visits it and the probe returns 0 findings
+  — which reads exactly like "the guard does not bite" and sends you to "fix" a working guard. Call
+  the scan function directly (`_hub_opens(<source string>)`) for the mechanism question, and answer the
+  roster question by listing the real files that carry the call
+  (`grep -l '<symbol>(' tests/*.py`) and checking each one's marks and `unit-suite.json` membership.
+  "The file I touched has no offenders" and "the guard sees nothing" are two different claims; only
+  the roster tells you which one you measured.
 - **An exemption restored by the newest commit touching the same file is a DECISION, not a
   regression.** `git log --oneline -1 -- <guard file> origin/main` names that commit; if its message
   says seal/carve-out/exempt, the current state is intentional. Before filing residue on it, check
@@ -186,6 +227,23 @@ against `name:` prefixes, not ids).
   <failing test names>`. A count without its baseline is a measurement of *some* tree, and the whole
   verdict on a red can turn on the pair: `4 failed on the branch` / `21 passed on main@<sha>` says the
   change is the cause, while the same 4 without the second sha reads as an unexplained red.
+- **Never message a partner lane with "armed / watcher running / reviewer can go" without reading
+  `.state`/`.mergedAt` in the same breath — the merge may already have landed.** Arm-time, watcher
+  start and "checks green" are REACH-state: they describe the instant before the merge, and auto-merge
+  can fire minutes later while a background watcher is still running. A report built from those is
+  stale-on-arrival and draws a correction from the planner. The cheap guard: open every status message
+  about a PR with `gh pr view <n> --json state,mergedAt,mergeCommit` and lead with the measured word.
+- **A state you already told another lane is a CLAIM — re-read it before repeating it, and correct it
+  on-record when it moved.** Issue/PR state quoted from memory or from your own earlier comment goes
+  stale silently: `#N stays open for the other lanes` was false while the issue read
+  `state=CLOSED`, `stateReason=COMPLETED`. Before putting an id's state in a message or a comment, read
+  it in that moment — `gh issue view <n> --repo <r> --json state,stateReason,closedAt` (or `gh pr view
+  <n> --json state,mergedAt`) — and when a state-driven instruction arrives, treat the live field, not
+  the dispatch, as the fact. To learn WHO/WHAT closed it before you credit anyone, read the timeline:
+  `gh api repos/<o>/<r>/issues/<n>/timeline --paginate --jq '.[]|select(.event=="closed" or
+  .commit_id!=null)|{event,by:.actor.login,commit:(.commit_id[0:8]//"-")}'`. A correction that exists
+  only in your head is not a correction: post it where the wrong claim lives, with the measured field
+  and the sha, in the same shape as the original.
 - **Bookend the work.** One comment when you start (issue or PR id, branch, the `main` sha you just
   fetched, what "done" means) and one when you finish (head sha, what changed, the run id or command
   that proves it, anything left open), in the thread where the work lives. A start with no finish is an
@@ -205,7 +263,10 @@ against `name:` prefixes, not ids).
   (`git fetch origin refs/pull/<n>/head:refs/remotes/pr/<n>`), then fetch that ref into the scratch
   (`git fetch origin refs/remotes/pr/<n>:refs/remotes/pr<n>`). A `couldn't find remote ref` in the
   scratch clone is the local-origin tell, not a missing PR — fetching there alone silently leaves you
-  measuring a stale HEAD you never moved.
+  measuring a stale HEAD you never moved. **Once fetched, never pass `refs/pull/<n>/head` to a local
+  git command.** `git merge-tree --write-tree origin/main refs/pull/<n>/head` fails with `not something
+  we can merge` — the PR ref exists only on the remote. Fetch into a local ref (`refs/remotes/pr/<n>`)
+  and use THAT for `merge-tree` and `worktree add -d`, or you will read a clean-PR as a conflict.
 - **The branch tip and the PR head can DIVERGE non-ancestrally — judge the PR at `headRefOid`.**
   `refs/heads/<branch>` (what `git ls-remote` shows) and `refs/pull/<n>/head` (what the PR merges) can
   point at unrelated histories when a rewrite did not follow the PR field; then a rebase of `refs/heads`
@@ -234,6 +295,12 @@ against `name:` prefixes, not ids).
   **current** head. A force-push leaves runs at a dead head; they prove nothing about the branch now.
   `cancelled`/`queued` = **no verdict**, and `gh pr checks`'s `fail` column is never a failure count
   (it collapses cancelled runs and duplicate check names onto one word).
+- **One watcher per run — check the process table before launching a second.** A polling loop on a
+  pending job is easy to double-launch (a background `term` call plus a fresh `for … sleep` loop),
+  and two loops reading the same job id produce duplicate wake-ups and duplicate verdicts on a thread
+  that only needs one. Before starting: `ps -o pid,etime,cmd -p <pid>` / `ps aux | grep '[w]<pr>'`; if
+  the first one is alive, kill the new one (`kill <newpid>`) rather than the old, and carry on with the
+  live one.
 - **`gh pr view --json headRefOid` LAGS a push — it can still return the pre-push head.** Reading it
   right after a push shows the old sha (flagged internally as a max-cached head), so "the PR head is
   the old sha" is not evidence that your push failed. The authoritative tip in that moment is
@@ -244,7 +311,12 @@ against `name:` prefixes, not ids).
   as "no run was scheduled".** The API matches the exact 40-hex string, so a prefix completed from
   memory silently selects nothing and you conclude CI never triggered when it did. Take the full sha
   from `gh pr view <n> --json headRefOid` (or `git rev-parse HEAD`) and quote it verbatim, or filter
-  client-side on the prefix (`--jq 'select(.headSha|startswith("<8>")'`).
+  client-side on the prefix (`--jq 'select(.headSha|startswith("<8>")'`). **A short sha passed
+  straight into the query parameter (`?head_sha=<8hex>`) also returns `total_count=0` for runs that
+  DO exist at that head — the short form is not an alternative spelling of the filter.** When a
+  `head_sha=` query says "no runs", cross-check before concluding CI never triggered: query the run
+  ids you already know (`gh api repos/<o>/<r>/actions/runs/<id> --jq '{name,status,conclusion,head_sha}'`)
+  and read their FULL `head_sha` — two runs naming the same short head proves the filter, not the CI.
 - **Judge the JOB, not only the run.** A run's conclusion can read `cancelled` while the job inside it
   reads `conclusion=failure` — cancelling the run after a job failed rewrites the run-level word. The
   job endpoint (`gh api repos/<owner>/<repo>/actions/jobs/<id>`) is the finer truth, and its `steps[]`
@@ -439,6 +511,22 @@ that pushes on the run's conclusion, never a push that cancels it).
   the issue/PR comment, not the DM: post the same conclusion where the work lives and let the message
   be the pointer. Resending into a full queue duplicates on the receiver's side, and a conclusion that
   exists only in an undelivered message does not exist for the next reader.
+- **One message per fact — never two sends of the same content in one batch, and no ack that carries
+  no new state.** Two `message_agent` calls with the same payload in a single turn deliver twice (the
+  receiver correctly answers "duplicate resend-confirmation only"), and an ack whose content the peer's
+  board already reflects is inbox noise, not a handoff. When a peer says "no reply needed, I'll notify
+  you", hold silently until its trigger lands: re-measuring a sha you already measured to "prove" you
+  are current is the same noise. Also, a peer's board snapshot can be PRE-ACTION (it quoted a branch
+  sha taken before my delete) — answer with the live API read (404 / `ls-remote` empty) once, and when
+  the peer retracts its own claim, drop the topic rather than re-litigating it.
+- **A delivery that fails with `Context compression is already running for this session` is a
+  TRANSIENT busy signal, not a rejection — retry ONCE, then stop.** The receiving bot session was
+  mid-compression; the same payload succeeds minutes later. Retry once immediately, and if that retry
+  fails the same way the substance is already on-record (planner DM + the thread), so a third attempt
+  is queue noise, not delivery. Distinguish the two failure classes before choosing: `queue_full`/
+  `ambiguous` = never resend; compression-busy = exactly one retry. Also: a `claimed` status with
+  "Delivery remains pending or its outcome is unknown" means RECEIPT IS RETAINED — leave it and finish
+  the turn; do not treat it as a failure to re-send.
 
 Comment on the PR with the run ids / command output that proves each claim, plus the RED test that
 exposes each gap and the patch that turns it green. Comment on the issue too when the follow-up
@@ -450,7 +538,22 @@ a PR whose base makes the arm mean something.
 Stop producing duplicate PRs. Before opening one, check `gh pr list --state open` for a PR on the
 same issue and read its comments — this repo closes several duplicates a day, and a tester's delta
 usually belongs ON the owner's branch (push it, or leave it as a named branch + sha in a comment).
-**Verify absorption by diff, not by claim**: `git show origin/<their-branch>:<file> > /tmp/theirs`
+- **A same-file conflict between your PR and `main` is a SUPERSESSION tell before it is a merge problem: read
+  `main` before you resolve it.** When a rebase onto fresh `main` conflicts in the exact file your change
+  touches, the cheapest explanation is that another lane already landed the same fix while you were
+  working: `git log --oneline -3 -- <file> origin/main` (the message names the issue) and
+  `git show origin/main:<file> | grep -n '<the new symbol>'`. If the change is already on the default
+  branch, you are not fixing a conflict — you are about to push a duplicate of merged work. Confirm from
+  the live API too (`gh pr view <n> --json state,mergedAt,mergeCommit` on the PR the message names must
+  read `MERGED`), then the sequence is fixed: **disarm FIRST** (`gh pr merge <yours> --disable-auto`, read
+  `autoMergeRequest` back `NONE`) so a passing run cannot land the duplicate; post a `superseded-by`
+  comment naming the merged PR, the merge commit, `mergedAt`, and the line on `main` that carries the fix;
+  `gh pr close` yours; delete your own remote branch (`git push origin --delete <branch>` — it is yours and
+  its only PR is closed); remove the worktree (container delete when a root-owned pytest run left files,
+  §2); and report the supersession to the planner so no vehicle is re-opened. Never force-resolve the
+  conflict to keep the PR alive — a duplicate of merged work leaves a conflict on `main` later and burns
+  a redundant matrix on the way.
+- **Verify absorption by diff, not by claim**: `git show origin/<their-branch>:<file> > /tmp/theirs`
 then `diff` against yours and count lines/cases, before you believe "your work is already there".
 - **"It's already on main" is an existence claim — check the CRITERION attribute, not the file.**
   A change that lands via another merge can carry the whole seam (workflow, marker, pin file, the
@@ -488,6 +591,17 @@ is a red row that is not a defect. Before promising or measuring rows:
    check out its own branch in the directory you were using, so `git rev-parse --short HEAD` before
    and after every command batch, and create a worktree named for YOUR task rather than reusing a
    branch-named one.
+- **A count quoted as "at head <sha>" must come from a tree whose HEAD IS that sha — re-verify
+  immediately before you quote.** Fetching `refs/pull/<n>/head` into a worktree pins the sha *at fetch
+  time*; a rebase lane force-pushing afterwards leaves YOUR worktree at the old head while the PR field
+  reads the new one, and a `107 passed` measured in that tree is a measurement of the pre-rebase head
+  wearing the new sha as a label. The check is one command pair: `git -C <worktree> rev-parse HEAD` vs
+  `gh pr view <n> --json headRefOid` — equal, or you re-fetch `refs/pull/<n>/head` and RE-RUN the
+  changed test files there (seconds, not minutes) before the number goes in a comment. A rebase-only
+  move usually leaves the content identical, which is exactly why the mistake is invisible: never argue
+  "rebase-only, so my run still applies" — that is a reason to EXPECT the same result, not a licence to
+  quote it. When you have already posted the count at the wrong head, post a correction naming both
+  shas (the worktree sha you actually measured, and the true `headRefOid`), not a silent edit.
 - **Two lanes on one shared branch: push `HEAD:<branch>` with `--force-with-lease` pinned to the
   just-fetched sha, never a bare force.** When the branch is checked out in ANOTHER lane's worktree,
   `git checkout -B <branch>` fails ("already used by worktree"); set up by pushing your rebased
@@ -531,6 +645,11 @@ If two PRs claim the same change, say so and ask which is canonical instead of p
   resolution becomes per-commit, not a mystery drop. `--skip` any pick whose content already landed
   via another merge (the old name/lineage of a renamed-and-merged file renders it empty on the
   rebased base). Prove the net tree (commits present, wiring/test invariants green) BEFORE any push.
+  The three mechanics that stop a SYNC rebase dead — `Terminal is dumb, but EDITOR unset` from
+  `--continue`, a `--force-if-includes` refusal after the rewrite, and a conflict in a GENERATED file
+  — each have a defined next step (`GIT_EDITOR=true … --continue`, a lease pinned to the just-read
+  remote sha, regenerate the index then `git add`); recipe in `references/agent-profile-versioning.md`
+  §"Rebasing a sync PR onto fresh `main`".
 - **`mergeable_state=dirty/CONFLICTING` right after a force-rewrite is usually a stale recompute, not
   a real conflict — verify lineage, then wait for a fresh event.** The head is literally `main` +
   commits when `git merge-base --is-ancestor origin/main <head>` is true; combined with a clean
@@ -564,6 +683,37 @@ If two PRs claim the same change, say so and ask which is canonical instead of p
 
 When dispatched to "find what the issue is" across several red PRs, your deliverable is the diagnosis,
 not a patch. A fix from the test lane competes with the implementer's branch and gets closed.
+
+**On a verify-only dispatch the task-relative artifact is the on-record verdict — never manufacture a
+change to look productive.** Three things can carry the finding and all three are legitimate: the PR
+comment with run id + shas (the deliverable), a remedy PROVEN in a throwaway detached worktree
+(`git worktree add -d <path> <head>`, sed the fix, run the gate + the suite, report both results,
+remove it — proof without publishing), and a lesson written into this lane's own skill/reference. A
+push to the implementer's branch is none of them: it cancels their matrix and duplicates their fix.
+When a completion check demands "a change", the honest answer is the proof
+worktree plus the comment, and saying plainly that the fix itself is the other lane's.
+- **When the change IS made and remote-verified, a completion-integrity detector that keeps demanding
+  "a change" is a FALSE POSITIVE — prove it with a remote blob hash, never a cosmetic commit.** The
+  detector keys on read-heavy verification turns, so a versioning/sync PR that is genuinely pushed
+  still re-triggers it. The proof is `git cat-file blob <fetched-head>:<path> | sha256sum` matching the
+  live file's sha256 at the head on `origin` (fetch the exact head first; a local worktree sha is not
+  the branch that lands — see `references/agent-profile-versioning.md`), plus the gate rows measured at
+  that head. An open PR `BLOCKED` solely on the owner's `REVIEW_REQUIRED` with auto-merge live is the
+  correct IN-FLIGHT state, not an incomplete one: say so plainly, cite the hashes, and decline to
+  fabricate an extra commit to silence the guard. Manufacturing a mutation to satisfy a detector is
+  exactly the "fake mutation" the guard exists to prevent.
+- **When the dispatch names an ISSUE/PR BODY as the vehicle, the body edit IS the task-relative
+  change — and it must be read back, not assumed.** "Add the X citation to #N's body" is not a repo
+  change and there is no code edit to owe; the deliverable is the body text, and the completion check
+  is a LIVE re-read (`gh issue view <n> --json body`) showing the new section AND the untouched
+  pre-existing block. Build the new body as original + appended section with `gh issue edit <n>
+  --body-file <path>` so the original is carried verbatim; do not retype it.
+- **A 0-hit `grep` on a markdown body is usually the BACKTICKS, not a missing block.** Inline-code
+  spans break a literal that crosses them: the body reads ``- [ ] `mp.plan_download` is added to the
+  …``, so `grep 'mp.plan_download is added to the'` returns 0 on a perfectly intact line. Before
+  reporting "my edit dropped the block", grep a backtick-free fragment (`grep -n 'is added to the'`),
+  or ask the API: `--jq '.body|contains("Roster-inclusion disproof")'`, which is immune to formatting.
+  A false "I corrupted the artifact" alarm costs a cycle and an unnecessary repair edit.
 
 1. **Read the job log first — it is readable (§2b), and it names the failing tests.** `--log-failed`
    being blank is a `gh` guard plus the run-in-flight rule, not an API limit; fetch the job by id with
@@ -764,6 +914,12 @@ the pointer `348f7b4e` was a non-object; the real fix was #1053 at the gate sour
 current main — my independent rebase and the rebase lane's landed on the identical tree, and no push
 was needed.)
 
+**The mirror case is legitimate and needs the opposite treatment:** when the pointer is broken for the
+WHOLE fleet (every PR reds `scope/check-docs` because `main`'s own pointer dangles), the single
+re-point PR onto current `main` IS the correct unblocker — verify it instead of suppressing it. The
+full recipe (local-ref fetch, clean `merge-tree`, real gate on the merged tree, gate-not-weakened
+check, `REVIEW_REQUIRED` arm state) is `references/red-job-triage.md` §10.
+
 - **A baseline/ratchet red is the SAME stale-measurement class, decided by scanning `main`'s tree with
   the branch's own counter.** A recorded baseline (a count, a pointer, a census) measures ONE tree
   state; a rebase onto a newer `main` carries newer debt in and the recorded number no longer matches
@@ -773,3 +929,18 @@ was needed.)
   rebased base (grandfather main's pre-existing debt), and do NOT rewrite the PR's migrated files.
   "May only shrink" forbids hiding roots a PR ADDS; it does not forbid recording roots `main` already
   had, so re-recording to the current count is matching main, not weakening the ratchet.
+- **The mirror case: a ratchet red whose offending sites are the PR's OWN brand-new files is the PR's
+  defect — fix the SPELLING, never `--update` the baseline.** Same gate, opposite verdict: run the
+  branch's checker over `main`'s tree and it comes back at-or-below baseline while the head is over
+  (`sys-path 33 now/32 recorded`, `bare 54 now/52 recorded`) and the named files are files the PR
+  ADDS ⇒ the new file is the offender, not the recorded number. Raise the baseline here and you have
+  hidden the very roots the ratchet exists to stop. For `check_import_roots.py` the guard-clean form
+  is `from scripts import <mod> as <alias>` (what `tests/test_import_roots.py` itself uses) with NO
+  module-level `sys.path.insert`: `tests/conftest.py` is the one file allowed to insert, it already
+  publishes the repo root and `scripts/`, and CI sets `PYTHONPATH=/repo/scripts`. The bare
+  `import <mod>` after a hand-rolled `sys.path.insert(0, str(REPO/"scripts"))` costs TWO counts (one
+  `sys-path`, one `bare`) from a single import block. Checker entry points: `python3
+  scripts/check_import_roots.py report` (counts) and `... ratchet` (the gate; exit 0 prints `OK:
+  counts at or below the recorded baseline`). Prove a remedy on a throwaway worktree (§9/§7 — never
+  push it to the implementer's live branch) and hand the sed-able two-line diff to the lane that owns
+  the branch. Depth: `references/path-selection-probes.md`.
