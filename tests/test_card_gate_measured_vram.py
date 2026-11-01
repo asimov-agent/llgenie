@@ -119,7 +119,7 @@ def test_the_weights_only_fit_admits_a_model_above_its_declared_minimum():
 
 
 def test_the_system_ram_floor_still_applies():
-    """The RAM half of the run's footprint is a hard floor."""
+    """The RAM half of a run's footprint is a hard floor — the RUN's figure, measured-governs (#1072)."""
     # Given a run on a 4 GB card that names 32 GB of system RAM
     model = _model(vram_min="40GB", vram_tier="40GB", system_ram_min="128GB",
                    engines=[_run(4, ram_gb=32)])
@@ -129,6 +129,52 @@ def test_the_system_ram_floor_still_applies():
     assert mp.ram_floor_gb(model, "run", 8) == 32
     assert mp.fits(model, 8, 16) is False
     assert mp.fits(model, 8, 64) is True
+
+    # And rewriting the DECLARED figure (up or down) changes no answer: the declared
+    # system_ram_min is not read when the admitting run states a RAM figure (issue #1072).
+    for declared in ("16GB", "512GB"):
+        relabeled = dict(model, system_ram_min=declared)
+        assert mp.ram_floor_gb(relabeled, "run", 8) == 32
+        assert mp.fits(relabeled, 8, 16) is False
+        assert mp.fits(relabeled, 8, 64) is True
+
+
+def test_the_run_floor_governs_when_the_run_names_more_ram_than_the_contract():
+    """#1072 measured-governs: a run naming MORE RAM than the declared system_ram_min is the
+    floor — the declared value is neither a floor nor a ceiling on a run that states RAM."""
+    # Given a run on a 24 GB card naming 110 GB of system RAM, whose declared minimum is 16 GB
+    model = _model(vram_min="24GB", system_ram_min="16GB", engines=[_run(24, ram_gb=110)])
+
+    # When the gate is asked about a card that fits, on hosts of 64 then 110 GB
+    # Then 64 GB is below the run's 110 GB floor (refused), 110 GB admits it
+    assert mp.ram_floor_gb(model, "run", 24) == 110
+    assert mp.fits(model, 24, 64) is False
+    assert mp.fits(model, 24, 110) is True
+
+    # And the declared 16 GB never admits a below-floor host, however large the contract
+    # is rewritten (the run states one, so the contract is not read).
+    for declared in ("8GB", "256GB"):
+        relabeled = dict(model, system_ram_min=declared)
+        assert mp.fits(relabeled, 24, 64) is False
+        assert mp.fits(relabeled, 24, 110) is True
+
+
+def test_fits_without_host_ram_applies_the_card_evidence_only():
+    """A bare `fits(model, card)` call carries no host — it cannot judge RAM, so it is
+    deliberately blind to the RAM floor and admits from the card evidence alone."""
+    # Given a run admitting the model whose own footprint names 110 GB of system RAM
+    model = _model(vram_min="24GB", system_ram_min="16GB", engines=[_run(24, ram_gb=110)])
+
+    # When the gate is asked with no host RAM about a card the run proves
+    # Then it answers yes from the card evidence (the widening is deliberate, not an artefact):
+    # a bare gate call has no host to measure the floor against.
+    assert mp.ram_floor_gb(model, "run", 24) == 110
+    assert mp.card_evidence(model, 24) == "run"
+    assert mp.fits(model, 24) is True
+    # ...and a model with NO admitting evidence stays refused even with no host RAM.
+    no_evidence = _model(vram_min="48GB")  # no run admits at 24: 48 > 24, below the min
+    assert mp.card_evidence(no_evidence, 24) == ""
+    assert mp.fits(no_evidence, 24) is False
 
 
 def test_every_model_the_published_tier_table_places_is_admitted(reg):

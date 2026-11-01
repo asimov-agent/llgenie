@@ -8,7 +8,12 @@ The picker SHALL admit a model on a card of N GB when the store carries evidence
 at that size, in this order: a measurement whose hardware names a card ≤ N (`ran on`), else a
 stated `vram_min` ≤ N, else a stated `weight_gb` ≤ N (the `weights-only` fit). `vram_tier` SHALL
 be read only as the last resort, for a row that states neither `vram_min` nor a measurement.
-When the store states `system_ram_min`, the host's RAM SHALL also be at least that.
+The system-RAM floor SHALL be read from the evidence that admitted the model (measured governs,
+issue #1072): the admitting run's own `system_ram_min`, else the RAM its `hardware` string names,
+and only when that evidence states none is the model's declared `system_ram_min` read — in both
+directions, the evidence's figure is the floor, and the declared value changes no verdict when the
+evidence states one. A `fits()` call with no host RAM SHALL apply the card evidence alone (it has
+no host to measure the floor against).
 
 WHEN the store records a run on a 4 GB card and `vram_min` says 12 GB,
 THEN a 8 GB card admits the model, and a 4 GB card does too.
@@ -37,11 +42,27 @@ When a card of that size is asked,
 Then it is admitted as a `weights-only` fit, exactly as the publishing README labels it.
 - **Test:** `tests/test_card_gate_measured_vram.py::test_the_weights_only_fit_admits_a_model_above_its_declared_minimum`
 
-#### Scenario: the system-RAM floor still applies
-Given a model admitted by the card evidence that states a `system_ram_min` above this host's RAM,
-When `fits()` is asked,
-Then it answers no.
+#### Scenario: the system-RAM floor still applies, from the admitting evidence
+Given a model admitted by a run that names 32 GB of system RAM while its declared
+`system_ram_min` is 128 GB,
+When `fits()` is asked on a host with 16 GB of RAM and then with 64 GB,
+Then it answers no, then yes — the run's own figure is the floor, not the declared one.
 - **Test:** `tests/test_card_gate_measured_vram.py::test_the_system_ram_floor_still_applies`
+
+#### Scenario: the run's floor holds when it names MORE RAM than the contract
+Given a model admitted by a run that names 110 GB of system RAM while its declared
+`system_ram_min` is 16 GB,
+When `fits()` is asked on a host with 64 GB of RAM and then with 110 GB,
+Then it answers no, then yes — the declared value is neither a floor nor a ceiling on a
+run that states RAM (rewriting it changes no verdict in either direction).
+- **Test:** `tests/test_card_gate_measured_vram.py::test_the_run_floor_governs_when_the_run_names_more_ram_than_the_contract`
+
+#### Scenario: a bare gate call with no host RAM applies the card evidence only
+Given a `fits(model, card)` call that states no host RAM,
+When the gate runs,
+Then it cannot judge the RAM floor, so it answers from the card evidence alone — the widening
+is deliberate, not an artefact.
+- **Test:** `tests/test_card_gate_measured_vram.py::test_fits_without_host_ram_applies_the_card_evidence_only`
 
 ### Requirement: Every placement the published tier table makes passes the gate
 
