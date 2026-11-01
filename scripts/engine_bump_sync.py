@@ -50,7 +50,7 @@ def upstream_remote(repo: str, run_git=None, log=None) -> str:
     upstream remote gets one named `upstream`; only a checkout where that cannot
     be added keeps the `origin` behaviour.
     """
-    run_git = run_git or (lambda *a, **k: subprocess.run(
+    run_git = run_git or (lambda *a, **k: subprocess.run(  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
         ["git", "-C", repo, *a], capture_output=True, text=True, **k))
     log = log or (lambda *a, **k: None)
     r = run_git("remote", "-v")
@@ -87,7 +87,7 @@ def sync_pr_with_main(pr, repo: str, run_git=None, log=None) -> bool:
 
     Returns True if the PR head is now in sync with main, False otherwise.
     """
-    run_git = run_git or (lambda *a, **k: subprocess.run(
+    run_git = run_git or (lambda *a, **k: subprocess.run(  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
         ["git", "-C", repo, *a], capture_output=True, text=True, **k))
     log = log or (lambda *a, **k: None)
     head_ref = pr["head"]["ref"]

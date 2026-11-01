@@ -86,7 +86,7 @@ DOC_GLOBS = ("README.md", "README.rst", "docs/*.md", "docs/*.rst", "docs/**/*.md
 
 def _show(repo_dir: Path, sha: str, path: str) -> str:
     """One file's content at `sha`, from a blobless clone. Empty when the path is absent."""
-    r = subprocess.run(["git", "-C", str(repo_dir), "show", f"{sha}:{path}"],
+    r = subprocess.run(["git", "-C", str(repo_dir), "show", f"{sha}:{path}"],  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                        capture_output=True, text=True)
     return r.stdout if r.returncode == 0 else ""
 
@@ -97,7 +97,7 @@ def _clone(skill: dict) -> Path:
     if "://" in url or url.startswith("git@"):
         url += ".git"
     dest = Path(tempfile.mkdtemp(prefix="llgenie-review-"))
-    subprocess.run(["git", "clone", "--filter=blob:none", "--no-checkout", url, str(dest)],
+    subprocess.run(["git", "clone", "--filter=blob:none", "--no-checkout", url, str(dest)],  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                    capture_output=True, text=True, timeout=300, check=True)
     return dest
 
@@ -109,7 +109,7 @@ def _docs(repo_dir: Path, sha: str) -> tuple[dict[str, str], int]:
     whatever scores highest on the vocabulary of building this engine — until `DOC_TOTAL_BUDGET`. The
     count of files the budget left out is returned so the brief can say the input is a selection.
     """
-    listing = subprocess.run(["git", "-C", str(repo_dir), "ls-tree", "-r", "--name-only", sha],
+    listing = subprocess.run(["git", "-C", str(repo_dir), "ls-tree", "-r", "--name-only", sha],  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                              capture_output=True, text=True)
     paths = [p for p in listing.stdout.splitlines() if p.strip()]
     matched = []
@@ -345,7 +345,7 @@ def main(argv: list[str] | None = None) -> int:
     changed = apply_accepted(a.engine, accepted, dry=a.dry) if accepted else []
     if changed and not a.dry:
         # The skill is the writer: regenerate the params and per-arch Dockerfiles from it.
-        subprocess.run(["make", "generate-engine-params", f"ENGINE={a.engine}"],
+        subprocess.run(["make", "generate-engine-params", f"ENGINE={a.engine}"],  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                        capture_output=True, text=True, timeout=300)
         print(f"[params-review] {a.engine}: regenerated params/Dockerfiles for {', '.join(changed)}")
     Path(a.section).write_text(section(a.engine, accepted, rejected))

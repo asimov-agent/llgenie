@@ -36,7 +36,7 @@ def running_is_want() -> bool:
 def version_of(python: str) -> tuple[int, int] | None:
     """(major, minor) of the interpreter at ``python``, or None when it does not run."""
     try:
-        out = subprocess.run([python, "-c", "import sys; print(*sys.version_info[:2])"],
+        out = subprocess.run([python, "-c", "import sys; print(*sys.version_info[:2])"],  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                              capture_output=True, text=True, timeout=30).stdout.split()
         return (int(out[0]), int(out[1])) if len(out) == 2 else None
     except (OSError, ValueError, subprocess.SubprocessError):
@@ -45,7 +45,7 @@ def version_of(python: str) -> tuple[int, int] | None:
 
 def brew_python() -> str:
     try:
-        prefix = subprocess.run(["brew", "--prefix", "python@3.11"], capture_output=True,
+        prefix = subprocess.run(["brew", "--prefix", "python@3.11"], capture_output=True,  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                                 text=True, timeout=60).stdout.strip()
     except (OSError, subprocess.SubprocessError):
         return ""
@@ -84,7 +84,7 @@ def uv_install_python311() -> bool:
     the macOS brew path). Returns True on success."""
     print("==> [python-check] installing Python 3.11 via `uv python install 3.11`",
           file=sys.stderr)
-    return subprocess.run(["uv", "python", "install", "3.11"]).returncode == 0
+    return subprocess.run(["uv", "python", "install", "3.11"]).returncode == 0  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
 
 
 def resolve() -> str | None:
@@ -97,7 +97,7 @@ def resolve() -> str | None:
     if sys.platform == "darwin" and shutil.which("brew"):
         print("==> [python-check] installing Python 3.11 via `brew install python@3.11`",
               file=sys.stderr)
-        if subprocess.run(["brew", "install", "python@3.11"]).returncode == 0:
+        if subprocess.run(["brew", "install", "python@3.11"]).returncode == 0:  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
             return find_python311()
         print("FATAL: brew install python@3.11 failed", file=sys.stderr)
         return None

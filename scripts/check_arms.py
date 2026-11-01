@@ -36,7 +36,7 @@ DEFAULT_BRANCH = "main"
 
 def open_prs(repo: str) -> list[dict]:
     """Every open PR with the fields this gate reads — one list call, filtered in code, never a `--label`."""
-    listed = subprocess.run(
+    listed = subprocess.run(  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
         ["gh", "pr", "list", "--repo", repo, "--state", "open", "--limit", "200",
          "--json", "number,title,isDraft,baseRefName,mergeable,autoMergeRequest"],
         capture_output=True, text=True)

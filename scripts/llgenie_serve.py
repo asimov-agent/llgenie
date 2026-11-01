@@ -669,7 +669,7 @@ def read_total_ram_bytes():
         return int(env)
     if sys.platform == "darwin":
         try:
-            out = subprocess.run(["sysctl", "-n", "hw.memsize"],
+            out = subprocess.run(["sysctl", "-n", "hw.memsize"],  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                                  capture_output=True, text=True, timeout=5).stdout.strip()
             if out.isdigit() and int(out) > 0:
                 return int(out)
@@ -709,7 +709,7 @@ def read_current_headroom_bytes(total_bytes=None):
     measured = None
     if sys.platform == "darwin":
         try:
-            out = subprocess.run(["vm_stat"], capture_output=True, text=True, timeout=5).stdout
+            out = subprocess.run(["vm_stat"], capture_output=True, text=True, timeout=5).stdout  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
             wired = None
             page_size = None
             for line in out.splitlines():
@@ -1314,7 +1314,7 @@ def pretty(cmd):
 def stop_server_on_port(port):
     """Stop any llama-server already listening on `port` (one model at a time)."""
     try:
-        out = subprocess.run(
+        out = subprocess.run(  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
             ["lsof", "-ti", f"tcp:{port}"], capture_output=True, text=True, timeout=5
         ).stdout.strip()
     except Exception:
@@ -1323,7 +1323,7 @@ def stop_server_on_port(port):
         return 0
     pids = [p for p in out.split() if p]
     for p in pids:
-        subprocess.run(["kill", "-9", p], capture_output=True)
+        subprocess.run(["kill", "-9", p], capture_output=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     return len(pids)
 
 
@@ -1487,7 +1487,7 @@ def invoke_llama_server(cmd, model_path):
     if sys.platform != "darwin":
         ensure_container_env()  # the Linux llama-server shim runs a container
     try:
-        subprocess.run(cmd)
+        subprocess.run(cmd)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     except KeyboardInterrupt:
         print("\nStopped.")
     except FileNotFoundError:
@@ -1554,7 +1554,7 @@ def _ensure_and_exec(eng, path, args):
     # write its start script (make install only installs the llama.cpp core);
     # metal: install it natively with its skill and write a native start script
     inst = os.path.join(os.path.dirname(os.path.abspath(__file__)), "install_engine_launchers.py")
-    rc = subprocess.run([sys.executable, inst, "--bin", os.path.dirname(script),
+    rc = subprocess.run([sys.executable, inst, "--bin", os.path.dirname(script),  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                          "--ensure", eng["id"], "--arch", eng["variant"]]).returncode
     if rc or not os.access(script, os.X_OK):
         raise SystemExit(f"[llgenie] could not install the {eng['id']} image ({eng['variant']}); "

@@ -208,7 +208,7 @@ def _aggregated(root: Path, recipes: dict[str, str], docs: list[str]) -> tuple[d
         if group:
             cmd += ["--group", group]
         try:
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
         except (OSError, subprocess.SubprocessError) as exc:  # a broken aggregator is a finding
             return {}, [f"{AGGREGATOR} could not list the unit suite ({exc})"]
         if proc.returncode != 0:

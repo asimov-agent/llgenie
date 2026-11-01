@@ -69,7 +69,7 @@ def real_main(argv: list[str]) -> int:
     failed = []
     for s in steps:
         print(f"==> [ci-engines] {backend}: make {' '.join(s)}", flush=True)
-        if subprocess.run([make, *s]).returncode != 0:
+        if subprocess.run([make, *s]).returncode != 0:  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
             failed.append(" ".join(s))
     print(f"[ci-engines] {backend}: {len(steps) - len(failed)}/{len(steps)} stages green"
           + (f"; FAILED: {', '.join(failed)}" if failed else ""))

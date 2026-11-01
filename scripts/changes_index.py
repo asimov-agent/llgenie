@@ -177,7 +177,7 @@ def write(root: Path = REPO) -> int:
 
 def _git(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
     """One `git` command scoped to `root` (never the inheriting cwd's repo)."""
-    return subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True)
+    return subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
 
 
 def resolve(root: Path = REPO, base: str = "origin/main") -> int:

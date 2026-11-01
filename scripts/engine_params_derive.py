@@ -67,7 +67,7 @@ class HardFail(Exception):
 
 
 def _git(repo_dir: Path, *args: str) -> str:
-    p = subprocess.run(["git", "-C", str(repo_dir), *args], capture_output=True,
+    p = subprocess.run(["git", "-C", str(repo_dir), *args], capture_output=True,  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                        text=True, timeout=120)
     if p.returncode != 0:
         raise HardFail(f"git {' '.join(args)} failed: {p.stderr.strip()}")
@@ -76,7 +76,7 @@ def _git(repo_dir: Path, *args: str) -> str:
 
 def _show(repo_dir: Path, sha: str, path: str) -> str:
     """`git show <sha>:<path>`; raises HardFail when the file is absent."""
-    p = subprocess.run(["git", "-C", str(repo_dir), "show", f"{sha}:{path}"],
+    p = subprocess.run(["git", "-C", str(repo_dir), "show", f"{sha}:{path}"],  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                        capture_output=True, text=True, timeout=120)
     if p.returncode != 0:
         raise HardFail(f"no file {path!r} at {sha[:8]}")
@@ -179,7 +179,7 @@ def derive(skill: dict, sha: str, repo_dir: Path | None = None,
         repo_url = skill["repo"].rstrip("/")
         if "://" in repo_url or repo_url.startswith("git@"):
             repo_url += ".git"
-        subprocess.run(["git", "clone", "--filter=blob:none", "--no-checkout",
+        subprocess.run(["git", "clone", "--filter=blob:none", "--no-checkout",  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                         repo_url, str(repo_dir)],
                        capture_output=True, text=True, timeout=300, check=True)
 
@@ -296,7 +296,7 @@ def derive(skill: dict, sha: str, repo_dir: Path | None = None,
                 )
     finally:
         if own_dir:
-            subprocess.run(["rm", "-rf", str(repo_dir)], capture_output=True)
+            subprocess.run(["rm", "-rf", str(repo_dir)], capture_output=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
 
     return findings
 

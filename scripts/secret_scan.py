@@ -43,7 +43,7 @@ def committable(root: Path = REPO) -> list[str]:
     `--exclude-standard` applies the ignore rules — including `.gitignore`, `.git/info/exclude` and
     the user's global ignore, so the answer matches what the repository would actually accept.
     """
-    out = subprocess.run(["git", "-C", str(root), "ls-files", "-z", "-c", "-o", "--exclude-standard"],
+    out = subprocess.run(["git", "-C", str(root), "ls-files", "-z", "-c", "-o", "--exclude-standard"],  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                          capture_output=True, text=True, check=True)
     return sorted({name for name in out.stdout.split("\0") if name})
 
@@ -76,7 +76,7 @@ def export(root: Path, dest: Path, names: list[str]) -> int:
 
 def scan(runtime: str, target: Path, *, image: str = GITLEAKS_IMAGE, config: str = CONFIG) -> subprocess.CompletedProcess:
     """Run the pinned scanner over `target`, mounted at /repo, with the repository's config."""
-    return subprocess.run(
+    return subprocess.run(  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
         [runtime, "run", "--rm", "-v", f"{target}:/repo:rw", "-w", "/repo", image,
          "dir", "/repo", "--config", f"/repo/{config}", "--redact", "--no-banner", "--exit-code", "1"],
         capture_output=True, text=True)

@@ -30,6 +30,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+try:  # the subprocess policy seam (issue #797)
+    from .proc import run_ok  # type: ignore
+except ImportError:  # pragma: no cover - script mode
+    from proc import run_ok  # type: ignore
+
 REPO = Path(__file__).resolve().parent.parent
 RUNTIME = os.environ.get("RUNTIME") or "docker"
 DEFAULT_REGISTRY = "ghcr.io/asimov-agent"
@@ -81,7 +86,8 @@ def ref(scanner: str) -> str:
 
 def _run(cmd: list[str], **kw) -> subprocess.CompletedProcess:
     print(f"[scanner-image] $ {' '.join(cmd)}")
-    return subprocess.run(cmd, **kw)
+    # policy: run_ok — the caller inspects rc (issue #797, scripts/proc.py is the one seam).
+    return run_ok(cmd, **kw)
 
 
 def build(scanner: str, tag: str | None = None) -> str:
@@ -94,7 +100,7 @@ def build(scanner: str, tag: str | None = None) -> str:
 
 def version_line(scanner: str, image: str) -> str:
     """Run the image's version command and return everything it printed."""
-    res = subprocess.run([RUNTIME, "run", "--rm", image, SCANNERS[scanner]["cmd"]],
+    res = subprocess.run([RUNTIME, "run", "--rm", image, SCANNERS[scanner]["cmd"]],  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                          capture_output=True, text=True)
     out = (res.stdout + res.stderr).strip()
     if res.returncode != 0:

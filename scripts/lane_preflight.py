@@ -72,7 +72,7 @@ def dirty_tracked_files(root: Path) -> list[str]:
     that differs from `HEAD` means the working tree is not what the PR would carry, so a gate over
     the filesystem would describe the wrong tree — the #919 failure mode.
     """
-    proc = subprocess.run(
+    proc = subprocess.run(  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
         ["git", "status", "--porcelain", "--untracked-files=no"],
         cwd=str(root), capture_output=True, text=True,
     )
@@ -109,7 +109,7 @@ def run(root: Path = REPO, gates: tuple[str, ...] = FAST_GATES) -> int:
 
     failed = []
     for gate in gates:
-        proc = subprocess.run(["make", gate], cwd=str(root))
+        proc = subprocess.run(["make", gate], cwd=str(root))  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
         rc = proc.returncode
         print(f"{gate}: rc={rc}", flush=True)
         if rc != 0:

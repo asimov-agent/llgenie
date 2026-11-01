@@ -54,7 +54,7 @@ _ISSUE_NUMBER = re.compile(r"#(\d+)")
 
 def _gh(args: list[str]) -> str:
     """One `gh` call, its stdout. Raises with the real stderr when gh fails."""
-    r = subprocess.run(["gh", *args], capture_output=True, text=True)
+    r = subprocess.run(["gh", *args], capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     if r.returncode != 0:
         raise RuntimeError(f"gh {' '.join(args)} failed: {r.stderr.strip()}")
     return r.stdout

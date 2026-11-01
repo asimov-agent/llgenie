@@ -37,7 +37,7 @@ MARKER = "queued-run-alarm"
 
 
 def _gh(args: list[str]) -> str:
-    r = subprocess.run(["gh", *args], capture_output=True, text=True)
+    r = subprocess.run(["gh", *args], capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     if r.returncode != 0:
         raise RuntimeError(f"gh {' '.join(args)} failed: {r.stderr.strip()}")
     return r.stdout
@@ -178,7 +178,7 @@ def comment_run(repo: str, number: int, run_id: int, body: str, dry: bool = Fals
         return ""
     if dry:
         return ""
-    r = subprocess.run(["gh", "api", "-X", "POST", f"/repos/{repo}/issues/{number}/comments",
+    r = subprocess.run(["gh", "api", "-X", "POST", f"/repos/{repo}/issues/{number}/comments",  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                         "-f", f"body={body}\n\n_{run_marker(run_id)}_"],
                        capture_output=True, text=True)
     if r.returncode != 0:
@@ -241,7 +241,7 @@ def file_label_issue(repo: str, label: str, body: str, dry: bool = False,
         ],
     )
     title = f"ci: no runner matches `{label}` — jobs are queued with no machine to run them"
-    r = subprocess.run(["gh", "issue", "create", "--repo", repo, "--title", title,
+    r = subprocess.run(["gh", "issue", "create", "--repo", repo, "--title", title,  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                         "--body", f"{text}\n\n_{label_marker(label)}_"],
                        capture_output=True, text=True)
     if r.returncode != 0:

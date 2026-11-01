@@ -42,9 +42,9 @@ def checkout(dest: Path) -> Path:
     """Strata at the skill's pinned commit in `dest` (a shallow fetch of that sha)."""
     url, _ref, sha = pinned()
     if not (dest / ".git").exists():
-        subprocess.run(["git", "init", "-q", str(dest)], check=True)
-    subprocess.run(["git", "-C", str(dest), "fetch", "-q", "--depth", "1", url, sha], check=True)
-    subprocess.run(["git", "-C", str(dest), "checkout", "-q", sha], check=True)
+        subprocess.run(["git", "init", "-q", str(dest)], check=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
+    subprocess.run(["git", "-C", str(dest), "fetch", "-q", "--depth", "1", url, sha], check=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
+    subprocess.run(["git", "-C", str(dest), "checkout", "-q", sha], check=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     return dest
 
 

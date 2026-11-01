@@ -149,7 +149,7 @@ PY_PR_CREATE_ANY = re.compile(r"""["']pr["']\s*,\s*["']create["']""")
 
 def _run(args: list[str], cwd: Path) -> str:
     """Run git and return its stdout. A failure is raised, never swallowed."""
-    proc = subprocess.run(args, cwd=str(cwd), capture_output=True, text=True)
+    proc = subprocess.run(args, cwd=str(cwd), capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     if proc.returncode != 0:
         raise RuntimeError(f"{' '.join(args)} failed ({proc.returncode}): {proc.stderr.strip()}")
     return proc.stdout

@@ -40,7 +40,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _git(*args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["git", *args], capture_output=True, text=True, cwd=REPO_ROOT)
+    return subprocess.run(["git", *args], capture_output=True, text=True, cwd=REPO_ROOT)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
 
 
 def _ls_names(path: str = "", ref: str = "HEAD") -> list[str]:

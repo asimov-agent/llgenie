@@ -106,17 +106,17 @@ def ensure_image(tool: str) -> str:
     with the SAME immutable ref the workflow asked for, and the log says which path was taken.
     """
     ref = image_ref(tool)
-    if subprocess.run([RUNTIME, "image", "inspect", ref],
+    if subprocess.run([RUNTIME, "image", "inspect", ref],  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                       capture_output=True).returncode == 0:
         return ref
-    pull = subprocess.run([RUNTIME, "pull", ref], capture_output=True, text=True)
+    pull = subprocess.run([RUNTIME, "pull", ref], capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     if pull.returncode == 0:
         print(f"[security-scan] pulled {ref}")
         return ref
     context = REPO / "containers" / "scanners" / tool
     print(f"[security-scan] {ref} is not published yet — building {context} (the same Dockerfile "
           "the publish job builds) and tagging it with the ref the scan asked for")
-    build = subprocess.run([RUNTIME, "build", "-t", ref, str(context)],
+    build = subprocess.run([RUNTIME, "build", "-t", ref, str(context)],  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                            capture_output=True, text=True)
     if build.returncode != 0:
         raise SystemExit(f"[security-scan] cannot build {tool}: {build.stderr.strip()[-400:]}")
@@ -134,7 +134,7 @@ def _run(argv: list[str], image: str, entrypoint: str | None = None) -> int:
            "-v", f"{REPO}:/work:rw", "-w", "/work",
            "-e", "HOME=/tmp", ensure_image_for(image), *argv]
     print(f"[security-scan] $ {' '.join(cmd)}")
-    return subprocess.run(cmd).returncode
+    return subprocess.run(cmd).returncode  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
 
 
 def ensure_image_for(ref: str) -> str:

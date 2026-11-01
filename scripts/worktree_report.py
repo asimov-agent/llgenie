@@ -90,7 +90,7 @@ class Row:
 
 def _run(args: list[str], cwd: Path) -> subprocess.CompletedProcess:
     try:
-        return subprocess.run(args, cwd=str(cwd), capture_output=True, text=True)
+        return subprocess.run(args, cwd=str(cwd), capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     except OSError as exc:  # the executable itself is missing
         raise ReportError(f"{args[0]} could not be run: {exc}") from exc
 

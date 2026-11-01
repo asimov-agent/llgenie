@@ -47,7 +47,7 @@ def stable_sha(path: str, pause: float = 2.0) -> tuple[str, bool]:
 def git_ls_files(repo: str, prefix: str) -> list[str]:
     import subprocess
 
-    out = subprocess.run(
+    out = subprocess.run(  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
         ["git", "ls-files", prefix], cwd=repo, capture_output=True, text=True, check=True
     ).stdout
     return [line for line in out.splitlines() if line.strip()]

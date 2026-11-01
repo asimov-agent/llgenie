@@ -119,7 +119,7 @@ def fetch(urls: list[str], outdir: Path, max_urls: int = DEFAULT_MAX, make: str 
     entries: list[tuple[str, Path | None]] = []
     for i, url in enumerate(urls[:max_urls], start=1):
         out = outdir / f"evidence-{i}.md"
-        result = subprocess.run([make, "--no-print-directory", "agent-fetch", f"URL={url}",
+        result = subprocess.run([make, "--no-print-directory", "agent-fetch", f"URL={url}",  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                                  f"OUT={out}"], cwd=REPO, capture_output=True, text=True)
         ok = result.returncode == 0 and out.is_file() and out.stat().st_size > 0
         entries.append((url, out if ok else None))

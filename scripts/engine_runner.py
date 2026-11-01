@@ -45,7 +45,7 @@ def bash_exe() -> str:
 
 
 def _bash(cmd: str, **kw) -> subprocess.CompletedProcess:
-    return subprocess.run([bash_exe(), "-euo", "pipefail", "-c", cmd], **kw)
+    return subprocess.run([bash_exe(), "-euo", "pipefail", "-c", cmd], **kw)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
 
 
 def install(p: dict) -> int:
@@ -113,7 +113,7 @@ def serve_plan(p: dict, model: str, host: str, port: int, drafter: str = "",
     print(f"[engine-runner] serve {p['id']}/{p['backend']}: {launch}", flush=True)
     serve_log = os.path.join(os.environ.get("TMPDIR", "/tmp"), "engine-runner-serve.log")
     out = open(serve_log, "w")
-    proc = subprocess.Popen([bash_exe(), "-c", pre + launch], start_new_session=True,
+    proc = subprocess.Popen([bash_exe(), "-c", pre + launch], start_new_session=True,  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                             stdout=out, stderr=subprocess.STDOUT)
 
     def stop(signum, _frame):

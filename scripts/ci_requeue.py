@@ -48,7 +48,7 @@ def parse_window(text: str) -> dt.timedelta:
 def _gh(*args: str) -> str:
     """Run `gh` (the binary `CI_REQUEUE_GH` names, so a test can drive a stub)."""
     exe = os.environ.get("CI_REQUEUE_GH") or "gh"
-    r = subprocess.run([exe, *args], capture_output=True, text=True)
+    r = subprocess.run([exe, *args], capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     if r.returncode != 0:
         raise SystemExit(f"[requeue] {exe} {' '.join(args)} failed ({r.returncode}): {r.stderr.strip()}")
     return r.stdout

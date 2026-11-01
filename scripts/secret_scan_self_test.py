@@ -31,7 +31,7 @@ PLANT = "ghp_" + "SelfTest0123456789abcdefGHIJKLMNOP"  # 36-char body, like a re
 
 
 def _scan(docker: str, target: Path) -> subprocess.CompletedProcess:
-    return subprocess.run(
+    return subprocess.run(  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
         [docker, "run", "--rm", "-v", f"{target}:/scan:rw", "-v", f"{CONFIG}:/cfg.toml:ro",
          "ghcr.io/gitleaks/gitleaks:v8.30.1",
          "dir", "/scan", "--config", "/cfg.toml", "--redact", "--no-banner", "--exit-code", "1"],

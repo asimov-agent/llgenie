@@ -45,6 +45,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import git_identity  # the ONE source of the commit identity (issue #840)
 import issue_body  # the one issue shape every producer renders through (issue #745)
 import module_name_guard  # the shared rename rule (#573): the same check `make test-unit` runs
+from proc import run_ok  # the subprocess policy seam (issue #797)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOC_DEFAULT = "docs/ARCHITECTURE.md"
@@ -66,14 +67,14 @@ CRON = re.compile(r'cron:\s*"([^"]+)"')
 
 def git(root: Path, *args: str) -> str:
     """Run real git in `root` and return stdout (raises on a non-zero exit)."""
-    return subprocess.run(
+    return subprocess.run(  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
         ["git", "-C", str(root), *args],
         check=True, capture_output=True, text=True,
     ).stdout
 
 
 def _git_rc(root: Path, *args: str) -> int:
-    return subprocess.run(
+    return subprocess.run(  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
         ["git", "-C", str(root), *args], capture_output=True, text=True,
     ).returncode
 
@@ -390,7 +391,8 @@ def render_pr(issue: int, d: dict, stamp: str, head: str, doc: str, branch: str)
 
 
 def _run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, capture_output=True, text=True, **kwargs)
+    # policy: run_ok — the caller inspects rc (issue #797, scripts/proc.py is the one seam).
+    return run_ok(cmd, **kwargs)
 
 
 def _gh(gh: str, *args: str, stdin: str | None = None, token: str = "") -> str:

@@ -420,7 +420,7 @@ def check_cron_collisions(root: Path) -> list[dict]:
 # gh (read-only here: scan and dedup)
 # ---------------------------------------------------------------------------
 def _gh(gh: str, args: list[str]) -> str:
-    r = subprocess.run([gh, *args], capture_output=True, text=True)
+    r = subprocess.run([gh, *args], capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     if r.returncode != 0:
         raise SystemExit(f"[code-review] {gh} {' '.join(args)} failed ({r.returncode}): {r.stderr.strip()}")
     return r.stdout
@@ -428,7 +428,7 @@ def _gh(gh: str, args: list[str]) -> str:
 
 def _gh_soft(gh: str, args: list[str]) -> str | None:
     """`gh` output, or None when the call is refused — a check that needs admin degrades loudly."""
-    r = subprocess.run([gh, *args], capture_output=True, text=True)
+    r = subprocess.run([gh, *args], capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     if r.returncode != 0:
         print(f"[code-review] WARNING: 'gh {' '.join(args)}' was refused ({r.returncode}): "
               f"{r.stderr.strip().splitlines()[:1]} — that check is SKIPPED this run",

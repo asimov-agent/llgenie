@@ -52,7 +52,7 @@ TABLE_RAM = 32
 # --------------------------------------------------------------------------- gh
 def run_gh(args: list[str], ok_codes: tuple[int, ...] = (0,)) -> str:
     """`gh` is the external system; tests replace this function."""
-    out = subprocess.run(["gh", *args], capture_output=True, text=True)
+    out = subprocess.run(["gh", *args], capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     if out.returncode not in ok_codes:
         raise RuntimeError(f"gh {' '.join(args)} failed ({out.returncode}): {out.stderr.strip()}")
     return out.stdout
@@ -145,7 +145,7 @@ def selection(registry: dict, archs=ARCHS, vrams=VRAMS, rams=RAMS,
 
 def _rev() -> str:
     """The commit the brief is reading — the sync PR's head when the job checked it out."""
-    out = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True)
+    out = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     return out.stdout.strip() if out.returncode == 0 else "(unknown)"
 
 

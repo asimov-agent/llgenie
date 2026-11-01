@@ -208,7 +208,7 @@ def render(items: list[dict], compared: int, ahead: int = 0, where: str = "") ->
 
 
 def gh(*args: str, repo: str) -> subprocess.CompletedProcess:
-    return subprocess.run(["gh", *args, "--repo", repo], capture_output=True, text=True)
+    return subprocess.run(["gh", *args, "--repo", repo], capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
 
 
 def existing_open_issue(repo: str) -> dict | None:
@@ -279,7 +279,7 @@ def main(argv: list[str] | None = None) -> int:
     for item in defects:
         print(f"  {item['kind']}: {item['where']}: {item['detail']}")
     if args.file_issue:
-        sha = subprocess.run(["git", "-C", str(root), "rev-parse", "--short", "HEAD"],
+        sha = subprocess.run(["git", "-C", str(root), "rev-parse", "--short", "HEAD"],  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                              capture_output=True, text=True).stdout.strip() or "unknown"
         print(f"[profile-drift] {file_or_refresh(defects, compared, args.repo, ahead=len(ahead), where=f'{root} @ {sha}')}")
     return 3

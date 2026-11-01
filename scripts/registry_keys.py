@@ -363,7 +363,7 @@ def read_prev(spec: str) -> dict:
     if p.exists():
         return json.loads(p.read_text())
     try:
-        out = subprocess.run(["git", "-C", str(REPO), "show", spec],
+        out = subprocess.run(["git", "-C", str(REPO), "show", spec],  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                              capture_output=True, check=True).stdout
     except subprocess.CalledProcessError as e:
         raise SystemExit(f"[check-registry-keys] cannot read previous registry "

@@ -86,7 +86,7 @@ def changed(root: str = ".", git: str = "git") -> bool:
     that cannot read the tree is a loud SystemExit — an unreadable tree must never look like a run
     that changed something, or like a green one.
     """
-    r = subprocess.run([git, "-C", root, "status", "--porcelain", "--untracked-files=all"],
+    r = subprocess.run([git, "-C", root, "status", "--porcelain", "--untracked-files=all"],  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                        capture_output=True, text=True)
     if r.returncode != 0:
         # Exit 2, the same contract `scripts/require_env.py` uses: an unreadable tree is a plumbing
@@ -116,7 +116,7 @@ def _gh(gh: str, args: list[str], token: "str | None" = None) -> str:
     env = dict(os.environ)
     if token:
         env["GH_TOKEN"] = token
-    r = subprocess.run([gh, *args], capture_output=True, text=True, env=env)
+    r = subprocess.run([gh, *args], capture_output=True, text=True, env=env)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     if r.returncode != 0:
         raise SystemExit(f"[issue-implementer] {gh} {' '.join(args)} failed ({r.returncode}): {r.stderr.strip()}")
     return r.stdout
@@ -452,7 +452,7 @@ def render_pr_body(text: str, num: int, diffstat: str) -> str:
 
 def diffstat(git: str = "git") -> str:
     """The files the pushed commit touched — read from git, never from the agent's prose."""
-    r = subprocess.run([git, "show", "--stat", "--format=", "HEAD"], capture_output=True, text=True)
+    r = subprocess.run([git, "show", "--stat", "--format=", "HEAD"], capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     return r.stdout if r.returncode == 0 else ""
 
 
@@ -529,7 +529,7 @@ def _issue_meta(gh: str, repo: str, ref: int) -> dict | None:
     A verdict may cite a PR number, a typo, or a deleted issue; `gh issue view` answers non-zero for
     those, and that is "not an issue to queue" — never a crash after the close already happened.
     """
-    r = subprocess.run([gh, "issue", "view", str(ref), "--repo", repo, "--json", "state,labels"],
+    r = subprocess.run([gh, "issue", "view", str(ref), "--repo", repo, "--json", "state,labels"],  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                        capture_output=True, text=True)
     if r.returncode != 0:
         return None

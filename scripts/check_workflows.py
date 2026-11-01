@@ -249,7 +249,7 @@ def _tracked(root: Path) -> list[Path] | None:
     if not (root / ".git").exists():
         return None
     try:
-        out = subprocess.run(["git", "-C", str(root), "ls-files", "*.yml", "*.yaml"],
+        out = subprocess.run(["git", "-C", str(root), "ls-files", "*.yml", "*.yaml"],  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                              capture_output=True, text=True, check=True).stdout
     except (subprocess.CalledProcessError, FileNotFoundError):
         return None

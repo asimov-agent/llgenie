@@ -105,7 +105,7 @@ SUPERSEDE_SCAN = 10
 
 def _gh(args: list[str]) -> str:
     """One `gh` call, its stdout. Raises with the real stderr when gh fails."""
-    r = subprocess.run(["gh", *args], capture_output=True, text=True)
+    r = subprocess.run(["gh", *args], capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     if r.returncode != 0:
         raise RuntimeError(f"gh {' '.join(args)} failed: {r.stderr.strip()}")
     return r.stdout
@@ -113,7 +113,7 @@ def _gh(args: list[str]) -> str:
 
 def _gh_soft(args: list[str]) -> str | None:
     """`gh` output, or None when the call is refused — a read that fails must not crash the run."""
-    r = subprocess.run(["gh", *args], capture_output=True, text=True)
+    r = subprocess.run(["gh", *args], capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     if r.returncode != 0:
         return None
     return r.stdout
@@ -297,7 +297,7 @@ def dispatch_fix_bot(repo: str, pr: dict, check: str = "make ci-unit") -> None:
             f"{DISPATCH_TOKEN_ENV} is empty: a dispatch with the job token makes the fix-bot run's "
             f"actor `github-actions[bot]`, which its own guard refuses (issue #555). Nothing was "
             f"dispatched for PR #{pr.get('number')}.")
-    r = subprocess.run(["gh", "workflow", "run", "fix-bot.yml", "--repo", repo,
+    r = subprocess.run(["gh", "workflow", "run", "fix-bot.yml", "--repo", repo,  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                         "-f", f"pr_number={pr['number']}", "-f", f"branch={pr['headRefName']}",
                         "-f", f"check={check}", "-f", "rounds=3"],
                        capture_output=True, text=True, env=dict(os.environ, GH_TOKEN=token))

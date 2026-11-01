@@ -142,7 +142,7 @@ class Outcome:
 
 def _run(args: list[str], *, cwd: str | None = None, check: bool = True) -> subprocess.CompletedProcess:
     """One subprocess call. With `check`, a non-zero exit raises `PruneError` naming the step."""
-    result = subprocess.run(args, cwd=cwd, capture_output=True, text=True)
+    result = subprocess.run(args, cwd=cwd, capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     if check and result.returncode != 0:
         detail = (result.stderr or result.stdout).strip()
         raise PruneError(f"{' '.join(args)} failed: {detail}")

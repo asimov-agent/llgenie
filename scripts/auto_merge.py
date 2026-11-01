@@ -100,7 +100,7 @@ def _gh(gh: str, args: list[str], token: str = "") -> str:
     env = None
     if token:
         env = {**os.environ, "GH_TOKEN": token}
-    r = subprocess.run([gh, *args], capture_output=True, text=True, env=env)
+    r = subprocess.run([gh, *args], capture_output=True, text=True, env=env)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     if r.returncode != 0:
         raise SystemExit(f"[auto-merge] {gh} {' '.join(args)} failed ({r.returncode}): {r.stderr.strip()}")
     return r.stdout
@@ -167,7 +167,7 @@ def _permission_allows(gh: str, repo: str, login: str, owner: str, kind: str) ->
 
 def _permission(gh: str, repo: str, login: str) -> str:
     """The collaborator permission, or empty when GitHub has none (a bot, a stranger)."""
-    r = subprocess.run(
+    r = subprocess.run(  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
         [gh, "api", f"repos/{repo}/collaborators/{login}/permission", "--jq", ".permission"],
         capture_output=True, text=True)
     if r.returncode != 0:

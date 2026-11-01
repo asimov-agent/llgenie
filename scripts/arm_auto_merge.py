@@ -65,7 +65,7 @@ def disarm_state(gh: str, repo: str, pr: int) -> str | None:
 
 
 def _gh(gh: str, args: list[str]) -> str:
-    r = subprocess.run([gh, *args], capture_output=True, text=True)
+    r = subprocess.run([gh, *args], capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     if r.returncode != 0:
         raise SystemExit(f"[arm-auto-merge] {gh} {' '.join(args)} failed ({r.returncode}): {r.stderr.strip()}")
     return r.stdout

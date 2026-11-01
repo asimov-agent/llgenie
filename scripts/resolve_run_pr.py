@@ -42,6 +42,11 @@ import os
 import subprocess
 import sys
 
+try:  # the subprocess policy seam (issue #797)
+    from .proc import run_ok  # type: ignore
+except ImportError:  # pragma: no cover - script mode
+    from proc import run_ok  # type: ignore
+
 #: The owner is a login from the run object, never shell-expanded: it is passed to `gh` as argv.
 _OWNER_JQ = '.[] | select(.headRepositoryOwner.login=="{}") | .number'
 #: The same filter for a PR in ANY state (issue #897), joined into "<number> <state>".
@@ -58,7 +63,8 @@ class ResolutionError(RuntimeError):
 
 
 def _gh(gh: str, args: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run([gh, *args], capture_output=True, text=True)
+    # policy: run_ok — the caller inspects rc (issue #797, scripts/proc.py is the one seam).
+    return run_ok([gh, *args])
 
 
 def _first_number(text: str) -> int | None:

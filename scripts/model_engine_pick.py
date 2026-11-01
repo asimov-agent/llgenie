@@ -2008,7 +2008,7 @@ def download(model: dict, gb: float | None = None, root: Path | None = None, fmt
         cmd = [sys.executable, str(REPO / "scripts" / "hf_download.py"), repo, filename,
                str(dest), label, "0", str(sizes.get(filename, 0))]
         try:
-            rc = subprocess.run(cmd, env=env, timeout=DOWNLOAD_TIMEOUT).returncode
+            rc = subprocess.run(cmd, env=env, timeout=DOWNLOAD_TIMEOUT).returncode  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
         except subprocess.TimeoutExpired:
             # A timeout is a FAILURE that names itself: never an empty success, and never
             # the 6-hour silence of a child nobody killed (issues #797, #872).

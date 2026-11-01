@@ -35,7 +35,7 @@ import sys
 def _run(path: str, args: list[str]) -> str:
     """Run ``path`` with ``args`` and return its stdout stripped (never raises)."""
     try:
-        out = subprocess.run(
+        out = subprocess.run(  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
             [path, *args], capture_output=True, text=True, timeout=30
         ).stdout.strip()
     except Exception:
@@ -76,7 +76,7 @@ def recipe_shells() -> list[str]:
 
 def brew_prefix() -> str:
     try:
-        return subprocess.run(
+        return subprocess.run(  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
             ["brew", "--prefix"], capture_output=True, text=True, timeout=30
         ).stdout.strip()
     except Exception:
@@ -100,7 +100,7 @@ def resolve() -> str:
         if not os.path.isfile(bb):
             print("==> [bash-check] installing bash 5 via `brew install bash` so recipes run "
                   "under bash 5, not system bash 3.2", file=sys.stderr)
-            subprocess.run(["brew", "install", "bash"], stdout=sys.stderr)
+            subprocess.run(["brew", "install", "bash"], stdout=sys.stderr)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
         if os.path.isfile(bb):
             return bb
     return shutil.which("bash") or "/bin/bash"
@@ -143,7 +143,7 @@ def real_main(argv: list[str]) -> int:
                 "==> [bash-check] installing bash 5 via `brew install bash` so "
                 "recipes run under bash 5, not system bash 3.2"
             )
-            code = subprocess.run(["brew", "install", "bash"]).returncode
+            code = subprocess.run(["brew", "install", "bash"]).returncode  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
             if code != 0:
                 print("FATAL: brew install bash failed", file=sys.stderr)
                 return 1
