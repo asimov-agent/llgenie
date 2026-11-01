@@ -1668,6 +1668,27 @@ def test_vllm_cpu_does_not_reserve_90_percent_of_ram_and_gets_shm():
         assert "--shm-size" in es.RUN_ARGS[b]
 
 
+def test_vllm_cpu_preinstalls_torch_from_the_cpu_index_before_cpu_txt():
+    """Issue #1241: vllm's committed `requirements/build/cpu.txt` asks for
+    `torch==2.13.0+cpu`, a local-version wheel served only by the pytorch cpu
+    index (`download.pytorch.org/whl/cpu`) — the default PyPI has no +cpu wheel,
+    so the cpu build-engine row reds `No solution found ... unsatisfiable`. The
+    cpu row preinstalls exactly that repack (mirroring the cuda row's `cu130`
+    preinstall) BEFORE the `-r cpu.txt` so the pin is satisfiable."""
+    p = lambda e: json.loads((REPO / f"containers/engines/params/{e}.json").read_text())[
+        "variants"
+    ]
+    cpu = p("vllm")["cpu"]["install"]
+    assert next(i for i in cpu if "torch==2.13.0" in i).endswith(
+        "--index-url https://download.pytorch.org/whl/cpu"
+    )
+    assert next(i for i in cpu if "requirements/build/cpu.txt" in i)
+    # the cpu torch preinstall must come BEFORE the cpu.txt row
+    torch_i = next(i for i, s in enumerate(cpu) if "torch==2.13.0" in s)
+    cpu_txt_i = next(i for i, s in enumerate(cpu) if "cpu.txt" in s)
+    assert torch_i < cpu_txt_i
+
+
 def test_rocm_source_builds_pin_a_base_their_build_accepts():
     """CI #98: exllamav3 needs ROCm >= 7.2.4 (the shared 7.0 base fails), sglang's
     setup_rocm.py hard-codes c++17 (rocm/pytorch:latest needs c++20 headers),
