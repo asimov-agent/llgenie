@@ -19,7 +19,7 @@ column lies about cancelled; a fully-green check list can still be `BLOCKED`/`RE
 - A head whose `ci-verdict` or `linux/unit` is anything but `success` was NOT gated green — even if closed.
 - When you find a merged-red, measure the acceptance criteria **on `main` at the merge tip**, not on the PR diff (the diff is now main's).
 
-A persistent `make` merge-gate check enforcing this is tracked as issue #1386 (CI-pipelines lane).
+The merge gate is `make check-merge-on-red` (issue #1386). `scripts/auto_merge.py` defers a head whose check-run concluded `failure`, `timed_out`, or `startup_failure`, and it does not use `--admin` on that head. `skipped` and `cancelled` are not a red pipeline. `make alert-merged-red` comments once on a merged pull request whose head was red, and names the merge commit.
 
 ## "The tip is red" — bind every failing run to its `head_sha` first
 

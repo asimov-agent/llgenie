@@ -1036,6 +1036,15 @@ auto-merge-explain: ## Print why a PR was (or was not) auto-merged: state, merge
 	@test -n "$(PR)" && test -n "$(REPO)" || { echo "Usage: make auto-merge-explain PR=<n> REPO=<owner/repo> [HEAD_SHA=<sha>]"; exit 1; }
 	python3 scripts/auto_merge.py explain --repo "$(GH_REPO)" --pr $(PR) $(if $(HEAD_SHA),--head-sha $(HEAD_SHA),)
 
+check-merge-on-red: ## Fail when the PR head has a red check-run (failure, timed_out, or startup_failure), naming the run, the job and the first failing step (PR= REPO=) (issue #1386)
+	@test -n "$(PR)" && test -n "$(REPO)" || { echo "Usage: make check-merge-on-red PR=<n> REPO=<owner/repo>"; exit 1; }
+	python3 scripts/auto_merge.py red-check --repo "$(GH_REPO)" --pr $(PR)
+
+alert-merged-red: ## Comment once on a recently merged PR whose head check-run is still red, naming the merge commit (REPO= [MAX=20] [DRY=1]) (issue #1386)
+	@test -n "$(REPO)" || { echo "Usage: make alert-merged-red REPO=<owner/repo> [MAX=20] [DRY=1]"; exit 1; }
+	python3 scripts/auto_merge.py alert-merged-red --repo "$(GH_REPO)" --limit $(if $(MAX),$(MAX),20) $(if $(DRY),--dry,)
+.PHONY: check-merge-on-red alert-merged-red
+
 # A bot's review VERDICT is a comment marker, never an approval (issue #852): every bot pushes with the
 # owner's token, so `gh pr review --approve` on its own PR is refused and `reviewDecision` can never leave
 # REVIEW_REQUIRED. The marker names the head it reviewed, and `auto_merge.decide()` accepts it ONLY at the

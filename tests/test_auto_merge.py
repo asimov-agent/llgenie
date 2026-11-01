@@ -49,7 +49,8 @@ def _state(**kw) -> dict:
 def _fake_gh(tmp_path: Path, pr: dict, issues: dict | None = None, token_login: str = "asimov-agent",
              permissions: dict | None = None, tokens: dict | None = None, merge_rc: int = 0,
              settle_after: int = 0, prs: list | None = None, views: dict | None = None,
-             unknown_reads: int = 0, refuse_user_for: list | None = None):
+             unknown_reads: int = 0, refuse_user_for: list | None = None,
+             checks=None, jobs=None, merged=None):
     """A `gh` answering `pr view` / `pr review` / `pr merge` / `issue view` / `api user` / permission.
 
     It records every argv (the assertion surface) and flips the PR's state through marker files, so a test
@@ -76,6 +77,9 @@ SETTLE = {settle_after!r}
 UNKNOWN_READS = {unknown_reads!r}
 PRS = json.loads({json.dumps(prs or [])!r})
 VIEWS = json.loads({json.dumps(views or {})!r})
+CHECKS = json.loads({json.dumps([] if checks is None else checks)!r})
+JOBS = json.loads({json.dumps(jobs or {})!r})
+MERGED = json.loads({json.dumps(merged or [])!r})
 if os.path.exists({str(log)!r} + ".approved"):
     PR = dict(PR, reviewDecision="APPROVED", mergeStateStatus="CLEAN")
 if os.path.exists({str(log)!r} + ".merged"):
@@ -89,7 +93,15 @@ if len(args) >= 2 and args[0] == "api" and "/collaborators/" in args[1] and args
     if login not in PERMS:
         print("not found", file=sys.stderr); sys.exit(1)
     print(PERMS[login]); sys.exit(0)
+if len(args) >= 2 and args[0] == "api" and "check-runs" in args[1]:
+    sha = args[1].split("/commits/")[1].split("/")[0].split("?")[0] if "/commits/" in args[1] else ""
+    print(json.dumps(CHECKS.get(sha, []) if isinstance(CHECKS, dict) else CHECKS)); sys.exit(0)
+if len(args) >= 2 and args[0] == "api" and "/actions/jobs/" in args[1]:
+    job = args[1].split("/actions/jobs/")[1].split("/")[0].split("?")[0]
+    print(JOBS.get(job, "")); sys.exit(0)
 if args[:2] == ["pr", "list"]:
+    if "merged" in args:
+        print(json.dumps(MERGED)); sys.exit(0)
     print(json.dumps(PRS)); sys.exit(0)
 if args[:2] == ["pr", "view"] and len(args) > 2 and args[2] in VIEWS:
     print(json.dumps(VIEWS[args[2]])); sys.exit(0)
@@ -1526,3 +1538,193 @@ def test_a_changes_verdict_at_the_head_holds_the_pr(tmp_path):
 # tests/test_bot_pipeline_isolation.py::test_auto_merge_fires_by_itself_when_a_pr_run_completes
 # (issue #874): this change reads the verdict, it must never be the reason the workflow stops running
 # on its own, so that guard is re-run in the same `make test-unit` pass (issue #852).
+
+
+# ---- a red head is not merged, and --admin is not the way around it (issue #1386) ----
+
+SCOPE_URL = ("https://github.com/asimov-agent/llgenie/actions/runs/41325509945/job/124904531947")
+SCOPE_JOB = {"124904531947": "make ci-lint"}
+MERGE_SHA = "ac1f3e77" + "ab" * 16
+
+
+def _scope_failure() -> list:
+    """The #1401 head: `scope` failed `make ci-lint` while GitHub still said the review was the blocker."""
+    return [{"name": "scope", "conclusion": "failure", "details_url": SCOPE_URL}]
+
+
+def test_a_clean_pr_with_a_red_check_is_not_merged(tmp_path):
+    """mergeStateStatus CLEAN does not outrank a failed check on the head."""
+
+    # Given a pull request GitHub calls CLEAN, whose scope job already failed
+    gh = _fake_gh(tmp_path, _state(), checks=_scope_failure(), jobs=SCOPE_JOB)
+
+    # When  the gate runs
+    rc = am.run(str(gh), "asimov-agent/llgenie", 1401, HEAD)
+
+    # Then  it does not merge, and the deferral names the run, the job and the step
+    calls = _calls(tmp_path / "gh.log")
+    assert rc == 0, rc
+    assert not [c for c in calls if c[:2] == ["pr", "merge"]], calls
+    body = " ".join(" ".join(c) for c in calls if c[:2] == ["pr", "comment"])
+    for needle in ("scope", "failure", "41325509945", "124904531947", "make ci-lint", "#1386"):
+        assert needle in body, (needle, body)
+
+
+def test_a_review_blocked_red_pr_is_not_approved_or_admin_merged(tmp_path):
+    """#1401: the recheck called a failed scope job 'review is the only blocker', then used --admin."""
+
+    # Given a review-blocked pull request whose scope check failed
+    gh = _fake_gh(tmp_path, _review_blocked(), checks=_scope_failure(), jobs=SCOPE_JOB,
+                  token_login="asimov-agent")
+
+    # When  the job runs with approval enabled
+    rc = am.run(str(gh), "asimov-agent/llgenie", 1401, HEAD, approve_when_review_required=True)
+
+    # Then  it neither approves nor merges
+    calls = _calls(tmp_path / "gh.log")
+    assert rc == 0, rc
+    assert not [c for c in calls if c[:2] == ["pr", "review"]], calls
+    assert not [c for c in calls if c[:2] == ["pr", "merge"]], calls
+    assert any("scope" in " ".join(c) for c in calls if c[:2] == ["pr", "comment"]), calls
+
+
+def test_recheck_does_not_approve_a_red_review_blocked_pr(tmp_path):
+    """The sweep must not print that the review is the only blocker when a check is red."""
+
+    # Given an open review-blocked pull request with a failed scope check and no deferral marker
+    trust = {"nameWithOwner": "asimov-agent/llgenie"}
+    blocked = _review_blocked(headRepository=trust, headRefOid=HEAD)
+    gh = _fake_gh(tmp_path, blocked, prs=[{"number": 1401, "headRefOid": HEAD}],
+                  checks=_scope_failure(), jobs=SCOPE_JOB, token_login="asimov-agent")
+
+    # When  the sweep runs
+    rc = am.recheck(str(gh), "asimov-agent/llgenie")
+
+    # Then  it defers and does not approve
+    calls = _calls(tmp_path / "gh.log")
+    assert rc == 0, rc
+    assert not [c for c in calls if c[:2] == ["pr", "review"]], calls
+    assert not [c for c in calls if c[:2] == ["pr", "merge"]], calls
+    assert any("41325509945" in " ".join(c) for c in calls if c[:2] == ["pr", "comment"]), calls
+
+
+def test_a_skipped_or_cancelled_check_is_not_a_red_pipeline(tmp_path):
+    """A docs head skips linux, and a cancelled run is not a failed test (#843)."""
+
+    # Given a clean pull request whose linux job was skipped and whose other check was cancelled
+    checks = [{"name": "linux", "conclusion": "skipped", "details_url": ""},
+              {"name": "ci-verdict", "conclusion": "cancelled", "details_url": ""},
+              {"name": "scope", "conclusion": "success", "details_url": ""}]
+    gh = _fake_gh(tmp_path, _state(headRepository={"nameWithOwner": "asimov-agent/llgenie"}),
+                  checks=checks)
+
+    # When  the gate runs
+    rc = am.run(str(gh), "asimov-agent/llgenie", 482, HEAD)
+
+    # Then  it merges without --admin
+    merges = [c for c in _calls(tmp_path / "gh.log") if c[:2] == ["pr", "merge"]]
+    assert rc == 0, rc
+    assert merges and "--admin" not in merges[0], merges
+
+
+def test_a_red_head_is_not_admin_merged_on_a_bot_verdict(tmp_path):
+    """A verdict clears the review. It does not clear a failed ci-verdict or linux / unit job."""
+
+    # Given a review-blocked pull request with a verdict at this head and a failed unit job
+    unit = ("https://github.com/asimov-agent/llgenie/actions/runs/41319111383/job/124885504534")
+    checks = [{"name": "linux / unit", "conclusion": "failure", "details_url": unit},
+              {"name": "ci-verdict", "conclusion": "failure",
+               "details_url": "https://github.com/asimov-agent/llgenie/runs/124887855931"}]
+    state = _review_blocked(comments=[_verdict()])
+    gh = _fake_gh(tmp_path, state, checks=checks, jobs={"124885504534": "Run unit tests"})
+
+    # When  the gate runs
+    rc = am.run(str(gh), "asimov-agent/llgenie", 1374, HEAD, approve_when_review_required=True)
+
+    # Then  --admin is not used
+    calls = _calls(tmp_path / "gh.log")
+    assert rc == 0, rc
+    assert not [c for c in calls if c[:2] == ["pr", "merge"]], calls
+    body = " ".join(" ".join(c) for c in calls if c[:2] == ["pr", "comment"])
+    assert "linux / unit" in body and "41319111383" in body and "Run unit tests" in body, body
+
+
+def test_red_check_exits_nonzero_and_names_the_run(tmp_path, monkeypatch, capsys):
+    """`make check-merge-on-red` is this command: non-zero, and it names the failing run."""
+
+    # Given the #1401 head
+    monkeypatch.setenv("GH_TOKEN", "test-token")
+    gh = _fake_gh(tmp_path, _state(), checks=_scope_failure(), jobs=SCOPE_JOB)
+
+    # When  red-check runs
+    rc = am.main(["red-check", "--repo", "asimov-agent/llgenie", "--pr", "1401", "--gh", str(gh)])
+
+    # Then  it fails and names the run, and a green head does not
+    err = capsys.readouterr().err
+    assert rc == 1, rc
+    assert "41325509945" in err and "make ci-lint" in err, err
+    green = _fake_gh(tmp_path / "green", _state(), checks=[{"name": "scope", "conclusion": "success",
+                                                            "details_url": ""}])
+    assert am.main(["red-check", "--repo", "asimov-agent/llgenie", "--pr", "1401",
+                    "--gh", str(green)]) == 0
+
+
+def test_alert_names_the_merge_commit_once(tmp_path):
+    """A merged red head is commented once, and a green merge-commit re-run is named as such."""
+
+    # Given a merged pull request whose head failed and whose merge commit is clean
+    merged = [{"number": 1401, "headRefOid": HEAD, "mergeCommit": {"oid": MERGE_SHA}}]
+    checks = {HEAD: _scope_failure(), MERGE_SHA: [{"name": "ci-verdict", "conclusion": "success",
+                                                    "details_url": ""}]}
+    gh = _fake_gh(tmp_path, _state(), merged=merged, checks=checks, jobs=SCOPE_JOB)
+
+    # When  the alert runs
+    rc = am.alert_merged_red(str(gh), "asimov-agent/llgenie")
+
+    # Then  one comment names the head, the run and the merge commit
+    calls = _calls(tmp_path / "gh.log")
+    comments = [c for c in calls if c[:2] == ["pr", "comment"]]
+    assert rc == 0, rc
+    assert len(comments) == 1, comments
+    body = " ".join(comments[0])
+    for needle in (HEAD, MERGE_SHA, "41325509945", "no red check", "merged-over-red"):
+        assert needle in body, (needle, body)
+
+    # And   a head that already carries the marker is not commented again
+    marked = _state(comments=[{"body": am.MERGED_RED_MARKER.format(HEAD)}])
+    again = _fake_gh(tmp_path / "again", marked, merged=merged, checks=checks, jobs=SCOPE_JOB,
+                     views={"1401": marked})
+    am.alert_merged_red(str(again), "asimov-agent/llgenie")
+    assert not [c for c in _calls(tmp_path / "again" / "gh.log") if c[:2] == ["pr", "comment"]]
+
+
+def test_explain_names_a_red_check_and_writes_nothing(tmp_path, capsys):
+    """The human verdict says the head is red, and it does not approve or merge."""
+
+    # Given a clean-looking pull request with a failed scope check
+    gh = _fake_gh(tmp_path, _state(), checks=_scope_failure(), jobs=SCOPE_JOB)
+
+    # When  explain runs
+    rc = am.explain(str(gh), "asimov-agent/llgenie", 1401)
+
+    # Then  it names the red check and writes nothing
+    out = capsys.readouterr().out
+    assert rc == 0, rc
+    assert "defers" in out and "scope" in out, out
+    assert not [c for c in _calls(tmp_path / "gh.log") if c[:2] in (["pr", "merge"], ["pr", "review"],
+                                                                   ["pr", "comment"])]
+
+
+def test_the_red_gate_is_a_make_target_and_the_approver_token_stays(tmp_path):
+    """The check and the alert are make targets, and the review token is still the job token."""
+
+    # Given the Makefile, the docs and the merge workflow
+    # Then  both targets exist, the docs name them, and the approver is unchanged
+    assert "\ncheck-merge-on-red:" in MAKEFILE
+    assert "\nalert-merged-red:" in MAKEFILE
+    assert "scripts/auto_merge.py red-check" in MAKEFILE
+    assert "check-merge-on-red" in DOCS and "alert-merged-red" in DOCS
+    assert "make alert-merged-red REPO=\"$REPO\"" in MERGE_WF
+    assert "APPROVER_TOKEN: ${{ github.token }}" in MERGE_WF
+    assert "secrets.APPROVER_TOKEN" not in MERGE_WF
+
