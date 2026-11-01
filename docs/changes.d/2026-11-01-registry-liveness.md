@@ -1,0 +1,1 @@
+| 2026-11-01 | registry-liveness monitor: `make check-engine-launchers CHECK_REGISTRY=1` runs on schedule + merge-to-main and names each engine whose committed pin resolves no manifest, one tracking issue per engine (#1397, closes #1396) | [note](agent-wiki/2026-11-01-registry-liveness.md) | #1396 |
