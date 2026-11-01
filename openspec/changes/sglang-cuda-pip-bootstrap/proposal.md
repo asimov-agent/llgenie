@@ -40,6 +40,10 @@ this cell alone fails on the shared base.
    aot/CMakeLists calls `cmake_policy(SET CMP0169/CMP0177 ...)` unguarded, and
    those are CMake 4.x-only policies the distro 3.28 hard-errors on
    (`Policy "CMP0169" is not known to this version of CMake`, run 41254674809).
+   Finally cap `SGL_KERNEL_COMPILE_THREADS=4` in the aot build's CMAKE_ARGS:
+   upstream defaults to `--threads=32`, which OOM'd the CI hosted runner
+   mid-compile ("The hosted runner lost communication ... starves it for
+   CPU/Memory", run 41255470647).
 4. Verify with `make build-engine ENGINE=sglang ARCH=cuda` (this lane never
    builds an engine image locally — CI is the builder — so the cell is proven
    on the CI `engine-image-sglang-cuda` run from this PR head), then

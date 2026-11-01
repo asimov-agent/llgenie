@@ -320,6 +320,10 @@ def test_sglang_cuda_install_uses_uv_not_pip(skills):
     # (CMP0169/CMP0177, run 41254674809). All three ride the same preinstall step.
     for backend in ("wheel_stub", "scikit-build-core", "cmake"):
         assert backend in steps, f"sglang/cuda must preinstall {backend} for the --no-build-isolation install"
+    # The aot nvcc pass defaults to --threads=32 upstream, which OOMs the CI hosted
+    # build runner (it "lost communication" mid-compile, run 41255470647); the skill
+    # must cap SGL_KERNEL_COMPILE_THREADS so the fat-arch compile fits the runner.
+    assert "-DSGL_KERNEL_COMPILE_THREADS" in steps, "sglang/cuda aot build must cap nvcc compile threads (OOM'd the CI runner)"
 
 
 def test_native_install_is_refused_except_metal(skills, capsys):

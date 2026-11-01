@@ -46,7 +46,10 @@ install:
     # AOT kernels: upstream's CUDA kernel build is aot/CMakeLists via scikit-build-core;
     # the arch list is passed as the same fat list every compiled engine uses. The shared
     # cuda base ships uv (not pip), so every pip-equivalent step runs through uv (issue #1242).
-    - "cd {src}/python/sglang/kernels/aot && CMAKE_ARGS='-DCMAKE_CUDA_ARCHITECTURES={cuda_arch}' uv pip install --system --break-system-packages --no-build-isolation -e ."
+    # SGL_KERNEL_COMPILE_THREADS defaults to 32 upstream (.cu files #pragma nvcc --threads=32),
+    # which OOM'd the CI hosted runner mid-compile (it "lost communication", engine-build run
+    # 41255470647) — cap it so the fat-arch nvcc pass fits the build runner.
+    - "cd {src}/python/sglang/kernels/aot && CMAKE_ARGS='-DCMAKE_CUDA_ARCHITECTURES={cuda_arch} -DSGL_KERNEL_COMPILE_THREADS=4' uv pip install --system --break-system-packages --no-build-isolation -e ."
   rocm:
     - "test -d {src}/.git || git clone -b v{version} --depth 1 {repo}.git {src}"
     # same steps as upstream docker/rocm.Dockerfile (CI #98: the generic
