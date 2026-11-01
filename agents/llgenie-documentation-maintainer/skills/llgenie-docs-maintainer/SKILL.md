@@ -175,7 +175,11 @@ keeps `docs/changes.d/` honest: an entry per *decision*, not per commit.
 in the moment before cutting the worktree, branch from the sha that fetch returned, and write it into
 the first comment on the issue/PR — never branch from a branch you already had and never from a sha
 quoted in a chat message, which is stale by the time it is read. Close with a finish comment: head
-sha, what changed, the run id or command that proves the numbers. In this lane the rule lands in the
+sha, what changed, the run id or command that proves the numbers. **Post the finish bookend as its OWN
+comment AFTER the last push/amend** — a single comment that tries to be both start and finish is
+invalidated by the very next amend (the head sha it names no longer exists), so the finish one is
+written last; if an amend or re-render moves the head after you posted it, post the finish bookend
+again naming the new head rather than leaving a comment that cites a superseded sha. In this lane the rule lands in the
 artifact itself: **a document states the sha its claims were measured at**, so a reader can tell
 whether it describes `main` or a PR — a census whose sha is not written down is a claim about a branch
 that may no longer exist.
@@ -227,7 +231,26 @@ real `mergeCommit.oid` plus a `mergedAt` at/near your arm timestamp means the ar
 instantly. Only diagnose the #964 silent no-op (base not the default branch, nothing armed) when the PR is
 still `OPEN` with a null object; and even then, `mergeStateStatus: UNKNOWN` right after an arm is the
 tell that the merge-ref is being re-evaluated — re-read `state` and `mergeStateStatus` a moment later
-before reverting to "nothing armed".
+before reverting to "nothing armed". **A `mergeable_state` that stays `unknown` for many minutes on an
+all-green head is the other shape — check `state`/`mergedAt` FIRST: the owner may have merged the PR
+directly, and the persistent `unknown` is GitHub resolving a merge that has already landed.** Polling
+`mergeable_state` as an arm gate on a PR whose `state=MERGED` is a claim about a branch that no longer
+exists, and no `enabled_at` read-back will ever arrive for a PR that merged — a `--auto` request against
+such a PR is parked-then-satisfied. Drop it, kill any watcher still polling it, and report the merge sha,
+not an armed-read-back that cannot come. (Measured 2026-11-01: #1254, head `35a8ff52` all-CI SUCCESS,
+`mergeable_state` `unknown` 00:18→00:28Z, then found already merged `22b817af` — the owner merged at
+00:16:07Z while the `unknown` was still recomputing.)
+
+## Idle / empty-queue audit (continuous improvement, #1245)
+
+When this lane's reactive queue is empty for N=2 consecutive passes (no dispatched work, no in-flight
+gate it owns), run one bounded own-domain audit. For this lane: **main-versus-docs alignment** (README
+and skill sections stale vs current `main`), **skill-freshness** (a skill 2+ releases old — read the
+`version:` frontmatter against the release ledger in `CHANGES.md`), and **change-note coverage** (a
+behavioural surface with no `agent-wiki/` note + `docs/changes.d/` row, the #1123 change→note gate).
+Every finding is filed as a refined six-section issue tagged `agent:implement`, routed through the
+normal queue — never implemented by the same pass; otherwise record "re-audited at `<sha>`, no
+findings". One-pass scope, no infinite loop; never overrides real reactive work.
 
 ## Landing a docs PR (the loop that works)
 
@@ -314,7 +337,16 @@ fragments by `make changes-index` (`scripts/changes_index.py`). Rules that follo
 
 - A change PR adds `agent-wiki/<stem>.md` and `docs/changes.d/<stem>.md` and **never** edits
   `CHANGES.md`. Do not gate `CHANGES.md` currency — requiring it per PR re-creates the append point.
-  `make changes-index-report` prints how far behind it is; the docs lane refreshes it.
+  `make changes-index-report` prints how far behind it is.
+- **The docs lane's OWN versioning/doc PR is the exception that renders it — and the render is the
+  currency job, done IN that PR, not deferred.** After the note+fragment are written and the
+  functional commit is in, run `make changes-index` (it writes from every fragment in
+  `docs/changes.d/`), then amend the commit and re-push. Expect the diff to include **other lanes'**
+  unrendered rows alongside yours (the render is global, not per-PR) — that is correct and minimal
+  (your row + whatever note landed without a render), not scope creep; quote the added rows in the
+  PR body. `check-changes` is **not** a `make` target — it is a check function run *inside*
+  `check-docs`, so never `make check-changes` (it 404s); the proof the render is consistent with the
+  fragments is `make -s check-docs` staying green ("CHANGES.md links no missing note").
 - Keep the gate falsifiable in both directions: note with no row → red, row whose note is gone →
   red, malformed row → red. Deriving rows purely from note frontmatter loses the dangling case.
 - **A rule is only enforced where a gate checks BOTH directions — a one-directional gate is the
@@ -347,7 +379,7 @@ fragments by `make changes-index` (`scripts/changes_index.py`). Rules that follo
 
 ## Pitfalls
 
-- **A force-push RESETS CI on the new head — every check re-pends, `mergeStateStatus` returns `BLOCKED`, and the arm gate REOPENS; never treat a prior head's greens as inherited, and make the arm mechanical with an executing arm-on-green watcher.** The fold/rebase that fixes a PR lands as a new head, and GitHub starts a fresh run set for it (`gh pr checks` shows all `pending`, then fills back in); an arm earned at the old head does not carry to the new one. Because the long-pole `linux / unit` then re-runs in full (~1h45), do not burn a foreground poll on it — a foreground arm loop is clamped (~7 min) and can never span the job, so it always ends on `pending=1` and looks like a stall. Instead run a **background arm-on-green watcher that performs the mutation itself**: poll `gh pr checks <n>` until `pending=0` and `fail=0` with a `pass` present, then `gh pr merge <n> --squash --auto`, read REST `auto_merge.enabled_at` back, post the read-back on the PR, and `notify` on a sentinel (e.g. `ARM_DONE_<n>`). A notify-only watcher defers the arm to a turn that may never come; the executing watcher puts the arm on the critical path. Kill the notify-only watcher before starting the executing one so two loops do not double-post, and keep the watcher machine-guarded (`pending=0 fail=0 pass`) so it never arms on an in-progress unit.
+- **A force-push RESETS CI on the new head — every check re-pends, `mergeStateStatus` returns `BLOCKED`, and the arm gate REOPENS; never treat a prior head's greens as inherited, and make the arm mechanical with an executing arm-on-green watcher.** The fold/rebase that fixes a PR lands as a new head, and GitHub starts a fresh run set for it (`gh pr checks` shows all `pending`, then fills back in); an arm earned at the old head does not carry to the new one. Because the long-pole `linux / unit` then re-runs in full (~1h45), do not burn a foreground poll on it — a foreground arm loop is clamped (~7 min) and can never span the job, so it always ends on `pending=1` and looks like a stall. Instead run a **background arm-on-green watcher that performs the mutation itself**: poll `gh pr checks <n>` until `pending=0` and `fail=0` with a `pass` present, then `gh pr merge <n> --squash --auto`, read REST `auto_merge.enabled_at` back, post the read-back on the PR, and `notify` on a sentinel (e.g. `ARM_DONE_<n>`). A notify-only watcher defers the arm to a turn that may never come; the executing watcher puts the arm on the critical path. Kill the notify-only watcher before starting the executing one so two loops do not double-post, and keep the watcher machine-guarded (`pending=0 fail=0 pass`) so it never arms on an in-progress unit. **The window between a force-push's old-head checks draining and the new head's checks reporting can read `pending=0` with NO `pass` line** — that empty window is exactly why the guard requires a `pass` present; the watcher must not arm there, and after such a window read REST `auto_merge.enabled_at` to confirm it is still `null` (nothing armed against the now-void old head) before trusting the next green.
 - **A `message_agent` return of `status: ambiguous` with `queue_full` and "Do not resend" is NOT a lost report — the on-record comment is the durable channel.** When a DM delivery cannot be confirmed, do not resend it into the same full queue; the same content lives on the issue/PR thread (the record a stranger can find), and you re-notify the teammate at the next milestone (the arm read-back, the finish bookend). Treat the DM as best-effort and the thread comment as authoritative.
 - **A `success` on the WRONG run at the right head is as misleading as a `cancelled` sibling — resolve the run id from `gh pr checks`, never guess it.** Some pushes spawn several runs at one sha (a `guard`/`holds`-only quick run plus the full matrix). A watcher polling the quick one sees `completed/success` within minutes and a report then calls the head green while the real matrix's `linux / unit` has not concluded. Before arming any watcher, read `gh pr checks <n> --repo asimov-agent/llgenie`, which prints each job's own `actions/runs/<id>`, and pick the id that carries `linux / unit`; poll that run's jobs (not just `.status`) and report the unit job's own conclusion. `gh run list --commit <sha>` alone does not tell you which duplicate is the matrix.
 - **Heartbeat-coalesced watcher output can quote a stale head — re-read the PR directly before acting on a poll line.** A 5-minute poll loop's lines can arrive batched and show `headRefOid` from before your force-push plus a transient `DIRTY`, contradicting a measured `MERGEABLE` at the new head. Treat any poll line older than the moment of a push as history: run `gh pr view <n> --json headRefOid,mergeable,mergeStateStatus` now, timestamp it, and only then decide whether a rebase is needed (a `DIRTY` that survives the direct read after `git fetch origin refs/heads/main:refs/remotes/origin/main` is real).
@@ -535,8 +567,18 @@ fragments by `make changes-index` (`scripts/changes_index.py`). Rules that follo
 - **Resolve the rendered `CHANGES.md` conflict by regenerating, never by hand.** A `UU CHANGES.md` on a
   rebase is expected every time the base gained fragments: `git checkout --ours CHANGES.md` (keep the
   base's render), then `make -s changes-index` which rewrites it from the new base's fragments plus
-  yours, `git add` that render and `rebase --continue`. Never hand-merge a generated file — a manual edit
-  that stops matching the fragments reds `check-changes` inside the next `check-docs`.
+  yours, `git add` that render and `rebase --continue`. (`make changes-index` renders the whole file
+  from every fragment in `docs/changes.d/`, so which side you start from does not matter — the
+  regeneration is what makes my row AND the concurrent lanes' rows appear.) Never hand-merge a
+  generated file — a manual edit that stops matching the fragments reds `check-changes` inside the next
+  `check-docs`. **`git rebase --continue` in a non-interactive terminal opens `$GIT_EDITOR` and HANGS**
+  — the foreground cap fires with no output and the rebase stays paused (the tell is a `rebase-merge`/
+  `rebase-apply` dir still present). `export GIT_EDITOR=true` (or `git -c core.editor=true rebase
+  --continue`) first so it reuses the recorded commit message; re-running the capped command with the
+  editor forced completes it immediately. **Verify byte-identity of your own files only AFTER
+  `--continue` finishes, never in the paused conflict state** — a `cmp` live-vs-tree during the pause can
+  misreport a mismatch on a file the rebase auto-merged correctly, and chasing that false mismatch is a
+  wasted resolution pass.
 - **After a merged PR carries part of your staged doc work, drop that part before shipping the follow-up.**
   When a PR that rode in merged one of the sections you were going to add, a follow-up that re-adds it
   duplicates a sentence already on `main`. Re-fetch `main`, and for each section you planned to add run
