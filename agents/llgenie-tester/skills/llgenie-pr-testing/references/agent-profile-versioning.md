@@ -242,6 +242,24 @@ deliberately, top first.
   findings: only TREE-INTERNAL inconsistencies (dangling reference links, tree-side duplicates)
   gate CI. A sync PR therefore owes one pre-push check beyond the lint: the guard's
   `findings()` over the synced tree must carry ZERO entries naming YOUR profile.
+- **A VERSIONING-ONLY fold (SKILL byte-identical, no re-take) can still red `linux / unit` on a
+  `skill-reference-missing` that PREDATES it — the tracked SKILL already links a `references/X.md` that
+  exists only in the live profile.** Unlike the live-comparison findings (`live-longer` /
+  `live-edited-not-tree`), which skip in CI because the runner has no live home, a dangling reference
+  link is a TREE-INTERNAL inconsistency: `check_agent_profiles.py check` exits rc=1 and the three
+  `test_agent_profiles.py` legs read that rc IN CI, so a SKILL whose body names
+  `references/<name>.md` while the tree carries no such file reds `linux / unit` on EVERY tree — clean
+  `main` included — until the missing reference is folded in. Do not let a versioning-only dispatch lull
+  you: prove inheritance before calling it your regression — reproduce the same rc on a detached worktree
+  at your base sha (`git worktree add --detach /tmp/<tmp> <base-sha>` then
+  `python3 scripts/check_agent_profiles.py check`); a matching rc on `main` means the red is inherited,
+  so report it (naming the missing `references/X.md`) and either fold that reference live→tree on a
+  follow-up vehicle or file the issue to drop/replace the link — leaving it keeps the suite red for every
+  PR, not just yours.
+- **`check_agent_profiles.py` takes a POSITIONAL subcommand, not a `--check` flag** — the forms are
+  `check`, `report`, and `check --only live-longer`. `--check` is an argparse-unknown argument that exits
+  with a usage error reading like a gate failure; `make check-agent-profiles` forwards the right form,
+  so calling the script by hand, pass the subcommand.
 - **`sync ... REFUSED ... the live file was edited AFTER the tree copy was committed`** — the guard is
   **mtime**, not content, so it fires on your own earlier sync too. Diff first (`diff` the live file
   against the tree copy) and only force when the bytes are identical. **`make sync-agent-profile`
@@ -288,7 +306,12 @@ head and push, and report the BRANCH-HEAD sha that carries it, not your worktree
   divergence. The authoritative comparison is a content hash of the blob, not a size read of streamed
   text: `git cat-file blob <fetched-head>:<path> | sha256sum` against
   `sha256sum < "$LIVE/<path>"`. Confirm with the sha256 pair before concluding anything, and quote the
-  matching hash in the report — a size read that disagrees with the hash is the artifact.
+  matching hash in the report — a size read that disagrees with the hash is the artifact. **Resolve the
+  pushed tip as its own call, not a chained one:** `git fetch origin +refs/heads/<b>:refs/remotes/origin/<b>`
+  then `git rev-parse origin/<b>` in a separate step. A `git ls-remote … | awk '{print $1}'` can print
+  EMPTY (reads as "branch gone"), and `git fetch … && git rev-parse …` captures the fetch's `From https://…`
+  banner in the same stream so the sha comes back polluted — either artifact looks like a missing or
+  moved branch. The PR's `--json headRefOid` and a clean `rev-parse origin/<b>` are the two reads that agree.
 
 - **Version live-only edits by carrying them on the SAME open reconstruction PR, not a new branch.** When
   a live-skill lesson is discovered mid-PR (the checker flags a live-only edit), copy the current live

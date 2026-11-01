@@ -1,0 +1,1 @@
+| 2026-11-02 | agents(tester): round-15 live fold — references/agent-profile-versioning.md live→tree byte-identical (`93ab714e`, 30,082 B, +2,225 B over tree) | [note](agent-wiki/2026-11-02-tester-live-round15.md) | #1358 |
