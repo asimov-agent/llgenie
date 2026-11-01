@@ -1811,6 +1811,7 @@ from the pipeline that will run.
 | `search-smoke.yml` | one real Firecrawl request proves the masked web reach | none — the smoke takes no target: it always proves the same leg with one request. |
 | `security-bot.yml` | turns ONE auto-fixable vulnerability issue into a green PR (never merges) | `dry` (optional, default `false`) — Preview the issue it would take and the edit it would make, pushing nothing |
 | `security-scan.yml` | the daily vulnerability pipeline (Trivy + Syft + Grype + Semgrep), never a PR or push check | `tools` (optional, default `all`) — Which scanners to run: all, or one of syft / trivy / grype / semgrep<br>`enforce` (optional, default `full`) — Failure policy for THIS dispatch: full = the daily policy, report = never gate |
+| `stale-branch-cleanup.yml` | delete non-main branches with no live vehicle, older than 3 days (daily cron) | `APPLY` (optional, default `false`) — delete the selected stale branches (default false = report-only, never mutates) |
 <!-- dispatch-forms:end -->
 
 ## The weekly umbrella sweep (issue #1102)
@@ -1971,6 +1972,9 @@ make check-strata-models     # fail when data/strata_models.json differs from St
 make queued-alarm      # report CI jobs stuck in `queued` too long (a runner that never picks them up, issue #254);
                        # COMMENT=1 delivers it to the run's pull request (else ONE deduped issue per stuck runner
                        # label, for runs no PR tracks) and a delivery that fails is exit 3, never silent; DRY=1 previews
+make stale-branch-cleanup  # delete non-main remote branches that are >=3 days old AND fully delivered (issue #1344),
+                           #   REPORTING (never deleting) a branch with an open PR or commits origin/main lacks;
+                           #   default report-only, APPLY=1 deletes, AGE_DAYS= overrides the 3-day threshold
 make ci-requeue-cancelled  # re-run the CI runs a bulk cancel killed, ONLY where the head sha has no other run
                            # (a superseded run already has its verdict): WINDOW=2h, DRY=1 previews; issue #843
 make ci-verdict            # hold a FINISHED run to the scope decision it published (scripts/ci_verdict.py,
