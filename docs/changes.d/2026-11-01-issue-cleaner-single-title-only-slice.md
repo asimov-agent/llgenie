@@ -1,0 +1,1 @@
+| 2026-11-01 | ci(issue-cleaner): a single title-only merged PR no longer closes a tracking issue — change-record trio for the merged #1460 → `2ae46fb8` (closes #1413) | [note](agent-wiki/2026-11-01-issue-cleaner-single-title-only-slice.md) | #1463 |
