@@ -49,7 +49,14 @@ install:
     # SGL_KERNEL_COMPILE_THREADS defaults to 32 upstream (.cu files #pragma nvcc --threads=32),
     # which OOM'd the CI hosted runner mid-compile (it "lost communication", engine-build run
     # 41255470647) — cap it so the fat-arch nvcc pass fits the build runner.
-    - "cd {src}/python/sglang/kernels/aot && CMAKE_ARGS='-DCMAKE_CUDA_ARCHITECTURES={cuda_arch} -DSGL_KERNEL_COMPILE_THREADS=4' uv pip install --system --break-system-packages --no-build-isolation -e ."
+    # CRITICAL: torch's public/cuda.cmake IGNORES -DCMAKE_CUDA_ARCHITECTURES ("pytorch is not
+    # compatible with CMAKE_CUDA_ARCHITECTURES and will ignore its value") and reads
+    # TORCH_CUDA_ARCH_LIST instead; without it the aot CMakeLists autodetects an 11-arch gencode
+    # list (50;80;86;89;90;90a;100;100a;120;120a;110a) and compiles EVERY templated .cu for all
+    # ~11 arches → OOM (engine-build 41260352082/41263978134; local repro under 16GiB/4-CPU killed
+    # at csrc/gemm/fp8_gemm_kernel.cu.o). Pass the SAME fat list as the cmake arg, in the
+    # TORCH_CUDA_ARCH_LIST form cmake actually honors (repro 16GiB passed fp8 with it).
+    - "cd {src}/python/sglang/kernels/aot && TORCH_CUDA_ARCH_LIST=7.5;8.0;8.6;8.9;9.0;12.0 CMAKE_ARGS='-DCMAKE_CUDA_ARCHITECTURES={cuda_arch} -DSGL_KERNEL_COMPILE_THREADS=4' uv pip install --system --break-system-packages --no-build-isolation -e ."
   rocm:
     - "test -d {src}/.git || git clone -b v{version} --depth 1 {repo}.git {src}"
     # same steps as upstream docker/rocm.Dockerfile (CI #98: the generic
