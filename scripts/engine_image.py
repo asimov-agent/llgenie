@@ -122,7 +122,17 @@ REGISTRY = os.environ.get("LLGENIE_REGISTRY", DEFAULT_REGISTRY).rstrip("/").lowe
 def _sh(cmd: list[str], **kw) -> subprocess.CompletedProcess:
     print("[engine-image] $", " ".join(cmd), flush=True)
     # policy: run_ok — the caller inspects rc (issue #797, scripts/proc.py is the one seam).
-    return run_ok(cmd, **kw)
+    r = run_ok(cmd, **kw)
+    if r.returncode != 0:
+        # a failing buildx build must print why: run_ok captures the child's streams, so
+        # without this the surfaced error never reaches the CI log (plain-progress buildx
+        # output was being swallowed -> a 14s buildx failure looked like a silent FAIL).
+        for stream_name, stream in (("stdout", r.stdout), ("stderr", r.stderr)):
+            if stream and stream.strip():
+                sys.stderr.write(f"[engine-image] <{stream_name} of: {' '.join(cmd)}>\n")
+                sys.stderr.write(stream if stream.endswith("\n") else stream + "\n")
+                sys.stderr.flush()
+    return r
 
 
 def image_exists(tag: str) -> bool:
