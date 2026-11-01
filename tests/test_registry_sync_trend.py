@@ -39,10 +39,11 @@ def _same_hw(model: dict, arch: str = "cuda", gb: float | None = None) -> dict |
     return rows[0] if rows else None
 
 
-def _listing(reg: dict, gb: float, arch: str = "cuda") -> list[tuple]:
-    """What startup can pick: README order, card fit, highest t/s server first."""
+def _listing(reg: dict, gb: float, arch: str = "cuda", readme_text: str | None = None) -> list[tuple]:
+    """What startup can pick: README order, card fit, highest t/s server first.
+    `readme_text` injects the README source (issue #1068); `None` = today's vendored one."""
     out = []
-    for row in mp.rank_models(reg, arch, gb):
+    for row in mp.rank_models(reg, arch, gb, readme_text=readme_text):
         engine = row["engines"][0]
         out.append((row["model"]["id"], row["model"]["name"], engine["engine"],
                     engine["id"], engine["tps"], engine["measured_on"], engine["variant"]))
@@ -128,8 +129,10 @@ def test_october_5_fixture_prefers_a_known_card_over_a_card_less_box():
     reg = _load(BEFORE_MODELS)
     readme = BEFORE_README.read_text()
 
-    # When that snapshot is ranked for a 16 GB CUDA card
-    rows = _listing(reg, 16)
+    # When that snapshot is ranked for a 16 GB CUDA card, ordered by ITS OWN README
+    # (issue #1068: the historical fixture injects its README, so the test no longer
+    # orders a dated snapshot by today's vendored `trending-README.md`)
+    rows = _listing(reg, 16, readme_text=readme)
     by_id = {row[0]: row for row in rows}
     best = sr.readme_best(readme, "CUDA t/s (best)")
 
@@ -140,10 +143,10 @@ def test_october_5_fixture_prefers_a_known_card_over_a_card_less_box():
     assert reg["generated_utc"] == OCTOBER_5
     expected = [m["name"] for m in reg["models"]
                 if mp.fits(m, 16, arch="cuda") and mp.rank_engines(m, "cuda", gb=16)]
-    # order = the VENDORED README's tier-local ranking for this card (issue #669: "the card's
+    # order = the FIXTURE's own README's tier-local ranking for this card (issue #669: "the card's
     # order is the published tier ranking"), then the rows it does not rank in the store's
     # trend order — the same document `card_order`/`tier_tables` read, parsed independently.
-    _tier_txt = (REPO / "data" / "trending-README.md").read_text()
+    _tier_txt = readme
     _tier = _tier_order(_tier_txt, 16)
     _ranked = [n for n in _tier if n in set(expected)]
     _today = mp.registry_today(reg)
@@ -227,27 +230,28 @@ def _sync_adopts_a_higher_skilled_tps(sync):
 
     # Given the frozen October 5 registry and the file sync wrote
     old = _load(BEFORE_MODELS)
+    old_readme = BEFORE_README.read_text()
     assert old["generated_utc"] == OCTOBER_5
-    before = _listing(old, 48)
+    before = _listing(old, 48, readme_text=old_readme)
     before_ids = {row[0] for row in before}
 
     # When that live download is ranked for a 48 GB CUDA card
     new = sync["reg"]
     readme = sync["readme"]
     dest = sync["dest"]
-    after = _listing(new, 48)
+    after = _listing(new, 48, readme_text=readme)
     after_by = {row[0]: row for row in after}
 
     # Then the download is newer and the 48 GB list is the README order that fits
     assert new["generated_utc"] > old["generated_utc"]
-    fitting = mp.trend_list(new, 48)
+    fitting = mp.trend_list(new, 48, readme_text=readme)
     # the list is the README order narrowed by the product's own gate, never by one field:
     # `vram_min` decides whenever the store states one (issue #669)
     by_name = {m["name"]: m for m in new["models"]}
     _fit = [n for n in by_name if mp.fits(by_name[n], 48, arch="cuda")]
-    # order = the VENDORED README's tier-local ranking for this card (issue #669: "the card's
+    # order = the STORE's OWN README's tier-local ranking for this card (issue #669: "the card's
     # order is the published tier ranking"), then the rows it does not rank in trend order.
-    _tier = _tier_order((REPO / "data" / "trending-README.md").read_text(), 48)
+    _tier = _tier_order(readme, 48)
     _ranked = [n for n in _tier if n in set(_fit)]
     _today = mp.registry_today(new)
     _rest = sorted((by_name[n] for n in _fit if n not in set(_ranked)), key=lambda m: mp.trend_key(m, _today))
@@ -336,16 +340,18 @@ def _rank_follows_the_given_vram_ram_and_arch(sync):
 
     # Given the October 5 snapshot and the live download
     old = _load(BEFORE_MODELS)
+    old_readme = BEFORE_README.read_text()
     new = sync["reg"]
+    new_readme = sync["readme"]
     qwen_old = next(m for m in old["models"] if m["id"] == "qwen3.8-27b")
     qwen_new = next(m for m in new["models"] if m["id"] == "qwen3.8-27b")
     pinned = {}
 
     # When each card size and architecture is ranked, and each RAM size is budgeted
     for arch, vram, ram in HARDWARE:
-        for reg in (old, new):
-            rows = mp.rank_models(reg, arch, vram)
-            recommended = [r for r in mp.recommend(reg, arch, vram) if r["engines"]]
+        for reg, rme in ((old, old_readme), (new, new_readme)):
+            rows = mp.rank_models(reg, arch, vram, readme_text=rme)
+            recommended = [r for r in mp.recommend(reg, arch, vram, readme_text=rme) if r["engines"]]
 
             # Then the list is the README rows that fit this card and have an image here
             assert [r["model"]["id"] for r in recommended] == [r["model"]["id"] for r in rows]
@@ -523,3 +529,48 @@ def test_a_new_engine_is_carried_with_the_flag_and_refused_without_it():
     broken = es.validate(skills, {k: v for k, v in registry.items() if k not in ("BrandNewServer", "llama.cpp")},
                          {"engines": {}}, allow_new_engines=True)
     assert any("is not a key in the registry" in e for e in broken), broken
+
+
+def test_ordering_oracle_discriminates_tier_local_from_global_readme_order():
+    """Issue #1068 honest-oracle: the order test's oracle parses README text (the
+    tier-local `### Up to N GB` ranking) and PROVES it discriminates — forcing the
+    global `readme_order` (the 'Most loved' table) makes the assertion go RED, so it
+    is not self-referential and not `mp.card_order` agreeing by construction.
+
+    The seam is what makes this test honest: `readme_text` threads the SAME injected
+    README into the product's ordering chain, so the oracle and the product read one
+    document — the historical fixtures' own README, not today's vendored one.
+    """
+    readme = (REPO / "data" / "trending-README.md").read_text()
+    reg = _load(sr.VENDORED)
+    gb = 16
+    # the oracle parses README text itself — independent of mp.card_order / mp.tier_tables
+    tier = _tier_order(readme, gb)
+    assert tier, "the vendored README must still rank a 16 GB tier"
+    fit = {m["name"]: m for m in reg["models"] if mp.fits(m, gb, arch="cuda")}
+    ranked = [n for n in tier if n in fit]
+    today = mp.registry_today(reg)
+    rest = sorted((fit[n] for n in fit if n not in set(ranked)), key=lambda m: mp.trend_key(m, today))
+    expected = ranked + [m["name"] for m in rest]
+    # the seam threads the injected README text through the product
+    got = [m["name"] for m in mp.trend_list(reg, gb, arch="cuda", readme_text=readme)]
+    assert got == expected
+    # DISCRIMINATION: the tier-local order is NOT the global 'Most loved' readme_order —
+    # forcing the global order would make this assertion go RED (proves the oracle is not
+    # self-referential / not a rubber stamp of mp.card_order).
+    global_order = [n for n in sr.readme_order(readme) if n in fit]
+    assert expected != global_order, \
+        "the oracle does not discriminate: tier-local == global readme_order"
+
+
+def test_the_seam_default_is_byte_neutral_on_the_live_store():
+    """Issue #1068 live-path control: `readme_path`/`readme_text` default `None` reads
+    today's vendored README exactly as before the seam — identical row order on the same
+    live store, at every card the store ranks."""
+    reg = _load(sr.VENDORED)
+    for gb in (8, 16, 24, 48):
+        default = [m["name"] for m in mp.trend_list(reg, gb, arch="cuda")]
+        injected = [m["name"] for m in mp.trend_list(reg, gb, arch="cuda",
+                                                      readme_text=(REPO / "data" / "trending-README.md").read_text())]
+        assert default == injected, f"gb={gb}: default order changed by the seam"
+        assert default, f"gb={gb}: the store must still rank a real set"

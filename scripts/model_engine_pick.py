@@ -36,6 +36,7 @@ model and its top engine. Stdlib only.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import os
 import re
@@ -563,8 +564,18 @@ def registry_readme() -> Path | None:
 _TIER_CACHE: dict[tuple, dict[int, list[str]]] = {}
 
 
-def tier_tables() -> dict[int, list[str]]:
-    """Card tier (GB) -> the model names the vendored README's `### Up to N GB` table ranks, in
+def _tier_readme(readme_path: Path | str | None = None, readme_text: str | None = None) -> Path | str | None:
+    """The README for the tier tables: injected text/path when given, else the vendored one."""
+    if readme_text is not None:
+        return readme_text
+    if readme_path is not None:
+        p = Path(readme_path)
+        return p if p.is_file() else None
+    return registry_readme()
+
+
+def tier_tables(readme_path: Path | str | None = None, readme_text: str | None = None) -> dict[int, list[str]]:
+    """Card tier (GB) -> the model names the README's `### Up to N GB` table ranks, in
     its order.
 
     Those tables are upstream's TIER-LOCAL ranking: the speed bonus is earned only by a
@@ -572,37 +583,49 @@ def tier_tables() -> dict[int, list[str]]:
     8 GB table (issue #669). Cached by path + mtime, so a synced README is read on the next
     call. No README beside the store (a bare `LLGENIE_REGISTRY_SRC` fixture) -> `{}`, and the
     card's list is then the computed store order alone.
+
+    The README source is INJECTABLE (issue #1068): `readme_text` is the markdown itself,
+    `readme_path` a file to read, and `None` = today's vendored `registry_readme()` — so the
+    historical fixtures can order a snapshot by ITS OWN README (`tests/fixtures/registry-before/
+    README.md`, named `README.md`, which `registry_readme()` never resolves) instead of today's
+    vendored one. Production (`None` everywhere) is byte-identical.
     """
-    path = registry_readme()
-    if path is None:
+    _readme = _tier_readme(readme_path, readme_text)
+    if _readme is None:
         return {}
-    stat = path.stat()
-    key = (str(path), stat.st_mtime_ns, stat.st_size)
-    if key not in _TIER_CACHE:
-        text = path.read_text()
+    if isinstance(_readme, str):
+        text = _readme
+        stat_key = ("text", hashlib.sha256(text.encode()).hexdigest(), len(text))
+    else:
+        stat = _readme.stat()
+        stat_key = (str(_readme), stat.st_mtime_ns, stat.st_size)
+        text = Path(_readme).read_text()
+    if stat_key not in _TIER_CACHE:
         section = text.split(TIER_SECTION, 1)[1].split("\n## ", 1)[0] if TIER_SECTION in text else ""
         parts = _TIER_HEADING.split(section)
         _TIER_CACHE.clear()  # one store, one README: a previous run's tables never leak in
-        _TIER_CACHE[key] = {int(parts[i]): re.findall(r"^\| \[\*\*(.+?)\*\*\]", parts[i + 1], re.M)
-                            for i in range(1, len(parts), 2)}
-    return _TIER_CACHE[key]
+        _TIER_CACHE[stat_key] = {int(parts[i]): re.findall(r"^\| \[\*\*(.+?)\*\*\]", parts[i + 1], re.M)
+                                 for i in range(1, len(parts), 2)}
+    return _TIER_CACHE[stat_key]
 
 
-def card_tier(gb: float) -> int | None:
+def card_tier(gb: float, readme_path: Path | str | None = None,
+              readme_text: str | None = None) -> int | None:
     """The published tier a card reads: the smallest tier at or above the card's nominal size,
     and the largest published tier for a bigger card (the tables stop at 48 GB)."""
-    tiers = sorted(tier_tables())
+    tiers = sorted(tier_tables(readme_path, readme_text))
     if not tiers or not gb:
         return None
     want = card_class_gb(gb)
     return next((t for t in tiers if want <= t), tiers[-1])
 
 
-def tier_rank(gb: float) -> dict[str, int]:
+def tier_rank(gb: float, readme_path: Path | str | None = None,
+              readme_text: str | None = None) -> dict[str, int]:
     """Model name -> its published position in this card's tier-local ranking ({} when the
     store has no README beside it)."""
-    tier = card_tier(gb)
-    return {name: i for i, name in enumerate(tier_tables().get(tier or 0) or [])}
+    tier = card_tier(gb, readme_path, readme_text)
+    return {name: i for i, name in enumerate(tier_tables(readme_path, readme_text).get(tier or 0) or [])}
 
 
 def ran_on_gb(model: dict) -> float | None:
@@ -828,41 +851,47 @@ def registry_today(registry: dict):
         return None
 
 
-def card_order(rows: list[dict], gb: float | None, registry: dict) -> list[dict]:
+def card_order(rows: list[dict], gb: float | None, registry: dict,
+               readme_path: Path | str | None = None, readme_text: str | None = None) -> list[dict]:
     """`rows` in the order the card's list shows them.
 
     The vendored README's tier-local ranking for that card comes first (issue #669), then every
     row it does not rank — a model with no post in the window keeps no trend rank, but it still
     fits, so it stays selectable — in the store's own trend order. Both halves are COMPUTED:
-    the tier table is read from the vendored README, the remainder from `trend_key` on the
+    the tier table is read from the README (the vendored one by default, or the injected
+    `readme_path`/`readme_text`, issue #1068), the remainder from `trend_key` on the
     store's fields. `data/models.json`'s file position is never read.
     """
-    rank = tier_rank(gb) if gb is not None else {}
+    rank = tier_rank(gb, readme_path, readme_text) if gb is not None else {}
     today = registry_today(registry)
     return sorted(rows, key=lambda m: (rank.get(str(m.get("name")), len(rank)), *trend_key(m, today)))
 
 
 def trend_list(registry: dict, gb: float | None = None, ram_gb: float | None = None,
-               arch: str | None = None) -> list[dict]:
+               arch: str | None = None, readme_path: Path | str | None = None,
+               readme_text: str | None = None) -> list[dict]:
     """The models this card fits, in the card's own order.
 
     Membership is the gate (`fits`: measured evidence, plus the stated `system_ram_min` floor);
-    order is the vendored README's `### Up to N GB` tier-local ranking for this card, then the
+    order is the README's `### Up to N GB` tier-local ranking for this card, then the
     rows it does not rank in the store's trend order (`card_order`). Measured on the vendored
     2026-10-27 store, 8 GB: the published top is `Qwen3.6-35B-A3B`, `Bonsai 2 9B`, … while the
     global order (which this used to return) is `Bonsai 2 9B`, `Qwen3.6-35B-A3B`, …
+    `readme_path`/`readme_text` inject the README source (issue #1068); `None` = today's
+    vendored one.
     """
     gb = card_gb() if gb is None else gb
     return card_order([m for m in registry.get("models") or [] if fits(m, gb, ram_gb, arch)],
-                      gb, registry)
+                      gb, registry, readme_path, readme_text)
 
 
 
-def rank_models(registry: dict, arch: str | None = None, gb: float | None = None, today=None) -> list[dict]:
+def rank_models(registry: dict, arch: str | None = None, gb: float | None = None, today=None,
+                readme_path: Path | str | None = None, readme_text: str | None = None) -> list[dict]:
     """trend_list() models that have a runnable engine here, README order kept."""
     ids = engine_ids()
     rows = []
-    for m in trend_list(registry, gb, arch=arch):
+    for m in trend_list(registry, gb, arch=arch, readme_path=readme_path, readme_text=readme_text):
         engines = rank_engines(m, arch, ids, gb)
         if engines:
             rows.append({"model": m, "engines": engines, "tps": engines[0]["tps"]})
@@ -874,14 +903,16 @@ DOWNLOADABLE = ("gguf", "litertlm", "mlx-safetensors", "safetensors")  # formats
 
 def recommend(registry: dict, arch: str | None = None, gb: float | None = None,
               fmt: str | None = None, limit: int | None = None, today=None, all_rows: bool = False,
-              ram_gb: float | None = None) -> list[dict]:
+              ram_gb: float | None = None, readme_path: Path | str | None = None,
+              readme_text: str | None = None) -> list[dict]:
     """The README trend list that fits this card, in README order, with each model's
     engines here (no Hub lookups). fmt narrows the engines to readers of that
     format; `why` = "" when an engine is left, else the reason. all_rows=False
-    keeps only rows with an engine."""
+    keeps only rows with an engine. `readme_path`/`readme_text` inject the README
+    source (issue #1068); `None` = today's vendored one."""
     ids = engine_ids()
     rows = []
-    for m in trend_list(registry, gb, ram_gb, arch):
+    for m in trend_list(registry, gb, ram_gb, arch, readme_path=readme_path, readme_text=readme_text):
         everything = rank_engines(m, arch, ids, gb)
         engines = [e for e in everything if fmt is None or fmt in e.get("formats", [])]
         if engines:
@@ -899,7 +930,8 @@ def recommend(registry: dict, arch: str | None = None, gb: float | None = None,
 
 
 def offer(registry: dict, arch: str | None = None, gb: float | None = None,
-          root: Path | None = None, ram_gb: float | None = None) -> list[dict]:
+          root: Path | None = None, ram_gb: float | None = None,
+          readme_path: Path | str | None = None, readme_text: str | None = None) -> list[dict]:
     """The rows plain `llgenie` prints: the README trend list that fits the card, in
     README order. For each model the engines here are matched to a format llgenie
     can get for it: the local copy's format, else a download plan that fits
@@ -908,10 +940,12 @@ def offer(registry: dict, arch: str | None = None, gb: float | None = None,
     Strata reads only the files its setup.py names, so it gets its own plan and local
     copy (`engine_plans` / `engine_local`), never the generic GGUF of the format.
     TensorFold likewise serves only its own MLX checkpoints (TensorFold/<base>-MLX-*,
-    issue #114), so it gets its own plan / local copy too."""
+    issue #114), so it gets its own plan / local copy too. `readme_path`/`readme_text`
+    inject the README source (issue #1068); `None` = today's vendored one."""
     arch = arch or host_arch()
     gb = card_gb() if gb is None else gb
-    rows = recommend(registry, arch, gb, all_rows=True, ram_gb=ram_gb)
+    rows = recommend(registry, arch, gb, all_rows=True, ram_gb=ram_gb,
+                     readme_path=readme_path, readme_text=readme_text)
     own = ("strata", "tensorfold")  # engines that read only their own checkpoints
     for r in rows:
         r["local"] = resolve_local(r["model"], root)
