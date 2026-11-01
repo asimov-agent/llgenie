@@ -1,0 +1,1 @@
+| 2026-11-02 | agents(tester): round-14 live fold — SKILL.md (`0bc09907`, +231 B, classify-reds rule) + references/classifying-suite-reds.md (2,397 B, live-only) live→tree, both byte-identical at fold time | [note](agent-wiki/2026-11-02-tester-live-round14.md) | #1356 |
