@@ -49,8 +49,15 @@ block against one SOUL).
    (alongside the versioned `agent_profile_sync.py`). Running the live path from a branch worktree
    fails `Errno 2 … No such file or directory`, which reads like the file was never versioned. Get the
    path from the tree, not from memory: `git ls-files | grep -i 'fold-live-profile\|profile_sync'`.
-   Run it from the worktree's root with the live home explicit, because its `--repo` default is `.`
-   and its `--live-home` default is `~/.hermes/profiles`:
+   **Once the lane's fold target is wired, invoke it as `make tester-fold-live PROFILE=<n> COPY=1` —
+   `COPY=1` is the make variable that forwards `--copy`; `make … --copy` is not a make flag and is
+   silently ignored (the run then only REPORTS drift).** Exit codes are signal, not failure: `0` =
+   copied, `2` = drift found and nothing copied (the tool working), `1` = real error. On success the
+   tool prints the exact follow-up chain (`write agent-wiki + docs/changes.d fragments, make
+   changes-index, commit, then check-docs + lint_linefeeds + agent_profile_sync.py --check`) — follow
+   that line rather than re-deriving the order. Run the script directly only for a flag the target does
+   not forward; then run it from the worktree's root with the live home explicit, because its `--repo`
+   default is `.` and its `--live-home` default is `~/.hermes/profiles`:
 
    ```
    cd <worktree> && python3 scripts/fold-live-profile.py --profile <n> --repo . \

@@ -105,6 +105,18 @@ contradicts the body** (a planner comment pivoting from matrix placeholders to t
   from the worktree (needs docker + the real host path). If you see `Error 125`/`Cannot connect to the
   Docker daemon` from a gate, you nested it — that is your invocation, not a repo failure, and it must
   be disclosed as an operator artifact, never reported as a red.
+  **`make test-unit`/`ci-unit` invoke the tag `llgenie/test:latest`, not the canonical
+  `ghcr.io/asimov-agent/llgenie/test:<sha>` you pull for per-file pytest** — the Makefile's inner
+  `docker run … llgenie/test:latest` fails `unable to find image … pull access denied` until you
+  `docker tag ghcr.io/asimov-agent/llgenie/test:<sha> llgenie/test:latest` first. Tag once, then the
+  host `make` run finds it.
+- **Run the FULL `make ci-unit` as a BACKGROUND terminal process, not inside `execute_code`.** The
+  complete hermetic suite runs well past the `execute_code` 300 s cell cap (and the 600 s terminal
+  foreground cap), so a synchronous call is SIGKILLed mid-run and its kernel state lost — you get no
+  rc and no tail. Launch it `terminal(background=true, notify=true)` with `make ci-unit > /tmp/ci-<id>.log
+  2>&1; echo RC=$?`, then read the log's tail for the pass/fail counts when it completes. A single
+  non-docker leg (`make check-report-hygiene`, one pytest file) still fits a synchronous in-container
+  call; only the whole `ci-unit`/`test-unit` chain needs the background runner.
 - **A pushed branch schedules no CI — the PR is what triggers it.** Every workflow here gates
   `pull_request`, so a green local run plus a branch with no open PR has zero `gh pr checks` output; a
   verdict at the head needs the PR opened first, and the run at that head is the one you cite.
@@ -685,6 +697,15 @@ is a red row that is not a defect. Before promising or measuring rows:
   measured nothing; `checkout --detach` needs no approval, keeps the worktree clean, and reaches the
   same tree. Fetch each head, `git checkout -q --detach <headRefOid>`, run the one gate, `git diff
   --stat origin/main...<head> -- <file>` for the block diff, move on — read-only sweep, no resets.
+
+- **A `git worktree add -b <branch>` whose branch is ALREADY checked out somewhere fails and creates
+  NOTHING — verify the worktree exists before the next step in the chain.** `git` refuses the add with
+  `fatal: '<branch>' is already checked out at '<other path>'`, so the directory never appears, and the
+  follow-up commands either fail on a missing path or run against whatever worktree you actually have
+  (a differently-named one from an earlier attempt). Confirm the thing you are about to work in, by
+  path: `git worktree list --porcelain` plus `git -C <path> branch --show-current && git -C <path>
+  rev-parse HEAD` — then use THAT worktree and report its branch name, instead of assuming the name
+  you just typed. Pick a fresh `-b` name rather than forcing a duplicate branch.
 
 If two PRs claim the same change, say so and ask which is canonical instead of picking one.
 
