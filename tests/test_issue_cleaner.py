@@ -204,7 +204,7 @@ def test_a_pr_merged_off_main_is_ignored(tmp_path):
               "mergeCommit": {"message": "Issue: #973"}},
              {"number": 952, "title": "holds (#948)", "body": "", "mergedAt": "2026-10-29T17:04:03Z",
               "baseRefName": "main", "closingIssuesReferences": [],
-              "mergeCommit": {"message": "no issue line"}}],
+              "mergeCommit": {"message": "Issue: #948"}}],
             [{"number": 973, "title": "paths"}, {"number": 948, "title": "holds"}])
 
     # When the cleaner applies
@@ -270,6 +270,41 @@ def test_an_idle_audit_title_is_left_open(tmp_path):
         {1245: {"number": 1245, "title": "role split"}},
     )
     assert d["action"] == "audit" and d["issue"] == 1245
+
+
+def test_a_single_title_only_slice_is_left_open(tmp_path):
+    """A single title-only PR (no Issue: line, no body-close) does not close a tracking issue (#1413)."""
+
+    # Given one merged-to-main PR whose only closing signal is its title
+    gh_stub(tmp_path,
+            [{"number": 1310, "title": "version the fold tool (#1079)", "body": "lands the tool",
+              "mergedAt": "2026-11-01T12:07:00Z", "baseRefName": "main", "closingIssuesReferences": [],
+              "mergeCommit": {"message": "version the fold tool"}}],
+            [{"number": 1079, "title": "lanes record lessons in live profile skills"}])
+
+    # When the cleaner applies
+    r = run_cleaner(tmp_path)
+
+    # Then the single title-only slice is reported and NOT closed
+    assert r.returncode == 0, r.stderr
+    assert "slice #1079" in r.stdout
+    assert "nothing to close" in r.stdout
+    assert "issue close" not in (tmp_path / "gh-calls").read_text()
+
+
+def test_slice_demotion_only_touches_single_title_only_closes():
+    """Issue: line and body-close references are whole implementations, never demoted to a slice."""
+
+    findings = [
+        {"action": "close", "issue": 1, "evidence": "the merge commit's `Issue:` line"},
+        {"action": "close", "issue": 2, "evidence": "the title's trailing `(#n)`",
+         "reason": "x"},
+    ]
+    cleaner.demote_title_only_slices(findings)
+    # the Issue: line close is untouched; the title-only close became a slice
+    assert findings[0]["action"] == "close"
+    assert findings[1]["action"] == "slice"
+    assert "possible slice" in findings[1]["reason"]
 
 
 def test_an_issue_line_still_closes_when_another_title_names_it(tmp_path):
