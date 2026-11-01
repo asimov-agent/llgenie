@@ -34,11 +34,14 @@ DISABLED_WF = "name: b-bot — does another thing\non:\n  workflow_dispatch:\n\n
 NO_DISPATCH = "name: c-bot — passive\non:\n  push:\n\njobs:\n  go:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo ok\n"
 
 
-def make_stub(tmp_path: Path, workflows: list[dict], runs: list[dict]) -> Path:
+def make_stub(tmp_path: Path, workflows: list[dict], runs: list[dict],
+              gate_last_run: str | None = None) -> Path:
     """A real stub `gh` binary (python, executable) serving the API the sweep calls.
 
     `workflows`: [{file, state, id}]; `runs`: a base list of workflow_dispatch runs to serve; the stub
     records every `workflow run` dispatch into a JSON state file so the test can assert what was dispatched.
+    `gate_last_run`: when not None, an ISO-8601 created_at the stub serves for the security gate's
+    `/actions/workflows/<id>/runs` call — the freshness half of the #1285 admission alarm.
     """
     stub = tmp_path / "gh-stub"
     state_file = tmp_path / "dispatched.json"
@@ -48,6 +51,7 @@ import sys, json, pathlib
 WF = {json.dumps(workflows)}
 RUNS = {json.dumps(runs)}
 STATE = pathlib.Path({str(state_file)!r})
+GATE_RUN = {json.dumps(gate_last_run)}
 args = sys.argv[1:]
 def out(doc):
     sys.stdout.write(json.dumps(doc))
@@ -56,9 +60,19 @@ def out(doc):
 if args[0] == "api" and args[1].endswith("/actions/workflows"):
     out([{{"path": ".github/workflows/"+w["file"], "state": w["state"], "id": w["id"]}} for w in WF])
     sys.exit(0)
-# gh api repos/X/actions/workflows/<id>/runs -> prior runs (empty: gh's --jq over an empty array emits nothing)
+# gh api repos/X/actions/workflows -> the workflows roster
+if args[0] == "api" and args[1].endswith("/actions/workflows"):
+    out([{{"path": ".github/workflows/"+w["file"], "state": w["state"], "id": w["id"]}} for w in WF])
+    sys.exit(0)
+# gh api repos/X/actions/workflows/<id>/runs -> prior runs OR the security gate's last run
+# (newest-first, .workflow_runs[0].created_at). GATE_RUN, when set, is served for the security gate's
+# workflow id so the staleness check has something real to read.
 if args[0] == "api" and "/actions/workflows/" in args[1] and args[1].endswith("/runs"):
-    sys.stdout.write("")
+    gate_id = {{w["file"]: w["id"] for w in WF}}.get("security-scan.yml")
+    if GATE_RUN is not None and args[1].endswith("/workflows/" + gate_id + "/runs"):
+        out({{"workflow_runs": [{{"id": "1", "created_at": GATE_RUN}}]}})
+    else:
+        sys.stdout.write("")
     sys.exit(0)
 # gh workflow run <file> --repo X --ref ref  -> record dispatch, exit 0 (NOT a verdict)
 if args[0] == "workflow" and args[1] == "run":
@@ -242,27 +256,34 @@ def test_the_umbrella_dispatches_every_dispatchable_except_itself_and_awaits(tmp
         {"file": "arms.yml", "state": "active", "id": "20"},
         {"file": "holds.yml", "state": "active", "id": "30"},
         {"file": "security-scan.yml", "state": "disabled_manually", "id": "40"},
+        {"file": "other-bot.yml", "state": "disabled_manually", "id": "50"},
     ]
     stub = make_stub(tmp_path, workflows, runs=[])
     root = tmp_path / "wf"
     (root / ".github" / "workflows").mkdir(parents=True)
-    for f in ("all-pipelines.yml", "arms.yml", "holds.yml", "security-scan.yml"):
+    for f in ("all-pipelines.yml", "arms.yml", "holds.yml", "security-scan.yml", "other-bot.yml"):
         (root / ".github" / "workflows" / f).write_text(ACTIVE_DISPATCHABLE)
 
     # When the sweep runs against the stub gh (repo arg is arbitrary; the stub ignores it)
     report, code = ap.sweep("owner/repo", "main", gh=str(stub), timeout=30, root=root)
 
-    # Then the umbrella itself was NOT dispatched (no recursion), both active dispatchable were, and the
-    # disabled workflow is reported, excluded, and the sweep exits 0 (both active concluded success)
+    # Then the umbrella itself was NOT dispatched (no recursion), both active dispatchable were, the
+    # ordinary disabled workflow is reported+excluded (exit contribution only from real failures) —
+    # and the SECURITY admission gate, being disabled_manually, is NOT a benign DISABLED row: it is an
+    # ADMISSION GATE DOWN that FAILS the sweep (issue #1285).
     dispatched = json.loads((tmp_path / "dispatched.json").read_text())
     assert "all-pipelines.yml" not in dispatched
     assert "arms.yml" in dispatched
     assert "holds.yml" in dispatched
     assert "security-scan.yml" not in dispatched
+    assert "other-bot.yml" not in dispatched
     assert "DISABLED (owner re-enable required)" in report
+    assert "`other-bot.yml`" in report
+    assert "ADMISSION GATE DOWN (issue #1285" in report
     assert "`security-scan.yml`" in report
+    assert "1 ADMISSION GATE DOWN" in report
     assert "Summary: 2 ok · 0 failed · 1 disabled" in report
-    assert code == 0
+    assert code == 1  # the admission gate being down is a red industrial alarm, not exit 0
 
 
 def test_real_tree_has_all_pipelines_yml_and_sweep_render_exercises_it():
@@ -274,3 +295,96 @@ def test_real_tree_has_all_pipelines_yml_and_sweep_render_exercises_it():
     rows = ap.classify(REPO, {})
     by_file = {r["file"]: r["role"] for r in rows}
     assert by_file[ap.SELF] == "self"
+
+
+def test_a_disabled_security_gate_reds_the_sweep(tmp_path):
+    # Issue #1285, the primary case: `security-scan.yml` `disabled_manually` must be an ADMISSION GATE
+    # DOWN that fails the sweep — NOT a benign DISABLED row the board reads as "scanned clean".
+    root = _tree(tmp_path, {"all-pipelines.yml": ACTIVE_DISPATCHABLE,
+                            "a-bot.yml": ACTIVE_DISPATCHABLE,
+                            "security-scan.yml": DISABLED_WF})
+    states = {"a-bot.yml": {"state": "active", "active": True},
+              "security-scan.yml": {"state": "disabled_manually", "active": False}}
+    rows = ap.classify(root, states)
+    by_file = {r["file"]: r["role"] for r in rows}
+    assert by_file["security-scan.yml"] == "admission_down"
+    concluded = {"a-bot.yml": {"run_id": "5", "status": "completed", "conclusion": "success",
+                               "completed_at": "t"}}
+
+    report, code = ap.render_report(rows, concluded, "abc123")
+
+    assert "ADMISSION GATE DOWN (issue #1285" in report
+    assert "`security-scan.yml`" in report
+    assert "1 ADMISSION GATE DOWN" in report
+    assert code == 1
+
+
+def test_an_ordinary_disabled_workflow_is_still_benign(tmp_path):
+    # The admission alarm is SECURITY-GATE-SPECIFIC: every other disabled workflow stays a benign
+    # DISABLED row and contributes nothing to the exit code (issue #1102 invariants unchanged).
+    root = _tree(tmp_path, {"all-pipelines.yml": ACTIVE_DISPATCHABLE,
+                            "a-bot.yml": ACTIVE_DISPATCHABLE,
+                            "b-bot.yml": DISABLED_WF})
+    states = {"a-bot.yml": {"state": "active", "active": True},
+              "b-bot.yml": {"state": "disabled_manually", "active": False}}
+    rows = ap.classify(root, states)
+    by_file = {r["file"]: r["role"] for r in rows}
+    assert by_file["b-bot.yml"] == "disabled"
+    assert "security-scan.yml" not in by_file
+    concluded = {"a-bot.yml": {"run_id": "5", "status": "completed", "conclusion": "success",
+                               "completed_at": "t"}}
+    report, code = ap.render_report(rows, concluded, "abc123")
+    assert "DISABLED (owner re-enable required)" in report
+    assert "0 ADMISSION GATE DOWN" in report
+    assert code == 0
+
+
+def test_an_active_gate_with_no_recent_run_is_stale_and_reds(tmp_path):
+    # Issue #1285 freshness half: a gate that is NOT disabled_manually but whose schedule silently
+    # stopped firing (a broken cron re-fires nothing and never flips state) is as unsafe as a disabled
+    # one — the sweep must demote it to ADMISSION GATE STALE and fail.
+    from datetime import datetime, timezone, timedelta
+    stale = (datetime.now(timezone.utc) - timedelta(hours=100)).isoformat()
+    workflows = [
+        {"file": "all-pipelines.yml", "state": "active", "id": "10"},
+        {"file": "a-bot.yml", "state": "active", "id": "20"},
+        {"file": "security-scan.yml", "state": "active", "id": "40"},
+    ]
+    stub = make_stub(tmp_path, workflows, runs=[], gate_last_run=stale)
+    root = tmp_path / "wf"
+    (root / ".github" / "workflows").mkdir(parents=True)
+    for f in ("all-pipelines.yml", "a-bot.yml", "security-scan.yml"):
+        (root / ".github" / "workflows" / f).write_text(ACTIVE_DISPATCHABLE)
+
+    report, code = ap.sweep("owner/repo", "main", gh=str(stub), timeout=30, root=root)
+
+    dispatched = json.loads((tmp_path / "dispatched.json").read_text())
+    assert "security-scan.yml" not in dispatched     # demoted: not dispatched as a healthy gate
+    assert "ADMISSION GATE STALE" in report
+    assert "`security-scan.yml`" in report
+    assert "1 ADMISSION GATE DOWN" in report
+    assert code == 1
+
+
+def test_an_active_gate_with_a_recent_run_is_swept_normally(tmp_path):
+    # A healthy gate with a fresh run inside the daily cadence is dispatched like any other active
+    # dispatchable workflow and contributes nothing to the admission alarm.
+    from datetime import datetime, timezone, timedelta
+    fresh = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+    workflows = [
+        {"file": "all-pipelines.yml", "state": "active", "id": "10"},
+        {"file": "a-bot.yml", "state": "active", "id": "20"},
+        {"file": "security-scan.yml", "state": "active", "id": "40"},
+    ]
+    stub = make_stub(tmp_path, workflows, runs=[], gate_last_run=fresh)
+    root = tmp_path / "wf"
+    (root / ".github" / "workflows").mkdir(parents=True)
+    for f in ("all-pipelines.yml", "a-bot.yml", "security-scan.yml"):
+        (root / ".github" / "workflows" / f).write_text(ACTIVE_DISPATCHABLE)
+
+    report, code = ap.sweep("owner/repo", "main", gh=str(stub), timeout=30, root=root)
+
+    dispatched = json.loads((tmp_path / "dispatched.json").read_text())
+    assert "security-scan.yml" in dispatched         # healthy gate is swept like any other
+    assert "0 ADMISSION GATE DOWN" in report
+    assert code == 0
