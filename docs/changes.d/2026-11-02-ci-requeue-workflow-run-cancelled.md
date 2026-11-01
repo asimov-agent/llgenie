@@ -1,0 +1,1 @@
+| 2026-11-02 | ci-requeue no longer aborts on a cancelled `workflow_run`-triggered run: `plan()` skips it with the recorded reason (GitHub cannot retry it) and still re-runs every retryable cancellation in the window — issue #1451 | [note](agent-wiki/2026-11-02-ci-requeue-workflow-run-cancelled.md) | #1451 |

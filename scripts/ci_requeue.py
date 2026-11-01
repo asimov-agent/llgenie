@@ -94,6 +94,13 @@ def plan(repo: str, window: dt.timedelta, now: dt.datetime | None = None) -> tup
     `head_sha` instead is both slower (one API call per run) and wrong — another workflow on the same
     commit (`scope`, `docs`) is not a newer verdict for this one, and on a PR that runs both, every
     cancelled CI run would look superseded and never be healed.
+
+    A cancelled `workflow_run`-triggered run is NEVER requeued: a reaction run (`auto-merge`,
+    `ci-verdict`, `run-failure-reactor`) is a completion GitHub will not retry (`gh run rerun` rejects
+    it with "This workflow run cannot be retried", #1451), so re-running it would abort the whole heal
+    after the first one. Such a run lands in the SKIPPED list with the reason, so `plan --dry` names
+    it instead of passing it over silently (#286-adjacent: the reactor already special-cases its own
+    `workflow_run` origin).
     """
     runs = completed_runs(repo, window, now)
     newest: dict[tuple, dt.datetime] = {}
@@ -105,6 +112,9 @@ def plan(repo: str, window: dt.timedelta, now: dt.datetime | None = None) -> tup
     skipped: list[dict] = []
     for run in runs:
         if run.get("conclusion") != "cancelled":
+            continue
+        if run.get("event") == "workflow_run":
+            skipped.append({**run, "why": "workflow_run-triggered: GitHub will not retry this run"})
             continue
         key = (run.get("workflow_id"), run.get("head_branch"))
         created = dt.datetime.fromisoformat(str(run.get("created_at")).replace("Z", "+00:00"))

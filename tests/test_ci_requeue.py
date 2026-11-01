@@ -65,9 +65,9 @@ def _calls(log: Path) -> list[list[str]]:
 
 
 def _run_record(num: int, sha: str, concluded: str, hours_ago: float, now: dt.datetime,
-                branch: str = "feat/x", workflow: int = 1) -> dict:
+                branch: str = "feat/x", workflow: int = 1, event: str = "push") -> dict:
     return {"id": num, "name": "CI" if workflow == 1 else "scope", "workflow_id": workflow,
-            "head_sha": sha, "head_branch": branch, "conclusion": concluded,
+            "head_sha": sha, "head_branch": branch, "conclusion": concluded, "event": event,
             "created_at": _iso(hours_ago, now), "status": "completed"}
 
 
@@ -104,6 +104,50 @@ def test_a_superseded_cancelled_run_is_left_alone(tmp_path, monkeypatch, capsys)
     # Then  nothing is re-run, and the pass-over is stated with its reason
     assert [c for c in _calls(log) if c[:2] == ["run", "rerun"]] == []
     assert "superseded" in capsys.readouterr().out
+
+
+def test_a_cancelled_workflow_run_triggered_run_is_skipped_but_not_fatal(tmp_path, monkeypatch, capsys):
+    """#1451: a cancelled `workflow_run`-triggered run (auto-merge, ci-verdict, reactor completing)
+    cannot be retried by GitHub — it must be passed over with the reason, and every retryable
+    cancellation in the window must still be re-run. The negative control: the bug returns if the
+    auto-merge cancellation aborts the heal before the retryable one is re-run."""
+    # Given a cancelled `workflow_run` reaction (un-retryable) AND a retryable cancelled run
+    now = dt.datetime.now(dt.timezone.utc)   # the CLI reads the real clock; fixtures hang off it
+    runs = [_run_record(600, "6" * 40, "cancelled", 0.5, now, branch="main", workflow=1,
+                        event="workflow_run"),
+            _run_record(601, "6" * 40, "cancelled", 0.5, now, branch="feat/x", workflow=1)]
+    gh, log = _fake_gh(tmp_path, runs, {"6" * 40: 2})
+    monkeypatch.setenv("CI_REQUEUE_GH", str(gh))
+
+    # When  the healer runs over the window
+    assert rq.main(["run", "--repo", "asimov-agent/llgenie", "--window", "2h"]) == 0
+    out = capsys.readouterr().out
+
+    # Then  the retryable run is re-run, and the un-retryable one is named with why, not aborted
+    reruns = [c for c in _calls(log) if c[:2] == ["run", "rerun"]]
+    assert reruns == [["run", "rerun", "601", "--repo", "asimov-agent/llgenie", "--failed"]], reruns
+    assert "re-ran 601" in out
+    assert "keep 600" in out and "workflow_run-triggered" in out, out
+    assert "workflow_run-triggered" not in reruns[0]
+
+
+def test_plan_dry_names_a_cancelled_workflow_run_triggered_run(tmp_path, monkeypatch, capsys):
+    """#1451 AC2: `plan` (and `run --dry`) must NAME the un-retryable run and why — never a silent
+    list nothing happened, because a skip without a reason looks like a healed nothing."""
+    # Given the same window with a cancelled workflow_run reaction and a retryable run
+    now = dt.datetime.now(dt.timezone.utc)
+    runs = [_run_record(602, "7" * 40, "cancelled", 0.5, now, branch="main", event="workflow_run"),
+            _run_record(603, "7" * 40, "cancelled", 0.5, now, branch="feat/y")]
+    gh, _log = _fake_gh(tmp_path, runs, {"7" * 40: 2})
+    monkeypatch.setenv("CI_REQUEUE_GH", str(gh))
+
+    # When  the planner runs
+    requeue, skipped = rq.plan("asimov-agent/llgenie", rq.parse_window("2h"), now=now)
+
+    # Then  the retryable one is planned and the workflow_run one is recorded with its reason
+    assert [r["id"] for r in requeue] == [603], (requeue, skipped)
+    assert [r["id"] for r in skipped] == [602], (requeue, skipped)
+    assert "workflow_run-triggered" in skipped[0]["why"], skipped
 
 
 def test_another_workflow_on_the_same_commit_does_not_supersede(tmp_path, monkeypatch):
