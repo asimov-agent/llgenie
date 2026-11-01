@@ -10,23 +10,26 @@ run-name: zero-job-pending
 # that makes a runner-starved dispatch loud instead of an eternal pending placeholder; it never
 # merges and never runs in a pull request.
 #
-# Trigger surface: schedule (twice an hour, an odd minute dropped from the shared minutes — issue
-#                  #275) + workflow_dispatch (MINUTES override). NOTHING else — no pull_request, no
-#                  non-main branch (a PR-run monitor here would name PRs whose jobs are legitimately
-#                  not yet instantiated; this is about dispatched run liveness).
-# Flow: guard (owner/collaborator, BEFORE anything runs) -> make check-zero-job-pending FILE=1
+# Trigger surface: `workflow_run` on `queued-alarm`, `types: [completed]`. REASONED, not inherited:
+# the fleet's bot scheduled-minute budget is EXHAUSTED — every odd minute is owned by a bot, and the
+# only three free odd minutes (`1`, `35`, `49`) are claimed by registry-liveness's resume (#1407's
+# #1416 moves it there) — so a new `schedule:`-declaring workflow would collide with an existing bot
+# (`test_no_workflow_shares_a_minute`, issues #275/#301), and every-hour dispatch would add a red.
+# Riding queued-alarm's completion reuses ITS verified `:07/:37` cadence (it is the sibling stuck-run
+# monitor; a run-level sweep right after its job-level sweep is the semantic pairing), so this monitor
+# exists without owning a minute of its own. Like run-failure-reactor (issue #295), a `workflow_run`
+# reaction is not startable by a human, so it carries no `workflow_dispatch` and no trigger guard.
+# NOTHING else — no pull_request, no non-main branch (a PR-run monitor here would name PRs whose jobs
+# are legitimately not yet instantiated; this is about dispatched run liveness).
+# Flow: on queued-alarm completing -> make check-zero-job-pending FILE=1
 #       -> on a stuck run, file ONE deduped issue naming it.
 # Never: never in a pull request, never gated by a PR, never merges, never cancels a run, never
 #        weakens a gate.
 on:
-  schedule:
-    - cron: "17,47 * * * *"   # twice an hour (odd minutes shared with no other bot, issue #275)
-  workflow_dispatch:
-    inputs:
-      minutes:
-        description: "flag runs pending/queued longer than this many minutes"
-        required: false
-        default: "30"
+  workflow_run:
+    workflows:
+      - queued-alarm — reports CI jobs queued far too long, once per affected run
+    types: [completed]
 
 permissions:
   contents: read
@@ -40,35 +43,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  guard:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Owner / collaborator trigger guard
-        env:
-          ACTOR: ${{ github.actor }}
-          TRIGGER: ${{ github.triggering_actor }}
-          OWNER: ${{ github.repository_owner }}
-          REPO: ${{ github.repository }}
-          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name || '' }}
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          for u in "$ACTOR" "$TRIGGER"; do
-            if [ "$u" = "$OWNER" ]; then continue; fi
-            if [ "$u" = "github-actions[bot]" ] && [ -n "${HEAD_REPO:-}" ] && [ "${HEAD_REPO:-}" = "$REPO" ]; then
-              echo "Repository bot $u on a same-repo head ($HEAD_REPO) - allowed."
-              continue
-            fi
-            perm=$(gh api "repos/$REPO/collaborators/$u/permission" --jq .permission 2>/dev/null || echo none)
-            case "$perm" in
-              admin|maintain|write) echo "Collaborator $u has $perm - allowed." ;;
-              *) echo "Refused: $u is not the owner or a collaborator with write access (permission: ${perm:-none})."; exit 1 ;;
-            esac
-          done
-          echo "Allowed: actor=$ACTOR triggering_actor=$TRIGGER"
   monitor:
-    needs: [guard]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -78,5 +53,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          make check-zero-job-pending REPO="${{ github.repository }}" \
-            MINUTES="${{ inputs.minutes || '30' }}" FILE=1
+          make check-zero-job-pending REPO="${{ github.repository }}" MINUTES=30 FILE=1
