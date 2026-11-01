@@ -22,9 +22,7 @@ import sys
 from pathlib import Path
 from datetime import datetime, timezone
 
-REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO / "scripts"))
-import stale_branch_cleanup as sbc  # noqa: E402
+from scripts import stale_branch_cleanup as sbc
 
 
 def _run(argv: list[str], gh_env: str) -> subprocess.CompletedProcess:
