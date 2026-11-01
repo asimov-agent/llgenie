@@ -33,6 +33,10 @@ Keep every `--jq` expression in single quotes; never assemble a jq program by st
 - `gh pr view <n> --json mergeStateStatus,mergeable,state` can return `mergeStateStatus: UNKNOWN` and
   `mergeable: UNKNOWN` on a PR that has just merged (with `reviewDecision` still `APPROVED`).
   `state: MERGED` + a non-null `mergedAt` is authoritative; `UNKNOWN` on a merged PR is a field flap, not a defect.
+- **When `mergedAt`/`mergedBy`/`mergeCommit` read `null` in `gh pr view --json`,** the PR merged and its branch
+  was deleted — the pull-request object drops the merge fields. Do not report "merge identity unknown": read the
+  timeline, which keeps it: `gh api repos/<o>/<r>/issues/<n>/timeline --jq '[.[]|select(.event=="merged")|{actor:.actor.login,commit_id}]'`.
+  Cross-check `autoMergeRequest` on the PR (null = not armed) before concluding a lane self-merged.
 - Confirm it landed on the intended base: read `baseRefName` (a stacked PR does not land on `main`), then
   `git fetch origin main`, `git merge-base --is-ancestor <mergeCommit.oid> origin/main`, and `git log origin/main -1`.
   The new `main` head should be the squash commit.
