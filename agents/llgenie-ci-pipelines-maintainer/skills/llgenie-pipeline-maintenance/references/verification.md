@@ -64,13 +64,36 @@ Several agents run `llgenie/test` containers from their own worktrees. Two thing
 
 | The claim | The proof the PR must carry |
 |---|---|
-| a guard/gate now exists | the make target exits 0 on the clean tree **and** exit 1 naming a planted violation **and** the pre-fix tree reds (`git stash -q -u`, run, count, pop) |
+| a guard/gate now exists | the make target exits 0 on the clean tree **and** exit 1 naming a planted violation **and** the pre-fix tree reds (baseline via `git archive <remote>/main \| tar -x -C "$(mktemp -d)"`, run there — NOT `git stash`) |
 | a renamed/renumbered rule still enforces | pre-fix commit reds, post-fix commit green, same input |
 | a bot/decision no longer crashes | the pre-fix file run against the REAL input (old module imported from `git show <sha>:path`) raising, and the fixed file answering — plus the fixture test that pins the class |
 | a workflow edit is valid | `make check-workflows check-dispatch-forms` (GitHub refuses a bad `${{ }}` silently) and the workflow's own `guard` job green on the PR |
 
 A green exit code from something that never saw the failing input proves nothing; an error message
 that does not name the object it failed on is a defect of the message, not just of the run.
+
+**Baseline a guard with a `git archive` extraction, never `git stash -u` in the worktree you are about to
+ship.** `git stash -u` then `stash pop` inside a worktree whose change is ALREADY COMMITTED does not
+round-trip cleanly: it can leave a stale unmerged entry (`UU <file>` in `git status` / non-zero in
+`git ls-files -u`) for a file your commit never touched, which then rides along invisibly and can red or
+dirty the PR. Instead extract the baseline to a throwaway dir and run the check there — it leaves the
+worktree untouched:
+
+```bash
+T=$(mktemp -d); git archive upstream/main | tar -x -C "$T"; \
+  ( cd "$T" && python3 scripts/<guard>.py check ); rm -rf "$T"
+```
+
+Then diff the branch the same way (`git archive HEAD`) so baseline-red vs branch-green are measured by the
+same method. If a `UU`/unmerged artifact does appear, resolve it to HEAD's copy
+(`git reset -q HEAD <f> && git checkout HEAD -- <f>`) — it is a LOCAL index artefact, never pushed, and
+must not be committed into the change.
+
+**Before reporting any PR, prove the worktree is clean: `git status --porcelain` must be empty, and the
+diff vs the base must be exactly your files.** `git diff <base> --name-status` should name only the paths
+the change is meant to add/edit; a stray `UU` file, an unrelated `M`, or a resurrected deletion means the
+local tree drifted from the commit and the PR is not the change you think it is. State the empty
+`--porcelain` and the exact `--name-status` list as the evidence, not the commit hash alone.
 
 **A plant/restore control must ASSERT the target text exists before it patches — a block reconstructed from memory silently does not match, so the harness no-ops and the "negative control" then runs against unchanged code and reads GREEN, proving the opposite of what you claim.** Read the exact committed function first (`read_file` the lines, do not retype them from the transcript or an earlier eyeball), then build the harness so a failed match aborts (`assert old in src, "block not found"` → non-zero exit) BEFORE the test run, and restore from a pre-read copy unconditionally. Measured: a block rebuilt without the intervening comment line failed to apply, and only the abort kept a false green from being reported as a passed control. This is the same discipline as the four-case negative control above, pointed at the harness itself rather than at the code.
 
@@ -187,3 +210,71 @@ that **did not exist** and a worktree never cut — reporting NOT STARTED with t
 prevented both a fabricated progress claim and a misrouted duplicate build. Say what you actually did,
 name the state you measured, and route to the owning lane when the work is not yours; never claim or spawn
 work to satisfy an assertion the tree does not support.
+
+## 8. Proving a `workflow_run` merge-gate change end-to-end
+
+**A decision gate keyed on ONE workflow's completion never evaluates a PR class that a path filter
+excludes from that workflow.** `auto-merge` triggered only on `workflow_run: workflows: ["CI"]`, but
+`ci.yml` `paths-ignore` strips `docs/**`, `agent-wiki/**`, `openspec/**` — so a docs-only PR runs NO `CI`
+job and its only completed runs are `ci-scope` (the scope + docs-gate workflow) and `holds`. The merge
+job therefore never opened for it, and the PR sat armed and `BLOCKED` indefinitely. Fix: add the
+workflow class's `name:` VERBATIM to `workflow_run.workflows` (the same `ci-scope — …` string the
+routing roster already uses), keeping the merge job's `if:` at `conclusion == 'success'` and letting the
+decision script re-read true state (`auto_merge.py`) so a code PR still defers until `CI` is CLEAN.
+General rule: enumerate every workflow a PR can carry ALONE (grep each workflow's `paths-ignore`/`paths`
+filters to see which PR classes skip it) and make the gate react to each one — the "which workflow runs
+when" matrix decides which completions must engage the gate.
+
+**Verify the wiring on a REAL affected PR, not only with a unit pin.** The chain is resolver → decision;
+drive both on live data:
+
+```bash
+# 1. the runs a PR head actually produced. (gh run list --pull-request is NOT a flag;
+#    gh run list -w <branch> is read as a workflow NAME) — go through the API by head sha:
+gh api "repos/<o>/<r>/actions/runs?head_sha=<sha>&per_page=30" \
+  --jq '.workflow_runs[]|{id:.id,name:.name,conclusion:.conclusion,event:.event}'
+# 2. resolve that watched-workflow run id back to its PR:
+python3 scripts/resolve_run_pr.py resolve --repo <o>/<r> --run-id <id> \
+  --head-owner <owner> --head-branch <branch>        # expect: number=<PR>
+# 3. the decision (needs a merge token; explain re-reads the PR live):
+GH_TOKEN=… python3 scripts/auto_merge.py explain --repo <o>/<r> --pr <n> --head-sha <sha>
+```
+
+`--head-owner` is `head_repository.owner.login`, and for a SAME-REPO branch that is the BASE repo owner
+(`asimov-agent`), NOT the fork: pass `andyholst` for a branch that actually lives in `asimov-agent/llgenie`
+and the resolver prints `no open pull request … nothing to merge` — a false negative that reads exactly
+like a wiring gap. Read the owner from `gh pr list --head <branch> --json headRepositoryOwner` (or the
+PR's `headRepository`), never assume the fork. `auto_merge.py explain` with no token prints `no token:
+GH_TOKEN and GITHUB_TOKEN are both empty — this run cannot merge` — that is a probe-environment fact, not
+a defect; the decision path itself is covered by the suite's decide/approve/merge tests.
+
+**Prove a pinning test catches the bug on the COMMITTED tree by reverting the one touched file — a
+single-file `git checkout`, distinct from the `git archive` baseline in §4.** When the change is already
+committed and a test is meant to hold the wiring, revert just the touched file to the pre-fix shape, run
+that test (expect `AssertionError` naming the missing name/string), restore from the commit, and re-run
+(expect pass) — then confirm the tree is clean and HEAD unchanged:
+
+```bash
+git checkout <base> -- .github/workflows/<gate>.yml
+# container probe → the pin must RED (AssertionError names the missing workflow name)
+git checkout HEAD -- .github/workflows/<gate>.yml
+# container probe → the pin must GREEN
+git status --porcelain        # must be empty; git rev-parse --short HEAD unchanged
+```
+
+This leaves the real worktree intact when it finishes and proves the RED↔GREEN swing the pin depends on;
+a pin ever run only on the fixed tree has demonstrated nothing. (For a guard over a whole suite, still
+prefer the `git archive` extraction in §4 so no committed file is disturbed.)
+
+**To check whether a DIFFERENT vehicle already carries your fix, run ITS tree without disturbing your
+worktrees:** `git -C <main> fetch upstream pull/<N>/head:m<N> && git -C <main> worktree add /tmp/chk-<N> m<N>`,
+then probe in-container there and `git -C <main> show m<N>:<path>` for the trigger/guard at that head
+(not your branch's). Delete the temp ref with `git -C <main> update-ref -d refs/heads/m<N>` after.
+
+Two cleanup traps from that recipe, both measured:
+- **`-u root` probes leave root-owned `__pycache__/*.pyc` in the checkout**, so `git worktree remove` and
+  plain `rm -rf` fail with `Permission denied`; reclaim with `sudo rm -rf <dir>`, then
+  `git -C <main> worktree prune`. Leave no root-owned helper worktree behind.
+- **The shell CWD persists for the session** — after you delete a helper worktree you `cd`'d into, later
+  relative commands (and ripgrep-backed searches) die with `getcwd: cannot access parent directories`;
+  switch to absolute paths and `git -C <repo>` from then on.

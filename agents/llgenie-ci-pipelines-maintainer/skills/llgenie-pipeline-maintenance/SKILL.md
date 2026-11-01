@@ -24,11 +24,23 @@ Every other installed skill is listed in `skills.disabled`.
 The pin is `tests/fixtures/host-bot-capabilities.json` in asimov-agent/llgenie (issue #1038).
 <!-- host-bot-tools:end -->
 
+## Role artifact (2026-11-01)
+
+A defect in a workflow, a gate, or a make target this lane owns is this lane's pull request. `message_agent` to `llgenie-planner` with the PR number, the head sha, and the run id. A red in another lane's product change stays a report. Do not take their fix. Do not rebase. `llgenie-pr-merge-conflict` owns rebases.
+
 ## When to Use
 
 > Hygiene: `references/repo-artifact-conventions.md`
 
-> A job that ended `cancelled` at its `timeout-minutes` wall with no test summary is **UNTESTED, never green** — and the cause is usually a live-network stall inside the suite, not a failing test. See `references/diagnosing-cancelled-runs.md` for the log-based procedure (progress-gap analysis, faulthandler dump, max-green ceiling, re-run-don't-push).
+> Rollups/polling/arming: `references/monitoring-check-rollups.md`
+> Tree parity vs live: `references/verifying-agent-tree-parity.md`
+> Planner claims a branch/run/merge is missing — re-measure canonically first: `references/verifying-planner-claims.md`
+
+> "Is this leg slow or stuck?" — build the duration band from completed JOBS (p50/p95 + run ids), re-measure any figure an issue quotes, and set the floor at ~2× p95: `references/measuring-job-duration-bands.md`
+
+> A job that ended `cancelled` at its `timeout-minutes` wall with no test summary is **UNTESTED, never green** — usually a live-network stall, not a failing test. See `references/diagnosing-cancelled-runs.md`.
+
+> Re-pointing a PR's closing issue: amend the commit's `closes #N` too, not just body/title — see `references/pr-issue-linking-and-force-push.md`.
 
 The task is "do the pipelines at https://github.com/asimov-agent/llgenie/actions still do what they say". Use this for the audit loop (measure intent vs reality, file the gap, fix it behind a reviewable
 PR) — not for writing a normal feature (the repo's `AGENTS.md` owns that).
@@ -275,25 +287,11 @@ to write) and then close yours with that comparison, or fold your one missing ca
   the merge — the merged tree is whatever head the PR carried. Deliver that delta as a NEW PR (fresh branch
   off the merged base), never as a force-push to the dead branch, and verify the merged tree's content directly
   (`gh api repos/<o>/<r>/contents/<path>?ref=<base-ref>`) before trusting that your local work reached it.
-- `check_pr_authors.py` requires commits authored through an allowed EMAIL — keep the repo's git
-  identity, never invent one. **A PR commit's author DISPLAY NAME is written by GitHub's squash from the
-  account PROFILE, not from the git identity**, so a green local identity lands as `Andy <…>` on the
-  merged squash no matter what `user.name` said at commit time. The gate therefore keys on the EMAIL
-  (`email in ALLOWED.values()`) and treats the display name as informational: `Andy`, `andyholst` and
-  `Mr. Asimov` all pass when they carry an allowed address, and a foreign ADDRESS is the violation
-  whatever the name says. The producer scan (workflow files a human types) still matches name AND email
-  — only GitHub's merge machinery is freed of the name. Check a PR's actual authors with
-  `gh pr view <n> --json commits --jq '.commits[]|select(.authors[0].name=="…")'` before blaming a
-  branch; never re-author a squash to satisfy a display name the committer did not set. **A red
-  `check-pr-authors` because a commit was authored under a foreign ADDRESS is fixed by RE-AUTHORING the
-  commit, never by editing the allowlist**: set `git config user.name` / `user.email` to an allowed pair
-  the branch already carries then `git commit --amend --reset-author --no-edit`, and force-with-lease
-  your OWN branch (the guard's failure message names this exact remedy). It is metadata-only — the tree
-  sha is unchanged (`git rev-parse HEAD^{tree}` before/after) — so it is safe on a reviewed branch, but it
-  still rewrites history and must be `--force-with-lease` with the remote's ACTUAL sha in the lease. Verify
-  with `python3 scripts/check_pr_authors.py check --base origin/main --head HEAD` (expect "OK") and the
-  CI guard job's `##[error]` line; read the guard job LOG to name which gate is red — a cancelled run and a
-  guard red both read `fail` from `gh pr checks`.
+- `check_pr_authors.py` gates on the commit AUTHOR EMAIL; the squash DISPLAY NAME comes from the account
+  profile, not `user.name`, and the producer scan still matches name AND email — never re-author a squash
+  for a display name. A red from a foreign ADDRESS is fixed by RE-AUTHORING the commit, never by editing
+  the allowlist; the full remedy (`--amend --reset-author`, `--force-with-lease`, read the guard LOG) is
+  in `references/auto-merge-identity.md` *A red `check-pr-authors` is fixed by RE-AUTHORING*.
 - **The docs of record must agree with a gate whose shape changed — update them in the SAME commit.**
   Changing a gate's KEY (name→email) or its spelled rule leaves `AGENTS.md`, `docs/BOTS.md`, the Makefile
   `##` help line and the script docstring asserting the OLD behavior — a drift of the same weight as a

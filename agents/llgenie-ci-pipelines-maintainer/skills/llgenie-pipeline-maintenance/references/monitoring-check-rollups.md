@@ -104,3 +104,30 @@ implementer with the exact new line; **never 'fix' it by bumping the recorded co
 ratchet) and never open a gate-fix PR for it. Guard against the inverse: a red naming a DELETION on the
 branch (`X is not indexed`) is a branch-local gap whose fix is restoring the row — classify the two
 separately (addition→implementer, deletion→restore), report both, and let the owning lane act.
+
+## A third class: a pre-existing red on `main` that reddens EVERY PR
+
+Not every red is this lane's gate bug (case 1) or the branch's defect (case 2). A gate that reads a
+file FROM `main` — `docs/ARCHITECTURE.md`'s `measured at <sha>` census pointer, a shared table, a pinned
+baseline — can go red on `main` itself, and then EVERY open PR inherits that red regardless of its diff.
+Three signs together confirm it is external:
+
+- the failing step lives in a file your `git diff --name-only` does NOT touch, and the same check passes
+at your own HEAD (e.g. your HEAD's pointer is a real ancestor while `main`'s is not);
+- the IDENTICAL gate reddens on an unrelated open PR (`gh pr checks <other-n> | grep <gate>`);
+- the failing log names a value that is wrong at `main`, not at your base.
+
+When all three hold: (1) report the red with the file:line, the sha, the run id, AND the unrelated PR
+that reddens identically — that third fact is what proves it external; (2) check whether a canonical fix
+already exists (`gh pr list --state open --search <topic>`, or the issue/PR the planner cited) and route
+the finding there; do NOT open a second fix. If a fix you already opened is closed as a duplicate, leave
+it closed — re-cutting `main`'s shared file a second time is the duplicate the board rejects. Never fold a
+`main`-wide fix into an unrelated PR: its diff must stay exactly the change under review.
+
+## "My tests pass" is NOT "the PR is green"
+
+The decisive verification is the PR's CI at its head, never your local or container suite. A locally
+green suite plus a red `scope` / `linux/unit` leg is a RED PR: do not arm, merge, or claim completion.
+State the attribution honestly — what your diff does and passes, what the external blocker is, and that
+the PR goes green once that blocker merges and the branch re-runs. Claiming completion while a required
+check is red is the exact overclaim the completion-integrity guard rejects; report standing, not victory.

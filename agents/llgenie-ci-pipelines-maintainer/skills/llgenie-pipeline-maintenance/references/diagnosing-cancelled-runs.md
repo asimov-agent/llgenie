@@ -37,6 +37,26 @@ replaced it) and a 44-minute timeout (it ran and was killed) both read `cancelle
 tells them apart. Report the attempt-duration pair for a head with several cancelled runs, never a
 single run-level number — the run's created→updated is not a job duration.
 
+**A run's wall-clock also leads the unit job's start by the install/compile gate that must finish
+first — a second, distinct reason run-start ≠ job-start (not the inter-attempt gap above).** When a
+relay (a peer lane, a planner, or your own first read) says "this run is already past the old 60m
+wall", measure the **unit job's** `started_at`, not the run's `created_at`. Measured here: run created
+12:21Z, install finished ~12:25Z, unit `started_at` 12:25:11Z — at 12:27Z the run was ~6 min old but
+the unit job was only ~2 min in, i.e. NOT past a 60m wall. A wall-clock claim is only ever about the
+job whose `timeout-minutes` it names; say `unit_elapsed = now − job.started_at` and correct the record
+when the relay used run-clock.
+
+### The acceptance proof for a ceiling raise: a same-window, same-suite control
+
+Prove the raise the way a bug fix is proven — with a control, not the fixed tree alone. The strongest
+evidence is **the SAME discovered suite, in the SAME window, GREEN under the new ceiling** set against
+**that suite ceiling-CANCELLED under the old one**. Measured here for 60→120: my head's `linux / unit`
+(job `124536554782`) concluded **success 12:25:11→12:39:48 = 14m37s** under 120 while a docs-only PR's
+unit of the identical suite (`124525377009`) was ceiling-cancelled at 60m — two runners, one suite, same
+window, 14m37s-green vs 60m-cancelled. That pair turns "the old budget was too tight" from opinion into
+measurement: quote both run ids, both job ids, both durations, and the head sha, in the PR acceptance
+comment.
+
 ## Step 2 — find what consumed the clock (progress-gap analysis)
 
 Strip ANSI, then measure the gaps between pytest progress markers `[ NN%]`. A multi-minute gap at a
@@ -93,10 +113,35 @@ a fast run, never from a failing one. Compute max over green unit jobs (the job 
 `linux / unit`), then set the ceiling above it with headroom, staying below the longer `install` path.
 
 When a test pins the ceiling literal (e.g. `assert unit <= 60`), do **not** delete the assertion — it
-encodes real intent (`unit` is the tightest long-job ceiling; `unit < install`). Update the stale
-literal to a bound above the measured max-green, state the reason in the docstring, and keep the
-`unit < install` invariant. Prove it with a negative control: plant the old value → the test must FAIL;
-restore → it PASSES.
+encodes real intent (`unit` is the tightest long-job ceiling, ordered against `install`). Update the
+stale literal to a bound above the measured max-green and state the reason in the docstring.
+
+**A relative-order assertion cannot always be kept, and forcing it is a bug.** `unit < install` breaks
+the moment the new ceiling equals `install`'s (both 120) — and raising `install` to preserve `<` is a
+silent, out-of-scope change to a job nobody asked about. Relax the operator to `<=` and record why in
+the docstring; an invariant that no longer holds is not a thing to preserve, it is a thing to re-state.
+
+**Grep the whole tree for both spellings before pushing** — the literal (`60`, `timeout-minutes`), and
+every relative comparison against that job (`unit <`, `> install`, subtraction of the two). One missed
+relative assertion reds the PR after a correct gate edit. Prove the new bound with a negative control:
+plant the old value → the test must FAIL; restore → it PASSES.
+
+## Owner-ordered ceiling raise: two edits, one commit, proven by the job
+
+A raise requested by the owner is still a shape change through the gate plus its pinned assertions:
+
+1. Branch from the freshly fetched `upstream/main` sha; edit the `timeout-minutes` line and its inline
+   comment so the comment reads true at the new value (a comment that still says "60" is drift).
+2. Grep for the old literal and for relative-order assertions (above); edit both in the SAME commit.
+   Scope the diff: leave every other `60` in other workflows untouched unless it was named.
+3. Run the pinned test file in the repo's container and quote the pass count.
+4. **The gate passing is not proof the budget works.** Name the acceptance vehicle: the `CI` run at the
+   new head and the `linux / unit` job id inside it (`gh run view <run-id>` lists `name (ID …)`). Claim
+   acceptance only once that job runs past the old wall without cancellation or concludes — until then
+   the honest words are "runs under the new ceiling, not yet concluded".
+5. When the report names comment ids, read them back — `gh api repos/<o>/<r>/issues/<pr>/comments
+   --jq '.[]|[.id,(.body|split("\n")[0])]'` — never infer an id from a post's exit code, and never
+   leave ids as "pending" in a finish report when one API call gives them.
 
 ## Measure the tree that is actually `main` first
 

@@ -31,6 +31,12 @@ Fix (one vehicle, atomically):
 3. Verify with the real base, not a plain run:
    `python3 scripts/check_docs.py check --base upstream/main` — expect ok AND no
    "change->note skipped" note; confirm the note path appears in `git diff --name-only <base>...HEAD`.
+   Then run `python3 scripts/changes_index.py check` — it enforces the fragment<->note bijection
+   (every note has a row, every row points at an existing note).
+   The row format is a single pipe-table line:
+   `| <date> | <one-line summary> | [note](agent-wiki/<stem>.md) | #<issue> |`
+   — the `[note](agent-wiki/<stem>.md)` relative link and the trailing `#<issue>` are what the
+   index parses; a bare filename or a missing issue column is not a valid row.
 4. Force-push your own branch with `--force-with-lease` (lease = the current remote head); read the
    remote head back; re-arm auto-merge only after scope+guard+unit green at the new head.
 

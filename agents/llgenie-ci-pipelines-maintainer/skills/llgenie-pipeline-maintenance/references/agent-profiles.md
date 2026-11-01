@@ -110,3 +110,25 @@ version while live still ran the older text is `diverged` (5,714 b vs 2,811 b, 4
 live-only lines) — the detector's own first catch was its author's file. Rebuild such a copy as the LIVE
 file verbatim plus the canonical block it is missing, and fix wording in the live file deliberately, not
 by letting the repository diverge from what the agent actually runs under.
+
+## Versioning a lane's live skill dir to clear its `absent-from-tree` row
+
+`scripts/check_agent_profiles.py check` reports `FAIL absent-from-tree: <profile>/skills/<skill>: a whole
+skill directory exists ONLY in the live profile … (N file(s), B b)` for every profile whose live skills
+are not in the tree — the tracker rows a planner dispatches one lane at a time. The fix is a **verbatim
+copy of the whole live skill dir into the tree**, and it has two hard guards that are easy to skip:
+
+1. **Copy EVERY file, not just SKILL.md — `skill-reference-missing` reds otherwise.** The checker fails
+   when a `references/…`/`templates/…` pointer named in `SKILL.md` has no file in the tree. `cp -a` the
+   entire `skills/<skill>/` directory (SKILL.md + references/ + templates/), never hand-pick; verify the
+   count (`git ls-files …/skills/ | wc -l` equals the live file count) and that blob bytes equal live
+   bytes before pushing.
+2. **Prove the finding is GONE by a clean-archive comparison, done the `git archive` way (see
+   `verification.md`), not by trusting the green check.** Extract `upstream/main` to a temp dir and run
+   the check there to capture the baseline `absent-from-tree` line; extract your branch the same way and
+   confirm your row produces NO `FAIL` while the remaining FAILs are OTHER lanes' rows (leave those).
+
+Branch fresh off `origin/main` at fetch time, one atomic commit adding only the skill dir
+(`git diff <base> --name-status` names only those paths), a ready-not-draft PR whose body says it clears
+the lane's row (do not close a shared tracker), armed squash auto-merge with the `autoMergeRequest` read
+back. The container run of `pytest tests/test_agent_profiles.py` is the gate leg for the checker itself.

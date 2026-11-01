@@ -2,6 +2,19 @@
 
 Rules that cost a review cycle when missed. Each is a general rule + the mechanism that makes it bite.
 
+## Run docs gates on the HOST, not inside the repo container
+
+- `make check-docs` inside the `llgenie/test` container reports two reds that are **artifacts of the
+  bind mount, not your change**: the change→note gate prints `skipped (no base ref)` and the
+  architecture census prints `UNREADABLE: git could not read this checkout`. A worktree's `.git` is a
+  pointer file into the real repo's `.git/worktrees/<name>`, which the container can't resolve.
+- Run the gates on the host where git works: `PYTHONPATH=scripts python3 scripts/check_docs.py check`
+  (set `CHECK_DOCS_BASE=<base-sha>` to exercise change→note, not just changes-index). A green run
+  still prints the change→note line only if the base resolves.
+- The census `UNREADABLE` is a separate, pre-existing break on main — **not** something your PR must
+  cure. Confirm your diff doesn't touch it: `git diff <base>...HEAD --name-only | grep -E
+  'ARCHITECTURE|check_architecture'` empty = your PR is clean of the gate it can't read.
+
 ## A `docs/changes.d/` fragment is exactly ONE row
 
 - A change adds **its own** file `docs/changes.d/<note-stem>.md` holding a **single** row:
