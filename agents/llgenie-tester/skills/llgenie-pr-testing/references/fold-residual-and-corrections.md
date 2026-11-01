@@ -71,6 +71,18 @@ Measured shape: a versioning-only fold of two SKILL/reference files matched live
 `CHECK=1` red on a third, unrelated doc that had grown live-ahead — correct move, leave the third doc
 for the next vehicle and report it as such.
 
+## `CHECK=1` rc 0 is the fold-complete proof, and it is momentary
+
+The mirror case of the rc=1 attribution above: when `sync-agent-profile PROFILE=<n> CHECK=1` (or
+`scripts/agent_profile_sync.py --profile <n> --check`) exits rc 0, EVERY tracked file including yours
+matched live at that instant. A partial fold, or a fold bound to the dispatch's stale sha, cannot
+produce rc 0 — so quote `rc 0` with the head sha as the completion evidence instead of the prose claim
+"fully synced".
+
+It is momentary by construction: this lane edits live while it works, so each edit (a reference fix,
+even a review-time skill edit) re-creates live-ahead for the next vehicle. "No residual" is therefore
+always written as "`CHECK=1` rc 0 at sha X at HH:MMZ", never as "the profile is in sync now".
+
 ## Close wiring belongs in the PR body
 
 A `Closes #<n>` / `Fixes #<n>` keyword in the BODY is what auto-closes; a title saying "closes #N" and
