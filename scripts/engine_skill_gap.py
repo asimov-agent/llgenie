@@ -300,7 +300,7 @@ def issue_body(name: str, registry: dict, g: dict) -> str:
 
 
 def _gh(gh: str, args: list[str]) -> str:
-    r = subprocess.run([gh, *args], capture_output=True, text=True)
+    r = subprocess.run([gh, *args], capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     if r.returncode != 0:
         raise SystemExit(f"[engine-skill-gap] {gh} {' '.join(args)} failed ({r.returncode}): {r.stderr.strip()}")
     return r.stdout

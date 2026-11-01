@@ -227,8 +227,8 @@ wait $!
 
 def cuda_cdi_ready() -> bool:
     """nvidia-container-toolkit generated the CDI spec that mounts the host driver."""
-    r = subprocess.run(["nvidia-ctk", "cdi", "list"], capture_output=True, text=True) \
-        if shutil.which("nvidia-ctk") else None
+    r = (subprocess.run(["nvidia-ctk", "cdi", "list"], capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
+         if shutil.which("nvidia-ctk") else None)
     return bool(r and r.returncode == 0 and "nvidia.com/gpu=all" in r.stdout)
 
 
@@ -667,7 +667,7 @@ def test(bindir: Path) -> int:
         return 1
     fails = 0
     for s in scripts:
-        r = subprocess.run([str(s), "--version"], capture_output=True, text=True, timeout=600)
+        r = subprocess.run([str(s), "--version"], capture_output=True, text=True, timeout=600)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
         ok, line = version_ok(r.returncode, r.stdout, r.stderr)
         fails += not ok
         print(f"[test-built-engine] {'OK  ' if ok else 'FAIL'} {s.name} --version: {line[:150]}")
@@ -693,19 +693,19 @@ def uninstall(bindir: Path, purge_images: bool = False) -> int:
         if shim.is_symlink() or (shim.is_file() and MARKER in shim.read_text(errors="ignore")):
             shim.unlink()
             removed.append(shim.name)
-    r = subprocess.run([ei.RUNTIME, "ps", "-q", "--filter", "name=^llgenie-"], capture_output=True, text=True)
+    r = subprocess.run([ei.RUNTIME, "ps", "-q", "--filter", "name=^llgenie-"], capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     running = r.stdout.split()
     if running:
-        subprocess.run([ei.RUNTIME, "rm", "-f", *running], capture_output=True)
+        subprocess.run([ei.RUNTIME, "rm", "-f", *running], capture_output=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     print(f"[uninstall] removed {len(removed)} file(s) from {bindir}: {' '.join(removed) or '-'}")
     print(f"[uninstall] stopped {len(running)} running llgenie engine container(s)")
     if purge_images:
-        r = subprocess.run([ei.RUNTIME, "images", "--format", "{{.Repository}}:{{.Tag}}"],
+        r = subprocess.run([ei.RUNTIME, "images", "--format", "{{.Repository}}:{{.Tag}}"],  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                            capture_output=True, text=True)
         imgs = [i for i in r.stdout.split() if i.split("/")[-2:-1] == ["llgenie"] or i.startswith("llgenie/")]
         imgs = [i for i in imgs if not i.startswith(("llgenie/test:", "llgenie/openspec:"))]
         if imgs:
-            subprocess.run([ei.RUNTIME, "rmi", "-f", *imgs], capture_output=True)
+            subprocess.run([ei.RUNTIME, "rmi", "-f", *imgs], capture_output=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
         print(f"[uninstall] removed {len(imgs)} engine image(s)")
     else:
         print("[uninstall] engine images kept as a cache (make uninstall PURGE_IMAGES=1 removes them)")

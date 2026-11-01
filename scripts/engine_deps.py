@@ -67,7 +67,7 @@ def _is_dep_file(path: str) -> bool:
 
 
 def _show(repo: Path, sha: str, path: str) -> str | None:
-    proc = subprocess.run(
+    proc = subprocess.run(  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
         ["git", "-C", str(repo), "show", f"{sha}:{path}"],
         capture_output=True, text=True, timeout=120,
     )
@@ -102,7 +102,7 @@ def dependency_paths(skill: dict, present: set[str]) -> list[str]:
 
 
 def _listing(repo: Path, sha: str) -> set[str]:
-    proc = subprocess.run(
+    proc = subprocess.run(  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
         ["git", "-C", str(repo), "ls-tree", "-r", "--name-only", sha],
         capture_output=True, text=True, timeout=120,
     )
@@ -179,7 +179,7 @@ def shlib_packages(binary: Path) -> list[str]:
             "Description: runtime library probe\n"
             " probe\n"
         )
-        proc = subprocess.run(
+        proc = subprocess.run(  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
             ["dpkg-shlibdeps", "-O", str(binary)],
             cwd=work, capture_output=True, text=True, timeout=60,
         )

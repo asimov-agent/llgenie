@@ -34,6 +34,11 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+try:  # the subprocess policy seam (issue #797)
+    from .proc import run_ok  # type: ignore
+except ImportError:  # pragma: no cover - script mode
+    from proc import run_ok  # type: ignore
+
 try:
     from . import engine_skills as es
     from . import engine_params_derive as epd
@@ -51,7 +56,8 @@ _PRE_RELEASE = re.compile(r"(rc|alpha|beta|dev|pre|post)", re.IGNORECASE)
 
 
 def _run(cmd: list[str], timeout: int = 60, cwd: Path | None = None) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=cwd)
+    # policy: run_ok — the caller inspects rc (issue #797, scripts/proc.py is the one seam).
+    return run_ok(cmd, timeout=timeout, cwd=str(cwd) if cwd else None)
 
 
 def _ls_remote(repo: str, refspec: str, tries: int = 3) -> str:

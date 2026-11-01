@@ -63,7 +63,7 @@ def _gh(gh: str, args: list[str], token: str | None = None) -> str:
     if token:
         import os
         env = {**os.environ, "GH_TOKEN": token}
-    r = subprocess.run([gh, *args], capture_output=True, text=True, env=env)
+    r = subprocess.run([gh, *args], capture_output=True, text=True, env=env)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     if r.returncode != 0:
         raise SystemExit(f"[issue-dedup] {gh} {' '.join(args)} failed ({r.returncode}): {r.stderr.strip()}")
     return r.stdout

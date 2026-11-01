@@ -62,7 +62,7 @@ def held_prs(repo: str) -> list[dict]:
     is the exact failure this issue exists to remove. Both forms agreed when measured (`#904`), and the local
     filter is the one that cannot silently diverge: the label list comes back on the same row as the PR.
     """
-    listed = subprocess.run(
+    listed = subprocess.run(  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
         ["gh", "pr", "list", "--repo", repo, "--state", "open", "--limit", "200",
          "--json", "number,title,body,labels,headRefOid"],
         capture_output=True, text=True)
@@ -72,7 +72,7 @@ def held_prs(repo: str) -> list[dict]:
     prs = [pr for pr in everything
            if any((label.get("name") or "") == LABEL for label in (pr.get("labels") or []))]
     for pr in prs:
-        comments = subprocess.run(
+        comments = subprocess.run(  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
             ["gh", "api", f"repos/{repo}/issues/{pr['number']}/comments", "--paginate",
              "--jq", "[.[]|{body}]"],
             capture_output=True, text=True)
@@ -145,7 +145,7 @@ def run_head_shas(pr: dict, repo: str) -> dict[str, str]:
             if rid not in cited:
                 cited.append(rid)
     for rid in cited:
-        proc = subprocess.run(
+        proc = subprocess.run(  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
             ["gh", "api", f"repos/{repo}/actions/runs/{rid}", "--jq", ".head_sha"],
             capture_output=True, text=True)
         if proc.returncode != 0:

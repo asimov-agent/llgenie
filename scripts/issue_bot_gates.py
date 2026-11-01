@@ -301,7 +301,7 @@ def run(root: Path = REPO, gates: tuple[str, ...] = FAST_GATES) -> int:
     total = len(gates)
     for i, gate in enumerate(gates, 1):
         print(f"[issue-bot-gates] {i}/{total} make {gate}", flush=True)
-        proc = subprocess.run(["make", gate], cwd=str(root))
+        proc = subprocess.run(["make", gate], cwd=str(root))  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
         if proc.returncode != 0:
             print(f"[issue-bot-gates] FAIL `make {gate}` (exit {proc.returncode}): the branch is NOT "
                   f"pushed; fix the file this gate names and re-run `make {GATE_TARGET}`",

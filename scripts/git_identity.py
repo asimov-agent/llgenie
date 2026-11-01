@@ -84,7 +84,7 @@ def allowed_note() -> str:
 def _git(args: list[str], cwd: Path) -> tuple[int, str]:
     """Run git and return `(returncode, stdout)`. A failure is a return code, never an exception: a
     repository with no identity at all must produce a FINDING, not a traceback."""
-    proc = subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True)
+    proc = subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     return proc.returncode, proc.stdout.strip()
 
 
@@ -160,7 +160,7 @@ def apply(cwd: Path = REPO_ROOT) -> None:
     """Write the allowlisted identity into the repository's OWN git config (never the global one)."""
     name, email = identity()
     for key, value in (("user.name", name), ("user.email", email)):
-        proc = subprocess.run(["git", "config", key, value], cwd=str(cwd),
+        proc = subprocess.run(["git", "config", key, value], cwd=str(cwd),  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                               capture_output=True, text=True)
         if proc.returncode != 0:
             raise SystemExit(f"[git-identity] `git config {key}` failed in {cwd}: "

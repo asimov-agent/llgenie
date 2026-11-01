@@ -220,7 +220,7 @@ def changed_paths(*, base: str | None, before: str | None, cwd: str | None = Non
     if not base and not before:
         raise ValueError("one of --base / --before / --paths is required")
     revision = before or f"{base}...HEAD"
-    result = subprocess.run(
+    result = subprocess.run(  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
         ["git", "diff", "--name-only", "--diff-filter=ACMR", revision],
         cwd=cwd, capture_output=True, text=True,
     )

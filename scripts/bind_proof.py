@@ -38,7 +38,7 @@ def _fail(message: str) -> int:
 
 def _gh(args: list[str], repo: str) -> str:
     """Shell `gh api` and return stdout; a failed read is exit 2 (bad invocation), never a forgivable void."""
-    proc = subprocess.run(
+    proc = subprocess.run(  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
         ["gh", "api", f"repos/{repo}/{args[0]}", *args[1:]], capture_output=True, text=True)
     if proc.returncode != 0:
         print(f"[bind-proof] FAIL: cannot read {args[0]} "

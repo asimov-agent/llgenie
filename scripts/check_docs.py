@@ -414,7 +414,7 @@ def owes_note(paths: "list[str]") -> bool:
 def _default_base(root: Path) -> str:
     """Resolve a usable base ref for the change->note diff, or '' when none is available."""
     for ref in ("origin/main", "main"):
-        r = subprocess.run(["git", "-C", str(root), "rev-parse", "--verify", "--quiet",
+        r = subprocess.run(["git", "-C", str(root), "rev-parse", "--verify", "--quiet",  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                             f"{ref}^{{commit}}"], capture_output=True, text=True)
         if r.returncode == 0 and r.stdout.strip():
             return ref
@@ -423,7 +423,7 @@ def _default_base(root: Path) -> str:
 
 def _changed_paths(root: Path, base: str) -> "list[str]":
     """Paths changed between the merge base of `base` and HEAD (three-dot)."""
-    r = subprocess.run(["git", "-C", str(root), "diff", "--name-only", f"{base}...HEAD"],
+    r = subprocess.run(["git", "-C", str(root), "diff", "--name-only", f"{base}...HEAD"],  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                        capture_output=True, text=True)
     if r.returncode != 0:
         raise RuntimeError(r.stderr.strip() or f"cannot diff against {base}")

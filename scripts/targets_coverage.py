@@ -40,7 +40,7 @@ TARGET_LINE = re.compile(r"^([A-Za-z0-9_][A-Za-z0-9_.-]*):", re.M)
 def run_make_qp(root: Path) -> str | None:
     """`make -qp` output, or None if make is unavailable / errors so loudly it kills the projection."""
     try:
-        r = subprocess.run(["make", "-qp", "-f", "Makefile"], cwd=root,
+        r = subprocess.run(["make", "-qp", "-f", "Makefile"], cwd=root,  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                            capture_output=True, text=True, timeout=120)
         if r.returncode != 0:
             # `make -qp` returns non-zero when a target is "up to date" — that is NOT an error here: the

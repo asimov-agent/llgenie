@@ -42,6 +42,11 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+try:  # the subprocess policy seam (issue #797)
+    from .proc import run_ok  # type: ignore
+except ImportError:  # pragma: no cover - script mode
+    from proc import run_ok  # type: ignore
+
 REPO = Path(__file__).resolve().parent.parent
 RUNTIME = os.environ.get("RUNTIME") or "docker"  # docker only (issue #112)
 DEFAULT_REGISTRY = "ghcr.io/asimov-agent"  # the same default as engine_image.py and the Makefile
@@ -138,7 +143,8 @@ def cache_ref(name: str) -> str:
 
 def _sh(cmd: list[str], **kw) -> subprocess.CompletedProcess:
     print("[ci-images] $", " ".join(cmd), flush=True)
-    return subprocess.run(cmd, **kw)
+    # policy: run_ok — the caller inspects rc (issue #797, scripts/proc.py is the one seam).
+    return run_ok(cmd, **kw)
 
 
 def published(r: str) -> bool:

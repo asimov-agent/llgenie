@@ -89,7 +89,7 @@ def manifest_resolves(tag: str) -> bool:
     """Does a registry manifest resolve for this tag? Never pulls, never builds."""
     if not ei.REGISTRY:
         return False
-    return subprocess.run([ei.RUNTIME, "manifest", "inspect", f"{ei.REGISTRY}/{tag}"],
+    return subprocess.run([ei.RUNTIME, "manifest", "inspect", f"{ei.REGISTRY}/{tag}"],  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                           capture_output=True).returncode == 0
 
 

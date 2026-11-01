@@ -47,7 +47,7 @@ def _download_5b_model(hf_bin: str) -> None:
         return
     print(f"[ci-health] downloading {MODEL_FILE.parent.name}/{MODEL_FILE.name} (via {hf_bin})")
     dl = Path(__file__).parent / "hf_download.py"
-    r = subprocess.run([sys.executable, str(dl),
+    r = subprocess.run([sys.executable, str(dl),  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                         "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
                         MODEL_FILE.name, str(HEALTH_TIER), "qwen05b-cih"],
                        capture_output=True, text=True)
@@ -124,14 +124,14 @@ def main() -> int:
         raise SystemExit(f"ERROR: server binary not found/not executable: {srv}")
     # Verify --version + --help (exit 0) before launching (the binary sanity
     # check that the issue requires for every variant).
-    vproc = subprocess.run([str(srv), "--version"], capture_output=True, text=True)
+    vproc = subprocess.run([str(srv), "--version"], capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     if vproc.returncode != 0:
         print(f"[ci-health] --version failed: {vproc.stderr}", file=sys.stderr)
         raise SystemExit("ERROR: binary --version exited non-zero")
     version_text = ((vproc.stdout or "") + "\n" + (vproc.stderr or "")).strip()
     version_line = next((ln for ln in version_text.splitlines() if ln.strip()), "")
     print("[ci-health] --version:", version_line)
-    hproc = subprocess.run([str(srv), "--help"], capture_output=True, text=True)
+    hproc = subprocess.run([str(srv), "--help"], capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     if hproc.returncode != 0:
         raise SystemExit("ERROR: binary --help exited non-zero")
     print("[ci-health] --help OK")
@@ -148,7 +148,7 @@ def main() -> int:
 
     port = _pick_port()
     url = f"http://127.0.0.1:{port}"
-    proc = subprocess.Popen(
+    proc = subprocess.Popen(  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
         server_command(str(srv), str(model), port),
         cwd="/tmp", stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     try:

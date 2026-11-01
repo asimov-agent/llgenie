@@ -34,7 +34,7 @@ BASE_REPO = "asimov-agent/llgenie"
 
 
 def _git(*args: str, cwd: str | None = None) -> str:
-    r = subprocess.run(["git", *args], capture_output=True, text=True, cwd=cwd)
+    r = subprocess.run(["git", *args], capture_output=True, text=True, cwd=cwd)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     return r.stdout if r.returncode == 0 else ""
 
 

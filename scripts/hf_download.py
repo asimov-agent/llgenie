@@ -176,7 +176,7 @@ def main(argv=None):
         if xet_off:
             env["HF_HUB_DISABLE_XET"] = "1"
             env.pop("HF_XET_HIGH_PERFORMANCE", None)
-        proc = subprocess.Popen(cmd, env=env,
+        proc = subprocess.Popen(cmd, env=env,  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         last_bytes = -1
         last_log = 0.0

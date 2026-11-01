@@ -405,7 +405,7 @@ def source_time(agents: Path, name: str, path: Path) -> float:
     """
     rel = path.relative_to(agents.parent).as_posix()
     try:
-        out = subprocess.run(["git", "-C", str(agents.parent), "log", "-1", "--format=%ct", "--", rel],
+        out = subprocess.run(["git", "-C", str(agents.parent), "log", "-1", "--format=%ct", "--", rel],  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                              capture_output=True, text=True, timeout=20, check=False)
         if out.returncode == 0 and out.stdout.strip():
             return float(out.stdout.strip())

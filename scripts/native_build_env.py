@@ -28,12 +28,12 @@ def detected(param: str) -> str:
     if os.environ.get(env, "").strip():
         return os.environ[env].strip()
     if param == "cuda_arch" and shutil.which("nvidia-smi"):
-        out = subprocess.run(["nvidia-smi", "--query-gpu=compute_cap", "--format=csv,noheader"],
+        out = subprocess.run(["nvidia-smi", "--query-gpu=compute_cap", "--format=csv,noheader"],  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                              capture_output=True, text=True).stdout
         caps = sorted({c.strip().replace(".", "") for c in out.splitlines() if re.match(r"^\d+\.\d+$", c.strip())})
         return ";".join(caps)
     if param == "gpu_targets" and shutil.which("rocminfo"):
-        out = subprocess.run(["rocminfo"], capture_output=True, text=True).stdout
+        out = subprocess.run(["rocminfo"], capture_output=True, text=True).stdout  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
         return ";".join(sorted(set(re.findall(r"Name:\s+(gfx[0-9a-f]+)\b", out))))
     return ""
 

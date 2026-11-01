@@ -91,7 +91,7 @@ def _gh(exe_override: str | None = None) -> str:
 
 
 def run_gh(args: list[str], gh: str) -> str:
-    r = subprocess.run([gh, *args], capture_output=True, text=True)
+    r = subprocess.run([gh, *args], capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     if r.returncode != 0:
         raise SystemExit(f"[all-pipelines] gh {' '.join(args)} failed ({r.returncode}): {r.stderr.strip()}")
     return r.stdout
@@ -410,7 +410,7 @@ def sweep(repo: str, ref: str, gh: str, timeout: int, root: Path = REPO_ROOT) ->
     concluded: dict[str, dict] = {}
     sha = ""
     try:  # the sha of the tree being swept (acceptance #4)
-        sha = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True,
+        sha = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True,  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                              cwd=root).stdout.strip()
     except Exception:
         sha = "unknown"

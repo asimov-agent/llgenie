@@ -1070,6 +1070,11 @@ check-pr-closing: ## CI: fail when an agent/* PR names its issue but holds no AD
 pr-closing-report: ## Show the closing references a PR body carries, and whether the agent/* scope applies
 	python3 scripts/check_pr_closing.py report $(if $(PR_BODY),--body-file "$(PR_BODY)",) $(if $(PR_HEAD),--head "$(PR_HEAD)",)
 .PHONY: check-pr-closing pr-closing-report
+check-proc-gate: ## CI: fail when a subprocess.run/check_output/Popen appears in scripts/ outside scripts/proc.py or a `# proc-allow:` line — the ONE subprocess policy seam (issue #797)
+	python3 scripts/check_proc_gate.py check
+proc-gate-report: ## Show the census of every direct subprocess.* call site in scripts/, allow-listed or bare — the tracked remainder that must shrink onto scripts/proc.py (issue #797)
+	python3 scripts/check_proc_gate.py report
+.PHONY: check-proc-gate proc-gate-report
 check-report-hygiene: ## CI: fail when a reporting leg blames ownership (another lane, someone else, this lane) without a @<sha> evidence anchor — evidence-or-silence (issue #1292)
 	python3 scripts/check_report_hygiene.py check
 report-hygiene-report: ## Show every reporting leg the ownership-guard reads and its verdict
@@ -1732,6 +1737,8 @@ ci-unit: bash-check ## CI job unit: hermetic unit tests + registry / skill / Str
 	$(MAKE) check-dispatch-forms
 	$(MAKE) check-pr-hygiene
 	$(MAKE) check-report-hygiene
+	$(MAKE) check-proc-gate
+	$(MAKE) proc-gate-report
 	$(MAKE) check-issue-bodies
 	$(MAKE) check-pr-authors
 	$(MAKE) check-pr-closing

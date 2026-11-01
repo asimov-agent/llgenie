@@ -44,6 +44,7 @@ sys.path.insert(0, str(REPO / "scripts"))
 import git_identity  # noqa: E402  the ONE source of the commit identity (issue #840)
 import security_issues as si  # noqa: E402
 import security_scan as ss  # noqa: E402
+from proc import run_ok  # noqa: E402  the subprocess policy seam (issue #797)
 
 REPORTS = Path(os.environ.get("SECURITY_REPORTS") or (REPO / "security-reports"))
 FLOORS = Path("tools/security-floors.in")
@@ -169,7 +170,7 @@ def unsatisfied(fl: dict[str, Floor], pinned: dict[str, str]) -> list[tuple[str,
 def _run_make(args: list[str], root: Path = REPO) -> subprocess.CompletedProcess:
     cmd = ["make", *args]
     print(f"[security-bumps] $ {' '.join(cmd)}")
-    return subprocess.run(cmd, cwd=root, capture_output=True, text=True)
+    return subprocess.run(cmd, cwd=root, capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
 
 
 def runtime() -> str:
@@ -200,7 +201,8 @@ def gates(root: Path = REPO) -> tuple[bool, str]:
 def _gh(args: list[str], repo: str) -> subprocess.CompletedProcess:
     cmd = ["gh", *args, "--repo", repo]
     print(f"[security-bumps] $ {' '.join(cmd)}")
-    return subprocess.run(cmd, capture_output=True, text=True)
+    # policy: run_ok — the caller inspects rc (issue #797, scripts/proc.py is the one seam).
+    return run_ok(cmd)
 
 
 def matched_issues(fl: dict[str, Floor], repo: str) -> dict[int, Floor]:
@@ -317,7 +319,7 @@ def apply(repo: str, root: Path = REPO, dry: bool = False, reports: Path | None 
         ["git", "push", "-u", "--force-with-lease", "origin", branch],
     ]
     for step in steps:
-        res = subprocess.run(step, cwd=root, capture_output=True, text=True)
+        res = subprocess.run(step, cwd=root, capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
         if res.returncode != 0:
             print(f"[security-bumps] `{' '.join(step)}` failed:\n{res.stderr.strip()[-2000:]}")
             return 1

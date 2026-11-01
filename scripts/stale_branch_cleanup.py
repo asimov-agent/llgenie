@@ -34,7 +34,7 @@ _GH = "gh"
 
 def _gh(args: list[str]):
     """Run `gh` and return (returncode, stdout). Never raises."""
-    r = subprocess.run([_GH, *args], capture_output=True, text=True)
+    r = subprocess.run([_GH, *args], capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     return r.returncode, (r.stdout or "")
 
 

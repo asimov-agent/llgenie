@@ -41,6 +41,7 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
 import git_identity  # noqa: E402  the ONE source of the commit identity (issue #840)
 import security_issues as si  # noqa: E402
+from proc import run_ok  # noqa: E402  the subprocess policy seam (issue #797)
 
 SELECT_LABELS = ("security", "vulnerability", "auto-fixable")
 #: The tie between this bot and the issuer (#716): the marker it files with is what the bot parses.
@@ -69,7 +70,8 @@ class Target:
 def _gh(args: list[str], repo: str) -> subprocess.CompletedProcess:
     cmd = ["gh", *args, "--repo", repo]
     print(f"[security-bot] $ {' '.join(cmd)}")
-    return subprocess.run(cmd, capture_output=True, text=True)
+    # policy: run_ok — the caller inspects rc (issue #797, scripts/proc.py is the one seam).
+    return run_ok(cmd)
 
 
 def select(repo: str) -> dict | None:
@@ -138,7 +140,7 @@ def write_plan(target: Target, plan: tuple[Path, str, str] | None, root: Path = 
 
 def _run_make(target: str, root: Path = REPO) -> subprocess.CompletedProcess:
     print(f"[security-bot] $ make {target}")
-    return subprocess.run(["make", *target.split()], cwd=root, capture_output=True, text=True)
+    return subprocess.run(["make", *target.split()], cwd=root, capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
 
 
 def gates(root: Path = REPO) -> tuple[bool, str]:
@@ -233,7 +235,7 @@ def apply(repo: str, root: Path = REPO, dry: bool = False, run_url: str = "") ->
         ["git", "push", "-u", "origin", branch],
     ]
     for step in steps:
-        res = subprocess.run(step, cwd=root, capture_output=True, text=True)
+        res = subprocess.run(step, cwd=root, capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
         if res.returncode != 0:
             raise SystemExit(f"[security-bot] `{' '.join(step)}` failed: {res.stderr.strip()}")
     body_file = root / ".git" / "security-bot-pr-body.md"

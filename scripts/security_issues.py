@@ -37,6 +37,7 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
 import issue_body  # noqa: E402
 import security_scan as ss  # noqa: E402
+from proc import run_ok  # noqa: E402  the subprocess policy seam (issue #797)
 
 REPORTS = Path(os.environ.get("SECURITY_REPORTS") or (REPO / "security-reports"))
 MARKER = "<!-- security-finding: {source}:{advisory}:{package} -->"
@@ -196,14 +197,16 @@ def body_for(finding: Finding, run_url: str = "") -> str:
 def _gh(args: list[str], repo: str) -> subprocess.CompletedProcess:
     cmd = ["gh", *args, "--repo", repo]
     print(f"[security-issues] $ {' '.join(cmd)}")
-    return subprocess.run(cmd, capture_output=True, text=True)
+    # policy: run_ok — the caller inspects rc (issue #797, scripts/proc.py is the one seam).
+    return run_ok(cmd)
 
 
 def _gh_api(args: list[str]) -> subprocess.CompletedProcess:
     """`gh api` takes no `--repo` — the full path is the repository, so this runs bare."""
     cmd = ["gh", "api", *args]
     print(f"[security-issues] $ {' '.join(cmd)}")
-    return subprocess.run(cmd, capture_output=True, text=True)
+    # policy: run_ok — the caller inspects rc (issue #797, scripts/proc.py is the one seam).
+    return run_ok(cmd)
 
 
 def labels_of(repo: str, number: int) -> set[str]:

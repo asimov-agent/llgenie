@@ -42,6 +42,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import engine_skills as es  # noqa: E402
 import hf_auth  # noqa: E402
+from proc import run_ok  # noqa: E402  the subprocess policy seam (issue #797)
 
 # Generated with the params (make generate-engine-params): engine -> variant ->
 # {binary, flags}. The binary-file check reads it instead of a skill, so the
@@ -54,7 +55,7 @@ def runtime_answers(rt: str) -> bool:
     if not shutil.which(rt):
         return False
     try:
-        return subprocess.run([rt, "info"], capture_output=True, timeout=20).returncode == 0
+        return subprocess.run([rt, "info"], capture_output=True, timeout=20).returncode == 0  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     except (OSError, subprocess.TimeoutExpired):
         return False
 
@@ -120,17 +121,18 @@ REGISTRY = os.environ.get("LLGENIE_REGISTRY", DEFAULT_REGISTRY).rstrip("/").lowe
 
 def _sh(cmd: list[str], **kw) -> subprocess.CompletedProcess:
     print("[engine-image] $", " ".join(cmd), flush=True)
-    return subprocess.run(cmd, **kw)
+    # policy: run_ok — the caller inspects rc (issue #797, scripts/proc.py is the one seam).
+    return run_ok(cmd, **kw)
 
 
 def image_exists(tag: str) -> bool:
-    return subprocess.run([RUNTIME, "image", "inspect", tag], capture_output=True).returncode == 0
+    return subprocess.run([RUNTIME, "image", "inspect", tag], capture_output=True).returncode == 0  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
 
 
 def image_platform(tag: str) -> str:
     """os/arch[/variant] the local image was built for (e.g. linux/amd64), or ""."""
     try:
-        r = subprocess.run([RUNTIME, "image", "inspect", "-f",
+        r = subprocess.run([RUNTIME, "image", "inspect", "-f",  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                             "{{.Os}}/{{.Architecture}}{{if .Variant}}/{{.Variant}}{{end}}", tag],
                            capture_output=True, text=True, timeout=60)
     except (OSError, subprocess.TimeoutExpired):
@@ -274,7 +276,7 @@ def ensure_nvidia_modeset(run_args: list[str]) -> None:
         return
     modprobe = shutil.which("nvidia-modprobe")
     if modprobe:
-        subprocess.run([modprobe, "-c", "0", "-m", "-u"], check=False)
+        subprocess.run([modprobe, "-c", "0", "-m", "-u"], check=False)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     if not os.path.exists("/dev/nvidia-modeset"):
         raise SystemExit(
             "[llgenie] /dev/nvidia-modeset is missing, so NVIDIA CDI cannot inject the GPU.\n"
@@ -287,7 +289,7 @@ def run(spec: dict, model: str, port: int, name: str, models_dir: Path, wait: fl
         print(f"[engine-image] {tag} not built; run: make engine-image ENGINE={spec['id']} BACKEND={spec['backend']}")
         return 1
     ensure_nvidia_modeset(spec["run_args"])
-    subprocess.run([RUNTIME, "rm", "-f", name], capture_output=True)
+    subprocess.run([RUNTIME, "rm", "-f", name], capture_output=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     tok = hf_auth.hf_token()
     if tok:
         os.environ["HF_TOKEN"] = tok  # docker -e HF_TOKEN reads it; the value stays off argv
@@ -302,7 +304,7 @@ def run(spec: dict, model: str, port: int, name: str, models_dir: Path, wait: fl
     base = f"http://127.0.0.1:{port}/v1"
     end = time.time() + wait
     while time.time() < end:
-        state = subprocess.run([RUNTIME, "inspect", "-f", "{{.State.Running}}", name],
+        state = subprocess.run([RUNTIME, "inspect", "-f", "{{.State.Running}}", name],  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                                capture_output=True, text=True).stdout.strip()
         if state != "true":
             _sh([RUNTIME, "logs", "--tail", "60", name])
@@ -572,7 +574,7 @@ def binary_file_works(spec: dict) -> int:
     flags = [*documented, *[f for f in TYPED_FLAGS if f not in documented]]
     if not documented:
         flags = [*FALLBACK_FLAGS, *[f for f in TYPED_FLAGS if f not in FALLBACK_FLAGS]]
-    r = subprocess.run(
+    r = subprocess.run(  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
         [RUNTIME, "run", "--rm", "--entrypoint", "bash", tag, "-c", BINARY_PROBE,
          "llgenie-binary", binary, *flags],
         capture_output=True, text=True)
@@ -651,7 +653,7 @@ def test_image(spec: dict) -> int:
     if binary_file_works(spec) != 0:
         rc = 1
     for cmd in (["info"], ["detect"]):
-        r = subprocess.run([RUNTIME, "run", "--rm", tag, *cmd], capture_output=True, text=True)
+        r = subprocess.run([RUNTIME, "run", "--rm", tag, *cmd], capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
         print(f"[engine-image] {spec['id']}/{spec['variant']} entrypoint {cmd[0]}: "
               f"{(r.stdout or r.stderr).strip().splitlines()[-1:] or ['']}")
         if cmd == ["info"] and ("port=11434" not in r.stdout or "model=llm-local" not in r.stdout):
@@ -917,7 +919,7 @@ SMOKE_SKIP = {"tensorrt-llm", "sglang", "tensorfold", "freetoken"}  # cuda-only 
 
 
 def _bytes_at(ref: str, rel: str, root) -> bytes | None:
-    p = subprocess.run(["git", "show", f"{ref}:{rel}"], capture_output=True, cwd=root)
+    p = subprocess.run(["git", "show", f"{ref}:{rel}"], capture_output=True, cwd=root)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     return None if p.returncode != 0 else p.stdout
 
 
@@ -989,16 +991,16 @@ def matrix(ci: bool = False, changed: str = "", params_dir=None,
 
 def ci_status(run: str = "", watch: bool = False, interval: int = 60) -> int:
     """Summarise the CI engine-image jobs (gh CLI) for the current branch."""
-    branch = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True,
+    branch = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True,  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                             text=True, cwd=es.REPO_ROOT).stdout.strip()
     while True:
-        rid = run or subprocess.run(
+        rid = run or subprocess.run(  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
             ["gh", "run", "list", "--branch", branch, "--workflow", "CI", "--limit", "1",
              "--json", "databaseId", "-q", ".[0].databaseId"], capture_output=True, text=True).stdout.strip()
         if not rid:
             print(f"[ci-engine-images] no CI run for branch {branch}")
             return 1
-        data = json.loads(subprocess.run(["gh", "run", "view", rid, "--json", "jobs,status,conclusion,url"],
+        data = json.loads(subprocess.run(["gh", "run", "view", rid, "--json", "jobs,status,conclusion,url"],  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                                          capture_output=True, text=True, check=True).stdout)
         jobs = [j for j in data["jobs"] if j["name"].startswith("engine-image-")]
         counts: dict = {}
@@ -1072,7 +1074,7 @@ def main(argv=None) -> int:
     if a.cmd == "test-image":
         return test_image(spec)
     if a.cmd == "stop":
-        return subprocess.run([RUNTIME, "rm", "-f", container_name(spec)]).returncode
+        return subprocess.run([RUNTIME, "rm", "-f", container_name(spec)]).returncode  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     name = a.name or container_name(spec)
     return run(spec, a.model, a.port, name, Path(a.models_dir).expanduser(), a.wait)
 

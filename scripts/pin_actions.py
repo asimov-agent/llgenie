@@ -145,7 +145,7 @@ def _gh_api(path: str) -> dict:
                 return json.load(resp)
         except urllib.error.HTTPError as exc:  # loud, naming the ref
             raise SystemExit(f"[pin-actions] cannot resolve {path}: HTTP {exc.code}") from exc
-    res = subprocess.run(cmd, capture_output=True, text=True)
+    res = subprocess.run(cmd, capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     if res.returncode != 0:
         raise SystemExit(f"[pin-actions] cannot resolve {path}: {res.stderr.strip()}")
     return json.loads(res.stdout)

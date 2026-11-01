@@ -42,7 +42,7 @@ TRANSIENT = re.compile(r"50[234]|gateway timeout|timed out|timeout", re.I)
 
 def _gh(gh: str, args: list[str]) -> str:
     """Run `gh`, returning stdout; a non-zero exit is a loud failure, never a skip."""
-    done = subprocess.run([gh, *args], capture_output=True, text=True)
+    done = subprocess.run([gh, *args], capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     if done.returncode != 0:
         raise RuntimeError((done.stderr or done.stdout or "").strip())
     return done.stdout

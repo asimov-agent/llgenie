@@ -35,7 +35,7 @@ BOT_PREFIX = "fix(bot):"
 
 def _gh(args: list[str]) -> str:
     """One `gh` call, its stdout. Raises with the real stderr when gh fails."""
-    r = subprocess.run(["gh", *args], capture_output=True, text=True)
+    r = subprocess.run(["gh", *args], capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     if r.returncode != 0:
         raise RuntimeError(f"gh {' '.join(args)} failed: {r.stderr.strip()}")
     return r.stdout
@@ -223,7 +223,7 @@ def main(argv: list[str] | None = None) -> int:
     if a.dry:
         print("[sweep] --dry: nothing dispatched", flush=True)
         return 0
-    r = subprocess.run(["gh", "workflow", "run", "fix-bot.yml", "--repo", a.repo,
+    r = subprocess.run(["gh", "workflow", "run", "fix-bot.yml", "--repo", a.repo,  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                         "-f", f"pr_number={pr['number']}", "-f", f"branch={pr['headRefName']}",
                         "-f", f"check={a.check}", "-f", f"rounds={a.max_attempts}",
                         "-f", f"report_file={a.report_file}"],

@@ -43,6 +43,10 @@ try:  # imported as scripts.engine_skills (tests) or run as a script
 except ImportError:  # pragma: no cover - script mode
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     import detect_server  # type: ignore
+try:  # the subprocess policy seam (issue #797)
+    from .proc import run_checked as _run_checked  # type: ignore
+except ImportError:  # pragma: no cover - script mode
+    from proc import run_checked as _run_checked  # type: ignore
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SKILLS_DIR = REPO_ROOT / "skills" / "engines"
@@ -228,10 +232,14 @@ def get_skill(skill_id: str, skills: dict | None = None) -> dict:
 # Hardware detection (the parameters a build depends on)
 # ---------------------------------------------------------------------------
 def _run(cmd: list[str], timeout: int = 10) -> str:
-    try:
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout).stdout
-    except (OSError, subprocess.TimeoutExpired):
-        return ""
+    """Run a version/hardware probe command; return its stdout.
+
+    The low-level subprocess call lives in `scripts/proc.py` (the one policy seam, issue #797). The
+    policy is `run_checked` — loud: a probe whose command exits non-zero RAISES naming the command and
+    its stderr, never returning ``''``. ``OSError``/`TimeoutExpired` propagate (a probe that cannot even
+    run is a failure, not "no output").
+    """
+    return _run_checked(cmd, timeout=timeout)
 
 
 def cuda_arch_from_compute_cap(cap: str) -> str:
@@ -512,7 +520,7 @@ def install(skill: dict, backend: str, hw: dict, dry: bool = False,
         print(f"[engine-skills] {skill['id']}/{backend}$ {step}", flush=True)
         if dry:
             continue
-        rc = subprocess.run(["bash", "-euo", "pipefail", "-c", prelude + step]).returncode
+        rc = subprocess.run(["bash", "-euo", "pipefail", "-c", prelude + step]).returncode  # proc-allow: run_ok-shaped inline policy, caller inspects rc to pick the next step
         if rc:
             print(f"[engine-skills] FAIL {skill['id']}/{backend}: step exited {rc}", file=sys.stderr)
             return rc
@@ -557,7 +565,7 @@ def _detect_run(skill: dict, backend: str, hw: dict, quiet: bool = False) -> tup
         if not quiet:
             print(f"[engine-skills] {skill['id']}: no detect command")
         return 1, ""
-    r = subprocess.run(["bash", "-euo", "pipefail", "-c", env_prelude(p["env"]) + p["detect"]],
+    r = subprocess.run(["bash", "-euo", "pipefail", "-c", env_prelude(p["env"]) + p["detect"]],  # proc-allow: run_ok-shaped inline policy; _detect_run must keep rc+stdout+stderr because a non-zero exit can still name an installed version
                        capture_output=True, text=True)
     line = _version_line((r.stdout or "") + "\n" + (r.stderr or ""))
     installed = r.returncode == 0 or bool(line)

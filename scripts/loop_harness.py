@@ -75,7 +75,7 @@ STAGES = [
 
 def run_stage(name, cmd):
     print(f"\n=== [{name}] {' '.join(cmd)} ===", flush=True)
-    proc = subprocess.run(cmd, cwd=str(REPO))
+    proc = subprocess.run(cmd, cwd=str(REPO))  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     status = "PASS" if proc.returncode == 0 else "FAIL"
     print(f"--- [{name}] {status} (rc={proc.returncode}) ---", flush=True)
     return proc.returncode == 0

@@ -185,8 +185,8 @@ def serve_published(spec: dict, model: str, port: int, timeout: float) -> int:
                           f"(usage={pt}+{ct} over {dur:.2f}s)")
         return 0
     finally:
-        subprocess.run([ei.RUNTIME, "logs", "--tail", "20", name], capture_output=True)
-        subprocess.run([ei.RUNTIME, "rm", "-f", name], capture_output=True)
+        subprocess.run([ei.RUNTIME, "logs", "--tail", "20", name], capture_output=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
+        subprocess.run([ei.RUNTIME, "rm", "-f", name], capture_output=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
 
 
 def engines_to_test(only: str) -> dict:

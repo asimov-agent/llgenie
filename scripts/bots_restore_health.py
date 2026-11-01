@@ -53,7 +53,7 @@ def _gh(exe: str | None) -> str:
 
 
 def run_gh(args: list[str], gh: str) -> str:
-    r = subprocess.run([gh, *args], capture_output=True, text=True)
+    r = subprocess.run([gh, *args], capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     if r.returncode != 0:
         raise SystemExit(f"[bots_restore_health] `gh {' '.join(args)}` failed:\n{r.stderr.strip()}")
     return r.stdout or ""

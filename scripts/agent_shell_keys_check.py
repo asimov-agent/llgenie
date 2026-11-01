@@ -104,7 +104,7 @@ def agent_shell_lengths(names: list[str]) -> dict[str, int]:
     py = hermes_python(root)
     if py is None:
         raise RuntimeError(f"Hermes's own interpreter was not found next to {root}")
-    r = subprocess.run([py, "-c", PROBE, json.dumps(names)], cwd=str(root), env=dict(os.environ),
+    r = subprocess.run([py, "-c", PROBE, json.dumps(names)], cwd=str(root), env=dict(os.environ),  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                        capture_output=True, text=True, timeout=180)
     for line in r.stdout.splitlines():
         if line.startswith("AGENT_SHELL_LENGTHS="):

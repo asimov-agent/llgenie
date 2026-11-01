@@ -51,7 +51,7 @@ TEXT_FILENAMES = {
 def _tracked_text_files() -> list[str]:
     """Return tracked files matching TEXT_EXTS (git ls-files)."""
     try:
-        out = subprocess.run(
+        out = subprocess.run(  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
             ["git", "ls-files"], capture_output=True, text=True,
             cwd=_repo_root(), check=True, timeout=30,
         ).stdout

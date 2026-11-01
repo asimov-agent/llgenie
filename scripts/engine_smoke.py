@@ -79,7 +79,7 @@ def pick_format(skill: dict) -> str:
 def bash(cmd: str, **kw) -> subprocess.CompletedProcess:
     # LLGENIE_BASH is the bash make selected (bash 5). A bare `bash` on the macOS
     # CI runner is /bin/bash 3.2 invoked as a login shell, which drops the venv.
-    return subprocess.run([os.environ.get("LLGENIE_BASH") or "bash", "-euo", "pipefail", "-c", cmd], **kw)
+    return subprocess.run([os.environ.get("LLGENIE_BASH") or "bash", "-euo", "pipefail", "-c", cmd], **kw)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
 
 
 def http(url: str, body: dict | None = None, timeout: float = 5) -> dict:
@@ -129,7 +129,7 @@ def harness_sdk_check(port: int, engine: str = "", arch: str = "cpu", container:
                "--with-requirements", str(root / "tools" / "requirements-dev.txt"),
                "python", "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests/test_engine_runs.py"]
         env = {**os.environ, **env_vars}
-    r = subprocess.run(cmd, cwd=root, env=env, capture_output=True, text=True)
+    r = subprocess.run(cmd, cwd=root, env=env, capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     print(r.stdout, end="")
     if r.returncode:
         print(r.stderr[-2000:])
@@ -166,8 +166,8 @@ def image_smoke(skill_id: str, backend: str | None, port: int, timeout: float,
             print(f"[smoke] FAIL image {spec['tag']}: OpenAI-SDK conformance exited {rc}")
         return rc
     finally:
-        subprocess.run([ei.RUNTIME, "logs", "--tail", "20", name])
-        subprocess.run([ei.RUNTIME, "rm", "-f", name], capture_output=True)
+        subprocess.run([ei.RUNTIME, "logs", "--tail", "20", name])  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
+        subprocess.run([ei.RUNTIME, "rm", "-f", name], capture_output=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
 
 
 def smoke(skill_id: str, backend: str | None, port: int, timeout: float) -> int:
@@ -193,7 +193,7 @@ def smoke(skill_id: str, backend: str | None, port: int, timeout: float) -> int:
     launch = prelude + render(p["launch"])
     print(f"[smoke] launch: {launch}", flush=True)
     log = open(f"/tmp/llgenie-smoke-{skill_id}.log", "w")
-    proc = subprocess.Popen([os.environ.get("LLGENIE_BASH") or "bash", "-c", launch], stdout=log, stderr=subprocess.STDOUT,
+    proc = subprocess.Popen([os.environ.get("LLGENIE_BASH") or "bash", "-c", launch], stdout=log, stderr=subprocess.STDOUT,  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                             start_new_session=True)
     try:
         if not wait_ready(port, p["health"], proc, timeout):

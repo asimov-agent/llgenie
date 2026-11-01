@@ -80,7 +80,7 @@ UNKNOWN_DELAY_S = 3.0
 
 
 def _gh(gh: str, args: list[str]) -> str:
-    r = subprocess.run([gh, *args], capture_output=True, text=True)
+    r = subprocess.run([gh, *args], capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     if r.returncode != 0:
         raise SystemExit(f"[rebase-bot] {gh} {' '.join(args)} failed ({r.returncode}): {r.stderr.strip()}")
     return r.stdout
@@ -196,7 +196,7 @@ def _checks(gh: str, repo: str, num: int) -> tuple[bool, bool]:
     one PR that needed the rebase. Every OTHER non-zero exit is still a hard failure: an unreadable
     answer must never be read as "nothing in flight, nothing red".
     """
-    r = subprocess.run([gh, "pr", "checks", str(num), "--repo", repo, "--json", "state"],
+    r = subprocess.run([gh, "pr", "checks", str(num), "--repo", repo, "--json", "state"],  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                        capture_output=True, text=True)
     if r.returncode != 0:
         if NO_CHECKS in (r.stderr or "").lower():

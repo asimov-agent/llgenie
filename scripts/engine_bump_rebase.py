@@ -122,7 +122,7 @@ def pr_is_behind(pr) -> bool:
 
 
 def run_git(repo: str, *args) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", "-C", repo, *args], capture_output=True, text=True)
+    return subprocess.run(["git", "-C", repo, *args], capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
 
 
 def log(msg: str) -> None:

@@ -87,7 +87,7 @@ class DeliveryError(RuntimeError):
 
 def gh(*args: str, gh_cmd: str = "gh") -> str:
     """One `gh` call, its stdout. A failure raises — a read that failed is not an empty answer."""
-    proc = subprocess.run([gh_cmd, *args], capture_output=True, text=True)
+    proc = subprocess.run([gh_cmd, *args], capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     if proc.returncode != 0:
         raise TickError(f"gh {' '.join(args)} rc={proc.returncode}: {proc.stderr.strip()[:200]}")
     return proc.stdout

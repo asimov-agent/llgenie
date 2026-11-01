@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 
 import scripts.detect_server as ds
+import scripts.proc as proc
 
 
 GB = 1024 ** 3
@@ -31,6 +32,25 @@ def _clean_env(monkeypatch):
     monkeypatch.setenv("LLAMA_SERVER_TREE", "")
     yield
 
+
+# ---------------------------------------------------------------------------
+# _run: the probe seam is loud (issue #797) — a failed probe never returns ''
+# ---------------------------------------------------------------------------
+def test_probe_command_exiting_1_is_loud_never_empty():
+    """A probe whose command exits non-zero is reported as a failure, never ''.
+
+    The old `_run` returned '' on a failed command, so detection read 'no version'. The seam's
+    `run_checked` policy raises naming the command and its stderr — the loud-outcome test the
+    acceptance requires (issue #797).
+    """
+    # Given a probe path that runs a command which exits 1 on the binary path
+    cmd = ["python3", "-c", "import sys; sys.exit(1)"]
+    # When the probe runs, it raises a loud ProcError (never returns the empty string)
+    with pytest.raises(proc.ProcError):
+        ds._run(cmd)
+    # And the seam's text policy agrees nothing silent is produced for an exiting-1 command
+    with pytest.raises(proc.ProcError):
+        proc.run_checked(cmd)
 
 def _patch_env(monkeypatch, backend: str, ram_gb: float, tree: str):
     """Set the three detection seams (backend, RAM in bytes, tree)."""

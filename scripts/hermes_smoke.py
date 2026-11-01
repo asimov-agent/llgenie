@@ -169,7 +169,7 @@ def run(hermes: str, alias: str, reasoning: str, db: Path, timeout: float,
 
         argv = [hermes, "-z", prompt, "-m", alias, "--reasoning", reasoning, "--yolo"]
         print(f"[hermes-smoke] running the alias the bots use: {alias} (reasoning {reasoning})")
-        proc = subprocess.run(argv, capture_output=True, text=True)
+        proc = subprocess.run(argv, capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
         if proc.stdout.strip():
             print(proc.stdout.rstrip())
         if proc.returncode != 0:

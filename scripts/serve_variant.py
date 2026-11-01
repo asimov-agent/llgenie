@@ -197,7 +197,7 @@ def main(argv: list[str] | None = None) -> int:
     log = Path(f"/tmp/llgenie-serve-{args.tree}-{args.backend}.log")
     cmd = serve_argv(str(binary), str(model), port)
     log_fh = log.open("w")
-    proc = subprocess.Popen(
+    proc = subprocess.Popen(  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
         cmd, stdout=log_fh, stderr=subprocess.STDOUT, start_new_session=True,
     )
     state.parent.mkdir(parents=True, exist_ok=True)

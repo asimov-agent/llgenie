@@ -78,7 +78,7 @@ EXIT_ERROR = 2
 def _gh(*args: str) -> str:
     """Run `gh` (the binary `CI_VERDICT_GH` names, so a test can drive a stub — as `ci_requeue` does)."""
     exe = os.environ.get("CI_VERDICT_GH") or "gh"
-    result = subprocess.run([exe, *args], capture_output=True, text=True)
+    result = subprocess.run([exe, *args], capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     if result.returncode != 0:
         raise RuntimeError(f"{exe} {' '.join(args)} failed ({result.returncode}): {result.stderr.strip()}")
     return result.stdout

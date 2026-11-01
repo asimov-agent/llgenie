@@ -39,7 +39,7 @@ LABEL = "agent:implement"
 
 def _git_show(rev: str, path: str) -> bytes | None:
     """The file at `rev`, or None when it does not exist there."""
-    out = subprocess.run(["git", "show", f"{rev}:{path}"], capture_output=True)
+    out = subprocess.run(["git", "show", f"{rev}:{path}"], capture_output=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     return out.stdout if out.returncode == 0 else None
 
 
@@ -254,7 +254,7 @@ def _title(utc: str) -> str:
 
 def run_gh(args: list[str]) -> str:
     """`gh` is the external system; tests replace this function."""
-    out = subprocess.run(["gh", *args], capture_output=True, text=True)
+    out = subprocess.run(["gh", *args], capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     if out.returncode != 0:
         raise RuntimeError(f"gh {' '.join(args)} failed: {out.stderr.strip()}")
     return out.stdout

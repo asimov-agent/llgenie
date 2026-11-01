@@ -74,7 +74,7 @@ BODY_FLAGS = ("--body-file", "--body", "-b")
 MSG_FLAGS = ("--message", "-m", "-F", "--file")
 #: Shell keywords and Python call openings a real invocation may sit behind.
 INVOKE_PREFIXES = ("if ", "if ! ", "then ", "do ", "sudo ", "sudo -E ", "! ", "exec ",
-                   "subprocess.run(", "subprocess.check_call(", "subprocess.check_output(", "run(")
+                   "subprocess.run(", "subprocess.check_call(", "subprocess.check_output(", "run(")  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
 #: A shell separator an invocation may follow.
 INVOKE_SEPARATORS = ("; ", "&& ", "|| ", "| ")
 
@@ -420,12 +420,12 @@ def agents_line_findings(root: Path, head: str, base: str, body: str) -> list[di
 
 
 def _git(root: Path, *args: str) -> str | None:
-    r = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, check=False)
+    r = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, check=False)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     return r.stdout.strip() if r.returncode == 0 else None
 
 
 def _is_ancestor(root: Path, sha: str, ref: str) -> bool:
-    r = subprocess.run(["git", "-C", str(root), "merge-base", "--is-ancestor", sha, ref],
+    r = subprocess.run(["git", "-C", str(root), "merge-base", "--is-ancestor", sha, ref],  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                        capture_output=True, text=True, check=False)
     return r.returncode == 0
 
