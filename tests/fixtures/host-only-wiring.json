@@ -33,12 +33,18 @@
    "issue": 1027
   },
   "tests/test_install_trend.py": {
-   "reason": "Host-only install-trend consumer test: `make test-install-trend` installs a trending top-tier model on a real host (network + disk); no CI job reaches it. Engine install/serve lives in the engine-build producer (#1027); this stays a human/host check.",
-   "target": "test-install-trend",
-   "decided": "2026-10-29",
-   "issue": 1027
+    "reason": "Host-only install-trend consumer test: `make test-install-trend` installs a trending top-tier model on a real host (network + disk); no CI job reaches it. Engine install/serve lives in the engine-build producer (#1027); this stays a human/host check.",
+    "target": "test-install-trend",
+    "decided": "2026-10-29",
+    "issue": 1027
+  },
+  "scripts/bind_proof.py": {
+    "reason": "Producer-side proof-binding gate (issue #1293): a lane runs `make bind-proof PR=<n> RUN=<id>` BEFORE handing a run id as current-head evidence, so a proof that went green at an older head can never be miscounted. It binds the RUN's head to the PR's CURRENT head at claim time \u2014 an act only the claiming lane performs \u2014 and is deliberately NOT a searchable CI gate over all runs; the engine-build workflow records the run's head_sha instead, which CI does consume.",
+    "target": "bind-proof",
+    "decided": "2026-11-01",
+    "issue": 1293
   }
- },
+},
  "targets": {
   "agent-image-pull": {
    "reason": "Convenience wrapper for a human: pull the published agent image and fail loudly when it is not there. No CI job calls it \u2014 publish-agent-image.yml PUSHES and reaches GHCR through scripts/ci_images.py directly \u2014 and its help line no longer claims otherwise. Kept because 'pull back what was published' is exactly what a human needs after a failed publish.",

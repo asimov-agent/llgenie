@@ -238,3 +238,36 @@ def test_the_summary_names_the_hold_that_has_no_remedy(tmp_path, monkeypatch):
     text = summary.read_text()
     assert "**1** without a resolving issue" in text, text
     assert "#904" in text, text
+
+
+def test_a_superseded_proving_run_is_its_own_finding_without_api(tmp_path):
+    """A held PR red because its PROOF RUN proved an OLDER head than the PR's current one must read
+    `superseded-proof` (fix = re-push/re-run), not the #948-abandonment shape — the #1250 binding gap.
+
+    The PR carries a literal `runs` map ({run id: head_sha}) so this fixture test exercises the finding
+    offline, exactly the shape the live path resolves from the Actions API.
+    """
+    prs = fixture(tmp_path, [{
+        "number": 1250, "title": "blocked on a stale proof",
+        "body": "proof on run 40199122842", "comments": [],
+        "headRefOid": "def00420", "runs": {"40199122842": "abc1d3ac"},
+    }])
+    out = run("check", "--fixture", str(prs))
+    assert out.returncode == 1, out.stdout + out.stderr
+    assert "superseded-proof" in out.stdout, out.stdout
+    assert "run 40199122842" in out.stdout, out.stdout
+    assert "no resolving issue" not in out.stdout, out.stdout
+
+
+def test_a_held_pr_whose_proof_binds_to_the_current_head_is_not_superseded(tmp_path):
+    """The run's head EQUALS the PR head: the proof binds, and no superseded-proof finding is produced."""
+    prs = fixture(tmp_path, [{
+        "number": 1251, "title": "proof at current head",
+        "body": "run 40199122842", "comments": [],
+        "headRefOid": "abc1d3ac", "runs": {"40199122842": "abc1d3ac"},
+    }])
+    out = run("report", "--fixture", str(prs))
+    assert out.returncode == 0, out.stdout + out.stderr
+    assert "superseded-proof" not in out.stdout, out.stdout
+    # it still has no remedy, so it is the ordinary gate-red shape (a real board reader must still see it)
+    assert "#1251" in out.stdout, out.stdout

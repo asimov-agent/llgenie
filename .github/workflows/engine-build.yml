@@ -172,6 +172,11 @@ jobs:
       - name: "verify: make test-engine-stage ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} TEST=${{ matrix.test }} (serve: the cpu image answers on the OpenAI API; detect: the binary reports its version and answers the flags a user types)"
         if: ${{ matrix.engine != 'none' }}
         run: make test-engine-stage ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} TEST=${{ matrix.test }}
+      - name: "bind-proof: record the head_sha this build-and-verify run proved (issue #1293) — the verdict a reader quotes is self-binding only when the run's head still equals the PR's current head"
+        if: ${{ matrix.engine != 'none' }}
+        run: |
+          echo "head_sha=${{ github.sha }}" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "head_sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
       - name: make push-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} (ONLY after the test above passed; re-checks the binary's flags before publishing)
         if: ${{ matrix.engine != 'none' && inputs.push == 'true' }}
         run: make push-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}

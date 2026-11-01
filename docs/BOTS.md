@@ -1642,6 +1642,23 @@ for the *hold*, which is why an "any `#N`" rule would have passed every hold eve
 
 The lane that placed the hold removes it when its fix lands, and says so with the sha or run id that proves it.
 
+### A proof must bind to the head it is cited for (issue #1293)
+
+The strongest evidence a lane hands a reviewer is a build-and-verify run that went green at a named head. But a
+run's `head_sha` is a claim about the tree at the moment it ran — a run that proved `abc1d3ac` is not automatic
+evidence that the same cell is green at a later push, and `mergeStateStatus` reads `BLOCKED` for a superseded
+proof's hold exactly as it reads `BLOCKED` for a gate that genuinely fails at the current head. The two collapse
+into one unreadable red (the `#1250` shape). So a proof is bound, not trusted:
+
+```
+make bind-proof PR=<n> RUN=<run-id>   # exit 1 (superseded proof) unless the run's head_sha == the PR's current head
+```
+
+Run it BEFORE handing a run id to a reviewer as current-head evidence: it names the sha and fails loudly when the
+run predates the PR head (`re-push or re-run`). The engine-build workflow records `head_sha` beside its SUCCESS
+verdict (self-binding evidence), and `make check-holds` labels a held PR whose proof is superseded
+`superseded-proof` (fix = re-push or re-run) instead of reading every red as the `#948` no-remedy shape.
+
 ## The run-failure reactor (issue #286)
 
 A bot that reacts to a **failed CI run** — any run, not just a PR check — and routes it to a remedy.

@@ -36,6 +36,10 @@ from pathlib import Path
 LABEL = "do-not-merge"
 # `#123` anywhere in prose, but not a bare "#" or a markdown heading ("## Problem" has no digits).
 ISSUE_REF = re.compile(r"(?<![\w#])#(\d{1,6})(?!\d)")
+# A held PR's comments often cite the proving run ("run 12345678", "actions/runs/12345678") — a run id whose
+# head_sha predates the PR head is a SUPERSEDED proof, a distinct red from "the gate failed at this head"
+# (issue #1293, the #1250 evidence-binding gap). We match a run id where a reader actually cites one.
+RUN_ID = re.compile(r"(?:actions/runs/|run(?:\s+id)?\s+)(\d{5,})", re.IGNORECASE)
 # The REMEDY has to be a resolve-verb next to an issue number. A PR body mentions a dozen issues in passing
 # ("blocked on #767, see #892"), so "any #N" would pass every hold ever placed - measured on this repo: all three
 # held PRs named issues and none of them named a remedy for the HOLD.
@@ -60,7 +64,7 @@ def held_prs(repo: str) -> list[dict]:
     """
     listed = subprocess.run(
         ["gh", "pr", "list", "--repo", repo, "--state", "open", "--limit", "200",
-         "--json", "number,title,body,labels"],
+         "--json", "number,title,body,labels,headRefOid"],
         capture_output=True, text=True)
     if listed.returncode != 0:
         raise SystemExit(f"[check-holds] FAIL: cannot list PRs: {listed.stderr.strip()}")
@@ -121,14 +125,78 @@ def issue_numbers(pr: dict) -> list[int]:
     return found
 
 
-def findings(prs: list[dict]) -> list[dict]:
-    """A held PR with no named issue is the finding: the tag has no condition under which it comes off."""
+def run_head_shas(pr: dict, repo: str) -> dict[str, str]:
+    """head_sha of every run id the PR cites — the "proving run" map for the superseded-proof check.
+
+    A held PR's comments name the run that proved the hold ("run 12345678"), and whether that run's head still
+    EQUALS the PR's current head is exactly what distinguishes "the proof is superseded, re-push" from "the
+    gate failed at the current head". We resolve each cited run id to its head_sha via the Actions API; a run
+    we cannot read is a FAIL (unmeasured proof), not a silent pass. In `--fixture` mode a PR may carry a literal
+    `runs` map ({id: head_sha}) so the tests seed the same shape offline.
+    """
+    if pr.get("runs"):
+        return {rid: sha for rid, sha in (pr["runs"] or {}).items() if rid and sha}
+    out: dict[str, str] = {}
+    texts = [pr.get("body") or ""] + [comment.get("body") or "" for comment in pr.get("comments") or []]
+    cited: list[str] = []
+    for text in texts:
+        for match in RUN_ID.finditer(text):
+            rid = match.group(1)
+            if rid not in cited:
+                cited.append(rid)
+    for rid in cited:
+        proc = subprocess.run(
+            ["gh", "api", f"repos/{repo}/actions/runs/{rid}", "--jq", ".head_sha"],
+            capture_output=True, text=True)
+        if proc.returncode != 0:
+            raise SystemExit(f"[check-holds] FAIL: cannot read the head of run {rid} marketed for #{pr['number']}: "
+                             f"{proc.stderr.strip() or 'gh returned no error text'}")
+        out[rid] = proc.stdout.strip()
+    return out
+
+
+def superseded(pr: dict, repo: str) -> str | None:
+    """The first superseded proving run, or None.
+
+    A held PR red because its PROOF RUN went green at an older head reads identically to a held PR red because
+    the gate genuinely fails at the current head — `mergeStateStatus` gives `BLOCKED` for both (issue #948). This
+    labels the first distinct so a reader (and a hold-queue) can stop guessing: a known older head means
+    "superseded, fix = re-push or re-run", not "the change is wrong".
+    """
+    current = pr.get("headRefOid") or ""
+    for rid, sha in sorted(run_head_shas(pr, repo).items()):
+        if current and sha and sha != current:
+            return rid
+    return None
+
+
+def findings(prs: list[dict], repo: str) -> list[dict]:
+    """A held PR is a finding when its hold has no exit condition — and the RED'S KIND is distinct.
+
+    A held PR whose PROOF RUN went green at an older head than the PR's current one is not \"abandoned\" (the
+    tag has no remedy) and not \"the change is wrong\" (the gate failed at the current head): it is a
+    SUPERSEDED proof, fix = re-push or re-run (issue #1293). Label it so a hold-queue cannot read every red as
+    the #948-abandonment shape.
+    """
     out = []
     for pr in prs:
+        stale = superseded(pr, repo)
+        if stale:
+            current = pr.get("headRefOid") or "?"
+            out.append({
+                "where": f"#{pr['number']}",
+                "kind": "superseded-proof",
+                "title": pr.get("title") or "",
+                "detail": f"proving run {stale} went green at an older head than the PR's current head "
+                          f"({current}). The proof does not bind to this push — re-run the proof or re-push "
+                          f"the head (issue #1293)",
+            })
+            continue
         if remedy_issues(pr):
             continue
         out.append({
             "where": f"#{pr['number']}",
+            "kind": "gate-red",
             "title": pr.get("title") or "",
             "detail": "carries `do-not-merge` with no resolving issue — a passing mention of an issue is not a "
                       "remedy. Name it as one (`resolves #NNN`, `blocked by #NNN`, `until #NNN`) in a comment, "
@@ -137,14 +205,20 @@ def findings(prs: list[dict]) -> list[dict]:
     return out
 
 
-def report(prs: list[dict], held: list[dict]) -> str:
-    lines = [f"[check-holds] {len(prs)} PR(s) carry `{LABEL}` · {len(held)} without a resolving issue"]
+def report(prs: list[dict], held: list[dict], repo: str) -> str:
+    lines = [f"[check-holds] {len(prs)} PR(s) carry `{LABEL}` · {len(held)} need attention"]
     for pr in prs:
         numbers = remedy_issues(pr)
-        state = ", ".join(f"#{n}" for n in numbers) if numbers else "NO REMEDY"
+        stale = superseded(pr, repo)
+        if stale:
+            state = f"superseded-proof (run {stale})"
+        elif numbers:
+            state = ", ".join(f"#{n}" for n in numbers)
+        else:
+            state = "NO REMEDY"
         lines.append(f"  #{pr['number']}: {state} — {pr.get('title') or ''}"[:160])
     for item in held:
-        lines.append(f"[check-holds] FAIL {item['where']}: {item['detail']}")
+        lines.append(f"[check-holds] FAIL {item['where']} ({item.get('kind', 'gate-red')}): {item['detail']}")
     return "\n".join(lines)
 
 
@@ -179,8 +253,8 @@ def main(argv: list[str] | None = None) -> int:
     else:
         prs = held_prs(args.repo)
 
-    held = findings(prs)
-    print(report(prs, held))
+    held = findings(prs, args.repo)
+    print(report(prs, held, args.repo))
     if args.summary:
         write_summary(args.summary, prs, held)
     if args.mode == "report":

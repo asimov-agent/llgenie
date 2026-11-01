@@ -1045,7 +1045,11 @@ check-holds: ## CI: fail when an open PR carries `do-not-merge` with no resolvin
 holds-report: ## Print every open PR carrying `do-not-merge` and the issue it names as the remedy (issue #948)
 	python3 scripts/check_holds.py report
 
-.PHONY: check-holds holds-report
+bind-proof: ## Bind a proof run's head_sha to the PR head it is cited for — fail unless the run proved the CURRENT head (PR= RUN=, issue #1293)
+	@test -n "$(PR)" && test -n "$(RUN)" || { echo "Usage: make bind-proof PR=<n> RUN=<run-id>"; exit 1; }
+	python3 scripts/bind_proof.py --pr $(PR) --run $(RUN)
+
+.PHONY: check-holds holds-report bind-proof
 
 check-pr-hygiene: ## CI: fail when a producer's commit message or PR body is empty, a placeholder, a subject with no body, or when AGENTS.md lost the mandate (issue #313)
 	python3 scripts/check_pr_hygiene.py check
