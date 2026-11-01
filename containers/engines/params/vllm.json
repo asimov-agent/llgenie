@@ -65,7 +65,7 @@
       },
       "install": [
         "test -d /opt/llgenie/engines/vllm/src/.git || git clone -b v0.32.0 --depth 1 https://github.com/vllm-project/vllm.git /opt/llgenie/engines/vllm/src",
-        "uv pip install --system --break-system-packages -r /opt/llgenie/engines/vllm/src/requirements/build/rocm.txt --index-strategy unsafe-best-match",
+        "cd /opt/llgenie/engines/vllm/src && sed -i 's/^triton==3.7.1+git0263a6a6$/triton==3.7.1+git0263a6a6.rocm7.14.0/' requirements/build/rocm.txt && uv pip install --system --break-system-packages -r requirements/build/rocm.txt --index-strategy unsafe-best-match",
         "cd /opt/llgenie/engines/vllm/src && bash tools/build_rust.sh",
         "cd /opt/llgenie/engines/vllm/src && PYTORCH_ROCM_ARCH='gfx1030;gfx1100;gfx1101;gfx1102;gfx1151;gfx1200;gfx1201;gfx942' VLLM_TARGET_DEVICE=rocm uv pip install --system --break-system-packages --no-build-isolation -e ."
       ],
