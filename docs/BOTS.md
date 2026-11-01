@@ -450,6 +450,7 @@ make check-agent-profiles                                             # CI (ci-u
 make agent-profiles-report                                            # every profile, its SOUL, skills and rules
 make profile-drift                                                   # host-only: tree copies that are PREFIXES of the live rulebook (#928)
 make profile-drift-alarm                                             # the SCHEDULED caller: file ONE issue on drift (#928)
+make tester-fold-live PROFILE=llgenie-tester                         # host-only: fold live→tree for a lane (or --check only) (#1079)
 ```
 
 `make sync-agent-profile` (`scripts/agent_profile_sync.py`, stdlib only) writes each file the tree
