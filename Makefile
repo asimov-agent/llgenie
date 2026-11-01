@@ -994,6 +994,13 @@ check-docs: ## CI: fail when a user-facing (## help) make target is undocumented
 	python3 scripts/changes_index.py check
 	python3 scripts/check_docs.py check
 	python3 scripts/check_architecture_census.py check
+check-empty-files: ## CI: fail when a tracked or diff-added path is a zero-byte non-sentinel file (issue #1509) — a `.wt-probe.txt`-class empty diagnostic must never ride a squash to main again; `.gitkeep`-style sentinels are the only allowed empty case. Uses the added-paths gate against `origin/main` when the base resolves (the PR and main-push case — scope.yml fetches it), else the present-empties scan (a bare local checkout)
+	@if git rev-parse --verify --quiet origin/main >/dev/null 2>&1; then \
+	    python3 scripts/check_empty_files.py check --base origin/main; \
+	else \
+	    python3 scripts/check_empty_files.py check --all; \
+	fi
+.PHONY: check-empty-files
 check-architecture-census: ## CI: fail when the docs/ARCHITECTURE.md census disagrees with the tree at the `measured at <sha>` commit it names (which must be an ancestor of HEAD), naming both values and the sha measured (issues #896, #1053)
 	python3 scripts/check_architecture_census.py check
 .PHONY: check-architecture-census
@@ -1723,8 +1730,9 @@ uninstall: ## Undo make install: ~/bin/llgenie, llgenie.py, the llgenie-engine-*
 # file, no combined jobs). The commands are the same on both OSes. Every target
 # that runs in a container needs the pulled llgenie/test (or llgenie/openspec) image:
 # CI pulls it first with `make test-image-pull` / `make openspec-image-pull`.
-ci-lint: bash-check ## CI job lint: make lint
+ci-lint: bash-check ## CI job lint: make lint + the zero-byte file gate
 	$(MAKE) lint
+	$(MAKE) check-empty-files
 
 ci-unit: bash-check ## CI job unit: hermetic unit tests + registry / skill / Strata / engine-param / quant-catalog checks
 	$(MAKE) test-unit
