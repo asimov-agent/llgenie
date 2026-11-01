@@ -1,0 +1,113 @@
+name: registry-liveness — a committed pinned engine image whose manifest is missing must be named to the board, not left green
+run-name: registry-liveness
+
+# Issue #1365 class: a committed engine pin whose image was never published PASSES every committed CI, because the
+# one check that would catch it (make check-engine-launchers CHECK_REGISTRY=1) is opt-in and no workflow sets it.
+# ci-unit's plain check-engine-launchers only compares the launcher's tag to the params-computed tag (a
+# stale-launcher freshness gate, issue #842); it is green at head for vllm:5df63a72 while
+# ghcr.io/asimov-agent/llgenie/vllm:5df63a72-*-cuda resolves NO manifest (measured 2026-11-01, #1365).
+#
+# This pipeline is a control that READS the liveness gate on a schedule and on every merge to main, and on the
+# first unpublished pinned image opens ONE tracking issue naming it. It never runs in a pull request (a PR's pin
+# tags are legitimately not yet published — engine-build publishes on merge), so it can never false-red a PR; it
+# is the after-the-fact reader that the "#1365 class has no CI consumer" gap was about. It never merges and never
+# touches main; it files GITHUB_ISSUES only, one per engine, idempotently. Not manually dispatchable: a scheduled
+# monitor needs no inputs and a dispatch form would only add a second way to confuse its idempotence — the guard
+# that owns this file reads it from the tree, matching the ci-hf-live precedent (issue #1002).
+#
+# Trigger surface: schedule (three times daily — odd minutes not shared with another bot, issue #275) + push to
+#                  main (a merge-time red is caught here too). NOTHING else — no pull_request, no non-main branch,
+#                  no workflow_dispatch (see dispatch note above).
+# Flow: guard (owner / repository bot / collaborator with write, BEFORE anything runs) -> make test-env
+#       -> make check-engine-launchers CHECK_REGISTRY=1 (the liveness gate) -> on non-zero, name every
+#       unpublished pin and open one tracking issue per engine (idempotent).
+# Never: never in a pull request, never gated by a PR, never merges, never pushes to main, never weakens the gate.
+on:
+  schedule:
+    - cron: "11 3 * * *"
+    - cron: "29 11 * * *"
+    - cron: "47 19 * * *"
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: registry-liveness
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Owner / collaborator trigger guard
+        env:
+          ACTOR: ${{ github.actor }}
+          TRIGGER: ${{ github.triggering_actor }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.repository }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name || '' }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for u in "$ACTOR" "$TRIGGER"; do
+            if [ "$u" = "$OWNER" ]; then continue; fi
+            if [ "$u" = "github-actions[bot]" ] && [ -n "${HEAD_REPO:-}" ] && [ "${HEAD_REPO:-}" = "$REPO" ]; then
+              echo "Repository bot $u on a same-repo head ($HEAD_REPO) - allowed."
+              continue
+            fi
+            perm=$(gh api "repos/$REPO/collaborators/$u/permission" --jq .permission 2>/dev/null || echo none)
+            case "$perm" in
+              admin|maintain|write) echo "Collaborator $u has $perm - allowed." ;;
+              *) echo "Refused: $u is not the owner or a collaborator with write access (permission: ${perm:-none})."; exit 1 ;;
+            esac
+          done
+          echo "Allowed: actor=$ACTOR triggering_actor=$TRIGGER"
+
+  liveness:
+    needs: [guard]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: main
+      - name: make test-env
+        run: make test-env
+      - name: CHECK_REGISTRY liveness gate
+        id: liveness
+        run: |
+          set +e
+          make check-engine-launchers CHECK_REGISTRY=1 > liveness.out 2>&1
+          rc=$?
+          set -e
+          sed 's/^/  /' liveness.out
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: file one tracking issue per unpublished pinned image
+        if: "${{ steps.liveness.outputs.rc != '0' }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          grep "NOT PUBLISHED" liveness.out | sed -E 's/.*NOT PUBLISHED ([^:]+): ([^ ]+).*/\1 \2/' > unnamed.txt
+          if [ ! -s unnamed.txt ]; then
+            echo "gate red but no NOT PUBLISHED named:"
+            cat liveness.out
+            exit 1
+          fi
+          while read -r engine tag; do
+            [ -n "$engine" ] || continue
+            title="engine: launcher pin for $engine ($tag) is not published in ghcr"
+            body="BOT registry-liveness: pinned image $tag has NO manifest in ghcr. Either publish it via engine-build (make push-engine ENGINE=$engine) or move the pin to a published commit (#1365 class)."
+            open=$(gh issue list --repo "$REPO" --state open --search "launcher pin for $engine" --json number --jq '.[0].number' 2>/dev/null || true)
+            if [ -n "$open" ]; then
+              echo "issue #$open already open for $engine"
+            else
+              gh issue create --repo "$REPO" --title "$title" --body "$body" --label bug >/dev/null && echo "filed issue for $engine ($tag)"
+            fi
+          done < unnamed.txt

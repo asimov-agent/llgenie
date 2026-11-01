@@ -49,6 +49,7 @@ on:
       - queued-alarm — reports CI jobs queued far too long, once per affected run
       - rebase-bot — keeps every open PR current with main, every eligible PR per run (never merges)
       - registry-sync-review — a GREEN registry-sync PR is reviewed into ONE agent:implement issue
+      - registry-liveness — a committed pinned engine image whose manifest is missing must be named to the board, not left green
       - registry-sync — syncs the vendored registry and regenerates the derived tables, then opens the PR
       - search-smoke — one real Firecrawl request proves the masked web reach
       - security-bot — turns ONE auto-fixable vulnerability issue into a green PR (never merges)
