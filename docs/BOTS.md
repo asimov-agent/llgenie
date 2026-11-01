@@ -2054,8 +2054,10 @@ make issue-cleaner-scan   # which OPEN issue a merged PR already implemented: Gi
 make issue-cleaner-apply  # the same decision, then: an evidence comment on the issue and a close as
                           # completed. An issue the PR's own `Not covered` section names is a tracked
                           # remainder and is left open. Only a PR merged into main counts. A title-only
-                          # match shared by several merged PRs (a tracking vehicle) and an idle-audit
-                          # title are reported and left open (issue #1414). REPO= picks the repo.
+                          # match shared by several merged PRs (a tracking vehicle), an idle-audit
+                          # title, and a single title-only PR whose body carries no adjacent closing
+                          # keyword (a possible slice, issue #1413) are reported and left open
+                          # (issues #1413, #1414). REPO= picks the repo.
                           # `.github/workflows/stale-branch-cleanup.yml` runs this target daily at
                           # 03:39 UTC and on workflow_dispatch. Branch deletion in that workflow stays
                           # behind APPLY; this close does not.

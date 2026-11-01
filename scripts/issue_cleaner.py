@@ -23,10 +23,13 @@ stale-open close and #339-#343 are remainders — and a bot that could not tell 
 work that is still being tracked.
 
 Only a PR merged into the default branch counts. A merge into a stack branch does not close an issue
-on the default branch, and this bot must not either (issue #1414). Two further title-only cases are
+on the default branch, and this bot must not either (issue #1414). Three further title-only cases are
 reported and left open: several merged PRs name the same issue by title (a tracking vehicle — measured
-#1079 via #1310 and #1319), and a title that is an idle-audit record (measured #1282 via #1377). A
-single title-only slice that is neither of those can still close the issue; that gap is #1413.
+#1079 via #1310 and #1319), a title that is an idle-audit record (measured #1282 via #1377), and a
+single title-only PR whose body carries no adjacent closing keyword (issue #1413 — a tracking issue
+can have a single merged slice that says `(#N)` in its title and still be unfinished). Only a title
+that survives as evidence next to a PR whose body GitHub parsed as closing the issue would be a close;
+every other title-only reference is a possible slice and stays open.
 
 Reads GitHub through `gh`, which the tests stub on `PATH` (the repo's allowance for an external CLI).
 `--dry` prints the decision and mutates nothing; `--apply` posts the evidence comment and closes.
@@ -162,7 +165,8 @@ def demote_shared_title_vehicles(findings: list[dict]) -> None:
     """A title shared by several merged PRs names a tracking vehicle, not one implementation.
 
     Measured #1079, named by #1310 and #1319 in the same window. An `Issue:` line is a stronger
-    claim and is not demoted. One title-only PR still closes; that remaining gap is #1413.
+    claim and is not demoted. The single-title-only close that survives here is demoted separately
+    (issue #1413).
     """
     titled = [f for f in findings if f.get("action") == "close"
               and str(f.get("evidence", "")).startswith("the title")]
@@ -174,6 +178,22 @@ def demote_shared_title_vehicles(findings: list[dict]) -> None:
             f["action"] = "vehicle"
             f["reason"] = ("several merged PRs name it by title only — a tracking vehicle, "
                            "left open")
+
+
+def demote_title_only_slices(findings: list[dict]) -> None:
+    """A single title-only close is a possible slice, not a whole implementation (#1413).
+
+    If the PR's body had carried an adjacent closing keyword, GitHub would have parsed it
+    (`closingIssuesReferences`), `implemented_issue` would have returned None, and no finding would
+    exist — so reaching here with evidence = "the title" means the body's close, if any, was not
+    adjacent and GitHub did not close the issue at merge. A tracking issue can still be unfinished
+    after one slice that names it by title; leave it open rather than trusting a single `(#N)`.
+    """
+    for f in findings:
+        if f.get("action") == "close" and str(f.get("evidence", "")).startswith("the title"):
+            f["action"] = "slice"
+            f["reason"] = ("single title-only reference whose body carries no adjacent closing "
+                           "keyword — a possible slice, left open")
 
 
 def scan(repo: str, limit: int = 60, base: str = DEFAULT_BASE) -> list[dict]:
@@ -188,6 +208,7 @@ def scan(repo: str, limit: int = 60, base: str = DEFAULT_BASE) -> list[dict]:
             d["mergedAt"] = pr.get("mergedAt")
             findings.append(d)
     demote_shared_title_vehicles(findings)
+    demote_title_only_slices(findings)
     findings.sort(key=lambda f: f.get("mergedAt") or "", reverse=True)
     return findings
 
@@ -227,7 +248,7 @@ def main(argv: list[str] | None = None) -> int:
 
     closes = [f for f in findings if f["action"] == "close"]
     remainders = [f for f in findings if f["action"] == "remainder"]
-    held = [f for f in findings if f["action"] in ("audit", "vehicle")]
+    held = [f for f in findings if f["action"] in ("audit", "vehicle", "slice")]
     for f in remainders:
         print(f"[cleaner] remainder #{f['issue']} ({f['title'][:60]}): {f['reason']}", flush=True)
     for f in held:
