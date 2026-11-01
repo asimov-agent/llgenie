@@ -28,7 +28,7 @@ This is the same conclusion as #1258.
 - `comm -23 <(sort -u live) <(sort -u tree)` = **0** (0 live lines lost).
 - `check_agent_profiles.py check` reports **zero** findings for `agent-soul-versioning.md` after the copy.
 - `make lint` → LINT OK.
-- Branch head `<HEAD_SHA>`, PR (number filled at PR time, OPEN, not draft, base main).
+- Branch head `074aa5efb49fc6c971a56a99d247c583286d116f`, PR #1271 (OPEN, not draft, base main).
 
 ## Arm
 
