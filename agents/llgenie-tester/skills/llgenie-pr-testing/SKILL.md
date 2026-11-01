@@ -295,6 +295,7 @@ against `name:` prefixes, not ids).
   **current** head. A force-push leaves runs at a dead head; they prove nothing about the branch now.
   `cancelled`/`queued` = **no verdict**, and `gh pr checks`'s `fail` column is never a failure count
   (it collapses cancelled runs and duplicate check names onto one word).
+- **A just-opened PR reports `no checks reported` from `gh pr checks` for a minute or two — read `gh run list --branch <ref>` for what was actually scheduled.** Check-runs register only after the dispatch, so a poller's first pass sees an empty board and its `ALL_CONCLUDED` fires on nothing. Enumerate the workflows by name (`CI`, `ci-scope …`, `holds — …`) with `gh run list --branch <ref> --json databaseId,status,headSha,workflowName`, then judge each with `gh run view <id> --json status,conclusion,jobs` — an empty `gh pr checks` is a timing artifact, not "CI never triggered".
 - **One watcher per run — check the process table before launching a second.** A polling loop on a
   pending job is easy to double-launch (a background `term` call plus a fresh `for … sleep` loop),
   and two loops reading the same job id produce duplicate wake-ups and duplicate verdicts on a thread
@@ -538,7 +539,8 @@ that pushes on the run's conclusion, never a push that cancels it).
   the issue/PR comment, not the DM: post the same conclusion where the work lives and let the message
   be the pointer. Resending into a full queue duplicates on the receiver's side, and a conclusion that
   exists only in an undelivered message does not exist for the next reader.
-- **One message per fact — never two sends of the same content in one batch, and no ack that carries
+- **Never batch a MUTATING command across parallel tool calls — independent calls run concurrently, so one `gh pr comment` fanned into four calls posts four comments.** Batching is for reads only. Issuing the same `gh pr comment --body-file …` from an `execute_code` cell AND from three `terminal` calls in one response produced four identical bookend comments on a single PR thread; nobody downstream can dedupe them and every later reader pays for the noise. Issue each write ONCE — one tool call, then read the comment id back — and keep the parallel batch for the reads that feed it. Cleanup is not free either (`gh api repos/<o>/<r>/issues/comments/<id> --method DELETE` per id), so it is cheaper never to write twice.
+- **One message per fact — never two sends of the same content in one batch, and no ack that carries no new state.**
   no new state.** Two `message_agent` calls with the same payload in a single turn deliver twice (the
   receiver correctly answers "duplicate resend-confirmation only"), and an ack whose content the peer's
   board already reflects is inbox noise, not a handoff. When a peer says "no reply needed, I'll notify
@@ -737,7 +739,7 @@ worktree plus the comment, and saying plainly that the fix itself is the other l
   that head. An open PR `BLOCKED` solely on the owner's `REVIEW_REQUIRED` with auto-merge live is the
   correct IN-FLIGHT state, not an incomplete one: say so plainly, cite the hashes, and decline to
   fabricate an extra commit to silence the guard. Manufacturing a mutation to satisfy a detector is
-  exactly the "fake mutation" the guard exists to prevent.
+  exactly the "fake mutation" the guard exists to prevent. When it still fires AFTER the three-hash proof, the one remaining legitimate mutation is the on-record comment on the PR — progress rows while a matrix is in flight, the run-keyed verdict when it concludes — because that comment is the deliverable a reviewer reads; a `/tmp` status note is scratch and satisfies nothing, and a cosmetic commit on a merge-gated branch satisfies it the wrong way.
   **Explain the false positive with THREE hashes, not two** — the detector scans the MAIN working tree
   at the base sha, so a branch's changed paths are structurally absent from it until the merge and no
   amount of re-verifying changes that: `git cat-file blob <base>:<path>`, `git cat-file blob
