@@ -18,9 +18,7 @@ from datetime import datetime, timezone
 
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO / "scripts"))
-import check_zero_job_pending as czp  # noqa: E402
+import scripts.check_zero_job_pending as czp  # via tests/conftest.py, the one import root (issue #796)
 
 
 def _iso(minutes_ago: float) -> str:
