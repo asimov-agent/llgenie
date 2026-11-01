@@ -31,6 +31,30 @@ unit leg passed. When a PR merges while its `ci-unit`/`linux/unit` run is pendin
 real head verdict is still owed — watch the run at the PR head and report its conclusion,
 and re-run the gate yourself (`make check-<gate>`) at the merge tip.
 
+## Prove a red is the ambient class, not something the PR introduced
+
+A red leg on a PR's own head is not automatically the PR's fault. Before you record it as a defect
+of that branch — or before you tell the owner a PR "introduces no new red" — drill into the failing
+**STEP**, not just the job conclusion, and match it to the tracked main-red class:
+
+```bash
+gh api repos/<o>/<r>/actions/jobs/<job_id> --jq \
+  '{name:.name, steps:[.steps[]|select(.conclusion=="failure")|{n:.name}]}'
+```
+
+If the failing step name is the same gate the tracked main-red issue already owns (e.g.
+`make ci-unit (test-unit, skills-validate, check-registry, …)` when the main unit-red is tracked),
+then the PR's red **is** that ambient class — the branch shipped the ambient defect, it did not add
+one. That distinction is what lets you say "await the tracked fix, or merge over the known ambient
+red per precedent" instead of chasing a phantom regression in the diff.
+
+Conversely: if the step name is a gate the tracked red does **not** own, treat it as the branch's own
+defect and send it back to the lane. Matching the step, not the job title, is the whole test — two
+different gates can live in one job, and only the step says which one fired.
+
+Ambient red also persists through re-runs: a post-merge re-run of a red-merged PR staying red on the
+same step is confirmation, not a new finding.
+
 ## Corollary
 
 When you get it wrong (dismissed a real ci-unit red as host-side), correct the reporting

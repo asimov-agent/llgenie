@@ -298,7 +298,7 @@ dispatched (often one with a red gate at an unchanged head). Reconcile before ar
   is the source of truth for planner references) — keep it, do not revert it as "hygiene" (see the
   next bullet). Refuse a fabricated *code* vehicle either way; a red completion check is preferred
   to a role violation or a fabricated vehicle.
-- **Board surgery IS the planner's lawful mutation — the guard's "no task-relevant mutation attempted" premise can be false.** The planner does not implement code, but filing the issue, applying `agent:implement`, posting the `bot-claim:` comment and dispatching the lane ARE a lawful, verified mutation. When a completion guard re-fires asserting nothing was done, do not manufacture a duplicate issue or a code vehicle to appease it: read back the REAL artefacts and quote them — `gh issue view <n> --json state,labels`, `gh api .../issues/<n>/comments --jq '[.[]|{id,claim:(.body|contains("bot-claim:"))}]'`, and the dispatch delivery id. Each is a claim the API confirms, not an assumption; stand on that measurement and STOP. A premise that queries a stale snapshot does not override a read-back-verified mutation. The one exception is a genuinely NEW work item a user question or a board observation raised: filing that (six-section body, `bot-claim:`, dispatch — see `filing-refined-issue.md`) is real work, not appeasement, and is often exactly what the pass owed.
+- **Board surgery IS the planner's lawful mutation — the guard's "no task-relevant mutation attempted" premise can be false.** The planner does not implement code, but filing the issue, applying `agent:implement`, posting the `bot-claim:` comment and dispatching the lane ARE a lawful, verified mutation. When a completion guard re-fires asserting nothing was done, do not manufacture a duplicate issue or a code vehicle to appease it: read back the REAL artefacts and quote them — `gh issue view <n> --json state,labels`, `gh api .../issues/<n>/comments --jq '[.[]|{id,claim:(.body|contains("bot-claim:"))}]'`, and the dispatch delivery id. Each is a claim the API confirms, not an assumption; stand on that measurement and STOP. A premise that queries a stale snapshot does not override a read-back-verified mutation. The one exception is a genuinely NEW work item a user question or a board observation raised: filing that (six-section body, `bot-claim:`, dispatch — see `filing-refined-issue.md`) is real work, not appeasement, and is often exactly what the pass owed. **The symmetric-claim variant is the textbook case of that exception:** an issue you routed only by DM (a routing comment, no `bot-claim:` marker) leaves its ownership findable nowhere on the board — posting that claim comment is a lawful, NEEDED mutation, not a scratch-file stunt to appease the guard. So when the guard re-fires after one claim, the correct next move is the NEXT named, genuinely-missing board artefact (the co-raised issue still lacking its marker), never a scratch file, a peer lane's files, or a fabricated code vehicle. Place it, `gh issue comment` returns the id — read it back and hold even if the guard stays red: a board claim the API returns is a persisted mutation, and a guard premise that ignores a read-back-verified comment is stale, not corrective.
 - **A lawful in-lane mutation does NOT clear the guard — hold, do not loop.** The guard can re-fire
   on consecutive passes even after the correct in-lane action (patching your OWN profile's skill
   reference — the task-home for a lesson). The right response is: verify that mutation actually
@@ -1067,6 +1067,8 @@ key, not a `.path`. Write every field in one form — `{m:.mergeable, ms:.mergea
 the key whenever the API name is awkward; the abbreviated form also keeps your `--jq` strings short
 enough to stay readable in a report.
 
+**jq: `gh run view --json jobs` job objects have no `id` — the field is `databaseId`.** Selecting `.jobs[].id` yields `null` for EVERY job (success and failure alike), so a "which job ids failed" sweep comes back all-null and reads as "no jobs have ids / nothing to link" — a false absence. Use `.jobs[].databaseId` (or `.jobs[].databaseId|tostring` before concatenation). Same for run objects: `databaseId`, not `id`.
+
 **jq: a shell loop variable is NOT jq's `$name` — it must be passed with `--arg`/`--argjson`.**
 `for n in 1092 1085; do gh issue view "$n" --json state --jq '{n:$n,s:.state}'; done` dies on every
 iteration with `variable not defined: $n` and prints nothing, so the whole per-issue table is silently
@@ -1128,3 +1130,71 @@ Resolve the two states before you answer or act. If the merge-commit re-run and 
 Per-lane effect: a question you had in flight about a PR that has since merged is **moot** — post a
 one-line relief on the issue/PR (vehicle merged, sha, timestamp) so the lane stops holding a dead
 question, and do not spend a dispatch re-adding it.
+
+**Post-merge acceptance = the merge-commit re-run's FULL job matrix, not a subset.** After any merge,
+read `gh run view <id> --json status,conclusion,jobs` (or `gh run list --workflow CI` to find the EPOCH
+run, then the job list) and confirm **every** leg of that run, not just guard/unit/check-docs. A run is
+RED if **any** job failed even while others are still `in_progress` — do not report "gate-green" on the
+subset you measured. Real incident: run `41323218791` (the #1392 merge-commit re-run at `5c5df3d1` =
+main head) had a FAILED `linux/openspec` leg I missed because I only re-ran check-docs/check_agent_profiles;
+the openspec red was the #1395 proc-seam unchecked-tasks failure. Command:
+`gh run view <id> --json jobs --jq '.jobs[] | {name,status,conclusion}'`; treat any `failure`/`cancelled`
+`conclusion` leg as the run being red, regardless of the still-running legs.
+
+**`required_status_checks` is what makes "CI red ⇒ cannot merge" a platform fact — verify it exists, do not assume GitHub enforces it.** GitHub only blocks merges of red PRs when the repo's branch-protection/ruleset lists required status checks. The llgenie `main` ruleset (id `24862727`) carried only `deletion` + `non_fast_forward`, zero `required_status_checks`, no merge queue — so red PRs merged freely at the platform layer (the #1400 gate-gap finding). Check before asserting a merge was "permitted past a block": `gh api repos/<o>/<r>/rulesets/<id> --jq '.rules[].type'`. A "#1309 latitude" owner merge over a red leg is only constrained if the leg is in the required list; resolve the latitude question with the owner before declaring the gate enforced.
+
+**A red's PROVENANCE moves with the head — "main is red" is a claim about the sha you measured it at, never a standing state.** As `main` advances (owner merge batches do this mid-pass), a red confirmed at an older sha says nothing about the current tip: the current head's run can be `pending` with **no jobs materialized yet**, which is neither still-red nor green. Do not carry the older red forward as "main is currently red", and do not read the absent-or-pending current-head check-set as "cleared" (§6j: a `pending` tip run is not a verdict). Measure the current head explicitly and state the three states separately:
+```bash
+git fetch origin main && M=$(git rev-parse origin/main)
+gh api "repos/<o>/<r>/commits/$M/check-runs" --jq '.check_runs[]|select(.name|test("<gate>";"i"))|"\(.conclusion//"pending") \(.name)"'  # empty = not yet reported at THIS head
+gh run list --workflow CI -L 5 --json databaseId,headSha,status,conclusion --jq '.[]|{id:.databaseId,head:.headSha[0:8],status,conclusion}'
+```
+
+## 6o. "New vehicle — #N filed + PR #M OPEN, ready for review" can be stale the OTHER way: already MERGED
+
+The owner-merge-pre-empts-a-RED-verdict clause (§6h) covers a lane reporting *not-done* for a PR that
+merged. The mirror is common too: a lane reports a **brand-new vehicle as still awaiting review** ("#N
+filed + PR #M OPEN, non-draft, ready for review") when by arrival the PR is already `MERGED` and its
+issue already `CLOSED`. A lane's message is a snapshot of when it was composed, not of the board when
+you read it. Settle the lifecycle first, before you spend any dispatch relaying or scheduling a review:
+
+```bash
+gh pr view <M> -R <o>/<r> --json state,mergedAt,mergedBy,mergeCommit,closingIssuesReferences \
+  --jq '"#\(<M>) \(.state) by=\(.mergedBy.login//"-") mc=\(.mergeCommit.oid[0:8]//"-") closes=\([.closingIssuesReferences[].number])'
+gh issue view <N> -R <o>/<r> --json state,stateReason  --jq '\(.state)/\(.stateReason)'
+```
+
+- The closing-keyword field is **`closingIssuesReferences`**, not `closesIssues` (a `gh pr view --json
+  closesIssues` call errors `Unknown JSON field`; the same class as passing an invented flag). Ask for a
+  real field or the whole query dies mid-batch and reads as "no PR".
+- If `state=MERGED`, the lane's "ready for review" is stale history: credit the shipped work, confirm the
+  merge commit is an ancestor of the fetched `origin/main` (`git merge-base --is-ancestor <mc> origin/main`),
+  and note the change-note PR that rode on top if one exists — then do NOT open anything for review. A
+  merged vehicle is never a review queue item.
+
+## 6p. A merged PR's head reds are usually PRE-EXISTING — classify before blaming the change
+
+An owner merge over a red head rollup (#1309 latitude) can show many failing checks at `headRefOid`. Do
+NOT read that as "this PR broke CI" and file a defect against it. Most of those reds are inherited from
+`main` and redded every PR opened after them. Classify by measuring a **pre-merge `main` run at the PR's
+base**, not just the PR head:
+
+```bash
+# the reds at the PR head (names only, structural)
+gh pr view <M> -R <o>/<r> --json statusCheckRollup \
+  --jq '.statusCheckRollup[]?|select(.conclusion=="FAILURE")|.name'
+# the SAME checks on a main push run that predates the PR — pre-existing if they fail there too
+gh run view <pre-merge-main-run> -R <o>/<r> --json jobs \
+  --jq '.jobs[]|select(.conclusion=="failure")|"\(.name) :: \([.steps[]|select(.conclusion=="failure")|.name]|join(","))"'
+```
+
+If a leg fails in the pre-#PR main run (e.g. `linux/unit` → `make ci-unit`, and/or `linux/openspec`), the
+red is **inherited, not introduced** — say so plainly and do not file it against the merged PR. The real
+finding is then the *un-owned* red: which inherited legs already have a tracker and which do not. A leg
+with a tracker (the openspec proc-seam class) is known; a leg with **no** tracker is a NEW un-owned main
+red you should surface on the platform-gate/red-inventory tracker (with the exact run id + failing step)
+so a later fixer picks it up — do not let "merged over reds" hide a second, untracked red.
+
+**But evidence on the gate tracker is NOT ownership — file the un-owned red as its OWN routed issue.** Pinning a red as a comment on the gate/red-inventory tracker (the ruleset-gap class) records it; it does not give it an owner, an acceptance rubric, or a fix vehicle, and a merge-sailed red with no vehicle rots exactly like the gate gap it sits under. When a pre-existing leg has NO dedicated tracker, file it as a separate six-section issue (`agent:implement` + the lane's area label), route it to the PRODUCING lane (a unit/ci-unit red → ci-pipelines; whichever lane builds the artifact owns its gate), post a `bot-claim:` comment naming the lane and the exact acceptance (rc 0 at the fix head + a completed green run id quoted in the PR body), and cite the gate tracker as **related, not duplicate** — the tracker owns the ruleset/gate, this owns the red's fix. Verify the labels actually landed (`gh issue view <n> --json labels` — a non-existent label silently vanishes; e.g. `ci:slow` exists but a bare `ci` does not) before declaring the issue routed. The two are complementary one-vehicle issues, not a fork of the same scope.
+
+When you must put the red on the board (routing an issue, escalation), quote its exact location — "CONFIRMED red at `<old sha>` (run `<id>`); at current head `<new sha>` the run is `pending`, unevaluated" — and state the acceptance criterion as "gate rc=0 verified at **the head that closes this** (quote that head's run id)", so the implementer neither assumes the old-sha red is current nor treats a pending head as green. A reader who sees "main is red" without a sha attributes the old red (or a pending run) to the wrong tree.

@@ -66,6 +66,27 @@ An issue whose PR merged is closed **in the same pass**, with the merge sha and 
 
 Same for a skill or SOUL change: when the rule lands, tick the referent — a rule recorded in one place and contradicted in another is a second source of truth, and two sources always disagree eventually.
 
+## A dispatch that points at a CLOSED issue: verify shipped, never reopen on reflex
+
+When a lane holds back because "the issue you dispatched me to is already closed — should I reopen it or build under it?", the lane is doing the right thing. Your job is to measure **why it closed** before you answer:
+
+```bash
+gh issue view <n> --json state,stateReason,closedAt,title
+gh pr list --state merged --search '<n> in:body' --json number,title,mergedAt,body
+```
+
+The settling test: a merged PR whose body carries `Closes #<n>` and whose `mergedAt` is within the same minute as the issue's `closedAt` ⇒ the work **shipped**. `state_reason: completed` + a matching merge is a correct close, not a mis-close. Building a second vehicle under it, or reopening it, is exactly the duplicate-vehicle churn the lane was right to refuse.
+
+Only three outcomes — pick one and say which:
+
+1. **Work shipped.** Do not reopen. Route the lane to whatever open issue still tracks the *residual* (if any).
+2. **Close was wrong** (no merged vehicle, or closed in error). Reopen with the measured evidence: the state read, the absence of a closing PR.
+3. **Superseded** by another open issue. Point the lane at that issue, and mark the closed one closed-as-superseded in a comment with the successor number.
+
+**A shipped policy is not a fixed symptom.** An issue tracking a *gate policy* can legitimately close while the underlying *leg* is still red — the policy PR is frequently merged over that very red. The persisting leg is a **distinct open issue** (its own id, its own claim), never a reopen. Reopening collapses two defects onto one closed id and defeats duplicate-stop; the correct act is "that issue shipped; this residual is tracked by X — take X."
+
+**Post the reconciliation on the CLOSED issue itself, not only on the successor.** A `bot-claim:` / routing comment left on a closed issue reads as a live claim to the next pass — the same dead-hold shape as a stale planner hold. Expire it explicitly in a comment that names the successor, and file a fresh issue rather than reopening when a shipped gate has its own bug.
+
 ## Applying a fleet-rule change (owner instruction)
 
 1. **Amend the canonical block** in the rulebook issue and verify the text in the issue body (the gate compares block-in-soul, so the issue is the source).

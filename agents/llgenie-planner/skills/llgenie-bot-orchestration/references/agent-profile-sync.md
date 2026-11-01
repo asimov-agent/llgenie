@@ -33,6 +33,35 @@ direction is evidenced in the PR body with sizes on each side.
   is longer than the tree's, with the byte counts and the first missing heading — the difference between "this is
   versioned" as a claim and as a check.
 
+## Run the gate itself: no `--agents-dir`, clean worktree, count every class
+
+`scripts/check_agent_profiles.py check` **auto-resolves** the live profiles (default `~/.hermes/profiles`) from the
+host layout and compares them to the tree. Do not pass `--agents-dir`: it is interpreted *relative to `--root`*, so an
+absolute live path aborts with `'.../.curator_backups' is not in the subpath of '<root>' — NOTHING was checked` and
+`rc=2`. That `rc=2` is a bad invocation, not repo state — do not report it as the gate verdict.
+
+Run it from a **clean detached worktree off `origin/main`**, never the primary clone and never your own tree:
+
+```bash
+rm -rf /tmp/wt-gate && git worktree add -f --detach /tmp/wt-gate origin/main
+cd /tmp/wt-gate && python3 scripts/check_agent_profiles.py check; echo rc=$?
+```
+
+The primary clone reads `REPO_ROOT=Path(__file__).parents[1]` as its own stale checkout and reports false drift; a
+clean worktree makes `REPO_ROOT` the fresh tree while `live_root` still resolves to the real host profiles.
+
+**Never assert `rc=0` / "ZERO findings" from memory or an earlier run** — measure in this pass and quote the exact rc
+plus a per-class count, because the finding set changes every time a lane's live file is edited:
+
+```bash
+for k in live-longer live-lines-missing absent-from-tree live-edited-not-tree; do
+  printf '%s: ' "$k"; python3 scripts/check_agent_profiles.py check --only $k 2>&1 | grep -cE 'FAIL'; done
+```
+
+Broader row-scope drift (many lanes' live-only files + grown content) is ONE fleet tracker, not a new issue per
+measurement; when the count grows between filings, that is scope growth on the same tracker. A single planner-lane
+fold's acceptance gate is `0/0/0` at *its* head and covers every live-longer row for that lane, not just the named few.
+
 ## Drift needs TWO sets: by-name AND by-content
 
 A name-set diff (`comm` on two sorted filename lists) finds tree-only and live-only files, and stops there. It

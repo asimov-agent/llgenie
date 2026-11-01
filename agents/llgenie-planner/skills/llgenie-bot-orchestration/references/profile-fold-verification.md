@@ -33,6 +33,43 @@ So **rc=1 on the fold worktree is not proof the fold is incomplete.** Isolate th
 python3 scripts/check_agent_profiles.py check 2>&1 | grep -cE 'skill-reference-missing.*<bundle>'   # BEFORE -> AFTER=0
 ```
 
+## Attribute the red before you refuse: same gate at `origin/main` AND at the PR head, per file
+
+A fold PR whose gate reds has NOT necessarily introduced the red. Run the identical no-args gate in two clean
+detached worktrees — one at the PR head, one at the just-fetched `origin/main` — and classify each failing file at
+both:
+
+```bash
+for f in <failing-file-stems>; do
+  # at MAIN worktree
+  python3 scripts/check_agent_profiles.py check 2>&1 | grep "references/$f.md" | grep -oE 'FAIL (live-longer|absent-from-tree|live-edited-not-tree)'
+  # then the same in the HEAD worktree
+ done
+```
+
+Three outcomes, three different rulings — do not collapse them into "the fold failed":
+
+- **red at head, clean at main** → introduced by this PR → refuse, lane re-cuts.
+- **red at both** → ambient drift that predates the branch; the PR did not introduce it. Refusing the lane for it
+  is a false accusation. Honest ruling: "your DECLARED folds are clean; the gate still lists N ambient rows that
+  are out of your declared scope — extend the fold to cover them (if they are the same drift class) or file an
+  explicit owner scope question."
+- **clean at head, red at main** → the fold fixed it.
+
+Why: a drift gate reds on a *set*. A lane folds its declared subset, and the gate still enumerates ambient rows it
+never touched; blaming the lane teaches the wrong rule and sends it to re-verify a clean fold. In the refusal,
+name each file's class **per head**. One more tell: a file that reads `absent-from-tree` at main but `live-longer`
+at the head proves the branch's tree *does* contain it (folded) and the live copy grew past it since — the fold's
+actual content exceeded its reported scope, and the live set is moving (see the moving-target section).
+
+## When your own refusal over-stated the defect, supersede it — on both boards
+
+If the harder measurement shows the lane was partly right (declared folds clean), post a REFINED verdict that names
+the earlier comment id it supersedes and states the corrected per-file picture. Then split the board state:
+**vehicle verdict on the PR** (per-file, scope-revised re-cut directive) and **tracker status on the tracker
+issue** ("acceptance NOT MET at head `<sha>`, because …"). A tracker left inert while its vehicle is red reads as
+"in progress" to the next reader. One vehicle, one trail: extend the existing branch, never a new PR.
+
 ## Where you run the gate decides what tree it measures
 
 `check_agent_profiles.py` sets `REPO_ROOT = Path(__file__).resolve().parents[1]` — it reads **the checkout the
@@ -92,6 +129,53 @@ Residual live-comparison drift (the `live-longer` / `absent-from-tree` class, wh
 `skill-reference-missing` is involved) gets its OWN issue for that profile's bundle, routed the same way — that is
 not "a fold PR that also fixes drift", it is the drift-tail fold. Say so explicitly in the issue so the lane does
 not think it is duplicating an earlier bundle fold.
+
+## The live profile is a MOVING TARGET — a fold PR is a snapshot that goes stale in minutes
+
+A busy lane's live profile is edited by that lane *while* you fold it. Measured repeatedly: a fold merged at
+16:18 carried sizes that had already grown by 16:23–16:31, and a *second* drift-tail fold issue was needed for
+the same bundle before the first PR was an hour old. Expect N tail folds, not one, for a lane that is actively
+working; this is normal, not a defect in the lane or in you.
+
+Consequences for dispatch:
+
+- **Re-measure the residual rows at the CURRENT head at the moment you dispatch**, and paste the live/tree sizes
+  and mtimes into the dispatch. A dispatch that quotes sizes measured an hour ago sends the lane at a stale blob.
+- **Acceptance is "0 rows at the PR's OWN head", never "0 rows at the head I measured".** The gate is re-run in a
+  clean worktree at the PR head; a size that has to match a number in the issue body is unwinnable.
+- **Do not accumulate vehicles.** One open fold issue per profile bundle; a later snapshot is a comment with fresh
+  numbers on the same issue, and a later PR needs the previous one merged/closed first.
+
+## The gate auto-resolves the live root — do not hand it `--agents-dir`
+
+From a clean detached worktree the script derives `live_root` from the host layout itself
+(`~/.hermes/profiles/<p>/skills/...`) and compares committed tree vs the real live profile. Passing an explicit
+`--agents-dir` / `--profile-dir` overrides that and fails (rc=2, usage error) — the failure looks like a repo
+problem but is a bad invocation. Plain `check` from the worktree is correct; quote its rc and findings.
+
+Scope the class you own with the flag rather than grepping the whole report:
+
+```bash
+python3 scripts/check_agent_profiles.py check --only live-longer,absent-from-tree 2>&1 | grep -E 'llgenie-<lane>/'
+```
+
+Count every class (live-longer, live-lines-missing, absent-from-tree, live-edited-not-tree) before you claim
+anything about drift: a "ZERO findings" claim from one scoped run is a claim about one class, and quoting it as
+"the gate is clean" is how a planner contradicts a lane that measured all four.
+
+## A stale-arrival report about an already-merged PR
+
+Lanes report "PR #N ready for review" long after the owner merged it. Verify before acting:
+
+```bash
+gh pr view <n> --json state,mergedAt,mergeCommit,headRefOid   # state MERGED?
+git merge-base --is-ancestor <prHead> origin/main             # usually FALSE after a squash
+```
+
+A **squash merge makes the PR head NOT an ancestor of main** while the merge commit is — so "head not in history"
+is not evidence of an unmerged PR, and the report is not evidence of an unmerged one either. Read `mergeCommit`.
+When it is merged: no new vehicle, no re-open of the closed issue, no duplicate fold for the files it already
+carried — re-point the lane at the *current* tracker with the current residual rows.
 
 ## An advisory `note` is still a file-and-route, never a silent edit
 
