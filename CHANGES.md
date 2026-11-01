@@ -16,6 +16,7 @@ a note that does not exist, or when a row is malformed.
 
 | Date | Change | Record | Issue / PR |
 |---|---|---|---|
+| 2026-11-02 | re-point the zero-job-pending monitor's `workflow_run` trigger from the `disabled_manually` `queued-alarm` onto the active `ci-requeue` (`:15/:45`) so it can never dead-fire again (#1412 shipped it riding a source that never runs — measured `total_count: 0`); queued-alarm's completion stays routed via the reactor roster, no new schedule minute owned (#275/#301 stays green), no 14-disable re-enable | [2026-11-02-zero-job-pending-trigger.md](agent-wiki/2026-11-02-zero-job-pending-trigger.md) | #1442 |
 | 2026-11-02 | agents(tester): round-17 live fold — references/fold-residual-and-corrections.md live→tree byte-identical (`a3afab83`, 5,968 B, +784 B over tree) | [2026-11-02-tester-live-round17.md](agent-wiki/2026-11-02-tester-live-round17.md) | #1363 |
 | 2026-11-02 | agents(tester): round-16 live fold — references/fold-residual-and-corrections.md live→tree byte-identical (`ef008b7b`, 5,184 B, +2,758 B over tree) | [2026-11-02-tester-live-round16.md](agent-wiki/2026-11-02-tester-live-round16.md) | #1360 |
 | 2026-11-02 | agents(tester): round-15 live fold — references/agent-profile-versioning.md live→tree byte-identical (`93ab714e`, 30,082 B, +2,225 B over tree) | [2026-11-02-tester-live-round15.md](agent-wiki/2026-11-02-tester-live-round15.md) | #1358 |
