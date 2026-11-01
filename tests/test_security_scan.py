@@ -31,6 +31,16 @@ TRIVY_HIGH = {"Results": [{"Vulnerabilities": [
     {"VulnerabilityID": "CVE-3", "PkgName": "numpy", "InstalledVersion": "1.0",
      "FixedVersion": "1.2", "Severity": "HIGH"},
 ]}]}
+# A committed credential (issue #1283): trivy's `secret` scanner writes a `Secrets` array under the
+# result, carrying a RuleID, a Severity and a redacted Match — no package and no fixed version.
+TRIVY_SECRET = {"Results": [{"Target": "tools/api_key.py", "Secrets": [
+    {"RuleID": "github-pat", "Category": "GitHub", "Severity": "CRITICAL",
+     "Title": "GitHub Personal Access Token", "Match": "ghp_****************************"},
+]}]}
+TRIVY_SECRET_MEDIUM = {"Results": [{"Target": "tools/timeout.py", "Secrets": [
+    {"RuleID": "generic-api-key", "Category": "Generic", "Severity": "MEDIUM",
+     "Match": "sk-*******************************"},
+]}]}
 GRYPE_ONE = {"matches": [{
     "vulnerability": {"id": "GHSA-1", "severity": "Critical"},
     "artifact": {"name": "openssl", "version": "3.0"},
@@ -59,6 +69,87 @@ def test_trivy_findings_are_normalised():
     # Then  every field a remediation needs is present
     assert items == [{"id": "CVE-1", "package": "numpy", "current": "1.0",
                       "fixed": "1.1", "severity": "critical", "source": "trivy"}]
+
+
+def test_trivy_secret_findings_are_normalised():
+    """A committed credential (a trivy `secret`-class match) is a first-class finding (issue #1283)."""
+
+    # Given a trivy report with one CRITICAL committed secret against a file
+    # When  it is normalised
+    items = ss._trivy_secret_findings(TRIVY_SECRET)
+
+    # Then  the finding names the file (not a package), has no fixed version, and carries the
+    #       distinct `trivy-secret` source so the issue path labels it `component:code`
+    assert items == [{"id": "github-pat", "package": "tools/api_key.py", "current": "ghp_****************************",
+                      "fixed": "", "severity": "critical", "source": "trivy-secret"}]
+
+
+def test_a_committed_secret_flows_through_findings(tmp_path, monkeypatch):
+    """The dedicated secret classifier is read by the same `findings()` gate as the scanners."""
+
+    # Given a trivy report that also carries a committed secret
+    report = {"Results": [
+        {"Target": "tools/requirements.txt", "Vulnerabilities": [
+            {"VulnerabilityID": "CVE-1", "PkgName": "numpy", "InstalledVersion": "1.0",
+             "FixedVersion": "1.1", "Severity": "CRITICAL"}]},
+        {"Target": "tools/api_key.py", "Secrets": [
+            {"RuleID": "github-pat", "Severity": "CRITICAL", "Match": "ghp_x"}]},
+    ]}
+    monkeypatch.setattr(ss, "REPORTS", _reports(tmp_path, trivy=report))
+
+    # When  findings are read
+    items = ss.findings()
+
+    # Then  both the advisory and the committed secret are present, in the fixed finding shape
+    assert any(i["source"] == "trivy" and i["id"] == "CVE-1" for i in items)
+    assert any(i["source"] == "trivy-secret" and i["id"] == "github-pat" for i in items)
+
+
+def test_a_critical_committed_secret_blocks_even_with_require_fix(tmp_path, monkeypatch):
+    """A committed credential has no 'fixed version' to wait for — `require_fix` must not the
+    daily gate ignore it: removal is the remediation, so it blocks at `fail_on` (issue #1283)."""
+
+    # Given a CRITICAL committed secret in the report (no package, no fixed version)
+    items = ss._trivy_secret_findings(TRIVY_SECRET)
+
+    # When  the FULL (gating) policy is applied with require_fix on (the shipped default)
+    bad = ss.blocking(items, POLICY, "full")
+
+    # Then  it blocks — a committed secret is always actionable (remove and rotate, never wait)
+    assert [i["id"] for i in bad] == ["github-pat"]
+    assert ss.blocking(items, dict(POLICY, require_fix=True), "full") != []
+
+
+def test_a_medium_committed_secret_is_recorded_never_blocking():
+    """`fail_on` still gates a committed secret: MEDIUM is recorded, never a red (issue #1283)."""
+
+    # Given a MEDIUM committed secret
+    items = ss._trivy_secret_findings(TRIVY_SECRET_MEDIUM)
+
+    # When  the full policy is applied
+    bad = ss.blocking(items, POLICY, "full")
+
+    # Then  it is not blocking (only critical/high gate), and the report-only PR mode is empty too
+    assert bad == []
+    assert ss.blocking(items, POLICY, "pr") == []
+
+
+def test_trivy_runs_both_the_vuln_and_secret_scanners(tmp_path, monkeypatch):
+    """The daily scan asks the SAME pinned trivy image for its `secret` ruleset too (issue #1283)."""
+
+    # Given a docker stub that records its argv
+    log = _docker_stub(tmp_path, monkeypatch, pull_ok=True, inspect_ok=True)
+
+    # When  a trivy scan is launched
+    ss.scan("trivy")
+
+    # Then  both runs carry `--scanners vuln,secret` — a committed secret is in scope, always
+    runs = [json.loads(l) for l in log.read_text().splitlines() if json.loads(l)[0] == "run"]
+    assert len(runs) == 2  # JSON verdict + SARIF
+    for argv in runs:
+        scanners = argv[argv.index("--scanners") + 1]
+        assert set(scanners.split(",")) == {"vuln", "secret"}, scanners
+        assert "vuln" in scanners and "secret" in scanners
 
 
 def test_grype_findings_are_normalised():

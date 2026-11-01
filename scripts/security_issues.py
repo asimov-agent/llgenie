@@ -112,7 +112,9 @@ def issue_findings(reports: Path = REPORTS, policy: dict | None = None) -> list[
     for item in ss.findings(reports):
         if item["severity"] not in wanted:
             continue
-        if pol.get("require_fix") and not item["fixed"]:
+        # A committed credential is always actionable (its fix is removal, not a patched version),
+        # so `require_fix` must not suppress it from the tracker either (issue #1283).
+        if pol.get("require_fix") and not item["fixed"] and item.get("source") != ss.SECRET_SOURCE:
             continue
         advisory = item.get("id") or "unknown"
         package = item.get("package") or "unknown"

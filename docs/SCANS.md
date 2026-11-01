@@ -19,6 +19,14 @@ on every PR and every push made a pre-existing advisory red the pipeline forever
 repository bumped. `make check-security-scan` now **fails** when either trigger is added back, and it
 also fails when `enforce_events` in `data/security-policy.json` names `push` or `pull_request`.
 
+**The scan also looks for a committed credential** (issue #1283). The same digest-pinned trivy image
+is asked for its `secret` ruleset too (`--scanners vuln,secret`), so a `ghp_`/`sk-…`/cloud key in a
+trackable file is a first-class finding: it flows through `security-verdict` and `security-issues`,
+appears in the uploaded SARIF (`category: trivy`), and — because a committed secret is always
+actionable (remove + rotate, never "wait for a patched version") — it blocks the daily run even
+though it has no fixed version, while `fail_on` still gates a `medium`/`unknown` secret to recorded,
+not red.
+
 The manual form asks two things: `tools` (`all` or one scanner) and `enforce` (`full`, or `report` to
 run the whole sweep without gating). The `guard` job runs **before any scanner** and allows the owner,
 `github-actions[bot]` on a same-repo head, and any collaborator with `admin`/`maintain`/`write`;

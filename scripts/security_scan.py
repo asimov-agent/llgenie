@@ -58,6 +58,12 @@ SBOM_TOOL = "syft"
 #: No tool in ALL_TOOLS reads a credential: each judges the tree from data the runner downloads
 #: itself, so no scan is ever skipped for a missing secret.
 ALL_TOOLS = (SBOM_TOOL,) + TOOLS
+#: The source a committed-credential finding carries (a trivy `secret`-class match, issue #1283).
+#: It is distinct from the plain `trivy` source so the issue path can label a secret a
+#: `component:code` finding (it lives in a file, not a dependency) and so `blocking()` knows a
+#: secret is ALWAYS actionable: a committed credential's remediation is removal, not "wait for a
+#: patched version", so `require_fix` must not suppress it while it still honours `fail_on`.
+SECRET_SOURCE = "trivy-secret"
 DEFAULT_POLICY = {
     "fail_on": ["critical", "high"],
     "pr_fail_on": [],
@@ -156,7 +162,16 @@ def scan(tool: str) -> int:
     if tool == "trivy":
         # One format per invocation (trivy takes one `--format`), so JSON for the verdict and SARIF
         # for the Security tab are two runs over the same tree.
-        base = ["fs", "--severity", "CRITICAL,HIGH,MEDIUM", "--scanners", "vuln"]
+        #
+        # The `secret` scanner is the committed-credential half of the SECURITY ADMISSION GATE
+        # (issue #1283): `--scanners vuln,secret` makes the SAME digest-pinned trivy image also flag a
+        # committed credential (a `ghp_`/`sk-…`/cloud key in a trackable file), so a secret is a
+        # first-class finding — it flows through `security-verdict` and `security-issues` with the
+        # report/sha annotation, appears in the uploaded SARIF (`category: trivy`), and (because it
+        # carries a `fail_on` severity and is always actionable) makes the daily security-scan run
+        # red — which the all-pipelines sweep reads as the admission gate red. No new image, no new
+        # network, no fixed-version games: the same scanner, just asked for its secret ruleset.
+        base = ["fs", "--severity", "CRITICAL,HIGH,MEDIUM", "--scanners", "vuln,secret"]
         rc = _run([*base, "--format", "json", "--output", "security-reports/trivy.json", "."],
                   image_ref(tool))
         rc |= _run([*base, "--format", "sarif", "--output", "security-reports/trivy.sarif", "."],
@@ -197,6 +212,26 @@ def _trivy_findings(report: dict) -> list[dict]:
         for vuln in result.get("Vulnerabilities") or []]
 
 
+def _trivy_secret_findings(report: dict) -> list[dict]:
+    """Trivy's committed-credential matches, normalised into the same finding shape (issue #1283).
+
+    A `secret`-class result carries `Results[].Secrets[]` (RuleID, Category, Severity, Title,
+    Match). There is no package version or fixed version for a committed secret — its remediation
+    is removal and rotation, never a bump — so `package` names the file that holds it and `current`
+    is the redacted match. `source` is `SECRET_SOURCE` so the issue path labels it `component:code`
+    and `blocking()` treats it as actionable regardless of `require_fix`.
+    """
+    return [{
+        "id": sec.get("RuleID"),
+        "package": result.get("Target"),
+        "current": sec.get("Match") or "",
+        "fixed": "",
+        "severity": str(sec.get("Severity", "")).lower() or "unknown",
+        "source": SECRET_SOURCE,
+    } for result in report.get("Results") or []
+        for sec in result.get("Secrets") or []]
+
+
 def _grype_findings(report: dict) -> list[dict]:
     return [{
         "id": (match.get("vulnerability") or {}).get("id"),
@@ -212,7 +247,9 @@ def findings(reports: Path | None = None) -> list[dict]:
     """Every finding from every report that exists, in one shape."""
     reports = reports or REPORTS  # resolved at call time: `SECURITY_REPORTS`/a test can move it
     out: list[dict] = []
-    for name, reader in (("trivy.json", _trivy_findings), ("grype.json", _grype_findings)):
+    for name, reader in (("trivy.json", _trivy_findings),
+                         ("trivy.json", _trivy_secret_findings),
+                         ("grype.json", _grype_findings)):
         path = reports / name
         if not path.is_file():
             continue
@@ -233,9 +270,16 @@ def blocking(items: list[dict], pol: dict, mode: str = "full") -> list[dict]:
     for item in items:
         if item["severity"] not in fail_on:
             continue
-        if pol.get("require_fix") and not item["fixed"]:
+        if item.get("source") == SECRET_SOURCE:
+            # A committed credential is ALWAYS actionable: its remediation is removal and rotation,
+            # not "await a patched version", so `require_fix` — which exists to stop an unfixable
+            # advisory from stalling the pipeline — must not suppress it. `fail_on` still gates: a
+            # `medium`/`unknown` secret is recorded, never a red (issue #1283).
+            out.append(item)
+        elif pol.get("require_fix") and not item["fixed"]:
             continue
-        out.append(item)
+        else:
+            out.append(item)
     return out
 
 
