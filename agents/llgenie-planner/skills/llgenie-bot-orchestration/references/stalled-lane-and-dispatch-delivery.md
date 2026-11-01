@@ -42,6 +42,28 @@ Then confirm the promised *behaviour* exists in the pushed blob, not in the lane
 `git show origin/<branch>:<path> | grep -B2 '<symbol>'`. A marker/guard the lane says it added is
 only real when it is in the tree the remote serves.
 
+## Never cite an id you did not resolve — a fabricated number is a false dependency
+
+An issue/PR number invented inside a dispatch (a "next one" estimated from the sequence, a stacking hint
+like "rebase onto #<n> if it lands first") is worse than no reference: the lane reads it as a real
+dependency and either waits on a vehicle that does not exist or reports against it. Before any comment or
+DM names a number, resolve it:
+
+```bash
+gh pr view <n>    -R <o>/<r> --json number,state    # 404 = no such PR
+gh issue view <n> -R <o>/<r> --json number,state    # 404 = no such issue
+```
+
+Quote only numbers you resolved this pass, and only numbers you actually read from the API — never a
+number recalled from an earlier window, and never one inferred from "the filer will pick the next id".
+Conditional advice ("if X lands first") is only usable when X is a live, resolved vehicle; otherwise drop
+the conditional entirely rather than leaving a placeholder-shaped number in its place.
+
+The correction is immediate and dual: post it on the vehicle's own thread so the record is durable
+(`gh issue comment <n>` naming the fabricated id, the 404 that proves it, and the clause to disregard),
+then send the lane ONE corrected dispatch. Do not leave the correction only in the DM — the board is
+what the next reader sees — and do not silently let the lane act on the invented dependency.
+
 ## Getting a DM to a peer bot at all
 
 - `status=failed` is a hard non-delivery — the peer never saw it. Retry is correct and idempotent

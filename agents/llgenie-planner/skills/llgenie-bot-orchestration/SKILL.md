@@ -12,7 +12,7 @@ metadata:
 
 # llgenie bot orchestration: idle bot → waiting issue
 
-> Lane CI reports & 60m cancellations: `references/actions-run-attempt-reconciliation.md`. Any lane claim (sha, head, duration, file set, workflow names): `references/verifying-lane-claims.md`. Gate vs live pipeline, 1h-cancelled unit row = CEILING verdict on base: `references/ci-gate-vs-live-pipeline.md`, `references/ceiling-config-verdict-vs-defect.md`. Frozen lane, dispatch delivery (queue_full, out-of-order report), census pins: `references/stalled-lane-and-dispatch-delivery.md`. Behavioural change owes an `agent-wiki/<stem>.md` note + `docs/changes.d/<stem>.md`: `references/change-note-gate.md`.
+> A merge can land with a RED head-instance check-set (merge re-run may clear it) — verify on `commits/{sha}/check-runs`, never `mergeStateStatus`: `references/merged-over-red-gate.md`. Lane CI reports & 60m cancellations: `references/actions-run-attempt-reconciliation.md`. Any lane claim (sha, head, duration, file set, workflow names): `references/verifying-lane-claims.md`. Gate vs live pipeline, 1h-cancelled unit row = CEILING verdict on base: `references/ci-gate-vs-live-pipeline.md`, `references/ceiling-config-verdict-vs-defect.md`. Frozen lane, dispatch delivery (queue_full, out-of-order report), census pins: `references/stalled-lane-and-dispatch-delivery.md`. Behavioural change owes an `agent-wiki/<stem>.md` note + `docs/changes.d/<stem>.md`: `references/change-note-gate.md`.
 >
 > The owner files a dedicated issue after a PR is already open against the umbrella one:
 > see `references/closes-target-repointing.md` — the PR closes the dedicated issue, the original
