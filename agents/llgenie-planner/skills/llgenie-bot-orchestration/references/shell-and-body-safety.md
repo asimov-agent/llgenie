@@ -66,6 +66,29 @@ EOF
   `c<N>.md`. A fresh name never trips the guard; a reused one trips it every time the previous
   session's file is still on disk.
 
+## A refused write leaves the OLD body on disk — posting it publishes stale text
+
+The guard blocks the write; it does not clear the file. When a later command in the same turn does
+`gh issue comment N --body-file <that same path>`, `gh` reads the **previous** session's body and
+posts it verbatim under a fresh comment id. The call exits 0, the read-back shows a new id, and the
+content contradicts the current board — the worst combination: it looks verified, and it is wrong.
+
+- After a `stale_write_blocked` refusal, treat that path as poisoned for the rest of the turn. Never
+  `--body-file` it until you have re-written it under a unique name or switched to the stdin heredoc
+  above; the heredoc form removes the failure class outright and is the default for board comments.
+- **Verify content, not just the id.** A read-back that returns `{"id": …, "head": <first 60 chars>}`
+  is the minimum bar — read that first line and confirm it is the body you just wrote. Citing an id
+  you never eyeballed is how a stale post survives into the next pass as "already covered".
+- **`.[-1]` is not "my newest comment".** The comments API returns in the order it returns, and a
+  just-created comment can sort *below* an older one (list ordering, import timing). A read-back that
+  grabs `gh api …/issues/<n>/comments --jq '.[-1]'` can hand you a week-old body and you will read it
+  as "my post failed". Never conclude failure — or re-post — from `[-1]`. Query the specific thing:
+  `gh pr comment <n> --body-file …` prints the comment URL; take that id and GET it
+  (`gh api repos/<o>/<r>/issues/comments/<id>`), or filter the list for it. Verify by **id +
+  created_at**, and only then report the mutation as landed.
+- When you build a body file, echo its first line back before posting (`head -c 200 <path>` alongside
+  the POST, or the heredoc itself), so a refused write is caught before it reaches the board.
+
 ## Recovery: repairing a comment that already posted mangled
 
 When the trap fires anyway — the URL comes back, the function exits 0, but the body reads
@@ -92,6 +115,25 @@ Then verify the read-back (`completed/cancelled present: True`, corrected first 
 moving on — the PATCH succeeding is not the fact; the corrected body on re-GET is. `gh api
 ... -X PATCH -f body=...` also works but re-exposes the body to shell quoting; the Python
 payload does not. (Shorter forms: `gh api repos/<o>/<r>/issues/comments/<id> -X PATCH -F body=@/tmp/body.md`.)
+
+The same PATCH-in-place rule covers a **stale-content** post (old body published under a new id):
+repair that comment rather than stacking a second one. Only when the stale comment is a near-duplicate
+of an existing older one is it legitimate to post the correct body as a new comment — and then its
+first line must state that the prior comment is superseded and not to be trusted. Either way, a reader
+scrolling the thread must end up with exactly one authoritative body.
+
+## Never chain setup steps you must verify
+
+`git worktree add … && cd … && <gate>` fails as one opaque exit code: if the `add` refuses (path
+already registered, branch checked out elsewhere), every later command in the chain never runs, and a
+`cd` that silently kept the old cwd makes the *next* compound command appear to succeed against the
+wrong tree. Symptom: the gate reports "No rule to make target" or measures a stale head, and the tree
+is blamed instead of the chain.
+
+- Run the worktree creation as its own call and trust the returned `cwd` over any `cd` you prefixed.
+- Run the gate as its own call in that cwd — one call per failure mode keeps the failure legible.
+- After any `git`-based measurement, confirm the head you actually measured
+  (`git -C <tree> rev-parse HEAD`) is the sha you intended before quoting a result.
 
 ## Checklist before any comment or dispatch containing code
 

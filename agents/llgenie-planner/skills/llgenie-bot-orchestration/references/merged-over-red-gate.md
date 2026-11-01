@@ -19,7 +19,7 @@ column lies about cancelled; a fully-green check list can still be `BLOCKED`/`RE
 - A head whose `ci-verdict` or `linux/unit` is anything but `success` was NOT gated green — even if closed.
 - When you find a merged-red, measure the acceptance criteria **on `main` at the merge tip**, not on the PR diff (the diff is now main's).
 
-The merge gate is `make check-merge-on-red` (issue #1386). `scripts/auto_merge.py` defers a head whose check-run concluded `failure`, `timed_out`, or `startup_failure`, and it does not use `--admin` on that head. `skipped` and `cancelled` are not a red pipeline. `make alert-merged-red` comments once on a merged pull request whose head was red, and names the merge commit.
+A persistent `make` merge-gate check enforcing this is tracked as issue #1386 (CI-pipelines lane).
 
 ## "The tip is red" — bind every failing run to its `head_sha` first
 
@@ -48,6 +48,71 @@ gh api repos/<o>/<r>/actions/runs/<id> --jq '{name,event,head_sha,conclusion}'
   is attribution, not an excuse. Route it to the lane owning the failing surface (docs-alignment gate →
   documentation lane; workflow/gate design → ci-pipelines), with the run id, the failing job+step, and
   the commit that introduced it.
+
+## Cancelled-with-zero-jobs is a non-verdict: not red, not green
+
+A merge-tip run can conclude `cancelled` with an **empty job list**. That is neither a defect nor a
+pass: runner starvation / queue eviction means the matrix never executed, so there is no failure leg
+to attribute and nothing to file.
+
+```bash
+gh run view <id> --json status,conclusion,jobs \
+  --jq '{run:"\(.status)/\(.conclusion)",jobs:[.jobs[]|"\(.name) \(.conclusion//.status)"]}'
+```
+
+- `conclusion:cancelled` + `jobs: []` ⇒ record the disposition on the merged PR's issue ("merge-tip run
+  cancelled, zero jobs, matrix unproven — runner condition, no incident") and re-load the sibling live
+  pipeline on the next pass. Do NOT file an incident (there is no failing leg) and do NOT report "green at
+  the merge tip" (the matrix never ran). When the change is docs-only and its governing docs gate was green
+  at head, that residual is evidence for the runner/gate tracker, not a new finding.
+- `conclusion:cancelled` WITH completed jobs where some are `failure` ⇒ still red (worst-job rule); the
+  cancellation happened after the verdict landed.
+
+## Merged-red: check for an existing tracker before filing another issue
+
+A PR that merges over a red head is not automatically a *new* incident. First map each failing leg to an
+owning issue: if the failing leg is already the subject of an open un-owned-red tracker (or derives from
+it — `ci-verdict` failing because `linux/unit` failed), the correct action is **evidence accretion on that
+tracker**, naming this merge sha and head, plus the concrete rubric consequence (e.g. "the gate's
+required-status list may name only legs that are green at the tip, not this red one, until its tracker
+lands"). File a fresh issue only for a leg with no owner. Say explicitly that the diagnosis was not
+duplicated.
+
+## A run's verdict is its WORST job, and it lands before the run finishes
+
+Do not read a merge-commit re-run as undecided because its top-level `status` is `in_progress`,
+and do not verify a merge against the two or three gates you happen to care about. The run is
+RED the moment any single job concludes `failure`; the other legs still running change nothing
+about that verdict.
+
+```bash
+gh run view <id> --json status,conclusion,jobs \
+  --jq '{run:"\(.status)/\(.conclusion)",jobs:[.jobs[]|"\(.name) \(.conclusion // .status)"]}'
+```
+
+- Any job `failure` ⇒ the run is red. Quote the failing **job name** and the gate it runs; a
+  `conclusion:""`/`in_progress` at the run level is not a stay of execution.
+- Verify the merge against the **whole job matrix at the merge-commit sha**, not a subset. A
+  "gate-green" report that checked `check-docs` + `check_agent_profiles` but never looked at
+  `linux/openspec` is how a red main gets reported as green — say which jobs you actually read.
+- The merge-commit re-run at `head_sha == origin/main` **is** the post-merge verdict for main.
+  `gh run list --workflow CI --json databaseId,headSha,status,conclusion` filtered to the tip
+  sha gives it directly; do not substitute a PR-head check-set for it.
+
+## A live main-red outranks queued non-gate work — escalate, never park it
+
+When the failing run is at the merge tip (main itself), the owning issue is an **incident**, not
+backlog. If the defect already has an issue, it goes to the **front** of the implementer queue —
+ahead of any queued nit whose gate is advisory (planner-live fold drift, note polish, refactor
+comfort) — and the escalation comment names the run id, the failing job, the merge sha and that
+**main is red**, addressed to the owner.
+
+- A live main-red that was filed and then queued *behind* a non-gate item is the same defect as
+  not filing it: the board stays red until something unrelated lands first. Re-order at once.
+- The escalation asks the owner for the one decision only they can give (confirm the re-order, or
+  a different route) rather than waiting for the queue to drain.
+- Say plainly that the merge was not yours (owner/`asimov-agent` merges) **and** that your own
+  post-merge check missed the leg — the correction is the evidence, not a defence.
 
 ## Re-running acceptance at the TRUE tip, not the lane's cited sha
 

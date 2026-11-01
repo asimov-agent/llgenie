@@ -78,6 +78,10 @@ what the next reader sees — and do not silently let the lane act on the invent
   it actually produced (branch, PR, head sha) before deciding whether it needs forcing at all. When the
   queue later drains, a fresh message with new content (the earlier dispatch never landed, so nothing
   is duplicated) is correct — that is not the resend this rule forbids.
+- A `nerve progress guard requires task-relevant implementation now` rejection is NOT a delivery
+  failure and NOT a non-delivery — the guard pauses read/search-only actions but keeps mutation tools
+  live. `message_agent` is a mutation, so retry the SAME dispatch once and it queues (`status=queued`).
+  Do not conclude the peer never saw it; do not rewrite the message to "get past" the guard.
 - Two hard failures in a row usually mean the peer's session is mid context-compression and cannot
   accept a turn. Wait in the foreground (`sleep 150; date -u +%H:%M:%SZ`) and retry exactly once;
   that third attempt queues durably. Do not loop retries back-to-back.
@@ -276,6 +280,58 @@ Key distinction: a false-report loop is correctable only by an on-record truth c
 a true-report loop is broken by an explicit release + boundary ruling, because the lane is stalling on
 a decision it correctly believes is the planner's to make.
 
+## Repeated identical "done at head X" confirmations can be delivery lag over a MOVED head
+
+Before concluding "the head is unchanged, this is a re-delivery loop, issue STOP," RE-MEASURE the
+head: `git fetch origin refs/pull/<n>/head` (or `git ls-remote origin refs/heads/<branch>`) and
+`gh pr view <n> --json headRefOid`. A lane that re-sends the same confirmation text several times may
+be quoting a head that has since ADVANCED: the DMs are queued copies of an earlier window arriving out
+of order, while the real branch moved because the re-cut you demanded actually landed. Issuing "unchanged
+/ STOP" without a fresh sha read is the planner-side version of a stale claim — it suppresses the very
+push you asked for and leaves a correct fix un-gated.
+
+Rule: measure the sha every time you are about to assert "head unchanged." If it moved, gate the NEW sha
+and accept it — do not refuse. Only after two consecutive measurements showing the IDENTICAL sha is
+"unchanged" a fact, and only then is a no-re-measure STOP the right output. When the moved head turns
+out gate-clean, post the acceptance on the vehicle AND update the tracker's prior "NOT MET" state in
+the same pass, naming the old sha the refusals applied to.
+
+A lane may also quote a sha that is **not an ancestor of the real head at all** — a leftover from an
+intermediate fork state. When its quoted head conflicts with your measured head, settle it with
+`git merge-base --is-ancestor <lane-sha> <measured-sha>` (exit 1 = the lane's sha is from a different
+lineage, not "newer" or "older"): the PR-reported branch tip is the authority, and the lane's message
+is stale regardless of how confident its wording is.
+
+## An accepted gate-clean head can re-redden minutes later — measure the DRIFT SOURCE before demanding a re-cut
+
+The sync gate (`scripts/check_agent_profiles.py`) compares the tree against the LIVE profile dirs, and
+the live dirs are editable at any moment — including by the planner seat running the pass. So a head
+that is genuinely gate-clean at 17:32Z can read `live-longer` / `live-edited-not-tree` at 17:35Z with
+zero commits in between. The usual cause on this lane is self-inflicted: writing an in-session lesson
+into a gate-authoritative live reference (`<profile>/skills/.../references/*.md`) edits the very file
+the gate reads, after the fold commit was taken, so the fold is instantly stale again and the loop never
+converges.
+
+1. **Never treat "acceptance MET" as durable.** Bind it to the sha AND the minute you measured it. Before
+   re-reporting it on a later turn, re-run the gate in a worktree at that sha; if it now reports drift,
+   that is the moving live set, not a defect in the earlier measurement.
+2. **Attribute the drift before you act.** The gate prints the `live mtime`; compare it to the fold
+   commit time. A live mtime AFTER the tree commit with a live-larger size is a post-fold write. Identify
+   the owner: a planner-lane reference means the planner caused it; another lane's reference is that
+   lane's write. Only a lane-attributable drift with no in-flight source justifies asking that lane to
+   re-cut.
+3. **Do NOT hand a planner-caused drift back to the implementer as "another re-cut."** If the drifting
+   file is your own lane's, the fold is correct and the implementer owes nothing — asking it to re-fold a
+   live file that keeps growing is an infinite loop. Correct the record on-record instead: fold CORRECT,
+   acceptance UNSTABLE-on-moving-live, remaining blockers = freeze/owner-merge + the planner's own
+   tracked drift write (a normal issue+PR under `agents/<profile>/`, NOT looped onto the fold PR).
+4. **Keep gate-authoritative live refs static during a fold window.** In-session notes, ledger entries and
+   running state go in the scratch pass record (`cache/scratch/pass-*.md`), never into a live
+   `skills/.../references/*.md`. A behavioural skill lesson that genuinely belongs in the library goes
+   through the normal issue+PR under `agents/<profile>/`, then `make sync-agent-profile PROFILE=<p>` —
+   never a silent live edit, which both reddens the gate (issue #791) and re-opens every fold pointing at
+   that file.
+
 ## A lane holding "not merged / awaiting CI verdict / yours to route" on a PR the owner ALREADY merged mid-run
 
 The single most common replay shape when the owner merges fast: a lane finishes, opens its PR, and
@@ -384,8 +440,14 @@ mutation. This is the honest answer to the guard and satisfies the "every pass e
    with no routing note is not a dispatch, and a routing note with no read-back is not landed.
 
 Distinguish this from the refused pattern: manufacturing a peer lane's publish/build or editing another
-lane's branch is never the mutation to invent. The safe mutation is board-shaping the planner owns —
-labelling, routing, anchoring, closing-with-evidence.
+lane's branch is never the mutation to invent. The safe mutations, in order of preference:
+1. **Board-shaping the planner owns** — labelling, routing, anchoring, closing-with-evidence.
+2. **A durable update to your OWN lane's procedural memory** — a genuine pitfall or technique this pass
+   taught, written into `agents/<profile>/` (SOUL/skill via issue+PR per the versioning rule, or the live
+   profile's `references/` when the edit is the working copy). This is task-relevant, lane-owning, and
+   versioned; it is never a scratch/pass-record file (which does NOT clear the guard) and never a
+   peer-lane edit. Prefer it when the reactive packet is settled and no board mutation is honestly owed:
+   capture the lesson that cost the pass rather than manufacture an unrelated artifact.
 
 ## A lane's stated "queue now" line is a claim — verify it against the dispatch list
 

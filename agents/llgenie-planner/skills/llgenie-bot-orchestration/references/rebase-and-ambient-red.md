@@ -12,6 +12,25 @@ The owner's rule (issue #1015): a lane rebases a PR **only when it is actually `
 - "Behind main" ≠ "needs rebase". The only reasons to rebase are a real conflict or the base having merged and the branch needing to pick it up.
 - Before you demand a rebase, check *why* the branch is not green. If the failing check is not caused by the PR's own files, a rebase will not fix it and the demand is wrong.
 
+### A new PR's base must be the main sha fetched this moment
+
+The "rebase only on CONFLICT" rule governs an *existing* PR. A **new** PR is the opposite case: its
+base must be current `main` at the sha fetched immediately before the worktree was cut. A lane that
+re-cuts a worktree can still cut it off a sha that is already stale, and every commit it makes then
+lands on an outdated base — the PR opens "clean" but its diff is measured against old `main`.
+
+Before accepting or letting a lane push a PR base, measure it:
+
+```bash
+git fetch origin main
+git rev-list --left-right --count <cited-base>...origin/main   # → "0  N" means base is N behind
+```
+
+If `behind_by > 0`, the cited base is stale. Tell the lane to `git rebase --onto origin/main <stale-base>`
+(or cherry-pick its commits onto a fresh worktree off the just-fetched sha) **before** pushing — never
+accept a PR whose `**AGENTS:**`/base line names a sha older than live main. The same check is how you
+catch a lane that re-based correctly then quoted the pre-rebase sha in its report.
+
 ### Correct your own wrong demand
 When you issued a rebase instruction and the lane pushes back with measured facts + the governing rule, **verify the rule, then retract on the PR thread** — post a correction comment naming the earlier comment id, and re-notify the lane that it holds correctly and owes nothing. A wrong demand left standing teaches the next reader the wrong rule and pressures the lane to fabricate churn. Do not argue down a lane that is right.
 
