@@ -43,11 +43,15 @@ install:
     - "cd {src} && CMAKE_ARGS='-DCMAKE_CUDA_ARCHITECTURES={cuda_arch}' VLLM_TARGET_DEVICE=cuda uv pip install --system --break-system-packages --no-build-isolation -e ."
   rocm:
     - "test -d {src}/.git || git clone -b {ref} --depth 1 {repo}.git {src}"
-    # the rocm build file itself names the amd index and the torch it needs
-    - "uv pip install --system --break-system-packages -r {src}/requirements/build/rocm.txt --index-strategy unsafe-best-match"
+    # the rocm build file names the amd index and the torch it needs, but pins a BARE
+    # triton (3.7.1+git0263a6a6) while torch==2.12.0+rocm7.14.0 requires the rocm-suffixed
+    # wheel (triton==3.7.1+git0263a6a6.rocm7.14.0) — upstream pin defect at 5df63a72; the
+    # resolver reports 'your requirements are unsatisfiable' unless the pins agree.
+    - "cd {src} && sed -i 's/^triton==3.7.1+git0263a6a6$/triton==3.7.1+git0263a6a6.rocm7.14.0/' requirements/build/rocm.txt && uv pip install --system --break-system-packages -r requirements/build/rocm.txt --index-strategy unsafe-best-match"
     # vendored Rust frontend (vllm-rs): build_rust.sh precompiles the artifacts so -e . skips cargo
     - "cd {src} && bash tools/build_rust.sh"
     - "cd {src} && PYTORCH_ROCM_ARCH='{gpu_targets}' VLLM_TARGET_DEVICE=rocm uv pip install --system --break-system-packages --no-build-isolation -e ."
+
   cpu:
     - "test -d {src}/.git || git clone -b {ref} --depth 1 {repo}.git {src}"
     # the pinned cpu.txt requests torch==2.13.0+cpu, which only the cpu repack
