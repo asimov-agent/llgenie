@@ -31,3 +31,5 @@ died on run 41345284767 (`auto-merge`, `head_branch=main`, `event=workflow_run`,
   tree), both new tests FAIL — `test_a_cancelled_..._skipped_but_not_fatal` and
   `test_plan_dry_...` report `[602, 603] == [603]` / the workflow_run run lands in the requeue list.
   Restored, both pass.
+- This PR carries the adjacent `closes #1451` in both the commit text and the body, so the merging
+  squash closes the issue (check-pr-closing, issues #1329/#1417).
