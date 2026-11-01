@@ -82,6 +82,30 @@ issue-first treatment as any measured defect:
    sync copies repo→profile and would silently truncate the newer live with no gate noticing (#791).
    `CHECK=1` only, always.
 
+## Proving a residual drift is pre-existing (not caused by your fold)
+
+A `CHECK=1` red that persists after a fold PR merged is the common trap: it reads as "my fold was
+incomplete" when it is almost always a **different file set** your fold never touched. Separate the
+two by measuring each differing file at the fold's own merge-base, not at the merged tip:
+
+```bash
+BASE=$(git merge-base <cut-commit-of-your-branch> origin/main)   # or the PR's baseRefOid
+for f in <differing files>; do
+  echo "$f tree@base=$(git show "$BASE":agents/<p>/$f | wc -c) live=$(wc -c < <live>/"$f")"
+done
+```
+
+- A file that is **already `differ` at `BASE`** was not caused by the fold and was not in its scope —
+it is a pre-existing gap and gets its **own six-section issue**, routed to the owning lane. Never
+  widen the merged PR, never mark it `do-not-merge`, never silently fold it.
+- A whole-file live→tree fold (the recommended shape when an issue's named bullets are a subset of
+  the delta) carries *every* cluster in the file, so a later issue expansion naming "N more clusters"
+  is already satisfied: `git show <merge-sha>:<rel> | cmp - <live>/<rel>` empty IS the proof. Prefer
+  that `cmp` over grepping each cluster's paraphrased bullet text, which misses on wording.
+
+Before filing, `gh issue list --state open --search '<file-or-skill>'` — the triage lanes file these
+fast, and a duplicate gets closed into the original.
+
 ## Acceptance for a SOUL/skill review
 
 - [ ] `make -s check-agent-profiles` run at a measured head (quote the sha + clock beside it).
