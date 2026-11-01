@@ -23,12 +23,12 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
-import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import issue_body  # noqa: E402  (the one issue shape, #745)
+from proc import run_ok  # noqa: E402  the subprocess policy seam (issue #797)
 
 MARKER = "zero-job-pending"
 
@@ -39,7 +39,7 @@ def _run_marker(run_id: int) -> str:
 
 
 def _gh(args: list[str]) -> str:
-    r = subprocess.run(["gh", *args], capture_output=True, text=True)
+    r = run_ok(["gh", *args])
     if r.returncode != 0:
         raise RuntimeError(f"gh {' '.join(args)} failed: {r.stderr.strip()}")
     return r.stdout
@@ -159,9 +159,8 @@ def file_one_issue(repo: str, r: dict, body: str, dry: bool = False) -> str:
         technical=[f"run: `{rid}`", f"threshold: pending/queued longer than past the --minutes threshold", body],
     )
     title = f"ci: run {rid} instantiates zero jobs and stays pending — no runner matched the labels"
-    rq = subprocess.run(["gh", "issue", "create", "--repo", repo, "--title", title,
-                         "--body", f"{text}\n\n_{_run_marker(rid)}_"],
-                        capture_output=True, text=True)
+    rq = run_ok(["gh", "issue", "create", "--repo", repo, "--title", title,
+                 "--body", f"{text}\n\n_{_run_marker(rid)}_"])
     if rq.returncode != 0:
         return f"issue create for run {rid} failed ({rq.returncode}): {rq.stderr.strip()}"
     return ""
