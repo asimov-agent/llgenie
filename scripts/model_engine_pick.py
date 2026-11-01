@@ -478,6 +478,15 @@ def rank_engines(model: dict, arch: str | None = None, ids: dict | None = None,
             return  # no container image (Metal-only / browser-only / no-skill engines)
         variant = arch if arch in info["variants"] else (
             None if arch == "metal" else ("cpu" if "cpu" in info["variants"] else None))
+        # Issue #669 / #1064: a Metal-measured figure from a METAL-NATIVE engine is not evidence
+        # about any card build — such an engine's native arch is Apple-Metal, so at a card arch its
+        # Metal figure must not be dressed as the requested card's variant (the defect: MLX surfaced
+        # as {variant: cuda, measured_on: Metal}). It falls back to the engine's cpu build. The rule
+        # is scoped to metal_engines only: a card-capable engine (SGLang, llama.cpp) measured on
+        # Metal is honest rank-3 cross-backend evidence and keeps the card variant (same as a ROCm
+        # figure at a cuda host), because such an engine genuinely builds the card's image.
+        if arch in CARD_ARCHES and mb == "Metal" and info["id"] in metal_engines() and variant != "cpu":
+            variant = "cpu" if "cpu" in info["variants"] else None
         if not variant:
             return
         card = measurement_card_gb(hardware)
