@@ -147,6 +147,33 @@ def test_every_published_row_install_tests_the_image_it_just_published():
         "the producer install-leg must not call the product-only ci-install-dry (#1196)"
 
 
+def test_the_published_rows_last_step_runs_the_host_serve_command():
+    """Issue #1322: the engine-build workflow's LAST step runs the same `make test-engine-host`
+    command the engine-improver lane runs on a host — a build that publishes an engine that cannot
+    serve proves it on the runner (pull AS-PUBLISHED, smallest model, llm-local answer, measured t/s).
+    A GPU-less runner skips the GPU legs and never reddens them (issue #1240)."""
+
+    # Given the workflow text and its named steps
+    text = workflow()
+
+    # When  the publish -> install-leg -> host-verify-leg order is read
+    # Then  the host command is the LAST step and comes after the install-leg
+    assert "run: make test-engine-host ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}" in text
+    assert text.index("run: make test-engine-install") < text.index("run: make test-engine-host")
+    # The host-verify leg is truly last: nothing runs after it in that row
+    after = text.split("run: make test-engine-host", 1)[1]
+    assert "run: make " not in after, f"host-verify-leg must be the last step, found: {after}"
+
+    # The make target exists and is `.PHONY` so the workflow call resolves (issue #392). The
+    # .PHONY block continues across `\\`-joined lines, so read the whole declaration.
+    assert "\ntest-engine-host:" in MAKEFILE
+    phony = " ".join(line for line in MAKEFILE.splitlines()
+                     if line.startswith(".PHONY:") or line.startswith("\t"))
+    assert "test-engine-host" in phony, "test-engine-host must be declared .PHONY"
+    # The host command never builds: it is wired to pull the AS-PUBLISHED image
+    host_tail = MAKEFILE.split("\ntest-engine-host:", 1)[1].split("\n\n", 1)[0]
+    assert "pull_published" in host_tail or "engine_host_test.py" in host_tail
+
 
 def test_one_make_command_answers_every_build_scope():
     """All engines, one arch, one engine, or one engine x one arch — the same list in each case."""
