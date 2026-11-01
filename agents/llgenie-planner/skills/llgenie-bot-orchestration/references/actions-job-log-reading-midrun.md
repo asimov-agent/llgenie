@@ -1,6 +1,6 @@
 # Reading a failing job's real error from GitHub Actions — including mid-run
 
-**Trigger:** a lane reports "CI can't show the error" (BuildKit `\r` collapse, blank gap between buildx line and FAIL), or a run is `in_progress` but a specific cell already concluded FAILURE and the real failing layer is needed now rather than after the whole run settles.
+**Trigger:** a lane reports "CI can't show the error" (BuildKit `\r` collapse, blank gap between buildx line and FAIL), or a run is `in_progress` but a specific cell already concluded FAILURE and the real failing layer is needed now rather than after the whole run settles. Also: a PR reads `BLOCKED` and you need to know whether that is a conflict, an approval, or a red gate before dispatching anyone.
 
 ## `gh run view --log-failed` does NOT work while the run is in_progress
 
@@ -50,6 +50,31 @@ ERROR: failed to solve: failed to build: ... exit code: 1
 - A `warning: Failed to parse pyproject.toml — unknown field` can be a real cause even though it says "warning" (breaks settings discovery → wrong build path).
 - Quote the `#N ERROR:` line + the first `subprocess.CalledProcessError` frame — that's the actionable fact.
 - `exit code 143` = SIGTERM (job killed, e.g. timeout), a *different class* from a build failure — say "did not complete", don't fold it into the docker-layer diagnosis.
+
+## `mergeable: true` + `mergeable_state: BLOCKED` is NOT a conflict — triage before dispatching a rebase
+
+`gh pr view --json mergeStateStatus` folds three unrelated situations into `BLOCKED`. Pull the raw fields instead:
+
+```bash
+gh api "repos/<owner>/<repo>/pulls/<N>" --jq '{mergeable,mergeable_state,base:.base.sha[0:8],head:.head.sha[0:8]}'
+```
+
+`mergeable: true` rules out a content conflict, so a rebase is the wrong dispatch. Then separate the remaining two causes:
+
+1. **Stale base** (fix = rebase): compare the PR's base to *current* `origin/main`
+   ```bash
+git rev-list --left-right --count <base-sha>...origin/main   # "0 0" = base IS current main
+```
+   `0 0` means the branch sits on the live tip and rebasing gains nothing; anything else is a genuinely stale base.
+2. **Failing gates** (fix = the owning lane's defect, not a rebase): `gh pr checks <N>` — read run/job ids straight out of the check URLs, then pull each red job's log with the endpoint above. Quote the gate's own error line, not the check name.
+3. **Review requirement** (fix = the reviewer/owner, nobody else): all checks green + `mergeable: true` + still `BLOCKED` ⇒ the base branch's ruleset wants an approval. Say so and stop; do not invent a code defect.
+
+Gate classes worth recognising by their error line:
+
+- `[check-docs] ERROR: change->note: this branch changes … but adds no agent-wiki/<stem> note` → missing change note (`references/change-note-gate.md`), not a docs defect.
+- `make: *** [Makefile:…: check-pr-authors] Error 1` → the author-identity allowlist reds; the fix is rewriting the commit author to the allowlisted identity or adding the correct `Co-authored-by`, then force-with-lease.
+
+**Never trust a recorded `origin/main` sha** — re-measure `origin/main` on every pass. A tip recorded earlier in the same session can already be superseded, and "base is stale" / "base is current" flips on that single fact. Four commands, all cheap: `gh pr checks`, the pulls API, `git rev-list --left-right --count`, and the job-log curl.
 
 ## Discipline
 
