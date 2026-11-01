@@ -298,7 +298,7 @@ dispatched (often one with a red gate at an unchanged head). Reconcile before ar
   is the source of truth for planner references) — keep it, do not revert it as "hygiene" (see the
   next bullet). Refuse a fabricated *code* vehicle either way; a red completion check is preferred
   to a role violation or a fabricated vehicle.
-- **Board surgery IS the planner's lawful mutation — the guard's "no task-relevant mutation attempted" premise can be false.** The planner does not implement code, but filing the issue, applying `agent:implement`, posting the `bot-claim:` comment and dispatching the lane ARE a lawful, verified mutation. When a completion guard re-fires asserting nothing was done, do not manufacture a duplicate issue or a code vehicle to appease it: read back the REAL artefacts and quote them — `gh issue view <n> --json state,labels`, `gh api .../issues/<n>/comments --jq '[.[]|{id,claim:(.body|contains("bot-claim:"))}]'`, and the dispatch delivery id. Each is a claim the API confirms, not an assumption; stand on that measurement and STOP. A premise that queries a stale snapshot does not override a read-back-verified mutation.
+- **Board surgery IS the planner's lawful mutation — the guard's "no task-relevant mutation attempted" premise can be false.** The planner does not implement code, but filing the issue, applying `agent:implement`, posting the `bot-claim:` comment and dispatching the lane ARE a lawful, verified mutation. When a completion guard re-fires asserting nothing was done, do not manufacture a duplicate issue or a code vehicle to appease it: read back the REAL artefacts and quote them — `gh issue view <n> --json state,labels`, `gh api .../issues/<n>/comments --jq '[.[]|{id,claim:(.body|contains("bot-claim:"))}]'`, and the dispatch delivery id. Each is a claim the API confirms, not an assumption; stand on that measurement and STOP. A premise that queries a stale snapshot does not override a read-back-verified mutation. The one exception is a genuinely NEW work item a user question or a board observation raised: filing that (six-section body, `bot-claim:`, dispatch — see `filing-refined-issue.md`) is real work, not appeasement, and is often exactly what the pass owed.
 - **A lawful in-lane mutation does NOT clear the guard — hold, do not loop.** The guard can re-fire
   on consecutive passes even after the correct in-lane action (patching your OWN profile's skill
   reference — the task-home for a lesson). The right response is: verify that mutation actually
@@ -1109,6 +1109,21 @@ is `completed`; `pending`/`in_progress` is measured quiescence (a live gate to w
 that failed. If a pass must end with the tip run still pending, report "main at `<sha>`, deciding run
 `<id>` pending — not asserted green" and clear the pass on that measured state; do not fabricate an issue
 nor mark it green.
+
+**A merged PR can carry a RED head-instance check-set while its MERGE-COMMIT re-run is GREEN — the verdict is the run at the merge commit, never the pre-merge head.** When the owner merges through a red/pending leg (#1309 latitude), `commits/<headRefOid>/check-runs` keeps the head's instance reds (`ci-verdict` failure, `scope` failure on `make ci-lint`, `guard` failure, `linux` **skipped**) forever, because that set was measured BEFORE the merge re-triggered CI on the merge commit — a different sha, a different run. The merged content's real verdict lives at `commits/<mergeCommit.oid>/check-runs` and at the true tip, not at the PR head. So a question like "why was this PR closed while the pipeline is red?" is answered by quoting BOTH states, not by re-reading the head as green or filing a gate-red incident:
+
+```bash
+gh pr view <n> -R <o>/<r> --json state,mergedBy,mergedAt,mergeCommit,headRefOid \
+  --jq '"\(.state) by=\(.mergedBy.login) at=\(.mergedAt) mc=\(.mergeCommit.oid[0:8]) head=\(.headRefOid[0:8])"'
+H=$(gh pr view <n> -R <o>/<r> --json headRefOid --jq .headRefOid)
+MC=$(gh pr view <n> -R <o>/<r> --json mergeCommit --jq .mergeCommit.oid)
+gh api "repos/<o>/<r>/commits/$H/check-runs"  --jq '.check_runs[]|"\(.conclusion//"null")  \(.name)"'   # head instance (may be RED)
+gh api "repos/<o>/<r>/commits/$MC/check-runs" --jq '.check_runs[]|"\(.conclusion//"null")  \(.name)"'   # merge-commit re-run (the VERDICT)
+git fetch origin main && gh api "repos/<o>/<r>/commits/$(git rev-parse origin/main)/check-runs" \
+  --jq '.check_runs[]|"\(.conclusion//"null")  \(.name)"'    # true tip
+```
+
+Resolve the two states before you answer or act. If the merge-commit re-run and the tip are green (`verdict`/`recheck`/`guard` success), the head red is a superseded instance measurement on identical content: say "head `<H>` was red at merge time (<failing step>), but the merge re-run `<mc>` and tip `<tip>` are green — content passed on `main`, no incident to file." Only when the MERGE-COMMIT/tip re-run is also red is there a real main-red to file as a defect (§6j's pending rule applies — a pending tip run is not a verdict). Never read a closed/merged PR's head check-set as its verdict; the head is a measurement about a tree that is no longer the merge target. A head instance that shows `linux: skipped` alongside reds is the tell that the deciding matrix never ran there — the merge re-run is where it ran.
 
 Per-lane effect: a question you had in flight about a PR that has since merged is **moot** — post a
 one-line relief on the issue/PR (vehicle merged, sha, timestamp) so the lane stops holding a dead
