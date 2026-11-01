@@ -37,7 +37,11 @@ install:
     # not fetch under --no-build-isolation, so preinstall them (uv's own
     # diagnostics): cuda-tile builds with `wheel_stub` (run 41253216593) and
     # sglang-kernel's aot package builds with `scikit-build-core` (run 41253604264).
-    - "uv pip install --system --break-system-packages wheel_stub scikit-build-core"
+    # Also preinstall `cmake` (the PyPI wheel shadows the distro 3.28 on PATH):
+    # sglang-kernel's aot/CMakeLists calls cmake_policy(SET CMP0169/CMP0177 ...)
+    # unguarded, and those are CMake 4.x-only policies — the distro cmake hard-errors
+    # on them, so the aot build needs a 4.x cmake (run 41254674809).
+    - "uv pip install --system --break-system-packages wheel_stub scikit-build-core cmake"
     - "cd {src}/python && SETUPTOOLS_SCM_PRETEND_VERSION={version} uv pip install --system --break-system-packages --no-build-isolation -e '.[all]'"
     # AOT kernels: upstream's CUDA kernel build is aot/CMakeLists via scikit-build-core;
     # the arch list is passed as the same fat list every compiled engine uses. The shared
