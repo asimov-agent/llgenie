@@ -123,6 +123,56 @@ def test_a_new_test_file_no_target_names_fails_and_naming_it_fixes_it(tmp_path):
     assert ok.returncode == 0, ok.stderr
 
 
+def test_a_folded_lane_tool_in_scripts_must_be_wired_or_the_gate_stays_loud(tmp_path):
+    """The #1316 regression: a lane fold places a `scripts/*.py` tool in the tree and it gets
+    wired to nothing — which makes `check-wiring` fail every PR's gate, exactly as it reds on
+    main for an unwired document. It is REAL coverage only when a make target names it.
+    Asserted with a subset check (expected <= actual), never an exact list, so a future
+    legitimately-added tool cannot be masked by updating a roster. The scratch tool is a
+    GENERIC folded-tool name (not the existing folded lane script: naming that real script
+    here would make _imports() treat it as CI-reachable and invalidate its host-only
+    decision — keep the two decoupled)."""
+
+    # Given a checkout with a folded lane tool that NO make target names (the #1310 defect)
+    tool = "folded_lane_tool.py"
+    makefile = (".PHONY: test-unit\n"
+                "test-unit: ## x\n\tpython3 -m pytest tests/test_a.py\n")
+    tests = {"test_a.py": "def test_a():\n    assert True\n"}
+    root = _tree(tmp_path, makefile, tests,
+                 {"ci.yml": "jobs:\n  unit:\n    steps:\n      - run: make test-unit\n"})
+    # the folded tool is a SCRIPTS document (like the real fold-live-profile.py), so it must
+    # live under scripts/ for the wiring graph to count it
+    (root / "scripts").mkdir(exist_ok=True)
+    (root / "scripts" / tool).write_text("def main():\n    return 0\n")
+
+    # When the wiring is checked
+    r = _run(root, "check")
+
+    # Then it stays LOUD and names the unwired tool — the exact error that reds main
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert f"scripts/{tool} is wired to nothing" in r.stderr
+
+    # And wiring it — as a host-only decision (the folded tool is host-owned, like the real
+    # lane folds a live profile a CI runner does not have), mirroring the real fix — resolves it
+    _tree(root, makefile,
+          tests,
+          {"ci.yml": "jobs:\n  unit:\n    steps:\n      - run: make test-unit\n"},
+          exceptions={"documents": {
+              f"scripts/{tool}": {"reason": "host-only: a CI runner has no live profile to fold from",
+                                  "target": "tester-fold-live", "decided": "2026-11-01"}}})
+    (root / "Makefile").write_text(
+        ".PHONY: test-unit tester-fold-live\n"
+        "test-unit: ## x\n\tpython3 -m pytest tests/test_a.py\n"
+        "tester-fold-live: ## x\n\tpython3 scripts/" + tool + "\n")
+    ok = _run(root, "check")
+    assert ok.returncode == 0, ok.stderr
+
+    # And the resolved set is a superset of the wired names — a subset assert, not equality
+    g = cw.graph(root)
+    assert {f"scripts/{tool}"} <= g["named_by_target"]["tester-fold-live"]
+    assert not (set(g["docs"]) - set(g.get("reachable") or g["docs"]))
+
+
 def test_a_target_ci_never_runs_needs_a_dated_decision_and_goes_stale(tmp_path):
     """A host-only check is allowed — as a recorded decision, and it must not rot."""
 
