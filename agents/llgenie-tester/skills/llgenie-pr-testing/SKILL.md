@@ -645,6 +645,11 @@ If two PRs claim the same change, say so and ask which is canonical instead of p
   resolution becomes per-commit, not a mystery drop. `--skip` any pick whose content already landed
   via another merge (the old name/lineage of a renamed-and-merged file renders it empty on the
   rebased base). Prove the net tree (commits present, wiring/test invariants green) BEFORE any push.
+  The three mechanics that stop a SYNC rebase dead — `Terminal is dumb, but EDITOR unset` from
+  `--continue`, a `--force-if-includes` refusal after the rewrite, and a conflict in a GENERATED file
+  — each have a defined next step (`GIT_EDITOR=true … --continue`, a lease pinned to the just-read
+  remote sha, regenerate the index then `git add`); recipe in `references/agent-profile-versioning.md`
+  §"Rebasing a sync PR onto fresh `main`".
 - **`mergeable_state=dirty/CONFLICTING` right after a force-rewrite is usually a stale recompute, not
   a real conflict — verify lineage, then wait for a fresh event.** The head is literally `main` +
   commits when `git merge-base --is-ancestor origin/main <head>` is true; combined with a clean
