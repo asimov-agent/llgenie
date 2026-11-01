@@ -54,6 +54,7 @@ on:
       - search-smoke — one real Firecrawl request proves the masked web reach
       - security-bot — turns ONE auto-fixable vulnerability issue into a green PR (never merges)
       - stale-branch-cleanup — delete non-main branches with no live vehicle, older than 3 days (daily cron)
+      - zero-job-pending — a dispatched run that instantiates no jobs must be named, not left pending
     types: [completed]
 
 permissions:

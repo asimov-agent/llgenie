@@ -1975,6 +1975,12 @@ make check-strata-models     # fail when data/strata_models.json differs from St
 make queued-alarm      # report CI jobs stuck in `queued` too long (a runner that never picks them up, issue #254);
                        # COMMENT=1 delivers it to the run's pull request (else ONE deduped issue per stuck runner
                        # label, for runs no PR tracks) and a delivery that fails is exit 3, never silent; DRY=1 previews
+make check-zero-job-pending  # fail when a dispatched run has been pending/queued longer than MINUTES with ZERO
+                       # jobs instantiated (a runner-starvated dispatch neither queued_run_alarm's job-row scan nor
+                       # run-failure-reactor's conclusion gate names; issue #1410); FILE=1 files ONE deduped issue
+                       # per stuck run (idempotent by run-id marker) — run once per queued-alarm completion by
+                       # zero-job-pending.yml (the robot scheduled-minute budget is exhausted; it rides the
+                       # sibling monitor's :07/:37 cadence rather than owning a minute of its own)
 make stale-branch-cleanup  # delete non-main remote branches that are >=3 days old AND fully delivered (issue #1344),
                            #   REPORTING (never deleting) a branch with an open PR or commits origin/main lacks;
                            #   default report-only, APPLY=1 deletes, AGE_DAYS= overrides the 3-day threshold

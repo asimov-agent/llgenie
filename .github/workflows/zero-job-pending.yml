@@ -1,0 +1,56 @@
+name: zero-job-pending — a dispatched run that instantiates no jobs must be named, not left pending
+run-name: zero-job-pending
+
+# Issue #1410: a `workflow_dispatch` run whose workflow instantiates ZERO jobs stays `pending`
+# forever, and no committed gate names it. `queued_run_alarm` (issue #254) scans a run's JOB ROWS —
+# a zero-job run has none, so it renders "no job has been queued" and reads CLEAN. This is the
+# run-level complement: it lists the repo's queued/in-progress runs and flags the ones `pending`
+# past the threshold whose jobs.total_count is 0, naming run id + head sha + created time, and files
+# ONE deduped issue per stuck run (idempotent by run-id marker). It is the after-the-fact reader
+# that makes a runner-starved dispatch loud instead of an eternal pending placeholder; it never
+# merges and never runs in a pull request.
+#
+# Trigger surface: `workflow_run` on `queued-alarm`, `types: [completed]`. REASONED, not inherited:
+# the fleet's bot scheduled-minute budget is EXHAUSTED — every odd minute is owned by a bot, and the
+# only three free odd minutes (`1`, `35`, `49`) are claimed by registry-liveness's resume (#1407's
+# #1416 moves it there) — so a new `schedule:`-declaring workflow would collide with an existing bot
+# (`test_no_workflow_shares_a_minute`, issues #275/#301), and every-hour dispatch would add a red.
+# Riding queued-alarm's completion reuses ITS verified `:07/:37` cadence (it is the sibling stuck-run
+# monitor; a run-level sweep right after its job-level sweep is the semantic pairing), so this monitor
+# exists without owning a minute of its own. Like run-failure-reactor (issue #295), a `workflow_run`
+# reaction is not startable by a human, so it carries no `workflow_dispatch` and no trigger guard.
+# NOTHING else — no pull_request, no non-main branch (a PR-run monitor here would name PRs whose jobs
+# are legitimately not yet instantiated; this is about dispatched run liveness).
+# Flow: on queued-alarm completing -> make check-zero-job-pending FILE=1
+#       -> on a stuck run, file ONE deduped issue naming it.
+# Never: never in a pull request, never gated by a PR, never merges, never cancels a run, never
+#        weakens a gate.
+on:
+  workflow_run:
+    workflows:
+      - queued-alarm — reports CI jobs queued far too long, once per affected run
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+
+# stacking is intended — each run files per-run issues idempotently (a marker each read back), so a
+# race would read "no issue yet" on both sides and double-file (issue #917).
+concurrency:
+  group: zero-job-pending
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Name zero-job pending runs (file one deduped issue per stuck run)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          make check-zero-job-pending REPO="${{ github.repository }}" MINUTES=30 FILE=1
