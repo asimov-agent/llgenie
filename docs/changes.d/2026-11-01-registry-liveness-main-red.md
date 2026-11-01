@@ -1,0 +1,1 @@
+| 2026-11-01 | fix the un-owned linux/unit main-red: registry-liveness.yml claimed cron minutes 11/29/47 (owned by search-smoke/rebase-bot/architecture-bot) and carried a 26th actor-guard site the non-dispatchable workflow must not have — `make ci-unit` rc 0 at head (un-owned red #1407) | [note](agent-wiki/2026-11-01-registry-liveness-main-red.md) | #1407 |
