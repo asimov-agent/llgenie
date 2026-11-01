@@ -1,0 +1,1 @@
+| 2026-11-01 | agents(llgenie-tester): fold live SKILL +3 & agent-profile-versioning +6 onto #1079 (one-fold-vehicle-in-flight, sequence-strictly, mid-write-stability) | [note](agent-wiki/2026-11-01-tester-live-lessons-6.md) | #1079 |

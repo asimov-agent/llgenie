@@ -134,7 +134,13 @@ deliberately, top first.
   you just shipped, and the merged snapshot is already one round behind. That is the expected shape,
   not a failed sync: open a follow-up vehicle for the delta with its own `CHECK`/guard/lint gates, say
   in its body what it clears (and what it does NOT close), and never report "the sync is done" from
-  the merged head. **Before copying, prove the live file is not MID-WRITE:** hash it, wait a couple of
+  the merged head. **But keep ONE fold vehicle in flight at a time — do not race live.** The delta is
+  monotone accretion (live is never trimmed), so a follow-up opened while the current fold is still
+  open or unmerged copies a superset of what the first vehicle already carries: the second lands a
+  duplicate of the same content, burns a matrix, and produces two PRs whose diffs overlap. Sequence it
+  strictly — land (or see merged) the existing fold, re-enumerate live, then open the next vehicle for
+  whatever accrued since. "Live moved again" is not a reason to open another PR; it is the expected
+  state the next round starts from, and waiting costs nothing because nothing is ever deleted. **Before copying, prove the live file is not MID-WRITE:** hash it, wait a couple of
   seconds, hash again — copy only when two reads agree, and treat a hash that moves between reads as
   another lane's active edit (re-read, do not snapshot). A capture taken mid-write ships a half-written
   file that passes `--check` because both sides carry the same truncation.
