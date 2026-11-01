@@ -33,6 +33,7 @@ import re
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -74,9 +75,29 @@ def smallest_model(skill: dict) -> str:
     `engine_smoke.TEST_MODELS` is the repository's single smallest-model-per-format table; this
     command never invents its own list, so an engine's floor is the same one `make engine-smoke`
     already proves fits any host that can run the engine at all.
+
+    A transient Hub 503/5xx (measured during the full host sweep) must not abort the whole run:
+    the model download is retried with backoff, exactly like `hf_download.py` already retries a
+    429, so a Hub blip skips a breather and the serve still proves llm-local + measured t/s.
     """
     fmt = smoke.pick_format(skill)
-    return smoke.fetch_model(fmt)
+    last = None
+    for attempt in range(3):
+        try:
+            return smoke.fetch_model(fmt)
+        except SystemExit as exc:              # fetch_model raises SystemExit on download rc
+            last = exc
+            if attempt < 2 and "download exited" in str(exc):
+                print(f"[host] fetch {fmt}: retry {attempt + 1}/3 after {exc}", flush=True)
+                time.sleep(15 * (attempt + 1))
+            elif attempt < 2:
+                raise
+        except (urllib.error.HTTPError, OSError) as exc:   # raw Hub 503/5xx propagating in-process
+            last = exc
+            if attempt < 2:
+                print(f"[host] fetch {fmt}: retry {attempt + 1}/3 after {exc}", flush=True)
+                time.sleep(15 * (attempt + 1))
+    raise SystemExit(f"[host] FAIL {skill['id']}: smallest-model fetch failed after 3 attempts: {last}")
 
 
 def _chat(payload: dict, port: int, timeout: float, retries: int = 2) -> dict:
