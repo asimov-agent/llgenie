@@ -1,4 +1,4 @@
-# 2026-11-01 security-scan admission gate alarm (issue #1285, PR #<n>)
+# 2026-11-01 security-scan admission gate alarm (issue #1285)
 
 The all-pipelines sweep treated `security-scan.yml` `disabled_manually` as a benign `DISABLED` row
 and exited 0 — a down daily scan left `main` with no "is a package old today" answer and no alarm
@@ -19,4 +19,5 @@ Verified: `tests/test_all_pipelines.py` all pass; `scripts/lane_preflight.py run
 committed tree. Restore side of #1285 (the `bots_restore_health.py measure` queue-health reading and
 the `gh workflow enable` re-enable) is the operational half handled per #902's recorded condition.
 
-References: implements #1285; PR #<n> (this change).
+References: implements issue #1285. The operational restore half (queue-health measurement, `gh
+workflow enable`) is recorded on issue #1285 as the #902 restore-condition reading.
