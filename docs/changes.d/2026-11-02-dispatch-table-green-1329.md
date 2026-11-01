@@ -1,0 +1,1 @@
+| 2026-11-02 | regenerate the `docs/BOTS.md` dispatch-forms table so `make check-dispatch-forms` is green on main (it had drifted — `engine-build.yml` gained a `model` dispatch input from the #1322 host-verify matrix work); merged as #1347 | [note](agent-wiki/2026-11-02-dispatch-table-green-1329.md) | #1329 |
