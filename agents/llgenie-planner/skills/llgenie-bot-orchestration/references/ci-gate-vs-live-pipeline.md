@@ -81,6 +81,23 @@ So before filing a `main is red` incident:
 A self-refusing guard that stopped a wrong merge is the guard working, not a defect — report it as
 an auto-merge lane misfire to route, never as a tree regression that blocks the board.
 
+## Rule: a lane's local `make <target>` rc0 is not the CI gate — read the run at the head
+
+A lane reporting "check-docs exit 0, census ok, lint ok" has run *some local targets*; the CI job
+can still be red at the same head because it runs a different set. Real instance: a docs PR head
+`de8559ed` was reported green on local `check-docs`, while ci-scope run was FAILURE — `ci-lint`
+(Makefile:1652 `make lint`) runs `scripts/lint_linefeeds.py`, which fails with "markdown headings
+not preceded by a blank line: agents/<lane>/references/<file>.md: lines N" (exit 2). The local
+targets the lane listed never included the linefeed gate.
+
+So: before routing any PR to review, quote the **CI run conclusion at the head**
+(`gh api .../actions/runs/<id>` → `status`/`conclusion`) and the **failing job+step**
+(`gh api .../runs/<id>/jobs` → the step whose `conclusion` is failure), then pull the log with
+`gh api --allow-escape-sequences .../actions/jobs/<id>/logs | grep -ai` (plain `gh api` on logs
+aborts with "response contains terminal escape sequences" and returns ~99 bytes). Route a red
+head back to the PR's own author lane as a one-line fix — never to review, and never re-open a
+second vehicle for it.
+
 ## Rule: answer both halves of the owner's question separately
 
 "Are the live tests refactored out?" and "why did it time out?" are two facts. Report them as two:

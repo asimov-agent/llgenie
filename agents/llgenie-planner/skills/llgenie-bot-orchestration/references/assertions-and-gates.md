@@ -202,6 +202,32 @@ A lane's own longer spelling of the same rule is not a superset of the live text
 head is `<sha>`" after a fetch can be describing a commit nobody else has — measure `git cat-file -s <sha>:<path>`,
 the test suite, and `CHECK=1` byte-identity instead, and treat the sha as "the head when measured".
 
+## Drift direction is per file, and a data-loss alarm is a claim to measure
+
+"The tree is the source" is the *default*, not a measurement. In one fleet pass the same owner directive ("the live
+profile is the latest") applied to eight lanes and the truth differed per file: some files were live-ahead (a curator keeps
+writing live, the tree fell behind → version live→tree) and others were **live-stale** (that lane's own versioning PR
+already landed the newer text, the live copy was the old one → the main→live sync was correct and destructive-sounding
+only in the retelling). Never infer direction from the directive; byte-compare each file:
+
+```bash
+git -C <repo> show origin/main:<tree path> | cmp - <live path>   # identical / differs — per file, not per lane
+```
+
+A lane reporting "I synced the wrong way and the live-only lessons are destroyed, cannot reconstruct" is making a claim,
+not delivering a fact. Before accepting data loss, enumerate every copy on the host and compare each:
+
+```bash
+find ~/.hermes -name '<file>' | while read c; do
+  git -C <repo> show origin/main:'<tree path>' | cmp -s - "$c" && echo "=tree $c" || echo "DIFFERS $c"
+done
+```
+
+If every snapshot matches the tree, nothing was lost — live was the stale side, the sync removed only the gap, and the
+alarm is a false positive to be refuted on record with the count of copies checked. Reserve the data-loss verdict for the
+case where a *differing* copy exists that holds clauses the tree lacks; only then route a restore. Report the direction
+finding per file (`live-ahead 11,887 vs 11,802 b: tree lacks <line>`), never as "the profile is ahead".
+
 ## The tree is the source; the live copy is not
 
 A gate that compares a committed copy against a live artefact **becomes unsatisfiable** the moment anyone edits the live

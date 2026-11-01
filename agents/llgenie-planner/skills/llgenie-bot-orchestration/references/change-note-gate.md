@@ -22,6 +22,12 @@ row)
   the red one step along.
 - Anything touching workflows, Make targets or `scripts/` is behavioural for this gate — check for both
   artefacts before routing a reviewer, or the reviewer's whole pass is wasted on an unmergeable PR.
+- **A change to an agent's own rules is behavioural too.** A diff to `agents/<lane>/SOUL.md` or
+  `agents/<lane>/skills/**` reds the same gate ("this branch changes agents/<lane>/SOUL.md (+N more)
+  but adds no agent-wiki/<stem>.md note"), so a live→tree versioning fold must ship the note and the
+  `docs/changes.d/` row **in the same PR**. A fold that only bumps the profile files is an unmergeable
+  vehicle — verify the note at the fold's head (`git cat-file -e <head>:agent-wiki/<stem>.md`) before
+  you call the sync aligned.
 - **A lane's "change-note duty included" is still a claim.** A same-topic note from an *earlier* issue
   (a prior `*-install-leg-container.md` for a different ticket) does not satisfy the gate for this
   change: the error names the changed files, so confirm the note you find is the one whose stem covers

@@ -33,6 +33,50 @@ direction is evidenced in the PR body with sizes on each side.
   is longer than the tree's, with the byte counts and the first missing heading — the difference between "this is
   versioned" as a claim and as a check.
 
+## Drift needs TWO sets: by-name AND by-content
+
+A name-set diff (`comm` on two sorted filename lists) finds tree-only and live-only files, and stops there. It
+**cannot see a file present on both sides with different content** — the commonest drift, where the tree holds an
+older, truncated copy and live has grown. Equal file counts prove nothing: tree=66 / live=66 with 11 content-diffs
+is 11 unsynced files, and a names-only scan reports "0 live-only" and looks clean.
+
+Always measure both, per file, on the same fetched sha:
+
+```bash
+T=$(mktemp); L=$(mktemp)
+git ls-tree origin/main --name-only agents/<lane>/skills/<skill>/references/ | sed 's|.*references/||' | sort > "$T"
+ls -1 ~/.hermes/profiles/<lane>/skills/<skill>/references/ | sort > "$L"
+comm -23 "$L" "$T"   # live-only: absent from tree
+comm -13 "$L" "$T"   # tree-only: dead in the tree
+while read f; do t=$(git cat-file blob origin/main:agents/<lane>/skills/<skill>/references/"$f" | sha256sum | cut -d' ' -f1)
+  l=$(sha256sum ~/.hermes/profiles/<lane>/skills/<skill>/references/"$f" | cut -d' ' -f1)
+  [ "$t" = "$l" ] || echo "DIFF $f tree=$t live=$l (tree=$(git cat-file blob origin/main:.../"$f"|wc -c) live=$(wc -c < .../"$f"))";
+done < "$T"
+```
+
+- Report a DIFF with **both hashes and both byte counts**: `live > tree` on every row is the signature of
+tree-truncation (a stale fold), which is a different fix from a genuine divergence.
+- A fold that closes the absent-file set does **not** close the drift. Re-scan after it merges: new live-only files
+  appear as the lane keeps learning, and the content-diff set a names-only scan never measured is still there.
+- Dispatch the fold as one issue listing **every** row (both classes) with its sha256, and accept it only on a
+  per-file live==tree sha256 table in the report — a count of files is not evidence of sync.
+
+## "cmp=0 vs live" is a claim; re-diff the PR head against CURRENT live
+
+A fold PR reports "byte-identical, SOUL n b / SKILL n b, cmp=0". Verify it yourself at the PR's real head,
+not the head the lane quoted (a lane often reports the sha from before its last push):
+
+```bash
+git fetch origin 'refs/pull/<n>/head:pr<n>'
+diff <(git show pr<n>:agents/<lane>/skills/<skill>/SKILL.md) \
+     ~/.hermes/profiles/<lane>/skills/<skill>/SKILL.md && echo IDENTICAL
+```
+
+When this diffs, the fold copied a **pre-accretion snapshot** — the live file gained lessons after the lane
+copied it, so the tree ships silently behind live. Acceptance is byte-identity to CURRENT live at fold time.
+Send the lane back to re-read live, byte-copy, and force-push the **same** branch (one vehicle), then prove
+the diff empty before reporting. SOUL can match while SKILL is stale — check each file, not the pair.
+
 ## What to commit
 
 `SOUL.md`, `SKILL.md`, and every `references/` file the live skill actually has — including ones the tree lacks. A tree

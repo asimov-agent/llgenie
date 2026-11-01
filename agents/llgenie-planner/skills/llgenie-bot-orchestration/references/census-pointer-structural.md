@@ -22,3 +22,19 @@ The gate now compares the doc's counts against the tree **at the named referent*
 - **When `docs/ARCHITECTURE.md` conflicts during a rebase, keep main's block**, not the branch's larger re-derived numbers. Re-deriving per-branch counts was the pre-fix habit and is now the *wrong* answer; telling a lane to "keep your own bigger numbers" is a planner error that makes a clean rebase look like a conflict source.
 
 Verify by quoting the gate's own line, which prints the referent, the counts and the ancestor check together — do not hand-recount.
+
+## A MERGED PR can still dangle main's pointer — a ghost referent reddens EVERY PR
+
+Ancestor-only semantics do not protect main from a **ghost referent**: a merged PR that rewrites the census `measured at` to a sha that is not an object at all (`c8817f81` — no local object, `git ls-remote origin <sha>` = 0 rows, unfetchable) landed on main via #1244 and reddened `scope`/`check-docs` for **every** PR. This is the exact #1236/`3104ed11` class recurring after #1222 fixed it — the fix drifts back because a re-point is squashed at merge and nobody re-checks the new pointer on main.
+
+So a census re-point is not verified by "the gate passed on the PR head": the PR's gate ran at a head whose tree still had the old (real) pointer in some paths, and the squash produces a pointer nobody measured. **Verify the referent is a real, reachable object before routing a census-touching PR for merge, and again after any census merge:**
+
+```bash
+git fetch origin main >/dev/null 2>&1
+git show origin/main:docs/ARCHITECTURE.md | grep -n 'measured at'      # what main now names
+git cat-file -t <sha> 2>/dev/null || echo 'NO local object'           # object exists?
+git ls-remote origin <sha> | wc -l                                    # 0 = not a remote ref
+git merge-base --is-ancestor <sha> origin/main && echo ancestor       # AND reachable from main
+```
+
+All three must pass (object exists, reachable, ancestor of main). A fixed PR is a docs-only re-point to the **current** main tip (`bb11bb1f` in the #1246 case) whose counts come from the gate's own `measure()` — the short-term unblock; the durable generator fix (making a re-point measure at the tip automatically) stays its own issue (#1236). Route the docs lane to land the re-point on owner approval (#1088), arm-on-green is its authority, and re-confirm the census criterion holds **on main** after it merges.

@@ -8,6 +8,15 @@ GitHub's pull/issue API returns two distinct keys that get conflated and corrupt
 ## The concrete failure (observed 2026-10-30, rebase lane, 4×)
 A lane kept asserting `gh api pulls/979 → state=blocked` and calling #979 an open, swept, MERGEABLE PR — **three/four times** — while the authoritative record read `pull.state=closed` (closed_at 11:34:04Z, architect's close). It was reading `mergeable_state=blocked` and printing it as `state`. `ls-remote refs/pull/N/head = ffa3006` was true but irrelevant: **a ref resolving a sha is not an open PR**.
 
+## Field-name gotcha in `gh pr list --json`
+
+`gh pr list --json` does **not** accept `mergeable_state` — it rejects the whole query with
+`Unknown JSON field: "mergeable_state"` and returns nothing usable. The list command's field is
+**`mergeStateStatus`** (`BLOCKED/BEHIND/CLEAN/DIRTY/UNSTABLE/UNKNOWN`), while `gh api repos/.../pulls/<n>` exposes
+`mergeable_state` (snake_case). Use `mergeStateStatus` with `gh pr list`, `mergeable_state` with `gh api pulls/`.
+When a batch census query fails on an unknown field, list the valid fields from the error and re-run — do not
+conclude the PRs are unmeasurable.
+
 ## Guard (apply on every pass AND when cross-checking a lane's PR-state claim)
 
 ```bash

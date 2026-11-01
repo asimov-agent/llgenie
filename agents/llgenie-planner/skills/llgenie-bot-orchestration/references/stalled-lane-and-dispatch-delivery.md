@@ -91,6 +91,104 @@ kanban task names may be lane A's own tree (its HEAD is lane A's head sha). Halt
 live head, shelf the task as superseded, and post the single-owner stand-down on the PR so lane A's claim
 stays visible. Do not send two lanes at one branch — the second push overwrites the live head.
 
+## A lane refutes a dispatch you never made — queued DMs replay earlier windows
+
+A lane replying "your #N dispatch was grounded on a false premise / main is not `<sha>` / that issue is
+already closed" may be answering an instruction that is **not on your live board**: a DM queued in an
+earlier context window replays after compaction, so the lane reacts to the old text while your current
+line-up says something else. Signature: the lane states a premise, sha or issue you do not hold open
+right now, and its refutation is *internally correct* against that stale premise.
+
+Do not re-argue from memory and do not re-dispatch to "correct" it — that starts ping-pong. Instead:
+
+1. Grep your own pass record for the cited id. If you never dispatched it this session, it was a stale
+   queued message, not a live instruction.
+2. Measure the facts the lane asserts (main tip, PR state, issue state) from the API. Confirm the
+   refutation is right *about the stale premise* — it usually is.
+3. Send ONE reconciliation: "that premise is from a queued message from an earlier window, not my live
+   board; here is the live state." Name the live sha/issue state so the record is unambiguous.
+4. Stop. When the lane replies "agreed, no disagreement remains," do not answer again — a further reply
+   is the duplicate-delivery mistake the queue rule forbids, now on the receiving side.
+
+Also carry a lane's declared authority boundary as a fact, not a debate: e.g. the ci-pipelines lane does
+not rebase PRs (owner instruction) — a rebase need routes to the rebase lane, so a dispatch telling it to
+rebase its own PR is wrong on its face and the refusal is correct.
+
+## A fast-merging owner makes every lane's quoted base stale within minutes
+
+The owner merges the sync/copy cohort in streaks: five merges in one hour moved `main`
+`1db367a2 → 0c842d24 → e886e05c → 92e03503 → 8b8a6c39 → 543466ca`. Every lane that reported a
+base/head in that window was reporting a base already outrun — the implementer, the architect, the
+tester and the engine lane each measured against a tip two-to-five merges behind. Consequences to
+watch for on every pass:
+
+1. **Never quote a base you did not fetch this minute.** `git fetch -q origin main` then compare the
+   PR's `base.sha` against `git rev-parse origin/main`. `base.sha` on the PR object is the fork point,
+   not the current tip — a PR can read `base=92e03503` while main is `543466ca`.
+2. **A lane saying "waiting only on CI" on a DIRTY PR is the #964 trap.** `mergeable=false,
+   mergeable_state=dirty` means that head will never get green and never land; no amount of CI on it
+   helps. The remedy is a rebase onto current `origin/main` by the branch owner (fix-PR owners rebase
+   their own branches; the rebase lane only for cross-lane conflicts), then re-run CI, then arm only
+   on a mergeable+green rebased head with a non-null REST `enabled_at`.
+3. **Re-point the rebase target when main moves under you.** A rebase lane given `92e03503` finishes
+   onto a base that `543466ca` has already superseded — tell it to fetch fresh at its own turn and
+   rebase onto whatever `origin/main` is at that moment, reporting that sha, and expect to repeat
+   this while the owner's streak continues.
+4. **A lane's head sha in a DM is often an intermediate ancestor.** A lane repeatedly quoted
+   `c7446d6f` as its head when the real PR head was `598ca0ce`; verify with
+   `gh pr view <n> --json headRefOid` and bind every measurement to that sha.
+
+## A lane looping identical false status reports — escalate out of the loop, don't reply
+
+One lane (the implementer) sent ~16 near-identical status DMs across a gateway glitch, each asserting
+the SAME false state at a dead head (`7b00cc33` / "MERGEABLE / 13-14 green, unit in_progress") that the
+API contradicted on every axis (`mergeable=false, ms=dirty`, the unit run a completed FAILURE, the head
+long superseded). Recognition and handling:
+
+1. **Measure once, post the truth on-record**, then state the ignore-rule explicitly in your next
+   message: "a further report quoting `<dead-sha>` / zero reds will be ignored as a false report."
+2. **Then hold silence.** A message of exactly that shape gets no reply — replying restarts the loop.
+   Do not re-litigate; the on-record issue comment (`6550870908`) is the truth the reviewer reads.
+3. **Do not let "watchdog armed" fiction become a hazard.** A loop-claiming lane often says it will
+   arm auto-merge "the moment green AT head" — at a dead head that arm would be a #964 trap. Send ONE
+   stop-acting instruction to the lane and a coordination note to whoever owns the real head.
+4. **Keep working the real signal** (branch motion, CI at the true head, the owner lane's action)
+   while ignoring the noise stream; the lane's "going quiet now" is a promise, not a state.
+
+## A lane looping CORRECT settled reports — one explicit release breaks it, then silence
+
+The mirror of the false-report loop: a lane re-confirms the SAME *true* state 6-8 times
+("#1225 head `ff4b597d`, mergeable/blocked, merge-tree clean, per-#1015 hold, nothing owed"). It is
+not wrong — it is trapped resolving STALE dispatch re-deliveries queued in an earlier window that
+keep asking it to "rebase onto `<old-sha>`" / "head is `af92e048`", premises it already superseded.
+Each replay triggers a fresh correct refutation, so the loop feeds itself.
+
+Handling differs from the false-report case (where you escalate once then go silent with NO reply):
+here the lane's last message is usually a legitimate boundary question ("do you want an owner-level
+re-anchor override?"). Answer it ONCE, explicitly, to break the loop:
+
+1. State plainly that no new order exists: the dispatches it keeps resolving are stale re-deliveries,
+   already satisfied — treat future repeats as noise and ignore them.
+2. Give the owner-level ruling explicitly so it cannot re-ask: e.g. "NO re-anchor override — per #1015
+   a MERGEABLE PR does not rebase on base advance; leave it." Name the rule, not just the verdict.
+3. List the exact conditions under which it may speak again (branch becomes genuinely CONFLICTING via
+   merge-tree nonzero / implementer pushes / an owner merge needs it), and ask for a single
+   "acknowledged, standing down" and nothing more.
+4. Then hold silence — the next duplicate of the settled shape gets no reply.
+
+Key distinction: a false-report loop is correctable only by an on-record truth comment then silence;
+a true-report loop is broken by an explicit release + boundary ruling, because the lane is stalling on
+a decision it correctly believes is the planner's to make.
+
+## A lane claiming a rewrite when the OID predates its turn
+
+When a lane reports "rebased / force-pushed to head `<sha>`," prove the OID is new before believing the
+work happened: `git fetch origin refs/pull/<n>/head` then compare that sha against the one you measured
+before its turn. A head identical to the pre-turn OID *did* change nothing the lane is credited for —
+git OIDs are content hashes, so an unchanged sha means the tree is byte-identical regardless of what was
+pushed. That settles routing without accusing anyone: the branch is clean and at target, the "rebase
+owed" premise was false, and no force-push is needed. Report the object-level fact, not intent.
+
 ## Check a lane's WHOLE vehicle load before gifting it unowned work
 
 "Unowned issue has no open PR" is not the same as "this lane is free." The one-vehicle rule has a blind

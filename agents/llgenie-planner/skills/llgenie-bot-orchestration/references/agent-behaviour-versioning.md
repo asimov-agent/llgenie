@@ -36,6 +36,13 @@ only in a home directory. Doing that safely has a direction, an author, and an a
   `agents/<profile>/` mirror exists for review. File the versioning issue for the tree mirror AND edit the live
   skill now — a rule that exists only as an issue changes nothing until some later PR lands it, so the pass that
   "filed it" leaves the fleet still running the old behaviour while reading as work that moved.
+- **A fleet-wide contract is N per-lane behaviour PRs, not one umbrella issue-body edit.** When a rule binds
+  many lanes (e.g. an idle-capable lane must run its own-domain audit), an architect/refiner folding the clause
+  into the tracking issue is only *design* — the behaviour itself lands when EACH operational lane edits its own
+  live SOUL/skill and opens its own `agents/<lane>/` #791 PR. The planner's own lane versions itself the same
+  way (edit live → file its versioning issue → cut the PR). Do not treat a refined issue body as the behaviour
+  having changed: the lane still runs its old rule until its own file carries the new one. Same-pass rule applies
+  per lane, and the pass names which lanes still owe their behaviour PR.
 - A behaviour that contradicts a fleet rule is fixed by **amending the versioned instruction** (issue + PR under
   `agents/<profile>/`), never by a private edit and never by a standing one-off override.
 - **When a completion check demands a "task-relevant mutation" and the lane has no legitimate code work, the
@@ -82,6 +89,29 @@ decide authority, then reconcile:
 - The additive rule still governs the common stale side: when the tree has **no** content live lacks and live is
   longer, only `>` lines is the proof of a clean sync. Reach for the over-cap test first — it tells you which of
   the two regimes you are in before you read a single diff line.
+
+### Deciding which files owe a fold: diff the directories as SETS
+
+A single-file question ("is this reference on both sides?") is answered by a **whole-directory set
+comparison**, never a one-name grep and never the lane's assertion. Grep for one filename misses every
+other file that is missing, and a mistyped name returning `grep -c 0` reads as "absent" for the wrong
+reason. Compare the two directories as sets:
+
+```bash
+L=<profile>/skills/<skill-dir>/references; T=$(mktemp); Ld=$(mktemp)
+git ls-tree origin/main --name-only agents/<lane>/skills/<skill-dir>/references/ | sed 's|.*/||' | sort > "$T"
+ls -1 "$L" | sort > "$Ld"
+comm -23 "$Ld" "$T"    # LIVE-ONLY  = fold debt (each must be versioned into the tree)
+comm -13 "$Ld" "$T"    # TREE-ONLY  = tree carries content live pruned; inspect for truncation
+```
+
+- **A non-empty live-only set is a genuine fold obligation**, even after a lane reports "nothing else to
+  version" — the lane's scope may have been one file while the directory owes a dozen. Measure before
+  accepting any "no second file owed" conclusion.
+- **A non-empty tree-only set is the truncation tell** — decide authority first (the over-cap test above),
+  then reconcile; do not reflexively abort on the `>`/`<` lines.
+- **Count both sides and enumerate the live-only set in the issue**: `tree=N live=M, K live-only`. The
+  enumerated list *is* the acceptance list — one byte-identical commit per file.
 
 ## Knowing whether an approver exists
 
