@@ -144,6 +144,18 @@ deliberately, top first.
   seconds, hash again — copy only when two reads agree, and treat a hash that moves between reads as
   another lane's active edit (re-read, do not snapshot). A capture taken mid-write ships a half-written
   file that passes `--check` because both sides carry the same truncation.
+- **A fold's own proof lives at the MERGE COMMIT, computed against the CURRENT `origin/main` — not at
+  your PR head and not against your PR's base.** A squash merge is a new tree whose sha you never
+  authored, so `git cat-file blob <pr-head>:<path>` matching live says only that the head was right, and
+  a drift table computed against the base you branched from reports files as drifted that have since
+  landed. After the merge: fetch, then for each folded path compare
+  `git cat-file blob <merge-commit>:<path> | sha256sum` against `sha256sum < "$LIVE/<path>"` and confirm
+  `git merge-base --is-ancestor <merge-commit> origin/main` — that pair is "the fold held and it is on
+  the default branch". When the same read shows live has already moved past the merge commit, report
+  BOTH facts in one line (held at `<merge>`; drifted since at `<live>`): the next delta is the expected
+  next round, never evidence the fold failed. Enumerate the drift against `origin/main`'s blob per file
+  (a loop over `git ls-files agents/<profile>`), so a file that landed last round cannot be miscounted
+  as open drift.
 - **Never force a sync over a live file another lane just edited without reading both.** The live
   profile is edited by other lanes too; a `REFUSED … live newer than the source commit` can be a real
   in-flight edit. Read the diff, decide which side is correct (canonical-block comparison above), and

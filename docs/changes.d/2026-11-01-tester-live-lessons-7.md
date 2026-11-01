@@ -1,0 +1,1 @@
+| 2026-11-01 | agents(llgenie-tester): fold live SKILL +9 & agent-profile-versioning +12 onto #1079 (branch-gone-is-state-read-not-head-moved; merge-commit-vs-current-main proof) | [note](agent-wiki/2026-11-01-tester-live-lessons-7.md) | #1079 |

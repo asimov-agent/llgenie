@@ -311,12 +311,20 @@ against `name:` prefixes, not ids).
   ```
   for i in $(seq 1 80); do
     h=$(git ls-remote origin refs/heads/<branch> | cut -f1)
+    if [ -z "$h" ]; then echo "BRANCH_GONE — read .state/.mergedAt, do not keep polling"; exit 0; fi
     if [ "${h:0:8}" != "<watched-head-8>" ]; then echo "HEAD_MOVED to ${h:0:8} — new CI cycle"; exit 0; fi
     r=$(gh pr checks <n> --repo <repo> 2>&1)
     if ! printf '%s' "$r" | grep -qE 'pending|queued|in_progress|waiting'; then echo "CONCLUDED @ $h"; ...; exit 0; fi
     sleep 30
   done
   ```
+
+  **An EMPTY `ls-remote` result is its own outcome, not a moved head.** A branch ref that vanishes means
+  the PR was merged and `delete_branch_on_merge` reclaimed it (or someone closed and dropped it) — so the
+  empty string must branch to a STATE read (`gh pr view <n> --json state,mergedAt,mergeCommit`), never be
+  folded into the "head moved" case: comparing `"${h:0:8}"` against a watched sha makes the empty ref
+  satisfy the inequality and report `HEAD_MOVED to` with a blank sha, which sends you looking for a new CI
+  cycle on a branch that no longer exists.
 
   Compare the tip **at the top of each cycle**, before reading check state; and when a completion
   notification arrives, check its sha against the current head before acting on it. A wake-up naming a
@@ -518,7 +526,8 @@ run <id> · head <sha> · main <sha> · <n> passed / <n> failed · fails on main
 Fleet rules themselves are changed through `agents/<profile>/`, not by editing the live profile: see
 `references/agent-profile-versioning.md` for the sync, gate, stacked-base, **local-vs-remote
 verification** (a green `--check` in your worktree is not a fix on the branch that lands — `git show
-<branch-head>:<file>` matching live is) and **landing behind a live run** (a `gh run watch` watcher
+<branch-head>:<file>` matching live is, and a merged fold's proof is the blob at the MERGE COMMIT
+compared to live, hashed against the CURRENT `origin/main` rather than the PR's base) and **landing behind a live run** (a `gh run watch` watcher
 that pushes on the run's conclusion, never a push that cancels it). Enumerate the lane's files with
 `scripts/fold-live-profile.py --profile <n>` (drift table + `--copy` live → tree), never from an
 assumed directory shape: the live home carries every skill, the tree only the versioned ones. Keep ONE
