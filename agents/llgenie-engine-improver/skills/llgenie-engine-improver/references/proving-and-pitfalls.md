@@ -219,6 +219,29 @@ rename, and the fix belongs in the same commit, not in a report.
   if the checks are already green and the branch is mergeable, `gh pr merge --auto` performs the merge
   at once. Read `mergeStateStatus` first if the PR was meant to stay reviewable, and report
   `auto=<enabledAt>` **or** `state=MERGED` — never claim "armed" for a PR that is already merged.
+- **A peer's ruling names a sha — verify it is the TIP, not your tip's parent.** A scope ruling measured
+  at an amend's parent reads as "base is wrong / deletes the other lane's files" while the true tip is
+  clean; the check is `gh api repos/<o>/<r>/pulls/<n> --jq .head.sha` against
+  `git rev-list --parents -n1 HEAD` (the second sha is the parent). Answer rulings by measuring the diff
+  at the tip (`git diff --name-only origin/main <tip>`), and name the parent explicitly when a peer's
+  numbers come from it — a disagreement that is one commit deep looks like a contradiction otherwise.
+- **A dispatch run pinned to an older sha stays valid when the workflow's real inputs are byte-identical.**
+  An amend that only touches docs/census does not invalidate a `workflow_dispatch` confirm of an
+  engine-build fix, because engine-build reads the Makefile, the workflow and the tests — not the docs.
+  Decide by diffing the workflow's input files between the dispatch sha and the tip, never by comparing
+  head labels; a pinned run is a snapshot of the tree at that sha and does not move when you push.
+- **`git push` exiting 0 — or answering `Everything up-to-date` — is not proof the intended tree is on the
+  remote.** Read it back: local `git rev-parse HEAD`, `git ls-remote origin <ref>`, and the PR's head
+  (`gh api .../pulls/<n> --jq .head.sha`) must be the SAME sha before you report a push landed, and
+  `mergeable` should be read back in the same call rather than inferred from the push's exit status.
+- **A PR's head lives in the repo named by `.head.repo`, which can be a FORK while the base is upstream.**
+  When the head sha does not move after a push that clearly landed, read
+  `gh api repos/<o>/<r>/pulls/<n> --jq .head.repo.full_name` before concluding "propagation lag": a
+  branch pushed to the upstream repo carries no PR and no re-run, and the reviewer sees the fork's older
+  commit. Push to the head repo (`git push <fork-url> HEAD:refs/heads/<branch>`), and lease against what
+  that remote actually holds — `git ls-remote <fork-url> refs/heads/<branch>` — not a local remote-tracking
+  ref, which is stale and gets the push rejected as `stale info`. Then read the PR head back from the API
+  and quote it; a fork push and an upstream push carry the same commit but only one updates the PR.
 - **A long backoff with no output is indistinguishable from a hang.** Any wait loop over the
   network (a Hub 429, a retry ladder) must print what it is waiting for and for how long, on
   stderr. A silent multi-minute park gets reported to the user as a broken tool.
