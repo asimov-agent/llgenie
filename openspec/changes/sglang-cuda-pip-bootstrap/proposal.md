@@ -65,3 +65,27 @@ this cell alone fails on the shared base.
 - The rocm cell keeps `pip list`/`python3 -m pip` — its base
   (`rocm/pytorch:...`) is a full PyTorch image with pip present; the cuda
   base is the pip-less one, and the issue scope is cuda only.
+
+## Pivot during implementation (restore prebuilt)
+
+The bootstrap fix (uv for the pip steps) is necessary but not sufficient: it
+exposed a second, structural defect. The cuda cell's source AOT build compiled
+sglang-kernel from the pinned sha on `nvidia/cuda:13.0.2-devel`, and that build
+regressed the previously-green cell (all-FAILURE Oct 31 → Nov 1). Measured with
+a scripted kernel-compile repro under a faithful 16GiB/4-CPU container cap:
+**the OOM is kernel-size-bound, not knob-fixable** — both the 6-arch
+`TORCH_CUDA_ARCH_LIST` set and a strict single-arch `TORCH_CUDA_ARCH_LIST=8.9`
+(with `SGL_KERNEL_COMPILE_THREADS=4`) OOM-kill at the same
+`csrc/gemm/fp8_gemm_kernel.cu.o` (`Error 255`), so the single nvcc pass exceeds
+16GiB at *any* arch set/thread cap. No narrowing or serialization can fit a 16GB
+hosted runner.
+
+Decision (routed by planner, endorsed): the cuda variant restores the
+**prebuilt `lmsysorg/sglang:v0.5.22`** official serving image
+(`container.cuda.prebuilt: true`), which ships the engine + compiled CUDA
+kernels and runs zero install steps (`engine_skills.py`: `if prebuilt` →
+`steps = []`). The uv/pip bootstrap for the devel base is moot for this variant
+(the prebuilt image ships its own runtime). Scope is sglang cuda only; rocm's
+source build is untouched. Larger-runner was considered and rejected (owner-wide
+infrastructure cost). This is why the cuda `install` list is now empty and the
+Dockerfile `FROM`s the tagged serving image.

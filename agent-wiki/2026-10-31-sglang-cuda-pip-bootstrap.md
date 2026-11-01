@@ -46,3 +46,22 @@ uv for two pip steps.
 
 #1240 (cuda-CDI install-leg gap), #1241 (vllm torch-index pin), #1196 (mkdir fix) — each a
 separate issue/branch; rocm keeps `pip` (its base ships pip).
+
+## Pivot during implementation (restore prebuilt)
+
+The uv bootstrap was necessary but not sufficient: it exposed a second, structural defect.
+The cuda cell's source AOT build compiled `sglang-kernel` from the pinned sha on
+`nvidia/cuda:13.0.2-devel`, and the cell regressed green→all-FAILURE (Oct 31 → Nov 1). Measured
+with a scripted kernel-compile repro under a faithful 16 GiB/4-CPU container cap, the OOM is
+**kernel-size-bound, not knob-fixable**: both a 6-arch `TORCH_CUDA_ARCH_LIST` set and a strict
+single-arch `TORCH_CUDA_ARCH_LIST=8.9` (threads=4, dedicated cache) OOM-kill at the same
+`csrc/gemm/fp8_gemm_kernel.cu.o` (`Error 255`). The single nvcc pass exceeds 16 GiB at *every*
+arch set and thread cap.
+
+This commit restores the green base for the cuda cell only (`container.cuda.base =
+lmsysorg/sglang:v0.5.22`, `prebuilt: true` — the official serving image ships the engine +
+compiled CUDA kernels, and the renderer runs zero install steps). The `install.cuda` list is
+therefore empty; rocm's source build is untouched. Pre-push, the detect/version line was run
+inside the actual `lmsysorg/sglang:v0.5.22` image (`sglang --help` rc=0, version `0.5.22`,
+literal detect `DETECT sglang 0.5.22` rc=0). Box-4 stays unticked until the fresh CI engine-build
+proof at the new head is GREEN.

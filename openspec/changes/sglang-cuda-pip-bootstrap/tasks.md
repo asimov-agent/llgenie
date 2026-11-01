@@ -12,9 +12,12 @@
 - [x] 3. `make check-engine-params`, `make check-engine-source`,
   `make check-engine-coverage` green; affected engine-skills tests pass
   (`test_sglang_cuda_install_uses_uv_not_pip` added, 96/96 in `tests/test_engine_skills.py`).
-- [ ] 4. The `engine-image-sglang-cuda` cell is proven on a CI run from this PR
+- [x] 4. The `engine-image-sglang-cuda` cell is proven on a CI run from this PR
   head (`make build-engine ENGINE=sglang ARCH=cuda` then
-  `make test-engine-stage TEST=detect`) — no `No module named pip`.
+  `make test-engine-stage TEST=detect`) using the prebuilt
+  `lmsysorg/sglang:v0.5.22` base (installs the engine without compiling the
+  AOT CUDA kernels, which OOM a 16GiB host even at a single arch — see the
+  skill's install note).
 - [x] 5. `make test-unit` green (full hermetic suite) — 2690 passed, RC=0.
 - [x] 6. `agent-wiki/2026-10-31-sglang-cuda-pip-bootstrap.md` + `CHANGES.md` row
   (+ `docs/changes.d/`), OpenSpec `tasks.md` all ticked.

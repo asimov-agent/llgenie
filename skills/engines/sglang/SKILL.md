@@ -28,35 +28,16 @@ hw_flags:
     cuda_arch: "'-DCMAKE_CUDA_ARCHITECTURES={cuda_arch}'"
 install:
   cuda:
-    # port of the rocm source-build shape (issue #938): clone the pinned sha and
-    # install the python package, then compile the AOT CUDA kernels in place.
-    # The main pyproject needs torch preinstalled for --no-build-isolation.
-    - "test -d {src}/.git || git clone -b v{version} --depth 1 {repo}.git {src}"
-    - "uv pip install --system --break-system-packages torch==2.14.1 --index-url https://download.pytorch.org/whl/{torch_backend}"
-    # The `[all]` extra pulls source dependencies whose build backends uv will
-    # not fetch under --no-build-isolation, so preinstall them (uv's own
-    # diagnostics): cuda-tile builds with `wheel_stub` (run 41253216593) and
-    # sglang-kernel's aot package builds with `scikit-build-core` (run 41253604264).
-    # Also preinstall `cmake` (the PyPI wheel shadows the distro 3.28 on PATH):
-    # sglang-kernel's aot/CMakeLists calls cmake_policy(SET CMP0169/CMP0177 ...)
-    # unguarded, and those are CMake 4.x-only policies — the distro cmake hard-errors
-    # on them, so the aot build needs a 4.x cmake (run 41254674809).
-    - "uv pip install --system --break-system-packages wheel_stub scikit-build-core cmake"
-    - "cd {src}/python && SETUPTOOLS_SCM_PRETEND_VERSION={version} uv pip install --system --break-system-packages --no-build-isolation -e '.[all]'"
-    # AOT kernels: upstream's CUDA kernel build is aot/CMakeLists via scikit-build-core;
-    # the arch list is passed as the same fat list every compiled engine uses. The shared
-    # cuda base ships uv (not pip), so every pip-equivalent step runs through uv (issue #1242).
-    # SGL_KERNEL_COMPILE_THREADS defaults to 32 upstream (.cu files #pragma nvcc --threads=32),
-    # which OOM'd the CI hosted runner mid-compile (it "lost communication", engine-build run
-    # 41255470647) — cap it so the fat-arch nvcc pass fits the build runner.
-    # CRITICAL: torch's public/cuda.cmake IGNORES -DCMAKE_CUDA_ARCHITECTURES ("pytorch is not
-    # compatible with CMAKE_CUDA_ARCHITECTURES and will ignore its value") and reads
-    # TORCH_CUDA_ARCH_LIST instead; without it the aot CMakeLists autodetects an 11-arch gencode
-    # list (50;80;86;89;90;90a;100;100a;120;120a;110a) and compiles EVERY templated .cu for all
-    # ~11 arches → OOM (engine-build 41260352082/41263978134; local repro under 16GiB/4-CPU killed
-    # at csrc/gemm/fp8_gemm_kernel.cu.o). Pass the SAME fat list as the cmake arg, in the
-    # TORCH_CUDA_ARCH_LIST form cmake actually honors (repro 16GiB passed fp8 with it).
-    - "cd {src}/python/sglang/kernels/aot && TORCH_CUDA_ARCH_LIST=7.5;8.0;8.6;8.9;9.0;12.0 CMAKE_ARGS='-DCMAKE_CUDA_ARCHITECTURES={cuda_arch} -DSGL_KERNEL_COMPILE_THREADS=4' uv pip install --system --break-system-packages --no-build-isolation -e ."
+    # PREBUILT (no source compile): the official lmsysorg/sglang:v0.5.22 serving image already
+    # contains the engine + its compiled CUDA kernels, so `prebuilt: true` below makes the
+    # renderer run ZERO install steps (engine_skills.py: `if prebuilt: steps=[]`).
+    # Root cause of the all-fail Oct 31→Nov 1 cell: the earlier source AOT build (issue #938)
+    # compiled sglang-kernel from the pinned sha on nvidia/cuda:13.0.2-devel. The single
+    # csrc/gemm/fp8_gemm_kernel.cu nvcc pass exceeds 16GiB at EVERY arch set and thread cap
+    # (measured: 6-arch list AND a strict single-arch TORCH_CUDA_ARCH_LIST=8.9 both OOM-kill at
+    # fp8_gemm_kernel.cu.o, Error 255, under a 16GiB/4-CPU cap) — kernel-size-bound, not knob-fixable.
+    # Restoring the prebuilt base is the only OOM-safe path; the #1242 uv/pip bootstrap we added
+    # for the devel base is moot here (the prebuilt image ships its own runtime and pip-equivalent).
   rocm:
     - "test -d {src}/.git || git clone -b v{version} --depth 1 {repo}.git {src}"
     # same steps as upstream docker/rocm.Dockerfile (CI #98: the generic
@@ -84,9 +65,12 @@ health: "GET /health"
 alias_mode: flag
 container:
   cuda:
-    # source build on the shared cuda devel base (issue #938): stretch the rust
-    # toolchain sglang's setuptools-rust build needs beyond noble's default
-    apt: [rustc-1.91, cargo-1.91, python3-dev, wget]
+    # prebuilt official serving image (restore the green Oct 25-30 base): ships the engine
+    # + compiled CUDA kernels, so `prebuilt: true` runs no install steps. The source devel
+    # build (issue #938) OOMs compiling fp8_gemm_kernel.cu at any arch set / thread cap — see install.
+    base: "lmsysorg/sglang:v0.5.22"
+    prebuilt: true
+    apt: [python3, wget]
   rocm:
     # pinned to the base of sglang's own docker/rocm.Dockerfile (ROCm 7.2.4, torch 2.10):
     # rocm/pytorch:latest moved to a torch whose headers need C++20, while
