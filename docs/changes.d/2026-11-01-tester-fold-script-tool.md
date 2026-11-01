@@ -1,0 +1,1 @@
+| 2026-11-01 | agents(llgenie-tester): version the live-only `fold-live-profile.py` lane tool into `scripts/` (tree-derived drift table + `--copy`, mid-write guard, exit codes) | [note](agent-wiki/2026-11-01-tester-fold-script-tool.md) | #1079 |
