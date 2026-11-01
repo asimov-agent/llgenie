@@ -28,8 +28,16 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import subprocess
 import sys
+import time
+
+
+#: A GitHub answer lost in transit rather than a verdict about the head: a 502/503/504 gateway error
+#: or a timeout. Retried a bounded number of times before the loud failure that a genuine refusal gets
+#: on the first attempt (the same class as `architecture_bot`'s retry, issue #1311).
+TRANSIENT = re.compile(r"50[234]|gateway timeout|timed out|timeout", re.I)
 
 
 def _gh(gh: str, args: list[str]) -> str:
@@ -40,18 +48,40 @@ def _gh(gh: str, args: list[str]) -> str:
     return done.stdout
 
 
+def _gh_retry(gh: str, args: list[str], attempts: int = 3, delay: float = 1.0) -> str:
+    """`_gh` retried on a transient gateway failure; anything else fails loud on the first attempt.
+
+    A 404 (the API genuinely cannot confirm the head) is never transient and is raised on the first
+    attempt — the head must not be silently decided by a channel the API refused to answer.
+    """
+    last: RuntimeError | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return _gh(gh, args)
+        except RuntimeError as exc:
+            last = exc
+            if not TRANSIENT.search(str(exc)):
+                raise
+            if attempt < attempts:
+                time.sleep(delay)
+    assert last is not None
+    raise last
+
+
 def ci_run_count(gh: str, repo: str, head_sha: str) -> int:
     """The number of `ci.yml` `pull_request` runs at `head_sha` — the one fact that separates classes.
+
+    The query is the raw URL-string form (`?head_sha=…&event=…&path=…&per_page=1`) rather than the
+    `-f` form-encoding, which `gh` 2.103.x rejects on `GET /repos/{owner}/{repo}/actions/runs` with a
+    spurious 404 (issue #1311); the raw form is what the rest of the tree uses and what measures 200.
 
     `gh api` prints the error BODY on stdout when a call is refused, so the parse must treat anything
     that is not a bare integer as no answer and fail loudly rather than guess "no CI run".
     """
-    out = _gh(gh, ["api", f"repos/{repo}/actions/runs",
-                   "-f", f"head_sha={head_sha}",
-                   "-f", "event=pull_request",
-                   "-f", "path=.github/workflows/ci.yml",
-                   "-f", "per_page=1",
-                   "--jq", ".total_count"])
+    out = _gh_retry(gh, ["api",
+                         f"repos/{repo}/actions/runs?head_sha={head_sha}"
+                         "&event=pull_request&path=.github/workflows/ci.yml&per_page=1",
+                         "--jq", ".total_count"])
     try:
         return int(out.strip())
     except ValueError:

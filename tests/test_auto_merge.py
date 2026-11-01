@@ -908,12 +908,15 @@ print({count!r})
     gh = fake_gh("1")
     assert ch.main(["channel", "--repo", "o/r", "--head-sha", HEAD, "--gh", gh]) == 0
     assert "channel=ci" in (tmp_path / "out1").read_text(), (tmp_path / "out1").read_text()
-    # And the query filtered for the ci.yml workflow file at that head (the scope run at the same head
-    # must not count as a CI run); the log then says the decision.
+    # And the query is the raw URL-string form (issue #1311): the `-f` form-encoding is rejected by
+    # `gh` 2.103.x on this endpoint with a spurious 404, so the argv must carry the params IN the URL
+    # and never as `-f` flags. The query still filters for the ci.yml workflow file at that head (the
+    # scope run at the same head must not count as a CI run); the log then says the decision.
     call = json.loads(log.read_text().splitlines()[0])
-    assert call[1] == "repos/o/r/actions/runs"
-    assert "-f" in call and "path=.github/workflows/ci.yml" in call, call
-    assert "event=pull_request" in call and f"head_sha={HEAD}" in call, call
+    assert call[1].startswith("repos/o/r/actions/runs?"), call
+    assert "-f" not in call, call
+    assert "path=.github/workflows/ci.yml" in call[1], call
+    assert "event=pull_request" in call[1] and f"head_sha={HEAD}" in call[1], call
 
     # Given a docs-only head with NO ci.yml run (only the scope run exists): this sweep decides.
     monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path / "out2"))
@@ -931,6 +934,65 @@ sys.exit(1)
     gh_err.chmod(0o755)
     monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
     assert ch.main(["channel", "--repo", "o/r", "--head-sha", HEAD, "--gh", str(gh_err)]) == 2
+
+
+def test_a_transient_gateway_error_is_retried_and_recovers(tmp_path, monkeypatch):
+    """A 502/504 (the answer lost, not a verdict) is retried a bounded number of times, then recovers.
+
+    The retry is the load-bearing half of issue #1311's fix: the raw-URL form leaves the API reachable,
+    and a lose-answer gateway error must not turn a green, armed head into a red sweep. A 404 (this API
+    genuinely cannot confirm the head) stays LOUD on the FIRST attempt — never retried into a silent
+    "no CI run" — so the same helper must not mask a real refusal.
+    """
+    import scripts.auto_merge_channel as ch
+
+    # Transient: first two calls fail 502, the third answers "1" = a code head.
+    gh = tmp_path / "gh-transient"
+    log = tmp_path / "gh-transient.log"
+    log.write_text("")
+    gh.write_text(f"""#!{sys.executable}
+import sys
+with open({str(log)!r}, "a") as fh:
+    fh.write("CALL" + "\\n")
+n = open({str(log)!r}).read().count("CALL")
+if n < 3:
+    sys.stderr.write("HTTP 502 (gateway error)\\n"); sys.exit(1)
+print("1")
+""")
+    gh.chmod(0o755)
+    assert ch.ci_run_count(str(gh), "o/r", HEAD) == 1
+    calls = log.read_text().count("CALL")
+    assert calls == 3, calls
+
+
+def test_a_genuine_404_is_loud_on_the_first_attempt(tmp_path, monkeypatch):
+    """A 404 (truly unconfirmable head) is a loud failure on the FIRST call, never retried silently.
+
+    The retry must re-attempt only a lost answer (502/504), never swallow a refusal that the API
+    answered definitively — otherwise a disabled/unfindable workflow would be decided channel=auto-merge
+    by a blind retry loop. Pins the "one call, then exit 2" behaviour.
+    """
+    import scripts.auto_merge_channel as ch
+
+    gh = tmp_path / "gh-404"
+    log = tmp_path / "gh-404.log"
+    log.write_text("")
+    gh.write_text(f"""#!{sys.executable}
+import sys
+with open({str(log)!r}, "a") as fh:
+    fh.write("CALL" + "\\n")
+sys.stderr.write("404 (no such run)\\n"); sys.exit(1)
+""")
+    gh.chmod(0o755)
+    # Force a single attempt: default retry would take 1s+; assert the 404 is NOT retried (first call loud).
+    monkeypatch.setattr(ch, "_gh_retry", lambda g, a, attempts=3, delay=1.0: ch._gh(g, a))
+    try:
+        ch.ci_run_count(str(gh), "o/r", HEAD)
+        raise AssertionError("expected a loud RuntimeError for a genuine 404")
+    except RuntimeError as exc:
+        assert "404" in str(exc), exc
+    # One call only — a real 404 must not spin a retry loop.
+    assert log.read_text().count("CALL") == 1, log.read_text()
 
 
 def test_the_scope_sweep_skips_a_code_head_and_decides_once(tmp_path):
