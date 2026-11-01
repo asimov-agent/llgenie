@@ -57,9 +57,10 @@ previews). Nothing is published without drift, and the bot never merges.
    all of it (launcher, start scripts, shims, engine containers; `PURGE_IMAGES=1` also drops
    the images) and `make test-uninstalled` proves nothing of ours is left behind.
 4. **Trend list** — `scripts/model_engine_pick.py` reads `data/models.json`, filters models
-   to the ones whose VRAM tier fits this card (`trend_list` also applies the store's own
-   `system_ram_min` floor when it states one, so a host without the RAM is never shown a
-   row), and ranks them. `recommend` is what plain `llgenie` shows: the upstream README
+   to the ones whose VRAM tier fits this card (`trend_list` also applies the system-RAM floor,
+   read from the evidence that admitted the model — the run's own `system_ram_min`, else the RAM
+   its `hardware` names, else the model's declared figure only when the evidence states none — so
+   a host without the RAM is never shown a row), and ranks them. `recommend` is what plain `llgenie` shows: the upstream README
    "Most loved" order, with a stated reason on rows
    that cannot be served here; `rank_models` keeps that README order for models that have a
    runnable engine here, while each row's engines come from `rank_engines`, which orders
