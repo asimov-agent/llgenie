@@ -98,6 +98,62 @@ aborts with "response contains terminal escape sequences" and returns ~99 bytes)
 head back to the PR's own author lane as a one-line fix — never to review, and never re-open a
 second vehicle for it.
 
+## Rule: a merged PR can leave a repo-wide gate red on main — a PR's red step may predate its branch
+
+A PR whose gate fails is not automatically the PR's own diff. When the failing step is a **repo-wide**
+check (wiring / roster / lint / census), test whether the SAME step fails on `main` at the merge tip
+before the PR branched — a merged PR can land a file that violates the gate for every future PR. Real
+instance: a fold merged a new `scripts/*.py` into the tree wired to nothing (no make target, no
+workflow, no importer), so `make check-wiring` reds on main and every subsequent PR's `scope` job
+fails on that exact step regardless of its own content.
+
+```bash
+# the failing job+step, structurally
+gh api repos/<o>/<r>/actions/runs/<red-run>/jobs \
+  --jq '.jobs[]|select(.conclusion=="failure")|.name+" :: "+([.steps[]|select(.conclusion=="failure")|.name]|join(","))'
+# does that step's cause predate the branch? read the gating rule on main itself
+git fetch origin main
+git show origin/main:Makefile | grep -nE '<the-gate-target-or-marker>'
+```
+
+When the step fails on main for a reason the PR did not introduce, the PR's own diff is not the
+defect: file the merged-PR regression as its own issue (route to the lane that merged the offending
+file — it owns the file), and tell the PR owner its red is a **pre-existing tree red, not its content**
+— do NOT ask it to edit unrelated files to clear a gate it does not own, and do NOT let two PRs each
+try to "fix" the shared red in their own branch (that manufactures two conflicting vehicles for one
+defect). One vehicle on the owning lane, mirrored from `agent_profile_sync.py`/`check_agent_profiles.py`
+style, never by deleting the gate.
+
+**A CLOSED issue is not the owner of the red — it is usually the guard that caught it.** When a lane
+attributes a gate red to an issue number, read that issue's `state` before repeating it: in llgenie a
+CLOSED issue is commonly the *guard* whose shipped test now flags the violation (a report-hygiene/
+wiring/census rule), not an open defect owner. `gh issue view <n> --json state,closedAt` — if CLOSED,
+the residual is a NEW issue to file against the offending file's owning lane, never a re-point of the
+closed one. When the reddener is a peer lane's tool/script, route the fix to THAT lane and tell the
+blocked PR owner its red is pre-existing, not its content — the exact lane-boundary rule above, now
+with the closed-issue trap that makes it look already-tracked when it is not.
+
+## Rule: a PR can MERGE while its deciding leg is `in_progress` or even `failure`
+
+An owner merge does not prove the deciding gate was green. Verify the deciding leg's conclusion at
+the **merge head**, never "green locally" nor "checks passed" from a report:
+
+```bash
+gh pr view <n> -R <o>/<r> --json state,mergedAt,mergeCommit,headRefOid \
+  --jq '{state,mergedAt,mc:.mergeCommit.oid[0:8],head:.headRefOid[0:8]}'
+gh api "repos/<o>/<r>/actions/runs?head_sha=<merge-head>" \
+  --jq '.workflow_runs[]|select(.name=="CI")|{id:.id,status:.status,conclusion:.conclusion}'
+gh api repos/<o>/<r>/actions/runs/<deciding-run>/jobs \
+  --jq '.jobs[]|select(.name|test("unit"))|"\(.name) \(.status)/\(.conclusion)"'
+```
+
+If the deciding leg at the merge head is `in_progress`/`conclusion:null` or `failure`, the merge went
+through a gate that never concluded green — record it as measured fact ("merged `<sha>` at `<time>`
+with `<leg>` `<status>`, never completed green"), and never repeat a lane's "the leg was green at the
+merge." The owner's merge latitude is the owner's call (#1088); what the planner must not do is
+**certify** a merge as gate-green when the deciding leg never concluded — that false certification is
+worse than no claim, because the owner reads it as verified.
+
 ## Rule: answer both halves of the owner's question separately
 
 "Are the live tests refactored out?" and "why did it time out?" are two facts. Report them as two:

@@ -20,6 +20,26 @@ prompt to re-measure. Handle it in this order:
 4. **Never satisfy the probe by editing a peer lane's branch or file**, or by widening another
    lane's scope. That breaks lane boundaries; a red probe is preferred to that.
 
+## On a planner turn the probe's premise is wrong
+
+A planner never edits the tree — filing the tracked issue, posting the `bot-claim:`, and dispatching
+the owning lane **are** the task-relevant mutations, and they are all GitHub-side. So "no changed
+tree path" is the expected, correct state of a finished planner pass, never evidence of an
+incomplete one. The tree evidence for that work is the owning lane's merge, which lands later.
+
+When the probe re-fires within the same turn, do not re-litigate it and do not invent an edit to
+silence it. Measure whether the lane has started and state the status once:
+
+```bash
+git ls-remote origin 'refs/heads/agent/issue-<n>-*' 'refs/heads/fix/*<n>*'   # empty ⇒ not started
+gh pr list --state open --search '<n>' --json number,headRefName              # empty ⇒ no vehicle
+git show origin/main:<offending file> | grep -nE '<refused shape>'            # still on main ⇒ fix not landed
+```
+
+Report "planner slice complete, fix delegated, still in flight" with those three reads as the
+proof. Manufacturing a code edit to turn the probe green is both the forbidden act (a planner
+branch/PR is a mistake) and the wrong fix (the defect belongs to the lane that introduced it).
+
 Every mutation you record carries the sha and timestamp it was measured at, and you verify the
 read-back before claiming it landed.
 

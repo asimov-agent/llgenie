@@ -32,6 +32,25 @@ dispatched against. The original issue is cross-referenced as related, never `cl
   and quote `enabledAt`; `mergeStateStatus: BLOCKED` on this fleet is usually review-only (#1088),
   so judge by `mergedAt`, not by the arm's presence.
 
+## Auto-close fires on a BODY keyword only
+
+GitHub links a PR to an issue only when the PR **body** (or a commit message) contains a closing
+keyword — `close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved` followed by `#<n>`.
+A bare `#<n>` in the PR **title**, or the number mentioned in prose, links nothing. A merged PR
+whose body never carried the keyword leaves its issue OPEN forever, with the fix already on `main`.
+
+- When a fold/lane reports "merged", do not infer the issue closed. After the merge, check
+  `gh issue view <n> --json state,stateReason,closedAt`. For a squash-merged PR also read its body:
+  `gh pr view <p> --json body` — if the first lines are a heading and the number appears only in
+  the title, the issue is orphaned.
+- An orphaned issue is closed by the planner **with evidence, not by reopening the PR** (the diff
+  is already `main`'s): comment the merge sha, the head, the criterion measured on `main`, then
+  `gh issue close <n> --comment -`.
+- The durable fix is a CI gate that extracts closing keywords from the PR body and reds an
+  `agent/*` PR that names its issue with none — file it against the CI-pipelines lane, and phrase
+  the acceptance as a contains/subset assert ("some closing keyword exists"), never an exact set of
+  issue numbers, which reds on the next legitimate link.
+
 ## Report shape
 
 Accept the work only when you can quote: new head sha, the `closes #<n>` line, both issue states, the

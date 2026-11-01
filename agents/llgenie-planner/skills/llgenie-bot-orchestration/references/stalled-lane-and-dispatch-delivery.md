@@ -81,6 +81,30 @@ before reacting:
    the delivered item and never re-assign the earlier item to another lane that would then race.
 4. Record the reorder on the issue thread so the next reader sees why the line-up changed.
 
+## A lane ships before your scope amendment lands — verify by residual scan, then one corrective vehicle
+
+A mid-run scope amendment ("add this 13th file to the fold set") loses a race with a lane that has
+already committed: it reports the original scope as DONE with the extra item still outstanding and
+cites your *superseded* bound as the reason. Do not reopen the merged PR (its diff is now `main`) and
+do not treat the report as false — it is scope-faithful to the pre-amendment brief.
+
+1. **Prove the delivered part fully landed.** `git cat-file blob origin/main:<path> | sha256sum` per
+   file against the live source; a per-file OK/DIFF list settles the 12-of-13 question in one block.
+2. **Residual-scan for what is left**, don't trust the lane's own list: walk every file in the
+   references dir on `main`, compare to the live dir, and also `comm` live-vs-tree for live-only
+   files. Output "present-but-diff count=N" + any live-only names. This is the evidence the next
+   reader and the corrective dispatch both need.
+3. **File one follow-up issue** naming the missed item, the measured live-vs-tree shas/sizes, and the
+   root cause (amendment landed after commit). One PR, one file, `closes #<new>`. Never a second
+   vehicle for the already-merged part.
+4. **State the process correction on-record and in the dispatch**: when the orchestrator amends scope,
+   the lane confirms receipt/action on the live issue before holding an earlier "don't touch" bound.
+5. **A planner-owned references dir is an ACTIVE lane** — live copies grow mid-run, so every fold
+   re-measures live immediately before commit and folds whatever live says at that moment (the
+   aggregate sha moving between branch and merge is normal, not an error).
+6. Expect docs-class merges to land before their own main-CI verdict: a main run `in_progress` at the
+   merge tip is pending, not green — carry it to the next pass rather than quoting it as passed.
+
 ## A dispatched lane that is really a second lane on one vehicle
 
 An orchestration tick can dispatch lane B to "fix PR #n" from a stale snapshot while lane A already owns
@@ -179,6 +203,30 @@ re-anchor override?"). Answer it ONCE, explicitly, to break the loop:
 Key distinction: a false-report loop is correctable only by an on-record truth comment then silence;
 a true-report loop is broken by an explicit release + boundary ruling, because the lane is stalling on
 a decision it correctly believes is the planner's to make.
+
+## A lane holding "not merged / awaiting CI verdict / yours to route" on a PR the owner ALREADY merged mid-run
+
+The single most common replay shape when the owner merges fast: a lane finishes, opens its PR, and
+reports "MERGEABLE, not merged, not armed, holding for your routing / awaiting the run at head" — while
+the owner merged that exact head minutes earlier. The lane is not wrong about what it did; its message
+predates the merge and replays after the fact. Signature: `gh pr view <n> --json state,mergeCommit`
+returns `MERGED` at the sha the lane quotes as its head, and the issue closed (`COMPLETED`). Every such
+report must be re-measured, not believed — and the lane's OWN green scope run (`ci-scope` completed/
+success at that head) is the proof the owner merged it through a *clean* leg, not the pending gate the
+lane thinks it is still waiting on.
+
+Handle in one correction, then treat every identical replay as settled (no re-ack — that restarts the
+loop):
+
+1. Quote the read-back: `state=MERGED, mergeCommit=<sha>, mergedAt=<ts>` at the lane's own head sha,
+   and the issue's `CLOSED/COMPLETED` time via its `Closes #<n>` keyword.
+2. Tell the lane its measured green `ci-scope` run at that head **is** the clean-merge evidence — there
+   is no verdict left to await, no watcher to keep.
+3. Name the three things it must NOT do: push the now-merged branch (force-pushing a merged branch is
+   forbidden), open a re-delivery PR, or re-verify a merged vehicle (the #1317 lesson). Idle-release.
+4. When several lanes (docs, ci-pipelines, rebase, tester) each replay their own pre-merge "holding"
+   line, correct each once with its own merged sha; do not cross-correct or re-argue. Their later
+   "released / standing down" acks need no reply.
 
 ## A lane claiming a rewrite when the OID predates its turn
 

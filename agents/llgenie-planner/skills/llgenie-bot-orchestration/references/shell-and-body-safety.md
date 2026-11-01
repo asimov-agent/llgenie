@@ -12,9 +12,17 @@ double-quoted string.**
 
 ```
 BAD   gh issue comment N --body "text with `some-command` inside"
+BAD   printf '%s\n' "text with `some-command` inside" | gh issue comment N --body-file -
 GOOD  write the body to a file, then:  gh issue comment N --body-file /tmp/body.md
 GOOD  gh issue comment N --body 'single-quoted, backticks are literal'
 ```
+
+**`printf "…"` is the same defect wearing a hat.** The format argument is still a double-quoted
+string, so its backticks are command-substituted before `printf` ever sees them. Shell prints
+`command not found` for each code span and the comment posts with the spans silently removed —
+it exits 0, the URL comes back, and the body is quietly mangled. If a body carries inline code,
+`write_file` then `--body-file <path>`, or a single-quoted heredoc; never a double-quoted argument
+to any command (`printf`, `echo`, `gh … --body`).
 
 ## Why this outranks convenience
 

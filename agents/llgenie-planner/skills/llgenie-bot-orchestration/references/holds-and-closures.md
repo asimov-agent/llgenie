@@ -13,6 +13,22 @@ Load this whenever you audit `do-not-merge`, close out an issue, or apply a flee
 
 Why the issue is mandatory: `mergeStateStatus` reads `BLOCKED` for a live hold and for nobody-has-looked alike. The tag is the only place ownership lives, so it must carry the remedy — otherwise the PR parks until a human reads forty of them.
 
+## Re-measure a hold's REASON, never inherit that it exists
+
+This applies to every hold shape — a `do-not-merge` label on a PR, **and a planner "held, not dispatched — same file as an in-flight task" comment on an issue**. Both read identically to *owned work*: a comment or label saying "held on X" looks the same whether X is still live or closed a week ago, so any reader (a cron tick, the next pass, you) skips the issue as if somebody is on it.
+
+So an audit does not ask "is there a hold?"; it asks **"is the thing the hold named still true?"**:
+
+```bash
+# the hold text names a blocker issue/PR — re-measure that blocker, not the hold
+gh issue view <blocker> --json state,title         # CLOSED ⇒ the hold has expired
+gh pr list --state all --search '<n> in:body' --json number,state,headRefName
+```
+
+A planner issue-hold whose blocking task has since **closed and merged via its PR** (the same file touched by an already-merged PR) is a **dead hold**: release it in a comment quoting the merge sha as proof the overlap is gone, then claim + dispatch. Leaving it in place because "there is a hold comment" is the abandonment shape — tracked state that no longer means anything, from inside rather than opposite end.
+
+**A recurring tick that reports "nothing dispatchable" is a claim to re-measure, not a verdict to inherit.** When the cron repeats that phrase across passes, the likely cause is exactly a dead hold (or a closed blocker) the tick never re-checked. Each manual pass re-derives from the API: for each `agent:implement` issue, is there a live `bot-claim:`, an open branch, AND an open PR — or is the only "ownership" a stale hold comment whose blocker closed? Confirm the blocker's state before you accept "held".
+
 ## Rule 14: announce the work where the work lives, and talk to the overlapping lane
 
 A claim is a **comment on the issue or PR** — never a DM, never private memory. Before the first edit: post what you are taking, the branch, and what "done" means; then **re-read the thread**, because an existing claim, a live branch, or the last lane's note outranks the plan.
@@ -60,6 +76,7 @@ Same for a skill or SOUL change: when the rule lands, tick the referent — a ru
 
 ## Pitfalls
 
-- **A hold placed during an incident is not self-clearing.** The lane that set it moves on; nobody can tell whether it still means anything.
+- **A hold placed during an incident is not self-clearing.** The lane that set it moves on; nobody can tell whether it still means anything. Re-measure the reason ("Re-measure a hold's REASON" above) — do not treat the presence of the tag or comment as ownership.
+- **An issue hold is not a label, so no `do-not-merge` audit finds it.** Planner "held, not dispatched" comments live only in the issue thread; sweep open `agent:implement` issues' comments for hold text whose named blocker is now closed, not just PRs for held labels.
 - **Two tools, one distinction.** *Request changes* = not right yet, no label, expires with the next review. `do-not-merge` = concrete defect **with an issue number**. If you cannot name the issue that fixes it, you are reviewing, not holding.
 - **A conflict is the reason, not the remedy.** Either a rebase resolves it (do the rebase, no label) or the divergence is structural and needs the issue that removes the cause.

@@ -28,6 +28,16 @@ phantom. Say "held locally, owner-gated" — never "unpushed and therefore unver
 `git worktree list --porcelain` shows worktrees of one clone only; a lane's work can be in a
 sibling clone that no worktree listing mentions. Search clones and branches, not just worktrees.
 
+**And never grep `worktree list --porcelain` near a branch name to pair them.** The output is a
+block per worktree (`worktree <path>` / `HEAD <sha>` / `branch refs/heads/<b>` / blank). `grep -A2
+'<branch>'` anchors on a branch line and returns the *next* block's lines, so it pairs your branch
+with a DIFFERENT worktree's path — measured: a grep for `issue-797` returned a worktree that was
+actually checked out on `fix/1119-tools-block-blank-line`. Read the pairing from the block itself
+(`git worktree list --porcelain | awk -v b=<branch> '/^worktree /{w=$2} $0=="branch refs/heads/"b{print w}'`),
+or — the reliable move — ask the worktree directly: `git -C <worktree> rev-parse --abbrev-ref HEAD`
+and `git -C <worktree> rev-parse HEAD`. The branch a worktree truly holds is its own `HEAD`, never
+the line your grep landed beside.
+
 ## 3. Run-level duration includes queue dwell
 
 Sweep tools that print `run.created_at → run.completed_at` are queue-inclusive: `217m24s` and
@@ -57,6 +67,13 @@ Quote the job-level span when the claim is "the unit leg took N minutes".
   treat "direct" as authoritative; run the identical command yourself (`git ls-remote ... refs/heads/main`
   AND `git fetch origin main && git rev-parse origin/main`) and quote YOUR sha. The lane's own fetch is
   a claim about a clone, same as any other.
+- **A check-runs verdict binds to the sha YOU measure — read `headRefOid` in the same breath.** A head
+  moves under you (often a push that answered your own dispatch), so `commits/<sha>/check-runs` against a
+  sha you remembered measures the OLD tree: the same PR can read `fail:[ci-verdict, linux/unit]` at the
+  remembered head and `15 success, 0 fail, 0 in-progress` at the live one, which is the difference between
+  "red, dispatch a fix" and "ready". Never query a literal sha from a lane report or an earlier pass —
+  `H=$(gh pr view <n> --json headRefOid -q .headRefOid)` and query `commits/$H/check-runs` in the same call,
+  and cite `head=$H` in whatever you conclude.
 
 ## 4b. "That sha / comment does not exist on this repo" — check the ID, not a search
 
@@ -129,6 +146,32 @@ says "those worktrees / that sweep aren't mine", check the facts: worktrees unde
 `llgenie-wt/` with rebase-lane suffixes (`pr*`/`*-rebase`) are the pr-merge-conflict lane's, and if
 their PRs are `MERGED` the branches are history, not a live vehicle. A lane correctly refusing scope
 it never took is a correction of *your* tracker — record it and re-route, don't re-insist.
+
+## 5c. Dispatch ownership: a lane's persistent refusal can mean YOUR assignment is wrong
+
+Before dispatching — and especially before RE-dispatching after a lane pushes back — prove which lane
+owns the issue from the repository, not from a memory note or a prior pass.
+
+- **Ownership is a fact in the tree, not in the planner's notes.** `git log origin/main -- <path>`
+  shows which lane authored the file's history (`feat(engines)…`, `chore(engine)…`); `docs/BOTS.md`
+  shows which workflow builds/publishes an artifact. A memory note like "X publish = <lane> domain"
+  is a prior, not evidence — a stale one silently routes work to the wrong lane.
+- **A gate that REPORTS a red does not OWN the fix.** A checker that waits on a producer tag
+  (e.g. `check-engine-launchers`) is the detector; the fix is the lane that builds and publishes the
+  artifact (`make push-engine` inside the `engine-image-*` cells), or repins the source. Route the fix
+  to the PRODUCER and cite the gate only as the detector.
+- **Persistent refusal is a signal, not defiance.** When a lane declines a dispatch three-plus times,
+  or (stronger) never acknowledges the specific issue in ANY reply and keeps answering a different,
+  older, already-retired thread, the most likely cause is that YOUR assignment is wrong — not that the
+  lane is stubborn. Stop re-asserting the dispatch; re-derive ownership from the tree.
+- **Default to the filer/owner.** If a lane filed the issue from its own standing gate and owns the
+  file's history, it owns the fix unless the tree says otherwise. Overriding that needs positive
+  evidence, not an assumption carried over from an earlier pass.
+- **Correct on the record, not by DM alone.** On discovering a mis-assignment: post an
+  ownership-correction comment on the issue naming the concrete evidence (the git-log commits, the
+  BOTS.md line), release the wrong lane's claim explicitly on the issue, dispatch the true owner, and
+  tell the wrongly-tasked lane it was right to hold. A correction that lives only in a DM does not
+  exist for the next reader.
 
 ## 6. "The PR contains <file>" — read the head tree, not the report
 
@@ -233,6 +276,13 @@ dispatched (often one with a red gate at an unchanged head). Reconcile before ar
   lane boundary. Post the same routing/relief text as `gh issue comment` / `gh pr comment` (the
   planner's correct on-record channel anyway) and cite the comment id. Retry the DM only once the
   guard is no longer the blocker.
+  The guard also refuses a **single `terminal` call that batches read-only `gh api`/`gh view`
+  probes WITH a mutation in the same command** ("requires task-relevant implementation now.
+  Read/search/test-only actions are paused; mutation tools remain available"), even when the
+  mutation is the lawful `gh issue edit`/`gh issue comment`. Split it: one terminal call per
+  mutating `gh` verb (`gh issue edit <n> --add-label …` alone), then a separate read-back call
+  (`gh issue view <n> --json state,labels`) to prove it landed. Batching reads with a write is the
+  shape that trips the guard; a lone mutation followed by a lone read does not.
 - When the guard escalates and demands a **repo-level mutation** (a commit/branch/PR), a planner
   has no lawful one — "you do not implement" means a branch/PR/commit from the planner lane is the
   mistake, and mirroring your own reference files into the shared clone's `main` working tree is
@@ -248,6 +298,7 @@ dispatched (often one with a red gate at an unchanged head). Reconcile before ar
   is the source of truth for planner references) — keep it, do not revert it as "hygiene" (see the
   next bullet). Refuse a fabricated *code* vehicle either way; a red completion check is preferred
   to a role violation or a fabricated vehicle.
+- **Board surgery IS the planner's lawful mutation — the guard's "no task-relevant mutation attempted" premise can be false.** The planner does not implement code, but filing the issue, applying `agent:implement`, posting the `bot-claim:` comment and dispatching the lane ARE a lawful, verified mutation. When a completion guard re-fires asserting nothing was done, do not manufacture a duplicate issue or a code vehicle to appease it: read back the REAL artefacts and quote them — `gh issue view <n> --json state,labels`, `gh api .../issues/<n>/comments --jq '[.[]|{id,claim:(.body|contains("bot-claim:"))}]'`, and the dispatch delivery id. Each is a claim the API confirms, not an assumption; stand on that measurement and STOP. A premise that queries a stale snapshot does not override a read-back-verified mutation.
 - **A lawful in-lane mutation does NOT clear the guard — hold, do not loop.** The guard can re-fire
   on consecutive passes even after the correct in-lane action (patching your OWN profile's skill
   reference — the task-home for a lesson). The right response is: verify that mutation actually
@@ -289,6 +340,28 @@ gh run view <redrun> -R <o>/<r> --log 2>&1 | grep -iE '<gate-marker>'   # is the
   is the census/#1222 class vehicle, and the branch's own fix (import-roots ratchet) is already
   correct. Route the residual red to that vehicle's owner and tell the lane to hold per "don't push an
   unowned branch".
+
+  Prove "shared" before you say it, and prove it two ways — the gate must (a) run on EVERY PR
+  regardless of diff class, and (b) fail on `main` for a reason the branch never touched:
+
+  ```bash
+  # (a) which gates does the deciding workflow run unconditionally?
+  gh api repos/<o>/<r>/contents/.github/workflows/<wf>.yml --jq '.content' | base64 -d \
+    | grep -nE 'make |name:'                     # a step with no `if:` runs for every PR of that class
+  # (b) the failing job+step, structurally (never grep the raw log — see §7)
+  gh api repos/<o>/<r>/actions/runs/<run-id>/jobs \
+    --jq '.jobs[]|select(.conclusion=="failure")|.name+" :: "+([.steps[]|select(.conclusion=="failure")|.name]|join(","))'
+  # (c) reproduce that gate at the PR's merge-base — a red there is not the branch's
+  git merge-base origin/main <head> | xargs -I{} git show {}:<workflow>.yml >/dev/null
+  ```
+
+  The typical shape: a merged sibling added `make` targets (or a validator the workflow now calls)
+  without adding them to the documented surface, so `make check-docs`/the docs gate reds the branch
+  under review for a defect that is already on `main`. Attribution, not repair: the branch owner is
+  released, the red is filed/tracked against the lane that introduced it, and the plan does not
+  demand a fix on a PR whose own payload is clean. A red inherited from `main` also reds every PR
+  opened afterwards, so it is a live blocking red — say so with the run id and the failing step when
+  you hand it over.
 
 Accepting a verified stale-dispatch correction is not re-litigating — it is the cheap loop
 (measure-three → post one-line reconcile → release the lane). The failure mode to never repeat is
@@ -470,6 +543,8 @@ both the lane name and the repo path (`agents/<lane>/skills/security-scan-ops/` 
 ```bash
 find ~/.hermes/profiles/<lane> -type d -name <skill-dir>
 ```
+
+**But `find -name <basename>` alone is ambiguous — never match a file by basename to pick "the" live copy.** A profile holds many files named `SKILL.md` / `references/*.md`; `find <profile> -name SKILL.md | head -1` silently grabs a *different skill's* file, and your sha comparison then reports a **false DIFF** (I nearly told a lane its fold was broken when the wrong SKILL.md was compared). Anchor the live path on the skill-dir segment, not the basename: `find <profile> -path '*<skill-dir>*' -name SKILL.md` — or better, construct `<profile>/skills/<skill-dir>/<rel-path>` after confirming the skill-dir with the `-type d -name <skill-dir>` probe above. When a `live==tree` compare reports DIFF, FIRST re-derive the live path and re-sha before asserting a defect — a basename collision is far more common than a real divergence.
 A **third** fold beyond the two dispatched files is acceptable when it stays under the lane's own
 `agents/<lane>/` and is disclosed — but it is also the signal a live writer is active: route that
 writer to the owner-gated live-drift tracker, and keep this bounded vehicle as a snapshot (do not
@@ -500,7 +575,16 @@ gh pr list -R <o>/<r> --head "fix/<n>-..." --json number,state   # empty = no PR
 
 Empty on both means the item is **"awaiting branch", not "in flight"** — it holds no vehicle, blocks
 no fresh dispatch, and must not be counted as a lane's load or armed (`gh pr merge --auto` on a
-phantom arms nothing and reports success). Do not route a *second* item on the assumption the lane is
+phantom arms nothing and reports success). **But a branch that exists LOCALLY with real commits and was
+never pushed is a third state — a stalled-claim with publishing debt, not "in flight".** The tell:
+`git ls-remote origin <branch>` empty while a local ref carries committed work
+(`git log --oneline <branch>` shows the seam commits, `git rev-list --count origin/main..<branch>` > 0).
+A completed implementation with no pushed ref and no PR produces nothing reviewable: it blocks no
+dispatch and delivers nothing, and the work is stranded where a prune or cleanup can destroy it. The
+dispatch is binary, not a nudge — either (a) rebase onto a fresh `origin/main`, push, open the PR
+ready-for-review (`Closes #<n>`, the `AGENTS:` preflight line, the base sha), and report PR#/head/run-id;
+or (b) release the claim on the issue with the owning-lane reason. Never count a local-only completed
+branch as "the lane is busy": "blocked on none + no PR" is un-published, not held. Do not route a *second* item on the assumption the lane is
 busy with it. When you discover your own premise was wrong, correct the on-record queue/issue with the
 measured emptiness and the `main` sha you measured at — a fleet-state claim is verified exactly like a
 lane's claim, and an unverified "in flight" is what makes the board look blocked when it is idle.
@@ -544,6 +628,8 @@ If `state=MERGED`, the arm was consumed at `mergedAt` and there was never a live
 say "merged `<sha>` at `<time>`, arm moot" and drop it. Never act on an `autoMergeRequest`-only
 observation (no push, no cancel, no re-arm) on a PR whose `state` you have not read.
 
+**On an OPEN PR, a single `UNKNOWN` `mergeable` is a computation race, not a state — re-read before concluding anything.** GitHub recomputes mergeability asynchronously after a base advance or a push, so the first read after either can answer `UNKNOWN`/`null` while the PR is genuinely `CONFLICTING` (the next read says so). Two parallel reads in one batch can even disagree (`UNKNOWN` vs `CONFLICTING`) for the same PR. Never dispatch from, or report, a lone `UNKNOWN`: include `state`, re-read once after `git fetch` settles, and if you must know *which* file conflicts, prove it on the objects (`git merge-tree $(git merge-base <head> origin/main) <head> origin/main`) rather than re-polling the API.
+
 **`mergeable`/`mergeStateStatus = UNKNOWN` (or `null`) is NOT evidence the PR is open and freshly-pushed — a MERGED/closed PR also returns UNKNOWN there.** A read that asks only `{headRefOid,mergeable,mergeStateStatus}` on a just-merged PR comes back `UNKNOWN/UNKNOWN` and reads like "fresh push, mergeability still computing", when the PR is actually `state=closed merged=true`. Always include `state` (and `merged`) in the SAME read — `gh api repos/<o>/<r>/pulls/<n> --jq '{state,merged,merged_at,merge_commit_sha,head:(.head.sha[0:9])}'` — and, when it says merged, confirm the merge commit is really on the tip (`git fetch origin main && git merge-base --is-ancestor <merge_commit_sha> origin/main`). An owner's merge batch advances `main` past your last fetch, so a PR you thought was open can be already-merged by the time you read it; settle on the lifecycle object, never on `mergeable` alone.
 
 **On an OPEN PR, a lane's "armed `<time>` method SQUASH (read back)" is still a claim — read the field yourself.** `gh pr merge --auto` exits 0 and can arm NOTHING (non-default base, blocked state, a phantom branch), and the lane's own read-back line is not evidence. Settle it directly — and read the **raw REST** field, not the GraphQL shortcut:
@@ -555,7 +641,7 @@ gh api repos/<o>/<r>/pulls/<n> --jq '"enabledAt=\(.auto_merge.enabled_at) enable
 An object with a non-null `enabled_at` is armed; `enabled_at:null` — even when `enabled_by`/`merge_method` are populated — means nothing is armed despite the exit 0. **The GraphQL field lies where REST does not: `gh pr view --json autoMergeRequest.enabledAt` can report a populated timestamp (a lane quoted `2026-10-31T23:06:42Z`) while raw REST `.auto_merge.enabled_at` is `null` — the GraphQL value is the auto-merge-request identity, the REST `enabled_at` is the enablement FACT.** A lane that quotes the GraphQL `enabledAt` as "armed" is quoting the #964 trap verbatim; verify with REST before believing or relaying it, and have the lane correct its on-record read-back (the false claim is worse than no claim — the owner reads it as armed). **And arming can be structurally impossible while the owner-review wall holds:** when `review_decision=REVIEW_REQUIRED` / `mergeable_state=blocked` (lanes cannot self-approve, §6j), GitHub will keep `enabled_at:null` across repeated `gh pr merge --auto` (exit 0 each time) — so the honest lane report is "NOT armed, owner approval is the singular path," not a fabricated timestamp. A PR `BLOCKED` only on `reviewDecision=REVIEW_REQUIRED` with every check `completed`/success is genuinely done-waiting-on-the-owner-review-wall, which is exactly the case armed automerge belongs in — so tell the lane to re-arm and quote the **REST** read-back object before claiming it. The same
 stale-premise class shows up in a lane *holding* on a merged vehicle ("won't advance X until Y
 merges" when both are already merged): dissolve the dead precondition, re-point the lane at its
-one genuinely open vehicle, and quote the merge shas as the proof the hold expired.
+one genuinely open vehicle, and quote the merge shas as the proof the hold expired. **Squash-merge makes `git merge-base --is-ancestor <pr-head> origin/main` return NO (rc≠0) for a PR that IS merged** — the squash rewrites the head into a new main commit, so the head sha is never a literal ancestor. Do not read that NO as "not merged": settle on the lifecycle object (`gh pr view <n> --json state,mergedAt,mergeCommit` → `state=MERGED`) and treat the head as squash-incorporated. A lane re-reporting "head `<h>`, live CI green, owner-gated" for an already-`MERGED` PR is a stale-premise hold — reconcile once (merged `<sha>` at `<time>`, `<h>` squash-merged, content on main) and tell it to release and NOT force-push a merged vehicle's source ref.
 
 **An owner merge can pre-empt a lane's "RED / not done / not armed" verdict.** A lane can measure a
 red run at a head and report it, then the owner approves and merges the very same PR a minute later
@@ -665,6 +751,24 @@ Two failure modes to separate:
 Both cases end the same way: re-anchor to the measured live head + true main, confirm mergeable/blocked
 and arm state from the same read, and either release the lane (already correct) or require a new head.
 
+## 6i-bis-2. A lane's "verdict run <id> SUCCESS" — resolve the id; it may be `cancelled` AND the wrong workflow
+
+A lane quoting a run id as its PR's green verdict ("verdict run 41317840046 SUCCESS, head b5851814") is a
+claim about a **run id**, and the id routinely resolves to neither SUCCESS nor the PR's CI. Measure it:
+
+```bash
+gh api repos/<o>/<r>/actions/runs/<id> --jq '{name,status,conclusion,event,head_sha,branch}'
+# a workflow_dispatch engine-build run on `main` is NOT the PR's pull_request ci-verdict run
+```
+
+Typical shape: `conclusion:"cancelled"`, `event:"workflow_dispatch"`, `name:"engine-build …"`,
+`branch:"main"` — a manually-triggered engine sweep at the merge tip, cited as if it certified a PR.
+`cancelled` is not SUCCESS, and a different workflow's run is not the PR's verdict. Find the real
+deciding run by enumerating runs AT the head and reading each workflow name (`ci-verdict` /
+`workflow_run`), never the single id the lane prefers. State the measured object once, on the board
+(issue comment), then hold — a lane re-citing the same cancelled id after correction is enforcement,
+not a tombstone-hold.
+
 ## 6i-ter. "Holding because a run at the same head is in_progress" — often already moot
 
 "RED gate at head `<X>`; another run at the SAME head is `in_progress`, so I will not push
@@ -763,6 +867,30 @@ vehicles; comparing a fresh PR against already-shipped work only legitimises the
 new PR also sits on a stale base and shows `mergeable=CONFLICTING ms=DIRTY`, the conflict is usually
 just the already-merged sibling in the same file — rebasing onto the tip cannot make it a vehicle.
 
+**Partial overlap is the opposite verdict — decide it on the RESIDUAL, not the overlap.** Two PRs can
+touch the same file without being duplicates: one merged the docs-surface half, the other carries
+additional distinct files (a mandate restore, a classifier change, an architecture note). Never close
+the survivor because a file name collides — compute what is LEFT at its head relative to the NEW tip:
+
+```bash
+git fetch origin main
+git rev-parse --short origin/main                                  # the tip the other PR merged into
+H=$(gh pr view <n> -R <o>/<r> --json headRefOid --jq .headRefOid)
+gh api "repos/<o>/<r>/compare/<new-tip>...$H"                      # per-file additions/deletions the PR still adds
+```
+
+- Residual touches **only** files the merged PR already changed, with no new material → it IS the
+  duplicate case above: close it, quote the merge sha, do not rebase it into existence.
+- Residual carries **any distinct file the merged PR did not touch** → it is a complementary vehicle:
+  rebase onto the new tip (genuinely CONFLICTING per #1015 because the shared file diverged), resolve
+  the shared file to the MERGED wording (union, not a second copy), keep the distinctive additions,
+  and re-run the deciding gate — an earlier run at the pre-merge head measured a tree that lacked the
+  sibling's fix, so its red is void.
+
+One vehicle per issue still holds: the rebase lands on the EXISTING PR branch (force-push, one trail),
+never a fresh PR, and the dispatch goes to that PR's owning lane — not to whichever lane filed the
+issue, and not to a second implementer.
+
 Two follow-on traps:
 
 - **A board mutation can exit 0 and change nothing — and a pipeline hides the real status.** `gh pr close`
@@ -831,6 +959,35 @@ failing step name, and require a fresh run id at the NEW head before review-rout
 exit 0 is a claim about the lane's checkout; the CI run's `conclusion` at `headRefOid` is the
 verdict. Never relay "ready for review" on a head whose workflow run is `failure`.
 
+## 6n. "Own-domain audit complete — all green, no findings" covers only the slice it measured
+
+A lane's continuous-improvement audit report ("engine-skill-gap clean, 78 tests passed, 13 params
+files present with pinned keys, no pin-validity defect") is a claim about the **specific probes it
+ran**, not about the brief you dispatched. The common gap: the lane runs the easy mechanical sweep
+(skill-gap coverage, file/target *presence*) and then asserts the harder slices — **upstream pin
+validity** (is the recorded SHA still the current reproducible commit on the engine's *upstream*
+repo, the #1252/#1262 silently-unsatisfiable-pin class) and **serving drift** (do launch flags /
+quantization / ports still match current upstream) — from file-presence alone. "Pinned keys present"
+is not "pin still resolves upstream"; a commit force-pushed away or a mover tag is invisible to a
+keys-present check and only blows up a build later.
+
+Before accepting a clean-audit record or calling the lane idle, diff the report's *mechanisms* against
+the dispatched brief's *slices*:
+
+```bash
+# does the audit script actually query upstream, or only read local files?
+git show <main>:scripts/<audit>.py | grep -inE 'api\.github|repos/|refs/heads|resolve|clone|http'
+# a keys-present check touches no network — that absence IS the scope gap
+```
+
+If a dispatched slice has no upstream-facing probe behind it (the grep finds only local file reads),
+reject "no findings" for that slice: send the lane back onto the *uncovered* slices explicitly (name
+what to query — which upstream repo per engine cell, which params vs current upstream), and require
+EITHER a six-section finding per defect (routed to the owning lane, never the auditing lane's own
+pass) OR a clean `re-audited at <sha> (<named slices>), no findings` that names the slices it actually
+measured. A clean record that verifies only the easy half of the brief is not a clean audit — it is
+half an audit reported as whole, and it hides the #1252/#1262 class behind "all green".
+
 ## 7. Never guess a workflow filename
 
 `gh run list --workflow <name>.yml` answers `HTTP 404: workflow ... not found on the default branch`
@@ -849,8 +1006,21 @@ none will start — re-read once before reporting "no CI". **But `head_sha=` can
 while the same head genuinely has a run** (the `--branch <b>` list shows `pending`/`in_progress` at that
 exact sha). When the two disagree, the branch-scoped list is authoritative: measure deciding CI with
 `gh run list --workflow <name>.yml --branch main -L 4 --json databaseId,status,conclusion,headSha`, and
-only claim "no CI ever ran at this head" when the branch list agrees. A `pending` tip run is *not* a
+only claim "no CI ever ran at this head" when the branch list agrees. A `pending` tip run is *not*
 `not-met` post-merge verdict — see §6j.
+
+**Before filing a red sweep/channel run as a defect, reproduce the query and run a CONTROL — the 404 may
+be the query form, not the data.** A red auto-merge/sweep run whose log shows `gh: Not Found (HTTP 404)`
+on an `actions/runs` filter is a claim about a mechanism, not proof the head is bad. Measure three things
+before you file: (1) reproduce the exact query the script ran; (2) the same query on a KNOWN-GOOD head
+and an UNFILTERED call (a control that isolates "filter" from "resource"); (3) whether the code passes
+`-f key=value` — because `gh api -f` on a filtered GET sends a form body the API can 404 while the
+identical params as a URL string return 200 (`repos/o/r/actions/runs?head_sha=…&event=…&per_page=1`).
+When the control 404s the same way for every head (open, merged, known-good) and unfiltered works, the
+defect is the query form in the script, not any one branch's data — file it naming the mechanism (with
+both invocation forms quoted) and route to the ci/pipeline lane. Never blame the data or the lane on the
+strength of a single red run before the control separates the two. (`references/verifying-lane-claims.md`
+→ §7; the `gh api -f` mechanism is in the github skill's `references/github-api-cheatsheet.md`.)
 
 **Find the failing job/step via `--json jobs --jq`, not by grepping the raw run log.** Piping
 `gh run view <id> --log` through `grep -c 'pattern'` repeatedly returns empty/0 through the terminal's
@@ -879,11 +1049,31 @@ Cast every numeric field: `.databaseId|tostring`, `.id|tostring`, or interpolate
 This is the single most common reason a run-sweep one-liner dies mid-pass — write it with `\(...)`
 interpolation from the start rather than `+` concatenation.
 
+**jq: `contains`'s two-arg form is for arrays/objects, not strings.** `contains("bot-claim:";2)`
+fails with `contains(2) cannot be applied to: string`; against a string use one arg —
+`contains("bot-claim:")` — or `test("<pattern>";"i")` for a case-insensitive regex. The `;N`
+variant is jq's array/object contains, not a string search.
+
+**A `--jq` expression that PARSE-errors returns nothing — do not read it as "no results".** When a
+`--jq` filter underpins a "PR/issue does not exist" or "no runs at this head" conclusion, a syntax
+error in the filter silently yields empty output that looks identical to absent data, producing a
+self-inflicted false-negative (a real PR reported "missing" because `--jq` errored). Before recording
+an absence as fact, re-run the SAME API call with a trivial `--jq '.[0]'` (or no `--jq`) to separate a
+filter error from a genuinely empty result.
+
 **jq: never mix shorthand and explicit keys in one object literal.** `{mergeable,.mergeable_state:.mergeable_state}`
 fails with `unexpected token ".mergeable_state"`, because a bare shorthand key must be followed by another
 key, not a `.path`. Write every field in one form — `{m:.mergeable, ms:.mergeable_state}` — and rename
 the key whenever the API name is awkward; the abbreviated form also keeps your `--jq` strings short
 enough to stay readable in a report.
+
+**jq: a shell loop variable is NOT jq's `$name` — it must be passed with `--arg`/`--argjson`.**
+`for n in 1092 1085; do gh issue view "$n" --json state --jq '{n:$n,s:.state}'; done` dies on every
+iteration with `variable not defined: $n` and prints nothing, so the whole per-issue table is silently
+empty and reads as "those issues have no claims / no labels" — a false absence. jq's `$n` is its own
+binding, not the shell's expansion. Use `--argjson n "$n"` (numbers) or `--arg n "$n"` (strings), or let
+the shell expand it before jq runs (`--jq "{n:$n,s:.state}"`). When a looped `--jq` comes back uniformly
+blank, suspect this before concluding the data is missing.
 
 ## 6j. A post-merge pass over a rapid owner approval batch
 
