@@ -36,6 +36,27 @@ comment URL on success; keep that id and verify with the read path, never by pos
 - Correcting a ledger entry that said "not landed" must state the true result (id + time + count) rather
   than deleting the history — a wrong entry left uncorrected makes the whole record untrustworthy.
 
+#### Never fire two creates in one parallel batch, and repoint placeholder `closes #<n>` once the number exists
+
+Two `gh issue create` calls batched into one assistant turn both execute and both land: one pass produced
+**two duplicate issues** with identical title and body, both labelled `agent:implement`. The number the draft
+had been written against was meanwhile consumed by another lane's issue, so the draft's self-reference was
+wrong as well. Create **serially**, one create per turn, and read the returned number back (`gh issue view`)
+before anything cites it.
+
+An issue drafted before its own number exists necessarily carries a placeholder (`closes #<this-issue>`, or the
+number it expected). After the create returns N, PATCH the body in the same step so each self-reference names
+N, then assert the stale ones are gone (a documented historical sha/number may legitimately remain — say which):
+
+```bash
+gh issue view <N> --json body --jq '.body' | grep -c '<stale-number>'    # expect 0
+gh issue view <N> --json body,labels --jq '{labels:[.labels[].name], closes:(.body|test("(?i)closes"))}'
+```
+
+When two duplicates exist anyway: **one vehicle** — keep the one that carries the dispatch comment, close the
+other as a duplicate naming the survivor, repoint the survivor's body, and never leave two open issues for one
+finding.
+
 ### Read a comment back by its OWN id, never from a "newest" slice of the list
 
 `repos/<o>/<r>/issues/<n>/comments` returns comments in **ascending creation order**. A read-back built as
@@ -142,8 +163,11 @@ a DM or your ledger does not exist for the next reader), then record that you ow
 ### Readback assertions must be case- and markdown-tolerant
 
 A literal phrase test fails on legitimate markdown content (`does **not** exist`, `not MET` vs `NOT MET`,
-en-dashes) and reads as "the post is wrong" when the post is correct. Use `test("<phrase>";"i")` and match
-words, not punctuation. Full rule and examples: `references/stalled-lane-and-dispatch-delivery.md`
+en-dashes, **backtick code spans**) and reads as "the post is wrong" when the post is correct. A body reading
+"drop `#1402`" fails `test("drop #1402")` because a backtick sits between the two words — the same class as
+`test("bare 53")` against `bare: 53`. Use `test("<phrase>";"i")` and match words, not punctuation; strip
+markdown first (`tr -d '`*'`) when you must match a punctuated token, and choose an assertion token with no
+`#`, backtick, `*` or `|` in it at all. Full rule and examples: `references/stalled-lane-and-dispatch-delivery.md`
 ("Body-content assertions must be case-insensitive AND markdown-tolerant").
 
 When a marker assertion comes back `false`, **dump the raw body before concluding the post is wrong**:
@@ -151,3 +175,13 @@ When a marker assertion comes back `false`, **dump the raw body before concludin
 `test("bare 53")` fails against a body saying `bare: 53`, and `test("ancestor of main")` fails against
 `ancestor of origin/main`. A punctuation-only false negative here is what drives the duplicate re-post the
 section above forbids: fix the assertion, never re-POST.
+
+### Never put markdown `**` (or any regex metacharacter) inside a `jq test()` pattern
+
+`--jq 'test("do **not** dispatch")'` does not check the body — it **fails to compile and exits non-zero** with
+`invalid nested repetition operator: **`, because `test()` takes a RE2 *regex*, where `*` is a quantifier and
+`**` is illegal nesting. The non-zero exit then reads as "the read-back failed", when the post is fine. Same
+class of failure: `test("#1412")`, `test("a|b")`, `test("v1.0")` — the `.` `|` `#` all mean something to RE2.
+Rule: pass **plain alphanumeric words** to `test()` (e.g. `test("dispatch rebase")`), not the rendered
+markdown; if you must match punctuation, escape it (`test("v1\\.0")`). A `test()` that errors is a bad
+assertion, not evidence — fix the pattern and re-read once; never re-POST.

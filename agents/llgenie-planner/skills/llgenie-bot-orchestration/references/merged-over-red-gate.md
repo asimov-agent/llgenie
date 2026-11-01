@@ -49,6 +49,15 @@ gh api "repos/<o>/<r>/commits/<merge-sha>/check-runs" --jq '.check_runs[]|"\(.co
   landed: cron minutes moved, the gate step exists) from a **behavioural one** (it was exercised: a green gate
   at the tip). A merged config change with a green tip is both; a merged config change whose tip run never
   executed the new step is only the former — say which you proved.
+- **Read what the artifact DOES, not just that it exists — the merged trigger can diverge from the body's
+  stated acceptance.** A PR body can promise "scheduled twice-hourly + workflow_dispatch" while the merged
+  workflow actually files no `schedule:` at all and instead hooks `workflow_run: <other-workflow>: completed`
+  (a real, legitimate reason: the fleet's bot minute-budget is exhausted and a new cron would collide). The
+  file is present and the intent is served, but the *trigger* differs from what the acceptance text says. Rule:
+  when a "file criterion" is a trigger/schedule/threshold, read the `on:`/condition lines at the merge sha and
+  compare them to the acceptance wording; if they differ, report it as **acceptance-met-with-a-different-trigger**
+  — a precise owner-facing note, explicitly *not* a blocker and *not* a fresh defect — rather than "acceptance met"
+  (which hides the divergence) or a filed issue (which over-rates a design choice).
 
 ## "The tip is red" — bind every failing run to its `head_sha` first
 

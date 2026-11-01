@@ -330,6 +330,19 @@ watch for on every pass:
 4. **A lane's head sha in a DM is often an intermediate ancestor.** A lane repeatedly quoted
    `c7446d6f` as its head when the real PR head was `598ca0ce`; verify with
    `gh pr view <n> --json headRefOid` and bind every measurement to that sha.
+5. **`mergeStateStatus: BLOCKED` with `mergeable: true` is a stale-base hold, not a conflict.** Tell them
+   apart with ancestry, not the state string: `git merge-base --is-ancestor <pr baseRefOid> origin/main`
+   exiting 0 means the base is a legitimate but *outrun* ancestor (one or more merges landed after the
+   lane branched), so the fix is a rebase onto current `origin/main` by the branch owner — a conflict fix
+   never applies and telling the lane "resolve conflicts" sends it hunting a merge tree that is clean.
+   `mergeable: false` / `CONFLICTING` is the real-conflict case and is the only one that routes to the
+   rebase lane. Deliver the stale-base correction BOTH ways in one pass: the rebase target (exact new sha)
+   on the PR thread so the next reader sees the record, and one DM naming the branch head you measured.
+6. **Sibling PRs from one dispatch must sit on the SAME base — the odd one out is the defect.** When a
+   single instruction produces two vehicles (e.g. two file commits), measure `baseRefOid` on each against
+   current `origin/main` side by side; one on the live tip and one an ancestor behind is a lane that
+   branched at different moments, and only the behind one owes a rebase. Say which is already correct so
+   the lane aligns rather than moving both.
 
 ## A lane looping identical false status reports — escalate out of the loop, don't reply
 

@@ -3,6 +3,10 @@
 A lane's report is a claim; the API and the object store are the evidence. Repeat offenders
 seen in practice, each with the check that settles it.
 
+Board-level counterpart — a `do-not-merge` label is advice not a gate, the post-merge verdict
+belongs at the merge tip, routing supersessions must name the comment they replace, and
+posted-comment verification traps: `references/board-state-and-holds.md`.
+
 ## 1. "Committed `<sha>`, merge-clean on main" → often the lane's OWN clone
 
 Lanes build in sibling clones (e.g. `/home/asimov/repository/git/ai-repositories/llgenie`), not in
