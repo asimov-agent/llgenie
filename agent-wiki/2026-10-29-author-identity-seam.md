@@ -48,7 +48,8 @@ identity did NOT come from config drift — the repo, global and every worktree 
 every config layer by design. Nine producers set the pair in three spellings, so one typo produced
 `Asimov Agent <agent@asimov.invalid>` — a correct-LOOKING name with a wrong domain, invisible to
 `git log --format='%an'` and caught only by `check_pr_authors`, which ran at the END of
-`linux / unit` (30+ minutes), holding PRs for a reason unrelated to their diff.
+`linux / unit` (~12 minutes, measured p95 12.2 min over the last 8 succeeded legs, 2026-10-31 —
+see llgenie#1139), holding PRs for a reason unrelated to their diff.
 
 ## Decisions
 

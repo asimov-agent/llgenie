@@ -13,7 +13,8 @@ spellings — `git config user.name …`, `git -c user.name=…`, `GIT_AUTHOR_NA
 an edit to one of them, was one typo away from `Asimov Agent <agent@asimov.invalid>`, which keeps a
 correct-LOOKING name and changes only the domain. That is the mechanism behind every violation in
 issue #840: a human reading `git log --format='%an'` cannot see it, `check_pr_authors` can, and
-`check_pr_authors` only runs at the END of `linux / unit`, 30+ minutes in.
+`check_pr_authors` only runs at the END of `linux / unit`, ~12 minutes in (measured p95 12.2 min
+over the last 8 succeeded legs, 2026-10-31 — see llgenie#1139).
 
 The identity is the BOT HALF of the allowlist, derived from `ALLOWED` — never restated:
 
