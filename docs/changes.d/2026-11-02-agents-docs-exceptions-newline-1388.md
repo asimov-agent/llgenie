@@ -1,0 +1,1 @@
+| 2026-11-02 | restore trailing newline in `tests/fixtures/docs-exceptions.json` (lost in the #1385 proc-seam merge `e91b42c9`) so `make lint` / `make ci-lint` pass on main again | [2026-11-02-agents-docs-exceptions-newline-1388.md](agent-wiki/2026-11-02-agents-docs-exceptions-newline-1388.md) | #1388 |
