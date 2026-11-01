@@ -71,7 +71,16 @@ block against one SOUL).
    mechanical reds in the same edit: `lint_linefeeds.py` wants a trailing newline on every NEW file
    (a note/fragment written without one reds `ci-lint` after `check-docs` was already green), and a
    gate that maps the note to a `<stem>` wants the note stem to match the fragment stem and the
-   branch identity, so pick one stem and use it for both files.
+   branch identity, so pick one stem and use it for both files. **`check_docs.py` also requires every
+   `agent-wiki/` note to name an issue or PR as a literal `#<n>`** — a note that describes the work in
+   prose but never writes `(#1234)` reds with `references no issue or PR (\`#<n>\`)`. Put the id in
+   the note's own heading or body; the check is a text match on the backtick-quoted form, so a bare
+   issue number without `#` does not satisfy it. Two more traps around that red: an edit made with a
+   line-rewrite (reassembling the file from `splitlines()`) silently DROPS the trailing newline and
+   reintroduces the `lint_linefeeds` red in the same file, and because the gate reads COMMITTED paths
+   the fix must be staged and amended before `check-docs` can go green — run
+   `changes_index.py check && check_docs.py check && check_architecture_census.py check &&
+   lint_linefeeds.py` as ONE chain and only then amend.
 7. **Open it ready, never draft**, and state in the body that a base other than `main` schedules **no
    CI at all** — list the local gate results and the sha they were measured at, so an empty rollup is
    not later read as a verdict. That same fact decides the merge step: a stacked base has no required
