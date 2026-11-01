@@ -282,8 +282,10 @@ engine-launchers: ## Pull this host's published engine images (default: llama.cp
 test-built-engine: ## After make install: every ~/bin/llgenie-engine-* start script must print its engine version via docker (Metal-only engines excluded)
 	python3 scripts/install_engine_launchers.py --bin "$(BIN)" --test
 
-test-engine-install: bash-check # Internal CI seam (issue #1027, deliberately internal like test-unit-network): after ENGINE's image was built + published in the engine-build producer, install + test-built-engine (the installed launcher must report the engine's version) + uninstall the just-published image — the producer-owned install leg. The product `llgenie --dry` step is deliberately NOT here: the producer is product-LESS (#1027 — the llgenie tool installs in pipeline.yml's ci-install, which already drives the product dry-run), so a producer that calls that product target can never satisfy it. Gating lives in the engine-build workflow (`inputs.push == 'true'`).
+test-engine-install: bash-check # Internal CI seam (issue #1027, deliberately internal like test-unit-network): after ENGINE's image was built + published in the engine-build producer, install + test-built-engine (the installed launcher must report the engine's version) + uninstall the just-published image — the producer-owned install leg. The product `llgenie --dry` step is deliberately NOT here: the producer is product-LESS (#1027 — the llgenie tool installs in pipeline.yml's ci-install, which already drives the product dry-run), so a producer that calls that product target can never satisfy it. Gating lives in the engine-build workflow (`inputs.push == 'true'`). On a GPU-less GitHub-hosted runner the cuda install-leg is NOT exercisable (no NVIDIA GPU / CDI to mount the host driver) and SKIPS with a documented reason instead of redding (issue #1240); a GPU host that lacks the CDI spec still fails loudly in install().
 	@test -n "$(ENGINE)" || { echo "Usage: make test-engine-install ENGINE=<id> ARCH=<variant>"; exit 1; }
+	@reason="$$(python3 scripts/install_engine_launchers.py --install-leg-skip-reason --arch "$(ARCH)")"; \
+	if [ -n "$$reason" ]; then echo "$$reason"; exit 0; fi
 	make engine-launchers ENGINES="$(ENGINE)" ARCH="$(ARCH)"
 	make test-built-engine
 	make ci-install-uninstall

@@ -232,6 +232,38 @@ def cuda_cdi_ready() -> bool:
     return bool(r and r.returncode == 0 and "nvidia.com/gpu=all" in r.stdout)
 
 
+def cuda_install_exercisable() -> bool:
+    """Can THIS host actually run the cuda install-leg?
+
+    The leg installs launchers that docker-run the engine with
+    `--device nvidia.com/gpu=all` (the CDI device mounts the host driver), so
+    exercising it requires an NVIDIA GPU present on the run host. GitHub-hosted
+    `ubuntu-latest` runners are GPU-less: installing nvidia-container-toolkit
+    would still produce no CDI spec, because there is no GPU to enumerate
+    (issue #1240). A GPU-less runner calls no CDI generation of its own, so the
+    producer's cuda install-leg is not exercisable there and must SKIP with the
+    documented reason — never red. A host WITH an NVIDIA GPU proceeds; a GPU
+    host that merely lacks the CDI spec still FAILS loudly in `install()` (it is
+    a real misconfiguration the existing message tells the user how to fix).
+    """
+    import detect_server as d
+    return d._has_nvidia_gpu()
+
+
+def install_leg_skip_reason(arch: str) -> str:
+    """The documented reason the CI install-leg for `arch` is skipped on THIS host,
+    or '' when the leg runs. cuda needs an NVIDIA GPU on the run host (a
+    GitHub-hosted runner has none), so it is not exercisable there (issue #1240).
+    """
+    if arch == "cuda" and not cuda_install_exercisable():
+        return ("[install-leg] SKIP cuda install-leg: the cuda engines mount the host driver via "
+                "nvidia-container-toolkit CDI (`--device nvidia.com/gpu=all`), which needs an NVIDIA "
+                "GPU on the run host — not exercisable on a GPU-less GitHub-hosted runner (issue "
+                "#1240). Install nvidia-container-toolkit and run "
+                "`sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml` on a GPU host.")
+    return ""
+
+
 def install_plan(arch: str, only: list[str] | None = None) -> list[dict]:
     """The images `install` resolves for this backend — the ONE place that list is built.
 
@@ -689,12 +721,18 @@ def main(argv=None) -> int:
     ap.add_argument("--ensure", default="", help="pull one engine's image for this backend + its start script")
     ap.add_argument("--test", action="store_true", help="run every start script with --version")
     ap.add_argument("--engines", default="", help="comma-separated engine ids, or 'all' (default: llama.cpp + Prism)")
+    ap.add_argument("--install-leg-skip-reason", action="store_true",
+                    help="print the documented reason (or nothing) the prod-owner install-leg for "
+                         "--arch is NOT exercisable on this host; exit 0 either way (issue #1240)")
     ap.add_argument("--uninstall", action="store_true", help="remove what install wrote, stop engine containers")
     ap.add_argument("--purge-images", action="store_true", help="with --uninstall: also remove the engine images")
     ap.add_argument("--wait-published", action="store_true",
                     help="wait until every image install pulls for this backend is published (issue #169)")
     a = ap.parse_args(argv)
     bindir = Path(a.bin).expanduser()
+    if a.install_leg_skip_reason:
+        print(install_leg_skip_reason(a.arch or ""))
+        return 0
     if a.wait_published:
         # no container, no pull: a registry manifest lookup per tag (issue #169)
         return wait_published(a.arch or detected_arch(),

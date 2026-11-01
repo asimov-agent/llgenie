@@ -29,7 +29,10 @@
 #       make test-engine-install ENGINE= ARCH= (install-leg: install + the installed launcher's engine
 #       version (test-built-engine) + uninstall the image this row just published; the product
 #       `llgenie --dry` (ci-install-dry) is NOT here — the producer is product-LESS (#1027), the tool
-#       installs in pipeline.yml's ci-install, which already drives it).
+#       installs in pipeline.yml's ci-install, which already drives it). The cuda install-leg is NOT
+#       exercisable on GitHub-hosted (GPU-less) `ubuntu-latest` runners — it needs an NVIDIA GPU on
+#       the run host to docker-run `--device nvidia.com/gpu=all` — and SKIPS there with a documented
+#       reason (issue #1240); it runs on a GPU+CDI-capable host.
 # Never: never merges, never pushes to `main`, never runs on a schedule, never publishes an image
 #        whose binary has not answered its test, and never builds the `none` placeholder row.
 #
