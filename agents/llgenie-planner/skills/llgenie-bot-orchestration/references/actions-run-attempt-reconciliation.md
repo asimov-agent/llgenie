@@ -28,6 +28,28 @@ gh api repos/<owner>/<repo>/actions/jobs/<job> --jq \
   '"attempt=\(.run_attempt) \(.name) \(.conclusion) \(.started_at) -> \(.completed_at)"'
 ```
 
+## Rule: `commits/<sha>/check-runs` returns EVERY attempt — dedupe by name, newest wins
+
+One sha can carry **several check-runs with the SAME name**: a recheck re-runs a gate, and a gate
+plus its companion (`verdict` + `recheck`) both report. A naive
+`select(.conclusion=="failure")` on that list therefore reports a red that a LATER run at the same
+name already superseded — a merge tip can read `fail:[verdict] inprog:[recheck]` while a separate
+`verdict` run at the *same* sha is `success`. Filing a post-merge defect on that reading is a false
+positive against the owner's merge.
+
+Resolve the **deciding conclusion per name**: take the run with the latest `started_at` (fall back to
+`completed_at`), and only call the gate red if that newest run is `failure`:
+
+```bash
+gh api "repos/<o>/<r>/commits/<sha>/check-runs" \
+  --jq '.check_runs|map({n:.name,c:.conclusion,s:(.started_at // .completed_at // "")})
+      | sort_by(.s) | group_by(.n) | map({gate:.[0].n, latest:.[-1].c, all:[.[].c]})'
+```
+
+`all:[success, failure]` with `latest:success` is a transient recheck that failed and was superseded —
+report it as "merged through a transient recheck; deciding leg green", never as "main is red at the
+merge". Only `latest:failure` (or a still-`null` latest with nothing completed) is a real deciding red.
+
 ## Before you correct a lane, verify the cited job exists
 
 Do not tell a lane "that job does not exist" without querying the job id directly. A run that
@@ -65,16 +87,34 @@ gh pr checks <n> -R <owner>/<repo> --json name,state \
 A PR is merge-ready only when every leg reads `SUCCESS` — `CANCELLED` on `linux/unit` means the
 suite never produced a verdict, so "0 failing checks" and "ready" are different claims.
 
-## Rule: rebase onto fresh main to re-verdict a cancelled gate; a plain rerun replays the stale ref
+## Rule: rebase ONLY when the PR is CONFLICTING — "behind main" is not a rebase trigger
 
-When `linux/unit` is `CANCELLED` at a PR head and the base has since moved (any merge to main
-leaves every open PR 1-behind), the correct unblock is a **rebase onto the new main**, not
-`gh run rerun`: a rebase produces a fresh head commit, which starts a fresh run evaluated at the
-merge ref, whereas a rerun replays the same workflow ref against the same stale base. Dispatch it
-to the rebase lane (rebase-on-latest-main after every merge) and state per PR: new head sha,
-measured mergeable/behind state, and the resolved conflicts. This is also how the whole board is
-un-stuck after a merge — measure `headRefOid`, `mergeable`, and base-ahead-by for every open PR in
-one pass.
+An open PR is 1-behind main after **every** merge, so `MERGED`-then-advanced base is the normal steady
+state, not a defect. A `MERGEABLE`-but-`UNSTABLE` PR (base behind, some check red) is **not** rebased on
+every main move — demanding one is a planner mis-application, and it churns the head, voids the green
+you already had, and re-triggers review. The single rebase trigger is `mergeable=CONFLICTING` /
+`mergeStateStatus=DIRTY` (a DIRTY PR gets **no CI run at all**, so nobody else will un-stick it).
+
+When it IS conflicting, name the conflict before dispatching — the rebase lane should resolve one file,
+not re-author a PR:
+
+```bash
+H=$(gh pr view <n> -R <o>/<r> --json headRefOid --jq .headRefOid)
+git fetch origin "$H" origin main --quiet
+git merge-tree $(git merge-base "$H" origin/main) "$H" origin/main | grep -A2 '^changed in both'   # the SAME files on both sides
+```
+
+A rendered **index file** (e.g. `CHANGES.md` / a change-notes index) is the routine conflict: both the
+PR and the merges since it branched append a row. Resolve by **keeping both entries** — main's rows are
+immutable, the PR's row is appended — and tell the lane explicitly not to re-author the PR's own payload
+files (byte-identity folds, generated docs) while rebasing; a rebase that rewrites the payload destroys
+the property the PR was verified for. Then require `--force-if-includes` after a fresh fetch, and a
+re-run at the NEW head (a green at the pre-rebase head binds to that head only).
+
+(Genuinely merge-ref-dependent reds still want a fresh head — but prefer the narrowest route: if the red
+is `CANCELLED` *and* the PR is not conflicting, re-run rather than rebase; a rerun replays the stale ref,
+so when the gate truly depends on the merge ref the rebase is justified — say which of the two you
+measured, and never prescribe a rebase from "main moved" alone.)
 
 ## "I'm holding the re-run" is a claim; the run's `run_attempt` is the fact
 

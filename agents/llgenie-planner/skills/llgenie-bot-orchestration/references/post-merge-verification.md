@@ -31,6 +31,28 @@ If main is red at the merge tip, or a criterion does not hold:
 3. **Delegate** it to the lane that owns that surface, with the acceptance condition spelled out.
 4. If `main` is red, that is the highest priority on the board — every open PR inherits a broken base.
 
+## When the check-runs read is empty, prove the red from the source
+
+`commits/<sha>/check-runs` can come back empty (quota, retention, or a leg recorded under a
+merge-queue ref) even for a merge whose leg genuinely failed. Empty is **not** green — it is
+"unmeasured". Do not fall back to the merge event either (an owner merge through a failed leg
+leaves `MERGED` in place). Prove the red from the source instead:
+
+```bash
+git show origin/main:Makefile | grep -nA3 '<gate-target>'     # which script the leg actually runs
+git show origin/main:scripts/<gate>.py | head -40             # what the gate counts/refuses
+git show origin/main:<file the PR added> | grep -nE '<the refused shape>'   # the delta itself
+```
+
+A set/count ratchet makes attribution mechanical: it refuses when the recorded site-set grows, so
+a file the PR added that contributes new sites **is** the red, and naming its `file:line` is the
+evidence. This is stronger than a log tail (which proves a leg red without saying whose) and it
+costs one `git show` — never run the full containerized suite to prove it. Then file the tracked
+issue naming the merge sha, the run id, the gate target, and the offending `file:line`, and hand it
+to the lane that introduced the file; a red its own change caused is not a lane-boundary crossing
+when that lane is asked to fix it. Expect the lane to retract any "green" it already claimed — a
+retraction is the correct behaviour, not a correction to argue with.
+
 ## The stacked-PR trap, measured
 
 On one night three PRs reported MERGED while their `baseRefName` was another lane's branch, not `main`:
