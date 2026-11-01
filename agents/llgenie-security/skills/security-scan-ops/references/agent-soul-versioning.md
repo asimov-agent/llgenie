@@ -126,8 +126,30 @@ agents/<profile>/skills/<name>/SKILL.md
   superset, a byte copy is safe; when the tree carries a section the live file lacks (this lane's `## Rules` /
   `## Procedure` / `## Never` block), copying live→tree **deletes it**, and the next one-way tree→live sync then
   deletes it from the running profile too. Union the sections explicitly and say in the PR which section is
-  tree-only and why it survives. Each fold round gets its own issue+PR — content that regenerates mid-review is
-  the next vehicle, not a reason to reopen the PR you already armed.
+  tree-only and why it survives. **When the fold PR is still OPEN and unmerged, re-align its own branch by
+  force-push — one vehicle, not a second PR** — for a live block the curator wrote after your head; only a PR
+  that already MERGED is closed and its regenerated content becomes the next vehicle. The union recipe, run in
+  the branch's worktree (SKILL.md shape: live body + the tree-only rulebook tail):
+  ```bash
+  L=~/.hermes/profiles/<p>/skills/<name>/SKILL.md   # live = newest authority
+  T=agents/<p>/skills/<name>/SKILL.md               # branch copy
+  n=$(grep -n '^## Inputs' "$T" | head -1 | cut -d: -f1)   # first tree-only rulebook heading
+  { cat "$L"; sed -n "$((n-1)),\$p" "$T"; } > "$T.new" && mv "$T.new" "$T"   # live + blank line + rulebook tail
+  comm -23 <(sort -u "$L") <(sort -u "$T") | wc -l    # expect 0 (0 live lines lost)
+  git show <old-head>:"$T" | sed -n "$((n-1)),\$p" | sort -u | comm -23 - <(sort -u "$T") | wc -l  # expect 0 (tail kept)
+  grep -c '^## \(Inputs\|Output\|Rules\|Procedure\|Never\)' "$T"   # each rulebook heading present once
+  ```
+  Anchoring the tail at the first tree-only heading (not at a fixed byte offset) is what makes the union
+  idempotent across successive live growth: the live half is always replaced wholesale, the rulebook half is
+  always preserved.
+- **`--force-with-lease` needs the TRUE current remote sha, taken from `git ls-remote` immediately before the
+  push — a composed or remembered full sha is rejected `(stale info)`, and that rejection is the guard
+  working, not a network fault.** Read `git ls-remote origin <branch>`, paste that exact sha into
+  `git push --force-with-lease=<branch>:<sha> origin <branch>`, then confirm the new head with a second
+  `git ls-remote` before reporting it. Synthesizing a full sha from a short `gh pr view --json headRefOid`
+  head is how the first push fails and burns a round-trip; the lease compares your guess to the real head and
+  refuses. A `(stale info)` rejection means your lease sha was wrong — re-read with `git ls-remote` and retry
+  once, do not switch to a bare `--force`.
 - **`live-edited-not-tree` still firing after your union already contains every live line is a TIMESTAMP
   artifact, not a failed fold — commit, then re-run the gate.** The row fires when the live mtime is newer
   than the last **committed** tree time; in an uncommitted worktree the gate reads HEAD, so it reports the
