@@ -11,6 +11,7 @@ on how it works. The references it points at:
 
 | Document | What it answers |
 |---|---|
+| [`docs/VISION.md`](docs/VISION.md) | the experience llgenie is for: a trending local model, the inference server you choose, a fit to this card, and the highest measured tokens per second among the servers that fit |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | how the code is laid out and how a request flows through it — the map of this repository |
 | [`docs/TESTING.md`](docs/TESTING.md) | the test suite's one rule: no skips and no `xfail`, how the guard enforces it in the exit status, and how a tracked defect is recorded so its removal is forced |
 | [`docs/ENGINES.md`](docs/ENGINES.md) | one inference server per engine: how each image is built, tested and published, and which llama.cpp build this card gets |
