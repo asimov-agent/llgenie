@@ -1,0 +1,1 @@
+| 2026-11-02 | agents(llgenie-tester): commit `references/fold-residual-and-corrections.md` (2,426 B, byte-identical to live) so SKILL's :574 dangling reference resolves and `test_agent_profiles` goes green in ci-unit | [note](agent-wiki/2026-11-02-tester-live-residual-1352.md) | #1352 |
