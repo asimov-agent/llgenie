@@ -1,0 +1,1 @@
+Note for the `#1452` settled-run-void fold: `references/settled-run-void-vehicle.md` exists live but was absent-from-tree; committed byte-identical to the frozen live planner profile (md5 `1ff6c6b7…`, 2,722 B).
