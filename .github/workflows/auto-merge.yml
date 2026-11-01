@@ -171,7 +171,9 @@ jobs:
       - name: make auto-merge (merge only a green, conflict-free PR; everything else defers to a human)
         # A `CI` completion decides on its own; a `ci-scope` completion decides only a head with no
         # CI run (a docs-only head) — a code head is left to the CI completion that will fire it.
-        if: github.event.workflow_run.name == 'CI' || steps.channel.outputs.channel == 'auto-merge'
+        # A head whose PR already MERGED/CLOSED resolves to an empty `number=` (a non-event, never a
+        # dropped green — issue #897): there is nothing to merge, so this step must NOT run.
+        if: (github.event.workflow_run.name == 'CI' || steps.channel.outputs.channel == 'auto-merge') && steps.pr.outputs.number != ''
         env:
           GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
           REPO: ${{ github.repository }}
