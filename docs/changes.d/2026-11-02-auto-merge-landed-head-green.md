@@ -1,0 +1,1 @@
+| 2026-11-02 | auto-merge never runs the merge step for a head whose PR already MERGED/CLOSED — the resolver emits an empty `number=`, the step's `if:` now requires a resolved PR, so the non-event ends green while a never-had-a-PR head stays red — issue #897 | [note](agent-wiki/2026-11-02-auto-merge-landed-head-green.md) | #897 |

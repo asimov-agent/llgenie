@@ -945,10 +945,13 @@ def test_the_scope_sweep_skips_a_code_head_and_decides_once(tmp_path):
 
     # The channel step runs only for the docs-class completion (never for CI itself).
     assert "if: github.event.workflow_run.name != 'CI'" in block, block[:600]
-    # And the merge step runs for a CI completion, or for a scope sweep that found no CI run at the head.
+    # And the merge step runs for a CI completion, or for a scope sweep that found no CI run at the head —
+    # and ONLY when the resolve step actually produced a PR number (a landed/closed head resolves to an
+    # empty `number=` and is a non-event, never a red run — issue #897).
     assert "make auto-merge-channel REPO" in block, block[:600]
-    assert ("if: github.event.workflow_run.name == 'CI' || "
-            "steps.channel.outputs.channel == 'auto-merge'") in block, block[:600]
+    assert ("if: (github.event.workflow_run.name == 'CI' || "
+            "steps.channel.outputs.channel == 'auto-merge') && "
+            "steps.pr.outputs.number != ''") in block, block[:600]
 
 
 def test_a_fork_run_is_resolved_by_search():
