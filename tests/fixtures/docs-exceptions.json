@@ -1,16 +1,5 @@
 {
   "note": "User-facing (## help) make targets that deliberately stay OUT of README.md (issue #257). `make check-docs` fails when such a target is not documented there and no entry here records why — an omission has to be a dated decision, not an accident. An entry that the README starts documenting is STALE and must be deleted, so this file cannot rot.",
   "decided_utc": "2026-10-14",
-  "targets": {
-    "check-proc-gate": {
-      "reason": "CI-internal one-subprocess-policy seam gate (issue #797); deliberately not a user README surface - see agent-wiki note",
-      "decided": "2026-11-02",
-      "issue": "797"
-    },
-    "proc-gate-report": {
-      "reason": "CI-internal census of allow-listed direct subprocess call sites (issue #797); deliberately not a user README surface - see agent-wiki note",
-      "decided": "2026-11-02",
-      "issue": "797"
-    }
-  }
+  "targets": {}
 }

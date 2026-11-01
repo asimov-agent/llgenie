@@ -655,7 +655,8 @@ structure ever being checked (issue #156). `linux-published` calls `published.ym
 `check-docs`, `check-dispatch-forms`, `check-pr-hygiene`, `check-issue-bodies`,
 `check-pr-authors`, `check-pr-closing`, `check-workflows`, `check-scanner-images`, `check-security-scan`,
 `check-security-issues`, `check-security-bumps`, `check-security-bot`, `check-actions`,
-`check-renovate`, `check-agent-skills`, `check-agent-model`, and the issue-bot gate pair
+`check-renovate`, `check-agent-skills`, `check-agent-model`, `check-proc-gate`, `proc-gate-report`,
+and the issue-bot gate pair
 (`issue-bot-gates`, `issue-bot-gates-check`). Every gate added to this list must also be
 classified FAST or `DEFERRED` in `scripts/issue_bot_gates.py`, or `make test-unit` fails.
 
