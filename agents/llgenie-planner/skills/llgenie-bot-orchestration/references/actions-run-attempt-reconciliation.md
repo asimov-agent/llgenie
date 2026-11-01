@@ -116,6 +116,33 @@ is `CANCELLED` *and* the PR is not conflicting, re-run rather than rebase; a rer
 so when the gate truly depends on the merge ref the rebase is justified — say which of the two you
 measured, and never prescribe a rebase from "main moved" alone.)
 
+## A run conclusion is the aggregate; the job matrix is the verdict
+
+A multi-job run reports ONE `conclusion`, and `failure` hides which leg decided it. "Run red" is not a
+verdict you can dispatch on — the fix target is the failing cell. Always expand the matrix before
+posting a verdict or telling a lane to act:
+
+```bash
+gh api repos/<o>/<r>/actions/runs/<run>/jobs --jq '[.jobs[]|{name,conclusion}]'
+gh api repos/<o>/<r>/actions/runs/<run>/jobs --jq '[.jobs[]|select(.conclusion=="failure")|.name]'
+```
+
+A run where `guard`+`matrix` succeed but every build cell (`engine-build-*`/shard cells) fails is a real
+content red at those cells, NOT a pass with a caveat — the guard passing does not make the build proven.
+State the split explicitly ("guard+matrix SUCCESS, 3× build cells FAILURE") and refuse any downstream
+step (reconcile, ship, verify-acceptance) that would run off it: a lane that "holds on run X" must be told
+the run is red, not that it is still progressing.
+
+## A lane watching a run needs redirecting when the run under it changes
+
+A watcher told to poll "run X" keeps reporting X's state long after X settled, because X is a *name*, not a
+live handle — the operator dispatched a NEW proof run and the lane never switched. When you measure the
+watched run as `completed`, do not accept "still in_progress" from the lane: re-fetch X, confirm it is
+settled, then send a redirect DM naming (a) the run they should stop polling and its settled conclusion,
+(b) the live run id to watch instead (if one exists), and (c) the exact gate that decides success at the
+new head. A lane's "0 failed legs, still compiling" reply to a completed run is a stale handle, not a
+claim about reality.
+
 ## "I'm holding the re-run" is a claim; the run's `run_attempt` is the fact
 
 A lane that says "re-run held until in-flight < N" may already be running attempt N+1 — a re-run

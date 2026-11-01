@@ -5,9 +5,13 @@ post-merge checks, plus the quoting trap that silently corrupts comment bodies.
 
 ## 1. Read back every mutation you make
 
-- **Comment posted?** `gh api repos/<o>/<r>/issues/<n>/comments --jq '[.[]|select(.id==<id>)]|length'` → `1`.
-  Assert a distinctive substring of the intended body too (`select(.id==<id>)|(.body|contains("<marker>"))`),
-  so a post that landed with the wrong text does not pass.
+- **Comment posted?** Fetch it **by its own id** — `gh api repos/<o>/<r>/issues/comments/<comment_id> --jq '{id,created_at,body}'`.
+  Do not read it back through the list endpoint (`.../issues/<n>/comments?per_page=N`): the list is paged and
+  cached, and it can hand you an older comment from a previous pass that happens to share the shape you are
+  grepping for, or omit the one you just wrote. Both directions of that error are silent. Assert a distinctive
+  substring of the intended body too (`(.body|test("<marker>"))`), so a post that landed with wrong text fails.
+  When the body deliberately uses typography (en-dashes, `2–5`, `→`), the substring you assert must match
+  character-for-character — a false negative here is your regex, not a failed post; re-assert with the exact glyph.
 - **Issue closed?** `gh issue view <n> --json state,stateReason` → `CLOSED` + `COMPLETED` (or `NOT_PLANNED`).
   `CLOSED` with no/odd reason means something else closed it.
 - **Label applied?** `gh issue view <n> --json labels --jq '[.labels[].name]|join(",")'` and quote the set.
@@ -47,6 +51,23 @@ Keep every `--jq` expression in single quotes; never assemble a jq program by st
 - **Head green ≠ main green.** The PR's own checks passing at the head do not prove the merge tip is green.
   The merge-tip re-run (`gh run list --branch main` filtered to the new head sha) is a separate gate; wait for it
   to conclude before declaring main green, and say "pending" while it runs.
+- **A `verdict` check-run landing on the merge tip may be judging a DIFFERENT PR's run.** A ci-verdict workflow
+  whose file sits on `main` attaches its check-runs to whichever commit it runs at — so a `verdict` FAILURE named at
+  `main@<sha>` can be the verdict for an *open PR's* CI, not a defect in the merge. A merge tip that reads
+  `1 failure` is therefore not automatically a red merge; before filing a post-merge finding, resolve the check
+  to the run it actually judged:
+
+  ```bash
+  gh api repos/<o>/<r>/commits/<mergesha>/check-runs \
+    --jq '.check_runs[]|select(.conclusion=="failure")|{name,id:.id,details:.details_url}'
+  gh run view <run_id_from_details_url> --json headSha,event,status,conclusion
+  # then read the evaluated run id out of that run's summary/logs and compare its headSha to the merge sha
+  ```
+
+  The **evaluated run's `head_sha` is the fact; the commit the check-run lands on is not.** Two `verdict` failures
+  at one merge tip are frequently two separate cross-attachments of the same still-red PR (each verdict run fires
+  when a matrix leg concludes), not two repo defects. Name the evaluated run id and its head sha in the report, and
+  attribute the red to the PR that owns that head, not to the merge.
 
 ## 4. Folding duplicates onto a consolidation home
 

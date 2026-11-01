@@ -16,10 +16,39 @@ merge event (its `skipped`/`cancelled` semantics are the trap — `gh pr checks`
 column lies about cancelled; a fully-green check list can still be `BLOCKED`/`REVIEW_REQUIRED`).
 
 - Read: `GET /repos/{owner}/{repo}/commits/{head_sha}/check-runs` (the PR's head sha, not the merge sha).
+- **`conclusion` is lowercase in the REST payload** (`"failure"`, `"success"`, `"null"` for in-progress). A
+  filter written `.check_runs[]|select(.conclusion=="FAILURE")` matches nothing and reads as "no red at the
+  tip" — the single most dangerous false-negative in post-merge verification. Compare case-insensitively
+  (`select((.conclusion//"")|ascii_downcase=="failure")`) or group by `conclusion` first and see the actual
+  casing; never eyeball a zero-length select as "clean" unless a `group_by(.conclusion)` alongside it shows
+  no `"failure"` bucket.
 - A head whose `ci-verdict` or `linux/unit` is anything but `success` was NOT gated green — even if closed.
 - When you find a merged-red, measure the acceptance criteria **on `main` at the merge tip**, not on the PR diff (the diff is now main's).
 
 A persistent `make` merge-gate check enforcing this is tracked as issue #1386 (CI-pipelines lane).
+
+## Acceptance criteria that live in a FILE are read AT the merge sha, never from the working tree
+
+Most merged PRs prove their acceptance in a file they changed (a workflow's `cron:` minutes, a `Makefile`
+target, a CI step, a recorded baseline count). Verify that by reading the file **at the merge commit**:
+
+```bash
+git fetch origin main
+git merge-base --is-ancestor <merge-sha> origin/main && echo "ON MAIN"   # landing proof, not a guess
+git show <merge-sha>:<path>                     # content AS MERGED
+git show <merge-sha> --stat && git show <merge-sha> --format=%B -s   # what the commit claims it changed
+gh api "repos/<o>/<r>/commits/<merge-sha>/check-runs" --jq '.check_runs[]|"\(.conclusion) \(.name)"'
+```
+
+- **The local checkout is routinely behind `origin/main`** (owner-mediated primary clone), so grepping the
+  tree can show the PRE-merge content and read as "the acceptance did not hold" when it did — or hide a
+  regression as if it were still fine. `git show <sha>:<path>` is the only tree-independent read.
+- `git merge-base --is-ancestor <merge-sha> origin/main` is the proof the merge is on main; a stacked PR's
+  merge commit is not, and `state=MERGED` does not say which base it landed on.
+- Record the criterion, the value you read, and the sha. Distinguish a **config/file criterion** (the intent
+  landed: cron minutes moved, the gate step exists) from a **behavioural one** (it was exercised: a green gate
+  at the tip). A merged config change with a green tip is both; a merged config change whose tip run never
+  executed the new step is only the former — say which you proved.
 
 ## "The tip is red" — bind every failing run to its `head_sha` first
 
@@ -38,6 +67,28 @@ gh api repos/<o>/<r>/actions/runs/<id> --jq '{name,event,head_sha,conclusion}'
   merged PR's own CI (the #1309-latitude pattern), not evidence the tip is bad. It re-evaluates the
   triggering run's head, so it keeps failing on a head the merge already superseded — report it as
   "recheck of `<old head>`, already handled", never as a fresh main red, and never file it.
+- **A `ci-verdict` check attached to the merge commit can judge a DIFFERENT run than its own `head_sha`.**
+  The workflow stamps its own run with the repo's current head but evaluates the `RUN_ID`/`HEAD_SHA` env
+  it was triggered with — so a `ci-verdict` failure at the merge tip may be the verdict for a *sibling*
+  PR's CI run entirely (measured: a verdict run stamped `d94d3280` whose `RUN_ID`/`HEAD_SHA` env pointed
+  at `7ad820bf`, a different PR's red). Before attributing a merge-tip `ci-verdict` red to the merged
+  change, read the job's env: `gh run view <verdict-run> --log | grep -E 'RUN_ID|HEAD_SHA'`. If `HEAD_SHA`
+  is not the merge tip, it is a cross-run verdict — report it against the *other* head, never as main red.
+  **Cheaper attribution first (no log pull):** resolve the failing check-run to its producing workflow run
+  via `details_url` — `gh api repos/<o>/<r>/check-runs/<check_run_id> --jq '{name,head_sha,details:.details_url}'`.
+  If `details_url` names a run whose evaluated head ≠ the merge tip, it is a cross-run verdict; only fall
+  back to reading the run's `RUN_ID`/`HEAD_SHA` env when `details_url` is ambiguous.
+- **Enumerate ALL non-success rows; do not key a dict by check `name`.** A commit's check-set carries
+  duplicate rows (`merge` appears as N skipped entries), so building `{name: conclusion}` collapses them and
+  can let a `failure` row vanish behind a same-named skipped row — you then read "3 skipped, 1 null" and miss
+  the red. Print every non-`success` run as `conclusion | name | id` in a list, and cross-check the count
+  buckets (`group_by(.conclusion)`) against it; a `failure` bucket with no named failure row means the dict
+  collapsed it. Also: `conclusion` is lowercase in REST (`"failure"`, not `"FAILURE"`) — a
+  `select(.conclusion=="FAILURE")` filter silently matches nothing.
+- **`[ci-scope] NO DECISION` is red even at 0 failures.** A run that published no `ci-scope-decision`
+  artifact leaves its skipped legs `no-verdict` ("N jobs unaccounted for — 0 failures is not a verdict")
+  and the verdict job FAILS by design. Do not read that as "no failing test": the cause is the missing
+  decision artifact (usually a red `scope`/`guard` leg), so trace the deciding leg, not a test count.
 - **The tip's OWN `ci.yml` run failing concrete jobs** (`linux/lint` at `make ci-lint`, `linux/openspec`
   at `make ci-openspec`) is a genuine red that needs an incident. Name the failing **step** from the jobs
   payload (see `verifying-lane-claims.md` §7 — never grep the raw log), then check whether the cause

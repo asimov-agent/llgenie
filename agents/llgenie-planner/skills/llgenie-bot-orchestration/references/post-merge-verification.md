@@ -26,10 +26,26 @@ gh api repos/<o>/<r>/commits/$M/check-runs --jq '[.check_runs[]|{n:.name,c:(.con
 
 If main is red at the merge tip, or a criterion does not hold:
 
-1. **File a new issue** (do not reopen the merged PR — its history is closed and its diff is now `main`'s).
-2. Name the merged PR, its merge commit sha, the exact gate/criterion that fails, and the run id proving it.
-3. **Delegate** it to the lane that owns that surface, with the acceptance condition spelled out.
-4. If `main` is red, that is the highest priority on the board — every open PR inherits a broken base.
+1. **First: attribute the reds to their culprit before filing anything.** Several failing guard/tests
+   in one whole-tree re-run usually trace to **one** file. Read the assertion bodies, not just the
+   `FAILED` names — e.g. a "cron slots collide" guard and a "guards not byte-identical" guard can
+   both name the same workflow file. When every red points at one culprit, ask one question: does an
+   **existing open issue already diagnose that culprit?** If so, **append** the failing tests, their
+   `file:line`, and the run id to that issue as widened acceptance evidence ("this fix must also
+   clear tests X and Y, not just Z") — do **not** open a parallel tracker for the same file. One file,
+   one issue; a duplicate tracker splits the fix and lets the second guard stay red after the first
+   lands. File a **new** issue only when the reds trace to a culprit no open issue names.
+2. **File a new issue** (do not reopen the merged PR — its history is closed and its diff is now `main`'s).
+3. Name the merged PR, its merge commit sha, the exact gate/criterion that fails, and the run id proving it.
+4. **Delegate** it to the lane that owns that surface, with the acceptance condition spelled out.
+5. If `main` is red, that is the highest priority on the board — every open PR inherits a broken base.
+
+**Reproduction belongs in the test image, not a bare `pytest`.** The unit suite runs under a `make`
+target that drives the `$(TEST_RUN)` container image (python + pytest + deps mounted at the repo).
+A bare `python3 -m pytest` on the host fails `No module named pytest` — that is the harness being
+absent, **not** "cannot reproduce" and not a reason to doubt a log a lane posted. Run the make target
+(or reproduce in that image) when you want your own confirmation; otherwise attribute from the failing
+assertion body and the `FAILED` lines the lane's log already contains.
 
 ## When the check-runs read is empty, prove the red from the source
 
@@ -57,4 +73,6 @@ retraction is the correct behaviour, not a correction to argue with.
 
 On one night three PRs reported MERGED while their `baseRefName` was another lane's branch, not `main`:
 `#1032` and `#999` merged into `feat/agent-profile-implementer-skill`; `#1045` likewise. **Nothing of theirs was on `main`.** A board that counts them as landed overstates progress, and reverting the base branch would look like a regression on `main` with no cause. Always read `baseRefName` before crediting a merge.
+
+**The converse error is the same trap from the other side: `baseRefOid` is the base the branch was opened/pushed against, NOT its merge base — a stale `baseRefOid` on an already-`MERGED` PR does NOT mean "not rebased".** Reading `baseRefOid: d94d3280` and concluding "the rebase never landed, cannot adjudicate" is wrong when the PR is in fact `MERGED`: the merge landed on current `main` regardless of what the field still names. Before calling a PR unlanded or stale-based, read `state`, `mergedAt`, and `mergeCommit.oid` — a MERGED PR's `mergeCommit.oid` is the fact (it can equal current `main`), and confirm landfall with `git merge-base --is-ancestor <merge_commit> origin/main`. `gh pr view <n> --json state,mergedAt,mergeCommit --jq '{state,mergedAt,merge:.mergeCommit.oid}'` is the one read that settles it; `baseRefOid`/`baseRefName` are for the stacked-parent question only, never for "did it land".
 
