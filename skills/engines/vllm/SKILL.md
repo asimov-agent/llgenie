@@ -35,11 +35,18 @@ install:
     # torch pin from the matching PyTorch repack index, then the rest of vLLM's build deps.
     - "uv pip install --system --break-system-packages torch==2.13.0 --index-url https://download.pytorch.org/whl/{torch_backend}"
     - "uv pip install --system --break-system-packages -r {src}/requirements/build/cuda.txt --index-strategy unsafe-best-match"
+    # vllm 5df63a72 ships a vendored Rust frontend (vllm-rs, channel 1.95): setup.py falls back to a
+    # local `cargo` build when the precompiled vllm/vllm-rs + _rust_*.so artifacts are absent, so the
+    # shared devel base (no Rust toolchain) fails. build_rust.sh bootstraps rustup + the pinned
+    # toolchain and precompiles the artifacts into the source tree, letting -e . skip cargo (issue #1365).
+    - "cd {src} && bash tools/build_rust.sh"
     - "cd {src} && CMAKE_ARGS='-DCMAKE_CUDA_ARCHITECTURES={cuda_arch}' VLLM_TARGET_DEVICE=cuda uv pip install --system --break-system-packages --no-build-isolation -e ."
   rocm:
     - "test -d {src}/.git || git clone -b {ref} --depth 1 {repo}.git {src}"
     # the rocm build file itself names the amd index and the torch it needs
     - "uv pip install --system --break-system-packages -r {src}/requirements/build/rocm.txt --index-strategy unsafe-best-match"
+    # vendored Rust frontend (vllm-rs): build_rust.sh precompiles the artifacts so -e . skips cargo
+    - "cd {src} && bash tools/build_rust.sh"
     - "cd {src} && PYTORCH_ROCM_ARCH='{gpu_targets}' VLLM_TARGET_DEVICE=rocm uv pip install --system --break-system-packages --no-build-isolation -e ."
   cpu:
     - "test -d {src}/.git || git clone -b {ref} --depth 1 {repo}.git {src}"
@@ -48,6 +55,8 @@ install:
     # -r cpu.txt row is satisfiable (issue #1241). torch_backend renders to 'cpu'.
     - "uv pip install --system --break-system-packages torch==2.13.0 --index-url https://download.pytorch.org/whl/{torch_backend}"
     - "uv pip install --system --break-system-packages -r {src}/requirements/build/cpu.txt --index-strategy unsafe-best-match"
+    # vendored Rust frontend (vllm-rs): build_rust.sh precompiles the artifacts so -e . skips cargo
+    - "cd {src} && bash tools/build_rust.sh"
     - "cd {src} && VLLM_TARGET_DEVICE=cpu uv pip install --system --break-system-packages --no-build-isolation -e ."
 binary: "vllm"
 binary_flags: ["--version", "--help"]   # the vllm CLI answers --version (cpu detect) and --help
