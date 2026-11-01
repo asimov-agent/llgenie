@@ -84,7 +84,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	agent-shell-keys-check \
 	agent-fetch search-smoke require-env web-coverage issue-evidence \
 	engine-bump-rebase generate-engine-params check-engine-params check-engine-coverage engine-coverage-report check-engine-source engine-source-report check-engine-capabilities engine-capabilities-report check-engine-launchers engine-launchers-report check-model-links model-links-report build-engine run-engine stop-engine list-engine-images engine-build-matrix ci-lint ci-unit ci-agents-read \
-	ci-openspec ci-cpu-health ci-top-tier ci-install ci-install-dry-args ci-free-disk ci-slow-rows ci-scope test-engine-stage bot-sync-main bot-sync-branch ci-wait-engine-images \
+	ci-openspec ci-cpu-health ci-top-tier ci-install ci-install-dry-args ci-free-disk ci-slow-rows ci-scope ci-verdict test-engine-stage bot-sync-main bot-sync-branch ci-wait-engine-images \
 	ci-install-dry ci-install-run ci-install-uninstall test-env test-top-tier test-top-tier-ci test-top-tier-cli-ci test-top-tier-serve test-top-tier-serve-ci \
 	check-agent-model model-pin-report check-agent-skills agent-skills-report test-agent-skills-live hermes-skills-register \
 	sync-agent-profile check-agent-profiles agent-profiles-report \
@@ -1814,8 +1814,13 @@ ci-engines: bash-check ## Per-backend engine install for a host (BACKEND=cpu|cud
 ci-slow-rows: ## CI: decide which heavy rows this run schedules — `linux / top-tier` runs on every non-PR event (push to main) and on a PR only with the `ci:slow` label (scripts/ci_slow_rows.py, issue #859)
 	python3 scripts/ci_slow_rows.py decide --event "$$EVENT" --labels "$$LABELS"
 
-ci-scope: ## CI: classify a diff into the CI classes and jobs it selects (scripts/ci_scope.py, issue #824) — the `scope` workflow step reaches the classifier through this target, never inline
-	python3 scripts/ci_scope.py --base "$$BASE"
+ci-scope: ## CI: classify a diff into the CI classes and jobs it selects (scripts/ci_scope.py, issue #824) — the `scope` workflow step reaches the classifier through this target, never inline; BASE=<ref> diffs against it, ALL=1 keeps the full matrix (a push to main); DECISION=<path> also writes the machine-readable decision a finished run is held to (issue #1111)
+	@test -n "$(BASE)" -o -n "$(ALL)" || { echo "Usage: make ci-scope BASE=<ref>|ALL=1 [DECISION=<path>]"; exit 1; }
+	python3 scripts/ci_scope.py $(if $(ALL),--all,--base "$(BASE)") --decision-out "$${DECISION:-}"
+
+ci-verdict: ## CI: hold a finished run to its published scope decision (scripts/ci_verdict.py, issue #1111) — a selected job that is skipped/cancelled/absent, or a run with no decision, is a FAILED verdict and a `ci-verdict` check-run on the head; a run a later run of the same workflow superseded is neutral, never success
+	@test -n "$(RUN_ID)" -o -n "$(JOBS)" || { echo "Usage: make ci-verdict RUN_ID=<id> [REPO=<owner/repo>] [CHECK_RUN_OUT=<path>] | make ci-verdict JOBS=<path> [DECISION=<path>] [HEAD_SHA=<sha>]"; exit 2; }
+	python3 scripts/ci_verdict.py --repo "$(GH_REPO)" --run-id "$(RUN_ID)" --jobs "$(JOBS)" --decision "$(DECISION)" --head-sha "$(HEAD_SHA)" --check-run-out "$(CHECK_RUN_OUT)"
 
 ci-free-disk: ## CI: free runner disk for the large engine images (Linux runner: drop preinstalled SDKs; macOS runner: report only)
 	@if [ "$$(uname -s)" = Linux ]; then sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL; \
