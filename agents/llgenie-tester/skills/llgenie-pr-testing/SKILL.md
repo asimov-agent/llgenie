@@ -519,7 +519,9 @@ Fleet rules themselves are changed through `agents/<profile>/`, not by editing t
 `references/agent-profile-versioning.md` for the sync, gate, stacked-base, **local-vs-remote
 verification** (a green `--check` in your worktree is not a fix on the branch that lands — `git show
 <branch-head>:<file>` matching live is) and **landing behind a live run** (a `gh run watch` watcher
-that pushes on the run's conclusion, never a push that cancels it).
+that pushes on the run's conclusion, never a push that cancels it). Enumerate the lane's files with
+`scripts/fold-live-profile.py --profile <n>` (drift table + `--copy` live → tree), never from an
+assumed directory shape: the live home carries every skill, the tree only the versioned ones.
 
 ## 7. Post evidence, never a merge
 
