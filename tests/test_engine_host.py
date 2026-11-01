@@ -10,6 +10,7 @@ import json
 import os
 import sys
 import types
+import urllib.error
 from pathlib import Path
 
 import pytest
@@ -113,3 +114,59 @@ def test_served_failure_returns_nonzero(monkeypatch):
     monkeypatch.setattr(eht.ei, "pull_published", _no_pull)
     spec = {"id": "x", "variant": "cpu", "backend": "cpu"}
     assert eht.serve_published(spec, "model", 12345, 10) == 1
+
+
+def test_model_parameter_selects_what_is_served(monkeypatch):
+    """The owner-refined ENGINE/ARCH/MODEL parameterization: a supplied MODEL is served exactly,
+    and is threaded through serve_published (never silently replaced by the smallest default)."""
+    calls = {}
+    def _run(spec, model, port, name, models_dir, wait):
+        calls["model"] = model
+        return 0
+    def _pull(spec):
+        return "tag"
+    monkeypatch.setattr(eht.ei, "pull_published", _pull)
+    monkeypatch.setattr(eht.ei, "run", _run)
+    monkeypatch.setattr(eht.ei, "container_name", lambda spec: "c")
+    monkeypatch.setattr(eht.smoke, "free_port", lambda: 18000)
+    monkeypatch.setattr(eht, "_chat", lambda payload, port, timeout, retries=2: {
+        "choices": [{"message": {"content": "hi"}}],
+        "timings": {"prompt_per_second": 1.0, "predicted_per_second": 2.0}})
+    # The `finally` cleanup calls the container runtime; make it hermetic (no real docker):
+    monkeypatch.setattr(eht.subprocess, "run",
+                        lambda *a, **k: types.SimpleNamespace(returncode=0))
+    spec = {"id": "x", "variant": "cpu", "backend": "cpu"}
+    rc = eht.serve_published(spec, "Qwen/Qwen0.5B", 18000, 30)
+    assert rc == 0
+    assert calls["model"] == "Qwen/Qwen0.5B", calls
+
+
+def test_smallest_model_retries_transient_503(monkeypatch):
+    """A transient Hub 503/5xx during the model fetch is retried, not fatal (measured in the sweep)."""
+    calls = {"n": 0}
+    monkeypatch.setattr(eht.time, "sleep", lambda s: None)  # no real backoff wait in test
+    def _flakey(fmt):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            from http.client import HTTPMessage
+            raise urllib.error.HTTPError("url", 503, "Service Unavailable", HTTPMessage(), None)
+        return "/ok/model"
+    monkeypatch.setattr(eht.smoke, "fetch_model", _flakey)
+    skill = {"id": "x", "formats": ["gguf"]}
+    monkeypatch.setattr(eht.smoke, "pick_format", lambda s: "gguf")
+    assert eht.smallest_model(skill) == "/ok/model"
+    assert calls["n"] == 3, calls
+
+
+def test_smallest_model_exits_after_permanent_failure(monkeypatch):
+    """A permanently failing model fetch exits after 3 attempts (never an infinite retry)."""
+    calls = {"n": 0}
+    monkeypatch.setattr(eht.time, "sleep", lambda s: None)
+    def _always_fail(fmt):
+        calls["n"] += 1
+        raise SystemExit("[smoke] FAIL gguf: the model download exited 1")
+    monkeypatch.setattr(eht.smoke, "fetch_model", _always_fail)
+    monkeypatch.setattr(eht.smoke, "pick_format", lambda s: "gguf")
+    with pytest.raises(SystemExit):
+        eht.smallest_model({"id": "x", "formats": ["gguf"]})
+    assert calls["n"] == 3, calls

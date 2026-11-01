@@ -133,14 +133,17 @@ signals a llama-server that was not started by this Makefile.
   (`make test-engine`). GPU images (cuda/rocm/vulkan) print their engine version in the build job
   (`make test-engine-image`); after publishing, the second matrix `engine-published-test` starts
   every image, GPU ones too (without GPU devices, CPU fallback), and chats "hi" with it.
-- The **host-side serve loop** (`make test-engine-host`, issue #1322) is the command the
-  engine-improver lane runs on a real host: it loads the engine list from the committed
-  `containers/engines/params/*.json`, filters to the engines whose arch type this host supports
-  (cuda via `nvidia-smi` compute caps, rocm via `rocminfo` gfx targets, cpu always), and serves each
-  ONE AT A TIME against its smallest supported model — pulling the AS-PUBLISHED image (never
-  building), asserting an llm-local `/v1/chat/completions` answer, and reporting the measured t/s a
-  real run produced. The engine-build workflow's last step runs the same command on the CI runner;
-  a GPU-less runner skips the GPU legs with a documented reason (issue #1240) and never reddens them.
+- The **host-side serve command** (`make test-engine-host`, issue #1322) is parameterized as
+  `ENGINE=<id> ARCH=<arch> MODEL=<model>`: it serves ONE engine's published image against a MODEL
+  that fits host VRAM and the engine supports (when MODEL is omitted, the engine's smallest
+  supported model is served). Host / local use drives it one engine at a time (sequential, never
+  parallel — engines contend for the GPU), filtering the supported arch set with the same
+  `nvidia-smi` compute caps / `rocminfo` gfx targets the build matrix uses (cpu always). It pulls
+  the AS-PUBLISHED image (never builds), asserts an llm-local `/v1/chat/completions` answer, and
+  reports the measured t/s a real run produced. The engine-build workflow's LAST step runs the same
+  parameterized command as a PARALLEL matrix over the supported (engine × arch) cells, keyed off
+  the runner's own arch types; a GPU-less runner skips the GPU legs with a documented reason
+  (issue #1240) and never reddens them.
 - `server-variants-mac` (**macos-14**, Apple Silicon), four jobs:
   `prism+cpu` beside `prism+metal`, and stock `upstream+cpu` beside
   `upstream+metal`. Metal is Apple-only and cannot run in a container, so these
