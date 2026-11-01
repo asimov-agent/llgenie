@@ -331,6 +331,15 @@ against `name:` prefixes, not ids).
   done
   ```
 
+  **Compare prefixes of the SAME width — a watched head held at 7 chars against `${h:0:8}` reports
+  `HEAD_MOVED` on every cycle for a branch that never moved.** `a6b62c3 != a6b62c39`, and the tell is
+  that the "new" sha is a truncation of the expected one: same commit, fewer digits. Slice both sides to
+  one length (or compare full shas) before the inequality, and when a wake-up names a head that is a
+  prefix of the watched sha, treat it as a false positive — verify with the full sha and resume the same
+  watch, do not restart a CI story against a head that did not change. A head sha transcribed from a
+  branch name, a PR title or a prior report is the usual source of the short literal; take it from
+  `git rev-parse HEAD` and slice identically on both sides.
+
   **An EMPTY `ls-remote` result is its own outcome, not a moved head.** A branch ref that vanishes means
   the PR was merged and `delete_branch_on_merge` reclaimed it (or someone closed and dropped it) — so the
   empty string must branch to a STATE read (`gh pr view <n> --json state,mergedAt,mergeCommit`), never be
@@ -560,7 +569,9 @@ that pushes on the run's conclusion, never a push that cancels it). Enumerate th
 assumed directory shape: the live home carries every skill, the tree only the versioned ones. Keep ONE
 fold vehicle in flight — live accretes continuously and a fold always lands a step behind it, so a
 second PR opened before the first merges only duplicates a monotone delta and burns a matrix; land it,
-re-enumerate, then fold the next delta.
+| re-enumerate, then fold the next delta. **Never call "no residual/no drift" without a live re-measure
+| this turn (hash live vs tree blob), and answer a cross-timed planner correction ONCE then stop** —
+| `references/fold-residual-and-corrections.md`.
 
 ## 7. Post evidence, never a merge
 
@@ -571,6 +582,14 @@ re-enumerate, then fold the next delta.
     PR number + what stands) also goes to the inbox/triage bot in the same turn (the orchestration
     protocol): "done" is not complete until that lane has the finish line, and new reviewable PRs it
     routes go to the reviewing lane — this lane does not review its own PR.
+- **The PR body must carry a LITERAL closing keyword (`Closes #<n>`, `Fixes #<n>`) — prose that says the
+  work "closes" the issue closes nothing.** GitHub's auto-close is a keyword match on the body, not a
+  semantic read, and a squash merge is the moment it is evaluated; a PR whose body only *describes* the
+  closure merges with the issue still open, leaving a stale open item that a later lane has to close by
+  hand with evidence. Check it before opening: `gh pr view <n> --json closingIssuesReferences --jq
+  '.closingIssuesReferences[].number'` must name the issue. When it is empty on a merged PR, say so and
+  cite the merge commit so whoever closes it has an anchor; when the PR is still open, edit the body
+  (`gh pr edit <n> --body-file`) rather than opening a follow-up.
 - **When another lane is repairing the PR, message it with the failing test and the run id instead of
   pushing a competing head.** Pushing schedules a run for a NEW head, and `cancel-in-progress` kills the
   matrix that lane is waiting on, plus the result it was going to produce. (Re-running the SAME head —

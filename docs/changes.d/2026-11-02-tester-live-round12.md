@@ -1,0 +1,1 @@
+| 2026-11-02 | agents(llgenie-tester): round-12 live fold — SKILL.md (`8bce37e2`, +1,780 B) + agent-profile-versioning.md (`34560cfd`, +890 B) live→tree; both blobs tree==live byte-identical at fold time | [note](agent-wiki/2026-11-02-tester-live-round12.md) | #1332 |
