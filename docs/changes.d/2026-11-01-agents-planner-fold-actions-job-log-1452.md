@@ -1,0 +1,1 @@
+| 2026-11-01 | agents(llgenie-planner): fold the live-only reference actions-job-log-reading-midrun.md live→tree (byte-identical, md5 56788e9d…, 5106 B, 72 lines, absent-from-tree — the #1452 fold set per #1060). | [2026-11-01-agents-planner-fold-actions-job-log-1452.md](agent-wiki/2026-11-01-agents-planner-fold-actions-job-log-1452.md) | #1452 |
