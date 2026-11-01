@@ -653,7 +653,7 @@ structure ever being checked (issue #156). `linux-published` calls `published.ym
 `check-quant-catalog`, `check-trend-list-matrix`, `check-engine-skill-gap`,
 `check-engine-params`, `check-engine-source`, `check-wiring`, `check-secret-output`,
 `check-docs`, `check-dispatch-forms`, `check-pr-hygiene`, `check-issue-bodies`,
-`check-pr-authors`, `check-workflows`, `check-scanner-images`, `check-security-scan`,
+`check-pr-authors`, `check-pr-closing`, `check-workflows`, `check-scanner-images`, `check-security-scan`,
 `check-security-issues`, `check-security-bumps`, `check-security-bot`, `check-actions`,
 `check-renovate`, `check-agent-skills`, `check-agent-model`, and the issue-bot gate pair
 (`issue-bot-gates`, `issue-bot-gates-check`). Every gate added to this list must also be

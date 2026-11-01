@@ -92,6 +92,7 @@ DEFERRED: dict[str, str] = {
     "check-secret-output": "compares SECRET_VARS with AGENT_SHELL_KEYS; fast, but #475 names a fixed list and widening it is that issue's follow-up, not this one",
     "check-dispatch-forms": "reads the dispatchable workflows' input forms; fast, but not in #475's list (follow-up issue, not this change)",
     "check-pr-authors": "reads the PR's commit range, which does not exist before the push",
+    "check-pr-closing": "reads the PR body and head branch, which do not exist before the push (issue #1329): an agent/* PR must close its issue in the body, so the gate can only run once GitHub has created the PR",
     "check-agent-skills": "validates every bot leg's prompt against its project skill; fast, but not in #475's list (follow-up issue, not this change)",
     "check-agent-model": "compares the pinned model snapshot with the two files carrying it; fast, but not in #475's list (follow-up issue, not this change)",
     "check-agent-profiles": "validates every host agent's SOUL and skills tree against the live profile; fast, but not in #475's list (follow-up issue, not this change)",
