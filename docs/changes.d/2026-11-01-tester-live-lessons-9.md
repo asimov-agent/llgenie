@@ -1,0 +1,1 @@
+| 2026-11-01 | agents(llgenie-tester): fold live SKILL.md (`d135eba6`) + agent-profile-versioning.md (`afaab960`, the +1,199 B `#1273`-class residual) live→tree; round-9 of the split fold | [note](agent-wiki/2026-11-01-tester-live-lessons-9.md) | #1079 |
