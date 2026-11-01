@@ -1,0 +1,1 @@
+| 2026-11-01 | test(wiring): regression proving a folded `scripts/*.py` lane tool wired to nothing fails `check-wiring` loudly and a target/host-only record is the fix (subset assert, never an exact list) — closes the #1316 criterion-4 regression | [note](agent-wiki/2026-11-01-issue-1316-wiring-regression.md) | #1316 |
