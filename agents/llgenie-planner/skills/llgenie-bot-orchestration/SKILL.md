@@ -33,6 +33,37 @@ Every other installed skill is listed in `skills.disabled`.
 The pin is `tests/fixtures/host-bot-capabilities.json` in asimov-agent/llgenie (issue #1038).
 <!-- host-bot-tools:end -->
 
+## Role lanes on this host (issue #1245)
+
+Three Hermes profiles were created on 2026-10-31. They are host profiles. They are not in `agents/manifest.json` until a PR adds them. Do not rename `llgenie-issse-implementer` or `llgenie-pr-reviever`.
+
+- `llgenie-business-analyst` writes the problem frame on an owner-intent issue. He does not set priority or acceptance, and he does not implement or merge.
+- `llgenie-product-manager` writes priority, scope, and acceptance after a frame exists. He does not implement, merge, or re-triage duplicates.
+- `llgenie-status-keeper` publishes claims, TTLs, and idle-capable lanes as a GitHub comment. He does not dispatch. You remain the relay. The fleet block still says to report the two lines to the planner.
+
+Routing on a pass:
+
+- Owner-intent issue with no problem frame: `message_agent` to `llgenie-business-analyst`.
+- Framed issue with no acceptance: `message_agent` to `llgenie-product-manager`.
+- Once per pass: `message_agent` to `llgenie-status-keeper` for the state-sheet comment. He reports idle-capable lanes back. You dispatch.
+- Docs, CI, rebase, security, engine, review, test, and implementation do not go through the analyst or the product manager.
+- Implementation dispatch stays `message_agent` to `llgenie-issse-implementer`.
+
+Each new profile keeps `github`, `github-issue-triage`, and its own lane skill. `llgenie-bot-orchestration` and `github-workflow-admission` are disabled there. They have no cron tick. `kanban.orchestrator_profile` stays `llgenie-planner`. `kanban.auto_decompose` is false on the three. Toolsets are the planner set, without `web` and without `code_execution`.
+
+Issue #1245 is the record of this decision. Do not treat it as a rename of the live profile ids.
+
+## Who lands the change (2026-11-01)
+
+`llgenie-planner` is the inbox triage. Each lane finishes its own artifact, then `message_agent`s you. You send the next lane. Do not send a lane's own artifact to `llgenie-issse-implementer`.
+
+- Doc-only (`docs/**`, `agent-wiki/**`, `CHANGES.md`): `llgenie-documentation-maintainer` opens the PR.
+- Workflow, gate, or pipeline make target: `llgenie-ci-pipelines-maintainer` opens the PR. A red in another lane's product change stays a report. Rebases stay with `llgenie-pr-merge-conflict`.
+- Engine or serving: `llgenie-engine-improver` opens the PR.
+- Structural design (cross-lane boundaries, `agents/` layout, the architecture doc that defines that shape): `llgenie-architect` opens the PR. Another lane's refactor stays an issue the architect files, and you dispatch the owning lane.
+- Product code for a ready issue: `llgenie-issse-implementer`.
+- Test evidence: `llgenie-tester`. Review verdict: `llgenie-pr-reviever`. Security finding: `llgenie-security`. None of those three write the patch.
+
 ## When to Use
 
 Not a code task. Use it on every llgenie pass, and whenever the owner asks "what are the bots doing?": a bot is
@@ -54,6 +85,28 @@ unassigned issue it can do without that gate), send the `message_agent` dispatch
 the lane has previously been told. A bot that is never messaged cannot start; "I reported it idle last tick" leaves it
 idle the next. Only a lane with NO open gate-free issue in its whole domain is left untriggered, and then the pass
 must say which lanes that was and why (the drive-by "nobody told me" is a planner defect, issue #1030).
+
+**A lane that answers the SAME correction twice is a signal, not a reason to re-ack.** When a lane rejects a dispatch with
+the same measured facts multiple times (stale tip, no rebase owed, already-mergable), the ACKs are the loop — stop replying,
+anchor the agreed facts on the vehicle, and only re-touch the lane when its stated next event lands (CI concluding, ms flipping
+dirty). Dispatches that cite a stale base/tip NAME are the common trigger: base and parent are different facts, re-measure the
+canonical tip each pass, never instruct a rebase onto a base that is the PR's current parent (that's already a no-op; #1015
+rebase only on real conflict). (owner 2026-11-01, loop-escape lesson)
+
+**An EMPTY queue is still not "done" — dispatch the own-domain continuous-improvement audit (owner 2026-11-01).**
+An operational lane (security, documentation-maintainer, ci-pipelines-maintainer, engine-improver, reviewer,
+rebase-conflicts) with no open gate-free issue is never parked as "nothing to do": dispatch it onto a bounded,
+measurable audit of its own domain that produces its own next finding. Per-lane audit definitions: security —
+scan-coverage (which vulnerability classes the scanner misses), dependency-pin validity (silently-unsatisfiable
+pins before they blow up, the #1252/#1262 class), scan-rule-set freshness, admission-gate coverage; documentation —
+main-versus-docs alignment, skill-freshness (2+ releases old), change-note coverage; ci-pipelines — gate-coverage
+(which failures current gates cannot see), workflow robustness (cancelled-mid-flight, stale-head races, the #1250
+class), step-sharpening; engine — engine-cell pin validity + serving drift; reviewer — review-process gaps. Every
+finding filed as a refined six-section issue; implementation routes through the normal queue, never the auditing
+lane's own pass. A clean audit is recorded `re-audited at <sha>, no findings`. The sweep runs only when the queue
+is empty and never overrides real reactive work. Report the audit's output artifact (findings issue(s) or the
+clean-audit record) back on-record so the pass can record the disposition. (structuring issue #1245, per-lane
+behavior folded via #791)
 
 **The planner is the propagation hub — a finish is a trigger, not a log line.** The moment a lane's finish comment
 lands (or a PR reaches fresh-head / merges to main), read it as evidence (branch, head sha, run id — never the
@@ -160,24 +213,6 @@ it) and match the work class, not the queue length:
 When a specialist owns the class, dispatch there even if the general implementer is the documented fallback: a
 specialist's brief is shorter, it already carries the repo's constraints, and it does not serialise behind unrelated
 work.
-
-## 2c. Solicit the security and architect advisory before a boundary change is treated as mergeable
-
-When a change in review — or one whose PR just merged — touches a **security boundary** or an **architecture
-surface**, the planner **classifies** it and **solicits the advisory lane's verdict on-record** (issue #1195).
-
-- Security boundary: `auth`, network egress, file/pipe writes, credential handling, downloads / `hub_open`.
-- Architecture surface: pipeline shape, admittance/gates, engine-variant coherence.
-- Classification is one of `security` / `arch` / `both` / `none`; the routing comment on the PR names it, so a
-  reader sees the boundary was *assessed*, not assumed. `security` → dispatch `llgenie-security`; `arch` →
-  `llgenie-architect`; `both` → both; `none` → no advisory, and say `none` in the comment so the absence is a
-  decision, not an omission.
-- The advisory is **solicited and answered, never silently skipped** because the lane is "busy" — a busy advisory
-  lane is forced onto the advisory the same way any other forced-delegation is, and a lane that cannot answer
-  reports `cannot answer: <reason>` on the PR rather than staying silent (#1030).
-- The lane's verdict is **advisory, not a merge gate** — approval stays the owner's (#1088). The solicitation
-  precedes "this is mergeable" because an opinion a reviewer unfamiliar with the security or architecture premise
-  would have missed matters, not because it blocks.
 
 ## 3. Dispatch
 
@@ -496,28 +531,6 @@ git -C <repo> merge-base --is-ancestor <old-head> origin/<branch>; echo $?   # 0
 A commit whose message belongs to a different issue, or an old head that is no longer an ancestor, means the sweep rebuilt the tree rather than rebasing it. On a **closed** PR that is harmless and stays where it is — say so instead of ordering a third shape. On an open one it is a duplicate of unmerged work and must be dropped before anyone reviews it.
 
 **A squash-merge's commit message names the headline, not the full content.** Verify a merged PR's real scope from the tree (files on main, a 404 for a deleted file), never from the merge title — a title reading "engine-build producer install-leg" carried a whole ci-refactor squash. A branch whose work already merged is not "needs to land" and must not be rebased or re-offered: read `state=mergedAt` (and `mergeCommit`) before acting, and remember that a squash rewrites the commits, so `merge-base --is-ancestor <old-head> main` returning false does NOT prove the work is unmerged — the tree/content check does.
-
-## The planner is the propagation hub
-
-The planner is the hub through which a PR's new_head reaches its dependents. A dependent lane discovers a fresh
-head by **routing**, never by polling: the moment a lane's finish lands (or a PR reaches a fresh head, or a
-merge lands), the planner routes the dependent lanes — tester, security, architect, reviewer — onto that same
-PR in the **same pass**, on-record, so no pass ends with a dependent lane untriggered.
-
-1. **Read the finish as evidence, not prose.** When a lane reports a finished PR, the trigger is the measured
-   fact — `gh pr view <n> --json headRefOid,mergeStateStatus` and the head sha / run id the lane cites — never
-   the claim alone. A "done" that names no sha is a report, not a finish.
-2. **In the same pass, post the routing comment on the PR** naming which dependent lane(s) look now and why
-   ("tester: verify #<n> acceptance at <head>; security: advisory on the engine-build path"). The assignment is
-   a comment a stranger can find, so it lands on the PR, not only in a DM.
-3. **Dispatch each named lane**, and say in the routing comment when one is **not** dispatched and why: it
-   already holds a vehicle on that PR, or it is gate-blocked. A dependent lane that is real but cannot be
-   dispatched is named with its unblock condition, never silently dropped. When `message_agent` is not in the
-   toolset, use the kanban board channel (the §3 fallback) and put the same trail on the PR.
-4. **Record the routing and disposition** so the next pass does not re-dispatch a lane already on the vehicle
-   — the re-dispatch test is why the routing lives on the PR in the first place.
-
-The unit is the pass, not the tick: a finish that lands mid-pass is routed before that pass ends. (issue #1194)
 
 ## Every dispatch states the assignment; every bot states its state
 A bot that has not been told the assignment invents one, and a bot that does not report cannot be delegated to. So every dispatch names: the **id** (issue or PR), the **scope** (what to change), what is **not** in scope, and the **exact thing to report**. And every dispatch asks for a status line in one fixed shape:

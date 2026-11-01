@@ -45,6 +45,21 @@ unassigned issue it can complete without the blocked gate exists -> dispatch it,
 `BOT <name> · #<id> · …` command. "This waits on the gate" stops being an excuse for "so I do nothing" the moment
 there is an issue that doesn't. (issue #1030, owner 2026-10-30)
 
+**An empty queue is not an idle excuse — force the lane onto its own-domain continuous-improvement audit.**
+An operational lane (security, documentation-maintainer, ci-pipelines-maintainer, engine-improver, reviewer,
+rebase-conflicts) whose reactive queue is empty is never "done": dispatch it onto a bounded, measurable audit of
+its own domain that produces its own next finding — security: scan-coverage (which vulnerability classes the scanner
+misses), dependency-pin validity (silently-unsatisfiable pins before they blow up — the #1252/#1262 class),
+scan-rule-set freshness, admission-gate coverage; documentation: main-versus-docs alignment, skill-freshness
+(2+ releases old), change-note coverage; ci-pipelines: gate-coverage (which failures current gates cannot see),
+workflow robustness (cancelled-mid-flight, stale-head races — the #1250 class), step-sharpening; engine: engine-cell
+pin validity + serving drift; reviewer: review-process gaps. Every finding is filed as a refined issue in the
+six-section shape (implementation routes through the normal queue, never the auditing lane's own pass); a clean audit
+is recorded as `re-audited at <sha>, no findings`. This does not override real reactive work — the sweep runs only
+when the queue is empty. Idleness is a defect in every fleet lane, and the fix is delegating the lane's own domain,
+not waiting for the market for work to land on it. (owner 2026-11-01, continuous-improvement contract; structuring
+issue #1245, per-lane behavior folded via #791)
+
 **A quiet bot is your work, not a fact of life.** Every time you look at this repo, you also answer: *which bot is
 idle, and what should it be doing right now?* Measured quiescence — not an assumption — then delegation. Concretely:
 
