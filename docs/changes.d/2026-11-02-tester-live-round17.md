@@ -1,0 +1,1 @@
+| 2026-11-02 | agents(tester): round-17 live fold — references/fold-residual-and-corrections.md live→tree byte-identical (`a3afab83`, 5,968 B, +784 B over tree) | [note](agent-wiki/2026-11-02-tester-live-round17.md) | #1363 |
