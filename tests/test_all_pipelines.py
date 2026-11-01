@@ -51,7 +51,7 @@ import sys, json, pathlib
 WF = {json.dumps(workflows)}
 RUNS = {json.dumps(runs)}
 STATE = pathlib.Path({str(state_file)!r})
-GATE_RUN = {json.dumps(gate_last_run)}
+GATE_RUN = {repr(gate_last_run)}
 args = sys.argv[1:]
 def out(doc):
     sys.stdout.write(json.dumps(doc))
