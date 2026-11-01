@@ -521,7 +521,10 @@ verification** (a green `--check` in your worktree is not a fix on the branch th
 <branch-head>:<file>` matching live is) and **landing behind a live run** (a `gh run watch` watcher
 that pushes on the run's conclusion, never a push that cancels it). Enumerate the lane's files with
 `scripts/fold-live-profile.py --profile <n>` (drift table + `--copy` live → tree), never from an
-assumed directory shape: the live home carries every skill, the tree only the versioned ones.
+assumed directory shape: the live home carries every skill, the tree only the versioned ones. Keep ONE
+fold vehicle in flight — live accretes continuously and a fold always lands a step behind it, so a
+second PR opened before the first merges only duplicates a monotone delta and burns a matrix; land it,
+re-enumerate, then fold the next delta.
 
 ## 7. Post evidence, never a merge
 
