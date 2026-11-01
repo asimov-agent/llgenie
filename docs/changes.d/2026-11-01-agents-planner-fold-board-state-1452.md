@@ -1,0 +1,1 @@
+| 2026-11-01 | agents(llgenie-planner): fold the live-only reference board-state-and-holds.md live→tree (byte-identical, md5 fb376e1a…, 7618 B, 116 lines, absent-from-tree — the #1452 fold set per #1060). | [2026-11-01-agents-planner-fold-board-state-1452.md](agent-wiki/2026-11-01-agents-planner-fold-board-state-1452.md) | #1452 |
