@@ -435,6 +435,19 @@ fragments by `make changes-index` (`scripts/changes_index.py`). Rules that follo
   that run belongs to is no longer the PR's head, so a rerun cannot produce a verdict anyone can use
   and a green result would attach to a stale sha. Check before diagnosing a stall and again before
   acting — a merge can land while you are waiting on a slow job.
+- **A merge event is not proof its gates went green — verify the head's check-runs before ever
+  reporting "CI green at the merge".** An owner/planner gate (or a relayed "it evidently completed
+  green") can merge a PR while the deciding leg — the long `linux / unit` — is still `in_progress`,
+  because the merge gate is their intent, not the run's conclusion. When asked to verify a fold / a
+  doc PR "green at the merge", read the *head sha's* checks directly, never the merge fact or a
+  chat claim: `gh api "repos/<r>/commits/<head>/check-runs?per_page=100" --jq '.check_runs[]|{name,status,conclusion}'`
+  (cross-check the matrix run with `gh api repos/<r>/actions/runs/<id> --jq '{status,conclusion}'`).
+  A `status: in_progress` / `conclusion: null` on the deciding job means it **never completed** — say
+  "merged through a pending deciding leg" and correct any teammate premise that called it green. Two
+  disciplines stay separate: your arm watcher's `pending=0 fail=0 pass` guard protects *your* side
+  (and a merge that already happened is not evidence your guard was ever satisfied — kill the moot
+  watcher and report the merge sha plus the true check state, not an `enabled_at` read-back that
+  cannot come).
 - **A cancelled run is not a failed run — check for supersession before diagnosing.** A fleet sweep
   (an owner instruction to pause the bots and cancel runs) cancels in-flight runs repo-wide, and the
   run then reports `cancelled` with its remaining jobs `cancelled` at scattered timestamps while the
