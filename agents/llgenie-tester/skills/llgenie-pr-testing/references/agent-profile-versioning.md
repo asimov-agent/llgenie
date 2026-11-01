@@ -99,14 +99,28 @@ block against one SOUL).
    the wiki note untouched. Hand-editing
    the rendered `CHANGES.md` fails `check-docs` with "is not indexed", because the page is generated.
    Baseline the finding count: run `check-docs` on a clean worktree at the base sha too and report the
-   identical count rather than assuming the red is yours.
+   identical count rather than assuming the red is yours. **After a rebase onto newer `main`, baseline
+   against the CURRENT `origin/main` tip in a detached worktree, not your PR's recorded base** — a gate
+   can newly red on something `main` itself introduced (e.g. a user-facing `make` target added without
+   docs), and an identical red on a clean `main` checkout proves it is INHERITED: name the PR that added
+   it in your report instead of fixing it yourself, and confirm your branch has no diff in the file that
+   owns the offending symbol (`git diff --stat origin/main -- Makefile`).
    **The change→note gate reads COMMITTED paths, so an untracked note does not satisfy it.**
    `check_docs.py` derives the changed set from `git diff <base>...HEAD`; a freshly written
    `agent-wiki/<stem>.md` and `docs/changes.d/<stem>.md` that are still untracked are invisible to it
    and `make check-docs` keeps reding with the same "adds no agent-wiki/<stem>.md note" — which reads
    as though your note was wrong rather than unseen. `git add` + commit them, then re-run the gate;
    `make check-docs` passes on the committed tree. Order the cycle: write note + fragment → `make
-   changes-index` (renders `CHANGES.md`) → `git add -A` + commit → `make check-docs`. Two more
+   changes-index` (renders `CHANGES.md`) → `git add -A` + commit → `make check-docs`.
+   **Never chain `git add -A && make changes-index` — the add runs first and stages the PRE-generation
+   `CHANGES.md`, which already lacked the new row; the generator then rewrites it only in the working
+   tree, so the commit carries a stale index while every gate reads the dirty working tree and reports
+   green.** The green is then a measurement of a file that is not in the commit. Sequence strictly:
+   generator FIRST, `git add` AFTER (or `git add -A` then a second `git add CHANGES.md`), and prove the
+   committed head carries the row (`git show HEAD:CHANGES.md | grep -c '<stem>'`) before trusting any
+   gate — a `git status` showing `M CHANGES.md` after your commit is this exact bug, and the fix is
+   `git add CHANGES.md && git commit --amend --no-edit`, then re-run the gate chain at the amended head.
+   Two more
    mechanical reds in the same edit: `lint_linefeeds.py` wants a trailing newline on every NEW file
    (a note/fragment written without one reds `ci-lint` after `check-docs` was already green), and a
    gate that maps the note to a `<stem>` wants the note stem to match the fragment stem and the
