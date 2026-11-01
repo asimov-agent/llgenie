@@ -186,3 +186,6 @@ jobs:
       - name: "install-leg: make test-engine-install ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} — install + the installed launcher's engine version (test-built-engine) + uninstall the image this row just published (product `llgenie --dry` lives in pipeline.yml's ci-install, not here; #1027)"
         if: ${{ matrix.engine != 'none' && inputs.push == 'true' }}
         run: make test-engine-install ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}
+      - name: "host-verify-leg (LAST step): make test-engine-host ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} — the host-side serve command the engine-improver lane runs on a real host (issue #1322): pull the JUST-published image (never build), serve its smallest supported model, assert an llm-local /v1/chat/completions answer and report the measured t/s. A GPU-less runner SKIPS the GPU legs with a documented reason (issue #1240) and never reddens them; the same command decides per-host which arch type is the runner's own."
+        if: ${{ matrix.engine != 'none' && inputs.push == 'true' }}
+        run: make test-engine-host ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}
