@@ -75,8 +75,8 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	architecture-bot-brief architecture-bot-doc architecture-bot-publish architecture-bot check-arms arms-report \
 	scrub-log \
 	check-pr-heads pr-heads-report bot-verdict bot-verdict-read \
-	run-failure-reactor rebase-bot-agent check-docs docs-report changes-index changes-index-report changes-resolve check-pr-hygiene pr-hygiene-report check-issue-bodies issue-bodies-report auto-merge auto-merge-resolve fix-bot-resolve auto-merge-explain auto-merge-recheck verify-closure check-pr-authors pr-authors-report check-workflows workflows-report check-module-names issue-refiner-pick issue-refiner issue-refiner-apply issue-dedup-pick issue-dedup issue-dedup-apply check-dispatch-forms dispatch-forms-report security-scan security-scan-all security-verdict security-issues security-issues-plan check-security-issues security-bot security-bot-pick check-security-bot sbom check-security-scan scanner-image test-scanner-image scanner-digests scanner-ref publish-scanner-images ci-scanner-images check-scanner-images \
-	run-failure-reactor rebase-bot-agent check-docs docs-report changes-index changes-index-report check-pr-hygiene pr-hygiene-report auto-merge auto-merge-resolve fix-bot-resolve auto-merge-explain auto-merge-recheck verify-closure check-pr-authors pr-authors-report check-workflows workflows-report issue-refiner-pick issue-refiner issue-refiner-apply issue-dedup-pick issue-dedup issue-dedup-apply check-dispatch-forms dispatch-forms-report scanner-image test-scanner-image scanner-digests scanner-ref publish-scanner-images ci-scanner-images check-scanner-images \
+	run-failure-reactor rebase-bot-agent check-docs docs-report changes-index changes-index-report changes-resolve check-pr-hygiene pr-hygiene-report check-report-hygiene report-hygiene-report check-module-names check-issue-bodies issue-bodies-report auto-merge auto-merge-resolve fix-bot-resolve auto-merge-explain auto-merge-recheck verify-closure check-pr-authors pr-authors-report check-workflows workflows-report issue-refiner-pick issue-refiner issue-refiner-apply issue-dedup-pick issue-dedup issue-dedup-apply check-dispatch-forms dispatch-forms-report security-scan security-scan-all security-verdict security-issues security-issues-plan check-security-issues security-bot security-bot-pick check-security-bot sbom check-security-scan scanner-image test-scanner-image scanner-digests scanner-ref publish-scanner-images ci-scanner-images check-scanner-images \
+	run-failure-reactor rebase-bot-agent check-docs docs-report changes-index changes-index-report check-pr-hygiene pr-hygiene-report check-issue-bodies issue-bodies-report auto-merge auto-merge-resolve fix-bot-resolve auto-merge-explain auto-merge-recheck verify-closure check-pr-authors pr-authors-report check-workflows workflows-report issue-refiner-pick issue-refiner issue-refiner-apply issue-dedup-pick issue-dedup issue-dedup-apply check-dispatch-forms dispatch-forms-report scanner-image test-scanner-image scanner-digests scanner-ref publish-scanner-images ci-scanner-images check-scanner-images \
 	run-failure-reactor rebase-bot-agent check-docs docs-report changes-index changes-index-report check-pr-hygiene pr-hygiene-report auto-merge auto-merge-resolve fix-bot-resolve auto-merge-explain auto-merge-recheck verify-closure check-pr-authors pr-authors-report check-workflows workflows-report issue-refiner-pick issue-refiner issue-refiner-apply issue-dedup-pick issue-dedup issue-dedup-apply check-dispatch-forms dispatch-forms-report check-actions actions-report update-actions \
 	run-failure-reactor rebase-bot-agent check-docs docs-report changes-index changes-index-report check-pr-hygiene pr-hygiene-report auto-merge auto-merge-resolve fix-bot-resolve auto-merge-explain auto-merge-recheck verify-closure check-pr-authors pr-authors-report check-workflows workflows-report issue-refiner-pick issue-refiner issue-refiner-apply issue-dedup-pick issue-dedup issue-dedup-apply check-dispatch-forms dispatch-forms-report check-renovate renovate-report \
 	arm-auto-merge arm-auto-merge-report \
@@ -1055,6 +1055,10 @@ check-pr-hygiene: ## CI: fail when a producer's commit message or PR body is emp
 	python3 scripts/check_pr_hygiene.py check
 pr-hygiene-report: ## Show every producer the PR/commit-message guard reads, and its verdict
 	python3 scripts/check_pr_hygiene.py report
+check-report-hygiene: ## CI: fail when a reporting leg blames ownership (another lane, someone else, this lane) without a @<sha> evidence anchor — evidence-or-silence (issue #1292)
+	python3 scripts/check_report_hygiene.py check
+report-hygiene-report: ## Show every reporting leg the ownership-guard reads and its verdict
+	python3 scripts/check_report_hygiene.py report
 check-arms: # internal alarm plumbing (rule 16 consumer) — stays out of the user-facing docs; its scheduled workflow arms.yml is the caller
 	python3 scripts/check_arms.py check
 arms-report: # internal alarm plumbing (rule 16 consumer) — stays out of the user-facing docs
@@ -1710,6 +1714,7 @@ ci-unit: bash-check ## CI job unit: hermetic unit tests + registry / skill / Str
 	$(MAKE) check-architecture-census
 	$(MAKE) check-dispatch-forms
 	$(MAKE) check-pr-hygiene
+	$(MAKE) check-report-hygiene
 	$(MAKE) check-issue-bodies
 	$(MAKE) check-pr-authors
 	$(MAKE) check-workflows

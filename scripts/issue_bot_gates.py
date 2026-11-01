@@ -95,6 +95,7 @@ DEFERRED: dict[str, str] = {
     "check-agent-skills": "validates every bot leg's prompt against its project skill; fast, but not in #475's list (follow-up issue, not this change)",
     "check-agent-model": "compares the pinned model snapshot with the two files carrying it; fast, but not in #475's list (follow-up issue, not this change)",
     "check-agent-profiles": "validates every host agent's SOUL and skills tree against the live profile; fast, but not in #475's list (follow-up issue, not this change)",
+    "check-report-hygiene": "a static read of the emitted reporting strings in scripts/ and the workflow name:/run: lines for an ownership-guess blame sentence without a sha evidence anchor (issue #1292): a reporting-leg change is re-checked by ci-unit on the bot's own PR, which is where the new blame sentence and its fix would land, and widening FAST_GATES past the #475 six is that issue's follow-up, not this change",
 }
 
 _MAKE_CALL = re.compile(r"(?:\$\(MAKE\)|\bmake)\s+(?:-(?!C\s)\S+\s+)*([a-z0-9][a-z0-9._-]*)")
