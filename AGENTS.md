@@ -379,11 +379,21 @@ and the reference (`closes **#1327**`, `closes:#1327`) does **NOT** close the is
 it OPEN silently. Measured on main `010ea8d9`: PR #1328 read `Addresses and closes **#1327**` and
 merged, yet #1327 stayed open (`closedAt:null`); PR #1326's first line `Fixes #1322` closed correctly.
 
-`make check-pr-closing` (`scripts/check_pr_closing.py`, run in the PR suite by `ci.yml` and `scope.yml`)
-is the gate: it reads the PR body and fails RED when an `agent/*` PR names an issue but carries no
-adjacent closing keyword, and when this section is deleted. The report names the issues the body
-refers to, so a lane sees precisely what GitHub will leave open. A PR that implements only PART of an
-issue, or none, does not close it (the rules above) and is not held to the keyword.
+`make check-pr-closing` (`scripts/check_pr_closing.py`, run by `ci-unit` and, on the cheap jobs, by
+`ci.yml` and `scope.yml`) is the gate. It fails RED when an `agent/*` PR names an issue but carries
+no adjacent closing keyword, and when this section is deleted. The report names the issues the body
+refers to, so a lane sees precisely what GitHub will leave open.
+
+The commit GitHub writes on a squash merge uses the pull request's own commit messages as its body
+(`squash_merge_commit_message=COMMIT_MESSAGES`, measured on the repository settings). The gate joins
+`git rev-list --no-merges PR_BASE..HEAD`. A claim is an `Issue: #N` line, or a commit subject or
+pull-request title that ends in `(#N)`. Each claim must be an adjacent close in that joined text.
+When the workflow passes the pull request body, the adjacent closes in the body and in the joined
+commit text are the same set. A change that claims nothing and closes nothing passes, including a
+push to `main` whose range is empty. A `#N` that is only prose, including a remainder under
+`Not covered`, is not a claim. A partial that must stay open does not use `Issue: #N` or a trailing
+`(#N)` for the issue it leaves open. The linux unit job passes the body into `make ci-unit`. The
+branch name is `PR_BRANCH`, because `PR_HEAD` is the git revision the author gate reads (issue #1417).
 
 ## A PR's commits are authored through an allowed email — no one else
 

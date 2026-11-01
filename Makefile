@@ -1074,10 +1074,10 @@ check-pr-hygiene: ## CI: fail when a producer's commit message or PR body is emp
 	python3 scripts/check_pr_hygiene.py check
 pr-hygiene-report: ## Show every producer the PR/commit-message guard reads, and its verdict
 	python3 scripts/check_pr_hygiene.py report
-check-pr-closing: ## CI: fail when an agent/* PR names its issue but holds no ADJACENT closing keyword (Closes/Fixes/Resolves #N) in its body, or when AGENTS.md lost the mandate (issue #1329)
-	python3 scripts/check_pr_closing.py check $(if $(PR_BODY),--body-file "$(PR_BODY)",) $(if $(PR_HEAD),--head "$(PR_HEAD)",)
-pr-closing-report: ## Show the closing references a PR body carries, and whether the agent/* scope applies
-	python3 scripts/check_pr_closing.py report $(if $(PR_BODY),--body-file "$(PR_BODY)",) $(if $(PR_HEAD),--head "$(PR_HEAD)",)
+check-pr-closing: ## CI: fail when a claimed issue lacks an adjacent closes/fixes/resolves #N in the joined commit messages and, when the body is supplied, in the PR body, or when an agent/* body names an issue with no adjacent keyword (issues #1329, #1417)
+	python3 scripts/check_pr_closing.py check $(if $(PR_BODY),--body-file "$(PR_BODY)",) $(if $(PR_BRANCH),--head "$(PR_BRANCH)",) --base "$(PR_BASE)" --rev HEAD
+pr-closing-report: ## Show the closing references a PR body carries, the squash closes, and whether the agent/* scope applies (issues #1329, #1417)
+	python3 scripts/check_pr_closing.py report $(if $(PR_BODY),--body-file "$(PR_BODY)",) $(if $(PR_BRANCH),--head "$(PR_BRANCH)",) --base "$(PR_BASE)" --rev HEAD
 .PHONY: check-pr-closing pr-closing-report
 check-proc-gate: ## CI: fail when a subprocess.run/check_output/Popen appears in scripts/ outside scripts/proc.py or a `# proc-allow:` line — the ONE subprocess policy seam (issue #797)
 	python3 scripts/check_proc_gate.py check

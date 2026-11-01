@@ -2028,12 +2028,12 @@ make check-pr-hygiene  # fail when a producer's commit message or PR body is emp
 make check-report-hygiene  # fail when a reporting leg blames ownership (another lane, someone else, this lane) without a @<sha> evidence anchor — evidence-or-silence (issue #1292)
 make report-hygiene-report # show every reporting leg the ownership-guard reads, and its verdict
 make pr-hygiene-report # show every producer the PR/commit-message guard reads, and its verdict
-make check-pr-closing  # CI: fail when an agent/* PR names its issue but holds no ADJACENT closing keyword (Closes/Fixes/Resolves #N) in its body, or when AGENTS.md lost the mandate (issue #1329)
-make pr-closing-report # show the closing references a PR body carries, and whether the agent/* scope applies
+make check-pr-closing  # CI: fail when a claimed issue lacks an adjacent closes/fixes/resolves #N in the joined commit messages and, when the body is supplied, in the PR body, or when an agent/* body names an issue with no adjacent keyword (issues #1329, #1417)
+make pr-closing-report # show the closing references a PR body carries, the squash closes, and whether the agent/* scope applies (issues #1329, #1417)
 make check-pr-authors  # fail when a PR commit is authored by anyone but Andy Holst or Asimov Agent, when a Co-authored-by trailer names anyone else, or when a producer commits off the allowlist (issue #345)
 make pr-authors-report # show every commit in the range with its author verdict, and the identity each producer assigns
-make check-pr-closing  # fail when an agent/* PR names its issue but its body holds no ADJACENT closing keyword (`Closes/Fixes/Resolves #N` — keyword then `#N`, nothing between), so a merge never leaves the issue OPEN (issue #1329)
-make pr-closing-report # show the closing references a PR body carries, and whether the agent/* scope applies (issue #1329)
+make check-pr-closing  # fail when a claimed issue (`Issue: #N` or a subject ending `(#N)`) has no adjacent close in the joined commit messages, the squash body, and in the PR body (issues #1329, #1417)
+make pr-closing-report # show the squash closes and the body closes for the same range (issues #1329, #1417)
 make check-workflows   # fail when a YAML file's GitHub expression does not parse, a YAML file lacks a trailing newline, a workflow has no top-level name, a `workflow_run` trigger names no workflows (issue #330), or a `workflow_run` roster names a workflow that does not exist / leaves one unwatched (issue #349)
 make check-module-names   # fail when a LIVE file spells the retired CLI module name instead of
                           # `scripts/llgenie_serve.py`; the one excluded file is the guard's own test, through the

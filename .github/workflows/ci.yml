@@ -136,14 +136,17 @@ jobs:
           # is then HEAD, so only the static half (producers + AGENTS.md) is read there.
           PR_BASE: ${{ github.event.pull_request.base.sha || 'origin/main' }}
         run: make check-pr-authors PR_BASE="$PR_BASE"
-      - name: make check-pr-closing (an agent/* PR must close its issue in the body — issue #1329)
+      - name: make check-pr-closing (a claimed issue needs the same adjacent close in the squash text and the body — issues #1329, #1417)
         env:
-          # The body + head branch come from the pull_request event; a push to main has neither, and
-          # the static half (the AGENTS.md mandate) is still checked there.
+          # The body, the title and the branch come from the pull_request event. A push to main has
+          # none of them. PR_BASE then defaults to origin/main, which is HEAD, so the range is empty.
           PR_BODY: ${{ github.event.pull_request.body || '' }}
-          PR_HEAD: ${{ github.head_ref || '' }}
+          PR_BRANCH: ${{ github.head_ref || '' }}
+          PR_BASE: ${{ github.event.pull_request.base.sha || 'origin/main' }}
+          PR_TITLE: ${{ github.event.pull_request.title || '' }}
         run: |
-          if [ -n "$PR_BODY" ]; then printf '%s\n' "$PR_BODY" > /tmp/pr-body.md; make check-pr-closing PR_BODY=/tmp/pr-body.md PR_HEAD="$PR_HEAD"; else make check-pr-closing; fi
+          if [ -n "$PR_BODY" ]; then printf '%s\n' "$PR_BODY" > /tmp/pr-body.md; export PR_BODY=/tmp/pr-body.md; fi
+          make check-pr-closing
       - name: Decide which heavy rows this run schedules (make ci-slow-rows)
         id: rows
         env:

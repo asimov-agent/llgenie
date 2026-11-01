@@ -1,0 +1,1 @@
+| 2026-11-01 | the unit job refuses a pull request whose joined commit messages and body do not carry the same adjacent closes for a claimed issue (issue #1417): `make check-pr-closing` reads `PR_BASE..HEAD` and the PR body | [note](agent-wiki/2026-11-01-closes-in-squash-and-body-1417.md) | #1417 |

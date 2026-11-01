@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import subprocess
 from pathlib import Path
 
 from scripts import check_pr_closing as cpc
@@ -115,3 +117,201 @@ def test_cli_check_and_report(tmp_path, monkeypatch):
     assert run_cli(["check", "--body-file", str(p), "--head", AGENT_HEAD]) == 0
     p.write_text("Addresses but never closes **#9**")
     assert run_cli(["check", "--body-file", str(p), "--head", AGENT_HEAD]) != 0
+
+
+# --- the squash text and the PR body close the same claimed issues (issue #1417) ------------
+
+
+def test_a_claim_without_an_adjacent_close_in_the_squash_text_is_red():
+    """A subject `(#N)` is a claim the joined commit text must close."""
+
+    # Given a commit that claims #1417 and a body that does close it
+    messages = ["ci(pr): land the gate (#1417)\n\nIssue: #1417\n\nFix: read the messages.\n"]
+    body = "closes #1417\n"
+
+    # When the squash check runs
+    finding = cpc.check_squash(messages, body, "ci(pr): land the gate (#1417)")
+
+    # Then the squash text is red and names the claim
+    assert any(f["key"] == "squash-commit" for f in finding), finding
+    assert any("1417" in f["evidence"] for f in finding)
+
+
+def test_the_body_and_the_squash_text_must_close_the_same_issues():
+    """GitHub closes from the body. git log keeps the squash text. The sets match."""
+
+    # Given commits that close #9 and a body that closes #10
+    messages = ["ci: land it\n\ncloses #9\n"]
+    body = "closes #10\n"
+
+    # When the squash check runs
+    finding = cpc.check_squash(messages, body)
+
+    # Then the mismatch is red
+    assert any(f["key"] == "squash-mismatch" for f in finding), finding
+
+
+def test_a_chore_that_claims_nothing_passes():
+    """A change that names no issue is not forced to close one."""
+
+    # Given a chore commit and a body with no issue
+    messages = ["ci: tidy a comment\n\nFix: drop the stale sentence.\n"]
+    body = "No issue. A comment only.\n"
+
+    # When the squash check runs
+    finding = cpc.check_squash(messages, body)
+
+    # Then it passes
+    assert finding == []
+
+
+def test_a_prose_mention_is_not_a_claim():
+    """A remainder named under Not covered stays open."""
+
+    # Given both texts close #9 and the body also mentions #1413
+    messages = ["ci: land it (#9)\n\nIssue: #9\n\ncloses #9\n"]
+    body = "closes #9\n\n## Not covered\n\n#1413 stays open.\n"
+
+    # When the squash check runs
+    finding = cpc.check_squash(messages, body, "ci: land it (#9)")
+
+    # Then the prose mention is not a claim
+    assert finding == []
+
+
+def test_markdown_between_the_keyword_and_the_ref_is_not_a_squash_close():
+    """The #1328 miss applies to the commit text too."""
+
+    # Given a claim closed only as `closes **#9**`
+    messages = ["ci: land it (#9)\n\ncloses **#9**\n"]
+    body = "closes #9\n"
+
+    # When the squash check runs
+    finding = cpc.check_squash(messages, body)
+
+    # Then the squash text is red
+    assert any(f["key"] == "squash-commit" for f in finding), finding
+
+
+def test_an_empty_range_passes():
+    """A push to main whose range is empty has nothing to claim."""
+
+    # Given no commits and no body
+    # When the squash check runs
+    finding = cpc.check_squash([], None)
+
+    # Then it passes
+    assert finding == []
+
+
+def test_the_cli_reads_the_commit_range_git_will_squash(tmp_path):
+    """The range is a real `git rev-list`, the same shape the author gate uses."""
+
+    # Given a repository whose only added commit claims #1417 and does not close it
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    def git(*args):
+        subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True, env=os.environ.copy())
+
+    git("init", "-b", "main")
+    git("config", "user.email", "andy.holst@protonmail.com")
+    git("config", "user.name", "Andy Holst")
+    (repo / "README").write_text("base\n")
+    git("add", "README")
+    git("commit", "-m", "base")
+    base = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+    (repo / "README").write_text("change\n")
+    git("add", "README")
+    git("commit", "-m", "ci: land the gate (#1417)\n\nIssue: #1417\n\nFix: read the messages.\n")
+    body = tmp_path / "body.md"
+    body.write_text("closes #1417\n")
+
+    # When the check reads that range
+    code = run_cli([
+        "check", "--body-file", str(body), "--base", base, "--rev", "HEAD",
+        "--cwd", str(repo), "--title", "ci: land the gate (#1417)",
+    ])
+
+    # Then it fails closed
+    assert code != 0
+
+    # Given the same range once the commit text also closes #1417
+    git("commit", "--amend", "-m",
+        "ci: land the gate (#1417)\n\nIssue: #1417\n\nFix: read the messages.\n\ncloses #1417\n")
+
+    # When the check reads it again
+    code = run_cli([
+        "check", "--body-file", str(body), "--base", base, "--rev", "HEAD",
+        "--cwd", str(repo), "--title", "ci: land the gate (#1417)",
+    ])
+
+    # Then it passes
+    assert code == 0
+
+
+def _step(text: str, name: str) -> str:
+    start = text.index(name)
+    rest = text[start:]
+    nxt = rest.find("\n      - name:", 1)
+    return rest if nxt < 0 else rest[:nxt]
+
+
+def test_the_unit_job_passes_the_body_into_ci_unit():
+    """The unit job writes the event body to a file before make ci-unit."""
+
+    # Given pipeline.yml
+    step = _step((REPO / ".github/workflows/pipeline.yml").read_text(), "name: make ci-unit")
+    run = step.split("run: |", 1)[1]
+
+    # When the unit step is read
+    # Then the run block exports the body path, the env carries PR_BASE, and the run block has no expression
+    assert "export PR_BODY=/tmp/pr-body.md" in run
+    assert "make ci-unit" in run
+    assert "${{" not in run
+    assert "PR_BASE:" in step
+    assert "PR_BRANCH:" in step
+
+
+def test_the_make_recipe_passes_the_commit_range():
+    """The recipe reads PR_BASE and names the branch PR_BRANCH, not PR_HEAD."""
+
+    # Given the Makefile
+    recipe = (REPO / "Makefile").read_text().split("check-pr-closing:", 1)[1].split("\n", 2)[1]
+
+    # When the recipe is read
+    # Then it passes the base and the branch variable the author gate does not use as a rev
+    assert '--base "$(PR_BASE)"' in recipe
+    assert "PR_BRANCH" in recipe
+    assert "PR_HEAD" not in recipe
+
+
+def test_the_guard_and_scope_steps_pass_the_base():
+    """Docs pull requests skip linux/unit. Scope and the guard still read the range."""
+
+    # Given the two workflows that already called the gate
+    for rel in (".github/workflows/ci.yml", ".github/workflows/scope.yml"):
+        step = _step((REPO / rel).read_text(), "name: make check-pr-closing")
+        run = step.split("run: |", 1)[1]
+
+        # When the step is read
+        # Then it exports the body path and sets PR_BASE, and the run block has no expression
+        assert "export PR_BODY=/tmp/pr-body.md" in run, rel
+        assert "make check-pr-closing" in run, rel
+        assert "${{" not in run, rel
+        assert "PR_BASE:" in step, rel
+
+
+def test_check_pr_closing_stays_deferred():
+    """The body still does not exist before the pull request event."""
+
+    # Given the issue-bot gate table
+    from scripts import issue_bot_gates
+
+    # When the closing gate is classified
+    reason = issue_bot_gates.DEFERRED["check-pr-closing"]
+
+    # Then it stays deferred and the reason names the commit text
+    assert "check-pr-closing" not in issue_bot_gates.FAST_GATES
+    assert "commit" in reason
+    assert "body" in reason
