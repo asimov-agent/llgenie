@@ -31,6 +31,14 @@ close that never happened. Signature: the claims are *internally* consistent and
 - File the incident durably as an issue (the report may have been relayed to the owner already) and harden the
   *generating prompt*, not the terse report: add the pasted-output rule above to the cron job's prompt, back the
   config up first, and verify the edit by re-reading the file.
+- A tick report that is *internally* consistent but *behind* reality is a different failure: **stale-by-time**, not
+  fabricated. It quotes `main=<sha>`, an open-PR list, and "which lanes are idle" as measured at the moment it ran;
+  in a fast fleet the board moves under it, so by the time you read it main has advanced and PRs it lists as open
+  have merged. Never relay a tick's sha or PR census as current — re-fetch `git rev-parse origin/main`, the open-PR
+  list, and the merged-state of each PR it names, and report the corrected board (name which claims were stale and
+  by how much). Its *dispatch decisions* can still be sound forward work even when its census is wrong; keep those,
+  correct the board. Distinguish the two modes explicitly in your report: "tick confabulated" vs "tick ran before N
+  merges landed".
 - Repeated "Context compression is already running for this session" delivery failures plus the kanban
   dispatcher reporting memory pressure identify a host constraint, not lane refusal. Report it owner-gated; do
   not dispatch harder into it. Delivery-result semantics (queued / failed / queue_full):

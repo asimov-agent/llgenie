@@ -32,6 +32,17 @@ That is when a cancel becomes a real signal.
 Only then is it a starved-runner / capacity signal — escalate to the queue-shaping
 ledger (#882/#1146/#1139). Never call a 60-config cancel that first.
 
+## An AC blocked on an infra gate filed OFF the PR: accept the green subset, hold the cell under its issue
+
+When a PR's acceptance criterion (e.g. AC6 "fully-green at head") cannot be met because a red cell is a **runner-infra** gate that has already been filed as its own issue (not a defect in this PR's diff), do not hold the whole PR hostage to an unrelated infra fix, and do not silently call it green. The honest routing:
+
+1. **Split the verdict:** accept the AC on the **verified-green subset** (the cells this PR's diff actually governs), stating the cell count and run id at the exact head.
+2. **Attribute every remaining red to its tracked issue** by name/number, confirming it is identical pre- and post-fix (same failure both sides ⇒ infra, not code) and that none is touched by this PR's diff.
+3. **Formally hold the infra cell under its filed issue** — the PR's AC is "green except cell X, which is owned by #<n> and must re-confirm green once #<n> lands before any merge-of-this-PR is recommended". Record that caveat **on the PR** so the partial accept is not read later as a weakened AC.
+4. Never let this become "merge it anyway" — the merge stays the owner's (#1088); you have only accepted the *verdict* on the code the PR owns.
+
+Measured case: #1220/#1196 — 16 non-CUDA install-leg cells green at `abc1d3ac` (run-head==PR-head verified), cuda cell red only on missing NVIDIA CDI (filed as #1240, infra, identical pre/post-fix). Routed option (a): AC accepted on the 16 green cells, cuda formally held under #1240. The engine-improver offered (a) accept-subset vs (b) hold-for-infra; **the planner picks (a) with the on-record caveat**, because an infra gate with a tracked remedy is not an unowned defect.
+
 ## Fleet instances of this error
 
 - Planner's own premise on #1167/#1170 ("rerun picks up 120") — corrected by the
