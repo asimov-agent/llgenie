@@ -136,3 +136,15 @@ documentation lane:
   issue** for any gap — never assume the repo copy is the truth, and never write-mode sync a lane whose
   live is richer (it truncates silently, #791).
 
+## Idle / empty-queue audit (continuous improvement, #1245)
+
+When this lane's reactive queue is empty for N=2 consecutive passes (no dispatched work, no in-flight
+gate it owns), run one bounded own-domain audit (owner-approved #1245 contract; per-lane spec comment
+6551533999). My audit definition: **main-versus-docs alignment** (README/skill sections stale vs
+current `main`), **skill-freshness** (a skill 2+ releases old — read the `version:` frontmatter against
+the release ledger in `CHANGES.md`), and **change-note coverage** (a behavioural surface with no
+`agent-wiki/` note + `docs/changes.d/` row — the #1123 change→note gate). Every finding is filed as a
+refined six-section issue tagged `agent:implement`, routed through the normal queue — never implemented
+by the same pass; otherwise record "re-audited at `<sha>`, no findings". One-pass scope, no infinite
+loop; never overrides real reactive work.
+
