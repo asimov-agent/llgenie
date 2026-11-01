@@ -900,7 +900,7 @@ targets-coverage: ## Print every Makefile target with the callers found (workflo
 	python3 scripts/targets_coverage.py
 issue-cleaner-scan: ## Which OPEN issue a merged PR already implemented (the linkage guard cannot see, issue #325): prints each finding and its evidence, closes nothing (REPO= picks the repo)
 	python3 scripts/issue_cleaner.py --repo "$(GH_REPO)" --dry
-issue-cleaner-apply: ## Close the issues a merged PR implemented but left open, each with a comment citing the PR and its merge commit (issue #325; REPO= picks the repo)
+issue-cleaner-apply: ## Close the issues a merged-to-main PR implemented but left open, each with a comment citing the PR (issue #325; the stale-branch cleanup workflow runs this daily, issue #1414; REPO= picks the repo)
 	python3 scripts/issue_cleaner.py --repo "$(GH_REPO)"
 worktree-report: ## Report every worktree with its branch, merged-into-main, open PR and dirty state; mutates nothing and deletes nothing (issue #794); SLUG= picks the repo gh reads, BASE= the base ref
 	python3 scripts/worktree_report.py --repo $(if $(SLUG),$(SLUG),asimov-agent/llgenie) --base $(if $(BASE),$(BASE),origin/main)

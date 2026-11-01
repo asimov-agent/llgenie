@@ -1,0 +1,1 @@
+| 2026-11-01 | the stale-branch cleanup run also closes an open issue a PR merged into main already implemented (issue #1414): `make issue-cleaner-apply` on the daily 03:39 UTC cron, skipping stack-branch merges, idle-audit titles and title-only tracking vehicles | [note](agent-wiki/2026-11-01-close-implemented-on-stale-sweep-1414.md) | #1414 |

@@ -194,6 +194,123 @@ def test_a_pr_that_closed_its_issue_is_silent(tmp_path):
     assert "issue close" not in (tmp_path / "gh-calls").read_text()
 
 
+def test_a_pr_merged_off_main_is_ignored(tmp_path):
+    """A stack-branch merge must not close an issue on the default branch."""
+
+    # Given two merged PRs, one into a stack branch and one into main
+    gh_stub(tmp_path,
+            [{"number": 1032, "title": "paths (#973)", "body": "", "mergedAt": "2026-10-30T17:28:13Z",
+              "baseRefName": "feat/agent-profile-implementer-skill", "closingIssuesReferences": [],
+              "mergeCommit": {"message": "Issue: #973"}},
+             {"number": 952, "title": "holds (#948)", "body": "", "mergedAt": "2026-10-29T17:04:03Z",
+              "baseRefName": "main", "closingIssuesReferences": [],
+              "mergeCommit": {"message": "no issue line"}}],
+            [{"number": 973, "title": "paths"}, {"number": 948, "title": "holds"}])
+
+    # When the cleaner applies
+    r = run_cleaner(tmp_path)
+
+    # Then only the main PR's issue is closed, and the list asked for main
+    assert r.returncode == 0, r.stderr
+    assert "closed #948" in r.stdout
+    assert "closed #973" not in r.stdout
+    calls = (tmp_path / "gh-calls").read_text()
+    assert "--base main" in calls
+    assert "issue close 973" not in calls
+    assert "issue close 948" in calls
+
+
+def test_two_title_only_prs_leave_the_tracking_issue_open(tmp_path):
+    """Several title-only PRs name a vehicle. Measured #1079 via #1310 and #1319."""
+
+    # Given two merged-to-main PRs whose titles both end with the same issue
+    gh_stub(tmp_path,
+            [{"number": 1310, "title": "version the fold tool (#1079)", "body": "lands the tool",
+              "mergedAt": "2026-11-01T12:07:00Z", "baseRefName": "main", "closingIssuesReferences": [],
+              "mergeCommit": {"message": "version the fold tool"}},
+             {"number": 1319, "title": "wire the fold target (#1079)", "body": "wires the target",
+              "mergedAt": "2026-11-01T12:16:08Z", "baseRefName": "main", "closingIssuesReferences": [],
+              "mergeCommit": {"message": "wire the fold target"}}],
+            [{"number": 1079, "title": "lanes record lessons in live profile skills"}])
+
+    # When the cleaner applies
+    r = run_cleaner(tmp_path)
+
+    # Then the issue is reported as a vehicle and not closed
+    assert r.returncode == 0, r.stderr
+    assert "vehicle #1079" in r.stdout
+    assert "nothing to close" in r.stdout
+    assert "issue close" not in (tmp_path / "gh-calls").read_text()
+
+
+def test_an_idle_audit_title_is_left_open(tmp_path):
+    """An idle-audit record is not the implementation. Measured #1377 for #1282."""
+
+    # Given a merged-to-main PR whose title is an idle-audit record
+    gh_stub(tmp_path,
+            [{"number": 1377, "title": "docs(security): record own-domain idle audit (#1282)",
+              "body": "option 2 of the dispatch", "mergedAt": "2026-11-01T15:09:40Z",
+              "baseRefName": "main", "closingIssuesReferences": [],
+              "mergeCommit": {"message": "record the audit"}}],
+            [{"number": 1282, "title": "engine install-string pins"}])
+
+    # When the cleaner applies
+    r = run_cleaner(tmp_path)
+
+    # Then the issue is reported as an audit and not closed
+    assert r.returncode == 0, r.stderr
+    assert "audit #1282" in r.stdout
+    assert "nothing to close" in r.stdout
+    assert "issue close" not in (tmp_path / "gh-calls").read_text()
+
+    # And a title with words between idle and audit is the same record (#1274 / #1245)
+    d = cleaner.decide(
+        {"number": 1274, "title": "docs(architect): add fleet idle continuous-improvement audit contract (#1245)",
+         "body": "", "closingIssuesReferences": [], "mergeCommit": {"message": "audit contract"}},
+        {1245: {"number": 1245, "title": "role split"}},
+    )
+    assert d["action"] == "audit" and d["issue"] == 1245
+
+
+def test_an_issue_line_still_closes_when_another_title_names_it(tmp_path):
+    """The merge commit's Issue line is the implementation, even beside a title-only sibling."""
+
+    # Given one PR that states Issue: #256 and another that only titles it
+    gh_stub(tmp_path,
+            [{"number": 344, "title": "retry (#999)", "body": "", "mergedAt": "2026-10-16T09:04:00Z",
+              "baseRefName": "main", "closingIssuesReferences": [],
+              "mergeCommit": {"message": "Issue: #256\n"}},
+             {"number": 345, "title": "notes (#256)", "body": "", "mergedAt": "2026-10-16T10:04:00Z",
+              "baseRefName": "main", "closingIssuesReferences": [],
+              "mergeCommit": {"message": "notes only"}}],
+            [{"number": 256, "title": "test-unit is red on clean main"}])
+
+    # When the cleaner applies
+    r = run_cleaner(tmp_path)
+
+    # Then the Issue-line PR closes it, and the title-only sibling is demoted only when it is a close
+    assert r.returncode == 0, r.stderr
+    assert "closed #256" in r.stdout
+    calls = (tmp_path / "gh-calls").read_text()
+    assert "issue close 256" in calls
+
+
+def test_the_stale_branch_workflow_runs_the_closer():
+    """The daily branch pipeline is the schedule. It calls the make target, not the script."""
+
+    # Given the stale-branch cleanup workflow
+    text = (REPO / ".github" / "workflows" / "stale-branch-cleanup.yml").read_text()
+
+    # When its close job is read
+    job = text.split("close-implemented:", 1)[1]
+
+    # Then it runs the apply target and can write issues, and it never calls the script directly
+    assert "make issue-cleaner-apply" in job
+    assert "python3 scripts/issue_cleaner.py" not in text
+    assert "issues: write" in job
+    assert 'cron: "39 3 * * *"' in text
+
+
 def test_json_mode_emits_the_findings(tmp_path):
     gh_stub(tmp_path,
             [{"number": 344, "title": "x (#256)", "body": "", "mergedAt": "2026-10-16T09:04:00Z",
