@@ -1063,6 +1063,11 @@ check-pr-hygiene: ## CI: fail when a producer's commit message or PR body is emp
 	python3 scripts/check_pr_hygiene.py check
 pr-hygiene-report: ## Show every producer the PR/commit-message guard reads, and its verdict
 	python3 scripts/check_pr_hygiene.py report
+check-pr-closing: ## CI: fail when an agent/* PR names its issue but holds no ADJACENT closing keyword (Closes/Fixes/Resolves #N) in its body, or when AGENTS.md lost the mandate (issue #1329)
+	python3 scripts/check_pr_closing.py check $(if $(PR_BODY),--body-file "$(PR_BODY)",) $(if $(PR_HEAD),--head "$(PR_HEAD)",)
+pr-closing-report: ## Show the closing references a PR body carries, and whether the agent/* scope applies
+	python3 scripts/check_pr_closing.py report $(if $(PR_BODY),--body-file "$(PR_BODY)",) $(if $(PR_HEAD),--head "$(PR_HEAD)",)
+.PHONY: check-pr-closing pr-closing-report
 check-report-hygiene: ## CI: fail when a reporting leg blames ownership (another lane, someone else, this lane) without a @<sha> evidence anchor — evidence-or-silence (issue #1292)
 	python3 scripts/check_report_hygiene.py check
 report-hygiene-report: ## Show every reporting leg the ownership-guard reads and its verdict
@@ -1727,6 +1732,7 @@ ci-unit: bash-check ## CI job unit: hermetic unit tests + registry / skill / Str
 	$(MAKE) check-report-hygiene
 	$(MAKE) check-issue-bodies
 	$(MAKE) check-pr-authors
+	$(MAKE) check-pr-closing
 	$(MAKE) check-workflows
 	$(MAKE) check-module-names
 	$(MAKE) check-scanner-images

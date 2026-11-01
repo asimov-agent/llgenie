@@ -366,8 +366,24 @@ opening the issue. An empty, placeholder or subject-only message is a defect, ne
 `make check-pr-hygiene` (`scripts/check_pr_hygiene.py`, run by `ci-unit`) is the gate: it reads every
 producer the repository owns and fails on a commit with no message, a placeholder message, a subject
 that is not a typed Conventional Commit or no body, on a PR opened with an empty or placeholder body,
-and on an `AGENTS.md` that no longer carries this section. `make pr-hygiene-report` prints what it
-reads.
+makes empty or placeholder body, on a PR opened with an empty or placeholder body, and on an
+`AGENTS.md` that no longer carries this section. `make pr-hygiene-report` prints what it reads.
+
+## A PR that implements an issue closes it — the keyword must be adjacent to #N in the body (MANDATORY, durable)
+
+A PR that implements an issue MUST carry the closing keyword in its **body**, directly before the
+issue reference: `closes #1327` (or `fixes #N` / `resolves #N`), with nothing between the keyword and
+the `#` but horizontal space. That exact adjacency is what GitHub's reference parser reads — a bare
+`#N` in the **title**, a number only in the first-line prose, or a keyword with markdown between it
+and the reference (`closes **#1327**`, `closes:#1327`) does **NOT** close the issue, and a merge leaves
+it OPEN silently. Measured on main `010ea8d9`: PR #1328 read `Addresses and closes **#1327**` and
+merged, yet #1327 stayed open (`closedAt:null`); PR #1326's first line `Fixes #1322` closed correctly.
+
+`make check-pr-closing` (`scripts/check_pr_closing.py`, run in the PR suite by `ci.yml` and `scope.yml`)
+is the gate: it reads the PR body and fails RED when an `agent/*` PR names an issue but carries no
+adjacent closing keyword, and when this section is deleted. The report names the issues the body
+refers to, so a lane sees precisely what GitHub will leave open. A PR that implements only PART of an
+issue, or none, does not close it (the rules above) and is not held to the keyword.
 
 ## A PR's commits are authored through an allowed email — no one else
 
