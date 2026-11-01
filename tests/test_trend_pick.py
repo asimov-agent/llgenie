@@ -977,6 +977,37 @@ def test_the_real_registry_never_classifies_a_phone_run_as_cuda():
             assert backend != "CUDA", f"{hw!r} classifies as CUDA"
 
 
+def test_ternary_model_routes_only_to_the_prism_fork():
+    """#1092: a model whose record states ternary packings is served ONLY by the
+    `llama.cpp-prism` fork, on every arch — never plain `llama.cpp`, whose PQ2_0/PTQ1_0
+    loading is the very failure this issue exists to prevent. The CMF Phone 2 Pro run
+    (plain `llama.cpp` @ 6.0) must NOT be offered, even as a CPU-host fallback where its
+    CPU backend out-ranks the fork's CUDA figure.
+    """
+
+    reg = mp.load_registry()
+    m = next(x for x in reg["models"] if x["id"] == "bonsai-2-4b")
+    assert mp.is_ternary(m)
+    for arch in ("cuda", "cpu", "vulkan", "metal"):
+        engs = mp.rank_engines(m, arch, gb=8)
+        ids = [e["id"] for e in engs]
+        assert ids, f"{arch}: no engine offered for a ternary model"
+        assert "llama.cpp" not in ids, (
+            f"{arch}: plain llama.cpp offered for ternary {m['name']} — {engs}"
+        )
+        assert any(i == "llama.cpp-prism" for i in ids), (
+            f"{arch}: ternary {m['name']} must include llama.cpp-prism — {engs}"
+        )
+        # the offered prism figure is the PrismML 128 t/s run, never the phone's 6.0
+        top = next(e for e in engs if e["id"] == "llama.cpp-prism")
+        assert top["tps"] == 128.0, f"{arch}: prism t/s {top['tps']} != 128 (phone run leaked?)"
+
+    # and the fork is NOT forced on a non-ternary model: plain llama.cpp is still first for one
+    plain = next(x for x in reg["models"] if x["id"] == "qwen2.5-0.5b")
+    assert not mp.is_ternary(plain)
+    assert "llama.cpp" in [e["id"] for e in mp.rank_engines(plain, "cuda", gb=8)]
+
+
 def test_bands_match_the_readme_status_column():
     import re
     reg = mp.load_registry()

@@ -164,6 +164,27 @@ PRISM_GGML_TYPES = frozenset({142, 143})
 PRISM_ENGINES = frozenset({"llama.cpp-prism"})
 
 
+def is_ternary(model: dict) -> bool:
+    """True when a model's own record states its packings need a ternary build.
+
+    The ternary signal must come from the SYNCED store, not from guessing at the file
+    extension — a ternary model's record names it (`type` "LLM (ternary)", a `ternary`
+    field, a `PrismML Ternary` full name, or a repo under prism-ml/Ternary-*). Such a
+    model is ONLY served by the PrismML fork: stock llama.cpp reads a PQ2_0/PTQ1_0 file
+    as an invalid tensor type (issue #1092), so offering it plain `llama.cpp` (e.g. a
+    CPU fallback row that picks the phone run) hands the user a pair that cannot load.
+    """
+    if (model.get("type") or "").strip().lower().find("ternary") >= 0:
+        return True
+    if "ternar" in (model.get("ternary") or "").lower():
+        return True
+    if "ternar" in (model.get("full_name") or "").lower():
+        return True
+    names = [str(f.get("hf") or "") for f in model.get("formats") or []]
+    names += [str(model.get("hf") or "")]
+    return any(re.search(r"prism-ml/ternary-", n, re.I) for n in names)
+
+
 def gguf_tensor_types(path: Path) -> set[int]:
     """The ggml tensor types a .gguf actually stores (empty when the header is unreadable).
 
@@ -479,6 +500,14 @@ def rank_engines(model: dict, arch: str | None = None, ids: dict | None = None,
         info = ids.get(name)
         if not info:
             return  # no container image (Metal-only / browser-only / no-skill engines)
+        # A ternary model is ONLY served by the PrismML fork: its rows on plain
+        # `llama.cpp` (and on other non-prism engines) cannot load the PQ2_0/PTQ1_0
+        # file, so they must not be offered even as a fallback — the phone run at
+        # plain `llama.cpp` fell below the fork's CUDA figure at a CPU host and won
+        # the row (issue #1092). Prism has the cpu/vulkan/metal variants, so the
+        # host still gets a runnable cell.
+        if is_ternary(model) and info["id"] not in PRISM_ENGINES:
+            return
         variant = arch if arch in info["variants"] else (
             None if arch == "metal" else ("cpu" if "cpu" in info["variants"] else None))
         # Issue #669 / #1064: a Metal-measured figure from a METAL-NATIVE engine is not evidence
