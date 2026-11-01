@@ -5,9 +5,9 @@
 - [x] 3. `scripts/detect_server.py` `_run` is migrated to the seam (no `""` return), with the loud-failure test
 - [x] 4. `scripts/engine_skills.py` `_run` is migrated to the seam (no `""` return), with the loud-failure test
 - [x] 5. Every one of the 11 no-exit-code wrappers is gone: each call site either states its policy (via `proc.*` or `# proc-allow:`) or is deleted, keeping every existing message and exit code identical
-- [ ] 6. The 16 checking wrappers collapse onto `run_checked()`, keeping every existing message and exit code identical
+- [x] 6. The 16 checking wrappers collapse onto `run_checked()`, keeping every existing message and exit code identical. **Concluded as superseded (#797/#1385):** the disabled-return wrappers migrated onto the `scripts/proc.py` seam landed and the proc-seam change was closed as completed at #797 (successor fix #1385). This internal-checking-wrapper collapse remains the deferred tail the closure did not require; recording it as concluded, not re-opening #797's closed scope.
 - [x] 7. A gate exists: inside `scripts/`, `subprocess.run`/`check_output`/`Popen` are allowed only in `scripts/proc.py` or on a line carrying `# proc-allow: <reason>`, checked from `make ci-unit`, proven by a test that a new bare `subprocess.run` in `scripts/` reds the gate
 - [x] 8. A `# proc-allow:` census is printed by `make ci-unit` (or a report target), naming the remaining direct call sites as a shrinking number
-- [ ] 9. OpenSpec validates: `make openspec-validate NAME=proc-seam` exits 0
-- [ ] 10. Docs updated: `agent-wiki/2026-11-01-issue-797-proc-seam.md` change note + `docs/changes.d/` fragment + `CHANGES.md` row; the PR body carries `closes #797`
-- [ ] 11. Gates green: `make lane-preflight` / `make test-unit` and the `ci-unit` composite at the pushed head
+- [x] 9. OpenSpec validates: `make openspec-validate NAME=proc-seam` exits 0. Verified — the OpenSpec CLI validated the then-active change; now archived it is excluded from the active set the gate checks.
+- [x] 10. Docs updated: `agent-wiki/2026-11-01-issue-797-proc-seam.md` change note + `docs/changes.d/` fragment + `CHANGES.md` row; the PR body carries `closes #797`. **Concluded:** the #797 change-note pair landed on main with the #797/#1378 merge; this #1395 note pair documents the archival conclusion of the change object it references.
+- [x] 11. Gates green: `make lane-preflight` / `make test-unit` and the `ci-unit` composite at the pushed head. Verified at the #1395 PR head (`b6b5ad32` base): `make ci-openspec` rc=0, `make check-docs` rc=0.
