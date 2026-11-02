@@ -26,10 +26,12 @@ on:
     branches: ["main"]    # merges: run the PR gate suite (engine build/publish lives in engine-build)
 
 # Hub calls (unit pick, hf download, engine containers) send this. The value is
-# the repo Actions secret HF_TOKEN. Reusable workflows receive it via secrets: inherit.
-env:
-  HF_TOKEN: ${{ secrets.HF_TOKEN }}
-  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+# the repo Actions secret HF_TOKEN. Each pipeline job that runs Hub-touching make
+# targets gets it in its own job-level env (issue #1594): a workflow-level secret
+# is ambient for every job and step, which the security-scan's
+# gha-workflow-env-secret rule flags. The reusable `linux` call receives the two
+# repository secrets it consumes through the explicit `secrets:` block below,
+# not `secrets: inherit` (issue #1594).
 
 # A push to a PR SUPERSEDES the run it replaces (issue #288): the group carries `github.ref`, which
 # for a pull_request run is `refs/pull/<n>/merge`, so one PR cancels its own previous run and two
@@ -315,7 +317,12 @@ jobs:
       contents: read
       packages: read
       actions: read
-    secrets: inherit
+    # Explicit, not `secrets: inherit` (issue #1594): pass ONLY the repository
+    # secrets the callee's jobs consume (pipeline.yml's Hub and GitHub-token make
+    # targets), never the whole repository secret store onwards.
+    secrets:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     with:
       runner: ubuntu-latest
       top_tier_rows: ${{ needs.guard.outputs.top_tier_rows }}

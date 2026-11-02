@@ -70,16 +70,32 @@ def test_start_scripts_forward_hf_token():
 
 
 def test_workflows_inject_the_actions_secret():
-    """Every workflow that can call the Hub exports the HF_TOKEN secret."""
+    """Every workflow with a Hub-touching job exports the HF_TOKEN secret at JOB scope.
 
-    # Given the CI workflows
+    Issue #1594: a secret in the workflow-level `env:` is ambient for every job and step
+    (the gha-workflow-env-secret finding). The token now lives on the exact job(s) that
+    run Hub-touching make targets, and NO workflow leaks it into the top-level env.
+    """
     names = ("ci.yml", "pipeline.yml", "engine-bump.yml", "registry-sync.yml")
     docs = {name: yaml.safe_load((REPO / ".github" / "workflows" / name).read_text()) for name in names}
 
-    # When their workflow env and reusable-workflow calls are read
-    # Then each workflow sets HF_TOKEN from the Actions secret
+    # No workflow exposes the token at workflow scope (issue #1594).
     for name, doc in docs.items():
-        assert doc["env"]["HF_TOKEN"] == "${{ secrets.HF_TOKEN }}", name
+        assert "HF_TOKEN" not in (doc.get("env") or {}), name
+
+    # Every Hub-calling job carries it at job scope.
+    for name, doc in docs.items():
+        jobs = doc["jobs"]
+        for jname, job in jobs.items():
+            if name == "pipeline.yml":
+                if jname in ("cpu-health", "top-tier"):
+                    assert job.get("env", {}).get("HF_TOKEN") == "${{ secrets.HF_TOKEN }}", (name, jname)
+                else:
+                    assert "HF_TOKEN" not in (job.get("env") or {}), (name, jname)
+            elif name == "engine-bump.yml" and jname == "bump":
+                assert job.get("env", {}).get("HF_TOKEN") == "${{ secrets.HF_TOKEN }}", jname
+            elif name == "registry-sync.yml" and jname == "sync":
+                assert job.get("env", {}).get("HF_TOKEN") == "${{ secrets.HF_TOKEN }}", jname
 
 
 def _http_error(code, headers):
@@ -195,11 +211,12 @@ def test_workflows_pass_the_secret_into_reusable_workflows():
     ci = yaml.safe_load((REPO / ".github" / "workflows" / "ci.yml").read_text())["jobs"]
 
     # When its reusable-workflow calls are read
-    # Then each one inherits the secret
-    # issue #870 removed the `macos` caller; issue #1027 folded the published install
-    # surface into engine-build, so `linux` is the only reusable-workflow caller that remains
+    # Then the call inherits only the secrets the callee consumes (issue #1594) —
+    # never the whole store via `secrets: inherit`.
     for job in ("linux",):
-        assert ci[job]["secrets"] == "inherit", job
+        # a `secrets:` block must exist and not be the string `inherit`
+        assert ci[job]["secrets"] != "inherit", job
+        assert isinstance(ci[job]["secrets"], dict), job
 
 
 def test_throttle_wait_reads_the_seconds_the_hub_names_in_text():
