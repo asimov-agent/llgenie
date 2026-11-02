@@ -101,6 +101,10 @@ DATA_PATH_FILES = (
     "test_pick_full_registry.py",
     "test_trend_pick.py",
     "test_install_trend.py",
+    # issue #1132: test_mac_trend_pick.py reaches the live Hub on its seven @pytest.mark.network
+    # tests (_offer -> mp.offer -> the Hub tree); it was missing from this roster, so the census
+    # never scanned it and a live Hub fetch in it stayed green. Now pinned here.
+    "test_mac_trend_pick.py",
     "test_registry_sync_trend.py",  # issue #1067: live sr.fetch into raw.githubusercontent.com
     # issue #1000: one live node each, the rest of the file hermetic — kept in the census so the
     # routing decision (network for n, unit for the rest) is pinned by a test, not by habit.
@@ -211,6 +215,18 @@ EXPECTED_NETWORK_TESTS = {
     "test_registry_sync_trend.py": {
         "test_live_sync_adopts_a_higher_skilled_tps_for_models_that_fit_48gb",
         "test_rank_follows_the_given_vram_ram_and_arch",
+    },
+    # issue #1132: test_mac_trend_pick.py reaches the live Hub on all seven of its network-marked
+    # tests (_offer -> mp.offer -> the Hub tree / llgenie --trend/--select). Explicitly listed so a
+    # marker removed here reds the census by file + test, exactly like the other routed files.
+    "test_mac_trend_pick.py": {
+        "test_trend_on_a_48gb_mac_is_the_readme_list_with_metal_engines",
+        "test_flash_next_on_48gb_says_tensorfold_needs_more_memory",
+        "test_flash_next_is_number_one_with_tensorfold_on_a_128gb_mac",
+        "test_select_1_on_a_48gb_mac_serves_qwen38_27b_with_tensorfold",
+        "test_select_flash_next_with_tensorfold_on_a_128gb_mac",
+        "test_mlx_only_model_finds_its_mlx_conversion_on_a_mac",
+        "test_interactive_listing_is_the_trend_listing",
     },
 }
 
