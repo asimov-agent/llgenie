@@ -15,10 +15,14 @@ Each test builds a tiny real git repo (the gate reads `git ls-files`/`git diff`)
 
 from __future__ import annotations
 
+import re
 import subprocess
 from pathlib import Path
 
 from scripts import check_empty_files as gate
+
+REPO = Path(__file__).resolve().parent.parent
+MAKEFILE = (REPO / "Makefile").read_text()
 
 
 def _git(root: Path, *args: str) -> None:
@@ -108,3 +112,17 @@ def test_main_check_via_the_pr_gate_is_clean_post_removal(tmp_path):
     """The acceptance: a PR gate run on a tree without empty files reports zero paths."""
     root = make_repo(tmp_path, {"a.txt": b"data"})
     assert gate.findings(root, all_tracked=True) == []
+
+
+def test_ci_lint_make_target_runs_check_empty_files():
+    """The merge-gating `ci-lint` target still wires in the zero-byte gate.
+
+    scope.yml and pipeline.yml both run `make ci-lint` on PRs to main; if the target ever drops
+    `check-empty-files`, the gate silently stops running even though the script and workflow steps
+    still exist (a shape-change miss: `git grep check-empty-files` in the workflow YAML finds
+    nothing because the wiring is via the make target). Pin the target's composition so the
+    tripwire cannot rot invisible.
+    """
+    m = re.search(r"^ci-lint:.*(?:\n\t[^\n]*)+", MAKEFILE, re.MULTILINE)
+    assert m, "ci-lint make target not found"
+    assert "$(MAKE) check-empty-files" in m.group(0), m.group(0)
