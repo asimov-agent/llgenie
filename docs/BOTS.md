@@ -1479,6 +1479,17 @@ make bot-verdict VERDICT=approve|changes HEAD=<full sha> RUN=<run id> REPO=asimo
 make bot-verdict-read REPO=asimov-agent/llgenie PR=<n> [HEAD=<sha>]   # what the merge gate would read
 ```
 
+**The verdict is CALLED, never definition-only (issue #1550).** The producer shipped with no caller
+(`#852`'s `## Not covered`: *"No lane posts a verdict yet"*). The caller is `review-verdict.yml`,
+triggered on a submitted `pull_request_review`: it resolves the exact head the review judged and the
+run that measured it, and runs `make bot-verdict VERDICT=approve|changes HEAD=<head> RUN=<run id>
+REPO=asimov-agent/llgenie PR=<n>` — posting the marker as the workflow's own token
+(`github-actions[bot]`, a trusted verdict author), so `reviewer == author` and the no-impersonation
+rule holds by construction. `tests/test_bot_verdict.py` greps `.github/workflows/`, `agents/` and
+`scripts/` for a caller and fails when none exists — a producer can never again ship with no caller.
+The reviewer lane (`llgenie-pr-reviever`) is updated to run the same target from the host (its own
+SKILL/SOUL, routed separately); it covers the heads this workflow's read-only fork event cannot.
+
 Three rules make it safe, and each is a test rather than a convention:
 
 - **The head is written INTO the verdict, and a stale verdict does not count.** `auto_merge.decide()`

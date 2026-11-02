@@ -1553,6 +1553,32 @@ def test_a_changes_verdict_at_the_head_holds_the_pr(tmp_path):
     assert not [c for c in _calls(tmp_path / "gh.log") if c[:2] == ["pr", "merge"]]
 
 
+def test_explain_reports_a_changes_hold_from_the_named_reviewer(tmp_path, capsys):
+    """A `changes` verdict at a head makes `make auto-merge-explain` report the hold from the reviewer.
+
+    Issue #1550's acceptance: the review verdict the producer writes is READ back by the merge
+    decision. `explain` is the human-readable half of that gate — it must name the reviewer whose
+    verdict holds the PR, at the exact head that verdict judged.
+    """
+    # Given a CLEAN PR whose thread carries a `changes` verdict at its head, and a verified head
+    state = _state(comments=[_verdict(verdict="changes", reviewer="asimov-agent")])
+    gh = _fake_gh(tmp_path, state, {"482": "CLOSED"},
+                  runs=[{"status": "completed", "conclusion": "success"}])
+
+    # When  explain runs
+    rc = am.explain(str(gh), "asimov-agent/llgenie", 482, HEAD)
+
+    # Then  it names the reviewer's changes verdict at this head, and writes nothing
+    out = capsys.readouterr().out
+    assert rc == 0, rc
+    assert "bot verdict at this head" in out, out
+    assert "requests changes" in out, out
+    assert "asimov-agent" in out, out              # the named reviewer
+    assert "would merge" not in out, out
+    assert not [c for c in _calls(tmp_path / "gh.log") if c[:2] in (["pr", "merge"], ["pr", "review"],
+                                                                    ["pr", "comment"])]
+
+
 # ---- a verdict needs a run id, and the head needs a concluded green run (issue #1551) ----
 
 def test_a_verdict_marker_without_a_run_id_neither_clears_the_block_nor_merges(tmp_path):

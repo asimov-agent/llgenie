@@ -1,0 +1,137 @@
+name: review-verdict — record a submitted review as the bot-verdict marker at the head it judged
+
+# REVIEW-VERDICT (#1550) — the caller of `make bot-verdict` the #852 producer shipped with none.
+#
+# #852 shipped the producer (`make bot-verdict`), the consumer (`auto_merge` reads the marker), the
+# docs and the tests — and explicitly NOT a caller ("No lane posts a verdict yet"). A reviewer
+# completes a review; the one machine-readable verdict the merge decision reads is never written.
+# This workflow closes that: it is the pipeline-half caller. When a review is submitted on a PR, it
+# resolves the judged head and the run that measured it, and posts the bot-verdict marker for that
+# exact head.
+#
+# THE OTHER HALF IS THE REVIEWER LANE ITSELF. `llgenie-pr-reviever` is a kanban-hosted Hermes
+# profile; its SKILL/SOUL update ("post the `make bot-verdict` marker") is routed separately when
+# this code lands (#1550 dispatch) and covers the PRs this workflow cannot reach (see below).
+# THIS file is the caller that exists in the pipeline, so the producer is never definition-only.
+#
+# WHY POST THROUGH THE WORKFLOW'S OWN TOKEN: a marker is trusted only when `reviewer=` equals the
+# comment's AUTHOR and that author is a repo identity or a bot login (`trusted()`). A workflow posts
+# as `github-actions[bot]` — a trusted verdict author — so reviewer==author==a bot login holds and
+# the no-impersonation rule is satisfied by construction.
+#
+# SCOPE (which reviews this workflow may record): an event from a FORK head arrives on a read-only
+# token with no secrets, so it cannot post a marker comment; those PRs are reviewed from the host
+# and get their marker from the reviewer lane (separate step). A SAME-REPO review event carries a
+# write token, so THIS caller is the one that records those heads.
+#
+# Flow: resolve the exact head judged + the run that measured it -> make bot-verdict VERDICT=...
+#       (the #852 producer). Only approved / changes_requested count; a commented review is not a
+#       verdict. A head with no concluded run is not posted (#1551: a verdict that names only a sha
+#       cannot be audited).
+# Never: never merges, never pushes, never edits code, never invents a head (it reads the event's
+#       `head.sha`), never posts a marker for a head with no concluded run, never posts on a fork
+#       head it lacks write to.
+on:
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  contents: read
+  pull-requests: write
+  actions: read
+
+# per-PR group: two reviews on the same PR serialise; a verdict for head A and one for head B both
+# post (different heads), so nothing waits behind a verdict for another tree on the same PR.
+concurrency:
+  group: review-verdict-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  record:
+    # A same-repo head only: a fork head's review event carries a read-only token and no secrets, so
+    # this job could not post the marker there (the reviewer lane covers those, separately). The
+    # check uses the event's head repo, which is non-empty for a PR event (#510).
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Prove the review event carries a full sha (a prefix is not a head)
+        id: head
+        env:
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          case "${#HEAD}" in
+            40) : ;;
+            *) echo "::error title=not-a-head::$HEAD is not a full 40-hex sha - the marker must name the tree the review judged"; exit 2 ;;
+          esac
+          echo "HEAD=$HEAD" >> "$GITHUB_OUTPUT"
+
+      # Map the review decision GitHub already recorded. Only a real decision is a verdict.
+      - name: Map the review state to a verdict
+        id: verdict
+        env:
+          STATE: ${{ github.event.review.state }}
+        run: |
+          set -euo pipefail
+          case "$STATE" in
+            approved) echo "VERDICT=approve" >> "$GITHUB_OUTPUT" ;;
+            changes_requested) echo "VERDICT=changes" >> "$GITHUB_OUTPUT" ;;
+            *)
+              echo "review state '$STATE' is not a verdict (approved/changes_requested) - nothing to record"
+              echo "SKIP=true" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      # The run that measured this head (#1551). Same read auto_merge.no_concluded_green makes
+      # (actions/runs?head_sha=...&event=pull_request); here it names the newest CONCLUDED run id so
+      # the marker is auditable. A head with no concluded run has nothing that measured it.
+      - name: Resolve the run that measured this head
+        id: run
+        if: steps.verdict.outputs.SKIP != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD: ${{ steps.head.outputs.HEAD }}
+        run: |
+          set -euo pipefail
+          run_id=$(gh api \
+            "repos/$REPO/actions/runs?head_sha=$HEAD&event=pull_request&per_page=100" \
+            --jq '[.workflow_runs[] | select(.status=="completed")][0].id // empty' 2>/dev/null || true)
+          if [ -z "${run_id:-}" ]; then
+            echo "::notice title=no-run::head $HEAD has no concluded pull_request run - a verdict without a run is not a verdict (#1551); posting nothing"
+            echo "SKIP=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "RUN=$run_id" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The ONE producer (issue #852). It dedupes per (head, verdict), so a repeated run is quiet.
+      # The marker is posted by this workflow's own token (github-actions[bot], a trusted verdict
+      # author) so reviewer==author and the no-impersonation rule holds. The guard below (verdict AND
+      # run both resolved) lives in the step, not a job `if:`: a skipped job is invisible (issue #107).
+      - name: Post the bot-verdict marker at the exact head judged (make bot-verdict)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          VERDICT: ${{ steps.verdict.outputs.VERDICT }}
+          HEAD: ${{ steps.head.outputs.HEAD }}
+          RUN: ${{ steps.run.outputs.RUN }}
+          REVIEWER: "github-actions[bot]"
+        run: |
+          set -euo pipefail
+          # only when a verdict AND a run resolved
+          if [ -n "${VERDICT:-}" ] && [ -n "${RUN:-}" ]; then
+            make bot-verdict VERDICT="$VERDICT" HEAD="$HEAD" RUN="$RUN" REPO="$REPO" PR="$PR" \
+              REVIEWER="$REVIEWER"
+          else
+            echo "no verdict+run to post: verdict=${VERDICT:-none} run=${RUN:-none}"
+          fi
+
+      - name: Report
+        if: always()
+        run: |
+          echo "### review-verdict" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Review ${{ github.event.review.id }} on PR #${{ github.event.pull_request.number }}: "\
+               "state ${{ github.event.review.state }} at head ${{ github.event.pull_request.head.sha }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "The bot never merges and never pushes; it records the verdict the merge decision reads." >> "$GITHUB_STEP_SUMMARY"
