@@ -433,7 +433,7 @@ comes from `entrypoint.sh detect` (CI #106). A CLI whose parser has **no version
 and its version likewise comes from `detect`; without that policy the probe would fail an
 engine for a flag it never had (found by the dispatch sweep, issue #614). When a `detect` has to fall
 back because the installed distribution reports nothing usable (`0.0.0`, the ROCm wheel), the fallback
-is the **pinned version** (`0.5.22`), never the commit sha: `pin 35ce3132…` is not a version, and
+is the **pinned version** (`0.5.23`), never the commit sha: `pin 7df5dd09…` is not a version, and
 `make test-built-engine` rightly rejects it (#636/#650).
 The second matrix `engine-published-test` (`test-published-<engine>-<arch>`) then pulls every
 published image on a fresh runner, checks digest and version, starts the container and chats

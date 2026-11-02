@@ -49,7 +49,7 @@ def test_no_engine_reports_a_commit_sha_as_its_version():
     """`pin <sha>` is not a version (issue #636): a sha has no dots, so `make test-built-engine`
     rejects it and the published-image stage goes red for an engine that is perfectly fine.
 
-    A `detect` may fall back to the PINNED VERSION (the skill's tag, e.g. `0.5.22`), never to the
+    A `detect` may fall back to the PINNED VERSION (the skill's tag, e.g. `0.5.23`), never to the
     commit sha.
     """
 

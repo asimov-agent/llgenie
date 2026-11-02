@@ -689,7 +689,7 @@ def test_official_upstream_images_are_used_as_bases(skills):
     assert "FROM nvcr.io/nvidia/tensorrt-llm/release:1.2.1" in df("tensorrt-llm", "cuda")
     # #1306: sglang/cuda is prebuilt (OOM-safe) — it starts FROM its official image
     # and runs no install; sglang/rocm and vllm x3 / ollama x4 still compile.
-    assert "FROM lmsysorg/sglang:v0.5.22" in df("sglang", "cuda")
+    assert "FROM lmsysorg/sglang:v0.5.23" in df("sglang", "cuda")
     assert "engine_runner.py install" not in df("sglang", "cuda")
     assert "engine_runner.py install" in df("sglang", "rocm")
     for b in ("cuda", "rocm", "cpu"):

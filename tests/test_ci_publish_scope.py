@@ -6,7 +6,7 @@ cannot, and GitHub REFUSES the write. Measured on PR #651 (`andyholst:feat/sglan
 run 40339517705), both engine-image jobs, on a branch whose build and post-build test had passed:
 
     denied: installation not allowed to Write organization package
-    [engine-image] FAIL push ghcr.io/asimov-agent/llgenie/sglang:35ce3132-5d1a4f11-cuda
+    [engine-image] FAIL push ghcr.io/asimov-agent/llgenie/sglang:7df5dd09-5d1a4f11-cuda
 
 The job then went red on a permission GitHub will never grant a fork PR. The policy lives in
 `scripts/engine_image.py::push` — not in a workflow `if:`, because a scenario-scoped step condition
@@ -28,7 +28,7 @@ REGISTRY = "ghcr.io/asimov-agent"
 #: The exact line GHCR answered on PR #651 (run 40339517705, engine-image-sglang-cuda).
 DENIED = ("ae8a69caad45: Waiting\n"
           "denied: installation not allowed to Write organization package")
-SPEC = {"id": "sglang", "tag": "llgenie/sglang:35ce3132-5d1a4f11-cuda", "variant": "cuda",
+SPEC = {"id": "sglang", "tag": "llgenie/sglang:7df5dd09-5d1a4f11-cuda", "variant": "cuda",
         "params_file": "containers/engines/params/sglang.json"}
 
 
