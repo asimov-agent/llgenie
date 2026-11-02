@@ -2332,7 +2332,7 @@ def test_an_exemption_without_an_owner_is_a_finding(tmp_path):
     assert "owner" in detail, detail
 
 
-def test_the_report_names_duplicate_canonical_rules_and_the_gate_does_not_fail_on_them():
+def test_the_report_names_duplicate_canonical_rules_and_the_gate_does_not_fail_on_them(tmp_path):
     """A canonical rule stated twice is a second source of truth (one bullet, one place — #972).
 
     `check-agent-profiles report` must NAME every profile that states a canonical rule more than once,
@@ -2340,33 +2340,51 @@ def test_the_report_names_duplicate_canonical_rules_and_the_gate_does_not_fail_o
     the owner routes, so it is visible debt, not a silent amnesty nor a red the lane cannot clear.
 
     Follow-up #1006/#1007 deleted the outside-fence duplicates: the doc lane's SOUL was taken in from its
-    in-lane write (#1007) so documentation is now clean, and #1008 dedups the other lanes. The durable
-    invariant: a lane must NOT be re-flagged when it is clean, the planner's content-bearing `never-push`
-    paragraph (its own SOUL, its call to remove) may remain, and implementer stays clean. An exact row
-    count would be a moving snapshot — "a snapshot is not a certificate" (#54's lesson).
+    in-lane write (#1007) so documentation is now clean, and #1008 dedups the other lanes. #1398 then made
+    the planner's own `never-push` paragraph (its own SOUL, its call to remove) the last caller, so it too
+    is gone: a green tree now carries NO duplicate, and the report must not invent one. The durable
+    invariant: a lane must NOT be re-flagged when it is clean, implementer stays clean, and a rebuilt
+    doubly-bolded SOUL is still NAMED by the report while `findings()` stays empty. An exact row count
+    would be a moving snapshot — "a snapshot is not a certificate" (#54's lesson).
     """
+    import shutil
+
+    # a green tree may carry no duplicate — the report must name zero, findings() must be empty,
+    # and no deduped lane may be re-flagged
     report_text = guard.report(REPO)
     names = sorted(l.split(":")[0].strip() for l in report_text.splitlines()
                    if "stated more than once" in l)
-    assert names, "report must name at least one duplicate canonical rule"
+    assert guard.findings(REPO) == []   # duplicates are informational, never a gate failure
 
     # a deduped lane must NOT be named; if any is, the dedupe regressed
     deduped = {"llgenie-documentation-maintainer", "llgenie-issse-implementer",
                "llgenie-ci-pipelines-maintainer", "llgenie-pr-reviever", "llgenie-tester"}
     assert not (deduped & set(names)), f"a deduped lane was re-flagged as a duplicate: {names}"
 
-    # after #1006/#1007/#1008 the ONLY legitimate duplicate is the planner's content-bearing
-    # `never-push` paragraph (its own SOUL, its call to remove); #1008 itself cleans the other lanes
-    remaining = set(names) - {"llgenie-issse-implementer"}
-    assert remaining <= {"llgenie-planner"}, f"an unexpected lane still carries a duplicate: {names}"
-
-    assert all("issse-implementer" not in n for n in names), \
-        "implementer's duplicate rule was deduped into the fleet block — it must not be re-flagged"
-
     # The discriminator is a BOLDED-RULE statement, not a bullet-line-only scan (which under-counts a
     # bold paragraph outside a fence) and not a raw whole-text count (which over-claims a prose mention).
-    # The named LANES are the stable contract; a wrong discriminator shifts which lanes appear.
-    assert guard.findings(REPO) == []   # duplicates are informational, never a gate failure
+    # #1398 removed the last real duplicate, so the live tree cannot prove it anymore — a rebuilt
+    # duplicate must still be NAMED by the report while findings() stays empty, on a synthetic tree that
+    # states the canonical block verbatim (so the gate stays green) and states one canonical title twice
+    # in its canonical bolded form (#972's drift shape).
+    agents = tmp_path / "agents"
+    shutil.rmtree(agents, ignore_errors=True)
+    agents.mkdir()
+    shutil.copy(REPO / "agents" / guard.FLEET_BLOCK, agents / guard.FLEET_BLOCK)
+    canonical = guard.fleet_block(REPO / "agents") or ""
+    soul = ("# Lane\n\n**You never merge.**\n\n" + canonical
+            + "\n\n## This lane's rules\n\n- **Never prune or remove a worktree.**\n")
+    prof = agents / "lane"
+    prof.mkdir()
+    (prof / "SOUL.md").write_text(soul)
+    (agents / "manifest.json").write_text(
+        '{"profiles": [{"name": "lane", "rules": ["never-merge"]}]}')
+    dup_report = guard.report(tmp_path, agents)
+    assert "stated more than once" in dup_report, dup_report
+    assert "lane:" in dup_report, dup_report
+    assert guard.findings(tmp_path, agents) == []   # the synthetic duplicate stays informational
+    for lane in deduped:
+        assert lane not in dup_report, f"a deduped lane leaked into the synthetic report: {lane}"
 
 
 def test_the_retired_rule_debt_is_reported_and_never_fails_the_gate(tmp_path):
@@ -2618,21 +2636,37 @@ def test_the_check_command_names_a_so_souls_retired_rule_on_a_green_tree_and_sta
     assert "rule 16 replaced it" in text, text
 
 
-def test_the_check_command_names_duplicate_rules_but_stays_green(capsys):
+def test_the_check_command_names_duplicate_rules_but_stays_green(tmp_path, capsys):
     """The gate must not keep duplicate-rule debt silent when green (one bullet, one place, #972).
 
-    `make check-agent-profiles` is what a reviewer runs, so the tree's duplicate canonical rules must
-    appear there — as informational `note:` lines that do NOT change the exit code (a protected SOUL
-    write the owner routes, not a red the lane cannot clear).
+    `make check-agent-profiles` is what a reviewer runs, so a tree that carries a duplicate canonical rule
+    must print it there — as an informational `note:` line that does NOT change the exit code (a protected
+    SOUL write the owner routes, not a red the lane cannot clear). #1398 removed the last real duplicate,
+    so the live tree has none to report; the note is driven on a synthetic green tree, exactly as the
+    adjacent retired-rule note test does.
     """
-    import subprocess
-    proc = subprocess.run(
-        [sys.executable, "scripts/check_agent_profiles.py", "check"],
-        cwd=REPO, capture_output=True, text=True)
-    assert proc.returncode == 0, proc.stderr
-    assert "OK:" in proc.stdout
-    assert "duplicate canonical rule" in proc.stderr, proc.stderr
-    assert "more than once" in proc.stderr, proc.stderr
+    import shutil
+
+    agents = tmp_path / "agents"
+    shutil.rmtree(agents, ignore_errors=True)
+    agents.mkdir()
+    shutil.copy(REPO / "agents" / guard.FLEET_BLOCK, agents / guard.FLEET_BLOCK)
+    canonical = guard.fleet_block(REPO / "agents") or ""
+    soul = ("# Lane\n\n**You never merge.**\n\n" + canonical
+            + "\n\n## This lane's rules\n\n- **Never prune or remove a worktree.**\n")
+    prof = agents / "lane"
+    prof.mkdir()
+    (prof / "SOUL.md").write_text(soul)
+    (agents / "manifest.json").write_text(
+        '{"profiles": [{"name": "lane", "rules": ["never-merge"]}]}')
+
+    rc = guard.main(["check", "--root", str(tmp_path), "--agents-dir", "agents"])
+    captured = capsys.readouterr()
+    text = captured.out + captured.err
+    assert rc == 0, f"the duplicate note must not turn the gate red: {text}"
+    assert "OK:" in text, text
+    assert "duplicate canonical rule" in text, text
+    assert "more than once" in text, text
 
 
 def test_the_gate_still_has_the_fleet_block_leg():

@@ -127,10 +127,10 @@ today #824 accumulated #832 → #835 → #850 because three lanes each opened a 
 existing branch (force-push, one trail); a *new PR* needs your word. When two vehicles exist anyway, pick one on
 measured merit, close the other with a comparison table, and say explicitly that the diagnosis was not rejected.
 
-**Never push to a branch you were not dispatched for.** A draft PR is not a licence to edit another lane's files, a
-commit author is not a cosmetic field (an unallowlisted identity reds `linux/unit` via `check-pr-authors` — #840), and a
-label is board state that belongs to the planner. Report with a one-line reason and a one-line unblock condition
-instead.
+The never-push rule (fleet Standing rules below) is operational here, not just stated: a draft PR is not a licence
+to edit another lane's files, a commit author is not a cosmetic field (an unallowlisted identity reds `linux/unit`
+via `check-pr-authors` — #840), and a label is board state that belongs to the planner. Report with a one-line reason
+and a one-line unblock condition instead.
 
 ## Standing rules (fleet, learned 2026-10-28)
 
