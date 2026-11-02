@@ -7,13 +7,15 @@ never leave `REVIEW_REQUIRED` on a bot-authored PR, and a complete reviewer verd
 prose in the thread is invisible to `scripts/auto_merge.py::decide()` — a green PR sits `BLOCKED`
 forever, or until a human clicks approve.
 
-The mark is this comment, with the head it reviewed written INTO it:
+The mark is this comment, with the head it reviewed written INTO it, and the run that measured that head:
 
-    <!-- bot-verdict: head=<40-hex sha> verdict=approve reviewer=<login> -->
+    <!-- bot-verdict: head=<40-hex sha> run=<run id> verdict=approve reviewer=<login> -->
 
 `auto_merge` accepts "reviewed by a bot verdict at head <sha>" only when that `<sha>` equals the PR's
 CURRENT `headRefOid`: a verdict describes one tree, and a verdict on an older commit says nothing about
-the commit that would merge (`verdict_for_head`). The marker is deliberately not a GitHub approval and
+the commit that would merge (`verdict_for_head`). The `run=` id is the record of WHICH run measured that
+tree — a verdict that names only a sha cannot be audited, because two heads could carry a marker with the
+same sha and no record of what was measured (#1551). The marker is deliberately not a GitHub approval and
 not a label: it cannot flip `reviewDecision`, it cannot be mistaken for a human sign-off, and it needs no
 second identity.
 
@@ -25,7 +27,7 @@ Trust is bounded twice, because a PR comment can be written by anyone:
     `reviewer=github-actions[bot]` and borrow the bot's name.
 
 Commands (stdlib only, the GitHub API only through a `gh` on PATH):
-  bot_verdict post --repo R --pr N --head SHA --verdict approve|changes [--reviewer L] [--note TEXT]
+  bot_verdict post --repo R --pr N --head SHA --run RUN --verdict approve|changes [--reviewer L] [--note TEXT]
   bot_verdict show --repo R --pr N [--head SHA]        print the verdict the merge gate would read
 """
 from __future__ import annotations
@@ -48,16 +50,18 @@ BOT_LOGINS = ("github-actions[bot]", "app/github-actions")
 ACCEPTING = ("approve", "approved", "pass", "lgtm")
 #: A verdict that asks for work: it blocks the merge at the head it names, and it is never an approval.
 BLOCKING = ("changes", "change-requested", "request-changes", "reject")
-#: The marker. `head` is the FULL sha the verdict reviewed, which is what makes a stale verdict stale.
+#: The marker. `head` is the FULL sha the verdict reviewed, which is what makes a stale verdict stale,
+#: and `run` is the Actions run id that measured that head (#1551) — a verdict with no run cannot be
+#: audited (two heads could carry a marker for the same sha), so the slot is REQUIRED in the shape.
 MARKER_RE = re.compile(
-    r"<!--\s*bot-verdict:\s*head=(?P<head>[0-9a-fA-F]{7,40})\s+verdict=(?P<verdict>[a-z-]+)"
-    r"\s+reviewer=(?P<reviewer>[^\s>]+)\s*-->")
+    r"<!--\s*bot-verdict:\s*head=(?P<head>[0-9a-fA-F]{7,40})\s+run=(?P<run>\d+)\s+"
+    r"verdict=(?P<verdict>[a-z-]+)\s+reviewer=(?P<reviewer>[^\s>]+)\s*-->")
 
 
-def marker(head: str, verdict: str, reviewer: str) -> str:
+def marker(head: str, run: str, verdict: str, reviewer: str) -> str:
     """The machine-readable mark, exactly the shape `parse` reads back."""
-    return f"<!-- bot-verdict: head={(head or '').strip()} verdict={(verdict or '').strip().lower()} " \
-           f"reviewer={(reviewer or '').strip()} -->"
+    return f"<!-- bot-verdict: head={(head or '').strip()} run={(run or '').strip()} " \
+           f"verdict={(verdict or '').strip().lower()} reviewer={(reviewer or '').strip()} -->"
 
 
 def parse(body: str) -> "dict | None":
@@ -69,8 +73,8 @@ def parse(body: str) -> "dict | None":
     m = MARKER_RE.search(body or "")
     if not m:
         return None
-    return {"head": m.group("head").lower(), "verdict": m.group("verdict").lower(),
-            "reviewer": m.group("reviewer")}
+    return {"head": m.group("head").lower(), "run": m.group("run"),
+            "verdict": m.group("verdict").lower(), "reviewer": m.group("reviewer")}
 
 
 def trusted(login: str) -> bool:
@@ -121,11 +125,12 @@ def comments(gh: str, repo: str, pr: int) -> list[dict]:
     return json.loads(out or "{}").get("comments") or []
 
 
-def body(head: str, verdict: str, reviewer: str, note: str = "") -> str:
+def body(head: str, run: str, verdict: str, reviewer: str, note: str = "") -> str:
     what = {"approve": "approve", "approved": "approve", "pass": "approve", "lgtm": "approve"}.get(
         verdict.lower(), "request changes" if verdict.lower() in BLOCKING else verdict.lower())
-    text = (f"{marker(head, verdict, reviewer)}\n\n"
-            f"**Bot review verdict: {what}** at head `{(head or '')[:12]}` (reviewer `{reviewer}`).\n")
+    text = (f"{marker(head, run, verdict, reviewer)}\n\n"
+            f"**Bot review verdict: {what}** at head `{(head or '')[:12]}` (run `{run or '?'}`, "
+            f"reviewer `{reviewer}`).\n")
     if (note or "").strip():
         text += f"\n{(note or '').strip()}\n"
     text += ("\nThis is a verdict comment, never a GitHub approval: a bot pushes with the owner's token, "
@@ -135,14 +140,19 @@ def body(head: str, verdict: str, reviewer: str, note: str = "") -> str:
     return text
 
 
-def post(gh: str, repo: str, pr: int, head: str, verdict: str, reviewer: str,
+def post(gh: str, repo: str, pr: int, head: str, run: str, verdict: str, reviewer: str,
          note: str = "", dry: bool = False) -> int:
     """Post ONE verdict comment per (head, verdict); re-posting the same one is a no-op."""
     head = (head or "").strip().lower()
+    run = (run or "").strip()
     verdict = (verdict or "").strip().lower()
     if len(head) != 40 or not re.fullmatch(r"[0-9a-f]{40}", head):
         print(f"[bot-verdict] refusing: --head must be the FULL 40-hex commit sha, got {head!r} "
               f"(a short sha would make a stale verdict look current)", file=sys.stderr)
+        return 2
+    if not re.fullmatch(r"\d+", run):
+        print(f"[bot-verdict] refusing: --run must be the Actions run id that measured this head, got "
+              f"{run!r} (a verdict with no run cannot be audited — #1551)", file=sys.stderr)
         return 2
     if verdict not in ACCEPTING + BLOCKING:
         print(f"[bot-verdict] refusing: --verdict must be one of {', '.join(ACCEPTING + BLOCKING)}",
@@ -152,14 +162,16 @@ def post(gh: str, repo: str, pr: int, head: str, verdict: str, reviewer: str,
     for c in existing:
         v = parse(str(c.get("body") or ""))
         author = (((c.get("author") or {}).get("login")) or "")
-        if v["head"] == head and v["verdict"] == verdict and author.lower() == reviewer.lower():
-            print(f"[bot-verdict] PR #{pr} already carries {verdict} at {head[:8]} from `{reviewer}`")
+        if (v["head"] == head and v["run"] == run and v["verdict"] == verdict
+                and author.lower() == reviewer.lower()):
+            print(f"[bot-verdict] PR #{pr} already carries {verdict} at {head[:8]} "
+                  f"(run {run}) from `{reviewer}`")
             return 0
     if dry:
-        print(f"[bot-verdict] would post {verdict} at {head[:8]} on PR #{pr} as `{reviewer}`")
+        print(f"[bot-verdict] would post {verdict} at {head[:8]} (run {run}) on PR #{pr} as `{reviewer}`")
         return 0
-    _gh(gh, ["pr", "comment", str(pr), "--repo", repo, "--body", body(head, verdict, reviewer, note)])
-    print(f"[bot-verdict] posted {verdict} at {head[:8]} on PR #{pr} as `{reviewer}`")
+    _gh(gh, ["pr", "comment", str(pr), "--repo", repo, "--body", body(head, run, verdict, reviewer, note)])
+    print(f"[bot-verdict] posted {verdict} at {head[:8]} (run {run}) on PR #{pr} as `{reviewer}`")
     return 0
 
 
@@ -181,6 +193,7 @@ def main(argv: "list[str] | None" = None) -> int:
     w.add_argument("--repo", required=True)
     w.add_argument("--pr", type=int, required=True)
     w.add_argument("--head", required=True, help="the FULL 40-hex commit sha this verdict reviewed")
+    w.add_argument("--run", required=True, help="the Actions run id that measured this head (issue #1551)")
     w.add_argument("--verdict", required=True, help="approve | changes")
     w.add_argument("--reviewer", default="", help="the login posting it (default: the token's account)")
     w.add_argument("--note", default="", help="the reviewer's one-paragraph reasoning")
@@ -202,7 +215,7 @@ def main(argv: "list[str] | None" = None) -> int:
         print("[bot-verdict] refusing: no --reviewer and BOT_VERDICT_REVIEWER is empty — the marker must "
               "name the account that posts it", file=sys.stderr)
         return 2
-    return post(args.gh, args.repo, args.pr, args.head, args.verdict, reviewer, args.note, args.dry)
+    return post(args.gh, args.repo, args.pr, args.head, args.run, args.verdict, reviewer, args.note, args.dry)
 
 
 if __name__ == "__main__":

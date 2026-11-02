@@ -1469,13 +1469,13 @@ would only move the problem (the author is whoever pushed) and would put an owne
 path, so the verdict is machine-readable instead:
 
 ```text
-<!-- bot-verdict: head=<40-hex sha> verdict=approve reviewer=<login> -->
+<!-- bot-verdict: head=<40-hex sha> run=<run id> verdict=approve reviewer=<login> -->
 ```
 
 `scripts/bot_verdict.py` is the ONE producer and the ONE parser of that mark:
 
 ```bash
-make bot-verdict VERDICT=approve|changes HEAD=<full sha> REPO=asimov-agent/llgenie PR=<n> [REVIEWER=<login>] [NOTE=] [DRY=1]
+make bot-verdict VERDICT=approve|changes HEAD=<full sha> RUN=<run id> REPO=asimov-agent/llgenie PR=<n> [REVIEWER=<login>] [NOTE=] [DRY=1]
 make bot-verdict-read REPO=asimov-agent/llgenie PR=<n> [HEAD=<sha>]   # what the merge gate would read
 ```
 
@@ -1485,6 +1485,13 @@ Three rules make it safe, and each is a test rather than a convention:
   accepts "reviewed by a bot verdict at head `<sha>`" only when `<sha>` equals the PR's CURRENT
   `headRefOid`: a verdict describes one tree, and a push after it would otherwise merge unreviewed code.
   The producer refuses a short sha for the same reason — a prefix is not a head.
+- **The run that proved the head is written too, and a head must actually be verified.** `make bot-verdict`
+  requires `RUN=<id>`, the marker carries `run=<run id>`, and the producer refuses a post without it —
+  a verdict that names only a sha cannot be audited (#1551). And a verdict can only clear the block on a
+  head that has a *concluded green* Actions run: the shared `auto_merge.no_concluded_green` read asks the
+  same question the CI-triggered merge job's `conclusion == 'success'` carries, so both the CI-triggered
+  path and the scheduled recheck defer a verdict on a head with zero runs, an unfinished run, or no
+  completed-success exit — absence-of-red is not green (#1551).
 - **The marker is not an approval and not a label.** It cannot flip `reviewDecision`, it cannot be
   mistaken for a human sign-off, and it posts one comment per (head, verdict) — a repeated run is quiet.
 - **It cannot be forged.** A PR comment may be written by anyone, so a verdict counts only when the
