@@ -401,6 +401,51 @@ def test_a_rerun_supersedes_the_attempt_it_replaced_even_with_the_same_created_a
     assert superseding.get("run_attempt") == 2
 
 
+def test_a_truncated_run_listing_is_not_a_verdict_even_when_a_superseder_hides(monkeypatch):
+    """#1582: `superseding_run` must refuse (never reach a verdict) when the managed listing is
+    truncated — the same invariant `jobs_of` already holds. A branch with more than the returned
+    page of 50 runs that cannot prove its newest superseder must not post a false `failure`."""
+
+    run = {"id": 41134761297, "workflow_id": 7, "head_branch": "main",
+           "created_at": "2026-10-30T20:00:00Z", "run_attempt": 1, "conclusion": "cancelled"}
+    # total_count says 51 (matching branch=main's 2500 measured on 2026-11-02, shrunk for the
+    # fixture) while the implementation-supplied page holds 50 runs with no same-workflow later run.
+    page = [{"id": 100000 + i, "workflow_id": 7, "head_branch": "main",
+             "created_at": "2026-10-30T19:00:00Z", "run_attempt": 1, "conclusion": "success"}
+            for i in range(50)]
+    listing = {"workflow_runs": page, "total_count": 51}
+    monkeypatch.setattr(cv, "_api", lambda path: listing)
+
+    # Pre-fix the listing returned the truncated page verbatim: `superseding_run` saw no later
+    # same-workflow run and would have returned None — a false-red on a superseded head. The guard
+    # must now refuse instead of silently returning that wrong verdict.
+    try:
+        cv.superseding_run("o/r", run)
+    except RuntimeError as exc:
+        assert "truncated listing" in str(exc)
+        return
+    raise AssertionError("superseding_run accepted a truncated listing as a verdict")
+
+
+def test_a_non_truncated_listing_still_finds_the_superseder(monkeypatch):
+    """#1582 acceptance #2: when the listing is NOT truncated the guard is silent — a later
+    same-workflow same-branch run still wins, exactly as before."""
+
+    run = {"id": 1, "workflow_id": 7, "head_branch": "main",
+           "created_at": "2026-10-30T20:00:00Z", "run_attempt": 1, "conclusion": "cancelled"}
+    latest = {"id": 2, "workflow_id": 7, "head_branch": "main",
+              "created_at": "2026-10-30T21:00:00Z", "run_attempt": 1, "conclusion": "success"}
+    listing = {"workflow_runs": [{"id": 1, "workflow_id": 7, "head_branch": "main",
+                                  "created_at": "2026-10-30T20:00:00Z", "run_attempt": 1},
+                                 latest], "total_count": 2}
+    monkeypatch.setattr(cv, "_api", lambda path: listing)
+
+    superseding = cv.superseding_run("o/r", run)
+
+    assert superseding is not None
+    assert superseding.get("id") == 2
+
+
 def test_a_cancelled_run_with_no_successor_is_red_even_through_the_api(tmp_path, monkeypatch, capsys):
     # Given a cancelled run with no decision artifact and NO later run
     monkeypatch.setenv("CI_VERDICT_GH", _stub_gh(tmp_path, artifact=False, later_run=False))
