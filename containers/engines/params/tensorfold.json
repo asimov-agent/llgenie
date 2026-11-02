@@ -3,8 +3,8 @@
   "engine": "TensorFold",
   "id": "tensorfold",
   "repo": "https://github.com/ashhart/TensorFold",
-  "ref": "v1.1.8",
-  "pinned": "812fb0404b1856df29dcb4a285d25dddf469288d",
+  "ref": "v1.2.1",
+  "pinned": "ef27f74fdd2325153d7b3a325188484246cd3c5f",
   "native": {},
   "variants": {
     "cuda": {
@@ -28,11 +28,11 @@
         "uv pip install --system --break-system-packages ziglang==0.17.0",
         "ln -sfn /usr/local/bin/python-zig /usr/local/bin/zig",
         "test -d /opt/llgenie/engines/tensorfold/src/.git || git clone https://github.com/ashhart/TensorFold.git /opt/llgenie/engines/tensorfold/src",
-        "git -C /opt/llgenie/engines/tensorfold/src fetch -q origin v1.1.8 && git -C /opt/llgenie/engines/tensorfold/src checkout -q 812fb0404b1856df29dcb4a285d25dddf469288d",
+        "git -C /opt/llgenie/engines/tensorfold/src fetch -q origin v1.2.1 && git -C /opt/llgenie/engines/tensorfold/src checkout -q ef27f74fdd2325153d7b3a325188484246cd3c5f",
         "cd /opt/llgenie/engines/tensorfold/src && zig build -Dtarget=x86_64-linux-gnu -Doptimize=fast -Dnvcc=$(command -v nvcc) -Dsm=80,86,120,121 -Dstrip=true",
-        "mkdir -p /opt/llgenie/engines/tensorfold/1.1.8/bin",
-        "ln -sfn /opt/llgenie/engines/tensorfold/src/zig-out/bin/tensorfold /opt/llgenie/engines/tensorfold/1.1.8/bin/tensorfold",
-        "ln -sfn /opt/llgenie/engines/tensorfold/1.1.8 /opt/llgenie/engines/tensorfold/current"
+        "mkdir -p /opt/llgenie/engines/tensorfold/1.2.1/bin",
+        "ln -sfn /opt/llgenie/engines/tensorfold/src/zig-out/bin/tensorfold /opt/llgenie/engines/tensorfold/1.2.1/bin/tensorfold",
+        "ln -sfn /opt/llgenie/engines/tensorfold/1.2.1 /opt/llgenie/engines/tensorfold/current"
       ],
       "env": {},
       "detect": "/opt/llgenie/engines/tensorfold/current/bin/tensorfold --version",

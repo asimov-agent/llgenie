@@ -1,0 +1,1 @@
+| 2026-11-02 | engine bump: tensorfold re-pinned `812fb040` -> `ef27f74f` (`v1.2.1`) — frozen cuda Dockerfile, params, SKILL.md and affected tests re-derived at the new pin (CI builds/tests only tensorfold's images) | [2026-11-02-tensorfold-bump.md](agent-wiki/2026-11-02-tensorfold-bump.md) | #1519 |
