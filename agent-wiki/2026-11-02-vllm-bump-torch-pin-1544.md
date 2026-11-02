@@ -45,9 +45,10 @@ Reproduced the exact failure in the `base-cpu` container at the committed pin:
 
 ## Acceptance status (measured)
 
-- `make build-engine ENGINE=vllm ARCH=cpu` succeeds at the committed pin (the cpu cell that #1544
-  reds main on).
-- Published image `<registry>/vllm:<tag>-cpu` exists (engine-build push `<run>`), so
-  `test_every_image_install_pulls_is_published` on main goes green.
-- PR `<#n>` closes #1544; vllm stays pinned at `3a4d82f5` (no engine-bump; the fix belongs in the
-  skill).
+- Fix resolution proven in the base-cpu container at the committed params (exact run-`41382485751`
+  failure reproduced and shown green with the fixed preinstall; see Proof above).
+- PR adds the change-note trio (agent-wiki + docs/changes.d + CHANGES.md row) and closes #1544;
+  vllm stays pinned at `3a4d82f5` (no engine-bump; the fix belongs in the skill).
+- Full `make build-engine ENGINE=vllm ARCH=cpu` and the published `-cpu` image are verified by the
+  `engine-build` workflow dispatch (this lane never builds/pushes locally) and recorded at the run id
+  when the PR's publish proof completes.
