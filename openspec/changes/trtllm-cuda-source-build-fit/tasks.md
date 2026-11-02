@@ -1,0 +1,5 @@
+- [x] Time-boxed source-build attempt at pin `376f7e1b` in the CUDA devel base; wall-clock, peak disk, outcome recorded
+- [x] Decide convert-vs-stay from the measured numbers against the CI budget (240-min timeout, hosted runner disk)
+- [x] Keep `prebuilt: true`; dated decision with the measured numbers in `skills/engines/tensorrt-llm/SKILL.md`; README + docs/ENGINES.md name tensorrt-llm as a recorded exception
+- [x] Wiki note records the measurement (references #939 and the PR)
+- [x] Open one ready-for-review PR closing #939; gates through make; never merge

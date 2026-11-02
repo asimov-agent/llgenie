@@ -23,6 +23,15 @@ prereqs:
   common: [uv, nvidia-smi, nvcc]
 install:
   cuda:
+    # Dated decision (issue #939, decided 2026-11-02): this stays a prebuilt wheel, not a source build.
+    # A time-boxed source build at the pinned sha 376f7e1b was measured in the NGC devel:1.2.1 base
+    # (`scripts/build_wheel.py --trt_root /opt/tensorrt --cuda_architectures 89-real -j 16` on a
+    # 32-core host): a full LFS clone is 5.2 GB (8.6 GB with the venv+build tree), and object compile
+    # projected to >90 min at -j16 on THIS 32-core host before wheel/link — on the 4-vCPU
+    # GitHub-hosted `ubuntu-latest` the engine-build job runs on, that is ~4-8x slower => multi-hour,
+    # far past the 240-min CI timeout, and the clone+venv+build tree (~11+ GB) already approaches the
+    # runner's ~14 GB free disk. Recorded in docs/ENGINES.md as a recorded exception; delete the
+    # decision comment when upstream ships a wheel-free build that fits a CI budget.
     - "uv pip install --system --break-system-packages torch==2.10.0 torchvision --index-url https://download.pytorch.org/whl/cu130"
     - "python3 -c 'import torch; print(\"torch==\" + torch.__version__)' > {prefix}/torch-constraint.txt"
     - "uv pip install --system --break-system-packages tensorrt_llm=={version} -c {prefix}/torch-constraint.txt"
