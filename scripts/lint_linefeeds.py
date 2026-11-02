@@ -133,17 +133,20 @@ def check(report: bool = True, fix: bool = False) -> int:
             issues = _check_markdown_sections(f, lines)
             if issues:
                 md_bad.append((f, issues))
+    failed = False
     if bad:
         if report:
             print("LINT FAIL — files missing a trailing newline:")
             for f in bad:
                 print(f"  - {f}")
-        return 1
+        failed = True
     if md_bad:
         if report:
             print("LINT FAIL — markdown headings not preceded by a blank line:")
             for f, issues in md_bad:
                 print(f"  - {f}: lines {', '.join(str(n) for n in issues)}")
+        failed = True
+    if failed:
         return 1
     if fix:
         # --fix consumed everything bad already; re-scan to confirm.

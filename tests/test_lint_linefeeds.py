@@ -234,3 +234,44 @@ def test_markdown_every_heading_level_needs_a_blank_line() -> None:
         "###### Deepest A",
     ]
     assert L._check_markdown_sections("x.md", with_blank) == []
+
+
+def test_both_classes_are_reported_before_returning(tmp_path: Path, capsys) -> None:
+    """Issue #1081: a file failing BOTH lint classes must print BOTH headers.
+
+    The old gate returned after the trailing-newline class, so a markdown blank-line
+    defect in the same file was masked until the newline was fixed and the gate
+    re-run. `check()` must print both laminar classes and return 1 when either is
+    non-empty, and print the aggregated OK line when neither is.
+    """
+    offender = tmp_path / "both.md"
+    # no trailing newline AND a heading not preceded by a blank line
+    offender.write_bytes(b"Some body text\n## A heading right after content")
+    origin = offender.resolve()
+    orig = L._tracked_text_files
+    L._tracked_text_files = lambda: [str(origin)]  # type: ignore[assignment]
+    try:
+        rc = L.check(report=True)
+        out = capsys.readouterr().out + capsys.readouterr().err
+        assert rc == 1, f"both classes failing must exit 1, got {rc}"
+        assert "files missing a trailing newline" in out, out
+        assert "markdown headings not preceded by a blank line" in out, out
+        assert str(origin) in out, out
+    finally:
+        L._tracked_text_files = orig  # type: ignore[assignment]
+
+
+def test_both_classes_clean_still_prints_ok(tmp_path: Path, capsys) -> None:
+    """When neither class is flagged the gate prints its aggregate OK line (not a regression)."""
+    clean = tmp_path / "clean.md"
+    clean.write_bytes(b"# Heading\n\n## Sub\n")
+    origin = clean.resolve()
+    orig = L._tracked_text_files
+    L._tracked_text_files = lambda: [str(origin)]  # type: ignore[assignment]
+    try:
+        rc = L.check(report=True)
+        out = capsys.readouterr().out + capsys.readouterr().err
+        assert rc == 0, f"clean file must exit 0, got {rc}"
+        assert "LINT OK" in out, out
+    finally:
+        L._tracked_text_files = orig  # type: ignore[assignment]
