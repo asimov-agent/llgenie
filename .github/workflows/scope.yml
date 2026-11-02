@@ -24,6 +24,9 @@ concurrency:
 
 permissions:
   contents: read
+  # The check-pr-closing step below reads the PR body LIVE via `gh api` (issue #1589) so a body-only
+  # fix clears on `gh run rerun` without a new push; that read needs the pull-requests scope. Read-only.
+  pull-requests: read
 
 jobs:
   guard:
@@ -115,16 +118,23 @@ jobs:
       - name: make check-pr-closing (a claimed issue needs the same adjacent close in the squash text and the body — issues #1329, #1417)
         env:
           # Docs-only pull requests skip the linux unit job. This step is the one that still reads
-          # the squash range. PR_BASE is the LIVE base branch ref (origin/main, refreshed below):
-          # the script anchors the range at `git merge-base origin/main HEAD`, so a PR opened before
-          # main advanced reads its OWN commits, not an event-frozen base.sha (issue #1527). A push
-          # falls back to the same origin/main ref.
-          PR_BODY: ${{ github.event.pull_request.body || '' }}
+          # the squash range. The body is read LIVE from the PR record below (gh api, issue #1589),
+          # NOT from the run's event snapshot, so a body-only fix clears on `gh run rerun`. A push to
+          # main has no PR number: PR_BODY stays empty and only the squash half runs. PR_BASE is the
+          # LIVE base branch ref (origin/main, refreshed below): the script anchors the range at
+          # `git merge-base origin/main HEAD` (issue #1527).
           PR_BRANCH: ${{ github.head_ref || '' }}
           PR_BASE: origin/main
           PR_TITLE: ${{ github.event.pull_request.title || '' }}
+          PR_NUMBER: ${{ github.event.pull_request.number || '' }}
+          PR_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           git fetch --no-tags --prune origin main   # refresh origin/main so the merge-base is live (issue #1527)
+          PR_BODY=""
+          if [ -n "$PR_NUMBER" ]; then
+            PR_BODY="$(gh api "repos/$PR_REPO/pulls/$PR_NUMBER" --jq '.body // ""' 2>/dev/null || true)"
+          fi
           if [ -n "$PR_BODY" ]; then printf '%s\n' "$PR_BODY" > /tmp/pr-body.md; export PR_BODY=/tmp/pr-body.md; fi
           make check-pr-closing
       - name: make openspec-image-pull (the OpenSpec CLI image the docs gates run in)
