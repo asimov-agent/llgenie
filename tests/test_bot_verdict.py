@@ -204,6 +204,8 @@ def test_post_refuses_a_missing_run_id(tmp_path):
 # ---------------------------------------------------------------------------
 import re as _re
 
+import yaml as _yaml
+
 #: A caller runs the producer with every argument the make target requires. The head is a full 40-hex
 #: sha and the run is the id that measured it (#1551), never a placeholder.
 _CALLER = _re.compile(
@@ -218,6 +220,29 @@ def _caller_files(root: "Path") -> "list[Path]":
         [p for p in (root / ".github" / "workflows").glob("*.yml") if _CALLER.search(p.read_text())]
         + [p for p in (root / "agents").rglob("*.md") if _CALLER.search(p.read_text())]
         + [p for p in (root / "scripts").glob("*.py") if _CALLER.search(p.read_text())])
+
+
+def _caller_job_lacks_checkout(root: "Path") -> "list[tuple[str, str]]":
+    """(workflow, job) for every WORKFLOW caller whose invoking job has no checkout step (#1565).
+
+    The text-probe above proves a file *calls* `make bot-verdict`, but a workflow that runs the make
+    in an empty workspace still fails ("No rule to make target 'bot-verdict'") — the call alone does
+    not make the producer runnable online. A workflow caller is runnable only when the JOB that
+    invokes `make bot-verdict` first checks out the repo (a SHA-pinned `actions/checkout` step).
+    Parsed from the workflow's own steps, never an assumed job name.
+    """
+    bad: "list[tuple[str, str]]" = []
+    for p in (root / ".github" / "workflows").glob("*.yml"):
+        if not _CALLER.search(p.read_text()):
+            continue
+        wf = _yaml.safe_load(p.read_text())
+        for job_name, job in (wf.get("jobs") or {}).items():
+            job_steps = job.get("steps") or []
+            if not any("make bot-verdict" in str(s.get("run", "")) for s in job_steps):
+                continue            # not the job that invokes the producer
+            if not any(str(s.get("uses", "")).startswith("actions/checkout@") for s in job_steps):
+                bad.append((p.name, job_name))
+    return sorted(bad)
 
 
 def test_the_producer_has_at_least_one_caller_on_the_real_tree():
@@ -263,5 +288,57 @@ def test_the_wiring_guard_fails_when_the_caller_is_removed(tmp_path):
     except AssertionError:
         raised = True
     assert raised, "the guard did not fail on a tree with every caller removed"
+
+
+def test_a_workflow_caller_job_checks_out_before_make_bot_verdict():
+    """A workflow caller must check out the repo in the SAME job that runs `make bot-verdict` (#1565).
+
+    The tree-probe above proves a caller *exists*, but review-verdict's `record` job ran make in an
+    empty workspace — no checkout — and failed with `No rule to make target 'bot-verdict'` on every
+    same-repo review (run 41418832262, PR #1563). A caller whose job does not check out the tree is
+    exactly as dead as no caller at all: the marker it was built to write is never written. This pin
+    holds the runtime: the WORKFLOW caller's invoking job must carry a checkout step.
+    """
+    assert not _caller_job_lacks_checkout(REPO), (
+        "a workflow caller runs `make bot-verdict` in a job that has no checkout step — `make` runs "
+        "in an empty workspace and dies with 'No rule to make target' on every event (issue #1565). "
+        "Add a SHA-pinned `actions/checkout` step to that job before the make step."
+    )
+
+
+def test_the_checkout_guard_reds_when_a_workflow_caller_job_lacks_checkout(tmp_path):
+    """Removing the checkout from a caller's invoking job reds the guard (#1565).
+
+    The real-tree test passes because review-verdict's `record` job now checks out first. Deleting the
+    checkout from that job (leaving the make call intact — a future edit could do exactly this) must
+    flip it to RED, so the guard reads the job's steps rather than a fact the test was told alongside.
+    """
+    # Given a copy of the workflows with every `make bot-verdict` caller's checkout step removed
+    root = tmp_path / "repo"
+    (root / ".github" / "workflows").mkdir(parents=True)
+    for p in (REPO / ".github" / "workflows").glob("*.yml"):
+        if not _CALLER.search(p.read_text()):
+            (root / ".github" / "workflows" / p.name).write_text(p.read_text())
+            continue
+        wf = _yaml.safe_load(p.read_text())
+        for job in (wf.get("jobs") or {}).values():
+            steps = job.get("steps") or []
+            if not any("make bot-verdict" in str(s.get("run", "")) for s in steps):
+                continue
+            job["steps"] = [
+                s for s in steps
+                if not str(s.get("uses", "")).startswith("actions/checkout@")
+            ]                                       # remove the checkout, keep the make call
+        (root / ".github" / "workflows" / p.name).write_text(_yaml.safe_dump(wf, sort_keys=False))
+
+    # When  the guard runs against that checkout-less tree
+    bad = _caller_job_lacks_checkout(root)
+
+    # Then  it names the caller whose job lost its checkout
+    assert bad, (
+        "the checkout guard did not fail on a workflow caller whose invoking job had its checkout "
+        "removed — the wiring pin must hold the runtime, not just the call (issue #1565)."
+    )
+
 
 
