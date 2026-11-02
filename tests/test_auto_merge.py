@@ -1608,12 +1608,12 @@ def test_recheck_does_not_approve_a_red_review_blocked_pr(tmp_path):
     assert any("41325509945" in " ".join(c) for c in calls if c[:2] == ["pr", "comment"]), calls
 
 
-def test_a_skipped_or_cancelled_check_is_not_a_red_pipeline(tmp_path):
-    """A docs head skips linux, and a cancelled run is not a failed test (#843)."""
+def test_a_skipped_check_is_not_a_red_pipeline(tmp_path):
+    """A docs-only head has no `linux` job: `skipped` is the one legitimate "no verdict" (#843)."""
 
-    # Given a clean pull request whose linux job was skipped and whose other check was cancelled
+    # Given a clean pull request whose linux job was the only non-success and it was skipped
     checks = [{"name": "linux", "conclusion": "skipped", "details_url": ""},
-              {"name": "ci-verdict", "conclusion": "cancelled", "details_url": ""},
+              {"name": "ci-verdict", "conclusion": "success", "details_url": ""},
               {"name": "scope", "conclusion": "success", "details_url": ""}]
     gh = _fake_gh(tmp_path, _state(headRepository={"nameWithOwner": "asimov-agent/llgenie"}),
                   checks=checks)
@@ -1625,6 +1625,38 @@ def test_a_skipped_or_cancelled_check_is_not_a_red_pipeline(tmp_path):
     merges = [c for c in _calls(tmp_path / "gh.log") if c[:2] == ["pr", "merge"]]
     assert rc == 0, rc
     assert merges and "--admin" not in merges[0], merges
+
+
+def test_a_cancelled_or_neutral_check_defers_the_merge(tmp_path):
+    """#1250 Finding B: a cancelled run is a killed CI (not a docs head), and the `neutral` is
+    `ci_verdict`'s superseded-head verdict — neither is a green pipeline, so the gate defers."""
+
+    # Given a clean PR whose CI scope check is cancelled
+    cancelled = [{"name": "linux", "conclusion": "cancelled", "details_url": ""},
+                 {"name": "scope", "conclusion": "success", "details_url": ""}]
+    gh = _fake_gh(tmp_path / "cancelled",
+                  _state(headRepository={"nameWithOwner": "asimov-agent/llgenie"}),
+                  checks=cancelled)
+
+    # When  the gate runs
+    rc = am.run(str(gh), "asimov-agent/llgenie", 482, HEAD)
+
+    # Then  it does NOT merge, and the cancellation is named as the deferral reason
+    assert not [c for c in _calls(tmp_path / "cancelled" / "gh.log") if c[:2] == ["pr", "merge"]], \
+        [c for c in _calls(tmp_path / "cancelled" / "gh.log")]
+    body = " ".join(" ".join(c) for c in _calls(tmp_path / "cancelled" / "gh.log")
+                    if c[:2] == ["pr", "comment"])
+    assert "cancelled" in body and "red" in body.lower(), body
+
+    # And  the same holds for a superseded-head `neutral` verdict
+    neutral = [{"name": "linux", "conclusion": "neutral", "details_url": ""},
+               {"name": "scope", "conclusion": "success", "details_url": ""}]
+    gh2 = _fake_gh(tmp_path / "neutral",
+                   _state(headRepository={"nameWithOwner": "asimov-agent/llgenie"}),
+                   checks=neutral)
+    assert am.run(str(gh2), "asimov-agent/llgenie", 482, HEAD) == 0
+    assert not [c for c in _calls(tmp_path / "neutral" / "gh.log") if c[:2] == ["pr", "merge"]], \
+        [c for c in _calls(tmp_path / "neutral" / "gh.log")]
 
 
 def test_a_red_head_is_not_admin_merged_on_a_bot_verdict(tmp_path):
