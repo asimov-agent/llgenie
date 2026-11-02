@@ -237,6 +237,74 @@ def gate_is_real(where: Path, sha: str) -> bool:
     return r.returncode == 0
 
 
+def add_scripts_module(where: Path, name: str) -> str:
+    """Add a `scripts/<name>` file and commit; returns the new head sha."""
+    (where / "scripts" / name).write_text("print('module')\n", encoding="utf-8")
+    return commit_all(where, f"add scripts/{name}")
+
+
+def test_a_removed_scripts_module_reddens_naming_it(tmp_path, capsys):
+    """A §Scripts table that names a module absent at the measured sha reddens, naming it (issue #1526)."""
+
+    # Given a tree whose §Scripts table names a module that does not exist at the census pin
+    where, base, _ = scratch_repo(tmp_path)
+    table = "| CI entrypoints | `demo.py`, `engine_matrix_pushed.py` |\n"
+    doc = (where / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
+    write_doc(where, doc + "\n## Scripts\n\n" + table)
+    gate = load_gate(where)
+    assert gate._referent_problems(base) == ["engine_matrix_pushed.py"]
+
+    # When  the gate runs
+    rc = gate.check()
+
+    # Then  it exits non-zero and names the missing module
+    out = capsys.readouterr().out
+    assert rc == 1, out
+    assert "engine_matrix_pushed.py" in out
+    assert "referent-membership" in out
+
+
+def test_all_named_scripts_modules_resolve_passes(tmp_path, capsys):
+    """A §Scripts table naming only existing modules adds no referent finding (issue #1526)."""
+
+    # Given a tree whose §Scripts table names only modules present at the measured sha
+    where, base, _ = scratch_repo(tmp_path)
+    table = "| CI entrypoints | `demo.py` |\n"
+    doc = (where / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
+    write_doc(where, doc + "\n## Scripts\n\n" + table)
+    gate = load_gate(where)
+    assert gate._referent_problems(base) == []
+
+    # When  the gate runs
+    rc = gate.check()
+
+    # Then  it exits 0 (the referent check adds no finding to the count checks)
+    out = capsys.readouterr().out
+    assert rc == 0, out
+
+
+def test_a_table_that_names_a_subset_passes(tmp_path, capsys):
+    """The referent check is subset (named ⊆ tree), so an extra tree module never reddens it (issue #1526)."""
+
+    # Given a tree whose §Scripts table names a subset of the modules present at the measured sha
+    where, base, _ = scratch_repo(tmp_path)
+    head = add_scripts_module(where, "new_module.py")   # after the census pin
+    table = "| CI entrypoints | `demo.py` |\n"
+    doc = (where / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
+    write_doc(where, doc + "\n## Scripts\n\n" + table)
+    gate = load_gate(where)
+    assert head != base
+    # the tree has scripts the table does not name — still no referent finding
+    assert gate._referent_problems(base) == []
+
+    # When  the gate runs at the branch head
+    rc = gate.check()
+
+    # Then  it exits 0, because the check is subset (named ⊆ tree), not equality
+    out = capsys.readouterr().out
+    assert rc == 0, out
+
+
 def doc_measured(text: str) -> str:
     import re
     found = re.search(r"measured at `([0-9a-f]{7,})`", text)
