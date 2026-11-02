@@ -104,10 +104,12 @@ def plan(repo: str, window: dt.timedelta, now: dt.datetime | None = None) -> tup
     """
     runs = completed_runs(repo, window, now)
     newest: dict[tuple, dt.datetime] = {}
+    max_attempt: dict[tuple, int] = {}
     for run in runs:                       # the listing is not sorted; take the max per (workflow, branch)
         key = (run.get("workflow_id"), run.get("head_branch"))
         created = dt.datetime.fromisoformat(str(run.get("created_at")).replace("Z", "+00:00"))
         newest[key] = max(newest.get(key, created), created)
+        max_attempt[key] = max(max_attempt.get(key, 0), int(run.get("run_attempt") or 1))
     requeue: list[dict] = []
     skipped: list[dict] = []
     for run in runs:
@@ -118,6 +120,12 @@ def plan(repo: str, window: dt.timedelta, now: dt.datetime | None = None) -> tup
             continue
         key = (run.get("workflow_id"), run.get("head_branch"))
         created = dt.datetime.fromisoformat(str(run.get("created_at")).replace("Z", "+00:00"))
+        # A re-run of the same run id keeps `created_at` and bumps only `run_attempt` (#1250 Finding A):
+        # a cancelled attempt-1 with a live attempt-2 must be SUPERSEDED, not requeued — requeuing it
+        # would re-run the very attempt the newer attempt already replaced.
+        if max_attempt.get(key, 0) > int(run.get("run_attempt") or 1):
+            skipped.append({**run, "why": "superseded: a newer attempt of this run is on this branch"})
+            continue
         if newest.get(key, created) > created:
             skipped.append({**run, "why": "superseded: a later run of this workflow is on this branch"})
             continue

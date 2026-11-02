@@ -135,6 +135,11 @@ def superseding_run(repo: str, run: dict) -> dict | None:
     Judged per (workflow, branch), never per `head_sha`: another workflow on the same commit (`scope`,
     `holds`) is not a newer verdict for THIS one, and `ci.yml`'s `cancel-in-progress` leaves exactly
     that shape behind on every push.
+
+    A re-run is a superseder even when `created_at` is unchanged: GitHub keeps the run id and its
+    `created_at` across re-runs, bumping only `run_attempt` (#1250 Finding A). Ordering strictly by
+    `created_at` would read a cancelled attempt-1 as this head's final conclusion while a live
+    attempt-2 owns it, so the newer attempt wins the same-id case before any later-created run.
     """
     branch = run.get("head_branch")
     workflow_id = run.get("workflow_id")
@@ -142,9 +147,15 @@ def superseding_run(repo: str, run: dict) -> dict | None:
     if not branch or not created:
         return None
     listing = _api(f"repos/{repo}/actions/runs?branch={branch}&per_page=50")
-    later = [other for other in listing.get("workflow_runs") or []
-             if other.get("workflow_id") == workflow_id
-             and str(other.get("created_at") or "") > str(created)]
+    same_workflow = [other for other in listing.get("workflow_runs") or []
+                     if other.get("workflow_id") == workflow_id]
+    attempts = [other for other in same_workflow
+                if other.get("id") == run.get("id")
+                and int(other.get("run_attempt") or 1) > int(run.get("run_attempt") or 1)]
+    if attempts:
+        return sorted(attempts, key=lambda r: int(r.get("run_attempt") or 1))[-1]
+    later = [other for other in same_workflow
+             if str(other.get("created_at") or "") > str(created)]
     return sorted(later, key=lambda r: str(r.get("created_at")))[-1] if later else None
 
 

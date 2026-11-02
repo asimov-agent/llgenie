@@ -380,6 +380,27 @@ def test_a_cancelled_run_a_later_run_superseded_is_neutral_not_a_pass(tmp_path, 
     assert payload["conclusion"] == "neutral", payload
 
 
+def test_a_rerun_supersedes_the_attempt_it_replaced_even_with_the_same_created_at(monkeypatch):
+    """#1250 Finding A: a re-run keeps the run id and created_at, bumping only run_attempt — so
+    `superseding_run` must return the newer attempt as the superseder, never read attempt-1 as
+    this head's final conclusion."""
+
+    run = {"id": 41134761297, "workflow_id": 7, "head_branch": "docs/x",
+           "created_at": "2026-10-30T20:00:00Z", "run_attempt": 1, "conclusion": "cancelled"}
+    listing = {"workflow_runs": [
+        {"id": 41134761297, "workflow_id": 7, "head_branch": "docs/x",
+         "created_at": "2026-10-30T20:00:00Z", "run_attempt": 1, "conclusion": "cancelled"},
+        {"id": 41134761297, "workflow_id": 7, "head_branch": "docs/x",
+         "created_at": "2026-10-30T20:00:00Z", "run_attempt": 2, "conclusion": "success"},
+    ]}
+    monkeypatch.setattr(cv, "_api", lambda path: listing)
+
+    superseding = cv.superseding_run("o/r", run)
+
+    assert superseding is not None
+    assert superseding.get("run_attempt") == 2
+
+
 def test_a_cancelled_run_with_no_successor_is_red_even_through_the_api(tmp_path, monkeypatch, capsys):
     # Given a cancelled run with no decision artifact and NO later run
     monkeypatch.setenv("CI_VERDICT_GH", _stub_gh(tmp_path, artifact=False, later_run=False))
