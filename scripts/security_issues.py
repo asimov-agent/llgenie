@@ -113,9 +113,11 @@ def issue_findings(reports: Path = REPORTS, policy: dict | None = None) -> list[
     for item in ss.findings(reports):
         if item["severity"] not in wanted:
             continue
-        # A committed credential is always actionable (its fix is removal, not a patched version),
-        # so `require_fix` must not suppress it from the tracker either (issue #1283).
-        if pol.get("require_fix") and not item["fixed"] and item.get("source") != ss.SECRET_SOURCE:
+        # A committed credential and a SAST finding are always actionable (a secret's fix is removal
+        # and rotation; a semgrep finding's is editing the matched code), so `require_fix` must not
+        # suppress them from the tracker either (issues #1283, #1554).
+        if (pol.get("require_fix") and not item["fixed"]
+                and item.get("source") not in (ss.SECRET_SOURCE, ss.SEMGREP_SOURCE)):
             continue
         advisory = item.get("id") or "unknown"
         package = item.get("package") or "unknown"
@@ -339,7 +341,9 @@ def check() -> int:
     if "auto-fixable" not in LABELS:
         problems.append("LABELS has no `auto-fixable`: the remediation bot has nothing to select")
     # The marker is the idempotency key: it must round-trip through MARKER_RE.
-    for source, advisory, package in (("trivy", "CVE-1", "numpy"), ("grype", "GHSA-1", "openssl")):
+    # A semgrep SAST finding's package is `path:line`; the marker holds it like any other package.
+    for source, advisory, package in (("trivy", "CVE-1", "numpy"), ("grype", "GHSA-1", "openssl"),
+                                      ("semgrep", "sqlalchemy-execute-raw-query", "app.sql.py:5")):
         text = MARKER.format(source=source, advisory=advisory, package=package)
         m = MARKER_RE.search(text)
         if not m or (m.group(1), m.group(2), m.group(3)) != (source, advisory, package):

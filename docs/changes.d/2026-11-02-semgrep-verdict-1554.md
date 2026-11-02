@@ -1,0 +1,1 @@
+| 2026-11-02 | semgrep SAST findings reach the verdict / issues / bumps: `findings()` gains a `semgrep.json` reader mapping ERROR/WARNING/INFO into the policy vocabulary, and a SAST finding is always actionable (never suppressed by `require_fix`, still gated by `fail_on`) — issue #1554 | [note](agent-wiki/2026-11-02-semgrep-verdict-1554.md) | #1554 |

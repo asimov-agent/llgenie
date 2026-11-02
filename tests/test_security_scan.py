@@ -46,6 +46,19 @@ GRYPE_ONE = {"matches": [{
     "artifact": {"name": "openssl", "version": "3.0"},
     "fix": {"versions": ["3.1"]},
 }]}
+# A Semgrep SAST block (issue #1554): the real `semgrep.json` shape a `p/default` run writes — one
+# result per fired rule, each with a check_id, a path, a start line and the matched region in
+# `extra.lines`, and a rule severity of ERROR/WARNING/INFO (NOT the policy's critical/high/…).
+SEMGREP_ONE = {"results": [{
+    "check_id": "python.sqlalchemy.security.sqlalchemy-execute-raw-query",
+    "path": "app.sql.py", "start": {"line": 5, "col": 12},
+    "extra": {"severity": "ERROR", "lines": "    engine.execute(text(query))"},
+}]}
+SEMGREP_WARNING = {"results": [{
+    "check_id": "python.lang.security.audit.formatted-sql-query",
+    "path": "app.sql.py", "start": {"line": 8, "col": 12},
+    "extra": {"severity": "WARNING", "lines": "    cursor.execute(f\"SELECT * FROM t WHERE a = {x}\")"},
+}]}
 
 POLICY = {"fail_on": ["critical", "high"], "pr_fail_on": ["critical"],
           "require_fix": True, "issue_severities": ["critical", "high"]}
@@ -125,6 +138,72 @@ def test_a_medium_committed_secret_is_recorded_never_blocking():
 
     # Given a MEDIUM committed secret
     items = ss._trivy_secret_findings(TRIVY_SECRET_MEDIUM)
+
+    # When  the full policy is applied
+    bad = ss.blocking(items, POLICY, "full")
+
+    # Then  it is not blocking (only critical/high gate), and the report-only PR mode is empty too
+    assert bad == []
+    assert ss.blocking(items, POLICY, "pr") == []
+
+
+def test_semgrep_findings_are_normalised():
+    """A Semgrep result becomes one finding with the policy's severity vocabulary (issue #1554)."""
+
+    # Given a Semgrep report with one ERROR and one WARNING result
+    # When  it is normalised
+    items = ss._semgrep_findings(SEMGREP_ONE) + ss._semgrep_findings(SEMGREP_WARNING)
+
+    # Then  the ERROR maps to `high` (in `fail_on`), the WARNING to `medium`, both carry the SAST
+    #       source, name the file path:line and hold the matched region with no fixed version
+    error, warning = items[0], items[1]
+    assert error == {"id": "python.sqlalchemy.security.sqlalchemy-execute-raw-query",
+                     "package": "app.sql.py:5", "current": "    engine.execute(text(query))",
+                     "fixed": "", "severity": "high", "source": "semgrep"}
+    assert warning["severity"] == "medium"
+    assert warning["package"] == "app.sql.py:8"
+    assert {i["source"] for i in items} == {ss.SEMGREP_SOURCE}
+
+
+def test_a_semgrep_finding_flows_through_findings(tmp_path, monkeypatch):
+    """The SAST report is read by the same `findings()` gate as the CVE scanners (issue #1554)."""
+
+    # Given a reports dir with one advisory and one ERROR-severity semgrep finding
+    report = {"results": [SEMGREP_ONE["results"][0]]}
+    monkeypatch.setattr(ss, "REPORTS", _reports(tmp_path, trivy=TRIVY_OK,
+                                                **{"semgrep": report}))
+
+    # When  findings are read
+    items = ss.findings()
+
+    # Then  both the advisory and the SAST finding are present, in the fixed finding shape
+    assert any(i["source"] == "trivy" and i["id"] == "CVE-1" for i in items)
+    assert any(i["source"] == "semgrep"
+               and i["id"] == "python.sqlalchemy.security.sqlalchemy-execute-raw-query"
+               for i in items)
+
+
+def test_an_error_semgrep_finding_blocks_even_with_require_fix():
+    """A SAST finding has no 'fixed version' to wait for — `require_fix` must not let the daily gate
+    ignore it: editing the matched code is the remediation, so an ERROR blocks at `fail_on`
+    (issue #1554)."""
+
+    # Given an ERROR-severity semgrep finding at the gated severity (mapped to `high`)
+    items = ss._semgrep_findings(SEMGREP_ONE)
+
+    # When  the FULL (gating) policy is applied with require_fix on (the shipped default)
+    bad = ss.blocking(items, POLICY, "full")
+
+    # Then  it blocks — editing the code is always actionable, never "await a patched version"
+    assert [i["id"] for i in bad] == ["python.sqlalchemy.security.sqlalchemy-execute-raw-query"]
+    assert ss.blocking(items, dict(POLICY, require_fix=True), "full") != []
+
+
+def test_a_semgrep_warning_is_recorded_never_blocking():
+    """`fail_on` still gates a SAST finding: WARNING (→ medium) is recorded, never a red (#1554)."""
+
+    # Given a WARNING-severity semgrep finding (a likely-but-not-definite pattern)
+    items = ss._semgrep_findings(SEMGREP_WARNING)
 
     # When  the full policy is applied
     bad = ss.blocking(items, POLICY, "full")
