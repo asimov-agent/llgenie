@@ -2,8 +2,9 @@
 
 ## What changed
 
-The lane's arm read-back rule (SOUL + `security-scan-ops/SKILL.md`) now requires reading **both** signals
-before claiming `armed` or `auto=none`:
+The lane's own read-back rule in `security-scan-ops/SKILL.md` (*"Arm auto-merge only on a `main`-based
+PR, and read `state` before `autoMergeRequest`"*) now requires reading **both** signals before claiming
+`armed` or `auto=none`:
 
 - `gh api repos/<o>/<r>/pulls/<n> --jq '.auto_merge.enabled_at'` (REST) **and**
 - `gh pr view <n> --json autoMergeRequest --jq '.autoMergeRequest.enabledAt // "NULL"'` (GraphQL identity).
@@ -11,7 +12,9 @@ before claiming `armed` or `auto=none`:
 `auto=armed` if **either** is non-null; `auto=none` only when **both** are null. On a true disagreement
 (REST null, GraphQL non-null — the review-blocked case) **default to armed and dis-arm**
 (`gh pr merge <n> --cancel`), read both back null, then report `auto=none`. Never report `auto=none` on a
-lone REST null.
+lone REST null. Scope note: the shared fleet block in `SOUL.md` is canonical verbatim from
+`agents/standing-rules.md` and must NOT carry per-lane read-back detail; the correction lives in the
+lane's own skill only.
 
 ## Why
 
@@ -25,6 +28,7 @@ REST null read a genuinely-armed, review-gated PR as "not armed", and it merged 
 
 - Issue: #1600 (security, tagged).
 - Fix PR: #1601 (targets `agents/llgenie-security/`, closes #1600).
-- Measured gates at the fix head: guard/ci-images/holds/lint/openspec/agents-read pass; `scope` initially
-  red for lacking the `agent-wiki` note (this record); `check-docs` obligates a note for a SOUL change per
-  #1123.
+- Measured at the fix head: guard/scope/holds/ci-images/scanner-images/lint/openspec/agents-read/
+  cpu-health/install pass. A first version of the fix wrongly edited the canonical SOUL fleet block
+  (SOUL.md rule 16 must stay verbatim — red `fleet-block-drift` in `test_agent_profiles`), so it was
+  reverted to verbatim; the detail now lives in the lane-owned skill only.
