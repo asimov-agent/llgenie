@@ -59,8 +59,8 @@ def repinned_engine_ids(base: str, root: Path | None = None) -> list[str]:
     ids: list[str] = []
     for path in sorted(params_dir.glob("*.json")):
         rel = f"containers/engines/params/{path.name}"
-        shown = subprocess.run(["git", "show", f"{base}:{rel}"], cwd=root,
-                               capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797
+        shown = subprocess.run(["git", "show", f"{base}:{rel}"], cwd=root,  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
+                               capture_output=True, text=True)
         if shown.returncode != 0 or shown.stdout != path.read_text():
             with path.open() as fh:
                 ids.append(json.load(fh)["id"])
