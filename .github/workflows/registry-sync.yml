@@ -26,9 +26,11 @@ on:
     - cron: "19 5 * * 1"   # Monday 05:19 UTC (unique minute, issue #275)
   workflow_dispatch:
 
-env:
-  HF_TOKEN: ${{ secrets.HF_TOKEN }}
-  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+# The Hub and GitHub tokens reach the jobs that need them through JOB-level env below
+# (issue #1594): a workflow-level secret is ambient for every job and step, which the
+# security-scan's gha-workflow-env-secret rule flags. The `sync` job's make targets
+# (sync-registry, the regen/check/test-unit legs) touch the Hub and the test image; the
+# guard job reads no secret.
 
 permissions:
   contents: write
@@ -93,6 +95,11 @@ jobs:
   sync:
     needs: [guard]
     runs-on: ubuntu-latest
+    # The sync make targets and the test image forward these tokens by name
+    # (job-scoped, not workflow-wide — issue #1594).
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:

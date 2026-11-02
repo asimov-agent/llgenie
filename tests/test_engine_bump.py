@@ -1620,16 +1620,27 @@ def _bind_release(monkeypatch, handler) -> None:
 
 
 def test_workflows_export_the_github_token():
-    """Workflows that can start a test container export the Actions GitHub token."""
+    """Jobs that can start a test container export the Actions GitHub token at JOB scope.
+
+    Issue #1594: a secret in the workflow-level `env:` is ambient for every job and step.
+    The token now lives on the exact job(s) that run token-forwarding make targets, and NO
+    workflow leaks it into the top-level (workflow) env.
+    """
 
     # Given the workflows that already export HF_TOKEN
     names = ("ci.yml", "pipeline.yml", "engine-bump.yml", "registry-sync.yml")
 
-    # When their workflow env is read
-    # Then each sets GITHUB_TOKEN from the Actions secret
     for name in names:
         doc = yaml.safe_load((REPO / ".github" / "workflows" / name).read_text())
-        assert doc["env"]["GITHUB_TOKEN"] == "${{ secrets.GITHUB_TOKEN }}", name
+        # then no workflow exposes it at workflow scope (issue #1594)
+        assert "GITHUB_TOKEN" not in (doc.get("env") or {}), name
+    for name in ("engine-bump.yml", "registry-sync.yml"):
+        doc = yaml.safe_load((REPO / ".github" / "workflows" / name).read_text())
+        holder = "bump" if name == "engine-bump.yml" else "sync"
+        assert doc["jobs"][holder]["env"]["GITHUB_TOKEN"] == "${{ secrets.GITHUB_TOKEN }}", name
+    pipe = yaml.safe_load((REPO / ".github" / "workflows" / "pipeline.yml").read_text())
+    for jname in ("cpu-health", "top-tier"):
+        assert pipe["jobs"][jname]["env"]["GITHUB_TOKEN"] == "${{ secrets.GITHUB_TOKEN }}", jname
 
 
 def test_linux_test_containers_forward_the_github_token():

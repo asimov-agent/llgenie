@@ -30,9 +30,11 @@ on:
         required: false
         default: ""
 
-env:
-  HF_TOKEN: ${{ secrets.HF_TOKEN }}
-  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+# The Hub and GitHub tokens reach the jobs that need them through JOB-level env below
+# (issue #1594): a workflow-level secret is ambient for every job and step, which the
+# security-scan's gha-workflow-env-secret rule flags. The `bump` job's make targets
+# (engine-bump, the TensorFold live archive) hit the Hub and the test container gets the
+# tokens forwarded; the guard and plan jobs read no secret.
 
 permissions:
   contents: write
@@ -130,6 +132,12 @@ jobs:
       pull-requests: write
       issues: write
       packages: read
+    # engine-bump derives from the upstream tree and the TensorFold live archive test runs in
+    # the test container, which forwards these tokens by name (Makefile TEST_OPTS, issue
+    # #199/#1594: job-scoped, not workflow-wide).
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     name: bump-${{ matrix.id }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
