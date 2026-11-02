@@ -107,6 +107,36 @@ def test_a_committed_secret_becomes_an_issue_despite_no_fix(tmp_path):
     assert "severity:critical" in f.labels
 
 
+def test_a_semgrep_sast_finding_becomes_an_issue_despite_no_fix(tmp_path):
+    """A SAST finding has no 'fixed version' but is ALWAYS actionable (edit the matched code):
+    `require_fix` must not keep it off the tracker — it gets a `component:code` issue, and never an
+    `auto-fixable` (a bump cannot fix code), mirroring the committed-secret case (issue #1554)."""
+
+    # Given a semgrep report with one ERROR finding (a raw-SQL execution pattern)
+    payload = {"results": [{
+        "check_id": "python.sqlalchemy.security.sqlalchemy-execute-raw-query",
+        "path": "tools/app.py", "start": {"line": 5, "col": 12},
+        "extra": {"severity": "ERROR", "lines": "    engine.execute(text(query))"},
+    }]}
+    d = tmp_path / "reports"  # this helper writes trivy.json only, so add semgrep.json by hand
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "semgrep.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    # When  issues are selected under the policy (require_fix on)
+    findings = si.issue_findings(d, POLICY)
+
+    # Then  the SAST finding becomes a code issue despite no fixed version
+    assert len(findings) == 1
+    f = findings[0]
+    assert f.advisory == "python.sqlalchemy.security.sqlalchemy-execute-raw-query"
+    assert f.package == "tools/app.py:5"
+    assert f.source == "semgrep" and f.fixed == ""
+    assert f.severity == "high"  # ERROR mapped into the gated vocabulary
+    assert f.component == "component:code"
+    assert "auto-fixable" not in f.labels  # a bump cannot fix code
+    assert "severity:high" in f.labels
+
+
 def test_labels_and_components_follow_the_finding(tmp_path):
     """Every issue carries security, vulnerability, one severity, one component, and auto-fixable."""
 

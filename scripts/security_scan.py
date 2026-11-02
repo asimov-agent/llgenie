@@ -64,6 +64,15 @@ ALL_TOOLS = (SBOM_TOOL,) + TOOLS
 #: secret is ALWAYS actionable: a committed credential's remediation is removal, not "wait for a
 #: patched version", so `require_fix` must not suppress it while it still honours `fail_on`.
 SECRET_SOURCE = "trivy-secret"
+#: The source a Semgrep SAST finding carries. Like a committed secret, a SAST finding's remediation
+#: is editing the code (the matched region), NOT awaiting a patched package version — so it has no
+#: `fixed` version and `require_fix` must not suppress it. `source` distinguishes it from the CVE
+#: scanners so the issue path labels it `component:code` (issue #1554).
+SEMGREP_SOURCE = "semgrep"
+#: Semgrep lacks the policy's severity vocabulary: rules declare ERROR / WARNING / INFO. Map them
+#: into the policy's known set so `verdict()` / `blocking()` count SAST findings against `fail_on`
+#: (ERROR is a definite vuln pattern, the top of Semgrep's scale → gated; issue #1554).
+SEMGREP_SEVERITY = {"ERROR": "high", "WARNING": "medium", "INFO": "low"}
 DEFAULT_POLICY = {
     "fail_on": ["critical", "high"],
     "pr_fail_on": [],
@@ -243,13 +252,35 @@ def _grype_findings(report: dict) -> list[dict]:
     } for match in report.get("matches") or []]
 
 
+def _semgrep_findings(report: dict) -> list[dict]:
+    """The SAST matches from semgrep.json, normalised into the shared finding shape (issue #1554).
+
+    A result carries a `check_id` (the rule that fired), a `path`, a start/end line and the matched
+    source region in `extra.lines`. There is no package version or fixed version — a SAST finding's
+    remediation is editing the code, never a bump — so `package` names the file (path:line) and
+    `current` is the matched region. `source` is `SEMGREP_SOURCE` so `blocking()` and the issue
+    path treat it as always actionable (like a committed secret) and label it `component:code`.
+    Semgrep severity (ERROR/WARNING/INFO) is mapped into the policy vocabulary (see `SEMGREP_SEVERITY`).
+    """
+    return [{
+        "id": result.get("check_id"),
+        "package": f"{result.get('path')}:{(result.get('start') or {}).get('line')}",
+        "current": (result.get("extra") or {}).get("lines") or "",
+        "fixed": "",
+        "severity": SEMGREP_SEVERITY.get(
+            str((result.get("extra") or {}).get("severity", "")).upper(), "unknown"),
+        "source": SEMGREP_SOURCE,
+    } for result in report.get("results") or []]
+
+
 def findings(reports: Path | None = None) -> list[dict]:
     """Every finding from every report that exists, in one shape."""
     reports = reports or REPORTS  # resolved at call time: `SECURITY_REPORTS`/a test can move it
     out: list[dict] = []
     for name, reader in (("trivy.json", _trivy_findings),
                          ("trivy.json", _trivy_secret_findings),
-                         ("grype.json", _grype_findings)):
+                         ("grype.json", _grype_findings),
+                         ("semgrep.json", _semgrep_findings)):
         path = reports / name
         if not path.is_file():
             continue
@@ -270,11 +301,12 @@ def blocking(items: list[dict], pol: dict, mode: str = "full") -> list[dict]:
     for item in items:
         if item["severity"] not in fail_on:
             continue
-        if item.get("source") == SECRET_SOURCE:
-            # A committed credential is ALWAYS actionable: its remediation is removal and rotation,
-            # not "await a patched version", so `require_fix` — which exists to stop an unfixable
-            # advisory from stalling the pipeline — must not suppress it. `fail_on` still gates: a
-            # `medium`/`unknown` secret is recorded, never a red (issue #1283).
+        if item.get("source") in (SECRET_SOURCE, SEMGREP_SOURCE):
+            # A committed credential and a SAST finding are ALWAYS actionable: their remediation is
+            # removal/masking (secret) or editing the matched code (semgrep), never "await a patched
+            # version", so `require_fix` — which exists to stop an unfixable advisory from stalling
+            # the pipeline — must not suppress them. `fail_on` still gates: a `medium`/`unknown`
+            # SAST or secret finding is recorded, never a red (issues #1283, #1554).
             out.append(item)
         elif pol.get("require_fix") and not item["fixed"]:
             continue
