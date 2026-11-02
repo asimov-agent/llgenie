@@ -580,6 +580,11 @@ either: not green, because <job> failed at <sha> in run <id> — <cause or "caus
 
 ## Scheduled watch
 
+The PR-watch monitor is versioned in-tree at **`agents/llgenie-pr-reviever/scripts/pr_watch.py`**
+(closes #1037; issue #1577). Check the repo copy first — a live-only edit under
+`~/.hermes/profiles/…/scripts/` is unversioned and untraceable (issue #1060/#791). Its test
+module `scripts/test_pr_watch.py` lives beside it in the tree too.
+
 `scripts/pr_watch.py` in this profile prints a deterministic fingerprint of every open PR
 (head sha, review decision, merge state, labels, check buckets, comment count, the latest review
 as `reviewer=<login>:<STATE>@<date>`, and the newest run at the head as
