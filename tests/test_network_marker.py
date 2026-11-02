@@ -250,6 +250,17 @@ _LOOPBACK_RE = re.compile(
 _STUBBED_CHILD_RE = re.compile(
     r"monkeypatch\.setattr\(\s*mp\.subprocess|monkeypatch\.setenv\(\s*[\"']HF_BIN"
 )
+#: A scope that feeds `model_engine_pick.matrix`/`.offer` a SYNTHETIC registry — `_mkreg()` /
+#: `_registry({...})` (a locally-built dict whose repos are the stubbed `_trees`, never a real
+#: Hub org) — or stubs the module's Hub transport on `mp` itself (`_tree`, `_hub_json`,
+#: `engine_ids`, the strata plan hooks). `matrix()`/`offer()` only reach the Hub _through_
+#: `_hub_json`/`_tree`, so a scope that hands them a synthetic registry or replaces those
+#: attributes makes no real call — the same purity class as `def urlopen(...)` / `HF_BIN`.
+_SYNTHETIC_REGISTRY_RE = re.compile(
+    r"\b_(?:mkreg|registry|trees?)\s*\(|\b_registry\s*\([^)]*\{"
+    r"|monkeypatch\.setattr\(\s*mp\.\s*(_tree|_hub_json|_hub_open|engine_ids"
+    r"|strata_serves|strata_plan)"
+)
 
 
 def _hub_opens(file_text: str) -> list[tuple[str, str]]:
@@ -292,8 +303,8 @@ def _hub_opens(file_text: str) -> list[tuple[str, str]]:
     _MODEL_DICT = re.compile(r"([A-Za-z_]\w*)\s*=\s*\{[^}]*?\bhf\b[\"']?\s*:")
     module_hf_models = {m.group(1) for m in _MODEL_DICT.finditer(file_text)}
     _ENTRY_CALL = re.compile(
-        r"\b(mp\.(download|gguf_files|hf_size|plan_download|offer|_hub_json|_tree|gguf_repo|mlx_repos|"
-        r"tensorfold_repos)|sr\.check_links)\s*\(")
+        r"\b(mp\.(download|gguf_files|hf_size|plan_download|offer|matrix|_hub_json|_tree|gguf_repo|"
+        r"mlx_repos|tensorfold_repos)|sr\.check_links)\s*\(")
 
     # Slice the file at top-level defs; each scope's body ends where the NEXT def's decorator
     # block begins (the decorator belongs to the def it decorates).
@@ -368,6 +379,7 @@ def _hub_opens(file_text: str) -> list[tuple[str, str]]:
         return bool(
             _LOOPBACK_RE.search(body)
             or _STUBBED_CHILD_RE.search(body)
+            or _SYNTHETIC_REGISTRY_RE.search(body)
             or _STUB_RE.search(body)
             or re.search(r"HUB_SNAPSHOT_ENV|LLGENIE_HUB_SNAPSHOT|hub_snapshot_file", body)
         )
@@ -507,6 +519,41 @@ def test_a_helper_hiding_a_hub_entry_point_taints_its_callers(tmp_path):
         "test_unmarked_calls_helper",
         "test_unmarked_calls_transitive_helper",
     }, offenders
+
+
+def test_matrix_entry_point_hidden_behind_a_same_file_helper_taints_its_callers(tmp_path):
+    """issue #1131: the widened Hub-entry list must see `mp.matrix`, exactly the way #1176 added
+    `mp.offer`. `mp.matrix` reaches the Hub through `_hub_json` (the HF search endpoints over
+    `hf_auth.hub_open`) — a live reach the old entry list could not follow because `matrix` was
+    never an entry name, so a same-file helper calling it (`_matrix(registry) -> mp.matrix(...)`)
+    left every unmarked caller invisible to the pin. Here the helper feeds a REAL registry
+    (`mp.load_registry()`), so the caller MUST be tainted; a marked caller stays clean; and a
+    synthetic-registry twin (`_mkreg()` + stubbed `_hub_json`) is pure and stays out of the
+    report — the class the hermetic matrix tests live in."""
+    rel = "tests/test_matrix_helper.py"
+    (tmp_path / "tests").mkdir()
+    (tmp_path / rel).write_text(
+        "import model_engine_pick as mp\n"
+        "import pytest\n"
+        "def _matrix(gb):\n"
+        "    return mp.matrix(mp.load_registry(), 16, 32, 'cuda')\n"
+        "def test_unmarked_calls_matrix_helper():\n"
+        "    rows = _matrix(16)\n"
+        "    assert rows\n"
+        "@pytest.mark.network\n"
+        "def test_marked_calls_matrix_helper():\n"
+        "    rows = _matrix(16)\n"
+        "    assert rows\n"
+        "def test_hermetic_twin_is_pure():\n"
+        "    import model_engine_pick as _mp\n"
+        "    def _mkreg():\n"
+        "        return {'models': []}\n"
+        "    monkeypatch = None  # noqa: F841 (the twin stubs the transport, never a real org)\n"
+        "    res = _mp.matrix(_mkreg(), 8, 32, 'cuda')\n"
+        "    assert res\n"
+    )
+    offenders = {name for name, _line in _hub_opens((tmp_path / rel).read_text())}
+    assert offenders == {"test_unmarked_calls_matrix_helper"}, offenders
 
 
 _MODULE_MARK_RE = re.compile(r"(?m)^pytestmark\s*=\s*pytest\.mark\.network\b")
