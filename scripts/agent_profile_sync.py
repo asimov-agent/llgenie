@@ -56,7 +56,7 @@ def _git_tracked_profile_files(base: Path) -> list[Path] | None:
     the decision to the caller's plain walk.
     """
     try:
-        top = subprocess.run(
+        top = subprocess.run(  # proc-allow: git tracked-file view for sync — the repo's index is the source of truth (issue #1149, #797 seam waived for this one read)
             ["git", "-C", str(base), "rev-parse", "--show-toplevel"],
             capture_output=True, text=True, check=True,
         ).stdout.strip()
@@ -67,7 +67,7 @@ def _git_tracked_profile_files(base: Path) -> list[Path] | None:
     except ValueError:
         return None
     prefix_str = str(prefix) + "/"
-    listed = subprocess.run(
+    listed = subprocess.run(  # proc-allow: git tracked-file view for sync — `git ls-files` is the .gitignore-aware list the tree must sync (issue #1149, #797 seam waived for this one read)
         ["git", "-C", str(top), "ls-files", "-z", "--", str(prefix)],
         capture_output=True, text=True, check=True,
     ).stdout
