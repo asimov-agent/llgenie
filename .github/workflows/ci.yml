@@ -138,17 +138,24 @@ jobs:
         run: make check-pr-authors PR_BASE="$PR_BASE"
       - name: make check-pr-closing (a claimed issue needs the same adjacent close in the squash text and the body — issues #1329, #1417)
         env:
-          # The body, the title and the branch come from the pull_request event. A push to main has
-          # none of them. PR_BASE is the LIVE base branch ref (origin/main, refreshed below): the
-          # script anchors the squash range at `git merge-base origin/main HEAD`, so a PR opened
-          # before main advanced reads its OWN commits, not an event-frozen base.sha that sweeps in
-          # main's (issue #1527). The range is then empty for a push (origin/main == HEAD).
-          PR_BODY: ${{ github.event.pull_request.body || '' }}
+          # The body is read LIVE from the PR record below (gh api, issue #1589), NOT from the run's
+          # event snapshot: `github.event.pull_request.body` is frozen when the run starts, so a
+          # body-only fix (adding the adjacent closes #N the gate demands) never cleared on `gh run
+          # rerun`. A push to main has no PR number: PR_BODY stays empty and only the squash half runs.
+          # PR_BASE is the LIVE base branch ref (origin/main, refreshed below): the script anchors the
+          # squash range at `git merge-base origin/main HEAD` (issue #1527).
           PR_BRANCH: ${{ github.head_ref || '' }}
           PR_BASE: origin/main
           PR_TITLE: ${{ github.event.pull_request.title || '' }}
+          PR_NUMBER: ${{ github.event.pull_request.number || '' }}
+          PR_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           git fetch --no-tags --prune origin main   # refresh origin/main so the merge-base is live, not a stale ref (issue #1527)
+          PR_BODY=""
+          if [ -n "$PR_NUMBER" ]; then
+            PR_BODY="$(gh api "repos/$PR_REPO/pulls/$PR_NUMBER" --jq '.body // ""' 2>/dev/null || true)"
+          fi
           if [ -n "$PR_BODY" ]; then printf '%s\n' "$PR_BODY" > /tmp/pr-body.md; export PR_BODY=/tmp/pr-body.md; fi
           make check-pr-closing
       - name: make check-pr-base (a branch cut from another PR carries its diff under its own closes — merge-base must be the base itself, issue #845)
