@@ -2099,6 +2099,24 @@ make worktree-report   # measure the bench before a bot starts, and mutate NOTHI
                        # the base. A host bot runs this INSTEAD of the prune: the prune deletes directories and
                        # cannot see uncommitted work, so a mid-flight tree whose tip is already an ancestor of
                        # `main` looks exactly like a finished one (it destroyed the #791 run's worktree).
+make worktree-base     # resolve the base a worktree MUST be cut from — `refs/remotes/origin/main`, fetched
+                       # first, NEVER the primary checkout's HEAD (issue #845): a kanban `worktree` task used to
+                       # inherit the canonical checkout's CURRENT branch, so a lane parked on a PR branch spawned
+                       # the next worktree from someone else's unmerged diff (measured twice 2026-10-28 — a
+                       # worktree byte-identical to another PR's head, and work committed in the primary checkout
+                       # itself). `make worktree-base` prints the sha; `make worktree-base ADD=1 PATH=<dir>
+                       # BRANCH=<name>` passes that resolved base as the explicit start point of `git worktree
+                       # add -b`, so the new branch is cut from `origin/main` regardless of what the primary is
+                       # parked on. The ref is refreshed (`git fetch --no-tags origin main`) before the read, so a
+                       # stale or absent ref cannot stand in for the live base.
+make check-pr-base     # CI: fail when a PR's merge-base with the base ref is not the base itself — a branch cut
+                       # from another PR leaks that PR's diff under its own closes (issue #845, the #794 case: a
+                       # worktree inheriting the primary checkout's parked branch came out as a copy of #813).
+                       # `git merge-base <PR_BASE> <rev>` must equal `PR_BASE` itself; when a foreign commit is
+                       # present the gate fails and NAMES it, so the leak is visible. A clean branch exactly one
+                       # commit ahead of the base passes (the negative control). PR_BASE= the ref a PR must be
+                       # cut from (default refs/remotes/origin/main), PR_HEAD= the head rev (default HEAD). Reads
+                       # only; the CI guard job refreshes origin/main before the read (issue #1527).
 make worktree-prune    # remove the worktrees and local branches whose PR already merged, so the checkout stops
                        # accumulating debris (issue #431). Eligibility is the PR, never a name pattern or an
                        # ancestry guess: this repo squash-merges, so a merged branch's tip is NEVER an ancestor

@@ -151,6 +151,19 @@ jobs:
           git fetch --no-tags --prune origin main   # refresh origin/main so the merge-base is live, not a stale ref (issue #1527)
           if [ -n "$PR_BODY" ]; then printf '%s\n' "$PR_BODY" > /tmp/pr-body.md; export PR_BODY=/tmp/pr-body.md; fi
           make check-pr-closing
+      - name: make check-pr-base (a branch cut from another PR carries its diff under its own closes — merge-base must be the base itself, issue #845)
+        env:
+          # PR_BASE is the LIVE base branch ref (origin/main). check-pr-base reads
+          # `git merge-base origin/main HEAD` and fails when the branch was cut from
+          # something else — the kanban worktree that inherited the primary checkout's
+          # parked branch is exactly this shape. A push to main has origin/main == HEAD,
+          # so the gate is a tautology there and stays green. HEAD is refreshed the same
+          # way check-pr-closing refreshes origin/main below.
+          PR_BASE: origin/main
+          PR_HEAD: ${{ github.event.pull_request.head.sha || 'HEAD' }}
+        run: |
+          git fetch --no-tags --prune origin main   # live origin/main, so a stale ref cannot hide a foreign merge-base (issue #1527)
+          make check-pr-base
       - name: Decide which heavy rows this run schedules (make ci-slow-rows)
         id: rows
         env:

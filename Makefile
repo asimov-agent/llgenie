@@ -902,8 +902,10 @@ issue-cleaner-scan: ## Which OPEN issue a merged PR already implemented (the lin
 	python3 scripts/issue_cleaner.py --repo "$(GH_REPO)" --dry
 issue-cleaner-apply: ## Close the issues a merged-to-main PR implemented but left open, each with a comment citing the PR (issue #325; the stale-branch cleanup workflow runs this daily, issue #1414; REPO= picks the repo)
 	python3 scripts/issue_cleaner.py --repo "$(GH_REPO)"
-worktree-report: ## Report every worktree with its branch, merged-into-main, open PR and dirty state; mutates nothing and deletes nothing (issue #794); SLUG= picks the repo gh reads, BASE= the base ref
+worktree-report: ## Report every worktree with its branch, merged-into-main, open PR, dirty state, ahead/behind and uncommitted paths; a workspace lane prints the primary checkout's parked branch so the spawn defect is visible before it seeds the next worktree; mutates nothing and deletes nothing (issues #794, #845); SLUG= picks the repo gh reads, BASE= the base ref
 	python3 scripts/worktree_report.py --repo $(if $(SLUG),$(SLUG),asimov-agent/llgenie) --base $(if $(BASE),$(BASE),origin/main)
+worktree-base: ## Resolve the base a worktree MUST be cut from — `refs/remotes/origin/main`, fetched first, NEVER the primary checkout's HEAD (issue #845); ADD=1 PATH= DIR= BRANCH= passes the resolved base to `git worktree add` so the dispatch seam cuts from origin/main regardless of what the primary checkout is parked on
+	@python3 scripts/worktree_base.py $(if $(ADD),add --path "$(PATH)" --branch "$(BRANCH)",resolve)
 worktree-prune: ## Remove the worktrees and local branches whose PR already merged, proven by the PR's merge commit (squash merges defeat ancestry, issue #431); DRY=1 prints the plan, BASE= picks the base ref, SLUG= the owner/name gh reads; an UNATTENDED run — CI, BOT, or the dispatcher's HERMES_KANBAN_* — is REFUSED unless CONFIRM=1 (issue #794)
 	@python3 scripts/worktree_prune_guard.py
 	python3 scripts/worktree_prune.py --repo $(if $(SLUG),$(SLUG),asimov-agent/llgenie) --base $(if $(BASE),$(BASE),origin/main) $(if $(DRY),--dry,)
@@ -1089,9 +1091,13 @@ pr-hygiene-report: ## Show every producer the PR/commit-message guard reads, and
 	python3 scripts/check_pr_hygiene.py report
 check-pr-closing: ## CI: fail when a claimed issue lacks an adjacent closes/fixes/resolves #N in the joined commit messages and, when the body is supplied, in the PR body, or when an agent/* body names an issue with no adjacent keyword (issues #1329, #1417)
 	python3 scripts/check_pr_closing.py check $(if $(PR_BODY),--body-file "$(PR_BODY)",) $(if $(PR_BRANCH),--head "$(PR_BRANCH)",) --base "$(PR_BASE)" --rev HEAD
+check-pr-base: ## CI: fail when a PR's merge-base with the base ref is not the base itself — a branch cut from another PR leaks that PR's diff under its own closes; name the foreign commit (issue #845); PR_BASE= the base ref a PR must be cut from (default origin/main, the shared default check-pr-closing uses; the ci.yml guard step and pipeline unit job set it explicitly and fetch it live), PR_HEAD= the head rev (default HEAD — the unit job sets no PR_HEAD, so HEAD is the branch being built)
+	python3 scripts/check_pr_base.py check --base "$(PR_BASE)" --rev "$(if $(PR_HEAD),$(PR_HEAD),HEAD)"
 pr-closing-report: ## Show the closing references a PR body carries, the squash closes, and whether the agent/* scope applies (issues #1329, #1417)
 	python3 scripts/check_pr_closing.py report $(if $(PR_BODY),--body-file "$(PR_BODY)",) $(if $(PR_BRANCH),--head "$(PR_BRANCH)",) --base "$(PR_BASE)" --rev HEAD
 .PHONY: check-pr-closing pr-closing-report
+.PHONY: check-pr-base
+.PHONY: worktree-base
 check-proc-gate: ## CI: fail when a subprocess.run/check_output/Popen appears in scripts/ outside scripts/proc.py or a `# proc-allow:` line — the ONE subprocess policy seam (issue #797)
 	python3 scripts/check_proc_gate.py check
 proc-gate-report: ## Show the census of every direct subprocess.* call site in scripts/, allow-listed or bare — the tracked remainder that must shrink onto scripts/proc.py (issue #797)
@@ -1765,6 +1771,7 @@ ci-unit: bash-check ## CI job unit: hermetic unit tests + registry / skill / Str
 	$(MAKE) check-issue-bodies
 	$(MAKE) check-pr-authors
 	$(MAKE) check-pr-closing
+	$(MAKE) check-pr-base
 	$(MAKE) check-workflows
 	$(MAKE) check-module-names
 	$(MAKE) check-scanner-images
