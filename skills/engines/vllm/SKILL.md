@@ -59,7 +59,14 @@ install:
     # hipcc + FindHIP.cmake): without ROCM_PATH/HIP_PATH/CMAKE_MODULE_PATH pointing there, torch's
     # LoadHIP.cmake falls back to the pip rocm-sdk-core wheel path and fails 'No FindHIP.cmake in
     # CMAKE_MODULE_PATH' / 'Optional package HIP not found' (issue #1365, run 41342311363 rocm).
-    - "cd {src} && ROCM_HOME=/opt/rocm ROCM_PATH=/opt/rocm HIP_PATH=/opt/rocm CMAKE_ARGS='-DROCM_PATH=/opt/rocm -DCMAKE_PREFIX_PATH=/opt/rocm -DCMAKE_MODULE_PATH=/opt/rocm/lib/cmake/hip;/opt/rocm/lib/cmake/hip-lang' PYTORCH_ROCM_ARCH='{gpu_targets}' VLLM_TARGET_DEVICE=rocm uv pip install --system --break-system-packages --no-build-isolation -e ."
+    # --no-build-isolation must ALSO resolve TheRock device extras against the AMD index: step 2
+    # installed rocm==7.14.0 (setuptools meta-package) from repo.amd.com/rocm/whl-multi-arch/, so
+    # setup.py::get_rocm_device_requirements() now finds 'rocm_sdk' importable and emits
+    # rocm/torch/torchvision[device-gfx<arch>] extras. The -e . resolver without that same index
+    # fell back to PyPI's placeholder rocm==0.1.0 (poetry-built sdist, no wheel/extras) and died
+    # with 'No module named poetry' under --no-build-isolation (issue #1558). Pass the same
+    # --extra-index-url as step 2 so the device wheels come from AMD, never PyPI.
+    - "cd {src} && ROCM_HOME=/opt/rocm ROCM_PATH=/opt/rocm HIP_PATH=/opt/rocm CMAKE_ARGS='-DROCM_PATH=/opt/rocm -DCMAKE_PREFIX_PATH=/opt/rocm -DCMAKE_MODULE_PATH=/opt/rocm/lib/cmake/hip;/opt/rocm/lib/cmake/hip-lang' PYTORCH_ROCM_ARCH='{gpu_targets}' VLLM_TARGET_DEVICE=rocm uv pip install --system --break-system-packages --no-build-isolation --extra-index-url https://repo.amd.com/rocm/whl-multi-arch/ --index-strategy unsafe-best-match -e ."
 
   cpu:
     - "test -d {src}/.git || git clone -b {ref} --depth 1 {repo}.git {src}"
