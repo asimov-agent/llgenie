@@ -1,0 +1,1 @@
+| 2026-11-02 | engine bump: strata re-pinned `3f6d9c28` -> `d94bac6a` (`v0.2.9`) — frozen cuda/rocm Dockerfiles, params, strata_models, SKILL.md and affected tests re-derived at the new pin (CI builds/tests only strata's images) | [2026-11-02-strata-bump.md](agent-wiki/2026-11-02-strata-bump.md) | #1518 |
