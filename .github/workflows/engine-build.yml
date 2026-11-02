@@ -158,7 +158,11 @@ jobs:
       max-parallel: 20
       matrix: ${{ fromJSON(needs.matrix.outputs.matrix) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 240
+    # Per-cell budget (issue #1568, owner ruling 2026-11-02): the vllm/rocm cell
+    # needs the full 8h to finish `make build-engine` (two dead attempts at 240m,
+    # the second terminated by this timeout while still on the ROCm compile);
+    # every other cell keeps the 240m budget. Capacity only, no check weakened.
+    timeout-minutes: ${{ (matrix.engine == 'vllm' && matrix.variant == 'rocm') && 480 || 240 }}
     permissions:
       contents: read
       packages: write
