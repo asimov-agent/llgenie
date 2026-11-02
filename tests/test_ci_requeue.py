@@ -65,9 +65,11 @@ def _calls(log: Path) -> list[list[str]]:
 
 
 def _run_record(num: int, sha: str, concluded: str, hours_ago: float, now: dt.datetime,
-                branch: str = "feat/x", workflow: int = 1, event: str = "push") -> dict:
+                branch: str = "feat/x", workflow: int = 1, event: str = "push",
+                attempt: int = 1) -> dict:
     return {"id": num, "name": "CI" if workflow == 1 else "scope", "workflow_id": workflow,
             "head_sha": sha, "head_branch": branch, "conclusion": concluded, "event": event,
+            "run_attempt": attempt,
             "created_at": _iso(hours_ago, now), "status": "completed"}
 
 
@@ -104,6 +106,26 @@ def test_a_superseded_cancelled_run_is_left_alone(tmp_path, monkeypatch, capsys)
     # Then  nothing is re-run, and the pass-over is stated with its reason
     assert [c for c in _calls(log) if c[:2] == ["run", "rerun"]] == []
     assert "superseded" in capsys.readouterr().out
+
+
+def test_a_cancelled_attempt_superseded_by_its_own_rerun_is_left_alone(tmp_path, monkeypatch, capsys):
+    """#1250 Finding A: a re-run keeps the run id and created_at, bumping only run_attempt — a
+    cancelled attempt-1 with a live attempt-2 of the SAME run must be superseded, never requeued
+    (requeuing it would re-run the very attempt the newer attempt already replaced)."""
+
+    # Given a cancelled attempt-1 and a re-run of the SAME run id (same created_at, higher attempt)
+    now = dt.datetime.now(dt.timezone.utc)
+    runs = [_run_record(333, "c" * 40, "cancelled", 0.5, now, branch="feat/x", attempt=1),
+            _run_record(333, "c" * 40, "success", 0.5, now, branch="feat/x", attempt=2)]
+    gh, log = _fake_gh(tmp_path, runs, {"c" * 40: 1})
+    monkeypatch.setenv("CI_REQUEUE_GH", str(gh))
+
+    # When  the healer runs
+    assert rq.main(["run"]) == 0
+
+    # Then  the cancelled attempt-1 is NOT re-run — the attempt-2 re-run supersedes it — and says why
+    assert [c for c in _calls(log) if c[:2] == ["run", "rerun"]] == []
+    assert "superseded: a newer attempt" in capsys.readouterr().out
 
 
 def test_a_cancelled_workflow_run_triggered_run_is_skipped_but_not_fatal(tmp_path, monkeypatch, capsys):
