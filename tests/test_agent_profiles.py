@@ -523,6 +523,88 @@ def test_sync_of_an_unknown_profile_exits_2(tmp_path):
     assert "llgenie-planner" in result.stderr
 
 
+# ---- the sync is git-tracked-view, never a bare filesystem walk (issue #1149) ---------
+
+
+def _init_git(root: Path) -> None:
+    """Initialise a scratch git repository (the sync's git view is only testable inside one)."""
+    root.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "-C", str(root), "init", "-q"], check=True)
+    subprocess.run(["git", "-C", str(root), "config", "user.email", "t@example.com"], check=True)
+    subprocess.run(["git", "-C", str(root), "config", "user.name", "tester"], check=True)
+
+
+def _track(root: Path, rel: str, data: bytes) -> None:
+    """Write *rel* under *root* and commit it, so git and the filesystem both see it."""
+    path = root / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+    subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(root), "commit", "-qm", f"track {rel}"], check=True)
+
+
+def test_profile_files_lists_only_git_tracked_files(tmp_path):
+    """`profile_files` mirrors git: an untracked / git-ignored artifact is not synced."""
+    import agent_profile_sync as sync
+
+    repo = tmp_path / "repo"
+    _init_git(repo)
+    (repo / ".gitignore").write_text("__pycache__/\n*.pyc\n*.sqlite\n")
+    _track(repo, "agents/someone/SOUL.md", b"a rule\n")
+
+    # an artifact the filesystem sees but git does not (ignored build output / scratch)
+    (repo / "agents" / "someone" / "__pycache__").mkdir(parents=True)
+    (repo / "agents" / "someone" / "__pycache__" / "x.pyc").write_bytes(b"\x00PyC\xa7\x00")
+    (repo / "agents" / "someone" / "scratch.sqlite").write_bytes(b"SQLite format 3\x00\x01")
+
+    files = [p.name for p in sync.profile_files(repo / "agents", "someone")]
+    assert files == ["SOUL.md"], files
+
+
+def test_sync_skips_untracked_and_binary_artifacts_in_a_repo(tmp_path):
+    """Negative control: a repo-side `.pyc` must no longer reach the profile nor crash the sync."""
+
+    repo = tmp_path / "repo"
+    _init_git(repo)
+    (repo / ".gitignore").write_text("__pycache__/\n*.pyc\n*.sqlite\n")
+    _track(repo, "agents/manifest.json", b'{"profiles": ["someone"]}\n')
+    _track(repo, "agents/someone/SOUL.md", b"a rule\n")
+    (repo / "agents" / "someone" / "__pycache__").mkdir(parents=True)
+    (repo / "agents" / "someone" / "__pycache__" / "x.pyc").write_bytes(b"\x00PyC\xa7bad")
+    dest = tmp_path / "profile-home"
+
+    written = run_sync("--profile", "someone", "--dest", str(dest), "--root", str(repo))
+    assert written.returncode == 0, written.stderr
+    copied = {p.relative_to(dest).as_posix() for p in dest.rglob("*") if p.is_file()}
+    assert "SOUL.md" in copied
+    assert len(copied) == 1, copied  # the ignored .pyc never reached the profile
+
+    checked = run_sync("--profile", "someone", "--check", "--dest", str(dest), "--root", str(repo))
+    assert checked.returncode == 0, checked.stderr
+
+
+def test_sync_refuses_a_tracked_non_utf8_file_naming_it(tmp_path):
+    """A TRACKED non-UTF-8 file is refused BY NAME (exit 5), never a UnicodeDecodeError traceback."""
+
+    repo = tmp_path / "repo"
+    _init_git(repo)
+    _track(repo, "agents/manifest.json", b'{"profiles": ["someone"]}\n')
+    _track(repo, "agents/someone/SOUL.md", b"a rule\n")
+    _track(repo, "agents/someone/BIN", b"\xff\xfe\x00\xa7binary")
+    dest = tmp_path / "profile-home"
+
+    written = run_sync("--profile", "someone", "--dest", str(dest), "--root", str(repo))
+    assert written.returncode == 5, written.stderr
+    assert "BIN" in written.stderr
+    assert "UnicodeDecodeError" not in written.stderr
+    assert not (dest / "BIN").is_file()
+    assert not (dest / "SOUL.md").is_file(), "nothing was written once a binary is refused"
+
+    checked = run_sync("--profile", "someone", "--check", "--dest", str(dest), "--root", str(repo))
+    assert checked.returncode in (0, 1)  # a byte-compare verdict, never a traceback
+    assert "UnicodeDecodeError" not in checked.stderr
+
+
 def test_a_truncated_seed_is_refused_rather_than_shrinking_the_live_profile(tmp_path):
     """The defect this guards: a seed taken from an issue excerpt is a prefix, not an edit.
 

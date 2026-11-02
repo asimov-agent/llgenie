@@ -21,8 +21,9 @@ silent drift that the tree re-takes (issue #968).
 Destination: `--dest`, else `$HERMES_PROFILE_HOME` (the PROFILE's home, not a profiles/ directory),
 else `~/.hermes/profiles/<profile>/`.
 
-Exit codes: 0 ok, 1 a file differs after the write or under `--check`, 2 unknown profile / missing
-tree / unreadable destination — never a silent pass.
+Exit codes: 0 ok, 1 a file differs after the write or under `--check`, 2 unknown profile / missing tree
+/ unreadable destination, 3 a truncated seed was refused, 4 a live file edited AFTER the source commit
+was refused, 5 a binary / non-UTF-8 tree file was refused — never a silent pass.
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ import argparse
 import filecmp
 import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -43,10 +45,71 @@ from check_agent_profiles import (  # noqa: E402
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
+def _git_tracked_profile_files(base: Path) -> list[Path] | None:
+    """Git's tracked files under *base*, or None when *base* is not inside a repository.
+
+    The sync's source of truth is git's index, not the filesystem: an untracked or
+    git-ignored build artifact (.pyc, scratch note, wasm, sqlite) is invisible to review,
+    yet a bare `rglob` copies it into the live profile — and a non-UTF-8 one crashes the
+    sync with a traceback that names neither the file nor its cause (issue #1149). The
+    `None` return is the test-fixture / degenerate fallback (a plain directory) that leaves
+    the decision to the caller's plain walk.
+    """
+    try:
+        top = subprocess.run(
+            ["git", "-C", str(base), "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, check=True,
+        ).stdout.strip()
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        return None
+    try:
+        prefix = base.resolve().relative_to(Path(top).resolve())
+    except ValueError:
+        return None
+    prefix_str = str(prefix) + "/"
+    listed = subprocess.run(
+        ["git", "-C", str(top), "ls-files", "-z", "--", str(prefix)],
+        capture_output=True, text=True, check=True,
+    ).stdout
+    tracked = []
+    for rel in listed.split("\0"):
+        if not rel or not rel.startswith(prefix_str):
+            # `-z` separates records and ends with a trailing NUL; a sibling dir that merely
+            # shares *prefix*'s name is not ours, and is filtered by the prefix boundary.
+            continue
+        path = base / Path(rel).relative_to(prefix)
+        if path.is_file():
+            tracked.append(path)
+    return tracked
+
+
 def profile_files(agents: Path, name: str) -> list[Path]:
-    """Every file the tree carries for *name*, in a stable order."""
+    """Every file the tree carries for *name*, in a stable order.
+
+    The tree is the REPOSITORY'S tree, so the walk mirrors git: only tracked files are
+    synced, and untracked / git-ignored artifacts (`__pycache__/*.pyc`, wasm, sqlite)
+    never reach the live profile (issue #1149). When *agents* is not inside a git
+    repository — the unit-test fixture trees stand in for the tree — the plain recursive
+    walk is the fallback so fixture profiles still list their files.
+    """
     base = agents / name
+    tracked = _git_tracked_profile_files(base)
+    if tracked is not None:
+        return sorted(tracked)
     return sorted(p for p in base.rglob("*") if p.is_file())
+
+
+def _text(path: Path) -> str | None:
+    """UTF-8 text of *path*, or None when it is binary / not valid UTF-8.
+
+    The reads the sync does for its line analyses must never die with a `UnicodeDecodeError`
+    traceback that names neither the file nor the cause: a tree file that is not decodable
+    is a finding to refuse by name, never a crash (issue #1149).
+    """
+    try:
+        return path.read_text(encoding="utf-8")
+    except (UnicodeDecodeError, OSError):
+        return None
 
 
 def destination(profile: str, explicit: str | None) -> tuple[Path, str]:
@@ -132,7 +195,11 @@ def shrinks(agents: Path, name: str, dest: Path) -> list[tuple[str, int, int, in
         target = dest / rel
         if not target.exists():
             continue
-        tree_text, live_text = path.read_text(), target.read_text()
+        tree_text, live_text = _text(path), _text(target)
+        if tree_text is None or live_text is None:
+            # Binary / non-UTF-8 content: the line-subset shrink guard cannot read it, and
+            # `write()` refuses such files by name before it gets here — just move on.
+            continue
         tree, live = path.stat().st_size, target.stat().st_size
         tree_lines, live_lines = _rule_lines(tree_text), _rule_lines(live_text)
         subset = (tree_lines != live_lines and set(tree_lines) <= set(live_lines))
@@ -168,12 +235,14 @@ def newer_than_source(agents: Path, name: str, dest: Path) -> list[tuple[str, fl
         src, live = source_time(agents, name, path), target.stat().st_mtime
         if live <= src + 1:  # a second of slack: filesystems store whole seconds, git stores integers
             continue
+        tree_text, live_text = _text(path), _text(target)
         # The mtime is a proxy for "someone else wrote this"; the HARM is losing a line they wrote. Two
         # cases where the write destroys nothing and the refusal would be a false positive:
         #   - the bytes are already identical, so the sync writes nothing at all;
-        #   - every live line also exists in the tree, so the write cannot drop one.
-        if filecmp.cmp(path, target, shallow=False) or not _loses_live_lines(
-                path.read_text(), target.read_text()):
+        #   - every live line also exists in the tree, so the write cannot drop one (and a binary /
+        #     non-UTF-8 tree file has no readable lines to drop — `write()` refuses it by name).
+        if filecmp.cmp(path, target, shallow=False) or tree_text is None or live_text is None \
+                or not _loses_live_lines(tree_text, live_text):
             continue
         out.append((rel, src, live))
     return out
@@ -191,6 +260,20 @@ def write(agents: Path, name: str, dest: Path, force: bool = False) -> int:
     except OSError as exc:
         print(f"[agent-profile] FAIL: cannot create {dest}: {exc}", file=sys.stderr)
         return 2
+    # A tracked file that is not valid UTF-8 cannot be a profile's behaviour (SOUL/skills are text),
+    # so it is refused by name — never a `UnicodeDecodeError` traceback that names neither the file
+    # nor its cause (issue #1149). This comes FIRST because the refusal is unconditional: `--force`
+    # means "I mean my overwrite", never "sync a binary into the live profile".
+    undecodable = sorted(_rel(p, agents / name) for p in files if _text(p) is None)
+    if undecodable:
+        for rel in undecodable:
+            print(f"[agent-profile] REFUSED {agents.name}/{name}/{rel}: the tree copy is not valid "
+                  f"UTF-8 text (binary or non-UTF-8), and a profile carries text behaviour only — "
+                  f"fix the tree (a stray build artifact? a scratch note?), or nothing under "
+                  f"{agents.name}/{name} may hold it.", file=sys.stderr)
+        print(f"[agent-profile] {len(undecodable)} non-UTF-8 file(s) refused — nothing was written",
+              file=sys.stderr)
+        return 5
     # A live file edited after our commit is the more dangerous case, so it is refused FIRST: the shrink
     # message would describe a content problem when the real problem is that another lane is editing.
     moving = newer_than_source(agents, name, dest)
