@@ -24,7 +24,7 @@ Sites (all read at `origin/main 75b3d1b`):
 | scope.yml:98 | `${{ github.base_ref }}` | PR+dispatch | base branch name |
 | security-bot.yml:107 | `${{ github.repository }}` | schedule+dispatch | constant |
 | security-scan.yml:126 | `${{ github.event.inputs.tools }}` | dispatch | authorized input |
-| security-scan.yml:144 | `${{ github.event.inputs.enforce }}` | dispatch | authorized input |
+| security-scan.yml:145 | `${{ github.event.inputs.enforce }}` | dispatch | authorized input |
 
 ## Key decisions
 
