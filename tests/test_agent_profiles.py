@@ -3191,14 +3191,17 @@ def test_an_unexpected_abort_exits_non_zero_and_says_nothing_was_checked(monkeyp
 def test_the_four_lanes_that_declared_no_rule_now_declare_what_their_soul_states():
     """#1108: four profiles shipped `rules: []`, so nothing in their SOUL was gated — a deleted rule
     would pass CI silently. This pins both halves per lane: the manifest declares at least one rule AND
-    that rule's pattern is present in the SOUL's stated text (the same view the gate matches).
+    that rule's pattern is present in the SOUL's stated text (the same view the gate matches). The three
+    host role profiles folded by #1341 join the same pin: their manifest rows must keep matching what
+    the live SOUL states.
 
     A subset check, not an exact list: a lane may legitimately declare MORE later, and an equality
     assertion would red on that addition (the "never assert a list the tree is meant to extend" rule).
     """
     profiles = {p["name"]: p for p in guard.profiles_from_manifest(REPO / "agents")}
     for name in ["llgenie-issse-implementer", "llgenie-security",
-                 "llgenie-documentation-maintainer", "llgenie-ci-pipelines-maintainer"]:
+                 "llgenie-documentation-maintainer", "llgenie-ci-pipelines-maintainer",
+                 "llgenie-business-analyst", "llgenie-product-manager", "llgenie-status-keeper"]:
         declared = set(profiles[name]["rules"])
         assert declared, f"{name} declares no standing rule — its SOUL is ungated (issue #1108)"
         assert declared <= set(guard.STANDING_RULES), f"{name} declares an unknown rule: {declared}"
@@ -3226,7 +3229,8 @@ def test_deleting_a_declared_rule_from_one_of_the_four_reds_the_gate(tmp_path):
     profiles = {p["name"]: p for p in guard.profiles_from_manifest(root / "agents")}
 
     for name in ["llgenie-issse-implementer", "llgenie-security",
-                 "llgenie-documentation-maintainer", "llgenie-ci-pipelines-maintainer"]:
+                 "llgenie-documentation-maintainer", "llgenie-ci-pipelines-maintainer",
+                 "llgenie-business-analyst", "llgenie-product-manager", "llgenie-status-keeper"]:
         declared = set(profiles[name]["rules"])
         soul = root / "agents" / name / "SOUL.md"
         original = soul.read_text(encoding="utf-8")
