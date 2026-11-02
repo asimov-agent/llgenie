@@ -30,10 +30,15 @@ make sync-agent-profile PROFILE=<p> CHECK=1   # byte-compares ONE profile's tree
 
 Notes:
 
-- `check-agent-profiles` classes are `live-longer`, `live-edited-not-tree`, `fleet-block-drift`.
-  `fleet-block-drift` is tree-only (a versioned SOUL stopping a rule its manifest declares) and
-  reds CI; `live-longer` and `live-edited-not-tree` need a live profile, so **CI never sees them** —
-  they exist only on a host run. Running this on a fresh clone proves nothing about the first two.
+- `check-agent-profiles` emits FIVE drift classes, all but the last needing a live profile so
+  **CI never sees them** (a fresh clone proves nothing about any of the four):
+  - `live-longer` — tree is a prefix of the richer live file (a write-mode sync would truncate);
+  - `live-lines-missing` — the tree copy carries lines live lacks (size direction ambiguous, #791);
+  - `live-edited-not-tree` — live was edited AFTER the tree commit (one-way sync; live outran repo);
+  - `absent-from-tree` — a file OR a whole skill directory exists ONLY in live, unversioned (#1060);
+  - `fleet-block-drift` — tree-only (a versioned SOUL stops a rule its manifest declares); reds CI.
+  A repo-wide host sweep routinely returns 100+ findings across all four live classes — budget for
+  it and aggregate (next section), never eyeball the raw log.
 - `sync-agent-profile PROFILE=<p> CHECK=1` is NOT a write in `CHECK=1` mode. Exit 0 means the pair
   is identical; a `differ` line names the first divergent file (then `git status --porcelain
   agents/<p>/` and a byte size on both copies show the full extent).
@@ -41,6 +46,29 @@ Notes:
   file's sibling; a host's shared `skills/` store holds ~480 foreign skills that the tree versions
   only under each lane's own directory, so a copy/push must copy the lane's own bundle directory,
   never the live `skills/` root.
+
+## Fleet-wide drift audit: aggregate, don't eyeball a 100+ row log
+
+When the task is an *audit* (a fleet-wide live-vs-tree drift tracking issue, not a single-PR
+review), the host run returns a long log (100+ `FAIL` lines). Do not paste the log or count by eye —
+save it and bucket the rows per lane × class with a script, then post the compact table:
+
+```bash
+python3 scripts/check_agent_profiles.py check > /tmp/drift-$(date -u +%H%MZ).log 2>&1; echo "rc=$?"
+python3 - /tmp/drift-*.log <<'PY'
+import re,sys,collections
+log=open(sys.argv[1]).read()
+rows=re.findall(r'FAIL (live-longer|live-lines-missing|live-edited-not-tree|absent-from-tree): (llgenie-[a-z-]+)',log)
+c=collections.Counter(rows)
+CL=('live-longer','live-lines-missing','live-edited-not-tree','absent-from-tree')
+for lane in sorted({l for _,l in rows}):
+    print(lane, [c[(k,lane)] for k in CL], sum(c[(k,lane)] for k in CL))
+PY
+```
+
+The record carries: measured `main` sha + clock, per-lane totals, and 3-4 highlight rows (largest
+live-vs-tree byte gap with live mtime). The set GROWS between measurements as lanes edit live while
+the tree sits — re-measure at the fresh tip, never re-quote the tracker's old count.
 
 ## Capture the delta (this is what the issue/PR body carries)
 

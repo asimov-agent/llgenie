@@ -9,13 +9,24 @@ Everything here is about not reporting a state the tooling did not actually retu
 | mss | means | what to report |
 |---|---|---|
 | `CLEAN` | every required check completed+success, no hold | green |
-| `UNSTABLE` | at least one check is `in_progress`/`pending` (or a non-required check failed) | **pending**, not green and not red |
+| `UNSTABLE` | not all required checks conclusively green — usually a check `in_progress`, **or a concluded `failure`** (a non-required check failing also lands here) | read per-run `conclusion`: **pending** if any `in_progress`, **red** if any `failure` |
 | `BLOCKED` | red check, missing review/guard, or a `do-not-merge` label | blocked — name which |
 | `DIRTY` / `CONFLICTING` | base conflict | rebase (only then) |
 
 A long matrix job (e.g. a ~12m `linux / unit`) keeps the PR at `UNSTABLE` for ten-plus minutes
 while every gate-critical check is already green. `UNSTABLE` at that moment is not a failure and
 must never be written up as "green and ready". If you need a verdict, wait for the job, then re-read.
+
+**`UNSTABLE` does not distinguish pending from red — and `mergeable` is not `mergeStateStatus`.**
+Measured 2026-11-02 (#1525, head `122bb3f9`): `--json mergeStateStatus,mergeable` returned
+`UNSTABLE` + `MERGEABLE` in the same response, with `linux/unit` `conclusion=failure` and all 13 other
+checks `success`. Two traps fell out of that single read:
+
+- The **`mergeable` field** (`MERGEABLE`) is GitHub's textual-mergeability, not the check gate. Quoting
+  it as "the PR is MERGEABLE" is a false status claim while `mergeStateStatus` is `UNSTABLE`. Quote
+  `mergeStateStatus` + the rollup, never the `mergeable` field alone.
+- A **concluded `failure`** reads `UNSTABLE`, same as `in_progress`. Never infer "still running" from
+  `UNSTABLE`; scan the per-run `conclusion` values to say pending vs red.
 
 ## `gh pr checks` exit codes lie through a pipe
 

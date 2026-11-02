@@ -62,6 +62,30 @@ origin/main..HEAD` is exactly the files you intended.
   path errors `unrecognized arguments`. To lint a fold: stage/commit it first (so it is tracked),
   then run the bare `python3 scripts/lint_linefeeds.py` and expect `LINT OK`.
 
+## Does the fold need a slim? Measure CHARACTERS, not bytes
+
+A folded `SKILL.md` can read as "over the cap" in a dispatch while being perfectly landable, because
+two different numbers share the name "size":
+
+- `skill_manage` rejects on **characters** — `"<N> characters (limit: 100,000)"` — so the gate is
+  `wc -m`, not `wc -c`. A file that is 100,417 **bytes** is frequently 99,828 **characters** and
+  therefore **under** the cap.
+- A byte-identical fold that lands under 100,000 *characters* needs **no slim** (#1135-class split):
+  measure `wc -m <live>/SKILL.md` before deciding to split; report both `wc -c` and `wc -m`, and say
+  which number the cap adjudicates. A dispatch that quotes only bytes has conflated the two.
+- Corollary: you cannot grow `SKILL.md` with prose once it sits within a few hundred chars of the cap.
+  Put new lessons in `references/` and add a one-line pointer, never another paragraph in the body.
+
+## Post the PR body / bookend, then RE-READ the posted text
+
+A shell heredoc with a **quoted** delimiter (`cat > body.md <<'EOF'`) does **not** expand `$VAR` — a
+`#${PR}` placeholder survives literally into the published comment. Write the number explicitly or use
+an unquoted heredoc, and either way **verify the posted body** rather than trusting the write:
+`gh api repos/<owner>/<repo>/issues/comments/<id> --jq .body` (or `pulls/<n> --jq .body`) and grep the
+id/sha/number you intended. A comment that reads `PR #${PR}` is a board record with no PR number — the
+same silent-fact defect as a census with no sha. If it slipped through, post a one-line correction that
+names the real number; do not edit history you cannot edit.
+
 ## Never unilaterally edit a live file another lane owns
 
 While diagnosing a red you may find the live file itself carries a defect (e.g. a `make ci-lint`

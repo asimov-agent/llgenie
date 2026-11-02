@@ -1,7 +1,7 @@
 ---
 name: llgenie-docs-maintainer
 description: "Use when auditing, filing or landing LLGenie docs changes."
-version: 1.0.20
+version: 1.0.21
 author: Hermes Agent
 license: MIT
 metadata:
@@ -12,18 +12,16 @@ metadata:
 
 # Maintaining the LLGenie docs
 
-> A dispatch may race a fix already merged by another lane: verify issue state, the closing PR and
-> `make check-docs` before cutting a branch — see `references/dispatch-race-verification.md`.
+> A dispatch may race a fix already merged by another lane: check issue state, the closing PR and
+> `make check-docs` before branching — `references/dispatch-race-verification.md`.
+> Editing an `agents/<profile>/` SOUL or skill is a behavioural-surface change with its own gates
+> (change→note, verbatim fleet block, protected-write prompt) — `references/agents-soul-doc-changes.md`.
 >
-> **A lane that keeps re-serving a stale snapshot is not argued down by repeat DMs.** When the
-> planner/reviewer inbox re-delivers the same "main RED at <old sha>" frame after your correction,
-> one settlement is already made: stop re-messaging that lane. Break the loop through the two
-> channels the acting lane actually reads — (1) post the current truth durably on the issue
-> (main sha, CI run id, the green job id, issue state+reason), and (2) message the lane that is
-> *about to act* (e.g. the implementer force-delegated to redo merged work) telling it to reconcile
-> against those run/job/sha ids before branching, so it does not open a redundant no-op PR.
-> Then stand by: the stale cache is the other lane's defect, not a work item to keep re-adjudicating.
-> "Green on merged main" needs the CI run, not a liveness run: `references/merged-ci-verification.md`.
+> **A lane that re-serves a stale snapshot is not argued down by repeat DMs.** Stop re-messaging it;
+> break the loop through the channels the acting lane reads: (1) post the current truth durably on the
+> issue (main sha, CI run id, green job id, issue state), and (2) message the lane *about to act* to
+> reconcile against those ids before branching. Then stand by — the stale cache is the other lane's
+> defect. "Green on merged main" needs the CI run: `references/merged-ci-verification.md`.
 
 <!-- host-bot-tools:begin -->
 
@@ -39,8 +37,10 @@ The pin is `tests/fixtures/host-bot-capabilities.json` in asimov-agent/llgenie (
 ## Role artifact (2026-11-01)
 
 **Never write "green", "ready" or `mss CLEAN` unless you just re-read it.** `mergeStateStatus`
-`UNSTABLE` means a check is still `in_progress` — that is *pending*, not green and not red, and a
-`gh pr checks` pipeline hides it because the command exits non-zero on pending rows. Re-read the
+`UNSTABLE` = not all required checks conclusively green: usually a pending `in_progress` check, but a
+concluded `failure` reads `UNSTABLE` too, so read per-run `conclusion` before calling it pending. The
+`mergeable` field is NOT `mergeStateStatus` — it can read `MERGEABLE` while `mergeStateStatus` is
+`UNSTABLE`. A `gh pr checks` pipeline hides pending rows (non-zero exit). Re-read the
 check-runs API (`status` + `conclusion` per run) and `--json mergeStateStatus` before any status
 sentence; if you already posted a wrong verdict, post a correction on the same thread naming the
 accurate state. **A merged PR is not a green merged result** — the merge triggers a separate push
