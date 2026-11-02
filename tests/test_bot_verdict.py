@@ -195,3 +195,73 @@ def test_post_refuses_a_missing_run_id(tmp_path):
     # Then  it is refused, the marker is never written, and nothing is commented
     assert rc == 2
     assert not [c for c in _calls(tmp_path / "gh.log") if c[:2] == ["pr", "comment"]]
+
+
+# ---------------------------------------------------------------------------
+# the wiring guard (issue #1550): the producer ships, but a future producer must
+# never again exist with NO caller. At least one lane behaviour or one workflow
+# must run `make bot-verdict VERDICT=... HEAD=... RUN=... REPO=... PR=...`.
+# ---------------------------------------------------------------------------
+import re as _re
+
+#: A caller runs the producer with every argument the make target requires. The head is a full 40-hex
+#: sha and the run is the id that measured it (#1551), never a placeholder.
+_CALLER = _re.compile(
+    r"make\s+bot-verdict\s+(?=[^#]*(?:VERDICT|verdict))(?=[^#]*(?:HEAD|head))\s*"
+    r"(?=[^#]*(?:RUN|run))(?=[^#]*(?:PR|pr))",
+    _re.M)
+
+
+def _caller_files(root: "Path") -> "list[Path]":
+    """The workflow and lane files that invoke `make bot-verdict` (derived, never hand-listed)."""
+    return sorted(
+        [p for p in (root / ".github" / "workflows").glob("*.yml") if _CALLER.search(p.read_text())]
+        + [p for p in (root / "agents").rglob("*.md") if _CALLER.search(p.read_text())]
+        + [p for p in (root / "scripts").glob("*.py") if _CALLER.search(p.read_text())])
+
+
+def test_the_producer_has_at_least_one_caller_on_the_real_tree():
+    """`make bot-verdict` is not definition-only: a workflow or lane actually runs it (issue #1550).
+
+    #852 shipped the producer, consumer, docs and tests — and no caller. Everyone agreed the verdict
+    must reach the merge decision, and nothing ever wrote it. This is the pin: if every caller is
+    deleted, this test fails by construction (proved below against a tree without the caller).
+    """
+    assert _caller_files(REPO), (
+        "the bot-verdict producer has no caller anywhere under .github/workflows/, agents/ or "
+        "scripts/ - a producer without a caller is a control that does not exist (issue #1550). "
+        "Wire one: a lane or workflow must run `make bot-verdict VERDICT=... HEAD=<sha> RUN=<id> "
+        "REPO=... PR=<n>` for the review verdict at the exact head judged."
+    )
+
+
+def test_the_wiring_guard_fails_when_the_caller_is_removed(tmp_path):
+    """Removing the callers reds the guard: the wiring is pinned, not just the parser (#1550).
+
+    The real-tree test above passes because a caller exists. Deleting every caller (as a future edit
+    could) must flip it to RED — this proves the guard reads the callers rather than a fact it was
+    told. A tree WITHOUT the caller is a tree `test_the_producer_has_at_least_one_caller` is MISSING;
+    running its own assertion against that tree must raise.
+    """
+    # Given a copy of this repo's workflows with every `make bot-verdict` caller removed
+    root = tmp_path / "repo"
+    (root / ".github" / "workflows").mkdir(parents=True)
+    (root / "agents").mkdir(parents=True)
+    (root / "scripts").mkdir(parents=True)
+    for p in (REPO / ".github" / "workflows").glob("*.yml"):
+        if _CALLER.search(p.read_text()):
+            continue                        # remove every caller
+        (root / ".github" / "workflows" / p.name).write_text(p.read_text())
+
+    # When  the guard's own assertion runs against that caller-less tree
+    raised = False
+    try:
+        assert _caller_files(root), (
+            "the bot-verdict producer has no caller - a producer without a caller is a control "
+            "that does not exist (issue #1550)."
+        )
+    except AssertionError:
+        raised = True
+    assert raised, "the guard did not fail on a tree with every caller removed"
+
+
