@@ -193,16 +193,21 @@ every other check passes; insert a blank line before each heading and re-run `ma
   is another branch, `gh pr merge <n> --squash --auto` does not arm — it **merges within seconds** into that
   branch, because there are no protected-branch rules to wait for (measured four times in eight minutes:
   #958, #954, #965, #966; #964). So a stacked PR is reported `auto=none (stacked base: arms into <base>)` and
-  the  flag is never passed. On a `main`-based PR, `auto=armed` may only be claimed when the read-back shows
-  `state == OPEN` **and** the raw REST `auto_merge.enabled_at` is a **non-null timestamp**. `autoMergeRequest
-  != null` is necessary but NOT sufficient: the queue object keeps `enabled_by`/`merge_method` populated from a
-  request that GitHub has NOT turned on (`enabled_at` still `null`, `mergeable_state=blocked` on an
-  owner-gated review) — a fresh request or a prior identity can make the GraphQL `enabledAt` non-null while the
-  enablement fact is still absent. So the only honest read-back is
-  `gh api repos/<o>/<r>/pulls/<n> --jq '.auto_merge.enabled_at'` (and cross-check `.state`): non-null → `armed`,
-  `null` → `auto=none (request queued, not enabled)`. Never quote a timestamp from `gh pr view --json
-  autoMergeRequest` as the enablement proof. GitHub also clears `autoMergeRequest` when a PR merges, so
-  checking it alone reads "armed nothing" on an already-merged PR; a merged PR is `merged`, never `armed`.
+  the  flag is never passed. On a `main`-based PR, **auto-merge enablement has two states REST alone cannot
+  tell apart, so read BOTH signals before claiming `armed` or `none`**:
+  `gh api repos/<o>/<r>/pulls/<n> --jq '.auto_merge.enabled_at'` (REST) **and**
+  `gh pr view <n> --json autoMergeRequest --jq '.autoMergeRequest.enabledAt // "NULL"'` (GraphQL request
+  identity). Declare `auto=armed` if **either** is non-null; declare `auto=none` only when REST
+  `enabled_at` is `null` **AND** GraphQL `autoMergeRequest` is `null`. Reason: the GraphQL `autoMergeRequest`
+  object survives while the PR is **blocked on a required review** — REST `pulls/{n}.auto_merge` is a
+  projection that *omits* `enabled_at` in that protected case, so a lone REST null reads "not armed" for a PR
+  that is genuinely armed and will merge the moment the owner approves (measured #1600: `gh pr merge 1599
+  --squash --auto` exit 0 at 14:27:27Z, REST `enabled_at` NULL the same second, GraphQL
+  `enabledAt=2026-11-02T14:27:27Z` — the PR merged at 14:29:30Z). On a true disagreement (REST null, GraphQL
+  non-null) **default to armed and dis-arm** (`gh pr merge <n> --cancel`), read BOTH back null afterwards,
+  then report `auto=none`; never report `auto=none` on a lone REST null. GitHub clears `autoMergeRequest` when
+  a PR merges, so checking it alone reads "armed nothing" on an already-merged PR; a merged PR is `merged`,
+  never `armed`, and a merged PR cannot be dis-armed (a `--cancel` on it exits 0 but is moot).
 - **Never hold a PR without a remedy.** `do-not-merge` means "a concrete defect with a tracked fix". If
   this lane places one, the same comment names the issue that makes the tag removable and the exact
   condition for removal, and the lane removes the tag itself when that evidence exists. Detail:
