@@ -1058,9 +1058,9 @@ alert-merged-red: ## Comment once on a recently merged PR whose head check-run i
 # owner's token, so `gh pr review --approve` on its own PR is refused and `reviewDecision` can never leave
 # REVIEW_REQUIRED. The marker names the head it reviewed, and `auto_merge.decide()` accepts it ONLY at the
 # PR's current head — a stale verdict counts for nothing. One producer, one format: scripts/bot_verdict.py.
-bot-verdict: ## Post a bot review verdict at one head on a PR (a marker comment, never an approval; deduped per head+verdict): VERDICT=approve|changes HEAD=<sha> REPO= PR= [REVIEWER=] [NOTE=] [DRY=1] (issue #852)
-	@test -n "$(HEAD)" && test -n "$(REPO)" && test -n "$(PR)" && test -n "$(VERDICT)" || { echo "Usage: make bot-verdict VERDICT=approve|changes HEAD=<full sha> REPO=<owner/repo> PR=<n> [REVIEWER=<login>] [NOTE=] [DRY=1]"; exit 1; }
-	python3 scripts/bot_verdict.py post --repo "$(GH_REPO)" --pr $(PR) --head "$(HEAD)" --verdict "$(VERDICT)" $(if $(REVIEWER),--reviewer "$(REVIEWER)",) $(if $(NOTE),--note "$(NOTE)",) $(if $(DRY),--dry,)
+bot-verdict: ## Post a bot review verdict at one head on a PR (a marker comment, never an approval; deduped per head+verdict): VERDICT=approve|changes HEAD=<sha> RUN=<run id> REPO= PR= [REVIEWER=] [NOTE=] [DRY=1] (issue #852); RUN is the Actions run id that measured that head (#1551)
+	@test -n "$(HEAD)" && test -n "$(REPO)" && test -n "$(PR)" && test -n "$(VERDICT)" && test -n "$(RUN)" || { echo "Usage: make bot-verdict VERDICT=approve|changes HEAD=<full sha> RUN=<run id> REPO=<owner/repo> PR=<n> [REVIEWER=<login>] [NOTE=] [DRY=1]"; exit 1; }
+	python3 scripts/bot_verdict.py post --repo "$(GH_REPO)" --pr $(PR) --head "$(HEAD)" --run "$(RUN)" --verdict "$(VERDICT)" $(if $(REVIEWER),--reviewer "$(REVIEWER)",) $(if $(NOTE),--note "$(NOTE)",) $(if $(DRY),--dry,)
 bot-verdict-read: ## Print the bot verdict the merge gate would read for a PR at its current head (REPO= PR= [HEAD=])
 	@test -n "$(REPO)" && test -n "$(PR)" || { echo "Usage: make bot-verdict-read REPO=<owner/repo> PR=<n> [HEAD=<sha>]"; exit 1; }
 	python3 scripts/bot_verdict.py show --repo "$(GH_REPO)" --pr $(PR) $(if $(HEAD),--head "$(HEAD)",)

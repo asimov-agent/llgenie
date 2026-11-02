@@ -23,11 +23,13 @@ TWO things make a deferral honest rather than silent (issue #491):
     owner's token, so `gh pr review --approve` on its own PR is refused and `reviewDecision` can never leave
     `REVIEW_REQUIRED`; a complete verdict written only in prose was therefore invisible to this decision and
     the PR sat `BLOCKED` forever. `scripts/bot_verdict.py` owns the marker
-    (`<!-- bot-verdict: head=<sha> verdict=<approve|changes> reviewer=<login> -->`), and this decision
+    (`<!-- bot-verdict: head=<sha> run=<run id> verdict=<approve|changes> reviewer=<login> -->`), and this decision
     accepts it ONLY when the head it names equals the PR's CURRENT `headRefOid`: a verdict on an older
     commit describes a tree that is not merging, so a stale one is refused. The merge then uses `--admin`
     (the review block cannot be moved by an approval a bot is allowed to post), and a refusal is a
-    deferral with the reason on the PR, never a red run;
+    deferral with the reason on the PR, never a red run — and BOTH the CI-triggered path and the scheduled
+    recheck require a *concluded green* run at the head: absence-of-red (zero check-runs, an unfinished
+    run) is not green (#1551), exactly as `cancelled`/`neutral` already are (#1250 Finding B);
   * every deferral posts ONE comment per head SHA (`<!-- auto-merge: deferred <sha> -->`) carrying the reason
     and what would unblock it, so "why is this not merged?" is answerable from the PR, not from a run log;
   * a red check-run on the head is not merged, whatever `mergeStateStatus` says (issue #1386). `BLOCKED` on
@@ -268,6 +270,54 @@ def _failed_step(gh: str, repo: str, job_id: str) -> str:
     except SystemExit:
         return ""
     return (out or "").strip().strip('"')
+
+
+def no_concluded_green(gh: str, repo: str, sha: str) -> "str | None":
+    """A reason when the head has NO concluded green Actions run at it, else None.
+
+    `failing_checks` is absence-of-red, and absence-of-red is not green: a head with zero check-runs,
+    or a run that never concluded, passes `failing_checks` yet has nothing that ever proved the tree
+    green. The CI-triggered `merge` job carries the positive fact (`workflow_run.conclusion ==
+    'success'` in auto-merge.yml), but the recheck path that decides the SAME heads has no such gate —
+    the #1551 class: a PR whose head CI never finished (or never started) can be merged on a verdict
+    marker alone. So both paths ask the one shared question — the same `actions/runs?head_sha=…` read
+    the merge job's conclusion gate implies: is this head VERIFIED by a completed, successful run?
+
+    Three facts make a head green, and a head is green only when all three hold:
+
+      * a run EXISTS at the head (zero runs = nothing ever measured this tree);
+      * at least one run CONCLUDED SUCCESS (a head with only in-progress / failed / cancelled /
+        neutral runs has no green verdict, exactly like `cancelled`/`neutral` — #1250 Finding B);
+      * NO run is still UNFINISHED (an in-progress CI alongside a green scope run is a mid-flight
+        pull request — the code jobs have not finished, so the head is not verified).
+    """
+    if not sha:
+        return "no head sha to verify"
+    try:
+        out = _gh(gh, ["api",
+                       f"repos/{repo}/actions/runs?head_sha={sha}&per_page=100&event=pull_request",
+                       "--jq", "[.workflow_runs[] | {\"status\": .status, \"conclusion\": .conclusion}]"])
+    except SystemExit as exc:
+        return f"head {sha[:8]} runs could not be read ({exc})"
+    try:
+        runs = json.loads(out or "[]")
+    except json.JSONDecodeError:
+        return f"head {sha[:8]} run list could not be read — a head that cannot be verified is not merged"
+    if not isinstance(runs, list) or not runs:
+        return (f"head {sha[:8]} has no Actions run at all — absence-of-red is not green, so a head "
+                f"whose CI never started is not merged (issue #1551)")
+    concluded = [r for r in runs if str((r or {}).get("status") or "").lower() == "completed"]
+    if len(concluded) != len(runs):
+        pending = [str((r or {}).get("status") or "?") for r in runs
+                   if str((r or {}).get("status") or "").lower() != "completed"]
+        return (f"head {sha[:8]} still has an unfinished run ({', '.join(sorted(set(pending)))}) — "
+                f"a mid-flight head is not verified, so it is not merged (issue #1551)")
+    if not any(str((r or {}).get("conclusion") or "").lower() == "success" for r in concluded):
+        why = "".join(f" {r.get('conclusion') or 'none'}" for r in concluded[:2]) or "none"
+        return (f"head {sha[:8]} has no concluded green run (the run concluded: {why}) — "
+                f"absence-of-red is not green, so a head whose CI never finished green is not merged "
+                f"(issue #1551)")
+    return None
 
 
 def failing_checks(gh: str, repo: str, sha: str) -> "str | None":
@@ -590,6 +640,10 @@ def _merge_review_cleared(gh: str, repo: str, pr: int, head_sha: str, state: dic
     if red:
         defer(gh, repo, pr, head_sha, red, dry=dry)
         return 0
+    not_green = no_concluded_green(gh, repo, head_sha or (state.get("headRefOid") or ""))
+    if not_green:
+        defer(gh, repo, pr, head_sha, not_green, dry=dry)
+        return 0
     verdict = bot_verdict.verdict_for_head(state.get("comments") or [],
                                            (state.get("headRefOid") or ""))
     who = verdict["reviewer"] if verdict else "unknown"
@@ -625,6 +679,10 @@ def run(gh: str, repo: str, pr: int, head_sha: str, dry: bool = False,
     red = failing_checks(gh, repo, head_sha or (state.get("headRefOid") or ""))
     if red:
         defer(gh, repo, pr, head_sha or (state.get("headRefOid") or ""), red, dry=dry)
+        return 0
+    not_green = no_concluded_green(gh, repo, head_sha or (state.get("headRefOid") or ""))
+    if not_green:
+        defer(gh, repo, pr, head_sha or (state.get("headRefOid") or ""), not_green, dry=dry)
         return 0
     reason = decide(state, head_sha, repo_owner=repo.split("/")[0])
     if reason and approve_when_review_required and review_blocked(state):
@@ -762,6 +820,10 @@ def explain(gh: str, repo: str, pr: int, head_sha: str = "") -> int:
     red = failing_checks(gh, repo, judged)
     if red:
         print(f"[auto-merge] verdict: defers to a human — {red}")
+        return 0
+    not_green = no_concluded_green(gh, repo, judged)
+    if not_green:
+        print(f"[auto-merge] verdict: defers to a human — {not_green}")
         return 0
     reason = decide(state, head_sha, repo_owner=repo.split("/")[0])
     if reason is None:

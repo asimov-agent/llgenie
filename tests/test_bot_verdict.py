@@ -22,6 +22,7 @@ import bot_verdict as bv  # noqa: E402
 
 HEAD = "1234567890abcdef1234567890abcdef12345678"
 OLD = "0" * 40
+RUN = "42796343593"
 BOTS = (REPO / "docs" / "BOTS.md").read_text()
 
 
@@ -63,22 +64,35 @@ def _calls(log: Path) -> "list[list[str]]":
 def test_the_marker_round_trips():
     """The producer writes exactly what the parser reads — no second format to rot."""
     # Given a verdict
-    text = bv.marker(HEAD, "approve", "asimov-agent")
+    text = bv.marker(HEAD, RUN, "approve", "asimov-agent")
 
     # When  it is parsed back
     got = bv.parse(f"some prose\n{text}\nmore prose")
 
     # Then  every field survives, and the verdict is normalised to lowercase
-    assert got == {"head": HEAD, "verdict": "approve", "reviewer": "asimov-agent"}, got
+    assert got == {"head": HEAD, "run": RUN, "verdict": "approve", "reviewer": "asimov-agent"}, got
     assert bv.parse("no marker here") is None
+
+
+def test_the_round_trip_refuses_a_marker_without_a_run_id():
+    """A verdict that names only a sha cannot be audited (#1551): the run slot is REQUIRED.
+
+    `head` alone is not enough — two heads could carry a marker for the same sha and no record of
+    what was measured. So a marker with the run slot missing does not parse as a verdict at all.
+    """
+    # When  a marker in the old shape (no `run=`) is parsed
+    got = bv.parse("<!-- bot-verdict: head=1234567890abcdef1234567890abcdef12345678 "
+                   "verdict=approve reviewer=asimov-agent -->")
+    # Then  it is NOT a verdict — it cannot clear the merge gate
+    assert got is None, got
 
 
 def test_only_a_verdict_at_the_named_head_is_returned():
     """The head IN the marker is the whole staleness rule."""
     # Given a thread with a verdict written for an older commit, then one for the current head
     comments = [
-        {"author": {"login": "asimov-agent"}, "body": bv.marker(OLD, "approve", "asimov-agent")},
-        {"author": {"login": "asimov-agent"}, "body": bv.marker(HEAD, "approve", "asimov-agent")},
+        {"author": {"login": "asimov-agent"}, "body": bv.marker(OLD, RUN, "approve", "asimov-agent")},
+        {"author": {"login": "asimov-agent"}, "body": bv.marker(HEAD, RUN, "approve", "asimov-agent")},
     ]
 
     # When  the verdict for HEAD is read
@@ -94,8 +108,8 @@ def test_the_newest_verdict_at_a_head_wins():
     """A reviewer that changes its mind posts again; the thread order decides."""
     # Given an `approve` followed by a `changes` for the SAME head
     comments = [
-        {"author": {"login": "github-actions[bot]"}, "body": bv.marker(HEAD, "approve", "github-actions[bot]")},
-        {"author": {"login": "github-actions[bot]"}, "body": bv.marker(HEAD, "changes", "github-actions[bot]")},
+        {"author": {"login": "github-actions[bot]"}, "body": bv.marker(HEAD, RUN, "approve", "github-actions[bot]")},
+        {"author": {"login": "github-actions[bot]"}, "body": bv.marker(HEAD, RUN, "changes", "github-actions[bot]")},
     ]
 
     # When  the verdict is read
@@ -131,9 +145,9 @@ def test_post_writes_one_comment_and_is_idempotent(tmp_path):
     log = tmp_path / "gh.log"
 
     # When  the same verdict is posted twice
-    rc1 = bv.post(str(gh), "asimov-agent/llgenie", 852, HEAD, "approve", "asimov-agent",
+    rc1 = bv.post(str(gh), "asimov-agent/llgenie", 852, HEAD, RUN, "approve", "asimov-agent",
                   note="read the diff")
-    rc2 = bv.post(str(gh), "asimov-agent/llgenie", 852, HEAD, "approve", "asimov-agent",
+    rc2 = bv.post(str(gh), "asimov-agent/llgenie", 852, HEAD, RUN, "approve", "asimov-agent",
                   note="read the diff")
 
     # Then  exactly ONE `pr comment` was made, and the body carries the marker
@@ -141,7 +155,7 @@ def test_post_writes_one_comment_and_is_idempotent(tmp_path):
     assert (rc1, rc2) == (0, 0)
     assert len(comments) == 1, comments
     body = comments[0][comments[0].index("--body") + 1]
-    assert bv.marker(HEAD, "approve", "asimov-agent") in body, body
+    assert bv.marker(HEAD, RUN, "approve", "asimov-agent") in body, body
 
 
 def test_post_refuses_a_short_sha(tmp_path):
@@ -150,7 +164,7 @@ def test_post_refuses_a_short_sha(tmp_path):
     gh = _fake_gh(tmp_path)
 
     # When  a verdict is posted for it
-    rc = bv.post(str(gh), "asimov-agent/llgenie", 852, HEAD[:7], "approve", "asimov-agent")
+    rc = bv.post(str(gh), "asimov-agent/llgenie", 852, HEAD[:7], RUN, "approve", "asimov-agent")
 
     # Then  it is refused and nothing is written
     assert rc == 2
@@ -163,8 +177,21 @@ def test_post_refuses_an_unknown_verdict(tmp_path):
     gh = _fake_gh(tmp_path)
 
     # When  it is posted
-    rc = bv.post(str(gh), "asimov-agent/llgenie", 852, HEAD, "looks-fine", "asimov-agent")
+    rc = bv.post(str(gh), "asimov-agent/llgenie", 852, HEAD, RUN, "looks-fine", "asimov-agent")
 
     # Then  it is refused
+    assert rc == 2
+    assert not [c for c in _calls(tmp_path / "gh.log") if c[:2] == ["pr", "comment"]]
+
+
+def test_post_refuses_a_missing_run_id(tmp_path):
+    """A verdict that names only a sha cannot be audited (#1551): the producer refuses to post it."""
+    # Given a PR with no verdict yet
+    gh = _fake_gh(tmp_path)
+
+    # When  a verdict is posted with no run id
+    rc = bv.post(str(gh), "asimov-agent/llgenie", 852, HEAD, "", "approve", "asimov-agent")
+
+    # Then  it is refused, the marker is never written, and nothing is commented
     assert rc == 2
     assert not [c for c in _calls(tmp_path / "gh.log") if c[:2] == ["pr", "comment"]]

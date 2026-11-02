@@ -33,6 +33,12 @@ DOCS = README + "\n" + "\n".join(
 AGENTS = (REPO / "AGENTS.md").read_text()
 
 HEAD = "1234567890abcdef1234567890abcdef12345678"
+RUN = "42796343593"
+
+
+def _runs(*conclusions: str, status: str = "completed") -> list:
+    """An `actions/runs` answer: one run per `conclusions` item (default: a concluded successful run)."""
+    return [{"status": status, "conclusion": c} for c in conclusions]
 
 
 def _state(**kw) -> dict:
@@ -50,18 +56,24 @@ def _fake_gh(tmp_path: Path, pr: dict, issues: dict | None = None, token_login: 
              permissions: dict | None = None, tokens: dict | None = None, merge_rc: int = 0,
              settle_after: int = 0, prs: list | None = None, views: dict | None = None,
              unknown_reads: int = 0, refuse_user_for: list | None = None,
-             checks=None, jobs=None, merged=None):
+             checks=None, jobs=None, merged=None, runs=None, runs_rc: int = 0):
     """A `gh` answering `pr view` / `pr review` / `pr merge` / `issue view` / `api user` / permission.
 
     It records every argv (the assertion surface) and flips the PR's state through marker files, so a test
     can prove an approval happened BEFORE a merge and that the post-approval state is re-read. The permission
     map answers `repos/<repo>/collaborators/<login>/permission`; a login absent from it is a 404, which is
-    what GitHub returns for a stranger and for the bot.
+    what GitHub returns for a stranger and for the bot. `runs` answers the head's `actions/runs` list
+    (issue #1551's concluded-green read); it defaults to one completed-success run so a plain merge test
+    passes the gate, and `runs_rc` lets a test make the read unverifiable.
     """
     tmp_path.mkdir(parents=True, exist_ok=True)
     log = tmp_path / "gh.log"
     gh = tmp_path / "gh"
     perms = permissions if permissions is not None else {"andyholst": "admin", "asimov-agent": "admin"}
+    # The default answer to the head's `actions/runs` (issue #1551): one completed-and-SUCCESSFUL run,
+    # so a plain merge test passes the concluded-green gate. A test passes `runs=[]` for "no run at all"
+    # or `runs=[{"status": "completed", "conclusion": "failure"}]` for "concluded but not green".
+    runs_default = [{"status": "completed", "conclusion": "success"}]
     gh.write_text(f'''#!{sys.executable}
 import json, os, pathlib, sys
 args = sys.argv[1:]
@@ -80,6 +92,8 @@ VIEWS = json.loads({json.dumps(views or {})!r})
 CHECKS = json.loads({json.dumps([] if checks is None else checks)!r})
 JOBS = json.loads({json.dumps(jobs or {})!r})
 MERGED = json.loads({json.dumps(merged or [])!r})
+RUNS = json.loads({json.dumps(runs_default if runs is None else runs)!r})
+RUNS_RC = {runs_rc!r}
 if os.path.exists({str(log)!r} + ".approved"):
     PR = dict(PR, reviewDecision="APPROVED", mergeStateStatus="CLEAN")
 if os.path.exists({str(log)!r} + ".merged"):
@@ -96,6 +110,10 @@ if len(args) >= 2 and args[0] == "api" and "/collaborators/" in args[1] and args
 if len(args) >= 2 and args[0] == "api" and "check-runs" in args[1]:
     sha = args[1].split("/commits/")[1].split("/")[0].split("?")[0] if "/commits/" in args[1] else ""
     print(json.dumps(CHECKS.get(sha, []) if isinstance(CHECKS, dict) else CHECKS)); sys.exit(0)
+if len(args) >= 2 and args[0] == "api" and "actions/runs" in args[1]:
+    if RUNS_RC:
+        print("gh: not found", file=sys.stderr); sys.exit(RUNS_RC)
+    print(json.dumps(RUNS)); sys.exit(0)
 if len(args) >= 2 and args[0] == "api" and "/actions/jobs/" in args[1]:
     job = args[1].split("/actions/jobs/")[1].split("/")[0].split("?")[0]
     print(JOBS.get(job, "")); sys.exit(0)
@@ -1444,10 +1462,10 @@ def test_a_failed_announcement_names_the_merge_it_could_not_record(tmp_path, mon
 # ---- a bot verdict is legible to the merge decision, never an approval (issue #852) -----------
 
 def _verdict(head: str = HEAD, verdict: str = "approve", reviewer: str = "github-actions[bot]",
-             author: str = "") -> dict:
+             author: str = "", run: str = RUN) -> dict:
     """A PR comment carrying the bot-verdict marker, in the shape `gh pr view --json comments` gives."""
     who = author or reviewer
-    return {"author": {"login": who}, "body": bv.marker(head, verdict, reviewer)}
+    return {"author": {"login": who}, "body": bv.marker(head, run, verdict, reviewer)}
 
 
 def test_a_stale_verdict_does_not_clear_the_review_block(tmp_path):
@@ -1533,6 +1551,142 @@ def test_a_changes_verdict_at_the_head_holds_the_pr(tmp_path):
     assert reason and "requests changes" in reason, reason
     assert rc == 0
     assert not [c for c in _calls(tmp_path / "gh.log") if c[:2] == ["pr", "merge"]]
+
+
+# ---- a verdict needs a run id, and the head needs a concluded green run (issue #1551) ----
+
+def test_a_verdict_marker_without_a_run_id_neither_clears_the_block_nor_merges(tmp_path):
+    """The run slot is REQUIRED: a marker that names only a sha cannot be audited (#1551).
+
+    Two heads could carry a marker for the same sha and no record of what was measured; only a
+    verdict that names the run that proved this tree clears the review block.
+    """
+    # Given a review-blocked PR whose thread carries a marker with NO run slot (the pre-#1551 shape)
+    no_run = {"author": {"login": "github-actions[bot]"},
+              "body": "<!-- bot-verdict: head=1234567890abcdef1234567890abcdef12345678 "
+                      "verdict=approve reviewer=github-actions[bot] -->"}
+    state = _review_blocked(comments=[no_run])
+    gh = _fake_gh(tmp_path, state, {"482": "CLOSED"})
+
+    # When  the decision and the run read it
+    reason = am.decide(state, HEAD, repo_owner="asimov-agent")
+    rc = am.run(str(gh), "asimov-agent/llgenie", 482, HEAD)
+
+    # Then  the marker is not a verdict, the block stands, and nothing is merged
+    assert reason and "BLOCKED" in reason, reason
+    assert rc == 0
+    assert not [c for c in _calls(tmp_path / "gh.log") if c[:2] == ["pr", "merge"]]
+
+
+def test_a_head_with_no_runs_defers_a_verdict_even_though_nothing_is_red(tmp_path):
+    """Absence-of-red is not green (#1551): a verdict on a head with zero Actions runs defers.
+
+    The bug was a scheduled recheck merging a verdict on a head whose CI never started: `failing_checks`
+    returns None for `runs == []`, so `_merge_review_cleared` merged on the marker alone. The concluded-
+    green gate asks the same question the CI-triggered path's `conclusion == 'success'` carries.
+    """
+    # Given a review-blocked PR with a verdict at this head, and NO Actions run at all
+    state = _review_blocked(comments=[_verdict()])
+    gh = _fake_gh(tmp_path, state, {"482": "CLOSED"}, runs=[])
+
+    # When  the gate runs
+    rc = am.run(str(gh), "asimov-agent/llgenie", 1551, HEAD)
+
+    # Then  it is deferred with the no-run reason and never merges
+    calls = _calls(tmp_path / "gh.log")
+    assert rc == 0, rc
+    assert not [c for c in calls if c[:2] == ["pr", "merge"]], calls
+    body = " ".join(" ".join(c) for c in calls if c[:2] == ["pr", "comment"])
+    assert "no Actions run at all" in body, body
+
+
+def test_a_midflight_head_defers_a_verdict(tmp_path):
+    """An in-progress run alongside green ones is a mid-flight PR, not a verified head (#1551)."""
+    # Given a review-blocked PR with a verdict at this head, CI still running next to a green scope run
+    state = _review_blocked(comments=[_verdict()])
+    mid = [{"status": "completed", "conclusion": "success"},
+           {"status": "in_progress", "conclusion": ""}]
+    gh = _fake_gh(tmp_path, state, {"482": "CLOSED"}, runs=mid)
+
+    # When  the gate runs
+    rc = am.run(str(gh), "asimov-agent/llgenie", 1551, HEAD)
+
+    # Then  it defers because the head is unfinished, and never merges
+    calls = _calls(tmp_path / "gh.log")
+    assert rc == 0, rc
+    assert not [c for c in calls if c[:2] == ["pr", "merge"]], calls
+    body = " ".join(" ".join(c) for c in calls if c[:2] == ["pr", "comment"])
+    assert "unfinished run" in body, body
+
+
+def test_a_concluded_but_not_green_head_defers_a_verdict(tmp_path):
+    """Zero completed-success runs is not a green verdict: a failed-reconclusion head defers (#1551)."""
+    # Given a review-blocked PR with a verdict at this head, and only a CANCELLED run
+    state = _review_blocked(comments=[_verdict()])
+    gh = _fake_gh(tmp_path, state, {"482": "CLOSED"},
+                  runs=[{"status": "completed", "conclusion": "cancelled"}])
+
+    # When  the gate runs
+    rc = am.run(str(gh), "asimov-agent/llgenie", 1551, HEAD)
+
+    # Then  it does not merge, and the reason names the missing green verdict
+    calls = _calls(tmp_path / "gh.log")
+    assert rc == 0, rc
+    assert not [c for c in calls if c[:2] == ["pr", "merge"]], calls
+    body = " ".join(" ".join(c) for c in calls if c[:2] == ["pr", "comment"])
+    assert "no concluded green run" in body, body
+
+
+def test_the_recheck_defers_a_verdict_on_an_unconcluded_head(tmp_path):
+    """The scheduled recheck reaches `_merge_review_cleared` too, so it must carry the same gate."""
+    # Given a review-blocked PR with a verdict at its head and NO Actions run (the #1551 recheck path)
+    trust = {"nameWithOwner": "asimov-agent/llgenie"}
+    blocked = _review_blocked(headRepository=trust, headRefOid=HEAD, comments=[_verdict()])
+    gh = _fake_gh(tmp_path, blocked, prs=[{"number": 1551, "headRefOid": HEAD}], runs=[])
+
+    # When  the sweep runs
+    rc = am.recheck(str(gh), "asimov-agent/llgenie")
+
+    # Then  the head is not verified, so the verdict does NOT clear the block and nothing merges
+    calls = _calls(tmp_path / "gh.log")
+    assert rc == 0, rc
+    assert not [c for c in calls if c[:2] == ["pr", "merge"]], calls
+    body = " ".join(" ".join(c) for c in calls if c[:2] == ["pr", "comment"])
+    assert "no Actions run at all" in body, body
+
+
+def test_explain_says_deferral_not_would_merge_for_a_verdict_head_with_no_runs(tmp_path, capsys):
+    """`make auto-merge-explain` prints the same concluded-green reason, never "would merge" (#1551)."""
+    # Given a review-blocked PR with a verdict at this head, and NO Actions run
+    state = _review_blocked(comments=[_verdict()])
+    gh = _fake_gh(tmp_path, state, {"482": "CLOSED"}, runs=[])
+
+    # When  explain runs
+    rc = am.explain(str(gh), "asimov-agent/llgenie", 1551)
+
+    # Then  it says "defers to a human" with the reason, and never "would merge"
+    out = capsys.readouterr().out
+    assert rc == 0, rc
+    assert "defers to a human" in out and "no Actions run at all" in out, out
+    assert "would merge" not in out, out
+    assert not [c for c in _calls(tmp_path / "gh.log") if c[:2] in (["pr", "merge"], ["pr", "review"],
+                                                                    ["pr", "comment"])]
+
+
+def test_explain_still_says_would_merge_when_the_head_is_verified(tmp_path, capsys):
+    """A verdict head WITH a concluded green run merges on the verdict — the gate must not over-stop."""
+    # Given a review-blocked PR with a verdict at this head, and a concluded SUCCESSFUL run
+    state = _review_blocked(comments=[_verdict()])
+    gh = _fake_gh(tmp_path, state, {"482": "CLOSED"},
+                  runs=[{"status": "completed", "conclusion": "success"}])
+
+    # When  explain runs
+    rc = am.explain(str(gh), "asimov-agent/llgenie", 1551)
+
+    # Then  it still reports the verdict merge on the verified head
+    out = capsys.readouterr().out
+    assert rc == 0, rc
+    assert "would merge" in out, out
 
 # The property "the gate still fires itself" is pinned by
 # tests/test_bot_pipeline_isolation.py::test_auto_merge_fires_by_itself_when_a_pr_run_completes
