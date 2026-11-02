@@ -1079,8 +1079,9 @@ bind-proof: ## Bind a proof run's head_sha to the PR head it is cited for — fa
 
 .PHONY: check-holds holds-report bind-proof
 
-check-pr-hygiene: ## CI: fail when a producer's commit message or PR body is empty, a placeholder, a subject with no body, or when AGENTS.md lost the mandate (issue #313)
+check-pr-hygiene: ## CI: fail when a producer's commit message or PR body is empty, a placeholder, a subject with no body, or when AGENTS.md lost the mandate (issue #313); also fail when a CHANGES.md row has no docs/changes.d/<stem>.md fragment or a note appears twice (issue #1063)
 	python3 scripts/check_pr_hygiene.py check
+	python3 scripts/check_pr_hygiene.py changes-index
 pr-hygiene-report: ## Show every producer the PR/commit-message guard reads, and its verdict
 	python3 scripts/check_pr_hygiene.py report
 check-pr-closing: ## CI: fail when a claimed issue lacks an adjacent closes/fixes/resolves #N in the joined commit messages and, when the body is supplied, in the PR body, or when an agent/* body names an issue with no adjacent keyword (issues #1329, #1417)
