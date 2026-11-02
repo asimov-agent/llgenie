@@ -29,9 +29,10 @@ def _store(*rows: dict) -> dict:
 
 def _row(id_: str, name: str, formats: list[dict], hf: str = "") -> dict:
     return {"id": id_, "name": name, "hf": hf or f"org/{name}", "vram_tier": "16GB",
-            "formats": formats, "engines": [{"engine": "llama.cpp", "tps": "10",
-                                             "hardware": "RTX 4090",
-                                             "source_post": f"https://x/status/{id_}"}]}
+            "formats": formats, "supported_engines": ["llama.cpp"],
+            "engines": [{"engine": "llama.cpp", "tps": "10",
+                         "hardware": "RTX 4090",
+                         "source_post": f"https://x/status/{id_}"}]}
 
 
 # ---------------------------------------------------------------------------
