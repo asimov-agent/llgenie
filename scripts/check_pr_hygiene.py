@@ -420,6 +420,28 @@ def agents_line_findings(root: Path, head: str, base: str, body: str) -> list[di
                       f"{', '.join(bad)} — the rulebook cited must be reachable from both the head and "
                       f"the base (issue #792)",
         }]
+    # Issue #845: a bot PR MUST also record the base it was cut from, beside the AGENTS line, so a
+    # reviewer can check it without the branch. preflight emits it (`BASE: <sha> (== origin/main at
+    # open)`); the gate holds the body to the same `record['main']` — the sha of the origin/main commit
+    # the AGENTS line already cites must be what the BASE line names. A missing or non-matching BASE
+    # line is the defect #845 names (the base was recorded nowhere, so a worktree cut from the primary
+    # checkout's parked branch carried the wrong base invisibly).
+    mb = BASE_LINE.search(body)
+    if mb is None:
+        return [{
+            "key": "base-line",
+            "where": "PR body",
+            "detail": "no `BASE: <sha> (== origin/main at open)` line — run `make bot-preflight` and "
+                      "record the base the PR was cut from, beside the `AGENTS:` line (issue #845)",
+        }]
+    if mb.group(1) != sha:
+        return [{
+            "key": "base-line",
+            "where": "PR body",
+            "detail": f"the `BASE:` line names {mb.group(1)[:12]}, but the `AGENTS:` line cites "
+                      f"{sha[:12]} — the base recorded must be the same origin/main commit the rulebook "
+                      f"was measured at (issue #845)",
+        }]
     return []
 
 

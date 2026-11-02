@@ -26,7 +26,9 @@ Measured twice on 2026-10-28 (`main@17cdcf3`):
   `make worktree-base` wires it.
 - `scripts/bot_preflight.py`: records `BASE: <sha> (== origin/main at open)` directly
   beside the existing `AGENTS: <sha> <bytes>b <lines>l` line, so the base is provable
-  from the PR body without the branch (criterion 2).
+  from the PR body without the branch (criterion 2). `check_pr_hygiene` enforces it: a
+  bot body with an `AGENTS:` line but no `BASE:` line (or a `BASE:` naming a different
+  sha than AGENTS) is a `base-line` finding (criterion 2, enforced).
 - `scripts/check_pr_base.py` (new): `make check-pr-base` fails a PR when
   `git merge-base refs/remotes/origin/main HEAD` is not `origin/main` itself — the branch
   carries another PR's diff (the #794 case) — naming the foreign commit; it stays green
@@ -42,7 +44,8 @@ Measured twice on 2026-10-28 (`main@17cdcf3`):
 - Criterion 1 + 5 (unit-real): `tests/test_worktree_base.py` parks the primary checkout
   on a diverged PR branch and proves the new worktree's `HEAD == origin/main`;
   `tests/test_check_pr_base.py` proves the gate fails a foreign-merge-base branch
-  (naming the commit) and stays green on a clean one-ahead branch. 13 new tests pass.
+  (naming the commit) and stays green on a clean one-ahead branch. 15 new tests pass
+  across both files.
 - `make check-pr-base PR_BASE=origin/main PR_HEAD=HEAD` on this very branch FAILS because
   the branch is cut at my old base `4e533896` while `origin/main` has advanced to
   `33d11fa3` — prove the gate fires on a behind-main branch too, and that a rebase onto

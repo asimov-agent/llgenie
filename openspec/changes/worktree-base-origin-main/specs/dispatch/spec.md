@@ -34,7 +34,9 @@ branch's tip.
 
 A bot PR body MUST carry a `BASE: <sha> (== origin/main at open)` line directly
 beside the existing `AGENTS: <sha> <bytes>b <lines>l` line, so a reviewer can
-check the base without the branch.
+check the base without the branch. The check_pr_hygiene gate enforces it: a bot
+PR with an `AGENTS:` line but no `BASE:` line (or a `BASE:` line naming a
+different sha than AGENTS) is a finding (base-line).
 
 WHEN the bot preflight produces the record,
 THEN it includes the `AGENTS:` line AND a `BASE:` line naming the measured
@@ -47,6 +49,15 @@ THEN it includes the `AGENTS:` line AND a `BASE:` line naming the measured
 - **Then** the record contains `AGENTS: <sha> <bytes>b <lines>l`
 - **And** the record contains `BASE: <sha> (== origin/main at open)`
 - **Test:** `tests/test_bot_preflight_base_line.py::test_the_record_carries_the_base_line_beside_the_agents_line`
+
+#### Scenario: the hygiene gate refuses a missing or non-matching BASE line
+
+- **Given** a bot PR body with an `AGENTS:` line but no `BASE:` line (or a
+  `BASE:` naming a different sha)
+- **When** `check_pr_hygiene` reads the body
+- **Then** it reports a `base-line` finding naming the defect
+- **And** a body with AGENTS + a matching BASE line passes
+- **Test:** `tests/test_bot_preflight_base_line.py::test_the_hygiene_gate_refuses_a_missing_or_nonmatching_base_line`
 
 ### Requirement: a gate fails a PR whose merge-base is not `origin/main` itself
 
