@@ -25,6 +25,17 @@ that does not cite the `main` sha it was written against is incomplete — the i
 off `origin/main` and read `AGENTS.md` there before its first edit. Issue #792 makes this a gate
 (`make bot-preflight`, `AGENTS:` line in the PR body) rather than a habit.
 
+**Host space is measured before a build, never recovered after a wedge (issue #1583).** The host `/tmp` is a
+32G / 1,048,576-inode tmpfs every lane shares for worktrees, probes and container builds, and a full tmpfs
+wedges whichever lane touches it next with no tree state saved. Before dispatching any lane whose work opens a
+`/tmp` worktree or container build, run `make check-host-space`; it reads BOTH axes (`df -h /tmp` space and
+`df -i /tmp` inodes) and exits 1 when the tmpfs is below the documented threshold (<20% space OR <50k inodes
+free) — refuse the dispatch then, and say why, rather than starting a doomed run. The rule is a threshold and a
+placement preference, not deletion: occupant attribution and cleanup stay the owner's call (`make
+check-host-space` only measures and refuses). Heavy worktrees default to real disk under
+`/home/asimov/repository/git/llgenie-wt/`; `/tmp` holds at most small/scratch files and never a multi-GB probe
+tree. `ci-free-disk` (CI runner disk) is unchanged.
+
 **Never prune worktrees — report them.** `make worktree-prune`, `git worktree prune` and `git worktree remove` are
 forbidden to every bot unless the owner explicitly says so: the prune deletes directories and its "already merged"
 test reads the branch ref only, so it cannot see uncommitted work and will destroy a run that is mid-flight. Measure
