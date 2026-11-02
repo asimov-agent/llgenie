@@ -156,5 +156,21 @@ RUN chmod +x /usr/local/bin/install_nerve_ci.sh /usr/local/bin/agent_jev_preflig
 # is visible in the commits it makes.
 WORKDIR /repo
 
+# Least-privilege runtime epilogue (issue #1576): the image is root up to this point because
+# the install chain above needs it; drop to a non-root user for the runtime surface. The
+# hermes CLI tree was written into $HOME/.local/bin and $HERMES_HOME (both under /root) as
+# root, so relocate both to a chowned non-root home and repoint the env before switching
+# users — otherwise the CMD liveness (`hermes plugins list`) would fail on an unwritable
+# /root and a PATH that can no longer find the CLI.
+RUN set -eux; \
+    useradd -r -m -d /home/agent -s /bin/bash agent; \
+    mkdir -p /home/agent/.hermes; \
+    cp -a /root/.hermes/. /home/agent/.hermes/ 2>/dev/null || true; \
+    cp -a /root/.local/. /home/agent/.local/ 2>/dev/null || true; \
+    chown -R agent:agent /home/agent
+ENV HERMES_HOME=/home/agent/.hermes
+ENV PATH="/home/agent/.local/bin:${PATH}"
+USER agent
+
 # Same entry shape as the test image: a command, not a daemon.
 CMD ["bash", "-lc", "git --version && gh --version && hermes --version && hermes plugins list | grep -q nerve && echo 'nerve: enabled'"]
