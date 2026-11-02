@@ -42,5 +42,6 @@ refused, `5` binary / non-UTF-8 tree file refused.
 
 ## References
 
-Issue #1149. Implements `make sync-agent-profile` robustness for untracked/non-UTF-8 files,
-so the sanctioned tree → live direction cannot be blocked by one lane's build artifact.
+Issue #1149, implemented by PR #1547. Implements `make sync-agent-profile` robustness for
+untracked/non-UTF-8 files, so the sanctioned tree → live direction cannot be blocked by one
+lane's build artifact.
