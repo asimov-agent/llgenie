@@ -87,7 +87,7 @@ def test_a_tracked_exception_passes_the_gate_but_is_reported():
     """A cell tracked by its issue is printed and does not fail the run; a new one does."""
 
     # Given a tracked cell and an untracked one
-    tracked = _cell("litert", "cpu", ["uv pip install litert-lm==0.18.1"])
+    tracked = _cell("litert", "cpu", ["uv pip install litert-lm==0.19.0"])
     untracked = _cell("brandnew", "cuda", ["uv pip install brandnew==1.0"])
 
     # When  the check runs on each alone
