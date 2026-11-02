@@ -43,9 +43,11 @@ on:
       HF_TOKEN:
         required: false
         description: Hugging Face token for the Hub-touching jobs (cpu-health, top-tier)
-      GITHUB_TOKEN:
+      # GITHUB_TOKEN is system-reserved and may not be declared by that name; the caller
+      # passes it aliased RUN_TOKEN, and the jobs re-export it as GITHUB_TOKEN (issue #1594).
+      RUN_TOKEN:
         required: false
-        description: GitHub token forwarded by name into the test container (issue #199)
+        description: GitHub token (aliased from GITHUB_TOKEN) forwarded by name into the test container
 
 # The Hub and GitHub tokens reach the jobs that need them through JOB-level env below
 # (issue #1594): a workflow-level secret is ambient for every job and step, which the
@@ -199,7 +201,7 @@ jobs:
     # Hub token for the model download (issue #1594 — job-scoped, not workflow-wide).
     env:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.RUN_TOKEN }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: ./.github/actions/docker
@@ -237,7 +239,7 @@ jobs:
     # not workflow-wide: this is the only row whose make targets touch the Hub/API).
     env:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.RUN_TOKEN }}
     steps:
       - name: Say which row this is, and why (issue #859)
         # nosemgrep: yaml.github-actions.security.run-shell-injection.run-shell-injection — quoted matrix/runner constants, make-routed (issue #1595)

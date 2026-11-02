@@ -1639,8 +1639,12 @@ def test_workflows_export_the_github_token():
         holder = "bump" if name == "engine-bump.yml" else "sync"
         assert doc["jobs"][holder]["env"]["GITHUB_TOKEN"] == "${{ secrets.GITHUB_TOKEN }}", name
     pipe = yaml.safe_load((REPO / ".github" / "workflows" / "pipeline.yml").read_text())
+    # GITHUB_TOKEN is system-reserved and can't be declared in on.workflow_call.secrets by that
+    # name; the caller aliases it RUN_TOKEN and the jobs re-export it as GITHUB_TOKEN (#1594).
     for jname in ("cpu-health", "top-tier"):
-        assert pipe["jobs"][jname]["env"]["GITHUB_TOKEN"] == "${{ secrets.GITHUB_TOKEN }}", jname
+        assert pipe["jobs"][jname]["env"]["GITHUB_TOKEN"] == "${{ secrets.RUN_TOKEN }}", jname
+    # and the callee declares RUN_TOKEN (never GITHUB_TOKEN) so the explicit caller mapping compiles
+    assert set(pipe[True]["workflow_call"]["secrets"]) == {"HF_TOKEN", "RUN_TOKEN"}
 
 
 def test_linux_test_containers_forward_the_github_token():
