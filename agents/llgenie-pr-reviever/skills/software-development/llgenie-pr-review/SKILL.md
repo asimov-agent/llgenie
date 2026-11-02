@@ -154,11 +154,16 @@ review cannot start without.
 
 **The review verdict is load-bearing state (issue #1193):** `gh pr review -r` when the head fails an
 acceptance criterion — naming the criterion, the head sha and the run id — and `gh pr review -a` when
-every criterion is met, with the same evidence anchor. `gh pr review -a` means the code met the issue's
+every criterion is met, with the same evidence anchor. Whatever the review-state seat can or cannot
+post, every verdict ALSO writes the bot-verdict marker via `make bot-verdict` — `head=<full sha>`,
+`run=<run id>`, `verdict=approve|changes`, `reviewer=<login>` (issue #852, run slot #1551) — the
+machine-readable record `auto_merge.decide()` reads, so the run that measured the head is written INTO
+the verdict. `gh pr review -a` means the code met the issue's
 acceptance criteria at the measured head and sha; it is a verdict the owner and the gates read, never a
 merge authorization. This lane never merges what it approves, and never approve-merges bypassing rule 16.
-A neutral body-only comment with no `-a` / `-r` is not a conclusion; re-post it as a review with the
-verdict state the board can see. A green PR is handed off in one line to the lane that owns it.
+A neutral body-only comment with no `-a` / `-r` and no marker is not a conclusion; re-post it as a
+review with the verdict state the board can see. A green PR is handed off in one line to the lane that
+owns it.
 
 The rest of the standing rules live in
 **`references/standing-rules-for-this-repo.md`** — 628 lines covering the author gate, hold discipline,
@@ -501,17 +506,37 @@ rebase for the first, the code question for the second.
 
 ## Verdicts
 
-- **Request changes — `gh pr review -r`** — a factual claim in the diff or body is false (stale census,
+A verdict is the marker, posted via `make bot-verdict`:
+`VERDICT=approve|changes HEAD=<full sha> RUN=<run id> REPO=asimov-agent/llgenie PR=<n>
+[REVIEWER=<login>] [NOTE="<evidence anchor>"]`. The marker carries `head=`, `run=`, `verdict=` and
+`reviewer=`; `RUN=` is the Actions run id that measured the head — a verdict is only valid at the head
+the run concluded (`auto_merge` accepts a marker only at the PR's current `headRefOid`, and merge-on-
+verdict now requires a concluded green run at that head, issue #1551). On top of the marker, post the
+review state (`gh pr review -r` / `-a`) when the seat allows.
+
+- **Request changes — `VERDICT=changes`** — a factual claim in the diff or body is false (stale census,
   a gate that does not do what it says), a gate is red for a reason the diff caused, the diff is out of
-  scope, or secrets/permissions weaken. Post as a REQUEST_CHANGES review naming the failing acceptance
+  scope, or secrets/permissions weaken. Post `make bot-verdict VERDICT=changes` (and, when the seat is
+  not identity-blocked, `gh pr review -r`) naming the failing acceptance
   criterion, the head sha and the run id (issue #1193) — a verdict the merge gate and the owner can read
   at a glance, not a body-only comment.
-- **Approve — `gh pr review -a`** — every acceptance criterion is verified green with only non-blocking
-  notes (doc omissions, nits, merge-order advice). Post as an APPROVE review with the same evidence
+- **Approve — `VERDICT=approve`** — every acceptance criterion is verified green with only non-blocking
+  notes (doc omissions, nits, merge-order advice). Post `make bot-verdict VERDICT=approve` (and, when the
+  seat is not identity-blocked, `gh pr review -a`) with the same evidence
   anchor (head sha + run id or exact test command). This is the load-bearing good verdict (#1193); the
-  `-a` is a statement the criteria met at that head, never a merge this lane performs.
+  marker's `verdict=approve` (and the `-a` when it can be posted) is a statement the criteria met at that
+  head, never a merge this lane performs.
 - **Nothing** — a PR whose head sha, checks and review state you already reported and that has not
   changed.
+
+**When the head's author IS this lane's own login, GitHub refuses the review state** — `gh pr review -r`
+(and `-a`) error with `Can not request changes on your own pull request`. That blocks the `-r`/`-a` seat
+only, never the verdict: `make bot-verdict` still posts the marker, which is the load-bearing record
+`auto_merge.decide()` reads — the identity-blocked fallback is the marker itself, not a plain comment
+without it. Do **not** fabricate an approval or narrate a comment as if a review state were posted. The
+marker comment carries the same evidence anchor (failing criterion, head sha, run id) and states in
+`NOTE=` that the review-state seat is identity-blocked; route the finding to the planner — an independent
+verdict needs a second identity, which is not this lane's to mint.
 
 **A verdict is about a sha, so it expires; a cause is not, so post that once on the umbrella.**
 When every head in a family has moved past the shas you read, do not post a late verdict dressed as a
