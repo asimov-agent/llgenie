@@ -1,6 +1,6 @@
 # tensorrt-llm/cuda — measured: source build does NOT fit the CI budget (#939)
 
-Recorded 2026-11-02. Implements issue #939 (measure the source-build fit and record the outcome).
+Recorded 2026-11-02. Implements issue #939 (measure the source-build fit and record the outcome) via PR #1542.
 
 ## Measurement (the acceptance criterion)
 
