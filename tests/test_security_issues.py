@@ -187,6 +187,57 @@ def test_the_body_states_advisory_package_versions_and_action(tmp_path):
     assert si.issue_body.headings(body)[-1] == "Technical"
 
 
+def test_an_sast_body_tells_the_reader_to_edit_the_code():
+    """A `component:code` SAST body names EDITING THE SOURCE, not a nonexistent pin bump.
+
+    The marker (idempotency key), advisory id, severity, component and run link are identical to the
+    CVE body; only the remediation prose differs (issue #1560).
+    """
+
+    # Given a semgrep SAST finding (no fixed version; lives in a file, not a requirements pin)
+    finding = si.Finding(
+        advisory="python.sqlalchemy.security.sqlalchemy-execute-raw-query",
+        package="tools/app.py:5", current="engine.execute(text(query))", fixed="",
+        severity="high", source="semgrep", component="component:code",
+    )
+
+    # When  its issue body is rendered
+    body = si.body_for(finding, "https://github.com/o/r/actions/runs/1")
+
+    # Then  it tells the reader to EDIT the matched source, present-tense
+    assert "Edit the matched region in `tools/app.py:5`" in body
+    assert "no longer triggers" in body
+
+    # And it does NOT tell the reader to bump a pin in the generated requirements*.txt path
+    assert "requirements*.txt" not in body
+    assert "generated `tools/requirements*.in`" not in body
+    assert "(no fixed version named)" not in body
+
+    # And the marker (idempotency key) round-trips unchanged
+    m = si.MARKER_RE.search(body)
+    assert m is not None and (m.group(1), m.group(2), m.group(3)) == (
+        "semgrep", "python.sqlalchemy.security.sqlalchemy-execute-raw-query", "tools/app.py:5")
+    # And the traceability fields are the code body's own, not the pin template's
+    assert "**Component:** `component:code`" in body
+    assert "https://github.com/o/r/actions/runs/1" in body
+
+
+def test_a_cve_body_still_tells_the_reader_to_bump_the_pin(tmp_path):
+    """A CVE finding keeps the pin/requirements* wording — the fix is shape-only for code."""
+
+    # Given a trivy python finding with a fixed version
+    finding = si.Finding("CVE-1", "numpy", "1.0", "1.1", "critical", "trivy",
+                         component="component:python")
+
+    # When  its body is rendered
+    body = si.body_for(finding)
+
+    # Then  it still names the generated requirements*.txt pin path and the bump action
+    assert "generated `tools/requirements*.in` -> `requirements*.txt` path" in body
+    assert "is pinned at `1.1` or later in the compiled `requirements*.txt`" in body
+    assert "EDIT the matched" not in body
+
+
 def _calls(log: Path) -> list[list[str]]:
     """Every argv the stub saw, parsed — so a `label create` is never mistaken for an issue create."""
     return [json.loads(line) for line in log.read_text().splitlines() if line.strip()]
