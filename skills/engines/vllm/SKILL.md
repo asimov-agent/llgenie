@@ -36,8 +36,9 @@ install:
     # torchcodec (the vLLM video-decoding backend, `>= 0.14` in requirements/*.txt) is
     # preinstalled from the SAME index: the default-PyPI wheel is built against the stable
     # torch C++ ABI and `torch.ops.load_library(libtorchcodec_image.so)` dies with a generic
-    # "Could not load this library" against torch 2.13 (issue #1365 run 41355299891 cpu/cuda).
-    - "uv pip install --system --break-system-packages torch==2.13.0 torchvision torchaudio torchcodec --index-url https://download.pytorch.org/whl/{torch_backend}"
+    # "Could not load this library" against the preinstalled torch (issue #1365 run
+    # 41355299891 cpu/cuda).
+    - "uv pip install --system --break-system-packages torch==2.14.0 torchvision torchaudio torchcodec --index-url https://download.pytorch.org/whl/{torch_backend}"
     - "uv pip install --system --break-system-packages -r {src}/requirements/build/cuda.txt --index-strategy unsafe-best-match"
     # vllm 5df63a72 ships a vendored Rust frontend (vllm-rs, channel 1.95): setup.py falls back to a
     # local `cargo` build when the precompiled vllm/vllm-rs + _rust_*.so artifacts are absent, so the
@@ -62,9 +63,9 @@ install:
 
   cpu:
     - "test -d {src}/.git || git clone -b {ref} --depth 1 {repo}.git {src}"
-    # the pinned cpu.txt requests torch==2.13.0+cpu, which only the cpu repack
+    # the pinned cpu.txt requests torch==2.14.0+cpu, which only the cpu repack
     # index serves (default PyPI has no +cpu wheel); preinstall it first so the
-    # -r cpu.txt row is satisfiable (issue #1241). torch_backend renders to 'cpu'.
+    # -r cpu.txt row is satisfiable (issue #1241, #1544). torch_backend renders to 'cpu'.
     # cpu.txt also asks bare 'torchvision'/'torchaudio' (no +cpu suffix) — resolving
     # them from default PyPI installs _C built against the non-cpu torch ABI, so
     # torchvision::nms/SGD ops never register and 'vllm --version' dies with
@@ -72,9 +73,12 @@ install:
     # 41345449621 cpu). Preinstall the ABI-matched +cpu wheels from the SAME index.
     # torchcodec (video decoding backend, `>= 0.14` in cpu.txt) has the same class of
     # bug: the default-PyPI wheel fails `torch.ops.load_library(libtorchcodec_image.so)`
-    # against 2.13.0+cpu with the generic "Could not load this library" (issue #1365
-    # run 41355299891 cpu) — pull it from the same index too.
-    - "uv pip install --system --break-system-packages torch==2.13.0 torchvision torchaudio torchcodec --index-url https://download.pytorch.org/whl/{torch_backend}"
+    # against the preinstalled +cpu torch with the generic "Could not load this library"
+    # (issue #1365 run 41355299891 cpu) — pull it from the same index too.
+    # NB: this preinstall pin MUST track the sha's own cpu.txt torch pin (bumped 2.13→2.14
+    # at v0.33.0 3a4d82f5). A lag here re-opens #1544: step 2 `-r cpu.txt` wants the sha's
+    # newer torch, which default PyPI cannot satisfy (no +cpu wheel) → 'unsatisfiable'.
+    - "uv pip install --system --break-system-packages torch==2.14.0 torchvision torchaudio torchcodec --index-url https://download.pytorch.org/whl/{torch_backend}"
     - "uv pip install --system --break-system-packages -r {src}/requirements/build/cpu.txt --index-strategy unsafe-best-match"
     # vendored Rust frontend (vllm-rs): build_rust.sh precompiles the artifacts so -e . skips cargo
     - "cd {src} && bash tools/build_rust.sh"
