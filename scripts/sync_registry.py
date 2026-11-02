@@ -72,14 +72,11 @@ def validate(raw: bytes) -> dict:
     if not isinstance(models, list) or not models:
         raise ValueError("'models' must be a non-empty list")
     for i, m in enumerate(models):
-        for key in ("id", "name", "vram_tier", "engines"):
+        for key in ("id", "name", "vram_tier", "supported_engines"):
             if key not in m:
                 raise ValueError(f"models[{i}] ({m.get('id', '?')}) lacks {key!r}")
-        if not isinstance(m["engines"], list):
-            raise ValueError(f"models[{i}] ({m['id']}) 'engines' must be a list")
-        for e in m["engines"]:
-            if "engine" not in e:
-                raise ValueError(f"models[{i}] ({m['id']}) has an engine row without 'engine'")
+        if not isinstance(m["supported_engines"], list):
+            raise ValueError(f"models[{i}] ({m['id']}) 'supported_engines' must be a list")
     return data
 
 
@@ -139,11 +136,13 @@ def check_contract(data: dict, schema: dict) -> None:
     for i, m in enumerate(models):
         where = f"models[{i}] ({m.get('id', '?')})"
         _require(m, list(model_schema.get("required") or []), where)
-        if not isinstance(m["engines"], list):
-            raise ValueError(f"{where} 'engines' must be a list")
-        for e in m["engines"]:
-            if "engine" not in e:
-                raise ValueError(f"{where} has an engine row without 'engine'")
+        # Per-row `engines` (t/s measurements) is OPTIONAL in the contract — only
+        # `supported_engines` is required per row (issue #1634, producer #689). When a row
+        # does carry measurements, each entry must still satisfy the schema's item rule.
+        engines_items = (model_props.get("engines") or {}).get("items") or {}
+        engine_row_req = list(engines_items.get("required") or [])
+        for e in m.get("engines") or []:
+            _require(e, engine_row_req, f"{where} engines entry")
         if id_pattern and not re.fullmatch(id_pattern, str(m["id"])):
             raise ValueError(f"{where} id does not match the contract's {id_pattern!r}")
         formats = m["formats"]

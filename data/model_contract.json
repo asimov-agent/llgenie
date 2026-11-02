@@ -82,7 +82,6 @@
           "vram_min",
           "backends",
           "supported_engines",
-          "engines",
           "why",
           "engagement",
           "last_seen"
