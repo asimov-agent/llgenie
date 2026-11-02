@@ -35,11 +35,24 @@ on:
         required: false
         default: '["run"]'
         type: string
+    # The caller (ci.yml) passes exactly these repository secrets through an explicit
+    # `secrets:` block (issue #1594). A reusable workflow only receives secrets declared
+    # here under `on.workflow_call.secrets` when the caller uses a non-inherit mapping; both
+    # optional so a caller that passes neither still parses.
+    secrets:
+      HF_TOKEN:
+        required: false
+        description: Hugging Face token for the Hub-touching jobs (cpu-health, top-tier)
+      GITHUB_TOKEN:
+        required: false
+        description: GitHub token forwarded by name into the test container (issue #199)
 
-# Passed in by ci.yml (secrets: inherit). Every make ci-* job can call the Hub with it.
-env:
-  HF_TOKEN: ${{ secrets.HF_TOKEN }}
-  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+# The Hub and GitHub tokens reach the jobs that need them through JOB-level env below
+# (issue #1594): a workflow-level secret is ambient for every job and step, which the
+# security-scan's gha-workflow-env-secret rule flags. Only cpu-health and top-tier run
+# targets that download/serve a real model (the Hub) or call the GitHub API; the hermetic
+# lint/unit/install/agents-read/openspec jobs get no ambient token. ci.yml passes the
+# repository secrets to this callee through an explicit `secrets:` block, not `inherit`.
 
 jobs:
   # lint: linefeed / editorconfig
@@ -182,6 +195,11 @@ jobs:
     permissions:
       contents: read
       packages: read
+    # Serves the 0.5B model through the llama.cpp engine image; the container gets the
+    # Hub token for the model download (issue #1594 — job-scoped, not workflow-wide).
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: ./.github/actions/docker
@@ -215,6 +233,11 @@ jobs:
     permissions:
       contents: read
       packages: read
+    # Downloads and serves a real model and lists the Hub (issue #1594 — job-scoped,
+    # not workflow-wide: this is the only row whose make targets touch the Hub/API).
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Say which row this is, and why (issue #859)
         # nosemgrep: yaml.github-actions.security.run-shell-injection.run-shell-injection — quoted matrix/runner constants, make-routed (issue #1595)
