@@ -38,16 +38,37 @@ def _gh(args: list[str]):
     return r.returncode, (r.stdout or "")
 
 
-def _paged_json(endpoint: str):
-    """All pages of a JSON array endpoint, via `gh api --paginate`."""
+class BranchListReadError(RuntimeError):
+    """The branch-list read failed (`gh` rc != 0) or returned an unreadable body.
+
+    A read failure is NEVER "no branches to sweep" — an unreadable answer must not be read as
+    a clean board (#1514, restoring the #453 discipline). `main` turns this into a non-zero
+    exit so the daily run reds instead of reporting a clean sweep it never actually made.
+    """
+
+
+def _paged_json(endpoint: str, *, strict: bool = True):
+    """All pages of a JSON array endpoint, via `gh api --paginate`.
+
+    strict=True (default): a non-zero rc or empty/un-JSON body raises BranchListReadError —
+    a faulted read reds the run instead of collapsing to []. strict=False returns [] on
+    faults, for a caller that genuinely treats an unreadable result as "no data".
+    """
     rc, out = _gh(["api", "--paginate", "--silent", endpoint])
     if rc != 0 or not out.strip():
+        if strict:
+            raise BranchListReadError(
+                f"branch-list read failed: `gh api {endpoint}` rc={rc} "
+                f"stdout={(out or '').strip()[:200]!r}")
         return []
     try:
         data = json.loads(out)
-        return data if isinstance(data, list) else data.get("items", [data])
     except json.JSONDecodeError:
+        if strict:
+            raise BranchListReadError(
+                f"branch-list read failed: non-JSON body from `gh api {endpoint}`")
         return []
+    return data if isinstance(data, list) else data.get("items", [data])
 
 
 def _pr_state(repo: str, branch: str) -> str:
@@ -117,7 +138,12 @@ def main(argv: list[str] | None = None) -> int:
     except Exception:
         pass
 
-    branches = _paged_json(f"repos/{repo}/branches?per_page=100")
+    try:
+        branches = _paged_json(f"repos/{repo}/branches?per_page=100")
+    except BranchListReadError as e:
+        print(f"stale-branch cleanup FAILED — could not read the branch list: {e}", file=sys.stderr)
+        print("(a branch-list read failure reds the run; it is never a clean board)", file=sys.stderr)
+        return 1
     candidates: list[dict] = []
     reported: list[dict] = []
     deleted = 0
