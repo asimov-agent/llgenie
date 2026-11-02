@@ -358,6 +358,10 @@ def check_agents_mandate(root: Path) -> list[dict]:
 BOT_EMAILS = frozenset({"support@docondee.com"})
 
 AGENTS_LINE = re.compile(r"^AGENTS:\s+([0-9a-f]{7,40})\s+(\d+)b\s+(\d+)l\s*$", re.M)
+#: The `BASE:` line #845 adds beside the `AGENTS:` line — the origin/main sha the
+#: PR was cut from, so a reviewer can check the base without consulting the branch.
+#: `(=~ origin/main at open)` is the human reminder; the sha is what the gate reads.
+BASE_LINE = re.compile(r"^BASE:\s+([0-9a-f]{7,40})\s+\(==\s*origin/main at open\)\s*$", re.M)
 
 
 def range_authors(root: Path, base: str, head: str) -> list[str]:

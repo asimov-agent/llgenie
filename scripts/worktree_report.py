@@ -33,7 +33,7 @@ import argparse
 import json
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 #: The base a branch tip is tested against, unless `--base` says otherwise.
@@ -70,12 +70,21 @@ class Worktree:
 
 @dataclass
 class Row:
-    """One printed row: the four measured facts for a worktree."""
+    """One printed row: the measured facts for a worktree."""
 
     worktree: Worktree
     merged: bool
     pr_number: int | None
     dirty: bool
+    #: `ahead` / `behind` vs the base ref (issue #845): commits the worktree's
+    #: branch carries that the base does not, and vice versa. The primary checkout
+    #: parked on a PR branch reads `ahead>0 behind>0`, which is exactly how the
+    #: spawn defect #845 names shows up before it seeds the next worktree.
+    ahead: int = 0
+    behind: int = 0
+    #: The worktree's uncommitted paths (`git status --porcelain`), so a lane parked
+    #: mid-flight is visible as work-in-progress, not just a yes/no flag (#845).
+    uncommitted: list[str] = field(default_factory=list)
 
     @property
     def stale(self) -> bool:
@@ -175,17 +184,60 @@ def is_dirty(path: Path) -> bool:
     return bool(proc.stdout.strip())
 
 
+def uncommitted_paths(path: Path) -> list[str]:
+    """The worktree's uncommitted paths, or [] when clean/gone (issue #845).
+
+    `git status --porcelain` is the worktree's own view — it cannot be confused
+    by another worktree's index. A path that no longer exists counts as a single
+    `<missing>` entry so a gone directory never reads "clean".
+    """
+    if not path.is_dir():
+        return ["<missing>"]
+    proc = _run(["git", "status", "--porcelain"], path)
+    if proc.returncode != 0:
+        return ["<unreadable>"]
+    lines = [ln.rstrip("\n") for ln in proc.stdout.splitlines() if ln.strip()]
+    return lines
+
+
+def ahead_behind(cwd: Path, head: str, base: str) -> tuple[int, int]:
+    """`(ahead, behind)` of *head* vs *base* — commits each side carries alone.
+
+    `git rev-list --left-right --count <base>...<head>` prints `<behind>\t<ahead>`
+    (commits only on the base, then only on the head). The primary checkout parked
+    on a PR branch reads `ahead>0 behind>0` — the drift #845 names. A missing head
+    or base reads exit-nonzero and returns (0, 0): a broken measurement must not
+    be reported as a clean tree.
+    """
+    if not head:
+        return 0, 0
+    proc = _run(["git", "rev-list", "--left-right", "--count", f"{base}...{head}"], cwd)
+    if proc.returncode != 0:
+        return 0, 0
+    parts = proc.stdout.split()
+    if len(parts) != 2:
+        return 0, 0
+    try:
+        return int(parts[1]), int(parts[0])   # ahead first
+    except ValueError:
+        return 0, 0
+
+
 def collect(root: Path, base: str, repo: str) -> list[Row]:
     """Measure every worktree: the one read path the printer and the tests share."""
     worktrees = parse_porcelain(_git(root, "worktree", "list", "--porcelain"))
     prs = open_prs(repo, root)
     rows: list[Row] = []
     for wt in worktrees:
+        ahead, behind = ahead_behind(root, wt.head, base)
         rows.append(Row(
             worktree=wt,
             merged=is_ancestor(root, wt.head, base),
             pr_number=prs.get(wt.branch) if wt.branch else None,
             dirty=is_dirty(Path(wt.path)),
+            ahead=ahead,
+            behind=behind,
+            uncommitted=uncommitted_paths(Path(wt.path)),
         ))
     return rows
 
@@ -201,6 +253,9 @@ def render(rows: list[Row], base: str, repo: str) -> list[str]:
             f"  merged-into-main={'yes' if row.merged else 'no'}"
             f"  open-pr={'yes' if row.pr_number is not None else 'no'}"
             f"  dirty={'yes' if row.dirty else 'no'}"
+            f"  ahead={row.ahead} behind={row.behind}"
+            f"  uncommitted={','.join(row.uncommitted) if row.uncommitted else '-'}"
+            + (f"  {wt.head[:12]}" if not row.merged else "")
             + ("  (main checkout)" if wt.primary else "")
             + ("  (path missing)" if not Path(wt.path).is_dir() else "")
             + ("  (prunable)" if wt.prunable else ""))

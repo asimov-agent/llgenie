@@ -133,6 +133,17 @@ def agents_line(record: dict) -> str:
     return f"AGENTS: {record['main']} {record['agents_bytes']}b {record['agents_lines']}l"
 
 
+def base_line(record: dict) -> str:
+    """The base at PR-open, beside the `AGENTS:` line (issue #845).
+
+    `record['main']` is the `origin/main` commit the preflight measured at open.
+    Recording it lets a reviewer check the base without consulting the branch —
+    the defect #845 names is that the base was recorded nowhere, so a worktree cut
+    from the primary checkout's parked branch carried the wrong base invisibly.
+    """
+    return f"BASE: {record['main']} (== origin/main at open)"
+
+
 def render(record: dict) -> str:
     return "\n".join(
         [
@@ -142,6 +153,7 @@ def render(record: dict) -> str:
             f"agents_headings: {record['agents_headings']}",
             f"agents_headings_sha256: {record['agents_headings_sha256']}",
             agents_line(record),
+            base_line(record),
             "",
         ]
     )
