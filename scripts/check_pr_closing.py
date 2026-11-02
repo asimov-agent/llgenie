@@ -36,7 +36,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.check_pr_authors import commits_in_range  # noqa: E402
+from scripts.check_pr_authors import commits_in_range, _run  # noqa: E402
 
 #: An `agent/*` head branch — the implementing-lane PR surface the body half guards.
 AGENT_HEAD = re.compile(r"^agent/")
@@ -154,9 +154,29 @@ def check_squash(messages: list[str], body: str | None = None, title: str = "") 
     return out
 
 
+def _merge_base(base: str, rev: str, cwd: Path) -> str:
+    """The single merge-base of `base` and `rev`: the point the squash actually diverges from.
+
+    `git merge-base <base> <rev>`'s first line is the common ancestor that bounds the commit set
+    GitHub would squash. Using it instead of the literal range start keeps a PR whose head is a
+    rebased/up-to-date branch from sweeping in main's own commits that a stale `base.sha` would
+    include (issue #1527).
+    """
+    out = _run(["git", "merge-base", base, rev], cwd).strip()
+    if not out:
+        raise RuntimeError(f"git merge-base {base} {rev}: no common ancestor in {cwd}")
+    return out.splitlines()[0]
+
+
 def commit_messages(base: str, rev: str, cwd: Path = REPO_ROOT) -> list[str]:
-    """Full messages of the non-merge commits in `base..rev`, the squash body stand-in."""
-    return [row["message"] for row in commits_in_range(base, rev, cwd)]
+    """Full messages of the non-merge commits the PR adds, the squash body stand-in.
+
+    The range base is resolved to `git merge-base <base> <rev>` first, so the range is the commits
+    the PR actually adds on top of the current base, NOT everything between an event-frozen
+    `base.sha` and the head (issue #1527).
+    """
+    anchor = _merge_base(base, rev, cwd)
+    return [row["message"] for row in commits_in_range(anchor, rev, cwd)]
 
 
 def check_body(body_path: Path, head: str, root: Path = REPO_ROOT) -> list[dict]:
