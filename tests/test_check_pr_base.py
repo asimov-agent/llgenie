@@ -14,9 +14,8 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
 
-import check_pr_base as cpb  # noqa: E402
+import scripts.check_pr_base as cpb  # noqa: E402
 
 ENV = {**os.environ,
        "GIT_AUTHOR_NAME": "Andy Holst", "GIT_AUTHOR_EMAIL": "andy.holst@protonmail.com",

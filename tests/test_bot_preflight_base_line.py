@@ -14,12 +14,11 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
 
 #: fresh per-call repo name so two _findings calls in one test never collide (id() is reused after GC).
 _SEQ = itertools.count(1)
 
-import bot_preflight as bp  # noqa: E402
+import scripts.bot_preflight as bp  # noqa: E402
 
 
 def test_the_record_carries_the_base_line_beside_the_agents_line(tmp_path):
