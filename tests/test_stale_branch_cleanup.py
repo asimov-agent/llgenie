@@ -22,6 +22,8 @@ import sys
 from pathlib import Path
 from datetime import datetime, timezone
 
+import pytest
+
 from scripts import stale_branch_cleanup as sbc
 
 
@@ -154,3 +156,52 @@ def test_default_branch_never_touched(tmp_path):
     assert "main" not in out.stdout or "KEEP" in out.stdout
     assert "WOULD-DELETE main" not in out.stdout
     assert "applied: 0 deleted" in out.stdout
+
+
+def _faulted_gh(tmp_path: Path, rc: int = 1) -> str:
+    """A `gh` that fails EVERY call with the given rc — a branch-list read must not read as a clean board."""
+    bindir = _write_gh(tmp_path, f"import sys\nsys.stderr.write('gh: simulated failure\\n')\nsys.exit({rc})\n")
+    return bindir
+
+
+def test_faulted_branch_list_read_reds_even_in_report_only(tmp_path):
+    """A `gh api .../branches` that fails (rc=1) must exit non-zero, never read as a clean sweep.
+
+    Issue #1514: before the fix, `_paged_json` swallowed an rc != 0 / unreadable body into [],
+    so the daily report-only run printed "0 would be deleted" and exited 0 — green while it
+    deleted nothing it could not even see. This test plants a fake `gh` that fails and asserts
+    the red; it FAILS when the fix is reverted.
+    """
+    bindir = _faulted_gh(tmp_path, rc=1)
+    out = _run(["--repo", "asimov-agent/llgenie", "--age-days", "3"], bindir)
+    assert out.returncode != 0, f"faulted branch-list read must red, got rc=0:\n{out.stdout}"
+    assert "branch-list read failed" in out.stdout or "branch-list read failed" in out.stderr, \
+        f"expected a named read error, got:\nstdout={out.stdout}\nstderr={out.stderr}"
+    assert "0 would be deleted" not in out.stdout, \
+        f"a read failure must never report a clean sweep:\n{out.stdout}"
+
+
+def test_faulted_paged_json_raises_named_error(monkeypatch):
+    """`_paged_json`'s strict mode raises BranchListReadError (a named error) on a non-zero rc.
+
+    This is the rule-only-on-fixed-tree half: the fake `gh` failure must be surfaced as a
+    named `BranchListReadError`, the exact thing `main` turns into a non-zero exit.
+    """
+    def _fail(args):
+        return 1, ""
+    monkeypatch.setattr("scripts.stale_branch_cleanup._gh", _fail)
+    with pytest.raises(sbc.BranchListReadError, match="branch-list read failed"):
+        sbc._paged_json("repos/asimov-agent/llgenie/branches?per_page=100")
+
+    # The non-strict caller (a hypothetical one that treats an unreadable result as "no data")
+    # still gets [] and stays green.
+    assert sbc._paged_json("repos/asimov-agent/llgenie/branches?per_page=100", strict=False) == []
+
+
+def test_genuinely_empty_branch_list_still_exits_0(tmp_path):
+    """A repo with no branches reports 0 candidates and exits 0 — an empty board is not a fault."""
+    bindir, _ = _tree_with_repo(tmp_path, [], {}, compare="behind")
+    out = _run(["--repo", "asimov-agent/llgenie", "--age-days", "3"], bindir)
+    assert out.returncode == 0, out.stderr
+    assert "report-only: 0 would be deleted" in out.stdout
+    assert "branch-list read failed" not in out.stdout and "branch-list read failed" not in out.stderr
