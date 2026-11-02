@@ -46,6 +46,13 @@
       "allow_force_push": false,
       "description": "Files refactor issues for the other llgenie bots. Does not implement or merge."
     },
+    "llgenie-business-analyst": {
+      "extra_toolsets": [],
+      "keep_skills": ["github", "github-issue-triage", "llgenie-business-analyst"],
+      "lane_skill": "llgenie-business-analyst",
+      "allow_force_push": false,
+      "description": "Frames owner-intent issues for asimov-agent/llgenie. Does not implement or merge."
+    },
     "llgenie-ci-pipelines-maintainer": {
       "extra_toolsets": [],
       "keep_skills": ["github", "llgenie-pipeline-maintenance"],
@@ -91,6 +98,13 @@
       "allow_force_push": false,
       "description": "Triages, refines, and dispatches llgenie work. Does not implement or merge."
     },
+    "llgenie-product-manager": {
+      "extra_toolsets": [],
+      "keep_skills": ["github", "github-issue-triage", "llgenie-product-manager"],
+      "lane_skill": "llgenie-product-manager",
+      "allow_force_push": false,
+      "description": "Owns the llgenie backlog: priority, scope, acceptance. Does not implement or merge."
+    },
     "llgenie-pr-merge-conflict": {
       "extra_toolsets": [],
       "keep_skills": ["github", "llgenie-pr-rebase"],
@@ -111,6 +125,13 @@
       "lane_skill": "security-scan-ops",
       "allow_force_push": false,
       "description": "Keeps the vulnerability scan honest and files tagged issues. Does not implement the fixes."
+    },
+    "llgenie-status-keeper": {
+      "extra_toolsets": [],
+      "keep_skills": ["github", "github-issue-triage", "llgenie-status-keeper"],
+      "lane_skill": "llgenie-status-keeper",
+      "allow_force_push": false,
+      "description": "Publishes the lane state sheet as a GitHub comment. Does not implement, merge, or dispatch."
     },
     "llgenie-tester": {
       "extra_toolsets": ["code_execution"],
