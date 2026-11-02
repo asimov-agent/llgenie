@@ -1091,8 +1091,7 @@ pr-hygiene-report: ## Show every producer the PR/commit-message guard reads, and
 	python3 scripts/check_pr_hygiene.py report
 check-pr-closing: ## CI: fail when a claimed issue lacks an adjacent closes/fixes/resolves #N in the joined commit messages and, when the body is supplied, in the PR body, or when an agent/* body names an issue with no adjacent keyword (issues #1329, #1417)
 	python3 scripts/check_pr_closing.py check $(if $(PR_BODY),--body-file "$(PR_BODY)",) $(if $(PR_BRANCH),--head "$(PR_BRANCH)",) --base "$(PR_BASE)" --rev HEAD
-check-pr-base: ## CI: fail when a PR's merge-base with the base ref is not the base itself — a branch cut from another PR leaks that PR's diff under its own closes; name the foreign commit (issue #845); PR_BASE= the base ref a PR must be cut from, PR_HEAD= the head rev (default HEAD — the unit job sets neither, so HEAD is the branch being built)
-	@test -n "$(PR_BASE)" || { echo "check-pr-base: PR_BASE unset (use refs/remotes/origin/main or origin/main)"; exit 1; };\
+check-pr-base: ## CI: fail when a PR's merge-base with the base ref is not the base itself — a branch cut from another PR leaks that PR's diff under its own closes; name the foreign commit (issue #845); PR_BASE= the base ref a PR must be cut from (default origin/main, the shared default check-pr-closing uses; the ci.yml guard step and pipeline unit job set it explicitly and fetch it live), PR_HEAD= the head rev (default HEAD — the unit job sets no PR_HEAD, so HEAD is the branch being built)
 	python3 scripts/check_pr_base.py check --base "$(PR_BASE)" --rev "$(if $(PR_HEAD),$(PR_HEAD),HEAD)"
 pr-closing-report: ## Show the closing references a PR body carries, the squash closes, and whether the agent/* scope applies (issues #1329, #1417)
 	python3 scripts/check_pr_closing.py report $(if $(PR_BODY),--body-file "$(PR_BODY)",) $(if $(PR_BRANCH),--head "$(PR_BRANCH)",) --base "$(PR_BASE)" --rev HEAD
