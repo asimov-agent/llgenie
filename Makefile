@@ -1883,6 +1883,10 @@ ci-free-disk: ## CI: free runner disk for the large engine images (Linux runner:
 	else echo "[ci-free-disk] $$(uname -s) runner: nothing to free"; fi
 	@df -h /
 
+check-host-space: ## Host: refuse a /tmp worktree or container build when the shared tmpfs is below the headroom threshold (<20% space OR <50k inodes free) — the planner's preflight before dispatch (issue #1583)
+	python3 scripts/check_host_space.py check
+.PHONY: check-host-space
+
 test-engine-stage: ## CI engine-image post-build test, ONE step for every image: TEST=serve -> binary flags (make test-engine-image) AND the OpenAI API answer (make test-engine); TEST=detect -> binary flags only (make test-engine-image)
 	@test -n "$(ENGINE)" -a -n "$(ARCH)" || { echo "Usage: make test-engine-stage ENGINE=<id> ARCH=<arch> TEST=serve|detect"; exit 1; }
 	@case "$(TEST)" in \
