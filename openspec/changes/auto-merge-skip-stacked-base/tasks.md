@@ -7,6 +7,6 @@
 - [x] 4. `.github/workflows/auto-merge.yml`: the scheduled recheck runs the stacked-base report
 - [x] 5. `tests/test_auto_merge.py`: the negative control (non-main base armed → merger skips) + detector test
 - [x] 6. `docs/BOTS.md` one-line rule + README/Makefile help + `agent-wiki` note + `docs/changes.d` fragment
-- [ ] 7. Verified: targeted pytest green, `make lint`, `make check-wiring`, `make check-docs`,
+- [x] 7. Verified: targeted pytest green, `make lint`, `make check-wiring`, `make check-docs`,
          `make check-workflows`, `make openspec-validate NAME=auto-merge-skip-stacked-base`,
          loop gate (`make test-unit`)
