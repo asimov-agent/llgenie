@@ -89,6 +89,14 @@ ARG HERMES_NERVE_WORK_SUPERVISION_MODE="shadow"
 
 USER root
 
+# The runtime home is created up front and the hermes install chain writes DIRECTLY into it:
+# a post-install relocation of a /root-rooted tree is not viable — the installed launcher +
+# venv embed the absolute home in 700+ paths (issue #1576). Point HOME/HERMES_HOME/PATH at
+# this non-root home now so everything lands where the runtime user (agent) owns it.
+RUN useradd -r -m -d /home/agent -s /bin/bash agent \
+    && mkdir -p /home/agent/.local/bin /home/agent/.hermes
+ENV HOME=/home/agent HERMES_HOME=/home/agent/.hermes
+
 # git/gh: the bots commit, push (owner PAT) and comment. curl/ca-certificates: install and
 # API calls. docker CLI: the loop runs the repo's own containerised gates (llgenie/test).
 RUN set -eux; \
@@ -119,10 +127,10 @@ ENV HERMES_INSTALL_URL=${HERMES_INSTALL_URL} HERMES_PACKAGE=${HERMES_PACKAGE} \
     HERMES_NERVE_WORK_SUPERVISION_MODE=${HERMES_NERVE_WORK_SUPERVISION_MODE}
 # `install.sh` puts the CLI in ~/.local/bin and its tree in ~/.hermes; make both stick for
 # the runtime user too (a `container:` job does not source a login shell).
-ENV PATH="/root/.local/bin:${PATH}"
+ENV PATH="/home/agent/.local/bin:${PATH}"
 RUN chmod +x /usr/local/bin/install_hermes_ci.sh \
     && /usr/local/bin/install_hermes_ci.sh \
-    && export PATH="/root/.local/bin:$PATH" \
+    && export PATH="/home/agent/.local/bin:$PATH" \
     && hermes --version \
     # The install script writes the alias; prove it right here so a bad pin fails the BUILD
     # (an image whose alias is missing or stale only fails later, inside a bot run). All four
@@ -139,8 +147,8 @@ RUN chmod +x /usr/local/bin/install_hermes_ci.sh \
 # and the run-time gate must all agree on which home is "this" home — plugins are per-home, and
 # a `container:` job never sources a login shell. The install script writes the pinned bundle
 # into ${HERMES_HOME}/plugins/nerve, the host's settings under plugins.entries.nerve.settings,
-# and fails the BUILD if either did not land.
-ENV HERMES_HOME=/root/.hermes
+# and fails the BUILD if either did not land. HERMES_HOME is already /home/agent/.hermes (set
+# above); the nerve install writes directly into the runtime user's home.
 RUN chmod +x /usr/local/bin/install_nerve_ci.sh /usr/local/bin/agent_jev_preflight.sh \
     && /usr/local/bin/install_nerve_ci.sh \
     # Prove the layer is really there and really secret-free, at build time: an image that
@@ -156,20 +164,12 @@ RUN chmod +x /usr/local/bin/install_nerve_ci.sh /usr/local/bin/agent_jev_preflig
 # is visible in the commits it makes.
 WORKDIR /repo
 
-# Least-privilege runtime epilogue (issue #1576): the image is root up to this point because
-# the install chain above needs it; drop to a non-root user for the runtime surface. The
-# hermes CLI tree was written into $HOME/.local/bin and $HERMES_HOME (both under /root) as
-# root, so relocate both to a chowned non-root home and repoint the env before switching
-# users — otherwise the CMD liveness (`hermes plugins list`) would fail on an unwritable
-# /root and a PATH that can no longer find the CLI.
-RUN set -eux; \
-    useradd -r -m -d /home/agent -s /bin/bash agent; \
-    mkdir -p /home/agent/.hermes; \
-    cp -a /root/.hermes/. /home/agent/.hermes/ 2>/dev/null || true; \
-    cp -a /root/.local/. /home/agent/.local/ 2>/dev/null || true; \
-    chown -R agent:agent /home/agent
-ENV HERMES_HOME=/home/agent/.hermes
-ENV PATH="/home/agent/.local/bin:${PATH}"
+# Least-privilege runtime epilogue (issue #1576): the install chain above ran as root, but it
+# wrote everything into the agent user's home (/home/agent); hand that home to the runtime user
+# and drop to it for the whole post-CMD surface (git/gh/hermes), so the container no longer runs
+# privileged and the CMD liveness (`hermes plugins list`) still works.
+RUN chown -R agent:agent /home/agent \
+    && chown -R agent:agent /home/agent/.local /home/agent/.hermes 2>/dev/null || true
 USER agent
 
 # Same entry shape as the test image: a command, not a daemon.
