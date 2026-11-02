@@ -1,0 +1,1 @@
+| 2026-11-02 | engine bump: ollama re-pinned `f067033f` -> `04088e7c` (`v0.40.13`) — frozen cpu/cuda/rocm/vulkan Dockerfiles, params, SKILL.md and affected tests re-derived at the new pin (CI builds/tests only ollama's images) | [2026-11-02-ollama-bump.md](agent-wiki/2026-11-02-ollama-bump.md) | #1521 |
