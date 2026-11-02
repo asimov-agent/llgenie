@@ -1779,7 +1779,8 @@ ci-unit: bash-check ## CI job unit: hermetic unit tests + registry / skill / Str
 	$(MAKE) check-pr-closing
 	$(MAKE) check-pr-base
 	$(MAKE) check-workflows
-	$(MAKE) check-module-names check-claim-reader
+	$(MAKE) check-module-names
+	$(MAKE) check-claim-reader
 	$(MAKE) check-scanner-images
 	$(MAKE) check-security-scan
 	$(MAKE) check-security-issues
