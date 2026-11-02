@@ -41,7 +41,11 @@ Reproduced the exact failure in the `base-cpu` container at the committed pin:
   `+ torch==2.14.0+cpu` and the build deps.
 
 `make build-engine ENGINE=vllm ARCH=cpu` at head `854228d2` (and the doc commit on top): BUILD SUCCESS
-(local run, base-cpu container). The `engine-build` publish dispatch `<run>` then re-verifies + pushes all three vllm cells.
+(local run, base-cpu container). The `engine-build` publish dispatch run `41392395056` (engine=vllm,
+arch=cpu, push=true) re-verified + published all three vllm cells cleanly at `a6bb06cd`: the cpu cell
+`make build-engine ENGINE=vllm ARCH=cpu` (the #1544 target) + the test-published serve + install-leg
+all passed and the image landed at `ghcr.io/asimov-agent/llgenie/vllm:3a4d82f5-13c5a9c8-cpu` (`=:cpu`/
+`:latest`) digest `sha256:1f7f8516dfb66b2d97e948fe42dcaeabff1b025f415ab0cabef2771612312093`.
 
 ## Acceptance status (measured)
 
