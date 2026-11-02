@@ -46,4 +46,10 @@ RUN pip install --no-cache-dir \
         -r requirements-dev.txt \
         "huggingface_hub[cli]>=0.30"
 WORKDIR /repo
+# Run the liveness/healthcheck (and any CMD) as the reserved non-root user, not
+# root (issue #1593/#1597, dockerfile.security.missing-user: the image previously
+# declared no USER, so the ephemeral CMD ran as root). This image is build-only
+# (`make test-variant-image`, never run in CI), and `CMD ["--help"]` writes
+# nothing, so a non-root drop is safe: it carries no /repo writes or HOME state.
+USER 65532:65532
 CMD ["--help"]
