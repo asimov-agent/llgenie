@@ -1052,7 +1052,10 @@ check-merge-on-red: ## Fail when the PR head has a red check-run (failure, timed
 alert-merged-red: ## Comment once on a recently merged PR whose head check-run is still red, naming the merge commit (REPO= [MAX=20] [DRY=1]) (issue #1386)
 	@test -n "$(REPO)" || { echo "Usage: make alert-merged-red REPO=<owner/repo> [MAX=20] [DRY=1]"; exit 1; }
 	python3 scripts/auto_merge.py alert-merged-red --repo "$(GH_REPO)" --limit $(if $(MAX),$(MAX),20) $(if $(DRY),--dry,)
-.PHONY: check-merge-on-red alert-merged-red
+stacked-merge-detect: ## Report the PRs merged into a non-`main` base — a hand merge into a stacked base is a named report (author, head sha, check count), expected 0 (REPO= [MAX=20] [DRY=1]) (issue #963)
+	@test -n "$(REPO)" || { echo "Usage: make stacked-merge-detect REPO=<owner/repo> [MAX=20] [DRY=1]"; exit 1; }
+	python3 scripts/auto_merge.py stacked-merged --repo "$(GH_REPO)" --limit $(if $(MAX),$(MAX),20) $(if $(DRY),--dry,)
+.PHONY: check-merge-on-red alert-merged-red stacked-merge-detect
 
 # A bot's review VERDICT is a comment marker, never an approval (issue #852): every bot pushes with the
 # owner's token, so `gh pr review --approve` on its own PR is refused and `reviewDecision` can never leave
