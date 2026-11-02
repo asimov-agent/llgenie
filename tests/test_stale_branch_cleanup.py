@@ -205,3 +205,69 @@ def test_genuinely_empty_branch_list_still_exits_0(tmp_path):
     assert out.returncode == 0, out.stderr
     assert "report-only: 0 would be deleted" in out.stdout
     assert "branch-list read failed" not in out.stdout and "branch-list read failed" not in out.stderr
+
+
+def _transient_empty_branches_gh(tmp_path: Path, *, empty_forever: bool) -> str:
+    """A `gh` whose `branches?` read returns rc=0 with EMPTY stdout once (or forever), then valid.
+
+    This is the measured #1602 class (run 41459018440): `gh api .../branches` rc=0 stdout='' —
+    a one-shot gh-CLI relay drop, not a board state, not auth, not a rate cap. Empty-ever-fail
+    proves the retry does NOT turn a persistent empty into a clean board (#1514 preserved).
+
+    Each `_gh` call spawns a fresh `gh` subprocess, so the "read once empty then valid" state is
+    carried across calls by a counter file in the fake's bin dir.
+    """
+    branches = json.dumps([{"name": "fix/retry-delivered", "commit": {"sha": "a" * 40}}])
+    counter = tmp_path / "bin" / ".branches_calls"
+    script = (
+        "import json, sys, os\n"
+        "args = sys.argv[1:]\n"
+        "HERE = os.path.dirname(os.path.abspath(__file__))\n"
+        "CTR = os.path.join(HERE, '.branches_calls')\n"
+        "def count():\n"
+        "    try: n = int(open(CTR).read().strip() or '0')\n"
+        "    except Exception: n = 0\n"
+        "    n += 1\n"
+        "    open(CTR, 'w').write(str(n))\n"
+        "    return n\n"
+        "if args[:2] == ['repo', 'view']:\n"
+        "    print('main'); sys.exit(0)\n"
+        "if args[:1] == ['api'] and 'branches?' in ' '.join(args):\n"
+        "    if EMPTY_FOREVER:\n"
+        "        print(''); sys.exit(0)   # every read empty\n"
+        "    if count() == 1:\n"
+        "        print(''); sys.exit(0)   # one-shot empty (transient blip)\n"
+        "    print(BRANCHES123); sys.exit(0)\n"
+        "if args[:2] == ['pr', 'list']:\n"
+        "    print('[]'); sys.exit(0)\n"
+        "if args[:1] == ['api'] and '/branches/' in ' '.join(args) and '/protection' in ' '.join(args):\n"
+        "    sys.stderr.write('gh: Not Found (HTTP 404)\\n'); sys.exit(1)\n"
+        "if args[:1] == ['api'] and 'compare/' in ' '.join(args):\n"
+        "    print('behind'); sys.exit(0)\n"
+        "if args[:1] == ['api'] and '/commits/' in ' '.join(args):\n"
+        "    print('2026-01-01T00:00:00Z'); sys.exit(0)\n"
+        "sys.exit(1)\n")
+    script = (f"EMPTY_FOREVER={bool(empty_forever)!r}\n"
+              f"BRANCHES123={branches!r}\n" + script)
+    return _write_gh(tmp_path, script)
+
+
+def test_transient_empty_branch_list_read_is_retried_and_recovers(tmp_path):
+    """A one-shot rc=0+empty branch-list read (the gh-CLI relay drop, #1602) is retried and the sweep completes.
+
+    The transient class must NOT red the whole daily — that erodes trust in every real red.
+    """
+    bindir = _transient_empty_branches_gh(tmp_path, empty_forever=False)
+    out = _run(["--repo", "asimov-agent/llgenie", "--age-days", "3"], bindir)
+    assert out.returncode == 0, f"transient empty read must recover, got rc={out.returncode}:\n{out.stdout}\n{out.stderr}"
+    assert "branch-list read failed" not in out.stdout and "branch-list read failed" not in out.stderr
+    assert "fix/retry-delivered" in out.stdout or "0 would be deleted" in out.stdout
+
+
+def test_persistent_empty_branch_list_read_still_reds(tmp_path):
+    """An rc=0+empty read on BOTH attempts still reds — the retry never turns a broken read into a clean board (#1514/#1602)."""
+    bindir = _transient_empty_branches_gh(tmp_path, empty_forever=True)
+    out = _run(["--repo", "asimov-agent/llgenie", "--age-days", "3"], bindir)
+    assert out.returncode != 0, f"persistent empty read must still red, got rc=0:\n{out.stdout}"
+    assert "branch-list read failed" in out.stdout or "branch-list read failed" in out.stderr
+    assert "0 would be deleted" not in out.stdout
