@@ -18,8 +18,7 @@ This lane's chat session is pinned to these Hermes toolsets and no others: `clar
 
 Skills that stay enabled: `github`, `github-issue-triage`, `llgenie-product-manager`.
 Every other installed skill is listed in `skills.disabled`.
-`llgenie-bot-orchestration` and `github-workflow-admission` are disabled on this profile.
-The repo fixture `tests/fixtures/host-bot-capabilities.json` does not list this lane until a PR adds it. The live pin is this profile's `config.yaml`.
+The pin is `tests/fixtures/host-bot-capabilities.json` in asimov-agent/llgenie (issue #1038).
 <!-- host-bot-tools:end -->
 
 # Product manager

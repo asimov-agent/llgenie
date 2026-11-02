@@ -30,14 +30,17 @@ NAME_RE = re.compile(r"^name:\s*[\"']?([^\"'\n]+)", re.M)
 # stamped for one lane while the test checks another (#1140).
 REPO_SKILL_PROFILES: dict[str, str] = {
     "agents/llgenie-architect/skills/software-development/llgenie-architecture-issue-pass/SKILL.md": "llgenie-architect",
+    "agents/llgenie-business-analyst/skills/llgenie-business-analyst/SKILL.md": "llgenie-business-analyst",
     "agents/llgenie-ci-pipelines-maintainer/skills/llgenie-pipeline-maintenance/SKILL.md": "llgenie-ci-pipelines-maintainer",
     "agents/llgenie-documentation-maintainer/skills/llgenie-docs-maintainer/SKILL.md": "llgenie-documentation-maintainer",
     "agents/llgenie-engine-improver/skills/llgenie-engine-improver/SKILL.md": "llgenie-engine-improver",
     "agents/llgenie-issse-implementer/skills/bulk-mechanical-migration/SKILL.md": "llgenie-issse-implementer",
     "agents/llgenie-planner/skills/llgenie-bot-orchestration/SKILL.md": "llgenie-planner",
+    "agents/llgenie-product-manager/skills/llgenie-product-manager/SKILL.md": "llgenie-product-manager",
     "agents/llgenie-pr-merge-conflict/skills/llgenie-pr-rebase/SKILL.md": "llgenie-pr-merge-conflict",
     "agents/llgenie-pr-reviever/skills/software-development/llgenie-pr-review/SKILL.md": "llgenie-pr-reviever",
     "agents/llgenie-security/skills/security-scan-ops/SKILL.md": "llgenie-security",
+    "agents/llgenie-status-keeper/skills/llgenie-status-keeper/SKILL.md": "llgenie-status-keeper",
     "agents/llgenie-tester/skills/llgenie-pr-testing/SKILL.md": "llgenie-tester",
     ".hermes/skills/llgenie-architecture-pass/SKILL.md": "llgenie-architect",
     ".hermes/skills/llgenie-engine-improver/SKILL.md": "llgenie-engine-improver",

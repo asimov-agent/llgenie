@@ -13,12 +13,14 @@ The three host role profiles created 2026-10-31 under `~/.hermes/profiles/` — 
 directory, no `agents/manifest.json` row, live SOULs absent from the tree (measured at
 main@33d11fa3: `agents/` listed 11 profiles, none of the three).
 
-This PR folds each profile's behaviour into the tree by **byte-identical copy from the live profile**
-(`scripts` / `git diff --no-index` verified byte-equality after the copy — never a private rewrite):
+This PR folds each profile's behaviour into the tree by **copy from the live profile** (`scripts` / `git diff --no-index` verified byte-equality after the copy — never a private rewrite):
 `agents/<profile>/SOUL.md` and the lane's own skill directory `agents/<profile>/skills/<profile>/`
 (the one skill each profile runs under that is not part of the shared library Hermes installs; every
 other live skill is `_skill_dirs`-excluded via `installed_library_names()`, verified by the probe that
-enumerated 116 skill dirs per profile and found exactly one lane skill apiece).
+enumerated 116 skill dirs per profile and found exactly one lane skill apiece). The only bytes changed
+are each skill's `<!-- host-bot-tools:begin -->` seam, whose live text says the fixture "does not list
+this lane until a PR adds it" — re-stamped to the single-seam #1038 canonical block as that PR (the
+rest of each file, SOUL and skill, byte-identical to live).
 
 `agents/manifest.json` gains all three rows. Each SOUL states both standing rules in its own voice —
 analyst line 10 (`**You never implement.**`) and line 12 (`**You never merge.**`), product-manager same,
