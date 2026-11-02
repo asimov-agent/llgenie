@@ -92,7 +92,27 @@ workflow YAML comes from the base unless the PR itself changed it. So a CI-ceili
 - Re-evaluate after the fresh run: a 120-budget cancel at ~1h is the real starved-runner signal and
   goes to the queue-shaping ledger (#882/#1146/#1139), not to another rerun loop.
 
-## The short cancel at a superseded head (a third class)
+## A `base..HEAD` gate red that cites FOREIGN issue numbers is base-staleness, not your diff
+
+`check-pr-closing` (and `scope`) read the commit range on the **merge ref** — GitHub merges your
+branch into the *current* base tip, so the range is `base-tip..merge`, not `your-base..your-head`.
+When your branch is based on an older `main` and the base tip has advanced (other PRs merged),
+that range **includes main's own newer commits**. Their messages carry their own `closes #<n>` and
+`(#<m>)` claims, so the gate reports a mismatch — "joined commits close #1398, #1514; body closes
+#1398", or "commits claim #1524 and don't close it" — with **ids that are not in your own log**.
+
+- **Fingerprint:** the guard names issue numbers you never touched; `git log --oneline
+  origin/main..HEAD` shows ONLY your commits; the PR body closes exactly the issue you meant. That
+  contradiction IS the diagnosis — the foreign ids come from main advancing under an unrebased base.
+- **Fix (the #1015 stale-base case — rebase is warranted here, the gate genuinely reds):** fetch
+  fresh (`git fetch origin +refs/heads/main:refs/remotes/origin/main`), `git rebase origin/main`,
+  re-apply the same commits (content unchanged), verify `origin/main..HEAD` is now only your
+  commits, then `check_pr_closing.py check --body-file <body-with-closes> --base origin/main --rev
+  HEAD` returns 0, and `git push --force-with-lease` (own branch, fetched immediately before).
+- Same artifact reds `scope`/`ci-verdict` at that head (foreign commits in the ranged diff) — no
+  scope defect to investigate. Never weaken the gate or edit commit messages to hide it; rebase.
+
+## Running one gate test when the suite harness will not start
 
 Not every cancel is the old ceiling or starvation. A `completed/cancelled` whose long job dies well
 **before** any ceiling (~25-30 min of a ~1h45 job), with every sibling green and no failure anywhere,
@@ -161,6 +181,15 @@ print('PASS t')"
 - A `ModuleNotFoundError` at `exec_module` (e.g. `yaml`) is a **missing scratch dependency**, not a
 test defect — `pip install pyyaml` in the venv and re-run. Do not report it as a gate failure.
 - The test reads the repo root from its modules (`REPO`), so run it with the worktree as cwd.
+- **`--noconftest` + an empty HOME reproduces CI when the conftest consumes argv at import time.**
+  If `python -m pytest <file> -q` swallows output and exits 2 because `conftest.py` imports a module
+  that reads `sys.argv` at import (a host-venv quirk CI avoids by running containerized), run the
+  selected tests with `--noconftest` and a synthetic empty HOME so the live-parity comparison is
+  skipped exactly as CI skips it:
+  `env -i HOME=/tmp/nonexistent-ci-home PATH="$VENV/bin:/usr/bin:/bin" $VENV/bin/python -m pytest
+  tests/test_<x>.py::<test_name> -q --noconftest -p no:cacheprovider --no-header`.
+  A `findings(...)==[]` assertion that fails only with a non-empty HOME is the host-only live-parity
+  drift (live-edited-not-tree / absent-from-tree keys), not a defect your change introduced.
 
 ## How long the long jobs actually take
 

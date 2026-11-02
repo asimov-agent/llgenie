@@ -25,6 +25,23 @@ pushing.
 - `make sync-agent-profile PROFILE=<name>` copies `agents/<name>/` into that profile's Hermes home.
   The local profile copy is a COPY: change behaviour here, by PR, and never only in the private file.
 
+## Writing a SOUL is a protected-file operation
+
+`agents/<profile>/SOUL.md` (and `agents/<profile>/skills/**/SKILL.md`) are **protected
+agent-instruction files**: a `write_file`/`patch` is refused behind an approval prompt. A doc lane's own
+claim that "profile text is my domain" does not exempt its write from the gate — writing another lane's
+SOUL still routes through the same prompt.
+
+- **A timed-out approval prompt is NOT consent.** The tool gate says so explicitly: silence is not
+  consent, the write did **not** happen, and the same edit must not be retried via `terminal` or
+  `execute_code`. Treat the timeout as a hard blocker: confirm the file is untouched (`git -C <worktree>
+  status --porcelain` is empty), post the blocked state on the issue, **leave the worktree in place for
+  resume** (do not delete it), and tell the planner the edit text is ready and that only owner
+  re-authorisation — or a re-dispatch to a lane whose approval path differs — can land it.
+- Verify "no partial write landed" before reporting: a blocked write leaves the working tree clean, so
+  `git status --porcelain` returning nothing is proof the file is byte-unchanged, not the absence of a
+  mutation to narrate.
+
 ## Adding or updating a lane's SOUL
 
 1. Read the instruction issue and take the canonical rules block from it **verbatim** — other lanes
@@ -52,6 +69,14 @@ pushing.
    rules, keeping both leaves the rulebook longer than its source with two places to edit; dropping the
    duplicates is a net deletion (the file gets shorter and more authoritative). Keep only what a fence
    cannot express: the lane-specific reading of each rule.
+4b. **The duplicate gate counts only BOLDED `**Rule title.**` statements; a bare prose mention is exempt**
+   (`_duplicate_rule_debts` matches `\*\*Title[.,:;!?]?\*\*`, `>1` occurrence fires the note). So when a
+   lane-section restatement carries operational detail worth keeping — a commit-author rule, a
+   label-is-board-state rule, a one-line report/unblock rule — **de-bold only the leading rule title into
+   ordinary lane prose** rather than deleting the paragraph: the meaning survives, the verbatim fence
+   stays the single bolded canonical occurrence, and `python3 scripts/check_agent_profiles.py check` stops
+   emitting the duplicate note. Never move the extra detail *into* the fence bullet to consolidate — that
+   edits a bullet the gate requires byte-identical to `agents/standing-rules.md` and reds `fleet-block-drift`.
 5. **`make sync-agent-profile` refuses (`live-longer`) when the live file was edited after the tree
    copy was committed** — the guard working, because a sync would replace a newer live rulebook with an
    older tree copy. Decide deliberately: merge the delta by hand, or take the tree copy with
