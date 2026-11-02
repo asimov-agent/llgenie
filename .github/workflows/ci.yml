@@ -139,12 +139,16 @@ jobs:
       - name: make check-pr-closing (a claimed issue needs the same adjacent close in the squash text and the body — issues #1329, #1417)
         env:
           # The body, the title and the branch come from the pull_request event. A push to main has
-          # none of them. PR_BASE then defaults to origin/main, which is HEAD, so the range is empty.
+          # none of them. PR_BASE is the LIVE base branch ref (origin/main, refreshed below): the
+          # script anchors the squash range at `git merge-base origin/main HEAD`, so a PR opened
+          # before main advanced reads its OWN commits, not an event-frozen base.sha that sweeps in
+          # main's (issue #1527). The range is then empty for a push (origin/main == HEAD).
           PR_BODY: ${{ github.event.pull_request.body || '' }}
           PR_BRANCH: ${{ github.head_ref || '' }}
-          PR_BASE: ${{ github.event.pull_request.base.sha || 'origin/main' }}
+          PR_BASE: origin/main
           PR_TITLE: ${{ github.event.pull_request.title || '' }}
         run: |
+          git fetch --no-tags --prune origin main   # refresh origin/main so the merge-base is live, not a stale ref (issue #1527)
           if [ -n "$PR_BODY" ]; then printf '%s\n' "$PR_BODY" > /tmp/pr-body.md; export PR_BODY=/tmp/pr-body.md; fi
           make check-pr-closing
       - name: Decide which heavy rows this run schedules (make ci-slow-rows)

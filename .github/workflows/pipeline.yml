@@ -92,15 +92,18 @@ jobs:
       - name: make ci-unit (test-unit, skills-validate, check-registry, check-strata-models, check-engine-params)
         env:
           # The body, the title and the branch live on the pull_request event. A push to main has
-          # none of them. PR_BASE falls back to origin/main, which is then HEAD, so the squash range
-          # is empty and only the static half runs. PR_HEAD stays the git revision the author gate
-          # reads; the branch name is PR_BRANCH (issue #1417).
+          # none of them. PR_BASE is the LIVE base branch ref (origin/main, refreshed below): the
+          # check-pr-closing gate anchors the squash range at `git merge-base origin/main HEAD`,
+          # so a PR opened before main advanced reads its OWN commits, not an event-frozen base.sha
+          # (issue #1527). The range is then empty for a push (origin/main == HEAD). PR_HEAD stays
+          # the git revision the author gate reads; the branch name is PR_BRANCH (issue #1417).
           PR_BODY: ${{ github.event.pull_request.body || '' }}
           PR_BRANCH: ${{ github.head_ref || '' }}
-          PR_BASE: ${{ github.event.pull_request.base.sha || 'origin/main' }}
+          PR_BASE: origin/main
           PR_TITLE: ${{ github.event.pull_request.title || '' }}
         run: |
           set -euo pipefail
+          git fetch --no-tags --prune origin main   # refresh origin/main so the merge-base is live (issue #1527)
           if [ -n "$PR_BODY" ]; then printf '%s\n' "$PR_BODY" > /tmp/pr-body.md; export PR_BODY=/tmp/pr-body.md; fi
           make ci-unit
       - name: Prune orphaned test containers
