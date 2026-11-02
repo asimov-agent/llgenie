@@ -322,7 +322,10 @@ jobs:
     # targets), never the whole repository secret store onwards.
     secrets:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # GITHUB_TOKEN cannot be declared by that name in a reusable workflow (system-reserved),
+      # so it is aliased RUN_TOKEN at the call boundary and re-exported as GITHUB_TOKEN by
+      # pipeline.yml's jobs (issue #1594).
+      RUN_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     with:
       runner: ubuntu-latest
       top_tier_rows: ${{ needs.guard.outputs.top_tier_rows }}

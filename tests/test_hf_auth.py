@@ -211,12 +211,14 @@ def test_workflows_pass_the_secret_into_reusable_workflows():
     ci = yaml.safe_load((REPO / ".github" / "workflows" / "ci.yml").read_text())["jobs"]
 
     # When its reusable-workflow calls are read
-    # Then the call inherits only the secrets the callee consumes (issue #1594) —
-    # never the whole store via `secrets: inherit`.
+    # Then the call passes only the secrets the callee consumes via an explicit block
+    # (issue #1594) — never the whole store via `secrets: inherit`, and never the
+    # system-reserved GITHUB_TOKEN name (which GitHub refuses to declare in a reusable
+    # workflow); ci.yml aliases it RUN_TOKEN.
     for job in ("linux",):
-        # a `secrets:` block must exist and not be the string `inherit`
         assert ci[job]["secrets"] != "inherit", job
         assert isinstance(ci[job]["secrets"], dict), job
+        assert "GITHUB_TOKEN" not in ci[job]["secrets"], (job, ci[job]["secrets"])
 
 
 def test_throttle_wait_reads_the_seconds_the_hub_names_in_text():
