@@ -147,7 +147,12 @@ def superseding_run(repo: str, run: dict) -> dict | None:
     if not branch or not created:
         return None
     listing = _api(f"repos/{repo}/actions/runs?branch={branch}&per_page=50")
-    same_workflow = [other for other in listing.get("workflow_runs") or []
+    runs = listing.get("workflow_runs") or []
+    if int(listing.get("total_count") or 0) > len(runs):
+        raise RuntimeError(
+            f"branch {branch} reports {listing.get('total_count')} run(s) and one page returned {len(runs)}: "
+            "a truncated listing cannot be a verdict")
+    same_workflow = [other for other in runs
                      if other.get("workflow_id") == workflow_id]
     attempts = [other for other in same_workflow
                 if other.get("id") == run.get("id")
