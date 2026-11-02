@@ -35,3 +35,14 @@ When a gate reds, count the findings that touch your changed files before blamin
 `grep -c '<your path>'` on the tool output. **Zero findings on your files + the same red reproduced on a
 clean `main`** = a shared-base defect: disclose it as pre-existing and do not try to fix it inside a
 rebase/docs PR. A branch that adds nothing to the failing tool's findings did not cause that red.
+
+## A post-merge gate re-read finding whose live mtime is strictly newer than the fold's mergedAt is NEXT-FOLD drift, never the landed fold's failure (issue #1464 guard #4)
+After an acceptance-gate PR (*e.g. a `check_agent_profiles` fold*) merges, re-reading the gate at the
+new head can still print "FAIL, N findings" — because live lanes keep editing **after** the merge. A
+finding-count alone misfiles a landed fold as needing a re-fold. Correlate each finding's **live
+mtime** against the fold's `mergedAt` (from `gh pr view <n> --json mergedAt`, read fresh): a finding
+whose live mtime is **strictly newer** than `mergedAt` is drift that arose *after* the fold landed —
+attribute it to the owning lane as the **next** fold's work, never report the current fold as failed
+on it. Only a finding whose live mtime is **older than** `mergedAt` (present in the tree the fold
+landed) is evidence the landed fold itself missed something. Both timestamps are facts; compare them
+per finding before naming a fold.
