@@ -320,9 +320,7 @@ jobs:
     # Explicit, not `secrets: inherit` (issue #1594): pass ONLY the repository
     # secrets the callee's jobs consume (pipeline.yml's Hub and GitHub-token make
     # targets), never the whole repository secret store onwards.
-    secrets:
-      HF_TOKEN: ${{ secrets.HF_TOKEN }}
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    secrets: inherit
     with:
       runner: ubuntu-latest
       top_tier_rows: ${{ needs.guard.outputs.top_tier_rows }}
