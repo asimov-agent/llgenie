@@ -254,7 +254,16 @@ def test_this_repository_passes_its_own_guard():
 
 
 def test_this_repositorys_producers_state_the_issue_the_fix_and_the_benefit():
-    """The commit each producer runs carries the three parts and the technical extension."""
+    """The commit each producer runs carries the body's parts and the technical extension.
+
+    The engine-bump producer is a rolling pin chore that claims no issue (it must not trip the
+    closing gate with an `Issue:` line it never closes — #1588/#1591), so it carries Fix/Benefit/
+    Technical and the explicit "closes no issue" marker instead of an `Issue:` part. Every other
+    producer still carries all four parts: `Issue:`+`Fix:`+`Benefit:`+`Technical:`.
+    """
+
+    rolling_chore_parts = ("Fix:", "Benefit:", "Technical:", "closes no issue")
+    issue_parts = ("Issue:", "Fix:", "Benefit:", "Technical:")
 
     # Given the three producers that commit
     for rel in PRODUCERS:
@@ -263,8 +272,12 @@ def test_this_repositorys_producers_state_the_issue_the_fix_and_the_benefit():
         # When  its commit line is read
         commit_lines = [l for l in text.splitlines() if l.strip().startswith("git commit")]
 
-        # Then  it passes a second message part, and the message names all four parts
+        # Then  it passes a second message part, and the message names its parts
         assert commit_lines, f"{rel} no longer commits"
         assert all('-m "$msg"' in l for l in commit_lines), rel
-        for part in ("Issue:", "Fix:", "Benefit:", "Technical:"):
+        required = rolling_chore_parts if rel.endswith("engine-bump.yml") else issue_parts
+        for part in required:
             assert part in text, f"{rel} does not state {part}"
+        if rel.endswith("engine-bump.yml"):
+            # a rolling pin that claims no issue must not leave the gate-tripping `Issue:` line
+            assert "Issue:" not in text, f"{rel} must not state an Issue: it never closes"
