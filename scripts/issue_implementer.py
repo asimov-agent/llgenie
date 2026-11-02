@@ -128,24 +128,6 @@ def pr_token() -> "str | None":
     return os.environ.get("PR_TOKEN") or None
 
 
-
-
-#: Cache of the liveness probe: one lookup per run id per process (scripts/bot_claims.py, #291).
-_LIVE: dict[int, "bool | None"] = {}
-
-
-def run_is_live(gh: str, run_id: int) -> "bool | None":
-    """Whether the run that posted a claim is still going (cached).
-
-    A cancelled/preempted run must not hold a subject for the rest of the claim's TTL (#291): the
-    marker carries the run, and this asks GitHub about it. Unknown stays unknown - it never
-    releases a claim.
-    """
-    if run_id not in _LIVE:
-        _LIVE[run_id] = bot_claims.run_is_live(lambda args: _gh(gh, args), run_id)
-    return _LIVE[run_id]
-
-
 def _today() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
@@ -291,12 +273,12 @@ def _pick_free(gh: str, repo: str, cands: list[dict]) -> dict | None:
         num = issue["number"]
         comments = (_thread(gh, repo, num) or {}).get("comments")
         why = bot_claims.occupied(comments, bot_claims.IMPLEMENTER,
-                                  is_live=lambda rid: run_is_live(gh, rid))
+                                  is_live=lambda rid: bot_claims.run_is_live(rid, lambda args: _gh(gh, args)))
         if why:
             print(f"[issue-implementer] #{num} is {why}: skipping it and taking the next one")
             continue
         gone = bot_claims.released(comments, bot_claims.IMPLEMENTER,
-                                   is_live=lambda rid: run_is_live(gh, rid))
+                                   is_live=lambda rid: bot_claims.run_is_live(rid, lambda args: _gh(gh, args)))
         if gone:
             print(f"[issue-implementer] #{num}: {gone}")
         return issue
