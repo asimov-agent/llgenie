@@ -59,8 +59,8 @@ def _allowlisted(path: str, allow: tuple[str, ...]) -> bool:
 
 def _added_paths(root: Path, base: str) -> list[str]:
     """Paths *added* between the merge base of `base` and HEAD (three-dot)."""
-    r = subprocess.run(
-        ["git", "-C", str(root), "diff", "--name-only", "--diff-filter=A",
+    r = subprocess.run([  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
+        "git", "-C", str(root), "diff", "--name-only", "--diff-filter=A",
          f"{base}...HEAD"],
         capture_output=True, text=True,
     )
@@ -70,7 +70,7 @@ def _added_paths(root: Path, base: str) -> list[str]:
 
 
 def _tracked_paths(root: Path) -> list[str]:
-    r = subprocess.run(["git", "-C", str(root), "ls-files", "-z"], capture_output=True)
+    r = subprocess.run(["git", "-C", str(root), "ls-files", "-z"], capture_output=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     if r.returncode != 0:
         raise RuntimeError(r.stderr.decode().strip() or "cannot list tracked files")
     return [p for p in r.stdout.decode().split("\0") if p]
