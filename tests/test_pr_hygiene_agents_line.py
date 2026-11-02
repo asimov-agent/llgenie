@@ -44,7 +44,9 @@ def repo(tmp_path: Path) -> Path:
 
 
 def body(sha: str, size: int = 87255, lines: int = 1302) -> str:
-    return f"Closes #792.\n\nAGENTS: {sha} {size}b {lines}l\n\nBody text.\n"
+    # Issue #845: a bot PR body records the base (the same origin/main sha the AGENTS line cites)
+    # — the hygiene gate now requires the BASE line, so the reachability fixtures carry both.
+    return f"Closes #792.\n\nAGENTS: {sha} {size}b {lines}l\n\nBASE: {sha} (== origin/main at open)\n\nBody text.\n"
 
 
 def test_a_cited_rulebook_reachable_from_both_sides_passes(repo: Path):
