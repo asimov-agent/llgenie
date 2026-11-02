@@ -373,7 +373,7 @@ make list-engine-images              # every engine x arch variant
    by #938 on its own change.)
 2. **`make build-engine`** docker-builds that generated Dockerfile. No skill is read. The
    variant is picked from the detected GPU (else `<backend>-portable`) or set with
-   `ARCH=`. The tag hashes the frozen variant (`llgenie/llama-cpp-prism:c96baf4a-<hash>-cuda-sm89`),
+   `ARCH=`. The tag hashes the frozen variant (`llgenie/llama-cpp-prism:5628c733-<hash>-cuda-sm89`),
    so an unchanged engine is never rebuilt. With `LLGENIE_REGISTRY`, it is pulled instead.
 
 Every image runs `containers/engines/entrypoint.sh` (`serve` | `health` | `detect` | `info` | `shell`),
