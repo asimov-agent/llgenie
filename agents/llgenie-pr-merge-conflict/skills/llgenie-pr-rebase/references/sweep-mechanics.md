@@ -19,7 +19,13 @@ git fetch origin main --quiet
 git fetch origin '+refs/heads/*:refs/remotes/origin/*' --quiet
 git fetch fork   '+refs/heads/*:refs/remotes/fork/*'   --quiet   # only if cross-repo heads exist
 
-# per open PR: is the new main an ancestor of the PR's tip?
+# per open PR: is the new main an ancestor of the PR's tip?  Read STATE FIRST (issue #1464 guard #1):
+#   gh pr view <n> --json state   ->  "MERGED" means "no rebase owed (state==MERGED)", ALWAYS stop.
+#       A squash merge leaves the PR's branch ref at its pre-merge head, so `git merge-base(main, head)`
+#       reports "behind" on a PR whose content is already current main's tip (#1411 class). That is a
+#       merged vehicle, not an owed rebase -- never hand it one. Read `--json state` ONCE, before ANY
+#       merge-base/merge-tree, and short-circuit: state==MERGED is final regardless of the leftover ref.
+#   else: is the new main still an ancestor?  -> pick the remote, then test
 #   gh pr view <n> --json headRefName,isCrossRepository  -> pick the remote
 #   git merge-base --is-ancestor origin/main refs/remotes/<remote>/<branch>  -> 0 means current
 ```

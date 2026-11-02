@@ -26,7 +26,12 @@ The pin is `tests/fixtures/host-bot-capabilities.json` in asimov-agent/llgenie (
 ## References
 - `references/measurement-and-readback.md` — read-back/measurement pitfalls: exit codes behind a pipe,
   `gh pr merge --auto` proof via explicit GraphQL fields (jq-on-null and REST false-nulls), tools that read
-  the checked-out tree vs the fetched remote, and attributing a red to the base vs the branch.
+  the checked-out tree vs the fetched remote, and attributing a red to the base vs the branch
+  (includes guard #4, mtime-vs-mergedAt: a post-merge gate re-read finding newer than the fold's
+  `mergedAt` is NEXT-FOLD drift, not the landed fold's failure — issue #1464).
+- `references/sweep-mechanics.md` — the sweep loops that do the work; its per-PR probe reads
+  `gh pr view --json state` FIRST so a `MERGED` PR's leftover pre-merge ref is never rebound
+  (guard #1, state==MERGED-first — issue #1464).
 
 ## When to Use
 Use when a pull request in `asimov-agent/llgenie` shows `mergeable: CONFLICTING` / `mergeStateStatus: DIRTY` or `BEHIND`, and it must be brought onto the current `main` tip while staying a single reviewable commit.

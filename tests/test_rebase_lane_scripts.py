@@ -571,3 +571,45 @@ def test_every_shipped_control_is_tracked_executable():
     assert not non_exec, (
         "these shipped scripts are tracked non-executable, so their documented form fails "
         "Permission denied on every checkout: " + ", ".join(sorted(non_exec)))
+
+
+REFS = (REPO / "agents" / "llgenie-pr-merge-conflict" / "skills"
+        / "llgenie-pr-rebase" / "references")
+
+
+def test_guard1_state_merged_first_is_documented_in_the_sweep_probe():
+    """Guard #1 (issue #1464): the per-PR sweep probe must read `--json state` BEFORE any
+    merge-base/merge-tree, and a MERGED PR must short-circuit as 'no rebase owed'.
+
+    Measured on #1411: a squash merge leaves the PR's branch ref at its pre-merge head, so
+    `git merge-base(main, head)` legitimately reports 'behind' on content already on main — a
+    dispatched rebase of a merged PR is exactly what this lane must never do. The guard lives
+    where the probe does: `references/sweep-mechanics.md` §1, the only place this lane measures
+    staleness by merge-base. A future edit that reorders the probe back to merge-base-first
+    (dropping state) removes the guard the issue exists to encode, so the pin bites.
+    """
+    ref = REFS / "sweep-mechanics.md"
+    assert ref.is_file(), "references/sweep-mechanics.md missing — guard #1's home is gone"
+    text = ref.read_text()
+    assert "Read STATE FIRST" in text, "the probe lost the state==MERGED-first ordering"
+    assert "--json state" in text and "merge-base" in text, (
+        "guard #1 must read `--json state` and sit before the merge-base test")
+    assert "state==MERGED is final" in text, "the MERGED short-circuit wording is gone"
+
+
+def test_guard4_mtime_vs_mergedat_is_documented_under_the_skill():
+    """Guard #4 (issue #1464): a post-merge gate re-read finding whose live mtime is strictly
+    newer than the fold's `mergedAt` is NEXT-FOLD drift (owned by the owning lane), never a
+    misfile of the landed fold as failed.
+
+    Measured on the check_agent_profiles case: the no-args gate can read 'FAIL, N findings' at
+    the head right after the fold landed, because live lanes keep editing after the merge — a
+    finding-count alone mislabels a landed fold as needing a re-fold. The comparison is documented
+    in `references/measurement-and-readback.md`, the lane's read-back/attribution reference.
+    """
+    ref = REFS / "measurement-and-readback.md"
+    assert ref.is_file(), "references/measurement-and-readback.md missing — guard #4's home is gone"
+    text = ref.read_text()
+    assert "mergedAt" in text and "live mtime" in text, "the mtime-vs-mergedAt comparison is gone"
+    assert "strictly newer" in text, "the strictly-newer rule is gone"
+    assert "NEXT-FOLD" in text, "the next-fold attribution wording is gone"
