@@ -60,6 +60,8 @@ make install BUILD=1                      # build an image that is not published
 make test-built-engine                    # every ~/bin/llgenie-engine-* prints its engine version
 make check-engine-launchers               # CI: a launcher whose tag is not what the committed params compute FAILS
 make engine-launchers-report              # the same comparison, printed per engine (launcher tag vs expected)
+make check-engine-pins-published          # CI: an engine THIS change repins must have its exact image tag published — red on a 404, green only on resolve (issue #1622)
+make engine-pins-published-report         # print the engines this change repins vs the base + their published-tag set (issue #1622)
 make ci-wait-engine-images ARCH=cpu       # CI gate: wait until every image `make install` pulls is published (issue #169);
                                           # a producer cell still QUEUED is waited on up to 75 min and reported as BLOCKED,
                                           # a producer that concluded is reported as NOT FOUND (issue #893)
@@ -90,6 +92,26 @@ would fail on a tag nobody pushed, with the error pointing at the registry inste
 (issue #842). A host with no launcher is informational — that is CI's normal state. `CHECK_REGISTRY=1`
 additionally fails a computed tag that resolves no manifest; the default run touches no network and
 starts no container.
+
+### Publication visibility — what `check-engine-pins-published` proves (issue #1622)
+
+Since issue #1027 `ci.yml` builds and publishes **no** engine: that is the engine-build
+PRODUCER's job, and it happens only when the producer is dispatched with `push=true`.
+A pin-bump PR could therefore merge with its new tag never appearing on GHCR — the PR's
+own registry check DEFERS the repinned engine (it was written for the pre-#1027 world
+where the same CI run published it), so nothing verified the image at the PR, and the
+failure stayed hidden until a later scheduled run tripped on the 404 (#1365/#1587).
+
+`make check-engine-pins-published` closes that hole at the PR: `scripts/
+check_engine_pins_published.py` finds the engines whose COMMITTED params differ from the
+base (resolved by `scripts/base_ref`, issue #925), takes each repinned engine's exact
+image tag from the ONE tag formula (`engine_image.resolve().tag` — the same list
+`make install` pulls), and probes the registry manifest for it. An engine this change
+does **not** re-pin is never queried, so a normal PR stays hermetic and fast; the network
+is touched only for engines a bump actually moved. Red on a 404 / absent manifest (naming
+the exact ref), green only when every repinned engine's tag resolves; `LLGENIE_REGISTRY`
+overrides the registry. It is a `ci-unit` step, so it runs in the PR pipeline. A bump thus
+waits for a `push=true` dispatch before it may merge — the acceptance of #1622.
 
 The tag hashes FOUR inputs, not just the params: the variant's params, its committed Dockerfile,
 `containers/engines/entrypoint.sh` and `scripts/engine_runner.py`. A checkout that differs in any
