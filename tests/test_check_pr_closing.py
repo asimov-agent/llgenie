@@ -250,6 +250,130 @@ def test_the_cli_reads_the_commit_range_git_will_squash(tmp_path):
     assert code == 0
 
 
+def _init_repo_with_advancing_main(tmp_path):
+    """A repo whose main advanced past a PR's fork point.
+
+    Returns the working paths and shas the live-base tests read:
+      (repo, git_env, frozen_base_sha, head_sha, close_msg)
+    The PR fork happens at `freeze` (the event base.sha a `pull_request` payload would carry),
+    then main advances with its OWN claim (#9) on top, and the PR head is rebased onto that new
+    main — so `frozen_base..head` would sweep the main advance into the PR's range (issue #1527).
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    def git(*args):
+        subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True,
+                       text=True, env=os.environ.copy())
+
+    def sha(ref="HEAD"):
+        return subprocess.check_output(["git", "rev-parse", ref], cwd=repo, text=True).strip()
+
+    git("init", "-b", "main")
+    git("config", "user.email", "andy.holst@protonmail.com")
+    git("config", "user.name", "Andy Holst")
+    (repo / "README").write_text("base\n")
+    git("add", "README")
+    git("commit", "-m", "chore: base")
+    # The PR forks here; this sha is the event payload's frozen base.sha (issue #1527).
+    git("checkout", "-b", "feat")
+    (repo / "feat.txt").write_text("feat\n")
+    git("add", "feat.txt")
+    git("commit", "-m", "ci: feat work (#7)\n\nIssue: #7\n\ncloses #7\n")
+    frozen_base_sha = sha("HEAD")  # HEAD is now the PR's own commit on `feat`
+    # main advances with a commit of its OWN, carrying its own claim (#9).
+    git("checkout", "main")
+    (repo / "main.txt").write_text("main advance\n")
+    git("add", "main.txt")
+    git("commit", "-m", "chore: main advance (#9)\n\nIssue: #9\n\ncloses #9\n")
+    # The PR head is rebased onto the NEW main, so it now contains main's advance AND has a
+    # merge-base with the live origin/main that is *after* the frozen base.sha.
+    git("checkout", "feat")
+    git("rebase", "main")
+    head_sha = sha("HEAD")
+    close_msg = "closes #7\n"
+    # A local ref named origin/main pointing at the ADVANCED main tip: what a fresh
+    # `git fetch origin main` gives the workflow (the live base, not the frozen base.sha).
+    git("branch", "origin/main", "main")
+    return repo, frozen_base_sha, head_sha, close_msg
+
+
+def test_a_pr_opened_before_a_main_advance_stays_green(tmp_path):
+    """The gate reads the PR's OWN commits, not main's that landed after the event froze its base.
+
+    The event's base.sha predates main's advance. The workflow now passes the LIVE origin/main ref
+    and the script anchors the range at `git merge-base origin/main HEAD`, so the range is the PR's
+    commit alone — the main-advance claim (#9) is not swept in and the PR stays green (issue #1527).
+    """
+
+    # Given a PR whose fork-point base froze before main advanced, rebased onto that newer main
+    repo, frozen, head_sha, close_msg = _init_repo_with_advancing_main(tmp_path)
+    body = tmp_path / "body.md"
+    body.write_text("This change closes the feat.\n\n" + close_msg)
+
+    # When the gate reads the range against the LIVE origin/main ref (what the workflow passes)
+    code = run_cli([
+        "check", "--body-file", str(body), "--base", "origin/main", "--rev", head_sha,
+        "--cwd", str(repo), "--title", "ci: feat work (#7)",
+    ])
+
+    # Then a correct PR stays green even though main advanced after it was opened
+    assert code == 0, f"live-base run red on a correct PR: base={frozen}..head={head_sha}"
+
+    # And the OLD behavior — base frozen at the event base.sha — swept main's OWN declare (#9) in
+    # and red the same PR. Proving the regression the fix removes.
+    code_stale = run_cli([
+        "check", "--body-file", str(body), "--base", frozen, "--rev", head_sha,
+        "--cwd", str(repo), "--title", "ci: feat work (#7)",
+    ])
+    assert code_stale != 0, "the frozen-base.sha range must still sweep the main advance in"
+
+
+def test_a_genuine_non_adjacent_claim_still_reds_with_the_live_base(tmp_path):
+    """The live base only stops the *sweep* of main's commits; a real unclosed claim stays red."""
+
+    # Given the same repository shape, where the PR's commit claims #7 but never adjacently closes it
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    def git(*args):
+        subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True,
+                       text=True, env=os.environ.copy())
+
+    def sha(ref="HEAD"):
+        return subprocess.check_output(["git", "rev-parse", ref], cwd=repo, text=True).strip()
+
+    git("init", "-b", "main")
+    git("config", "user.email", "andy.holst@protonmail.com")
+    git("config", "user.name", "Andy Holst")
+    (repo / "README").write_text("base\n")
+    git("add", "README")
+    git("commit", "-m", "chore: base")
+    git("checkout", "-b", "feat")
+    (repo / "feat.txt").write_text("feat\n")
+    git("add", "feat.txt")
+    git("commit", "-m", "ci: feat work (#7)\n\nIssue: #7\n\ncloses **#7**\n")  # non-adjacent: markdown between
+    git("checkout", "main")
+    (repo / "main.txt").write_text("main advance\n")
+    git("add", "main.txt")
+    git("commit", "-m", "chore: main advance (#9)\n\nIssue: #9\n\ncloses #9\n")
+    git("checkout", "feat")
+    git("rebase", "main")
+    head_sha = sha("HEAD")
+    git("branch", "origin/main", "main")
+    body = tmp_path / "body.md"
+    body.write_text("closes #7\n")
+
+    # When the gate reads the range against the LIVE origin/main
+    code = run_cli([
+        "check", "--body-file", str(body), "--base", "origin/main", "--rev", head_sha,
+        "--cwd", str(repo), "--title", "ci: feat work (#7)",
+    ])
+
+    # Then the genuine non-adjacent claim is still RED — the live base does not disable the gate
+    assert code != 0
+
+
 def _step(text: str, name: str) -> str:
     start = text.index(name)
     rest = text[start:]
