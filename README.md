@@ -85,9 +85,14 @@ make install
    only pulls a wheel or a release archive). One cell is a recorded exception: `litert/cpu`
    installs upstream's Bazel wheel, whose runtime is a Git-LFS `prebuilt/<os>/libLiteRt.so`, so
    building it here would still ship upstream's binary — the measurement and the dated decision
-   are in `skills/engines/litert/SKILL.md` and `docs/ENGINES.md`. One cell still says
-   `prebuilt: true` (`tensorrt-llm/cuda`) and starts from the engine's own upstream image;
-   `sglang/cuda` (#938), vLLM's three cells (#937) and ollama's four cells (#936) were converted
+   are in `skills/engines/litert/SKILL.md` and `docs/ENGINES.md`. `tensorrt-llm/cuda` is a second
+   recorded exception: a time-boxed source build at its pinned sha (devel:1.2.1 base,
+   `scripts/build_wheel.py --trt_root /opt/tensorrt --cuda_architectures 89-real`) did not fit the
+   CI budget (multi-hour compile even at -j16 on a 32-core host vs the 4-vCPU `ubuntu-latest` the
+   engine-build job uses and its 240-min timeout; a full Git-LFS clone is 5.2 GB and the build tree
+   ~11 GB against the runner's ~14 GB free disk), so it stays `prebuilt: true` and starts from the
+   engine's own upstream image — the dated decision is in `skills/engines/tensorrt-llm/SKILL.md`
+   and `docs/ENGINES.md`. `sglang/cuda` (#938), vLLM's three cells (#937) and ollama's four cells (#936) were converted
    to source builds at their pinned shas, and the remaining prebuilt cell is tracked by its own
    issue (`tensorrt-llm/cuda` is #939). For ollama that is upstream's own Go build plus the
    llama.cpp runners it vendors in the same tree.

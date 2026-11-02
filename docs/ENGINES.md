@@ -287,8 +287,13 @@ plus the AOT kernels, #938) and `ollama` ×4 (the Go binary from the pinned tag 
 release `-ldflags`/`CGO_ENABLED`, plus the llama.cpp runner built from the `llama/server` CMake
 presets in ollama's own tree — the CPU one in every image, `cuda_v13` / `rocm_v7_0` / `vulkan` per
 backend, #936).
-Still prebuilt today, each with its own linked issue because its build cost is unmeasured:
-`vllm` ×3, `tensorrt-llm` cuda. `litert/cpu` keeps a dated decision in
+Still prebuilt today, each with its own linked issue: `vllm` ×3 (build cost unmeasured), and
+`tensorrt-llm` cuda which now carries a dated decision in its skill (#939): a time-boxed source
+build at pin `376f7e1b` in the devel:1.2.1 base
+(`scripts/build_wheel.py --trt_root /opt/tensorrt --cuda_architectures 89-real -j 16`) projected to
+>90 min of object compile at -j16 on a 32-core host before wheel/link (a full Git-LFS clone is
+5.2 GB and the tree ~11 GB), which on the 4-vCPU `ubuntu-latest` the engine-build job runs on is
+multi-hour — past the 240-min timeout and near the ~14 GB runner free disk. `litert/cpu` keeps a dated decision in
 its skill: its pip package is a Bazel `py_wheel` over a Git-LFS `prebuilt/*/libLiteRt.so`
 (upstream's compiled core), so building it here would still ship someone else's binary, the
 `bazel build //python/litert_lm_cli:wheel` attempt dies at repository mapping in 92 s, and the C++
