@@ -134,13 +134,93 @@ def issue_findings(reports: Path = REPORTS, policy: dict | None = None) -> list[
     return sorted(out, key=lambda f: (f.severity, f.advisory, f.package))
 
 
+def _technical(finding: Finding, run_url: str) -> list[str]:
+    """The `## Technical` section — shared verbatim by both body shapes.
+
+    The marker, advisory id, severity, component and run link are the reader's traceability to the
+    scan, so they are identical whether the finding is a code defect or a package advisory: the body
+    prose is presentation, the idempotency key and the scan provenance are the memory (issue #1560).
+    """
+    return [
+        f"**Advisory:** `{finding.advisory}` — scanner: `{finding.source}`",
+        f"**Affected package:** `{finding.package}`",
+        f"**Current → fixed:** `{finding.current}` → `{finding.fixed or '(none named)'}`",
+        f"**Severity:** `{finding.severity}`",
+        f"**Component:** `{finding.component}`",
+        f"**Scan run:** {run_url or '(local `make security-scan-all`)'}",
+        "**Idempotency:** the marker on line 1 is the lookup key — `make security-issues` "
+        "updates this issue on the next scan, never files a second one for the same "
+        "(advisory, package).",
+    ]
+
+
+def _code_body(finding: Finding, run_url: str) -> str:
+    """The body for a `component:code` finding (SAST or committed secret) — edit-the-code.
+
+    A code finding has no `fixed` version: its remediation is editing the matched source, never a
+    bump in `requirements*.txt`. The `## How we fix it` and `## Acceptance criteria` therefore tell
+    the reader the present-tense action that clears it — fix the matched region, commit, let the next
+    scan confirm — and never name the generated requirements pin path the CVE template uses.
+    """
+    return issue_body.render(
+        marker=finding.marker,
+        problem=(
+            f"`{finding.source}` reports `{finding.advisory}` against the matched region "
+            f"`{finding.current}` in `{finding.package}`, which this repository ships as a "
+            f"{finding.component} finding. Severity: {finding.severity}."
+        ),
+        why=(
+            "The defect is in source code this repository ships, so every build carries it and the "
+            "scan re-reports it on every run until the matched code is edited — no package pin "
+            "exists that can make it go away by itself."
+        ),
+        how=[
+            f"Edit the matched region in `{finding.package}` so it no longer triggers "
+            f"`{finding.advisory}` — fix the code, never try to pin a dependency: a "
+            "`component:code` finding lives in a file, not in a dependency pin.",
+            "Commit the source fix and let the pipeline re-scan: the next run of the security "
+            "pipeline reports whether the matched region still triggers the rule.",
+            "Close the loop without a human: when no scanner reports this finding any more, the "
+            "next run comments the run that cleared it and closes this issue.",
+        ],
+        benefit=(
+            f"A shipped source defect stops existing at `{finding.severity}` severity, the scan "
+            "that reported it has a run it can point at as the clearing run, and the work is "
+            "tracked in the issue the remediation path closes instead of in a SARIF file nobody "
+            "reads."
+        ),
+        acceptance=[
+            f"`{finding.package}` no longer matches the rule — the matched region is fixed in "
+            "source",
+            f"`make security-scan TOOL={finding.source}` no longer reports `{finding.advisory}` for "
+            f"`{finding.package}`",
+            "the next scan closes this issue with the run that cleared it",
+        ],
+        technical=_technical(finding, run_url),
+        not_covered=[
+            "Other occurrences of the same rule in other files are separate findings: each gets its "
+            "own issue with its own advisory id.",
+            "A scanner that could not run (its report is absent) is not a clean result for this "
+            "file: `make security-verdict` refuses instead of passing.",
+        ],
+    )
+
+
 def body_for(finding: Finding, run_url: str = "") -> str:
     """The issue body: the shape every issue in this repository carries (issue #745).
 
     The marker stays the first line (`MARKER_RE` reads it back, so a re-scan updates this issue
     instead of opening a duplicate); the advisory detail lives in `## Technical`, where a reviewer
     verifies it, and the four readable sections say what is wrong and what fixing it buys.
+
+    The remediation narrative branches on the finding's component (issue #1560): a `component:code`
+    finding (a SAST or committed-secret finding) gets the *edit-the-code* body — the matched source is
+    the defect and fixing it is the action; every other finding keeps the *bump-the-pin* template.
+    The branch reuses `component_of` (source not in the CVE scanners' vocabulary) so the body matches
+    the component label and the verdict's `require_fix` classification.
     """
+    if finding.component == "component:code":
+        return _code_body(finding, run_url)
     return issue_body.render(
         marker=finding.marker,
         problem=(
@@ -176,17 +256,7 @@ def body_for(finding: Finding, run_url: str = "") -> str:
             f"`{finding.package}`",
             "the next scan closes this issue with the run that cleared it",
         ],
-        technical=[
-            f"**Advisory:** `{finding.advisory}` — scanner: `{finding.source}`",
-            f"**Affected package:** `{finding.package}`",
-            f"**Current → fixed:** `{finding.current}` → `{finding.fixed or '(none named)'}`",
-            f"**Severity:** `{finding.severity}`",
-            f"**Component:** `{finding.component}`",
-            f"**Scan run:** {run_url or '(local `make security-scan-all`)'}",
-            "**Idempotency:** the marker on line 1 is the lookup key — `make security-issues` "
-            "updates this issue on the next scan, never files a second one for the same "
-            "(advisory, package).",
-        ],
+        technical=_technical(finding, run_url),
         not_covered=[
             "Transitive dependencies this advisory pulls in are separate findings: each gets its own "
             "issue with its own advisory id.",
