@@ -45,6 +45,11 @@ jobs:
           REPO: ${{ github.repository }}
           # The run's head repository: empty for every non-PR event (issue #510).
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name || '' }}
+          # The event + ref: on a `workflow_dispatch` the head repo is empty, so the bot's same-repo-head
+          # intent is reached via event+ref instead (the all-pipelines sweep dispatching `main`, issue
+          # #1571).
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -55,9 +60,20 @@ jobs:
             # 39650944430, #495). It may pass ONLY when the run's head is a branch in THIS repository —
             # a same-repo head can be produced only by a token with write access — while the bot as the
             # actor of a FOREIGN head (a bot commenting on a stranger's PR) is still refused (#510).
-            if [ "$u" = "github-actions[bot]" ] && [ -n "${HEAD_REPO:-}" ] && [ "${HEAD_REPO:-}" = "$REPO" ]; then
-              echo "Repository bot $u on a same-repo head ($HEAD_REPO) - allowed."
-              continue
+            # It also passes on a `workflow_dispatch` of this repository (issue #1571): a dispatch can
+            # only target this repository's own refs, and only this repository's own automation (a
+            # workflow scoped `actions: write` dispatching via GITHUB_TOKEN) can make the bot the
+            # actor of one — the same-repo-head intent reached via the event instead of the (empty)
+            # HEAD_REPO. A workflow_dispatch is how the weekly all-pipelines sweep drives its targets.
+            if [ "$u" = "github-actions[bot]" ]; then
+              if [ -n "${HEAD_REPO:-}" ] && [ "${HEAD_REPO:-}" = "$REPO" ]; then
+                echo "Repository bot $u on a same-repo head ($HEAD_REPO) - allowed."
+                continue
+              fi
+              if [ "${EVENT:-}" = "workflow_dispatch" ]; then
+                echo "Repository bot $u on a workflow_dispatch of this repository - allowed."
+                continue
+              fi
             fi
             perm=$(gh api "repos/$REPO/collaborators/$u/permission" --jq .permission 2>/dev/null || echo none)
             case "$perm" in

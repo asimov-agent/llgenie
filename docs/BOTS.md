@@ -1857,7 +1857,12 @@ verdict), and prints a table plus a `N ok · M failed · K disabled` summary.
 - **Failure isolation:** one red pipeline does not abort the sweep; the full table is printed and the job fails
   at the end iff any non-disabled dispatched run failed **or the admission gate is down**.
 - The report states the sha it swept, so a green is a fact about a tree, not a date.
-- `make all-pipelines-sweep REPO=owner/repo` drives it (the workflow's one make target; `scripts/all_pipelines.py`).
+- The sweep dispatches each target at the ref it is running from (`github.ref_name`) rather than a
+  hardcoded `main` (issue #1571): the umbrella verifies the pipelines of the tree it is sweeping, so a
+  PR-head sweep exercises the PR-branch workflows (whose trigger guard carries the bot dispatch
+  carve-out) and a weekly-on-main sweep exercises main — see "Who may start a bot" below.
+- `make all-pipelines-sweep REPO=owner/repo [REF=main]` drives it (the workflow's one make target;
+  `scripts/all_pipelines.py`).
 
 **`make targets-coverage`** is the sibling audit: it lists every `Makefile` target (from `make -qp`) with the
 callers found — a workflow step, a script reference, or none — marking `_`-prefixed targets **internal**, so
@@ -2543,19 +2548,27 @@ registry sync, the code review, the queued-run alarm and the agent-image publish
 with **write** access, and it checks **both** `github.actor` and `github.triggering_actor` (the actor who
 started it, so a re-run by someone else is re-checked too). `github-actions[bot]` is an App login and never
 a collaborator — the permission read answers `none` — so it is admitted **only** when the run's
-`HEAD_REPO` (`github.event.pull_request.head.repo.full_name`) is this repository: a same-repo head can only
-be produced by a token with write access, while the bot as the actor of a **foreign** head (a bot comment on
-a stranger's fork PR) is still refused, as is a bot actor on a non-PR event with no head at all (issue #510
-— the architecture bot's own PR #495 was refused by this, run `39650944430`). The refusal is the step's non-zero exit, and every job that touches a
+`HEAD_REPO` (`github.event.pull_request.head.repo.full_name`) is this repository (a same-repo head can only
+be produced by a token with write access), **or** when the run is a `workflow_dispatch` of this repository
+(`github.event_name == workflow_dispatch`, issue #1571). The dispatch carve-out is how the weekly
+all-pipelines sweep (which dispatches every active workflow as `github-actions[bot]` with the repo's
+`actions: write` token) can verify its targets despite a `workflow_dispatch` carrying no head repo; the **ref is
+not part of the boundary** because a `workflow_dispatch` can only target this repository's own refs (a
+feature-branch or stranger-fork head cannot be dispatched into our workflows), and the bot can only be the
+actor of one when this repository's own `actions: write` token starts it — the same-repo-head guarantee
+reached via the event instead of the (empty) `HEAD_REPO`. The bot as the
+actor of a **foreign** head (a bot comment on a stranger's fork PR) is still refused, as is a bot actor on a
+non-dispatch event with no head repo (issue #510 — the architecture bot's own PR #495 was refused by this, run
+`39650944430`). The refusal is the step's non-zero exit, and every job that touches a
 secret, a branch or GHCR needs the guard, directly or transitively. GitHub itself already refuses
 `workflow_dispatch` from a user without write access; the guard is the second line, and it is what covers
 the paths that are not a dispatch (`issues: [labeled]`, a fork-side run). `ci.yml` carries the guard for the
 publish jobs that run on `pull_request`/`push`. `tests/test_workflow_guards.py` holds all of it to one
 shape: an any-collaborator `curl` check, an actor-only check, a guard nothing depends on, or a declared
 guard output nobody reads (issue #295) all fail `make test-unit` — and it **runs** the real guard script
-under bash against a real fake `gh`, so the bot allowance (same-repo head yes, foreign or missing head no)
-is executed rather than read off the YAML (issue #510). The guard is the same step — name, `env`
-and script — byte-for-byte in all eleven places, so a fix to the rule cannot miss a copy of it. The
+under bash against a real fake `gh`, so the bot allowance (same-repo head yes, foreign or missing head no,
+dispatch yes) is executed rather than read off the YAML (issue #510). The guard is the same step — name, `env`
+and script — byte-for-byte in every workflow that carries it, so a fix to the rule cannot miss a copy of it. The
 accepted **permission set** is read from the guard's own `case` arm, not matched as substrings, so an arm
 that also accepts `read`/`triage` (or a bare `*`) fails the suite and names the workflow (issue #306).
 
