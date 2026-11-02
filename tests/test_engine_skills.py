@@ -1736,7 +1736,7 @@ def test_vllm_cpu_does_not_reserve_90_percent_of_ram_and_gets_shm():
 
 def test_vllm_cpu_preinstalls_torch_from_the_cpu_index_before_cpu_txt():
     """Issue #1241: vllm's committed `requirements/build/cpu.txt` asks for
-    `torch==2.13.0+cpu`, a local-version wheel served only by the pytorch cpu
+    `torch==2.14.0+cpu`, a local-version wheel served only by the pytorch cpu
     index (`download.pytorch.org/whl/cpu`) — the default PyPI has no +cpu wheel,
     so the cpu build-engine row reds `No solution found ... unsatisfiable`. The
     cpu row preinstalls exactly that repack (mirroring the cuda row's `cu130`
@@ -1745,12 +1745,12 @@ def test_vllm_cpu_preinstalls_torch_from_the_cpu_index_before_cpu_txt():
         "variants"
     ]
     cpu = p("vllm")["cpu"]["install"]
-    assert next(i for i in cpu if "torch==2.13.0" in i).endswith(
+    assert next(i for i in cpu if "torch==2.14.0" in i).endswith(
         "--index-url https://download.pytorch.org/whl/cpu"
     )
     assert next(i for i in cpu if "requirements/build/cpu.txt" in i)
     # the cpu torch preinstall must come BEFORE the cpu.txt row
-    torch_i = next(i for i, s in enumerate(cpu) if "torch==2.13.0" in s)
+    torch_i = next(i for i, s in enumerate(cpu) if "torch==2.14.0" in s)
     cpu_txt_i = next(i for i, s in enumerate(cpu) if "cpu.txt" in s)
     assert torch_i < cpu_txt_i
 
