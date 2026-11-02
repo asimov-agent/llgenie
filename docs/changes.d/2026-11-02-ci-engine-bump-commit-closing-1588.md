@@ -1,0 +1,1 @@
+| 2026-11-02 | ci: engine-bump generated commit no longer claims issue #107, so automated bump PRs stop redding `check-pr-closing` (gate unchanged; regression test added) | [2026-11-02-ci-engine-bump-commit-closing-1588.md](agent-wiki/2026-11-02-ci-engine-bump-commit-closing-1588.md) | #1588 |

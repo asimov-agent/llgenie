@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -174,6 +175,42 @@ def test_run_block_is_valid_bash():
             subprocess.run(
                 ["bash", "-n", "-c", line], check=True, capture_output=True, text=True
             )
+
+
+def test_generated_commit_message_does_not_trip_the_closing_gate():
+    """The engine-bump commit must not claim an issue the bump never closes.
+
+    #1588 regression: the commit message once began with `Issue: #107 — ...`, which
+    `check_pr_closing` reads as a claim (issue #1329/#1417) and demands an adjacent
+    `closes #107` in the squash text and body that a rolling engine-bump PR never
+    emits — red on every generated bump. #107 is a CLOSED meta-issue; a pin bump is
+    a rolling chore that should claim and close nothing. This asserts the workflow's
+    generated commit line carries no `Issue: #N` claim, so the gate stays green and
+    the false-red cannot return.
+    """
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import check_pr_closing as cpc  # noqa: E402
+
+    block = _run_block()
+    msg_line = next(l for l in block.splitlines() if l.lstrip().startswith("msg=$(printf"))
+    # Rebuild the commit message as the workflow does (printf interpolates \n).
+    script = "set -eu\n"
+    for key, val in _OS_ENV.items():
+        script += f"{key}={_shell_quote(val)}\n"
+    script += msg_line + "\nprintf '%s' \"$msg\"\n"
+    rendered = subprocess.run(
+        ["bash", "-c", script], check=True, capture_output=True, text=True
+    ).stdout
+    # A rendered bump commit (subject + message) claims no issue.
+    title = "chore(engine): bump ollama to v0.40.13@04088e7c"
+    claims = cpc.claims_in([rendered], None, title)
+    assert claims == set(), (
+        "engine-bump commit must not claim an issue the rolling pin does not close. "
+        f"claiming {cpc._fmt(claims)} re-opens #1588."
+    )
+    # And the full squash check passes (commit claims nothing, body closes nothing).
+    items = cpc.check_squash([rendered], body=None, title=title)
+    assert items == [], [i["key"] for i in items]
 
 
 def test_printf_format_uses_single_backslash_n():
