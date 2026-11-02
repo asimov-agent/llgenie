@@ -122,7 +122,17 @@ REGISTRY = os.environ.get("LLGENIE_REGISTRY", DEFAULT_REGISTRY).rstrip("/").lowe
 def _sh(cmd: list[str], **kw) -> subprocess.CompletedProcess:
     print("[engine-image] $", " ".join(cmd), flush=True)
     # policy: run_ok — the caller inspects rc (issue #797, scripts/proc.py is the one seam).
-    return run_ok(cmd, **kw)
+    r = run_ok(cmd, **kw)
+    if r.returncode != 0:
+        # a failing buildx build must print why: run_ok captures the child's streams, so
+        # without this the surfaced error never reaches the CI log (plain-progress buildx
+        # output was being swallowed -> a 14s buildx failure looked like a silent FAIL).
+        for stream_name, stream in (("stdout", r.stdout), ("stderr", r.stderr)):
+            if stream and stream.strip():
+                sys.stderr.write(f"[engine-image] <{stream_name} of: {' '.join(cmd)}>\n")
+                sys.stderr.write(stream if stream.endswith("\n") else stream + "\n")
+                sys.stderr.flush()
+    return r
 
 
 def image_exists(tag: str) -> bool:
@@ -177,7 +187,7 @@ def _buildx(tag: str, ctx: str, push: bool, cache_ref: str, force: bool = False)
     no_cache = ["--no-cache"] if force else []
     if push and REGISTRY:
         # push ONLY the registry-qualified tag (a bare llgenie/... tag would go to Docker Hub)
-        cmd = [RUNTIME, "buildx", "build", "-t", f"{REGISTRY}/{tag}", *no_cache, *cache_args,
+        cmd = [RUNTIME, "buildx", "build", "--progress=plain", "-t", f"{REGISTRY}/{tag}", *no_cache, *cache_args,
                "--cache-to", f"type=registry,ref={cache_ref},mode=max", "--push", ctx]
         rc = _sh(cmd).returncode
         if rc == 0:  # make the image available locally under its bare tag too
@@ -188,7 +198,7 @@ def _buildx(tag: str, ctx: str, push: bool, cache_ref: str, force: bool = False)
     # builder sees locally loaded base images; the published cache is read-only.
     # Only name it when it exists — a fresh Colima on the macOS runner has no
     # builder called "default" and buildx errors instead of falling back.
-    cmd = [RUNTIME, "buildx", "build"]
+    cmd = [RUNTIME, "buildx", "build", "--progress=plain"]
     if _sh([RUNTIME, "buildx", "inspect", "default"], capture_output=True).returncode == 0:
         cmd += ["--builder", "default"]
     cmd += [*no_cache, "-t", tag, "--load"]

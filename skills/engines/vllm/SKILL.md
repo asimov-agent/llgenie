@@ -33,21 +33,51 @@ install:
     - "test -d {src}/.git || git clone -b {ref} --depth 1 {repo}.git {src}"
     # --no-build-isolation builds against a preinstalled torch: bump >= the sha's own
     # torch pin from the matching PyTorch repack index, then the rest of vLLM's build deps.
-    - "uv pip install --system --break-system-packages torch==2.13.0 --index-url https://download.pytorch.org/whl/{torch_backend}"
+    # torchcodec (the vLLM video-decoding backend, `>= 0.14` in requirements/*.txt) is
+    # preinstalled from the SAME index: the default-PyPI wheel is built against the stable
+    # torch C++ ABI and `torch.ops.load_library(libtorchcodec_image.so)` dies with a generic
+    # "Could not load this library" against torch 2.13 (issue #1365 run 41355299891 cpu/cuda).
+    - "uv pip install --system --break-system-packages torch==2.13.0 torchvision torchaudio torchcodec --index-url https://download.pytorch.org/whl/{torch_backend}"
     - "uv pip install --system --break-system-packages -r {src}/requirements/build/cuda.txt --index-strategy unsafe-best-match"
+    # vllm 5df63a72 ships a vendored Rust frontend (vllm-rs, channel 1.95): setup.py falls back to a
+    # local `cargo` build when the precompiled vllm/vllm-rs + _rust_*.so artifacts are absent, so the
+    # shared devel base (no Rust toolchain) fails. build_rust.sh bootstraps rustup + the pinned
+    # toolchain and precompiles the artifacts into the source tree, letting -e . skip cargo (issue #1365).
+    - "cd {src} && bash tools/build_rust.sh"
     - "cd {src} && CMAKE_ARGS='-DCMAKE_CUDA_ARCHITECTURES={cuda_arch}' VLLM_TARGET_DEVICE=cuda uv pip install --system --break-system-packages --no-build-isolation -e ."
   rocm:
     - "test -d {src}/.git || git clone -b {ref} --depth 1 {repo}.git {src}"
-    # the rocm build file itself names the amd index and the torch it needs
-    - "uv pip install --system --break-system-packages -r {src}/requirements/build/rocm.txt --index-strategy unsafe-best-match"
-    - "cd {src} && PYTORCH_ROCM_ARCH='{gpu_targets}' VLLM_TARGET_DEVICE=rocm uv pip install --system --break-system-packages --no-build-isolation -e ."
+    # the rocm build file names the amd index and the torch it needs, but pins a BARE
+    # triton (3.7.1+git0263a6a6) while torch==2.12.0+rocm7.14.0 requires the rocm-suffixed
+    # wheel (triton==3.7.1+git0263a6a6.rocm7.14.0) — upstream pin defect at 5df63a72; the
+    # resolver reports 'your requirements are unsatisfiable' unless the pins agree.
+    - "cd {src} && sed -i 's/^triton==3.7.1+git0263a6a6$/triton==3.7.1+git0263a6a6.rocm7.14.0/' requirements/build/rocm.txt && uv pip install --system --break-system-packages -r requirements/build/rocm.txt --index-strategy unsafe-best-match"
+    # vendored Rust frontend (vllm-rs): build_rust.sh precompiles the artifacts so -e . skips cargo
+    - "cd {src} && bash tools/build_rust.sh"
+    # the -e . CMake step must resolve HIP against the BASE image's /opt/rocm (which ships
+    # hipcc + FindHIP.cmake): without ROCM_PATH/HIP_PATH/CMAKE_MODULE_PATH pointing there, torch's
+    # LoadHIP.cmake falls back to the pip rocm-sdk-core wheel path and fails 'No FindHIP.cmake in
+    # CMAKE_MODULE_PATH' / 'Optional package HIP not found' (issue #1365, run 41342311363 rocm).
+    - "cd {src} && ROCM_HOME=/opt/rocm ROCM_PATH=/opt/rocm HIP_PATH=/opt/rocm CMAKE_ARGS='-DROCM_PATH=/opt/rocm -DCMAKE_PREFIX_PATH=/opt/rocm -DCMAKE_MODULE_PATH=/opt/rocm/lib/cmake/hip;/opt/rocm/lib/cmake/hip-lang' PYTORCH_ROCM_ARCH='{gpu_targets}' VLLM_TARGET_DEVICE=rocm uv pip install --system --break-system-packages --no-build-isolation -e ."
+
   cpu:
     - "test -d {src}/.git || git clone -b {ref} --depth 1 {repo}.git {src}"
     # the pinned cpu.txt requests torch==2.13.0+cpu, which only the cpu repack
     # index serves (default PyPI has no +cpu wheel); preinstall it first so the
     # -r cpu.txt row is satisfiable (issue #1241). torch_backend renders to 'cpu'.
-    - "uv pip install --system --break-system-packages torch==2.13.0 --index-url https://download.pytorch.org/whl/{torch_backend}"
+    # cpu.txt also asks bare 'torchvision'/'torchaudio' (no +cpu suffix) — resolving
+    # them from default PyPI installs _C built against the non-cpu torch ABI, so
+    # torchvision::nms/SGD ops never register and 'vllm --version' dies with
+    # 'operator torchvision::nms does not exist' at import (issue #1365 run
+    # 41345449621 cpu). Preinstall the ABI-matched +cpu wheels from the SAME index.
+    # torchcodec (video decoding backend, `>= 0.14` in cpu.txt) has the same class of
+    # bug: the default-PyPI wheel fails `torch.ops.load_library(libtorchcodec_image.so)`
+    # against 2.13.0+cpu with the generic "Could not load this library" (issue #1365
+    # run 41355299891 cpu) — pull it from the same index too.
+    - "uv pip install --system --break-system-packages torch==2.13.0 torchvision torchaudio torchcodec --index-url https://download.pytorch.org/whl/{torch_backend}"
     - "uv pip install --system --break-system-packages -r {src}/requirements/build/cpu.txt --index-strategy unsafe-best-match"
+    # vendored Rust frontend (vllm-rs): build_rust.sh precompiles the artifacts so -e . skips cargo
+    - "cd {src} && bash tools/build_rust.sh"
     - "cd {src} && VLLM_TARGET_DEVICE=cpu uv pip install --system --break-system-packages --no-build-isolation -e ."
 binary: "vllm"
 binary_flags: ["--version", "--help"]   # the vllm CLI answers --version (cpu detect) and --help
@@ -80,7 +110,7 @@ container:
   rocm:
     apt: [python3-dev]
   cpu:
-    apt: [python3-dev]
+    apt: [python3-dev, libnuma-dev]
 upstream_watch: [pyproject.toml, requirements/cuda.txt, requirements/rocm.txt, requirements/cpu.txt, docs/getting_started/installation/gpu.md, docs/getting_started/installation/cpu.md, docker/Dockerfile.rocm_base]
 ---
 

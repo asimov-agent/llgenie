@@ -9,3 +9,4 @@
 - [x] 7. `README.md` + `docs/ENGINES.md` "prebuilt cells" passage updated to six on this branch (ollama ×4, tensorrt-llm/cuda, sglang/cuda) — vLLM's three are now source builds.
 - [x] 8. `agent-wiki/2026-10-30-vllm-source-build.md`, `CHANGES.md` row (+ `docs/changes.d/`), OpenSpec `tasks.md` all ticked.
 - [x] 9. `make openspec-validate NAME=vllm-source-build` exits 0.
+- [x] 10. `skills/engines/vllm/SKILL.md` `install.cuda`/`install.cpu`: preinstall `torchcodec` from the SAME backend index as torch — the default-PyPI wheel's `libtorchcodec_image.so` fails `torch.ops.load_library` against torch 2.13 (measured run `41355299891` cpu/cuda); regenerated `containers/engines/params/vllm.json` cuda+cpu, change-note extended (run id cited), check-engine-params green.
