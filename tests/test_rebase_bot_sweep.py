@@ -37,6 +37,7 @@ def _fake_gh(tmp_path: Path, opts: dict | None = None):
     (tmp_path / "checks.json").write_text(json.dumps(opts.get("checks_by_pr", {})))
     (tmp_path / "comments.json").write_text(json.dumps(opts.get("comments_by_pr", {})))
     (tmp_path / "states.json").write_text(json.dumps(opts.get("states_by_pr", {})))
+    (tmp_path / "mergeable.json").write_text(json.dumps(opts.get("mergeable_by_pr", {})))
     #: PRs whose `pr checks` answers the documented non-zero: "no checks reported" (issue #801).
     (tmp_path / "nochecks.json").write_text(json.dumps(opts.get("no_checks_by_pr", [])))
     #: PRs whose `pr view --json comments` read fails hard (a real crash, not a no-checks answer).
@@ -65,7 +66,13 @@ elif args[:2] == ["pr", "view"]:
         state = seq.pop(0) if seq else "UNKNOWN"      # a sequence models the lazy computation
         by_pr[args[2]] = seq
         f.write_text(json.dumps(by_pr))
-        print(json.dumps({{"mergeStateStatus": state}}))
+        #: when the caller also asked for `mergeable`, answer it from the PR's row (issue #1566)
+        mfields = here / "mergeable.json"
+        mby = json.loads(mfields.read_text()) if mfields.exists() else {{}}
+        reply = {{"mergeStateStatus": state}}
+        if "mergeable" in fields:
+            reply["mergeable"] = mby.get(args[2], "")
+        print(json.dumps(reply))
     else:
         broke = here / "failcomments.json"
         if broke.exists() and args[2] in [str(x) for x in json.loads(broke.read_text())]:
@@ -92,9 +99,9 @@ else:
 
 
 def _pr(num, state="BEHIND", *, draft=False, head="andyholst", repo=None, base="main",
-        created="2026-10-01T00:00:00Z", title=None):
+        created="2026-10-01T00:00:00Z", title=None, mergeable=None):
     return {"number": num, "title": title or f"PR {num}", "isDraft": draft,
-            "mergeStateStatus": state, "headRefName": f"feat/{num}",
+            "mergeStateStatus": state, "mergeable": mergeable, "headRefName": f"feat/{num}",
             "headRepositoryOwner": {"login": head}, "createdAt": created, "baseRefName": base}
 
 
@@ -434,6 +441,25 @@ def test_a_red_pr_that_is_only_behind_is_left_to_the_fix_bot(tmp_path):
     # the conflicted one is taken even though it is red: the rebase is the precondition
     assert res["pr"] == 2, res
     assert any("the fix-bot owns that" in r for r in res["reasons"])
+
+
+def test_a_blocked_pr_is_still_rebased_when_its_mergeable_is_conflicting(tmp_path):
+    """A genuine conflict is a rebase even when `mergeStateStatus` reads BLOCKED (issue #1566).
+
+    GitHub reports `mergeStateStatus=BLOCKED` for a PR whose required review is pending even while
+    its branch sits in a real merge conflict (`mergeable: CONFLICTING`). Reading the state alone
+    left that PR `NONE` and the sweep passed over the exact rebase it exists to do — the #536 class.
+    """
+    gh, log = _fake_gh(tmp_path, {"search": [],
+                                  "prs": [_pr(42, "BLOCKED", created="2026-09-01T00:00:00Z",
+                                              mergeable="CONFLICTING")]})
+    res = rb.sweep(str(gh), f"{OWNER}/{NAME}", today="2026-10-14", own_fork="andyholst")
+    assert res["action"] == "rebase" and res["pr"] == 42, res
+    assert res["state"] == "BLOCKED", res
+    # it must have asked for `mergeable` in the pr-list read (the field is requested)
+    asked = [json.loads(line) for line in log.read_text().splitlines()]
+    merged_fields = [a for a in asked if a[:2] == ["pr", "list"]]
+    assert merged_fields and "mergeable" in merged_fields[0][merged_fields[0].index("--json") + 1], asked
 
 
 # --------------------------------------------------- an UNKNOWN merge state (issue #453)
@@ -864,6 +890,24 @@ def test_a_crashed_read_is_error_even_with_a_rebasable_state():
     assert rb.outcome("UNKNOWN", crashed=True) is rb.ERROR
     assert rb.outcome("DIRTY", crashed=True) is not rb.REBASE, (
         "a crashed read must never be read as 'this PR needs a rebase' — the sweep did not see it")
+
+
+def test_a_conflicted_mergeable_wins_over_a_pending_state():
+    # `mergeable: CONFLICTING` is a real conflict even when the state reads BLOCKED (a required
+    # review pending) or UNSTABLE (a check failing) — GitHub masks the conflict behind the review
+    # (issue #1566, the #536 class). Reading the state alone skips the exact PR the sweep exists for.
+    assert rb.outcome("BLOCKED", mergeable="CONFLICTING") is rb.REBASE
+    assert rb.outcome("UNSTABLE", mergeable="CONFLICTING") is rb.REBASE
+    assert rb.outcome("CLEAN", mergeable="CONFLICTING") is rb.REBASE
+    assert rb.outcome("BLOCKED", mergeable="conflicting") is rb.REBASE, "mergeable is case-insensitive"
+    # a plain BLOCKED PR (no conflict) is still not a rebase — the override is the conflict, not the field
+    assert rb.outcome("BLOCKED", mergeable="MERGEABLE") is rb.NONE
+    assert rb.outcome("BLOCKED") is rb.NONE, "existing pending-state semantics are unchanged"
+
+
+def test_a_conflicted_mergeable_does_not_override_a_crash():
+    assert rb.outcome("BLOCKED", crashed=True, mergeable="CONFLICTING") is rb.ERROR, (
+        "a crash is the outcome of the same decision; a conflict must never convert it into a rebase")
 
 
 def test_the_four_outcomes_are_distinct_values():

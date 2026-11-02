@@ -51,6 +51,15 @@ MAX_PER_DAY = 5
 #: Merge states that mean "this branch has to come back onto main".
 NEEDS = ("BEHIND", "DIRTY")
 
+#: Mergeability values that mean "the branch is in a real conflict with main" regardless of the
+#: mergeStateStatus GitHub labels it with (issue #1566, the #536 class). A PR whose merge state
+#: reads `BLOCKED` (a required review is pending) or `UNSTABLE` (a check is failing) can still be
+#: genuinely `mergeable: CONFLICTING` — the platform masks the conflict behind the review/check.
+#: Reading `mergeStateStatus` alone behind that mask classifies the PR `NONE` and the only
+#: automatic rebase passes it over. cross_checked with the fleet's own rule (#1015: measured
+#: fresh with `mergeable == "CONFLICTING"`, never `mergeStateStatus` alone).
+CONFLICTING = "CONFLICTING"
+
 #: The four outcomes of reading ONE PR's merge state, and there are exactly four (issue #801).
 #: Three would be the defect: collapsing `UNKNOWN` into "nothing to do" left #445-#447 stale with a
 #: green run behind them (issue #453), and collapsing a crashed read into "nothing to do" is what let a
@@ -58,14 +67,23 @@ NEEDS = ("BEHIND", "DIRTY")
 REBASE, NONE, DEFER, ERROR = "rebase", "none", "defer", "error"
 
 
-def outcome(state: str, crashed: bool = False) -> str:
+def outcome(state: str, crashed: bool = False, mergeable: str | None = None) -> str:
     """Classify one PR's merge state into exactly one of the four outcomes.
 
     `crashed` is an argument rather than a separate code path on purpose: a read that failed is an
     outcome of the same decision, so it cannot be dropped by a caller that only remembers three.
+
+    `mergeable` overrides the state when it is a genuine conflict (issue #1566): GitHub reports
+    `mergeStateStatus=BLOCKED` for a PR whose required review is pending even when its branch is in
+    a real merge conflict, so a `CONFLICTING` mergeable must win over `BLOCKED`/`UNSTABLE`/`CLEAN`
+    — otherwise the sweep silently skips the exact PR it exists to rebase (#536 class). `UNKNOWN`
+    re-query and DEFER semantics are unchanged: conflict beats a pending state, but never changes a
+    crashed read into a rebase.
     """
     if crashed:
         return ERROR
+    if (mergeable or "").upper() == CONFLICTING:
+        return REBASE
     value = (state or "").upper()
     if value in NEEDS:
         return REBASE
@@ -87,25 +105,31 @@ def _gh(gh: str, args: list[str]) -> str:
 
 
 def resolve_state(gh: str, repo: str, num: int, state: str,
-                  attempts: int = UNKNOWN_ATTEMPTS, delay: float = UNKNOWN_DELAY_S) -> str:
-    """The PR's merge state, re-asked while GitHub has not computed it yet (issue #453).
+                  attempts: int = UNKNOWN_ATTEMPTS, delay: float = UNKNOWN_DELAY_S) -> tuple[str, str]:
+    """The PR's merge state and mergeability, re-asked while GitHub has not computed them (issue #453).
 
     `UNKNOWN` is not an answer: it means the mergeability computation has not finished, and it is
     what a fresh `pr list` returns right after a push or a comment. The single-PR read
     (`gh pr view`) is the cheap way to get the computed value, and a few re-queries turn a
-    transient UNKNOWN into the real BEHIND/DIRTY. A state that never resolves is returned as
-    UNKNOWN so the caller can DEFER the PR by name instead of pretending it needs nothing.
+    transient UNKNOWN into the real BEHIND/DIRTY. The mergeable field rides along on the same query
+    (issue #1566): a `CONFLICTING` mergeable must be known even when the state reads BLOCKED.
+    A state that never resolves is returned as UNKNOWN so the caller can DEFER the PR by name
+    instead of pretending it needs nothing.
+
+    Returns `(state, mergeable)` so the caller can apply both to the outcome.
     """
-    if state and state != "UNKNOWN":
-        return state
     for attempt in range(1, attempts + 1):
         time.sleep(delay)
-        out = _gh(gh, ["pr", "view", str(num), "--repo", repo, "--json", "mergeStateStatus"])
-        state = (json.loads(out or "{}").get("mergeStateStatus") or "").upper()
+        out = _gh(gh, ["pr", "view", str(num), "--repo", repo,
+                       "--json", "mergeStateStatus,mergeable"])
+        data = json.loads(out or "{}") or {}
+        state = (data.get("mergeStateStatus") or "").upper()
+        mergeable = (data.get("mergeable") or "").upper()
         if state and state != "UNKNOWN":
-            print(f"[rebase-bot] #{num}: merge state resolved to {state} on re-query {attempt}")
-            return state
-    return "UNKNOWN"
+            print(f"[rebase-bot] #{num}: merge state resolved to {state} (mergeable {mergeable}) "
+                  f"on re-query {attempt}")
+            return state, mergeable
+    return "UNKNOWN", ""
 
 
 def _today() -> str:
@@ -224,7 +248,7 @@ def sweep(gh: str, repo: str, today: str | None = None, max_per_day: int = MAX_P
                 "reason": f"already rebased {len(done)}/{max_per_day} PRs today"}
     owner = repo.split("/")[0].lower()
     prs = json.loads(_gh(gh, ["pr", "list", "--repo", repo, "--state", "open", "--limit", "100",
-                              "--json", "number,title,isDraft,mergeStateStatus,headRefName,"
+                              "--json", "number,title,isDraft,mergeStateStatus,mergeable,headRefName,"
                                         "headRepositoryOwner,createdAt,baseRefName"]) or "[]") or []
     reasons = []
     deferred: list[int] = []
@@ -247,13 +271,18 @@ def sweep(gh: str, repo: str, today: str | None = None, max_per_day: int = MAX_P
             reasons.append(f"#{num} lives on {head_repo or 'an unknown repo'} (not pushable here)")
             continue
         state = (pr.get("mergeStateStatus") or "").upper()
+        #: `mergeable` is the platform's own conflict answer, read alongside the state (issue #1566).
+        #: `mergeStateStatus` can read BLOCKED/UNSTABLE/CLEAN on a genuinely conflicting branch, so a
+        #: `CONFLICTING` mergeable must be consulted even when the state does not say DIRTY.
+        mergeable = (pr.get("mergeable") or "")
         if state == "UNKNOWN":
             # Never decide from an uncomputed merge state (issue #453): re-ask the PR itself.
-            state = _read_pr(crashed, label, resolve_state, gh, repo, num, state,
-                             unknown_attempts, unknown_delay)
-            if not isinstance(state, str):
+            resolved = _read_pr(crashed, label, resolve_state, gh, repo, num, state,
+                                unknown_attempts, unknown_delay)
+            if not isinstance(resolved, tuple):
                 continue
-        if outcome(state) is not REBASE:
+            state, mergeable = resolved
+        if outcome(state, mergeable=mergeable) is not REBASE:
             if state == "UNKNOWN":
                 deferred.append(num)
                 reasons.append(f"#{num} has no computed merge state (UNKNOWN) after "
