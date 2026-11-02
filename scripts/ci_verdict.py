@@ -129,6 +129,43 @@ def decision_of(repo: str, run_id: str) -> dict | None:
     return payload
 
 
+def branch_runs(repo: str, branch: str, per_page: int = 100) -> list[dict]:
+    """Every run row on the branch, walking past a single API page (issue #1617).
+
+    GitHub's `/actions/runs` listing paginates by `page` for a fixed `per_page`. A busy branch like
+    `main` now exceeds one page (2500+ runs, measured 2026-11-02), so a one-page read of 50 rows
+    would make the #1582/#1610 truncation guard raise on every healthy verdict. We walk pages until
+    the listing is complete — `total_count` satisfied or a page returns no new rows — and let the
+    guard object only to a GENUINE shortfall: when the pages we can read still fall short of the
+    reported `total_count`. Deduping by run id keeps a retried/stale page from double-counting.
+
+    The only fetch the guard now refuses is a real truncation: a page that ends before `total_count`
+    and whose next page adds nothing (an exhausted listing) still raises the #1582/#1610 error.
+    """
+    collected: list[dict] = []
+    seen: set[int] = set()
+    page = 1
+    total: int | None = None
+    while True:
+        listing = _api(
+            f"repos/{repo}/actions/runs?branch={branch}&per_page={per_page}&page={page}")
+        rows = listing.get("workflow_runs") or []
+        total = int(listing.get("total_count") or 0)
+        fresh = [row for row in rows if row.get("id") not in seen]
+        collected.extend(fresh)
+        seen.update(row.get("id") for row in rows if row.get("id") is not None)
+        if total and len(seen) >= total:
+            break
+        if not rows or not fresh:
+            break
+        page += 1
+    if total and len(seen) < total:
+        raise RuntimeError(
+            f"branch {branch} reports {total} run(s) and the pages returned {len(seen)}: "
+            "a truncated listing cannot be a verdict")
+    return collected
+
+
 def superseding_run(repo: str, run: dict) -> dict | None:
     """The later run of the SAME workflow on the SAME branch, or None — `ci_requeue`'s supersede test.
 
@@ -146,12 +183,7 @@ def superseding_run(repo: str, run: dict) -> dict | None:
     created = run.get("created_at")
     if not branch or not created:
         return None
-    listing = _api(f"repos/{repo}/actions/runs?branch={branch}&per_page=50")
-    runs = listing.get("workflow_runs") or []
-    if int(listing.get("total_count") or 0) > len(runs):
-        raise RuntimeError(
-            f"branch {branch} reports {listing.get('total_count')} run(s) and one page returned {len(runs)}: "
-            "a truncated listing cannot be a verdict")
+    runs = branch_runs(repo, branch)
     same_workflow = [other for other in runs
                      if other.get("workflow_id") == workflow_id]
     attempts = [other for other in same_workflow
