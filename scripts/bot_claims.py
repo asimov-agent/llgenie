@@ -24,14 +24,16 @@ decorative (#292) and a claim from a run that died held for the whole TTL (#291)
 An unparseable marker is ignored, never fatal, and an unreadable run state is `None` — "we could not
 check" must never release a claim.
 
-Shared byte-identically by `scripts/issue_refiner.py`, `scripts/issue_implementer.py`,
-`scripts/fix_bot_sweep.py` and `scripts/rebase_bot_sweep.py`.
+The claim path's only transport (`run_is_live`/`_LIVE`) lives HERE, not in the bot per-leg: the four
+legs (issue_refiner, issue_implementer, fix_bot_sweep, rebase_bot_sweep) call into it and cannot grow
+their own copy (issue #799). The general `_gh` seam is issue #797's.
 """
 from __future__ import annotations
 
 import datetime as dt
 import json
 import re
+import subprocess
 
 #: How long a claim holds when the marker does not say. Longer than the longest bot run (the agent
 #: jobs are budgeted for an hour), short enough that a crashed run does not block the backlog a day.
@@ -134,13 +136,38 @@ def claims(comments: list[dict] | None) -> list[dict]:
     return sorted(out, key=lambda c: c["at"])
 
 
-def run_is_live(gh_call, run_id: int, ) -> bool | None:
+#: The run-liveness probe's default transport: one `gh` call, its stdout. Promoted here from the
+#: byte-identical copies the legs once kept (issue #799), so the claim path has ONE definition.
+def _gh(args: list[str]) -> str:
+    """One `gh` call, its stdout. Raises with the real stderr when gh fails."""
+    r = subprocess.run(["gh", *args], capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
+    if r.returncode != 0:
+        raise RuntimeError(f"gh {' '.join(args)} failed: {r.stderr.strip()}")
+    return r.stdout
+
+
+#: One per-process cache of the liveness probe (issue #291, #799): a leg cannot grow its own, so
+#: two readers in the same process agree about whether the run that posted a claim is still going.
+_LIVE: dict[int, "bool | None"] = {}
+
+
+def run_is_live(run_id: int, gh_call=None) -> bool | None:
     """Whether the run that posted a claim is still going: True, False, or None when unknowable.
 
-    `gh_call(args)` is the CALLER's own gh runner, so this module never shells out and stays
-    testable. None means the state could not be read (unknown id, a CLI failure, a shape we do not
-    recognise) and must NEVER release a claim: "we could not check" is not "it is gone".
+    `gh_call(args)` is the CALLER's own gh runner, defaulting to this module's `_gh`. The injectable
+    form stays for tests (a fake `gh` on PATH); production uses the one transport here, so a leg
+    cannot carry a drifted copy. None means the state could not be read (unknown id, a CLI failure, a
+    shape we do not recognise) and must NEVER release a claim: "we could not check" is not "it is
+    gone". The answer is cached per run id for the life of the process.
     """
+    gh_call = gh_call or _gh
+    if run_id not in _LIVE:
+        _LIVE[run_id] = _read_run_is_live(gh_call, run_id)
+    return _LIVE[run_id]
+
+
+def _read_run_is_live(gh_call, run_id: int) -> "bool | None":
+    """One uncached probe: parse the run's `status`/`conclusion` without ever releasing on doubt."""
     try:
         data = json.loads(gh_call(["run", "view", str(run_id), "--json", "status,conclusion"]) or "{}")
     except Exception:  # noqa: BLE001 - any failure means unknown, never dead
