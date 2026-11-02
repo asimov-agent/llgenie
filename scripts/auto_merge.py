@@ -32,8 +32,10 @@ TWO things make a deferral honest rather than silent (issue #491):
     and what would unblock it, so "why is this not merged?" is answerable from the PR, not from a run log;
   * a red check-run on the head is not merged, whatever `mergeStateStatus` says (issue #1386). `BLOCKED` on
     #1401 was the required review, while `scope` had already failed; the recheck approved that and
-    `gh pr merge --admin` bypassed protection. A conclusion of `failure`, `timed_out` or `startup_failure`
-    defers. `skipped` and `cancelled` are not a red pipeline (a docs-only head has no `linux` job; #843).
+    `gh pr merge --admin` bypassed protection. A conclusion of `failure`, `timed_out`,
+    `startup_failure`, `cancelled` or `neutral` defers (a cancelled run is a killed CI, and the
+    `neutral` is `ci_verdict`'s superseded-head verdict — neither is a green pipeline; #1250 Finding B).
+    `skipped` alone is not red: a docs-only head has no `linux` job (#843).
 
 The merge itself is `gh pr merge --squash [--delete-branch] --match-head-commit <sha>` with the OWNER PAT by
 the caller (a merge with the job's own token starts no workflows), and `--delete-branch` is omitted for a fork
@@ -237,10 +239,12 @@ def review_blocked(state: dict) -> bool:
             and (state.get("reviewDecision") or "").upper() == "REVIEW_REQUIRED")
 
 
-# A check-run conclusion that is a red pipeline. `cancelled` is not here: a cancelled run is not a
-# failed test, and treating it as red would freeze the board (issue #843). `skipped` is not red:
-# a docs-only pull request has no `linux` job, and `linux` on #1385 was skipped beside real failures.
-RED_CONCLUSIONS = frozenset({"failure", "timed_out", "startup_failure"})
+# A check-run conclusion that is a red pipeline. `cancelled` and `neutral` ARE red (issue #1250
+# Finding B): a cancelled run is a CI run killed mid-flight — not a docs-only head — and a `neutral`
+# check-run is what `ci_verdict` posts for a superseded head (never `success`); neither may walk the
+# merge gate as if it were green. `skipped` stays non-red: a docs-only pull request has no `linux`
+# job, and `linux` on #1385 was skipped beside real failures — that is the one legitimate "no verdict".
+RED_CONCLUSIONS = frozenset({"failure", "timed_out", "startup_failure", "cancelled", "neutral"})
 _RUN_JOB = re.compile(r"/actions/runs/(\d+)/job/(\d+)")
 _RUN_ONLY = re.compile(r"/runs/(\d+)")
 
@@ -272,7 +276,9 @@ def failing_checks(gh: str, repo: str, sha: str) -> "str | None":
     `mergeStateStatus` is not this. A failed `scope` job left #1401 `BLOCKED` on the review, and the
     recheck then called the pull request green and merged it with `--admin` (issue #1386). The check
     runs are the head pipeline. A conclusion that is not in `RED_CONCLUSIONS` is not a red: `skipped`
-    and `cancelled` stay mergeable, and a check that has not concluded yet is not a failure.
+    stays mergeable (a docs-only head has no `linux` job), but `cancelled` and `neutral` are red
+    (#1250 Finding B) — a killed run or a superseded-head neutral is not a green verdict, and a check
+    that has not concluded yet is not a failure.
     """
     if not sha:
         return None
