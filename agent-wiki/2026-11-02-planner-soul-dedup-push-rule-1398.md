@@ -37,6 +37,7 @@ byte-identical to `agents/standing-rules.md` (`_fleet_findings` requires it).
 - CI-parity `check-agent-profiles` (no live profiles dir, as on runners) → **OK, LIVE RULEBOOKS NOT
   COMPARED** (the host `~/.hermes/profiles` drift shown locally is pre-existing across many lanes and
   does not exist on CI runners).
-- `make check-docs` → **ok** (changes-index 432 fragments, census at ancestor `bb11bb1f`, 2458 tracked).
+- `make check-docs` → **ok** (changes-index 433 fragments, census at ancestor `bb11bb1f`, 2458 tracked);
+  `changes_index.check = []`.
 
 Closes #1398. One vehicle. Fleet/planner confirmation on the owner-granted SOUL write (2026-11-02).
