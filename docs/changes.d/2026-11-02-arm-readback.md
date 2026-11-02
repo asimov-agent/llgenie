@@ -1,0 +1,1 @@
+| 2026-11-02 | arm read-back fix: read BOTH REST enabled_at + GraphQL autoMergeRequest, dis-arm on disagreement (#1600) | [2026-11-02-arm-readback.md](agent-wiki/2026-11-02-arm-readback.md) | #1600, #1601 |
