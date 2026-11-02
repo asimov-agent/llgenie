@@ -35,7 +35,9 @@ NO_DISPATCH = "name: c-bot — passive\non:\n  push:\n\njobs:\n  go:\n    runs-o
 
 
 def make_stub(tmp_path: Path, workflows: list[dict], runs: list[dict],
-              gate_last_run: str | None = None, self_last_run: list[str] | None = None) -> Path:
+              gate_last_run: str | None = None, self_last_run: list[str] | None = None,
+              guard_refused_runs: set[str] | None = None,
+              jobs_for_runs: dict[str, list[dict]] | None = None) -> Path:
     """A real stub `gh` binary (python, executable) serving the API the sweep calls.
 
     `workflows`: [{file, state, id}]; `runs`: a base list of workflow_dispatch runs to serve; the stub
@@ -45,6 +47,9 @@ def make_stub(tmp_path: Path, workflows: list[dict], runs: list[dict],
     `self_last_run`: `[created_at, head_sha]` the stub serves for the sweep's OWN workflow's
     `/actions/workflows/<id>/runs` call (issue #1291); when None, a FRESH concluded run is served so a
     sweep with no self-freshness finding stays green by default.
+    `guard_refused_runs`: run ids whose job list shows a failed `guard` job (the #1571 guard-refusal
+    signal); all other failing runs get a successful `guard` job so they stay `completed/failure`.
+    `jobs_for_runs`: explicit per-run job lists (name -> conclusion) overriding the defaults.
     """
     # A sweep's own default last run: just-finished, so the self-freshness clamp (issue #1291) is green.
     if self_last_run is None:
@@ -53,13 +58,19 @@ def make_stub(tmp_path: Path, workflows: list[dict], runs: list[dict],
     stub = tmp_path / "gh-stub"
     state_file = tmp_path / "dispatched.json"
     state_file.write_text("[]")
+    guard_refused_json = json.dumps(sorted(guard_refused_runs or []))
+    jobs_for_json = json.dumps({str(k): [{"name": str(j.get("name")), "conclusion": str(j.get("conclusion")),
+                                          "status": str(j.get("status") or "")} for j in v]
+                                for k, v in (jobs_for_runs or {}).items()})
     body = f'''#!/usr/bin/env python3
-import sys, json, pathlib
+import sys, json, pathlib, re
 WF = {json.dumps(workflows)}
 RUNS = {json.dumps(runs)}
 STATE = pathlib.Path({str(state_file)!r})
 GATE_RUN = {repr(gate_last_run)}
 SELF_RUN = {repr(self_last_run)}
+GUARD_REFUSED = {guard_refused_json}
+JOBS_FOR = {jobs_for_json}
 args = sys.argv[1:]
 def out(doc):
     sys.stdout.write(json.dumps(doc))
@@ -89,6 +100,25 @@ if args[0] == "workflow" and args[1] == "run":
     d.append(args[2])
     STATE.write_text(json.dumps(d))
     out({{"message": "ok"}})
+    sys.exit(0)
+# gh api repos/X/actions/runs/<id>/jobs -> the job list (used for the #1571 guard-refusal signal)
+m = re.match(r"repos/.*/actions/runs/(\\d+)/jobs$", args[1])
+if m:
+    rid = m.group(1)
+    if rid in JOBS_FOR:
+        out([{{"name": j["name"], "conclusion": j["conclusion"], "status": j.get("status") or "completed"}}
+             for j in JOBS_FOR[rid]])
+    elif rid in GUARD_REFUSED:
+        by_file = {{w["file"]: str(w["id"]) for w in WF}}
+        work = next((f for f, fid in by_file.items() if "5" + fid == rid), "work")
+        out([{{"name": "guard", "conclusion": "failure", "status": "completed"}},
+             {{"name": work, "conclusion": "skipped", "status": "completed"}}])
+    else:
+        # a genuinely-failed pipeline run: its guard PASSED and the work job failed
+        by_file = {{w["file"]: str(w["id"]) for w in WF}}
+        work = next((f for f, fid in by_file.items() if "5" + fid == rid), "work")
+        out([{{"name": "guard", "conclusion": "success", "status": "completed"}},
+             {{"name": work, "conclusion": "failure", "status": "completed"}}])
     sys.exit(0)
 # gh api repos/X/actions/runs/<id> -> a completed verdict
 import re
@@ -397,6 +427,57 @@ def test_an_active_gate_with_a_recent_run_is_swept_normally(tmp_path):
     assert "security-scan.yml" in dispatched         # healthy gate is swept like any other
     assert "0 ADMISSION GATE DOWN" in report
     assert code == 0
+
+
+def test_a_guard_refused_run_is_named_not_bare_failure(tmp_path):
+    """Issue #1571 AC (2): a dispatched run that died at its OWN trigger guard (the sweep's bot
+    dispatch was refused) is named with the reason — NOT VERIFIED — refused at its own trigger guard,
+    never a bare `completed/failure`. A green board must not disguise an unverifiable pipeline as a
+    verdict."""
+    root = _tree(tmp_path, {"all-pipelines.yml": ACTIVE_DISPATCHABLE,
+                            "a-bot.yml": ACTIVE_DISPATCHABLE})
+    states = {"a-bot.yml": {"state": "active", "active": True}}
+    rows = ap.classify(root, states)
+    # a run that concluded `failure` AND its guard job failed (guard refused the dispatch actor)
+    concluded = {"a-bot.yml": {"run_id": "5", "status": "completed", "conclusion": "failure",
+                               "completed_at": "t", "guard_refused": True}}
+
+    report, code = ap.render_report(rows, concluded, "abc123")
+
+    assert "NOT VERIFIED — refused at its own trigger guard" in report
+    assert "`a-bot.yml`" in report
+    assert "| completed/failure |" not in report   # never a bare verdict cell for a guard-refused run
+    assert code == 1                               # a refused dispatch is still a red, but a named one
+
+
+def test_guard_refused_verdict_flagged_by_real_guard_job_shape(tmp_path):
+    """The `guard_refused` flag comes from a real `/actions/runs/<id>/jobs` read: a failed `guard`
+    job with everything else skipped is a guard refusal; a run whose guard PASSED and whose work job
+    failed is a genuine `completed/failure` (the pipeline really ran)."""
+    workflows = [
+        {"file": "all-pipelines.yml", "state": "active", "id": "10"},
+        {"file": "arms.yml", "state": "active", "id": "20"},
+        {"file": "engine-build.yml", "state": "active", "id": "30"},
+    ]
+    # arms is guard-refused (guard fails, arms skipped); engine-build ran and genuinely failed
+    # (guard success, engine-build failure). Both conclude `failure` from the run verdict.
+    stub = make_stub(tmp_path, workflows,
+                     runs=[{"id": "520", "conclusion": "failure"}],
+                     guard_refused_runs={"520"})
+    root = tmp_path / "wf"
+    (root / ".github" / "workflows").mkdir(parents=True)
+    for f in ("all-pipelines.yml", "arms.yml", "engine-build.yml"):
+        (root / ".github" / "workflows" / f).write_text(ACTIVE_DISPATCHABLE)
+
+    # Drive the sweep: arms gets guard-refused (named), engine-build genuinely fails (bare
+    # completed/failure). Both are failures so the sweep is red; the distinction is in the cell text.
+    report, code = ap.sweep("owner/repo", "main", gh=str(stub), timeout=30, root=root)
+
+    assert "NOT VERIFIED — refused at its own trigger guard" in report
+    assert "`arms.yml`" in report
+    assert "Summary: 0 ok · 2 failed · 0 disabled" in report
+    assert "completed/failure" in report            # the genuinely-failed pipeline keeps its bare cell
+    assert code == 1
 
 
 def test_a_stale_sweep_self_run_reds_with_sweep_unseen(tmp_path):

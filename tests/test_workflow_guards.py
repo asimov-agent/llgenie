@@ -313,6 +313,10 @@ def _run_guard(workflow: Path, tmp_path: Path, **env_overrides: str) -> subproce
         "OWNER": "asimov-agent",
         "REPO": "asimov-agent/llgenie",
         "HEAD_REPO": "",
+        # The event + ref the carve-out keys on; empty by default so existing tests simulate a
+        # non-dispatch event (where the bot must still be refused, issue #510).
+        "EVENT": "",
+        "REF": "",
     }
     env.update(env_overrides)
     return subprocess.run(["bash", str(script)], capture_output=True, text=True, env=env)
@@ -362,6 +366,42 @@ def test_a_stranger_is_refused_even_on_a_same_repo_head(tmp_path):
     # Then  it is refused
     assert done.returncode == 1, done.stdout + done.stderr
     assert "permission: none" in done.stdout, done.stdout
+
+
+def test_the_bot_passes_on_workflow_dispatch_of_this_repo(tmp_path):
+    """Issue #1571: the all-pipelines sweep dispatches every active workflow as the bot on a
+    workflow_dispatch. On a dispatch HEAD_REPO is empty (there is no PR), so the same-repo-head
+    carve-out cannot fire; the event carve-out admits the repo's own automation driving its own
+    workflows. Because a workflow_dispatch can only target this repository's own refs (a fork cannot
+    dispatch our workflows), the ref is not part of the security boundary."""
+
+    # Given the real guard, the bot as the run's actor, a workflow_dispatch, no head repo
+    done = _run_guard(REPO / ".github" / "workflows" / "ci.yml", tmp_path,
+                      ACTOR=BOT, TRIGGER=BOT, HEAD_REPO="",
+                      EVENT="workflow_dispatch", REF="refs/heads/main")
+    # A PR-head sweep dispatches its targets at the PR branch — the ref must not matter.
+    done_pr = _run_guard(REPO / ".github" / "workflows" / "ci.yml", tmp_path,
+                         ACTOR=BOT, TRIGGER=BOT, HEAD_REPO="",
+                         EVENT="workflow_dispatch", REF="refs/heads/fix/1571-sweep-bot-dispatch")
+
+    # Then the repo's own dispatch of its own workflows is allowed, on any of the repo's own branches
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert done_pr.returncode == 0, done_pr.stdout + done_pr.stderr
+    assert "workflow_dispatch" in done.stdout, done.stdout
+
+
+def test_the_bot_still_refused_on_a_non_dispatch_event_with_no_head(tmp_path):
+    """Issue #1571 / #510 negative control: the carve-out is scoped to the `workflow_dispatch` EVENT.
+    A bot actor on a non-dispatch event with no head repository at all (a schedule, a push, a run
+    without a PR) is still refused — only the repo's own dispatch path earns the allowance."""
+
+    # Given the bot as the actor on a schedule event with no head repo (EVENT empty = non-dispatch)
+    done = _run_guard(REPO / ".github" / "workflows" / "ci.yml", tmp_path,
+                      ACTOR=BOT, TRIGGER=BOT, HEAD_REPO="", EVENT="schedule", REF="refs/heads/main")
+
+    # Then it is refused
+    assert done.returncode == 1, done.stdout + done.stderr
+    assert "Refused" in done.stdout, done.stdout
 
 
 def test_the_owner_and_a_write_collaborator_still_pass(tmp_path):
