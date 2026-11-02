@@ -3,8 +3,8 @@
   "engine": "Ollama",
   "id": "ollama",
   "repo": "https://github.com/ollama/ollama",
-  "ref": "v0.40.12",
-  "pinned": "f067033f9126993b6172bdfffa71a74ad693fda4",
+  "ref": "v0.40.13",
+  "pinned": "04088e7c9d41cba5d33bafbf788d87a465c79d5b",
   "native": {},
   "variants": {
     "cuda": {
@@ -16,8 +16,8 @@
       "prebuilt": false,
       "runtime_base": "nvidia/cuda:13.0.2-runtime-ubuntu24.04",
       "runtime_copy": [
-        "/opt/llgenie/engines/ollama/0.40.12/bin",
-        "/opt/llgenie/engines/ollama/0.40.12/lib"
+        "/opt/llgenie/engines/ollama/0.40.13/bin",
+        "/opt/llgenie/engines/ollama/0.40.13/lib"
       ],
       "apt": [
         "golang-go"
@@ -28,15 +28,15 @@
         "TORCH_BACKEND": "cu130"
       },
       "install": [
-        "test -d /opt/llgenie/engines/ollama/src/.git || git clone -b v0.40.12 https://github.com/ollama/ollama.git /opt/llgenie/engines/ollama/src",
+        "test -d /opt/llgenie/engines/ollama/src/.git || git clone -b v0.40.13 https://github.com/ollama/ollama.git /opt/llgenie/engines/ollama/src",
         "git config --global --add safe.directory /opt/llgenie/engines/ollama/src",
-        "git -C /opt/llgenie/engines/ollama/src fetch origin f067033f9126993b6172bdfffa71a74ad693fda4",
-        "git -C /opt/llgenie/engines/ollama/src checkout --detach f067033f9126993b6172bdfffa71a74ad693fda4",
-        "cd /opt/llgenie/engines/ollama/src && mkdir -p /opt/llgenie/engines/ollama/0.40.12/bin && CGO_ENABLED=1 go build -trimpath -buildmode=pie -ldflags '-w -s -X=github.com/ollama/ollama/version.Version=0.40.12 -X=github.com/ollama/ollama/server.mode=release' -o /opt/llgenie/engines/ollama/0.40.12/bin/ollama .",
+        "git -C /opt/llgenie/engines/ollama/src fetch origin 04088e7c9d41cba5d33bafbf788d87a465c79d5b",
+        "git -C /opt/llgenie/engines/ollama/src checkout --detach 04088e7c9d41cba5d33bafbf788d87a465c79d5b",
+        "cd /opt/llgenie/engines/ollama/src && mkdir -p /opt/llgenie/engines/ollama/0.40.13/bin && CGO_ENABLED=1 go build -trimpath -buildmode=pie -ldflags '-w -s -X=github.com/ollama/ollama/version.Version=0.40.13 -X=github.com/ollama/ollama/server.mode=release' -o /opt/llgenie/engines/ollama/0.40.13/bin/ollama .",
         "cd /opt/llgenie/engines/ollama/src && CMAKE_GENERATOR=Ninja cmake -S llama/server --preset cpu && cmake --build /opt/llgenie/engines/ollama/src/build/llama-server-cpu -- -l $(nproc)",
-        "cmake --install /opt/llgenie/engines/ollama/src/build/llama-server-cpu --prefix /opt/llgenie/engines/ollama/0.40.12 --component llama-server --strip",
+        "cmake --install /opt/llgenie/engines/ollama/src/build/llama-server-cpu --prefix /opt/llgenie/engines/ollama/0.40.13 --component llama-server --strip",
         "cd /opt/llgenie/engines/ollama/src && CMAKE_GENERATOR=Ninja cmake -S llama/server --preset llama_cuda_v13_linux '-DCMAKE_CUDA_ARCHITECTURES=75;80;86;89;90;120' && cmake --build /opt/llgenie/engines/ollama/src/build/llama-server-cuda_v13 -- -l $(nproc)",
-        "cmake --install /opt/llgenie/engines/ollama/src/build/llama-server-cuda_v13 --prefix /opt/llgenie/engines/ollama/0.40.12 --component llama-server --strip"
+        "cmake --install /opt/llgenie/engines/ollama/src/build/llama-server-cuda_v13 --prefix /opt/llgenie/engines/ollama/0.40.13 --component llama-server --strip"
       ],
       "env": {
         "OLLAMA_HOST": "{host}:{port}",
@@ -44,10 +44,10 @@
         "OLLAMA_FLASH_ATTENTION": "1",
         "OLLAMA_KV_CACHE_TYPE": "q8_0"
       },
-      "detect": "/opt/llgenie/engines/ollama/0.40.12/bin/ollama --version",
+      "detect": "/opt/llgenie/engines/ollama/0.40.13/bin/ollama --version",
       "pre_launch": null,
-      "launch": "/opt/llgenie/engines/ollama/0.40.12/bin/ollama serve",
-      "post_launch": "printf 'FROM %s\\n' {model} > /opt/llgenie/engines/ollama/Modelfile && /opt/llgenie/engines/ollama/0.40.12/bin/ollama create llm-local -f /opt/llgenie/engines/ollama/Modelfile",
+      "launch": "/opt/llgenie/engines/ollama/0.40.13/bin/ollama serve",
+      "post_launch": "printf 'FROM %s\\n' {model} > /opt/llgenie/engines/ollama/Modelfile && /opt/llgenie/engines/ollama/0.40.13/bin/ollama create llm-local -f /opt/llgenie/engines/ollama/Modelfile",
       "health": "GET /api/version",
       "alias_mode": "create",
       "run_args": [
@@ -67,8 +67,8 @@
       "prebuilt": false,
       "runtime_base": "rocm/dev-ubuntu-24.04:7.0-complete",
       "runtime_copy": [
-        "/opt/llgenie/engines/ollama/0.40.12/bin",
-        "/opt/llgenie/engines/ollama/0.40.12/lib"
+        "/opt/llgenie/engines/ollama/0.40.13/bin",
+        "/opt/llgenie/engines/ollama/0.40.13/lib"
       ],
       "apt": [
         "golang-go"
@@ -79,15 +79,15 @@
         "TORCH_BACKEND": "auto"
       },
       "install": [
-        "test -d /opt/llgenie/engines/ollama/src/.git || git clone -b v0.40.12 https://github.com/ollama/ollama.git /opt/llgenie/engines/ollama/src",
+        "test -d /opt/llgenie/engines/ollama/src/.git || git clone -b v0.40.13 https://github.com/ollama/ollama.git /opt/llgenie/engines/ollama/src",
         "git config --global --add safe.directory /opt/llgenie/engines/ollama/src",
-        "git -C /opt/llgenie/engines/ollama/src fetch origin f067033f9126993b6172bdfffa71a74ad693fda4",
-        "git -C /opt/llgenie/engines/ollama/src checkout --detach f067033f9126993b6172bdfffa71a74ad693fda4",
-        "cd /opt/llgenie/engines/ollama/src && mkdir -p /opt/llgenie/engines/ollama/0.40.12/bin && CGO_ENABLED=1 go build -trimpath -buildmode=pie -ldflags '-w -s -X=github.com/ollama/ollama/version.Version=0.40.12 -X=github.com/ollama/ollama/server.mode=release' -o /opt/llgenie/engines/ollama/0.40.12/bin/ollama .",
+        "git -C /opt/llgenie/engines/ollama/src fetch origin 04088e7c9d41cba5d33bafbf788d87a465c79d5b",
+        "git -C /opt/llgenie/engines/ollama/src checkout --detach 04088e7c9d41cba5d33bafbf788d87a465c79d5b",
+        "cd /opt/llgenie/engines/ollama/src && mkdir -p /opt/llgenie/engines/ollama/0.40.13/bin && CGO_ENABLED=1 go build -trimpath -buildmode=pie -ldflags '-w -s -X=github.com/ollama/ollama/version.Version=0.40.13 -X=github.com/ollama/ollama/server.mode=release' -o /opt/llgenie/engines/ollama/0.40.13/bin/ollama .",
         "cd /opt/llgenie/engines/ollama/src && CMAKE_GENERATOR=Ninja cmake -S llama/server --preset cpu && cmake --build /opt/llgenie/engines/ollama/src/build/llama-server-cpu -- -l $(nproc)",
-        "cmake --install /opt/llgenie/engines/ollama/src/build/llama-server-cpu --prefix /opt/llgenie/engines/ollama/0.40.12 --component llama-server --strip",
+        "cmake --install /opt/llgenie/engines/ollama/src/build/llama-server-cpu --prefix /opt/llgenie/engines/ollama/0.40.13 --component llama-server --strip",
         "cd /opt/llgenie/engines/ollama/src && CMAKE_GENERATOR=Ninja cmake -S llama/server -B /opt/llgenie/engines/ollama/src/build/llama-server-rocm -DGGML_HIP=ON -DCMAKE_HIP_PLATFORM=amd -DOLLAMA_RUNNER_DIR=rocm_v7_0 -DOLLAMA_GPU_BACKEND=hip '-DAMDGPU_TARGETS=gfx1030;gfx1100;gfx1101;gfx1102;gfx1151;gfx1200;gfx1201;gfx942' && cmake --build /opt/llgenie/engines/ollama/src/build/llama-server-rocm -- -l $(nproc)",
-        "cmake --install /opt/llgenie/engines/ollama/src/build/llama-server-rocm --prefix /opt/llgenie/engines/ollama/0.40.12 --component llama-server --strip"
+        "cmake --install /opt/llgenie/engines/ollama/src/build/llama-server-rocm --prefix /opt/llgenie/engines/ollama/0.40.13 --component llama-server --strip"
       ],
       "env": {
         "OLLAMA_HOST": "{host}:{port}",
@@ -95,10 +95,10 @@
         "OLLAMA_FLASH_ATTENTION": "1",
         "OLLAMA_KV_CACHE_TYPE": "q8_0"
       },
-      "detect": "/opt/llgenie/engines/ollama/0.40.12/bin/ollama --version",
+      "detect": "/opt/llgenie/engines/ollama/0.40.13/bin/ollama --version",
       "pre_launch": null,
-      "launch": "/opt/llgenie/engines/ollama/0.40.12/bin/ollama serve",
-      "post_launch": "printf 'FROM %s\\n' {model} > /opt/llgenie/engines/ollama/Modelfile && /opt/llgenie/engines/ollama/0.40.12/bin/ollama create llm-local -f /opt/llgenie/engines/ollama/Modelfile",
+      "launch": "/opt/llgenie/engines/ollama/0.40.13/bin/ollama serve",
+      "post_launch": "printf 'FROM %s\\n' {model} > /opt/llgenie/engines/ollama/Modelfile && /opt/llgenie/engines/ollama/0.40.13/bin/ollama create llm-local -f /opt/llgenie/engines/ollama/Modelfile",
       "health": "GET /api/version",
       "alias_mode": "create",
       "run_args": [
@@ -124,8 +124,8 @@
       "prebuilt": false,
       "runtime_base": "ubuntu:24.04",
       "runtime_copy": [
-        "/opt/llgenie/engines/ollama/0.40.12/bin",
-        "/opt/llgenie/engines/ollama/0.40.12/lib"
+        "/opt/llgenie/engines/ollama/0.40.13/bin",
+        "/opt/llgenie/engines/ollama/0.40.13/lib"
       ],
       "apt": [
         "glslc",
@@ -141,15 +141,15 @@
         "TORCH_BACKEND": "cpu"
       },
       "install": [
-        "test -d /opt/llgenie/engines/ollama/src/.git || git clone -b v0.40.12 https://github.com/ollama/ollama.git /opt/llgenie/engines/ollama/src",
+        "test -d /opt/llgenie/engines/ollama/src/.git || git clone -b v0.40.13 https://github.com/ollama/ollama.git /opt/llgenie/engines/ollama/src",
         "git config --global --add safe.directory /opt/llgenie/engines/ollama/src",
-        "git -C /opt/llgenie/engines/ollama/src fetch origin f067033f9126993b6172bdfffa71a74ad693fda4",
-        "git -C /opt/llgenie/engines/ollama/src checkout --detach f067033f9126993b6172bdfffa71a74ad693fda4",
-        "cd /opt/llgenie/engines/ollama/src && mkdir -p /opt/llgenie/engines/ollama/0.40.12/bin && CGO_ENABLED=1 go build -trimpath -buildmode=pie -ldflags '-w -s -X=github.com/ollama/ollama/version.Version=0.40.12 -X=github.com/ollama/ollama/server.mode=release' -o /opt/llgenie/engines/ollama/0.40.12/bin/ollama .",
+        "git -C /opt/llgenie/engines/ollama/src fetch origin 04088e7c9d41cba5d33bafbf788d87a465c79d5b",
+        "git -C /opt/llgenie/engines/ollama/src checkout --detach 04088e7c9d41cba5d33bafbf788d87a465c79d5b",
+        "cd /opt/llgenie/engines/ollama/src && mkdir -p /opt/llgenie/engines/ollama/0.40.13/bin && CGO_ENABLED=1 go build -trimpath -buildmode=pie -ldflags '-w -s -X=github.com/ollama/ollama/version.Version=0.40.13 -X=github.com/ollama/ollama/server.mode=release' -o /opt/llgenie/engines/ollama/0.40.13/bin/ollama .",
         "cd /opt/llgenie/engines/ollama/src && CMAKE_GENERATOR=Ninja cmake -S llama/server --preset cpu && cmake --build /opt/llgenie/engines/ollama/src/build/llama-server-cpu -- -l $(nproc)",
-        "cmake --install /opt/llgenie/engines/ollama/src/build/llama-server-cpu --prefix /opt/llgenie/engines/ollama/0.40.12 --component llama-server --strip",
+        "cmake --install /opt/llgenie/engines/ollama/src/build/llama-server-cpu --prefix /opt/llgenie/engines/ollama/0.40.13 --component llama-server --strip",
         "cd /opt/llgenie/engines/ollama/src && CMAKE_GENERATOR=Ninja cmake -S llama/server --preset vulkan && cmake --build /opt/llgenie/engines/ollama/src/build/llama-server-vulkan -- -l $(nproc)",
-        "cmake --install /opt/llgenie/engines/ollama/src/build/llama-server-vulkan --prefix /opt/llgenie/engines/ollama/0.40.12 --component llama-server --strip"
+        "cmake --install /opt/llgenie/engines/ollama/src/build/llama-server-vulkan --prefix /opt/llgenie/engines/ollama/0.40.13 --component llama-server --strip"
       ],
       "env": {
         "OLLAMA_HOST": "{host}:{port}",
@@ -157,10 +157,10 @@
         "OLLAMA_FLASH_ATTENTION": "1",
         "OLLAMA_KV_CACHE_TYPE": "q8_0"
       },
-      "detect": "/opt/llgenie/engines/ollama/0.40.12/bin/ollama --version",
+      "detect": "/opt/llgenie/engines/ollama/0.40.13/bin/ollama --version",
       "pre_launch": null,
-      "launch": "/opt/llgenie/engines/ollama/0.40.12/bin/ollama serve",
-      "post_launch": "printf 'FROM %s\\n' {model} > /opt/llgenie/engines/ollama/Modelfile && /opt/llgenie/engines/ollama/0.40.12/bin/ollama create llm-local -f /opt/llgenie/engines/ollama/Modelfile",
+      "launch": "/opt/llgenie/engines/ollama/0.40.13/bin/ollama serve",
+      "post_launch": "printf 'FROM %s\\n' {model} > /opt/llgenie/engines/ollama/Modelfile && /opt/llgenie/engines/ollama/0.40.13/bin/ollama create llm-local -f /opt/llgenie/engines/ollama/Modelfile",
       "health": "GET /api/version",
       "alias_mode": "create",
       "run_args": [
@@ -180,8 +180,8 @@
       "prebuilt": false,
       "runtime_base": "ubuntu:24.04",
       "runtime_copy": [
-        "/opt/llgenie/engines/ollama/0.40.12/bin",
-        "/opt/llgenie/engines/ollama/0.40.12/lib"
+        "/opt/llgenie/engines/ollama/0.40.13/bin",
+        "/opt/llgenie/engines/ollama/0.40.13/lib"
       ],
       "apt": [
         "golang-go"
@@ -192,13 +192,13 @@
         "TORCH_BACKEND": "cpu"
       },
       "install": [
-        "test -d /opt/llgenie/engines/ollama/src/.git || git clone -b v0.40.12 https://github.com/ollama/ollama.git /opt/llgenie/engines/ollama/src",
+        "test -d /opt/llgenie/engines/ollama/src/.git || git clone -b v0.40.13 https://github.com/ollama/ollama.git /opt/llgenie/engines/ollama/src",
         "git config --global --add safe.directory /opt/llgenie/engines/ollama/src",
-        "git -C /opt/llgenie/engines/ollama/src fetch origin f067033f9126993b6172bdfffa71a74ad693fda4",
-        "git -C /opt/llgenie/engines/ollama/src checkout --detach f067033f9126993b6172bdfffa71a74ad693fda4",
-        "cd /opt/llgenie/engines/ollama/src && mkdir -p /opt/llgenie/engines/ollama/0.40.12/bin && CGO_ENABLED=1 go build -trimpath -buildmode=pie -ldflags '-w -s -X=github.com/ollama/ollama/version.Version=0.40.12 -X=github.com/ollama/ollama/server.mode=release' -o /opt/llgenie/engines/ollama/0.40.12/bin/ollama .",
+        "git -C /opt/llgenie/engines/ollama/src fetch origin 04088e7c9d41cba5d33bafbf788d87a465c79d5b",
+        "git -C /opt/llgenie/engines/ollama/src checkout --detach 04088e7c9d41cba5d33bafbf788d87a465c79d5b",
+        "cd /opt/llgenie/engines/ollama/src && mkdir -p /opt/llgenie/engines/ollama/0.40.13/bin && CGO_ENABLED=1 go build -trimpath -buildmode=pie -ldflags '-w -s -X=github.com/ollama/ollama/version.Version=0.40.13 -X=github.com/ollama/ollama/server.mode=release' -o /opt/llgenie/engines/ollama/0.40.13/bin/ollama .",
         "cd /opt/llgenie/engines/ollama/src && CMAKE_GENERATOR=Ninja cmake -S llama/server --preset cpu && cmake --build /opt/llgenie/engines/ollama/src/build/llama-server-cpu -- -l $(nproc)",
-        "cmake --install /opt/llgenie/engines/ollama/src/build/llama-server-cpu --prefix /opt/llgenie/engines/ollama/0.40.12 --component llama-server --strip"
+        "cmake --install /opt/llgenie/engines/ollama/src/build/llama-server-cpu --prefix /opt/llgenie/engines/ollama/0.40.13 --component llama-server --strip"
       ],
       "env": {
         "OLLAMA_HOST": "{host}:{port}",
@@ -206,10 +206,10 @@
         "OLLAMA_FLASH_ATTENTION": "1",
         "OLLAMA_KV_CACHE_TYPE": "q8_0"
       },
-      "detect": "/opt/llgenie/engines/ollama/0.40.12/bin/ollama --version",
+      "detect": "/opt/llgenie/engines/ollama/0.40.13/bin/ollama --version",
       "pre_launch": null,
-      "launch": "/opt/llgenie/engines/ollama/0.40.12/bin/ollama serve",
-      "post_launch": "printf 'FROM %s\\n' {model} > /opt/llgenie/engines/ollama/Modelfile && /opt/llgenie/engines/ollama/0.40.12/bin/ollama create llm-local -f /opt/llgenie/engines/ollama/Modelfile",
+      "launch": "/opt/llgenie/engines/ollama/0.40.13/bin/ollama serve",
+      "post_launch": "printf 'FROM %s\\n' {model} > /opt/llgenie/engines/ollama/Modelfile && /opt/llgenie/engines/ollama/0.40.13/bin/ollama create llm-local -f /opt/llgenie/engines/ollama/Modelfile",
       "health": "GET /api/version",
       "alias_mode": "create",
       "run_args": [

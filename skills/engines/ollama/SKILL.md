@@ -4,11 +4,11 @@ description: "Use when building Ollama from the pinned Go source (upstream's own
 engine: "Ollama"
 id: ollama
 repo: https://github.com/ollama/ollama
-ref: v0.40.12
+ref: v0.40.13
 ref_kind: tag
-version: v0.40.12
-pinned: f067033f9126993b6172bdfffa71a74ad693fda4
-verified: "2026-10-30"
+version: v0.40.13
+pinned: 04088e7c9d41cba5d33bafbf788d87a465c79d5b
+verified: "2026-11-02"
 license: MIT
 servable: true
 backends: [cuda, rocm, vulkan, metal, cpu]

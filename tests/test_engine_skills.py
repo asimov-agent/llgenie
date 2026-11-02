@@ -417,9 +417,9 @@ def test_ollama_builds_from_the_pinned_go_source(skills):
     # When each backend's install plan is rendered
     # Then every cell clones the pinned tag and builds the engine with Go
     for backend, text in steps.items():
-        assert "git clone -b v0.40.12 https://github.com/ollama/ollama.git" in text, backend
+        assert "git clone -b v0.40.13 https://github.com/ollama/ollama.git" in text, backend
         assert "CGO_ENABLED=1 go build -trimpath -buildmode=pie" in text, backend
-        assert "-X=github.com/ollama/ollama/version.Version=0.40.12" in text, backend
+        assert "-X=github.com/ollama/ollama/version.Version=0.40.13" in text, backend
         # nothing is downloaded ready-made: the tarball release path is gone
         assert "releases/download" not in text, backend
         assert "tar -xf" not in text and ".tar.zst" not in text, backend
@@ -1957,21 +1957,21 @@ def test_detect_accepts_a_version_when_the_daemon_is_down(monkeypatch, capsys):
     class _R:
         returncode = 1
         stdout = "Warning: could not connect to a running Ollama instance\n"
-        stderr = "ollama version is 0.40.12\n"
+        stderr = "ollama version is 0.40.13\n"
 
     monkeypatch.setattr(es.subprocess, "run", lambda *a, **k: _R)
-    skill = {"id": "ollama", "version": "v0.40.12", "backends": ["metal"]}
+    skill = {"id": "ollama", "version": "v0.40.13", "backends": ["metal"]}
 
     # When detect and native_status read it (plan/env are not needed)
     monkeypatch.setattr(es, "plan", lambda *a, **k: {"detect": "ollama --version", "env": {}})
     rc, line = es._detect_run(skill, "metal", {"backend": "metal"}, quiet=True)
     status = es.native_status(skill, "metal", {"backend": "metal"})
 
-    # Then the engine is installed at 0.40.12, not missing
+    # Then the engine is installed at 0.40.13, not missing
     assert rc == 0
-    assert "0.40.12" in line
+    assert "0.40.13" in line
     assert status["state"] == "current"
-    assert status["installed"] == "0.40.12"
+    assert status["installed"] == "0.40.13"
     # And a non-zero exit with no version line is still missing
     _R.stdout = "Warning: could not connect to a running Ollama instance\n"
     _R.stderr = ""
