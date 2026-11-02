@@ -386,10 +386,26 @@ def token_login(gh: str, token: str = "") -> str:
         return ""
 
 
-def approve(gh: str, repo: str, pr: int, token: str = "") -> str:
-    body = ("Approved by the repo's `auto-merge` job (issue #491): the run is green and the only thing "
-            "missing was a required review. It merges immediately if the state becomes CLEAN; "
-            "`do-not-merge` holds a PR at any time.")
+def approve(gh: str, repo: str, pr: int, head_sha: str, token: str = "") -> str:
+    """Approve a green review-blocked PR, naming the run id and head sha it judged (issue #1619).
+
+    The #1273 standard: a citable verdict names the run id AND the head sha it judged, so a reader or
+    auditor can re-fetch the evidence from the review body alone. Before #1619 the approval body was
+    generic text (\"the run is green…\"), which a board-sweep showed left 5 merged PRs without a re-fetchable
+    verdict (#1210/#1247/#1259/#1294/#1555). The body now interpolates both fields, mirroring the rule-14
+    merge announcement: `head_sha` is the tree being approved, `GITHUB_RUN_ID` the CI run deciding it.
+    """
+    if not (head_sha or "").strip():
+        print(f"[auto-merge] PR #{pr}: NOT approving — no head sha was supplied, so the review could not "
+              f"say which tree was judged (a citable approval needs a head sha, #1619)", file=sys.stderr)
+        return ""
+    run_id = os.environ.get("GITHUB_RUN_ID")
+    actor = f"run `{run_id}`" if run_id else "a local invocation (`make auto-merge`, no `GITHUB_RUN_ID`)"
+    body = (f"Approved by the repo's `auto-merge` job (issue #491): the tree I judged is "
+            f"`{(head_sha or '')[:40]}`, decided by {actor} — the run is green and the only thing missing "
+            "was a required review, so this approval carries a citable verdict (run id + head sha, "
+            "#1273/#1619). It merges immediately if the state becomes CLEAN; `do-not-merge` holds a PR "
+            "at any time.")
     return _gh(gh, ["pr", "review", str(pr), "--repo", repo, "--approve", "--body", body], token=token)
 
 
@@ -425,7 +441,7 @@ def try_approve(gh: str, repo: str, pr: int, state: dict, dry: bool = False,
         return None
     print(f"[auto-merge] PR #{pr} is green but blocked by a required review — approving as `{me}` "
           f"(authored by `{author}`)")
-    print(approve(gh, repo, pr, token=token).strip())
+    print(approve(gh, repo, pr, str(state.get("headRefOid") or ""), token=token).strip())
     return None
 
 

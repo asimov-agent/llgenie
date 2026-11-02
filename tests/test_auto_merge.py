@@ -2024,3 +2024,54 @@ def test_the_red_gate_is_a_make_target_and_the_approver_token_stays(tmp_path):
     assert "APPROVER_TOKEN: ${{ github.token }}" in MERGE_WF
     assert "secrets.APPROVER_TOKEN" not in MERGE_WF
 
+
+def test_the_auto_merge_approval_is_a_citable_verdict_run_id_and_head_sha(tmp_path, monkeypatch):
+    r"""The APPROVED review body names the run id and head sha it judged (#1619, #1273).
+
+    A board-sweep (issue #1619) showed the pre-fix approval body was generic text ("the run is
+    green…"), leaving a merged PR without a re-fetchable verdict. The #1273 sweep regex must match:
+    `\b\d{11,}\b` for the run id, `\b[0-9a-f]{7,40}\b` for the head sha.
+    """
+
+    # Given a review-blocked green PR, run by a CI run whose id the job can see
+    import re
+    run_id = "41536326942"
+    monkeypatch.setenv("GITHUB_RUN_ID", run_id)
+    gh = _fake_gh(tmp_path, _review_blocked(), {"491": "CLOSED"})
+
+    # When  the job approves it
+    rc = am.run(str(gh), "asimov-agent/llgenie", 482, HEAD, approve_when_review_required=True)
+
+    # Then  the approval body carries BOTH a run id and the head sha it judged
+    review = [c for c in _calls(tmp_path / "gh.log") if c[:2] == ["pr", "review"]]
+    assert rc == 0, rc
+    assert review, "the approval must be posted"
+    body = review[0][review[0].index("--body") + 1]
+    assert re.search(r"\b\d{11,}\b", body), f"no run id in approval body: {body!r}"
+    assert re.search(r"\b[0-9a-f]{7,40}\b", body), f"no head sha in approval body: {body!r}"
+    assert run_id in body, f"the run id is not the one that ran: {body!r}"
+    assert HEAD in body, f"the head sha is not the one judged: {body!r}"
+
+
+def test_the_auto_merge_approval_refuses_to_post_without_a_head_sha(tmp_path, monkeypatch):
+    """No citable verdict from an unnamed tree: an approval cannot say which tree it judged (#1619)."""
+
+    # Given a review-blocked PR whose state carries NO headRefOid (a fake gh mis-reading the field)
+    naked = _review_blocked()
+    naked["headRefOid"] = ""
+    gh = _fake_gh(tmp_path, naked, {"491": "CLOSED"})
+    monkeypatch.setenv("GITHUB_RUN_ID", "41536326942")
+
+    # When  the job tries to approve it
+    rc = am.run(str(gh), "o/r", 482, HEAD, approve_when_review_required=True)
+
+    # Then  no citable approval is posted. The review needs a head sha to cite, so refusing to post it
+    # means GitHub never clears the review block and the PR stays deferred to a human — never a silent
+    # green that merged with a generic or empty approval.
+    calls = _calls(tmp_path / "gh.log")
+    kinds = [c[:2] for c in calls]
+    assert rc == 0, rc
+    assert ["pr", "review"] not in kinds, calls
+    assert ["pr", "merge"] not in kinds, calls
+    assert ["pr", "comment"] in kinds, calls  # the deferral says the PR is not auto-merged
+
