@@ -55,6 +55,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      # The producer (`make bot-verdict` -> scripts/bot_verdict.py) runs from THIS tree, so the job
+      # must check it out before invoking make — a job without checkout runs `make` in an empty
+      # workspace and dies with "No rule to make target 'bot-verdict'" (#1565). Check out the base
+      # branch (a marker is trusted only when the tree that wrote it is the repo's own, never a
+      # fork head / PR head).
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+
       - name: Prove the review event carries a full sha (a prefix is not a head)
         id: head
         env:
