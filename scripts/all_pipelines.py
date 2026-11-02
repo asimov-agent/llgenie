@@ -273,12 +273,45 @@ def existing_run_ids(repo: str, gh: str, wf_id: str) -> set[str]:
     return set(raw.splitlines())
 
 
+def _guard_job_failed(repo: str, gh: str, run_id: str) -> bool:
+    """Did this dispatched run die at its OWN trigger guard — i.e. the sweep's bot dispatch was
+    refused — rather than run its pipeline to a failure?
+
+    The trigger guard is the workflow's `guard` job (schedule + dispatch workflows all carry one,
+    issue #295); a guard-refused run concludes `failure` with the `guard` job failed and every other
+    job never run (skipped). Returns True only for that shape, so a genuine pipeline failure whose
+    guard passed is still rendered `completed/failure` (the pipeline really ran and failed).
+    """
+    try:
+        raw = run_gh(["api",
+                      f"repos/{repo}/actions/runs/{run_id}/jobs",
+                      "--jq", ".jobs[] | {name, conclusion, status}"], gh)
+    except SystemExit:
+        return False
+    jobs = load_json(raw)
+    if not jobs:
+        return False
+    guard = [j for j in jobs if j.get("name") == "guard"]
+    if not guard or guard[0]["conclusion"] != "failure":
+        return False
+    # everything else must not have run (skipped/queued/never-started), else the pipeline got past
+    # its guard and the failure is real.
+    for j in jobs:
+        if j.get("name") == "guard":
+            continue
+        if j.get("conclusion") not in (None, "skipped", "queued", "in_progress"):
+            return False
+    return True
+
+
 def wait_for_dispatched_run(repo: str, gh: str, wf_id: str, before: set[str],
                             timeout: int) -> dict:
     """The run id this dispatch created: a workflow_dispatch-event run for this workflow not present before,
     within `timeout` seconds. Returns `{workflow_id, status, conclusion, completed_at, run_id}`.
     `gh workflow run` returns 0 whether or not a real run started (the #964 trap), so the NEW run's own
-    verdict is the fact — never the dispatch exit code."""
+    verdict is the fact — never the dispatch exit code. A run that concludes `failure` at its own
+    trigger guard (the sweep's bot dispatch was refused, #1571) is flagged `guard_refused` so the
+    report can name the reason instead of a bare `completed/failure`."""
     t0 = time.time()
     wanted: str | None = None
     while wanted is None:
@@ -300,7 +333,10 @@ def wait_for_dispatched_run(repo: str, gh: str, wf_id: str, before: set[str],
         run = load_json(run_gh(["api", f"repos/{repo}/actions/runs/{wanted}",
                                 "--jq", "{status, conclusion, completed_at}"], gh))[0]
         if run["status"] == "completed" or time.time() - t0 > MAX_ATTEMPTS * POLL_SECONDS:
-            return {"run_id": wanted, **run}
+            verdict = {"run_id": wanted, **run}
+            if run.get("conclusion") == "failure" and _guard_job_failed(repo, gh, wanted):
+                verdict["guard_refused"] = True
+            return verdict
         time.sleep(POLL_SECONDS)
 
 
@@ -327,6 +363,11 @@ def ok(row: dict, concluded: dict | None) -> str:
         return "(the sweep itself — not re-dispatched)"
     if concluded is None:
         return "did not run"
+    if concluded.get("guard_refused"):
+        # AC of issue #1571: a workflow whose dispatched run died at its OWN trigger guard (the
+        # sweep's bot dispatch was refused) is named with the reason, never a bare `completed/failure`
+        # — a green summary must not disguise an unverifiable pipeline as a verdict.
+        return f"{concluded['status']}/failure · NOT VERIFIED — refused at its own trigger guard"
     return f"{concluded['status']}/{concluded['conclusion'] or 'none'}"
 
 
