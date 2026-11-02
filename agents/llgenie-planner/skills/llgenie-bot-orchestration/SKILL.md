@@ -84,6 +84,14 @@ makes the rule true rather than aspirational; when it fires, run the whole pass 
 is the same failure as an idle bot: a conflicted PR gets no CI run at all, so nobody will fix it unless you dispatch
 the rebase bot or the host implementer.
 
+**Per-tick sweep size: 12 issues AND 12 PRs (owner 2026-11-02).** Every 30-minute tick must walk at least 12 open
+issues and 12 open PRs — measure the full lists (`gh issue list --state open --limit 100`, `gh pr list --state open
+--limit 50`), pick the 12 highest-value items from each that are not already claimed, and dispatch/refine/close each
+one with a board trail. Do not stop at "everything idle is handled" using a short list; the sweep at the owner's
+"more work" demand found the hidden backlog (8 engine-bump PRs) only because it enumerated the full list. If open
+actionable items in a category number fewer than 12, say so in the pass report and double the other category. A tick
+that dispatches fewer than 12+12 must name why (fewer exist, all claimed, all gated).
+
 **Triggering is the act of the pass, not a consequence of it.** On every tick, after measuring quiescence, do NOT
 stop at "lane X shows no run in its slot". For every bot that is idle OR idle-capable (no held-gate blocker + an open
 unassigned issue it can do without that gate), send the `message_agent` dispatch to it naming a fit issue — even when
