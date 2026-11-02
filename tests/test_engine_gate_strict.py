@@ -182,13 +182,13 @@ def test_sglang_reports_the_pinned_version_when_its_own_metadata_is_a_placeholde
     This is the regression the CI run after my first attempt caught (`FAIL sglang/rocm: entrypoint detect
     proves no version (… installed sglang 0.0.0)`) — the earlier test only checked that the detect mentioned
     `importlib.metadata`, which was not enough to keep a placeholder out of the gate. The fallback was then
-    `pin <sha>`, which `make test-built-engine` rejects in turn (`installed sglang pin 35ce31329305`), so the
+    `pin <sha>`, which `make test-built-engine` rejects in turn (`installed sglang pin 7df5dd099305`), so the
     fallback is now the skill's `version:`.
     """
 
     # Given sglang's committed params for both backends
     sglang = json.loads((REPO / "containers" / "engines" / "params" / "sglang.json").read_text())
-    version = sglang["ref"].lstrip("v")   # v0.5.22 -> 0.5.22: the tag the image is built at
+    version = sglang["ref"].lstrip("v")   # v0.5.23 -> 0.5.23: the tag the image is built at
 
     # When  each detect command is read
     # Then  it falls back to the pinned version, not to the sha, and keeps the placeholder guarded

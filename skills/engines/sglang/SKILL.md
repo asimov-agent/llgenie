@@ -4,11 +4,11 @@ description: "Use when building the SGLang engine image from source (CUDA and RO
 engine: "SGLang"
 id: sglang
 repo: https://github.com/sgl-project/sglang
-ref: v0.5.22
+ref: v0.5.23
 ref_kind: tag
-version: v0.5.22
-pinned: 35ce313293052f8362e0829e7512bc9bc3d336c9
-verified: "2026-10-25"
+version: v0.5.23
+pinned: 7df5dd09bc2f0e7e1509a1f7c2a40dff00ad8a01
+verified: "2026-11-02"
 license: Apache-2.0
 servable: true
 backends: [cuda, rocm]
@@ -28,7 +28,7 @@ hw_flags:
     cuda_arch: "'-DCMAKE_CUDA_ARCHITECTURES={cuda_arch}'"
 install:
   cuda:
-    # PREBUILT (no source compile): the official lmsysorg/sglang:v0.5.22 serving image already
+    # PREBUILT (no source compile): the official lmsysorg/sglang:v0.5.23 serving image already
     # contains the engine + its compiled CUDA kernels, so `prebuilt: true` below makes the
     # renderer run ZERO install steps (engine_skills.py: `if prebuilt: steps=[]`).
     # Root cause of the all-fail Oct 31→Nov 1 cell: the earlier source AOT build (issue #938)
@@ -68,7 +68,7 @@ container:
     # prebuilt official serving image (restore the green Oct 25-30 base): ships the engine
     # + compiled CUDA kernels, so `prebuilt: true` runs no install steps. The source devel
     # build (issue #938) OOMs compiling fp8_gemm_kernel.cu at any arch set / thread cap — see install.
-    base: "lmsysorg/sglang:v0.5.22"
+    base: "lmsysorg/sglang:v0.5.23"
     prebuilt: true
     apt: [python3, wget]
   rocm:

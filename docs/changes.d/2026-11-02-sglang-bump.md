@@ -1,0 +1,1 @@
+| 2026-11-02 | engine bump: sglang re-pinned `35ce3132` -> `7df5dd09` (`v0.5.23`) — frozen cuda/rocm Dockerfiles, params, SKILL.md and affected tests re-derived at the new pin (CI builds/tests only sglang's images) | [2026-11-02-sglang-bump.md](agent-wiki/2026-11-02-sglang-bump.md) | #1515 |
