@@ -181,7 +181,7 @@ The tree is 2458 tracked files: `data/` 10, `skills/` 17 (16 engine directories 
 | `docker-compose-files/` | the compose definitions for the OpenSpec CLI (`openspec.yaml`) and the test image (`test.yaml`) |
 | `tools/` | pip-compile inputs (`requirements.in`, `requirements-dev.in`), the generated `security-floors.in` constraint file, and the venv targets |
 | `renovate.json` | the dependency / base-image update config Renovate acts on; its properties are a gate (`make check-renovate`), not a preference |
-| `.github/workflows/` | CI (`ci.yml`, `pipeline.yml`, `published.yml`, `publish-agent-image.yml`, `auto-merge.yml`), the on-demand engine sweep (`engine-build.yml`), the daily scan (`security-scan.yml`) and one workflow per bot |
+| `.github/workflows/` | CI (`ci.yml`, `pipeline.yml`, `publish-agent-image.yml`, `auto-merge.yml`), the on-demand engine producer/sweep (`engine-build.yml`), the daily scan (`security-scan.yml`) and one workflow per bot |
 | `.editorconfig`, `.gitleaks.toml`, `pytest.ini`, `.env.example` | editor line-ending rules, the secret scanner's config, pytest settings, and the documented shape of the credentials a bot leg expects (never a real value) |
 
 ## Scripts
@@ -643,9 +643,9 @@ a caller back; until then a macOS-path change needs hand review.
 `make openspec-validate-all` and then `make openspec-tasks-check`: the structure of EVERY
 active change is validated, because the job used to name one hardcoded change
 (`NAME=ci-pipeline`), so the change a commit actually touched could land without its
-structure ever being checked (issue #156). `linux-published` calls `published.yml`, whose
-`install-published` job runs `make ci-engines BACKEND=<b>` for `cpu`, `cuda`, `rocm` and
-`vulkan` against the images the `engine-image` jobs published.
+structure ever being checked (issue #156). The engine-build producer (`engine-build.yml`) runs
+`make test-install-published` for `cpu`, `cuda`, `rocm` and
+`vulkan` against the images its `build` job published, only when the run pushed an image (issue #844 / #1027).
 
 `make ci-unit` is the gate bundle, not just the suite: `bash-check`, then `make test-unit`,
 `skills-validate` (twice — the second time against `data/models.json` and

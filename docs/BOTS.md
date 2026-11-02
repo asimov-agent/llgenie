@@ -1595,7 +1595,7 @@ Pausing a bot leg is legitimate. Pausing the merge path is the defect #874 is ab
 > registry-sync-review, run-failure-reactor, search-smoke, security-bot, security-scan
 
 **Never paused, in any pause: `auto-merge`** — the merge path itself. `ci.yml`, `pipeline.yml` and
-`published.yml` are `active` for the same reason: each is what makes a green PR a mergeable, tested,
+`engine-build.yml` are `active` for the same reason: each is what makes a green PR a mergeable, tested,
 published one. (`bench-disk` also reads `disabled_manually` but has no file in the tree — a stale
 registration, not a workflow a pause can touch.)
 
@@ -2288,14 +2288,12 @@ image → download → lint → unit → install → health → top-tier → top
   image (serve: `make test-engine-image` first, so the binary must answer its flags, then
   `make test-engine`; detect: `make test-engine-image` only). Every cell therefore has its
   binary executed and probed, whether it serves a model on the runner or not. The engine images are
-  built once (Linux containers), then `published.yml` (`make ci-engines BACKEND=<b>` ->
-  `make test-install-published` per backend) installs them on Linux in every **push** run (macOS
+  built once (Linux containers); the `engine-build.yml` producer (`make ci-engines BACKEND=<b>` ->
+  `make test-install-published` per backend) installs the published images on a PUBLISHING run (macOS
   never runs an engine container, so it has no published-image stage).
-  The four `install-published-{cpu,cuda,rocm,vulkan}` rows run only when that run actually **pushed an
-  image** (issue #844): the engine-build producer's matrix answers one question — push event AND at
-  least one real (non-`none`) engine row — `engine-matrix` publishes it as the `pushed` output, and
-  `linux-published` passes it to `published.yml`, whose matrix resolves to the single `none`
-  placeholder row instead of the four. A `pull_request` never publishes, so on a PR these rows are
+  The install/serve legs run only when that run actually **pushed an image** (issues #844 / #1027):
+  the engine-build producer runs `make test-install-published` per row only when `inputs.push == 'true'`
+  and the row is not the `none` placeholder. A pull_request never publishes, so on a PR these rows are
   skipped **by the row, not by the job**: every check name still reports, and the row's first step says
   `install-published-none: SKIPPED - no image pushed in this run`. That is why a green
   `install-published-*` means "this run's image installs" rather than "the registry still works".
