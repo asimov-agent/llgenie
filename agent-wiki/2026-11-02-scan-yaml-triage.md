@@ -31,7 +31,32 @@ from `origin/main` at the scanned sha.
   unquoted `${{ github.event.* }}` in a `pull_request_target` `run:` step. This is **not** a gate
   weakening: `fail_on`/severity untouched, no `require_fix:false`, no emptied `fail_on`.
 
+### THIRD root cause (a real pipeline defect) → issue #1598
+
+A corrective report-only dispatch (run **41461058238**, `enforce=report`, scanned sha `99874a46`)
+red even though report mode is meant to be non-gating. The cause was not a finding: `make security-issues`
+created finding **#1597** (`dockerfile.security.missing-user.missing-user`, `containers/ci-variant/Dockerfile:49`,
+high) and then the labeling write failed verbatim:
+
+```
+[security-issues] could not label #1597: gh: Resource not accessible by personal access token (HTTP 403)
+make: *** [Makefile:1175: security-issues] Error 1
+```
+
+The step's token 403s on the label write, so the freshly-created finding is left **unlabelled** —
+invisible to `security-bot` (it picks ONE issue per run by label). This is the "created but never routed"
+failure class (#724, #781-784), now tracked as **#1598**. #1597 was hand-re-labelled (security,
+severity:high, component:container, read back) to keep it visible while a fix lands.
+
+## Outcome
+
+- Issues **#1594**, **#1595**, **#1598** filed and `security`-tagged (read back, OPEN), routed to the
+  implementer queue. **#1597** repaired in place.
+- Triage record committed via PR **#1596**, merged by owner (mergeCommit `aef61e17`, 2026-11-02T14:21:31Z).
+- This extension (third root cause + repair) committed via PR, merged.
+
 ## Not done (by design)
 
-No workflow file edited (this lane files, tags, routes). Both issues carry the `security` label read
-back and are OPEN, routed to the implementer queue. #1088 held; nothing armed.
+No workflow file edited (this lane files, tags, routes). The fixes for #1594/#1595/#1598 route to the
+implementer queue. The `security-scan` workflow re-reds DAILY until those land (findings still in the
+tree); the label-403 gap is the part that also buries the filing path. #1088 held; nothing armed.

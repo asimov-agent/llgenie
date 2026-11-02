@@ -1,1 +1,1 @@
-| 2026-11-02 | daily security-scan yaml triage: real least-privilege defects (#1594) vs run-shell-injection FP class (#1595) | [2026-11-02-scan-yaml-triage.md](agent-wiki/2026-11-02-scan-yaml-triage.md) | #1594, #1595 |
+| 2026-11-02 | daily security-scan yaml triage: real least-privilege (#1594), run-shell-injection FP class (#1595), + label-403 pipeline defect (#1598, #1597 repair) | [2026-11-02-scan-yaml-triage.md](agent-wiki/2026-11-02-scan-yaml-triage.md) | #1594, #1595, #1598 |
