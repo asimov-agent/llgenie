@@ -95,6 +95,7 @@ jobs:
         # to `main` rather than diffing against the empty string and classifying nothing (issue #824).
         # The classifier itself is reached through the `ci-scope` make target, never inline (the repo
         # rule that every workflow step that runs a script must route through `make`).
+        # nosemgrep: yaml.github-actions.security.run-shell-injection.run-shell-injection — base_ref constant, quoted, make-routed (issue #1595)
         run: |
           BASE="${{ github.base_ref }}"
           if [ -z "$BASE" ]; then

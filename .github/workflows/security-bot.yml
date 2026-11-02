@@ -104,4 +104,5 @@ jobs:
       - name: make check-security-bot (the bot's contract with the issue roster)
         run: make check-security-bot
       - name: make security-bot (one issue -> one green PR, or a comment instead)
+        # nosemgrep: yaml.github-actions.security.run-shell-injection.run-shell-injection — repo constant, quoted, make-routed (issue #1595)
         run: make security-bot SLUG="${{ github.repository }}" ${{ github.event.inputs.dry == 'true' && 'DRY=1' || '' }}

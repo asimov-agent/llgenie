@@ -123,6 +123,7 @@ jobs:
         run: make check-security-scan
 
       - name: make security-scan-all (or one tool from the dispatch input)
+        # nosemgrep: yaml.github-actions.security.run-shell-injection.run-shell-injection — authorized dispatch input, quoted, make-routed (issue #1595)
         run: |-
           set -euo pipefail
           tools="${{ github.event.inputs.tools || 'all' }}"
@@ -141,6 +142,7 @@ jobs:
         # captured here and turned into the run's exit code by the LAST step of the job.
         id: verdict
         continue-on-error: true
+        # nosemgrep: yaml.github-actions.security.run-shell-injection.run-shell-injection — authorized dispatch input, quoted, make-routed (issue #1595)
         run: |-
           set -euo pipefail
           ENFORCE="${{ github.event.inputs.enforce || '' }}"

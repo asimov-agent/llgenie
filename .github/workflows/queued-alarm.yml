@@ -99,6 +99,7 @@ jobs:
           # It comments on a PR / files ONE deduped issue: `issues: write` is declared above and
           # granted to github.token, while the owner PAT carries no Issues write (issue #412).
           GH_TOKEN: ${{ github.token }}
+        # nosemgrep: yaml.github-actions.security.run-shell-injection.run-shell-injection — repo constant, quoted, make-routed (issue #1595)
         run: |
           set -euo pipefail
           make queued-alarm REPO="${{ github.repository }}" \
