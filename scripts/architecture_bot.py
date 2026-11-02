@@ -83,8 +83,33 @@ def tracked_files(root: Path = REPO_ROOT) -> list[str]:
     return [line for line in git(root, "ls-files").splitlines() if line]
 
 
+def tree_files(root: Path, ref: str) -> list[str]:
+    """The tracked paths AT `ref` (`git ls-tree`), never the working tree.
+
+    A census is a claim about ONE commit; its counts must be read from the commit the
+    doc names, or the pointer and the numbers drift apart (issue #1236).
+    """
+    return [line for line in git(root, "ls-tree", "-r", "--name-only", ref).splitlines() if line]
+
+
 def head_sha(root: Path = REPO_ROOT) -> str:
     return git(root, "rev-parse", "--short", "HEAD").strip()
+
+
+def census_referent(root: Path = REPO_ROOT) -> str:
+    """The commit the census must be measured at — an ancestor of `origin/main`.
+
+    The working/PR head a refresh runs on is a commit a subsequent squash can orphan out
+    of `main`'s lineage, so a census pointer naming it reds the whole board the next time
+    the gate runs (issue #1236). Resolve the pointer to `merge-base(origin/main, HEAD)`
+    — a commit both `main` and this branch contain, so it survives the squash. Falls back
+    to HEAD when there is no `origin/main` (a fresh clone or a scratch test repo).
+    """
+    if _git_rc(root, "rev-parse", "--verify", "-q", "refs/remotes/origin/main") == 0:
+        base = git(root, "merge-base", "origin/main", "HEAD").strip()
+        if base:
+            return base
+    return git(root, "rev-parse", "HEAD").strip()
 
 
 def doc_last_commit(root: Path, doc: str) -> str:
@@ -191,8 +216,14 @@ def workflows(root: Path = REPO_ROOT) -> list[dict]:
 
 
 def surface(root: Path = REPO_ROOT) -> dict:
-    """What the tree actually contains — the input the doc is written from."""
-    files = tracked_files(root)
+    """What the tree actually contains — the input the doc is written from.
+
+    The census is measured at `census_referent` — an ancestor of `origin/main` — and the
+    counts are read from THAT commit via `ls-tree`, never the working/PR head, so a squash
+    cannot orphan the `measured at <sha>` pointer out of main's lineage (issue #1236).
+    """
+    ref = census_referent(root)
+    files = tree_files(root, ref)
     top = sorted({p.split("/", 1)[0] for p in files})
     scripts = []
     for rel in sorted(p for p in files if re.fullmatch(r"scripts/[^/]+\.py", p)):
@@ -200,7 +231,7 @@ def surface(root: Path = REPO_ROOT) -> dict:
     groups = {d: len([p for p in files if p.startswith(d + "/")])
               for d in ("data", "skills", "containers", "tests", "openspec", "agent-wiki")}
     return {
-        "head": head_sha(root),
+        "head": git(root, "rev-parse", "--short", ref).strip(),
         "tracked_files": len(files),
         "top_level": top,
         "scripts": scripts,

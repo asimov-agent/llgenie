@@ -188,6 +188,29 @@ def test_brief_treats_an_uncommitted_doc_as_a_full_rebuild(tmp_path):
     assert f"Rewrite `{DOC}`" in text
 
 
+def test_the_census_pointer_is_an_ancestor_of_origin_main(tmp_path):
+    """The `measured at <sha>` pointer must survive a squash: it names an ancestor of
+    `origin/main`, never the working/PR head a refresh ran on (issue #1236)."""
+
+    # Given a repository on a feature branch ahead of origin/main (the PR-head case)
+    root = _repo(tmp_path)
+    (root / "scripts" / "foo.py").write_text('"""Foo module: now serves bar."""\n')
+    _git(root, "add", "-A")
+    _git(root, "commit", "-qm", "feat: foo serves bar")
+    main_tip = _git(root, "rev-parse", "origin/main").strip()
+
+    # When the surface is derived from that PR head
+    surf = ab.surface(root)
+
+    # Then the emitted head pointer is an ancestor of origin/main (survives the squash),
+    # and the counts were read from THAT commit, not the working/PR head
+    assert ab.census_referent(root) == main_tip
+    # The pointer is exactly the main tip (short), so a squash of the PR head cannot orphan it
+    assert surf["head"] == _git(root, "rev-parse", "--short", "origin/main").strip()
+    # And the numbers are read at the referent, not at the PR head
+    assert surf["tracked_files"] == len(ab.tree_files(root, main_tip))
+
+
 # -------------------------------------------------------------------- publishing
 
 
