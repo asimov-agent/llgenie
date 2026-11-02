@@ -152,9 +152,16 @@ jobs:
       - name: make security-issues (file or update one tagged issue per finding)
         # Runs even when the verdict gated — that is the point. Still skipped when the scan itself
         # died before writing reports, so a scanner crash never files a bogus "0 findings" issue.
+        # The token: `github.token` (the job-scoped GITHUB_TOKEN, already `issues: write` above at
+        # the `scan` job permissions) is the identity that CREATES the issue AND the one set_labels
+        # uses to POST the labels — the SAME write-scoped identity, so the label write cannot 403 as
+        # "not accessible by personal access token". The old expr `secrets.BUMP_TOKEN || ...` let the
+        # owner PAT shadow the run token, and that PAT lacks issue-label-write on this repo (issue
+        # #1598, measured run 41461058238 / #1597). BUMP_TOKEN stays only where a push must start
+        # workflows (checkout and security-bumps) — never here.
         if: always() && hashFiles('security-reports/*') != ''
         env:
-          GH_TOKEN: ${{ secrets.BUMP_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           SECURITY_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: make security-issues SLUG="${{ github.repository }}" RUN_URL="$SECURITY_RUN_URL"
 
