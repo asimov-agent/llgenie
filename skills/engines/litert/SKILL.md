@@ -4,11 +4,11 @@ description: "Use when installing Google LiteRT-LM (the LiteRT LLM runtime, via 
 engine: "LiteRT"
 id: litert
 repo: https://github.com/google-ai-edge/LiteRT-LM
-ref: v0.18.1
+ref: v0.19.0
 ref_kind: tag
-version: v0.18.1
-pinned: bda624851d74be34d4e1f7fac1fc4155939539c7
-verified: "2026-10-25"
+version: v0.19.0
+pinned: 771b06e1a2c7f70a399a718599109facf37e38fd
+verified: "2026-11-02"
 license: Apache-2.0
 servable: true
 backends: [metal, cpu]

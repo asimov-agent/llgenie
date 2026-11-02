@@ -1,0 +1,1 @@
+| 2026-11-02 | engine bump: litert re-pinned `bda62485` -> `771b06e1` (`v0.19.0`) — frozen cpu Dockerfile, params, SKILL.md and affected tests re-derived at the new pin (CI builds/tests only litert's images) | [2026-11-02-litert-bump.md](agent-wiki/2026-11-02-litert-bump.md) | #1517 |
