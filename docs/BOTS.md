@@ -508,6 +508,16 @@ A manifest entry with `rules: []` declares no rule, so nothing in that profile's
 "the rule held" must not read the same line (issue #922). It is a report, not a failure: a profile may
 legitimately declare no rule, and a permanently red gate is a filtered gate.
 
+`check-agent-profiles` is a **fleet-wide** report, but a lane's own PR must judge whether THAT lane is
+consistent — so `check --profile <lane>` reports only the lane's own findings plus the manifest/fleet
+findings every lane shares (a strict subset of the global set). On a host where another lane's live
+profile has drifted, a lane whose own profile is clean passes its own scope instead of red on a peer's
+edit (issue #1090). `make check-agent-profiles-ratchet` is the repository-wide backstop: it refuses a
+committed-tree finding the recorded `tests/fixtures/agent-profiles-baseline.json` does not carry, read
+**without** the live-home comparison so a drifted host cannot move the bar — the fleet tree cannot rot
+silently through the scoped view. Re-record deliberately with
+`scripts/check_agent_profiles.py --update-baseline`.
+
 **Changing a host agent's behaviour is a change like any other**: its own issue, its own branch, an
 OpenSpec change, the text committed under `agents/<profile>/`, a PR a human approves, then
 `make sync-agent-profile` to make the profile the repository's copy. `tests/test_agent_profiles.py`
