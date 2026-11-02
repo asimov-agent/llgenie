@@ -950,6 +950,85 @@ def findings(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR) -> list[dict
     return items
 
 
+#: The committed-tree finding baseline the repository-wide ratchet refuses to let GROW. It records
+#: the TREE-ONLY findings (no live-home comparison, so it is a deterministic byte-identical number on
+#: every host and in CI — a live-drifted host must not move the bar it ratchets against, issue #1090).
+#: Set-shaped like import-roots (#953/#796): each key records its counted `where` sites, so a red
+#: names the ONE new site instead of a bare count.
+BASELINE = "tests/fixtures/agent-profiles-baseline.json"
+
+
+def tree_findings_sites(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR) -> dict[str, set[str]]:
+    """Tree-only (`where`, per key) sites — the deterministic set the ratchet diffs.
+
+    `live_root()` is made None by isolating the live home, so the committed tree is measured the same
+    on every host and in CI. WITHOUT this isolation a drifted shared host reports live-longer/
+    live-lines-missing/absent-from-tree from other lanes' live edits, and the ratchet would red every
+    clean PR on a host it did not cause (the exact defect issue #1090 fixes).
+    """
+    saved = os.environ.get("HERMES_PROFILES_HOME"), os.environ.get("HERMES_PROFILE_HOME")
+    try:
+        # Point both live-home variables at a directory that cannot hold a profile, so live_root_info
+        # returns (None, ...) and findings() skips the live comparisons deterministically.
+        os.environ["HERMES_PROFILES_HOME"] = str(root / ".nopen-profiles")
+        os.environ.pop("HERMES_PROFILE_HOME", None)
+        out: dict[str, set[str]] = {}
+        for item in findings(root, agents_dir):
+            out.setdefault(item["key"], set()).add(item["where"])
+    finally:
+        if saved[0] is None:
+            os.environ.pop("HERMES_PROFILES_HOME", None)
+        else:
+            os.environ["HERMES_PROFILES_HOME"] = saved[0]
+        if saved[1] is None:
+            os.environ.pop("HERMES_PROFILE_HOME", None)
+        else:
+            os.environ["HERMES_PROFILE_HOME"] = saved[1]
+    return out
+
+
+def ratchet(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR) -> list[dict]:
+    """Refusals that push a tree finding past its recorded baseline — the repo-wide finding ratchet.
+
+    A lane whose own profile is clean must green out even on a host where other lanes have drifted;
+    but the FLEET cannot be allowed to rot silently while no single lane is blocked. So the committed
+    tree's own findings are ratcheted: a site present now and absent at the recorded baseline is a NEW
+    finding that must be reviewed, while a recorded site that shrank is the allowed, reported shrink.
+    The baseline is recorded by the owner/deliverer with `--update-baseline` when a change genuinely
+    adds a tree finding the fleet has decided to carry (issue #1090, criterion 2/3).
+    """
+    path = root / BASELINE if not (root / BASELINE).is_absolute() else (root / BASELINE)
+    now = tree_findings_sites(root, agents_dir)
+    if not path.exists():
+        return [{"key": "agent-profiles-baseline", "where": str(BASELINE),
+                 "missing": True,
+                 "detail": f"missing; record the current sites with --update-baseline "
+                           f"({{k: len(v) for k, v in now.items()}})"}]
+    recorded = json.loads(path.read_text(encoding="utf-8"))
+    items: list[dict] = []
+    for key in sorted(set(recorded) | set(now)):
+        rec = set(recorded.get(key, []))
+        cur = now.get(key, set())
+        new = sorted(cur - rec)
+        if new:
+            items.append({"key": key, "where": str(BASELINE), "new": new,
+                          "now": len(cur), "was": len(rec),
+                          "detail": f"{key}: a NEW committed-tree finding is refused — this exactly "
+                                    f"(issue #1090):"})
+    return items
+
+
+def update_baseline(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR) -> Path:
+    """Re-record the current tree-only finding set as the new baseline (only when the fleet decides to
+    carry a finding). The tree-only guarantee means this writes the same number on every host."""
+    path = root / BASELINE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    now = tree_findings_sites(root, agents_dir)
+    data = {k: sorted(v) for k, v in sorted(now.items())}
+    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+    return path
+
+
 def _duplicate_rule_debts(agents: Path, profiles: list[dict]) -> list[tuple[str, str]]:
     """Every (profile, canonical-rule-title) stated more than once in a SOUL — a second source of truth.
 
@@ -1066,6 +1145,34 @@ def report(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR) -> str:
     return "\n".join(lines)
 
 
+def _profile_of(where: str, profiles: list[dict]) -> str | None:
+    """Which lane a finding's `where` names, or None for a manifest/fleet finding every lane shares.
+
+    Finding paths are rooted two different ways — tree findings live under `agents/<name>/…`, the
+    live comparisons and `absent-from-tree` paths drop the `agents/` prefix and begin directly with
+    `<name>/…`. The operand is the FIRST path segment after an optional `agents/` (and after any
+    `../` a `relative_to(root.parents[1])` produced). A first segment that is a known profile name
+    is that lane; anything else (`agents/manifest.json`, `agents/standing-rules.md`, an `agents-dir`
+    `where` of just the bare dir name) is shared infrastructure and is kept for every lane (issue
+    #1090 — a lane's scoped gate must still see a broken manifest, only NOT another lane's live edit).
+    """
+    names = {profile["name"] for profile in profiles}
+    seg = where.lstrip("./").split("/", 1)[0]
+    if seg == "agents" and "/" in where:
+        seg = where.lstrip("./").split("/", 2)[1]
+    return seg if seg in names else None
+
+
+def _profile_scope(items: list[dict], profiles: list[dict], name: str) -> list[dict]:
+    """Findings a single lane owns: its own paths, plus the manifest/fleet findings every lane shares.
+
+    The subset-of-global guarantee the issue demands is structural here — a lane's scoped gate is
+    exactly the global set filtered to `_profile_of(...) in (None, name)`, so no finding can appear
+    scoped that is not in the global check (asserted by test, issue #1090 criterion 4).
+    """
+    return [item for item in items if _profile_of(item["where"], profiles) in (None, name)]
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
     parser.add_argument("mode", nargs="?", default="check", choices=("check", "report"))
@@ -1076,6 +1183,19 @@ def main(argv: list[str] | None = None) -> int:
                         help="only report findings whose key is in this comma-separated list "
                              "(e.g. `--only live-longer`); an unknown key is a broken invocation, "
                              "exit 2 with the known keys named")
+    parser.add_argument("--profile", default=None, metavar="NAME",
+                        help="only report findings about ONE lane's own profile plus the "
+                             "manifest/fleet findings every lane shares (issue #1090); an unknown "
+                             "profile is a broken invocation, exit 2 with the manifest's profiles "
+                             "named")
+    parser.add_argument("--ratchet", action="store_true",
+                        help="refuse committed-tree findings past the recorded baseline "
+                             "(tests/fixtures/agent-profiles-baseline.json); live-alone drift is "
+                             "excluded from the diff, so a clean lane greens on a drifted host "
+                             "(issue #1090)")
+    parser.add_argument("--update-baseline", action="store_true",
+                        help="re-record the current tree-only findings as the new ratchet baseline "
+                             "(import-roots @#953/#796 shape, issue #1090)")
     args = parser.parse_args(argv)
     root = Path(args.root).resolve()
     if not root.is_dir():
@@ -1114,6 +1234,38 @@ def main(argv: list[str] | None = None) -> int:
     if selected is not None:
         items = [item for item in items if item["key"] in selected]
     profiles, _ = read_manifest((root / agents_dir) if not agents_dir.is_absolute() else agents_dir)
+    scoped_profile = None
+    if args.profile:
+        known = {profile["name"] for profile in profiles}
+        if args.profile not in known:
+            print(f"[check-agent-profiles] FAIL: --profile names a profile this manifest does not "
+                  f"carry: {args.profile!r} — profiles: {', '.join(sorted(known)) or '(none)'}",
+                  file=sys.stderr)
+            return 2
+        scoped_profile = args.profile
+        items = _profile_scope(items, profiles, args.profile)
+    if args.update_baseline:
+        path = update_baseline(root, agents_dir)
+        print(f"[check-agent-profiles] baseline re-recorded at {path.relative_to(root)} "
+              f"(tree-only findings, issue #1090)")
+        return 0
+    if args.ratchet:
+        refusals = ratchet(root, agents_dir)
+        if refusals:
+            for item in refusals:
+                if item.get("missing"):
+                    print(f"[check-agent-profiles] FAIL {item['key']}: {item['where']}: "
+                          f"{item['detail']}", file=sys.stderr)
+                else:
+                    print(f"[check-agent-profiles] FAIL ratchet {item['key']}: {item['detail']} "
+                          f"({item['now']} now, {item['was']} recorded)", file=sys.stderr)
+            print(f"[check-agent-profiles] {len(refusals)} committed-tree finding(s) past the "
+                  "recorded baseline — the repository-wide ratchet refuses to grow the fleet's "
+                  "tree findings (issue #1090)", file=sys.stderr)
+            return 1
+        print(f"[check-agent-profiles] OK: no committed-tree finding beyond the recorded baseline "
+              f"{BASELINE} (issue #1090)")
+        return 0
     for name in unprotected(profiles):
         # issue #922: an entry with no rule gates nothing. Named, never failed - and never silent,
         # because a green line is what made "rules: []" read as compliance.
@@ -1129,7 +1281,8 @@ def main(argv: list[str] | None = None) -> int:
         caveat = (" — tree checks only, LIVE RULEBOOKS NOT COMPARED" if live_base is None else "")
         if snapshot:
             caveat += " — the live reference moved DURING this run, so the comparison is a snapshot"
-        print(f"[check-agent-profiles] OK: {len(profiles)} host-agent profile(s), each with a "
+        scope = (f" (scoped to {scoped_profile!r})" if scoped_profile else "")
+        print(f"[check-agent-profiles] OK{scope}: {len(profiles)} host-agent profile(s), each with a "
               "SOUL.md stating the rules its manifest declares; every skill's frontmatter name "
               f"matches its directory and carries no secret value"
               + ("" if live_base is None else
@@ -1151,7 +1304,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     for item in items:
         print(f"[check-agent-profiles] FAIL {item['key']}: {item['where']}: {item['detail']}")
-    print(f"[check-agent-profiles] {len(items)} finding(s) — an instruction a credential-holding "
+    scope = (f" (scoped to {scoped_profile!r})" if scoped_profile else "")
+    print(f"[check-agent-profiles]{scope} {len(items)} finding(s) — an instruction a credential-holding "
           "agent runs under is unreviewable when this tree is wrong, so this is a failure, not a "
           "style note", file=sys.stderr)
     return 1

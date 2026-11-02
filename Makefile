@@ -402,6 +402,10 @@ bot-preflight: ## Fetch origin/main, fast-forward a behind checkout, and record 
 check-import-roots: ## CI: fail when a test file carries its own `sys.path` entry or imports a `scripts/` module bare — a ratchet against the recorded counts (issue #796)
 	python3 scripts/check_import_roots.py ratchet
 
+.PHONY: check-agent-profiles-ratchet
+check-agent-profiles-ratchet: ## CI: refuse committed-tree findings past the recorded baseline (tests/fixtures/agent-profiles-baseline.json) — live-alone drift is excluded so a clean lane greens on a drifted host, but the fleet tree cannot rot silently (issue #1090)
+	python3 scripts/check_agent_profiles.py --ratchet
+
 check-agent-skills: ## CI: fail when a bot leg does not preload its project skill, names a missing one, or carries a rulebook inline instead of a pointer (issue #577)
 	python3 scripts/check_agent_skills.py check
 
@@ -1787,6 +1791,7 @@ ci-unit: bash-check ## CI job unit: hermetic unit tests + registry / skill / Str
 	$(MAKE) issue-bot-gates
 	$(MAKE) issue-bot-gates-check
 	$(MAKE) check-import-roots
+	$(MAKE) check-agent-profiles-ratchet
 
 ci-agents-read: bash-check ## CI job agents-read: make test-agents-read (Python 3.12 venv -> AGENTS.md scan -> guard tests)
 	$(MAKE) test-agents-read

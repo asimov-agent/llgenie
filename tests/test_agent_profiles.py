@@ -94,10 +94,13 @@ def keys(root: Path) -> set[str]:
 # ---- the committed tree ----------------------------------------------------------
 
 
-def test_committed_tree_passes_the_gate():
+def test_committed_tree_passes_the_gate(tmp_path, monkeypatch):
     """The tree this repository ships is clean: two profiles, each SOUL stating its rules."""
 
-    # Given the repository's own agents/ tree
+    # Given the repository's own agents/ tree, and NO live profiles to inherit drift from — on a
+    # shared host other lanes' live edits would otherwise red this tree-only assertion (issue #1090),
+    # so the test isolates the live home exactly as a lane's own profile test must.
+    monkeypatch.setenv("HERMES_PROFILES_HOME", str(tmp_path / "no-live-profiles"))
     # When the gate reads it
     items = guard.findings(REPO)
 
@@ -253,7 +256,7 @@ def test_a_rule_inside_a_fence_or_a_blockquote_is_also_only_quoted(tmp_path):
         assert "standing-rule-quoted" in keys(root), root
 
 
-def test_a_stated_rule_passes_even_when_the_soul_also_quotes_it(tmp_path):
+def test_a_stated_rule_passes_even_when_the_soul_also_quotes_it(tmp_path, monkeypatch):
     """The live shape of #921's architect SOUL: statement plus quotation must PASS, not fail.
 
     This is the case a naive "fail any file containing the words inside quotation marks" reds — a
@@ -262,6 +265,8 @@ def test_a_stated_rule_passes_even_when_the_soul_also_quotes_it(tmp_path):
 
     # Given a SOUL that states the rule and also quotes the owner's instruction
     root = fixture_tree(tmp_path)
+    # isolate the live home so other lanes' host drift cannot red this tree-only test (issue #1090)
+    monkeypatch.setenv("HERMES_PROFILES_HOME", str(tmp_path / "no-live-profiles"))
     write_soul(root / "agents", "llgenie-planner", STATED_AND_QUOTED_SOUL)
 
     # When  the gate reads the tree and the strip is applied directly
@@ -671,6 +676,122 @@ def test_only_rejects_an_unknown_key_among_valid_ones_through_real_main(tmp_path
     assert code == 2, text
     assert "bogus-thing" in text, text
     assert "live-longer" in text, text       # a valid sibling key is still named so the caller can fix it
+
+
+def test_profile_scope_is_a_subset_of_the_global_findings(tmp_path, monkeypatch):
+    """`--profile <lane>` returns a strict subset of the global check (issue #1090 criterion 4).
+
+    A lane's scoped gate must see its OWN findings plus the manifest/fleet findings every lane shares,
+    and NEVER a sibling lane's live edit. The structural guarantee is asserted the way the ratchets
+    require: every scoped finding's `where` is in the global set.
+    """
+    import check_agent_profiles as cap
+
+    root, agents, live_home = _mirror(tmp_path)
+    monkeypatch.setenv("HERMES_PROFILES_HOME", str(live_home))
+    # two lanes: `someone` clean, `sibling` deliberately drifted in the live profile
+    (agents / "sibling").mkdir(exist_ok=True)
+    (agents / "sibling" / "SOUL.md").write_text("never merge\n")
+    manifest = agents / "manifest.json"
+    manifest.write_text(json.dumps({
+        "profiles": [{"name": "someone", "rules": ["never-merge"]},
+                     {"name": "sibling", "rules": ["never-merge"]}]}))
+    (live_home / "sibling").mkdir(exist_ok=True)
+    (live_home / "sibling" / "SOUL.md").write_text("never merge\n" + "extra live line\n" * 20)
+
+    global_items = cap.findings(root, agents)
+    scoped = cap._profile_scope(global_items,
+                                cap.read_manifest(agents)[0], "someone")
+    # scoped is a subset of global (criterion 4), and names nothing of the sibling's drift
+    assert set(i["where"] for i in scoped) <= set(i["where"] for i in global_items), scoped
+    assert not any("sibling" in i["where"] for i in scoped), scoped
+    # ...yet the sibling drift IS red in the global set
+    assert any("sibling" in i["where"] for i in global_items), global_items
+
+
+def test_profile_scope_greens_a_clean_lane_despite_another_lanes_drift(tmp_path, monkeypatch, capsys):
+    """A lane whose own profile is clean passes `check --profile <lane>` even when siblings drifted.
+
+    This is the acceptance a profile PR must meet: the #1090 defect reds a lane's PR because of OTHER
+    lanes' live edits, and `--profile` restores the lane's own gate to whether IT is consistent.
+    """
+    import check_agent_profiles as cap
+
+    root, agents, live_home = _mirror(tmp_path)
+    monkeypatch.setenv("HERMES_PROFILES_HOME", str(live_home))
+    (agents / "sibling").mkdir(exist_ok=True)
+    (agents / "sibling" / "SOUL.md").write_text("never merge\n")
+    (agents / "manifest.json").write_text(json.dumps({
+        "profiles": [{"name": "someone", "rules": ["never-merge"]},
+                     {"name": "sibling", "rules": ["never-merge"]}]}))
+    (live_home / "sibling").mkdir(exist_ok=True)
+    (live_home / "sibling" / "SOUL.md").write_text("never merge\n" + "extra live line\n" * 200)
+
+    # global check reds on the sibling's drift
+    assert cap.main(["check", "--root", str(root), "--agents-dir", "agents"]) == 1
+    capsys.readouterr()
+    # the lane's own scoped check greens and names the scope audibly
+    code = cap.main(["check", "--root", str(root), "--agents-dir", "agents",
+                     "--profile", "someone"])
+    text = capsys.readouterr().out + capsys.readouterr().err
+    assert code == 0, text
+    assert "scoped to 'someone'" in text, text
+
+
+def test_profile_scope_rejects_an_unknown_lane(tmp_path, monkeypatch, capsys):
+    """`--profile nobodys-lane` is a broken invocation, not a silent pass (mirrors `--only` #1087)."""
+    import check_agent_profiles as cap
+
+    root, agents, live_home = _mirror(tmp_path)
+    monkeypatch.setenv("HERMES_PROFILES_HOME", str(live_home))
+    text = ""
+    code = cap.main(["check", "--root", str(root), "--agents-dir", "agents",
+                     "--profile", "nobodys-lane"])
+    text = capsys.readouterr().err
+    assert code == 2, code
+    assert "--profile" in text, text
+    assert "does not carry" in text, text
+
+
+def test_profile_scope_on_the_committed_tree_is_clean(tmp_path, monkeypatch, capsys):
+    """All seven committed lanes pass `--profile <own>` on the tree they ship (#1090 criterion 1).
+
+    On a drifted host each lane must still be able to green its own PR; this proves the committed tree
+    is clean for every lane (live isolated so CI and a drifted host agree).
+    """
+    import check_agent_profiles as cap
+
+    monkeypatch.setenv("HERMES_PROFILES_HOME", str(tmp_path / "no-live-profiles"))
+    for name in ["llgenie-planner", "llgenie-issse-implementer", "llgenie-architect",
+                 "llgenie-security", "llgenie-documentation-maintainer",
+                 "llgenie-ci-pipelines-maintainer", "llgenie-pr-reviever"]:
+        code = cap.main(["check", "--root", str(REPO), "--agents-dir", "agents",
+                        "--profile", name])
+        assert code == 0, f"{name}: rc={code}"
+
+
+def test_ratchet_refuses_a_new_committed_tree_finding(tmp_path):
+    """The repo-wide ratchet reds on a finding past the recorded baseline (issue #1090 criterion 2).
+
+    A lane must green despite sibling drift, but the fleet must not rot silently: a NEW committed-tree
+    finding the baseline did not carry is refused, and re-recording with `--update-baseline` is the
+    deliberate way to carry one.
+    """
+    import check_agent_profiles as cap
+
+    root, agents, _ = _mirror(tmp_path)
+    # clean baseline: no tree findings (resolved against the root, as ratchet() does)
+    base = root / "tests" / "fixtures" / "agent-profiles-baseline.json"
+    base.parent.mkdir(parents=True, exist_ok=True)
+    base.write_text(json.dumps({}))
+    assert cap.ratchet(root, agents) == []
+    # inject a tree finding (drop never-merge) -> refused
+    (agents / "someone" / "SOUL.md").write_text("# S\n")
+    refusals = cap.ratchet(root, agents)
+    assert any("NEW committed-tree finding" in x["detail"] for x in refusals), refusals
+    # re-recording carries it deliberately
+    cap.update_baseline(root, agents)
+    assert cap.ratchet(root, agents) == []
 
 
 def test_a_live_write_to_a_skill_reference_is_a_cron_path_finding(tmp_path, monkeypatch):
@@ -1469,16 +1590,18 @@ def test_the_existing_keys_and_counts_are_unchanged_by_the_reverse_direction(tmp
     assert all(i in items for i in guard.absent_from_tree_findings(root, agents, profiles))
 
 
-def test_a_tree_only_checkout_never_reports_the_reverse_key():
+def test_a_tree_only_checkout_never_reports_the_reverse_key(tmp_path, monkeypatch):
     """CI has no live profiles: the reverse direction must not invent a finding from nothing.
 
     On the owner's host the same call reports the measured live-only files instead — this asserts the
-    tree-only half, which is the half every CI runner exercises.
+    tree-only half, which is the half every CI runner exercises. The live home is isolated so a shared
+    host's other-lane drift cannot turn this tree-only assertion red (issue #1090).
     """
 
     # Given a checkout whose host has no live profile directory... (this host may have them, so read
     # the gate's own root: with no profiles home it returns None and the comparison is skipped)
     import check_agent_profiles as cap
+    monkeypatch.setenv("HERMES_PROFILES_HOME", str(tmp_path / "no-live-profiles"))
 
     # When  the comparison explicitly has no live base the reverse direction is empty, not an error
     assert cap.absent_from_tree_findings(REPO, cap.AGENTS_DIR, None) == [
@@ -2308,8 +2431,9 @@ def fleet_tree(tmp_path: Path, stated: str | None = BLOCK, canonical: str = BLOC
     return root
 
 
-def test_a_soul_that_states_the_canonical_block_verbatim_passes(tmp_path):
+def test_a_soul_that_states_the_canonical_block_verbatim_passes(tmp_path, monkeypatch):
     root = fleet_tree(tmp_path)
+    monkeypatch.setenv("HERMES_PROFILES_HOME", str(tmp_path / "no-live-profiles"))  # issue #1090
     assert guard.findings(root) == []
 
 
@@ -2373,10 +2497,12 @@ def test_deleting_the_single_copy_does_not_let_the_drift_pass(tmp_path):
     assert "fleet-block-source" in keys, keys
 
 
-def test_an_exemption_holds_the_drift_open_but_goes_stale_once_the_profile_is_fixed(tmp_path):
+def test_an_exemption_holds_the_drift_open_but_goes_stale_once_the_profile_is_fixed(tmp_path,
+                                                                                    monkeypatch):
     """An exemption is a named debt, never an amnesty: the moment the gap closes it must be reported."""
     root = fleet_tree(tmp_path, stated=FLEET_HEAD + "\n\n- **Never merge without the owner's approval.** "
                                                    "A merge needs a human.\n")
+    monkeypatch.setenv("HERMES_PROFILES_HOME", str(tmp_path / "no-live-profiles"))  # issue #1090
     exemptions = root / "agents" / "fleet-block-exemptions.json"
     exemptions.write_text(json.dumps({"exemptions": [
         {"profile": "llgenie-planner", "reason": "lane owns its own SOUL", "owner": "#834"}]}),
@@ -2409,7 +2535,8 @@ def test_an_exemption_without_an_owner_is_a_finding(tmp_path):
     assert "owner" in detail, detail
 
 
-def test_the_report_names_duplicate_canonical_rules_and_the_gate_does_not_fail_on_them(tmp_path):
+def test_the_report_names_duplicate_canonical_rules_and_the_gate_does_not_fail_on_them(tmp_path,
+                                                                                       monkeypatch):
     """A canonical rule stated twice is a second source of truth (one bullet, one place — #972).
 
     `check-agent-profiles report` must NAME every profile that states a canonical rule more than once,
@@ -2427,7 +2554,9 @@ def test_the_report_names_duplicate_canonical_rules_and_the_gate_does_not_fail_o
     import shutil
 
     # a green tree may carry no duplicate — the report must name zero, findings() must be empty,
-    # and no deduped lane may be re-flagged
+    # and no deduped lane may be re-flagged (live home isolated so other lanes' host drift cannot red
+    # this tree-only test — issue #1090)
+    monkeypatch.setenv("HERMES_PROFILES_HOME", str(tmp_path / "no-live-profiles"))
     report_text = guard.report(REPO)
     names = sorted(l.split(":")[0].strip() for l in report_text.splitlines()
                    if "stated more than once" in l)
@@ -2761,7 +2890,7 @@ def test_the_gate_still_has_the_fleet_block_leg():
     assert "items.extend(_fleet_findings(" in source, "findings() no longer calls the fleet-block leg"
 
 
-def test_report_lists_an_exempted_debt_so_it_is_never_silent(tmp_path):
+def test_report_lists_an_exempted_debt_so_it_is_never_silent(tmp_path, monkeypatch):
     """`report` is where a reader looks to see what the gate is NOT failing on (#873).
 
     An exemption keeps the build green on purpose; if it also kept the gap invisible, the fleet block would
@@ -2769,6 +2898,7 @@ def test_report_lists_an_exempted_debt_so_it_is_never_silent(tmp_path):
     """
     root = fleet_tree(tmp_path, stated=FLEET_HEAD + "\n\n- **Never merge without the owner's approval.** "
                                                    "A merge needs a human.\n")
+    monkeypatch.setenv("HERMES_PROFILES_HOME", str(tmp_path / "no-live-profiles"))  # issue #1090
     (root / "agents" / "fleet-block-exemptions.json").write_text(json.dumps({"exemptions": [
         {"profile": "llgenie-planner", "reason": "the lane authors its own block", "owner": "#834"}]}),
         encoding="utf-8")
