@@ -217,6 +217,7 @@ jobs:
       packages: read
     steps:
       - name: Say which row this is, and why (issue #859)
+        # nosemgrep: yaml.github-actions.security.run-shell-injection.run-shell-injection — quoted matrix/runner constants, make-routed (issue #1595)
         run: |
           if [ "${{ matrix.row }}" = "none" ]; then
             echo "[slow-rows] top-tier on ${{ inputs.runner }} = NOT SCHEDULED: it runs on a push to main and on a pull request labelled ci:slow."

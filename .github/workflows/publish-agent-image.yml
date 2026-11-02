@@ -130,6 +130,7 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: make agent-image-push-check
       - name: make publish-agent-image (build + push the Hermes image when its hash is not on GHCR yet; the dispatch force input rebuilds even a published hash, issue #990)
+        # nosemgrep: yaml.github-actions.security.run-shell-injection.run-shell-injection — authorized actor, quoted, make-routed (issue #1595)
         run: make publish-agent-image ${{ inputs.force == 'true' && 'FORCE=--force' || '' }}
       - name: Print the published ref
         run: make ci-image-refs
