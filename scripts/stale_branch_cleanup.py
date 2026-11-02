@@ -50,25 +50,33 @@ class BranchListReadError(RuntimeError):
 def _paged_json(endpoint: str, *, strict: bool = True):
     """All pages of a JSON array endpoint, via `gh api --paginate`.
 
-    strict=True (default): a non-zero rc or empty/un-JSON body raises BranchListReadError —
-    a faulted read reds the run instead of collapsing to []. strict=False returns [] on
-    faults, for a caller that genuinely treats an unreadable result as "no data".
+    strict=True (default): a faulted read raises BranchListReadError — a faulted read reds the
+    run instead of collapsing to []. strict=False returns [] on faults, for a caller that
+    genuinely treats an unreadable result as "no data".
+
+    A single TRANSIENT fault (rc != 0 on the gh-CLI relay drop, or an rc=0 response with an empty
+    stdout) is retried once before giving up, so the daily does not red on a one-shot blip
+    (#1602). The SECOND fault still raises exactly as before — a read that fails on both attempts
+    is still never read as a clean board (#1514/#453).
     """
-    rc, out = _gh(["api", "--paginate", "--silent", endpoint])
-    if rc != 0 or not out.strip():
-        if strict:
-            raise BranchListReadError(
-                f"branch-list read failed: `gh api {endpoint}` rc={rc} "
-                f"stdout={(out or '').strip()[:200]!r}")
-        return []
-    try:
-        data = json.loads(out)
-    except json.JSONDecodeError:
-        if strict:
-            raise BranchListReadError(
-                f"branch-list read failed: non-JSON body from `gh api {endpoint}`")
-        return []
-    return data if isinstance(data, list) else data.get("items", [data])
+    last: tuple[int, str] | None = None
+    for attempt in range(2):
+        rc, out = _gh(["api", "--paginate", "--silent", endpoint])
+        if rc != 0 or not out.strip():
+            last = (rc, out or "")
+            continue  # one retry for the transient class
+        try:
+            data = json.loads(out)
+        except json.JSONDecodeError:
+            last = (rc, out or "")
+            continue
+        return data if isinstance(data, list) else data.get("items", [data])
+    rc, out = last or (0, "")
+    if strict:
+        raise BranchListReadError(
+            f"branch-list read failed: `gh api {endpoint}` rc={rc} "
+            f"stdout={(out or '').strip()[:200]!r}")
+    return []
 
 
 def _pr_state(repo: str, branch: str) -> str:
