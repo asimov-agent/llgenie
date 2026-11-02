@@ -49,7 +49,11 @@ UNATTENDED_SKILL = "bot-unattended"
 #: behaviour is versioned with the repo they drive, and they still owe frontmatter and
 #: Inputs/Output/Rules — they are exempt from the unused-skill rule only. Listed by name (never
 #: detected from the body), so admitting another one is a reviewed diff.
-HOST_SKILLS = frozenset({"llgenie-engine-improver", "llgenie-architecture-pass"})
+HOST_SKILLS = frozenset({
+    "llgenie-engine-improver",
+    "llgenie-architecture-pass",
+    "llgenie-pr-rebase",
+})
 #: The rule AGENTS.md must keep, so the seam cannot be deleted silently.
 AGENTS_MARKER = "## A bot's behaviour lives in its project skill"
 #: The retired second place a bot's rules lived (moved into `.hermes/skills/pr-fix/SKILL.md`).

@@ -314,6 +314,64 @@ def test_this_tree_admits_the_architecture_pass_host_skill():
         assert section in body, f"{section} missing from the host skill"
 
 
+def test_this_tree_admits_the_pr_rebase_host_skill():
+    """The PR-rebase skill is admitted by name and reports as a host skill (issue #818)."""
+
+    # Given this repository as it is checked out
+    # When  the guard reports
+    # Then  the third host skill is admitted by name and carried the split contract
+    assert "llgenie-pr-rebase" in guard.HOST_SKILLS
+    report = guard.report(REPO)
+    assert "llgenie-pr-rebase: host-skill" in report, report
+    body = (REPO / ".hermes" / "skills" / "llgenie-pr-rebase" / "SKILL.md").read_text(encoding="utf-8")
+    assert "rebase-conflict" in body, "the inner half must be named, not hidden"
+    assert "never restate" in body, "the split contract must forbid restating the inner half"
+    assert "force-with-lease" in body, "the leading-tuple lease form must be the committed one"
+    assert "no checks at all" in body, "the zero-checks-on-a-conflicting-PR fact must survive"
+    for section in guard.REQUIRED_SECTIONS:
+        assert section in body, f"{section} missing from the PR-rebase host skill"
+
+
+def test_pr_rebase_name_removal_turns_it_unused():
+    """The name in HOST_SKILLS is the admission: deleting it makes the skill dead weight."""
+
+    # Given the PR-rebase skill admitted ONLY by its HOST_SKILLS name
+    # When  the name is removed from that frozenset
+    # Then  the skill is reported unused (a finding), because no leg preloads it
+    pruned = frozenset(n for n in guard.HOST_SKILLS if n != "llgenie-pr-rebase")
+    items = _findings_with_hosts(pruned)
+    assert any(i["key"] == "skill-unused" and "llgenie-pr-rebase" in i["where"] for i in items), items
+
+
+def test_pr_rebase_rules_removal_is_a_finding(tmp_path):
+    """The host skill still owes ## Rules: deleting it is a contract hole, not a review note."""
+
+    # Given a tree carrying the PR-rebase skill whose ## Rules section was deleted
+    # When  the guard runs
+    # Then  the missing section is a finding under the skill's own path
+    body = (REPO / ".hermes" / "skills" / "llgenie-pr-rebase" / "SKILL.md").read_text(encoding="utf-8")
+    stripped = body.replace("\n## Rules\n", "\n## Notes\n")
+    assert "## Notes" in stripped, "the replace must land (the section heading is present to strip)"
+    root = make_tree(tmp_path, leg_line(),
+                     {"demo": GOOD_SKILL.format(name="demo"),
+                      "bot-unattended": GOOD_SKILL.format(name="bot-unattended"),
+                      "llgenie-pr-rebase": stripped})
+    items = guard.findings(root)
+    assert any(i["key"] == "skill-section" and "llgenie-pr-rebase" in i["where"]
+               and "## Rules" in i["detail"] for i in items), items
+
+
+def _findings_with_hosts(hosts):
+    """Run findings with a substitute HOST_SKILLS without mutating the imported guard."""
+    import scripts.check_agent_skills as g2
+    saved = g2.HOST_SKILLS
+    try:
+        g2.HOST_SKILLS = hosts
+        return g2.findings(REPO)
+    finally:
+        g2.HOST_SKILLS = saved
+
+
 def test_the_retired_rules_file_is_refused(tmp_path):
     """One mechanism: the fix bot's rules are the `pr-fix` skill, not a second file."""
 
