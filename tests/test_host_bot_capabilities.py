@@ -138,7 +138,7 @@ def test_repo_host_skills_carry_the_marker():
     assert "issue #1038" in architect
 
 
-def test_fixture_covers_the_ten_live_profiles():
+def test_fixture_covers_every_profile():
     """Every desktop llgenie profile is named, and only the rebase lane may force-push."""
 
     # Given the committed fixture
@@ -147,8 +147,10 @@ def test_fixture_covers_the_ten_live_profiles():
     # When the profile rows are read
     names = set(spec["profiles"])
 
-    # Then the ten lanes are present and force-push is rebase-only
-    assert names == {
+    # Then the lanes are present and force-push is rebase-only. SUBSET, not equality: an exact list
+    # snaps a profile roster and reds on the next legitimate lane (the "never assert a list the tree
+    # is meant to extend" rule — #1341 added the three host role profiles here).
+    assert {
         "llgenie-architect",
         "llgenie-ci-pipelines-maintainer",
         "llgenie-documentation-maintainer",
@@ -159,7 +161,10 @@ def test_fixture_covers_the_ten_live_profiles():
         "llgenie-pr-reviever",
         "llgenie-security",
         "llgenie-tester",
-    }
+        "llgenie-business-analyst",
+        "llgenie-product-manager",
+        "llgenie-status-keeper",
+    } <= names
     force = [name for name, row in spec["profiles"].items() if row["allow_force_push"]]
     assert force == ["llgenie-pr-merge-conflict"]
     for row in spec["profiles"].values():

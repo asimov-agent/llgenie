@@ -62,6 +62,27 @@
       "rules": [
         "never-merge"
       ]
+    },
+    {
+      "name": "llgenie-business-analyst",
+      "rules": [
+        "never-implement",
+        "never-merge"
+      ]
+    },
+    {
+      "name": "llgenie-product-manager",
+      "rules": [
+        "never-implement",
+        "never-merge"
+      ]
+    },
+    {
+      "name": "llgenie-status-keeper",
+      "rules": [
+        "never-implement",
+        "never-merge"
+      ]
     }
   ]
 }
