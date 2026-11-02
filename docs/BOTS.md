@@ -2248,7 +2248,7 @@ image → download → lint → unit → install → health → top-tier → top
   `make test-install-published` per backend) installs them on Linux in every **push** run (macOS
   never runs an engine container, so it has no published-image stage).
   The four `install-published-{cpu,cuda,rocm,vulkan}` rows run only when that run actually **pushed an
-  image** (issue #844): `scripts/engine_matrix_pushed.py` answers one question — push event AND at
+  image** (issue #844): the engine-build producer's matrix answers one question — push event AND at
   least one real (non-`none`) engine row — `engine-matrix` publishes it as the `pushed` output, and
   `linux-published` passes it to `published.yml`, whose matrix resolves to the single `none`
   placeholder row instead of the four. A `pull_request` never publishes, so on a PR these rows are

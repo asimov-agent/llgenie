@@ -50,6 +50,59 @@ def _ls_names(path: str = "", ref: str = "HEAD") -> list[str]:
     return [l for l in _git(*cmd).stdout.split("\n") if l]
 
 
+# A `scripts/*.py` or `scripts/*.sh` module name as it appears in prose: a bare basename
+# (`engine_matrix_pushed.py`) or a `scripts/`-prefixed path (`scripts/foo.py`). The §Scripts table
+# and the BOTS.md sentence name modules by basename, so the referent check reads those names out of
+# the prose and resolves them against `git ls-tree -r --name-only <sha> -- scripts/`.
+_SCRIPTS_MODULE_RE = re.compile(r"(?<![\w./])([\w]+\.(?:py|sh))(?![\w])")
+
+
+def _scripts_section(text: str) -> str:
+    """The §Scripts table section of ARCHITECTURE.md (between `## Scripts` and the next `## `)."""
+    start = text.find("## Scripts")
+    if start == -1:
+        return ""
+    rest = text[start + len("## Scripts"):]
+    end = rest.find("\n## ")
+    return rest if end == -1 else rest[:end]
+
+
+def _bots_push_fact_paragraph(text: str) -> str:
+    """The BOTS.md paragraph that states the push-fact mechanism (the one naming the dead module)."""
+    for para in text.split("\n\n"):
+        if ("engine_matrix_pushed" in para or "pushed an\nimage" in para
+                or "install-published" in para and "pushed" in para):
+            return para
+    return ""
+
+
+def _scripts_mentions(*docs: str) -> list[str]:
+    """Every `scripts/*.py`/`.sh` basename the §Scripts table and the BOTS push-fact sentence name."""
+    seen: list[str] = []
+    for text in docs:
+        for m in _SCRIPTS_MODULE_RE.finditer(text):
+            name = m.group(1)
+            if name not in seen:
+                seen.append(name)
+    return seen
+
+
+def _scripts_tree_names(ref: str) -> set[str]:
+    """The set of `scripts/*.py`/`.sh` basenames tracked at `ref`."""
+    return {n.rsplit("/", 1)[-1] for n in _ls_names("scripts", ref)
+            if n.rsplit("/", 1)[-1].endswith((".py", ".sh"))}
+
+
+def _referent_problems(ref: str) -> list[str]:
+    """Named §Scripts/BOTS modules that do not exist at `ref` (subset check: named ⊆ tree)."""
+    arch = (REPO_ROOT / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
+    bots_path = REPO_ROOT / "docs" / "BOTS.md"
+    bots = bots_path.read_text(encoding="utf-8") if bots_path.exists() else ""
+    tree = _scripts_tree_names(ref)
+    return [name for name in _scripts_mentions(_scripts_section(arch), _bots_push_fact_paragraph(bots))
+            if name not in tree]
+
+
 def measure(ref: str = "HEAD") -> dict[str, int]:
     """Count the census of the tree AT `ref` (never implicitly the working tree's HEAD)."""
     tracked = _ls_names(ref=ref)
@@ -173,6 +226,10 @@ def check() -> int:
             doc_value = (f"the doc states {stated_number}" if stated_number is not None
                          else "the doc states no such claim")
             problems.append(f"{label}: {doc_value} but the tree at `{stated}` states {token}")
+        for name in _referent_problems(stated):
+            problems.append(f"referent-membership: §Scripts/BOTS names `scripts/{name}` but the "
+                            f"tree at `{stated}` does not contain it — the module was removed; "
+                            f"correct the prose or restore the file")
 
     for problem in problems:
         print(f"[census-gate] {problem}")
