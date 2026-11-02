@@ -446,6 +446,70 @@ def test_a_non_truncated_listing_still_finds_the_superseder(monkeypatch):
     assert superseding.get("id") == 2
 
 
+def test_a_multi_page_listing_is_fully_walked_and_still_finds_the_superseder(monkeypatch):
+    """#1617: a busy branch (`main` reports 2500+ runs) is split across API pages — the fetch must
+    walk every page so a later run on a far page is still seen. One page of a healthy multi-page
+    listing is NOT truncation; only a real shortfall is."""
+
+    run = {"id": 1, "workflow_id": 7, "head_branch": "main",
+           "created_at": "2026-10-30T20:00:00Z", "run_attempt": 1, "conclusion": "cancelled"}
+    # 150 runs total (two full pages of a per_page=100 walk + a 50-row tail), the superseder last.
+    page1 = [{"id": 100000 + i, "workflow_id": 7, "head_branch": "main",
+              "created_at": "2026-10-30T18:00:00Z", "run_attempt": 1}
+             for i in range(100)]
+    page2 = [{"id": 100100 + i, "workflow_id": 7, "head_branch": "main",
+              "created_at": "2026-10-30T19:00:00Z", "run_attempt": 1}
+             for i in range(49)]
+    superseder = {"id": 999, "workflow_id": 7, "head_branch": "main",
+                  "created_at": "2026-10-30T21:00:00Z", "run_attempt": 1}
+    page2.append(superseder)
+    pages = {1: {"workflow_runs": page1, "total_count": 150},
+             2: {"workflow_runs": page2, "total_count": 150}}
+
+    def fake_api(path):
+        page = 1
+        marker = "&page="
+        idx = path.find(marker)
+        if idx != -1:
+            page = int(path[idx + len(marker):].split("&")[0])
+        return pages.get(page, {"workflow_runs": [], "total_count": 150})
+    monkeypatch.setattr(cv, "_api", fake_api)
+
+    superseding = cv.superseding_run("o/r", run)
+
+    assert superseding is not None
+    assert superseding.get("id") == 999
+
+
+def test_a_genuinely_short_listing_still_raises_even_when_spread_across_pages(monkeypatch):
+    """#1617/#1582: pagination fixes a FALSE truncation, never a real one. A listing whose pages
+    together still fall short of `total_count` must refuse — the #1582/#1610 guard still binds.
+    Here total_count=150 but the pages only ever deliver 100 rows."""
+
+    run = {"id": 1, "workflow_id": 7, "head_branch": "main",
+           "created_at": "2026-10-30T20:00:00Z", "run_attempt": 1, "conclusion": "cancelled"}
+    page = [{"id": 100000 + i, "workflow_id": 7, "head_branch": "main",
+             "created_at": "2026-10-30T18:00:00Z", "run_attempt": 1}
+            for i in range(100)]
+    pages = {1: {"workflow_runs": page, "total_count": 150},
+             2: {"workflow_runs": [], "total_count": 150}}
+    # the stale page is what a retried run leaves: page 2 empty, total still 150.
+
+    def fake_api(path):
+        marker = "&page="
+        idx = path.find(marker)
+        pg = int(path[idx + len(marker):].split("&")[0]) if idx != -1 else 1
+        return pages.get(pg, {"workflow_runs": [], "total_count": 150})
+    monkeypatch.setattr(cv, "_api", fake_api)
+
+    try:
+        cv.superseding_run("o/r", run)
+    except RuntimeError as exc:
+        assert "truncated listing" in str(exc)
+        return
+    raise AssertionError("superseding_run accepted a genuinely short multi-page listing as a verdict")
+
+
 def test_a_cancelled_run_with_no_successor_is_red_even_through_the_api(tmp_path, monkeypatch, capsys):
     # Given a cancelled run with no decision artifact and NO later run
     monkeypatch.setenv("CI_VERDICT_GH", _stub_gh(tmp_path, artifact=False, later_run=False))
