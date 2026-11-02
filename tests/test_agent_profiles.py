@@ -2196,6 +2196,83 @@ def test_the_source_time_is_the_COMMIT_not_the_file_mtime(tmp_path):
     assert committed < 4_000_000_000, "the mtime leaked into the source time"
 
 
+def _git_repo(tmp_path: Path) -> Path:
+    """Initialise a real git repo in `tmp_path` so `profile_files` takes the tracked-file path."""
+    for cmd in (["git", "init", "-q"],):
+        subprocess.run(cmd, cwd=tmp_path, check=True, capture_output=True)
+    return tmp_path
+
+
+def _commit(repo: Path) -> None:
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com",
+                    "commit", "-qm", "x"], cwd=repo, check=True, capture_output=True)
+
+
+def test_sync_skips_gitignored_pyc_build_artifacts(tmp_path: Path):
+    """A `__pycache__/*.pyc` under an `agents/<profile>` is not a sync candidate (issue #1149).
+
+    The candidate set mirrors Git's tracked files, so an untracked, git-ignored `.pyc` is absent and
+    the sync exits 0 instead of copying it or crashing on it.
+    """
+    import agent_profile_sync as sync
+
+    repo = _git_repo(tmp_path)
+    (repo / ".gitignore").write_text("__pycache__/\n", encoding="utf-8")
+    agents = repo / "agents"
+    prof = agents / "someone"
+    prof.mkdir(parents=True)
+    (prof / "SOUL.md").write_text("- a rule\n", encoding="utf-8")
+    (agents / "manifest.json").write_text('{"profiles": [{"name": "someone", "rules": ["never-merge"]}]}')
+    _commit(repo)
+
+    # A lane's test imported a script and left a .pyc behind — the exact defect.
+    (prof / "scripts").mkdir()
+    (prof / "scripts" / "mod.cpython-311.pyc").write_bytes(b"\x00\x00\x00\x00binary-pyc")
+
+    files = sync.profile_files(agents, "someone")
+    rels = {sync._rel(p, prof) for p in files}
+    assert "scripts/mod.cpython-311.pyc" not in rels, f".pyc must not be a candidate: {rels}"
+    assert "SOUL.md" in rels
+
+    # Both the check and the write path complete without a crash and without shipping the artifact.
+    live = tmp_path / "live"
+    rc = sync.write(agents, "someone", live)
+    assert rc == 0, rc
+    assert (live / "SOUL.md").is_file()
+    assert not (live / "scripts" / "mod.cpython-311.pyc").exists()
+
+
+def test_a_non_utf8_profile_file_is_a_named_refusal_not_a_traceback(tmp_path: Path, capsys):
+    """A tracked candidate the sync cannot decode as UTF-8 is a named refusal, never a crash (#1149).
+
+    The resource was a raw `UnicodeDecodeError` traceback that named neither the file nor the cause;
+    the acceptance is a non-zero exit whose stderr names the file and says it is a binary file.
+    """
+    import agent_profile_sync as sync
+
+    repo = _git_repo(tmp_path)
+    agents = repo / "agents"
+    prof = agents / "someone"
+    prof.mkdir(parents=True)
+    (prof / "SOUL.md").write_text("- a rule\n", encoding="utf-8")
+    (prof / "binary.bin").write_bytes(b"\xa7\x00\xff not utf-8")
+    (agents / "manifest.json").write_text('{"profiles": [{"name": "someone", "rules": ["never-merge"]}]}')
+    _commit(repo)
+
+    live = tmp_path / "live"
+    rc = sync.write(agents, "someone", live)
+    err = capsys.readouterr().err
+    assert rc == 5, f"exit code {rc} — binary file must be a named refusal"
+    assert "binary.bin" in err
+    assert "REFUSED" in err
+
+    # And the check path likewise names it without leaking a traceback.
+    rc = sync.check(agents, "someone", live)
+    assert rc == 5, rc
+    assert "binary.bin" in capsys.readouterr().err
+
+
 def test_every_manifest_profile_names_a_directory_that_exists():
     """The other half of "never assert an exact list": the entries must resolve (#873).
 

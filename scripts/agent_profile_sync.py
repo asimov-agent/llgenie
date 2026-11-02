@@ -31,6 +31,7 @@ import argparse
 import filecmp
 import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -43,10 +44,71 @@ from check_agent_profiles import (  # noqa: E402
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-def profile_files(agents: Path, name: str) -> list[Path]:
-    """Every file the tree carries for *name*, in a stable order."""
+#: Paths under `agents/<profile>/` that are never sync candidates even when the tree is not a git
+#: checkout — a build artifact the profile cannot carry, mirrored from Git's own ignore rule for it.
+_IGNORED_DIRS = {"__pycache__"}
+
+
+def _git_tracked(agents: Path, name: str) -> list[Path] | None:
+    """Every file Git tracks under `agents/<name>/`, or None when the tree has no git metadata.
+
+    Returns None (caller falls back to the directory walk) rather than an empty list, so `--root`
+    fixture trees that are not a git checkout keep working through the plain walk.
+    """
     base = agents / name
-    return sorted(p for p in base.rglob("*") if p.is_file())
+    # The profile subtree itself is the query surface; `git ls-files` needs a prefix under the repo
+    # root, so resolve the profile dir relative to the git work tree top.
+    try:
+        top = subprocess.run(  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
+            ["git", "-C", str(base), "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, check=False,
+        )
+        if top.returncode != 0 or not top.stdout.strip():
+            return None
+        root = Path(top.stdout.strip())
+        rel = base.resolve().relative_to(root.resolve())
+        ls = subprocess.run(  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
+            ["git", "-C", str(root), "ls-files", "-z", "--", f"{rel}/"],
+            capture_output=True, check=False,
+        )
+        if ls.returncode != 0:
+            return None
+        raw = ls.stdout.decode("utf-8", "surrogateescape").split("\0")
+        files = sorted(root / r for r in raw if r)
+        if not files:
+            return None
+        return files
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+
+
+def profile_files(agents: Path, name: str) -> list[Path]:
+    """Every file the tree carries for *name*, in a stable order.
+
+    The set mirrors Git's tracked-file view: when `agents/<name>` is inside a git work tree, the
+    candidates are exactly the files `git ls-files` reports for the subtree — an untracked,
+    git-ignored artifact (`__pycache__/*.pyc`, a scratch note, a wasm) is never a sync candidate
+    (issue #1149). When the tree is not a git checkout (a `--root` fixture), the walk skips the
+    same ignored directories so a build artifact cannot slip through there either.
+    """
+    base = agents / name
+    tracked = _git_tracked(agents, name)
+    if tracked is not None:
+        return tracked
+    return sorted(p for p in base.rglob("*")
+                  if p.is_file() and not any(part in _IGNORED_DIRS for part in p.parts))
+
+
+def _read_text(path: Path, rel: str) -> tuple[str, str | None]:
+    """UTF-8 text or (rel, error) for an undecodable file — never a crash (issue #1149).
+
+    Returns (text, None) on success and ("", rel) when the file is not UTF-8-decodable, so every
+    caller can turn it into a named refusal instead of leaking a `UnicodeDecodeError` traceback.
+    """
+    try:
+        return path.read_text(), None
+    except UnicodeDecodeError:
+        return "", rel
 
 
 def destination(profile: str, explicit: str | None) -> tuple[Path, str]:
@@ -63,6 +125,23 @@ def _rel(path: Path, root: Path) -> str:
     return str(path.relative_to(root))
 
 
+def _non_utf8_refusal(agents: Path, name: str, files: list[Path]) -> str | None:
+    """The relative path of the first candidate that is not UTF-8-decodable, else None (issue #1149).
+
+    A profile is a folder of instructions; a committed member of it must be readable as UTF-8. A file
+    that is not is a defect worth naming (and refusing to sync/compare), not a `UnicodeDecodeError`
+    traceback that names neither the file nor the cause.
+    """
+    base = agents / name
+    for path in files:
+        rel = _rel(path, base)
+        if not path.read_text(errors="ignore") and path.read_bytes():
+            return rel
+        if _read_text(path, rel)[1] is not None:
+            return rel
+    return None
+
+
 def check(agents: Path, name: str, dest: Path) -> int:
     """Compare every file the tree carries against the profile; name the first that differs."""
     files = profile_files(agents, name)
@@ -70,6 +149,12 @@ def check(agents: Path, name: str, dest: Path) -> int:
         print(f"[agent-profile] FAIL: {agents.name}/{name} carries no file, so there is nothing to "
               f"sync for {name}", file=sys.stderr)
         return 2
+    bad = _non_utf8_refusal(agents, name, files)
+    if bad:
+        print(f"[agent-profile] REFUSED {agents.name}/{name}/{bad}: the profile file is not pure "
+              f"UTF-8 text (binary). A sync/check cannot read it — fix the tree, then re-run.",
+              file=sys.stderr)
+        return 5
     differing: list[str] = []
     truncated: list[tuple[str, int, int]] = []
     for path in files:
@@ -132,7 +217,8 @@ def shrinks(agents: Path, name: str, dest: Path) -> list[tuple[str, int, int, in
         target = dest / rel
         if not target.exists():
             continue
-        tree_text, live_text = path.read_text(), target.read_text()
+        tree_text = _read_text(path, rel)[0]
+        live_text = _read_text(target, rel)[0]
         tree, live = path.stat().st_size, target.stat().st_size
         tree_lines, live_lines = _rule_lines(tree_text), _rule_lines(live_text)
         subset = (tree_lines != live_lines and set(tree_lines) <= set(live_lines))
@@ -173,7 +259,7 @@ def newer_than_source(agents: Path, name: str, dest: Path) -> list[tuple[str, fl
         #   - the bytes are already identical, so the sync writes nothing at all;
         #   - every live line also exists in the tree, so the write cannot drop one.
         if filecmp.cmp(path, target, shallow=False) or not _loses_live_lines(
-                path.read_text(), target.read_text()):
+                _read_text(path, rel)[0], _read_text(target, rel)[0]):
             continue
         out.append((rel, src, live))
     return out
@@ -191,6 +277,12 @@ def write(agents: Path, name: str, dest: Path, force: bool = False) -> int:
     except OSError as exc:
         print(f"[agent-profile] FAIL: cannot create {dest}: {exc}", file=sys.stderr)
         return 2
+    bad = _non_utf8_refusal(agents, name, files)
+    if bad:
+        print(f"[agent-profile] REFUSED {agents.name}/{name}/{bad}: the profile file is not pure "
+              f"UTF-8 text (binary). A sync cannot read it — fix the tree, then re-run.",
+              file=sys.stderr)
+        return 5
     # A live file edited after our commit is the more dangerous case, so it is refused FIRST: the shrink
     # message would describe a content problem when the real problem is that another lane is editing.
     moving = newer_than_source(agents, name, dest)
@@ -198,8 +290,8 @@ def write(agents: Path, name: str, dest: Path, force: bool = False) -> int:
         for rel, src, live in moving:
             target = dest / rel
             tree_bytes, live_bytes = (agents / name / rel).stat().st_size, target.stat().st_size
-            lost = [ln for ln in _rule_lines(target.read_text())
-                    if ln not in set(_rule_lines((agents / name / rel).read_text()))]
+            lost = [ln for ln in _rule_lines(_read_text(target, rel)[0])
+                    if ln not in set(_rule_lines(_read_text(agents / name / rel, rel)[0]))]
             # Order the message by what was actually checked: first the mtime fact, then — only when the
             # content differs — the line count. The tree has no ownership information, so never say whose
             # work it is; "another lane's work" was a guess the harness had no right to make.
