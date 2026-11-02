@@ -230,3 +230,13 @@ jobs:
           GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
           REPO: ${{ github.repository }}
         run: make alert-merged-red REPO="$REPO"
+      - name: Report PRs merged into a non-main base (issue #963)
+        # A scheduled-only check: it lists every PR merged into a non-`main` base since the last run —
+        # a hand merge into a stacked base that the merger would have refused — with author, head sha and
+        # the check-runs count at that head. `github.event_name == 'schedule'` is the cron path; a
+        # `workflow_run` completion re-runs the DECISION and needs no such report on every CI run.
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: make stacked-merge-detect REPO="$REPO"

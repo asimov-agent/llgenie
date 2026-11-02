@@ -47,6 +47,7 @@ def _state(**kw) -> dict:
             "mergeStateStatus": "CLEAN", "headRefOid": HEAD, "labels": [],
             "headRepository": {"nameWithOwner": "o/r"},
             "author": {"login": "andyholst"}, "reviewDecision": None,
+            "baseRefName": "main",
             "comments": []}
     base.update(kw)
     return base
@@ -201,6 +202,89 @@ def test_do_not_merge_holds_the_pr():
 
     # Then  the hold is named, and it wins over a clean state
     assert reason and "do-not-merge" in reason, reason
+
+
+def test_a_non_main_base_pr_is_never_armed_or_merged(tmp_path):
+    """The negative control (issue #963): a PR whose base is not `main` is deferred, never merged.
+
+    A stacked PR has no CI verdict at all (#945/#950), so a merge into it would be instant and
+    unreviewed. The merger must refuse the base, not the checks: even a fully green, CLEAN, open PR
+    whose `baseRefName` is a feature branch is never armed or merged by `make auto-merge`.
+    """
+    # Given a green, CLEAN, open PR stacked on another feature branch
+    stacked = _state(baseRefName="feat/another-pr")
+
+    # When  the decision and then the full merge run read it
+    reason = am.decide(stacked, HEAD, repo_owner="asimov-agent")
+    gh = _fake_gh(tmp_path, stacked, {"963": "CLOSED"})
+    rc = am.run(str(gh), "asimov-agent/llgenie", 963, HEAD)
+
+    # Then  the verdict names the stacked base, and the run never calls `pr merge`
+    assert reason and "feat/another-pr" in reason and "not `main`" in reason, reason
+    assert rc == 0
+    assert not [c for c in _calls(tmp_path / "gh.log") if c[:2] == ["pr", "merge"]], \
+        [c for c in _calls(tmp_path / "gh.log")]
+
+    # And   a `main`-base PR still merges: the refusal is the base, not a new wide gate
+    main = _state(headRepository={"nameWithOwner": "asimov-agent/llgenie"})
+    assert am.decide(main, HEAD, repo_owner="asimov-agent") is None
+
+
+def test_stacked_merged_names_out_of_main_merges(tmp_path, capsys):
+    """A hand merge into a non-`main` base is a named report, not an invisible landing (#963)."""
+
+    # Given a merged PR whose base was a feature branch, and another merged onto main
+    head = "cafe" * 10
+    merged = [{"number": 958, "baseRefName": "feat/agent-profile-implementer-skill",
+               "author": {"login": "andyholst"}, "headRefOid": head},
+              {"number": 959, "baseRefName": "main",
+               "author": {"login": "ashol"}, "headRefOid": "beef" * 10}]
+    checks = {head: [{"name": "scope", "conclusion": "success", "details_url": ""}]}
+    gh = _fake_gh(tmp_path, _state(), merged=merged, checks=checks)
+
+    # When  the stacked-merged report runs
+    rc = am.stacked_merged(str(gh), "asimov-agent/llgenie")
+
+    # Then  it names PR #958 with its author, head sha and the check-runs count (1), and counts the rest out
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "PR #958" in out and "by `andyholst`" in out and head[:12] in out, out
+    assert "1 check-run(s)" in out, out
+    assert "1 PR(s) merged into a non-`main` base" in out, out
+
+
+def test_stacked_merged_reports_zero_when_clean(tmp_path, capsys):
+    """A clean board — every merged PR based on `main` — reports 0 (the expected steady state)."""
+
+    # Given only merged PRs based on `main`
+    merged = [{"number": 1, "baseRefName": "main", "author": {"login": "andyholst"},
+               "headRefOid": "beef" * 10},
+              {"number": 2, "baseRefName": "main", "author": {"login": "ashol"},
+               "headRefOid": "cafe" * 10}]
+    gh = _fake_gh(tmp_path, _state(), merged=merged)
+
+    # When  the report runs
+    rc = am.stacked_merged(str(gh), "asimov-agent/llgenie")
+
+    # Then  no PR is named and the count is 0
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "0 PR(s) merged into a non-`main` base" in out, out
+    assert "merged into `" not in out, out
+
+
+def test_bots_md_states_the_stacked_arming_rule():
+    """The arming rule lives in BOTS.md in one line (issue #963): arm only on a `main` base."""
+
+    # Given docs/BOTS.md
+    bots = (REPO / "docs" / "BOTS.md").read_text()
+
+    # When  the arming rule is read
+    # Then  one line names `main` as the only base a merger arms on, and retarget as the fix
+    authed = [l for l in bots.splitlines()
+              if "base is `main`" in l and "retarget" in l]
+    assert authed, "BOTS.md does not state the one-line stacked arming rule (issue #963)"
+    assert len(authed) == 1, f"the rule should be one line, found {len(authed)}"
 
 
 # ---- the merge itself --------------------------------------------------------

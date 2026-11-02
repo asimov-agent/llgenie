@@ -5,8 +5,9 @@ The policy: a non-draft pull request whose pipeline is green AND whose merge sta
 squash-merged by CI, without waiting for a human. A head may be this repository or the owner's fork
 (`andyholst/llgenie`) — every agent PR is pushed there. Everything else is DEFERRED, never failed:
 
-  * `state != OPEN`        — already merged or closed
+  * `state != OPEN`            — already merged or closed
   * `isDraft`              — the author is still working
+  * `baseRefName != "main"`     — a stacked PR (issue #963): never armed or merged by the merger
   * `mergeable != MERGEABLE`      — GitHub has not computed it yet, or there are conflicts
   * `mergeStateStatus != CLEAN`   — DIRTY (conflicts), BEHIND (needs an update), BLOCKED
   * the head moved since this run started (`headRefOid != the run's sha`) — the newer run decides
@@ -56,6 +57,7 @@ Commands (stdlib only, the GitHub API only through a `gh` on PATH):
   explain    --repo R --pr N [--head-sha S] [--gh gh]      print the verdict, write nothing
   red-check  --repo R --pr N [--gh gh]                     exit 1 when the head has a red check
   alert-merged-red --repo R [--limit N] [--dry] [--gh gh]  comment once on a merged red head
+  stacked-merged --repo R [--limit N] [--dry] [--gh gh]     report PRs merged into a non-main base
 """
 from __future__ import annotations
 
@@ -77,6 +79,10 @@ REQUIRED_STATE = "OPEN"
 REQUIRED_MERGEABLE = "MERGEABLE"
 REQUIRED_MERGE_STATE = "CLEAN"
 HOLD_LABEL = "do-not-merge"
+#: The ONLY base branch this merger will ever act on (issue #963). A PR whose base is another open PR
+#: — a stacked PR — has no CI verdict at all (#945/#950) and must never be armed or merged by the
+#: merger; it arms only on retarget, when its base lands on this branch.
+DEFAULT_BASE = "main"
 #: The two identities this repository allows on a PR (AGENTS.md: `Andy Holst`, `Asimov Agent`), as logins.
 ALLOWED_AUTHORS = ("andyholst", "asimov-agent")
 #: Owners whose fork may supply a head. Every agent PR is pushed to `andyholst/llgenie`; a third-party fork
@@ -101,7 +107,7 @@ MERGE_MARKER = "<!-- auto-merge: merged {} -->"
 #: `tests/test_auto_merge.py` asserts every name here is in `tests/fixtures/gh-pr-view-fields.json`,
 #: which is captured from gh's own `gh pr view --json __probe__` allowlist.
 PR_VIEW_STATE_FIELDS = ("state", "isDraft", "mergeable", "mergeStateStatus", "headRefOid", "labels",
-                        "headRepository", "author", "reviewDecision")
+                        "headRepository", "author", "reviewDecision", "baseRefName")
 #: Requested separately, only for the one-comment-per-head deferral dedupe.
 PR_VIEW_COMMENT_FIELDS = ("comments",)
 PR_VIEW_FIELDS = PR_VIEW_STATE_FIELDS + PR_VIEW_COMMENT_FIELDS
@@ -206,6 +212,11 @@ def decide(state: dict, head_sha: str, hold_label: str = HOLD_LABEL,
         return f"PR is {state.get('state')}"
     if state.get("isDraft"):
         return "PR is a draft"
+    base = (state.get("baseRefName") or "").strip()
+    if base and base != DEFAULT_BASE:
+        return (f"the PR's base is `{base}`, not `{DEFAULT_BASE}` — a stacked PR is never armed or "
+                f"merged by the merger (issue #963); it is merged only when its base lands on `{DEFAULT_BASE}` "
+                f"and it is retargeted")
     if (state.get("mergeable") or "").upper() != REQUIRED_MERGEABLE:
         return (f"mergeable is {state.get('mergeable')} (conflicts, or GitHub has not finished "
                 f"computing it)")
@@ -670,7 +681,8 @@ def run(gh: str, repo: str, pr: int, head_sha: str, dry: bool = False,
     state = pr_state(gh, repo, pr)
     if (state.get("mergeable") or "").upper() == "UNKNOWN" and not dry:
         state = settle_mergeable(gh, repo, pr)
-    fields = ("state", "isDraft", "mergeable", "mergeStateStatus", "reviewDecision", "headRefOid")
+    fields = ("state", "isDraft", "mergeable", "mergeStateStatus", "reviewDecision", "headRefOid",
+              "baseRefName")
     print(f"[auto-merge] PR #{pr}: " + json.dumps({k: state.get(k) for k in fields}))
     refused = author_may_merge(gh, repo, state, actor=actor)
     if refused:
@@ -805,11 +817,38 @@ def alert_merged_red(gh: str, repo: str, limit: int = 20, dry: bool = False) -> 
     return 0
 
 
+def stacked_merged(gh: str, repo: str, limit: int = 20, dry: bool = False) -> int:
+    """Report the PRs merged into a non-`main` base (issue #963), expected to be zero.
+
+    A hand merge into a stacked base is visually indistinguishable from an ordinary merge afterwards
+    (only the run history shows zero checks), so this scheduled report makes it detectable: it lists the
+    merged PRs whose `baseRefName != "main"` and, for each, names the author, the head sha and the count
+    of check-runs that ran at that head. After the merger refuses non-`main` bases, any row here is a
+    hand merge that landed anyway — the number a reviewer wants to see stay at 0.
+    """
+    out = _gh(gh, ["pr", "list", "--repo", repo, "--state", "merged", "--limit", str(limit),
+                   "--json", "number,baseRefName,author,headRefOid"])
+    prs = json.loads(out or "[]")
+    stacked = [p for p in prs if (p.get("baseRefName") or "").strip() != DEFAULT_BASE]
+    for pr in stacked:
+        number = int(pr["number"])
+        base = (pr.get("baseRefName") or "").strip() or "?"
+        who = ((pr.get("author") or {}).get("login") or "unknown")
+        head = (pr.get("headRefOid") or "").strip()
+        checks = _check_runs(gh, repo, head) if head else []
+        count = len(checks) if isinstance(checks, list) else -1
+        print(f"[auto-merge] PR #{number}: merged into `{base}` (not `{DEFAULT_BASE}`) by `{who}`, "
+              f"head {head[:12]}, {count} check-run(s) at that head — issue #963")
+    print(f"[auto-merge] stacked-merged: {len(stacked)} PR(s) merged into a non-`{DEFAULT_BASE}` base "
+          f"in the last {limit} (expected 0)")
+    return 0
+
+
 def explain(gh: str, repo: str, pr: int, head_sha: str = "") -> int:
     """The same decision, printed for a human. Writes nothing."""
     state = pr_state(gh, repo, pr)
     fields = ("state", "isDraft", "mergeable", "mergeStateStatus", "reviewDecision", "headRefOid",
-              "headRepository")
+              "headRepository", "baseRefName")
     print(f"[auto-merge] PR #{pr}: " + json.dumps({k: state.get(k) for k in fields}))
     print(f"[auto-merge] author: {((state.get('author') or {}).get('login') or 'unknown')}")
     current_head = (state.get("headRefOid") or "").strip().lower()
@@ -885,6 +924,12 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument("--limit", type=int, default=20)
     a.add_argument("--gh", default="gh")
     a.add_argument("--dry", action="store_true")
+    s = sub.add_parser("stacked-merged",
+                       help="report the PRs merged into a non-main base (author, head sha, check count)")
+    s.add_argument("--repo", required=True)
+    s.add_argument("--limit", type=int, default=20)
+    s.add_argument("--gh", default="gh")
+    s.add_argument("--dry", action="store_true")
     r = sub.add_parser("recheck", help="re-evaluate the PRs whose deferral marker matches their head")
     r.add_argument("--repo", required=True)
     r.add_argument("--max-prs", type=int, default=5)
@@ -904,6 +949,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.cmd == "alert-merged-red":
         return alert_merged_red(args.gh, args.repo, args.limit, args.dry)
+    if args.cmd == "stacked-merged":
+        return stacked_merged(args.gh, args.repo, args.limit, args.dry)
     if args.cmd == "recheck":
         return recheck(args.gh, args.repo, args.max_prs, args.dry)
     if args.cmd == "explain":

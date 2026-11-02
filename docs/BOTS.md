@@ -1347,7 +1347,9 @@ completion, see #493 below; issue #1227 makes a green docs-only head reach it to
 the moment its run is green **and** the PR is conflict-free, and deletes the branch. The shape is
 `trending-local-llms`' `auto-merge` job in `qa-validate.yml`, which is the model for every bot in this repo.
 
-**A finished PR is armed when it is done, not when it is approved (owner directive 2026-10-29, #873).** The last
+**A finished PR is armed when it is done, not when it is approved (owner directive 2026-10-29, #873).** A rule of
+that directive: arm only on a PR whose base is `main`; a stacked PR arms on retarget.
+The last
 push or the last green check is the trigger: the producing lane moves the PR into the merge queue itself —
 `gh pr merge <n> --squash --auto` — and then **reads `autoMergeRequest` back** and states the arm time in its
 comment, because that command exits 0 while arming nothing when the base is not the default branch (issue #964)
@@ -1363,6 +1365,7 @@ make auto-merge-explain PR=<n> REPO=asimov-agent/llgenie     # why it was (or wa
 make auto-merge-recheck REPO=asimov-agent/llgenie [MAX=5] [DRY=1]  # retry the PRs the gate deferred at their current head
 make check-merge-on-red PR=<n> REPO=asimov-agent/llgenie  # exit non-zero when the head has a red check (issue #1386)
 make alert-merged-red REPO=asimov-agent/llgenie [MAX=20] [DRY=1]  # comment once on a merged PR whose head was red
+make stacked-merge-detect REPO=asimov-agent/llgenie [MAX=20] [DRY=1]  # report PRs merged into a non-`main` base (issue #963)
 make verify-closure PR=<n> REPO=asimov-agent/llgenie         # did `closes #n` actually close?
 make auto-merge-resolve REPO=<owner/repo> RUN_ID=<id> HEAD_OWNER=<owner> HEAD_BRANCH=<branch>  # run -> PR number
 make auto-merge-channel REPO=<owner/repo> HEAD_SHA=<sha>  # which engine merges the head: CI, or this sweep (a docs-only head has no CI run)
