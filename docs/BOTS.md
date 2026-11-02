@@ -2084,6 +2084,9 @@ make check-workflows   # fail when a YAML file's GitHub expression does not pars
 make check-module-names   # fail when a LIVE file spells the retired CLI module name instead of
                           # `scripts/llgenie_serve.py`; the one excluded file is the guard's own test, through the
                           # module-level `SELF_EXCLUDED` constant (issues #251, #573, #812)
+make check-claim-reader   # fail when a LIVE file re-opens the run-liveness read (`gh run view … --json
+                          # status,conclusion`, no repo) outside `scripts/bot_claims.py`; the one place a
+                          # bot may ask "is the run that posted this claim still alive" (issue #799)
 make issue-cleaner-scan   # which OPEN issue a merged PR already implemented: GitHub closes an issue at merge
                           # only when the body carries a closing keyword bound to it, so a PR that merged and
                           # left its issue open is a stale-open (issue #325). Prints each finding with its

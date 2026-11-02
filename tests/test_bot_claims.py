@@ -141,23 +141,37 @@ def test_a_concluded_subject_announces_nothing():
 
 
 def test_run_is_live_reads_the_run_status():
+    """Each distinct run id gets its own probe; the cache is per run id, never a shared stub."""
     seen = []
 
     def call(args):
         seen.append(args)
         return '{"status": "in_progress"}'
 
-    assert bot_claims.run_is_live(call, 5) is True
+    assert bot_claims.run_is_live(5, gh_call=call) is True
     assert seen[0][:2] == ["run", "view"] and "--json" in seen[0]
-    assert bot_claims.run_is_live(lambda a: '{"status": "completed"}', 5) is False
-    assert bot_claims.run_is_live(lambda a: '{"status": "weird"}', 5) is None
-    assert bot_claims.run_is_live(lambda a: "not json", 5) is None
-    assert bot_claims.run_is_live(lambda a: "", 5) is None
+    assert bot_claims.run_is_live(6, gh_call=lambda a: '{"status": "completed"}') is False
+    assert bot_claims.run_is_live(7, gh_call=lambda a: '{"status": "weird"}') is None
+    assert bot_claims.run_is_live(8, gh_call=lambda a: "not json") is None
+    assert bot_claims.run_is_live(9, gh_call=lambda a: "") is None
 
     def boom(args):
         raise RuntimeError("gh failed")
 
-    assert bot_claims.run_is_live(boom, 5) is None
+    assert bot_claims.run_is_live(10, gh_call=boom) is None
+
+
+def test_the_liveness_probe_is_cached_once_per_run_id_per_process():
+    """#799: two readers for the same run id share one cache, so they agree AND pay one gh call."""
+    calls = []
+
+    def call(args):
+        calls.append(args)
+        return '{"status": "in_progress"}'
+
+    assert bot_claims.run_is_live(4242, gh_call=call) is True
+    assert bot_claims.run_is_live(4242, gh_call=call) is True   # second reader: no second probe
+    assert len(calls) == 1, f"one gh call for one run id, got {len(calls)}"
 
 
 def test_cancelled_is_a_release_word():
