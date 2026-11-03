@@ -473,6 +473,13 @@ def test_no_ci_job_builds_a_ci_image():
         assert not re.search(r"make (test-image|openspec-image)(\s|$)", text), name
         assert ("make publish-ci-images" in text) == (name == "ci/ci-images"), name
 
+    # And no CI job may call the strict `openspec-image-pull` anywhere: on a fork PR its hash is
+    # never published and a hard pull reds for a write GitHub will never grant (issue #1655/#1673).
+    # Every CI consumer that reaches the openspec image must go through `make openspec-image`
+    # (pull-or-build). A new job reverting to strict pull fails here and the #1655 class repeats.
+    assert not any("make openspec-image-pull" in t for t in runs.values()), \
+        "no CI job may use the strict openspec-image-pull target (fork PRs can never publish it)"
+
     # And every job that reaches a CI image needs ci-images, directly or through its caller.
     # `make openspec-image` (pull-or-build) reaches the image too, so its job must keep the
     # ci-images dependency even though it may fall back to building a fork's own Dockerfile
