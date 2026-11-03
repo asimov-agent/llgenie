@@ -495,9 +495,14 @@ def test_the_vendored_store_satisfies_the_vendored_contract():
 
 @pytest.mark.network
 def test_live_upstream_registry_is_the_live_readme_list():
-    """Live GitHub: upstream data/models.json is exactly the README "Most loved" list."""
+    """Live GitHub: upstream data/models.json is exactly the README "Most loved" list.
+
+    The README "Most loved" best-engine columns render FROM the producer's normalized
+    measurement store (issue #1634 / producer #689), so the live check consults it too —
+    matching sync()/check() — rather than only the model row's supported_engines."""
     data = sr.validate(sr.fetch(sr.UPSTREAM))
-    sr.check_readme_matches(data, sr.fetch(sr.UPSTREAM_README).decode())
+    measurements = json.loads(sr.fetch(sr.UPSTREAM_MEASUREMENTS))
+    sr.check_readme_matches(data, sr.fetch(sr.UPSTREAM_README).decode(), measurements)
 
 
 def test_vendored_registry_is_the_vendored_readme_list():
