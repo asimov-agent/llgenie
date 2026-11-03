@@ -15,12 +15,8 @@ import subprocess
 import sys
 import textwrap
 import time
-from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO))
-
-import scripts.install_engine_launchers as iel  # noqa: E402
+import scripts.install_engine_launchers as iel
 
 
 def test_generated_launchers_die_when_their_parent_exits():
