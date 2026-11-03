@@ -508,6 +508,14 @@ def rank_engines(model: dict, arch: str | None = None, ids: dict | None = None,
         # host still gets a runnable cell.
         if is_ternary(model) and info["id"] not in PRISM_ENGINES:
             return
+        # The PrismML fork is the ONLY reader of ternary tensor types (PQ2_0/PTQ1_0,
+        # issue #1092), so a model the store does NOT mark ternary never runs it: its
+        # fork-only measurement of a ternary repack (e.g. "Bonsai 2 27B ternary PQ2_0"
+        # riding a dense Qwen3.8 row) must not be offered for the dense model — and it
+        # has no cuda/rocm image, so at a card host it only ever becomes a cpu
+        # fallback that outranks the real card engine at a lower t/s (issue #1639).
+        if info["id"] in PRISM_ENGINES and not is_ternary(model):
+            return
         variant = arch if arch in info["variants"] else (
             None if arch == "metal" else ("cpu" if "cpu" in info["variants"] else None))
         # Issue #669 / #1064: a Metal-measured figure from a METAL-NATIVE engine is not evidence
