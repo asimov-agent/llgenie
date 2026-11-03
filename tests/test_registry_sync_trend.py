@@ -579,3 +579,31 @@ def test_the_seam_default_is_byte_neutral_on_the_live_store():
                                                       readme_text=(REPO / "data" / "trending-README.md").read_text())]
         assert default == injected, f"gb={gb}: default order changed by the seam"
         assert default, f"gb={gb}: the store must still rank a real set"
+
+
+def test_measurements_merge_keeps_distinct_cards_per_engine():
+    """Issue #1649: the rehydration merge must key runs by (engine, hardware), NOT engine
+    name alone. Two runs of the same engine on different cards are distinct — collapsing
+    them to one arbitrary entry would erase the small-card run that admits the model on
+    that card (or smaller), redding the live acceptance for a model the README places."""
+
+    rows = [{
+        "id": "demo-model", "name": "Demo Model", "formats": [{"name": "GGUF"}],
+        "engines": [],
+    }]
+    measurements = {"demo-model": [
+        {"engine": "llama.cpp", "tps": "96", "hardware": "single RTX 5090", "variant": "cuda"},
+        # A small-card run of the SAME engine: must survive or the model is not admitted at 8 GB.
+        {"engine": "llama.cpp", "tps": "14.06",
+         "hardware": "4GB VRAM + 32GB system RAM (MoE/quantized build, partial offload)",
+         "variant": "cuda"},
+    ]}
+    sr._merge_measurements(rows, measurements)
+    runs = [e for e in rows[0]["engines"] if e["engine"] == "llama.cpp"]
+    assert len(runs) == 2, f"distinct-card runs collapsed to {len(runs)}: {runs}"
+    cards = {e.get("hardware") for e in runs}
+    assert any("RTX 5090" in h for h in cards)
+    assert any("4GB VRAM" in h for h in cards)
+    # And the picker now admits the model at 8 GB (the whole point of the fix).
+    assert mp.fits(rows[0], 8, arch="cuda")
+    assert mp.card_evidence(rows[0], 8, "cuda") == "run"
