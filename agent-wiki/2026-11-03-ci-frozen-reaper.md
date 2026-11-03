@@ -10,7 +10,8 @@ while check-pr-base had already flagged the branch at a stale base; neither heal
 ## What changed (measured on this worktree, main `2d9d9457`)
 
 - `.github/workflows/ci-frozen-reaper.yml` — a third, time-bounded healer: own schedule
-  (`2,32 * * * *` — minutes no other bot owns, issue #275) + `workflow_dispatch`, never a
+  (every 2 hours — minute 19 on six weekdays + minute 27 on Monday, the only odd collision-free
+  all-day non-every-hour shape, issue #275/#301) + `workflow_dispatch`, never a
   `pull_request`/`push` trigger. Runs `make ci-frozen-reaper`, which calls
   `scripts/ci_frozen_reaper.py run`.
 - `scripts/ci_frozen_reaper.py` — lists `in_progress` runs, and collapses ONLY one whose

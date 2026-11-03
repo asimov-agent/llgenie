@@ -182,7 +182,7 @@ def test_the_scheduled_reaper_wires_exactly_the_measured_target():
     wf = yaml.safe_load(path.read_text())
     on = wf.get("on") or wf.get(True)
     crons = [str(slot.get("cron")) for slot in on["schedule"]]
-    assert crons == ["2,32 * * * *"], crons                 # collision-free minutes (issue #275)
+    assert crons == ["19 */2 * * 0,2,3,4,5,6", "27 */2 * * 1"], crons  # odd, collision-free, all-day every-2h
     assert "workflow_dispatch" in on
     assert wf["concurrency"] == {"group": "ci-frozen-reaper", "cancel-in-progress": False}
     assert wf["permissions"] == {"contents": "read", "actions": "write", "pull-requests": "write"}
