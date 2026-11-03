@@ -457,13 +457,19 @@ def check(dest: Path, readme: Path | None = None, snapshot: Path | None = None) 
         return 1
     readme = readme or dest.with_name(VENDORED_README.name)
     contract, _ = _contract_paths(dest)
+    measurements_path = dest.with_name(VENDORED_MEASUREMENTS.name)
     try:
         data = validate(dest.read_bytes())
         if not contract.exists():
             raise ValueError(f"missing {contract}: run make sync-registry")
         check_contract(data, json.loads(contract.read_bytes()))
         if readme.exists():
-            check_readme_matches(data, readme.read_text())
+            # The README best-engine columns render FROM the producer's normalized
+            # measurement store (issue #1634 / producer #689); consult the vendored copy.
+            measurements: dict | None = None
+            if measurements_path.exists():
+                measurements = json.loads(measurements_path.read_bytes())
+            check_readme_matches(data, readme.read_text(), measurements)
             links = readme_links(readme.read_text())
             if snapshot is not None:
                 # Hermetic link probe (issue #1178): read the recorded README-link answers
