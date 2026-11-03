@@ -1,6 +1,6 @@
 # Dependency-pin validity audit at 75f85118 (security lane, own-domain)
 
-Audit date: 2026-11-03. Measured head: `75f851180e` (main at dispatch; current tip `22d2060b` differs by docs-only #1643, so the dependency-pin tree is identical). Bounded own-domain audit per #1245 (security: dependency-pin validity) — the `#1252/#1262` class: a pin valid in **form** that cannot resolve in **fact**.
+Audit date: 2026-11-03. Measured head: `75f851180e` (main at dispatch; current tip `0a0dbddd` differs by docs-only merges #1643 and #1653, so the dependency-pin tree is identical). Bounded own-domain audit per #1245 (security: dependency-pin validity) — the `#1252/#1262` class: a pin valid in **form** that cannot resolve in **fact**.
 
 ## Classes swept
 
@@ -23,6 +23,14 @@ Expected tags are params-derived (`install_engine_launchers.install_plan('cuda',
 
 Filed: **#1652** — six-section, tagged `[agent:implement, security, vulnerability, severity:high]`, sha-bound at `75f851180e`.
 
+## Finding — registry-liveness monitor sweeps cpu only, never non-cpu pins (#1661)
+
+The dedicated owner pipeline (`registry-liveness`, #1365 precedent) calls `make check-engine-launchers CHECK_REGISTRY=1` with **no `--arch`** (fit at `0a0dbddd`): the `check-engine-launchers` Makefile target forwards `--arch` only `$(if $(ARCH),--arch "$(ARCH)",)`, and `scripts/check_engine_launchers.py` falls back to `iel.detected_arch()` — `ubuntu-latest` resolves to **cpu**. The monitor therefore sweeps cpu pins only and can never observe a broken cuda/rocm/vulkan pin — the direct reason #1652's four cuda pins glided green (its cpu sweep reported `0 not published (arch cpu)` at the same head) even while all four cuda manifests returned `HTTP 404`.
+
+Severity: medium. Not a code-path exploit, but a silent coverage gap in the security-lane's own control: every engine-image variant except cpu is unmonitored, and the failure is invisible until an install trips over it.
+
+Filed: **#1661** — six-section, tagged `[agent:implement, security, vulnerability, severity:medium]`, sha-bound at `75f851180e` (monitor unchanged through `0a0dbddd`).
+
 ## Result
 
-One filed finding (#1652); every other class re-verified clean. Fix routes to the implement queue (publish each cuda pin via `make push-engine ENGINE=<id> ARCH=cuda`, or drop the variant from params; optionally widen `registry-liveness` to sweep cuda). Not implemented by this audit lane.
+Two filed findings (#1652, #1661); every other class re-verified clean. Fixes route to the implement queue: #1652 = publish each cuda pin (`make push-engine ENGINE=<id> ARCH=cuda`) or drop the variant from params; #1661 = sweep each arch the tree pins in `registry-liveness` (`make check-engine-launchers CHECK_REGISTRY=1 ARCH=<arch>` per arm, arch named in the tracking issue). Neither is implemented by this audit lane.
