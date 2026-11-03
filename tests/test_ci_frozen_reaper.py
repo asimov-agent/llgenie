@@ -19,9 +19,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
-import ci_frozen_reaper as fr  # noqa: E402
+import scripts.ci_frozen_reaper as fr  # via tests/conftest.py, the one import root (issue #796)
 
 
 def _iso(minutes_ago: float, now: dt.datetime) -> str:
