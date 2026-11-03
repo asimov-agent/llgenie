@@ -217,6 +217,22 @@
       "issue": 229,
       "backend": "ROCm",
       "upstream": "https://github.com/asf0/strix-llama.cpp"
+    },
+    "uzu": {
+      "decision": "deferred",
+      "decided": "2026-11-03",
+      "reason": "Metal-only Apple-Silicon MLX server (trymirai/uzu): Metal cannot run inside llgenie's Linux image, and the Apple-Silicon platform is already served natively by the mlx engine, so a second native MLX stack would duplicate it.",
+      "issue": 1654,
+      "backend": "Metal",
+      "upstream": "https://github.com/trymirai/uzu"
+    },
+    "Inco Splash": {
+      "decision": "deferred",
+      "decided": "2026-11-03",
+      "reason": "Metal-only Apple-Silicon inference engine (incoai/splash): Metal cannot run inside llgenie's Linux image, and the Apple-Silicon platform is already served natively by the mlx engine, so a second native MLX stack would duplicate it.",
+      "issue": 1654,
+      "backend": "Metal",
+      "upstream": "https://github.com/incoai/splash"
     }
   }
 }
