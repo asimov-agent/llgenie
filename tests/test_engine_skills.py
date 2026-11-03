@@ -1064,6 +1064,29 @@ def test_each_engine_documents_the_flags_its_binary_answers(skills):
         assert not used or all(f in flags for f in used), f"{sid}: detect uses {used}, docs say {flags}"
 
 
+def test_per_backend_binary_flags_are_honored(skills):
+    """binary_flags may be a per-backend map (cuda vs metal), honored by
+    documented_flags(backend=...) and carried into the image manifest."""
+
+    import scripts.engine_skills as es
+
+    tf = skills["tensorfold"].get("binary_flags")
+    assert isinstance(tf, dict), "tensorfold binary_flags should be per-backend (issue #1685)"
+    # the CUDA server answers --version only; macOS answers --help too
+    assert es.documented_flags(skills["tensorfold"], "cuda") == ["--version"]
+    assert "--help" in es.documented_flags(skills["tensorfold"], "metal")
+    # the union path (backend=None) still returns valid documented flags
+    union = es.documented_flags(skills["tensorfold"])
+    assert set(union) <= set(es.BINARY_FLAGS)
+    # the committed manifest carries the honest per-backend cuda flags
+    import json
+    from pathlib import Path
+    manifest = json.loads((Path(__file__).resolve().parent.parent
+                           / "containers/engines/binaries.json").read_text())
+    entry = manifest["engines"]["tensorfold"]["cuda"]
+    assert entry["flags"] == ["--version"], f"manifest cuda flags should be ['--version'], got {entry['flags']}"
+
+
 def _probe_stdout(cmd: list[str], answer: tuple = ()) -> str:
     """The probe's real stdout shape for a fake run: one LG-FLAG block per flag (issue #580)."""
     flags = cmd[cmd.index("llgenie-binary") + 2:]

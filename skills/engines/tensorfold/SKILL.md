@@ -46,7 +46,9 @@ install:
     - "ln -sfn {src}/zig-out/bin/{id} {prefix}/{version}/bin/{id}"
     - "ln -sfn {prefix}/{version} {prefix}/current"
 binary: "{prefix}/current/bin/{id}"
-binary_flags: ["--help", "--version"]   # the built binary answers both (its --version is the pinned release)
+binary_flags:
+  metal: ["--help", "--version"]   # the macOS binary answers both (its --version is the pinned release)
+  cuda: ["--version"]              # the CUDA server answers only --version (--help is a separate subcommand, cf. #1685)
 detect: "{binary} --version"
 launch:
   common: "{binary} serve {model} --host {host} --port {port} --name {alias}"
