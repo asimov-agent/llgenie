@@ -42,12 +42,14 @@ except ImportError:
 REPO = Path(__file__).resolve().parent.parent
 _UPSTREAM_DATA = "https://raw.githubusercontent.com/andyholst/trending-local-llms/master"
 UPSTREAM = f"{_UPSTREAM_DATA}/data/models.json"
+UPSTREAM_MEASUREMENTS = f"{_UPSTREAM_DATA}/data/measurements.json"
 UPSTREAM_README = f"{_UPSTREAM_DATA}/README.md"
 # The contract the store is written against (issue #694): the JSON Schema upstream validates
 # models.json with, and its prose twin. Vendored byte for byte, so a contract edit is a diff.
 UPSTREAM_CONTRACT = f"{_UPSTREAM_DATA}/data/model_contract.json"
 UPSTREAM_CONTRACT_DOC = f"{_UPSTREAM_DATA}/data/MODEL_CONTRACT.md"
 VENDORED = REPO / "data" / "models.json"
+VENDORED_MEASUREMENTS = REPO / "data" / "measurements.json"
 VENDORED_README = REPO / "data" / "trending-README.md"  # the list a user reads; tests compare against it
 VENDORED_CONTRACT = REPO / "data" / "model_contract.json"
 VENDORED_CONTRACT_DOC = REPO / "data" / "MODEL_CONTRACT.md"
@@ -72,14 +74,11 @@ def validate(raw: bytes) -> dict:
     if not isinstance(models, list) or not models:
         raise ValueError("'models' must be a non-empty list")
     for i, m in enumerate(models):
-        for key in ("id", "name", "vram_tier", "engines"):
+        for key in ("id", "name", "vram_tier", "supported_engines"):
             if key not in m:
                 raise ValueError(f"models[{i}] ({m.get('id', '?')}) lacks {key!r}")
-        if not isinstance(m["engines"], list):
-            raise ValueError(f"models[{i}] ({m['id']}) 'engines' must be a list")
-        for e in m["engines"]:
-            if "engine" not in e:
-                raise ValueError(f"models[{i}] ({m['id']}) has an engine row without 'engine'")
+        if not isinstance(m["supported_engines"], list):
+            raise ValueError(f"models[{i}] ({m['id']}) 'supported_engines' must be a list")
     return data
 
 
@@ -139,11 +138,13 @@ def check_contract(data: dict, schema: dict) -> None:
     for i, m in enumerate(models):
         where = f"models[{i}] ({m.get('id', '?')})"
         _require(m, list(model_schema.get("required") or []), where)
-        if not isinstance(m["engines"], list):
-            raise ValueError(f"{where} 'engines' must be a list")
-        for e in m["engines"]:
-            if "engine" not in e:
-                raise ValueError(f"{where} has an engine row without 'engine'")
+        # Per-row `engines` (t/s measurements) is OPTIONAL in the contract — only
+        # `supported_engines` is required per row (issue #1634, producer #689). When a row
+        # does carry measurements, each entry must still satisfy the schema's item rule.
+        engines_items = (model_props.get("engines") or {}).get("items") or {}
+        engine_row_req = list(engines_items.get("required") or [])
+        for e in m.get("engines") or []:
+            _require(e, engine_row_req, f"{where} engines entry")
         if id_pattern and not re.fullmatch(id_pattern, str(m["id"])):
             raise ValueError(f"{where} id does not match the contract's {id_pattern!r}")
         formats = m["formats"]
@@ -185,19 +186,29 @@ def readme_best(readme: str, column: str) -> dict[str, str]:
     return out
 
 
-def check_readme_matches(data: dict, readme: str) -> None:
+def check_readme_matches(data: dict, readme: str, measurements: dict | None = None) -> None:
     """The vendored registry must be the README's list: the same models, in the
     README's order, and each model's best engine per backend column is an engine
-    the registry records for that model."""
+    the registry records for that model.
+
+    Since the producer's #689 normalized measurement store, a model's per-engine
+    t/s detail lives in `data/measurements.json` keyed by model id (the model row's
+    `engines` list is now empty), and the README best-engine per backend is rendered
+    FROM that store. `measurements` (id -> [engine rows]) is therefore consulted as
+    an additional source of recorded engines, so a README that names an engine the
+    measurement store records for the model is not falsely rejected (issue #1634)."""
     names = [m["name"] for m in data["models"]]
     order = readme_order(readme)
     if names != order:
         raise ValueError(f"models.json order {names} != README 'Most loved' order {order}")
+    measurements = measurements or {}
     by_name = {m["name"]: m for m in data["models"]}
     for column in ("CUDA t/s (best)", "Metal t/s (best)", "CPU t/s (best)", "ROCm t/s (best)"):
         for name, engine in readme_best(readme, column).items():
-            known = {e["engine"] for e in by_name[name].get("engines") or []} | \
-                set(by_name[name].get("supported_engines") or [])
+            m = by_name.get(name, {})
+            known = {e["engine"] for e in m.get("engines") or []} | \
+                set(m.get("supported_engines") or []) | \
+                {e["engine"] for e in measurements.get(m.get("id", ""), [])}
             if engine not in known:
                 raise ValueError(f"{name}: README {column} names {engine!r}, which the registry "
                                  f"does not list for it (has {sorted(known)})")
@@ -362,20 +373,31 @@ def _summary(data: dict) -> str:
 
 def sync(src: str, dest: Path, readme_src: str | None = UPSTREAM_README,
          readme_dest: Path | None = None, contract_src: str | None = UPSTREAM_CONTRACT,
-         contract_doc_src: str | None = UPSTREAM_CONTRACT_DOC) -> int:
-    """Copy the registry, the README it was generated with, and the contract it is written
-    against — after checking the registry's shape and that it is the README's list in order.
+         contract_doc_src: str | None = UPSTREAM_CONTRACT_DOC,
+         measurements_src: str | None = None,
+         measurements_dest: Path | None = None) -> int:
+    """Copy the registry, the README it was generated with, the normalized measurement
+    store it was rendered from, and the contract it is written against — after checking
+    the registry's shape and that it is the README's list in order.
+
+    Since the producer's #689 normalized store, per-model t/s detail lives in
+    `data/measurements.json` and the README best-engine columns render FROM it; it is
+    vendored alongside the model rows and consulted by the README-engine check (issue
+    #1634).
 
     The contract is vendored, not enforced here: `check()` validates the store against it
     (issue #694), which is the gate the sync job runs on the files this writes."""
     readme_dest = readme_dest or dest.with_name(VENDORED_README.name)
+    measurements_dest = measurements_dest or dest.with_name(VENDORED_MEASUREMENTS.name)
     contract_dest, contract_doc_dest = _contract_paths(dest)
     raw = fetch(src)
     try:
         new = validate(raw)
         readme = fetch(readme_src).decode() if readme_src else None
+        measurements_raw = fetch(measurements_src) if measurements_src else None
+        measurements: dict | None = json.loads(measurements_raw) if measurements_raw else None
         if readme is not None:
-            check_readme_matches(new, readme)
+            check_readme_matches(new, readme, measurements)
         contract = fetch(contract_src) if contract_src else None
         contract_doc = fetch(contract_doc_src).decode() if contract_doc_src else None
     except ValueError as e:
@@ -384,8 +406,23 @@ def sync(src: str, dest: Path, readme_src: str | None = UPSTREAM_README,
     # Everything below vendors the NORMALISED store (issue #687): one row per model, formats
     # in the vocabulary, and the README carrying the same rows in the same order.
     store, notes = normalise(new)
+    # Rehydrate per-row `engines` from the producer's normalized measurement store (issue
+    # #1634 / producer #689): the producer split per-model t/s out of models.json into
+    # data/measurements.json (keyed by model id), but llgenie's picker, additive-only
+    # registry-keys gate and README engine check all read the denormalized rows. Merge the
+    # measurements back so one stored row carries what its README renders.
+    if measurements is not None:
+        by_id = {str(m.get("id") or ""): m for m in store["models"]}
+        for mid, rows in measurements.items():
+            m = by_id.get(mid)
+            if m is None:
+                continue
+            existing = {(e.get("engine")): e for e in m.get("engines") or []}
+            for e in rows:
+                existing.setdefault(e.get("engine"), e)
+            m["engines"] = list(existing.values())
     if readme is not None:
-        check_readme_matches(store, readme)
+        check_readme_matches(store, readme, measurements)
     raw = (json.dumps(store, indent=2, ensure_ascii=False) + "\n").encode()
     for note in notes:
         print(f"[sync-registry] note: {note}")
@@ -398,7 +435,8 @@ def sync(src: str, dest: Path, readme_src: str | None = UPSTREAM_README,
         return current == (value.encode() if isinstance(value, str) else value)
 
     same_rest = (_unchanged(readme_dest, readme) and _unchanged(contract_dest, contract)
-                 and _unchanged(contract_doc_dest, contract_doc))
+                 and _unchanged(contract_doc_dest, contract_doc)
+                 and _unchanged(measurements_dest, measurements_raw))
     if old == raw and same_rest:
         print(f"[sync-registry] unchanged: {dest} ({_summary(store)})")
         return 0
@@ -407,6 +445,8 @@ def sync(src: str, dest: Path, readme_src: str | None = UPSTREAM_README,
     dest.write_bytes(raw)
     if readme is not None:
         readme_dest.write_text(readme)
+    if measurements_raw is not None:
+        measurements_dest.write_bytes(measurements_raw)
     if contract is not None:
         contract_dest.write_bytes(contract)
     if contract_doc is not None:
@@ -432,13 +472,19 @@ def check(dest: Path, readme: Path | None = None, snapshot: Path | None = None) 
         return 1
     readme = readme or dest.with_name(VENDORED_README.name)
     contract, _ = _contract_paths(dest)
+    measurements_path = dest.with_name(VENDORED_MEASUREMENTS.name)
     try:
         data = validate(dest.read_bytes())
         if not contract.exists():
             raise ValueError(f"missing {contract}: run make sync-registry")
         check_contract(data, json.loads(contract.read_bytes()))
         if readme.exists():
-            check_readme_matches(data, readme.read_text())
+            # The README best-engine columns render FROM the producer's normalized
+            # measurement store (issue #1634 / producer #689); consult the vendored copy.
+            measurements: dict | None = None
+            if measurements_path.exists():
+                measurements = json.loads(measurements_path.read_bytes())
+            check_readme_matches(data, readme.read_text(), measurements)
             links = readme_links(readme.read_text())
             if snapshot is not None:
                 # Hermetic link probe (issue #1178): read the recorded README-link answers
@@ -481,7 +527,9 @@ def main(argv: list[str] | None = None) -> int:
                     help="check mode: probe the README links live (the ci-hf-live seam)")
     a = ap.parse_args(argv)
     if a.cmd == "sync":
-        return sync(a.src, Path(a.dest))
+        # The default CLI sync mirrors the producer store plus its normalized measurement
+        # store (issue #1634 / producer #689) so the vendored rows carry both.
+        return sync(a.src, Path(a.dest), measurements_src=UPSTREAM_MEASUREMENTS)
     snap = None if a.no_snapshot else Path(a.snapshot)
     return check(Path(a.dest), snapshot=snap)
 
