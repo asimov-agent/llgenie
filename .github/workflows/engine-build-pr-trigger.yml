@@ -1,0 +1,81 @@
+# engine-build-pr-trigger — the "will" arm of the pin-bump gate: a PR that REPINS an engine starts the producer.
+#
+# The merged #1631 gate (`scripts/check_engine_pins_published.py`) is the "may" arm: a pin-bump PR may not
+# MERGE until its exact image tag is published. But nothing started the producer — a human had to dispatch
+# `engine-build` with `push=true` out-of-band or wait for a scheduled sweep. Issue #1633 closes that gap with
+# the trigger: THIS workflow, on the PR itself, dispatches `engine-build push=true` scoped to exactly the
+# engines the change repins (via `scripts/engine_build_trigger.py`, the params-FILE diff shared with the may
+# arm), and AWAITS each dispatched run's own verdict before the merge window opens.
+#
+# Trigger surface: `pull_request` — a bump's very existence is the trigger, nothing schedules a separate run.
+#                  The paths narrow it to engine params changes; a non-bump PR (the path filter passes but no
+#                  params differ) is hermetic — the script prints `no engine this change repins` and exits 0
+#                  touching no network. The trigger never runs on `push` to main: merging publishes on its own
+#                  schedule; a push would double-dispatch a full sweep (#614 design preserved).
+# Guard: this workflow does NOT weaken engine-build's owner/collaborator-with-write guard — that guard lives
+#        in engine-build.yml and STILL runs at dispatch time. A dispatch whose actor is not the owner/collab
+#        (or this repo's bot on a same-repo head, #1571) is refused BY THE PRODUCER. This trigger's own job
+#        mirrors that same-repo intent so a foreign-head PR (a fork bump) never even reaches the dispatch:
+#        it only dispatches when the PR head is a branch in THIS repository — a same-repo head can be produced
+#        only by a token with write access (issues #510/#1571). The trigger never bypasses or short-circuits the
+#        producer's guard; it joins the producer's own concurrency queue (`engine-build-push`, #917) and waits
+#        its turn. cancel-in-progress: false so a stale-head PR never cancels a producer run that is mid-build.
+# Verdict: `gh workflow run` exit 0 is never a verdict (#964's auto-merge trap applies to dispatch too); the
+#        trigger awaits the NEW workflow_dispatch run's own conclusion, exactly as all-pipelines does. A run
+#        refused at the producer's guard is reported `NOT VERIFIED — refused at its own trigger guard`, never a
+#        bare failure, so a green board cannot disguise an unverifiable dispatch.
+# Never: never merges, never pushes to main, never edits code, never cancels a producer run, never dispatches
+#        for a foreign-head PR, never widens the scope past the engines this change repins.
+name: engine-build-pr-trigger — a pin-bump PR starts the producer and waits on it (issue #1633)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "containers/engines/params/**"
+
+permissions:
+  actions: write        # to dispatch the engine-build producer and read its run verdicts
+  contents: read
+
+# One static group per PR, never cancelled: the trigger dispatches a real producer run, and cancelling this
+# job mid-wait would leave that run unobserved ("never cancel a live run", #1102 design).
+concurrency:
+  group: engine-build-pr-trigger-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Owner / collaborator trigger guard (mirrors engine-build's intent; the producer re-checks at dispatch)
+        env:
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name || '' }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # A fork's PR must never reach a push=true dispatch: a same-repo head is the only head a write-scoped
+          # token can produce (issues #510/#1571). engine-build.yml re-verifies actor/permission at dispatch time.
+          if [ -n "${HEAD_REPO:-}" ] && [ "${HEAD_REPO:-}" != "$REPO" ]; then
+            echo "Refused: PR head belongs to ${HEAD_REPO}, not $REPO — a foreign-head bump cannot trigger a push=true dispatch."
+            exit 1
+          fi
+          echo "Allowed: same-repo head ${HEAD_REPO:-$REPO} — may trigger a scoped push=true engine-build."
+
+  trigger:
+    needs: [guard]
+    runs-on: ubuntu-latest
+    timeout-minutes: 250   # a max window that can hold a push=true build+push for a bump PR; producer itself can run 240 min
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"   # the repo's pinned Python (issue #120)
+      - name: make engine-build-pr-trigger (dispatch push=true for the repinned engines, await each verdict — no repin is hermetic)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          make engine-build-pr-trigger BASE="${{ github.event.pull_request.base.sha }}"

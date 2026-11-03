@@ -37,6 +37,7 @@ on:
       - ci-verdict — holds a finished CI run to its published scope decision, and says "no verdict" out loud
       - code-review-bot — reviews the tree and the pipelines and files one issue per finding (never edits code)
       - engine-build — builds and verifies EVERY engine at its committed pin, in parallel (never merges)
+      - engine-build-pr-trigger — a pin-bump PR starts the producer and waits on it (issue #1633)
       - engine-bump-rebase — rebases every open engine-bump PR onto the latest main
       - engine-bump — bumps pinned engines to their newest upstream release and opens the PR
       - fix-bot — repairs a failing PR branch until its checks pass (never merges)
