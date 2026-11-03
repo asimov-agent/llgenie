@@ -151,6 +151,69 @@ HF_TOKEN_SHELL = "\n".join([
 ])
 
 
+def engine_container_ids(run=None) -> set[str]:
+    """Ids of `llgenie-*` containers. Empty when docker cannot be asked."""
+    import subprocess
+    runner = run or subprocess.run
+    try:
+        found = runner(
+            ["docker", "ps", "-aq", "--filter", "name=llgenie-"],
+            capture_output=True, text=True,
+        )
+    except FileNotFoundError:
+        return set()
+    if getattr(found, "returncode", 1) != 0:
+        return set()
+    return {line.strip() for line in (found.stdout or "").splitlines() if line.strip()}
+
+
+def stop_new_engine_containers(before: set[str], run=None) -> list[str]:
+    """Remove `llgenie-*` containers that were not already in `before`.
+
+    A container that was running before the test session stays up. Returns the
+    ids it asked docker to remove (issue #1669).
+    """
+    import subprocess
+    started = engine_container_ids(run) - set(before)
+    if not started:
+        return []
+    ids = sorted(started)
+    runner = run or subprocess.run
+    runner(["docker", "rm", "-f", *ids], capture_output=True)
+    return ids
+
+
+def die_when_parent_dies(runtime: str, interval: str = "1") -> str:
+    """Bash that removes `$name` when this script exits, including when its parent exits.
+
+    The container name must already be in `$name`. A non-interactive shell does not
+    SIGHUP a background job when it exits, so a test that starts the launcher and
+    then finishes used to leave `docker run` and llama-server up (issue #1669).
+    Watch the parent pid and exit when it is gone. The trap always removes the
+    container. A parent that is still alive — an interactive serve — is left alone.
+    """
+    return (
+        "self=$$\n"
+        "parent=$PPID\n"
+        "(\n"
+        "  while true; do\n"
+        "    if [ -r \"/proc/$self/status\" ]; then\n"
+        "      now=$(awk '/^PPid:/ {print $2}' \"/proc/$self/status\" 2>/dev/null || true)\n"
+        "    else\n"
+        "      now=$(ps -o ppid= -p \"$self\" 2>/dev/null | tr -d ' ' || true)\n"
+        "    fi\n"
+        "    [ -n \"$now\" ] && [ \"$now\" != \"$parent\" ] && break\n"
+        "    kill -0 \"$parent\" 2>/dev/null || break\n"
+        f"    sleep {interval}\n"
+        "  done\n"
+        "  kill -TERM \"$self\" 2>/dev/null || true\n"
+        ") &\n"
+        "watcher=$!\n"
+        f"trap 'kill \"$watcher\" 2>/dev/null || true; {runtime} rm -f \"$name\" "
+        ">/dev/null 2>&1 || true' EXIT INT TERM HUP\n"
+    )
+
+
 def launcher(engine: str, variant: str, tag: str, models: str, platform: str = "") -> str:
     name = script_name(engine)
     plat = f" --platform {platform}" if platform else ""
@@ -171,12 +234,12 @@ MODELS="${{LLGENIE_MODELS_DIR:-{models}}}"
 case "$MODEL" in "$MODELS"/*) MODEL="/models/${{MODEL#"$MODELS"/}}" ;; esac
 name="llgenie-{engine.replace('.', '-')}-$PORT"
 {ei.RUNTIME} rm -f "$name" >/dev/null 2>&1 || true
-trap '{ei.RUNTIME} rm -f "$name" >/dev/null 2>&1' EXIT INT TERM
-gpu=({GPU_FLAGS.get(variant, '')}); [ -n "${{LLGENIE_NO_GPU:-}}" ] && gpu=({GPU_FLAGS['cpu']})  # LLGENIE_NO_GPU=1: GPU image on CPU
+{die_when_parent_dies(ei.RUNTIME)}gpu=({GPU_FLAGS.get(variant, '')}); [ -n "${{LLGENIE_NO_GPU:-}}" ] && gpu=({GPU_FLAGS['cpu']})  # LLGENIE_NO_GPU=1: GPU image on CPU
 {HF_TOKEN_SHELL}{modeset}{ei.RUNTIME} run --rm{plat} --name "$name" "${{gpu[@]}}" \\
   -p "127.0.0.1:$PORT:11434" -v "$MODELS:/models" -e HF_TOKEN \\
   -e "LLGENIE_MODEL=$MODEL" "$IMAGE" serve &
-wait $!
+child=$!
+wait "$child"
 """
 
 
@@ -217,11 +280,11 @@ done
 # killed shim (SIGTERM/SIGKILL from a caller) must not leave the server running.
 name="llgenie-{name}-$port"
 {ei.RUNTIME} rm -f "$name" >/dev/null 2>&1 || true
-trap '{ei.RUNTIME} rm -f "$name" >/dev/null 2>&1' EXIT INT TERM
-gpu=({GPU_FLAGS.get(variant, '')}); [ -n "${{LLGENIE_NO_GPU:-}}" ] && gpu=({GPU_FLAGS['cpu']})  # LLGENIE_NO_GPU=1: GPU image on CPU
+{die_when_parent_dies(ei.RUNTIME)}gpu=({GPU_FLAGS.get(variant, '')}); [ -n "${{LLGENIE_NO_GPU:-}}" ] && gpu=({GPU_FLAGS['cpu']})  # LLGENIE_NO_GPU=1: GPU image on CPU
 {HF_TOKEN_SHELL}{modeset}{ei.RUNTIME} run --rm{plat} --name "$name" "${{gpu[@]}}" -p "$host:$port:$port" "${{mounts[@]}}" \\
   -e HF_TOKEN -e LD_LIBRARY_PATH={bindir} --entrypoint {binary} "$IMAGE" "${{args[@]}}" &
-wait $!
+child=$!
+wait "$child"
 """
 
 
