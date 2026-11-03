@@ -172,7 +172,7 @@ def main(argv=None) -> int:
     bindir = Path(args.bin).expanduser()
     arches = list(ei.CI_VARIANTS) if args.arch == "all" else [args.arch or iel.detected_arch()]
     if args.cmd == "report":
-        return report(bindir, arches[0])
+        return max(report(bindir, a) for a in arches)
     return max(check(bindir, a, args.check_registry) for a in arches)
 
 

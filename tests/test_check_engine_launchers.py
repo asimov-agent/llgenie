@@ -156,6 +156,18 @@ def test_arch_all_sweeps_every_backend_and_names_a_cuda_unpublished(tmp_path, mo
     assert marker.exists(), "the all-arch sweep never consulted the registry"
 
 
+def test_report_arch_all_sweeps_every_backend(capsys):
+    """`report --arch all` must list every backend, not collapse to the host's (cpu-only) one.
+
+    A report that quietly shows one arch is how the #1652 gap survives: a human reads a clean
+    cpu list and never learns a cuda/rocm pin is unserved.
+    """
+    code = cel.main(["report", "--arch", "all", "--bin", "/nonexistent"])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert sum("host arch " in line for line in out.splitlines()) == len(ei.CI_VARIANTS), out
+
+
 def test_the_liveness_workflow_drives_the_sweep_of_every_backend():
     """The registry-liveness monitor must pass ARCH=all, or a cuda pin 404s silently (issue #1652)."""
     from pathlib import Path as _P
