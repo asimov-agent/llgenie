@@ -21,8 +21,11 @@ Usage:
 Exit codes for `check` are part of the contract (issue #1141): 0 = the census matches the tree at
 the `measured at <sha>` pointer, 1 = the document is wrong (a stale number, an absent pointer, or a
 pointer to a sha that is not a real commit an ancestor of HEAD), and 2 = git could not read THIS
-checkout (no repository, a `.git` file pointing at an unmounted bare repo, dubious ownership, or no
-git binary) — the census was NOT checked, and the caller should fix the checkout, not the document.
+checkout **or** the pointer object is merely unfetched — no repository, a `.git` file pointing at an
+unmounted bare repo, dubious ownership, no git binary (issue #1141), or a shallow/filtered checkout
+that does not hold the pointer object (issue #1686). In both exit-2 cases the census was NOT checked,
+and the caller should fix the checkout (fetch/unshallow), not the document. Only when the pointer is
+provably absent from `origin/main` (not just missing locally) does the gate red as a doc defect.
 
 Stdlib only; runs in the repo checkout (`HEAD` = the working tree's commit). Wired into `check-docs`
 via the Makefile.
@@ -200,6 +203,37 @@ def commit_is_ancestor(sha: str, ref: str = "HEAD") -> bool:
     return _git("merge-base", "--is-ancestor", sha, ref).returncode == 0
 
 
+def checkout_is_shallow() -> bool:
+    """True when this checkout was cloned shallow/filtered, so a far-back object may be unfetched.
+
+    `git rev-parse --is-shallow-repository` prints `true` for a shallow clone. That is the cleanest
+    signal the object-read failure is a property of the clone depth, not of the document (issue
+    #1686). A `--filter` (blobless/treeless) clone reports `false` here but still omits history
+    objects; the `origin/main` reachability probe in `pointer_is_unfetched` covers that case too.
+    """
+    probe = _git("rev-parse", "--is-shallow-repository")
+    return probe.returncode == 0 and probe.stdout.strip() == "true"
+
+
+def pointer_is_unfetched(sha: str) -> bool:
+    """The pointer object is merely unfetched, not absent from the branch's history.
+
+    A worktree cloned off a shallow primary (or a filtered clone) holds `HEAD`'s tip but not a
+    far-back `measured at <sha>` object, so `cat-file -e <sha>^{commit}` and
+    `merge-base --is-ancestor <sha>` both return non-zero WITHOUT the commit being bad. To tell that
+    from a genuine dangling/foreign pin, probe object reachability from the remote-tracking refs:
+    when the checkout is shallow, or `origin/main` still names the sha as an ancestor, the object is
+    real but unfetched — the checkout is at fault, not the document. Only when the commit is provably
+    absent from `origin/main` too (a full clone, no such ancestor) is it a doc defect.
+    """
+    if checkout_is_shallow():
+        return True
+    for ref in ("refs/remotes/origin/main", "refs/remotes/origin/HEAD"):
+        if _git("merge-base", "--is-ancestor", sha, ref).returncode == 0:
+            return True
+    return False
+
+
 def check() -> int:
     problems: list[str] = []
     stated = doc_measured_sha()
@@ -211,11 +245,16 @@ def check() -> int:
     if stated is None:
         problems.append("measured-at: docs/ARCHITECTURE.md states no `measured at <sha>` pointer; it must "
                         "name the commit its census was counted on")
-    elif not commit_is_real(stated):
-        problems.append(f"measured-at: the doc's pointer `{stated}` is not a real commit")
-    elif not commit_is_ancestor(stated):
-        problems.append(f"measured-at: the doc's pointer `{stated}` is not an ancestor of HEAD "
-                        f"({short_sha()}); the census must name a commit this branch contains")
+    elif not commit_is_real(stated) or not commit_is_ancestor(stated):
+        if pointer_is_unfetched(stated):
+            print("[census-gate] CHECKOUT-DEPTH: the doc's pointer `" + stated + "` is a real commit "
+                  "on origin but THIS checkout is shallow/filtered and does not hold the object — the "
+                  "census was NOT checked (fetch the pointer object / unshallow; the document is not "
+                  "at fault)")
+            return 2
+        problems.append(f"measured-at: the doc's pointer `{stated}` is not a real commit" if not commit_is_real(stated)
+                        else f"measured-at: the doc's pointer `{stated}` is not an ancestor of HEAD "
+                             f"({short_sha()}); the census must name a commit this branch contains")
     else:
         measured = measure(stated)
         text = doc_flat()

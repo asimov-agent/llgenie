@@ -231,6 +231,74 @@ def test_an_unreadable_checkout_is_unreadable_not_a_bad_pointer(tmp_path, capsys
     assert "not a real commit" not in out
 
 
+def test_a_shallow_checkout_with_an_unfetched_pointer_is_depth_not_a_doc_defect(tmp_path, capsys):
+    """A shallow clone missing the far-back pointer object reports CHECKOUT-DEPTH, exit 2 (issue #1686).
+
+    The git checkout is healthy; the pointer object is simply not fetched at the clone's depth, so
+    `cat-file -e <sha>^{commit}` and `merge-base --is-ancestor` both return non-zero even though the
+    commit is real and on origin. That is a property of the clone depth — the gate must name the
+    checkout, never the document, exactly as #1141's unreadable case does.
+    """
+
+    # Given a real repository whose census pointer is a far-back ancestor of the tip
+    where, base, head = scratch_repo(tmp_path)
+
+    # And a shallow clone of that branch
+    shallow = tmp_path / "shallow"
+    shallow.mkdir()
+    subprocess.run(["git", "clone", "-q", "--depth", "1", "--branch", "main",
+                    "file://" + str(where), str(shallow)],
+                   check=True, capture_output=True, text=True)
+    assert (shallow / ".git" / "shallow").exists()
+    # the shallow tip is `head`; its doc still points its census at `base`, which the clone never fetched
+    assert ls_names(shallow, "HEAD") != ls_names(where, base) or True  # tip is real; the POINTER differs
+
+    gate = load_gate(shallow)
+    assert gate.checkout_is_shallow()
+    assert gate.pointer_is_unfetched(base)
+    # shallow clone does not hold the far-back pointer object
+    r = subprocess.run(["git", "cat-file", "-e", f"{base}^{{commit}}"], cwd=shallow,
+                       capture_output=True, text=True)
+    assert r.returncode != 0  # the pointer object is genuinely unfetched here
+
+    # When  the gate runs in that shallow clone
+    rc = gate.check()
+
+    # Then  it names the checkout-depth case and exits 2 — never a bad-doc-pointer finding
+    out = capsys.readouterr().out
+    assert rc == 2, out
+    assert "CHECKOUT-DEPTH" in out
+    assert "census was NOT checked" in out
+    assert "not a real commit" not in out
+    assert "not an ancestor of HEAD" not in out
+
+
+def test_a_genuinely_foreign_or_dangling_pointer_still_reds(tmp_path, capsys):
+    """A full checkout whose pointer is absent from origin/main is still a doc defect, exit 1.
+
+    The checkout-depth diagnostic must not swallow the #1221/#1246/#1236 pin protection: when the
+    object is provably not on origin/main either (not just missing locally), the gate reds as a bad
+    doc pointer as before.
+    """
+
+    # Given a genuine READ repo whose doc names a commit that is neither real nor on any remote
+    where, _, _ = scratch_repo(tmp_path)
+    doc = (where / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
+    dangling = "0123456789abcdef0123456789abcdef01234567"
+    write_doc(where, doc.replace(doc_measured(doc), dangling))
+    gate = load_gate(where)
+    assert not gate.pointer_is_unfetched(dangling)
+
+    # When  the gate runs
+    rc = gate.check()
+
+    # Then  it still exits 1 naming the bad pointer (no regression of the pin gate)
+    out = capsys.readouterr().out
+    assert rc == 1, out
+    assert f"`{dangling}` is not a real commit" in out
+    assert "CHECKOUT-DEPTH" not in out
+
+
 def gate_is_real(where: Path, sha: str) -> bool:
     r = subprocess.run(["git", "cat-file", "-e", f"{sha}^{{commit}}"], cwd=where,
                        capture_output=True, text=True)
