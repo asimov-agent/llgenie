@@ -137,11 +137,14 @@ jobs:
           fi
           if [ -n "$PR_BODY" ]; then printf '%s\n' "$PR_BODY" > /tmp/pr-body.md; export PR_BODY=/tmp/pr-body.md; fi
           make check-pr-closing
-      - name: make openspec-image-pull (the OpenSpec CLI image the docs gates run in)
+      - name: make openspec-image (the OpenSpec CLI image the docs gates run in; a fork PR builds it from the change's own Dockerfile)
         # `ci.yml`'s `ci-images` job builds and tags this image; a workflow that runs `ci-openspec`
         # without it fails at `docker run llgenie/openspec:latest` with "pull access denied", which is
-        # what this step exists to prevent (measured on run 40778404808, step 9).
-        run: make openspec-image-pull
+        # what this step exists to prevent (measured on run 40778404808, step 9). `ensure` pulls the
+        # published hash when it exists and BUILDS the change's own Dockerfile when it cannot — a fork
+        # PR's read-only token can never publish a NEW hash, so a hard `pull` would red the docs gate
+        # for a write GitHub will never grant (issue #1673; same contract as ci_images.py publish()).
+        run: make openspec-image
       - name: make ci-openspec (validate every active change, no unchecked task)
         run: make ci-openspec
       - name: Prune orphaned test containers

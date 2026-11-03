@@ -31,21 +31,28 @@ def _copy_inputs(root: Path) -> Path:
     return root
 
 
-def _fake_docker(tmp: Path, published: bool, cache_published: bool = True) -> tuple[dict, Path]:
+def _fake_docker(tmp: Path, published: bool, cache_published: bool = True,
+                 build_denied: str | None = None) -> tuple[dict, Path]:
     """`docker` that logs its args (and the build context's files) and answers the registry
-    lookup / pull with `published`."""
+    lookup / pull with `published`.
+
+    `build_denied` makes the `buildx build --push` exit 1 and print exactly `build_denied` on
+    stderr — the shape GHCR answers a fork-PR write with (issue #1673). With it unset the build
+    succeeds.
+    """
     log = tmp / "docker.log"
     rc = 0 if published else 1
     # The registry cache ref is probed separately: a NEW image's first publish has no cache
     # yet, and buildx fails to configure the importer then (so publish omits --cache-from).
     cache_rc = 0 if cache_published else 1
+    denied = f'echo "{build_denied}" >&2; exit 1' if build_denied else "exit 0"
     script = f'''#!/bin/sh
 echo "$*" >> "{log}"
 case "$1 $2" in
   "buildx imagetools")
     case "$*" in *buildcache*) exit {cache_rc} ;; esac
     exit {rc} ;;
-  "buildx build") for a in "$@"; do [ -d "$a" ] && ls "$a" | tr '\\n' ' ' | sed 's/^/CTX: /' >> "{log}" && echo >> "{log}"; done; exit 0 ;;
+  "buildx build") for a in "$@"; do [ -d "$a" ] && ls "$a" | tr '\\n' ' ' | sed 's/^/CTX: /' >> "{log}" && echo >> "{log}"; done; {denied} ;;
 esac
 case "$1" in
   pull) exit {rc} ;;
@@ -175,6 +182,59 @@ def test_a_first_publish_omits_cache_from_but_keeps_cache_to(tmp_path):
     assert "--cache-from" not in b, "a missing cache ref must not be probed as a source"
     assert "--cache-to type=registry,ref=ghcr.io/asimov-agent/llgenie/test:buildcache,mode=max" in b
     assert "--push" in b
+
+
+# ---------------------------------------------------------------------------
+# fork-PR publish skip (issue #1673 — the #155 contract applied to CI images)
+# ---------------------------------------------------------------------------
+FORK_DENIED = "denied: installation not allowed to write organization package"
+
+
+def test_a_fork_pr_skips_the_push_it_cannot_be_granted(tmp_path, monkeypatch):
+    """A `pull_request` run whose `--push` is refused for the fork read-only reason skips loudly.
+
+    A fork head's token is scoped to the BASE repository's packages read-only, so GHCR refuses the
+    write outright — a permission GitHub will never grant, not a defect in the change. The image
+    was built here; the run that lands the change on main publishes it (issue #1673/#155).
+    """
+    env, log = _fake_docker(tmp_path, published=False, build_denied=FORK_DENIED)
+    env["GITHUB_EVENT_NAME"] = "pull_request"
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
+
+    r = _ci_images(env, "publish", "test")
+
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "::warning title=publish skipped::" in r.stdout, r.stdout
+    assert "SKIP publish" in r.stdout and "issue #155" in r.stdout, r.stdout
+    assert "FAIL" not in r.stdout
+    assert any(c.startswith("buildx build") and "--push" in c for c in _calls(log))  # it did try
+
+
+def test_a_push_run_denied_for_the_same_reason_still_fails(tmp_path, monkeypatch):
+    """A push run's token CAN write, so a denial there is a real failure and must stay one."""
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
+    env, log = _fake_docker(tmp_path, published=False, build_denied=FORK_DENIED)
+    env["GITHUB_EVENT_NAME"] = "push"
+
+    r = _ci_images(env, "publish", "test")
+
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "FAIL" in r.stdout or r.stderr
+    assert "SKIP publish" not in r.stdout and "::warning" not in r.stdout
+
+
+def test_a_pull_request_denied_for_another_reason_still_fails(tmp_path, monkeypatch):
+    """Only the write-permission denial is a skip: a network error or bad tag is a defect."""
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
+    env, log = _fake_docker(tmp_path, published=False,
+                            build_denied="error: unauthorized: authentication required")
+    env["GITHUB_EVENT_NAME"] = "pull_request"
+
+    r = _ci_images(env, "publish", "test")
+
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "FAIL" in r.stdout or r.stderr
+    assert "SKIP publish" not in r.stdout and "::warning" not in r.stdout
 
 
 def test_publish_agent_pins_the_test_image_it_builds_from(tmp_path):
