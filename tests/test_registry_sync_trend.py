@@ -99,7 +99,11 @@ def live_sync(tmp_path_factory):
     assert sr.sync(sr.UPSTREAM, dest, sr.UPSTREAM_README) == 0
     reg = _load(dest)
     readme = (dest.parent / "trending-README.md").read_text()
-    sr.check_readme_matches(reg, readme)
+    # The README best-engine columns render FROM the producer's normalized measurement
+    # store (issue #1634 / producer #689); consult the copy sync() vendored beside the store.
+    measurements_path = dest.parent / "measurements.json"
+    measurements = json.loads(measurements_path.read_text()) if measurements_path.exists() else None
+    sr.check_readme_matches(reg, readme, measurements)
     return {"reg": reg, "readme": readme, "dest": dest}
 
 
