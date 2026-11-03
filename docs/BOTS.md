@@ -2248,8 +2248,11 @@ image → download → lint → unit → install → health → top-tier → top
   manifest lookup, a new one is built once for linux/amd64 + linux/arm64 (registry layer
   cache) and pushed to `ghcr.io/<owner>/llgenie/{test,openspec}:<hash>`. Every other job
   (Linux, macOS, `engine-image`, `test-published-*`, `install-published-*`) runs
-  `make test-image-pull` / `make openspec-image-pull`, which fail instead of building when the
-  tag is missing.
+  `make test-image-pull`, which fails instead of building when the tag is missing. The two
+  openspec gates are the deliberate exception: `pipeline.yml`'s `linux / openspec` and
+  `scope.yml`'s docs gate call `make openspec-image` (pull-or-build), because a fork PR's
+  read-only token can never publish a NEW openspec hash and a hard pull would red the gate
+  for a write GitHub will never grant (issue #1673).
 - **The same CI pipeline on Linux and macOS:** `.github/workflows/ci.yml` calls ONE file,
   `pipeline.yml`, twice: `linux` (ubuntu-latest) and `macos` (macos-15-intel). Linux sets
   up Docker; macOS runs the same `make ci-<job>` targets in the Python 3.11 gguf venv
