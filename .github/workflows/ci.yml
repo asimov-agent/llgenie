@@ -161,6 +161,28 @@ jobs:
           fi
           if [ -n "$PR_BODY" ]; then printf '%s\n' "$PR_BODY" > /tmp/pr-body.md; export PR_BODY=/tmp/pr-body.md; fi
           make check-pr-closing
+      - name: make check-pr-agents-line (the #792 AGENTS-preflight: a bot PR's body cites an AGENTS:/BASE: rulebook reachable from both head and base)
+        env:
+          # Same live-body read as check-pr-closing (issue #1589): the body is fetched from the
+          # PR record via gh api, NOT an event snapshot, so a body-only fix clears on rerun. A push
+          # to main has no PR number: PR_BODY stays empty and the gate is a no-op there.
+          PR_HEAD: ${{ github.event.pull_request.head.sha || 'HEAD' }}
+          PR_BASE: origin/main
+          PR_NUMBER: ${{ github.event.pull_request.number || '' }}
+          PR_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git fetch --no-tags --prune origin main   # live origin/main, so the ancestry read is not a stale ref (issue #1527)
+          PR_BODY=""
+          if [ -n "$PR_NUMBER" ]; then
+            PR_BODY="$(gh api "repos/$PR_REPO/pulls/$PR_NUMBER" --jq '.body // ""' 2>/dev/null || true)"
+          fi
+          if [ -n "$PR_BODY" ]; then printf '%s\n' "$PR_BODY" > /tmp/pr-body.md; export PR_BODY=/tmp/pr-body.md; fi
+          if [ -n "$PR_BODY" ]; then
+            make check-pr-agents-line
+          else
+            echo "[check-pr-agents-line] no PR body on this run (a push to main): nothing to validate"
+          fi
       - name: make check-pr-base (a branch cut from another PR carries its diff under its own closes — merge-base must be the base itself, issue #845)
         env:
           # PR_BASE is the LIVE base branch ref (origin/main). check-pr-base reads

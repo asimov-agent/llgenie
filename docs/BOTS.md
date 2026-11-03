@@ -777,6 +777,14 @@ parts, and `make issue-bot-open-pr` builds the PR from it:
 `tests/test_bot_pr_body.py` is the rendered check `make check-pr-hygiene` cannot be: it runs the real
 renderer, so a body that says nothing fails `make test-unit` instead of reaching a reviewer.
 
+`make check-pr-agents-line` is the #792 AGENTS-preflight mounted in CI: it refuses a bot PR (any
+commit from a bot email, `support@docondee.com`) whose body omits or mis-cites the `AGENTS:` line —
+and the `BASE:` companion (issue #845) — whose rulebook is not reachable from both head and base.
+It cannot run in the hermetic `ci-unit` chain (it needs the LIVE PR body), so both `ci.yml`'s
+`guard` job and `scope.yml`'s docs gate run it beside `check-pr-closing`, fetching that body via
+`gh api` (issue #1589) so a body-only fix clears on rerun; a push to main has no body and prints a
+`nothing to validate` note instead of failing. Implemented as issue #1675.
+
 #### Each write uses the token that can perform it (issue #430)
 
 The PR step makes two different writes and needs two different tokens. `GH_TOKEN: ${{ github.token }}`

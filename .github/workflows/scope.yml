@@ -137,6 +137,29 @@ jobs:
           fi
           if [ -n "$PR_BODY" ]; then printf '%s\n' "$PR_BODY" > /tmp/pr-body.md; export PR_BODY=/tmp/pr-body.md; fi
           make check-pr-closing
+      - name: make check-pr-agents-line (the #792 AGENTS-preflight: a bot PR's body cites an AGENTS:/BASE: rulebook reachable from both head and base)
+        env:
+          # Docs-only bot PRs skip linux/unit, so this step — beside check-pr-closing — is where
+          # they are held to the #792 AGENTS preflight. Same live-body read as check-pr-closing
+          # (issue #1589), so a body-only fix clears on rerun; a push to main has no PR number and
+          # nothing to validate.
+          PR_HEAD: ${{ github.event.pull_request.head.sha || 'HEAD' }}
+          PR_BASE: origin/main
+          PR_NUMBER: ${{ github.event.pull_request.number || '' }}
+          PR_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git fetch --no-tags --prune origin main   # live origin/main, so the ancestry read is not a stale ref (issue #1527)
+          PR_BODY=""
+          if [ -n "$PR_NUMBER" ]; then
+            PR_BODY="$(gh api "repos/$PR_REPO/pulls/$PR_NUMBER" --jq '.body // ""' 2>/dev/null || true)"
+          fi
+          if [ -n "$PR_BODY" ]; then
+            printf '%s\n' "$PR_BODY" > /tmp/pr-body.md; export PR_BODY=/tmp/pr-body.md
+            make check-pr-agents-line
+          else
+            echo "[check-pr-agents-line] no PR body on this run (a push to main): nothing to validate"
+          fi
       - name: make openspec-image (the OpenSpec CLI image the docs gates run in; a fork PR builds it from the change's own Dockerfile)
         # `ci.yml`'s `ci-images` job builds and tags this image; a workflow that runs `ci-openspec`
         # without it fails at `docker run llgenie/openspec:latest` with "pull access denied", which is
