@@ -58,6 +58,33 @@ PLATFORMS = "linux/amd64,linux/arm64"  # Linux + Intel-macOS runners, Apple-Sili
 # consumer exists to justify paying that, and no other image is affected.
 PLATFORMS_FOR = {"agent": "linux/amd64"}
 
+#: What a registry answers when a token is authenticated but not allowed to write the package.
+#: Measured on a fork PR (PR #651, run 40339517705): GHCR refused the fork-head write with exactly
+#: the first line. Same contract as scripts/engine_image.py (issue #155): a `pull_request` run's
+#: token is scoped READ-ONLY to the base repo's packages, so a FORK head can never be granted the
+#: write, and the only correct behaviour is to skip that publish loudly, not to red the job for a
+#: permission GitHub will never give.
+WRITE_DENIED = (
+    "denied: installation not allowed to write organization package",
+    "denied: permission_denied",
+    "authorization failed: granted scopes",
+    "denied: requested access to the resource is denied",
+)
+
+
+def _denied_write(output: str) -> bool:
+    """True when the registry REFUSED a write this run's token can never be given (issue #155).
+
+    Only inside a `pull_request` run: a push run's token CAN write this repo's packages, so a
+    denial there is a real failure and must stay one. The message is what makes it a permission
+    rather than a defect — a network error, a missing package or a bad tag never says
+    `denied: installation …`.
+    """
+    if os.environ.get("GITHUB_EVENT_NAME") != "pull_request":
+        return False
+    lowered = (output or "").lower()
+    return any(marker in lowered for marker in WRITE_DENIED)
+
 
 def platforms(name: str) -> str:
     """The `--platform` list an image publishes for."""
@@ -195,19 +222,44 @@ def publish(name: str, root: Path = REPO, force: bool = False) -> int:
         tags = ["-t", r]
         if name == "agent":
             tags += ["-t", latest_ref(name)]
-        rc = _sh([RUNTIME, "buildx", "build", "--platform", platforms(name), *tags,
-                  *build_args(name, root),
-                  # links the GHCR package to the repo, so it gets the repo's visibility
-                  "--label", f"org.opencontainers.image.source={SOURCE}",
-                  *cache_flags,
-                  "--cache-to", f"type=registry,ref={cache_ref(name)},mode=max",
-                  "--push", str(ctx)]).returncode
+        # capture the push output so a fork-PR read-only denial (issue #155) can be recognised
+        rc, out = _buildx_push(name, r, tags, cache_flags, ctx, root)
     finally:
         shutil.rmtree(ctx, ignore_errors=True)
     if rc == 0:
         shown = f"{r} and {latest_ref(name)}" if name == "agent" else r
         print(f"[ci-images] published {shown} ({PLATFORMS})", flush=True)
+    elif _denied_write(out):
+        # A `pull_request` run's token is scoped to the BASE repository: a FORK head is read-only
+        # and GitHub refuses the write outright. That is a permission no fork PR can be given, not
+        # a defect in the change, and the image was already built here — so the run SKIPS the
+        # publish, loudly, and the change is published by the run that lands it on main
+        # (issue #155; same contract as engine_image.py and tests/test_ci_publish_scope.py).
+        print(f"::warning title=publish skipped::[ci-images] SKIP publish {r}: this run's "
+              f"pull_request token cannot write {registry()} (a fork head is read-only, issue "
+              f"#155); the image was built, and is published by the run that lands the change")
+        print(f"[ci-images] SKIP publish {r}: pull_request token cannot write {registry()} "
+              f"(issue #155)")
+        return 0
+    if rc != 0:
+        print(f"[ci-images] FAIL push {r}", flush=True)
     return rc
+
+
+def _buildx_push(name: str, r: str, tags: list[str], cache_flags: list[str],
+                 ctx: Path, root: Path) -> tuple[int, str]:
+    """The `docker buildx build --push` for publish(); returns (rc, captured output)."""
+    done = _sh([RUNTIME, "buildx", "build", "--platform", platforms(name), *tags,
+                *build_args(name, root),
+                # links the GHCR package to the repo, so it gets the repo's visibility
+                "--label", f"org.opencontainers.image.source={SOURCE}",
+                *cache_flags,
+                "--cache-to", f"type=registry,ref={cache_ref(name)},mode=max",
+                "--push", str(ctx)], capture_output=True, text=True)
+    out = f"{getattr(done, 'stdout', '') or ''}{getattr(done, 'stderr', '') or ''}".strip()
+    if out:
+        print(out, flush=True)
+    return done.returncode, out
 
 
 def pull(name: str, root: Path = REPO) -> int:
