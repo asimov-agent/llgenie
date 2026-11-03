@@ -1,8 +1,8 @@
 # `linux / openspec` pulls or builds the OpenSpec CLI image — not a strict pull (issue #1673)
 
-`make openspec-image-pull` (Makefile:1392) is a strict gate: it fails if the image hash is not on
+`make openspec-image-pull` (Makefile:1394) is a strict gate: it fails if the image hash is not on
 GHCR and never builds. `scope.yml`'s docs gate deliberately stopped using it in favour of
-`make openspec-image` (Makefile:1389: pull-or-build), because a fork PR's read-only `GITHUB_TOKEN`
+`make openspec-image` (Makefile:1391: pull-or-build), because a fork PR's read-only `GITHUB_TOKEN`
 cannot publish a NEW openspec image hash to the org's packages (`ci_images.py`'s `WRITE_DENIED`,
 issue #1673) — a hard pull would red the gate for a write GitHub will never grant.
 
