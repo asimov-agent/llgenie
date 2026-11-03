@@ -31,6 +31,7 @@ on:
       - architecture-bot — rewrites docs/ARCHITECTURE.md from the tree and opens a linked issue + PR (never merges)
       - arms — fails when an open, mergeable, default-based PR is finished but carries no auto-merge (rule 16, #873)
       - auto-merge
+      - ci-frozen-reaper — cancel + re-run a run stuck in_progress past its threshold, every 2 hours
       - ci-requeue — re-runs only the cancelled runs no later run superseded, every 30 minutes
       - CI
       - ci-scope — selects the CI stages a diff needs, and runs the docs gates a docs-only PR still needs

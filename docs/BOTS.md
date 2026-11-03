@@ -1834,6 +1834,7 @@ from the pipeline that will run.
 | `all-pipelines.yml` | weekly sweep of every dispatchable pipeline (awaits each run, reports every disabled one) | none — the sweep has nothing to parameterise: it sweeps every dispatchable workflow in the |
 | `architecture-bot.yml` | rewrites docs/ARCHITECTURE.md from the tree and opens a linked issue + PR (never merges) | `dry` (optional, default `false`) — Preview the issue and PR bodies this run would file, filing nothing<br>`doc` (optional, default `docs/ARCHITECTURE.md`) — Repository-relative markdown document to refresh |
 | `arms.yml` | fails when an open, mergeable, default-based PR is finished but carries no auto-merge (rule 16, #873) | none — it audits the whole board; a hand run just re-checks what the daily sweep checks. |
+| `ci-frozen-reaper.yml` | cancel + re-run a run stuck in_progress past its threshold, every 2 hours | none — the reaper takes no target: it sweeps every in_progress run. The threshold is a |
 | `ci-hf-live.yml` | the merge-to-main real-Hub test pipeline (HF live tests + the committed-link liveness gate), never a PR check | none — the pipeline runs exactly the @pytest.mark.network ownership set, gated first |
 | `ci-requeue.yml` | re-runs only the cancelled runs no later run superseded, every 30 minutes | none — the healer takes no target: it re-runs every cancelled run in the window that |
 | `code-review-bot.yml` | reviews the tree and the pipelines and files one issue per finding (never edits code) | `dry` (optional, default `false`) — Preview the issues it would file (owner only) |
@@ -2034,6 +2035,10 @@ make stale-branch-cleanup  # delete non-main remote branches that are >=3 days o
                            #   default report-only, APPLY=1 deletes, AGE_DAYS= overrides the 3-day threshold
 make ci-requeue-cancelled  # re-run the CI runs a bulk cancel killed, ONLY where the head sha has no other run
                            # (a superseded run already has its verdict): WINDOW=2h, DRY=1 previews; issue #843
+make ci-frozen-reaper      # cancel + re-run a run stuck `in_progress` past its threshold on an OPEN PR only
+                           # (a run still advancing, younger than the 15m grace, or with no open PR is left
+                           # alone; the evidence comment names the owner BEFORE any cancel): THRESHOLD=90m,
+                           # DRY=1 previews; issue #1679
 make ci-verdict            # hold a FINISHED run to the scope decision it published (scripts/ci_verdict.py,
                            # issue #1111): RUN_ID=<id> judges the run through `gh`, or JOBS=<file>
                            # [DECISION=<file>] replays one locally; CHECK_RUN_OUT=<path> writes the

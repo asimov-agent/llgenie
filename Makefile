@@ -69,7 +69,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	sync-quant-catalog check-quant-catalog render-trend-list-matrix check-trend-list-matrix render-engine-skill-gap check-engine-skill-gap \
 	engine-gate-report engine-skill-gap engine-skill-gap-md spawn-engine-skill-issues engine-skill-scaffold registry-change-report sync-change-issue registry-review-brief registry-sync-review registry-review-publish sync-strata-models check-strata-models check-wiring wiring-report check-secret-output secret-output-report \
 	secret-scan secret-scan-history secret-scan-self-test \
-	queued-alarm check-zero-job-pending stale-branch-cleanup issue-cleaner-scan issue-cleaner-apply worktree-report worktree-prune fix-loop fix-loop-image fix-bot-sweep fix-bot-report agent-image-ref issue-bot-dispatch issue-bot-open-pr issue-bot-image ci-requeue-cancelled issue-bot-pr-body-check agent-repo-ownership \
+	queued-alarm check-zero-job-pending stale-branch-cleanup issue-cleaner-scan issue-cleaner-apply worktree-report worktree-prune fix-loop fix-loop-image fix-bot-sweep fix-bot-report agent-image-ref issue-bot-dispatch issue-bot-open-pr issue-bot-image ci-requeue-cancelled ci-frozen-reaper issue-bot-pr-body-check agent-repo-ownership \
 	issue-bot-triage issue-bot-changed issue-bot-verdict issue-bot-gates issue-bot-gates-check lane-preflight implement-issue hermes-smoke agent-jev-preflight jev-preflight-required nerve-profile-check code-review-scan code-review-file rebase-bot-sweep rebase-bot rebase-bot-abort \
 	engine-params-review-brief engine-params-review engine-params-review-apply \
 	architecture-bot-brief architecture-bot-doc architecture-bot-publish architecture-bot check-arms arms-report \
@@ -923,6 +923,9 @@ sweep-concurrency-report: ## Report every scheduled workflow whose runs stack in
 	python3 scripts/sweep_concurrency.py report
 ci-requeue-cancelled: ## Re-run the CI runs a bulk cancel killed, ONLY where the head sha has no other run (WINDOW=2h, DRY=1 previews; issue #843)
 	python3 scripts/ci_requeue.py run --repo $(GH_REPO) --window $(if $(WINDOW),$(WINDOW),2h) $(if $(DRY),--dry,)
+
+ci-frozen-reaper: ## Cancel + re-run a run stuck in_progress past its threshold on an OPEN PR only (THRESHOLD=90m, DRY=1 previews; issue #1679)
+	python3 scripts/ci_frozen_reaper.py run --repo $(GH_REPO) --threshold $(if $(THRESHOLD),$(THRESHOLD),90m) $(if $(DRY),--dry,)
 
 fix-loop-image: ## Run the fix-bot loop inside the agent image (the same image the workflow uses); AGENT_IMAGE overrides the resolved ref, LOG=path also receives the REDACTED log (issue #359)
 	@python3 scripts/require_env.py NOUS_API_KEY
