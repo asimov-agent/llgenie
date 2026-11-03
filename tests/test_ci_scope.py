@@ -60,6 +60,29 @@ def test_containers_and_engines_are_distinct_but_overlap():
     assert "containers" in classes and "engines" not in classes
 
 
+def test_openspec_dockerfile_is_a_container_change_that_publishes_ci_images():
+    """`openspec/Dockerfile` builds the openspec CI image, so it must NOT be a docs-only class (issue #824).
+
+    Before the fix it matched the docs glob `openspec/**`, so `ci.yml` skipped it at the trigger and the
+    `ci-images` job (the only publisher of the openspec image hash) never ran — any Dockerfile edit left
+    `make openspec-image-pull` in `scope.yml` red on an unpublished hash. The image belongs to the
+    `containers` family (like `containers/test/Dockerfile`), so `_NON_DOCS` selects `ci-images`.
+    """
+    classes, unmatched, _wide = cs.classify(["openspec/Dockerfile"])
+    assert unmatched == []
+    assert "containers" in classes, classes
+    assert "docs" not in classes, classes
+    # the job table keys `ci-images` on every non-docs class
+    rows = dict((job, runs) for job, runs, _ in cs.select(classes))
+    assert rows["ci-images"], "a Dockerfile edit for the openspec CI image must publish it"
+
+    # the OpenSpec spec docs stay docs: a proposal edit needs no new image
+    classes, _, _wide = cs.classify(["openspec/changes/x/proposal.md"])
+    assert classes == ["docs"], classes
+    classes, _, _wide = cs.classify(["openspec/config.yaml"])
+    assert classes == ["docs"], classes
+
+
 # ---- wildcards: the dangerous direction ------------------------------------------
 
 @pytest.mark.parametrize("path", [

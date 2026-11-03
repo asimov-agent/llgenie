@@ -55,13 +55,13 @@ DECISION_SCHEMA = 1
 
 #: class -> the globs it owns. Order is the order the report prints them in.
 CLASSES: dict[str, tuple[str, ...]] = {
-    "docs": ("docs/**", "agent-wiki/**", "openspec/**", "README.md", "CHANGES.md"),
+    "docs": ("docs/**", "agent-wiki/**", "openspec/changes/**", "openspec/config.yaml", "README.md", "CHANGES.md"),
     "skills": (".hermes/**", "agents/**"),
     "workflows": (".github/**",),
     "scripts": ("scripts/**", "tools/**"),
     "tests": ("tests/**",),
     "data": ("data/**",),
-    "containers": ("containers/**",),
+    "containers": ("containers/**", "openspec/Dockerfile"),
     "engines": ("containers/engines/**", "skills/engines/**"),
     "security": ("renovate.json", "security-reports/**", "tools/security-floors.in"),
 }

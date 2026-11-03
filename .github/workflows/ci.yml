@@ -19,7 +19,8 @@ on:
     paths-ignore:
       - "docs/**"
       - "agent-wiki/**"
-      - "openspec/**"
+      - "openspec/changes/**"
+      - "openspec/config.yaml"
       - "README.md"
       - "CHANGES.md"
   push:
