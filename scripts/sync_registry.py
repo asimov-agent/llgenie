@@ -43,6 +43,7 @@ REPO = Path(__file__).resolve().parent.parent
 _UPSTREAM_DATA = "https://raw.githubusercontent.com/andyholst/trending-local-llms/master"
 UPSTREAM = f"{_UPSTREAM_DATA}/data/models.json"
 UPSTREAM_MEASUREMENTS = f"{_UPSTREAM_DATA}/data/measurements.json"
+UPSTREAM_POSTS = f"{_UPSTREAM_DATA}/data/posts.json"
 UPSTREAM_README = f"{_UPSTREAM_DATA}/README.md"
 # The contract the store is written against (issue #694): the JSON Schema upstream validates
 # models.json with, and its prose twin. Vendored byte for byte, so a contract edit is a diff.
@@ -50,9 +51,13 @@ UPSTREAM_CONTRACT = f"{_UPSTREAM_DATA}/data/model_contract.json"
 UPSTREAM_CONTRACT_DOC = f"{_UPSTREAM_DATA}/data/MODEL_CONTRACT.md"
 VENDORED = REPO / "data" / "models.json"
 VENDORED_MEASUREMENTS = REPO / "data" / "measurements.json"
+VENDORED_POSTS = REPO / "data" / "posts.json"
 VENDORED_README = REPO / "data" / "trending-README.md"  # the list a user reads; tests compare against it
 VENDORED_CONTRACT = REPO / "data" / "model_contract.json"
 VENDORED_CONTRACT_DOC = REPO / "data" / "MODEL_CONTRACT.md"
+# The per-row engagement counters the additive-only registry-keys gate reads off an engine row
+# (issue #687 claim: the producer split them into posts.json keyed by the post URL).
+POST_COUNTERS = ("likes", "comments", "reshares", "views", "interactions")
 MOST_LOVED = "## ❤️ Most loved"
 # The recorded README-link answers `make check-registry` replays instead of the live Hub
 # (issue #1178). Recorded during a live `sync-registry`; a link the recording lacks is a
@@ -404,20 +409,26 @@ def sync(src: str, dest: Path, readme_src: str | None = UPSTREAM_README,
          readme_dest: Path | None = None, contract_src: str | None = UPSTREAM_CONTRACT,
          contract_doc_src: str | None = UPSTREAM_CONTRACT_DOC,
          measurements_src: str | None = None,
-         measurements_dest: Path | None = None) -> int:
+         measurements_dest: Path | None = None,
+         posts_src: str | None = None,
+         posts_dest: Path | None = None) -> int:
     """Copy the registry, the README it was generated with, the normalized measurement
-    store it was rendered from, and the contract it is written against — after checking
-    the registry's shape and that it is the README's list in order.
+    store it was rendered from, the engagement-count post store, and the contract it is
+    written against — after checking the registry's shape and that it is the README's list
+    in order.
 
     Since the producer's #689 normalized store, per-model t/s detail lives in
     `data/measurements.json` and the README best-engine columns render FROM it; it is
     vendored alongside the model rows and consulted by the README-engine check (issue
-    #1634).
+    #1634). Per-row engagement counters live in the producer's `data/posts.json`, keyed by
+    the post URL (issue #687); they are merged back onto the engine rows so the
+    additive-only registry-keys gate sees the counters it reads, not a 799-loss.
 
     The contract is vendored, not enforced here: `check()` validates the store against it
     (issue #694), which is the gate the sync job runs on the files this writes."""
     readme_dest = readme_dest or dest.with_name(VENDORED_README.name)
     measurements_dest = measurements_dest or dest.with_name(VENDORED_MEASUREMENTS.name)
+    posts_dest = posts_dest or dest.with_name(VENDORED_POSTS.name)
     contract_dest, contract_doc_dest = _contract_paths(dest)
     raw = fetch(src)
     try:
@@ -425,6 +436,8 @@ def sync(src: str, dest: Path, readme_src: str | None = UPSTREAM_README,
         readme = fetch(readme_src).decode() if readme_src else None
         measurements_raw = fetch(measurements_src) if measurements_src else None
         measurements: dict | None = json.loads(measurements_raw) if measurements_raw else None
+        posts_raw = fetch(posts_src) if posts_src else None
+        posts: dict | None = json.loads(posts_raw) if posts_raw else None
         if readme is not None:
             check_readme_matches(new, readme, measurements)
         contract = fetch(contract_src) if contract_src else None
@@ -436,9 +449,25 @@ def sync(src: str, dest: Path, readme_src: str | None = UPSTREAM_README,
     # in the vocabulary, and the README carrying the same rows in the same order.
     store, notes = normalise(new)
     # Rehydrate per-row `engines` from the producer's normalized measurement store
-    # (issue #1634 / producer #689). See _merge_measurements.
+    # (issue #1634 / producer #689). See _merge_measurements (#1678 keys distinct runs by
+    # (engine, hardware) so every measured card run survives — issue #1649).
     if measurements is not None:
         _merge_measurements(store["models"], measurements)
+    # Rehydrate per-row engagement counters from the producer's post store (issue #687 /
+    # producer's posts.json): the producer split per-row likes/comments/reshares/views/
+    # interactions out of models.json into data/posts.json (keyed by the post URL). llgenie's
+    # additive-only registry-keys gate reads those counters off the engine rows, so merge them
+    # back by the row's source_post URL or they read as lost (799 losses on the 2026-10-31 store).
+    if posts is not None:
+        for m in store["models"]:
+            for e in m.get("engines") or []:
+                key = str(e.get("source_post") or e.get("url") or "")
+                p = posts.get(key)
+                if not p:
+                    continue
+                for counter in POST_COUNTERS:
+                    if counter not in e:
+                        e[counter] = p.get(counter, 0)
     if readme is not None:
         check_readme_matches(store, readme, measurements)
     raw = (json.dumps(store, indent=2, ensure_ascii=False) + "\n").encode()
@@ -454,7 +483,8 @@ def sync(src: str, dest: Path, readme_src: str | None = UPSTREAM_README,
 
     same_rest = (_unchanged(readme_dest, readme) and _unchanged(contract_dest, contract)
                  and _unchanged(contract_doc_dest, contract_doc)
-                 and _unchanged(measurements_dest, measurements_raw))
+                 and _unchanged(measurements_dest, measurements_raw)
+                 and _unchanged(posts_dest, posts_raw))
     if old == raw and same_rest:
         print(f"[sync-registry] unchanged: {dest} ({_summary(store)})")
         return 0
@@ -465,6 +495,8 @@ def sync(src: str, dest: Path, readme_src: str | None = UPSTREAM_README,
         readme_dest.write_text(readme)
     if measurements_raw is not None:
         measurements_dest.write_bytes(measurements_raw)
+    if posts_raw is not None:
+        posts_dest.write_bytes(posts_raw)
     if contract is not None:
         contract_dest.write_bytes(contract)
     if contract_doc is not None:
@@ -546,8 +578,10 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
     if a.cmd == "sync":
         # The default CLI sync mirrors the producer store plus its normalized measurement
-        # store (issue #1634 / producer #689) so the vendored rows carry both.
-        return sync(a.src, Path(a.dest), measurements_src=UPSTREAM_MEASUREMENTS)
+        # store (issue #1634 / producer #689) and its engagement-count post store (issue
+        # #687) so the vendored rows carry both.
+        return sync(a.src, Path(a.dest), measurements_src=UPSTREAM_MEASUREMENTS,
+                    posts_src=UPSTREAM_POSTS)
     snap = None if a.no_snapshot else Path(a.snapshot)
     return check(Path(a.dest), snapshot=snap)
 

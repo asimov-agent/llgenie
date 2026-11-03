@@ -2,6 +2,14 @@
   "note": "Registry engines llgenie deliberately ships no skill/image for (issue #229). registry-sync carries every engine upstream lists, and rank_engines drops an engine with no image, so an engine with no skill must be a DECISION here - dated and reasoned - or it is not a decision at all. An engine in data/models.json with no skills/engines/<id>/SKILL.md and no entry here is NEW AND UNRESOLVED: `make check-engine-skill-gap` fails naming it, and the weekly registry-sync opens one tracking issue for it. Entries for an engine that later ships a skill, or that upstream stops listing, are stale: delete them (the gate fails until you do). Each reason below was read from the upstream repository's own README/releases, not inferred from the registry's one-line auto-registration note.",
   "decided_utc": "2026-10-27",
   "engines": {
+    "Inco Splash": {
+      "decision": "deferred",
+      "decided": "2026-11-03",
+      "reason": "Metal-only Apple-Silicon inference engine (incoai/splash): Metal cannot run inside llgenie's Linux image, and the Apple-Silicon platform is already served natively by the mlx engine, so a second native MLX stack would duplicate it.",
+      "issue": 1654,
+      "backend": "Metal",
+      "upstream": "https://github.com/incoai/splash"
+    },
     "mlx-serve": {
       "decision": "deferred",
       "decided": "2026-10-14",
@@ -217,6 +225,14 @@
       "issue": 229,
       "backend": "ROCm",
       "upstream": "https://github.com/asf0/strix-llama.cpp"
+    },
+    "uzu": {
+      "decision": "deferred",
+      "decided": "2026-11-03",
+      "reason": "Metal-only Apple-Silicon MLX server (trymirai/uzu): Metal cannot run inside llgenie's Linux image, and the Apple-Silicon platform is already served natively by the mlx engine, so a second native MLX stack would duplicate it.",
+      "issue": 1654,
+      "backend": "Metal",
+      "upstream": "https://github.com/trymirai/uzu"
     }
   }
 }
