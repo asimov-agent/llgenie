@@ -96,7 +96,8 @@ def live_sync(tmp_path_factory):
     """One real upstream download for every test that ranks the new registry."""
 
     dest = tmp_path_factory.mktemp("registry") / "models.json"
-    assert sr.sync(sr.UPSTREAM, dest, sr.UPSTREAM_README) == 0
+    assert sr.sync(sr.UPSTREAM, dest, sr.UPSTREAM_README,
+                   measurements_src=sr.UPSTREAM_MEASUREMENTS) == 0
     reg = _load(dest)
     readme = (dest.parent / "trending-README.md").read_text()
     # The README best-engine columns render FROM the producer's normalized measurement

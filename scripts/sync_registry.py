@@ -374,7 +374,7 @@ def _summary(data: dict) -> str:
 def sync(src: str, dest: Path, readme_src: str | None = UPSTREAM_README,
          readme_dest: Path | None = None, contract_src: str | None = UPSTREAM_CONTRACT,
          contract_doc_src: str | None = UPSTREAM_CONTRACT_DOC,
-         measurements_src: str | None = UPSTREAM_MEASUREMENTS,
+         measurements_src: str | None = None,
          measurements_dest: Path | None = None) -> int:
     """Copy the registry, the README it was generated with, the normalized measurement
     store it was rendered from, and the contract it is written against — after checking
@@ -527,7 +527,9 @@ def main(argv: list[str] | None = None) -> int:
                     help="check mode: probe the README links live (the ci-hf-live seam)")
     a = ap.parse_args(argv)
     if a.cmd == "sync":
-        return sync(a.src, Path(a.dest))
+        # The default CLI sync mirrors the producer store plus its normalized measurement
+        # store (issue #1634 / producer #689) so the vendored rows carry both.
+        return sync(a.src, Path(a.dest), measurements_src=UPSTREAM_MEASUREMENTS)
     snap = None if a.no_snapshot else Path(a.snapshot)
     return check(Path(a.dest), snapshot=snap)
 
