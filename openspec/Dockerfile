@@ -25,6 +25,12 @@ RUN npm install -g @fission-ai/openspec@${OPENSPEC_VERSION} \
 
 WORKDIR /repo
 
+# Least-privilege default user (issue #1646): the CLI prints --help / validates
+# read-only here, and the Makefile overrides this with `-u root` for the write
+# paths it drives, so a non-root image USER is safe and keeps semgrep's
+# dockerfile.security.missing-user rule satisfied.
+USER 65532:65532
+
 # The repo is mounted at /repo by the Makefile (docker run -v "$(REPO):/repo").
 # Default command: drop into the CLI's help.
 CMD ["openspec", "--help"]
