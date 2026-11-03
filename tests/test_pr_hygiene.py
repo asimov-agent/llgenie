@@ -281,3 +281,80 @@ def test_this_repositorys_producers_state_the_issue_the_fix_and_the_benefit():
         if rel.endswith("engine-bump.yml"):
             # a rolling pin that claims no issue must not leave the gate-tripping `Issue:` line
             assert "Issue:" not in text, f"{rel} must not state an Issue: it never closes"
+
+def test_a_pr_body_that_is_a_serialized_json_object_is_a_violation(tmp_path: Path):
+    """A body that is the `gh pr create` request payload — #1637's class — is not prose (issue #1638)."""
+
+    # Given a producer that dumps the serialized request object as the PR body
+    payload = '{"title": "chore: x", "head": "andyholst:fix/1633-x", "base": "main", "body": "## What & why ... closes #1633"}'
+    root = _tree(tmp_path,
+                 shell=f'gh pr create --base main --title "chore: thing" --body \'{payload}\'\n')
+
+    # When  the guard reads it
+    items = cph.findings(root)
+    keys = [f["key"] for f in items]
+
+    # Then  the serialized payload is a named `pr-body-json` verdict, not a green
+    assert any(k.startswith("pr-body-json") for k in keys), keys
+    assert "serialized JSON object" in cph.render(items)
+
+
+def test_a_clean_markdown_pr_body_passes(tmp_path: Path):
+    """The corrected #1637 text — real markdown prose — is not a false positive."""
+
+    # Given a producer whose body is the clean markdown, not a wrapper
+    body = ("## What & why\n\nThis fixes the thing.\n\n## How\n\nBy doing x.\n\n"
+            "closes #1633\n")
+    root = _tree(tmp_path,
+                 shell=f'gh pr create --base main --title "chore: thing" --body "{body}"\n')
+
+    # When  the guard reads it
+    keys = _keys(root)
+
+    # Then  the clean prose passes
+    assert keys == []
+
+
+def test_a_comment_whose_body_is_a_serialized_json_object_is_a_violation(tmp_path: Path):
+    """The object-vs-prose rule applies to the comment path too (issue #1638)."""
+
+    # Given a producer that posts the payload as a comment instead of prose
+    payload = '{"title": "chore: x", "base": "main", "body": "## What & why"}'
+    root = _tree(tmp_path,
+                 shell=f'gh pr comment 12 --repo x/y --body \'{payload}\'\n')
+
+    # When  the guard reads it
+    items = cph.findings(root)
+    keys = [f["key"] for f in items]
+
+    # Then  the serialized-payload comment is a named `pr-comment-json` verdict
+    assert any(k.startswith("pr-comment-json") for k in keys), keys
+    assert "serialized JSON object" in cph.render(items)
+
+
+def test_a_json_payload_comment_via_the_gh_api_endpoint_is_a_violation(tmp_path: Path):
+    """A comment posted through the `/issues/{n}/comments` endpoint carries the same rule."""
+
+    # Given a producer that posts the payload through the raw comments endpoint
+    payload = '{"title": "x", "base": "main", "body": "## What & why"}'
+    root = _tree(tmp_path,
+                 shell="gh api -X POST repos/a/b/issues/7/comments -f body='" + payload + "'\\n")
+
+    # When  the guard reads it
+    keys = _keys(root)
+
+    # Then  the endpoint comment is a `pr-comment-json` verdict
+    assert any(k.startswith("pr-comment-json") for k in keys), keys
+
+
+def test_the_json_object_predicates_are_hermetic(tmp_path: Path):
+    """`_object_body` runs on a fixture value, never the live default."""
+
+    # Given a serialized create-request payload and a clean markdown string
+    payload = '{"title": "x", "base": "main", "body": "## What & why"}'
+    prose = "## What & why\n\nThis is prose.\n"
+
+    # When  the predicate reads each
+    # Then  the payload is an object and the prose is not
+    assert cph._object_body(payload) is True
+    assert cph._object_body(prose) is False
