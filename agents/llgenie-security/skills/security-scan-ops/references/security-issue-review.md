@@ -84,6 +84,34 @@ is a claim until a test run proves it; remember the import path when running tes
 (`PYTHONPATH=/repo/scripts`), and note the invocation in the review so the reviewer can not reproduce
 it, not just trust it.
 
+## Reviewing a scanner-suppression (nosemgrep) carve
+
+A lane that proposes to silence a repeat-triage false-positive class with inline
+`# nosemgrep: <check_id>` is proposing a **per-site carve**, not a weakening — approve it on those terms:
+
+1. **It is a carve, not a weakening, if the rule stays live everywhere else.** No
+   `data/security-policy.json` edit (`fail_on`/`issue_severities`/`require_fix` untouched), no global rule
+disable, no severity/keyword widening — only a per-line comment above the flagged line. Acceptance still holds
+   if a genuine injection at an un-carved site still reds.
+2. **Name the FULL reported `check_id`, not a shorthand.** Resolve it from the scanner's own JSON/SARIF
+   (`"check_id":"yaml.github-actions.security.<rule>.<rule>"`); a vendored pack's shortest-fingerprint match
+   can be ambiguous, so the suppression names the whole long ID.
+3. **The line numbers in a SARIF are scan-time, and they drift.** A finding's SARIF was produced by a run that
+   scanned an OLD sha; by the time a lane quotes those lines against current `main` they may sit on blank
+   lines, comments, or a different step. An inline suppression placed at a stale number lands on dead code
+   while the real flagged line still reds — or, worse, suppresses an unrelated line. So refuse to sign off on
+   quoted line numbers: re-derive the CURRENT `start.line` per match by running the scanner at the fixing head
+   (`make security-scan TOOL=semgrep`, or a dispatch pinned to the head sha) and place each comment immediately
+   above the line it now reports. Verify the current line by reading it (`sed -n '<n>p' <file>`) — an empty or
+   non-`run:` line means the number is stale.
+4. **Demand a two-part guard-prove, at a named head sha.** (a) `0 <rule>` matches at the head sha, and (b) a
+   planted genuine-injection fixture at a NON-carved site still reds — that proves the rule is alive where it
+   must be. A prove that only claims "N sites no longer red" without (b) can be a false green from stale
+   placement, so the two checks are what make the carve reviewable.
+5. **Semgrep fires at parse-time on the current tree, so placement is the entire correctness question** — the
+   carve's content is trivial; where the comment sits is the whole risk. When in doubt, run the scanner rather
+   than reason about the YAML.
+
 ## Comment shape that survives review
 
 State the verdict, the current line number, and the consequence — not a summary of the issue:

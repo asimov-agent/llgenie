@@ -1,0 +1,1 @@
+| 2026-11-03 | sec(agent): fold the live-ahead `security-scan-ops` skill live→tree (4 files byte-identical: learned dedupe/marker/record-close rules + 2 live-only references) per #791/#1010 behaviour versioning | [agent-wiki/2026-11-03-security-scan-ops-fold.md](agent-wiki/2026-11-03-security-scan-ops-fold.md) | #1670 |

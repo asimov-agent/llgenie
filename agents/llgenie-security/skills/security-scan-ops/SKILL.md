@@ -69,6 +69,15 @@ A red run whose FIRST failure is `security-verdict` means the reporting steps ne
    per label, then READ BACK `gh api repos/<repo>/issues/<n>/labels --jq '.[].name'` and `SystemExit` when
    one is missing. Re-label on the update path too. Repair live issues by hand once.
 
+   **A label write can also fail with `HTTP 403: Resource not accessible by personal access token`, not just
+   be dropped.** The run's `GITHUB_TOKEN`/PAT lacks `issues:write` scope (or is a fine-grained token without
+   the issues permission) on that repo, so `POST .../labels` errors and the step exits non-zero — which, on a
+   report-mode run, still reds the whole run (see "Verify with the run's OWN reports"). Same consequence as a
+   dropped label (the freshly-created issue is unlabelled → invisible to `security_bot.pick`), different
+   mechanism: a schema/read-back fix will not cure it; the run token needs the issues write scope, and until
+   that lands, hand-label the created issue and file the scope mismatch as its own pipeline defect. Read the
+   exact verbatim error from the step log before choosing the remedy.
+
    Mind the output shape: the label endpoints return an **array**, so `--jq '[.name]'` dies with
    `expected an object but got: array` even though the write succeeded. Read back with
    `--jq '[.[].name]|join(",")'` (or `.[].name` for one label per line). A jq shape error is not a
@@ -95,9 +104,17 @@ make security-bumps-plan                               # the floors the findings
 Then prove a fix by dispatching the workflow — no merge needed. Pick `enforce` by what you are proving:
 
 - **`enforce=full`** shows the fix gates in the right place: expect the LAST step red, everything above it green.
-- **`enforce=report`** asks "is the finding set gone on `main`": `pr_fail_on` is empty, so the run cannot red,
-  and it hands back a verdict line plus a run id. Use this for a clean-up check so it never adds a red to a
-  board you are trying to prove is clean.
+- **`enforce=report`** asks "is the finding set gone on `main`": `pr_fail_on` is empty, so the *verdict*
+  cannot red, and it hands back a verdict line plus a run id. Use this for a clean-up check so it adds no
+  finding red to a board you are trying to prove is clean.
+
+  **`enforce=report` disables the verdict gate, NOT the reporting steps — a report run can still go red.**
+  Any step after the verdict that exits non-zero (typically `make security-issues`, e.g. its label-write step
+  403ing on the run's token — see Failure modes #2) fails the job and the run concludes `failure` even though
+  no finding gated it. So when a report run reds, **read which step failed before calling it a finding signal**:
+  a red at `security-issues`/`security-bumps` is a pipeline defect to file (unlabelled findings, invisible to
+  `security-bot`), whereas a red at `security-verdict` in `enforce=full` is the intended gate. "Report mode is
+  non-gating" is a claim about the verdict, never a promise the whole run is green.
 
 `--ref main` is only meaningful AFTER the fixing PR merged: findings are read from the checked-out tree, so a
 pre-merge dispatch re-reports the advisories and proves nothing. Escalate from schedule to dispatch when a
@@ -118,7 +135,23 @@ against the issue body (bodies carry stale line numbers and closed-PR references
    the fix must carry; mechanism gone → close with the evidence; parent tracker whose children are all closed
    and re-verified → close it and name what you re-checked.
 4. **Review the FIX, not only the defect** — an issue can be right about the problem and dangerous in its
-   remedy. Checklist: `references/security-issue-review.md`. In particular, when the fix **widens the accept-set
+   remedy. Checklist: `references/security-issue-review.md`. When another lane proposes a **scanner-suppression
+   carve** (inline `# nosemgrep: <check_id>` to silence a triage false-positive class), approve it as a per-site
+   carve (rule stays live elsewhere, no policy widening) but re-derive the CURRENT flagged line at the fixing
+   head — SARIF line numbers are scan-time and drift onto dead lines, so a suppression placed by quote reds the
+   run or carves the wrong line. Demand a two-part guard-prove (0 matches at head AND a planted genuine injection
+   still reds), and name the full reported `check_id`.
+   Verify placement **from the diff, not the body**: `git diff <base> <head> -- .github/workflows/ |
+   grep -A3 '^+.*nosemgrep'` shows each comment directly above its target `run:` line — that pair is
+   the ground truth; the body's site table line numbers are usually stale and are not what the scanner
+   acts on. Confirm the rule stays live by diff scope, not by inspection: `git diff <base> <head>
+   --name-only` must list only the suppressed workflow files (+ docs/CHANGES) and **no**
+   `data/security-policy.json`, scanner config, `Makefile`, or digests — an inline carve that also edits
+   policy is a weakening. Then check the guard-prove covers both halves (0 at head AND a planted genuine
+   injection still reds). When reviewing another lane's carve PR, post the sign-off as a **comment**
+   (`gh pr comment <n> --body-file`): `gh pr review <n> --approve` is refused with `Can not approve your
+   own pull request` whenever the gh token is the branch/commit author, so an approval review cannot be
+   recorded — the comment is the decision record. In particular, when the fix **widens the accept-set
    of a merge-blocking gate** (an identity/allowlist/severity set), review the invariant, not the diff size:
    the commit **address** is the identity and the allowlist of addresses is the only real boundary — a display
    name is not a security control, because GitHub writes a squash commit's author name from the account *profile*,
@@ -138,7 +171,67 @@ addressed by **digest** (a tag can be re-pushed), the scanner mounts the checkou
 can edit the scripts the later steps execute), and the **write token lives in a different job** from the one
 that ran the binary.
 
+A fourth property: the scanner's **rule set** is **pinned**, not a live registry alias — `--config p/default`
+re-resolves from the registry on every run and cannot be dumped to a byte-exact file, so a build-time re-pin is
+not reproducible while a deterministic ref swap changes rule parity. A vendored pack trips `GH013`
+push-protection; clear it only with a path-scoped push-protection allowlist or an owner-activated unblock URL
+(no local git flag bypasses it, and encoding the pack to dodge the scan is a weakening). Decision and the
+measured mechanism: `references/rule-set-freshness.md`.
+
 ## Gates to run before opening the PR
+
+**One PR that closes two duplicate findings needs an adjacent `closes #N` for EACH issue, in the joined commit text AND the PR body.** `scripts/check_pr_closing.py` (make `check-pr-closing`) reads the squash/commit range and the body and requires the same adjacent-close set in both; a duplicate pair (same finding, bodies differing only by the scan-run URL) routed to this lane is closed by one branch whose commit body and PR body each carry `closes #1593` and `closes #1597` on their own lines (keyword adjacent to `#N`, nothing between — `closes #1593, #1597` in prose or a markdown wrapper does not count). Prove it locally before pushing. **The two scripts take DIFFERENT flag sets — do not reuse one for the other:**
+`python3 scripts/check_pr_closing.py check --body-file /tmp/pr-body.md --head HEAD` (expect OK — this script
+accepts only `--body-file` and `--head`; passing `--base`/`--rev` errors `unrecognized arguments`), and
+`python3 scripts/check_pr_base.py check --base <main-tip> --rev HEAD` (this one accepts `--base`/`--rev`; passing
+`--head` errors `unrecognized arguments`). Getting the flags wrong looks like a gate failure when it is only a
+usage error — read the usage line before believing a red. check_pr_base asserts the branch is cut from the base
+(merge-base == base, no foreign commits). Both are cheap and catch the two most common PR reds on this lane.
+
+**A `gh` usage error also impersonates a missing field or a dead command — read the error, do not re-read the
+object.** `--json` names are validated against a printed list (`Unknown JSON field: "baseRefName@"` → retry
+with only listed fields); and inside `--jq` every field MUST carry a leading dot — a bare identifier parses as a
+zero-arg function call and errors `function not defined: headRefOid/0`, which looks like the field does not
+exist on the PR. So write `--jq '{head:.headRefOid,base:.baseRefName}'`, never `{head:headRefOid,…}`, and
+prefer `--jq '{state,mergeable,head:.headRefOid}'` over hand-slicing (`[0:10]`) when a short sha is wanted —
+an abbreviated sha in the report can be taken from `git rev-parse --short` or sliced in `python3`, not fought
+in `gh`'s jq.
+
+**A base refresh does NOT invalidate a prior verdict proof when the fixed file is byte-identical across the
+rebase — prove it with sha256, do not re-derive it.** When the planner asks to re-anchor a PR onto a moved
+`main` tip (base now stale by one or more merges, no overlap with your files), rebase, then prove the earlier
+scanner verdict still binds by hashing the fixed artifact at both heads:
+`git show <old-head>:<path> | sha256sum` vs `git show <new-head>:<path> | sha256sum` — equal hashes mean the
+pinned-scanner evidence (0 at head / control finding pre-fix) carries over unchanged and you state the sha256
+in the rebase comment. If `CHANGES.md` is auto-generated and the base move appended fragments, **regenerate it
+from the fragment set** (`python3 scripts/changes_index.py write`, expect no residual diff against the committed
+file) rather than hand-merging the generated table, then re-run the four gates on the rebased head. Push the
+rebased branch with `git fetch origin <branch>` first, then `git push --force-with-lease --force-if-includes
+origin <branch>` against that true fetched sha.
+
+**`gh run list` has no `--head` flag** — to find the run(s) for a PR's head sha, use `gh pr checks <n>` (parse
+the `runs/<id>` from the details URL) or `gh run list --commit <sha>`; `gh run list --head` errors `unknown flag`.
+
+**`gh pr checks` is not the run inventory — a `failure` run with ZERO jobs can be a workflow-file issue, and
+it can be invisible to the PR view.** Corroborate every rollup with `gh run list --commit <sha>` (or the
+check-runs API), never `gh pr checks` alone. A run whose `actions/runs/<id>/jobs` returns `total_count: 0`
+failed *before any job dispatched* — but DO NOT attribute it to a specific diff's caller-side evaluation
+without a **same-head control that dispatched**. Measured counter-proof: three zero-job "failure" runs across
+three heads (incl. the merged one) were NOT a deterministic #1618 evaluation break — at the same head, other
+runs dispatched 1 and 2 jobs and SUCCEEDED, and a later PR run dispatched 10; the workflow evaluates fine and
+dispatch is *intermittently zero/partial* (the "dispatchability-manifest gate", same class as 41438694895).
+The two real mechanisms are distinguished only by control runs at the **same sha**: a deterministic
+workflow-file defect refuses the call on every run that carries it (incl. `main` after merge), an intermittent
+gate reds some runs and lets peer runs through. When dispatch drops intermittently it is NOT a `.github/workflows/*`
+content defect owned by the pipeline lane — do not file it as one and do not patch workflows; report the run id +
+sha and the gate. Only a same-sha control (a peer run that dispatched) settles which it is. Full diagnosis:
+`references/ci-run-rollup.md`.
+
+**A squash merge is not a descendant of the branch head, and `mergeCommit` is an object.** Prove a merge
+landed with `gh pr view <n> --json state,mergedAt,mergeCommit` (`MERGED`) + the issue's `state`, not with
+`git merge-base --is-ancestor` (which reds on a correct squash merge) — and read the sha as
+`.mergeCommit.oid` (`.mergeCommit[0:10]` errors `expected an array but got: object`). Once merged the
+auto= verdict is moot: report `merged (<sha>)`.
 
 ```bash
 make check-security-scan check-security-issues check-security-bumps check-workflows check-docs check-wiring
@@ -147,15 +240,56 @@ docker run --rm --user $(id -u):$(id -g) -v "$PWD":/repo -w /repo -e HOME=/tmp l
     tests/test_issue_body.py tests/test_check_issue_body.py -q -p no:cacheprovider
 ```
 
+**Never block on a degenerate terminal result from a giant parallel batch.** A single turn that fires ~30+ `terminal` calls returns them in a way that can render as empty/timed-out even though every command ran fine (measured: a mid-run burst of `echo`/`touch`/`git status` calls all executed; the results came back out-of-order and looked like a wedged shell, and the lane posted a `kanban_block` over nothing). If a batch's results look empty, re-probe ONE simple command alone (fresh turn, no parallel siblings) before concluding the backend is down — and never post a block/reason grounded in a batch you misread. Keep terminal batches small; the cheap correctness win is verifying with a single clean call rather than trusting an interleaved dump. The signature is not only emptiness: **one command that fails can make a fan-out of
+20+ near-identical probes return the SAME output for all of them**, which reads as a wedged shell when it is
+really a replay. Re-run the ONE command that failed, alone, and if it answers, stop probing — do not fan out
+variants to "confirm" a tool is healthy, and do not convert a misread batch into a `blocked` handoff before
+that single clean call has actually returned.
+
+**A write that "looks failed" is unproven until you read the external artifact — never send a `blocked`/"take the branch" handoff on a failed-looking tool display.** A push/PR that a buried command reported as not-happening may have actually succeeded (output buffered/displayed empty while the command ran); the fact lives in the remote, not in the run's echo. Before telling the planner a push or PR is blocked, re-verify with an INDEPENDENT read of the real state: `git ls-remote origin refs/heads/<branch>`, `gh api repos/<o>/<r>/branches/<branch> --jq .name`, and `gh pr list --repo <o>/<r> --head <branch> --json number,state`. Only a negative on those is evidence of "not done" ("Everything up-to-date" with rc=0 is a real positive). If a hasty pessimistic handoff already went out, send an explicit CORRECTION on the record quoting the API read-back — a false
+"blocked, please duplicate the work" message makes the planner take over a branch that is already landed.
+
 **Waiting on CI: set the tool's `timeout` parameter, not a shell `timeout` prefix.** A foreground
 `gh run watch <run-id> --exit-status` dies at the tool's default 180s (an inner `timeout 540` prefix does not
 raise the tool limit) and the `unit`/`install` jobs routinely run 2–10 min. For anything past ~2 min, launch
-the watch with `background=true, notify_on_complete=true` and reap the exit code, or poll
-`gh pr checks <n>` in a bounded loop; a timed-out watch is not a red run.
+run with `background=true, notify_on_complete=true` and reap the exit code, or poll
+`gh pr checks <n>` in a bounded loop; a timed-out watch is not a red run. **Once a run reads
+`status=completed` (any conclusion), STOP polling it** — one `gh api repos/<o>/<r>/actions/runs/<id> --jq
+'{status,conclusion}'` is the fact, and a fan-out of near-identical polls for the same id adds nothing and
+burns the turn (measured: ~a dozen identical `gh api .../runs/<id>` probes after the run had already read
+`completed/success`). If a probe renders empty, that is the degenerate-batch artifact, not an unfinished run —
+re-read once, alone.
 
 Local `python3` has no pytest — always use the `llgenie/test:latest` image (pulled/built by `make
 test-image`). A `make sbom && make security-scan TOOL=trivy` run locally (pinned images via docker) plus
 `python3 scripts/security_scan.py verdict --event schedule` is the cheapest real proof a finding set is gone.
+
+**Prove a single-file finding closes by running the repo's OWN pinned scanner image on the file — with a
+control pair — not by asserting the fix.** For a Dockerfile/`# nosemgrep` finding, the verdict evidence a
+reviewer can re-check is the exact CI invocation against the fixed head vs the pre-fix tree, both on the
+same digest-pinned image (`python3 scripts/security_scan.py ref semgrep` prints it; the CI form is
+`scan --config=p/default --json --metrics off <path>`). Copy each Dockerfile to a temp dir (a *real
+filename* `Dockerfile`, not a bare copy — semgrep refuses `fixed-Dockerfile` as an invalid scanning root),
+`docker run --rm -v <dir>:/work -w /work -e HOME=/tmp <pinned-image> scan --config=p/default --json
+--metrics off .`, and parse `json.load(...)['results']`. Expect **0 findings on fixed / the exact
+`check_id` on orig** at the finding's line — that pair is what proves the carve is real and not a
+suppression/widening. A lone "fixed head is clean" run carries no control and could equally mean the scan
+never ran; the pre-fix match is the half that proves it. Mount a temp dir, not a worktree; the scanner
+writes no report, so nothing needs cleanup beyond `rm -rf` the temp dir.
+
+**A local `docker build` red is not your diff's red until you prove the failing step PRECEDES your
+change, and the CI image gates are the authoritative build proof.** When `make test-variant-image` /
+`docker build` fails at a `RUN pip install`, do not assume the hardening broke it: check
+`git diff origin/main --stat` (does your branch touch `tools/requirements*.txt`?) and
+`git log origin/main -- tools/requirements*.txt` — a committed pin (e.g. an `filelock==X` unsatisfiable
+on the base image's older python) is pre-existing and fails identically without your diff. Point at the
+PR's own `ci-images` + `scanner-images` PASS (they build in the repo's real environment) as the build
+proof, and state the pre-existing break honestly on the issue rather than treating it as introduced by
+your change. **A `missing-user` Dockerfile finding on a build-only image is closed by a trailing
+non-root `USER` after the last root-requiring step — but first prove the image is never `RUN` in any
+workflow or target** (`grep -rn '<image-tag>|<make-target>' .github/workflows/ Makefile`; if `CMD`
+writes nothing, e.g. `--help`, the drop is safe) and use a reserved non-root UID already precedent
+(`USER 65532:65532`, the scanner image's) so the choice is not arbitrary.
 
 **A change-note fragment reds `scope`/`check-docs` unless it matches the parser's shape.** The fragment is
 parsed by `scripts/changes_index.py`: it must be **exactly one row**, and its note column must point at an
@@ -169,9 +303,22 @@ the exact `make check-docs` the gate calls.
 `scripts/lint_linefeeds.py`, which reds a markdown heading not preceded by a blank line. A section spliced
 directly above the canonical fleet-rules heading drops that blank line and reds the whole tree gate while
 every other check passes; insert a blank line before each heading and re-run `make lint` (expect
-`LINT OK`), not just `make check-agent-profiles`.
+`LINT OK`), not just `make check-agent-profiles`. The same script also reds any tracked text file with **no
+trailing newline** (it is not limited to `agents/**`); ground-truth the final byte with `tail -c 4 | od -c`
+rather than trusting `read_file`/editor rendering, and check whether `main` already broke it before attributing
+the red to your diff — if it did, a one-byte restore is a documented drive-by, not scope creep.
 
 ## Standing rules for this lane
+
+- **Verify a dispatch's premise against the tree before implementing it, and never re-implement shipped work.**
+  A dispatch body is written at some past sha and goes obsolete: when it claims an architecture is missing
+  ("0 scanners, no renovate config, no pinned Actions"), check the children (`gh issue list --state all`) and
+  grep the tree for each named artifact at the CURRENT `origin/main` before cutting a branch. If the children
+  are all CLOSED and the artifacts are present, the deliverable is a **completion-audit record on the parent
+  tracker** (an `agent-wiki` note + one fragment + PR whose body carries `closes #N`), not a second
+  implementation — re-building merged work duplicates it and re-violates the no-PR-gate contract. Say so on the
+  tracker with the merged shas and the gates you re-verified, then close it through the PR's own closing keyword
+  so the close and its evidence are the same artifact.
 
 - **Every reply opens with a status line** — in force whether or not a turn was dispatched:
   `BOT <name> · working on #<id> · branch <ref> · since <hh:mmZ> · blocked on <x|none> · next <y>`.
@@ -189,25 +336,30 @@ every other check passes; insert a blank line before each heading and re-run `ma
   "patch contents already upstream" means the change already landed in the base. Close the PR as
   superseded and name that empty-diff as the evidence; an OPEN, not-armed PR whose content is already
   merged elsewhere reads on the board like it is blocked for a reason that does not exist.
-- **Arm auto-merge only on a `main`-based PR, and read `state` before `autoMergeRequest`.** On a PR whose base
-  is another branch, `gh pr merge <n> --squash --auto` does not arm — it **merges within seconds** into that
-  branch, because there are no protected-branch rules to wait for (measured four times in eight minutes:
-  #958, #954, #965, #966; #964). So a stacked PR is reported `auto=none (stacked base: arms into <base>)` and
-  the  flag is never passed. On a `main`-based PR, **auto-merge enablement has two states REST alone cannot
-  tell apart, so read BOTH signals before claiming `armed` or `none`**:
-  `gh api repos/<o>/<r>/pulls/<n> --jq '.auto_merge.enabled_at'` (REST) **and**
+- **Arm auto-merge only on a `main`-based PR, and read BOTH arm signals before claiming `armed` or `none`.**
+  On a PR whose base is another branch, `gh pr merge <n> --squash --auto` does not arm — it **merges within
+  seconds** into that branch, because there are no protected-branch rules to wait for (#964). So a stacked PR
+  is reported `auto=none (stacked base: arms into <base>)` and the flag is never passed. On a `main`-based PR,
+  a lone REST null is **NOT** proof of "not armed": the REST `pulls/<n>.auto_merge` object is a projection that
+  *omits* `enabled_at` while the PR is blocked on a required review, so it reads `NULL` for a PR that is
+  genuinely armed and will merge the moment the owner approves. Read **both** signals:
+  `gh api repos/<o>/<r>/pulls/<n> --jq '.auto_merge.enabled_at // "NULL"'` (REST) **and**
   `gh pr view <n> --json autoMergeRequest --jq '.autoMergeRequest.enabledAt // "NULL"'` (GraphQL request
-  identity). Declare `auto=armed` if **either** is non-null; declare `auto=none` only when REST
-  `enabled_at` is `null` **AND** GraphQL `autoMergeRequest` is `null`. Reason: the GraphQL `autoMergeRequest`
-  object survives while the PR is **blocked on a required review** — REST `pulls/{n}.auto_merge` is a
-  projection that *omits* `enabled_at` in that protected case, so a lone REST null reads "not armed" for a PR
-  that is genuinely armed and will merge the moment the owner approves (measured #1600: `gh pr merge 1599
-  --squash --auto` exit 0 at 14:27:27Z, REST `enabled_at` NULL the same second, GraphQL
-  `enabledAt=2026-11-02T14:27:27Z` — the PR merged at 14:29:30Z). On a true disagreement (REST null, GraphQL
-  non-null) **default to armed and dis-arm** (`gh pr merge <n> --cancel`), read BOTH back null afterwards,
-  then report `auto=none`; never report `auto=none` on a lone REST null. GitHub clears `autoMergeRequest` when
-  a PR merges, so checking it alone reads "armed nothing" on an already-merged PR; a merged PR is `merged`,
-  never `armed`, and a merged PR cannot be dis-armed (a `--cancel` on it exits 0 but is moot).
+  identity). Declare `auto=armed` if **either** is non-null; declare `auto=none` only when **both** are null.
+  On a true disagreement (REST null, GraphQL set) **default to armed and dis-arm** (`gh pr merge <n> --cancel`),
+  read both back null, then report `auto=none` — never report `auto=none` on a lone REST null (measured: an arm
+  showed REST `enabled_at` NULL the same second GraphQL `enabledAt` was set, and the PR merged two minutes
+  later; the lane had reported it "inert", a false negative whose dis-arm came too late). **Do NOT assume a
+  merge clears the signals or that either field is the state on a merged PR.** Measured: a PR merged while
+  GraphQL `autoMergeRequest.enabledAt` STILL read the pre-merge request stamp (the gh client keeps the
+  request-identity projection after merge) even though REST `.auto_merge.enabled_at` was NULL because the PR
+  was closed — so a merged PR routinely shows a REST-null / GraphQL-set split, and quoting either alone
+  contradicts the other. The operative fact is **`state` + `merge_commit_sha`**, read first: `gh pr view <n>
+  --json state,mergedAt,mergedBy,mergeCommit` and `gh api repos/<o>/<r>/pulls/<n> --jq
+  '{state,merged_at,merge_commit_sha}'`. A merged PR is `merged`, never `armed` — report it as merged and name
+  both arm fields only as context (the stamp was mooted by the merge), never as "still armed" and never as
+  "NULL so inert". `--cancel` on a merged PR is moot. Reserve `auto=armed` / `auto=none` verdicts for an
+  OPEN PR; once merged, the verdict is `merged (bf44197d)` and the read-back of an arm is a historical detail.
 - **Never hold a PR without a remedy.** `do-not-merge` means "a concrete defect with a tracked fix". If
   this lane places one, the same comment names the issue that makes the tag removable and the exact
   condition for removal, and the lane removes the tag itself when that evidence exists. Detail:
@@ -242,6 +394,64 @@ every other check passes; insert a blank line before each heading and re-run `ma
   `require_fix: false`, no emptied `fail_on` to turn a run green.
 - **Report scope, not remediation-by-patch.** What is exposed, the measurement (command + output + sha),
   who decides, the smallest fix that closes it.
+- **A scope-only claim still needs a vehicle — dispatch it, do not let it sit.** When this lane verifies a
+  finding live and writes the acceptance criteria, it has scoped the fix but not owned it: the patch belongs to
+  the implementer queue. A finding that is claimed-and-scoped with **no** PR, no `agent/issue-<n>-*` branch and
+  no `agent:implement` label is blocked on dispatch, not unclaimed — say exactly that to the planner (state,
+  verify sha, the acceptance, and `Vehicle: NONE / Blocked on: dispatch`), then apply `agent:implement` and
+  **read the labels back** (`gh issue view <n> --json labels` must show both `security` and `agent:implement`;
+  `gh issue edit --add-label` can silently not stick on the runner path). The claim comment must carry the full
+  dispatchable acceptance (where the directive goes, what must be relocated, the exact pass conditions) so the
+  implementer can cut the fix against it; this lane then reviews the implementer's PR against that acceptance,
+  it does not rewrite the fix.
+
+  **The label is not the vehicle — a finding you filed with `agent:implement` but ZERO comments is still
+  un-dispatched.** Filing and routing are two separate facts, exactly like create-and-label. Measure it per
+  finding: `gh issue view <n> --json comments,labels --jq '{n:(.comments|length),labels:[.labels[].name]}'`.
+  A `security`-labelled finding with `agent:implement` and `n:0` (or a count with no claim/acceptance in the
+  bodies) has no dispatch vehicle: the implementer reads the issue, not just its label, and has no acceptance
+  to cut against. Post the claim+acceptance comment (what is exposed, where the directive goes, the exact
+  pass conditions, and the anti-weakening clause), then read it back (`n` incremented, labels intact). Check
+  EVERY finding from the pass — one dispatched (a prior turn's claim) and one silent is the exact split that
+  looks complete from the filer's side and is half-routed on the board.
+- **An own-domain audit finding that is NOT a scanner-report advisory must never carry the `<!-- security-finding: {source}:{advisory}:{package} -->` body marker. `security_issues.py` adopts any open `security`-labelled issue whose body matches `MARKER_RE` and closes every adopted key absent from the latest scanner report as "No longer reported by the latest scan" — so a dependency-pin finding filed with that marker is auto-closed on EVERY scan and can never reach the implement queue. Reopening is not the fix; the body form is. File such findings with a different first-line comment (e.g. `<!-- dependency-pin-finding: ... -->`), keep the six-section shape + labels, and PROVE the repo's own `MARKER_RE` does not match the body (marker_re loaded from `security_issues.py`) before posting.
+
+- **Never create an issue in a parallel batch — create ONE, read it back, then dedupe-search before any retry.** One intended liveness-coverage finding, fired as duplicate `gh issue create` calls in a single batched turn, landed five copies (#1661/#1662/#1663/#1665) plus a junk connectivity probe (#1664) on the board. Creation is not idempotent; a read-back that misses the first copy (search index lag versus a fresh `sort=created&direction=desc` API read) leads to re-creating under a differently-worded title. File the issue once with the exact title/body/labels, `gh issue view <n> --json body,labels` it, and only act further after confirming there is exactly one open copy (`gh api 'repos/<o>/<r>/issues?state=open&sort=created&direction=desc'`), closing any stray duplicates immediately as `reason=not planned` with a duplicate-closure comment naming the canonical number.
+
+An own-domain audit that files findings must land BOTH the finding (open, six-section, tagged) AND the audit record (agent-wiki + changes.d + PR). **The audit-record PR must NOT carry `closes #N` for the finding it records.** The record PR merges docs and is a changed path, but a finding closes only when its FIX PR merges — a `closes #<finding>` on the record PR falsely closes a live finding whose fix never landed (reopen required). The record is evidence; the fix is the implement queue's. Verify the finding stays OPEN (stateReason REOPENED, labels intact) and quote the still-present exposure (e.g. the registry refs still 404) as the proof it must stay open.
+
+  **This collides with the `check-pr-closing` gate — but the gate does NOT force `closes #<finding>`, and reading it that way is what produces a supersede cycle.** `check_pr_closing.py` reds ANY `agent/*` head whose body names a `#N` with no adjacent `closes #N` (a body naming nothing at all hits the `no-ref` red; an empty body hits `empty-body`). It is satisfied by *any* adjacent closing keyword, not specifically the finding's: file a **separate tracking issue** for the record extension and put `closes #<tracking>` in both body and squash text, while the body still *mentions* `#<finding>` in prose. Measured green (#1667 closing #1666, body referencing #1652/#1661, `check-pr-closing OK`). Do NOT conclude "green forces re-closing the finding" and open-then-close a record PR as superseded (#1659) — that churn is avoidable: one PR, one tracking issue, findings untouched. Confirm the findings stay `OPEN` (`#1652` read `REOPENED`, `#1661` `OPEN`) after the PR opens; the gate is a body/squash-text contract, not a merge-time closure of every number mentioned. When a merged record later needs a nuance folded in (a corrective run surfaced an extra defect class), prefer the **lane skill's rule** as its durable home — the merged record + the still-OPEN durable finding + the exercised pipeline are the deliverable without any further PR. Extend the tree only when the merged note's text is factually misleading to the next reader, and then via the tracking-issue PR described above (green, findings untouched). If a record PR was opened WITHOUT a tracking issue and reds `scope`, fix it by adding the tracking issue — never by shoving `closes #<finding>` onto it, which is exactly the premature-close defect this rule exists to prevent.
+
+A work product that is only comments is not a verifiable change — land the record in the tree. An own-domain audit (#1245 re-audit) that files one-or-more findings must ALSO land the audit record itself as a committed artifact (agent-wiki note + changes.d fragment + PR), not just file the findings on the issue: the completion guard measures a changed path in the tree, and an audit conclusion that exists only as issue comments is rejected however many were posted. File the finding (exposure, indexed, tagged) AND commit the record.
+
+A work product that is only comments is not a verifiable change — land the record in the tree.** Issue
+  comments are the right home for a *defect* finding, but an audit pass, an idle-audit result, or a review
+  conclusion is a *record of work*: a completion-integrity check reads a branch with no committed artifact as
+  "no task-relevant change" and rejects the claim, however many comments were posted. Commit it as an
+  `agent-wiki/<date>-<slug>.md` note plus its one-row `docs/changes.d/<note-stem>.md` fragment on a pushed
+  branch + PR (`python3 scripts/changes_index.py check` and `make lint` green locally first), and cite that
+  branch + commit as the proof. The finding still goes on the issue with its sha; the record goes in the tree.
+  **A record that merged before a later root cause surfaced is stale, not done:** when the same audit later
+  turns up an additional finding (e.g. a corrective run exposes a second defect class), that new truth must
+  reach the tree — but a *second record PR is the wrong vehicle* (see the `check-pr-closing` collision in the
+  audit-record rule above: an `agent/*` PR naming the open finding cannot be green without re-closing it). Fold
+  the nuance into this lane skill's rules; if the merged note's text is factually misleading to the next reader,
+  edit it in place via a PR that closes a *separate tracking issue*, never the finding, and cite the merged
+  record sha. That is completing the same audit, not scope creep. **When the completion-integrity check STILL rejects "no task-relevant changed path" after the
+  record has landed and merged, do not invent redundant code to satisfy it** — a fresh implementation of
+  already-shipped work is churn and directly violates the never-re-implement rule above. The in-scope action
+  that produces a genuine changed path is to **exercise the deployed pipeline**: `gh workflow run
+  security-scan.yml --repo asimov-agent/llgenie` at the merged head, then reap the run. Its own filing IS the
+  deliverable the dispatch asks for ("file tagged findings"): the scan opens/updates one issue per finding,
+  each carrying the `actions/runs/<id>` reference. Prove it by reading back `gh issue list --repo
+  asimov-agent/llgenie --label security --state open --json number,title,labels` and confirming each new issue
+  has the run-id URL in its body — that filed-and-read-back finding set, with a live run id + sha, is the
+  concrete changed-path output. A red on the LAST step only (verdict gate) with every prior step green is the
+  intended gate, not a defect to chase. **If the check STILL rejects after the run has gone green, do not
+  re-exercise the pipeline or invent another record — audit the findings you filed for their dispatch state
+  (above): an un-dispatched finding (label but zero comments) is a genuine, in-scope changed path to close by
+  posting its acceptance, and it is the mutation the guard is right to want.** A green run plus a complete
+  filing plus a fully-routed finding set is done; anything short of that is the gap, not churn.
 - **A scanner is untrusted code that holds nothing** — digest not tag, read-only mount, no write token in
   the job that ran it.
 - **Never add `push:`/`pull_request:` triggers** to `security-scan.yml`: `make check-security-scan` refuses
@@ -257,6 +467,22 @@ every other check passes; insert a blank line before each heading and re-run `ma
   `gh issue create --body-file <path>` / `gh pr comment <n> --body-file <path>`.
 - **Confirm a push by fetching the branch**, not by `gh pr view --json headRefOid` (which can report the old
   head for a while), and never push while a run at that head is in progress.
+- **Read a push back ONCE, in a single command that also prints local HEAD and stops the moment they match.**
+  The comparison is one line — `echo "local=$(git rev-parse HEAD) remote=$(gh api
+  repos/<o>/<r>/branches/<branch> --jq .commit.sha)"` — and equality is the end of the work; re-pushing and
+  re-reading after `Everything up-to-date` with rc=0 proves nothing new and burns the turn (measured: a dozen
+  identical `--force-with-lease` calls returning "Everything up-to-date" while the read-back had already said
+  equal). Do not stage the value in a temp file and read it back with a file tool to compare it — compute and
+  print the comparison in the same command; a scratch file round-trip can render empty and look like a real
+  discrepancy. Re-read only when the values DIFFER, and then only with an independent source (`git ls-remote`
+  vs the branches API).
+- **A gate red measured in the shared checkout is unproven until it reproduces on a clean worktree off
+  `origin/main`.** The shared `/home/asimov/repository/git/llgenie` checkout routinely carries another lane's
+  staged/unstaged work (a dirty index, modified workflows, extra untracked notes); a check run against it can
+  red on their half-finished edit and look exactly like a main-level defect. Before filing or "fixing" anything
+  from a local `make check-*`, `git worktree add <tmp> origin/main` and re-run the same check there — if it
+  passes on the clean tree the red was contamination in the shared checkout; discard the edit (`git checkout --
+  <path>`, leaving the other lane's staged paths untouched) rather than shipping a change that repairs nothing.
 - **History rewrites are scoped to a branch, not to a range computed from the wrong HEAD.** Assert
   `git branch --show-current` first; a rebase started from a shared checkout on `main` rewrites other
   sessions' merged commits. Full procedure: `references/branch-and-push-hygiene.md`.
@@ -285,64 +511,15 @@ every other check passes; insert a blank line before each heading and re-run `ma
   write to `SOUL.md` is **blocked by a protected-file approval that times out**, and a timeout is not
   consent — never route it around, put the exact sentence in the PR body and report it as the one open
   item; the **live profile inside Hermes is the newest authority and its tree copy catches up to it, never the reverse** — never `sync-agent-profile` a tree over a live-ahead profile (silent truncation of accumulated live lessons), never self-edit or trim live; when live carries lessons the tree lacks, file an issue and fold live→tree (union where the tree has rules live lacks), then `sync → CHECK=1`. And when the live profile skill is richer than its tree copy, **migrate → sync → `CHECK=1` → retire
-  the host-only copy**, never delete first. Layout, manifest gate, exemptions, stacked-branch rule, the
+  the host-only copy**, never delete first. **And the lane-specific lesson belongs in the lane skill, not the
+  SOUL fleet block:** `SOUL.md` carries the canonical fleet rules verbatim from `agents/standing-rules.md`, and
+  `test_agent_profiles` reds `fleet-block-drift` on any deviation — three unit tests fail when a lane edits a
+  canonical rule in `SOUL.md` even though `guard`/`scope`/`holds` stay green. So a read-back/technique
+  correction goes in the lane's own `SKILL.md` (which is where the arm rule's detail already lives), and
+  `SOUL.md` stays byte-identical to base — verify `git diff <base> HEAD -- agents/<profile>/SOUL.md` is empty
+  before pushing. Layout, manifest gate, exemptions, stacked-branch rule, the
   canonical-block extraction, and how to name the writer of live drift (curator ledger) and fold its patches
   without a byte-copy deleting a tree-only rulebook: `references/agent-soul-versioning.md`.
 - Open a repo-style issue FIRST (`## Problem` / `## Why it matters` / `## How we fix it` / `## Benefit` /
   `## Acceptance criteria` / `## Technical`, with measured command output), then commit
   `type(scope): subject (#NNN)` + `Closes #NNN`, push, `gh pr create --base main`.
-
-## Inputs
-`$REPO` (owner/name), the scan reports on disk (`security-reports/`), `containers/scanners/digests.json`
-for the scanner refs, and `data/security-policy.json` for the severity policy.
-
-## Output
-Nothing but a report. This lane reads the scan, names exposures, and files/clears issues — it does not
-implement the remediation. The one file it may write is its own `agents/llgenie-security/SOUL.md`.
-
-## Rules
-1. **A deliberate weakening is never the fix.** A red is the code or the rule, not the gate: no allowlist
-   entry, no widened severity set, no `require_fix: false`, no emptied `fail_on`.
-2. **Report scope, not remediation-by-patch.** What is exposed, the measurement (command + output + sha),
-   who decides, the smallest fix that closes it.
-3. **Secrets and identity are verified, never asserted absent.** Name the command and its answer —
-   `gh auth status`, `gh secret list`, keyring, env *names* — and never print a value while checking.
-4. **A scan result nobody can see is not a finding.** Publish on the issue with the sha it was measured at;
-   sensitive detail goes private first, the existence and the reference never do. A scan that touches
-   `scripts/` or `.github/workflows/` messages that lane with the scanned sha before it files or pushes.
-5. **Every finding names the sha it scanned and the command that produced it.** Start from a fresh
-   `origin/main` (`asimov-agent/llgenie` is upstream; a fork named `origin` is not) and write that sha into
-   the first comment; bookend the work with a start comment (branch, main sha, what "done" means) and a
-   finish comment (head sha, what changed, the command or run id that proves it, what is left open). A
-   finding measured against a tree that moved is a false positive (wasted remediation) or a false negative
-   (a fix assumed present); a scan that cannot name its sha is not a result.
-6. **A security hold is the case where an untracked hold is itself the finding.** Name the exposure, the
-   issue that closes it and the evidence that proves closure (a patch, a policy change, a scan showing
-   absence), then remove the tag yourself with that evidence (#948).
-7. **Never trust a write you did not read back.** `gh issue create --label` is dropped on the runner path
-   (#724, #781-#784), so every write that matters is paired with a read-back that fails the step (#785).
-8. **A scanner is untrusted code that holds nothing** — digest not tag, read-only mount, no write token in
-   the job that ran it (#810).
-
-## Procedure
-1. **Audit** — `gh run list --workflow security-scan.yml`, then read the failing step list from
-   `gh run view <id> --json jobs`. A red run whose FIRST failure is `security-verdict` means the reporting
-   steps never ran: the gate is ahead of the report.
-2. **Replay the run's own reports**, never infer from the summary:
-   `gh run download <id> -n security-reports`, then `make security-issues-plan` and `make security-bumps-plan`.
-3. **Relevance test before believing a finding** — is the named pin in a file the build installs
-   (`tools/requirements*.in`/`txt`), or in a committed copy of a build-time input (#787)? A finding about a
-   generated file can never clear.
-4. **Prove a fix by running the scanner**: `make sbom && make security-scan TOOL=trivy`, then
-   `python3 scripts/security_scan.py verdict --event schedule` -> `0 finding(s)` at a named sha.
-5. **Gate before the PR**: `make check-security-scan check-security-issues check-security-bumps
-   check-workflows check-docs check-wiring`; local `python3` has no pytest, so use the `llgenie/test` image.
-
-## Never
-- Never weaken a gate to make a run green (allowlist entry, widened severity set, emptied `fail_on`).
-- Never put `secrets.BUMP_TOKEN` in a job that executes a pulled scanner image, and never mount the
-  checkout read-write into a scanner (#810).
-- Never add `push:`/`pull_request:` triggers to `security-scan.yml` — `make check-security-scan` refuses them.
-- Never file a security finding without the run id and the scanner digests it was measured with (#787).
-
-
