@@ -1,6 +1,6 @@
 # Dependency-pin validity audit at 75f85118 (security lane, own-domain)
 
-Audit date: 2026-11-03. Measured head: `75f851180e` (main at dispatch; current tip `22d2060b` differs by docs-only #1643, so the dependency-pin tree is identical). Bounded own-domain audit per #1245 (security: dependency-pin validity) — the `#1252/#1262` class: a pin valid in **form** that cannot resolve in **fact**.
+Audit date: 2026-11-03. Measured head: `75f851180e` (main at dispatch; current tip `0a0dbddd` — the dependency-pin tree is identical through both docs-only merges #1643 and #1653). Bounded own-domain audit per #1245 (security: dependency-pin validity) — the `#1252/#1262` class: a pin valid in **form** that cannot resolve in **fact**. Follow-up (2026-11-03): the record is extended so #1652 is **durable** and the audit result reflects the fixed finding form.
 
 ## Classes swept
 
@@ -26,3 +26,9 @@ Filed: **#1652** — six-section, tagged `[agent:implement, security, vulnerabil
 ## Result
 
 One filed finding (#1652); every other class re-verified clean. Fix routes to the implement queue (publish each cuda pin via `make push-engine ENGINE=<id> ARCH=cuda`, or drop the variant from params; optionally widen `registry-liveness` to sweep cuda). Not implemented by this audit lane.
+
+## Durability fix — #1652 was auto-cleared by the scanner close-loop; corrected (2026-11-03)
+
+The finding as first filed carried a `<!-- security-finding: <source>:<advisory>:<package> -->` body marker. `security_issues.py` adopts any open `security`-labelled issue whose body matches `MARKER_RE` and closes every adopted key absent from the latest scanner report as "No longer reported by the latest scan" — run 41573008517 closed #1652 that way. A dependency-pin finding can never clear "by scanner absence", so every scan re-closed it and it could not reach the implement queue.
+
+Corrected: reopened #1652 and rewrote the body with a non-matching first-line comment (`<!-- dependency-pin-finding: unpublished-cuda-engine-image @ 75f851180e -->`), six-section shape + labels intact. Proven with the repo's own `MARKER_RE` (loaded from `security_issues.py`): it does not match the body, so the close-loop cannot own or clear it. #1652 is OPEN/REOPENED, durable across scans, exposure re-verified live (all four cuda pins still `HTTP 404`), and closes only when a fix PR that publishes the pins or drops the cuda variant merges.
