@@ -1,0 +1,1 @@
+| 2026-11-03 | sec(record): commit the #1646 merge-close scan-evidence round-trip — clearing run 41601847794 at 299e9a7e13 proves semgrep missing-user absent on the fixed openspec/Dockerfile; acceptance boxes ticked only on the genuine completed scan | [agent-wiki/2026-11-03-security-1646-clearing-evidence.md](agent-wiki/2026-11-03-security-1646-clearing-evidence.md) | #1646 |
