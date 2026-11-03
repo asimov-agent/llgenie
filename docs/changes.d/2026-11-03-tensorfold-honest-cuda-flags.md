@@ -1,0 +1,1 @@
+| 2026-11-03 | engine(tensorfold): document the honest per-backend cuda flag set (--version only) and drive binary_flags through the per-backend path, no gate change (fixes #1685) | [2026-11-03-tensorfold-honest-cuda-flags.md](agent-wiki/2026-11-03-tensorfold-honest-cuda-flags.md) | #1685 |

@@ -774,13 +774,27 @@ def render_variant(skill: dict, backend: str, arch: str) -> dict:
     }
 
 
-def documented_flags(skill: dict) -> list[str]:
+def documented_flags(skill: dict, backend: str | None = None) -> list[str]:
     """The flags this engine's own binary answers, as documented in its skill.
 
-    `binary_flags: ["--version", "--help"]` in the front matter. The push gate
-    probes these first inside the built image (issue #204).
+    `binary_flags: ["--version", "--help"]` (all backends) or a per-backend map
+    `binary_flags: {cuda: ["--version"], metal: ["--help", "--version"]}` in the
+    front matter; `backend` selects the map entry (mirroring `binary_probe` /
+    `_per_backend`). When `backend` is None, the union across every backend is
+    returned (used by full-sweep validation). The push gate probes these first
+    inside the built image (issue #204).
     """
-    return [str(f) for f in (skill.get("binary_flags") or [])]
+    raw = skill.get("binary_flags") or []
+    if backend is not None:
+        return [str(f) for f in (_per_backend(raw, backend) or [])]
+    if isinstance(raw, dict):
+        seen: list[str] = []
+        for entry in raw.values():
+            for f in (entry or []):
+                if f not in seen:
+                    seen.append(str(f))
+        return seen
+    return [str(f) for f in raw]
 
 
 def probe_policy(skill: dict, backend: str) -> str:
@@ -811,7 +825,7 @@ def generate_params(skill: dict, manifest: dict | None = None) -> dict | None:
                 # go to containers/engines/binaries.json, never into the variant:
                 # that dict is hashed into the published image tag.
                 manifest[key] = {"binary": variant.get("binary") or "",
-                                 "flags": documented_flags(skill),
+                                 "flags": documented_flags(skill, b),
                                  "probe": probe_policy(skill, b)}
             variant.pop("binary", None)  # kept off the hashed params
             variants[key] = variant
@@ -1155,13 +1169,16 @@ def validate(skills: dict, registry: dict | None = None, unsupported: dict | Non
             for k in SERVABLE_KEYS:
                 if not s.get(k):
                     errors.append(f"{where}: servable engine needs {k}")
-            flags = documented_flags(s)
-            if not flags:
-                errors.append(f"{where}: servable engine needs binary_flags "
-                              f"(the version/help flags its own binary answers)")
-            bad = [f for f in flags if f not in BINARY_FLAGS]
-            if bad:
-                errors.append(f"{where}: binary_flags must be one of {list(BINARY_FLAGS)}, got {bad}")
+            for b in s.get("backends") or []:
+                flags = documented_flags(s, b)
+                if not flags:
+                    errors.append(f"{where}: servable engine needs binary_flags "
+                                  f"(the version/help flags its own binary answers)")
+                bad = [f for f in flags if f not in BINARY_FLAGS]
+                if bad:
+                    _suffix = f".{b}" if isinstance(s.get("binary_flags"), dict) else ""
+                    errors.append(f"{where}: binary_flags{_suffix} "
+                                  f"must be one of {list(BINARY_FLAGS)}, got {bad}")
             probe_map = s.get("binary_probe")
             if probe_map and not isinstance(probe_map, dict):
                 errors.append(f"{where}: binary_probe must be a backend: policy map")
