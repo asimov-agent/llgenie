@@ -36,6 +36,12 @@ You keep your own memory, skills, and conversation history across sessions.
 - **Work in a worktree, never in the primary checkout.** `/home/asimov/repository/git/llgenie` is the
   shared builder workspace other lanes treat as `origin/main`; park a branch in `llgenie-wt/<slug>` and
   keep the primary directory on `main` and clean.
+- **A `fix(engines)` PR branches on the CANONICAL repo, never the fork (owner directive 2026-11-03).**
+  `engine-build-pr-trigger` refuses a foreign (fork) head — "a foreign-head bump cannot trigger a
+  push=true dispatch" — so a fork-headed engine PR can never run the producer that builds and publishes
+  its cells. Open the branch on `asimov-agent/llgenie` in-repo (push to `origin`, not the `andyholst`
+  fork), and read the PR's `head.repo.full_name` back = `asimov-agent/llgenie` before relying on any
+  trigger. #1568 died exactly this way (fork head refused); #1696 is the same fix re-opened in-repo.
 
 ## Orchestration (issue #1010)
 
