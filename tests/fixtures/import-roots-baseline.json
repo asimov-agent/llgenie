@@ -1,6 +1,6 @@
 {
   "bare": {
-    "count": 52,
+    "count": 54,
     "sites": [
       "tests/test_agent_nerve.py:44",
       "tests/test_arm_auto_merge.py:19",
@@ -11,6 +11,7 @@
       "tests/test_bot_verdict.py:21",
       "tests/test_changes_index.py:21",
       "tests/test_changes_index.py:22",
+      "tests/test_check_consults_measurements.py:4",
       "tests/test_ci_publish_order.py:28",
       "tests/test_ci_requeue.py:22",
       "tests/test_ci_scope.py:26",
@@ -38,6 +39,7 @@
       "tests/test_quant_generator_edges.py:22",
       "tests/test_registry_change_issue.py:18",
       "tests/test_registry_change_issue.py:19",
+      "tests/test_registry_measurements.py:3",
       "tests/test_registry_review.py:23",
       "tests/test_security_bumps.py:23",
       "tests/test_sweep_concurrency.py:17",
@@ -57,7 +59,7 @@
     ]
   },
   "sys-path": {
-    "count": 32,
+    "count": 34,
     "sites": [
       "tests/test_agent_nerve.py:43",
       "tests/test_arm_auto_merge.py:17",
@@ -66,6 +68,7 @@
       "tests/test_bot_preflight.py:16",
       "tests/test_bot_verdict.py:19",
       "tests/test_changes_index.py:20",
+      "tests/test_check_consults_measurements.py:2",
       "tests/test_check_engine_launchers.py:23",
       "tests/test_check_model_links.py:18",
       "tests/test_ci_requeue.py:21",
@@ -84,6 +87,7 @@
       "tests/test_pr_hygiene_agents_line.py:17",
       "tests/test_quant_generator_edges.py:20",
       "tests/test_registry_change_issue.py:16",
+      "tests/test_registry_measurements.py:2",
       "tests/test_registry_review.py:21",
       "tests/test_security_bumps.py:22",
       "tests/test_sweep_concurrency.py:15",
