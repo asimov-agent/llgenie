@@ -218,7 +218,16 @@
     }
   ],
   "unresolved": [],
-  "stale_decisions": [],
+  "stale_decisions": [
+    {
+      "engine": "Inco Splash",
+      "why": "the registry no longer names it"
+    },
+    {
+      "engine": "uzu",
+      "why": "the registry no longer names it"
+    }
+  ],
   "models_never_offered": [
     {
       "id": "bonsai-2-27b-mlx-fast",

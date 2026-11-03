@@ -1,222 +1,238 @@
 {
-  "note": "Registry engines llgenie deliberately ships no skill/image for (issue #229). registry-sync carries every engine upstream lists, and rank_engines drops an engine with no image, so an engine with no skill must be a DECISION here - dated and reasoned - or it is not a decision at all. An engine in data/models.json with no skills/engines/<id>/SKILL.md and no entry here is NEW AND UNRESOLVED: `make check-engine-skill-gap` fails naming it, and the weekly registry-sync opens one tracking issue for it. Entries for an engine that later ships a skill, or that upstream stops listing, are stale: delete them (the gate fails until you do). Each reason below was read from the upstream repository's own README/releases, not inferred from the registry's one-line auto-registration note.",
-  "decided_utc": "2026-10-27",
-  "engines": {
-    "mlx-serve": {
-      "decision": "deferred",
-      "decided": "2026-10-14",
-      "reason": "Upstream ships native binaries only (a brew cask plus linux CUDA tarballs), no container image, and it is an all-in-one app overlapping the MLX engine llgenie already serves natively.",
-      "issue": 229,
-      "backend": "Metal",
-      "upstream": "https://github.com/ddalcu/mlx-serve"
-    },
-    "Rapid-MLX": {
-      "decision": "deferred",
-      "decided": "2026-10-27",
-      "reason": "Apple-Silicon-only MLX server installed from Homebrew or PyPI, with pure MLX kernels and no Linux or GGUF path: its README scopes it to M-series Macs, calls `brew install rapid-mlx` the install, and the product it ships is a macOS desktop app plus image/video/audio generation aliases rather than a server llgenie could drive for the GGUF/MLX models it offers. Metal cannot run in llgenie's Linux image, and that platform is already served natively by the mlx engine, so a second native MLX stack would duplicate it.",
-      "issue": 229,
-      "backend": "Metal",
-      "upstream": "https://github.com/raullenchai/Rapid-MLX"
-    },
-    "oMLX": {
-      "decision": "deferred",
-      "decided": "2026-10-14",
-      "reason": "Apple-Silicon server delivered as a macOS menu-bar app: Metal cannot run in a container, so it would need a native Metal skill, and llgenie already ships the `mlx` engine for that platform.",
-      "issue": 229,
-      "backend": "Metal",
-      "upstream": "https://github.com/jundot/omlx"
-    },
-    "omlx-exl3": {
-      "decision": "deferred",
-      "decided": "2026-10-14",
-      "reason": "Not a server at all: a patch set that adds ExLlamaV3's EXL3 format to oMLX (pinned to one commit, single author) and rides oMLX's own server on Apple Silicon.",
-      "issue": 229,
-      "backend": "Metal",
-      "upstream": "https://github.com/daig/omlx-exl3"
-    },
-    "ExLlamaV3": {
-      "decision": "deferred",
-      "decided": "2026-10-14",
-      "reason": "Upstream is a quantization/inference library whose OpenAI API comes from a separate server (TabbyAPI), so there is no first-party server to image; llgenie ships the ExLlamaV3 ROCm-fork engine instead.",
-      "issue": 229,
-      "backend": "CUDA",
-      "upstream": "https://github.com/turboderp-org/exllamav3"
-    },
-    "MegaCapybara": {
-      "decision": "deferred",
-      "decided": "2026-10-14",
-      "reason": "Closed-source binaries (upstream says the source comes later) behind an interactive launcher, scoped to one model on one card (Qwen3.8-27B on an RTX 5090): there is no source, release tree or image to build from.",
-      "issue": 229,
-      "backend": "CUDA",
-      "upstream": "https://github.com/perkel666/MegaCapybara"
-    },
-    "llama.cpp (LlamAmpere fork)": {
-      "decision": "not-shipped",
-      "decided": "2026-10-14",
-      "reason": "A llama.cpp fork tuned for Ampere cards only: llgenie ships stock llama.cpp plus the Prism and LaurentZuijdwijk forks, and a third fork is a permanent maintenance burden for a per-card gain.",
-      "issue": 229,
-      "backend": "CUDA",
-      "upstream": "https://github.com/JakeATX/llamAmpere"
-    },
-    "glm-flash-lite": {
-      "decision": "deferred",
-      "decided": "2026-10-14",
-      "reason": "A single-model (GLM-5.3-Flash EXL3) offload engine for one 24 GB card, built on SGLang + ExLlamaV3 - both of which llgenie already ships; a skill for it would duplicate two engines for one model.",
-      "issue": 229,
-      "backend": "CUDA",
-      "upstream": "https://github.com/sybil-solutions/glm-flash-lite"
-    },
-    "Project Maya": {
-      "decision": "deferred",
-      "decided": "2026-10-14",
-      "reason": "A single-model (GLM-5.3-Flash) engine + dashboard built on Strata, installed by a native setup script with no container image; llgenie already ships the Strata engine for that family.",
-      "issue": 229,
-      "backend": "CUDA",
-      "upstream": "https://github.com/mw00/project-maya"
-    },
-    "Janas": {
-      "decision": "deferred",
-      "decided": "2026-10-27",
-      "reason": "Experimental C toolkit: janas-server speaks an OpenAI-style API, but its releases are Linux/Windows tarballs built by ./build.sh, its models are its own .jns format (a GGUF has to be converted first), and its README says the API and CLI change several times a week.",
-      "issue": 229,
-      "backend": "CPU",
-      "upstream": "https://github.com/prabanta-dev/janas"
-    },
-    "Kapitsa": {
-      "decision": "deferred",
-      "decided": "2026-10-27",
-      "reason": "Apple-Silicon-only binary (brew tap or install.sh) that serves OpenAI and Anthropic APIs, but macOS 14+ on an M-series Mac is a hard requirement and Metal cannot run inside llgenie's Linux image; llgenie already ships the native mlx engine for that platform.",
-      "issue": 229,
-      "backend": "Metal",
-      "upstream": "https://github.com/nace-ai/kapitsa"
-    },
-    "LM Studio": {
-      "decision": "deferred",
-      "decided": "2026-10-27",
-      "reason": "A desktop app, installed as an app, whose own docs describe the OpenAI endpoints its bundled llama.cpp/MLX runtimes serve; no source repository is published for the app or its serving layer, so there is nothing to build an image from and it overlaps Ollama and llama.cpp.",
-      "issue": 229,
-      "backend": "Metal",
-      "upstream": "https://lmstudio.ai"
-    },
-    "LemonSeed Engine": {
-      "decision": "deferred",
-      "decided": "2026-10-27",
-      "reason": "lse-server answers the OpenAI wire format, but upstream ships prebuilt per-platform tarballs (macOS arm64 with the notarised MacAMDGPU DriverKit runtime, Linux x86_64 needing ROCm 7) and its own HRX/Loom kernel compiler: no container recipe, and two vendor-specific runtimes to pin.",
-      "issue": 229,
-      "backend": "ROCm",
-      "upstream": "https://github.com/Geramy/LSE"
-    },
-    "MTPLX": {
-      "decision": "deferred",
-      "decided": "2026-10-27",
-      "reason": "A native Mac app plus CLI (brew or pip) whose `mtplx serve` exposes OpenAI and Anthropic APIs through MLX MTP speculative decoding on Apple Silicon only; Metal cannot run in a container, and llgenie reaches that platform through its native mlx/TensorFold skills.",
-      "issue": 229,
-      "backend": "Metal",
-      "upstream": "https://github.com/youssofal/MTPLX"
-    },
-    "Magnitude": {
-      "decision": "deferred",
-      "decided": "2026-10-27",
-      "reason": "A desktop app and CLI delivered as platform installers, whose `magnitude server setup` runs it as a self-updating user service that tunes kernels for the local machine at install time; there is no published container image and no pinned build for llgenie to carry.",
-      "issue": 229,
-      "backend": "CUDA",
-      "upstream": "https://github.com/magnitudedev/magnitude"
-    },
-    "OpenJet": {
-      "decision": "deferred",
-      "decided": "2026-10-27",
-      "reason": "A terminal coding agent installed from PyPI whose `openjet setup` builds llama.cpp and then JIT-compiles OpenJet's own CUDA engine for the local GPU (Qwen3.8-27B only, llama-server for every other model): it wraps llama.cpp rather than replacing it as an engine.",
-      "issue": 229,
-      "backend": "CUDA",
-      "upstream": "https://github.com/L-Forster/open-jet"
-    },
-    "OpenVINO": {
-      "decision": "deferred",
-      "decided": "2026-10-27",
-      "reason": "A model-optimisation toolkit, not a server: the OpenAI-compatible endpoint belongs to OVMS (openvinotoolkit/model_server), and OpenVINO targets Intel CPU/GPU/NPU only, so an image would add an Intel-only engine beside the llama.cpp cpu image that already runs everywhere.",
-      "issue": 229,
-      "backend": "CPU",
-      "upstream": "https://github.com/openvinotoolkit/openvino"
-    },
-    "PyTorch": {
-      "decision": "deferred",
-      "decided": "2026-10-27",
-      "reason": "A general deep-learning framework: the MPS backend is a tensor library, and the HTTP server in front of it is a separate project (TorchServe/vLLM/SGLang). An image of PyTorch would be a Python build toolchain, not an inference server llgenie can drive for a GGUF or MLX model.",
-      "issue": 229,
-      "backend": "Metal",
-      "upstream": "https://github.com/pytorch/pytorch"
-    },
-    "Slotstream": {
-      "decision": "deferred",
-      "decided": "2026-10-27",
-      "reason": "A native Swift/MLX engine that streams experts from SSD on Apple Silicon, released for one model (Qwen3.8-Flash-Next MLX 4-bit) and needing macOS 14 with ~110 GB free; macOS and Metal only, so it cannot run in llgenie's Linux image.",
-      "issue": 229,
-      "backend": "Metal",
-      "upstream": "https://github.com/carloslfu/slotstream"
-    },
-    "SonicBoom": {
-      "decision": "deferred",
-      "decided": "2026-10-27",
-      "reason": "A C++/CUDA tensor runtime loaded as libsonicboom.so through a stable C ABI (Guile first-class, no Python), verified end to end on two GGUF families; it is GPL-3.0-or-later and a library rather than a server, so llgenie has no endpoint to image and drive.",
-      "issue": 229,
-      "backend": "CUDA",
-      "upstream": "https://github.com/hardenedlinux/SonicBoom"
-    },
-    "TandemLLM": {
-      "decision": "deferred",
-      "decided": "2026-10-27",
-      "reason": "An agent harness with its own inference engine, installed by two commands on a DGX Spark and measured only there (one NVIDIA GB10 box); the engine is AGPL-3.0-only or commercial, so it is a single-box product rather than an engine llgenie can ship for every host.",
-      "issue": 229,
-      "backend": "CUDA",
-      "upstream": "https://github.com/0xBakeer/TandemLLM"
-    },
-    "TokenSpeed": {
-      "decision": "deferred",
-      "decided": "2026-10-27",
-      "reason": "It publishes container images and an OpenAI-compatible server, but it is a datacenter serving stack (GB200, MI355X; tensor and expert parallelism) tuned for 100B-2.4T models, not the single-GPU GGUF path llgenie drives on a reader's card.",
-      "issue": 229,
-      "backend": "CUDA",
-      "upstream": "https://github.com/lightseekorg/tokenspeed"
-    },
-    "strixite": {
-      "decision": "deferred",
-      "decided": "2026-10-27",
-      "reason": "An OpenAI-compatible server written from scratch in HIP for exactly one chip and one model (AMD Strix Halo gfx1151 with 128 GB, Qwen3.8-Flash-Next); the container image carries that ROCm runtime only, so it is a single-APU experiment rather than a general engine.",
-      "issue": 229,
-      "backend": "ROCm",
-      "upstream": "https://github.com/shawnshekari/strixite"
-    },
-    "turbo-fieldfare": {
-      "decision": "not-shipped",
-      "decided": "2026-10-27",
-      "reason": "A Swift/Metal runtime plus a macOS app and a loopback-only OpenAI server, hard-wired to one model (Gemma 4 26B-A4B) in its own .gturbo layout on macOS 26: no container image, no GGUF, and Metal cannot run inside llgenie's Linux image.",
-      "issue": 229,
-      "backend": "Metal",
-      "upstream": "https://github.com/drumih/turbo-fieldfare"
-    },
-    "llama.cpp (custom KV-streaming fork)": {
-      "decision": "not-shipped",
-      "decided": "2026-10-27",
-      "reason": "The registry names stock ggml-org/llama.cpp, which llgenie already ships as its llama.cpp engine, while its note describes an unnamed fork with KV-cache streaming; the source post names no repository, so there is no patch set to pin and no image to build.",
-      "issue": 229,
-      "backend": "ROCm",
-      "upstream": "https://github.com/ggml-org/llama.cpp"
-    },
-    "llama.cpp (hikicoder fork)": {
-      "decision": "not-shipped",
-      "decided": "2026-10-27",
-      "reason": "A patch series on JigSawPT's dsv41-porte llama.cpp branch that streams DeepSeek-V4.1-Flash's experts from NVMe on a ~20 GB GPU; the fork's own default branch carries the README, and the build it documents is Windows + CUDA 13, so no image can carry it as a general engine.",
-      "issue": 229,
-      "backend": "CUDA",
-      "upstream": "https://github.com/hikicoder/llama.cpp"
-    },
-    "llama.cpp (strix-llama.cpp fork)": {
-      "decision": "not-shipped",
-      "decided": "2026-10-27",
-      "reason": "A community llama.cpp fork for one APU family (AMD Strix Halo gfx1151 / RDNA 3.5), built from source with -DGPU_TARGETS=gfx1151; llgenie ships stock llama.cpp plus the Prism and LaurentZuijdwijk forks, and a third per-chip fork is a permanent maintenance liability.",
-      "issue": 229,
-      "backend": "ROCm",
-      "upstream": "https://github.com/asf0/strix-llama.cpp"
-    }
+ "note": "Registry engines llgenie deliberately ships no skill/image for (issue #229). registry-sync carries every engine upstream lists, and rank_engines drops an engine with no image, so an engine with no skill must be a DECISION here - dated and reasoned - or it is not a decision at all. An engine in data/models.json with no skills/engines/<id>/SKILL.md and no entry here is NEW AND UNRESOLVED: `make check-engine-skill-gap` fails naming it, and the weekly registry-sync opens one tracking issue for it. Entries for an engine that later ships a skill, or that upstream stops listing, are stale: delete them (the gate fails until you do). Each reason below was read from the upstream repository's own README/releases, not inferred from the registry's one-line auto-registration note.",
+ "decided_utc": "2026-11-03",
+ "engines": {
+  "mlx-serve": {
+   "decision": "deferred",
+   "decided": "2026-10-14",
+   "reason": "Upstream ships native binaries only (a brew cask plus linux CUDA tarballs), no container image, and it is an all-in-one app overlapping the MLX engine llgenie already serves natively.",
+   "issue": 229,
+   "backend": "Metal",
+   "upstream": "https://github.com/ddalcu/mlx-serve"
+  },
+  "Rapid-MLX": {
+   "decision": "deferred",
+   "decided": "2026-10-27",
+   "reason": "Apple-Silicon-only MLX server installed from Homebrew or PyPI, with pure MLX kernels and no Linux or GGUF path: its README scopes it to M-series Macs, calls `brew install rapid-mlx` the install, and the product it ships is a macOS desktop app plus image/video/audio generation aliases rather than a server llgenie could drive for the GGUF/MLX models it offers. Metal cannot run in llgenie's Linux image, and that platform is already served natively by the mlx engine, so a second native MLX stack would duplicate it.",
+   "issue": 229,
+   "backend": "Metal",
+   "upstream": "https://github.com/raullenchai/Rapid-MLX"
+  },
+  "oMLX": {
+   "decision": "deferred",
+   "decided": "2026-10-14",
+   "reason": "Apple-Silicon server delivered as a macOS menu-bar app: Metal cannot run in a container, so it would need a native Metal skill, and llgenie already ships the `mlx` engine for that platform.",
+   "issue": 229,
+   "backend": "Metal",
+   "upstream": "https://github.com/jundot/omlx"
+  },
+  "omlx-exl3": {
+   "decision": "deferred",
+   "decided": "2026-10-14",
+   "reason": "Not a server at all: a patch set that adds ExLlamaV3's EXL3 format to oMLX (pinned to one commit, single author) and rides oMLX's own server on Apple Silicon.",
+   "issue": 229,
+   "backend": "Metal",
+   "upstream": "https://github.com/daig/omlx-exl3"
+  },
+  "ExLlamaV3": {
+   "decision": "deferred",
+   "decided": "2026-10-14",
+   "reason": "Upstream is a quantization/inference library whose OpenAI API comes from a separate server (TabbyAPI), so there is no first-party server to image; llgenie ships the ExLlamaV3 ROCm-fork engine instead.",
+   "issue": 229,
+   "backend": "CUDA",
+   "upstream": "https://github.com/turboderp-org/exllamav3"
+  },
+  "MegaCapybara": {
+   "decision": "deferred",
+   "decided": "2026-10-14",
+   "reason": "Closed-source binaries (upstream says the source comes later) behind an interactive launcher, scoped to one model on one card (Qwen3.8-27B on an RTX 5090): there is no source, release tree or image to build from.",
+   "issue": 229,
+   "backend": "CUDA",
+   "upstream": "https://github.com/perkel666/MegaCapybara"
+  },
+  "llama.cpp (LlamAmpere fork)": {
+   "decision": "not-shipped",
+   "decided": "2026-10-14",
+   "reason": "A llama.cpp fork tuned for Ampere cards only: llgenie ships stock llama.cpp plus the Prism and LaurentZuijdwijk forks, and a third fork is a permanent maintenance burden for a per-card gain.",
+   "issue": 229,
+   "backend": "CUDA",
+   "upstream": "https://github.com/JakeATX/llamAmpere"
+  },
+  "glm-flash-lite": {
+   "decision": "deferred",
+   "decided": "2026-10-14",
+   "reason": "A single-model (GLM-5.3-Flash EXL3) offload engine for one 24 GB card, built on SGLang + ExLlamaV3 - both of which llgenie already ships; a skill for it would duplicate two engines for one model.",
+   "issue": 229,
+   "backend": "CUDA",
+   "upstream": "https://github.com/sybil-solutions/glm-flash-lite"
+  },
+  "Project Maya": {
+   "decision": "deferred",
+   "decided": "2026-10-14",
+   "reason": "A single-model (GLM-5.3-Flash) engine + dashboard built on Strata, installed by a native setup script with no container image; llgenie already ships the Strata engine for that family.",
+   "issue": 229,
+   "backend": "CUDA",
+   "upstream": "https://github.com/mw00/project-maya"
+  },
+  "Janas": {
+   "decision": "deferred",
+   "decided": "2026-10-27",
+   "reason": "Experimental C toolkit: janas-server speaks an OpenAI-style API, but its releases are Linux/Windows tarballs built by ./build.sh, its models are its own .jns format (a GGUF has to be converted first), and its README says the API and CLI change several times a week.",
+   "issue": 229,
+   "backend": "CPU",
+   "upstream": "https://github.com/prabanta-dev/janas"
+  },
+  "Kapitsa": {
+   "decision": "deferred",
+   "decided": "2026-10-27",
+   "reason": "Apple-Silicon-only binary (brew tap or install.sh) that serves OpenAI and Anthropic APIs, but macOS 14+ on an M-series Mac is a hard requirement and Metal cannot run inside llgenie's Linux image; llgenie already ships the native mlx engine for that platform.",
+   "issue": 229,
+   "backend": "Metal",
+   "upstream": "https://github.com/nace-ai/kapitsa"
+  },
+  "LM Studio": {
+   "decision": "deferred",
+   "decided": "2026-10-27",
+   "reason": "A desktop app, installed as an app, whose own docs describe the OpenAI endpoints its bundled llama.cpp/MLX runtimes serve; no source repository is published for the app or its serving layer, so there is nothing to build an image from and it overlaps Ollama and llama.cpp.",
+   "issue": 229,
+   "backend": "Metal",
+   "upstream": "https://lmstudio.ai"
+  },
+  "LemonSeed Engine": {
+   "decision": "deferred",
+   "decided": "2026-10-27",
+   "reason": "lse-server answers the OpenAI wire format, but upstream ships prebuilt per-platform tarballs (macOS arm64 with the notarised MacAMDGPU DriverKit runtime, Linux x86_64 needing ROCm 7) and its own HRX/Loom kernel compiler: no container recipe, and two vendor-specific runtimes to pin.",
+   "issue": 229,
+   "backend": "ROCm",
+   "upstream": "https://github.com/Geramy/LSE"
+  },
+  "MTPLX": {
+   "decision": "deferred",
+   "decided": "2026-10-27",
+   "reason": "A native Mac app plus CLI (brew or pip) whose `mtplx serve` exposes OpenAI and Anthropic APIs through MLX MTP speculative decoding on Apple Silicon only; Metal cannot run in a container, and llgenie reaches that platform through its native mlx/TensorFold skills.",
+   "issue": 229,
+   "backend": "Metal",
+   "upstream": "https://github.com/youssofal/MTPLX"
+  },
+  "Magnitude": {
+   "decision": "deferred",
+   "decided": "2026-10-27",
+   "reason": "A desktop app and CLI delivered as platform installers, whose `magnitude server setup` runs it as a self-updating user service that tunes kernels for the local machine at install time; there is no published container image and no pinned build for llgenie to carry.",
+   "issue": 229,
+   "backend": "CUDA",
+   "upstream": "https://github.com/magnitudedev/magnitude"
+  },
+  "OpenJet": {
+   "decision": "deferred",
+   "decided": "2026-10-27",
+   "reason": "A terminal coding agent installed from PyPI whose `openjet setup` builds llama.cpp and then JIT-compiles OpenJet's own CUDA engine for the local GPU (Qwen3.8-27B only, llama-server for every other model): it wraps llama.cpp rather than replacing it as an engine.",
+   "issue": 229,
+   "backend": "CUDA",
+   "upstream": "https://github.com/L-Forster/open-jet"
+  },
+  "OpenVINO": {
+   "decision": "deferred",
+   "decided": "2026-10-27",
+   "reason": "A model-optimisation toolkit, not a server: the OpenAI-compatible endpoint belongs to OVMS (openvinotoolkit/model_server), and OpenVINO targets Intel CPU/GPU/NPU only, so an image would add an Intel-only engine beside the llama.cpp cpu image that already runs everywhere.",
+   "issue": 229,
+   "backend": "CPU",
+   "upstream": "https://github.com/openvinotoolkit/openvino"
+  },
+  "PyTorch": {
+   "decision": "deferred",
+   "decided": "2026-10-27",
+   "reason": "A general deep-learning framework: the MPS backend is a tensor library, and the HTTP server in front of it is a separate project (TorchServe/vLLM/SGLang). An image of PyTorch would be a Python build toolchain, not an inference server llgenie can drive for a GGUF or MLX model.",
+   "issue": 229,
+   "backend": "Metal",
+   "upstream": "https://github.com/pytorch/pytorch"
+  },
+  "Slotstream": {
+   "decision": "deferred",
+   "decided": "2026-10-27",
+   "reason": "A native Swift/MLX engine that streams experts from SSD on Apple Silicon, released for one model (Qwen3.8-Flash-Next MLX 4-bit) and needing macOS 14 with ~110 GB free; macOS and Metal only, so it cannot run in llgenie's Linux image.",
+   "issue": 229,
+   "backend": "Metal",
+   "upstream": "https://github.com/carloslfu/slotstream"
+  },
+  "SonicBoom": {
+   "decision": "deferred",
+   "decided": "2026-10-27",
+   "reason": "A C++/CUDA tensor runtime loaded as libsonicboom.so through a stable C ABI (Guile first-class, no Python), verified end to end on two GGUF families; it is GPL-3.0-or-later and a library rather than a server, so llgenie has no endpoint to image and drive.",
+   "issue": 229,
+   "backend": "CUDA",
+   "upstream": "https://github.com/hardenedlinux/SonicBoom"
+  },
+  "TandemLLM": {
+   "decision": "deferred",
+   "decided": "2026-10-27",
+   "reason": "An agent harness with its own inference engine, installed by two commands on a DGX Spark and measured only there (one NVIDIA GB10 box); the engine is AGPL-3.0-only or commercial, so it is a single-box product rather than an engine llgenie can ship for every host.",
+   "issue": 229,
+   "backend": "CUDA",
+   "upstream": "https://github.com/0xBakeer/TandemLLM"
+  },
+  "TokenSpeed": {
+   "decision": "deferred",
+   "decided": "2026-10-27",
+   "reason": "It publishes container images and an OpenAI-compatible server, but it is a datacenter serving stack (GB200, MI355X; tensor and expert parallelism) tuned for 100B-2.4T models, not the single-GPU GGUF path llgenie drives on a reader's card.",
+   "issue": 229,
+   "backend": "CUDA",
+   "upstream": "https://github.com/lightseekorg/tokenspeed"
+  },
+  "strixite": {
+   "decision": "deferred",
+   "decided": "2026-10-27",
+   "reason": "An OpenAI-compatible server written from scratch in HIP for exactly one chip and one model (AMD Strix Halo gfx1151 with 128 GB, Qwen3.8-Flash-Next); the container image carries that ROCm runtime only, so it is a single-APU experiment rather than a general engine.",
+   "issue": 229,
+   "backend": "ROCm",
+   "upstream": "https://github.com/shawnshekari/strixite"
+  },
+  "turbo-fieldfare": {
+   "decision": "not-shipped",
+   "decided": "2026-10-27",
+   "reason": "A Swift/Metal runtime plus a macOS app and a loopback-only OpenAI server, hard-wired to one model (Gemma 4 26B-A4B) in its own .gturbo layout on macOS 26: no container image, no GGUF, and Metal cannot run inside llgenie's Linux image.",
+   "issue": 229,
+   "backend": "Metal",
+   "upstream": "https://github.com/drumih/turbo-fieldfare"
+  },
+  "llama.cpp (custom KV-streaming fork)": {
+   "decision": "not-shipped",
+   "decided": "2026-10-27",
+   "reason": "The registry names stock ggml-org/llama.cpp, which llgenie already ships as its llama.cpp engine, while its note describes an unnamed fork with KV-cache streaming; the source post names no repository, so there is no patch set to pin and no image to build.",
+   "issue": 229,
+   "backend": "ROCm",
+   "upstream": "https://github.com/ggml-org/llama.cpp"
+  },
+  "llama.cpp (hikicoder fork)": {
+   "decision": "not-shipped",
+   "decided": "2026-10-27",
+   "reason": "A patch series on JigSawPT's dsv41-porte llama.cpp branch that streams DeepSeek-V4.1-Flash's experts from NVMe on a ~20 GB GPU; the fork's own default branch carries the README, and the build it documents is Windows + CUDA 13, so no image can carry it as a general engine.",
+   "issue": 229,
+   "backend": "CUDA",
+   "upstream": "https://github.com/hikicoder/llama.cpp"
+  },
+  "llama.cpp (strix-llama.cpp fork)": {
+   "decision": "not-shipped",
+   "decided": "2026-10-27",
+   "reason": "A community llama.cpp fork for one APU family (AMD Strix Halo gfx1151 / RDNA 3.5), built from source with -DGPU_TARGETS=gfx1151; llgenie ships stock llama.cpp plus the Prism and LaurentZuijdwijk forks, and a third per-chip fork is a permanent maintenance liability.",
+   "issue": 229,
+   "backend": "ROCm",
+   "upstream": "https://github.com/asf0/strix-llama.cpp"
+  },
+  "uzu": {
+   "decision": "deferred",
+   "decided": "2026-11-03",
+   "reason": "Apple/Metal-only high-performance inference engine for AI models (auto-registered from upstream Spotlight; a Rust/CherryML stack served natively for macOS): Metal cannot run inside llgenie's Linux image, and the Apple-Silicon platform is already served natively by the mlx engine, so a second native Metal stack would duplicate it.",
+   "issue": 229,
+   "backend": "Metal",
+   "upstream": "https://github.com/trymirai/uzu"
+  },
+  "Inco Splash": {
+   "decision": "deferred",
+   "decided": "2026-11-03",
+   "reason": "Apple-Silicon-only local inference engine (auto-registered from upstream Spotlight; a macOS desktop app for Apple M3+, built around DFlash2 speculative decoding and specialized Metal kernels, with no Linux or GGUF/container path): Metal cannot run inside llgenie's Linux image, and the Apple-Silicon platform is already served natively by the mlx engine.",
+   "issue": 229,
+   "backend": "Metal",
+   "upstream": "https://github.com/incoai/splash"
   }
+ }
 }
