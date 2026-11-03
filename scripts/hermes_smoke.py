@@ -74,15 +74,18 @@ def session_ids(conn: sqlite3.Connection) -> set[str]:
 
 def new_session(conn: sqlite3.Connection, before: set[str]) -> str | None:
     """The session this run created: the newest id not present before the run."""
-    ids = session_ids(conn) - before
-    if not ids:
-        return None
-    row = conn.execute(
-        "SELECT id FROM sessions WHERE id IN (%s) ORDER BY started_at DESC LIMIT 1"
-        % ",".join("?" * len(ids)),
-        tuple(ids),
-    ).fetchone()
-    return row[0] if row else None
+    # Constant query, filter in Python: a dynamic `WHERE id IN (...)` needs the
+    # placeholder string built by formatting, which semgrep's
+    # sqlalchemy-execute-raw-query rule flags (this store is sqlite3, never
+    # SQLAlchemy, and the ids were already bound as arguments). Ordering newest
+    # first and skipping ids already seen before the run is identical to the
+    # IN-clause query (issue #1648).
+    for row in conn.execute(
+        "SELECT id FROM sessions ORDER BY started_at DESC"
+    ).fetchall():
+        if row[0] not in before:
+            return row[0]
+    return None
 
 
 def wait_for_session(conn: sqlite3.Connection, before: set[str], expected: str,
