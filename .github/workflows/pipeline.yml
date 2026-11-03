@@ -183,9 +183,9 @@ jobs:
           node-version: "22"
       - uses: ./.github/actions/docker
         if: runner.os == 'Linux'  # macOS: the pinned openspec CLI, no Docker GitHub Action
-      - name: Pull the OpenSpec image (GHCR, published by ci-images; Linux only, macOS has no Docker)
-        if: runner.os == 'Linux'
-        run: make openspec-image-pull
+      - name: make openspec-image (the OpenSpec CLI image the openspec gates run in; a fork PR builds it from the change's own Dockerfile)
+        if: runner.os == 'Linux'  # macOS: the pinned openspec CLI, no Docker GitHub Action
+        run: make openspec-image
       - name: make ci-openspec (openspec-validate + openspec-tasks-check, fails on any unchecked `- [ ]`)
         run: make ci-openspec
 

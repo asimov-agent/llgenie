@@ -80,7 +80,10 @@ concurrency:
 #
 # ci-images (issue #117) publishes the CI images (llgenie/test, llgenie/openspec) to GHCR
 # once per content hash; every other job PULLS them (make test-image-pull /
-# make openspec-image-pull) and never builds them.
+# make openspec-image-pull) and never builds them. The open-spec gates (pipeline.yml's
+# linux / openspec and scope.yml's openspec gate) are the TWO deliberate exceptions: they call
+# make openspec-image, which pulls the published hash or BUILDS the change's own Dockerfile,
+# because a fork PR's read-only token can never publish a NEW hash (issue #1673).
 #
 # The engine images are built, verified, published to GHCR and install-tested by the
 # engine-build PRODUCER workflow (build-engine -> test-engine-stage -> push-engine ->

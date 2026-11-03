@@ -460,13 +460,33 @@ def test_no_ci_job_builds_a_ci_image():
     # When their run: steps are read
     runs = {name: "\n".join(_runs(job)) for name, job in every.items()}
 
-    # Then none runs make test-image or make openspec-image, only ci-images runs make publish-ci-images
+    # Then none runs make test-image or make openspec-image, only ci-images runs make publish-ci-images.
+    # One deliberate exception: pipeline.yml's `linux / openspec` calls `make openspec-image`
+    # (pull-or-build, mirroring scope.yml), because a fork PR's read-only token can never publish a
+    # NEW openspec hash and a hard pull would red the gate for a write GitHub will never grant
+    # (issue #1673; tracked by test_ci_images.py#test_openspec_gate_uses_pull_or_build_mirroring_scope).
+    allows_openspec_build = {"pipeline/openspec"}
     for name, text in runs.items():
+        if name in allows_openspec_build:
+            assert "make openspec-image" in text and "make openspec-image-pull" not in text, name
+            continue
         assert not re.search(r"make (test-image|openspec-image)(\s|$)", text), name
         assert ("make publish-ci-images" in text) == (name == "ci/ci-images"), name
 
-    # And every job that pulls a CI image needs ci-images, directly or through its caller
-    pulls = {n for n, t in runs.items() if "make test-image-pull" in t or "make test-env" in t or "make openspec-image-pull" in t}
+    # And no CI job may call the strict `openspec-image-pull` anywhere: on a fork PR its hash is
+    # never published and a hard pull reds for a write GitHub will never grant (issue #1655/#1673).
+    # Every CI consumer that reaches the openspec image must go through `make openspec-image`
+    # (pull-or-build). A new job reverting to strict pull fails here and the #1655 class repeats.
+    assert not any("make openspec-image-pull" in t for t in runs.values()), \
+        "no CI job may use the strict openspec-image-pull target (fork PRs can never publish it)"
+
+    # And every job that reaches a CI image needs ci-images, directly or through its caller.
+    # `make openspec-image` (pull-or-build) reaches the image too, so its job must keep the
+    # ci-images dependency even though it may fall back to building a fork's own Dockerfile
+    # when the pull is impossible (issue #1673).
+    pulls = {n for n, t in runs.items()
+             if "make test-image-pull" in t or "make test-env" in t
+             or "make openspec-image-pull" in t or "make openspec-image\n" in t or " make openspec-image" in t}
     assert pulls, "no job pulls the CI images"
     callers = {"pipeline": ("linux",),
                }
@@ -486,6 +506,25 @@ def test_no_ci_job_builds_a_ci_image():
     assert img["permissions"]["packages"] == "write"
     uses = [st.get("uses", "").split("@")[0] for st in img["steps"]]
     assert "docker/setup-qemu-action" in uses and "docker/setup-buildx-action" in uses
+
+
+def test_openspec_gate_uses_pull_or_build_mirroring_scope():
+    """pipeline.yml's `linux / openspec` must call `make openspec-image` (pull-or-build), not the
+    strict `openspec-image-pull` — so a fork PR, whose read-only token can never publish a NEW
+    openspec hash, builds the change's own Dockerfile instead of redding for a write GitHub will
+    never grant (issue #1655/#1673). Mirrors scope.yml's openspec gate. A regression back to a hard
+    `pull` fails this test and the #1655 fork-PR red repeats."""
+    pipeline = _jobs("pipeline.yml")
+    scope = _jobs("scope.yml")
+    openspec = pipeline["openspec"]
+    # The Linux-only step before ci-openspec is the image-gate seam: it must pull-or-build.
+    assert any("make openspec-image" in st.get("run", "")
+               for st in openspec["steps"]), "openspec job must pull-or-build (make openspec-image)"
+    assert not any("make openspec-image-pull" in st.get("run", "")
+                   for st in openspec["steps"]), "openspec job must NOT use strict openspec-image-pull"
+    # scope.yml holds the same seam (regression guard against divergence).
+    assert any("make openspec-image" in st.get("run", "")
+               for _j in scope.values() for st in _j.get("steps", []) if "openspec" in st.get("name", ""))
 
 
 def _make_targets(job: dict) -> list[str]:

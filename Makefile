@@ -1391,7 +1391,7 @@ version: ## Show numpy/gguf versions inside the venv
 openspec-image: ## The OpenSpec CLI image: pull the published hash of openspec/Dockerfile (GHCR), else build it here (issue #117)
 	python3 scripts/ci_images.py ensure openspec
 
-openspec-image-pull: ## CI: pull the published OpenSpec image (hash of openspec/Dockerfile) as $(OS_IMG); fails if not published, never builds
+openspec-image-pull: ## The OpenSpec CLI image: strict pull of the published hash (openspec/Dockerfile) as $(OS_IMG); fails if not published, never builds — a host-side helper now that the openspec gates call make openspec-image (issue #1673)
 	python3 scripts/ci_images.py pull openspec
 
 OS_OPTS := --rm -u root -v "$(REPO)":/repo:rw -w /repo $(OS_IMG)
@@ -1755,7 +1755,8 @@ uninstall: ## Undo make install: ~/bin/llgenie, llgenie.py, the llgenie-engine-*
 # pipeline.yml runs each as one job, on Linux AND on macOS (issue #120: the same
 # file, no combined jobs). The commands are the same on both OSes. Every target
 # that runs in a container needs the pulled llgenie/test (or llgenie/openspec) image:
-# CI pulls it first with `make test-image-pull` / `make openspec-image-pull`.
+# CI pulls the test image first with `make test-image-pull`; the openspec gate pulls-or-builds
+# with `make openspec-image` (a fork PR cannot publish a NEW hash, issue #1673).
 ci-lint: bash-check ## CI job lint: make lint + the zero-byte file gate
 	$(MAKE) lint
 	$(MAKE) check-empty-files
