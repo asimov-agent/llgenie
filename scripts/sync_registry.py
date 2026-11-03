@@ -371,6 +371,35 @@ def _summary(data: dict) -> str:
     return f"generated_utc={data.get('generated_utc', '?')} models={len(data['models'])}"
 
 
+def _merge_measurements(rows: list[dict], measurements: dict | None) -> list[dict]:
+    """Rehydrate per-row `engines` from the producer's normalized measurement store (issue
+    #1634 / producer #689): the producer split per-model t/s out of models.json into
+    data/measurements.json (keyed by model id), but llgenie's picker, additive-only
+    registry-keys gate and README engine check all read the denormalized rows. Merge the
+    measurements back so one stored row carries what its README renders.
+
+    Distinct runs are keyed by (engine, hardware), NOT engine name alone: the picker's
+    `card_evidence`/`admitting_measurement` admit a model on a card only when the row
+    carries a run measured on that card (or smaller), so collapsing every run of one
+    engine down to a single arbitrary entry would silently erase the small-card runs that
+    the README tier tables and #669 admission depend on (issue #1649).
+    """
+
+    def _run_key(e: dict) -> tuple:
+        return (str(e.get("engine") or ""), str(e.get("hardware") or ""))
+
+    by_id = {str(m.get("id") or ""): m for m in rows}
+    for mid, runs in (measurements or {}).items():
+        m = by_id.get(mid)
+        if m is None:
+            continue
+        existing: dict[tuple, dict] = {_run_key(e): e for e in m.get("engines") or []}
+        for e in runs:
+            existing.setdefault(_run_key(e), e)
+        m["engines"] = list(existing.values())
+    return rows
+
+
 def sync(src: str, dest: Path, readme_src: str | None = UPSTREAM_README,
          readme_dest: Path | None = None, contract_src: str | None = UPSTREAM_CONTRACT,
          contract_doc_src: str | None = UPSTREAM_CONTRACT_DOC,
@@ -406,21 +435,10 @@ def sync(src: str, dest: Path, readme_src: str | None = UPSTREAM_README,
     # Everything below vendors the NORMALISED store (issue #687): one row per model, formats
     # in the vocabulary, and the README carrying the same rows in the same order.
     store, notes = normalise(new)
-    # Rehydrate per-row `engines` from the producer's normalized measurement store (issue
-    # #1634 / producer #689): the producer split per-model t/s out of models.json into
-    # data/measurements.json (keyed by model id), but llgenie's picker, additive-only
-    # registry-keys gate and README engine check all read the denormalized rows. Merge the
-    # measurements back so one stored row carries what its README renders.
+    # Rehydrate per-row `engines` from the producer's normalized measurement store
+    # (issue #1634 / producer #689). See _merge_measurements.
     if measurements is not None:
-        by_id = {str(m.get("id") or ""): m for m in store["models"]}
-        for mid, rows in measurements.items():
-            m = by_id.get(mid)
-            if m is None:
-                continue
-            existing = {(e.get("engine")): e for e in m.get("engines") or []}
-            for e in rows:
-                existing.setdefault(e.get("engine"), e)
-            m["engines"] = list(existing.values())
+        _merge_measurements(store["models"], measurements)
     if readme is not None:
         check_readme_matches(store, readme, measurements)
     raw = (json.dumps(store, indent=2, ensure_ascii=False) + "\n").encode()
