@@ -62,6 +62,8 @@ make check-engine-launchers               # CI: a launcher whose tag is not what
 make engine-launchers-report              # the same comparison, printed per engine (launcher tag vs expected)
 make check-engine-pins-published          # CI: an engine THIS change repins must have its exact image tag published — red on a 404, green only on resolve (issue #1622)
 make engine-pins-published-report         # print the engines this change repins vs the base + their published-tag set (issue #1622)
+make engine-build-pr-trigger              # CI "will" arm: dispatch engine-build push=true for every engine THIS change repins and await each verdict (issue #1633; hermetic no-op when nothing repins)
+make engine-build-pr-trigger-report       # print the repinned engines and the dispatch plan, without dispatching (issue #1633)
 make ci-wait-engine-images ARCH=cpu       # CI gate: wait until every image `make install` pulls is published (issue #169);
                                           # a producer cell still QUEUED is waited on up to 75 min and reported as BLOCKED,
                                           # a producer that concluded is reported as NOT FOUND (issue #893)
