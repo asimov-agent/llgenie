@@ -473,8 +473,13 @@ def test_no_ci_job_builds_a_ci_image():
         assert not re.search(r"make (test-image|openspec-image)(\s|$)", text), name
         assert ("make publish-ci-images" in text) == (name == "ci/ci-images"), name
 
-    # And every job that pulls a CI image needs ci-images, directly or through its caller
-    pulls = {n for n, t in runs.items() if "make test-image-pull" in t or "make test-env" in t or "make openspec-image-pull" in t}
+    # And every job that reaches a CI image needs ci-images, directly or through its caller.
+    # `make openspec-image` (pull-or-build) reaches the image too, so its job must keep the
+    # ci-images dependency even though it may fall back to building a fork's own Dockerfile
+    # when the pull is impossible (issue #1673).
+    pulls = {n for n, t in runs.items()
+             if "make test-image-pull" in t or "make test-env" in t
+             or "make openspec-image-pull" in t or "make openspec-image\n" in t or " make openspec-image" in t}
     assert pulls, "no job pulls the CI images"
     callers = {"pipeline": ("linux",),
                }
