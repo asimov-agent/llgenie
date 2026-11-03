@@ -33,6 +33,7 @@ the only thing that talks to a registry, and it is opt-in so CI never depends on
 Usage:
     python3 scripts/check_engine_launchers.py check            # exit 1 on a stale launcher
     python3 scripts/check_engine_launchers.py check --check-registry
+    python3 scripts/check_engine_launchers.py check --arch all --check-registry
     python3 scripts/check_engine_launchers.py report           # print what it compares
 """
 from __future__ import annotations
@@ -162,16 +163,17 @@ def main(argv=None) -> int:
     ap.add_argument("cmd", choices=("check", "report"), nargs="?", default="check")
     ap.add_argument("--bin", default=os.environ.get("BIN") or str(Path.home() / "bin"),
                     help="the bin dir the launchers live in (default: ~/bin, or $BIN)")
-    ap.add_argument("--arch", default="", help="cpu|cuda|rocm|vulkan (default: this host's)")
+    ap.add_argument("--arch", default="",
+                    help="cpu|cuda|rocm|vulkan|all (default: this host's; all sweeps every backend of one engine)")
     ap.add_argument("--check-registry", action="store_true",
                     default=os.environ.get("CHECK_REGISTRY", "") not in ("", "0", "false"),
                     help="also fail a tag no registry manifest resolves (default: no network)")
     args = ap.parse_args(argv)
     bindir = Path(args.bin).expanduser()
-    arch = args.arch or iel.detected_arch()
+    arches = list(ei.CI_VARIANTS) if args.arch == "all" else [args.arch or iel.detected_arch()]
     if args.cmd == "report":
-        return report(bindir, arch)
-    return check(bindir, arch, args.check_registry)
+        return max(report(bindir, a) for a in arches)
+    return max(check(bindir, a, args.check_registry) for a in arches)
 
 
 if __name__ == "__main__":

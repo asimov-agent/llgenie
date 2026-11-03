@@ -128,6 +128,53 @@ def test_check_registry_reports_an_unpublished_tag(tmp_path, monkeypatch, capsys
     assert marker.exists(), "the registry check never ran a manifest lookup"
 
 
+def test_arch_all_sweeps_every_backend_and_names_a_cuda_unpublished(tmp_path, monkeypatch, capsys):
+    """`--arch all` is the #1652 widening: a cuda pin that 404s must red the gate like a cpu one.
+
+    Before this, the registry-liveness monitor ran `--arch` with the RUN HOST's backend (cpu on a
+    GH runner), so a committed-but-unpublished cuda pin passed every committed CI. `--arch all`
+    derives the sweep from engine_image.CI_VARIANTS and must reach the cuda rows.
+    """
+
+    # Given a registry whose manifest lookup misses every tag, and an empty bin (no launchers)
+    marker = tmp_path / "docker-ran"
+    monkeypatch.setenv("PATH", _stub_docker(tmp_path / "fakebin", marker, 1) + ":" + os.environ["PATH"])
+    monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/example/llgenie", raising=False)
+    monkeypatch.setattr(ei, "RUNTIME", "docker", raising=False)
+
+    empty = tmp_path / "bin"
+    empty.mkdir()
+
+    # When  the sweep covers every backend with the registry check on
+    code = cel.main(["check", "--bin", str(empty), "--arch", "all", "--check-registry"])
+    out = capsys.readouterr().out
+
+    # Then  it fails, and it reported per-backend — including cuda, which the host-only default never reaches
+    assert code == 1, "an unpublished cuda pin must red an all-arch sweep"
+    assert "(arch cuda)" in out, out  # the sweep reached a backend the host-only run would not
+    assert "NOT PUBLISHED" in out
+    assert marker.exists(), "the all-arch sweep never consulted the registry"
+
+
+def test_report_arch_all_sweeps_every_backend(capsys):
+    """`report --arch all` must list every backend, not collapse to the host's (cpu-only) one.
+
+    A report that quietly shows one arch is how the #1652 gap survives: a human reads a clean
+    cpu list and never learns a cuda/rocm pin is unserved.
+    """
+    code = cel.main(["report", "--arch", "all", "--bin", "/nonexistent"])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert sum("host arch " in line for line in out.splitlines()) == len(ei.CI_VARIANTS), out
+
+
+def test_the_liveness_workflow_drives_the_sweep_of_every_backend():
+    """The registry-liveness monitor must pass ARCH=all, or a cuda pin 404s silently (issue #1652)."""
+    from pathlib import Path as _P
+    wf = (_P(__file__).resolve().parents[1] / ".github/workflows/registry-liveness.yml").read_text()
+    assert "check-engine-launchers CHECK_REGISTRY=1 ARCH=all" in wf, wf
+
+
 def test_the_default_run_touches_no_registry(tmp_path, monkeypatch, capsys):
     """No network by default: the gate must be safe on a runner with no GHCR reach."""
 

@@ -8,7 +8,11 @@ run-name: registry-liveness
 # ghcr.io/asimov-agent/llgenie/vllm:5df63a72-*-cuda resolves NO manifest (measured 2026-11-01, #1365).
 #
 # This pipeline is a control that READS the liveness gate on a schedule and on every merge to main, and on the
-# first unpublished pinned image opens ONE tracking issue naming it. It never runs in a pull request (a PR's pin
+# first unpublished pinned image opens ONE tracking issue naming it. It sweeps EVERY backend (ARCH=all, derived
+# from engine_image.CI_VARIANTS) so a cuda/rocm/vulkan pin that was never published reds it exactly like a cpu
+# one (issue #1652) — a committed cuda pin used to pass every committed CI even though its image 404'd on GHCR,
+# because the one gate that would catch it only read the run host's backend. It never runs in a pull request
+# (a PR's pin
 # tags are legitimately not yet published — engine-build publishes on merge), so it can never false-red a PR; it
 # is the after-the-fact reader that the "#1365 class has no CI consumer" gap was about. It never merges and never
 # touches main; it files GITHUB_ISSUES only, one per engine, idempotently. Not manually dispatchable: a scheduled
@@ -53,7 +57,11 @@ jobs:
         id: liveness
         run: |
           set +e
-          make check-engine-launchers CHECK_REGISTRY=1 > liveness.out 2>&1
+          # Issue #1652 (the "#1365 class has no cuda consumer" gap): sweep EVERY backend, not
+          # just the run host's — a committed cuda pin that was never published reds this gate
+          # exactly like a cpu one (`--arch all` is derived from engine_image.CI_VARIANTS, so a
+          # new backend is swept the day it is added, not when a list here is edited).
+          make check-engine-launchers CHECK_REGISTRY=1 ARCH=all > liveness.out 2>&1
           rc=$?
           set -e
           sed 's/^/  /' liveness.out
