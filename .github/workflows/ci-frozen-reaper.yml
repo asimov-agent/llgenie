@@ -1,0 +1,79 @@
+name: ci-frozen-reaper — cancel + re-run a run stuck in_progress past its threshold, every 30 minutes
+
+# Issue #1679: a run that hangs `in_progress` is invisible to BOTH healers — ci-requeue re-runs only
+# cancelled runs, run-failure-reactor fires only on `conclusion: failure`. A frozen in_progress run
+# matches neither predicate, so it blocks the PR verdict until a human intervenes (observed on #1671).
+# This is the third, time-bounded trigger. It cancels + re-runs only a run whose `updated_at` is older
+# than the threshold (default 90m) on an OPEN PR, and it posts the evidence (named owner, run id, both
+# timestamps) to the PR thread BEFORE it cancels anything.
+
+# Trigger surface: the 30-minute schedule (`2,32 * * * *` — minutes no other bot owns, issue #275) and
+# `workflow_dispatch` — never a `pull_request` or a `push`: this workflow heals runs, it does not gate
+# a change.
+# Flow: `make ci-frozen-reaper` reads the in_progress runs, and collapses ONLY one that is both old
+# (past the grace) AND non-advancing (updated_at older than the threshold) on an OPEN PR — posting the
+# evidence comment first, then `gh run cancel` + `gh run rerun` for that one run.
+# Never: never cancels a run that is still advancing (fresh updated_at) or younger than the grace, and
+# never touches a push/schedule run (no open PR = not a PR verdict).
+# dispatch: no inputs — the reaper takes no target: it sweeps every in_progress run. The threshold is a
+# make variable (THRESHOLD=90m), not a dispatch input.
+on:
+  schedule:
+    - cron: "2,32 * * * *" # every 30 minutes at :02 and :32 — minutes no other bot owns (issue #275)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write # `gh run cancel` / `gh run rerun` are writes on the Actions API
+  pull-requests: write # the evidence comment is posted to the PR thread
+
+# a reaper round must never be cancelled by the next one — that is the bug; a collapsed round is evidence
+concurrency:
+  group: ci-frozen-reaper
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Owner / collaborator trigger guard
+        env:
+          ACTOR: ${{ github.actor }}
+          TRIGGER: ${{ github.triggering_actor }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for u in "$ACTOR" "$TRIGGER"; do
+            if [ "$u" = "$OWNER" ]; then continue; fi
+            if [ "$u" = "github-actions[bot]" ]; then
+              echo "Repository bot as the actor - allowed."
+              continue
+            fi
+            perm=$(gh api "repos/$REPO/collaborators/$u/permission" --jq .permission 2>/dev/null || echo none)
+            case "$perm" in
+              admin|maintain|write) echo "Collaborator $u has $perm - allowed." ;;
+              *) echo "Refused: $u is not the owner or a collaborator with write access (permission: ${perm:-none})."; exit 1 ;;
+            esac
+          done
+          echo "Allowed: actor=$ACTOR triggering_actor=$TRIGGER"
+  reap:
+    name: reap
+    needs: [guard]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # pinned
+      - name: Collapse a run stuck in_progress past its threshold
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          make ci-frozen-reaper
+      - name: Say what the round could not decide
+        if: always()
+        run: |
+          echo "threshold=90m target=ci-frozen-reaper manual-equivalent=\"make ci-frozen-reaper DRY=1\""

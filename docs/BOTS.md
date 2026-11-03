@@ -2034,6 +2034,10 @@ make stale-branch-cleanup  # delete non-main remote branches that are >=3 days o
                            #   default report-only, APPLY=1 deletes, AGE_DAYS= overrides the 3-day threshold
 make ci-requeue-cancelled  # re-run the CI runs a bulk cancel killed, ONLY where the head sha has no other run
                            # (a superseded run already has its verdict): WINDOW=2h, DRY=1 previews; issue #843
+make ci-frozen-reaper      # cancel + re-run a run stuck `in_progress` past its threshold on an OPEN PR only
+                           # (a run still advancing, younger than the 15m grace, or with no open PR is left
+                           # alone; the evidence comment names the owner BEFORE any cancel): THRESHOLD=90m,
+                           # DRY=1 previews; issue #1679
 make ci-verdict            # hold a FINISHED run to the scope decision it published (scripts/ci_verdict.py,
                            # issue #1111): RUN_ID=<id> judges the run through `gh`, or JOBS=<file>
                            # [DECISION=<file>] replays one locally; CHECK_RUN_OUT=<path> writes the
