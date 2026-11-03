@@ -16,11 +16,24 @@ helper) — extracts every commit and every PR open they run, and reports:
 
 * `commit-message`      a commit with no message, a placeholder message, a subject that is not a
                         typed Conventional Commit, or no body (a bare subject);
-* `pr-body`             a PR opened with no body, or a body that is empty / a placeholder;
+* `pr-body`             a PR opened with no body, a PR body that is empty / a placeholder, or a PR
+                        body that is a serialized JSON object (a `gh pr create` request payload
+                        moments from being posted as the body);
+* `pr-comment`          a comment (posted through `gh pr comment` / `gh issue comment`, or the
+                        `/issues/{n}/comments` endpoint) whose body is the same serialized-object
+                        class;
 * `agents-mandate`      an `AGENTS.md` that no longer carries the message mandate, so the rule
                         cannot be deleted silently;
 * `agents-closing-rule` an `AGENTS.md` that no longer states that a PR closes the issue it
                         implements, so the closing rule cannot be deleted silently either.
+
+The object-vs-prose class: a message body must be **prose** the owner and reviewer can read. A body
+that is a serialized JSON object — begins with `{` and parses as a `dict`, or carries the
+`gh pr create` request keys (`title`, `base`, `body`) — is a machine payload dumped where prose
+belonged. #1637's body was, for its whole life, that payload: it carried the real markdown on the
+inside, so the old empty-only check stayed green while the human surface read the raw API JSON. A
+producer that ever passes the request object where a message string belonged fails here by name
+(issue #1638).
 
 A producer that opens a PR through a variable or a file is accepted — the guard checks that a real
 body is PASSED, and the producers' own tests pin what that body says. Message content (the
@@ -38,6 +51,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import subprocess
 import sys
@@ -61,6 +75,10 @@ PLACEHOLDERS = {"", "-", "--", "wip", "update", "fix", "msg", "tbd", "todo", "n/
 #: The invocations this guard governs, as a shell command runs them.
 GIT_COMMIT = re.compile(r"\bgit\s+commit\b")
 GH_PR_CREATE = re.compile(r"\bgh\s+pr\s+create\b")
+GH_PR_COMMENT = re.compile(r"\bgh\s+pr\s+comment\b")
+GH_ISSUE_COMMENT = re.compile(r"\bgh\s+issue\s+comment\b")
+GH_API_COMMENT = re.compile(r"\bgh\s+api\b.*?/issues/\d+/comments\b")
+PY_COMMENT = re.compile(r"comment")
 #: The same invocations as a Python argv list handed to `_gh(gh, [...])`.
 PY_GIT_COMMIT = re.compile(r"""["']git["']\s*,\s*["']commit["']""")
 PY_PR_CREATE = re.compile(r"""["'](?:gh["']\s*,\s*["'])?pr["']\s*,\s*["']create["']""")
@@ -203,6 +221,24 @@ def _py_chunks(text: str) -> list[str]:
 
 def _placeholder(value: str) -> bool:
     return value.strip().strip("\"'").strip().lower() in PLACEHOLDERS
+#: The `gh pr create` request keys that mark a message body as the serialized API payload, not prose.
+#: #1637's body carried all three for its whole life (issue #1638).
+CREATE_KEYS = ("title", "base", "body")
+
+
+def _object_body(value: str) -> bool:
+    """Is `value` a serialized JSON object (a `gh pr create` payload) instead of prose?"""
+    naked = value.strip().strip("\"'""").strip()
+    if not naked.startswith("{"):
+        return False
+    try:
+        parsed = json.loads(naked)
+    except ValueError:
+        return all(json.dumps(k) in naked for k in CREATE_KEYS)
+    if isinstance(parsed, dict):
+        return True
+    return all(json.dumps(k) in naked for k in CREATE_KEYS)
+
 
 
 def _body_of(message_parts: list[str]) -> bool:
@@ -287,7 +323,90 @@ def _pr_finding(where: str, shown: str, values: list[str]) -> dict | None:
             ),
             "where": where,
         }
+    if _object_body(values[0]):
+        return {
+            "key": f"pr-body-json/{where}:{shown[:40]}",
+            "title": f"ci: {where} opens a PR with a body that is a serialized JSON object",
+            "evidence": (
+                f"`{where}` runs `{shown[:200]}` with a body that is the serialized `gh pr create` "
+                f"request object (`{values[0][:120]}...`), not prose. GitHub renders that raw JSON "
+                f"as the review surface — a reader sees the machine payload, never the markdown it "
+                f"wraps. The body must be the prose itself (issue #1638)."
+            ),
+            "where": where,
+        }
     return None
+
+
+def _comment_finding(where: str, shown: str, values: list[str]) -> dict | None:
+    """The violation a comment's body is, when it is the serialized-object class (issue #1638)."""
+    for value in values:
+        if _object_body(value):
+            return {
+                "key": f"pr-comment-json/{where}:{shown[:40]}",
+                "title": f"ci: {where} posts a comment whose body is a serialized JSON object",
+                "evidence": (
+                    f"`{where}` runs `{shown[:200]}` and posts a comment whose body is the raw "
+                    f"`gh pr create` request object (`{value[:120]}...`) instead of prose. A reader "
+                    f"of the thread sees the machine payload, never the message it wraps — the same "
+                    f"object-vs-prose rule that guards PR bodies guards comments (issue #1638)."
+                ),
+                "where": where,
+            }
+    return None
+
+
+def _shell_field_values(cmd: str, name: str) -> list[str]:
+    """The values of a `-f <name>=<value>` / `--field <name>=<value>` gh api field, as passed."""
+    out: list[str] = []
+    for prefix in ("-f ", "-F ", "--field "):
+        token = prefix + name + "="
+        pos = 0
+        while True:
+            pos = cmd.find(token, pos)
+            if pos == -1:
+                break
+            rest = cmd[pos + len(token):].lstrip()
+            if not rest:
+                break
+            if rest[0] in ('"', "'"):
+                end = rest.find(rest[0], 1)
+                out.append(rest[1:end] if end != -1 else rest[1:])
+            else:
+                out.append(rest.split()[0])
+            pos += len(token)
+    return out
+
+
+def _py_comment_bodies(chunk: str) -> list[str]:
+    """The comment bodies posted from a Python argv seam: `--body`, or a `"body=<value>"` field."""
+    return _py_values(chunk, ("--body", "-b")) + _py_field_values(chunk, "body")
+
+
+def _py_field_values(chunk: str, name: str) -> list[str]:
+    """`"body", <value>` or `"body=<value>"` in a Python argv list handed to `_gh`."""
+    out: list[str] = []
+    nlen = len(name)
+    pos = 0
+    while True:
+        pos = chunk.find(name, pos)
+        if pos == -1:
+            break
+        after = chunk[pos + nlen:]
+        sep = ""
+        if after.startswith("="):
+            sep = "="
+        elif after.lstrip().startswith(","):
+            sep = ","
+        if sep:
+            rest = after[len(sep):].lstrip()
+            if rest and rest[0] in ('"', "'"):
+                q = rest[0]
+                end = rest.find(q, 1)
+                if end != -1:
+                    out.append(rest[1:end])
+        pos += nlen
+    return out
 
 
 def check_producers(root: Path) -> list[dict]:
@@ -306,6 +425,10 @@ def check_producers(root: Path) -> list[dict]:
                     finding = _pr_finding(where, chunk.strip()[-200:], _py_values(chunk, BODY_FLAGS))
                     if finding:
                         out.append(finding)
+                if PY_COMMENT.search(chunk):
+                    finding = _comment_finding(where, chunk.strip()[-200:], _py_comment_bodies(chunk))
+                    if finding:
+                        out.append(finding)
             continue
         for cmd in _commands(text):
             if _invokes(cmd, GIT_COMMIT):
@@ -314,6 +437,13 @@ def check_producers(root: Path) -> list[dict]:
                     out.append(finding)
             if _invokes(_normalize(cmd), GH_PR_CREATE):
                 finding = _pr_finding(where, cmd, _shell_values(cmd, BODY_FLAG))
+                if finding:
+                    out.append(finding)
+            if _invokes(cmd, GH_PR_COMMENT) or _invokes(cmd, GH_ISSUE_COMMENT) \
+                    or _invokes(_normalize(cmd), GH_API_COMMENT):
+                finding = _comment_finding(where, cmd,
+                                           _shell_values(cmd, BODY_FLAG)
+                                           + _shell_field_values(cmd, "body"))
                 if finding:
                     out.append(finding)
     return out
