@@ -20,14 +20,12 @@ from __future__ import annotations
 
 import re
 import subprocess
-import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
 
-import check_engine_pins_published as cpp  # noqa: E402
-import engine_image as ei  # noqa: E402
+import scripts.check_engine_pins_published as cpp  # noqa: E402  (the repo's one import root, issue #796)
+import scripts.engine_image as ei  # noqa: E402
 
 REGISTRY = "ghcr.io/asimov-agent"
 
