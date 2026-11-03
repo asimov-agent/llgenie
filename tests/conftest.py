@@ -120,8 +120,24 @@ def pytest_runtest_logreport(report):
         _fail_report(report, "pytest_runtest_logreport")
 
 
+# Containers already running when this pytest process started. Session finish removes
+# only the ones this run created (issue #1669).
+_ENGINES_BEFORE: set[str] = set()
+
+
+def pytest_sessionstart(session):
+    global _ENGINES_BEFORE
+    import scripts.install_engine_launchers as iel
+    _ENGINES_BEFORE = iel.engine_container_ids()
+
+
 def pytest_sessionfinish(session, exitstatus):
-    """The exit status is the contract: one recorded skip turns a green run red."""
+    """The exit status is the contract: one recorded skip turns a green run red.
+
+    Also remove engine containers this session started (issue #1669).
+    """
+    import scripts.install_engine_launchers as iel
+    iel.stop_new_engine_containers(_ENGINES_BEFORE)
     if not _SKIP_VIOLATIONS:
         return
     reporter = session.config.pluginmanager.getplugin("terminalreporter")

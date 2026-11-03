@@ -242,6 +242,9 @@ Then serve a real model through the picker and prove the OpenAI path:
    `system_fingerprint` (`b<build>-<sha7>`) is the pin proof; `predicted_per_second` is
    the tuning number — compare it to the registry's claimed t/s, do not invent one.
 4. `docker rm -f llgenie-<id>-<port>` and confirm the container is gone before reporting.
+   The launcher also removes that container when the process that started it exits
+   (issue #1669). A parent that is still waiting on the launcher has not exited, so
+   this `docker rm` is what ends a serve you backgrounded yourself.
 
 A `--version` that passes while the start line dies on an argument the server rejects is a
 false green; only step 3 proves the launch line.
