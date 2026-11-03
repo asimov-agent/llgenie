@@ -119,3 +119,24 @@ def test_the_cli_exits_non_zero_for_an_unreachable_citation(repo: Path, tmp_path
     f.write_text(body(git(repo, "rev-parse", "main")))
     assert hy.main(["agents-line", "--root", str(repo), "--head", "feature", "--base", "main",
                     "--body-file", str(f)]) == 0
+
+
+def test_the_agents_gate_is_wired_into_both_guard_docs_and_full_ci():
+    """The #792 preflight must actually RUN on a PR — not just exist as a subcommand (issue #1675).
+
+    Before this fix the `agents-line` subcommand was invoked nowhere: `make check-pr-hygiene` runs
+    `check` + `changes-index` only, neither of which reads a PR body, and `agents-line` needs the
+    LIVE PR body (--head/--base/--body-file) that no hermetic chain passes. So a bot PR merged green
+    with no `AGENTS:` line. Both the full pipeline's `guard` job (ci.yml) and the always-present
+    docs gate (scope.yml, which is what a docs-only PR lands on) must drive it beside
+    `check-pr-closing`, with the same live-body fetch (issue #1589) and the pair of refs the
+    ancestry read needs.
+    """
+    for rel in (".github/workflows/ci.yml", ".github/workflows/scope.yml"):
+        txt = (REPO / rel).read_text()
+        assert "make check-pr-agents-line" in txt, f"{rel} must run the #792 AGENTS preflight"
+        # the gate step sits directly after a make check-pr-closing step that fetches the live body
+        step_from = txt.index("make check-pr-closing")
+        between = txt[step_from:txt.index("make check-pr-agents-line")]
+        assert "gh api" in between, rel
+        assert "PR_HEAD:" in txt and "PR_BASE: origin/main" in txt, rel
