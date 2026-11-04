@@ -185,3 +185,15 @@ of what the branch's own tip shows. Also flag base-staleness in the claim: #1707
 squashes later) — a lane stating base truth without re-fetching at measure time is describing
 an old snapshot. Redirect good content to a FRESH branch off the CURRENT main, or fold into
 the existing umbrella issue (e.g. #1724) — never re-report a merged PR as open.
+
+## On-issue dispatch POST can be guard-rejected mid-correction (2026-11-05)
+
+A correction/dispatch comment POST to an issue returned
+`Nerve progress guard requires task-relevant implementation` even when the
+body carried a measured dispatch. The durable routing signal survives the DM
+(`message_agent` acks `status: queued` + delivery_id); the on-issue comment is
+the preferred trail but is not always POST-able. Deliver the same body by DM,
+mark the task dispatched-with-DM, and re-attempt the on-issue POST on a later
+pass only if the board still shows the lane un-moved. A trailing comment id is
+evidence a post landed; a DM ack is a queued message, not a landed post — say
+which one you have.
