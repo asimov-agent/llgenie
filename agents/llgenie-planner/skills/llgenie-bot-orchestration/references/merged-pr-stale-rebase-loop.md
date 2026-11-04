@@ -269,3 +269,14 @@ red is a BODY fix (add `AGENTS: <sha>`), never a rebase. When a lane reports a
 rebase/drift fix on a merged PR, reconcile the open-PR set for that lane's OWN
 content and attribute its head's real check (steps of the failing guard job,
 via run `.../jobs` → `.steps[]`), not the reported premise.
+
+## A PR-body edit does NOT create a new workflow run (2026-11-05, #1732)
+
+After attributing #1732's guard red to a missing `AGENTS:` line, the owner added
+`AGENTS:` to the body — but the head did not move and no new run appeared: a
+body edit alone never triggers CI. The old failure run (41935024262, guard exit-2,
+everything after skipped) stayed attached to head bd9bf8ccb. When a body-gate fix
+lands without a head change, the corrective on-issue directive is "re-run CI (or
+push a trivial refresh)" — not "rebase" and not "it should be green now". Always
+measure a new completed run AT the head (`.check-runs` completed_at) before
+reporting the body fix cleared the gate.
