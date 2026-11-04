@@ -172,3 +172,16 @@ multi-lane hazard — ci-pipelines said #1723 was the engine lane's while the pl
 dispatch named the implementer lane; a lane's itinerary naming ANOTHER lane as author is a
 claim to check against the dispatch trail (comments on the issue), not to adopt. Correct
 once per lane-named fact; do not re-litigate.
+
+## Lane pushes commits on top of an already-MERGED PR = dead vehicle (2026-11-04, rebase lane #1707)
+
+A lane "fixed and at head c7b1f57c, open, mel=true" — but #1707 had been MERGED as
+`3e016bf97`; the lane had force-pushed NEW commits (c7b1f57c et al.) onto the branch of a
+merged PR. No commit can reopen a merged PR; the pushed commits land nowhere and the lane
+perceives phantom "work". Detect by: pull `.state`/`.merged`/`.merge_commit_sha` on the
+PR number FIRST — if merged, ANY new head on its branch is a dead-vehicle push, regardless
+of what the branch's own tip shows. Also flag base-staleness in the claim: #1707's base
+`6ce5a2e4` was called "==current main" while current main was already `0717ab72a` (two owner
+squashes later) — a lane stating base truth without re-fetching at measure time is describing
+an old snapshot. Redirect good content to a FRESH branch off the CURRENT main, or fold into
+the existing umbrella issue (e.g. #1724) — never re-report a merged PR as open.
