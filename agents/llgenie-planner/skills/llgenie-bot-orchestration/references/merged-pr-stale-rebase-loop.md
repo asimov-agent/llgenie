@@ -393,3 +393,17 @@ is the acceptance - both open PRs need one clean recut onto 1ea27e95d. The
 merged PR's tree change (here the SYNC: gate) may alter what the open PR must
 pass, so the refresh must re-run the guard/matrix against the new base, not just
 rebranch. Track main tip at measure time, always.
+
+## Post-merge verify: a red at the merged tip must be ATTRIBUTED, not reflexively re-filed (2026-11-05, #1731)
+
+At #1731's merged tip (1ea27e95d) two checks were red. Attribution: linux/top-tier
+failure 126949312262 was the TRACKED #1723 class (same gate + test line 321,
+severity:high, issue open) - no re-file owed; the `verdict` failure 126950231740
+was ci-verdict reacting to a DIFFERENT PR's recut (head 34a4cfaa6, no scope
+decision) - my already-recorded #1732 finding, not a #1731 defect. The merge
+verify passes for its OWN content (SYNC gate in message, guard x2 success,
+#1724 closed). Rule: at a merged tip, resolve EVERY red to a class before
+concluding the merge failed; read the verdict job's log (RUN_ID the verdict
+evaluates) - a ci-verdict failure names the run it reacted to, which may be a
+different PR's head. Then a merge-verify that turns up only tracked/un-caused
+reds is a PASS, and that verdict is itself the completed duty to record.
