@@ -1,4 +1,18 @@
 {
-  "note": "Profiles whose SOUL does not yet state the canonical fleet block from agents/standing-rules.md (issue #873). An entry is legitimate only while it describes a REAL gap: once the profile states the block, `make check-agent-profiles` reports the entry STALE and it must be deleted. Each entry names the lane that owns the file, because only a lane may edit its own SOUL \u2014 and a gap with no owner is a gap nobody closes. The list is EMPTY because every profile now states the canonical block verbatim (#873, #948).",
-  "exemptions": []
+  "note": "Profiles whose SOUL does not yet state the canonical fleet block from agents/standing-rules.md (issue #873). An entry is legitimate only while it describes a REAL gap: once the profile states the block, `make check-agent-profiles` reports the entry STALE and it must be deleted. Each entry names the lane that owns the file, because only a lane may edit its own SOUL \u2014 and a gap with no owner is a gap nobody closes. Added 2026-11-04 (issue #1706): the fleet gained rule 15 \u2014 `The lane that opens a PR owns its CI until every required gate is green at the current head sha`. The rule landed in `standing-rules.md` first (docs-lane PR, #791 scope, no lane SOUL touched there), so every lane's SOUL now lags one bullet; each entry is that lane's real, owned debt to sync its own SOUL on the #1706 follow-up and delete its entry.",
+  "exemptions": [
+    {"profile": "llgenie-planner", "reason": "SOUL does not yet state fleet rule 15 (opens-PR-owns-CI, issue #1706); lands in the #1706 follow-up SOUL sync", "owner": "llgenie-planner"},
+    {"profile": "llgenie-issse-implementer", "reason": "SOUL does not yet state fleet rule 15 (opens-PR-owns-CI, issue #1706); lands in the #1706 follow-up SOUL sync", "owner": "llgenie-issse-implementer"},
+    {"profile": "llgenie-architect", "reason": "SOUL does not yet state fleet rule 15 (opens-PR-owns-CI, issue #1706); lands in the #1706 follow-up SOUL sync", "owner": "llgenie-architect"},
+    {"profile": "llgenie-security", "reason": "SOUL does not yet state fleet rule 15 (opens-PR-owns-CI, issue #1706); lands in the #1706 follow-up SOUL sync", "owner": "llgenie-security"},
+    {"profile": "llgenie-documentation-maintainer", "reason": "SOUL does not yet state fleet rule 15 (opens-PR-owns-CI, issue #1706); lands in the #1706 follow-up SOUL sync", "owner": "llgenie-documentation-maintainer"},
+    {"profile": "llgenie-ci-pipelines-maintainer", "reason": "SOUL does not yet state fleet rule 15 (opens-PR-owns-CI, issue #1706); lands in the #1706 follow-up SOUL sync", "owner": "llgenie-ci-pipelines-maintainer"},
+    {"profile": "llgenie-pr-reviever", "reason": "SOUL does not yet state fleet rule 15 (opens-PR-owns-CI, issue #1706); lands in the #1706 follow-up SOUL sync", "owner": "llgenie-pr-reviever"},
+    {"profile": "llgenie-tester", "reason": "SOUL does not yet state fleet rule 15 (opens-PR-owns-CI, issue #1706); lands in the #1706 follow-up SOUL sync", "owner": "llgenie-tester"},
+    {"profile": "llgenie-engine-improver", "reason": "SOUL does not yet state fleet rule 15 (opens-PR-owns-CI, issue #1706); lands in the #1706 follow-up SOUL sync", "owner": "llgenie-engine-improver"},
+    {"profile": "llgenie-pr-merge-conflict", "reason": "SOUL does not yet state fleet rule 15 (opens-PR-owns-CI, issue #1706); lands in the #1706 follow-up SOUL sync", "owner": "llgenie-pr-merge-conflict"},
+    {"profile": "llgenie-business-analyst", "reason": "SOUL does not yet state fleet rule 15 (opens-PR-owns-CI, issue #1706); lands in the #1706 follow-up SOUL sync", "owner": "llgenie-business-analyst"},
+    {"profile": "llgenie-product-manager", "reason": "SOUL does not yet state fleet rule 15 (opens-PR-owns-CI, issue #1706); lands in the #1706 follow-up SOUL sync", "owner": "llgenie-product-manager"},
+    {"profile": "llgenie-status-keeper", "reason": "SOUL does not yet state fleet rule 15 (opens-PR-owns-CI, issue #1706); lands in the #1706 follow-up SOUL sync", "owner": "llgenie-status-keeper"}
+  ]
 }
