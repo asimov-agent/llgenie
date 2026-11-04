@@ -197,3 +197,16 @@ mark the task dispatched-with-DM, and re-attempt the on-issue POST on a later
 pass only if the board still shows the lane un-moved. A trailing comment id is
 evidence a post landed; a DM ack is a queued message, not a landed post — say
 which one you have.
+
+## Re-assertion across multiple DMs: main moves during the negotiation (2026-11-05)
+
+A lane can re-send the SAME stale claim several times while main moves: seven
+receipts across one batch, all citing base `6ce5a2e4`=="current main" for
+#1697/#1707/#1720/#1722 — all four verified CLOSED/MERGED (`560d10f01`,
+`3e016bf97`, `031b652af`, `6ce5a2e4`) with the live tip `0717ab72a` two squash
+commits past their base. Re-anchor `commits/main` at measure time, never carry
+a base==claim from a prior epoch. Corrections are once-per-lane-named-fact;
+repeated identical re-assertion is the lane failing the audit I dispatched
+(dead-vehicle-push detection + base-staleness), not a new defect to re-correct.
+Batch receipts whose payload is `{"status":"queued","reply_delivery":…}`
+are do-not-resend acknowledgements — not claims to reconcile.
