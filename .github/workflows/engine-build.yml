@@ -176,10 +176,11 @@ jobs:
       - name: Log in to GHCR (only when this run publishes)
         if: ${{ matrix.engine != 'none' && inputs.push == 'true' }}
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-      - name: make build-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} (the committed params -> Dockerfile + params.json; FORCE=1 rebuilds with --no-cache)
+      - name: make build-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} (the committed params -> Dockerfile + params.json; FORCE=1 rebuilds with --no-cache; CACHEWRITE=1 seeds the registry buildcache without publishing, so the heavy vllm rocm/cuda cells build warm next run — issue #1694)
         if: ${{ matrix.engine != 'none' }}
         env:
           FORCE: ${{ inputs.force == 'true' && '1' || '' }}
+          CACHEWRITE: 1
         run: make build-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}
       - name: Pull the test image (GHCR, published by ci-images; the post-build pytest stage runs in llgenie/test)
         if: ${{ matrix.engine != 'none' }}

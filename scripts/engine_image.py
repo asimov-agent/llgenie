@@ -176,13 +176,18 @@ def resolve(engine: str, backend: str | None, variant: str | None = None) -> dic
     return es.image_spec(params, es.pick_variant(params, b, {**hw, "backend": b}))
 
 
-def _buildx(tag: str, ctx: str, push: bool, cache_ref: str, force: bool = False) -> int:
+def _buildx(tag: str, ctx: str, push: bool, cache_ref: str, force: bool = False, cache_write: bool = False) -> int:
     """docker buildx with a registry layer cache: unchanged layers are reused
     across CI runs and machines (cache_ref = <registry>/<name>:buildcache).
 
     `force` (issue #638) is a REAL rebuild: `--no-cache`, and the registry cache is not read,
     so a fully cached build can no longer re-tag the previous layers.
+
+    `cache_write` (issue #1694) also honours the CACHEWRITE env var: a CI build can seed the
+    registry buildcache (`--cache-to`) WITHOUT publishing a tag, so the vllm rocm/cuda cells'
+    first slow build populates the cache that later runs reuse.
     """
+    cache_write = (cache_write or os.environ.get("CACHEWRITE") == "1") and not force
     cache_args = [] if force else ["--cache-from", f"type=registry,ref={cache_ref}"]
     no_cache = ["--no-cache"] if force else []
     if push and REGISTRY:
@@ -217,7 +222,7 @@ def _available(tag: str) -> bool:
     return False
 
 
-def build_base(backend: str, force: bool = False, push: bool = False) -> int:
+def build_base(backend: str, force: bool = False, push: bool = False, cache_write: bool = False) -> int:
     """Shared toolchain base for one backend (containers/engines/base/Dockerfile.<backend>)."""
     tag = es.base_tag(backend)
     if not force and _available(tag):
@@ -225,12 +230,12 @@ def build_base(backend: str, force: bool = False, push: bool = False) -> int:
         return 0
     with tempfile.TemporaryDirectory(prefix="llgenie-base-") as ctx:
         shutil.copy2(es.BASE_DIR / f"Dockerfile.{backend}", Path(ctx) / "Dockerfile")
-        rc = _buildx(tag, ctx, push, f"{REGISTRY}/{es.base_image_name(backend)}:buildcache", force=force)
+        rc = _buildx(tag, ctx, push, f"{REGISTRY}/{es.base_image_name(backend)}:buildcache", force=force, cache_write=cache_write)
     print(f"[engine-image] {'built' if rc == 0 else 'FAIL'} base {tag}")
     return rc
 
 
-def build(spec: dict, force: bool = False, push: bool = False) -> int:
+def build(spec: dict, force: bool = False, push: bool = False, cache_write: bool = False) -> int:
     tag = spec["tag"]
     if not force and _available(tag):
         print(f"[engine-image] {tag} available -> no rebuild")
@@ -241,7 +246,7 @@ def build(spec: dict, force: bool = False, push: bool = False) -> int:
     text = dockerfile.read_text()
     base = es.base_tag(spec["backend"])
     if f"FROM {base}" in text:  # compiled engine on the shared toolchain base
-        rc = build_base(spec["backend"], force=force, push=push)
+        rc = build_base(spec["backend"], force=force, push=push, cache_write=cache_write)
         if rc:
             return rc
         if REGISTRY and push:  # the published base must be addressable by the FROM line
@@ -255,7 +260,7 @@ def build(spec: dict, force: bool = False, push: bool = False) -> int:
         shutil.copy2(es.REPO_ROOT / "scripts" / "engine_runner.py", c / "engine_runner.py")
         (c / "params.json").write_text(json.dumps(variant, indent=2) + "\n")
         rc = _buildx(tag, ctx, push, f"{REGISTRY}/{tag.split(':')[0]}:buildcache-{spec['variant']}",
-                     force=force)
+                     force=force, cache_write=cache_write)
     if rc:
         print(f"[engine-image] FAIL build {tag} (exit {rc})")
         return rc
