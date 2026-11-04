@@ -2407,6 +2407,20 @@ the PR is ready. `make check-docs` catches a target the README never learned abo
 the reviewer reads the rest. `make docs-report` shows the whole picture (documented,
 missing, recorded exceptions, and each work record's references).
 
+3. **An `agents/<profile>/` behavioural change ships its note and fragment in the same
+   PR — a first-class deliverable, not a CI rediscovery.** Any commit that edits
+   `agents/<profile>/SOUL.md`, a lane skill under `agents/<profile>/skills/`, or
+   `agents/manifest.json` owes its own `agent-wiki/<stem>.md` work record and a
+   `docs/changes.d/<stem>.md` row in the **same** branch (`make check-docs` fails such a
+   change without them, issue #1123). `check-docs` stays the strict backstop, but it is
+   not the process: the profile-lane change-note discipline is owned by the
+   **documentation-maintainer** lane, whose sweep keeps the practice current — a
+   SOUL/skills PR that lands its note alongside the edit (measured: the recurrence class
+   re-fell on `agents/<profile>/` in #1719, #1707 and #1697 before each lane internalised
+   it) is the norm, and a missed one is filed as a tracked recurrence, never left to the
+   next `check-docs` red. A profile SOUL/skills change is not ready-for-review until the
+   note and its fragment are in the branch.
+
 ### Every PR and commit message states the issue, the fix and the benefit (issue #313)
 
 A commit and a PR are read on their own — by a reviewer, by `git log`, by a `git bisect`. They must
