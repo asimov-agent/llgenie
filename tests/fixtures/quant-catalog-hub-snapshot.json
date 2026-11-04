@@ -6148,7 +6148,7 @@
   "https://huggingface.co/api/models/SSSAMMMM/MiniCPM-V-4.7-35B-A3B-MLX-mixed-repacked/tree/main?recursive=true": [
    [
     ".gitattributes",
-    1519
+    1621
    ],
    [
     "README.md",
@@ -6331,6 +6331,18 @@
     54740
    ],
    [
+    "les-index.json",
+    14754254
+   ],
+   [
+    "model.safetensors.index.json",
+    177662
+   ],
+   [
+    "offload_index.json",
+    20
+   ],
+   [
     "preprocessor_config.json",
     148
    ],
@@ -6345,6 +6357,22 @@
    [
     "resident-model-00002-of-00004.safetensors",
     312937160
+   ],
+   [
+    "resident-model-00003-of-00004.safetensors",
+    315026016
+   ],
+   [
+    "resident-model-00004-of-00004.safetensors",
+    685343416
+   ],
+   [
+    "tokenizer.json",
+    20001935
+   ],
+   [
+    "tokenizer_config.json",
+    1157
    ]
   ],
   "https://huggingface.co/api/models/SSSAMMMM/MiniCPM-V-4.7-35B-A3B-MLX-mixed/tree/main?recursive=true": [
