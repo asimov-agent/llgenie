@@ -256,3 +256,16 @@ re-fetch commits/main at dispatch time, cite both, and note what changed since
 the last same-issue dispatch. Also separate watch: a fresh run in_progress at
 main (e.g. linux/unit `126937909215`) that may surface a second defect must be
 worded as "file separately", not "fold into #N".
+
+## A lane falls back to a doctrine red on a dead vehicle while its LIVE PR is red (2026-11-05, engine #1720 vs #1732)
+
+While an engine lane spent five pushes re-asserting the merged #1720 (base-drift
+/ "check-pr-base on 6ce5a2e4"), its OWN live, owner-authored PR #1732 carried a
+real red: guard check exit-2 at `make check-pr-agents-line` — the PR body lacked
+the required `AGENTS:` line — which cancelled check-pr-base, ci-scope and the
+matrix, and redded ci-verdict downstream. Mirrors: the lane that is busy
+"fixing" a closed vehicle is ignoring its open one; and a `-agents-line`/body-gate
+red is a BODY fix (add `AGENTS: <sha>`), never a rebase. When a lane reports a
+rebase/drift fix on a merged PR, reconcile the open-PR set for that lane's OWN
+content and attribute its head's real check (steps of the failing guard job,
+via run `.../jobs` → `.steps[]`), not the reported premise.
