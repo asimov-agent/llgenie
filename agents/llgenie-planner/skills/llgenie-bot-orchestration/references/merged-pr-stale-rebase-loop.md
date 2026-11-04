@@ -280,3 +280,16 @@ lands without a head change, the corrective on-issue directive is "re-run CI (or
 push a trivial refresh)" — not "rebase" and not "it should be green now". Always
 measure a new completed run AT the head (`.check-runs` completed_at) before
 reporting the body fix cleared the gate.
+
+## The stale-main loop walks a NEW merged PR each DM round (2026-11-05, #1726)
+
+A lane whose replies re-anchor to a stale main (this round `d198d27e`; prior
+`6ce5a2e4`) will cite a different, newly-MERGED PR as "open / check-pr-base red"
+on every round — #1722, #1720, #1707, #1697, then #1726 (`0717ab72a`, merged
+23:14:07Z). #1696 is implementer-owned with a live head; it is never routed to
+the engine lane "as fix-owner". Each such DM is a NEWLY-named fact and earns
+exactly ONE correction: re-fetch commits/main AND the named PR's current
+merged_at (not the cited head/base) at the moment of correction, and re-state
+the current main pin + that the named PR is closed. The lane saying "the
+authoritative API tip is X" does not make X current — the API query at measure
+time decides.
