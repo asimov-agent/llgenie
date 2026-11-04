@@ -293,3 +293,15 @@ merged_at (not the cited head/base) at the moment of correction, and re-state
 the current main pin + that the named PR is closed. The lane saying "the
 authoritative API tip is X" does not make X current — the API query at measure
 time decides.
+
+## A body-gate fix clears ONE gate; the scope-decide→ci-verdict seam is separate (2026-11-05, #1732 re-run)
+
+Re-running #1732's CI after the AGENTS-line fix made guard pass and linux/top-tier
+"none" pass, but ci-verdict stayed `failure` ("[ci-scope] NO DECISION: this run
+published no scope decision") and scope stayed `failure`, several matrix joints
+cancelled. Clearing a body/AGENTS gate does not re-publish a scope decision on a
+re-triggered run; the scope-determine→ci-verdict seam must be re-executed
+(`make ci-scope DECISION=...`) for the head. Before reporting "green", read ALL
+completed checks at the head — a green guard + green top-tier with a red
+ci-verdict is two seams, not one. Don't let one gate pass be reported as the PR
+concluding.
