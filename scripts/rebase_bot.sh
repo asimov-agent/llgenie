@@ -144,6 +144,35 @@ elif ! bash -o pipefail -c "$GATES"; then
   echo "[rebase-bot] gates failed" >&2; exit 1
 fi
 
+# A rebase RE-AUTHORS the HEAD commit message (it replays each commit). `git rebase` can silently
+# drop a claimed `closes #N` from the re-written message even when the diff is intact — and
+# check-pr-closing reads the SQUASH TEXT (this repo merges with COMMIT_MESSAGES), so a drop turns
+# the freshly-rebased PR RED at its new head with no file-level indication (the 4-PR close-drop,
+# issue #1716: #1697/#1707/#1702 all reddened post-rebase while "patch-intact"). The structural
+# gates above only compare CONTENT, they cannot see a message-level close dropping. So before the
+# push, prove the rebased HEAD still carries the same adjacent close set as the LIVE body (fetched
+# now, never assumed): a drop is a reportable red naming the #N, never a silent pass.
+CLOSE_BODY="$(mktemp)"
+if [ -n "$DRY" ]; then
+  echo "[rebase-bot] DRY: gh api repos/$REPO/pulls/$PR --jq .body > CLOSE_BODY"
+else
+  gh api "repos/$REPO/pulls/$PR" --jq '.body // ""' >"$CLOSE_BODY" 2>/dev/null || {
+    echo "[rebase-bot] could not read the live body for the close re-check" >&2; rm -f "$CLOSE_BODY"; exit 1
+  }
+fi
+echo "[rebase-bot] squash-close re-check: base ${ORIGIN}/main rev HEAD body $HEAD_BRANCH (issue #1716)"
+if [ -n "$DRY" ]; then
+  echo "[rebase-bot] DRY: python3 scripts/check_pr_closing.py check --base \"${ORIGIN}/main\" --head \"$HEAD_BRANCH\" --body-file CLOSE_BODY --rev HEAD --cwd ."
+elif ! CLOSE_OUT="$(python3 "${SELF_DIR}/check_pr_closing.py" check --base "${ORIGIN}/main" --head "$HEAD_BRANCH" --body-file "$CLOSE_BODY" --rev HEAD --cwd . 2>&1)"; then
+  echo "$CLOSE_OUT" >&2
+  # The check's own evidence names the exact #N that would be dropped; carry it to the PR so the
+  # lane (and a reader) sees the close that vanished, not a mute gate failure (issue #1716).
+  CLOSE_EV=$(printf '%s\n' "$CLOSE_OUT" | awk '/ci:/{print}' | tr '\n' ' ' | cut -c1-600)
+  comment "The rebase would drop a squash-close: the re-authored HEAD's adjacent-close set no longer matches the live body, so this PR would redden on \`check-pr-closing\` at its new head. ${CLOSE_EV:+${CLOSE_EV} }Nothing was pushed; fix the commit message to keep the plain \`closes #N\`. <!-- $MARKER: $TODAY -->"
+  echo "[rebase-bot] squash-close re-check failed" >&2; rm -f "$CLOSE_BODY"; exit 1
+fi
+rm -f "$CLOSE_BODY"
+
 run git push --force-with-lease "$REMOTE" "HEAD:$HEAD_BRANCH"
-comment "$OUTCOME. The structural checks (\`make -n ci-unit\`, \`make lint\`, \`make check-wiring\`) pass on the result; CI runs the full suite on this push. Nothing was merged. <!-- $MARKER: $TODAY -->" rebased
+comment "$OUTCOME. The structural checks (\`make -n ci-unit\`, \`make lint\`, \`make check-wiring\`) and the squash-close re-check (check-pr-closing against ${ORIGIN}/main and the live body) pass on the result; CI runs the full suite on this push. Nothing was merged. <!-- $MARKER: $TODAY -->" rebased
 echo "[rebase-bot] pushed $HEAD_BRANCH to $REMOTE"
