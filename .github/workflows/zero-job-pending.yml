@@ -6,9 +6,21 @@ run-name: zero-job-pending
 # a zero-job run has none, so it renders "no job has been queued" and reads CLEAN. This is the
 # run-level complement: it lists the repo's queued/in-progress runs and flags the ones `pending`
 # past the threshold whose jobs.total_count is 0, naming run id + head sha + created time, and files
-# ONE deduped issue per stuck run (idempotent by run-id marker). It is the after-the-fact reader
+# ONE deduped issue per stranded run (idempotent by run-id marker). It is the after-the-fact reader
 # that makes a runner-starved dispatch loud instead of an eternal pending placeholder; it never
 # merges and never runs in a pull request.
+#
+# THE DISCRIMINATOR (issue #1704): not every zero-job run is "no runner matched". engine-build
+# serialises builds per `engine × arch` concurrency group (#917, cancel-in-progress: false), so a
+# dispatch queued behind an in_progress sibling holding the same group reads queued, zero jobs, past
+# the threshold — it is QUEUEING, benign, and six consecutive filings (#1473/#1536/#1569/#1699/#1700
+# /#1701) mis-named that shape. This monitor files only the STRANDED case (group free, zero jobs);
+# a queued-behind run is reported as such and never filed as a fault.
+#
+# FORCED RED (issue #1704): a STRANDED run's head is pushed to a `ci-verdict` FAILURE check-run
+# (the same payload `scripts/ci_verdict.py` posts) so a truly-unrunnable dispatch surfaces as a
+# failed check with a reason instead of an eternal `pending` — requiring `checks: write`. A run that
+# was superseded or cancelled is not forced red on the same tick (it already concluded).
 #
 # Trigger surface: `workflow_run` on `ci-requeue`, `types: [completed]`. REASONED, not inherited:
 # the fleet's bot scheduled-minute budget is EXHAUSTED — every odd minute is owned by a bot, and the
@@ -38,7 +50,8 @@ on:
 permissions:
   contents: read
   actions: read
-  issues: write
+  issues: write   # files the deduped per-run issue
+  checks: write   # forces a stranded run's head RED via the ci-verdict check-run path (#1704)
 
 # stacking is intended — each run files per-run issues idempotently (a marker each read back), so a
 # race would read "no issue yet" on both sides and double-file (issue #917).
