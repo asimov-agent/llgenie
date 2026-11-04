@@ -117,7 +117,8 @@ previews). Nothing is published without drift, and the bot never merges.
    `make list-engine-images` prints the same cells (`CI=1` only the CI variants, `JSON=1` as
    a GitHub matrix, `CHANGED=<ref>` only those whose tag differs), and
    `make engine-build-matrix` is the matrix the dispatched sweep builds. `make test-engine`
-   (OpenAI API answers on a tiny model) or `make test-engine-image` (binary flags and
+   (the engine binary answers the flags it documents — the DEFAULT, deterministic gate, issue #1717)
+   or `make test-engine-image` (binary flags and
    version only, for GPU-only images) tests a built image, `make run-engine` serves one on
    `127.0.0.1:$(PORT)/v1` and `make stop-engine` stops it, `make engine-gate-report` prints
    what each cell will actually prove before anything is built, and `make push-engine`
@@ -232,9 +233,11 @@ builds `make build-engine ENGINE=<id> ARCH=<arch>`, tests the image
 (`make test-engine` / `make test-engine-image`) and `make push-engine` publishes it. The CI
 `engine-image` job drives that post-build test through ONE step for every image,
 `make test-engine-stage ENGINE=<id> ARCH=<arch> TEST=serve|detect`. `TEST=serve` is the cpu
-row: it runs `make test-engine-image` (the binary's flags) **and then** the OpenAI API answer
-(`make test-engine`), joined with `&&`, so a cpu image can no longer reach the serve test
-without its binary having been probed. `TEST=detect` is the GPU row: the binary's flags and
+row: it runs `make test-engine-image` (the binary's flags) **and then** the engine binary smoke
+(`make test-engine`; issue #1717), joined with `&&`, so a cpu image can no longer reach the serve
+tier unless the binary answered — and the DEFAULT build gate never waits a serving readiness budget;
+the OpenAI-serving conformance tier is the explicit `--serve` opt-in (`make test-engine-serve` and
+the push serve-leg). `TEST=detect` is the GPU row: the binary's flags and
 version only. A published image is pulled back with no build and no cache by
 `make test-published-engine`, which checks the digest, the binary version and — for CPU
 images and GPU images with a CPU fallback — serves the tiny model and answers "hi". Its

@@ -152,9 +152,13 @@ signals a llama-server that was not started by this Makefile.
   "Engine container images" below): upstream llama.cpp `FROM ghcr.io/ggml-org/llama.cpp:server[-cuda]`,
   Prism compiled on the shared toolchain base (Prism cuda/rocm are disabled until #103, so
   cuda/rocm hosts run `prism-server` from the Prism cpu image). Every image has a
-  **test stage on the OpenAI API that AI harnesses use**. cpu images serve the 0.5B model and must
-  answer `GET /v1/models` (lists `llm-local`) and `POST /v1/chat/completions` on the published port
-  (`make test-engine`). GPU images (cuda/rocm/vulkan) print their engine version in the build job
+  **test stage** — the DEFAULT gate is the **engine binary smoke** (`make test-engine`: the engine
+  binary in the built image answers the version/help flags it documents, exit 0 + non-empty output —
+  deterministic, near-instant, never a serving-readiness wait; issue #1717). The **OpenAI-serving
+  conformance tier** is the explicit opt-in `--serve`: `make test-engine-serve` runs the built image
+  and asserts `GET /v1/models` (lists `llm-local`) and `POST /v1/chat/completions` on the published
+  port; the push serve-leg (`make test-published-engine`) and the host serve command do the same for
+  the AS-PUBLISHED image. GPU images (cuda/rocm/vulkan) print their engine version in the build job
   (`make test-engine-image`); after publishing, the second matrix `engine-published-test` starts
   every image, GPU ones too (without GPU devices, CPU fallback), and chats "hi" with it.
 - The **host-side serve command** (`make test-engine-host`, issue #1322) is parameterized as
@@ -270,9 +274,10 @@ do the same locally.
   `make build-engines ENGINE=llama.cpp ARCH=cuda` (one engine × one arch). Each row carries its own
   parameters, because they come from the engine's committed params for that backend.
 - one `build` job per row, `max-parallel: 20`: `make build-engine ENGINE=… ARCH=…` then
-  `make test-engine-stage ENGINE=… ARCH=… TEST=<row.test>` — `serve` for cpu (the image answers on
-  the OpenAI API), `detect` for GPU (the binary reports its version and answers the flags a user
-  types). Same make path as CI, so the verification is identical.
+  `make test-engine-stage ENGINE=… ARCH=… TEST=<row.test>` — `serve` for cpu (the engine binary
+  smoke `make test-engine` — the DEFAULT gate, never a serving-readiness wait, issue #1717), `detect`
+  for GPU (the binary reports its version and answers the flags a user types). Same make path as CI,
+  so the verification is identical.
 - after `make push-engine` (when `push=true`), each row runs its serve-leg
   (`make test-published-engine`: re-pull AS published, digest == `:<arch>`, re-check the binary,
   serve) and its install-leg (`make test-engine-install`: install + the installed launcher's
@@ -422,8 +427,10 @@ from the committed params (`make list-engine-images CI=1 JSON=1`, 29 engine x ba
 per entry: `make build-engine ENGINE=… ARCH=…` builds with `docker buildx` using a GHCR
 registry layer cache (`--cache-from`/`--cache-to`). A tag that is already published
 (Dockerfile and params unchanged) is pulled, not rebuilt. The post-build test runs next in
-`llgenie/test`: cpu images are started and tested on the published port (`make test-engine`:
-`/v1/models` lists `llm-local` and `/v1/chat/completions` answers "hi"), GPU images print their
+`llgenie/test`: the engine binary smoke runs first (`make test-engine`: the binary in the built image
+answers the version/help flags it documents — the DEFAULT gate, never a serving-readiness wait,
+issue #1717); the OpenAI-serving conformance tier is the explicit `--serve` opt-in
+(`make test-engine-serve`). GPU images print their
 version (`make test-engine-image`). Only then `make push-engine` publishes the image to the
 repo's GHCR, on every push run (feature branches too, for now). The push runs that check again and does not tag or push unless the engine binary
 file exists in the image and **answers every flag the engine documents, one at a time**

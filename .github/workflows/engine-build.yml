@@ -19,8 +19,10 @@
 # Flow: guard (owner / collaborator with write, BEFORE any secret is read) -> make engine-build-matrix
 #       (the committed params -> one row per engine x variant; the make target is the only list) ->
 #       per row: make build-engine ENGINE= ARCH= (build only, never publishing) ->
-#       make test-engine-stage ENGINE= ARCH= TEST=<row.test> (serve: the cpu image answers on the
-#       OpenAI API; detect: the binary reports its version and answers the flags a user types) ->
+#       make test-engine-stage ENGINE= ARCH= TEST=<row.test> (serve: the engine binary smoke
+#       make test-engine — the binary in the built image answers the flags it documents, the
+#       DEFAULT engine-build gate (issue #1717), never a serving-readiness wait; detect: GPU —
+#       the binary reports its version and answers the flags a user types) ->
 #       make push-engine ENGINE= ARCH= (ONLY when push=true, and only after that test passed;
 #       push-engine re-checks the binary's flags before it pushes) ->
 #       make test-published-engine ENGINE= ARCH= (serve-leg: pull the JUST-published image, digest
@@ -194,7 +196,7 @@ jobs:
       - name: hf CLI (tiny test model)
         if: ${{ matrix.engine != 'none' }}
         run: uv tool install "huggingface_hub[cli]>=0.30"
-      - name: "verify: make test-engine-stage ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} TEST=${{ matrix.test }} (serve: the cpu image answers on the OpenAI API; detect: the binary reports its version and answers the flags a user types)"
+      - name: "verify: make test-engine-stage ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} TEST=${{ matrix.test }} (serve: the engine binary smoke — the binary in the built image answers the flags it documents (issue #1717), never a serving-readiness wait; detect: the binary reports its version and answers the flags a user types; the OpenAI-serving conformance tier is the explicit --serve opt-in on the push serve-leg)"
         if: ${{ matrix.engine != 'none' }}
         run: make test-engine-stage ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} TEST=${{ matrix.test }}
       - name: "bind-proof: record the head_sha this build-and-verify run proved (issue #1293) — the verdict a reader quotes is self-binding only when the run's head still equals the PR's current head"
