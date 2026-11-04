@@ -76,10 +76,47 @@ the drifted files**, not a fresh first-time copy:
   state,mergedAt` + `git log origin/main --oneline -- agents/<profile>/`). A merged skill PR means the row
   is cleared on main; a second copy of the same directory is a duplicate, not a completion. Ship only the
   real delta and cite the merge commit it builds on.
+- **Re-measure after your first fold — the live profile absorbed YOUR session's lessons too.** The lane's
+  live profile is written by the running agent, so lessons you learn *while working the fold PR* land in
+  live immediately. After copying live→tree, re-run `check_agent_profiles.py check --agents-dir agents` and
+  grep your lane: files that were byte-identical at copy time now read `live-longer` carrying the very
+  pitfalls you just hit (a new lint rule, a gate that reads the PR body). Fold those second-pass deltas too
+  before declaring the PR done — otherwise the PR is stale the moment it is opened, and the drift it
+  documents is drift it caused.
+- **`check-agent-profiles` means two different things on host vs CI — do not chase the wrong red.** On the
+  HOST it compares the tree against `~/.hermes/profiles/<p>/` (the drift alarm: other lanes' `absent-from-tree`
+  rows red it regardless of your change). On a CI RUNNER there is no live profile, so it checks tree-internal
+  consistency only (SOUL/skill-name/reference presence). A host red naming another lane is their debt, not a
+  CI failure of your PR; confirm the CI gate separately rather than folding every other lane's files.
 - **The two repo copies obey OPPOSITE rules — do not swap them.** `agents/<profile>/skills/<name>/` is a
   **verbatim mirror** (`diff -rq` empty is the gate); `.hermes/skills/<profile>/SKILL.md` is a
   **content-add into a `## Inputs`/`## Output`/`## Rules` structure** (a blind copy drops those headers and
   reds `check_agent_skills`). Mirror the `agents/` copy; content-add the `.hermes/` copy.
+- **A verbatim live copy can lack its trailing newline, and the fold then reds `make ci-lint`.** Live
+  skill files are written by the agent, not the linter, so `scripts/lint_linefeeds.py` fails with
+  `LINT FAIL — files missing a trailing newline: <path>` on exactly the files you copied. Run `make lint`
+  in the worktree before committing (it runs the linter inside `llgenie/test:latest`); the fix is
+  `printf '\n' >> <file>` then amend — the content is otherwise correct, so do not "tidy" the file, and do
+  not assume a copy loop that printed no error produced lint-clean files.
+
+### Adjudicating `sync-agent-profile … CHECK=1` output: tree-smaller is fatal, tree-larger is safe
+
+`CHECK=1` exits `2` with one `DIFFERS <path>: … (differs: tree <a> b, profile <b> b)` line per file plus a
+summary `N of M file(s) differ … first: <path>`. `rc=2` on its own does not mean your change is wrong — read
+the **byte order per line**:
+
+- **tree bytes < live bytes → the fatal shape.** The tree copy is truncated relative to what the lane
+  actually runs. `make sync-agent-profile PROFILE=<p>` is **one-way (tree → live)**, so running it would
+  REPLACE live behaviour with the shorter copy and destroy accumulated lessons. Do **not** run the sync; the
+  remedy is the opposite direction — commit the complete live content into the tree via issue+PR (a
+  live-only edit is itself a `check_agent_profiles` finding).
+- **tree bytes > live bytes → benign.** Syncing would only *grow* live; that is the expected state on a
+  branch that adds rules before the post-merge sync runs. Report it, do not "fix" it.
+
+Before committing the fuller content, prove it is **additive**: diff live-vs-tree and require **0 lines
+removed** per file (reworded lines appear as delete+insert pairs and are not removals; the insertion count is
+the payload). Then re-run `CHECK=1` and confirm the fatal tree-smaller rows are gone — that disappearance is
+the verification, not the commit itself.
 
 ## Writing the file needs explicit consent — and a timeout is not consent
 
