@@ -158,6 +158,90 @@ def test_file_does_not_double_report_a_run_already_flagged(tmp_path, monkeypatch
     assert why == "", why  # already reported → no double-file, no error
 
 
+def _gh_stub_recorded(tmp_path: Path, runs: list[dict], jobs_total: dict[int, int],
+                      open_issues: list[dict], monkeypatch) -> tuple[Path, Path]:
+    """A `gh` answering run list/view, issue list/create AND `api .../check-runs POST`, logging each
+    delivery event to events.json so the guard can assert exact POST counts."""
+    bindir = tmp_path / "bin"; bindir.mkdir(exist_ok=True)
+    scenario = tmp_path / "sc.json"
+    scenario.write_text(json.dumps(
+        {"runs": runs, "jobs_total": jobs_total, "issues": open_issues or []}))
+    events = tmp_path / "events.json"
+    events.write_text("[]")
+    gh = bindir / "gh"
+    gh.write_text(f"""#!/usr/bin/env python3
+import json, pathlib, sys
+sc = json.loads(pathlib.Path("{scenario}").read_text())
+events = pathlib.Path("{events}")
+a = sys.argv[1:]
+def log(ev):
+    cur = json.loads(events.read_text())
+    cur.append(ev); events.write_text(json.dumps(cur))
+if a[:2] == ["run", "list"]:
+    st = a[a.index("--status") + 1]
+    runs = [r for r in sc["runs"] if r.get("status") == st]
+    print(json.dumps(runs)); sys.exit(0)
+if a[:2] == ["run", "view"]:
+    print(json.dumps({{"total_count": sc["jobs_total"].get(a[2], 0)}})); sys.exit(0)
+if a[:2] == ["issue", "list"]:
+    print(json.dumps(sc["issues"])); sys.exit(0)
+if a[:2] == ["issue", "create"]:
+    log("issue_create:" + json.dumps(a)); print("https://github.com/x/issues/999"); sys.exit(0)
+if a[0] == "api" and any("check-runs" in x for x in a):
+    # POST head_sha is in --input file; log the check-run POST
+    infile = a[a.index("--input") + 1]
+    log("check_runs_post:" + pathlib.Path(infile).read_text()); sys.exit(0)
+print("UNHANDLED " + " ".join(a), file=sys.stderr); sys.exit(9)
+""")
+    gh.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bindir}:{__import__('os').environ['PATH']}")
+    return gh, events
+
+
+def _events(events: Path) -> list[str]:
+    return json.loads(events.read_text())
+
+
+def test_stranded_zero_job_run_is_filed_once_and_forced_red(tmp_path, monkeypatch, capsys):
+    """Prove-the-guard, stranded arm: a zero-job run on a FREE group is filed ONE deduped issue AND its
+    head is pushed to a `ci-verdict` FAILURE check-run (conclusion=failure), so it is RED instead of an
+    eternal pending. The call counts ARE the guard: exactly one issue create + exactly one check-runs POST.
+    """
+    gh, events = _gh_stub_recorded(
+        tmp_path, [_run(41321206783, "queued", 60.0)], {41321206783: 0}, open_issues=[], monkeypatch=monkeypatch)
+    rc = czp.main(["--repo", "asimov-agent/llgenie", "--minutes", "30", "--file"])
+    out = capsys.readouterr().out
+    assert rc == 1, out
+    assert "41321206783" in out, out
+    events_l = _events(events)
+    issue_creates = [e for e in events_l if e.startswith("issue_create")]
+    red_posts = [e for e in events_l if e.startswith("check_runs_post")]
+    assert len(issue_creates) == 1, events_l      # exactly-one deduped issue
+    assert len(red_posts) == 1, events_l          # exactly-one forced RED check-run
+    payload = json.loads(red_posts[0].split(":", 1)[1])
+    assert payload["conclusion"] == "failure", payload  # the ci-verdict RED mapping
+    assert payload["head_sha"].startswith("f41685f3"), payload
+    assert payload["name"] == "ci-verdict", payload
+
+
+def test_queued_behind_zero_job_run_is_never_filed_or_forced_red(tmp_path, monkeypatch, capsys):
+    """Prove-the-guard, benign arm: a zero-job run QUEUED behind a held group (#917 serialisation) is NOT
+    the fault — --file must neither create an issue NOR post a RED check-run for it.
+    """
+    holder = _run(41420879842, "in_progress", 5.0)   # holds the group; short of threshold (not itself a stall)
+    queued = _run(41763202522, "queued", 60.0)
+    gh, events = _gh_stub_recorded(
+        tmp_path, [holder, queued], {41420879842: 29, 41763202522: 0}, open_issues=[], monkeypatch=monkeypatch)
+    rc = czp.main(["--repo", "asimov-agent/llgenie", "--minutes", "30", "--file"])
+    out = capsys.readouterr().out
+    assert rc == 0, out                              # benign — no stranded run to deliver
+    assert "filed 1 deduped" not in out, out
+    assert "forced 1 stranded" not in out, out
+    events_l = _events(events)
+    assert not any(e.startswith("issue_create") for e in events_l), events_l
+    assert not any(e.startswith("check_runs_post") for e in events_l), events_l
+
+
 def test_a_github_read_failure_is_exit_2(tmp_path, monkeypatch):
     """An unreadable answer is UNKNOWN, never clean (mirror the queued-runs doctrine)."""
     gh = _gh_stub(tmp_path, [], {}, monkeypatch)

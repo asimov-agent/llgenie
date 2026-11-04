@@ -16,7 +16,21 @@ engine-build.yml) was `pending`/`queued` with `jobs.total_count == 0` from 15:26
 cancelled at 15:47:45Z; the `engine-build-push` concurrency group was empty (no other run held it)
 and the runner pool read returned 403 (no runner matched `vllm-cuda`). Nothing named this run.
 
-Exit codes: 0 = no zero-job run stuck, 1 = at least one, 2 = the GitHub read failed.
+Exit codes: 0 = no STRANDED zero-job run (queued-behind zero-job runs are benign), 1 = at least one
+stranded, 2 = the GitHub read failed.
+
+THE DISCRIMINATOR (issue #1704): `jobs.total_count == 0` alone is NOT a "no runner matched" claim.
+`engine-build` serialises every build per `engine × arch` concurrency group (#917,
+`cancel-in-progress: false`), so a `workflow_dispatch` run queued behind a sibling holding the same
+group reads `queued`, zero jobs, past the threshold — but it is QUEUEING, not stranded, and six
+consecutive filings mis-named it as "no runner matched labels" (#1473/#1536/#1569/#1699/#1700/#1701,
+all true false positives). A run is only the genuine #1410 case when its concurrency group is FREE —
+no same-workflow run is `in_progress` holding it — AND the zero jobs persist. This module classifies
+each zero-job run, keeps the queued-behind ones out of the report, files only the stranded ones, and
+FORCES a stranded run's head RED via the `ci-verdict` check-run path (a `pending` run has no decision,
+and no-decision is already red — see `scripts/ci_scope.py::verify`), so a truly-unrunnable dispatch
+surfaces as a failed check with a reason instead of an eternal `pending` that reads like a working
+matrix (#1704). The monitor workflow carries `checks: write` so the RED check-run can land.
 """
 from __future__ import annotations
 
@@ -24,9 +38,11 @@ import argparse
 import datetime as dt
 import json
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import ci_scope  # noqa: E402  the verdict grammar + the check-run payload this monitor posts
 import issue_body  # noqa: E402  (the one issue shape, #745)
 from proc import run_ok  # noqa: E402  the subprocess policy seam (issue #797)
 
@@ -112,6 +128,7 @@ def zero_job_pending_runs(repo: str, minutes: float = 30.0, now: dt.datetime | N
                     "workflow": run.get("workflowName", ""),
                     "branch": run.get("headBranch", ""),
                     "head": (run.get("headSha") or "")[:12],
+                    "head_sha": (run.get("headSha") or ""),
                     "created": run.get("createdAt", ""),
                     "url": run.get("url", ""),
                     "minutes": age})
@@ -133,6 +150,16 @@ def render(rows: list[dict], minutes: float) -> str:
               "arrives for the requested labels, or a missing/offline self-hosted runner, is the usual "
               "cause — see issue #1410."]
     return "\n".join(lines)
+
+
+def already_filed(repo: str, rid: int) -> bool:
+    """Has run `rid` already been reported (its dedupe marker is in an open issue's body)?"""
+    try:
+        found = json.loads(_gh(["issue", "list", "--repo", repo, "--state", "open",
+                                "--search", f"{rid} in:body", "--json", "body"]) or "[]")
+    except (RuntimeError, ValueError):
+        return False
+    return any(_run_marker(rid) in (i.get("body") or "") for i in found)
 
 
 def file_one_issue(repo: str, r: dict, body: str, dry: bool = False) -> str:
@@ -188,13 +215,47 @@ def file_one_issue(repo: str, r: dict, body: str, dry: bool = False) -> str:
     return ""
 
 
+def force_red_verdict(repo: str, r: dict) -> str:
+    """Force a stranded run's head RED via the `ci-verdict` check-run path; "" on success.
+
+    A `pending`/`queued` zero-job run publishes no scope decision — and `scripts/ci_scope.py::verify`
+    reds "no decision" (a skipped selected job OR no decision is already red). But the run never
+    COMPLETES, so `ci-verdict`'s own `workflow_run: [completed]` hook never fires on it. This posts the
+    same `ci-verdict` check-run payload the verdict would post, so a runner-starvated head that never
+    completes still surfaces as a FAILED check with a reason instead of an eternal `pending`.
+    Idempotent: posting the same check-run name again just updates it (the check already exists after
+    the first filing). Returns the failure reason otherwise, so delivery is loud (#294).
+    """
+    head = (r.get("head_sha") or "")
+    if not head:
+        return f"run {r['run']} has no head sha — cannot force the verdict check-run"
+    lines = [
+        f"[zero-job-pending] run {r['run']} {r['workflow']} head={head[:7]} conclusion=pending "
+        f"(#1704)",
+        f"[zero-job-pending] ZERO JOBS past the threshold on a FREE concurrency group — no runner matched",
+        f"[zero-job-pending] verdict=red success=0 failure=0 skipped-by-decision=0 no-verdict=1 pending=0",
+        f"[zero-job-pending] NO VERDICT: a zero-job pending run has no decision — 0 failures is not a verdict",
+    ]
+    payload = ci_scope.check_run_payload(ci_scope.RED, head, lines,
+                                         run_label=f"zero-job run {r['run']} (#1704)")
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+        json.dump(payload, f)
+        path = f.name
+    rq = run_ok(["gh", "api", f"repos/{repo}/check-runs", "--method", "POST", "--input", path])
+    Path(path).unlink(missing_ok=True)
+    if rq.returncode != 0:
+        return f"check-run for run {r['run']} failed ({rq.returncode}): {rq.stderr.strip()}"
+    return ""
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Flag dispatched runs pending/queued too long with zero jobs")
     ap.add_argument("--repo", required=True, help="owner/repo")
     ap.add_argument("--minutes", type=float, default=30.0, help="threshold minutes (default 30)")
     ap.add_argument("--limit", type=int, default=100)
     ap.add_argument("--file", action="store_true",
-                    help="file ONE deduped issue per stuck run (idempotent by run-id marker)")
+                    help="force every stranded run's head RED via ci-verdict and file ONE deduped "
+                         "issue per stranded run (idempotent by run-id marker)")
     args = ap.parse_args(argv)
     try:
         rows = zero_job_pending_runs(args.repo, minutes=args.minutes, limit=args.limit)
@@ -207,14 +268,24 @@ def main(argv: list[str] | None = None) -> int:
     if args.file:
         failures = []
         for r in rows:
-            why = file_one_issue(args.repo, r, render([r], args.minutes))
-            if why:
-                failures.append(why)
+            rid = r["run"]
+            # Named once: a run already reported (its marker in an open issue) is not delivered a
+            # second time — neither re-filed nor re-forced RED. A fresh stranded run gets exactly one
+            # delivery: force its head RED (so the same gates that catch every other red catch this
+            # one) AND file the one deduped issue naming it.
+            if already_filed(args.repo, rid):
+                continue
+            why_red = force_red_verdict(args.repo, r)
+            why_file = file_one_issue(args.repo, r, render([r], args.minutes))
+            for why in (why_red, why_file):
+                if why:
+                    failures.append(why)
         if failures:
             for why in failures:
                 print(f"[{MARKER}] DELIVERY FAILED: {why}", file=sys.stderr)
             return 3
-        print(f"[{MARKER}] filed {len(rows)} deduped issue(s) naming the stuck run(s)", flush=True)
+        print(f"[{MARKER}] filed {len(rows)} deduped issue(s) and forced "
+              f"{len(rows)} stranded run(s) RED", flush=True)
     return 1
 
 
