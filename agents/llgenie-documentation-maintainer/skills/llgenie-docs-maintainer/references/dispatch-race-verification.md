@@ -1,8 +1,16 @@
 # Reconciling a dispatch that raced an already-landed fix
 
-A dispatch can arrive *after* the issue is already CLOSED and its fix merged by another vehicle — an
-owner-lane PR landing in the same minute the planner queued the dispatch. The dispatch's sha and its
-"needs this" framing are then both stale. Never cut a branch off a dispatch on trust.
+A dispatch can arrive *both* behind and ahead of main, and either way the reported framing is a
+claim about a branch, not about the tree. Never cut a branch or edit a doc row on trust.
+
+- **Behind main:** the issue is already CLOSED and its fix merged by another vehicle — an owner-lane
+  PR landing in the same minute the planner queued the dispatch. The dispatch's sha and its "needs
+  this" framing are then both stale.
+- **Ahead of main:** a peer lane reports a doc row is "stale since PR #X" — but PR #X is still OPEN,
+  and that lane is reading its OWN branch head as the tip. On origin/main the doc is still accurate;
+  it only goes stale the moment #X merges.
+
+The reconcile below settles both: measure the tree at origin/main, never trust the sender's sha.
 
 ## Verify, in this order, before a worktree / branch / first edit
 
@@ -31,6 +39,47 @@ owner-lane PR landing in the same minute the planner queued the dispatch. The di
   `make check-docs` exit 0 at `<tip>`, note names the right PR/merge-sha.
 - Report to the planner: "no new vehicle owed" — a duplicate re-opens nothing and burns a gate run.
 - Never re-close the issue, never rebase or re-push the merged vehicle, never arm a duplicate (#1088).
+
+### Prove it by real execution, never by manufacturing a change
+
+When the work is already merged and a probe or a peer claims "no change attempted" / "not done",
+**answer with executed evidence on the merged tip — do not invent a new branch/PR to look busy.**
+That is the fabricated-completion failure: it touches files another lane owns and a green-looking
+no-op PR reads as diligence while proving nothing.
+
+- Prove the merge landed with the ancestor predicate and READ ITS EXIT CODE — `git merge-base
+  --is-ancestor <merge-sha> origin/main && echo YES || echo NO`. **Never string-compare `git
+  merge-base` output** (`[ "$(git merge-base $sha origin/main)" = "$sha" ]`): it prints nothing on
+  error and several lines on a criss-cross base, so a genuinely merged commit reads as NOT-ancestor
+  — a false negative that sends you re-doing landed work.
+- Re-run the generator the change was about and show a **zero diff** (an in-sync `CHANGES.md`
+  re-write prints no `git diff --stat` lines) — nothing left to write is the proof the mutation is
+  complete.
+- Run the pinned unit test the change was built for, in the hermetic test venv, and quote `N passed`
+  (see `references/changes-index-maintenance.md` for the venv discovery command).
+- Then state the verdict with the sha and the clock: merged commit is an ancestor of `<tip>`, gate X
+  passes at `<tip>`, generator re-write is a no-op. That is a finished piece of work; the probe is
+  stale, not the tree.
+
+## If the report is ahead of main (an OPEN PR)
+
+A peer says the row is stale because *their* PR changes the workflow. Do **not** edit the doc row:
+the tree does not carry the change yet, so the edit would describe a change not in the tree and
+falsify the doc against the current consumer.
+
+1. Confirm the PR is unmerged: `gh pr view <m> --repo asimov-agent/llgenie --json state,mergeCommit`
+   — `state: OPEN` and `mergeCommit: null` mean it is NOT on main. A head sha the peer quotes will
+   fail `git merge-base --is-ancestor <head> origin/main`.
+2. Read the consumer the doc row actually describes, at origin/main: e.g.
+   `git show origin/main:.github/workflows/pipeline.yml | grep -n <target>`. If main still runs the
+   old target, the row is accurate right now.
+3. The doc row rides the PR that flips the workflow (same-PR rule): post the **exact replacement
+   hunk** as a comment on that PR so it is visible and can be folded in at merge — do not open a
+   parallel doc PR that lands ahead of it.
+4. Protect the file: if it is gated from the peer's lane (agent-instruction / protected-write), the
+   hunk in a comment is the handoff; land the doc as a companion only once the PR merges, never before.
+5. Reply to the peer with the measured correction (main sha, the line that still runs the old
+   target, `state=OPEN`), not a DM agreeing to "fix" a row that is not stale.
 
 ## If acceptance does NOT hold
 

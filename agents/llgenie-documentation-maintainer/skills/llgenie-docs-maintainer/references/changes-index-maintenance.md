@@ -19,6 +19,16 @@ fragments by `make changes-index` (`scripts/changes_index.py`).
   PR body. `check-changes` is **not** a `make` target — it is a check function run *inside*
   `check-docs`, so never `make check-changes` (it 404s); the proof the render is consistent with the
   fragments is `make -s check-docs` staying green ("CHANGES.md links no missing note").
+- **A change PR that lands its note+fragment but SKIPS the render leaves `main` one row behind — that
+  lag is a docs-only render PR of this lane's, and the definitive proof is a ZERO-diff re-write.**
+  After any merge that added a fragment, `python3 scripts/changes_index.py report` on the merged tip
+  prints `N committed, N+1 rendered` when the renderer was never run (a later PR that only *edits* a
+  fragment is the sibling shape above, not this one). Fix it on a fresh branch: run
+  `scripts/changes_index.py write` (or `make changes-index`), confirm `git diff --stat` is the single
+  `CHANGES.md` row and nothing else, and ship it as a docs-only PR (a render is no behavioural
+  surface → no new note owed). Verify on the merged tree by re-running the write: an EMPTY diff is
+  the proof it is in sync (`report` then reads `N committed, N rendered — current`), so re-running
+  the generator on an in-sync tree is the cheapest falsifiable check that nothing is left to render.
 - **A committed row that no longer matches its fragment is a main-red this lane owns — regenerate,
   do not hand-edit.** When a fragment is edited AFTER it merged (a strengthened md5, a corrected byte
   count, a re-worded summary) but `make changes-index` was never re-run, `CHANGES.md` keeps the OLD
@@ -53,10 +63,15 @@ fragments by `make changes-index` (`scripts/changes_index.py`).
   grep <note-topic>`), recompute the md5 (`md5sum`), and re-run the predicate: a stale literal with a
   live divergence is still a real defect, and "the literal isn't in the tree → reporter is wrong" is
   the false-negative that ships a red main. Quote the real stem and both md5s in the fix PR.
-- **`pytest` is not installed in this lane's host — run the predicate, not the test file.** `python -m
-  pytest ...` exits non-zero for lack of the package, which reads like a red. Import the module
-  directly instead (`python3 -c 'import scripts.changes_index as ci; ...'` from the repo root) and
-  evaluate the same predicate the test evaluates; that is the measurement, and it costs no install.
+- **`pytest` is not on the ambient `python3`, but a hermetic test venv under
+  `~/.hermes/installs/*/test-environment/*/venv` carries it — run the real test, do not re-implement
+  the predicate.** `python3 -m pytest` (and the plain `installs/*/venv`) exits non-zero with
+  `No module named pytest`, which reads like a red. Locate the test-environment venv and run the
+  actual test there so the proof is the gate's own assertion, not your reimplementation:
+  `VENV=$(ls -d ~/.hermes/installs/*/test-environment/*/venv | head -1);
+  PYTHONPATH=. "$VENV/bin/pytest" tests/<file>.py -k '<expr>' -q`. If no test-environment venv
+  exists, fall back to importing the module directly (`python3 -c 'import scripts.changes_index as
+  ci; ...'` from the repo root) and evaluate the same predicate the test evaluates.
 
 ## Gate falsifiability and the change→note direction
 

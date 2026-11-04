@@ -26,3 +26,15 @@ means the real CI push run with the unit leg passing.
 
 Workflow-run objects return `id` (not `database_id`); `--jq .database_id` yields `null` and silently
 looks like a missing run. Use `.id`.
+
+## A merged squash PR reads "unmerged" off its branch head
+
+A GitHub squash merge creates a NEW commit (`mergeCommit.oid`) that is NOT a descendant of the PR's
+branch head. Checking the old branch head/ref (e.g. `git merge-base --is-ancestor <head> main` RETURNING
+NO) therefore reads a shipped PR as "not merged" and re-arms a stale "awaiting owner merge" status on a
+PR that landed long ago (#1584: branch head `70179179` not an ancestor; the merged tree `a7847c6f`
+carried the identical #1123 trio, `state=MERGED`, `mergedAt` set).
+
+To tell shipped from pending, read the PR itself — never the branch ref:
+`gh pr view <n> --repo <o>/<r> --json state,mergedAt,mergeCommit` and quote `state`, `mergedAt`,
+`mergeCommit.oid`. Then confirm the merge commit is on main: `git merge-base --is-ancestor <mergeCommit.oid> origin/main`.
