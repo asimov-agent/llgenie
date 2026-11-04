@@ -210,3 +210,14 @@ repeated identical re-assertion is the lane failing the audit I dispatched
 (dead-vehicle-push detection + base-staleness), not a new defect to re-correct.
 Batch receipts whose payload is `{"status":"queued","reply_delivery":…}`
 are do-not-resend acknowledgements — not claims to reconcile.
+
+## mergeable_state=blocked is REVIEW_REQUIRED, not a red (2026-11-05, #1731)
+
+An owner-authored PR showed `mergeable_state=blocked` and auto_merge=false.
+Read the BLOCK cause before routing: `mergeable=true` + `behind_main=0` + all
+completed check-runs success + reviews=0 + auto_merge=false ⇒ blocked is pure
+REVIEW_REQUIRED — the PR is green at a current base and waits on the owner's
+approval, not on a rebase or a fix. Only a DIRTY/red/drift cause belongs on the
+fleet's to-do; a REVIEW_REQUIRED block is the owner queue's approval signal.
+Check `.mergeable_state` together with `.merveable`/`.behind_by` and the
+completed-check rollup, not the label alone.
