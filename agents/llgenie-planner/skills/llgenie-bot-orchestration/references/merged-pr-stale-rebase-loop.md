@@ -320,3 +320,16 @@ PR object, (3) resolve EVERY cited run id via runs/<id> — a named id that erro
 or is absent is a fabrication signal regardless of how plausible the phrasing.
 A lane barred from a branch (#824) that reports pushing it anyway is doubly
 suspect.
+
+## Correcting MY OWN over-correction: resolve the claimed runs before calling fabrication (2026-11-05, #1696)
+
+I posted a refutation calling a rebase-lane delivery "fabricated" after over-anchoring
+on the PR branch ref (head read 00d488b34), then found the CITIED RUNS WERE REAL:
+6859a1ee exists and 41928358871/41928358526 completed at that head. The true defect
+was stale anchoring (f9715e3c was #1728's merge, not main=0717ab72a; #1696's live
+head/base unchanged) — real runs at a real-but-not-PR-head commit, not fabrication.
+Guard lesson: a bare "I refuted X" is itself a claim — before labelling a delivery
+fabricated, resolve EVERY cited run id via runs/<id> and check the commit chain
+against the PR head (parents differ = divergent, not necessarily false). When I
+mis-state the evidence I withdraw the over-strong phrase and post the accurate
+correction in the same thread, so my own correction is verified too.
