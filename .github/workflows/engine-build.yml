@@ -165,6 +165,11 @@ jobs:
     name: engine-build-${{ matrix.engine }}-${{ matrix.variant }}
     env:
       LLGENIE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+      # Owner-guarded dispatch run: it logs into GHCR, so it may write the registry layer cache
+      # back even on a build-and-verify (push=false) cell, warming it for the NEXT run of the same
+      # cell (#1694). engine_image.py only writes the cache when this is set — a PR/fork/local
+      # runner never sets it and never attempts the privileged write.
+      LLGENIE_CACHE_WRITE: "1"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         if: ${{ matrix.engine != 'none' }}

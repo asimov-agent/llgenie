@@ -60,10 +60,50 @@ def test_an_unforced_build_keeps_the_registry_cache(monkeypatch, tmp_path):
     # When  it is NOT forced
     ei._buildx("llgenie/demo:t", str(tmp_path), False, "ghcr.io/asimov-agent/llgenie/demo:buildcache")
 
-    # Then  --cache-from is there and --no-cache is not
+    # Then  --cache-from is there, it does NOT write back, and --no-cache is not
     build = calls[-1]
     assert "--no-cache" not in build
     assert "type=registry,ref=ghcr.io/asimov-agent/llgenie/demo:buildcache" in build
+    assert not any(a == "--cache-to" for a in build)
+
+
+def test_a_nonpush_unforced_build_writes_back_the_cache_only_when_privileged(monkeypatch, tmp_path):
+    """The verification-only sweep warms the shared cache for its NEXT run (#1694).
+
+    `LLGENIE_CACHE_WRITE=1` turns the read-only local build into a read+write one, so an
+    owner-guarded engine-build dispatch (push=false) leaves a warm cache behind instead of every
+    fresh runner reading cold. The flag is the privilege boundary: without it the build is
+    strictly read-only (the pre-#1694 behaviour, still the PR/fork/local one).
+    """
+
+    # Given a non-pushing, unforced build WITHOUT the privileged write flag (the fork/PR default)
+    calls = _record(monkeypatch)
+    monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+    monkeypatch.setattr(ei, "CACHE_WRITE", False)
+
+    # When  it builds and verifies
+    ei._buildx("llgenie/demo:t", str(tmp_path), False, "ghcr.io/asimov-agent/llgenie/demo:buildcache")
+
+    # Then  the cache is read but never written back
+    build = calls[-1]
+    assert "type=registry,ref=ghcr.io/asimov-agent/llgenie/demo:buildcache" in build
+    assert not any(a == "--cache-to" for a in build)
+
+    # Given the SAME build but with the privileged flag set (the owner-guarded engine-build dispatch)
+    calls = _record(monkeypatch)
+    monkeypatch.setattr(ei, "CACHE_WRITE", True)
+
+    # When  it builds and verifies
+    ei._buildx("llgenie/demo:t", str(tmp_path), False, "ghcr.io/asimov-agent/llgenie/demo:buildcache")
+
+    # Then  the cache is read AND written back (mode=max), so the next cell run is warm
+    build = calls[-1]
+    assert "--no-cache" not in build
+    assert "--cache-from" in build
+    assert any(str(a).startswith("type=registry,ref=ghcr.io/asimov-agent/llgenie/demo:buildcache")
+               for a in build)
+    any_to = [a for a in build if str(a).startswith("type=registry,ref=ghcr.io/asimov-agent/llgenie/demo:buildcache,")]
+    assert any_to and all("mode=max" in str(a) for a in any_to)
 
 
 def test_a_forced_push_build_does_not_read_the_cache(monkeypatch, tmp_path):

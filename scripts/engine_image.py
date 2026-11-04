@@ -117,6 +117,11 @@ RUNTIME = os.environ.get("RUNTIME") or "docker"  # docker only (issue #112)
 # LLGENIE_REGISTRY overrides it (a fork's GHCR); LLGENIE_REGISTRY= (empty) = local images only.
 DEFAULT_REGISTRY = "ghcr.io/asimov-agent"
 REGISTRY = os.environ.get("LLGENIE_REGISTRY", DEFAULT_REGISTRY).rstrip("/").lower()  # OCI refs must be lowercase
+# Write the registry layer cache back on a NON-push build. Set ONLY by a workflow whose trigger is
+# owner/collaborator dispatch AND whose build job logs into the registry (engine-build.yml, #1694):
+# a fork-PR or local build must never write the shared cache (issues #155/#638). The cache READ
+# below is unconditional when REGISTRY is set; the WRITE is the privileged half.
+CACHE_WRITE = os.environ.get("LLGENIE_CACHE_WRITE") == "1"
 
 
 def _sh(cmd: list[str], **kw) -> subprocess.CompletedProcess:
@@ -204,6 +209,13 @@ def _buildx(tag: str, ctx: str, push: bool, cache_ref: str, force: bool = False)
     cmd += [*no_cache, "-t", tag, "--load"]
     if REGISTRY and not force:
         cmd += ["--cache-from", f"type=registry,ref={cache_ref}"]
+        # A verification-only engine-build run (push=false) still warms the shared cache for the
+        # NEXT run of the same cell — that is the whole point of the build-and-verify sweep, which
+        # reads a cold cache on every fresh runner otherwise (#1694). The write is privileged: it
+        # runs only when LLGENIE_CACHE_WRITE=1, set solely by the owner-guarded engine-build
+        # dispatch job (never a PR/fork/local build), so a read-only runner never attempts it.
+        if CACHE_WRITE:
+            cmd += ["--cache-to", f"type=registry,ref={cache_ref},mode=max"]
     return _sh(cmd + [ctx]).returncode
 
 
