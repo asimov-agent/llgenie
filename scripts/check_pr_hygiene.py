@@ -492,6 +492,11 @@ AGENTS_LINE = re.compile(r"^AGENTS:\s+([0-9a-f]{7,40})\s+(\d+)b\s+(\d+)l\s*$", r
 #: PR was cut from, so a reviewer can check the base without consulting the branch.
 #: `(=~ origin/main at open)` is the human reminder; the sha is what the gate reads.
 BASE_LINE = re.compile(r"^BASE:\s+([0-9a-f]{7,40})\s+\(==\s*origin/main at open\)\s*$", re.M)
+#: The `SYNC:` line issue #1724 adds: a landed profile change must report the live re-sync. The owner's
+#: rule is that behaviour-versioned changes (SOUL/skills/rule) must propagate from the tree INTO the live
+#: profile (`make sync-agent-profile PROFILE=<p>`), and the PR body must say so, so a reviewer can verify
+#: propagation happened rather than just a commit. Each line names exactly one profile + its command.
+SYNC_LINE = re.compile(r"^SYNC:\s+([A-Za-z0-9_-]+)\s+make sync-agent-profile PROFILE=\1\s*$", re.M)
 
 
 def range_authors(root: Path, base: str, head: str) -> list[str]:
@@ -573,6 +578,57 @@ def agents_line_findings(root: Path, head: str, base: str, body: str) -> list[di
                       f"was measured at (issue #845)",
         }]
     return []
+
+
+def _diff_profiles(root: Path, base: str, head: str) -> list[str]:
+    """The profile dirs (`agents/<name>/`) a range touches — the owner's propagation rule (#1724) turns a
+    landed profile change into a REQUIRED live re-sync report, so the gate reads which profiles the range
+    actually edits (`git diff --name-only base..head -- agents/`)."""
+    out = _git(root, "diff", "--name-only", f"{base}..{head}", "--", "agents")
+    names: list[str] = []
+    for line in (out or "").splitlines():
+        line = line.strip()
+        # an agents/<name>/... path, and not the top-level AGENTS.md-carrying file itself
+        if line.startswith("agents/") and "/" in line[len("agents/"):]:
+            rest = line[len("agents/"):].split("/", 1)[0]
+            if rest and rest not in names:
+                names.append(rest)
+    return sorted(names)
+
+
+def pr_sync_line_findings(root: Path, head: str, base: str, body: str) -> list[dict]:
+    """`sync_line_findings`, but only for a range that carries bot work — the gate's real entry point."""
+    if not is_bot_pr(root, base, head):
+        return []
+    return sync_line_findings(root, head, base, body)
+
+
+def sync_line_findings(root: Path, head: str, base: str, body: str) -> list[dict]:
+    """A bot PR that changes `agents/<profile>/` must report the live re-sync (issue #1724).
+
+    The owner's propagation rule: behaviour-versioned changes (SOUL/skills/rule) must be re-synced from
+    the tree INTO the live profile (`make sync-agent-profile PROFILE=<p>`), and that re-sync must be
+    REPORTED in the PR body so a reviewer can verify propagation, not just the commit. A profile dir the
+    diff touches with no matching `SYNC:` line is a finding: the tree can hold the new rule while the live
+    profile that acts under it still runs the old one (the #1707 tree-vs-live drift, the #1719 lane that
+    did not know its own PR merged). `--no-merges` keeps the merge-range commit from hiding a citation
+    that was never on either side.
+    """
+    touched = _diff_profiles(root, base, head)
+    if not touched:
+        return []
+    reported = set(SYNC_LINE.findall(body))
+    missing = [p for p in touched if p not in reported]
+    if not missing:
+        return []
+    return [{
+        "key": "profile-sync",
+        "where": "PR body",
+        "detail": "this PR changes agents/ under "
+                  f"{', '.join('`' + p + '`' for p in missing)} — the owner's propagation rule (#1724) "
+                  "requires the profile-owning lane to re-sync the live profile and report it: "
+                  "add a `SYNC: <p> make sync-agent-profile PROFILE=<p>` line for each changed profile",
+    }]
 
 
 def _git(root: Path, *args: str) -> str | None:
@@ -699,6 +755,11 @@ def main(argv=None) -> int:
     a.add_argument("--head", required=True, help="the PR head ref or sha")
     a.add_argument("--base", required=True, help="the PR base ref or sha")
     a.add_argument("--body-file", required=True, help="the file holding the PR body")
+    a = sub.add_parser("sync-line", help="a profile-editing bot PR reports its live re-sync in a `SYNC:` line (issue #1724)")
+    a.add_argument("--root", default=str(REPO_ROOT))
+    a.add_argument("--head", required=True, help="the PR head ref or sha")
+    a.add_argument("--base", required=True, help="the PR base ref or sha")
+    a.add_argument("--body-file", required=True, help="the file holding the PR body")
     c = sub.add_parser("changes-index", help="a CHANGES.md row has a docs/changes.d/<stem>.md fragment, and no note appears twice (issue #1063)")
     c.add_argument("--root", default=str(REPO_ROOT))
     args = p.parse_args(argv)
@@ -716,6 +777,15 @@ def main(argv=None) -> int:
                 print(f"[check-pr-hygiene] {it['where']}: {it['detail']}", file=sys.stderr)
             return 1
         print("[check-pr-hygiene] OK: the `AGENTS:` line is reachable from both head and base")
+        return 0
+    if args.cmd == "sync-line":
+        body = Path(args.body_file).read_text()
+        items = pr_sync_line_findings(root, args.head, args.base, body)
+        if items:
+            for it in items:
+                print(f"[check-pr-hygiene] {it['where']}: {it['detail']}", file=sys.stderr)
+            return 1
+        print("[check-pr-hygiene] OK: every changed agent profile reports its live re-sync (`SYNC:` line)")
         return 0
     if args.cmd == "changes-index":
         items = changes_index_findings(root)

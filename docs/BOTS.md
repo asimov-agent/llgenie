@@ -785,6 +785,16 @@ It cannot run in the hermetic `ci-unit` chain (it needs the LIVE PR body), so bo
 `gh api` (issue #1589) so a body-only fix clears on rerun; a push to main has no body and prints a
 `nothing to validate` note instead of failing. Implemented as issue #1675.
 
+`make check-pr-sync-line` is the #1724 profile-propagation preflight mounted in CI: it refuses a bot PR
+whose diff changes a directory under `agents/<profile>/` (a SOUL/skills/rule change) without reporting
+its live re-sync — a `SYNC: <p> make sync-agent-profile PROFILE=<p>` line naming each touched profile.
+The owner's rule is that behaviour-versioned changes must propagate from the tree INTO the live profile,
+and that re-sync must be REPORTED so a reviewer can verify propagation happened, not just a commit.
+It cannot run in the hermetic `ci-unit` chain (it needs the LIVE PR body and a live diff), so both
+`ci.yml`'s `guard` job and `scope.yml`'s docs gate run it beside `check-pr-closing`/`check-pr-agents-line`,
+fetching that body via `gh api` (issue #1589); a push to main has no body and prints a `nothing to
+validate` note instead of failing. Implemented as issue #1724.
+
 #### Each write uses the token that can perform it (issue #430)
 
 The PR step makes two different writes and needs two different tokens. `GH_TOKEN: ${{ github.token }}`
