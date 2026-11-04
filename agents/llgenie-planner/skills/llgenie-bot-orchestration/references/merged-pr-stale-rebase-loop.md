@@ -370,3 +370,15 @@ Dispatch goes to the implementer with the live head (`9dd9caad4`) + base pin
 Also: a stale `/tmp` comment body can overwrite a fresh one (write_file refused
 stale-write, deleted the stale comment 6645547064, posted correct 6645555355).
 Every lane - including mine - audits its own queue for open-PR-vehicle existence.
+
+## A recut can land on the PREVIOUS main while the PR base advances (2026-11-05, #1732 header 34a4cfaa6)
+
+The engine lane re-cut #1732 to 34a4cfaa6 with parent 0717ab72a (old main) at the
+same time #1731 merged (tip 1ea27e95d), so the PR base became 1ea27e95d while the
+head-parent was still 0717ab72a - base moved after the recut, scope=FAILURE. This
+is the moving-base class recurring (formerly #845): a re-cut that lands on the
+previous tip does NOT clear the moving-base gate; the acceptance is
+head-parent == base == current main (`origin/main`) at the moment of push, and
+scope must re-publish against that live tip. Measure base.sha AND head.sha's
+parent before declaring a recut clean; a base advance between recute and push
+requires a second (final) recut, never a merge of a mismatched base.
