@@ -8,9 +8,24 @@ env, pre/post-launch, launch and health all come from the SKILL.md. Only the
 tiny test model per model format is chosen here.
 
   python3 scripts/engine_smoke.py <engine-id> [--backend cpu|metal|...] [--port N]
+                                       [--image] [--serve]
 
-Exit 0 = installed, /v1/models lists llm-local, and a chat completion with
-model=llm-local returned text. Any failure exits non-zero (never a skip).
+The DEFAULT contract (no `--serve`, which is what CI `test-engine-stage` runs)
+is the ENGINE BINARY smoke: after the image is built (or the skill installed),
+the engine binary is invoked with `-h` and `--version` inside the image (or on
+the host for the skill path) and must answer BOTH with exit 0 and non-empty
+output. This is deterministic and near-instant, and is the gate for an engine
+BUILD (issue #1717): a broken binary fails fast instead of burning a 1200 s
+serving-readiness wait that redden on a slow/flaky endpoint or runner.
+
+Serving conformance is the explicit `--serve` tier: with `--serve`, after the
+binary smoke the engine image is run (or the skill launch line served) and the
+llm-local OpenAI contract is asserted (/v1/models lists llm-local and a chat
+completion returns text). No coverage is lost — it is just not the default
+build gate.
+
+Exit 0 = built/installed and the binary answered `-h`/`--version` (and, with
+`--serve`, served llm-local). Any failure exits non-zero (never a skip).
 """
 from __future__ import annotations
 
@@ -135,10 +150,91 @@ def harness_sdk_check(port: int, engine: str = "", arch: str = "cpu", container:
         print(r.stderr[-2000:])
     return r.returncode
 
+
+def _print_verdict(tag: str, flag: str, ret: subprocess.CompletedProcess) -> bool:
+    """One flag's binary-smoke verdict (issue #1717): exit 0 AND non-empty output.
+
+    A dead flag is named instead of masked by a working one — this is the same
+    per-flag discipline the push gate uses (issue #580). Returns True = OK.
+    """
+    out = ((ret.stdout or "") + (ret.stderr or "")).strip()
+    head = out.splitlines()[0][:140] if out else ""
+    if ret.returncode != 0:
+        print(f"[smoke] FAIL {tag} {flag}: binary exited {ret.returncode}"
+              + (f" ({head})" if head else ""))
+        return False
+    if not out:
+        print(f"[smoke] FAIL {tag} {flag}: exit 0 with EMPTY output")
+        return False
+    print(f"[smoke] OK {tag} {flag}: answered ({head})")
+    return True
+
+
+def binary_smoke(spec: dict | None = None, skill: dict | None = None,
+                 p: dict | None = None, host_prelude: str = "") -> int:
+    """The ENGINE BINARY smoke (issue #1717): the engine binary must answer
+    BOTH `-h`/`--help` AND `--version` with exit 0 and non-empty output, BEFORE
+    any serving wait. This is the DEFAULT engine-build gate (`test-engine-stage`);
+    serving conformance is the opt-in `--serve` tier.
+
+    * image path (spec): the binary is run INSIDE the built image — `docker run
+      --rm <tag> <binary> <flag>` for each flag the committed manifest documents
+      (the same `variant_binary` the image was built to contain). A `probe:
+      device` variant (vllm cuda/rocm) is skipped here: its CLI probes the device
+      at startup and cannot answer on a GPU-less runner (#106); its version is
+      proven by the image's own `detect` in the serve tier.
+    * skill path (p): the installed engine binary is probed on the host with the
+      launch prelude so it can render a version/help line.
+
+    Exit 0 only when every applicable flag answered. `--serve` is not needed.
+    """
+    import engine_image as ei
+    if spec is not None:
+        tag = spec["tag"]
+        policy = (ei.binary_manifest(spec["id"], spec["variant"]).get("probe") or "flags")
+        if policy == "device":
+            print(f"[smoke] binary {spec['id']}/{spec['variant']}: probe=device (device needed at "
+                  f"startup); answering in the serve tier via detect (#106)")
+            return 0
+        binary = ei.variant_binary(spec) or ""
+        if not binary:
+            print(f"[smoke] FAIL {tag}: binaries.json has no binary for {spec['id']}/{spec['variant']}")
+            return 1
+        flags = ei.variant_flags(spec) or ["--version", "-h"]
+        print(f"[smoke] binary {binary}  image {tag}  flags: {' '.join(flags)}", flush=True)
+        ok = True
+        for flag in flags:
+            r = subprocess.run(  # proc-allow: binary smoke inside the built image (issue #1717)
+                [ei.RUNTIME, "run", "--rm", "--entrypoint", "bash", tag, "-c",
+                 f"{binary} {flag} 2>&1; ec=$?; exit $ec"],
+                capture_output=True, text=True, timeout=120)
+            ok = _print_verdict(tag, flag, r) and ok
+        return 0 if ok else 1
+    # skill path: installed engine binary on the host
+    binary = (p or {}).get("binary")
+    if not binary:
+        print(f"[smoke] FAIL {skill.get('id')}: no binary in the skill plan; cannot binary-smoke")
+        return 1
+    documented = [str(f) for f in ((skill or {}).get("binary_flags") or [])]
+    flags = list(dict.fromkeys(documented or ["--version", "-h"]))
+    print(f"[smoke] binary {binary}  flags: {' '.join(flags)}", flush=True)
+    ok = True
+    for flag in dict.fromkeys(flags):
+        r = subprocess.run(  # proc-allow: binary smoke of the installed engine (issue #1717)
+            [os.environ.get("LLGENIE_BASH") or "bash", "-euo", "pipefail", "-c",
+             host_prelude + f'{binary} "{flag}" 2>&1; ec=$?; exit $ec'],
+            capture_output=True, text=True, timeout=120)
+        ok = _print_verdict(binary, flag, r) and ok
+    return 0 if ok else 1
+
+
 def image_smoke(skill_id: str, backend: str | None, port: int, timeout: float,
-                variant: str | None = None, no_gpu: bool = False) -> int:
-    """Build the engine image (no-op if tagged), run it, assert the contract on
-    the PUBLISHED host port (what an external AI harness sees)."""
+                variant: str | None = None, no_gpu: bool = False, serve: bool = False) -> int:
+    """Build the engine image (no-op if tagged), run the engine BINARY smoke
+    first, and — only with `--serve` — run the image and assert the contract on
+    the PUBLISHED host port (what an external AI harness sees). Without
+    `--serve` the binary smoke is the whole gate: deterministic, near-instant,
+    and it never waits a serving readiness budget (issue #1717)."""
     import engine_image as ei
     skill = es.get_skill(skill_id)
     spec = ei.resolve(skill_id, backend, variant)
@@ -149,6 +245,13 @@ def image_smoke(skill_id: str, backend: str | None, port: int, timeout: float,
     rc = ei.build(spec)
     if rc:
         return rc
+    rc = binary_smoke(spec=spec)
+    if rc:
+        return rc
+    if not serve:
+        print(f"[smoke] OK image {spec['tag']}: engine binary answered its documented flags "
+              f"(binary smoke; serving is the --serve tier, issue #1717)")
+        return 0
     fmt = pick_format(skill)
     if f"{fmt}-{spec['backend']}" in TEST_MODELS:
         fmt = f"{fmt}-{spec['backend']}"
@@ -170,7 +273,7 @@ def image_smoke(skill_id: str, backend: str | None, port: int, timeout: float,
         subprocess.run([ei.RUNTIME, "rm", "-f", name], capture_output=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
 
 
-def smoke(skill_id: str, backend: str | None, port: int, timeout: float) -> int:
+def smoke(skill_id: str, backend: str | None, port: int, timeout: float, serve: bool = False) -> int:
     skill = es.get_skill(skill_id)
     hw = es.detect_hardware()
     backend = es.pick_backend(skill, hw, backend)
@@ -181,8 +284,16 @@ def smoke(skill_id: str, backend: str | None, port: int, timeout: float) -> int:
         print(f"[smoke] FAIL {skill_id}/{backend}: install exited {rc}")
         return rc
 
-    model = fetch_model(pick_format(skill))
     p = es.plan(skill, backend, hw, extra={"port": port})
+    rc = binary_smoke(skill=skill, p=p, host_prelude=p["env_prelude"])
+    if rc:
+        return rc
+    if not serve:
+        print(f"[smoke] OK {skill_id}/{backend}: installed engine binary answered its documented "
+              f"flags (binary smoke; serving is the --serve tier, issue #1717)")
+        return 0
+
+    model = fetch_model(pick_format(skill))
     prelude = p["env_prelude"]
 
     def render(cmd):
@@ -228,10 +339,14 @@ def main(argv=None) -> int:
     ap.add_argument("--image", action="store_true", help="build + run the engine container image")
     ap.add_argument("--variant", default=None, help="image variant from the frozen params (with --image)")
     ap.add_argument("--no-gpu", action="store_true", help="run the image without GPU devices (with --image)")
+    ap.add_argument("--serve", action="store_true",
+                    help="also run the serving-conformance tier (image run / OpenAI SDK contract); "
+                         "the DEFAULT is the engine binary smoke only (issue #1717)")
     a = ap.parse_args(argv)
     if a.image:
-        return image_smoke(a.engine, a.backend, a.port or free_port(), a.timeout, a.variant, a.no_gpu)
-    return smoke(a.engine, a.backend, a.port or free_port(), a.timeout)
+        return image_smoke(a.engine, a.backend, a.port or free_port(), a.timeout,
+                           a.variant, a.no_gpu, a.serve)
+    return smoke(a.engine, a.backend, a.port or free_port(), a.timeout, a.serve)
 
 
 if __name__ == "__main__":

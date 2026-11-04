@@ -1728,9 +1728,12 @@ def test_every_published_image_is_started_and_answers_hi():
     smoke = (REPO / "scripts" / "engine_smoke.py").read_text()
     assert 'spec = {**spec, "run_args": list(es.SHM)}' in smoke
     eb = (REPO / ".github" / "workflows" / "engine-build.yml").read_text()
-    # the producer verifies every image it published: the cpu serve test answers "hi"
+    # the producer verifies every image it published: the cpu binary smoke answers the flags it
+    # documents (issue #1717, the DEFAULT gate — never a serving-readiness wait); the OpenAI-serving
+    # conformance tier is the explicit --serve opt-in on the push serve-leg (no GPU image skips it)
     assert "run: make test-engine-stage ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} TEST=${{ matrix.test }}" in eb
-    assert "serve: the cpu image answers on the OpenAI API" in eb  # no GPU image skips the chat test
+    assert "serve: the engine binary smoke" in eb
+    assert "the OpenAI-serving conformance tier is the explicit --serve opt-in" in eb
 
 
 def test_llama_server_shim_uses_the_images_real_binary_path():

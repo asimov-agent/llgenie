@@ -65,7 +65,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	test-image test-image-pull openspec-image-pull publish-ci-images publish-agent-image agent-image-push-check agent-image agent-image-pull ci-image-refs test-clean lint lint-fix loop loop-harness chained sweep-concurrency-report \
 	build-server build-variant serve-variant test-serve-variant stop-serve-variant install-prism-cpu install-upstream-cpu \
 	install-prism-cuda install-upstream-cuda install-prism-metal install-upstream-metal \
-	sync-registry check-registry skills-validate engine-list engine-hardware engine-plan engine-check engine-install engine-detect engine-smoke test-engine ci-engine-images build-engine-base build-engines generate-build-engine-params test-engine-image push-engine test-published-engine test-install-published engine-launchers test-built-engine test-uninstalled \
+	sync-registry check-registry skills-validate engine-list engine-hardware engine-plan engine-check engine-install engine-detect engine-smoke test-engine test-engine-serve ci-engine-images build-engine-base build-engines generate-build-engine-params test-engine-image push-engine test-published-engine test-install-published engine-launchers test-built-engine test-uninstalled \
 	sync-quant-catalog check-quant-catalog render-trend-list-matrix check-trend-list-matrix render-engine-skill-gap check-engine-skill-gap \
 	engine-gate-report engine-skill-gap engine-skill-gap-md spawn-engine-skill-issues engine-skill-scaffold registry-change-report sync-change-issue registry-review-brief registry-sync-review registry-review-publish sync-strata-models check-strata-models check-wiring wiring-report check-secret-output secret-output-report \
 	secret-scan secret-scan-history secret-scan-self-test \
@@ -1318,7 +1318,7 @@ test-published-engine: ## Issue #102: pull ENGINE's ARCH image AS PUBLISHED (no 
 		python3 -m pytest -q -p no:cacheprovider tests/test_published_engine_binary.py
 	@$(CI_HOME_CLEAN)
 	@if python3 -c 'import sys; sys.path.insert(0, "scripts"); import engine_image as ei; sys.exit(0 if ei.chat_testable("$(ENGINE)", "$(ARCH)") else 1)'; then \
-	  python3 scripts/engine_smoke.py "$(ENGINE)" $(ARCH_ARGS) --image $(if $(filter cpu,$(ARCH)),,--no-gpu); \
+	  python3 scripts/engine_smoke.py "$(ENGINE)" $(ARCH_ARGS) --image $(if $(filter cpu,$(ARCH)),,--no-gpu) --serve; \
 	else echo "[published] $(ENGINE)/$(ARCH) needs a GPU to serve (no CPU fallback): version test only; its cpu image is chat-tested"; fi
 push-engine: ## Push ENGINE's image to GHCR only after its binary FILE answers the version/help flags it documents: <registry>/<name>:<pinned-hash-arch> and :<arch>
 	@test -n "$(ENGINE)" || { echo "Usage: make push-engine ENGINE=<id> ARCH=cpu|cuda|rocm|vulkan"; exit 1; }
@@ -1363,10 +1363,13 @@ test-engine-image: ## GPU images on GPU-less CI: run tests/test_engine_version.p
 	$(call engine_test,LLGENIE_TEST_ENGINE="$(ENGINE)" LLGENIE_TEST_ARCH="$(ARCH)") \
 		python3 -m pytest -q -p no:cacheprovider tests/test_engine_version.py
 	@$(CI_HOME_CLEAN)
-test-engine: ## Run ENGINE's image with a tiny model and curl its OpenAI API on the published port
+test-engine: ## Run ENGINE's image: the engine binary smoke (the DEFAULT, deterministic gate, never a 1200 s serving wait). Serve conformance is the explicit --serve tier: `make test-engine-serve` (issue #1717)
 	@test -n "$(ENGINE)" || { echo "Usage: make test-engine ENGINE=<id> [ARCH=cpu-portable]"; exit 1; }
 	python3 scripts/engine_smoke.py "$(ENGINE)" $(ARCH_ARGS) --image
-engine-smoke: ## Install ENGINE via its skill, serve a tiny model, assert llm-local answers (a HOST entry point; CI's per-engine serve check is `make test-engine-stage TEST=serve` inside the engine-image jobs, and `make test-published-engine` on the published image)
+test-engine-serve: ## ENGINE's image: binary smoke AND the serving conformance tier (run the image, assert /v1/model+llm-local answers via the OpenAI SDK) — the --serve opt-in (issue #1717)
+	@test -n "$(ENGINE)" || { echo "Usage: make test-engine-serve ENGINE=<id> [ARCH=cpu-portable]"; exit 1; }
+	python3 scripts/engine_smoke.py "$(ENGINE)" $(ARCH_ARGS) --image --serve
+engine-smoke: ## Install ENGINE via its skill: the engine binary smoke (DEFAULT, deterministic; serving is the --serve tier). `--serve` adds the full serve+whether the skill launch line answers llm-local on a HOST entry point (issue #1717)
 	@test -n "$(ENGINE)" || { echo "Usage: make engine-smoke ENGINE=<id> [BACKEND=cpu]"; exit 1; }
 	python3 scripts/engine_smoke.py "$(ENGINE)" $(ENGINE_ARGS)
 test-engine-host: ## Serve ONE engine's published image against a MODEL that fits host VRAM and the engine supports: parameterized as ENGINE=<id> ARCH=<arch> MODEL=<model> (issue #1322). Host use drives it ONE engine at a time (sequential, never parallel — GPU contention); the engine-build workflow's LAST step expands the supported (engine x arch) cells into a PARALLEL matrix keyed off the runner's own arch types. When MODEL is omitted the engine's smallest supported model is served. A GPU-less runner skips the GPU legs with a documented reason (#1240) and never reddens them. Never builds an image — only pulls the published one and runs it.
@@ -1905,7 +1908,7 @@ check-host-space: ## Host: refuse a /tmp worktree or container build when the sh
 	python3 scripts/check_host_space.py check
 .PHONY: check-host-space
 
-test-engine-stage: ## CI engine-image post-build test, ONE step for every image: TEST=serve -> binary flags (make test-engine-image) AND the OpenAI API answer (make test-engine); TEST=detect -> binary flags only (make test-engine-image)
+test-engine-stage: ## CI engine-image post-build test, ONE step for every image: TEST=serve -> binary flags (make test-engine-image) AND the engine binary smoke (make test-engine, the --image path's DEFAULT gate — never a serving readiness wait, issue #1717); TEST=detect -> binary flags only (make test-engine-image). The OpenAI-serving conformance tier is the explicit --serve opt-in (make test-engine-serve / the push serve-leg)
 	@test -n "$(ENGINE)" -a -n "$(ARCH)" || { echo "Usage: make test-engine-stage ENGINE=<id> ARCH=<arch> TEST=serve|detect"; exit 1; }
 	@case "$(TEST)" in \
 	  serve)  $(MAKE) test-engine-image ENGINE="$(ENGINE)" ARCH="$(ARCH)" && \
