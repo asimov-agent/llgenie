@@ -345,3 +345,16 @@ it - a red on head N does not imply red on head N+1, and a head recut on a clean
 base is the correct fix vehicle (single commit, base==main, behind 0), not a
 force-push onto a moved branch. Record the head change on the wire as its own
 authoritative state update, and mark the superseded finding as superseded.
+
+## The WORK can land while the REPORTED names lag (2026-11-05, rebase lane #1696)
+
+A rebase can land on the API (head adb6e6558, base 0717ab72a==current main, behind
+null, guard+holds green) while the lane's lab report still cites the pre-push names
+("6859a1ee", "current main f9715e3c"). These are not the same defect: one is a
+delivery whose WORK is real and correct (verify PR.head.sha + .base.sha on the API
+and quote THOSE), the other is a stale spoken citation. When the PR object shows
+correct base==main and green guard, do NOT refute a rebase that actually landed --
+reconcile the reported name to the live head, record the live head/base as
+authoritative, and move on to scope->ci-verdict. Also: re-citing a MERGED PR
+(#1726, 0717ab72a) as "still-red/open, yours to re-cut" is a miscite of a closed
+PR; correct it, don't dispatch re-cut work on it.
