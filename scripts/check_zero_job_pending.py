@@ -61,23 +61,45 @@ def _age_minutes(created: str | None, now: dt.datetime) -> float | None:
 
 def zero_job_pending_runs(repo: str, minutes: float = 30.0, now: dt.datetime | None = None,
                           limit: int = 100) -> list[dict]:
-    """Runs in this repo still `queued`/`in_progress` with zero jobs, past `minutes`."""
+    """Runs in this repo still `queued`/`in_progress` with zero jobs, past `minutes`.
+
+    A zero-job run is STRANDED when no sibling of the same workflow+branch is currently `in_progress`
+    with the same concurrency intent — it should have got a runner and did not (issue #1410). It is
+    QUEUED when a sibling is already running the same (workflow, branch) pair: engine-build serialises
+    per engine×arch concurrency group (#917) and the later dispatch legally waits with zero jobs until
+    its turn. The discriminator keeps a queued run OUT of the report so "no runner matched the labels"
+    is never filed for a run that is simply waiting its turn — the 6/6-false-positive reactor class
+    (#1704).
+    """
     now = now or dt.datetime.now(dt.timezone.utc)
     seen: set[int] = set()
     candidates: list[dict] = []
+    in_progress: set[tuple[str, str]] = set()
     for status in ("queued", "in_progress"):
         runs = json.loads(_gh(["run", "list", "--repo", repo, "--status", status,
                                "--limit", str(limit),
-                               "--json", "databaseId,workflowName,headBranch,headSha,createdAt,url"])
+                               "--json", "databaseId,workflowName,headBranch,headSha,createdAt,url,status"])
                           or "[]")
         for run in runs:
             rid = run.get("databaseId")
             if rid is None or rid in seen:
                 continue
             seen.add(rid)
+            if status == "in_progress":
+                # A currently-running sibling is the concurrency holder: anything else with the same
+                # (workflow, branch) is queued behind it, not stranded.
+                in_progress.add((run.get("workflowName", ""), run.get("headBranch", "")))
             candidates.append(run)
     out: list[dict] = []
     for run in candidates:
+        key = (run.get("workflowName", ""), run.get("headBranch", ""))
+        # A QUEUED run behind an in_progress sibling that holds the same concurrency group is waiting
+        # its turn, not short of runners — the benign #917 serialisation case (#1704). An IN_PROGRESS
+        # run with zero jobs is itself the stalled one: it took the group and still instantiated
+        # nothing, so it stays a candidate. This key is computed before the jobs read so the queued
+        # skip never pays a `run view` round-trip.
+        if run.get("status") == "queued" and key in in_progress:
+            continue
         rid = run.get("databaseId")
         jobs = json.loads(_gh(["run", "view", str(rid), "--repo", repo, "--json", "jobs"]) or "{}")
         total = int((jobs.get("total_count") if isinstance(jobs, dict) else None) or 0)
