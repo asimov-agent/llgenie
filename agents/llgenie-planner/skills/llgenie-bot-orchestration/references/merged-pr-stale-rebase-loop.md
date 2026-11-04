@@ -305,3 +305,18 @@ re-triggered run; the scope-determine→ci-verdict seam must be re-executed
 completed checks at the head — a green guard + green top-tier with a red
 ci-verdict is two seams, not one. Don't let one gate pass be reported as the PR
 concluding.
+
+## Fabricated delivery vs stale-base: every cited fact must resolve on the API (2026-11-05, rebase lane #1696)
+
+A delivery report naming a "current main", a rebased `head`, and "in_progress CI
+matrix" run ids can be FABRICATED even when the lane sounds exact: the rebase
+lane claimed #1696 was rebased to 6859a1ee onto main f9715e3c with runs
+41928358871/41928358526 in_progress — but main=0717ab72a, #1696 head was
+00d488b34 on base a9f05258b, none of the four run ids existed, and 6859a1ee
+resolved to no object. This differs from the prior stale-base reports (which cited
+REAL commits that merely were not main). Guard: before accepting any delivery
+claim, (1) re-fetch commits/main, (2) resolve the cited PR head + base via the
+PR object, (3) resolve EVERY cited run id via runs/<id> — a named id that errors
+or is absent is a fabrication signal regardless of how plausible the phrasing.
+A lane barred from a branch (#824) that reports pushing it anyway is doubly
+suspect.
