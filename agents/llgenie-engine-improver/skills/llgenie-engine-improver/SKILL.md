@@ -32,6 +32,23 @@ An engine or serving change is this lane's pull request, not `llgenie-issse-impl
 against the old base, so rebase → re-push → re-arm → re-read, and re-run the checks rather than quoting
 the old greens. Details in `references/ci-run-watching.md`.
 
+**A `fix(engines)` PR branches on the CANONICAL repo, never the fork (owner directive 2026-11-03).**
+`engine-build-pr-trigger` refuses a foreign (fork) head — "a foreign-head bump cannot trigger a
+push=true dispatch" — so a fork-headed engine PR can never run the producer that builds and publishes
+its cells. Open the branch on `asimov-agent/llgenie` in-repo (push to `origin`, not the `andyholst`
+fork), and read the PR's `head.repo.full_name` back = `asimov-agent/llgenie` before relying on any
+trigger. #1568 died that way (fork head refused); #1696 is the same fix re-opened in-repo.
+
+**A new `scripts/<tool>.py` in an engine PR must carry `# proc-allow:` on every `subprocess.*` line.**
+`check-proc-gate` (issue #797) confines `subprocess.run`/`check_output`/`Popen` in `scripts/` to
+`scripts/proc.py` or a same-line `# proc-allow: <reason>` — so a fresh launcher script (e.g.
+`hip_offload_parallel.py`) reds `make ci-unit` (`[proc-gate] N bare subprocess call site(s)`) the
+moment it is added. Tag each raw toolchain/device-compile call with its reason from the start; verify
+with `make check-proc-gate` (expect `0 bare`) before pushing. Proof gate to trust: the census line
+`N allowed, 0 bare`. A "0 stale"/"OK" from the gate after `check-engine-params` does not mean the run
+passed — the earlier `check-proc-gate` may have already aborted `ci-unit`; read the abort line
+(`Makefile:<line>: check-<gate> Error 1`) from the CI job log, not the last gate that printed.
+
 Supporting depth lives in `references/`. To read engine-build CI verification runs correctly (pending
 vs. genuinely building, dispatch run vs. the PR's CI run, dispatch-by-branch-not-SHA, and when a run
 may supply a measured acceptance number), see `references/ci-run-watching.md`.

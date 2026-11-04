@@ -1,13 +1,18 @@
 # Proving a fix, repo pitfalls, and versioning this skill
 
 Extracted from SKILL.md to keep the always-on body small; load it when you are about to
-prove a fix, hit one of these traps, or touch `.hermes/skills`.
+prove a fix, hit one of these traps, touch `.hermes/skills`, or version this lane's own
+profile under `agents/<profile>/`.
 
 ## Reading a CI failure without the runner's log stream
 
 `gh run view --log-failed` answers "still in progress; logs will be available when it completes" and
-`gh run view --job <id>` returns 0 bytes with the pinned token — a CLI guard, **not** an API limit.
-The API serves the log:
+`gh run view --job <id>` returns 0 bytes with the pinned token — a CLI guard, **not** an API limit. Two
+gotchas: `gh run view` needs a git-repo cwd (or an explicit `--repo <owner>/<repo>`) or it errors
+instead of reading, and it gates logs on the WHOLE RUN — a cell that already concluded `failure` still
+reads "run <id> is still in progress; logs will be available when it is complete" while ANY sibling cell
+of the same run is live, even though one job never depends on another. The API serves the per-job log at
+any time, regardless of the run's overall status:
 
 ```bash
 gh api repos/<owner>/<repo>/actions/jobs/<job-id>/logs --allow-escape-sequences \
@@ -21,6 +26,57 @@ That timing is what separates "the wait gave up too early" from "nothing ever pr
 artifact": 90 polls across exactly 30 minutes means the documented budget was honoured and the
 producer job never ran — an ordering/capacity defect (#893), not a bad tag.
 
+## Proving a red is NOT a regression (structural, before you blame the rebase)
+
+After you rebase a branch onto a newer `main`, the first CI at the new head can show a job red that was
+"green before". Before you treat it as a rebase regression, prove the job EVER ran at the prior head:
+
+```bash
+gh api repos/<o>/<r>/commits/<prior-sha>/check-runs --jq '.check_runs[].name'
+gh api repos/<o>/<r>/commits/<new-sha>/check-runs   --jq '.check_runs[].name'
+```
+
+If the prior head lists only three or four checks (`guard`, `holds`, `scope`) it never materialized the
+`linux/…` matrix at all — the matrix first dispatched at the NEW head, so **no flip is possible and there
+is no regression to attribute.** This is a claim about substance, not a story: report the two check-run
+counts (e.g. 4 vs 15), not "it was green before".
+
+**A `linux / unit` or `linux / openspec` red is often the SAME intended `openspec-tasks-check` gate, not a
+test failure.** `make ci-unit` runs `issue-bot-gates → openspec-tasks-check`, so an unticked openspec box
+reds the unit JOB while the unit SUITE is fully green. Read the job log's two halves before writing
+"unit failed": grep the `N passed` summary (e.g. `2942 passed`) AND the failing step marker
+(`[openspec-tasks] FAIL <change>: unchecked task checkbox(es) at lines [...]` → `make[1]: ***
+[Makefile:659: issue-bot-gates] Error 2` → `ci-unit Error 2`). The `scope` check and `linux/openspec` red
+the same gate. When all three point at the identical `openspec-tasks` line, it is ONE intended box cascade,
+no defect — say so and name the unticked boxes; never read `job=failure` as `tests failed`.
+
+The OTHER false alarm on the same job is the **import-roots ratchet** (below). So `ci-unit` exit 2 has
+three classes of cause, and the pytest `N passed` line rules out a real test failure fast:
+
+1. Real test failure — grep `^FAILED`; not the common case for a PR that only added files.
+2. `openspec-tasks-check` box cascade — an intentionally unticked box (previous paragraph).
+3. `check-import-roots` ratchet — a NEW test file's own bootstrap exceeding the recorded baseline.
+
+**A `ci-unit` red whose pytest section says `N passed` is NOT a test failure — read the step AFTER
+pytest.** `make ci-unit` runs several gates; the common false-alarm when you add a test file is
+`make check-import-roots` (issue #1101 ratchet): a test that bootstraps its own
+`sys.path.insert(0,'scripts')` + a bare `import <script>` (the suite-wide pattern) pushes both counts
+past the recorded `tests/fixtures/import-roots-baseline.json` (bare and sys-path) and is refused with
+"a NEW import root is refused". The baseline is a MEASUREMENT, not a constant — the guard's own docstring
+prescribes re-recording it at what the branch actually produces, which is the correct fix, NOT editing
+the test to dodge the import:
+
+```bash
+python3 scripts/check_import_roots.py report --update   # re-record bare + sys-path from THIS tree
+python3 scripts/check_import_roots.py ratchet           # rc 0 proves the gate now passes
+```
+
+Commit the re-recorded baseline in the SAME commit as the new test file (it is a test fixture, not a
+behaviour change, so it owes no `docs/changes.d` fragment), and confirm the diff is confined to the
+baseline JSON. Diagnose which step failed with
+`gh run view <run> --log-failed | grep -iE "pytest|passed|failed|Error"` — the failing STEP is the last
+non-test command before the `make[1]: *** Error 1` line, not the pytest summary.
+
 ## Proving a fix, and cutting the branch it ships on
 
 **Work in a worktree, never in the primary checkout.** `/home/asimov/repository/git/llgenie` is the
@@ -30,6 +86,16 @@ make every other lane's tree ambiguous. Do:
 directory on `main` and clean. **Push the branch as soon as it has one commit** (fork is fine for a
 branch that needs no publish): an unpushed branch is a single copy on one disk, and a reviewable one
 needs a remote to point at.
+
+**A completion/integrity check reads the PRIMARY checkout's working tree, not your
+`llgenie-wt/<slug>` (or `/tmp`) commits.** A change committed only in a worktree can read as "no
+task-relevant changed path" to a guard that diffs the primary directory — the worktree commit is real
+but invisible to it. When such a guard fires, also make the SAME content visible in the primary: apply
+the edit to the primary's copy of YOUR OWN files as an UNSTAGED working-tree change (never `git add`
+or commit there — other lanes' staged work lives in that index), and regenerate the derived JSON in the
+primary so it is byte-identical to the committed branch (`sha256sum` both to prove it). "Keep the
+primary on main and clean" means no stray COMMITS/branches there; an unstaged edit to a lane's own
+file is the guard-visible evidence, and the branch commit stays the deliverable.
 
 The repo's standard is "the new test fails on the parent, passes on the fix", and the checkout
 you inherit is usually sitting on somebody else's PR branch. Both have a recipe.
@@ -87,6 +153,14 @@ tests at the new head, then push each branch once with `--force-with-lease` agai
 remote sha. Main advancing past the sha you cut from means the head sha WILL change — report the new sha
 and confirm the PR is still `MERGEABLE`; "it stayed <old-sha>" is only true when main did not move.
 
+**Your OWN branch rebased onto a moved `main`: `--onto <new-main> <old-merge-base>`, never a bare
+`--onto <new-main>`.** When `main` advances and you replay your own commits, the upstream arg is the
+branch's OLD merge-base (e.g. `git rebase --onto b747440d 52b21a42`); omitting it (or passing the same
+sha twice) replays nothing and leaves you silently on the old base. Prove the move before the lease:
+`git rev-list --left-right --count <new-main>...HEAD` must read `0 N` (zero behind, N ahead) and
+`git merge-base --is-ancestor <new-main> HEAD` must return 0. A clean replay that shows `ahead=N/behind=0`
+with `merge-base == main` is the proof the rebase actually landed on the new tip, not a no-op.
+
 ## Re-shaping a branch two lanes co-own: cherry-pick a range, temp refs, ONE lease
 
 When a shared branch carries both lanes' commits and the agreed fix is a base move plus every
@@ -128,6 +202,12 @@ git show --stat <remote-head>                                    # is YOUR chang
 If the remote head already carries the change, change nothing: verify it (targeted tests at that
 sha) and report the verdict. Spend the local suite on the PUSHED tree, not on your duplicate.
 
+**Verify that content LANDED only against a freshly fetched ref.** `git show origin/main:<file>` off a
+stale local remote-tracking ref serves the PRE-merge tree, so it can report your fix "still absent" (or an
+old defect "still present") after main already carries the squash — a false verdict a lane then acts on.
+`git fetch origin main` first and treat `gh api …/git/refs/heads/main --jq .object.sha` as the
+authoritative tip to compare the local ref against before quoting any content check.
+
 ## Local `make ci-unit` is not the verdict to wait for
 
 - It runs ~14 600 tests including LIVE network reads (Hub/GitHub downloads in `tests/test_trend_pick.py`)
@@ -149,9 +229,50 @@ the scratch dir self-prunes after 24 h; say so instead of leaving an unmentioned
 
 `scripts/check_pr_authors.py` accepts exactly `Andy Holst <andy.holst@protonmail.com>` and
 `Asimov Agent <support@docondee.com>`; every other name/email pair reds the PR (`LLGenie Pipeline
-Maintainer`, `github-actions[bot]`, `Hermes Agent`, a bare `andyholst`). Re-author in the same push
+Maintainer`, `github-actions[bot]`, `Hermes Agent`, a bare `andyholst`). **The display name is matched as an
+EXACT string, so a run of two allowed names is still red**: `Asimov Agent / Mr. Asimov
+<support@docondee.com>` (the right email, a plausible-looking author) is REJECTED because
+`Asimov Agent / Mr. Asimov` is neither allow-listed name — author as exactly `Asimov Agent` OR
+`Mr. Asimov`, never a concatenation of the two. Re-author in the same push
 that fixes the code — `git commit --amend --no-edit --author="Asimov Agent <support@docondee.com>"`
 — or the PR stays red for a second reason nobody is working on.
+
+**The gate reads EVERY commit in the base..head range, so ONE commit with the wrong email reds the
+whole PR** — the branch can be green for six commits and a seventh made under a wrong local config
+(`agent@asimov.dev` instead of `support@docondee.com`) turns the guard red on its own. Verify BEFORE
+the push, not after the CI red:
+
+```bash
+# set the identity at repo/worktree level first — a plain `--author` only fixes ONE commit
+cd <worktree> && git config user.name "Asimov Agent" && git config user.email support@docondee.com
+python3 scripts/check_pr_authors.py check --base <base-sha> --head HEAD    # rc=0 == every commit allowed
+```
+
+When the offending commit is the tip, `git commit --amend --reset-author --no-edit` re-stamps it from
+the now-correct config; when it is buried, **`git rebase --reset-author` alone re-stamps only the
+replayed commit at the TIP, not the earlier commits in the range** (doing `git rebase --reset-author`
+over a 5-commit branch leaves the 5 buried commits with the old author and only fixes HEAD). The
+reliable non-interactive bulk fix is an `--exec` amend driven by the author/committer env, which
+re-stamps EVERY replayed commit:
+
+```bash
+GIT_AUTHOR_NAME='Asimov Agent' GIT_AUTHOR_EMAIL='support@docondee.com' \
+GIT_COMMITTER_NAME='Asimov Agent' GIT_COMMITTER_EMAIL='support@docondee.com' \
+  git rebase origin/main --exec 'git commit --amend --no-edit --reset-author'
+```
+
+Then read back `git log --format='%h %an <%ae>' origin/main..HEAD` and confirm EVERY line is the
+allowed identity before pushing.
+An author-only amend changes the commit sha (content identical) — force-push to BOTH the head repo
+(the fork) AND the mirror, and re-dispatch the proof run at the new head, because the old run's sha is
+now superseded.
+
+**A scope job that fails ONLY at `make ci-openspec` is the intended box-4 cascade, not a second
+defect** — the `no unchecked task` check reds because the PR intentionally holds a box unticked until
+the proof is green. Read the job's step list: if guard/lint/docs/wiring/issue-bodies pass and only
+`ci-openspec` fails, that red is expected and needs no fix. Only a step outside the intended cascade
+(a `check-pr-authors` guard, a lint failure) is a real defect. Report which signs are the cascade and
+which is real, rather than handing the planner three undifferentiated reds.
 
 ## A rename is finished only when the tree has no old name
 
@@ -176,6 +297,15 @@ A leftover reads as a logic bug ("the roster does not contain this node") when i
 rename, and the fix belongs in the same commit, not in a report.
 
 ## Pitfalls
+
+- **A background launcher's `rc` is the SHELL's last command, never the wrapped program's.** A script
+  that ends in `exit 0`, or whose notification is `echo "rc=$?"` after the redirect, reports `rc=0`
+  on a failed run — and a `> log 2>&1` that never ran leaves a **0-byte log**. Both look green in a
+  notification. Read the WRAPPED artifact, not the launcher's exit: check the log is non-empty and
+  grep its real verdict (`grep -m1 '== ' /tmp/repro.log`), and treat "rc=0 + empty log" as "never
+  ran", not "passed". Re-fired stale launchers from an abandoned experiment each report their own
+  `rc=0` — they are noise on a superseded path, not new evidence; identify the ONE live experiment
+  and ignore the rest instead of re-analysing each notification.
 
 - **The picker does not take a bare path as its model argument.** `llgenie /path/to/x.gguf`
   answers `No model matches '<path>'. Use --list`. Pass a substring (`llgenie Ternary-Bonsai`)
@@ -215,16 +345,54 @@ rename, and the fix belongs in the same commit, not in a report.
   same applies to a base: an instruction that names "the branch under PR #N" is only valid while #N is
   open — verify, because a superseded PR's branch can be replaced by another one entirely and the live
   tree may sit on a third.
+  **Read merge state from the RIGHT field of the RIGHT surface.** REST `gh api .../pulls/<n>` returns
+  snake_case keys and `state` is `open`/`closed` only — a merged PR reads `state=closed`, NOT `merged`,
+  so "closed ⇒ not merged" is wrong; the merged fact is the boolean `.merged` (and `.merged_at`). And a
+  camelCase jq key (`.mergedAt`, `.mergeCommit`) against the REST body returns `null` even on a merged
+  PR — query the snake_case field (`.merged_at`, `.merge_commit_sha`) or use `gh pr view --json
+  state,mergedAt` which does map them. Never conclude "mergedAt null ⇒ not merged" from a REST jq that
+  asked for the camelCase spelling.
 - **`--auto` on a green PR merges it immediately.** Arming is not a queue you can inspect afterwards:
   if the checks are already green and the branch is mergeable, `gh pr merge --auto` performs the merge
   at once. Read `mergeStateStatus` first if the PR was meant to stay reviewable, and report
   `auto=<enabledAt>` **or** `state=MERGED` — never claim "armed" for a PR that is already merged.
+  **Read the arm back through ONE API spelling.** `gh pr merge --auto` exits 0 and arms nothing when the
+  base is not the default branch, and the field is named differently per surface (`autoMergeRequest` in
+  `gh pr view --json`, `auto_merge` in REST `gh api repos/<o>/<r>/pulls/<n>`) — jq'ing the other spelling
+  returns null and reads as "not armed":
+
+  ```bash
+  gh api repos/<o>/<r>/pulls/<n> \
+    --jq '{head:.head.sha[0:8],state:.mergeable_state,armed:(.auto_merge!=null),method:.auto_merge.merge_method,expected:.auto_merge.expected_head_sha}'
+  ```
+
+  `armed:true` + `state:blocked` is the honest **armed-but-pending** posture (CI is still running at
+  that head); quote both rather than reporting a bare "armed". **The REST `auto_merge` object has NO
+  `enabled_at` field** — `.auto_merge.enabled_at` is `null` on EVERY PR, so never read that null as "not
+  armed" (`.auto_merge != null` in REST is the armed fact; the arm time lives only in GraphQL
+  `autoMergeRequest { enabledAt }`). A lane quoting "it has no `enabled_at`, so it isn't armed" is
+  quoting a phantom field.
 - **A peer's ruling names a sha — verify it is the TIP, not your tip's parent.** A scope ruling measured
   at an amend's parent reads as "base is wrong / deletes the other lane's files" while the true tip is
   clean; the check is `gh api repos/<o>/<r>/pulls/<n> --jq .head.sha` against
   `git rev-list --parents -n1 HEAD` (the second sha is the parent). Answer rulings by measuring the diff
   at the tip (`git diff --name-only origin/main <tip>`), and name the parent explicitly when a peer's
   numbers come from it — a disagreement that is one commit deep looks like a contradiction otherwise.
+  **`git ls-remote <url> <arg>` matches ref NAMES, never commits** — passing a parent sha returns zero
+  matches even though it is an ancestor on the branch, so an empty result is not evidence it never
+  landed; prove ancestry with `gh api repos/<o>/<r>/compare/<parent>...<tip> --jq .ahead_by` (ahead_by 1,
+  one intervening commit) or fetch the ref so `FETCH_HEAD` equals the branch sha.
+  **A commit sha is "on the branch" only if it is an ANCESTOR of the origin ref — a commit that exists only in a local clone/worktree is not pushed.** `git log`/`git show` make a local-only commit look every bit as real as a pushed one; before citing a sha as "the fix on the branch", prove `git merge-base --is-ancestor <sha> refs/remotes/origin/<branch>` (and against `origin/main`) returns 0. The PR, the acceptance vehicle and CI all run the ORIGIN branch, so a citation of a local-only commit is a phantom claim a peer will refute. Drop it (name the origin tip instead) at the first signal; defending it costs credibility.
+- **A `@llgenie-planner` re-dispatch is a claim about time, not about the branch — re-measure before you obey OR refute it.**
+  The planner's inbox acks lag your real state by rounds: it will "re-flag" a rebase you already pushed, cite a
+  `head.sha` you superseded (an old head it still calls DIRTY), and order a rebase onto a `main` sha that main has
+  already moved past — so obeying literally is a BACKWARD move. Before acting on any dispatch, re-read
+  `gh api repos/<o>/<r>/pulls/<n> --jq '{head:.head.sha,base:.base.sha,mergeable,mergeable_state}'` and
+  `gh api repos/<o>/<r>/git/refs/heads/main --jq .object.sha` fresh. If the PR already reads `mergeable=true`
+  with `mergeable_state=blocked`, NO rebase is owed (owner rule #1015: rebase only on a real conflict) and
+  forcing one destroys the in-progress CI run. Do not ping-pong a fourth correction to a stale ack whose own
+  text closes "quiet until …"; but DO send one terse measured correction when the planner is actively ordering a
+  wrong action — silence lets it keep re-dispatching the same stale order to the whole fleet.
 - **A dispatch run pinned to an older sha stays valid when the workflow's real inputs are byte-identical.**
   An amend that only touches docs/census does not invalidate a `workflow_dispatch` confirm of an
   engine-build fix, because engine-build reads the Makefile, the workflow and the tests — not the docs.
@@ -234,6 +402,13 @@ rename, and the fix belongs in the same commit, not in a report.
   remote.** Read it back: local `git rev-parse HEAD`, `git ls-remote origin <ref>`, and the PR's head
   (`gh api .../pulls/<n> --jq .head.sha`) must be the SAME sha before you report a push landed, and
   `mergeable` should be read back in the same call rather than inferred from the push's exit status.
+- **A comment you just posted can look "phantom" only because you read a DEFAULT-SIZED page.** Verifying a
+  comment by fetching `issues/<n>/comments` with the default page returns the OLDEST 30, so a successful
+  just-now post is absent from `d[-1]` and reads as a phantom write that never landed — the exact false alarm
+  that makes a lane re-post (and duplicate) a landed comment. Fetch with `?per_page=100` and check membership
+  (`<new-id> in [c['id'] for c in comments]`), not just the last element; a comment reachable by
+  `/issues/comments/<id>` is always also in the thread — if it is missing there, the cause is pagination, not
+  a dead channel. Only a `404` on `/issues/comments/<id>` proves the write itself failed.
 - **A PR's head lives in the repo named by `.head.repo`, which can be a FORK while the base is upstream.**
   When the head sha does not move after a push that clearly landed, read
   `gh api repos/<o>/<r>/pulls/<n> --jq .head.repo.full_name` before concluding "propagation lag": a
@@ -242,6 +417,11 @@ rename, and the fix belongs in the same commit, not in a report.
   that remote actually holds — `git ls-remote <fork-url> refs/heads/<branch>` — not a local remote-tracking
   ref, which is stale and gets the push rejected as `stale info`. Then read the PR head back from the API
   and quote it; a fork push and an upstream push carry the same commit but only one updates the PR.
+  **Resolve the remote NAME, do not assume it is the owner's login.** A worktree's remotes are often named
+  `fork` + `origin`, so `git push andyholst <branch>` answers `fatal: '<owner>' does not appear to be a git
+  repository` while the URL is perfectly fine. Read `git remote -v` first (one call) and push to the
+  resolved name; a push "failure" whose message names the OWNER, not a branch or a ref, is a remote-name
+  error, never a permissions or lease problem.
 - **A long backoff with no output is indistinguishable from a hang.** Any wait loop over the
   network (a Hub 429, a retry ladder) must print what it is waiting for and for how long, on
   stderr. A silent multi-minute park gets reported to the user as a broken tool.
@@ -259,6 +439,14 @@ rename, and the fix belongs in the same commit, not in a report.
   reference: <path>`. The reliable shape is `git worktree add -q -b <branch> <path> <full-sha>` (a short,
   unambiguous sha works; the `origin/main` short name stays forbidden), and `--detach <base-sha>` for a
   clean-base worktree.
+- **Removing a worktree you were `cd`'d into leaves the persistent shell's cwd dangling.** The terminal
+  session keeps its working directory between calls, so after `git worktree remove`/`rm -rf` of the
+  directory you were in, every later command dies on arrival (exit 126 with
+  `cd: <dir>: No such file or directory`) even when the command itself is fine — five identical
+  failures that read as a broken tool. Recover with `cd /` (or an absolute `workdir`/`workdir=` per
+  call), and prefer `execute_code` for the remaining probes: it starts from the session's declared
+  working directory rather than the shell's last `cd`. Clean up in the same call you stop needing the
+  directory — removing it from outside while the shell sits inside it is the setup for the loop.
 - **Measure a clean-base gate red in a DETACHED worktree, not with `git stash`.** `git stash push -q
   include-untracked` (space-separated) fails to parse and leaves your tracked AND untracked changes in
   place, so a "clean" run measured after that false stash still contains your edits and misleads you
@@ -275,7 +463,10 @@ rename, and the fix belongs in the same commit, not in a report.
   (unquoted) runs command substitution inside the message: a `` `test_name` `` in the body executed as
   a shell command, "command not found", and the line was silently replaced — mangling the pushed
   message. Author commit messages and PR bodies with `<<'EOF'` (or `-F /tmp/file`), and read the
-  message back with `git log --format='%B' -1` before pushing.
+  message back with `git log --format='%B' -1` before pushing. When the body is assembled in **Python**
+  (an `execute_code` call posting via the REST API), build it with `.replace()` on unique sentinel
+  tokens, never `%`-formatting — a literal `%` in the prose collides with the format spec and raises — the
+same collision bites the shell `printf` form. Sentinel-replace is the one shape that survives arbitrary prose.
 - **A derived fixture is the one generator's output — regenerate it, never hand-edit it.** When a
   `check-*`/`test_*` gate over a committed derived table reds (a trend matrix, a quant catalog, a
   skill-gap report), run the generator (`make render-*`/`sync-*`) against the vendored data and take
@@ -283,6 +474,104 @@ rename, and the fix belongs in the same commit, not in a report.
   staleness — the vendored source moved — not flakiness and not the PR that merely runs the gate.
   Confirm the regenerated diff is confined to the generated file, and quote the row names from the
   failure (backend/params) to show they match what the diff touched.
+  **Prove the regen is deterministic, not just present.** After writing the generator's output, re-run
+  the SAME generator and confirm byte-identical output (hash the file before/after — a re-render that
+  changes bytes will churn the file on every future run and reads as flakiness), then prove on-tree
+  equivalence: `git hash-object <file>` on disk must equal
+  `git rev-parse origin/main:<file>` after the merge (a rendered-but-not-committed file and a
+  hand-edited one both answer a wrong blob). A regeneration that touches ONLY the committed data file
+  and leaves the generator/code untouched carries no behaviour change, so it needs no
+  `docs/changes.d` fragment — but confirm by the diff being confined to that one data file, not by
+  assertion.
+- **Never hand-type a full 40-char sha to key a watcher or API filter — `git rev-parse` it.** A
+  display short sha (`git log --oneline`) widened to 40 hex characters by hand is wrong by
+  construction: a fabricated `head_sha=`/`--json headSha` filter silently matches zero runs and the
+  watcher parks forever, so the alarm is "CI never registered" when the real fault is a bad selector.
+  Read the exact tip at the moment you key the watcher — `git -C <worktree> rev-parse origin/<branch>`
+  — and pass that verbatim; re-derive it after every push because the head moves.
+- **Never quote a workflow-RUN id you did not read back from the API.** Run ids are dense integers that
+  look interchangeable; a guessed or carried-over id answers `404 Not Found`, so a report citing it as
+  `SUCCESS` is a fabricated verdict about a run that does not exist. Enumerate the real ids at the head
+  you mean, then quote from that listing:
+
+  ```bash
+  gh api "repos/<o>/<r>/actions/runs?head_sha=<full-sha>" \
+    --jq '.workflow_runs[]|"\(.id) \(.name) \(.status) \(.conclusion)"'
+  ```
+
+  **After a squash merge the tip is the MERGE commit, not the PR head** — a post-merge "hf-live green"
+  claim must list runs at the merge-commit sha (`.merge_commit_sha`) and quote one that actually ran
+  there; the PR-head runs concluded before the merge and are not evidence about merged main. If the
+  only fresh runs at the tip are still `in_progress`, say that (name the id and status), never promote a
+  guessed id to `success`. If a wrong id already escaped in a report, correct it in the same thread with
+  the real listing rather than silently moving on.
+- **A `.PHONY` test must read the whole continuation block, not the first physical line.** The
+  declaration continues across `\`-joined lines, so `MAKEFILE.split(".PHONY:",1)[1].split("\\",1)[0]`
+  reads only line one and reds a target that was correctly added to a later continuation line — a
+  false-negative that reads as "the target is not phony" and tempts you to edit the Makefile to match
+  the test. Parse the block properly (every line starting with `.PHONY:` or a leading tab) or just
+  assert the token is in the joined `.PHONY` text; fix the test, never the correct Makefile.
+- **An openspec scenario that NAMES a test file must have that file actually assert the behaviour.**
+  A spec delta can cite `tests/test_<y>.py` as the proof of a new step while that file predates the
+  step and never mentions it — a spec that points at a nonexistent assertion is a gap only a reader
+  catches, and it is a real defect owed in the same change, not a doc nit. After wiring a new workflow
+  step or make target, grep the cited file for the assertion and add it: the step's ORDER (after the
+  prior leg, truly last), the target's existence + `.PHONY`, and the wired seam (it pulls the
+  as-published artifact rather than building).
+
+## Owner-set holds are the owner's instrument
+
+A `do-not-merge` placed by the owner (andyholst) is NOT this lane's to remove unilaterally, even when
+another lane calls it vestigial or claims its reason has expired. Verify the claim by measuring before
+either obeying it or removing the label:
+
+1. **Who set the label, and does its named exit condition hold?** Read the issue events
+   (`/{R}/issues/<n>/events?per_page=100`, filter `labeled`/`unlabeled`) for the actor + timestamp, and
+   the remedy comment for the named condition. If the label's remedy ("removed when #N merges") has NOT
+   landed, the reason has NOT expired — a bare holds-gate-green does not make it vestigial. Confirm the
+   remedy itself: the master PR the label names must read `.merged=true`, not merely `state=closed`.
+2. **The APPROVED that claims to supersede the hold may be a BOT, not the owner.** The `auto-merge`
+   workflow approves every green PR that only lacked a required review, authoring the review as
+   `asimov-agent` with a body that literally says "Approved by the repo's `auto-merge` job". That is an
+   automated approval-on-green, NOT a human owner decision, and it does not lift an owner-set hold nor
+   merge on its own while auto-merge is unarmed. Read the review's `user.login` AND its body before
+   treating any APPROVED as "the owner approved" — a peer relaying "owner APPROVED" is often relaying
+   this bot review. Only a review by the human owner account (or an explicit owner instruction) lifts
+   the hold.
+3. **A "this label blocks other PRs" claim is contradicted by measurement.** The `holds` gate audits the
+   whole board, but `check-holds` reads "0 need attention" precisely because a held PR's do-not-merge
+   NAMES its remedy — so a named-remedy hold does NOT red other PRs' holds legs. Verify the claimed
+   victims directly: read each victim's `labels` (empty?), its `holds` conclusion (success?), and its
+   red/in-progress check list. A peer asserting the hold reds others is answered by those three reads,
+   not by the assertion.
+4. **Removing an owner-set hold before its named remedy lands is the precondition-lift error.** The
+   correct move is to keep it until the remedy lands, then remove it (naming the run/sha that proves
+   the reason expired), or ask the owner explicitly. Never let a peer lane's premise — a green gate, or
+   a bot approval dressed as an owner approval — substitute for the owner's instrument. Ask the owner
+   in-chat when the premise is disputed; do not resolve it unilaterally either way.
+
+## Closing a superseded / dead-weight PR — and which "issue" to close with it
+
+When the owner says a PR should be closed (its premise is void — a capacity-only bump that is not the
+real fix, a workaround superseded by another PR), closing is unambiguous: `gh pr close <n> --comment
+...` citing the measured reason. Verify afterwards `state=closed` AND `.merged=false` (a close is not a
+merge), and confirm any open fix PR that the dead one was gated behind still reads `mergeable:true`.
+
+**"Close the PR and the issue" does NOT mean hunt for an adjacent open issue to close.** The dead PR
+often carries "closes no issue" in its body — then there IS no tracking issue for it, and the only
+open issue in the same area is usually the REAL-FIX TRACKER a still-open fix PR must deliver against.
+Closing that tracker strands the acceptance vehicle (a merged fix with nothing left to prove against).
+Before closing any issue, search by title AND body (`search/issues?q=repo:<o>/<r> \"<term>\"`), read
+what the issue actually tracks, and check whether an open PR's boxes/tests depend on it. If the only
+candidate is the real-fix tracker, do NOT close it — close the PR alone and say so; ask the owner to
+name the issue when it is genuinely ambiguous rather than guessing. Closing a PR also voids its
+`do-not-merge` label (the hold question is moot once the PR is closed, not "removed").
+
+**Before you report an issue "eligible to close", read its state** — `gh api repos/<o>/<r>/issues/<n>
+--jq '{state,closed_at,title}'`. A dependency-tracking issue is often closed by the owner at the very
+moment its last condition's PR merges, so a lane announcing "now eligible" after that is describing
+work already done; quote the actual `state`/`closed_at` instead of a recommendation the owner has
+already executed.
 
 ## Versioning this skill in the repo (the `.hermes/skills` gate)
 
@@ -300,3 +589,69 @@ leg can load it — is admitted by NAME via the `HOST_SKILLS` frozenset in
   loads on the host. Patch both, and run `make check-agent-skills` before committing.
 - Do not fabricate a PR/issue number in the commit subject or body. If no issue exists, write
   the change summary without one.
+
+## Versioning this lane's PROFILE (`agents/<profile>/`), which is a different gate
+
+`.hermes/skills` (previous section) is not where this lane's own behaviour lives. The profile is
+`agents/<profile>/SOUL.md` plus `agents/<profile>/skills/<name>/{SKILL.md,references/}`, mirroring
+the live `~/.hermes/profiles/<profile>/`. Two checks cover it:
+
+```bash
+make sync-agent-profile PROFILE=<p> CHECK=1      # compare tool: live vs tree, refuses to write
+HERMES_PROFILES_HOME=/nonexistent python3 scripts/check_agent_profiles.py   # tree structure only
+```
+
+- **`CHECK=1` is a COMPARE, and the live profile is usually the newer side.** "Reload the profile
+  from the tree" is a plausible-sounding directive that would *truncate* behaviour (it once asked to
+  replace an arm-auto-merge rule with the tree's older never-arm text). Run the compare and let it
+  name the direction; when live is ahead, version live→tree in a PR instead of syncing tree→live.
+- **The direction differs PER FILE inside one profile — never blanket-copy.** Measured: four files
+  live-ahead while a fifth was tree-ahead, because a merged PR had advanced that file's tree copy
+  (a product-scope change the live host never picked up). Copying every live file into the tree would
+  have deleted merged content. Diff file by file, copy only the live-ahead ones, and state in the PR
+  body why each untouched file was left alone.
+- **The profile checker greps a LITERAL phrase, not the semantics.** Its manifest declares a regex per
+  rule (e.g. `never\s+merge`), so a SOUL that says "do not hand-merge" and "never squash by hand"
+  still reds. Satisfy it by *adding* the literal sentence where it belongs ("Never merge by hand")
+  rather than reverting the newer directive: arming auto-merge and never performing the merge are
+  compatible, because the `auto-merge` workflow executes the owner-gated squash, not this lane.
+  Reword, never weaken the rule to pass a string match.
+- **A SKILL.md that NAMES a `references/x.md` must ship that file.** Copying a newer SKILL.md alone
+  reds the checker on the named-but-missing reference; copy the reference in the same commit.
+- Check it is really the tree gate you cleared: `check_agent_profiles.py` prints
+  "tree checks only, LIVE RULEBOOKS NOT COMPARED" — green there does not mean live and tree agree.
+
+**Fragment filenames embed the issue number, so file the issue FIRST.** `docs/changes.d/<date>-<slug>-<issue>.md`,
+its `agent-wiki/` sibling and the commit subject all carry `#NNN`. Guessing the number costs a `sed`, two
+`git mv`s, a `make changes-index` regen and a `git commit --amend` plus a PR-body edit to repair — create
+the issue, then name the files from its real number. And a fragment/number mismatch reds the
+change→note gate in a way that reads like an unrelated docs error.
+
+**A mid-flight pivot invalidates the change's own THREE doc records — fix all of them, not one.** When the
+mechanism of a fix changes after the change-record was written (source-build → restore-prebuilt, a knob that
+turned out dead, a superseded approach), the record that narrates the OLD mechanism is stale-adjacent and
+misleads the next reader. Three copies must agree, and a grep for the old mechanism row catches all three:
+`agent-wiki/<date>-<slug>-<issue>.md` (the narrative page — add a "Pivot during implementation" section
+naming the measured result that forced the new direction), its one-line row in `CHANGES.md`, and the
+byte-matching copy in `docs/changes.d/<date>-<slug>-<issue>.md`. Re-run `make openspec-validate
+NAME=<change>` after the edit; the change must still read `is valid`.
+
+**When the pivot's docs are discovered while a proof run is live at the head, STAGE them and hold HEAD.**
+Committing (or amending) the doc fix moves the branch head, which supersedes the in-flight proof's sha and
+reproduces the "proof pinned at a superseded head" defect. Correct sequence: `git add` the doc edits, keep
+`HEAD` at the proofed sha (verify with `git rev-parse --short HEAD`), and commit+push the staged docs only
+after the proof verdict lands — so the merged PR's docs match the head that was actually proven. A docs
+change is not a reason to cancel or supersede a running matrix.
+
+**Gate set for a profile-versioning PR** (run all, quote each): the profile checker above, `make check-docs`
+(census pointer must be an ancestor of HEAD), `make changes-index`, `make lint`, and the hermetic
+openspec/ci-images pytest.
+
+
+
+**Never put a run id, flow id, sha, or timestamp into a report/comment unless it was READ BACK from the API in the SAME turn as the write.** A plausible-looking id — e.g. hf-live run "41558411804 / success" — that was invented, not verified, is fabricated evidence and is incident-worthy on a close proof. Posting an unverified run id on an issue (close-condition evidence) caused a public correction and a board-credibility hit. Rule: every metric/run/stream id you cite must come from a live `gh api` read (or the tool output of the current call), never from memory or pattern-matching. When a run is still in_progress, say "in_progress / conclusion unset" — never invent a conclusion. If you cannot reach the API, say so and report nothing, rather than fabricate.
+
+
+**Do not call a run "stalled" from its updatedAt alone.** A frozen run-level updatedAt is NOT a stall signal: GitHub does not bump the run's updatedAt mid-step, so a long "in_progress" with recent job-step activity is normal for long single steps (e.g. the @pytest.mark.network suite). To judge stall, read the RUN's associated JOB steps (`gh api repos/.../actions/runs/<id>/jobs`) and check whether the current step's started_at is recent and the job's updated state has real step progress; only a step whose started_at stalled with NO step completing for well past its normal duration is a candidate. Announcing a "stalled-run finding" on an issue from updatedAt alone, then having it retracted by the verdict owner, is an over-read that undermines the same on-record discipline as a fabricated id.
+
+**A 215-byte BlobNotFound XML on the job logs endpoint is "log not finalized", not a suspension, on ANY young in_progress job** (reaper calibration, #1679, measured 2026-11-03): GitHub serves logs only AFTER the job completes, so a fresh running job's blob 404 is the NORMAL pre-completion state — a discriminator keyed on in_progress+BlobNotFound false-positives every healthy matrix cell. A real suspension is a STALL past a floor: in_progress AND two consecutive reads show unchanged updated_at AND no progress events AND no arriving conclusion. Floor per slice = 2× that matrix slice's own completed-run median (measured: linux/unit completes 9.0–14.1 min, median ~12.5 → floor ~25 min; install ≤4.1), never a fixed 10-min constant — a healthy unit is in_progress at 10 min routinely (proof: #1680 job 125756825660, 11.2 min success, zero-byte blob the whole time). Post run id + both timestamps + PR before any reaper cancel.

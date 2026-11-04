@@ -45,7 +45,13 @@ build probe needs the card.
 ## A change to a tag input invalidates every image, and one gate knows it
 
 The tag hashes four inputs: the variant's params, its committed Dockerfile,
-`containers/engines/entrypoint.sh` and `scripts/engine_runner.py`. So a PR that edits the runner, the
+`containers/engines/entrypoint.sh` and `scripts/engine_runner.py`. Because the Dockerfile is
+per-variant, **the `<digest8>` differs per variant** — compute a tag per variant
+(`scripts/engine_image_tags.sh <engine-id> <root> --probe` prints each variant's tag and probes it) and
+never reuse one variant's digest to probe a sibling: `llama.cpp` at one pin measured
+`…-5b7be358-cpu` 200 while that same digest on `-rocm` 404'd, the real rocm tag being
+`…-dd3549eb-rocm` (cuda `…-af7a7d90-cuda`, vulkan `…-fcf234e2-vulkan`). A sibling 404 is not evidence
+until you have computed that sibling's own tag from the tree. So a PR that edits the runner, the
 entrypoint or a Dockerfile moves **every** engine's tag — and
 `tests/test_ci_publish_order.py::test_every_image_install_pulls_is_published` then demands published
 images for engines its notion of "repinned" (params files only) does not cover:
@@ -57,6 +63,20 @@ AssertionError: an image make install pulls and this change did not repin is not
 No such PR can go green until that test learns the same four inputs. Name that on the PR (missing
 artifact → the job that did not produce it → the issue that closes the gap) instead of hunting the diff
 for a bug that is not there.
+
+**Recompute the expected tag at the exact head you publish from — a tag quoted from an older head goes
+stale the moment another lane merges a tag-input edit.** The four inputs are content bytes, so even a
+comment-only edit to `scripts/engine_runner.py` (e.g. a lint-suppression comment) shifts every engine's
+hash. A publish run is bound to the `HEAD` it was dispatched at: if main advances past that sha while the
+run is in flight, the run publishes the OLD head's tag, which the new main no longer computes — a green
+run then does NOT fix the gate. So before dispatching or trusting a publish: `git fetch origin main`, then
+compute the tag at that exact sha (read the four inputs via `git show <sha>:<path>` and sha256 the
+concatenation exactly as `_image_inputs` frames it — params JSON of the variant, then the committed
+Dockerfile, `entrypoint.sh`, `engine_runner.py` — or run `scripts/check_engine_launchers.py report` in a
+worktree checked out at that sha). Never reuse a tag number from an earlier turn or another lane's
+measurement. When `make check-engine-launchers` reds many engines on "other params (same pin)" at once,
+classify it as another input having moved (republish the fleet) versus a single pin moving — the fixes
+differ.
 
 ## A from-source (AOT) kernel dependency needs its whole build toolchain in the params install row
 
@@ -75,6 +95,44 @@ missing one surfaces as a red build cell, never at params authoring time:
 Regenerate the variant's params from the engine skill after editing the row (the tag hashes the params),
 and expect one red stage to reveal the next: fixing the backend exposes the toolchain error, and each is a
 separate defect in the same cell.
+
+## The publish flag gate requires a HELP spelling unconditionally — `binary_flags` cannot waive it
+
+The publish gate (`scripts/engine_image.py::decide()`) probes `TYPED_FLAGS` (`--version`, `-h`,
+`--help`, `-V`) and applies two failures independently: **(1)** every entry in the manifest's
+`flags` (from `binary_flags`) that does not answer, and **(2)** "the help family answers to neither
+`-h` nor `--help`" — and that second branch fires for **every** `probe` policy. So a CLI that answers
+`--version` but exits non-zero on `-h`/`--help` is genuinely **unpublishable**: narrowing
+`binary_flags` to `["--version"]` does NOT clear it, because `TYPED_FLAGS` still probes the help
+family and the family check still reds. The `probe: help` policy is for a CLI with **no version flag at
+all** (help must still answer); `probe: device` is for a CLI that needs the card to answer **any** flag.
+Neither covers "answers version but no help." Per #687, do not patch upstream — a cell blocked this way
+stays blocked until upstream's CLI adds a help spelling; report it as blocked-at-this-pin, and never
+re-dispatch expecting the gate to pass.
+
+**Read the flag surface from the binary the BUILD actually installs, not a sibling `main.zig`.** A
+`zig build` can install a CLI (`zig/src/cli/cuda_main.zig`) as `<id>` while the *server* main
+(`zig/src/server/main.zig`) — which does handle `--help`/`-h` — is a different artifact. Confirming
+`--help` in the server main proves nothing about the installed `<id>` binary the gate probes. Before
+correcting a skill's `binary_flags`, trace which `installArtifact`/executable the pinned build produces
+for the container cell, and read THAT source's argv handling. The measured (`--version` answers, `-h`/
+`--help` exit 2) result is the ground truth; a source file that appears to handle help is not.
+
+## A source AOT kernel that OOMs the build host is kernel-size-bound — restore the prebuilt base
+
+When the toolchain is complete but the AOT compile still dies, the failure is the build host's memory, not
+a missing knob — and "narrow the arch set" is a dead lever (a strict single-arch compile still exceeds a
+16 GiB/4-CPU cap). The measured detail and the repro recipe live in
+`references/engine-build-proof-dispatch.md` ("The arch lever for a torch-backed CUDA AOT OOM"); do not
+re-derive it. The remedy for a cell that must stay green is to **restore the prebuilt official serving
+image**: set `container.<backend>.base = <official serving image>` and `prebuilt: true`. Renderer
+semantics that make this safe: `if prebuilt: steps = []` — a prebuilt variant runs **ZERO** install steps,
+so a non-empty `install` under `prebuilt: true` is incoherent; the base ships the engine and its compiled
+kernels. Keep the sibling backend's source build (e.g. rocm) untouched — the pivot is per-variant. Before
+pushing, **verify the detect/version line inside the ACTUAL prebuilt base** (`docker run --rm <base> sh -c
+'<binary> --help; python3 -c "import importlib.metadata…"'`), since a prebuilt base is a different binary
+surface than a locally-built one; a green detect at the real base is the pre-push gate in place of a local
+build (this lane never builds an engine image).
 
 ## What a Prism cell proves once published
 
