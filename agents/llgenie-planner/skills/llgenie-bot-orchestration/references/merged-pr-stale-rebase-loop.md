@@ -358,3 +358,15 @@ reconcile the reported name to the live head, record the live head/base as
 authoritative, and move on to scope->ci-verdict. Also: re-citing a MERGED PR
 (#1726, 0717ab72a) as "still-red/open, yours to re-cut" is a miscite of a closed
 PR; correct it, don't dispatch re-cut work on it.
+
+## A dispatch is only real when a PR opens; my own lane can strand it too (2026-11-05, #1689)
+
+Six dispatch comments had accumulated on #1689 with NO vehicle: head query
+`pulls?state=open&head=asimov-agent:fix/1689-planner-guard` returned 0 and
+`origin/main` lacked the guide path — the planner lane's OWN deliverable sat
+orphaned on branch `9dd9caad4`, the exact stale-vehicle pattern policed elsewhere.
+Dispatch goes to the implementer with the live head (`9dd9caad4`) + base pin
+(`0717ab72a`) + body `AGENTS:` and demands "open PR closes #N" as the done-proof.
+Also: a stale `/tmp` comment body can overwrite a fresh one (write_file refused
+stale-write, deleted the stale comment 6645547064, posted correct 6645555355).
+Every lane - including mine - audits its own queue for open-PR-vehicle existence.
