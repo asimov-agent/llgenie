@@ -284,9 +284,26 @@ def _scratch_repo(tmp_path: Path):
 
 
 def _run_actor(tmp_path, work, env, agent_cmd, dry="", gates="true"):
+    # A deterministic `gh` (empty body, comments swallowed) is first on PATH: the actor now runs
+    # the squash-close re-check (issue #1716), which reads the LIVE PR body via `gh api pull/42`.
+    # A real `gh` would hit the network for PR 42 in this hermetic harness.
+    ghbin = tmp_path / "ghbin"
+    ghbin.mkdir(parents=True, exist_ok=True)
+    (ghbin / "body.txt").write_text("")
+    _gh = ghbin / "gh"
+    _gh.write_text(f'''#!{sys.executable}
+import pathlib, sys
+here = pathlib.Path(__file__).parent
+args = sys.argv[1:]
+if args and args[0] == "api" and "pulls/" in args[1]:
+    sys.stdout.write((here / "body.txt").read_text()); sys.exit(0)
+sys.exit(0)
+''')
+    _gh.chmod(0o755)
     return subprocess.run(
         [os.environ.get("BASH", "bash"), str(REPO / "scripts" / "rebase_bot.sh")],
-        cwd=str(work), env={**env, "PR": "42", "HEAD_BRANCH": "feat/conflict",
+        cwd=str(work), env={**env, "PATH": f"{ghbin}:{os.environ.get('PATH', '')}",
+                            "PR": "42", "HEAD_BRANCH": "feat/conflict",
                             "HEAD_REPO": "andyholst", "REPO": f"{OWNER}/{NAME}",
                             "AGENT_CMD": agent_cmd, "GATES": gates, "DRY": dry},
         capture_output=True, text=True, timeout=180)

@@ -119,6 +119,89 @@ def test_cli_check_and_report(tmp_path, monkeypatch):
     assert run_cli(["check", "--body-file", str(p), "--head", AGENT_HEAD]) != 0
 
 
+# --- the post-rebase squash-close re-check gate (issue #1716) -------------------------
+# The rebase bot now runs exactly this CLI after each rebase, against the LIVE body, so a dropped
+# `closes #N` (the #1697/#1707/#1702 close-drop) is a hard RED before anything is pushed. These
+# tests build a REAL git repo (the check reads the commit range via git) and drive the CLI the
+# rebase bot invokes — both arms, so the gate is proven, not asserted.
+
+
+def _git(repo, *a, env=None):
+    import subprocess as _sp
+    e = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
+         "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com", **(env or {}),
+         "HOME": "/tmp"}
+    r = _sp.run(["git", "-C", str(repo), *a], capture_output=True, text=True, env=e)
+    assert r.returncode == 0, r.stderr
+    return r.stdout.strip()
+
+
+def _close_drop_repo(tmp_path):
+    """A base on `main` and one branch commit whose message has the same shape as a rebased head.
+
+    `keep`=True writes the adjacent `closes #N` in the head message (green). `keep`=False writes a
+    subject that still CLAIMS the issue but re-authors it WITHOUT the close (the #1697/#1707
+    defect: body says `closes #N`, the re-authored message no longer does).
+    """
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    (repo / "f").write_text("base\n")
+    _git(repo, "add", "-A"); _git(repo, "commit", "-qm", "base")
+    return repo
+
+
+def _check(repo, head_rev, body, title=""):
+    import subprocess as _sp, os as _os, sys as _sys
+    bodyf = repo / "body.md"
+    bodyf.write_text(body)
+    r = _sp.run(
+        [_sys.executable, str(REPO / "scripts" / "check_pr_closing.py"), "check",
+         "--base", "main", "--rev", head_rev, "--head", "feat/x",
+         "--body-file", str(bodyf), "--title", title, "--cwd", str(repo)],
+        cwd=str(repo), capture_output=True, text=True, timeout=60)
+    return r.returncode, r.stdout + r.stderr
+
+
+def test_rebased_head_that_keeps_the_close_is_green(tmp_path):
+    """Control: head carries `Issue:` + adjacent `closes #N`, body matches -> the gate passes."""
+    repo = _close_drop_repo(tmp_path)
+    _git(repo, "checkout", "-q", "-b", "feat/x")
+    (repo / "f").write_text("change\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "keep the close\n\ncloses #1716\nIssue: #1716\n")
+    head = _git(repo, "rev-parse", "HEAD")
+    rc, out = _check(repo, head, body="closes #1716\n")
+    assert rc == 0, out
+
+
+def test_rebased_head_that_dropped_the_close_is_RED_naming_the_N(tmp_path):
+    """Regression (issue #1716): the body claims `closes #1707` but the re-authored head message
+    only says `(#1707)` in the subject with NO adjacent close line — the #1697/#1707 defect. The
+    gate must be red and NAME #1707."""
+    repo = _close_drop_repo(tmp_path)
+    _git(repo, "checkout", "-q", "-b", "feat/x")
+    (repo / "f").write_text("change\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "re-authors without the close (#1707)")
+    head = _git(repo, "rev-parse", "HEAD")
+    rc, out = _check(repo, head, body="Implements #1707.\ncloses #1707\n")
+    assert rc != 0, out
+    assert "1707" in out, out
+
+
+def test_rebased_head_with_no_close_and_no_claim_is_green(tmp_path):
+    """A PR that closes nothing and claims nothing passes (the check is a subset, not a roster)."""
+    repo = _close_drop_repo(tmp_path)
+    _git(repo, "checkout", "-q", "-b", "feat/x")
+    (repo / "f").write_text("change\n")
+    _git(repo, "add", "-A"); _git(repo, "commit", "-qm", "a pure chore")
+    head = _git(repo, "rev-parse", "HEAD")
+    rc, out = _check(repo, head, body="")
+    assert rc == 0, out
+
+
+
 # --- the squash text and the PR body close the same claimed issues (issue #1417) ------------
 
 
