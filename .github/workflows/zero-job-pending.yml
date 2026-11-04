@@ -26,7 +26,8 @@ run-name: zero-job-pending
 # NOTHING else — no pull_request, no non-main branch (a PR-run monitor here would name PRs whose jobs
 # are legitimately not yet instantiated; this is about dispatched run liveness).
 # Flow: on ci-requeue completing -> make check-zero-job-pending FILE=1
-#       -> on a stuck run, file ONE deduped issue naming it.
+#       -> on a stranded run, force its head RED via the ci-verdict check-run path and file ONE
+#          deduped issue naming it.
 # Never: never in a pull request, never gated by a PR, never merges, never cancels a run, never
 #        weakens a gate.
 on:
@@ -38,7 +39,8 @@ on:
 permissions:
   contents: read
   actions: read
-  issues: write
+  issues: write   # files the deduped per-run issue
+  checks: write   # forces a stranded run's head RED via the ci-verdict check-run path (#1704)
 
 # stacking is intended — each run files per-run issues idempotently (a marker each read back), so a
 # race would read "no issue yet" on both sides and double-file (issue #917).

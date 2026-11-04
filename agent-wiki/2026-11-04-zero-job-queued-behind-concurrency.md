@@ -18,4 +18,14 @@ Prove-the-guard: two new tests plant the queued-behind-group case (queued run su
 holder flagged) and the cross-branch-holder case (a same-workflow run on its own branch is NOT treated
 as behind main's sibling and stays flagged); a genuinely stranded in_progress run stays by
 construction. import-roots ratchet holds at the recorded baseline; reactor/verdict/frozen suite green.
-No gate weakened — the skip is classification, never a pass-through. Implements #1704.
+No gate weakened — the skip is classification, never a pass-through.
+
+FORCED RED (the second half of #1704's acceptance): a STRANDED run stays `pending` — GitHub does not
+fail a run whose workflow instantiates no jobs, so neither `queued_run_alarm` (scans job rows, none)
+nor `run-failure-reactor` (needs a failure/cancelled conclusion) sees it, and `ci-verdict`'s own
+`workflow_run: [completed]` hook never fires because the run never completes. `--file` now forces the
+stranded run's head RED via the same `ci-verdict` check-run payload `scripts/ci_scope.py` posts
+(`check_run_payload(RED, head, ...)` → `conclusion: failure`), so a genuinely-unrunnable dispatch
+surfaces as a failed check with a reason instead of an eternal `pending` that reads like a working
+matrix — and the monitor workflow gains `checks: write` so the check-run can land. Idiomatic: a run
+whose marker is already in an open issue is neither re-filed nor re-forced RED. Implements #1704.
