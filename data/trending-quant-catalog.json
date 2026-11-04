@@ -2090,48 +2090,6 @@
             "url": "https://huggingface.co/TensorFold/Qwen3.8-Flash-Next-MLX-2bit-MTP/resolve/main/LICENSE"
           },
           {
-            "repo": "TensorFold/Qwen3.8-Flash-Next-MLX-4bit-MTP",
-            "revision": "main",
-            "path": "",
-            "files": [
-              "LICENSE",
-              "chat_template.jinja",
-              "config.json",
-              "generation_config.json",
-              "merges.txt",
-              "model-00001-of-00022.safetensors",
-              "model-00002-of-00022.safetensors",
-              "model-00003-of-00022.safetensors",
-              "model-00004-of-00022.safetensors",
-              "model-00005-of-00022.safetensors",
-              "model-00006-of-00022.safetensors",
-              "model-00007-of-00022.safetensors",
-              "model-00008-of-00022.safetensors",
-              "model-00009-of-00022.safetensors",
-              "model-00010-of-00022.safetensors",
-              "model-00011-of-00022.safetensors",
-              "model-00012-of-00022.safetensors",
-              "model-00013-of-00022.safetensors",
-              "model-00014-of-00022.safetensors",
-              "model-00015-of-00022.safetensors",
-              "model-00016-of-00022.safetensors",
-              "model-00017-of-00022.safetensors",
-              "model-00018-of-00022.safetensors",
-              "model-00019-of-00022.safetensors",
-              "model-00020-of-00022.safetensors",
-              "model-00021-of-00022.safetensors",
-              "model-00022-of-00022.safetensors",
-              "model.safetensors.index.json",
-              "preprocessor_config.json",
-              "tokenizer.json",
-              "tokenizer_config.json",
-              "vocab.json"
-            ],
-            "size_gb": 105.456472,
-            "dir": true,
-            "url": "https://huggingface.co/TensorFold/Qwen3.8-Flash-Next-MLX-4bit-MTP/resolve/main/LICENSE"
-          },
-          {
             "repo": "ddalcu/Qwen3.8-Flash-Next-MLX-Serve-iQ-MLX-4.7bpw",
             "revision": "main",
             "path": "",
@@ -2251,6 +2209,48 @@
             "size_gb": 99.955715,
             "dir": true,
             "url": "https://huggingface.co/ddalcu/Qwen3.8-Flash-Next-MLX-Serve-iQ-MLX-4.7bpw/resolve/main/LICENSE"
+          },
+          {
+            "repo": "TensorFold/Qwen3.8-Flash-Next-MLX-4bit-MTP",
+            "revision": "main",
+            "path": "",
+            "files": [
+              "LICENSE",
+              "chat_template.jinja",
+              "config.json",
+              "generation_config.json",
+              "merges.txt",
+              "model-00001-of-00022.safetensors",
+              "model-00002-of-00022.safetensors",
+              "model-00003-of-00022.safetensors",
+              "model-00004-of-00022.safetensors",
+              "model-00005-of-00022.safetensors",
+              "model-00006-of-00022.safetensors",
+              "model-00007-of-00022.safetensors",
+              "model-00008-of-00022.safetensors",
+              "model-00009-of-00022.safetensors",
+              "model-00010-of-00022.safetensors",
+              "model-00011-of-00022.safetensors",
+              "model-00012-of-00022.safetensors",
+              "model-00013-of-00022.safetensors",
+              "model-00014-of-00022.safetensors",
+              "model-00015-of-00022.safetensors",
+              "model-00016-of-00022.safetensors",
+              "model-00017-of-00022.safetensors",
+              "model-00018-of-00022.safetensors",
+              "model-00019-of-00022.safetensors",
+              "model-00020-of-00022.safetensors",
+              "model-00021-of-00022.safetensors",
+              "model-00022-of-00022.safetensors",
+              "model.safetensors.index.json",
+              "preprocessor_config.json",
+              "tokenizer.json",
+              "tokenizer_config.json",
+              "vocab.json"
+            ],
+            "size_gb": 105.456472,
+            "dir": true,
+            "url": "https://huggingface.co/TensorFold/Qwen3.8-Flash-Next-MLX-4bit-MTP/resolve/main/LICENSE"
           },
           {
             "repo": "TensorFold/Qwen3.8-Flash-Next-MLX-4bit",
@@ -2448,6 +2448,56 @@
             "url": "https://huggingface.co/Sawfwair/Qwen3.8-Flash-Next-MLX-Mixed-2bit/resolve/main/LICENSE"
           },
           {
+            "repo": "TensorFold/Qwen3.8-Flash-Next-MLX-6bit-MTP",
+            "revision": "main",
+            "path": "",
+            "files": [
+              "LICENSE",
+              "chat_template.jinja",
+              "config.json",
+              "generation_config.json",
+              "merges.txt",
+              "model-00001-of-00030.safetensors",
+              "model-00002-of-00030.safetensors",
+              "model-00003-of-00030.safetensors",
+              "model-00004-of-00030.safetensors",
+              "model-00005-of-00030.safetensors",
+              "model-00006-of-00030.safetensors",
+              "model-00007-of-00030.safetensors",
+              "model-00008-of-00030.safetensors",
+              "model-00009-of-00030.safetensors",
+              "model-00010-of-00030.safetensors",
+              "model-00011-of-00030.safetensors",
+              "model-00012-of-00030.safetensors",
+              "model-00013-of-00030.safetensors",
+              "model-00014-of-00030.safetensors",
+              "model-00015-of-00030.safetensors",
+              "model-00016-of-00030.safetensors",
+              "model-00017-of-00030.safetensors",
+              "model-00018-of-00030.safetensors",
+              "model-00019-of-00030.safetensors",
+              "model-00020-of-00030.safetensors",
+              "model-00021-of-00030.safetensors",
+              "model-00022-of-00030.safetensors",
+              "model-00023-of-00030.safetensors",
+              "model-00024-of-00030.safetensors",
+              "model-00025-of-00030.safetensors",
+              "model-00026-of-00030.safetensors",
+              "model-00027-of-00030.safetensors",
+              "model-00028-of-00030.safetensors",
+              "model-00029-of-00030.safetensors",
+              "model-00030-of-00030.safetensors",
+              "model.safetensors.index.json",
+              "preprocessor_config.json",
+              "tokenizer.json",
+              "tokenizer_config.json",
+              "vocab.json"
+            ],
+            "size_gb": 147.245899,
+            "dir": true,
+            "url": "https://huggingface.co/TensorFold/Qwen3.8-Flash-Next-MLX-6bit-MTP/resolve/main/LICENSE"
+          },
+          {
             "repo": "ddalcu/Qwen3.8-Flash-Next-MLX-Serve-iQ-MLX-3.3bpw",
             "revision": "main",
             "path": "",
@@ -2567,56 +2617,6 @@
             "size_gb": 80.424464,
             "dir": true,
             "url": "https://huggingface.co/ddalcu/Qwen3.8-Flash-Next-MLX-Serve-iQ-MLX-3.3bpw/resolve/main/LICENSE"
-          },
-          {
-            "repo": "TensorFold/Qwen3.8-Flash-Next-MLX-6bit-MTP",
-            "revision": "main",
-            "path": "",
-            "files": [
-              "LICENSE",
-              "chat_template.jinja",
-              "config.json",
-              "generation_config.json",
-              "merges.txt",
-              "model-00001-of-00030.safetensors",
-              "model-00002-of-00030.safetensors",
-              "model-00003-of-00030.safetensors",
-              "model-00004-of-00030.safetensors",
-              "model-00005-of-00030.safetensors",
-              "model-00006-of-00030.safetensors",
-              "model-00007-of-00030.safetensors",
-              "model-00008-of-00030.safetensors",
-              "model-00009-of-00030.safetensors",
-              "model-00010-of-00030.safetensors",
-              "model-00011-of-00030.safetensors",
-              "model-00012-of-00030.safetensors",
-              "model-00013-of-00030.safetensors",
-              "model-00014-of-00030.safetensors",
-              "model-00015-of-00030.safetensors",
-              "model-00016-of-00030.safetensors",
-              "model-00017-of-00030.safetensors",
-              "model-00018-of-00030.safetensors",
-              "model-00019-of-00030.safetensors",
-              "model-00020-of-00030.safetensors",
-              "model-00021-of-00030.safetensors",
-              "model-00022-of-00030.safetensors",
-              "model-00023-of-00030.safetensors",
-              "model-00024-of-00030.safetensors",
-              "model-00025-of-00030.safetensors",
-              "model-00026-of-00030.safetensors",
-              "model-00027-of-00030.safetensors",
-              "model-00028-of-00030.safetensors",
-              "model-00029-of-00030.safetensors",
-              "model-00030-of-00030.safetensors",
-              "model.safetensors.index.json",
-              "preprocessor_config.json",
-              "tokenizer.json",
-              "tokenizer_config.json",
-              "vocab.json"
-            ],
-            "size_gb": 147.245899,
-            "dir": true,
-            "url": "https://huggingface.co/TensorFold/Qwen3.8-Flash-Next-MLX-6bit-MTP/resolve/main/LICENSE"
           },
           {
             "repo": "TensorFold/Qwen3.8-Flash-Next-MLX-oQ4-MTP",
@@ -3115,7 +3115,7 @@
               "UD-IQ1_S/Qwen3.8-Flash-Next-UD-IQ1_S-00002-of-00003.gguf",
               "UD-IQ1_S/Qwen3.8-Flash-Next-UD-IQ1_S-00003-of-00003.gguf"
             ],
-            "size_gb": 67.564157,
+            "size_gb": 61.820429,
             "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-IQ1_S/Qwen3.8-Flash-Next-UD-IQ1_S-00001-of-00003.gguf"
           },
           {
@@ -3127,56 +3127,84 @@
               "UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-00002-of-00003.gguf",
               "UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-00003-of-00003.gguf"
             ],
-            "size_gb": 69.419626,
+            "size_gb": 63.336543,
             "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-00001-of-00003.gguf"
           },
           {
             "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
             "revision": "main",
-            "path": "UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00001-of-00003.gguf",
+            "path": "UD-Q2_0/Qwen3.8-Flash-Next-UD-Q2_0-00001-of-00003.gguf",
             "files": [
-              "UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00001-of-00003.gguf",
-              "UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00002-of-00003.gguf",
-              "UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00003-of-00003.gguf"
+              "UD-Q2_0/Qwen3.8-Flash-Next-UD-Q2_0-00001-of-00003.gguf",
+              "UD-Q2_0/Qwen3.8-Flash-Next-UD-Q2_0-00002-of-00003.gguf",
+              "UD-Q2_0/Qwen3.8-Flash-Next-UD-Q2_0-00003-of-00003.gguf"
             ],
-            "size_gb": 73.4526,
-            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00001-of-00003.gguf"
+            "size_gb": 65.704707,
+            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-Q2_0/Qwen3.8-Flash-Next-UD-Q2_0-00001-of-00003.gguf"
           },
           {
             "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
             "revision": "main",
-            "path": "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00001-of-00003.gguf",
+            "path": "UD-IQ2_XS/Qwen3.8-Flash-Next-UD-IQ2_XS-00001-of-00003.gguf",
             "files": [
-              "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00001-of-00003.gguf",
-              "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00002-of-00003.gguf",
-              "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00003-of-00003.gguf"
+              "UD-IQ2_XS/Qwen3.8-Flash-Next-UD-IQ2_XS-00001-of-00003.gguf",
+              "UD-IQ2_XS/Qwen3.8-Flash-Next-UD-IQ2_XS-00002-of-00003.gguf",
+              "UD-IQ2_XS/Qwen3.8-Flash-Next-UD-IQ2_XS-00003-of-00003.gguf"
             ],
-            "size_gb": 76.332897,
-            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00001-of-00003.gguf"
+            "size_gb": 70.62414,
+            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-IQ2_XS/Qwen3.8-Flash-Next-UD-IQ2_XS-00001-of-00003.gguf"
           },
           {
             "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
             "revision": "main",
-            "path": "UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00001-of-00003.gguf",
+            "path": "UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00001-of-00004.gguf",
             "files": [
-              "UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00001-of-00003.gguf",
-              "UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00002-of-00003.gguf",
-              "UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00003-of-00003.gguf"
+              "UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00001-of-00004.gguf",
+              "UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00002-of-00004.gguf",
+              "UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00003-of-00004.gguf",
+              "UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00004-of-00004.gguf"
             ],
-            "size_gb": 83.806323,
-            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00001-of-00003.gguf"
+            "size_gb": 74.115351,
+            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00001-of-00004.gguf"
           },
           {
             "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
             "revision": "main",
-            "path": "UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00003.gguf",
+            "path": "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00001-of-00004.gguf",
             "files": [
-              "UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00003.gguf",
-              "UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00002-of-00003.gguf",
-              "UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00003-of-00003.gguf"
+              "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00001-of-00004.gguf",
+              "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00002-of-00004.gguf",
+              "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00003-of-00004.gguf",
+              "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00004-of-00004.gguf"
             ],
-            "size_gb": 87.248706,
-            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00003.gguf"
+            "size_gb": 77.88319,
+            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00001-of-00004.gguf"
+          },
+          {
+            "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
+            "revision": "main",
+            "path": "UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00001-of-00004.gguf",
+            "files": [
+              "UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00001-of-00004.gguf",
+              "UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00002-of-00004.gguf",
+              "UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00003-of-00004.gguf",
+              "UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00004-of-00004.gguf"
+            ],
+            "size_gb": 83.320726,
+            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00001-of-00004.gguf"
+          },
+          {
+            "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
+            "revision": "main",
+            "path": "UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00004.gguf",
+            "files": [
+              "UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00004.gguf",
+              "UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00002-of-00004.gguf",
+              "UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00003-of-00004.gguf",
+              "UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00004-of-00004.gguf"
+            ],
+            "size_gb": 87.239183,
+            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00004.gguf"
           },
           {
             "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
@@ -3252,6 +3280,30 @@
             ],
             "size_gb": 329.716066,
             "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/BF16/Qwen3.8-Flash-Next-BF16-00001-of-00008.gguf"
+          },
+          {
+            "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
+            "revision": "main",
+            "path": "UD-IQ1_S/Qwen3.8-Flash-Next-UD-IQ1_S-00001-of-00003.gguf",
+            "files": [
+              "UD-IQ1_S/Qwen3.8-Flash-Next-UD-IQ1_S-00001-of-00003.gguf",
+              "UD-IQ1_S/Qwen3.8-Flash-Next-UD-IQ1_S-00002-of-00003.gguf",
+              "UD-IQ1_S/Qwen3.8-Flash-Next-UD-IQ1_S-00003-of-00003.gguf"
+            ],
+            "size_gb": 67.564157,
+            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-IQ1_S/Qwen3.8-Flash-Next-UD-IQ1_S-00001-of-00003.gguf"
+          },
+          {
+            "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
+            "revision": "main",
+            "path": "UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-00001-of-00003.gguf",
+            "files": [
+              "UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-00001-of-00003.gguf",
+              "UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-00002-of-00003.gguf",
+              "UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-00003-of-00003.gguf"
+            ],
+            "size_gb": 69.419626,
+            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-00001-of-00003.gguf"
           }
         ]
       },
@@ -3956,7 +4008,7 @@
               "UD-IQ1_S/Qwen3.8-Flash-Next-UD-IQ1_S-00002-of-00003.gguf",
               "UD-IQ1_S/Qwen3.8-Flash-Next-UD-IQ1_S-00003-of-00003.gguf"
             ],
-            "size_gb": 67.564157,
+            "size_gb": 61.820429,
             "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-IQ1_S/Qwen3.8-Flash-Next-UD-IQ1_S-00001-of-00003.gguf"
           },
           {
@@ -3968,56 +4020,84 @@
               "UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-00002-of-00003.gguf",
               "UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-00003-of-00003.gguf"
             ],
-            "size_gb": 69.419626,
+            "size_gb": 63.336543,
             "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-00001-of-00003.gguf"
           },
           {
             "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
             "revision": "main",
-            "path": "UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00001-of-00003.gguf",
+            "path": "UD-Q2_0/Qwen3.8-Flash-Next-UD-Q2_0-00001-of-00003.gguf",
             "files": [
-              "UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00001-of-00003.gguf",
-              "UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00002-of-00003.gguf",
-              "UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00003-of-00003.gguf"
+              "UD-Q2_0/Qwen3.8-Flash-Next-UD-Q2_0-00001-of-00003.gguf",
+              "UD-Q2_0/Qwen3.8-Flash-Next-UD-Q2_0-00002-of-00003.gguf",
+              "UD-Q2_0/Qwen3.8-Flash-Next-UD-Q2_0-00003-of-00003.gguf"
             ],
-            "size_gb": 73.4526,
-            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00001-of-00003.gguf"
+            "size_gb": 65.704707,
+            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-Q2_0/Qwen3.8-Flash-Next-UD-Q2_0-00001-of-00003.gguf"
           },
           {
             "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
             "revision": "main",
-            "path": "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00001-of-00003.gguf",
+            "path": "UD-IQ2_XS/Qwen3.8-Flash-Next-UD-IQ2_XS-00001-of-00003.gguf",
             "files": [
-              "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00001-of-00003.gguf",
-              "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00002-of-00003.gguf",
-              "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00003-of-00003.gguf"
+              "UD-IQ2_XS/Qwen3.8-Flash-Next-UD-IQ2_XS-00001-of-00003.gguf",
+              "UD-IQ2_XS/Qwen3.8-Flash-Next-UD-IQ2_XS-00002-of-00003.gguf",
+              "UD-IQ2_XS/Qwen3.8-Flash-Next-UD-IQ2_XS-00003-of-00003.gguf"
             ],
-            "size_gb": 76.332897,
-            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00001-of-00003.gguf"
+            "size_gb": 70.62414,
+            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-IQ2_XS/Qwen3.8-Flash-Next-UD-IQ2_XS-00001-of-00003.gguf"
           },
           {
             "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
             "revision": "main",
-            "path": "UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00001-of-00003.gguf",
+            "path": "UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00001-of-00004.gguf",
             "files": [
-              "UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00001-of-00003.gguf",
-              "UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00002-of-00003.gguf",
-              "UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00003-of-00003.gguf"
+              "UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00001-of-00004.gguf",
+              "UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00002-of-00004.gguf",
+              "UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00003-of-00004.gguf",
+              "UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00004-of-00004.gguf"
             ],
-            "size_gb": 83.806323,
-            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00001-of-00003.gguf"
+            "size_gb": 74.115351,
+            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00001-of-00004.gguf"
           },
           {
             "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
             "revision": "main",
-            "path": "UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00003.gguf",
+            "path": "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00001-of-00004.gguf",
             "files": [
-              "UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00003.gguf",
-              "UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00002-of-00003.gguf",
-              "UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00003-of-00003.gguf"
+              "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00001-of-00004.gguf",
+              "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00002-of-00004.gguf",
+              "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00003-of-00004.gguf",
+              "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00004-of-00004.gguf"
             ],
-            "size_gb": 87.248706,
-            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00003.gguf"
+            "size_gb": 77.88319,
+            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00001-of-00004.gguf"
+          },
+          {
+            "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
+            "revision": "main",
+            "path": "UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00001-of-00004.gguf",
+            "files": [
+              "UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00001-of-00004.gguf",
+              "UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00002-of-00004.gguf",
+              "UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00003-of-00004.gguf",
+              "UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00004-of-00004.gguf"
+            ],
+            "size_gb": 83.320726,
+            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00001-of-00004.gguf"
+          },
+          {
+            "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
+            "revision": "main",
+            "path": "UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00004.gguf",
+            "files": [
+              "UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00004.gguf",
+              "UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00002-of-00004.gguf",
+              "UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00003-of-00004.gguf",
+              "UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00004-of-00004.gguf"
+            ],
+            "size_gb": 87.239183,
+            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00004.gguf"
           },
           {
             "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
@@ -4093,6 +4173,30 @@
             ],
             "size_gb": 329.716066,
             "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/BF16/Qwen3.8-Flash-Next-BF16-00001-of-00008.gguf"
+          },
+          {
+            "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
+            "revision": "main",
+            "path": "UD-IQ1_S/Qwen3.8-Flash-Next-UD-IQ1_S-00001-of-00003.gguf",
+            "files": [
+              "UD-IQ1_S/Qwen3.8-Flash-Next-UD-IQ1_S-00001-of-00003.gguf",
+              "UD-IQ1_S/Qwen3.8-Flash-Next-UD-IQ1_S-00002-of-00003.gguf",
+              "UD-IQ1_S/Qwen3.8-Flash-Next-UD-IQ1_S-00003-of-00003.gguf"
+            ],
+            "size_gb": 67.564157,
+            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-IQ1_S/Qwen3.8-Flash-Next-UD-IQ1_S-00001-of-00003.gguf"
+          },
+          {
+            "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
+            "revision": "main",
+            "path": "UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-00001-of-00003.gguf",
+            "files": [
+              "UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-00001-of-00003.gguf",
+              "UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-00002-of-00003.gguf",
+              "UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-00003-of-00003.gguf"
+            ],
+            "size_gb": 69.419626,
+            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-00001-of-00003.gguf"
           }
         ]
       },
@@ -4264,7 +4368,7 @@
               "UD-IQ1_S/Qwen3.8-Flash-Next-UD-IQ1_S-00002-of-00003.gguf",
               "UD-IQ1_S/Qwen3.8-Flash-Next-UD-IQ1_S-00003-of-00003.gguf"
             ],
-            "size_gb": 67.564157,
+            "size_gb": 61.820429,
             "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-IQ1_S/Qwen3.8-Flash-Next-UD-IQ1_S-00001-of-00003.gguf"
           },
           {
@@ -4276,56 +4380,84 @@
               "UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-00002-of-00003.gguf",
               "UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-00003-of-00003.gguf"
             ],
-            "size_gb": 69.419626,
+            "size_gb": 63.336543,
             "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-00001-of-00003.gguf"
           },
           {
             "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
             "revision": "main",
-            "path": "UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00001-of-00003.gguf",
+            "path": "UD-Q2_0/Qwen3.8-Flash-Next-UD-Q2_0-00001-of-00003.gguf",
             "files": [
-              "UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00001-of-00003.gguf",
-              "UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00002-of-00003.gguf",
-              "UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00003-of-00003.gguf"
+              "UD-Q2_0/Qwen3.8-Flash-Next-UD-Q2_0-00001-of-00003.gguf",
+              "UD-Q2_0/Qwen3.8-Flash-Next-UD-Q2_0-00002-of-00003.gguf",
+              "UD-Q2_0/Qwen3.8-Flash-Next-UD-Q2_0-00003-of-00003.gguf"
             ],
-            "size_gb": 73.4526,
-            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00001-of-00003.gguf"
+            "size_gb": 65.704707,
+            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-Q2_0/Qwen3.8-Flash-Next-UD-Q2_0-00001-of-00003.gguf"
           },
           {
             "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
             "revision": "main",
-            "path": "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00001-of-00003.gguf",
+            "path": "UD-IQ2_XS/Qwen3.8-Flash-Next-UD-IQ2_XS-00001-of-00003.gguf",
             "files": [
-              "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00001-of-00003.gguf",
-              "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00002-of-00003.gguf",
-              "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00003-of-00003.gguf"
+              "UD-IQ2_XS/Qwen3.8-Flash-Next-UD-IQ2_XS-00001-of-00003.gguf",
+              "UD-IQ2_XS/Qwen3.8-Flash-Next-UD-IQ2_XS-00002-of-00003.gguf",
+              "UD-IQ2_XS/Qwen3.8-Flash-Next-UD-IQ2_XS-00003-of-00003.gguf"
             ],
-            "size_gb": 76.332897,
-            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00001-of-00003.gguf"
+            "size_gb": 70.62414,
+            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-IQ2_XS/Qwen3.8-Flash-Next-UD-IQ2_XS-00001-of-00003.gguf"
           },
           {
             "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
             "revision": "main",
-            "path": "UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00001-of-00003.gguf",
+            "path": "UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00001-of-00004.gguf",
             "files": [
-              "UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00001-of-00003.gguf",
-              "UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00002-of-00003.gguf",
-              "UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00003-of-00003.gguf"
+              "UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00001-of-00004.gguf",
+              "UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00002-of-00004.gguf",
+              "UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00003-of-00004.gguf",
+              "UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00004-of-00004.gguf"
             ],
-            "size_gb": 83.806323,
-            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00001-of-00003.gguf"
+            "size_gb": 74.115351,
+            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00001-of-00004.gguf"
           },
           {
             "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
             "revision": "main",
-            "path": "UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00003.gguf",
+            "path": "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00001-of-00004.gguf",
             "files": [
-              "UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00003.gguf",
-              "UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00002-of-00003.gguf",
-              "UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00003-of-00003.gguf"
+              "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00001-of-00004.gguf",
+              "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00002-of-00004.gguf",
+              "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00003-of-00004.gguf",
+              "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00004-of-00004.gguf"
             ],
-            "size_gb": 87.248706,
-            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00003.gguf"
+            "size_gb": 77.88319,
+            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00001-of-00004.gguf"
+          },
+          {
+            "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
+            "revision": "main",
+            "path": "UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00001-of-00004.gguf",
+            "files": [
+              "UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00001-of-00004.gguf",
+              "UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00002-of-00004.gguf",
+              "UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00003-of-00004.gguf",
+              "UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00004-of-00004.gguf"
+            ],
+            "size_gb": 83.320726,
+            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00001-of-00004.gguf"
+          },
+          {
+            "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
+            "revision": "main",
+            "path": "UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00004.gguf",
+            "files": [
+              "UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00004.gguf",
+              "UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00002-of-00004.gguf",
+              "UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00003-of-00004.gguf",
+              "UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00004-of-00004.gguf"
+            ],
+            "size_gb": 87.239183,
+            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00004.gguf"
           },
           {
             "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
@@ -4401,6 +4533,30 @@
             ],
             "size_gb": 329.716066,
             "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/BF16/Qwen3.8-Flash-Next-BF16-00001-of-00008.gguf"
+          },
+          {
+            "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
+            "revision": "main",
+            "path": "UD-IQ1_S/Qwen3.8-Flash-Next-UD-IQ1_S-00001-of-00003.gguf",
+            "files": [
+              "UD-IQ1_S/Qwen3.8-Flash-Next-UD-IQ1_S-00001-of-00003.gguf",
+              "UD-IQ1_S/Qwen3.8-Flash-Next-UD-IQ1_S-00002-of-00003.gguf",
+              "UD-IQ1_S/Qwen3.8-Flash-Next-UD-IQ1_S-00003-of-00003.gguf"
+            ],
+            "size_gb": 67.564157,
+            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-IQ1_S/Qwen3.8-Flash-Next-UD-IQ1_S-00001-of-00003.gguf"
+          },
+          {
+            "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
+            "revision": "main",
+            "path": "UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-00001-of-00003.gguf",
+            "files": [
+              "UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-00001-of-00003.gguf",
+              "UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-00002-of-00003.gguf",
+              "UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-00003-of-00003.gguf"
+            ],
+            "size_gb": 69.419626,
+            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-00001-of-00003.gguf"
           }
         ]
       }
@@ -6343,6 +6499,27 @@
             "url": "https://huggingface.co/LiquidAI/LFM2.5-24B-A2B-MLX-bf16/resolve/main/LICENSE"
           },
           {
+            "repo": "LiquidAI/LFM2.5-24B-A2B-MLX-6bit",
+            "revision": "main",
+            "path": "",
+            "files": [
+              "LICENSE",
+              "chat_template.jinja",
+              "config.json",
+              "generation_config.json",
+              "model-00001-of-00004.safetensors",
+              "model-00002-of-00004.safetensors",
+              "model-00003-of-00004.safetensors",
+              "model-00004-of-00004.safetensors",
+              "model.safetensors.index.json",
+              "tokenizer.json",
+              "tokenizer_config.json"
+            ],
+            "size_gb": 18.171339,
+            "dir": true,
+            "url": "https://huggingface.co/LiquidAI/LFM2.5-24B-A2B-MLX-6bit/resolve/main/LICENSE"
+          },
+          {
             "repo": "LiquidAI/LFM2.5-24B-A2B-MLX-8bit",
             "revision": "main",
             "path": "",
@@ -6363,27 +6540,6 @@
             "size_gb": 23.751417,
             "dir": true,
             "url": "https://huggingface.co/LiquidAI/LFM2.5-24B-A2B-MLX-8bit/resolve/main/LICENSE"
-          },
-          {
-            "repo": "LiquidAI/LFM2.5-24B-A2B-MLX-6bit",
-            "revision": "main",
-            "path": "",
-            "files": [
-              "LICENSE",
-              "chat_template.jinja",
-              "config.json",
-              "generation_config.json",
-              "model-00001-of-00004.safetensors",
-              "model-00002-of-00004.safetensors",
-              "model-00003-of-00004.safetensors",
-              "model-00004-of-00004.safetensors",
-              "model.safetensors.index.json",
-              "tokenizer.json",
-              "tokenizer_config.json"
-            ],
-            "size_gb": 18.171339,
-            "dir": true,
-            "url": "https://huggingface.co/LiquidAI/LFM2.5-24B-A2B-MLX-6bit/resolve/main/LICENSE"
           },
           {
             "repo": "LiquidAI/LFM2.5-24B-A2B-MLX-5bit",
@@ -6553,6 +6709,7 @@
             "files": [
               ".eval_results/gpqa.yaml",
               ".eval_results/hle.yaml",
+              ".eval_results/ifbench.yaml",
               ".eval_results/swe-bench_verified.yaml",
               "LICENSE",
               "chat_template.jinja",
@@ -6572,7 +6729,7 @@
               "tokenizer.json",
               "tokenizer_config.json"
             ],
-            "size_gb": 44.668809,
+            "size_gb": 44.66881,
             "dir": true,
             "url": "https://huggingface.co/LiquidAI/LFM2.5-24B-A2B/resolve/main/.eval_results/gpqa.yaml"
           },
@@ -6645,6 +6802,36 @@
             ],
             "size_gb": 44.668182,
             "url": "https://huggingface.co/LiquidAI/LFM2.5-24B-A2B-GGUF/resolve/main/LFM2.5-24B-A2B-F16.gguf"
+          },
+          {
+            "repo": "LiquidAI/LFM2.5-24B-A2B",
+            "revision": "main",
+            "path": "",
+            "files": [
+              ".eval_results/gpqa.yaml",
+              ".eval_results/hle.yaml",
+              ".eval_results/swe-bench_verified.yaml",
+              "LICENSE",
+              "chat_template.jinja",
+              "config.json",
+              "generation_config.json",
+              "model-00001-of-00010.safetensors",
+              "model-00002-of-00010.safetensors",
+              "model-00003-of-00010.safetensors",
+              "model-00004-of-00010.safetensors",
+              "model-00005-of-00010.safetensors",
+              "model-00006-of-00010.safetensors",
+              "model-00007-of-00010.safetensors",
+              "model-00008-of-00010.safetensors",
+              "model-00009-of-00010.safetensors",
+              "model-00010-of-00010.safetensors",
+              "model.safetensors.index.json",
+              "tokenizer.json",
+              "tokenizer_config.json"
+            ],
+            "size_gb": 44.668809,
+            "dir": true,
+            "url": "https://huggingface.co/LiquidAI/LFM2.5-24B-A2B/resolve/main/.eval_results/gpqa.yaml"
           },
           {
             "repo": "LiquidAI/LFM2.5-24B-A2B",
@@ -6770,6 +6957,7 @@
             "files": [
               ".eval_results/gpqa.yaml",
               ".eval_results/hle.yaml",
+              ".eval_results/ifbench.yaml",
               ".eval_results/swe-bench_verified.yaml",
               "LICENSE",
               "chat_template.jinja",
@@ -6789,7 +6977,7 @@
               "tokenizer.json",
               "tokenizer_config.json"
             ],
-            "size_gb": 44.668809,
+            "size_gb": 44.66881,
             "dir": true,
             "url": "https://huggingface.co/LiquidAI/LFM2.5-24B-A2B/resolve/main/.eval_results/gpqa.yaml"
           },
@@ -6862,6 +7050,36 @@
             ],
             "size_gb": 44.668182,
             "url": "https://huggingface.co/LiquidAI/LFM2.5-24B-A2B-GGUF/resolve/main/LFM2.5-24B-A2B-F16.gguf"
+          },
+          {
+            "repo": "LiquidAI/LFM2.5-24B-A2B",
+            "revision": "main",
+            "path": "",
+            "files": [
+              ".eval_results/gpqa.yaml",
+              ".eval_results/hle.yaml",
+              ".eval_results/swe-bench_verified.yaml",
+              "LICENSE",
+              "chat_template.jinja",
+              "config.json",
+              "generation_config.json",
+              "model-00001-of-00010.safetensors",
+              "model-00002-of-00010.safetensors",
+              "model-00003-of-00010.safetensors",
+              "model-00004-of-00010.safetensors",
+              "model-00005-of-00010.safetensors",
+              "model-00006-of-00010.safetensors",
+              "model-00007-of-00010.safetensors",
+              "model-00008-of-00010.safetensors",
+              "model-00009-of-00010.safetensors",
+              "model-00010-of-00010.safetensors",
+              "model.safetensors.index.json",
+              "tokenizer.json",
+              "tokenizer_config.json"
+            ],
+            "size_gb": 44.668809,
+            "dir": true,
+            "url": "https://huggingface.co/LiquidAI/LFM2.5-24B-A2B/resolve/main/.eval_results/gpqa.yaml"
           },
           {
             "repo": "LiquidAI/LFM2.5-24B-A2B",
@@ -8742,6 +8960,41 @@
             "url": "https://huggingface.co/Duckets/Nanbeige4.3-33B-MLX-4bit/resolve/main/chat_template.jinja"
           },
           {
+            "repo": "fcmeyer/Nanbeige4.3-33B-MLX-6bit",
+            "revision": "main",
+            "path": "",
+            "files": [
+              "6bit.benchmark.json",
+              "6bit.fidelity.json",
+              "6bit.validation.json",
+              "LICENSE",
+              "added_tokens.json",
+              "chat_template.jinja",
+              "config.json",
+              "conversion.json",
+              "environment.json",
+              "evaluation.json",
+              "generation_config.json",
+              "model-00001-of-00006.safetensors",
+              "model-00002-of-00006.safetensors",
+              "model-00003-of-00006.safetensors",
+              "model-00004-of-00006.safetensors",
+              "model-00005-of-00006.safetensors",
+              "model-00006-of-00006.safetensors",
+              "model.safetensors.index.json",
+              "requirements.lock.txt",
+              "scripts/fidelity.py",
+              "scripts/release.py",
+              "special_tokens_map.json",
+              "tokenizer.json",
+              "tokenizer.model",
+              "tokenizer_config.json"
+            ],
+            "size_gb": 25.082007,
+            "dir": true,
+            "url": "https://huggingface.co/fcmeyer/Nanbeige4.3-33B-MLX-6bit/resolve/main/6bit.benchmark.json"
+          },
+          {
             "repo": "fcmeyer/Nanbeige4.3-33B-MLX-bf16",
             "revision": "main",
             "path": "",
@@ -8784,38 +9037,6 @@
             "url": "https://huggingface.co/fcmeyer/Nanbeige4.3-33B-MLX-bf16/resolve/main/LICENSE"
           },
           {
-            "repo": "alexwengg/Nanbeige4.3-33B-MLX-mixed-3-4-6bit",
-            "revision": "main",
-            "path": "",
-            "files": [
-              "added_tokens.json",
-              "config.json",
-              "generation_config.json",
-              "model-00001-of-00014.safetensors",
-              "model-00002-of-00014.safetensors",
-              "model-00003-of-00014.safetensors",
-              "model-00004-of-00014.safetensors",
-              "model-00005-of-00014.safetensors",
-              "model-00006-of-00014.safetensors",
-              "model-00007-of-00014.safetensors",
-              "model-00008-of-00014.safetensors",
-              "model-00009-of-00014.safetensors",
-              "model-00010-of-00014.safetensors",
-              "model-00011-of-00014.safetensors",
-              "model-00012-of-00014.safetensors",
-              "model-00013-of-00014.safetensors",
-              "model-00014-of-00014.safetensors",
-              "model.safetensors.index.json",
-              "special_tokens_map.json",
-              "tokenizer.json",
-              "tokenizer.model",
-              "tokenizer_config.json"
-            ],
-            "size_gb": 15.738997,
-            "dir": true,
-            "url": "https://huggingface.co/alexwengg/Nanbeige4.3-33B-MLX-mixed-3-4-6bit/resolve/main/added_tokens.json"
-          },
-          {
             "repo": "fcmeyer/Nanbeige4.3-33B-MLX-mixed-4-6-g64",
             "revision": "main",
             "path": "",
@@ -8849,13 +9070,45 @@
             "url": "https://huggingface.co/fcmeyer/Nanbeige4.3-33B-MLX-mixed-4-6-g64/resolve/main/LICENSE"
           },
           {
-            "repo": "fcmeyer/Nanbeige4.3-33B-MLX-6bit",
+            "repo": "alexwengg/Nanbeige4.3-33B-MLX-mixed-3-4-6bit",
             "revision": "main",
             "path": "",
             "files": [
-              "6bit.benchmark.json",
-              "6bit.fidelity.json",
-              "6bit.validation.json",
+              "added_tokens.json",
+              "config.json",
+              "generation_config.json",
+              "model-00001-of-00014.safetensors",
+              "model-00002-of-00014.safetensors",
+              "model-00003-of-00014.safetensors",
+              "model-00004-of-00014.safetensors",
+              "model-00005-of-00014.safetensors",
+              "model-00006-of-00014.safetensors",
+              "model-00007-of-00014.safetensors",
+              "model-00008-of-00014.safetensors",
+              "model-00009-of-00014.safetensors",
+              "model-00010-of-00014.safetensors",
+              "model-00011-of-00014.safetensors",
+              "model-00012-of-00014.safetensors",
+              "model-00013-of-00014.safetensors",
+              "model-00014-of-00014.safetensors",
+              "model.safetensors.index.json",
+              "special_tokens_map.json",
+              "tokenizer.json",
+              "tokenizer.model",
+              "tokenizer_config.json"
+            ],
+            "size_gb": 15.738997,
+            "dir": true,
+            "url": "https://huggingface.co/alexwengg/Nanbeige4.3-33B-MLX-mixed-3-4-6bit/resolve/main/added_tokens.json"
+          },
+          {
+            "repo": "fcmeyer/Nanbeige4.3-33B-MLX-8bit",
+            "revision": "main",
+            "path": "",
+            "files": [
+              "8bit.benchmark.json",
+              "8bit.fidelity.json",
+              "8bit.validation.json",
               "LICENSE",
               "added_tokens.json",
               "chat_template.jinja",
@@ -8864,12 +9117,13 @@
               "environment.json",
               "evaluation.json",
               "generation_config.json",
-              "model-00001-of-00006.safetensors",
-              "model-00002-of-00006.safetensors",
-              "model-00003-of-00006.safetensors",
-              "model-00004-of-00006.safetensors",
-              "model-00005-of-00006.safetensors",
-              "model-00006-of-00006.safetensors",
+              "model-00001-of-00007.safetensors",
+              "model-00002-of-00007.safetensors",
+              "model-00003-of-00007.safetensors",
+              "model-00004-of-00007.safetensors",
+              "model-00005-of-00007.safetensors",
+              "model-00006-of-00007.safetensors",
+              "model-00007-of-00007.safetensors",
               "model.safetensors.index.json",
               "requirements.lock.txt",
               "scripts/fidelity.py",
@@ -8879,9 +9133,9 @@
               "tokenizer.model",
               "tokenizer_config.json"
             ],
-            "size_gb": 25.082007,
+            "size_gb": 32.792945,
             "dir": true,
-            "url": "https://huggingface.co/fcmeyer/Nanbeige4.3-33B-MLX-6bit/resolve/main/6bit.benchmark.json"
+            "url": "https://huggingface.co/fcmeyer/Nanbeige4.3-33B-MLX-8bit/resolve/main/8bit.benchmark.json"
           },
           {
             "repo": "kapitsaprime/Nanbeige4.3-33B-MLX-8bit",
@@ -8937,42 +9191,6 @@
             "size_gb": 13.933455,
             "dir": true,
             "url": "https://huggingface.co/alexwengg/Nanbeige4.3-33B-MLX-3bit/resolve/main/added_tokens.json"
-          },
-          {
-            "repo": "fcmeyer/Nanbeige4.3-33B-MLX-8bit",
-            "revision": "main",
-            "path": "",
-            "files": [
-              "8bit.benchmark.json",
-              "8bit.fidelity.json",
-              "8bit.validation.json",
-              "LICENSE",
-              "added_tokens.json",
-              "chat_template.jinja",
-              "config.json",
-              "conversion.json",
-              "environment.json",
-              "evaluation.json",
-              "generation_config.json",
-              "model-00001-of-00007.safetensors",
-              "model-00002-of-00007.safetensors",
-              "model-00003-of-00007.safetensors",
-              "model-00004-of-00007.safetensors",
-              "model-00005-of-00007.safetensors",
-              "model-00006-of-00007.safetensors",
-              "model-00007-of-00007.safetensors",
-              "model.safetensors.index.json",
-              "requirements.lock.txt",
-              "scripts/fidelity.py",
-              "scripts/release.py",
-              "special_tokens_map.json",
-              "tokenizer.json",
-              "tokenizer.model",
-              "tokenizer_config.json"
-            ],
-            "size_gb": 32.792945,
-            "dir": true,
-            "url": "https://huggingface.co/fcmeyer/Nanbeige4.3-33B-MLX-8bit/resolve/main/8bit.benchmark.json"
           },
           {
             "repo": "3hs4n/Nanbeige4.3-33B-mlx-JANG_2D-compact",
@@ -9427,6 +9645,16 @@
             ],
             "size_gb": 1.172221,
             "url": "https://huggingface.co/LiquidAI/LFM3-1.7B-GGUF/resolve/main/LFM3-1.7B-Q5_K_M.gguf"
+          },
+          {
+            "repo": "LiquidAI/LFM3-1.7B-GGUF",
+            "revision": "main",
+            "path": "LFM3-1.7B-NVFP4.gguf",
+            "files": [
+              "LFM3-1.7B-NVFP4.gguf"
+            ],
+            "size_gb": 1.192111,
+            "url": "https://huggingface.co/LiquidAI/LFM3-1.7B-GGUF/resolve/main/LFM3-1.7B-NVFP4.gguf"
           },
           {
             "repo": "LiquidAI/LFM3-1.7B-GGUF",
@@ -11285,6 +11513,27 @@
             "url": "https://huggingface.co/LiquidAI/LFM2.5-24B-A2B-MLX-bf16/resolve/main/LICENSE"
           },
           {
+            "repo": "LiquidAI/LFM2.5-24B-A2B-MLX-6bit",
+            "revision": "main",
+            "path": "",
+            "files": [
+              "LICENSE",
+              "chat_template.jinja",
+              "config.json",
+              "generation_config.json",
+              "model-00001-of-00004.safetensors",
+              "model-00002-of-00004.safetensors",
+              "model-00003-of-00004.safetensors",
+              "model-00004-of-00004.safetensors",
+              "model.safetensors.index.json",
+              "tokenizer.json",
+              "tokenizer_config.json"
+            ],
+            "size_gb": 18.171339,
+            "dir": true,
+            "url": "https://huggingface.co/LiquidAI/LFM2.5-24B-A2B-MLX-6bit/resolve/main/LICENSE"
+          },
+          {
             "repo": "LiquidAI/LFM2.5-24B-A2B-MLX-8bit",
             "revision": "main",
             "path": "",
@@ -11305,27 +11554,6 @@
             "size_gb": 23.751417,
             "dir": true,
             "url": "https://huggingface.co/LiquidAI/LFM2.5-24B-A2B-MLX-8bit/resolve/main/LICENSE"
-          },
-          {
-            "repo": "LiquidAI/LFM2.5-24B-A2B-MLX-6bit",
-            "revision": "main",
-            "path": "",
-            "files": [
-              "LICENSE",
-              "chat_template.jinja",
-              "config.json",
-              "generation_config.json",
-              "model-00001-of-00004.safetensors",
-              "model-00002-of-00004.safetensors",
-              "model-00003-of-00004.safetensors",
-              "model-00004-of-00004.safetensors",
-              "model.safetensors.index.json",
-              "tokenizer.json",
-              "tokenizer_config.json"
-            ],
-            "size_gb": 18.171339,
-            "dir": true,
-            "url": "https://huggingface.co/LiquidAI/LFM2.5-24B-A2B-MLX-6bit/resolve/main/LICENSE"
           },
           {
             "repo": "LiquidAI/LFM2.5-24B-A2B-MLX-5bit",
@@ -13232,25 +13460,6 @@
             "url": "https://huggingface.co/Qwen/Qwen3-1.7B-MLX-6bit/resolve/main/LICENSE"
           },
           {
-            "repo": "lmstudio-community/Qwen3-1.7B-MLX-8bit",
-            "revision": "main",
-            "path": "",
-            "files": [
-              "added_tokens.json",
-              "config.json",
-              "merges.txt",
-              "model.safetensors",
-              "model.safetensors.index.json",
-              "special_tokens_map.json",
-              "tokenizer.json",
-              "tokenizer_config.json",
-              "vocab.json"
-            ],
-            "size_gb": 1.717582,
-            "dir": true,
-            "url": "https://huggingface.co/lmstudio-community/Qwen3-1.7B-MLX-8bit/resolve/main/added_tokens.json"
-          },
-          {
             "repo": "lmstudio-community/Qwen3-1.7B-MLX-4bit",
             "revision": "main",
             "path": "",
@@ -13268,6 +13477,25 @@
             "size_gb": 0.916434,
             "dir": true,
             "url": "https://huggingface.co/lmstudio-community/Qwen3-1.7B-MLX-4bit/resolve/main/added_tokens.json"
+          },
+          {
+            "repo": "lmstudio-community/Qwen3-1.7B-MLX-8bit",
+            "revision": "main",
+            "path": "",
+            "files": [
+              "added_tokens.json",
+              "config.json",
+              "merges.txt",
+              "model.safetensors",
+              "model.safetensors.index.json",
+              "special_tokens_map.json",
+              "tokenizer.json",
+              "tokenizer_config.json",
+              "vocab.json"
+            ],
+            "size_gb": 1.717582,
+            "dir": true,
+            "url": "https://huggingface.co/lmstudio-community/Qwen3-1.7B-MLX-8bit/resolve/main/added_tokens.json"
           },
           {
             "repo": "lmstudio-community/Qwen3-1.7B-MLX-bf16",
@@ -15376,48 +15604,6 @@
             "url": "https://huggingface.co/TensorFold/Qwen3.8-Flash-Next-MLX-2bit-MTP/resolve/main/LICENSE"
           },
           {
-            "repo": "TensorFold/Qwen3.8-Flash-Next-MLX-4bit-MTP",
-            "revision": "main",
-            "path": "",
-            "files": [
-              "LICENSE",
-              "chat_template.jinja",
-              "config.json",
-              "generation_config.json",
-              "merges.txt",
-              "model-00001-of-00022.safetensors",
-              "model-00002-of-00022.safetensors",
-              "model-00003-of-00022.safetensors",
-              "model-00004-of-00022.safetensors",
-              "model-00005-of-00022.safetensors",
-              "model-00006-of-00022.safetensors",
-              "model-00007-of-00022.safetensors",
-              "model-00008-of-00022.safetensors",
-              "model-00009-of-00022.safetensors",
-              "model-00010-of-00022.safetensors",
-              "model-00011-of-00022.safetensors",
-              "model-00012-of-00022.safetensors",
-              "model-00013-of-00022.safetensors",
-              "model-00014-of-00022.safetensors",
-              "model-00015-of-00022.safetensors",
-              "model-00016-of-00022.safetensors",
-              "model-00017-of-00022.safetensors",
-              "model-00018-of-00022.safetensors",
-              "model-00019-of-00022.safetensors",
-              "model-00020-of-00022.safetensors",
-              "model-00021-of-00022.safetensors",
-              "model-00022-of-00022.safetensors",
-              "model.safetensors.index.json",
-              "preprocessor_config.json",
-              "tokenizer.json",
-              "tokenizer_config.json",
-              "vocab.json"
-            ],
-            "size_gb": 105.456472,
-            "dir": true,
-            "url": "https://huggingface.co/TensorFold/Qwen3.8-Flash-Next-MLX-4bit-MTP/resolve/main/LICENSE"
-          },
-          {
             "repo": "ddalcu/Qwen3.8-Flash-Next-MLX-Serve-iQ-MLX-4.7bpw",
             "revision": "main",
             "path": "",
@@ -15537,6 +15723,48 @@
             "size_gb": 99.955715,
             "dir": true,
             "url": "https://huggingface.co/ddalcu/Qwen3.8-Flash-Next-MLX-Serve-iQ-MLX-4.7bpw/resolve/main/LICENSE"
+          },
+          {
+            "repo": "TensorFold/Qwen3.8-Flash-Next-MLX-4bit-MTP",
+            "revision": "main",
+            "path": "",
+            "files": [
+              "LICENSE",
+              "chat_template.jinja",
+              "config.json",
+              "generation_config.json",
+              "merges.txt",
+              "model-00001-of-00022.safetensors",
+              "model-00002-of-00022.safetensors",
+              "model-00003-of-00022.safetensors",
+              "model-00004-of-00022.safetensors",
+              "model-00005-of-00022.safetensors",
+              "model-00006-of-00022.safetensors",
+              "model-00007-of-00022.safetensors",
+              "model-00008-of-00022.safetensors",
+              "model-00009-of-00022.safetensors",
+              "model-00010-of-00022.safetensors",
+              "model-00011-of-00022.safetensors",
+              "model-00012-of-00022.safetensors",
+              "model-00013-of-00022.safetensors",
+              "model-00014-of-00022.safetensors",
+              "model-00015-of-00022.safetensors",
+              "model-00016-of-00022.safetensors",
+              "model-00017-of-00022.safetensors",
+              "model-00018-of-00022.safetensors",
+              "model-00019-of-00022.safetensors",
+              "model-00020-of-00022.safetensors",
+              "model-00021-of-00022.safetensors",
+              "model-00022-of-00022.safetensors",
+              "model.safetensors.index.json",
+              "preprocessor_config.json",
+              "tokenizer.json",
+              "tokenizer_config.json",
+              "vocab.json"
+            ],
+            "size_gb": 105.456472,
+            "dir": true,
+            "url": "https://huggingface.co/TensorFold/Qwen3.8-Flash-Next-MLX-4bit-MTP/resolve/main/LICENSE"
           },
           {
             "repo": "TensorFold/Qwen3.8-Flash-Next-MLX-4bit",
@@ -15734,6 +15962,56 @@
             "url": "https://huggingface.co/Sawfwair/Qwen3.8-Flash-Next-MLX-Mixed-2bit/resolve/main/LICENSE"
           },
           {
+            "repo": "TensorFold/Qwen3.8-Flash-Next-MLX-6bit-MTP",
+            "revision": "main",
+            "path": "",
+            "files": [
+              "LICENSE",
+              "chat_template.jinja",
+              "config.json",
+              "generation_config.json",
+              "merges.txt",
+              "model-00001-of-00030.safetensors",
+              "model-00002-of-00030.safetensors",
+              "model-00003-of-00030.safetensors",
+              "model-00004-of-00030.safetensors",
+              "model-00005-of-00030.safetensors",
+              "model-00006-of-00030.safetensors",
+              "model-00007-of-00030.safetensors",
+              "model-00008-of-00030.safetensors",
+              "model-00009-of-00030.safetensors",
+              "model-00010-of-00030.safetensors",
+              "model-00011-of-00030.safetensors",
+              "model-00012-of-00030.safetensors",
+              "model-00013-of-00030.safetensors",
+              "model-00014-of-00030.safetensors",
+              "model-00015-of-00030.safetensors",
+              "model-00016-of-00030.safetensors",
+              "model-00017-of-00030.safetensors",
+              "model-00018-of-00030.safetensors",
+              "model-00019-of-00030.safetensors",
+              "model-00020-of-00030.safetensors",
+              "model-00021-of-00030.safetensors",
+              "model-00022-of-00030.safetensors",
+              "model-00023-of-00030.safetensors",
+              "model-00024-of-00030.safetensors",
+              "model-00025-of-00030.safetensors",
+              "model-00026-of-00030.safetensors",
+              "model-00027-of-00030.safetensors",
+              "model-00028-of-00030.safetensors",
+              "model-00029-of-00030.safetensors",
+              "model-00030-of-00030.safetensors",
+              "model.safetensors.index.json",
+              "preprocessor_config.json",
+              "tokenizer.json",
+              "tokenizer_config.json",
+              "vocab.json"
+            ],
+            "size_gb": 147.245899,
+            "dir": true,
+            "url": "https://huggingface.co/TensorFold/Qwen3.8-Flash-Next-MLX-6bit-MTP/resolve/main/LICENSE"
+          },
+          {
             "repo": "ddalcu/Qwen3.8-Flash-Next-MLX-Serve-iQ-MLX-3.3bpw",
             "revision": "main",
             "path": "",
@@ -15853,56 +16131,6 @@
             "size_gb": 80.424464,
             "dir": true,
             "url": "https://huggingface.co/ddalcu/Qwen3.8-Flash-Next-MLX-Serve-iQ-MLX-3.3bpw/resolve/main/LICENSE"
-          },
-          {
-            "repo": "TensorFold/Qwen3.8-Flash-Next-MLX-6bit-MTP",
-            "revision": "main",
-            "path": "",
-            "files": [
-              "LICENSE",
-              "chat_template.jinja",
-              "config.json",
-              "generation_config.json",
-              "merges.txt",
-              "model-00001-of-00030.safetensors",
-              "model-00002-of-00030.safetensors",
-              "model-00003-of-00030.safetensors",
-              "model-00004-of-00030.safetensors",
-              "model-00005-of-00030.safetensors",
-              "model-00006-of-00030.safetensors",
-              "model-00007-of-00030.safetensors",
-              "model-00008-of-00030.safetensors",
-              "model-00009-of-00030.safetensors",
-              "model-00010-of-00030.safetensors",
-              "model-00011-of-00030.safetensors",
-              "model-00012-of-00030.safetensors",
-              "model-00013-of-00030.safetensors",
-              "model-00014-of-00030.safetensors",
-              "model-00015-of-00030.safetensors",
-              "model-00016-of-00030.safetensors",
-              "model-00017-of-00030.safetensors",
-              "model-00018-of-00030.safetensors",
-              "model-00019-of-00030.safetensors",
-              "model-00020-of-00030.safetensors",
-              "model-00021-of-00030.safetensors",
-              "model-00022-of-00030.safetensors",
-              "model-00023-of-00030.safetensors",
-              "model-00024-of-00030.safetensors",
-              "model-00025-of-00030.safetensors",
-              "model-00026-of-00030.safetensors",
-              "model-00027-of-00030.safetensors",
-              "model-00028-of-00030.safetensors",
-              "model-00029-of-00030.safetensors",
-              "model-00030-of-00030.safetensors",
-              "model.safetensors.index.json",
-              "preprocessor_config.json",
-              "tokenizer.json",
-              "tokenizer_config.json",
-              "vocab.json"
-            ],
-            "size_gb": 147.245899,
-            "dir": true,
-            "url": "https://huggingface.co/TensorFold/Qwen3.8-Flash-Next-MLX-6bit-MTP/resolve/main/LICENSE"
           },
           {
             "repo": "TensorFold/Qwen3.8-Flash-Next-MLX-oQ4-MTP",
@@ -17305,6 +17533,56 @@
             "url": "https://huggingface.co/pipenetwork/GLM-5.3-Flash-MLX-6bit/resolve/main/LICENSE"
           },
           {
+            "repo": "pipenetwork/GLM-5.3-Flash-MLX-8bit",
+            "revision": "main",
+            "path": "",
+            "files": [
+              "LICENSE",
+              "chat_template.jinja",
+              "config.json",
+              "generation_config.json",
+              "model-00001.safetensors",
+              "model-00002.safetensors",
+              "model-00003.safetensors",
+              "model-00004.safetensors",
+              "model-00005.safetensors",
+              "model-00006.safetensors",
+              "model-00007.safetensors",
+              "model-00008.safetensors",
+              "model-00009.safetensors",
+              "model-00010.safetensors",
+              "model-00011.safetensors",
+              "model-00012.safetensors",
+              "model-00013.safetensors",
+              "model-00014.safetensors",
+              "model-00015.safetensors",
+              "model-00016.safetensors",
+              "model-00017.safetensors",
+              "model-00018.safetensors",
+              "model-00019.safetensors",
+              "model-00020.safetensors",
+              "model-00021.safetensors",
+              "model-00022.safetensors",
+              "model-00023.safetensors",
+              "model-00024.safetensors",
+              "model-00025.safetensors",
+              "model-00026.safetensors",
+              "model-00027.safetensors",
+              "model-00028.safetensors",
+              "model-00029.safetensors",
+              "model-00030.safetensors",
+              "model-00031.safetensors",
+              "model-00032.safetensors",
+              "model.safetensors.index.json",
+              "processor_config.json",
+              "tokenizer.json",
+              "tokenizer_config.json"
+            ],
+            "size_gb": 311.198935,
+            "dir": true,
+            "url": "https://huggingface.co/pipenetwork/GLM-5.3-Flash-MLX-8bit/resolve/main/LICENSE"
+          },
+          {
             "repo": "b2z/GLM-5.3-Flash-MLX",
             "revision": "main",
             "path": "",
@@ -17386,96 +17664,6 @@
             "url": "https://huggingface.co/b2z/GLM-5.3-Flash-MLX/resolve/main/chat_template.jinja"
           },
           {
-            "repo": "pipenetwork/GLM-5.3-Flash-MLX-8bit",
-            "revision": "main",
-            "path": "",
-            "files": [
-              "LICENSE",
-              "chat_template.jinja",
-              "config.json",
-              "generation_config.json",
-              "model-00001.safetensors",
-              "model-00002.safetensors",
-              "model-00003.safetensors",
-              "model-00004.safetensors",
-              "model-00005.safetensors",
-              "model-00006.safetensors",
-              "model-00007.safetensors",
-              "model-00008.safetensors",
-              "model-00009.safetensors",
-              "model-00010.safetensors",
-              "model-00011.safetensors",
-              "model-00012.safetensors",
-              "model-00013.safetensors",
-              "model-00014.safetensors",
-              "model-00015.safetensors",
-              "model-00016.safetensors",
-              "model-00017.safetensors",
-              "model-00018.safetensors",
-              "model-00019.safetensors",
-              "model-00020.safetensors",
-              "model-00021.safetensors",
-              "model-00022.safetensors",
-              "model-00023.safetensors",
-              "model-00024.safetensors",
-              "model-00025.safetensors",
-              "model-00026.safetensors",
-              "model-00027.safetensors",
-              "model-00028.safetensors",
-              "model-00029.safetensors",
-              "model-00030.safetensors",
-              "model-00031.safetensors",
-              "model-00032.safetensors",
-              "model.safetensors.index.json",
-              "processor_config.json",
-              "tokenizer.json",
-              "tokenizer_config.json"
-            ],
-            "size_gb": 311.198935,
-            "dir": true,
-            "url": "https://huggingface.co/pipenetwork/GLM-5.3-Flash-MLX-8bit/resolve/main/LICENSE"
-          },
-          {
-            "repo": "TensorFold/GLM-5.3-Flash-MLX-oQ2-MTP",
-            "revision": "main",
-            "path": "",
-            "files": [
-              "LICENSE",
-              "chat_template.jinja",
-              "config.json",
-              "generation_config.json",
-              "model-00001-of-00022.safetensors",
-              "model-00002-of-00022.safetensors",
-              "model-00003-of-00022.safetensors",
-              "model-00004-of-00022.safetensors",
-              "model-00005-of-00022.safetensors",
-              "model-00006-of-00022.safetensors",
-              "model-00007-of-00022.safetensors",
-              "model-00008-of-00022.safetensors",
-              "model-00009-of-00022.safetensors",
-              "model-00010-of-00022.safetensors",
-              "model-00011-of-00022.safetensors",
-              "model-00012-of-00022.safetensors",
-              "model-00013-of-00022.safetensors",
-              "model-00014-of-00022.safetensors",
-              "model-00015-of-00022.safetensors",
-              "model-00016-of-00022.safetensors",
-              "model-00017-of-00022.safetensors",
-              "model-00018-of-00022.safetensors",
-              "model-00019-of-00022.safetensors",
-              "model-00020-of-00022.safetensors",
-              "model-00021-of-00022.safetensors",
-              "model-00022-of-00022.safetensors",
-              "model.safetensors.index.json",
-              "processor_config.json",
-              "tokenizer.json",
-              "tokenizer_config.json"
-            ],
-            "size_gb": 102.584147,
-            "dir": true,
-            "url": "https://huggingface.co/TensorFold/GLM-5.3-Flash-MLX-oQ2-MTP/resolve/main/LICENSE"
-          },
-          {
             "repo": "ddalcu/GLM-5.3-Flash-MLX-Serve-iQ-MLX-5.1bpw",
             "revision": "main",
             "path": "",
@@ -17528,6 +17716,46 @@
             "size_gb": 188.615485,
             "dir": true,
             "url": "https://huggingface.co/ddalcu/GLM-5.3-Flash-MLX-Serve-iQ-MLX-5.1bpw/resolve/main/LICENSE"
+          },
+          {
+            "repo": "TensorFold/GLM-5.3-Flash-MLX-oQ2-MTP",
+            "revision": "main",
+            "path": "",
+            "files": [
+              "LICENSE",
+              "chat_template.jinja",
+              "config.json",
+              "generation_config.json",
+              "model-00001-of-00022.safetensors",
+              "model-00002-of-00022.safetensors",
+              "model-00003-of-00022.safetensors",
+              "model-00004-of-00022.safetensors",
+              "model-00005-of-00022.safetensors",
+              "model-00006-of-00022.safetensors",
+              "model-00007-of-00022.safetensors",
+              "model-00008-of-00022.safetensors",
+              "model-00009-of-00022.safetensors",
+              "model-00010-of-00022.safetensors",
+              "model-00011-of-00022.safetensors",
+              "model-00012-of-00022.safetensors",
+              "model-00013-of-00022.safetensors",
+              "model-00014-of-00022.safetensors",
+              "model-00015-of-00022.safetensors",
+              "model-00016-of-00022.safetensors",
+              "model-00017-of-00022.safetensors",
+              "model-00018-of-00022.safetensors",
+              "model-00019-of-00022.safetensors",
+              "model-00020-of-00022.safetensors",
+              "model-00021-of-00022.safetensors",
+              "model-00022-of-00022.safetensors",
+              "model.safetensors.index.json",
+              "processor_config.json",
+              "tokenizer.json",
+              "tokenizer_config.json"
+            ],
+            "size_gb": 102.584147,
+            "dir": true,
+            "url": "https://huggingface.co/TensorFold/GLM-5.3-Flash-MLX-oQ2-MTP/resolve/main/LICENSE"
           },
           {
             "repo": "EigenLabs/GLM-5.3-Flash-MLX-NVFP4-mtp",
@@ -18916,6 +19144,63 @@
             "size_gb": 15.665607,
             "dir": true,
             "url": "https://huggingface.co/SSSAMMMM/MiniCPM-V-4.7-35B-A3B-MLX-mixed/resolve/main/chat_template.jinja"
+          },
+          {
+            "repo": "SSSAMMMM/MiniCPM-V-4.7-35B-A3B-MLX-mixed-repacked",
+            "revision": "main",
+            "path": "",
+            "files": [
+              "chat_template.jinja",
+              "config.json",
+              "experts-000.bin",
+              "experts-001.bin",
+              "experts-002.bin",
+              "experts-003.bin",
+              "experts-004.bin",
+              "experts-005.bin",
+              "experts-006.bin",
+              "experts-007.bin",
+              "experts-008.bin",
+              "experts-009.bin",
+              "experts-010.bin",
+              "experts-011.bin",
+              "experts-012.bin",
+              "experts-013.bin",
+              "experts-014.bin",
+              "experts-015.bin",
+              "experts-016.bin",
+              "experts-017.bin",
+              "experts-018.bin",
+              "experts-019.bin",
+              "experts-020.bin",
+              "experts-021.bin",
+              "experts-022.bin",
+              "experts-023.bin",
+              "experts-024.bin",
+              "experts-025.bin",
+              "experts-026.bin",
+              "experts-027.bin",
+              "experts-028.bin",
+              "experts-029.bin",
+              "experts-030.bin",
+              "experts-031.bin",
+              "experts-032.bin",
+              "experts-033.bin",
+              "experts-034.bin",
+              "experts-035.bin",
+              "experts-036.bin",
+              "experts-037.bin",
+              "experts-038.bin",
+              "experts-039.bin",
+              "generation_config.json",
+              "gguf_bit_allocation.json",
+              "preprocessor_config.json",
+              "processor_config.json",
+              "resident-model-00001-of-00004.safetensors"
+            ],
+            "size_gb": 14.423629,
+            "dir": true,
+            "url": "https://huggingface.co/SSSAMMMM/MiniCPM-V-4.7-35B-A3B-MLX-mixed-repacked/resolve/main/chat_template.jinja"
           }
         ]
       },
@@ -20623,6 +20908,25 @@
             "size_gb": 7.748058,
             "dir": true,
             "url": "https://huggingface.co/ChetanT271/Qwen3-14B-MLX-4bit/resolve/main/chat_template.jinja"
+          },
+          {
+            "repo": "shixi1/Qwen3-14B-mlx-8Bit",
+            "revision": "main",
+            "path": "",
+            "files": [
+              "chat_template.jinja",
+              "config.json",
+              "generation_config.json",
+              "model-00001-of-00003.safetensors",
+              "model-00002-of-00003.safetensors",
+              "model-00003-of-00003.safetensors",
+              "model.safetensors.index.json",
+              "tokenizer.json",
+              "tokenizer_config.json"
+            ],
+            "size_gb": 14.624889,
+            "dir": true,
+            "url": "https://huggingface.co/shixi1/Qwen3-14B-mlx-8Bit/resolve/main/chat_template.jinja"
           }
         ]
       },
@@ -23102,26 +23406,6 @@
             "url": "https://huggingface.co/lokinfey/gpt-oss-20B-mlx-metal-int4/resolve/main/chat_template.jinja"
           },
           {
-            "repo": "halley-ai/gpt-oss-20b-MLX-5bit-gs32",
-            "revision": "main",
-            "path": "",
-            "files": [
-              "chat_template.jinja",
-              "config.json",
-              "generation_config.json",
-              "model-00001-of-00003.safetensors",
-              "model-00002-of-00003.safetensors",
-              "model-00003-of-00003.safetensors",
-              "model.safetensors.index.json",
-              "special_tokens_map.json",
-              "tokenizer.json",
-              "tokenizer_config.json"
-            ],
-            "size_gb": 14.643039,
-            "dir": true,
-            "url": "https://huggingface.co/halley-ai/gpt-oss-20b-MLX-5bit-gs32/resolve/main/chat_template.jinja"
-          },
-          {
             "repo": "huynguyendbs/gpt-oss-20b-mlx",
             "revision": "main",
             "path": "",
@@ -23140,6 +23424,26 @@
             "size_gb": 10.992059,
             "dir": true,
             "url": "https://huggingface.co/huynguyendbs/gpt-oss-20b-mlx/resolve/main/chat_template.jinja"
+          },
+          {
+            "repo": "halley-ai/gpt-oss-20b-MLX-5bit-gs32",
+            "revision": "main",
+            "path": "",
+            "files": [
+              "chat_template.jinja",
+              "config.json",
+              "generation_config.json",
+              "model-00001-of-00003.safetensors",
+              "model-00002-of-00003.safetensors",
+              "model-00003-of-00003.safetensors",
+              "model.safetensors.index.json",
+              "special_tokens_map.json",
+              "tokenizer.json",
+              "tokenizer_config.json"
+            ],
+            "size_gb": 14.643039,
+            "dir": true,
+            "url": "https://huggingface.co/halley-ai/gpt-oss-20b-MLX-5bit-gs32/resolve/main/chat_template.jinja"
           }
         ]
       },
@@ -24132,7 +24436,7 @@
               "UD-IQ1_S/Qwen3.8-Flash-Next-UD-IQ1_S-00002-of-00003.gguf",
               "UD-IQ1_S/Qwen3.8-Flash-Next-UD-IQ1_S-00003-of-00003.gguf"
             ],
-            "size_gb": 67.564157,
+            "size_gb": 61.820429,
             "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-IQ1_S/Qwen3.8-Flash-Next-UD-IQ1_S-00001-of-00003.gguf"
           },
           {
@@ -24144,56 +24448,84 @@
               "UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-00002-of-00003.gguf",
               "UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-00003-of-00003.gguf"
             ],
-            "size_gb": 69.419626,
+            "size_gb": 63.336543,
             "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-00001-of-00003.gguf"
           },
           {
             "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
             "revision": "main",
-            "path": "UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00001-of-00003.gguf",
+            "path": "UD-Q2_0/Qwen3.8-Flash-Next-UD-Q2_0-00001-of-00003.gguf",
             "files": [
-              "UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00001-of-00003.gguf",
-              "UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00002-of-00003.gguf",
-              "UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00003-of-00003.gguf"
+              "UD-Q2_0/Qwen3.8-Flash-Next-UD-Q2_0-00001-of-00003.gguf",
+              "UD-Q2_0/Qwen3.8-Flash-Next-UD-Q2_0-00002-of-00003.gguf",
+              "UD-Q2_0/Qwen3.8-Flash-Next-UD-Q2_0-00003-of-00003.gguf"
             ],
-            "size_gb": 73.4526,
-            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00001-of-00003.gguf"
+            "size_gb": 65.704707,
+            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-Q2_0/Qwen3.8-Flash-Next-UD-Q2_0-00001-of-00003.gguf"
           },
           {
             "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
             "revision": "main",
-            "path": "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00001-of-00003.gguf",
+            "path": "UD-IQ2_XS/Qwen3.8-Flash-Next-UD-IQ2_XS-00001-of-00003.gguf",
             "files": [
-              "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00001-of-00003.gguf",
-              "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00002-of-00003.gguf",
-              "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00003-of-00003.gguf"
+              "UD-IQ2_XS/Qwen3.8-Flash-Next-UD-IQ2_XS-00001-of-00003.gguf",
+              "UD-IQ2_XS/Qwen3.8-Flash-Next-UD-IQ2_XS-00002-of-00003.gguf",
+              "UD-IQ2_XS/Qwen3.8-Flash-Next-UD-IQ2_XS-00003-of-00003.gguf"
             ],
-            "size_gb": 76.332897,
-            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00001-of-00003.gguf"
+            "size_gb": 70.62414,
+            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-IQ2_XS/Qwen3.8-Flash-Next-UD-IQ2_XS-00001-of-00003.gguf"
           },
           {
             "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
             "revision": "main",
-            "path": "UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00001-of-00003.gguf",
+            "path": "UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00001-of-00004.gguf",
             "files": [
-              "UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00001-of-00003.gguf",
-              "UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00002-of-00003.gguf",
-              "UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00003-of-00003.gguf"
+              "UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00001-of-00004.gguf",
+              "UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00002-of-00004.gguf",
+              "UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00003-of-00004.gguf",
+              "UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00004-of-00004.gguf"
             ],
-            "size_gb": 83.806323,
-            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00001-of-00003.gguf"
+            "size_gb": 74.115351,
+            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-Q2_K_XL/Qwen3.8-Flash-Next-UD-Q2_K_XL-00001-of-00004.gguf"
           },
           {
             "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
             "revision": "main",
-            "path": "UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00003.gguf",
+            "path": "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00001-of-00004.gguf",
             "files": [
-              "UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00003.gguf",
-              "UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00002-of-00003.gguf",
-              "UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00003-of-00003.gguf"
+              "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00001-of-00004.gguf",
+              "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00002-of-00004.gguf",
+              "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00003-of-00004.gguf",
+              "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00004-of-00004.gguf"
             ],
-            "size_gb": 87.248706,
-            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00003.gguf"
+            "size_gb": 77.88319,
+            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00001-of-00004.gguf"
+          },
+          {
+            "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
+            "revision": "main",
+            "path": "UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00001-of-00004.gguf",
+            "files": [
+              "UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00001-of-00004.gguf",
+              "UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00002-of-00004.gguf",
+              "UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00003-of-00004.gguf",
+              "UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00004-of-00004.gguf"
+            ],
+            "size_gb": 83.320726,
+            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-Q3_K_XL/Qwen3.8-Flash-Next-UD-Q3_K_XL-00001-of-00004.gguf"
+          },
+          {
+            "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
+            "revision": "main",
+            "path": "UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00004.gguf",
+            "files": [
+              "UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00004.gguf",
+              "UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00002-of-00004.gguf",
+              "UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00003-of-00004.gguf",
+              "UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00004-of-00004.gguf"
+            ],
+            "size_gb": 87.239183,
+            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-IQ4_XS/Qwen3.8-Flash-Next-UD-IQ4_XS-00001-of-00004.gguf"
           },
           {
             "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
@@ -24269,6 +24601,30 @@
             ],
             "size_gb": 329.716066,
             "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/BF16/Qwen3.8-Flash-Next-BF16-00001-of-00008.gguf"
+          },
+          {
+            "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
+            "revision": "main",
+            "path": "UD-IQ1_S/Qwen3.8-Flash-Next-UD-IQ1_S-00001-of-00003.gguf",
+            "files": [
+              "UD-IQ1_S/Qwen3.8-Flash-Next-UD-IQ1_S-00001-of-00003.gguf",
+              "UD-IQ1_S/Qwen3.8-Flash-Next-UD-IQ1_S-00002-of-00003.gguf",
+              "UD-IQ1_S/Qwen3.8-Flash-Next-UD-IQ1_S-00003-of-00003.gguf"
+            ],
+            "size_gb": 67.564157,
+            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-IQ1_S/Qwen3.8-Flash-Next-UD-IQ1_S-00001-of-00003.gguf"
+          },
+          {
+            "repo": "unsloth/Qwen3.8-Flash-Next-GGUF",
+            "revision": "main",
+            "path": "UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-00001-of-00003.gguf",
+            "files": [
+              "UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-00001-of-00003.gguf",
+              "UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-00002-of-00003.gguf",
+              "UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-00003-of-00003.gguf"
+            ],
+            "size_gb": 69.419626,
+            "url": "https://huggingface.co/unsloth/Qwen3.8-Flash-Next-GGUF/resolve/main/UD-IQ1_M/Qwen3.8-Flash-Next-UD-IQ1_M-00001-of-00003.gguf"
           }
         ]
       }
@@ -26327,22 +26683,6 @@
             "url": "https://huggingface.co/ornith-ai/Ornith-1.5-9B-MLX-6bit/resolve/main/chat_template.jinja"
           },
           {
-            "repo": "adityak74/Ornith-1.5-9B-MLX-distil-oQ4",
-            "revision": "main",
-            "path": "",
-            "files": [
-              "chat_template.jinja",
-              "config.json",
-              "model.safetensors",
-              "model.safetensors.index.json",
-              "tokenizer.json",
-              "tokenizer_config.json"
-            ],
-            "size_gb": 4.939788,
-            "dir": true,
-            "url": "https://huggingface.co/adityak74/Ornith-1.5-9B-MLX-distil-oQ4/resolve/main/chat_template.jinja"
-          },
-          {
             "repo": "Duckets/Ornith-1.5-9B-MLX-Vision",
             "revision": "main",
             "path": "",
@@ -26362,6 +26702,22 @@
             "size_gb": 5.56658,
             "dir": true,
             "url": "https://huggingface.co/Duckets/Ornith-1.5-9B-MLX-Vision/resolve/main/chat_template.jinja"
+          },
+          {
+            "repo": "adityak74/Ornith-1.5-9B-MLX-distil-oQ4",
+            "revision": "main",
+            "path": "",
+            "files": [
+              "chat_template.jinja",
+              "config.json",
+              "model.safetensors",
+              "model.safetensors.index.json",
+              "tokenizer.json",
+              "tokenizer_config.json"
+            ],
+            "size_gb": 4.939788,
+            "dir": true,
+            "url": "https://huggingface.co/adityak74/Ornith-1.5-9B-MLX-distil-oQ4/resolve/main/chat_template.jinja"
           },
           {
             "repo": "netrias/Ornith-1.5-9B-MLX-oQ6",
@@ -27125,6 +27481,31 @@
             "url": "https://huggingface.co/lmstudio-community/Qwen3.6-27B-MLX-4bit/resolve/main/chat_template.jinja"
           },
           {
+            "repo": "lmstudio-community/Qwen3.6-27B-MLX-5bit",
+            "revision": "main",
+            "path": "",
+            "files": [
+              "chat_template.jinja",
+              "config.json",
+              "configuration.json",
+              "generation_config.json",
+              "model-00001-of-00004.safetensors",
+              "model-00002-of-00004.safetensors",
+              "model-00003-of-00004.safetensors",
+              "model-00004-of-00004.safetensors",
+              "model.safetensors.index.json",
+              "preprocessor_config.json",
+              "processor_config.json",
+              "tokenizer.json",
+              "tokenizer_config.json",
+              "video_preprocessor_config.json",
+              "vocab.json"
+            ],
+            "size_gb": 18.107858,
+            "dir": true,
+            "url": "https://huggingface.co/lmstudio-community/Qwen3.6-27B-MLX-5bit/resolve/main/chat_template.jinja"
+          },
+          {
             "repo": "lmstudio-community/Qwen3.6-27B-MLX-8bit",
             "revision": "main",
             "path": "",
@@ -27150,31 +27531,6 @@
             "size_gb": 27.500253,
             "dir": true,
             "url": "https://huggingface.co/lmstudio-community/Qwen3.6-27B-MLX-8bit/resolve/main/chat_template.jinja"
-          },
-          {
-            "repo": "lmstudio-community/Qwen3.6-27B-MLX-5bit",
-            "revision": "main",
-            "path": "",
-            "files": [
-              "chat_template.jinja",
-              "config.json",
-              "configuration.json",
-              "generation_config.json",
-              "model-00001-of-00004.safetensors",
-              "model-00002-of-00004.safetensors",
-              "model-00003-of-00004.safetensors",
-              "model-00004-of-00004.safetensors",
-              "model.safetensors.index.json",
-              "preprocessor_config.json",
-              "processor_config.json",
-              "tokenizer.json",
-              "tokenizer_config.json",
-              "video_preprocessor_config.json",
-              "vocab.json"
-            ],
-            "size_gb": 18.107858,
-            "dir": true,
-            "url": "https://huggingface.co/lmstudio-community/Qwen3.6-27B-MLX-5bit/resolve/main/chat_template.jinja"
           },
           {
             "repo": "lmstudio-community/Qwen3.6-27B-MLX-6bit",
