@@ -221,3 +221,13 @@ approval, not on a rebase or a fix. Only a DIRTY/red/drift cause belongs on the
 fleet's to-do; a REVIEW_REQUIRED block is the owner queue's approval signal.
 Check `.mergeable_state` together with `.merveable`/`.behind_by` and the
 completed-check rollup, not the label alone.
+
+## Posting comment bodies: `-F body=@path` reads the file, `-f` posts the literal (2026-11-05)
+
+`gh api .../issues/<n>/comments -f body=@/tmp/x.md` posts a body whose text IS
+`@/tmp/x.md` — `-f` is a raw string flag; only `-F body=@path` (or `--input` with
+the full JSON) reads file content. A batch that retried a doomed `-f` posted eight
+literal-path comments onto #1731. Delete the literals (`gh api --method DELETE
+.../comments/<id>`) and verify the surviving set before finishing; keep the one
+good-content comment, and confirm zero `@/tmp` literals remain. A comment whose
+body is `@/tmp/...` is proof of a malformed flag, not a landed dispatch.
