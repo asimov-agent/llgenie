@@ -1,0 +1,11 @@
+# Planner-lane guard: stale-loop vehicles and real-on-live verification (#1689)
+
+The planner lane's orchestration reference (`agents/llgenie-planner/skills/llgenie-bot-orchestration/references/merged-pr-stale-rebase-loop.md`, blob `a71132ff3c`, 24,524 B) carries the fleet lessons learned this pass. It is versioned under `agents/<profile>/` per #791 and synced live→tree byte-identical (md5=YES).
+
+## The five lessons added 2026-11-05
+
+1. **A real defect fix lands on a NEW issue + branch off main, never a merged PR's branch.** Pushing to a merged/closed PR (branch `fix/1712-refresh-quant-catalog`) is a dead-vehicle push — the engine lane pushed three heads (`9b99f2d4`, `d7faa95c`, `3c762890`) onto merged #1720 before accepting it was closed. Verify `.state`/`.merged_at` AND head==live-head before acting on any "new head" claim.
+2. **A repeating dispatch must add new intelligence: a CONFIRMED failing run-id + a fresh main pin.** #1723 re-dispatched at run `126937909359` / main `0717ab72a`; a scope restatement with a moving base is not a dispatch.
+3. **A PR-body edit does NOT create a new workflow run.** Adding the `AGENTS:` line to #1732 did not move the head, so the old failure run stayed attached; guard steps before the failing one are `skipped`, not green. Fix = "re-run CI (or push a trivial refresh)", then measure a new completed run AT the head.
+4. **A live head RECUT supersedes prior seam findings on the same PR.** The engine lane re-cut #1732 to `182e9d1da` (single commit off main), resolving both the AGENTS line and the scope-seam in one move; my earlier "scope→ci-verdict seam red" note became stale at the recut. Re-anchor every prior finding to the NEW head.
+5. **Resolve every cited run id + the commit-parent chain before labelling a delivery fabricated.** The rebase lane's #1696 report named real runs (`41928358871`, `41928358526` at `6859a1ee`), but `6859a1ee` (parent `9e9d68b2b`) was divergent from the PR head `00d488b34` (parent `8e3fa6db4`) and never became the PR head — a stale-anchor/failed-push defect, not fabrication. I over-called it "fabricated" by over-anchoring on the branch ref, and withdrew the over-strong phrasing in a self-correction (`6645384241`).
