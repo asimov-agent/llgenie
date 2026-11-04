@@ -381,18 +381,26 @@ def _step(text: str, name: str) -> str:
     return rest if nxt < 0 else rest[:nxt]
 
 
-def test_the_unit_job_passes_the_body_into_ci_unit():
-    """The unit job writes the event body to a file before make ci-unit."""
+def test_the_unit_job_reads_the_body_live_not_from_the_event_snapshot():
+    """The unit job's check-pr-closing body comes from LIVE `gh api pulls/<n> .body`, not the run's
+    frozen event snapshot — so a body-only fix clears on `gh run rerun` without a head force-push
+    (#1711, mirror of #1589 for guard/scope). The event-snapshot form `PR_BODY: ${{ github.event.
+    pull_request.body }}` is the defect this kills."""
 
-    # Given pipeline.yml
-    step = _step((REPO / ".github/workflows/pipeline.yml").read_text(), "name: make ci-unit")
+    # Given pipeline.yml's unit step
+    text = (REPO / ".github/workflows/pipeline.yml").read_text()
+    step = _step(text, "name: make ci-unit")
+
+    # Then it reads the body LIVE from the PR record (gh api, not the event snapshot)
     run = step.split("run: |", 1)[1]
-
-    # When the unit step is read
-    # Then the run block exports the body path, the env carries PR_BASE, and the run block has no expression
+    assert 'gh api "repos/$PR_REPO/pulls/$PR_NUMBER"' in run, run      # the live read
+    assert "--jq '.body // \"\"'" in run, run                          # live body, empty-safe
+    assert "PR_NUMBER:" in step and "PR_REPO:" in step and "GH_TOKEN:" in step
+    # The event-snapshot form is gone — that is the fixed defect
+    assert "github.event.pull_request.body" not in text, text
     assert "export PR_BODY=/tmp/pr-body.md" in run
     assert "make ci-unit" in run
-    assert "${{" not in run
+    assert "${" not in run
     assert "PR_BASE:" in step
     assert "PR_BRANCH:" in step
 
