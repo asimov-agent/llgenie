@@ -382,3 +382,14 @@ head-parent == base == current main (`origin/main`) at the moment of push, and
 scope must re-publish against that live tip. Measure base.sha AND head.sha's
 parent before declaring a recut clean; a base advance between recute and push
 requires a second (final) recut, never a merge of a mismatched base.
+
+## A MERGED PR can advance main past a JUST-rebased open PR's base (2026-11-05, #1696 + #1732)
+
+#1696's rebase landed on base 0717ab72a; minutes later #1731 merged, making main
+1ea27e95d, so #1696 is behind 1 (base!=main) and #1732's recut 34a4cfaa6 has
+parent 0717ab72a while its PR base is 1ea27e95d. When a vehicle's base was
+"correct" at rebase time but main moves after, base==main (not base-was-main)
+is the acceptance - both open PRs need one clean recut onto 1ea27e95d. The
+merged PR's tree change (here the SYNC: gate) may alter what the open PR must
+pass, so the refresh must re-run the guard/matrix against the new base, not just
+rebranch. Track main tip at measure time, always.
