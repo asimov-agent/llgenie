@@ -333,3 +333,15 @@ fabricated, resolve EVERY cited run id via runs/<id> and check the commit chain
 against the PR head (parents differ = divergent, not necessarily false). When I
 mis-state the evidence I withdraw the over-strong phrase and post the accurate
 correction in the same thread, so my own correction is verified too.
+
+## A live head RECUT supersedes prior seam findings on the same PR (2026-11-05, #1732)
+
+#1732's engine lane re-cut the branch onto current main as a single fresh commit
+(head bd9bf8ccb -> 182e9d1da, parent==main), fixing BOTH the AGENTS-line gate and
+the prior scope-seam in one move. My earlier "scope->ci-verdict seam red" note was
+measured on the OLD head and became stale at the recut. Guard lesson: when a PR's
+head sha changes, re-anchor every prior finding to the NEW head before re-citing
+it - a red on head N does not imply red on head N+1, and a head recut on a clean
+base is the correct fix vehicle (single commit, base==main, behind 0), not a
+force-push onto a moved branch. Record the head change on the wire as its own
+authoritative state update, and mark the superseded finding as superseded.
