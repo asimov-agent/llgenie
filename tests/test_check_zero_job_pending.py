@@ -77,7 +77,38 @@ def test_a_run_with_jobs_is_not_flagged(tmp_path, monkeypatch, capsys):
     assert rc == 0, capsys.readouterr().out
 
 
-def test_a_zero_job_run_under_threshold_is_clean(tmp_path, monkeypatch):
+def test_a_zero_job_run_behind_an_in_progress_sibling_is_not_flagged(tmp_path, monkeypatch, capsys):
+    """A zero-job run QUEUED behind an in_progress sibling (the #917 serialisation case) is waiting its
+    turn, not short of runners — #1704's 6/6-false-positive class must not be filed as "no runner matched".
+    """
+    _gh_stub(
+        tmp_path,
+        [
+            # an in_progress sibling of the SAME (workflow, branch) holds the concurrency group —
+            # itself stalled with zero jobs past threshold, so it SHOULD be flagged
+            _run(41420879842, "in_progress", 60.0),
+            # this later zero-job dispatch is queued behind it — waiting its turn, NOT stranded
+            _run(41763202522, "queued", 60.0),
+        ],
+        {41420879842: 0, 41763202522: 0}, monkeypatch)
+    rc = czp.main(["--repo", "asimov-agent/llgenie", "--minutes", "30"])
+    out = capsys.readouterr().out
+    # the queued-behind-one is EXCLUDED; only the in_progress holder itself (stalled with zero jobs) stays
+    assert "41763202522" not in out, out
+    assert "41420879842" in out, out
+
+
+def test_a_zero_job_run_on_a_different_branch_is_not_queued_behind(tmp_path, monkeypatch, capsys):
+    """The discriminator keys on (workflow, branch): an in_progress sibling on ANOTHER branch does not
+    hold this run's group, so a same-workflow zero-job run on its own branch is still stranded.
+    """
+    r = _run(501, "queued", 60.0); r["headBranch"] = "fix/other"
+    s = _run(502, "in_progress", 5.0); s["headBranch"] = "main"
+    _gh_stub(tmp_path, [r, s], {501: 0, 502: 0}, monkeypatch)
+    rc = czp.main(["--repo", "asimov-agent/llgenie", "--minutes", "30"])
+    out = capsys.readouterr().out
+    assert "run 501" in out, out  # not queued behind main's sibling → stranded on its own branch
+
     """A zero-job run younger than the threshold is not yet a stall."""
     _gh_stub(tmp_path, [_run(111, "in_progress", 5.0)], {111: 0}, monkeypatch)
     rc = czp.main(["--repo", "asimov-agent/llgenie", "--minutes", "30"])
@@ -137,11 +168,11 @@ def test_a_github_read_failure_is_exit_2(tmp_path, monkeypatch):
 
 
 def test_both_statuses_are_scanned(tmp_path, monkeypatch, capsys):
-    """A zero-job run reports `queued`, not `in_progress` — scan BOTH (the queued-alarm lesson)."""
-    _gh_stub(tmp_path,
-             [_run(1, "queued", 60.0), _run(2, "in_progress", 60.0)],
-             {1: 0, 2: 0}, monkeypatch)
+    """A zero-job run can report `queued` OR `in_progress` — scan BOTH (the queued-alarm lesson)."""
+    q = _run(1, "queued", 60.0); q["headBranch"] = "main"
+    i = _run(2, "in_progress", 60.0); i["headBranch"] = "fix/other"
+    _gh_stub(tmp_path, [q, i], {1: 0, 2: 0}, monkeypatch)
     rc = czp.main(["--repo", "asimov-agent/llgenie", "--minutes", "30"])
     out = capsys.readouterr().out
-    assert rc == 1, out  # both zero-job runs past threshold are named
+    assert rc == 1, out  # both zero-job runs past threshold are named (distinct branches → both stranded)
     assert "run 1" in out and "run 2" in out, out
