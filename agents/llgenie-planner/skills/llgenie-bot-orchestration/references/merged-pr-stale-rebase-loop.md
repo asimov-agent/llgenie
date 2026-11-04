@@ -231,3 +231,15 @@ literal-path comments onto #1731. Delete the literals (`gh api --method DELETE
 .../comments/<id>`) and verify the surviving set before finishing; keep the one
 good-content comment, and confirm zero `@/tmp` literals remain. A comment whose
 body is `@/tmp/...` is proof of a malformed flag, not a landed dispatch.
+
+## Real defect + merged PR: fix lands on a dead vehicle (2026-11-05, engine #1720)
+
+A lane root-caused a genuine unit failure (fixture staleness after a data drop),
+regenerated the fixture, and pushed `74e45475..9b99f2d4` — but #1720 had already
+MERGED (`031b652af`) with a DIFFERENT head (`5e184a4d0`) whose linux/unit was
+SUCCESS at merge time. The push reaches no open PR; the re-render is orphaned.
+Two tests before accepting a "new head" claim: verify the PR not merged
+(pull .state/.merged_at on the number), AND verify the cited head == the PR's
+live head (a fix pushed to a pre-final head states the wrong vehicle). If the
+real defect still exists on main (a fresh unit run may show it), the fix goes in
+a NEW issue + live branch off main — never onto the merged PR's branch.
