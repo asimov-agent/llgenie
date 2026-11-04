@@ -317,7 +317,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 33 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
+          "why": "stated weights are 111 GB, smallest GGUF is 62 GB > 33 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
           "model": "Qwen3.6-35B-A3B",
@@ -692,7 +692,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 61 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
+          "why": "stated weights are 111 GB, smallest GGUF is 62 GB > 61 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
           "model": "Qwen3.6-35B-A3B",
@@ -1642,7 +1642,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 16 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 16 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -1897,7 +1897,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 40 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
+          "why": "stated weights are 111 GB, smallest GGUF is 62 GB > 40 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
           "model": "Qwen3.6-35B-A3B",
@@ -2121,7 +2121,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 40 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 40 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -3878,7 +3878,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 22 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 22 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -3962,11 +3962,11 @@
         },
         {
           "model": "Laguna XS 2.1",
-          "server": "MLX",
-          "tps": 56.0,
-          "measured_on": "Metal",
-          "variant": "cpu",
-          "why": ""
+          "server": "",
+          "tps": 0,
+          "measured_on": "",
+          "variant": "",
+          "why": "smallest GGUF is 19 GB > 22 GB this host can hold"
         },
         {
           "model": "Qwen3.8-27B Bonsai 2 (ternary)",
@@ -4149,7 +4149,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 46 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
+          "why": "stated weights are 111 GB, smallest GGUF is 62 GB > 46 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
           "model": "Qwen3.6-35B-A3B",
@@ -4421,7 +4421,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 46 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 46 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -6370,7 +6370,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 41 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 41 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -6953,7 +6953,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 65 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 65 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -9181,7 +9181,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 33 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
+          "why": "stated weights are 111 GB, smallest GGUF is 62 GB > 33 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
           "model": "Qwen3.6-35B-A3B",
@@ -9556,7 +9556,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 61 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
+          "why": "stated weights are 111 GB, smallest GGUF is 62 GB > 61 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
           "model": "Qwen3.6-35B-A3B",
@@ -9935,8 +9935,8 @@
         },
         {
           "model": "Qwen3.8-Flash-Next 125B",
-          "server": "Strata",
-          "tps": 87.0,
+          "server": "vLLM",
+          "tps": 100.0,
           "measured_on": "ROCm",
           "variant": "rocm",
           "why": ""
@@ -10506,7 +10506,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 16 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 16 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -10761,7 +10761,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 40 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
+          "why": "stated weights are 111 GB, smallest GGUF is 62 GB > 40 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
           "model": "Qwen3.6-35B-A3B",
@@ -10985,7 +10985,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 40 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 40 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -12742,7 +12742,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 22 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 22 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -12826,11 +12826,11 @@
         },
         {
           "model": "Laguna XS 2.1",
-          "server": "MLX",
-          "tps": 56.0,
-          "measured_on": "Metal",
-          "variant": "cpu",
-          "why": ""
+          "server": "",
+          "tps": 0,
+          "measured_on": "",
+          "variant": "",
+          "why": "smallest GGUF is 19 GB > 22 GB this host can hold"
         },
         {
           "model": "Qwen3.8-27B Bonsai 2 (ternary)",
@@ -13013,7 +13013,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 46 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
+          "why": "stated weights are 111 GB, smallest GGUF is 62 GB > 46 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
           "model": "Qwen3.6-35B-A3B",
@@ -13285,7 +13285,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 46 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 46 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -15234,7 +15234,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 41 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 41 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -15533,8 +15533,8 @@
         },
         {
           "model": "Qwen3.8-Flash-Next 125B",
-          "server": "Strata",
-          "tps": 87.0,
+          "server": "vLLM",
+          "tps": 100.0,
           "measured_on": "ROCm",
           "variant": "rocm",
           "why": ""
@@ -15817,7 +15817,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 65 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 65 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -18045,7 +18045,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 33 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
+          "why": "stated weights are 111 GB, smallest GGUF is 62 GB > 33 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
           "model": "Qwen3.6-35B-A3B",
@@ -18420,7 +18420,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 61 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
+          "why": "stated weights are 111 GB, smallest GGUF is 62 GB > 61 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
           "model": "Qwen3.6-35B-A3B",
@@ -18799,11 +18799,11 @@
         },
         {
           "model": "Qwen3.8-Flash-Next 125B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 65 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
+          "server": "vLLM",
+          "tps": 100.0,
+          "measured_on": "ROCm",
+          "variant": "cpu",
+          "why": ""
         },
         {
           "model": "Qwen3.6-35B-A3B",
@@ -19370,7 +19370,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 16 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 16 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -19625,7 +19625,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 40 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
+          "why": "stated weights are 111 GB, smallest GGUF is 62 GB > 40 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
           "model": "Qwen3.6-35B-A3B",
@@ -19849,7 +19849,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 40 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 40 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -21606,7 +21606,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 22 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 22 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -21690,11 +21690,11 @@
         },
         {
           "model": "Laguna XS 2.1",
-          "server": "MLX",
-          "tps": 56.0,
-          "measured_on": "Metal",
-          "variant": "cpu",
-          "why": ""
+          "server": "",
+          "tps": 0,
+          "measured_on": "",
+          "variant": "",
+          "why": "smallest GGUF is 19 GB > 22 GB this host can hold"
         },
         {
           "model": "Qwen3.8-27B Bonsai 2 (ternary)",
@@ -21877,7 +21877,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 46 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
+          "why": "stated weights are 111 GB, smallest GGUF is 62 GB > 46 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
           "model": "Qwen3.6-35B-A3B",
@@ -22149,7 +22149,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 46 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 46 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -24098,7 +24098,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 41 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 41 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -24397,11 +24397,11 @@
         },
         {
           "model": "Qwen3.8-Flash-Next 125B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 65 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
+          "server": "vLLM",
+          "tps": 100.0,
+          "measured_on": "ROCm",
+          "variant": "cpu",
+          "why": ""
         },
         {
           "model": "Qwen3.6-35B-A3B",
@@ -24681,7 +24681,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 65 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 65 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -26909,7 +26909,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 3 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
+          "why": "stated weights are 111 GB, smallest GGUF is 62 GB > 3 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
           "model": "Qwen3.6-35B-A3B",
@@ -27284,7 +27284,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 3 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
+          "why": "stated weights are 111 GB, smallest GGUF is 62 GB > 3 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
           "model": "Qwen3.6-35B-A3B",
@@ -27667,7 +27667,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 3 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
+          "why": "stated weights are 111 GB, smallest GGUF is 62 GB > 3 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
           "model": "Qwen3.6-35B-A3B",
@@ -28234,7 +28234,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 6 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 6 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -28489,7 +28489,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 6 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
+          "why": "stated weights are 111 GB, smallest GGUF is 62 GB > 6 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
           "model": "Qwen3.6-35B-A3B",
@@ -28713,7 +28713,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 6 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 6 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -29064,7 +29064,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 6 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
+          "why": "stated weights are 111 GB, smallest GGUF is 62 GB > 6 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
           "model": "Qwen3.6-35B-A3B",
@@ -29296,7 +29296,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 6 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 6 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -29655,7 +29655,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 6 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
+          "why": "stated weights are 111 GB, smallest GGUF is 62 GB > 6 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
           "model": "Qwen3.6-35B-A3B",
@@ -29895,7 +29895,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 6 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 6 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -30470,7 +30470,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 10 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 10 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -30741,7 +30741,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 10 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
+          "why": "stated weights are 111 GB, smallest GGUF is 62 GB > 10 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
           "model": "Qwen3.6-35B-A3B",
@@ -31013,7 +31013,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 10 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 10 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -31388,7 +31388,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 10 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
+          "why": "stated weights are 111 GB, smallest GGUF is 62 GB > 10 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
           "model": "Qwen3.6-35B-A3B",
@@ -31676,7 +31676,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 10 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 10 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -32067,7 +32067,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 10 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
+          "why": "stated weights are 111 GB, smallest GGUF is 62 GB > 10 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
           "model": "Qwen3.6-35B-A3B",
@@ -32363,7 +32363,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 10 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 10 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -32962,7 +32962,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 27 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 27 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -33054,11 +33054,11 @@
         },
         {
           "model": "Laguna XS 2.1",
-          "server": "MLX",
-          "tps": 56.0,
-          "measured_on": "Metal",
-          "variant": "metal",
-          "why": ""
+          "server": "",
+          "tps": 0,
+          "measured_on": "",
+          "variant": "",
+          "why": "smallest GGUF is 19 GB > 27 GB this host can hold"
         },
         {
           "model": "ThinkingCap 27B",
@@ -33265,7 +33265,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 27 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
+          "why": "stated weights are 111 GB, smallest GGUF is 62 GB > 27 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
           "model": "Qwen3.6-35B-A3B",
@@ -33545,7 +33545,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 27 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 27 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -33653,11 +33653,11 @@
         },
         {
           "model": "Laguna XS 2.1",
-          "server": "MLX",
-          "tps": 56.0,
-          "measured_on": "Metal",
-          "variant": "metal",
-          "why": ""
+          "server": "",
+          "tps": 0,
+          "measured_on": "",
+          "variant": "",
+          "why": "smallest GGUF is 19 GB > 27 GB this host can hold"
         },
         {
           "model": "ThinkingCap 27B",
@@ -33968,7 +33968,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 27 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
+          "why": "stated weights are 111 GB, smallest GGUF is 62 GB > 27 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
           "model": "Qwen3.6-35B-A3B",
@@ -34272,7 +34272,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 27 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 27 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -34396,11 +34396,11 @@
         },
         {
           "model": "Laguna XS 2.1",
-          "server": "MLX",
-          "tps": 56.0,
-          "measured_on": "Metal",
-          "variant": "metal",
-          "why": ""
+          "server": "",
+          "tps": 0,
+          "measured_on": "",
+          "variant": "",
+          "why": "smallest GGUF is 19 GB > 27 GB this host can hold"
         },
         {
           "model": "ThinkingCap 27B",
@@ -34711,7 +34711,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 27 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
+          "why": "stated weights are 111 GB, smallest GGUF is 62 GB > 27 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
           "model": "Qwen3.6-35B-A3B",
@@ -35023,7 +35023,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 27 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 27 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -35147,11 +35147,11 @@
         },
         {
           "model": "Laguna XS 2.1",
-          "server": "MLX",
-          "tps": 56.0,
-          "measured_on": "Metal",
-          "variant": "metal",
-          "why": ""
+          "server": "",
+          "tps": 0,
+          "measured_on": "",
+          "variant": "",
+          "why": "smallest GGUF is 19 GB > 27 GB this host can hold"
         },
         {
           "model": "ThinkingCap 27B",
@@ -35773,7 +35773,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 5 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
+          "why": "stated weights are 111 GB, smallest GGUF is 62 GB > 5 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
           "model": "Qwen3.6-35B-A3B",
@@ -36148,7 +36148,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 5 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
+          "why": "stated weights are 111 GB, smallest GGUF is 62 GB > 5 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
           "model": "Qwen3.6-35B-A3B",
@@ -36531,7 +36531,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 5 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
+          "why": "stated weights are 111 GB, smallest GGUF is 62 GB > 5 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
           "model": "Qwen3.6-35B-A3B",
@@ -37098,7 +37098,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 12 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 12 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -37353,7 +37353,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 12 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
+          "why": "stated weights are 111 GB, smallest GGUF is 62 GB > 12 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
           "model": "Qwen3.6-35B-A3B",
@@ -37577,7 +37577,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 12 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 12 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -37928,7 +37928,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 12 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
+          "why": "stated weights are 111 GB, smallest GGUF is 62 GB > 12 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
           "model": "Qwen3.6-35B-A3B",
@@ -38160,7 +38160,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 12 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 12 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -38519,7 +38519,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 12 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
+          "why": "stated weights are 111 GB, smallest GGUF is 62 GB > 12 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
           "model": "Qwen3.6-35B-A3B",
@@ -38759,7 +38759,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 12 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 12 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -39334,7 +39334,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 18 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 18 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -39605,7 +39605,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 18 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
+          "why": "stated weights are 111 GB, smallest GGUF is 62 GB > 18 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
           "model": "Qwen3.6-35B-A3B",
@@ -39877,7 +39877,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 18 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 18 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -40252,7 +40252,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 18 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
+          "why": "stated weights are 111 GB, smallest GGUF is 62 GB > 18 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
           "model": "Qwen3.6-35B-A3B",
@@ -40540,7 +40540,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 18 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 18 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -40931,7 +40931,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 18 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
+          "why": "stated weights are 111 GB, smallest GGUF is 62 GB > 18 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
           "model": "Qwen3.6-35B-A3B",
@@ -41227,7 +41227,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 18 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 18 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -41826,7 +41826,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 37 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 37 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -42129,7 +42129,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 37 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
+          "why": "stated weights are 111 GB, smallest GGUF is 62 GB > 37 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
           "model": "Qwen3.6-35B-A3B",
@@ -42409,7 +42409,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 37 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 37 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -42832,7 +42832,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 37 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
+          "why": "stated weights are 111 GB, smallest GGUF is 62 GB > 37 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
           "model": "Qwen3.6-35B-A3B",
@@ -43136,7 +43136,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 37 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 37 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
@@ -43575,7 +43575,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "stated weights are 111 GB, smallest GGUF is 68 GB > 37 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
+          "why": "stated weights are 111 GB, smallest GGUF is 62 GB > 37 GB this host can hold; the registry states it runs off storage (MoE experts across GPU/RAM/SSD (~80GB free disk))"
         },
         {
           "model": "Qwen3.6-35B-A3B",
@@ -43887,7 +43887,7 @@
           "tps": 0,
           "measured_on": "",
           "variant": "",
-          "why": "smallest GGUF is 68 GB > 37 GB this host can hold"
+          "why": "smallest GGUF is 62 GB > 37 GB this host can hold"
         },
         {
           "model": "Bonsai 2 2B (iPhone)",
