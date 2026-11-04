@@ -243,3 +243,16 @@ Two tests before accepting a "new head" claim: verify the PR not merged
 live head (a fix pushed to a pre-final head states the wrong vehicle). If the
 real defect still exists on main (a fresh unit run may show it), the fix goes in
 a NEW issue + live branch off main — never onto the merged PR's branch.
+
+## Dispatch must carry a CONFIRMED run-id + current main pin (2026-11-05, #1723)
+
+A repeating dispatch on an unclaimed red is only new intelligence if it adds
+assets the prior dispatch lacked. The #1723 re-dispatch became genuinely new
+by carrying: (a) the confirmed failing run-id `126937909359` at current main,
+and (b) the verified main pin `0717ab72a` — because the previous dispatch
+(23:02Z) named a moving base. A dispatch that re-states scope on a vague base
+is a blind repeat, feed-lining the implementer; verify the run conclusion AND
+re-fetch commits/main at dispatch time, cite both, and note what changed since
+the last same-issue dispatch. Also separate watch: a fresh run in_progress at
+main (e.g. linux/unit `126937909215`) that may surface a second defect must be
+worded as "file separately", not "fold into #N".
