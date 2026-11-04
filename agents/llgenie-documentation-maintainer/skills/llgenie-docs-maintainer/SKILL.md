@@ -314,6 +314,17 @@ gate it owns), run one bounded own-domain audit. For this lane: **main-versus-do
 and skill sections stale vs current `main`), **skill-freshness** (a skill 2+ releases old — read the
 `version:` frontmatter against the release ledger in `CHANGES.md`), and **change-note coverage** (a
 behavioural surface with no `agent-wiki/` note + `docs/changes.d/` row, the #1123 change→note gate).
+
+**The profile-path change-note discipline is this lane's OWNED process, not just the audit's
+gate.** Editing `agents/<profile>/SOUL.md`, a lane skill under `agents/<profile>/skills/`, or
+`agents/manifest.json` owes its own `agent-wiki/<stem>.md` note + `docs/changes.d/<stem>.md` row in
+the **same** branch before it is ready-for-review (`make check-docs` reds a SOUL/skills edit without
+them — `docs/BOTS.md` "Documentation is part of the change", issue #1725; the recurrence class was
+rediscovered by CI in #1719, #1707 and #1697 before a lane owned it). When this lane itself changes a
+SOUL or skill, ship the note+fragment alongside the edit; when it audits another lane's, a missed
+pair is a finding, someone else's implementation remains theirs. `check-docs` stays the strict
+backstop; it is not the process.
+
 Every finding is filed as a refined six-section issue tagged `agent:implement`, routed through the
 normal queue — never implemented by the same pass; otherwise record "re-audited at `<sha>`, no
 findings". One-pass scope, no infinite loop; never overrides real reactive work.
