@@ -509,3 +509,14 @@ head', re-query check-runs at the CURRENT moment - a re-triggered job (engine-pi
 completed row back to in_progress and make 'nothing blocks' a false claim; (3) a correction that overclaims is as
 bad as the stale report it fixes - post the addendum, cite the real run id, confirm via runs/<id>/jobs what is
 actually in_progress.
+
+## A tracked tracker goes STALE at its acceptance base — re-point the body to current main (2026-11-05, #1723)
+
+#1723 was refined into six-section shape last pass, but its evidence still ended at
+41937344204@1ea27e95d and its acceptance criterion pinned base '1ea27e95d' - a main that was
+already 2 merges old (b85901726 is current). A fix PR would be judged against an obsolete base.
+Body-EDIT mutation that clears the guard AND is genuinely task-relevant: fold the LATEST
+recurrence (41939115306@b85901726) into the Problem evidence, and re-point the acceptance
+criterion's base to the CURRENT main sha. Gate with missing()==[] (all six sections + tickable
+checkboxes) before and after the PATCH; verify live via a fresh GET. Do NOT delete historical run
+cites - keep the evidence chain, only add the live recurrence and re-anchor the base.
