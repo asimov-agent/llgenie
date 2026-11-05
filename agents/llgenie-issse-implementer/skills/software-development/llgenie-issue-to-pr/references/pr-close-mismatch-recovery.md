@@ -1,0 +1,25 @@
+# Recovering a PR that went RED on the close+mismatch+fresh-base trio (issue #1716-class)
+
+When a PR body/naming defect reds the guard, diagnose against THREE independent gates — fix all three together before pushing:
+
+1. **Plain literal `closes #N` must be present and ONLY in the body** (gate regex `\b(?:fix(?:e[sd])?|close[sd]?|resolve[sd]?)\s+#(\d+)(?![#\w])`). VERIFY THE WHOLE BODY, not just that the number appears: prose like a "→ red" example bullet that literally says `closes #1707` parses as a REAL close, so a body that names the fix (closes #1716) AND mentions an old example close (#1707) reds as `squash-commit`/`squash-mismatch`. Run `scripts/check_pr_closing.py report --body-file <body> --base origin/main --rev HEAD --cwd <wt>` and assert the closing set is EXACTLY `['N']`; grep for every `close`/`fix`/`resolve` + `#` adjacency and reword incidental mentions ("names #1707", "carries only `(#1707)`"). The nastiest case is a *historical explanation* — e.g. explaining a past bug with "a merged PR's `closes #1646` cleared the box" — which the gate reads as YOUR body closing #1646. Never write a close keyword adjacent to an issue you are not closing, even inside an illustrative sentence: reword to "that issue" / "an earlier merge-close".
+2. **AGENTS-/BASE-line freshness** (`check-pr-agents-line`, #792): the body cites the literal `make bot-preflight` output at the base the PR was OPENED. If main moves after you opened, regenerate `AGENTS:`/`BASE:` (they change on every main advance) and push a fresh body — a stale line reds `check-pr-agents-line`. Both lines must sit FLUSH-LEFT at column 0 — the gate matches `^AGENTS:`/`^BASE:` with `re.MULTILINE`, so wrapping them in an indented code block, a `> ` quote, or a `- ` list item defeats the match and reds the gate with the same message as a genuinely missing line. Paste the preflight output verbatim, unindented.
+3. **Branch cut from the LIVE base** (`check-pr-base`, #845): `merge-base(origin/main, HEAD) == origin/main` at the time CI runs. If main advanced after your rebase, rebase again onto the fresh tip; `git merge-base origin/main HEAD` must equal `origin/main`.
+
+Workflow that works (each step exits 0 before continuing):
+- reconcile body close-set => `[N]` (report returns `closing references: #N` and `check` returns 0);
+- `make bot-preflight` on a branch whose merge-base == origin/main tip; capture the literal AGENTS/BASE lines;
+- re-edit the PR body (`gh pr edit`) — the guard reads the LIVE body (#1589/#1711), so a corrected body clears check-pr-closing/agents-line ON RE-RUN (they read the body live, not from an event snapshot);
+- `git push --force-with-lease <fork> HEAD:<branch>` and `git ls-remote <fork> <branch>` must equal local HEAD;
+- a push triggers a FRESH CI wave on the new head; let it conclude — `gh pr checks` shows the new runs.
+
+Do NOT claim done until `gh pr checks` shows the unit job `status=completed conclusion=success` (or a proven-local green on identical content) AND every row is pass (no `fail`, no `pending`). Owner merges under #1088; never merge yourself — after a merge, verify `gh api pulls/<n> --jq '{merged,merge_commit_sha}'` and the issue `state: closed`.
+
+## Run every gh/API call through the TERMINAL tool, never execute_code subprocess or bare curl
+
+`gh` resolves on the mise shim PATH (`~/.local/share/mise/shims/gh`) and picks up its auth ONLY in the terminal tool's login environment. A `subprocess.run(['gh', ...])` from the execute_code kernel fails with `FileNotFoundError: 'gh'`, and a token-less `curl` to the GitHub API returns `401 Bad credentials` (the kernel process has no `GH_TOKEN`). Consequence: POSTing a comment, editing a body, or reading a run from execute_code silently no-ops or 401s while appearing to "work". Do all gh/API work with the terminal tool (`gh api ... --method POST -f body=@/tmp/file.md`); when you need to parse JSON, run `gh ... --json ... > /tmp/x.json` in the terminal and read the file.
+
+## A green verdict is scoped to the merge-base — re-check it before claiming green; MERGED is not "needs work"
+
+- A `completed/success` CI run at head X is GREEN FOR THE BASE IT RAN AGAINST. If `origin/main` advances AFTER that run, the same branch becomes `check-pr-base` red and the cited green is STALE — re-fetch `origin/main` and compare `git merge-base HEAD refs/remotes/origin/main` to the live tip before you tell anyone the PR is green/mergeable. A slightly-behind-but-mergeable branch is not broken (rebase only when `CONFLICTING` or base-merges, #1015), but do NOT quote an old run as current truth.
+- When the owner has already merged the PR, `state=MERGED` with `mergeable`/`mergeStateStatus = UNKNOWN` is NORMAL, not a defect — those fields are meaningless post-merge. The verification is then the repo truth: issue `state: closed` (closed by the adjacent `closes #N` body line) AND your squash commit present on `git log refs/remotes/origin/main`. A completion guard that keeps signalling "verification not passed" after `state=MERGED` is stale; the merged squash + closed issue IS the verification. Do not re-run CI on a merged PR.

@@ -1,0 +1,7 @@
+# Tasks — implementer-acceptance-form-contract
+
+- [x] 1. `agents/llgenie-issse-implementer/skills/software-development/llgenie-issue-to-pr/SKILL.md` (the active implementing skill, folded live→tree via #1060): add the acceptance-criteria form contract verbatim from #1796 #1 — every issue this lane files AND every PR body it opens has a `## Acceptance criteria` section, each criterion a `- [ ] ` markdown checkbox (one per provable outcome), never a bare `**Acceptance criteria:**` heading (#1644).
+- [x] 2. `openspec/changes/implementer-acceptance-form-contract/`: proposal.md + spec.md + tasks.md authored (change-first, AGENTS.md MANDATORY); `make openspec-validate NAME=implementer-acceptance-form-contract` + `make ci-openspec` pass.
+- [x] 3. Change-note trio (#1123): `docs/changes.d/2026-11-05-implementer-acceptance-form-contract-1812.md` + `agent-wiki/2026-11-05-implementer-acceptance-form-contract-1812.md`; `make changes-index` regenerates `CHANGES.md`.
+- [x] 4. `make check-docs` + `make lint` green at the branch head; PR body carries `closes #1812`, `## Acceptance criteria` (own contract applied to itself), `AGENTS:`/`BASE:` per #792/#845, `SYNC: llgenie-issse-implementer make sync-agent-profile PROFILE=llgenie-issse-implementer` per #1724.
+- [x] 5. Verify the live gate: `make check-pr-openspec-change` passes because the PR's own diff adds the `openspec/changes/implementer-acceptance-form-contract/` change (exemption 1 of #1807/#1810); `make check-pr-hygiene` green.
