@@ -572,3 +572,13 @@ ONE it is blocked on (scope/make check-docs: missing docs/changes.d change-note 
 A tracker whose 'how we fix it' or 'Technical' still says 'no vehicle' misleads the queue. Gate
 the rewritten body with missing()==[] + preserve tickable acceptance before PATCH; verify on-wire
 that the new section string is present.
+
+## A tracker with complete content can still fail the six-section gate via non-canonical headings - refine the headings, keep the content (2026-11-05, #1645)
+
+#1645 (docs-lane audit record home) had all the content but non-canonical headings
+('## Background & Goal', '## Current state', '## Acceptance') - issue_body.missing() flagged ALL
+six canonical headings missing despite a complete body. The refine: rewrite into Problem / Why
+it matters / How we fix it / Benefit / Acceptance criteria / Technical, preserving the measured
+evidence (sha 75f85118, change-note trio), 4 tickable checkboxes, ''## Technical'' last. This is
+the planner's refine-before-dispatch duty: a gate-failing body is not routable even when its
+content is right. A refined tracker must PASS missing()==[] live, not just in the draft.
