@@ -561,3 +561,14 @@ radius into the canonical tracker's body via PATCH (six-section gate missing()==
 so the fix PR's value = clearing the whole reactive cluster at the tip. This is the task-
 relative body mutation. A reactive-red's title field being empty does NOT mean un-attributed -
 the ci-verdict summary is the attribution source.
+
+## A tracked tracker must reflect its LIVE vehicle state - 'no vehicle' becomes stale the day the PR opens (2026-11-05, #1723/#1737)
+
+#1723 was written 'no vehicle after 7 dispatches' - then fix PR #1737 appeared (head 2293111fe,
+base==main b85901726). The tracker must be updated by PATCH (body-edit mutation) to record:
+vehicle PR number + branch + head, which gates it passes (check-pr-closing OK, guard x3) and the
+ONE it is blocked on (scope/make check-docs: missing docs/changes.d change-note row, run
+41941930296/job 126964690060), and the exact unblock (add change-note + agent-wiki, re-push).
+A tracker whose 'how we fix it' or 'Technical' still says 'no vehicle' misleads the queue. Gate
+the rewritten body with missing()==[] + preserve tickable acceptance before PATCH; verify on-wire
+that the new section string is present.
