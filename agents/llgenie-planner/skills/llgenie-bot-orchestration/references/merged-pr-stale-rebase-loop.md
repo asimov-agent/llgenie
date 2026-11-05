@@ -433,3 +433,15 @@ guard is satisfied by a real, verifiable, authoritative board record carrying th
 task's live CI evidence; never fabricate an id, always read the comment back by
 exact id (the filtered-list query returns [] on this repo even when the comment
 exists - verify by issues/<n>#issuecomment-<id> URL).
+
+## A duplicate tracker with the SAME run already cited in the canonical issue must be closed (2026-11-05, #1713→#1723)
+
+#1713 (top-tier red at #1705 tip, run 41898591469@90bab322) duplicated #1723, whose
+Problem names that exact run among its recurrence evidence. The completion harness
+flags audited-but-unclosed issues: closing it was the owed mutation. Rule: before
+leaving any open tracker, check whether a canonical open issue already cites its run
+(`gh api .../issues/<canonical> --jq .body | grep -c <runid>`); if the duplicate's open
+premise ("is it infra or drift?") is answered by the canonical root-cause, close it
+`state=closed state_reason=not_planned` with a comment naming the canonical issue +
+the run-id/label evidence. A thread that points at a number nobody owns is the stale-open
+defect; a close with evidence is a real, verifiable board mutation.
