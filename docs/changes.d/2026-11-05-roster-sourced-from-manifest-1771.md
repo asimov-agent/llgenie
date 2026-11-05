@@ -1,0 +1,1 @@
+| 2026-11-05 | docs-maintainer skill now sources a doc-named host-agent roster/count from `agents/manifest.json`/`make agent-profiles-report` and captions example trees as two-of-N (#1768 protocol) | [2026-11-05-roster-sourced-from-manifest-1771.md](agent-wiki/2026-11-05-roster-sourced-from-manifest-1771.md) | #1771 |
