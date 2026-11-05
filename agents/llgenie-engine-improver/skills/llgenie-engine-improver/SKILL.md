@@ -833,6 +833,25 @@ binary; the published image's serve/"hi" must be its own leg), plus the make-sea
 (drop `##` to be internal, add to `.PHONY`, pin with a workflow-structure test) — lives in
 `references/engine-install-leg.md`.
 
+**A red `make build-engine` cell is a closed loop with five mandatory steps — the lane is OWED the
+rebuild-and-republish follow-through, and a report must not stop at "classified + tracked".** When the
+engine-build matrix lands a red cell, resolve it end-to-end before it counts as done, as ONE sequence:
+(1) **open the failing leg's OWN log** — run id + job id + head sha — and quote its error line (a
+`conclusion` is a verdict, not a cause; the read-log-before-claim rule in SOUL); (2) **classify the leg**
+per `references/publish-run-adjudication.md`: a `build-engine` failure = image never built (real
+publish-path defect), a verify-gate red = `push-engine` SKIPPED → tag missing (acceptance gap, not
+verify-only), a `push-engine` success with a later `install-leg` red = image IS in GHCR, verify-class
+only — the class determines whether a re-publish is even owed; (3) **fix that cell only** — its
+params / Dockerfile / install-leg, never a sibling's cause generalized over the matrix (a multi-arch run
+can carry three unrelated root causes — read each cell's own log); (4) **re-dispatch the SINGLE
+engine×arch** (`gh workflow run 395994204 --ref <branch> --field engine=<id> --field arch=<backend>`,
+mechanics in `references/engine-build-proof-dispatch.md`) with `push=true` only when the fix touches a
+publish-path input — **never a full `engine="" arch=""` sweep** — and quote the new run id; (5)
+**confirm the fresh GHCR tag before calling the cell resolved** — probe
+`scripts/ghcr_publish_probe.sh <leaf> <tag>` → `PUBLISHED`, because a missing tag is
+indistinguishable from never-built. A cross-invocation base no longer forces a full sweep: the
+internal-stage base (#1753/#1756) means a republish of ONE cell republishes only that cell at its ref.
+
 This profile's behaviour is itself a repo artifact (`agents/<profile>/SOUL.md`, manifest and gate):
 `references/agent-profile-soul.md` — including why a `SOUL.md` write needs explicit user approval and
 must not be routed around, the gate's rule that the tree SOUL must be a SUPERSET of the live profile's
