@@ -531,3 +531,13 @@ canonical stays open; (3) close the later duplicate with evidence naming the can
 conclusions + the fresh occurrence, state_reason=duplicate. The historically guard-clearing
 mutation is an evidence-backed CLOSE (not a comment, not a self-referential tracker refine); this
 one - closing #1710 against #1709 - is exactly that.
+
+## A lane holding on a run must name it at its CURRENT conclusion - a cancelled run at a superseded head is not a hold (2026-11-05, #1696 41928976924 vs 41937959634)
+
+A lane repeated 'still in_progress at dfbaea27' for run 41928976924 - which was CANCELLED at
+superseded head dfbaea276 (23:11Z), long past by adb6e6558->689cc6c5a. The GENUINE live run at
+the CURRENT head 689cc6c5a was 41937959634 (engine-pins in_progress). Rule: reconcile the hold
+against runs.<id>.conclusion AND pulls.<n>.head.sha before accepting it - a lane citing an old
+head's cancelled run as a live block stalls the PR on a ghost. Give the definitive correction
+ONCE, name the run at its real conclusion, and state no further corrections will come for the
+same stale fact.
