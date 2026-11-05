@@ -70,7 +70,7 @@ class TestPrIsBehind:
 
 
 class TestMain:
-    def _patch(self, monkeypatch, prs, sync_result=True, comments=None, post_ok=True):
+    def _patch(self, monkeypatch, prs, sync_result=True, comments=None, post_ok=True, dead=False):
         monkeypatch.setattr(ebr, "open_engine_bump_prs", lambda: prs)
         monkeypatch.setattr(ebr, "pr_is_behind", lambda pr: pr.get("_behind", True))
         synced = []
@@ -78,7 +78,14 @@ class TestMain:
                             lambda pr, repo, run_git, log: synced.append(pr["number"]) or sync_result)
         # the claim protocol: the comments are read through the same api(), the claim goes out
         # through post() (issues #279/#285). Both are patched so no test touches the network.
-        monkeypatch.setattr(ebr, "api", lambda path: comments if comments is not None else [])
+        def _api(path):
+            # the dead-vehicle re-read (issue #1733) is a LIVE `/pulls/<n>` read: serve the
+            # re-read shape (open+unmerged by default), and the dead override returns merged.
+            if path and path.startswith("/pulls/"):
+                return ({"state": "closed", "merged": True} if dead
+                        else {"state": "open", "merged": False})
+            return comments if comments is not None else []
+        monkeypatch.setattr(ebr, "api", _api)
         self.posted = []
         monkeypatch.setattr(ebr, "post", lambda path, body: self.posted.append((path, body)) or post_ok)
         return synced
@@ -125,6 +132,30 @@ class TestMain:
         assert kinds == ["bot-claim:", "bot-done:"], self.posted
         assert "engine-bump-rebase" in self.posted[0][1]["body"]
         assert self.posted[0][0] == "/issues/202/comments"
+
+    def test_a_merged_pr_is_never_synced_and_releases_gave_up(self, monkeypatch, capsys):
+        """A PR merged between the sweep list and the push is a dead vehicle (issue #1733):
+        the force-push must not fire, and the release must say `gave-up`, never `rebased`."""
+        synced = self._patch(monkeypatch, [_pr(202, behind=True)], dead=True)
+        monkeypatch.setattr(ebr.sys, "argv", ["engine_bump_rebase.py"])
+        rc = ebr.main()
+        assert rc == 0
+        assert synced == [], f"a merged PR must not be synced/pushed: {synced}"
+        kind = self.posted[-1][1]["body"].split()[1]
+        assert kind == "bot-done:", self.posted
+        assert "engine-bump-rebase" in self.posted[-1][1]["body"]
+        out = capsys.readouterr().out
+        assert "refusing the force-push onto a dead" in out, out
+
+    def test_an_unreadable_pr_release_is_fail_closed(self, monkeypatch, capsys):
+        """A re-read that returns no PR is NOT a go signal — fail closed, never push (issue #1733)."""
+        synced = self._patch(monkeypatch, [_pr(202, behind=True)], dead=True)
+        monkeypatch.setattr(ebr, "api", lambda path: None)
+        monkeypatch.setattr(ebr.sys, "argv", ["engine_bump_rebase.py"])
+        rc = ebr.main()
+        assert rc == 0 and synced == [], f"an unreadable PR must not be synced: {synced}"
+        out = capsys.readouterr().out
+        assert "could not re-read the PR on the live API" in out, out
 
     def test_a_pr_another_bot_holds_is_left_alone(self, monkeypatch, capsys):
         """A claim on the PR means someone is on it: a fresh one blocks, whatever bot posted it."""

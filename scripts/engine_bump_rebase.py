@@ -95,6 +95,28 @@ def held_by_another_bot(n: int) -> str | None:
                                ttl=bot_claims.PR_CLAIM_TTL)
 
 
+def dead_vehicle_reason(n: int) -> str | None:
+    """A closed / merged / unreadable PR the force-push must not touch, or None (issue #1733).
+
+    `sync_pr_with_main` then force-with-lease-pushes to the branch, and `--force-with-lease`
+    guards a moved branch TIP, not a closed/merged PR: a PR can MERGE between the API list this
+    script read at the top of the loop (`/pulls?state=open`) and the sync push a moment later. A
+    push onto a MERGED PR's branch is an incident-class action on a dead vehicle — the push is
+    discarded, the merge state reads as a null-state trap, and the loop re-verifies a closed PR.
+    Re-read the LIVE PR at the only moment that matters and refuse on closed / merged / unreadable.
+    """
+    pr = api(f"/pulls/{n}")
+    if not isinstance(pr, dict):
+        return "could not re-read the PR on the live API — refusing the force-push (fail closed)"
+    state = pr.get("state")
+    merged = pr.get("merged")
+    if state != "open" or merged is True:
+        return (f"PR #{n} is no longer open at push time "
+                f"(state={state!r} merged={merged!r}) — refusing the force-push onto a dead "
+                f"vehicle (issue #1733)")
+    return None
+
+
 def claim(n: int) -> bool:
     return post(f"/issues/{n}/comments", {"body": bot_claims.claim_comment(
         BOT, "rebase", dt.datetime.now(dt.timezone.utc), ttl=bot_claims.PR_CLAIM_TTL)})
@@ -159,6 +181,14 @@ def main() -> int:
         # rebase-bot) can see it is taken; release below, whatever the outcome.
         if not claim(n):
             log(f"  PR#{n} ({ref}): could not post the claim — left alone (the protocol is the point)")
+            continue
+        # A PR can MERGE between the `state=open` list above and this sync push (issue #1733).
+        # Re-read the LIVE PR at the only moment that matters and refuse a dead vehicle before
+        # `sync_pr_with_main` force-with-lease-pushes onto its branch.
+        dead = dead_vehicle_reason(n)
+        if dead:
+            log(f"  PR#{n} ({ref}): {dead}")
+            release(n, ok=False)  # a `gave-up` marker, never `rebased`
             continue
         ok = bool(sync_pr_with_main(pr, args.repo, lambda *a: run_git(args.repo, *a), log))
         release(n, ok)
