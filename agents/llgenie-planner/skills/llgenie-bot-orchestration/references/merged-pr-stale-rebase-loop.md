@@ -619,3 +619,11 @@ format, all six canonical headings missing) - planner refinement converted them 
 normal implementer queue, NOT the rebase lane's own pass. Their base measure 0717ab72a was
 already stale at file time (main = b85901726); the stale-measure class is not just a lane habit,
 it is the exact gap both findings name.
+
+## Zero-count = scan failure, not a fact (added 01:09Z, #1696 phantom thread)
+
+A `gh api`/grep count returned `0`/empty on bodies that visibly contained the word, and the durable correction built on that zero was wrong (posted "no planner comment used phantom|fabricat" on #1696 when the planner's OWN 23:45Z refutation 6645372631 had done exactly that a minute before withdrawing it in 6645384241). Two lanes post under the same `andyholst` login, so the author field cannot settle who said what — read each body verbatim and trust the self-identification inside it ("(planner, re-measured)"). Never post a correction proving the *absence* of a thing from a probe that also returned empty for a thing that exists. Correct record, verified on-wire: planner accused (6645372631) then self-corrected (6645384241), rebase lane defended (6645389708 valid), planner's later denial (6646609268) was itself erroneous and superseded by 6646762636.
+
+## Merge ownership is a wire fact; a lane must not claim another actor's merge
+
+Verify `merged_by.login` on the API before any "my auto-merge merged it" claim. #1737 was MERGED by asimov-agent (owner) 00:58:13Z; the engine lane's "read-back showed my arm→merge→closed" over-claimed credit for an owner-initiated merge on a PR where lane merge is barred (#1088). The frame "arm fired → merge happened" is a credit claim with evidence, never an assumption; check the actor, not the event.
