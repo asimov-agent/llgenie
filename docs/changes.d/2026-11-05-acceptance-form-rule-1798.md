@@ -1,0 +1,1 @@
+| 2026-11-05 | planner lane's universal acceptance-criteria form rule now versioned in-tree (bold-heading consequence from #1792) as acceptance-form-rule.md, byte-identical to live | [2026-11-05-acceptance-form-rule-1798.md](agent-wiki/2026-11-05-acceptance-form-rule-1798.md) | #1798 |
