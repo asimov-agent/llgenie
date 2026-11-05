@@ -407,3 +407,15 @@ concluding the merge failed; read the verdict job's log (RUN_ID the verdict
 evaluates) - a ci-verdict failure names the run it reacted to, which may be a
 different PR's head. Then a merge-verify that turns up only tracked/un-caused
 reds is a PASS, and that verdict is itself the completed duty to record.
+
+## A lane can propose a 'watch' on an unsuperseded head OF A MERGED PR (2026-11-05, #1726 update)
+
+The rebase lane reported a standing watch at head 5073c7ee with 'base==current main
+f9715e3c' - but #1726 was MERGED 0717ab72a (23:14:07Z), its live head is 756686c75,
+5073c7ee is neither #1726's head nor any open PR's head, and f9715e3c is the #1728
+docs merge, not current main (1ea27e95d). A 'watch' placed on a git object that
+leads NO open PR is a dead-vehicle watch; a base claim on a pre-merge sha is a
+stale-anchor base. Correct it: name the merged PR + merge sha + live head, verify
+the watched sha actually leads an open PR (open-heads query), and state current
+main at measure time. Never rebase/re-open a merged PR, never watch a head with no
+vehicle.
