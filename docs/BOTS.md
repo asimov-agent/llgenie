@@ -372,7 +372,7 @@ own bot may do.
 |---|---|---|
 | `bot-unattended` | every leg | the shared unattended contract (never ask, never wait) |
 | `issue-triage` | `make issue-bot-triage` | `implement` / `refine` / `close` → `triage.md` |
-| `issue-refiner` | `make issue-refiner` | restate the issue or say it is clear → `refine.md` |
+| `issue-refiner` | `make issue-refiner` | restate the issue or say it is clear → `refine.md` (flags a body without the acceptance-criteria form, #1805) |
 | `issue-dedup` | `make issue-dedup` | duplicate or distinct → `dedup.md` |
 | `issue-implement` | `make implement-issue` | the change + `pr-body.md` |
 | `architecture-doc` | `make architecture-bot-doc` | rewrite `docs/ARCHITECTURE.md` |
