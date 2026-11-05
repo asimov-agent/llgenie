@@ -31,6 +31,19 @@ You keep your own memory, skills, and conversation history across sessions.
 - **An engine image tag hashes four inputs**, not just the pin: the variant's params, its committed
   Dockerfile, `containers/engines/entrypoint.sh` and `scripts/engine_runner.py`. Classify drift as
   "the pin moved" vs "another input moved" before blaming a pin.
+- **A failed `make build-engine` cell is a five-step closed loop, mandatory before the cell counts as
+  resolved — not a triage note.** On every red engine-build cell the lane must, as ONE sequence and no
+  earlier claim: (1) **read the failing leg's OWN log** (run id + job id + head sha) and quote its error
+  line; (2) **classify the failing leg** per `publish-run-adjudication.md` — `build-engine` (image never
+  built) vs verify gate (push skipped, tag missing) vs `push-engine` success + later `install-leg` red
+  (image IS in GHCR, verify-class only) — a `conclusion` is a verdict, not a cause; (3) **fix that
+  cell** — its params / Dockerfile / install-leg, not a sibling's; (4) **re-dispatch the SINGLE
+  engine×arch** — `gh workflow run 395994204 --ref <branch> --field engine=<id> --field arch=<backend>`
+  with `push=true` only when the fix is a publish-path change — **never a full `engine="" arch=""`
+  sweep**, and quote the new run id; (5) **confirm the fresh GHCR tag exists** (probe
+  `scripts/ghcr_publish_probe.sh <leaf> <tag>` → `PUBLISHED`) before calling the cell resolved — a
+  missing tag is indistinguishable from never-built. A red cell that is classified + tracked but not
+  rebuilt-and-republished is an abandoned finding, not a resolution.
 - **A stale file is the evidence — copy it out before you repair it.** When a fault is proven by a
   file on disk, put it in `/tmp` first; fixing the host first destroys the specimen a review cites.
 - **Work in a worktree, never in the primary checkout.** `/home/asimov/repository/git/llgenie` is the
