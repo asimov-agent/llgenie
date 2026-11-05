@@ -254,3 +254,97 @@ def test_a_bare_self_tick_with_no_proven_is_RED():
 
     assert any(f["key"] == "tick-unprovable" for f in g.acceptance_verdict(issue, _pr("closes #1000"), 1000))
 
+# --- squash-text closes are held too (issue #1815) --------------------------------------------------
+# GitHub's native close-on-merge reads the SQUASH commit text, so a `(closes #N)` that lives only in
+# the commit messages (never the PR body) is a real close that would auto-close a multi-lane rollout
+# umbrella while its criteria are unticked (measured: #1813 `(closes #1812)` → #1812 auto-closed 0/5,
+# 1/3 lanes merged). The gate must derive the linked-issue set from BOTH texts.
+
+
+def test_linked_issue_numbers_is_negation_aware():
+    # "does not close #N" / "won't close #N" are NOT closes — a lane naming an umbrella without
+    # closing it must not be held to its unticked criteria as if it had.
+    assert g.linked_issue_numbers("closes #1\ndoes not close #1812\n") == [1]
+    assert g.linked_issue_numbers("won't close #1812\ncloses #2\n") == [2]
+    assert g.linked_issue_numbers("without closing #1812\ncloses #3\n") == [3]
+
+
+def test_linked_issue_numbers_keeps_affirmative_close():
+    assert g.linked_issue_numbers("closes #9 on its own line\n") == [9]
+
+
+def test_linked_squash_numbers_reads_the_squash_text():
+    # The #1813 shape: the close keyword is in the COMMIT MESSAGE (`(closes #1812)`), not the body.
+    messages = ["agents(pr-merge-conflict): state the form contract (closes #1812)\n\nEvery issue..."]
+    assert 1812 in g.linked_squash_numbers(messages)
+
+
+def test_squash_text_only_close_is_part_of_the_held_set():
+    # A body that names nothing but whose squash text closes an umbrella must STILL hold the umbrella —
+    # union, not body-only.
+    closed_body = set(g.linked_issue_numbers("a docs-only change with no close\n"))
+    closed = set(g.linked_issue_numbers("")) | set(g.linked_squash_numbers(
+        ["fix: (closes #1812)\n"]))
+    assert 1812 in closed and 1812 not in closed_body
+
+
+def test_cli_check_holds_a_squash_only_umbrella_close(tmp_path, monkeypatch):
+    """A real repo whose commit message closes #1812 (never the body) is held at merge time.
+
+    Prove-the-guard: on the pre-fix gate this is green (the gate only read the body and saw no
+    close), on the fix it is RED because the squash-text close is in the held set and #1812's
+    criteria are unticked.
+    """
+    import subprocess as _sp
+
+    def git(*a, cwd=None):
+        e = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
+             "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com", "HOME": "/tmp"}
+        return _sp.run(["git", *a], capture_output=True, text=True, cwd=cwd, env=e)
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git("init", "-q", "-b", "main", cwd=repo)
+    (repo / "f").write_text("base\n")
+    git("add", "-A", cwd=repo); git("commit", "-qm", "base", cwd=repo)
+    git("checkout", "-q", "-b", "feat", cwd=repo)
+    (repo / "g").write_text("change\n")
+    # The close keyword lives ONLY in the commit message — the #1813 shape.
+    git("add", "-A", cwd=repo)
+    git("commit", "-qm", "agents(pr-merge-conflict): state the contract (closes #1812)\n", cwd=repo)
+    head = git("rev-parse", "HEAD", cwd=repo).stdout.strip()
+    base = git("rev-parse", "main", cwd=repo).stdout.strip()
+
+    # Fake gh answers `issue view 1812 --json body` with an unticked umbrella (0/2 criteria).
+    _fake_gh(tmp_path, _issue(ticked=[], total=2), monkeypatch)
+
+    body = tmp_path / "pr.md"
+    body.write_text("a docs-only body that never mentions #1812\n")
+
+    rc = run_cli(["check", "--body-file", str(body), "--base", base, "--rev", head,
+                  "--cwd", str(repo)])
+    assert rc != 0, "a squash-text-only close on an unticked umbrella must be held (issue #1815)"
+
+
+# --- the acceptance-gate workflow steps pass the live squash range (issue #1815) ----------------
+# A body-only CI fix must clear on rerun; the squash union requires the guard step to export
+# PR_BASE/PR_HEAD and refresh origin/main (the #1589 live read) or the closes never include the
+# squash text. A regression to the body-only step would silently drop the umbrella guard on the
+# PR runs that matter (docs-only bot PRs skip linux/unit).
+
+
+def test_the_ci_guard_and_scope_steps_pass_the_squash_range():
+    for rel in (".github/workflows/ci.yml", ".github/workflows/scope.yml"):
+        text = (REPO / rel).read_text()
+        start = text.find("make check-pr-acceptance (a merged PR")
+        step = text[start:]
+        nxt = step.find("\n      - name:")
+        step = step if nxt < 0 else step[:nxt]
+        run = step.split("run: |", 1)[1] if "run: |" in step else step
+        # live-body read (issue #1589) AND the squash range + live origin/main fetch
+        assert 'gh api "repos/$PR_REPO/pulls/$PR_NUMBER"' in step, rel
+        assert "PR_BASE: origin/main" in step, rel
+        assert "PR_HEAD:" in step, rel
+        assert "git fetch --no-tags --prune origin main" in run, rel
+        assert "make check-pr-acceptance" in run, rel
+        assert "${{" not in run, rel
