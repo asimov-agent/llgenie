@@ -38,6 +38,36 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import bot_claims
+import issue_body  # the one issue shape (#745): the refine path must never silently accept a body without it
+
+#: The flag the refine path appends when a hand-authored issue's body lacks the acceptance form.
+#: It is emission of a FINDING (issue #1805), not a rewrite — the refiner never edits a human's
+#: body; it tells the review agent the form is missing so the RESTATED spec carries tickable
+#: `- [ ]` criteria. Already-conforming bodies (issue_body.missing == []) are left byte-identical.
+REFINE_FORM_FLAG = """\
+## Acceptance-criteria form (issue #1796 #3)
+
+The issue body above does not carry the repository's acceptance-criteria form. Measured by
+`issue_body.missing()` (reused, never restated):
+
+{findings}
+
+A hand-authored issue must reach the endpoint with a canonical `## Acceptance criteria` heading
+whose criteria are `- [ ]` checkboxes — one per provable outcome (issue #745). When you `RESTATED:`
+below, include that section with tickable checkboxes so "done" is a list a reviewer can tick.
+"""
+
+
+def acceptance_form_flag(body: str) -> str:
+    """The flag for a hand-authored issue body that lacks the acceptance form, else ''.
+
+    ``issue_body.missing()`` names every shape defect; an empty finding list means the body already
+    conforms and nothing is emitted (a producer-rendered issue passes through unchanged)."""
+    findings = issue_body.missing(body or "")
+    if not findings:
+        return ""
+    items = "\n".join(f"- {f}" for f in findings)
+    return REFINE_FORM_FLAG.format(findings=items)
 
 #: The bot's own PRs are the implementer's; this bot's work is counted by its LABEL instead.
 BOT_AUTHOR = "github-actions[bot]"
@@ -206,6 +236,9 @@ def render(detail: dict, comments: list[dict]) -> str:
     if labels:
         meta.append("labels: " + ", ".join(labels))
     lines += [" · ".join(meta), "", "## Issue body", "", (detail.get("body") or "").rstrip(), ""]
+    flag = acceptance_form_flag(detail.get("body") or "")
+    if flag:
+        lines += [flag.rstrip(), ""]
     lines += [f"## Comments (oldest first, {len(comments)})", ""]
     if not comments:
         lines += ["_No comments: the body is everything a reader has._", ""]
