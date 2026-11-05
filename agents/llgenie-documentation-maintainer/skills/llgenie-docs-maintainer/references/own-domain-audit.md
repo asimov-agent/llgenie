@@ -45,14 +45,21 @@ drift, not the version number alone.
 ## Check 3 — change-note coverage (#1123)
 
 For each recent merge that touched a notified surface (`docs/**`, `scripts/`, workflows, Makefile
-targets, `agents/**`), confirm its full trio exists **at the tip**:
+targets, `agents/**`), confirm its full trio exists **at the tip**. **Enumerate the real fragment
+names — do not guess the slug from the PR title.** Fragment filenames are `<date>-<their-slug>-<issue>.md`
+and the slug is authored, not derived from the title, so `grep '<title-derived-stem>'` returns nothing
+for a fragment that exists and you read a false MISSING:
 
-    git ls-tree -r --name-only <tip> docs/changes.d/ | grep <stem>   # fragment
-    git ls-tree -r --name-only <tip> agent-wiki/          | grep <stem>   # note
-    git show <tip>:CHANGES.md                              | grep <stem>   # indexed row
+    git ls-tree -r --name-only <tip> docs/changes.d/ | grep -- '-<issue>\.md$'   # locate by IS issue number
+    git ls-tree -r --name-only <tip> agent-wiki/          | grep -- '-<issue>\b'   # note
+    git show <tip>:CHANGES.md                              | grep -- '-<issue>'      # indexed row
 
-Then run the gate itself at the tip: `python3 scripts/check_docs.py check` — expect rc=0, and a
-`fragments == notes` count in its summary line. A merge is doc-current only when all three resolve.
+Matching on the trailing issue number is stable across slug renames; matching on a remembered stem is
+not. **The gate is the source of truth, a guessed stem is not:** run `python3 scripts/check_docs.py
+check` at the tip and expect rc=0 with a `fragments == notes` count in its summary (`[changes-index]
+ok: <N> fragment(s) index every agent-wiki/ note`). If your per-merge grep says MISSING but the gate
+is green, the **grep was wrong** — you guessed a slug, you did not find a gap. Never file a
+change-note finding off a stem you invented; a real gap makes the gate itself red.
 
 ## Deliverable and the missing tracker
 
