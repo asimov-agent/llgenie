@@ -593,3 +593,15 @@ and let the owning lane fold the fresh in_progress run id into #1709's evidence 
 A fresh occurrence of a LIVE class is not a settled duplicate - but it is still one tracker per
 class, not one tracker per alarm. One canonical open tracker + closed duplicates beats N open
 trackers all recording the same class. #1710 is the same precedent, #1250 is the churn both avoid.
+
+## A docs-gate fix vehicle comes green the moment the implementer lands the change-note - re-measure the RUN not the comment (2026-11-05, #1737 8bc3be7d9)
+
+#1737 (the #1723 top-tier fix) sat at head 2293111fe with scope/check-docs FAILURE because the
+PR diff had NO docs/changes.d row. After the implementer re-pushed 8bc3be7d9 with
+docs/changes.d/2026-11-04-per-owner-top-tier-strict-order-1723.md + the agent-wiki note, the
+gates re-ran: scope now in_progress (not failure), guard x3 + holds + ci-images SUCCESS, linux
+matrix live (unit, install, lint, cpu-health, agents-read, openspec in_progress; top-tier(none)
+SUCCESS). Lesson: when the fix vehicle's remaining gate is a body/docs change, the gate is
+cleared by the NEXT RUN at the new head - verify check-runs at the CURRENT head sha, not the
+comment you posted. The planner's job at that point is to watch the linux matrix complete and
+quote the finished top-tier (run) SUCCESS at base==b85901726 for the acceptance.
