@@ -66,6 +66,13 @@ CHANGELOG_HEADING_RE = re.compile(r"^#{1,6}\s+(?:change\s?log|changelog|recent c
                                   re.M | re.I)
 # A markdown link to a work record, as `CHANGES.md` writes them.
 WIKI_LINK_RE = re.compile(r"\]\((?:\./)?agent-wiki/([^)\s]+\.md)\)")
+
+# A literal git conflict marker line — never valid inside the rendered index. `CHANGES.md` is
+# the one contended rendered line: two concurrent PRs can both add a row to the same single
+# line and a manual resolve can commit the merge markers instead of the re-render (issue
+# #1103), so `make check-docs` passed green on a corrupted index (issue #1762). A conflict
+# marker is not a change record — red the render and name the line.
+CONFLICT_MARKER_RE = re.compile(r"^(<<<<<<<|=======|>>>>>>>)", re.M)
 # A markdown link the README uses to reach a reference document.
 DOC_LINK_RE = re.compile(r"\]\((?:\./)?(docs/[^)\s]+\.md)\)")
 
@@ -295,6 +302,13 @@ def problems(info: dict) -> list[str]:
     for name in info["changes_links"]:
         if name not in known:
             errors.append(f"{CHANGES}: links {WIKI_DIR}/{name}, which does not exist")
+    if CONFLICT_MARKER_RE.search(info["changes"]):
+        for line_no, line in enumerate(info["changes"].splitlines(), 1):
+            if CONFLICT_MARKER_RE.match(line):
+                errors.append(
+                    f"{CHANGES}:{line_no}: literal conflict marker {line[:7].strip()!r} "
+                    f"— re-render from {FRAGMENTS}/ with `make changes-index` instead of committing it"
+                )
     if not info["changes"]:
         errors.append(f"{CHANGES} does not exist — it is the index of the {WIKI_DIR}/ work records")
     elif not re.search(r"\]\((?:\./)?CHANGES\.md\)", info["readme_text"]):
