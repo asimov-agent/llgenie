@@ -498,6 +498,18 @@ BASE_LINE = re.compile(r"^BASE:\s+([0-9a-f]{7,40})\s+\(==\s*origin/main at open\
 #: propagation happened rather than just a commit. Each line names exactly one profile + its command.
 SYNC_LINE = re.compile(r"^SYNC:\s+([A-Za-z0-9_-]+)\s+make sync-agent-profile PROFILE=\1\s*$", re.M)
 
+#: The `OPENSPEC:` body line issue #1807 adds: an implementing PR with no openspec/ diff of its own may
+#: deliberately name the active change it implements against, so a legitimately change-less PR opts out
+#: explicitly instead of by silence. One name per line, matched literally against the ACTIVE change dirs.
+OPENSPEC_REF = re.compile(r"^OPENSPEC:\s+([A-Za-z0-9_-]+)\s*$", re.M)
+
+
+def pr_openspec_change_findings(root: Path, head: str, base: str, body: str) -> list[dict]:
+    """`openspec_change_findings`, but only for a range that carries bot work — the gate's real entry point."""
+    if not is_bot_pr(root, base, head):
+        return []
+    return openspec_change_findings(root, head, base, body)
+
 
 def range_authors(root: Path, base: str, head: str) -> list[str]:
     """The author emails of the commits this PR adds, `--no-merges` so `refs/pull/N/merge` cannot hide them."""
@@ -639,6 +651,78 @@ def sync_line_findings(root: Path, head: str, base: str, body: str) -> list[dict
     }]
 
 
+def openspec_change_findings(root: Path, head: str, base: str, body: str) -> list[dict]:
+    """An implementing bot PR must carry (or name) its own OpenSpec change (issue #1807).
+
+    `ci-openspec` validates the STRUCTURE of every ACTIVE change (`openspec-validate-all`) and asserts
+    none has an unchecked task (`openspec-tasks-check`), but both only iterate EXISTING changes — a PR
+    that implements work with no openspec/ change at all is structurally invisible and CI-green. AGENTS.md
+    (lines 27-53, MANDATORY) requires every change to start as an OpenSpec change created before the
+    branch. This gate closes the presence half: a bot implementing PR's final diff must add a file under
+    `openspec/changes/<name>/`, or the body must name one it implements against (`OPENSPEC: <name>`), or
+    the PR must be a pure docs/regen change (nothing to spec-track). No re-validation here — the existing
+    two gates own structure and ticks (no hand-rolled change validation, no weakening of either).
+    """
+    changed = _pr_files(root, base, head)
+    if not changed:
+        return []
+    # pure docs / regen / change-note trio: nothing product to spec-track
+    if all(_is_docs_only(p) for p in changed):
+        return []
+    # the PR's own diff adds an openspec/changes/<name> change dir
+    if any(p.startswith("openspec/changes/") and not p.startswith("openspec/changes/archive/") for p in changed):
+        return []
+    # the body deliberately names an ACTIVE change it implements against
+    named = OPENSPEC_REF.findall(body or "")
+    active = set(_active_change_names(root))
+    if any(n in active for n in named):
+        return []
+    return [{
+        "key": "openspec-change",
+        "where": "PR diff",
+        "detail": "this PR changes product code but adds no file under `openspec/changes/` and names no "
+                  "existing change — AGENTS.md requires every change to start as an OpenSpec change: "
+                  "run `make openspec-new NAME=<kebab-name>` before implementing, or add a "
+                  "`OPENSPEC: <name>` body line naming the active change this PR implements against",
+    }]
+
+
+def _pr_files(root: Path, base: str, head: str) -> list[str]:
+    """Every path the PR's own range adds or modifies (`--name-only` of the merge-base..head diff)."""
+    anchor = _git(root, "merge-base", base, head) or base
+    out = _git(root, "diff", "--name-only", f"{anchor}..{head}")
+    return [line.strip() for line in (out or "").splitlines() if line.strip()]
+
+
+def _is_docs_only(rel: str) -> bool:
+    """A path is pure docs/regen if it is the change-note machinery or a doc surface — nothing to spec-track."""
+    return (
+        rel == "CHANGES.md"
+        or rel == "README.md"
+        or rel.startswith("docs/")
+        or rel.startswith("agent-wiki/")
+    )
+
+
+def _active_change_names(root: Path) -> list[str]:
+    """Currently-ACTIVE (non-archived) change dirs under openspec/changes/ that have a tasks.md.
+
+    Reuses the same convention `scripts/check_openspec_tasks.py::active_change_names` uses (an ACTIVE
+    change is a non-`archive` dir holding a `tasks.md`), kept local so this gate needs no import seam for
+    a pure directory read.
+    """
+    base = root / "openspec" / "changes"
+    if not base.is_dir():
+        return []
+    out = []
+    for p in sorted(base.iterdir()):
+        if not p.is_dir() or p.name == "archive":
+            continue
+        if (p / "tasks.md").is_file():
+            out.append(p.name)
+    return out
+
+
 def _git(root: Path, *args: str) -> str | None:
     r = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, check=False)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     return r.stdout.strip() if r.returncode == 0 else None
@@ -768,6 +852,11 @@ def main(argv=None) -> int:
     a.add_argument("--head", required=True, help="the PR head ref or sha")
     a.add_argument("--base", required=True, help="the PR base ref or sha")
     a.add_argument("--body-file", required=True, help="the file holding the PR body")
+    o = sub.add_parser("openspec-change", help="an implementing bot PR adds or names its own OpenSpec change (issue #1807)")
+    o.add_argument("--root", default=str(REPO_ROOT))
+    o.add_argument("--head", required=True, help="the PR head ref or sha")
+    o.add_argument("--base", required=True, help="the PR base ref or sha")
+    o.add_argument("--body-file", required=True, help="the file holding the PR body")
     c = sub.add_parser("changes-index", help="a CHANGES.md row has a docs/changes.d/<stem>.md fragment, and no note appears twice (issue #1063)")
     c.add_argument("--root", default=str(REPO_ROOT))
     args = p.parse_args(argv)
@@ -794,6 +883,15 @@ def main(argv=None) -> int:
                 print(f"[check-pr-hygiene] {it['where']}: {it['detail']}", file=sys.stderr)
             return 1
         print("[check-pr-hygiene] OK: every changed agent profile reports its live re-sync (`SYNC:` line)")
+        return 0
+    if args.cmd == "openspec-change":
+        body = Path(args.body_file).read_text()
+        items = pr_openspec_change_findings(root, args.head, args.base, body)
+        if items:
+            for it in items:
+                print(f"[check-pr-hygiene] {it['where']}: {it['detail']}", file=sys.stderr)
+            return 1
+        print("[check-pr-hygiene] OK: the bot PR's diff adds (or the body names) its own OpenSpec change")
         return 0
     if args.cmd == "changes-index":
         items = changes_index_findings(root)

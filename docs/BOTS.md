@@ -812,6 +812,19 @@ It cannot run in the hermetic `ci-unit` chain (it needs the LIVE PR body and a l
 fetching that body via `gh api` (issue #1589); a push to main has no body and prints a `nothing to
 validate` note instead of failing. Implemented as issue #1724.
 
+`make check-pr-openspec-change` is the #1807 OpenSpec-presence preflight mounted in CI: `ci-openspec`
+(openspec-validate-all + openspec-tasks-check) validates the STRUCTURE and task ticks of every ACTIVE
+change, but both only iterate EXISTING changes — an implementing bot PR that adds no change dir is
+structurally invisible and CI-green. AGENTS.md (lines 27-53, MANDATORY) requires every change to start as
+an OpenSpec change (`make openspec-new NAME=<name>` before the branch). This gate closes the presence
+half: it refuses a bot PR whose final diff adds no file under `openspec/changes/<name>/` unless the body
+names an ACTIVE change it implements against (`OPENSPEC: <name>`) or the PR is a pure docs/regen change
+(nothing to spec-track). It never re-validates structure or ticks — the two existing openspec gates own
+those, and they are not weakened. It cannot run in the hermetic `ci-unit` chain (it needs the LIVE PR
+body and a live diff), so both `ci.yml`'s `guard` job and `scope.yml`'s docs gate run it beside
+`check-pr-sync-line`, fetching that body via `gh api` (issue #1589); a push to main has no body and
+prints a `nothing to validate` note instead of failing. Implemented as issue #1807.
+
 #### Each write uses the token that can perform it (issue #430)
 
 The PR step makes two different writes and needs two different tokens. `GH_TOKEN: ${{ github.token }}`
