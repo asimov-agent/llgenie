@@ -471,3 +471,17 @@ acceptance bullets - refining it (missing()==[] , 3 checkboxes) cleared the guar
 and then the previously-rejected #1088 board record landed on the same turn. Never
 'fix' the guard by crossing lane boundaries (implementer code) - body edits, evidence-
 backed closes, and shaped dispatches are the planner's real mutations.
+
+## The owned task-relative mutation when a tracked-class red recurs at a new merge tip: pin the fresh run (2026-11-05, #1723@b85901726)
+
+#1732 merged (b85901726) - and the tracked #1723 linux/top-tier failure REAPPARED at
+the new tip (run 41939115306, job 126955674736, same test_top_tier_acceptance.py:321
+'ccore picks must be high->lower'). That is the task-relative change the guard
+wanted: poll the in_progress matrix to conclusion, confirm the class (same assertion
+snippet - not 'assume it's the old one'), resolve the run id, and PIN it on the
+canonical tracker (#1723 comment 6645905877) with the new base pointer. The myth the
+guard rejects is ending a turn on 'waiting for top-tier'; the reality is to measure,
+name the run, re-dispatch the fixer onto the fresh base, and record it - even when
+the red is a pre-existing tracked class that everyone already knows about. A
+pre-existing class that recurs at EVERY new tip is the strongest signal the fix is
+the blocker, and re-pinning it is the planner's real work.
