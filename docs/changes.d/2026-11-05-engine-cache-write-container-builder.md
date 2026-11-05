@@ -1,0 +1,1 @@
+| 2026-11-05 | engine-build cache write stays on the docker-container builder: scripts/engine_image.py::_buildx() no longer forces `--builder default` when LLGENIE_CACHE_WRITE=1 (docker driver cannot export a registry cache) | [note](agent-wiki/2026-11-05-engine-cache-write-container-builder.md) | #1746 |
