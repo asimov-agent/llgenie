@@ -47,7 +47,11 @@ def _gh_stub(tmp_path: Path, monkeypatch) -> Path:
         "#!/usr/bin/env python3\n"
         "import json, os, sys\n"
         "open(os.environ['GH_STUB_LOG'], 'a').write(json.dumps(sys.argv[1:]) + '\\n')\n"
-        "if sys.argv[1:2] == ['api'] and any('labels' in a for a in sys.argv):\n"
+        "if sys.argv[1:2] == ['api'] and any('comments' in a for a in sys.argv):\n"
+        "    print(os.environ.get('GH_STUB_COMMENTS', '[]'))\n"
+        "elif '--state' in sys.argv and 'closed' in sys.argv and 'issue' in sys.argv:\n"
+        "    print(os.environ.get('GH_STUB_CLOSED', '[]'))\n"
+        "elif sys.argv[1:2] == ['api'] and any('labels' in a for a in sys.argv):\n"
         f"    print(os.environ.get('GH_STUB_LABELS', '{LOUD}'))\n"
         "elif 'list' in sys.argv[1:3]:\n"
         "    print(os.environ.get('GH_STUB_LIST', '[]'))\n"
@@ -349,3 +353,100 @@ def test_the_real_policy_and_labels_are_sane():
 
     # Then  it passes
     assert rc == 0
+
+
+def _scan_evidence_issue(number: int, finding) -> dict:
+    """A closed scan-evidence issue: the marker AND the acceptance round-trip line are in the body."""
+    body = si.body_for(finding, "https://github.com/o/r/actions/runs/1")
+    assert si.SCAN_EVIDENCE_ACCEPTANCE in body  # the template carries the round-trip acceptance
+    return {"number": number, "body": body, "labels": [], "title": "n"}
+
+
+def test_a_merged_pr_closes_never_clears_a_still_reported_scan_evidence_issue(tmp_path, monkeypatch):
+    """A closed-by-reference scan-evidence issue whose finding is STILL scanned is reopened, not cleared.
+
+    The #1693 defect: a merged PR's bare `closes #N` (no pipeline clearing comment) left the issue
+    closed while the finding persists. Reconcile must reopen it and flag that the merge-close did
+    not satisfy the acceptance box — never leave a live finding off the board (which would let the
+    next `apply` re-file it as a duplicate).
+    """
+    finding = si.Finding("CVE-1", "numpy", "1.0", "1.1", "critical", "trivy",
+                         component="component:python")
+    log = _gh_stub(tmp_path, monkeypatch)
+    monkeypatch.setenv("GH_STUB_CLOSED", json.dumps([_scan_evidence_issue(9, finding)]))
+    monkeypatch.setenv("GH_STUB_COMMENTS", "[]")  # closed by a merged PR, not by the pipeline
+
+    si.reconcile([finding], "o/r", run_url="https://github.com/o/r/actions/runs/42",
+                 sha="abc123")
+
+    calls = _calls(log)
+    reopens = [c for c in calls if c[:2] == ["issue", "edit"] and "9" in c]
+    comments = [c for c in calls if c[:2] == ["issue", "comment"] and "9" in c]
+    assert len(reopens) == 1, reopens
+    assert reopens[0][3:5] == ["--state", "open"], reopens
+    assert len(comments) == 1, comments
+    joined = " ".join(comments[0])
+    assert "does not satisfy a scan-evidence acceptance box" in joined, joined
+    assert "still reports this finding" in joined, joined
+
+
+def test_a_merged_pr_closed_issue_with_the_finding_gone_gets_the_run_sha_evidence_comment(
+        tmp_path, monkeypatch):
+    """The finding is genuinely absent on a real scan — post the run id + sha round-trip comment.
+
+    The merge-close skipped the honest #1646 comment; a later scan that no longer reports the
+    finding satisfies the box honestly, and the comment must name run id + sha (criterion #2).
+    """
+    finding = si.Finding("CVE-1", "numpy", "1.0", "1.1", "critical", "trivy",
+                         component="component:python")
+    log = _gh_stub(tmp_path, monkeypatch)
+    monkeypatch.setenv("GH_STUB_CLOSED", json.dumps([_scan_evidence_issue(9, finding)]))
+    monkeypatch.setenv("GH_STUB_COMMENTS", "[]")
+
+    si.reconcile([], "o/r", run_url="https://o/r/actions/runs/99", sha="deadbeef")
+
+    calls = _calls(log)
+    comments = [c for c in calls if c[:2] == ["issue", "comment"] and "9" in c]
+    assert len(comments) == 1, comments
+    joined = " ".join(comments[0])
+    assert "No longer reported by the latest scan" in joined, joined
+    assert "https://o/r/actions/runs/99" in joined, joined   # run id
+    assert "deadbeef" in joined, joined                       # sha
+
+
+def test_a_genuine_pipeline_clear_is_left_untouched(tmp_path, monkeypatch):
+    """A closed issue that DOES carry the pipeline's clearing comment is never acted on.
+
+    Criterion #4 — no behaviour change for the honest loop: reconcile reads CLEAR_COMMENT back from
+    the live tracker and skips issues the pipeline itself already cleared with evidence.
+    """
+    finding = si.Finding("CVE-1", "numpy", "1.0", "1.1", "critical", "trivy",
+                         component="component:python")
+    log = _gh_stub(tmp_path, monkeypatch)
+    monkeypatch.setenv("GH_STUB_CLOSED", json.dumps([_scan_evidence_issue(9, finding)]))
+    monkeypatch.setenv("GH_STUB_COMMENTS",
+                       json.dumps([{"body": "No longer reported by the latest scan "
+                                             "(https://o/r/actions/runs/1)."}]))
+
+    si.reconcile([finding], "o/r")  # even though the finding is still scanned, the clear stands
+
+    calls = _calls(log)
+    assert not [c for c in calls if c[:2] == ["issue", "edit"]], calls
+    assert not [c for c in calls if c[:2] == ["issue", "comment"]], calls
+
+
+def test_reconcile_dry_modifies_nothing(tmp_path, monkeypatch):
+    """`--dry` prints the merged-PR-close detection and defers every write (plan-first discipline)."""
+    finding = si.Finding("CVE-1", "numpy", "1.0", "1.1", "critical", "trivy",
+                         component="component:python")
+    log = _gh_stub(tmp_path, monkeypatch)
+    monkeypatch.setenv("GH_STUB_CLOSED", json.dumps(
+        [_scan_evidence_issue(9, finding), _scan_evidence_issue(10, finding)]))
+    monkeypatch.setenv("GH_STUB_COMMENTS", "[]")
+
+    si.reconcile([finding], "o/r", dry=True)
+
+    calls = _calls(log)
+    assert calls, "reconcile --dry must still READ the tracker"
+    assert not [c for c in calls if c[:2] == ["issue", "edit"]], calls
+    assert not [c for c in calls if c[:2] == ["issue", "comment"]], calls

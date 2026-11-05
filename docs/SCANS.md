@@ -100,10 +100,21 @@ never on a `pull_request`, whose findings belong to the PR) turns the reports in
 
 `make security-issues-plan` prints the same create/update/clear plan and mutates nothing.
 
+**A merged PR's `closes #N` never clears a scan-evidence box.** An acceptance line that says "the
+next scan closes this issue with the run that cleared it" is an evidence round-trip: only the
+pipeline's own loop may clear it, by commenting a genuine completed scan that no longer reports the
+finding (naming run id + sha). `make security-issues-reconcile` (run in the workflow right after
+`security-issues`) finds CLOSED issues that carry that acceptance but no pipeline clearing comment —
+the signature of a merged-PR reference close — and re-opens one the current scan still reports (the
+merge-close was premature and would otherwise re-file it as a duplicate) or posts the honest run+sha
+clearing comment on one it genuinely no longer does. Genuine pipeline clears are left untouched
+(issue #1693).
+
 | Target | What it does |
 |---|---|
 | `make security-issues-plan` | print the plan (no GitHub write) |
 | `make security-issues SLUG=owner/name RUN_URL=<link>` | create/update/close through `gh` |
+| `make security-issues-reconcile SLUG=owner/name RUN_URL=<link> SHA=<head sha> [DRY=1]` | never let a merged PR's bare `closes #N` clear a scan-evidence box — re-opens a still-reported finding or posts the run id + sha clearing comment (issue #1693) |
 | `make check-security-issues` | **The gate** (inside `make ci-unit`): `issue_severities` empty or not a subset of `fail_on`, a missing label, or a marker that does not round-trip fails |
 
 ## The remediation bot
