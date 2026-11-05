@@ -13,6 +13,13 @@ A leg that starts from a stale tree applies a rulebook nobody currently enforces
 beside `issue.md` rather than a claim it makes afterwards. `--check` re-derives the record and fails
 when it disagrees with the file on disk, which is what a CI step wants.
 
+Since #1782 the target ALSO surfaces the owner's profile-propagation obligation (issue #1724): when
+the working diff (`HEAD` vs `origin/main`) touches `agents/<profile>/`, it runs the CI gate's own
+`check_pr_hygiene.pr_sync_line_findings` over a prospective body. `BODY=<path>` (a `--body-file`)
+refuses the preflight when the body is missing/mis-citing a touched profile's `SYNC:` line; without a
+body yet it warns loudly; a non-profile or human-only range is silent. Every verdict names #1724 and
+the contract location `scripts/check_pr_hygiene.py:499`.
+
 Never a silent proceed: a checkout that cannot be brought to `origin/main` (dirty, or diverged with
 commits both ways) is an error naming the paths, not a warning.
 """
@@ -188,6 +195,29 @@ def stale_record(root: Path = REPO_ROOT, base: str = BASE) -> str | None:
     return None
 
 
+def sync_line_verdict(root: Path, head: str, base: str, body: str) -> list[dict]:
+    """The #1724 findings the would-be-pushed range carries — the gate's own function, imported.
+
+    `bot_preflight` IS the pre-push surface a lane runs before opening a PR (issue #792). A profile the
+    working diff touches with no matching `SYNC:` line is redded in CI by `make check-pr-sync-line`
+    (issue #1724) reading the LIVE PR body — the one source a hermetic preflight cannot reach. So we reuse
+    `check_pr_hygiene.pr_sync_line_findings` (the SAME function CI mounts, never a restated copy) over the
+    would-be body, and surface its verdict here so the lane hears it at preflight, not on the first red run.
+    """
+    from check_pr_hygiene import pr_sync_line_findings  # noqa: PLC0415  (local import keeps preflight standalone)
+    return pr_sync_line_findings(root, head, base, body)
+
+
+def render_sync_line_findings(items: list[dict]) -> str:
+    """One line per #1724 finding, naming the contract location (`check_pr_hygiene.py:499`)."""
+    lines = []
+    for it in items:
+        lines.append(f"  - {it.get('detail', it.get('key', 'profile-sync'))}")
+        lines.append("    (issue #1724; contract: scripts/check_pr_hygiene.py:499 — "
+                     "add a `SYNC: <p> make sync-agent-profile PROFILE=<p>` line per changed profile)")
+    return "\n".join(lines)
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="bot_preflight", description=__doc__)
     p.add_argument("--root", default=str(REPO_ROOT))
@@ -195,8 +225,18 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--check", action="store_true", help="fail when preflight.txt disagrees with the tree")
     p.add_argument("--no-write", action="store_true", help="measure and print, write no record")
     p.add_argument("--no-sync", action="store_true", help="fetch and measure, do not fast-forward")
+    p.add_argument("--body-file", default=None,
+                   help="the prospective PR body; when the working diff touches agents/<profile>/, its "
+                        "SYNC: lines are checked here (issue #1724), so a lane hears the verdict pre-push")
     args = p.parse_args(argv)
     root = Path(args.root).resolve()
+    body = ""
+    if args.body_file:
+        try:
+            body = Path(args.body_file).read_text()
+        except OSError as exc:
+            print(f"[bot-preflight] REFUSED: cannot read --body-file: {exc}", file=sys.stderr)
+            return 1
     try:
         if args.check:
             bad = stale_record(root, args.base)
@@ -211,6 +251,20 @@ def main(argv: list[str] | None = None) -> int:
         print(render(record), end="")
         print(f"[bot-preflight] OK: measured {args.base} ({record['agents_bytes']} b / "
               f"{record['agents_lines']} l of AGENTS.md, {record['agents_headings']} headings)", file=sys.stderr)
+        # #1724: surface the SYNC-line verdict a profile-touching PR will meet in CI (issue #1782).
+        findings = sync_line_verdict(root, "HEAD", args.base, body)
+        if findings and args.body_file:
+            print("[bot-preflight] REFUSED: the PR body is missing or mis-citing a required "
+                  "`SYNC:` line for a touched agent profile — CI `make check-pr-sync-line` will red it "
+                  "(issue #1724):", file=sys.stderr)
+            print(render_sync_line_findings(findings), file=sys.stderr)
+            return 1
+        if findings:
+            print("[bot-preflight] WARN: this branch changes an agent profile; the PR body must carry a "
+                  "`SYNC: <p> make sync-agent-profile PROFILE=<p>` line per touched profile or CI `make "
+                  "check-pr-sync-line` will red it (issue #1724; contract scripts/check_pr_hygiene.py:499):",
+                  file=sys.stderr)
+            print(render_sync_line_findings(findings), file=sys.stderr)
         return 0
     except PreflightError as exc:
         print(f"[bot-preflight] REFUSED: {exc}", file=sys.stderr)

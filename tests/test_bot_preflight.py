@@ -141,3 +141,82 @@ def test_a_refused_preflight_exits_non_zero_and_says_why(tmp_path: Path):
     plain = tmp_path / "not-a-repo"
     plain.mkdir()
     assert bp.main(["--root", str(plain), "--no-sync"]) == 1
+
+
+def _profile_commit(root: Path, rel: str, body: str, email: str = "support@docondee.com") -> str:
+    """Commit a change to a real path (e.g. `agents/<profile>/SOUL.md`) as a bot identity, on the current branch."""
+    path = root / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(body)
+    git(root, "add", "-A")
+    git(root, "-c", "user.name=Asimov Agent", "-c", f"user.email={email}",
+        "commit", "-q", "-m", f"work on {rel}")
+    return git(root, "rev-parse", "HEAD")
+
+
+def test_the_sync_line_verdict_reports_a_profile_touched_without_a_sync_line(repo: Path):
+    """#1782: a bot branch that touches agents/<profile>/ and offers no SYNC: line is a preflight finding."""
+    git(repo, "checkout", "-q", "-b", "leg")
+    _profile_commit(repo, "agents/llgenie-planner/SOUL.md", "new rule\n")
+    items = bp.sync_line_verdict(repo, "leg", "main", "Closes #1724.\n\nBody.\n")
+    assert [i["key"] for i in items] == ["profile-sync"]
+    assert "llgenie-planner" in items[0]["detail"]
+    assert "make sync-agent-profile" in items[0]["detail"]
+
+
+def test_the_sync_line_verdict_passes_when_the_body_carries_the_sync_line(repo: Path):
+    git(repo, "checkout", "-q", "-b", "leg")
+    _profile_commit(repo, "agents/llgenie-planner/SOUL.md", "new rule\n")
+    body = ("Closes #1724.\n\n"
+            "SYNC: llgenie-planner make sync-agent-profile PROFILE=llgenie-planner\n\nBody.\n")
+    assert bp.sync_line_verdict(repo, "leg", "main", body) == []
+
+
+def test_the_sync_line_verdict_is_silent_for_a_non_profile_change(repo: Path):
+    """#1782 acceptance: a derived non-profile PR is never flagged."""
+    git(repo, "checkout", "-q", "-b", "leg")
+    (repo / "scripts").mkdir(exist_ok=True)
+    (repo / "scripts/other.py").write_text("x = 1\n")
+    git(repo, "add", "-A")
+    git(repo, "-c", "user.name=Asimov Agent", "-c", "user.email=support@docondee.com",
+        "commit", "-q", "-m", "work on scripts")
+    assert bp.sync_line_verdict(repo, "leg", "main", "Closes #1724.\n\nBody.\n") == []
+
+
+def test_the_sync_line_verdict_is_silent_for_a_human_only_range(repo: Path):
+    """A human profile PR is not bot work; the CI gate (and preflight) skip it — mirror, not widen."""
+    git(repo, "checkout", "-q", "-b", "human-leg")
+    _profile_commit(repo, "agents/llgenie-planner/SOUL.md", "rule\n", email="andy.holst@protonmail.com")
+    assert bp.sync_line_verdict(repo, "human-leg", "main", "Closes #1724.\n\nBody.\n") == []
+
+
+def test_preflight_with_a_deficient_body_refuses_exit_non_zero(repo: Path, tmp_path: Path):
+    """#1782: a supplied prospective PR body that names the touched profile but omits its SYNC: line is refused."""
+    git(repo, "checkout", "-q", "-b", "leg")
+    _profile_commit(repo, "agents/llgenie-planner/SOUL.md", "new rule\n")
+    body = tmp_path / "body.md"
+    body.write_text("Closes #1724.\n\nBody without a SYNC line.\n")
+    rc = bp.main(["--root", str(repo), "--no-sync", "--no-write", "--base", "main",
+                  "--body-file", str(body)])
+    assert rc == 1
+
+
+def test_preflight_with_a_complete_body_passes(repo: Path, tmp_path: Path):
+    git(repo, "checkout", "-q", "-b", "leg")
+    _profile_commit(repo, "agents/llgenie-planner/SOUL.md", "new rule\n")
+    body = tmp_path / "body.md"
+    body.write_text("Closes #1724.\n\n"
+                    "SYNC: llgenie-planner make sync-agent-profile PROFILE=llgenie-planner\n\nBody.\n")
+    assert bp.main(["--root", str(repo), "--no-sync", "--no-write", "--base", "main",
+                    "--body-file", str(body)]) == 0
+
+
+def test_preflight_without_a_body_still_warns_loudly_on_a_profile_branch(repo: Path, capsys):
+    """No body yet is a loud WARN (the lane hears it pre-push), not a silent green preflight."""
+    git(repo, "checkout", "-q", "-b", "leg")
+    _profile_commit(repo, "agents/llgenie-planner/SOUL.md", "new rule\n")
+    rc = bp.main(["--root", str(repo), "--no-sync", "--no-write", "--base", "main"])
+    assert rc == 0
+    err = capsys.readouterr().err
+    assert "WARN" in err and "check-pr-sync-line" in err and "#1724" in err
+    assert "check_pr_hygiene.py:499" in err
