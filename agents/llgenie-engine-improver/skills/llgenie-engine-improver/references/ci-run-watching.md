@@ -200,6 +200,52 @@ run supplies no measured number). Report the run id, the cap, elapsed wall-clock
 step, then ask for a budget decision — raise `timeout-minutes` and re-dispatch, or mark that proof
 capacity-blocked — instead of blind-re-dispatching a third multi-hour run of the same class.
 
+## A cancelled WAIT-GATE (`engine-pins`) means UNPROVEN — read which tag is 404, and check the producer ever started
+
+`engine-pins` ("Wait until every repinned engine image is published") is not a build and not a test: it is a
+poller that loops up to ~290 min printing `[pins] PUBLISHED <tag>` / `[pins] NOT PUBLISHED <tag> (HTTP
+Error 404)` for every tag the pin-bump's params imply, then ends in whatever the babysitting run gives it.
+A red `engine-pins` is therefore read from its LOG, not its conclusion:
+
+- **A `cancelled` `engine-pins` is UNPROVEN, not a code red.** It proves only that some awaited tag was still
+  404 when the run was killed — typically the slow cuda/rocm cells — while the cpu tag already reads
+  PUBLISHED. Never report "the head is red / the rocm build fails" from a cancelled `engine-pins`; the
+  honest verdict is "tag `<leaf>:<pin>-<hash>-<variant>` is not published yet, so this head is unproven".
+- **Read the whole job log, not the tail.** `gh run view <rid> --job <jid> --log | grep '\[pins\]'` gives the
+  per-tag PUBLISHED/404 roster; the tail is checkout-cleanup noise (`##[error]The operation was canceled` then
+  orphan-process kills) that says nothing about WHY.
+- **A 404 is "not built/published yet", never "build broken".** Confirm with
+  `scripts/ghcr_publish_probe.sh` before drawing any build conclusion.
+
+**Before blaming the engine ("rocm never completes"), check the PRODUCER ran at this head.** The pin-bump
+PR's `engine-build-pr-trigger` starts the producer and waits on it; if that trigger itself is `cancelled`,
+the producer never ran, so the cells were never exercised — the "build never finishes" symptom is really
+"the build was never attempted". Enumerate `engine-build.yml` runs and confirm one exists at this head's sha
+(`head_sha` match) before attributing anything to the build. A missing producer + a cancelled wait-gate is a
+GATE-CHURN/idle problem (cancel-in-progress, frozen-reaper, or a babysitting cancel chain), not a compile
+defect — the fix is to re-run the trigger, not to edit params/Dockerfile.
+
+## `failure` + a frozen `in_progress` step + a 404 job log = a cell killed at the PROCESS level
+
+Distinguish this from the `cancelled` timeout case above by the **conclusion**: there the frozen
+`in_progress` step pairs with `conclusion: cancelled`; here it pairs with `conclusion: failure`. A cell can
+settle `failure` while its `make build-engine …` step still renders `in_progress` and the step list freezes
+there — that is neither a code error nor a timeout: it is the cell's own process killed mid-step (runner OOM,
+disk, or other resource eviction), so GitHub never sealed the step status or the log. Corroborate before
+deciding:
+
+- **A completed job whose job log 404s is the tell, not a transient.** `gh api .../actions/jobs/<jid>/logs`
+  answers 404 for a process-killed cell (its log was never finalized), whereas a normally-completed cell's
+  log fetches fine even while the run is still `in_progress` (a sibling cell building). Retrying the 404 will
+  not change it; do not read it as a rate-limit hiccup.
+- **Read live state from the job endpoint** (`actions/jobs/<jid>`), not the run's cached `--json jobs` step
+  render, which can keep serving a stale `in_progress` for a step that is really over.
+- **Cross-check a suspected resource kill against a local build of the same commit.** If a local
+  `make build-engine` of the identical tree compiles PAST the point where CI died (and keeps advancing — the
+  compiler-PID churn test above), the CI red is a runner capacity kill, not a defect in your diff. Report it
+  as a capacity finding (run id, elapsed wall-clock, the frozen step, the 404 log) and let a fresh cell retry;
+  never attribute it to the code change.
+
 ## A board-wide check (`holds`) is stale after the board moves — rerun the ORIGINAL run, don't dispatch
 
 The `holds` workflow audits the LIVE board, so a verdict it produced at your head becomes stale the
@@ -523,3 +569,73 @@ code path (the same or an equivalent head): if that cell passed `engine-launcher
 host's CDI state, not the code. A fix is "verified" only on the cells a host can actually execute the leg
 for: green non-CUDA install-legs (cpu/vulkan/rocm) prove the `~/bin` fix, while a cuda install-leg red on
 missing CDI proves the host gap — report both facts separately and attribute each to its owner.
+
+## A quiet local engine build is NOT a hang when the pip/editable stage is mid-compile
+
+A local `make build-engine` can appear frozen for ~2 h while it is genuinely busy: once it reaches the
+`uv pip install -e .` stage, the setuptools editable build is a **silent compile stage** (`backend.build_editable`
+spawning ninja -> nvcc/gcc/cc1plus/ptxas), and pip/setuptools buffer their output instead of streaming it the way
+buildkit's `#N` step lines do. The `docker-buildx` and `uv` processes sit `S`/futex_wait, the log's last line goes
+stale, and a tail-only or mtime-only probe reads "STALLED".
+
+Prove liveness by the **compiler processes, not the log**:
+`ps -eo pid,cmd | grep -E 'ptxas|nvcc|cc1plus|ninja'`. A live build shows steady multi-core CPU
+(roughly `-j N` cores busy) and a **churning PID set** — every finished kernel compile exits and a fresh
+nvcc/ptxas appears, so sample the PID set twice ~30 s apart and compare: all-new compiler PIDs = the build is
+advancing through kernels. Also read the tree shape (`uv -> backend.build_editable -> cmake --build -j=2 ->
+ninja -j 2 -> nvcc/gcc`): `-j 2` is the CUDA `MAX_JOBS=2` cap by design, so a 2-core steady load is exactly
+the intended slow path, not a stall. Note the compile object tree lives inside the buildkit container's mount
+namespace, so host-side `find` over `/root/.cache` returns nothing — do not use host object counts as liveness.
+A genuinely dead build, by contrast, shows zero compiler processes and no CPU for a sustained period, and
+fails with a real make error the moment you look. Never report "hung" from a frozen log tail alone.
+
+**Read HOW FAR it has come from the `.cu.o` names on the live nvcc command lines, not from object counts.**
+The compile tree and its ninja log live in root-owned namespaces you cannot read non-interactively, so do not
+try to count done edges:
+
+- The build runs under `runc --log /var/lib/docker/buildkit/executor/runc-log.json run --bundle
+  /var/lib/docker/buildkit/executor/<id> …` — **not** a `docker ps` container, so `docker exec` into it finds
+  nothing.
+- `/var/lib/docker/buildkit/executor/<id>` and `/proc/<ninja-pid>/cwd` answer **Permission denied** to your
+  user, and `sudo` here needs an interactive password (`sudo -n true` → "a password is required"), so the
+  precise `wc -l < .ninja_log` fraction is unavailable from an `execute_code` cell. Do not burn calls trying
+  to `cat` the ninja log; you will only get sudo-password errors.
+- Extract the exact kernels in flight instead: `ps -eo cmd | grep nvcc | grep -v grep | grep -oE
+  '[a-zA-Z0-9_]+\.cu\.o$' | sort -u`. The names (`flash_fwd_hdim192_fp16_sm80.cu.o`,
+  `flash_fwd_split_align_hdim256_bf16_causal_sm80.cu.o`, …) tell you which flash-attn hdim/phase/arch the build
+  has reached, which is the honest "how far" answer.
+- **A 30 s sampler that shows 0 kernels finished and 0 new is NOT a stall** when the two largest kernels
+  (hdim256 / split-align, minutes each under `-j 2`) occupy the whole window. Sample kernel-set twice ~30–60 s
+  apart and read the ADVANCE (hdim192+hdim256 mixing phases → both split-align) — monotonic kernel-advance, not
+  finished-in-30s, is the progress signal. Same lesson as the PID-churn test, applied to the kernel roster
+  instead of the PIDs.
+- When the user asks "how far has it come", give the current kernel names + elapsed + which extension group is
+  compiling (e.g. `_vllm_fa2_C` flash-attn leg) and a rough remaining estimate, and say the exact edge-count
+  needs a root shell — never invent a done/total fraction you could not read.
+
+## An owner "kill all CI" directive cancels EVERY in-flight run — enumerate across all workflows
+
+An owner directive to stop / kill the CI is an explicit override of the lane's "never cancel a live run"
+default and must be executed immediately — but cancel only what the enumeration finds, and enumerate ALL
+workflows, not just the one you were watching. A wedged trigger lives in `engine-build-pr-trigger.yml`,
+while `ci.yml` and `engine-build.yml` hold separate run ids; cancelling only "your" ci run leaves the
+trigger still holding its per-PR concurrency group, so nothing is really stopped.
+
+    for wf in ci.yml engine-build.yml engine-build-pr-trigger.yml; do
+      gh run list -R asimov-agent/llgenie --workflow=$wf --limit 15 \
+        --json status,databaseId,headSha \
+        --jq '.[]|select(.status=="in_progress" or .status=="queued" or .status=="pending")|[.databaseId,.status,.headSha[0:8]]|@tsv'
+    done
+    # then: gh run cancel <id>   for each id returned
+
+- **The status filter must include `pending` AND `queued` AND `in_progress`.** A run wedged in a
+  concurrency group reads `pending`; filtering on `in_progress` alone misses exactly the stuck trigger you
+  are trying to clear, and you report "all stopped" while it still holds the group.
+- **`gh run cancel` on a run stuck inside a `make …` await step can take up to a minute to land** — the
+  cancel request does not kill the in-flight `make` subprocess instantly. Poll `gh run view <id> --json
+  status` until it reads `completed`; do not report a run cancelled while it still reads `in_progress`.
+- **Verify with a SECOND enumeration after a short wait that returns ZERO rows** across all workflows —
+  "I submitted cancels" is not "nothing is running". Quote the empty second read as the stopped evidence.
+- **Kill any local watcher loops you armed in the same move** (`pkill -f 'watch-'`); the `pgrep` that runs
+  the kill command matches its own shell, so ignore that one self-match rather than reading it as a live
+  watcher.

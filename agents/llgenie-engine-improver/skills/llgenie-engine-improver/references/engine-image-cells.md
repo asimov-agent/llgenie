@@ -96,6 +96,25 @@ Regenerate the variant's params from the engine skill after editing the row (the
 and expect one red stage to reveal the next: fixing the backend exposes the toolchain error, and each is a
 separate defect in the same cell.
 
+## A transient `uv pip install` wheel-download timeout: raise `UV_HTTP_TIMEOUT` via the variant `env`
+
+A CUDA torch install (`torch==…` + ~34 nvidia wheels, several hundred MB each) can die mid-download with a
+transient `Failed to download … network timeout` / `error sending request` — a *network* flake, not a pin or
+recipe defect. `uv`'s per-request HTTP timeout defaults to 30 s; a stalled 139 MiB `nvidia-cusparse`
+download exceeds it and uv aborts. Raise it without touching the engine recipe:
+
+- `scripts/engine_runner.py::install()` computes `pre = env_prelude(p.get("env") or {})` and runs every
+  install step as `_bash(pre + step)` — so **anything in the variant's `env` dict is exported before each
+  step**, including the `uv pip install` lines. Add `"env": {"UV_HTTP_TIMEOUT": "120"}` to the variant in
+  `containers/engines/params/<engine>.json` and uv inherits it.
+- The `[engine-runner] <id>/<backend>$ <step>` log line prints only the STEP command, not the prepended
+  `export …`; the env IS applied even though it is invisible in the log. Confirm by reading
+  `install()` / `env_prelude()` in `engine_runner.py`, not by grepping the log for the var.
+- **This is a local-only diagnostic lever unless the flake is chronic** — for a one-off prove-the-build
+  run, edit `params/<engine>.json` in the worktree, build, then `git checkout` the file so it never rides
+  the PR (the params file is generated; its committed value should not carry a timeout bump for one flake).
+  If the registry or a mirror is *persistently* slow, that is a real params change with its own PR.
+
 ## The publish flag gate requires a HELP spelling unconditionally — `binary_flags` cannot waive it
 
 The publish gate (`scripts/engine_image.py::decide()`) probes `TYPED_FLAGS` (`--version`, `-h`,

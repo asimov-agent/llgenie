@@ -186,6 +186,26 @@ depends on it — it blocks the whole merge on a sha only you can see.
   routing commit — do not push the reproduction just because it is green, and do not double-apply the
   routing by re-cherry-picking a reproduce of it.
 
+## Squashing a branch's commits into one atomic commit
+
+When the owner wants a PR's several fixup commits collapsed into one clean commit:
+
+1. `git rev-list --count <base-sha>..HEAD` first — know how many you are collapsing. A stray word in
+   the range arg (`<base>..HEAD echo`) makes git answer `fatal: ambiguous argument 'echo'`; keep the
+   range arg to the two refs.
+2. `git reset --soft <base-sha>` — moves `HEAD` to base and leaves the ENTIRE net change staged; nothing
+   is lost and the worktree is untouched (no churn, no stash).
+3. Commit once — `git commit -F /tmp/msg.txt` (or `-F -` with a `<<'EOF'` heredoc) — then confirm with
+   `git log --oneline -1` (one commit) and `git diff --stat <base> HEAD` (the intended file set + counts).
+4. `git status --short` must be empty; a leftover means a change was untracked and the soft reset did
+   not stage it.
+5. Force-push leasing the sha you READ BACK from the destination remote THIS turn: `git ls-remote <url>
+   refs/heads/<branch>` → `git push --force-with-lease=<branch>:<that-sha> <url> HEAD:refs/heads/<branch>`.
+   Never lease a local remote-tracking ref or a remembered sha — both are stale and the push rejects as
+   `stale info`, or worse, clobbers a head that moved.
+6. Read the branch and the PR head back (`git ls-remote <url> refs/heads/<branch>` and `gh pr view --json
+   headRefOid`) so the report quotes the NEW sha you created, not the one you replaced.
+
 ## Before you push: the branch may already be repaired
 
 Two lanes dispatched at the same red head WILL both produce a fix. Measured: one worker rebuilt the
@@ -218,6 +238,24 @@ authoritative tip to compare the local ref against before quoting any content ch
   A run whose overall `status` is `queued` can still have that job `completed/success` — quote the job.
 - A suite interrupted mid-run leaves `make` at `Error 130`; grep `^FAILED` in the log, never trust the
   exit code of a run you stopped.
+- **Run a long local gate in a TRACKED background process with `notify_on_complete`, never in a
+  foreground call.** `make ci-unit` (and `make render-trend-list-matrix` + its matrix test) exceed the
+  180 s foreground tool cap, so a foreground run is killed MID-suite and you cannot tell "still
+  compiling" from "crashed" — the log just stops. Start it `background=true, notify=true`, then check
+  the sentinel with a SEPARATE short call (`grep CI_UNIT_EXIT /tmp/ci-unit.log`), not a `sleep` poll.
+- **Do not poll a background job with a sleep loop inside `execute_code` — the cell has a ~300 s cap
+  that kills the kernel and LOSES all state** (variables, imports, the poll counter). A `for …
+  time.sleep(15)` waiting on a 10-minute build dies at 300 s and reports a timeout, not the run's
+  verdict. Poll with a fresh short `terminal` call (`grep <sentinel> <log>`), or wait the fixed time in
+  the foreground and read the log once; keep `execute_code` for branches you can finish in seconds.
+- **A serve-readiness timeout is a BUDGET, not a gate. Scope a larger budget to the slow arch instead of
+  weakening the assertion.** The engine-smoke default `--timeout 600` is the cold-boot readiness budget; a
+  GPU-less `cpu` cold boot can cross it by ~1 s while `cuda`/`rocm` finish well inside. Raise it for `cpu`
+  only (`make test-engine ARCH=cpu → --timeout 1200`) and keep the default elsewhere — the image must
+  still ANSWER the OpenAI API, so this is more time to become ready, never a relaxed pass. Prove the recipe
+  renders the right value per arch with `make -n test-engine-stage ENGINE=<id> ARCH=cpu TEST=serve` before
+  pushing; a per-arch budget in the Makefile needs no new openspec change when `check-docs` still validates
+  the documented target.
 
 **Freeing a suite you no longer need** (its container's PID 1 is root-owned): `kill -TERM 1` is
 ignored, and `docker kill` / `sudo` / `rm -rf` are refused by the harness in single-query mode.
@@ -328,6 +366,16 @@ rename, and the fix belongs in the same commit, not in a report.
   may already be in `HEAD`: check `git show HEAD:<file> | grep -c '<marker>'` before writing it
   again, and use `git checkout -- <file>` to get back to `HEAD`. Two copies of the same block
   still pass the tests, so nothing catches it.
+- **When you move a production call site to a different seam, every test that monkeypatches the
+  OLD seam silently records the WRONG call.** A build helper that streams via `_sh_live` instead
+  of `_sh` (run_live policy), or a wrapper renamed `run`→`run_live`, leaves a test that patched
+  `ei._sh` capturing the next unrelated subprocess (e.g. the `buildx inspect`) instead of the
+  command under test — the recorder's `calls[-1]` is the wrong command and the flags asserted are
+  never exercised, so it reds or (worse) passes against a proxy. Before changing the seam, grep
+  the test tree for it (`search_files pattern='_sh_live'`, `grep -rn '"_sh"' tests/`) and widen
+  every recorder to set BOTH seams (`monkeypatch.setattr(ei, "_sh", rec)` and the `_sh_live` twin).
+  Keep the assertions UNCHANGED — you are capturing the real call, not weakening the test; an
+  assertion relaxed to match the proxy is the failure mode this rule exists to prevent.
 - **A stale file IS the evidence — copy it before you fix it.** When a fault is proven by a file on
   disk (a stale launcher, a hand-edited params file, a drifted lockfile), `cp` it to `/tmp` (or the
   scratch dir) FIRST, then repair the host. Fixing first destroys the specimen a reviewer wants
@@ -390,9 +438,20 @@ rename, and the fix belongs in the same commit, not in a report.
   `gh api repos/<o>/<r>/pulls/<n> --jq '{head:.head.sha,base:.base.sha,mergeable,mergeable_state}'` and
   `gh api repos/<o>/<r>/git/refs/heads/main --jq .object.sha` fresh. If the PR already reads `mergeable=true`
   with `mergeable_state=blocked`, NO rebase is owed (owner rule #1015: rebase only on a real conflict) and
-  forcing one destroys the in-progress CI run. Do not ping-pong a fourth correction to a stale ack whose own
+  forcing one destroys the in-progress CI run.  Do not ping-pong a fourth correction to a stale ack whose own
   text closes "quiet until …"; but DO send one terse measured correction when the planner is actively ordering a
   wrong action — silence lets it keep re-dispatching the same stale order to the whole fleet.
+  **A peer's gate verdict can be red because it measured YOUR LOCAL WORKTREE tree, not the pushed head.** A
+  planner/rebase lane reading your branch from a worktree extracts the LOCAL commit sha (e.g. your pre-fix
+  commit) and runs `make <gate>` on that stale tree — so it reports "N reds at your live head" for a defect
+  you already fixed and pushed. That sha is a local object, not a remote head: before accepting OR refuting
+  the verdict, read the real head (`gh api repos/<o>/<r>/pulls/<n> --jq .head.sha`) and re-run the gate at
+  THAT tree. Answer with the measured exit at the true head ("LIVE=1 exit 0, 0 dead, at <head>") and state
+  plainly that the peer's hash was a local/working-memory commit, not a remote head — the authoritative head
+  is always what `gh pr view`/the pulls API reports, never a sha quoted in a DM or one you remember.
+  **When the planner DM rejects as `queue_full` (no-resend), post the correction on the ISSUE/PR thread** —
+  that is the record both the planner and the rebase lanes read, and re-DMing a full queue just wastes a
+  turn. `queue_full` is not a delivery failure to retry; it is a signal to move the message to the thread.
 - **A dispatch run pinned to an older sha stays valid when the workflow's real inputs are byte-identical.**
   An amend that only touches docs/census does not invalidate a `workflow_dispatch` confirm of an
   engine-build fix, because engine-build reads the Makefile, the workflow and the tests — not the docs.
@@ -422,6 +481,13 @@ rename, and the fix belongs in the same commit, not in a report.
   repository` while the URL is perfectly fine. Read `git remote -v` first (one call) and push to the
   resolved name; a push "failure" whose message names the OWNER, not a branch or a ref, is a remote-name
   error, never a permissions or lease problem.
+- **A run `cancelled` at an old head after you pushed a newer head is NORMAL, not a red to explain.**
+  `cancel-in-progress` (or head-moved supersession) concludes the previous head's run as `cancelled`; the
+  cancelled run's jobs are not evidence about the current tree, and quoting them as "CI failed" is wrong.
+  Judge CI only at the head you actually pushed: read the check-runs keyed by the FULL current sha and
+  ignore old-head `cancelled` conclusions. The single healthy signal is "guard/holds/scope green at the new
+  head, container jobs still in_progress" — a `BLOCKED` mergeStateStatus there means fresh CI pending, not
+  a defect.
 - **A long backoff with no output is indistinguishable from a hang.** Any wait loop over the
   network (a Hub 429, a retry ladder) must print what it is waiting for and for how long, on
   stderr. A silent multi-minute park gets reported to the user as a broken tool.
@@ -647,6 +713,16 @@ change is not a reason to cancel or supersede a running matrix.
 (census pointer must be an ancestor of HEAD), `make changes-index`, `make lint`, and the hermetic
 openspec/ci-images pytest.
 
+**`check-docs` reads the COMMITTED `base..HEAD` diff, not the working tree.** A behavioural change under
+`agents/<profile>/` owes an `agent-wiki/<stem>.md` note + its `docs/changes.d/<stem>.md` row, and the gate
+flags it as red the instant the changed file is committed — but a note trio you wrote and left UNTRACKED is
+invisible to the gate, so `make check-docs` still reds `adds no agent-wiki/<stem>.md note` even though the
+file is sitting on disk. Stage and commit (amend into the same commit) the agent-wiki note, the changes.d
+row and the rendered `CHANGES.md` together, THEN re-run `make check-docs` — a green measured before the
+commit is a measurement of a tree the gate never read. `CHANGES.md` itself is rendered from the fragments
+(`python3 scripts/changes_index.py write`, alias `make changes-index`); never hand-edit it, or a
+regenerate silently rewrites your edit away.
+
 
 
 **Never put a run id, flow id, sha, or timestamp into a report/comment unless it was READ BACK from the API in the SAME turn as the write.** A plausible-looking id — e.g. hf-live run "41558411804 / success" — that was invented, not verified, is fabricated evidence and is incident-worthy on a close proof. Posting an unverified run id on an issue (close-condition evidence) caused a public correction and a board-credibility hit. Rule: every metric/run/stream id you cite must come from a live `gh api` read (or the tool output of the current call), never from memory or pattern-matching. When a run is still in_progress, say "in_progress / conclusion unset" — never invent a conclusion. If you cannot reach the API, say so and report nothing, rather than fabricate.
@@ -655,3 +731,59 @@ openspec/ci-images pytest.
 **Do not call a run "stalled" from its updatedAt alone.** A frozen run-level updatedAt is NOT a stall signal: GitHub does not bump the run's updatedAt mid-step, so a long "in_progress" with recent job-step activity is normal for long single steps (e.g. the @pytest.mark.network suite). To judge stall, read the RUN's associated JOB steps (`gh api repos/.../actions/runs/<id>/jobs`) and check whether the current step's started_at is recent and the job's updated state has real step progress; only a step whose started_at stalled with NO step completing for well past its normal duration is a candidate. Announcing a "stalled-run finding" on an issue from updatedAt alone, then having it retracted by the verdict owner, is an over-read that undermines the same on-record discipline as a fabricated id.
 
 **A 215-byte BlobNotFound XML on the job logs endpoint is "log not finalized", not a suspension, on ANY young in_progress job** (reaper calibration, #1679, measured 2026-11-03): GitHub serves logs only AFTER the job completes, so a fresh running job's blob 404 is the NORMAL pre-completion state — a discriminator keyed on in_progress+BlobNotFound false-positives every healthy matrix cell. A real suspension is a STALL past a floor: in_progress AND two consecutive reads show unchanged updated_at AND no progress events AND no arriving conclusion. Floor per slice = 2× that matrix slice's own completed-run median (measured: linux/unit completes 9.0–14.1 min, median ~12.5 → floor ~25 min; install ≤4.1), never a fixed 10-min constant — a healthy unit is in_progress at 10 min routinely (proof: #1680 job 125756825660, 11.2 min success, zero-byte blob the whole time). Post run id + both timestamps + PR before any reaper cancel.
+
+## Quant-catalog LIVE=1 seam (#1712/#1720)
+
+The hermetic `make check-quant-catalog --snapshot` gate can NEVER catch dead links: its
+`_snapshot_probe` returns PROBE_OK for link liveness by design (issue #1178) — dead-vs-reachable is the
+LIVE seam's job (`make check-quant-catalog LIVE=1`). A drift like laguna chat_template.jinja 404/410
+passes --snapshot yet reds LIVE=1. To get the authoritative verdict run the actual
+`make check-quant-catalog LIVE=1` at the head (network, ~5 min) AND repeat 3–5x — a stable dead verdict
+= real drift (fix with live `make sync-quant-catalog` drop-dead), not a flake. A raw urllib probe can
+read 401 where the generator reads dead; trust the generator's own `_probe_status`, not a hand-rolled
+request. ci-hf-live.yml runs ONLY on main (never a PR head), so a PR-head LIVE verdict cannot get a GH
+run id — the honest evidence is the local seam run; report the GH run id after it merges to main. When a
+fix(engines)/data PR's refresh is direction-right but incomplete, extend the PR (drop the surviving dead
+rows) rather than file separately.
+
+## Driving a CI to its conclusion — the verdict IS the task
+
+When the acceptance criterion for the work is a CI verdict ("is this PR green at head X"), reporting
+`guard/holds success, containers in_progress` is NOT done — it is in-flight, and a guard/peer will
+rightly bounce it. Drive the run to `completed` and quote the conclusion. Two mechanics:
+
+- **Dedupe the latest conclusion per check name in ONE read** — check-runs accumulates every re-run, so
+  naively listing them shows stale `failure`s beside a fresh `success`. Group by name and take the last:
+
+  ```bash
+  gh api "repos/<o>/<r>/commits/<full-sha>/check-runs" \
+    --jq '.check_runs|map({n:.name,c:.conclusion})|group_by(.n)|map({n:.[0].n,c:map(.c)[-1]})|map("\(.n): \(.c//"-")")|.[]'
+  ```
+
+  A `-` conclusion is genuinely not-yet-set (in_progress), never a pass. Cross-check the discrete runs
+  with `gh api "repos/<o>/<r>/actions/runs?head_sha=<full-sha>" --jq '.workflow_runs[]|"\(.id) \(.status)/\(.conclusion//"-")"'`
+  and quote a real id — never a remembered one.
+- **A ~10-min matrix cannot be driven to conclusion in ONE foreground `terminal` call** (the foreground
+  cap is ~420 s; a `for … sleep 30` loop over a 10-minute run dies on the cap and reports a *tool*
+  timeout, not the run's verdict). Poll in `execute_code` with `time.sleep(60)` between `gh api` reads and
+  stop on `status==completed` OR `in_progress==0` — a poll loop that finishes inside the cell window
+  returns the real conclusion; keep it to ~10 iterations. Fall back to a `background=true, notify=true`
+  watcher only when the run is expected to outlast the cell window, then read the watcher's final output
+  rather than a sleep-loop inside it.
+- **A watcher's completion matcher must COMPARE the phase string, never `case "$st" in completed|*)`.**
+  The status is read as `"<status>|<conclusion>"` (e.g. `in_progress|pending`); a `case` pattern
+  `completed|*` has `*` as a CATCH-ALL alternation that matches `in_progress|pending` too, so the loop
+  takes the "done" branch on its FIRST read and prints `DONE` for a job still running — a fabricated
+  completion. Split the phase (`ph="${st%%|*}"`) and test `[ "$ph" = "completed" ]`; only then is the
+  conclusion authoritative.
+
+## Moving-main base-drift (check-pr-base ~#845) recurrence
+
+The CI guard's `make check-pr-base` (scripts/check_pr_base.py) fetches origin/main LIVE and requires
+HEAD's merge-base to be exactly origin/main. On a busy fleet, main advances between your rebase and the
+CI read, so a freshly rebased head can red check-pr-base a 2nd/3rd time for NO content reason — base
+drift, not a defect. Rebuild: rebase onto the live origin/main tip; `git merge-base HEAD origin/main`
+must equal `git rev-parse origin/main`; run `check_pr_base.py check --base origin/main --rev HEAD`
+locally (OK = merge-base==base); re-verify seams; push with lease. Each post-rebase main merge
+invalidates until rebuilt — expect to redo it once or twice queued behind a busy queue. Never weaken
+the gate or blame content. Also re-run `changes_index.py check` after the rebase (new main rows land).
