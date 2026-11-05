@@ -143,16 +143,16 @@ jobs:
           fi
       - name: Liveness gate — every committed model/GGUF link a test depends on must resolve (issue #1000)
         if: steps.debounce.outputs.skip != 'true'
-        run: make check-model-links LIVE=1 LIMIT=25
+        run: bash scripts/surface_failure_tail.sh "$RUNNER_TEMP/model-links.log" -- make check-model-links LIVE=1 LIMIT=25
       - name: Live check-registry — every README link answers on the real Hub (issue #1178)
         if: steps.debounce.outputs.skip != 'true'
-        run: make check-registry LIVE=1
-      - name: Live check-quant-catalog — the HF class table matches a fresh live regeneration (issue #1178)
+        run: bash scripts/surface_failure_tail.sh "$RUNNER_TEMP/registry.log" -- make check-registry LIVE=1
+      - name: Live check-quant-catalog — the HF class table matches a fresh live regeneration (issue #1178 & #1714)
         if: steps.debounce.outputs.skip != 'true'
-        run: make check-quant-catalog LIVE=1
+        run: bash scripts/surface_failure_tail.sh "$RUNNER_TEMP/quant-catalog.log" -- make check-quant-catalog LIVE=1
       - name: make test-unit-network (the @pytest.mark.network ownership set, via the seam, issue #1000)
         if: steps.debounce.outputs.skip != 'true'
-        run: make test-unit-network
+        run: bash scripts/surface_failure_tail.sh "$RUNNER_TEMP/unit-network.log" -- make test-unit-network
       - name: Prune orphaned test containers
         if: always()
         run: make test-clean
