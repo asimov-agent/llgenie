@@ -605,3 +605,17 @@ SUCCESS). Lesson: when the fix vehicle's remaining gate is a body/docs change, t
 cleared by the NEXT RUN at the new head - verify check-runs at the CURRENT head sha, not the
 comment you posted. The planner's job at that point is to watch the linux matrix complete and
 quote the finished top-tier (run) SUCCESS at base==b85901726 for the acceptance.
+
+## The rebase lane's own findings repeated the stale-measure class: #1733 (no pre-push merge re-read) and #1734 (check-pr-base never re-fetches) (2026-11-05)
+
+The rebase lane filed two audit findings - #1733 (rebase_bot.sh force-pushes with
+--force-with-lease under a sweep-time-only open filter; a PR merged between sweep and push gets
+pushed onto a dead vehicle; fix: re-read gh pr view --json state,merged before the push, hard
+stop + gave-up marker) and #1734 (check_pr_base.py/base_ref.py resolve the base ref NAME without
+re-fetching, so verdicts measure a stale origin/main snapshot; fix: fetch fresh at measure time,
+record measured main sha, err on fetch failure). BOTH were shaped non-canonically (Section 1-6
+format, all six canonical headings missing) - planner refinement converted them to six-section
+(missing()==[] live, 4 checkboxes each) and labeled agent:implement+agent:refined, routed to the
+normal implementer queue, NOT the rebase lane's own pass. Their base measure 0717ab72a was
+already stale at file time (main = b85901726); the stale-measure class is not just a lane habit,
+it is the exact gap both findings name.
