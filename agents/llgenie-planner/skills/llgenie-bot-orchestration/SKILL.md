@@ -21,6 +21,10 @@ metadata:
 > Before you publish any pass report (and before trusting one a cron job generated): see
 > `references/report-integrity.md` — a report is a claim, including your own; ids must be re-fetched with
 > the output pasted, and a tool call that "ran" may have aborted atomically.
+>
+> Fleet-integrity meta-audit (enumerate lanes → SOUL+SKILL presence gate → role-split overlap/gap
+> via `agents/manifest.json` → operational-lane idle-audit-encoding grep → one refined issue per gap →
+> route to the OWNING lane, never self-implement): `references/lane-role-audit.md`.
 
 <!-- host-bot-tools:begin -->
 

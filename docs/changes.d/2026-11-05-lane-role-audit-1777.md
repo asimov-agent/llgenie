@@ -1,0 +1,1 @@
+| 2026-11-05 | planner skill now commits the lane-role audit procedure (enumerate→presence-gate→role-split→idle-audit-encoding grep→one refined issue per gap→route to owning lane) as a reusable reference | [2026-11-05-lane-role-audit-1777.md](agent-wiki/2026-11-05-lane-role-audit-1777.md) | #1777 |
