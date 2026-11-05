@@ -158,9 +158,9 @@ picks which start script or image to run.
 
 ## Repository layout
 
-The tree is 2458 tracked files: `data/` 10, `skills/` 17 (16 engine directories plus their
-`README.md`), `containers/` 57, `tests/` 221, `scripts/` 130, `openspec/` 1138, `agent-wiki/`
-330 and `docs/` 338. (measured at `bb11bb1f`)
+The tree is 3157 tracked files: `data/` 12, `skills/` 17 (16 engine directories plus their
+`README.md`), `containers/` 57, `tests/` 253, `scripts/` 153, `openspec/` 1218, `agent-wiki/`
+544 and `docs/` 553. (measured at `addac9bc`)
 
 | Path | Role |
 |---|---|
