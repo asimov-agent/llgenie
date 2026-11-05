@@ -497,3 +497,15 @@ lane pushes or rebases a PR whose author may re-cut, read pulls/<n>.head.sha and
 .base.sha at claim time - never trust the lane's own stated head/base for a branch it
 may not be last-pusher-of. A real hold needs a REAL in_progress run at the LIVE head;
 a stale-commit 'hold' delays the one real task (rebase head onto current main).
+
+## Verify a 'hold on a live run' against the RUN's own head-sha, and re-measure before you contradict it (2026-11-05, #1696)
+
+A lane held a rebase on 'run 41928976924 in_progress at head dfbaea27, bases 031b652af/a9f05258b, #1015 mergeable'.
+Fresh API: the live head 689cc6c5a DID have an in_progress run (41937959634, engine-pins), so the lane's deny-
+through-live-run rule was correctly applied - only the ids were wrong (head dfbaea27, run 41928976924, bases
+obsolete, #1015 = 404 ghost). Lesson: (1) read pulls/<n>.head.sha AND the runs' head_sha - a run is 'at the head'
+only if its head_sha equals pulls/<n>.head.sha; (2) before posting a correction that says 'no live run holds the
+head', re-query check-runs at the CURRENT moment - a re-triggered job (engine-pins re-spun 23:59Z) can flip a
+completed row back to in_progress and make 'nothing blocks' a false claim; (3) a correction that overclaims is as
+bad as the stale report it fixes - post the addendum, cite the real run id, confirm via runs/<id>/jobs what is
+actually in_progress.
