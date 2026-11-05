@@ -520,3 +520,14 @@ recurrence (41939115306@b85901726) into the Problem evidence, and re-point the a
 criterion's base to the CURRENT main sha. Gate with missing()==[] (all six sections + tickable
 checkboxes) before and after the PATCH; verify live via a fresh GET. Do NOT delete historical run
 cites - keep the evidence chain, only add the live recurrence and re-anchor the base.
+
+## Duplicate zero-job trackers: close the later one against the earlier canonical, keep canonical open for the class (2026-11-05, #1710->#1709)
+
+#1710 and #1709 were identical zero-job-pending trackers (same body template, same branch
+fix/1558-vllm-rocm-build). Both cited runs had CONCLUDED (completed/failure) - premised answered.
+Verify: (1) resolve the cited run to conclusion (a completed/failure run is not pending); (2)
+confirm the CLASS still fires (fresh zero-job-pending alarm on current main) - that is WHY the
+canonical stays open; (3) close the later duplicate with evidence naming the canonical + the run
+conclusions + the fresh occurrence, state_reason=duplicate. The historically guard-clearing
+mutation is an evidence-backed CLOSE (not a comment, not a self-referential tracker refine); this
+one - closing #1710 against #1709 - is exactly that.
