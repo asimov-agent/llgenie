@@ -56,6 +56,36 @@ fails with "expected an array but got: object". Also: `gh pr checks --json` has 
 **The gate before saying green:** every entry in `check_runs` is `status=completed` **and**
 `conclusion=success`, and a fresh `--json mergeStateStatus` reads `CLEAN`.
 
+## "Merged", "green", "armed" and "landed" are four different facts — only landed is done
+
+A PR can be `OPEN`, every matrix check-run `SUCCESS`, and `autoMergeRequest` armed with a real
+`enabledAt` — and the change is still NOT in the tree. Report that state as **"made and verified,
+not yet landed"** and prove landing from the frozen blob, never from the PR's own fields:
+
+```bash
+git fetch origin +refs/heads/main:refs/remotes/origin/main >/dev/null
+git show origin/main:<path> | grep -c '<symbol>'   # 0 until it actually landed; non-zero = landed
+```
+
+A finish comment that says "done" while that grep is still 0 is a status claim about a branch that
+may never merge — the same defect class as quoting `mergeable` as green. The only "done" is the
+symbol present on `origin/main`.
+
+## The `record` leg (`review-verdict.yml`) fires only on a `pull_request_review` event
+
+A separate required check from the `REVIEW_REQUIRED` decision. The workflow is `on:
+pull_request_review`, so the `record` check-run is **created** only when someone submits a review —
+it never sits `pending` waiting, it is simply ABSENT until then. Consequences that cost time:
+
+- A **non-docs PR** (tests-only, scripts, anything that runs the full matrix) can show every matrix
+  check-run `SUCCESS` while `mergeStateStatus` stays `BLOCKED` and `record` does not appear. That is
+  not a stale or transient state you can rerun away.
+- **Reruns and re-arms do not make `record` appear** — only a submitted review does. `--admin` is the
+  only bypass and is never used.
+- A lane cannot submit its own review (see the `REVIEW_REQUIRED` identity rule in SKILL.md), so hand
+  the PR to the reviewer lane (`message_agent` to `llgenie-pr-reviever`) naming it parked on the
+  review-verdict leg, and report it honestly as an open, armed-but-unlanded PR — not done.
+
 ## Field names that are not what you guess
 
 - `gh pr view --json mergedAt` → the merge timestamp; there is **no** `merged` field in the
@@ -89,6 +119,32 @@ Before folding a live agent-profile file into the tree:
    against a hash quoted in a message: a quoted hash is stale by the time it is read.
 3. Byte size and **character** size differ for multibyte markdown; a 100k *char* cap can pass while
    `wc -c` reads over 100k. State which you measured.
+
+## A landing-gate claim must name the targets you actually ran — a subset is not "the full suite"
+
+The doc-PR landing set is eight targets: `lint check-docs check-wiring check-pr-authors
+check-issue-bodies check-pr-hygiene check-workflows check-dispatch-forms`. Running six of the eight
+and reporting "full doc-PR landing gate suite 6/6 green" overstates the measurement exactly like
+quoting `mergeable` as green: the two skipped targets could red on the diff and the report still
+reads as a clean landing. Before writing "full suite green", diff the command you ran against the
+Makefile's list (`grep -nE 'check-workflows|check-dispatch-forms' Makefile`) and state the count —
+"8/8" or "6/8, two not run" — never "the full suite" for a subset.
+
+**A raw `make check-agent-profiles` red on paths your diff never touched is PRE-EXISTING live-only
+drift; the committed-tree gate is `check-agent-profiles-ratchet`, not the raw target.** The raw
+target byte-compares every live profile against the tree, so it reds on OTHER lanes' live-only
+skills (`absent-from-tree`, `live-longer`) that no PR of yours can clear. The ratchet reads the
+recorded baseline (`tests/fixtures/agent-profiles-baseline.json`) and exits 0 when nothing *beyond*
+it is wrong. When a landing suite shows a raw red whose paths all sit in another lane's profile:
+
+```bash
+make -s check-agent-profiles-ratchet      # rc 0 = no finding beyond the recorded baseline
+git show --name-only <merge-sha> | grep '^agents/' || echo "merge touched no profile file"
+```
+
+An empty `git show` grep proves your change cannot have caused the raw red. Say which gate and whose
+files it names, and move on — filing another lane's drift as your PR's defect sends the next reader
+chasing work that is not yours.
 
 ## A merged PR is not a green merged result — the post-merge push run is a second run
 

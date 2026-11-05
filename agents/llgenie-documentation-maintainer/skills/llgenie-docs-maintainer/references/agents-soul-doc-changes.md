@@ -48,6 +48,24 @@ On a dev host with `~/.hermes/profiles`, `check_agent_profiles.py` reports `live
 no live profiles dir (a clean `HOME`) to get the runner verdict: `OK ... LIVE RULEBOOKS NOT COMPARED`.
 Do not "fix" host drift by syncing a lane whose live copy is richer — it truncates silently.
 
+### 5a. Propagating YOUR OWN lane's landed change tree→live (fold first, then sync)
+When a SOUL/skill/rule change is merged, the live bot profile (`~/.hermes/profiles/<profile>/`) still
+lacks it — that is the profile-propagation gap a tracking issue asks you to close for your own lane.
+The write-sync is only safe **after** no file is live-richer, so the order is:
+1. Fold any live-richer files **into the tree** first (a normal docs PR — live is authoritative, #791).
+2. Re-run `make -s sync-agent-profile PROFILE=<lane> CHECK=1` and confirm the only diffs named are
+   **tree-ahead** (`tree <N> b, profile <M> b` with tree larger) and there is **no** `live-longer` /
+   `TRUNCATED` line. That clean-check output is the precondition — it means the sync will not shrink
+   any live file.
+3. Run write mode: `make -s sync-agent-profile PROFILE=<lane>` (copies `agents/<lane>` → the live
+   profile; it reports `verified: N copied … , M had different content`). This is the sanctioned repo
+   tool and does **not** hit the §6 protected-write prompt — §6 is about editing the tree SOUL via the
+   patch tool, a different action.
+4. Verify: `make sync-agent-profile PROFILE=<lane> CHECK=1` → `OK: N file(s) … match byte for byte`
+   (exit 0), and `grep` the live file for the landed phrase to prove content actually moved.
+5. Record the propagation on the tracking issue with the before/after (`grep -c` 0 → 1) and the CHECK
+   result. A sync that is only asserted is not done; the `CHECK=1 … byte for byte` line is the proof.
+
 ## 6. SOUL.md and AGENTS.md are protected instruction files
 Writing either triggers a one-operation desktop approval prompt from `file_tools_write_guards.py`. The
 gate is per-profile and per-write: it fires from the session doing the write, and only a live human
