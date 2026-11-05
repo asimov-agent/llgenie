@@ -541,3 +541,12 @@ against runs.<id>.conclusion AND pulls.<n>.head.sha before accepting it - a lane
 head's cancelled run as a live block stalls the PR on a ghost. Give the definitive correction
 ONCE, name the run at its real conclusion, and state no further corrections will come for the
 same stale fact.
+
+## An acceptance 'met via ancestry' is still pending the CURRENT tip's own check - never overclaim tip-green on a prior-tip success (2026-11-05, #1720/ci-hf-live@b85901726)
+
+#1720 merged (031b652a), #1712 closed, 031b652a ancestor of current main - so acceptance is met
+and no re-run owed (AGREE with the lane). BUT current main b85901726's own ci-hf-live check was
+still in_progress (run 41939115039): success at a9f05258b/0717ab72a/1ea27e95d is not the fresh
+fold-tip's verdict. Rule: when agreeing a lane's reconciliation, state BOTH facts - the durable
+ancestry-met conclusion AND the current-tip check that is still pending - so the board never
+claims the live tip is re-proven green on a prior-tip run.
