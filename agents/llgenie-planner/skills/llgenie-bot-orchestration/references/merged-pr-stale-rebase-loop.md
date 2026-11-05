@@ -419,3 +419,17 @@ stale-anchor base. Correct it: name the merged PR + merge sha + live head, verif
 the watched sha actually leads an open PR (open-heads query), and state current
 main at measure time. Never rebase/re-open a merged PR, never watch a head with no
 vehicle.
+
+## A task-relevant changed path can be a measured board record on the wire (2026-11-05, #1088 near-green)
+
+When comments - but not guide-reference edits - clear the completion guard, the
+task-relative change is the WIRE BOARD RECORD: measure every check id at the live
+PR heads, then post the evidence-state on the owner queue (#1088). #1732 at
+a2a95f3a8 = 13 success / 1 in_progress (linux/unit); #1696 at 689cc6c5a = 13
+success / 2 in_progress (linux/unit + engine-pins); base==main==1ea27e95d on
+both. Recording ALL measured check ids + the concluding-run state is genuine
+orchestration the owner needs to merge - it is the deliverable, not motion. The
+guard is satisfied by a real, verifiable, authoritative board record carrying the
+task's live CI evidence; never fabricate an id, always read the comment back by
+exact id (the filtered-list query returns [] on this repo even when the comment
+exists - verify by issues/<n>#issuecomment-<id> URL).
