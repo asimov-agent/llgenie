@@ -357,6 +357,11 @@ make check-engine-skill-gap    # CI gate: fail on a registry engine with no skil
 make engine-skill-gap          # show that gap (shipped / known-unsupported / NEW-unresolved)
 make engine-skill-gap-md       # the same gap as MARKDOWN, for a PR/issue body (the registry-sync
                                # workflow embeds it, so the step calls a make target - issue #296)
+make engine-capability-serve ENGINE="<engine>" ARCH="<arch>"  # the per-cell serve-vs-flags decision
+                               # (issue #1748): exit 0 -> the engine declares the arch in
+                               # data/engine-capabilities.json `archs` (issue #1214) and may be served;
+                               # exit 1 -> binary-flags-only, never serve. The engine-build workflow
+                               # gates its serve legs (serve-leg, host-verify) on this target.
 make check-engine-coverage      # CI gate: fail when a shipped servable engine has no buildable CI
                                # image cell (a cell in DISABLED, a variant outside cpu|cuda|rocm|vulkan,
                                # or no linux image) and no recorded exception (issue #771)

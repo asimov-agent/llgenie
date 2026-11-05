@@ -65,7 +65,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	test-image test-image-pull openspec-image-pull publish-ci-images publish-agent-image agent-image-push-check agent-image agent-image-pull ci-image-refs test-clean lint lint-fix loop loop-harness chained sweep-concurrency-report \
 	build-server build-variant serve-variant test-serve-variant stop-serve-variant install-prism-cpu install-upstream-cpu \
 	install-prism-cuda install-upstream-cuda install-prism-metal install-upstream-metal \
-	sync-registry check-registry skills-validate engine-list engine-hardware engine-plan engine-check engine-install engine-detect engine-smoke test-engine test-engine-serve ci-engine-images build-engine-base build-engines generate-build-engine-params test-engine-image push-engine test-published-engine test-install-published engine-launchers test-built-engine test-uninstalled \
+	sync-registry check-registry skills-validate engine-list engine-hardware engine-plan engine-check engine-install engine-detect engine-smoke test-engine test-engine-serve ci-engine-images build-engine-base build-engines generate-build-engine-params test-engine-image push-engine test-published-engine test-install-published engine-launchers test-built-engine test-uninstalled engine-capability-serve \
 	sync-quant-catalog check-quant-catalog render-trend-list-matrix check-trend-list-matrix render-engine-skill-gap check-engine-skill-gap \
 	engine-gate-report engine-skill-gap engine-skill-gap-md spawn-engine-skill-issues engine-skill-scaffold registry-change-report sync-change-issue registry-review-brief registry-sync-review registry-review-publish sync-strata-models check-strata-models check-wiring wiring-report check-secret-output secret-output-report \
 	secret-scan secret-scan-history secret-scan-self-test \
@@ -1307,7 +1307,7 @@ build-engine: ## Build ENGINE's image for one backend from its generated Dockerf
 run-engine: ## Run ENGINE's image: OpenAI API on 127.0.0.1:$(PORT)/v1 as llm-local (MODEL=<path under ~/models | HF id>)
 	@test -n "$(ENGINE)" -a -n "$(MODEL)" || { echo "Usage: make run-engine ENGINE=<id> MODEL=<path|hf-id> [ARCH=] [PORT=11434]"; exit 1; }
 	python3 scripts/engine_image.py run "$(ENGINE)" $(ARCH_ARGS) --model "$(MODEL)" --port "$(PORT)"
-test-published-engine: ## Issue #102: pull ENGINE's ARCH image AS PUBLISHED (no build, digest == :ARCH), then (1) the binary reports its version and (2) the container serves the tiny model and answers "hi" on /v1/chat/completions as llm-local (cpu images, and GPU images of engines with a CPU fallback run without GPU devices; GPU-only engines get the version test)
+test-published-engine: ## Issue #102: pull ENGINE's ARCH image AS PUBLISHED (no build, digest == :ARCH), then (1) the binary reports its version and (2) the container serves the tiny model and answers "hi" on /v1/chat/completions as llm-local (cpu images, and GPU images of engines with a CPU fallback run without GPU devices; GPU-only engines get the version test). Serve conformance is the explicit opt-in tier (issue #1717): the engine-build workflow runs this ONLY for cells whose engine declares the arch in data/engine-capabilities.json (serve-vs-flags decision, issue #1748); a cell whose engine does not declare the arch proves only the binary flags (make test-engine-stage) and never runs a serve assertion. `python3 scripts/engine_capability.py serve ENGINE ARCH` is the decision.
 	@test -n "$(ENGINE)" -a -n "$(ARCH)" || { echo "Usage: make test-published-engine ENGINE=<id> ARCH=cpu|cuda|rocm|vulkan"; exit 1; }
 	python3 scripts/engine_image.py pull-published "$(ENGINE)" $(ARCH_ARGS)
 	$(MAKE) test-engine-image ENGINE=$(ENGINE) ARCH=$(ARCH)
@@ -1910,7 +1910,11 @@ check-host-space: ## Host: refuse a /tmp worktree or container build when the sh
 	python3 scripts/check_host_space.py check
 .PHONY: check-host-space
 
-test-engine-stage: ## CI engine-image post-build test, ONE step for every image: TEST=serve -> binary flags (make test-engine-image) AND the engine binary smoke (make test-engine, the --image path's DEFAULT gate — never a serving readiness wait, issue #1717); TEST=detect -> binary flags only (make test-engine-image). The OpenAI-serving conformance tier is the explicit --serve opt-in (make test-engine-serve / the push serve-leg)
+engine-capability-serve: ## Does ENGINE declare ARCH in engine-capabilities.json archs (issue #1214)? The serve-vs-flags decision (issue #1748): exit 0 -> the engine may serve on this arch (serve-leg/host-verify run), exit 1 -> binary-flags-only (never serve), exit 2 -> usage (ENGINE/ARCH). The workflow gates its serve legs on this target so every CI command is a make target, not an inline script (AGENTS.md).
+	@test -n "$(ENGINE)" -a -n "$(ARCH)" || { echo "Usage: make engine-capability-serve ENGINE=<id> ARCH=<arch>"; exit 2; }
+	@python3 scripts/engine_capability.py serve "$(ENGINE)" "$(ARCH)"
+
+test-engine-stage: ## CI engine-image post-build test, ONE step for every image: TEST=serve -> binary flags (make test-engine-image) AND the engine binary smoke (make test-engine, the --image path's DEFAULT gate — never a serving readiness wait, issue #1717); TEST=detect -> binary flags only (make test-engine-image). The OpenAI-serving conformance tier is the explicit --serve opt-in (make test-engine-serve / the push serve-leg), and the workflow's serve legs run only for cells whose engine declares the arch (serve-vs-flags decision, issue #1748).
 	@test -n "$(ENGINE)" -a -n "$(ARCH)" || { echo "Usage: make test-engine-stage ENGINE=<id> ARCH=<arch> TEST=serve|detect"; exit 1; }
 	@case "$(TEST)" in \
 	  serve)  $(MAKE) test-engine-image ENGINE="$(ENGINE)" ARCH="$(ARCH)" && \

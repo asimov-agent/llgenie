@@ -262,10 +262,16 @@ def build(spec: dict, force: bool = False, push: bool = False) -> int:
     text = dockerfile.read_text()
     base = es.base_tag(spec["backend"])
     if f"FROM {base}" in text:  # compiled engine on the shared toolchain base
-        rc = build_base(spec["backend"], force=force, push=push)
+        # Under CACHE_WRITE the build stays on the docker-container builder (#1747),
+        # which cannot see a base --load-ed into the docker daemon (issue #1753): the
+        # derived FROM must resolve from the registry, so push the base and qualify the
+        # FROM. Fork/PR/local builds (CACHE_WRITE unset) use the docker-driver `default`
+        # builder, which sees the locally-loaded base, so they keep the bare FROM.
+        base_push = push or (REGISTRY and CACHE_WRITE)
+        rc = build_base(spec["backend"], force=force, push=base_push)
         if rc:
             return rc
-        if REGISTRY and push:  # the published base must be addressable by the FROM line
+        if REGISTRY and base_push:  # the published base must be addressable by the FROM line
             text = text.replace(f"FROM {base}", f"FROM {REGISTRY}/{base}")
     params = json.loads((es.REPO_ROOT / spec["params_file"]).read_text())
     variant = {**params["variants"][spec["variant"]], "pinned": params["pinned"], "repo": params["repo"]}

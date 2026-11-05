@@ -7,6 +7,7 @@ nothing — which is exactly what it did before this change.
 
 from __future__ import annotations
 
+import json
 import subprocess
 
 from pathlib import Path
@@ -14,6 +15,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 
 import scripts.engine_image as ei  # noqa: E402
+import scripts.engine_skills as es  # noqa: E402
 
 
 def _spec() -> dict:
@@ -300,3 +302,63 @@ def test_a_not_yet_published_latest_does_not_fail_the_pull_but_a_drifted_one_doe
     # And   once :latest exists with another digest, the pull fails
     digests["llama-cpp:latest"] = "sha256:bb"
     assert ei.pull_published(spec) == ""
+
+
+def test_a_cache_write_from_build_qualifies_the_base_to_the_registry(monkeypatch, tmp_path):
+    """#1753: under CACHE_WRITE the derived FROM must resolve from the registry.
+
+    The owner-guarded engine-build dispatch stays on the docker-container builder (#1747)
+    so it can export the registry cache; that driver cannot see a base `--load`-ed into
+    the docker daemon, so an unqualified `FROM llgenie/base-cpu:...` falls through to
+    docker.io and is denied (measured: run 41971301136 pull-access-denied). When the
+    CACHE_WRITE build is the base for a FROM, it must PUSH the base to the registry and
+    qualify the FROM accordingly. Fork/PR/local builds (CACHE_WRITE unset) use the
+    docker-driver `default` builder which sees the locally-loaded base, so they keep the
+    bare FROM exactly as before.
+    """
+    import scripts.engine_image as ei  # noqa: F811
+
+    # A repo tree whose Dockerfile.cpu has the unpinned `FROM llgenie/base-cpu:<pin>`.
+    root = tmp_path / "repo"
+    dfile = root / "containers/engines/dockerfiles/llama.cpp/Dockerfile.cpu"
+    dfile.parent.mkdir(parents=True)
+    base = es.base_tag("cpu")
+    dfile.write_text(f"FROM {base}\nRUN echo base\n")
+    params = root / "containers/engines/params/llama.cpp.json"
+    params.parent.mkdir(parents=True)
+    params.write_text(json.dumps({"engine": "llama.cpp", "variants": {"cpu": {}},
+                                  "pinned": "p", "repo": "r"}))
+
+    spec = {"id": "llama.cpp", "tag": "llgenie/llama-cpp:test-cpu", "variant": "cpu",
+            "backend": "cpu", "dockerfile": "containers/engines/dockerfiles/llama.cpp/Dockerfile.cpu",
+            "params_file": "containers/engines/params/llama.cpp.json"}
+    monkeypatch.setattr(es, "REPO_ROOT", root)
+    monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+    monkeypatch.setattr(ei, "_available", lambda tag: False)  # force a build every time
+
+    def _run(cache_write: bool) -> tuple[list[list[str]], str]:
+        calls: list[list[str]] = []
+        def sh(cmd, **kw):
+            calls.append(list(cmd))
+            return subprocess.CompletedProcess(cmd, 0)
+        monkeypatch.setattr(ei, "_sh", sh)
+        monkeypatch.setattr(ei, "CACHE_WRITE", cache_write)
+        assert ei.build(spec) == 0
+        # the derived buildx `_sh(cmd + [ctx])` last arg is the ctx dir; read its Dockerfile
+        ctx = calls[-1][-1]
+        return calls, (Path(ctx) / "Dockerfile").read_text()
+
+    # When CACHE_WRITE is set (owner dispatch stays on the container builder)
+    calls, dockerfile = _run(True)
+    # Then the base was pushed to the registry (--push + qualified tag)
+    pushed = any("--push" in c and any("ghcr.io/asimov-agent/llgenie/base-cpu:" in a for a in c) for c in calls)
+    assert pushed, calls
+    # And the derived FROM is qualified to the registry, not a bare docker.io ref
+    assert f"FROM ghcr.io/asimov-agent/{base}" in dockerfile, dockerfile
+    assert f"FROM {base}" not in dockerfile, dockerfile
+
+    # When CACHE_WRITE is unset (fork/PR/local build on the docker-driver `default` builder)
+    calls, dockerfile = _run(False)
+    # Then no push happened and the bare FROM is kept (locally-loaded base is visible)
+    assert not any("--push" in c for c in calls)
+    assert f"FROM {base}" in dockerfile, dockerfile
