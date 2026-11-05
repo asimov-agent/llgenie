@@ -398,8 +398,8 @@ model-pin-report: ## Print the bots' pinned model snapshot, where each place dec
 # names a skill that does not exist, carries a name that disagrees with its directory, grows
 # past the pointer budget, or inlines the unattended contract again.
 .PHONY: bot-preflight
-bot-preflight: ## Fetch origin/main, fast-forward a behind checkout, and record the AGENTS.md this run is measured against (issue #792)
-	python3 scripts/bot_preflight.py $(if $(CHECK),--check,)
+bot-preflight: ## Fetch origin/main, fast-forward a behind checkout, and record the AGENTS.md this run is measured against (issue #792); when the working diff touches agents/<profile>/, surfaces the #1724 SYNC-line obligation (BODY=<prospective PR body> refuses a missing/mis-cited SYNC line, issue #1782)
+	python3 scripts/bot_preflight.py $(if $(CHECK),--check,) $(if $(BODY),--body-file "$(BODY)",)
 .PHONY: check-import-roots
 check-import-roots: ## CI: fail when a test file carries its own `sys.path` entry or imports a `scripts/` module bare — a ratchet against the recorded counts (issue #796)
 	python3 scripts/check_import_roots.py ratchet
