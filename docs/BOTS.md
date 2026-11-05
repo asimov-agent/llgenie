@@ -424,23 +424,30 @@ name resolved and each skill's content is in the prompt the model receives. It r
 
 ### The host agents' SOUL and skills live under `agents/` (issue #791)
 
-The two **host** agents are not CI legs. They are Hermes profiles on the owner's machine —
-`llgenie-planner` (the orchestrator: triage, refine, dispatch) and `llgenie-issse-implementer` (the
-implementer; the triple `s` is in the real profile name) — and they keep the same two kinds of file
-Hermes loads: `SOUL.md` and `skills/<name>/SKILL.md`. They used to live only in
-`~/.hermes/profiles/<profile>/`, so the most consequential instruction in this repository — the one
-the agent holding the write credentials runs under — had no diff, no review and no copy in the tree.
-`git log --all --oneline -- '*SOUL*'` returned nothing.
+The fleet's **host** agents are not CI legs. They are Hermes profiles on the owner's machine, and
+**all 13 of them** are tree-versioned under `agents/` — one directory per profile, mirroring the
+layout Hermes reads — plus `manifest.json` naming the profiles the tree is the source of truth for.
+Rounding out the roster are `llgenie-architect`, `llgenie-business-analyst`,
+`llgenie-ci-pipelines-maintainer`, `llgenie-documentation-maintainer`, `llgenie-engine-improver`,
+`llgenie-issse-implementer`, `llgenie-planner`, `llgenie-pr-merge-conflict`, `llgenie-pr-reviever`,
+`llgenie-product-manager`, `llgenie-security`, `llgenie-status-keeper` and `llgenie-tester` (the
+authoritative count and list are `agents/manifest.json` and `make agent-profiles-report`, never a
+prose sentence). Each keeps the same two kinds of file Hermes loads: `SOUL.md` and
+`skills/<name>/SKILL.md`. They used to live only in `~/.hermes/profiles/<profile>/`, so the most
+consequential instruction in this repository — the one the agent holding the write credentials runs
+under — had no diff, no review and no copy in the tree. `git log --all --oneline -- '*SOUL*'`
+returned nothing.
 
-`agents/` is their home now, one directory per profile, mirroring the layout Hermes reads:
+`agents/` is their home now, one directory per profile (the structure below is an illustrative
+two-of-N sample, not the whole set — see `manifest.json` for the full roster):
 
 ```
 agents/
   manifest.json                                    # which profiles this tree is the source of truth for
-  llgenie-planner/
+  llgenie-planner/                                 # e.g. the orchestrator (triage, refine, dispatch)
     SOUL.md
     skills/llgenie-bot-orchestration/SKILL.md       # + references/ that skill names
-  llgenie-issse-implementer/
+  llgenie-issse-implementer/                        # e.g. the implementer (the triple `s` is in the real name)
     SOUL.md
 ```
 
