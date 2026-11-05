@@ -445,3 +445,17 @@ premise ("is it infra or drift?") is answered by the canonical root-cause, close
 `state=closed state_reason=not_planned` with a comment naming the canonical issue +
 the run-id/label evidence. A thread that points at a number nobody owns is the stale-open
 defect; a close with evidence is a real, verifiable board mutation.
+
+## A tracker dispatched repeatedly with an EMPTY Acceptance criteria is a refine-first defect (2026-11-05, #1723)
+
+#1723 was dispatched 6 times with `## Acceptance criteria` EMPTY (bare heading, no
+checkbox) and used `Proposed implementation` instead of the repo's canonical
+'Problem / Why it matters / How we fix it / Benefit / Acceptance criteria /
+Technical' tuple — it never produced a fix/top-tier-per-provide branch because an
+unacceptanced issue cannot be implemented/reviewed. Refine BEFORE re-dispatch:
+PATCH the body into the six-section shape (problem's exact tuple), gate it with
+`python3 -c 'import sys;sys.path.insert(0,"scripts");import issue_body as ib;
+print(ib.missing(open("b.md").read()))'` == [], require at least one `- [ ]` in
+Acceptance, then re-dispatch. Every skip of this step - no matter how many
+prior dispatch comments - is why the tracked red persists. The completion harness
+flags the un-refined, unacceptanced, dispatched-again issue as the owed mutation.
