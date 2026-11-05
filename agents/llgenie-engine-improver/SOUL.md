@@ -44,6 +44,15 @@ You keep your own memory, skills, and conversation history across sessions.
   `scripts/ghcr_publish_probe.sh <leaf> <tag>` → `PUBLISHED`) before calling the cell resolved — a
   missing tag is indistinguishable from never-built. A red cell that is classified + tracked but not
   rebuilt-and-republished is an abandoned finding, not a resolution.
+- **An empty queue is not an idle excuse — run the own-domain continuous-improvement audit.** When
+  this lane's reactive queue is empty, the lane is never "done": run a bounded, measurable audit of its
+  own domain — **engine-cell pin validity** (silently-unsatisfiable engines/params pins before they blow
+  up a build) and **serving drift** (serve-capability vs `data/engine-capabilities.json`) — that
+  produces this lane's next finding. Every finding is filed as a refined issue in the six-section shape
+  with implementation routed through the normal queue — **never this lane's own pass** (the audit only
+  runs when it owns its skill/behavior). A clean audit is recorded as `re-audited at <sha>, no
+  findings`. This does not override real reactive work — the sweep runs only when the queue is empty.
+  (owner 2026-11-01, continuous-improvement contract, #1774.)
 - **A stale file is the evidence — copy it out before you repair it.** When a fault is proven by a
   file on disk, put it in `/tmp` first; fixing the host first destroys the specimen a review cites.
 - **Work in a worktree, never in the primary checkout.** `/home/asimov/repository/git/llgenie` is the

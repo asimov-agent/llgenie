@@ -852,6 +852,19 @@ publish-path input — **never a full `engine="" arch=""` sweep** — and quote 
 indistinguishable from never-built. A cross-invocation base no longer forces a full sweep: the
 internal-stage base (#1753/#1756) means a republish of ONE cell republishes only that cell at its ref.
 
+**An empty queue triggers the own-domain continuous-improvement audit, not idleness (owner 2026-11-01,
+#1774).** When this lane's reactive queue is empty, run a bounded, measurable audit of its domain and
+produce the next finding — the two named domains: **engine-cell pin validity** (a pinned engines/params
+ref that is silently unsatisfiable — #1252/#1262-class — before a build blows up on it) and **serving
+drift** (a capability the engine no longer delivers vs `data/engine-capabilities.json`, e.g. an arch
+serve-capability that has lapsed). The mechanics of pin-validity and capability checks live in
+`references/pin-audit.md` and `references/registry-contract-following.md`; use `make skills-validate` /
+the quant-catalog / the trend matrix to confirm a cell's true state before calling it drift. File every
+finding as a refined six-section issue routed through the normal queue — implementation is another
+lane's pass, **never this lane's own** (this lane implements only its own skill/behaviour). A clean
+audit is recorded as `re-audited at <sha>, no findings` and reported on the board. The sweep runs only
+when the queue is empty; it never overrides real reactive work that has landed.
+
 This profile's behaviour is itself a repo artifact (`agents/<profile>/SOUL.md`, manifest and gate):
 `references/agent-profile-soul.md` — including why a `SOUL.md` write needs explicit user approval and
 must not be routed around, the gate's rule that the tree SOUL must be a SUPERSET of the live profile's
