@@ -1100,6 +1100,8 @@ check-pr-agents-line: ## CI: fail when a bot PR's body omits or mis-cites the `A
 	python3 scripts/check_pr_hygiene.py agents-line --head "$(if $(PR_HEAD),$(PR_HEAD),HEAD)" --base "$(PR_BASE)" --body-file "$(PR_BODY)"
 check-pr-sync-line: ## CI: fail when a profile-editing bot PR (a diff under agents/<profile>/) does not report its live re-sync in a `SYNC:` line — the owner's profile-propagation rule (issue #1724); the guard jobs call it with the LIVE PR body, never from a hermetic chain
 	python3 scripts/check_pr_hygiene.py sync-line --head "$(if $(PR_HEAD),$(PR_HEAD),HEAD)" --base "$(PR_BASE)" --body-file "$(PR_BODY)"
+check-pr-openspec-change: ## CI: fail when an implementing bot PR's final diff adds no `openspec/changes/<name>/` file and its body names no ACTIVE change it implements against (`OPENSPEC: <name>`) — the presence half #1807 (AGENTS.md MANDATORY change-first; `ci-openspec` only iterates EXISTING changes, so an openspec-empty implementing PR is otherwise CI-green); the guard jobs call it with the LIVE PR body, never from a hermetic chain. Reuses the existing openspec gates (openspec-validate-all / openspec-tasks-check own structure and ticks) — never weakened
+	python3 scripts/check_pr_hygiene.py openspec-change --head "$(if $(PR_HEAD),$(PR_HEAD),HEAD)" --base "$(PR_BASE)" --body-file "$(PR_BODY)"
 check-pr-acceptance: ## CI: fail when a merged PR closes an issue whose `## Acceptance criteria` carries an unmarked `- [ ]` item, or when the PR body ticks a criterion the linked issue still has unchecked (issue #1792) — verification only, it never ticks boxes (that stays #1644, the verdict-gated write-back); the guard jobs call it with the LIVE PR body (same fetch as check-pr-closing, issue #1589) and the LIVE linked issue at merge time
 	python3 scripts/check_pr_acceptance.py check --body-file "$(if $(PR_BODY),$(PR_BODY),/dev/null)"
 pr-hygiene-report: ## Show every producer the PR/commit-message guard reads, and its verdict
@@ -1112,6 +1114,7 @@ pr-closing-report: ## Show the closing references a PR body carries, the squash 
 	python3 scripts/check_pr_closing.py report $(if $(PR_BODY),--body-file "$(PR_BODY)",) $(if $(PR_BRANCH),--head "$(PR_BRANCH)",) --base "$(PR_BASE)" --rev HEAD
 .PHONY: check-pr-closing pr-closing-report
 .PHONY: check-pr-acceptance
+.PHONY: check-pr-openspec-change
 .PHONY: check-pr-base
 .PHONY: worktree-base
 check-proc-gate: ## CI: fail when a subprocess.run/check_output/Popen appears in scripts/ outside scripts/proc.py or a `# proc-allow:` line — the ONE subprocess policy seam (issue #797)
