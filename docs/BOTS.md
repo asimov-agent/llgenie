@@ -792,6 +792,16 @@ It cannot run in the hermetic `ci-unit` chain (it needs the LIVE PR body), so bo
 `gh api` (issue #1589) so a body-only fix clears on rerun; a push to main has no body and prints a
 `nothing to validate` note instead of failing. Implemented as issue #1675.
 
+`make check-pr-acceptance` is the #1792 issue-side verdict mounted beside `check-pr-closing`: it reads
+the LIVE linked issue at merge time and holds a PR whose `closes #N` targets an issue with an unmarked
+`## Acceptance criteria` `- [ ]` item (unless the PR names it out of scope under `## Not covered` with a
+linked work item) or whose own body ticks a criterion the linked issue still has unchecked — the
+acceptance-side sibling that stops a merge verifying green against an issue's unproven "done" (issue
+#745). It is VERIFICATION only: it never ticks a box — that stays `acceptance_writeback`'s verdict-gated
+seam (issue #1644). Both `ci.yml`'s `guard` job and `scope.yml`'s docs gate run it beside
+`check-pr-closing`, fetching that body via `gh api` (issue #1589); a push to main has no body and prints
+a `nothing to validate` note instead of failing. Implemented as issue #1792.
+
 `make check-pr-sync-line` is the #1724 profile-propagation preflight mounted in CI: it refuses a bot PR
 whose diff changes a directory under `agents/<profile>/` (a SOUL/skills/rule change) without reporting
 its live re-sync — a `SYNC: <p> make sync-agent-profile PROFILE=<p>` line naming each touched profile.
