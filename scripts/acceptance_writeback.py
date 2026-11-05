@@ -59,15 +59,57 @@ class BodyError(ValueError):
     """A body the seam refuses to modify."""
 
 
+def _is_acceptance_heading(line: str) -> bool:
+    """True when `line` is a `##` heading whose text is (or starts with) `Acceptance criteria`.
+
+    The write-back ticks the acceptance seam leniently: a producer may author a
+    human-readable heading such as `## Acceptance criteria (what closing means)`
+    (issue #1800). `issue_body.section_body` deliberately stays exact-match (#745
+    canonical form check); the lenient prefix match lives here, in the seam only.
+    """
+    m = _HEADING_RE.match(line)
+    return bool(m) and m.group(1).strip().startswith("Acceptance criteria")
+
+
+def _acceptance_section(body: str) -> str | None:
+    """The text under the first `## Acceptance criteria...` heading (prefix match).
+
+    Returns `None` when no such heading exists, so the caller can emit a canary
+    naming the headings actually present (issue #1802: absence is distinguishable
+    from a spelling variant).
+    """
+    lines = (body or "").splitlines()
+    start = None
+    for i, line in enumerate(lines):
+        if _is_acceptance_heading(line):
+            start = i
+            break
+    if start is None:
+        return None
+    rest = lines[start + 1:]
+    end = next((i for i, line in enumerate(rest) if _HEADING_RE.match(line)), len(rest))
+    return "\n".join(rest[:end])
+
+
+def _found_headings(body: str) -> list[str]:
+    """Every `##` heading text, in order — the canary for a missing acceptance section."""
+    return [m.group(1).strip() for m in _HEADING_RE.finditer(body or "")]
+
+
 def acceptance_items(body: str) -> list[str]:
     """Every acceptance checkbox line (`- [ ]` / `- [x]`), in order.
 
     Only items inside `## Acceptance criteria` count — a checkbox in a spec or a
     README is not an acceptance criterion and the seam must not silently flip it.
+    The heading match is lenient (prefix, see `_is_acceptance_heading`): a suffix
+    like `(what closing means)` still selects the section (issue #1802).
     """
-    section = issue_body.section_body(body, "Acceptance criteria")
-    if not section:
-        raise BodyError("the body has no `## Acceptance criteria` section")
+    section = _acceptance_section(body)
+    if section is None:
+        headings = _found_headings(body)
+        found = ", ".join(f"`## {h}`" for h in headings) if headings else "none"
+        raise BodyError("the body has no `## Acceptance criteria` section "
+                        f"(found headings: {found})")
     items = []
     for line in section.splitlines():
         if CHECKBOX_RE.match(line):
@@ -85,16 +127,18 @@ def _bounds(body: str) -> tuple[int, int]:
     lines = body.splitlines()
     start = end = None
     for i, line in enumerate(lines):
-        m = _HEADING_RE.match(line)
-        if not m:
+        if not _HEADING_RE.match(line):
             continue
-        if start is None and m.group(1).strip() == "Acceptance criteria":
+        if start is None and _is_acceptance_heading(line):
             start = i
         elif start is not None:
             end = i
             break
     if start is None:
-        raise BodyError("the body has no `## Acceptance criteria` heading")
+        headings = _found_headings(body)
+        found = ", ".join(f"`## {h}`" for h in headings) if headings else "none"
+        raise BodyError("the body has no `## Acceptance criteria` heading "
+                        f"(found headings: {found})")
     return start, (end if end is not None else len(lines))
 
 

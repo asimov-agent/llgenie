@@ -105,3 +105,92 @@ def test_check_command_requires_both_tick_and_untick():
     # reviewer-shaped gate: it refuses a body where nothing stayed unticked.
     out = aw.tick_acceptance(BODY, {1, 3}, VERDICT)
     assert "- [x]" in out and "- [ ]" in out
+
+
+# --- issue #1802: a suffixed acceptance heading must still tick (lenient prefix match) ---
+
+# A real reported shape (issue #1800): the producer authored `## Acceptance criteria (what
+# closing means)`; the exact-match seam previously reds with "no section" on it.
+BODY_SUFFIX = (
+    "## Problem\np\n\n## Why it matters\nw\n\n## How we fix it\n1. a\n2. b\n\n"
+    "## Benefit\nb\n\n## Acceptance criteria (what closing means)\n\n"
+    "- [ ] criterion one\n- [ ] criterion two proves it\n- [ ] criterion three\n"
+    "- [ ] criterion four\n- [ ] criterion five\n\n## Technical\n\n- where: x\n"
+)
+
+
+def test_suffix_acceptance_heading_ticks_all_proved():
+    """A `## Acceptance criteria (what closing means)` heading still ticks items 1-5."""
+
+    out = aw.tick_acceptance(BODY_SUFFIX, {1, 2, 3, 4, 5}, VERDICT)
+
+    assert out.count("- [x]") == 5
+    assert "- [ ]" not in out
+    assert "unproven:" not in out
+    for word in ("one", "two proves it", "three", "four", "five"):
+        assert f"- [x] criterion {word}  (proven: {VERDICT})" in out
+
+
+def test_suffix_heading_leaves_unproven_unticked():
+    """A partial verdict on a suffixed heading ticks only the proved items and names the rest."""
+
+    out = aw.tick_acceptance(BODY_SUFFIX, {1, 5}, VERDICT)
+
+    assert "- [x] criterion one  (proven: " + VERDICT + ")" in out
+    assert "- [x] criterion five  (proven: " + VERDICT + ")" in out
+    assert "- [ ] criterion two proves it\n" in out
+    assert "unproven: 2. criterion two proves it" in out
+
+
+def test_suffix_heading_itself_is_preserved():
+    """The seam ticks boxes under a suffixed heading but never rewrites the heading text.
+
+    The producer's human-readable heading `## Acceptance criteria (what closing means)`
+    survives verbatim — the write-back mutates only the checkbox lines, not headings."""
+
+    out = aw.tick_acceptance(BODY_SUFFIX, {1, 3}, VERDICT)
+
+    assert "## Acceptance criteria (what closing means)" in out
+    assert out.count("- [x]") == 2
+    assert "- [ ] criterion two proves it\n" in out
+
+
+def test_unrelated_earlier_checkbox_is_never_ticked():
+    """A checkbox under an earlier, differently-named section is not an acceptance criterion.
+
+    The lenient match must not flank outward: `## Acceptance-result` (not starting with
+    `Acceptance criteria`) is not the acceptance section, so its `- [ ]` must survive.
+    """
+
+    earlier_checkbox_body = (
+        "## Problem\np\n\n## Why it matters\nw\n\n## How we fix it\n1. a\n2. b\n\n"
+        "## Acceptance-result (a different section)\n\n- [ ] not a criterion\n\n"
+        "## Acceptance criteria\n\n- [ ] criterion one\n- [ ] criterion two\n\n"
+        "## Technical\n\n- where: x\n"
+    )
+
+    out = aw.tick_acceptance(earlier_checkbox_body, {1, 2}, VERDICT)
+
+    # The unrelated `- [ ] not a criterion` survived; the two real criteria are ticked.
+    assert "- [ ] not a criterion\n" in out
+    assert "- [x] criterion one  (proven: " + VERDICT + ")" in out
+    assert "- [x] criterion two  (proven: " + VERDICT + ")" in out
+
+
+def test_missing_section_canary_names_actual_headings():
+    """A body with no acceptance heading reds with a canary naming what IS present.
+
+    The root cause (a spelling variant) is distinguishable from total absence by the
+    message listing the headings actually found (issue #1802)."""
+
+    no_acceptance = (
+        "## Problem\np\n\n## Why it matters\nw\n\n## How we fix it\n1. a\n2. b\n\n"
+        "## Benefit\nb\n\n## Technical\n\n- where: x\n"
+    )
+
+    with pytest.raises(aw.BodyError) as ei:
+        aw.acceptance_items(no_acceptance)
+    msg = str(ei.value)
+    assert "no `## Acceptance criteria`" in msg
+    assert "found headings:" in msg
+    assert "Problem" in msg and "Technical" in msg
