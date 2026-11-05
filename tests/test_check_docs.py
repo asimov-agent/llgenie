@@ -330,6 +330,44 @@ def test_deleting_the_note_a_row_indexes_fails_naming_the_note(tmp_path):
     assert green.returncode == 0 and "ok:" in green.stdout, green.stdout
 
 
+def test_a_literal_conflict_marker_in_the_rendered_index_reds(tmp_path):
+    """A `<<<<<<<`/`=======`/`>>>>>>>` line is never a valid change record (issue #1762).
+
+    `CHANGES.md` is the one contended rendered line: two concurrent PRs can both add a row to the
+    same single line and a manual resolve can commit the merge markers instead of the re-render
+    (issue #1103), and no step scanned for the raw markers — so main CI shipped a corrupted index
+    green (issue #1762). The gate must red each marker line and go silent on a clean render.
+    """
+
+    # Given a real, index-consistent tree carrying a literal conflict block in the rendered index
+    root = _tree(tmp_path, "install: ## Install\n\t@true\n", "# llgenie\n\n```\nmake install\n```\n",
+                 wiki={"2026-10-14-change.md": "# Change\n\nIssue #257.\n"},
+                 changes="# Changes\n\n| Date | Change | Record | Issue / PR |\n|---|---|---|---|\n"
+                         "<<<<<<< HEAD\n"
+                         "| 2026-10-14 | change | [2026-10-14-change.md](agent-wiki/2026-10-14-change.md) | #257 |\n"
+                         "=======\n"
+                         ">>>>>>> d33fed73 (some merged PR)\n")
+
+    # Then the gate is RED, naming every marker line, and offers the deterministic fix
+    problems = cd.problems(cd.graph(root))
+    markers = [p for p in problems if "conflict marker" in p]
+    assert len(markers) == 3, markers
+    assert "CHANGES.md:5: literal conflict marker '<<<<<<<'" in markers[0]
+    assert "CHANGES.md:7: literal conflict marker '======='" in markers[1]
+    assert "CHANGES.md:8: literal conflict marker '>>>>>>>'" in markers[2]
+    assert "make changes-index" in markers[0]
+    red = _run(root, "check")
+    assert red.returncode != 0 and "conflict marker" in red.stderr, red.stderr
+    assert "Conflicts" not in red.stderr  # the marker lines are not the renderer's rows
+
+    # And a clean render (from the fragments) is GREEN — markers are not a row
+    clean = "# Changes\n\n| Date | Change | Record | Issue / PR |\n|---|---|---|---|\n"
+    (root / "CHANGES.md").write_text(clean)
+    assert cd.problems(cd.graph(root)) == []
+    green = _run(root, "check")
+    assert green.returncode == 0 and "ok:" in green.stdout, green.stdout
+
+
 def test_a_malformed_index_row_fails(tmp_path):
     """A row must be exactly one well-formed row: a date, a summary, its own note, an issue/PR."""
 
