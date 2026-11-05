@@ -137,6 +137,25 @@ jobs:
           fi
           if [ -n "$PR_BODY" ]; then printf '%s\n' "$PR_BODY" > /tmp/pr-body.md; export PR_BODY=/tmp/pr-body.md; fi
           make check-pr-closing
+      - name: make check-pr-acceptance (a merged PR must close an issue whose own acceptance criteria are checked — issues #1792/#745)
+        env:
+          # Docs-only bot PRs skip linux/unit, so this step — beside check-pr-closing — is where
+          # they are held to the #1792 acceptance check. Same live-body read (issue #1589); the
+          # linked issue's criteria are read LIVE at merge time.
+          PR_NUMBER: ${{ github.event.pull_request.number || '' }}
+          PR_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_BODY=""
+          if [ -n "$PR_NUMBER" ]; then
+            PR_BODY="$(gh api "repos/$PR_REPO/pulls/$PR_NUMBER" --jq '.body // ""' 2>/dev/null || true)"
+          fi
+          if [ -n "$PR_BODY" ]; then
+            printf '%s\n' "$PR_BODY" > /tmp/pr-body.md; export PR_BODY=/tmp/pr-body.md
+            make check-pr-acceptance
+          else
+            echo "[check-pr-acceptance] no PR body on this run (a push to main): nothing to validate"
+          fi
       - name: make check-pr-agents-line (the #792 AGENTS-preflight: a bot PR's body cites an AGENTS:/BASE: rulebook reachable from both head and base)
         env:
           # Docs-only bot PRs skip linux/unit, so this step — beside check-pr-closing — is where

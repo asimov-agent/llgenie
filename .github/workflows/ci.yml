@@ -208,6 +208,26 @@ jobs:
           else
             echo "[check-pr-sync-line] no PR body on this run (a push to main): nothing to validate"
           fi
+      - name: make check-pr-acceptance (a merged PR must close an issue whose own acceptance criteria are checked — issues #1792/#745)
+        env:
+          # Same live-body read as check-pr-closing (issue #1589): the body is fetched from the PR
+          # record via gh api, NOT an event snapshot, so a body-only fix clears on rerun. The gate
+          # reads the linked issue's `## Acceptance criteria` LIVE at merge time (issue #1792). A
+          # push to main has no PR number: PR_BODY stays empty and the gate is a no-op there.
+          PR_NUMBER: ${{ github.event.pull_request.number || '' }}
+          PR_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_BODY=""
+          if [ -n "$PR_NUMBER" ]; then
+            PR_BODY="$(gh api "repos/$PR_REPO/pulls/$PR_NUMBER" --jq '.body // ""' 2>/dev/null || true)"
+          fi
+          if [ -n "$PR_BODY" ]; then
+            printf '%s\n' "$PR_BODY" > /tmp/pr-body.md; export PR_BODY=/tmp/pr-body.md
+            make check-pr-acceptance
+          else
+            echo "[check-pr-acceptance] no PR body on this run (a push to main): nothing to validate"
+          fi
       - name: make check-pr-base (a branch cut from another PR carries its diff under its own closes — merge-base must be the base itself, issue #845)
         env:
           # PR_BASE is the LIVE base branch ref (origin/main). check-pr-base reads
