@@ -204,8 +204,11 @@ def test_preflight_with_a_deficient_body_refuses_exit_non_zero(repo: Path, tmp_p
 def test_preflight_with_a_complete_body_passes(repo: Path, tmp_path: Path):
     git(repo, "checkout", "-q", "-b", "leg")
     _profile_commit(repo, "agents/llgenie-planner/SOUL.md", "new rule\n")
+    sha = git(repo, "rev-parse", "main")
     body = tmp_path / "body.md"
     body.write_text("Closes #1724.\n\n"
+                    f"AGENTS: {sha} {len(RULEBOOK.encode())}b {RULEBOOK.count(chr(10))}l\n"
+                    f"BASE: {sha} (== origin/main at open)\n\n"
                     "SYNC: llgenie-planner make sync-agent-profile PROFILE=llgenie-planner\n\nBody.\n")
     assert bp.main(["--root", str(repo), "--no-sync", "--no-write", "--base", "main",
                     "--body-file", str(body)]) == 0
@@ -220,3 +223,69 @@ def test_preflight_without_a_body_still_warns_loudly_on_a_profile_branch(repo: P
     err = capsys.readouterr().err
     assert "WARN" in err and "check-pr-sync-line" in err and "#1724" in err
     assert "check_pr_hygiene.py:499" in err
+
+
+def _agents_doc(repo: Path) -> tuple[str, str]:
+    """The AGENTS/BASE lines a real preflight writes for the seed `main` — ancestor of a `leg` cut from it."""
+    sha = git(repo, "rev-parse", "main")
+    agents = f"AGENTS: {sha} {len(RULEBOOK.encode())}b {RULEBOOK.count(chr(10))}l"
+    base = f"BASE: {sha} (== origin/main at open)"
+    return agents, base
+
+
+def test_the_agents_base_verdict_reports_a_bot_body_missing_agents(repo: Path):
+    """#1790: a bot PR body with no AGENTS:/BASE: is a preflight finding, named at the gate's contract."""
+    git(repo, "checkout", "-q", "-b", "leg")
+    _profile_commit(repo, "agents/llgenie-planner/SOUL.md", "new rule\n")
+    items = bp.agents_base_verdict(repo, "leg", "main", "Closes #792.\n\nBody.\n")
+    assert [i["key"] for i in items] == ["agents-line"]
+    assert "no `AGENTS:" in items[0]["detail"]
+    assert "issue #792" in items[0]["detail"]
+
+
+def test_the_agents_base_verdict_passes_with_a_complete_pair(repo: Path):
+    """#1790: a body carrying the measured AGENTS:/BASE: pair (ancestor of head+base) is clean."""
+    git(repo, "checkout", "-q", "-b", "leg")
+    _profile_commit(repo, "agents/llgenie-planner/SOUL.md", "new rule\n")
+    agents, base = _agents_doc(repo)
+    body = f"Closes #792.\n\n{agents}\n{base}\n\nBody.\n"
+    assert bp.agents_base_verdict(repo, "leg", "main", body) == []
+
+
+def test_the_agents_base_verdict_is_silent_for_a_human_only_range(repo: Path):
+    """A human body is not bot work; the CI gate (and preflight) skip it — mirror, not widen."""
+    git(repo, "checkout", "-q", "-b", "human-leg")
+    _profile_commit(repo, "agents/llgenie-planner/SOUL.md", "rule\n", email="andy.holst@protonmail.com")
+    assert bp.agents_base_verdict(repo, "human-leg", "main", "Closes #792.\n\nBody.\n") == []
+
+
+def test_preflight_with_a_bot_body_missing_agents_is_refused(repo: Path, tmp_path: Path):
+    """#1790 acceptance: a supplied prospective body missing AGENTS:/BASE: is refused (exit 1)."""
+    git(repo, "checkout", "-q", "-b", "leg")
+    _profile_commit(repo, "agents/llgenie-planner/SOUL.md", "new rule\n")
+    body = tmp_path / "body.md"
+    body.write_text("Closes #792.\n\nBody without AGENTS:/BASE:.\n")
+    assert bp.main(["--root", str(repo), "--no-sync", "--no-write", "--base", "main",
+                    "--body-file", str(body)]) == 1
+
+
+def test_preflight_with_a_complete_agents_body_passes(repo: Path, tmp_path: Path):
+    git(repo, "checkout", "-q", "-b", "leg")
+    _profile_commit(repo, "agents/llgenie-planner/SOUL.md", "new rule\n")
+    agents, base = _agents_doc(repo)
+    body = tmp_path / "body.md"
+    body.write_text(f"Closes #792.\n\n{agents}\n{base}\n\nSYNC: llgenie-planner "
+                    f"make sync-agent-profile PROFILE=llgenie-planner\n\nBody.\n")
+    assert bp.main(["--root", str(repo), "--no-sync", "--no-write", "--base", "main",
+                    "--body-file", str(body)]) == 0
+
+
+def test_preflight_without_a_body_warns_loudly_on_a_bot_branch(repo: Path, capsys):
+    """No body yet is a loud AGENTS WARN (the lane hears it pre-push), not a silent green preflight."""
+    git(repo, "checkout", "-q", "-b", "leg")
+    _profile_commit(repo, "agents/llgenie-planner/SOUL.md", "new rule\n")
+    rc = bp.main(["--root", str(repo), "--no-sync", "--no-write", "--base", "main"])
+    assert rc == 0
+    err = capsys.readouterr().err
+    assert "WARN" in err and "check-pr-agents-line" in err and "#792" in err
+    assert "check_pr_hygiene.py:518" in err

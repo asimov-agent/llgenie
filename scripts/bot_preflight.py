@@ -20,6 +20,15 @@ refuses the preflight when the body is missing/mis-citing a touched profile's `S
 body yet it warns loudly; a non-profile or human-only range is silent. Every verdict names #1724 and
 the contract location `scripts/check_pr_hygiene.py:499`.
 
+Since #1790 the target ALSO surfaces every bot PR body's `AGENTS:`/`BASE:` obligation (issues #792
+and #845): it runs the CI gate's own `check_pr_hygiene.pr_agents_line_findings` over the prospective
+body, so a bot PR that opens with no or mis-cited `AGENTS:`/`BASE:` lines hears it at preflight
+instead of on the first red `check-pr-agents-line` (`#1788` opened preflight-green with zero actual
+hygiene lines and redded CI). The verdict refuses when a body is supplied but missing/mis-citing the
+lines, warns loudly when no body is supplied yet (the gate cannot read one it does not have), and is
+silent for a human-only / non-`is_bot_pr` range. Every verdict names #792/#845 and the contract
+location `scripts/check_pr_hygiene.py:518`.
+
 Never a silent proceed: a checkout that cannot be brought to `origin/main` (dirty, or diverged with
 commits both ways) is an error naming the paths, not a warning.
 """
@@ -218,6 +227,32 @@ def render_sync_line_findings(items: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def agents_base_verdict(root: Path, head: str, base: str, body: str) -> list[dict]:
+    """The #792/#845 findings a would-be bot PR body carries — the gate's own function, imported.
+
+    A bot PR with a missing or mis-cited `AGENTS:`/`BASE:` pair is redded in CI by
+    `make check-pr-agents-line` (issues #792, #845) reading the LIVE PR body — the one source a
+    hermetic preflight cannot reach. `#1788` opened preflight-green with zero actual hygiene lines
+    and redded CI. So we reuse `check_pr_hygiene.pr_agents_line_findings` (the SAME gate CI mounts,
+    never a restated copy) over the would-be body, surfacing its verdict here so the lane hears it
+    at preflight, not on the first red run. The gate itself enforces the #845 BASE==AGENTS-equality
+    (`check_pr_hygiene.py:564`), so the verdict inherits that contract too.
+    """
+    from check_pr_hygiene import pr_agents_line_findings  # noqa: PLC0415  (local import keeps preflight standalone)
+    return pr_agents_line_findings(root, head, base, body)
+
+
+def render_agents_base_findings(items: list[dict]) -> str:
+    """One line per #792/#845 finding, naming the contract location (`check_pr_hygiene.py:518`)."""
+    lines = []
+    for it in items:
+        lines.append(f"  - {it.get('detail', it.get('key', 'agents-line'))}")
+        lines.append("    (issue #792/#845; contract: scripts/check_pr_hygiene.py:518 — run `make "
+                     "bot-preflight` and cite the `AGENTS: <sha> <bytes>b <lines>l` + "
+                     "`BASE: <sha> (== origin/main at open)` lines it writes)")
+    return "\n".join(lines)
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="bot_preflight", description=__doc__)
     p.add_argument("--root", default=str(REPO_ROOT))
@@ -265,6 +300,20 @@ def main(argv: list[str] | None = None) -> int:
                   "check-pr-sync-line` will red it (issue #1724; contract scripts/check_pr_hygiene.py:499):",
                   file=sys.stderr)
             print(render_sync_line_findings(findings), file=sys.stderr)
+        # #1790: surface the AGENTS/BASE verdict a bot PR body will meet in CI (issues #792/#845).
+        agents_findings = agents_base_verdict(root, "HEAD", args.base, body)
+        if agents_findings and args.body_file:
+            print("[bot-preflight] REFUSED: the PR body is missing or mis-citing a required "
+                  "`AGENTS:`/`BASE:` pair — CI `make check-pr-agents-line` will red it "
+                  "(issue #792/#845):", file=sys.stderr)
+            print(render_agents_base_findings(agents_findings), file=sys.stderr)
+            return 1
+        if agents_findings:
+            print("[bot-preflight] WARN: a bot PR body must carry `AGENTS: <sha> <bytes>b <lines>l` + "
+                  "`BASE: <sha> (== origin/main at open)` beside one another or CI `make "
+                  "check-pr-agents-line` will red it (issue #792/#845; contract "
+                  "scripts/check_pr_hygiene.py:518):", file=sys.stderr)
+            print(render_agents_base_findings(agents_findings), file=sys.stderr)
         return 0
     except PreflightError as exc:
         print(f"[bot-preflight] REFUSED: {exc}", file=sys.stderr)
