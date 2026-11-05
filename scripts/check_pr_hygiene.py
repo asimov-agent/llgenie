@@ -583,8 +583,16 @@ def agents_line_findings(root: Path, head: str, base: str, body: str) -> list[di
 def _diff_profiles(root: Path, base: str, head: str) -> list[str]:
     """The profile dirs (`agents/<name>/`) a range touches — the owner's propagation rule (#1724) turns a
     landed profile change into a REQUIRED live re-sync report, so the gate reads which profiles the range
-    actually edits (`git diff --name-only base..head -- agents/`)."""
-    out = _git(root, "diff", "--name-only", f"{base}..{head}", "--", "agents")
+    actually edits (`git diff --name-only merge-base..head -- agents/`)."""
+    # Anchor at the merge-base, never the literal range start (issue #1754). The sync-line gate passes
+    # PR_BASE as the LIVE `origin/main` ref the step refreshes to the main TIP; `git diff A..B` compares
+    # two TREES, so a foreign post-base `agents/` change on main appears as a deletion against head and
+    # is misattributed to this PR as an absent SYNC-line demand. Resolving `git merge-base <base> <head>`
+    # first (the #1527 pattern `check_pr_closing` already uses) restricts the diff to the commits THIS PR
+    # introduces, so only genuine same-PR `agents/` edits demand a SYNC line (which they still do — the
+    # gate is not weakened).
+    anchor = _git(root, "merge-base", base, head) or base
+    out = _git(root, "diff", "--name-only", f"{anchor}..{head}", "--", "agents")
     names: list[str] = []
     for line in (out or "").splitlines():
         line = line.strip()

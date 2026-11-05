@@ -120,6 +120,32 @@ def test_no_diff_under_agents_is_an_empty_pass(repo: Path):
     assert hy.sync_line_findings(repo, "feature", "main", sync_body()) == []
 
 
+def test_a_foreign_agents_change_on_main_after_the_base_is_not_attributed(repo: Path):
+    """Issue #1754: the sync-line gate passes PR_BASE as the LIVE `origin/main` tip, so a foreign post-base
+    `agents/` change that lands on main must NOT read as this PR touching that profile."""
+    # the PR itself changes nothing under agents/ — only a scripts file
+    commit(repo, "scripts/other.py", "pr change\n")
+    # main advances with a foreign agents/ change AFTER the PR's branch point (the live-tip condition)
+    git(repo, "checkout", "-q", "main")
+    commit(repo, "agents/llgenie-foreign/SOUL.md", "foreign rule\n")
+    git(repo, "checkout", "-q", "feature")
+    # gate is called with base="main" — a live ref now ahead of the PR's own base
+    assert hy.sync_line_findings(repo, "feature", "main", "Closes #1724.\n\nBody.\n") == []
+
+
+def test_a_same_pr_agents_change_still_demands_sync_after_main_advanced(repo: Path):
+    """#1754 fix must not weaken the gate: a genuine same-PR agents/ edit still needs its SYNCh line, and a
+    foreign post-base main change beside it is NOT named."""
+    commit(repo, "agents/llgenie-issse-implementer/SOUL.md", "rule\n")  # this PR's own profile edit
+    git(repo, "checkout", "-q", "main")
+    commit(repo, "agents/llgenie-foreign/SOUL.md", "foreign rule\n")  # foreign change after base
+    git(repo, "checkout", "-q", "feature")
+    items = hy.sync_line_findings(repo, "feature", "main", "Closes #1724.\n\nBody.\n")
+    assert items, "a same-PR agents/ edit must still demand its SYNC line"
+    assert "llgenie-issse-implementer" in items[0]["detail"]
+    assert "llgenie-foreign" not in items[0]["detail"], "a foreign profile must not be misattributed"
+
+
 def test_the_cli_exits_non_zero_for_a_missing_sync_line(repo: Path, tmp_path: Path):
     commit(repo, "agents/llgenie-security/SOUL.md", "rule\n")
     f = tmp_path / "body.md"
