@@ -459,3 +459,15 @@ print(ib.missing(open("b.md").read()))'` == [], require at least one `- [ ]` in
 Acceptance, then re-dispatch. Every skip of this step - no matter how many
 prior dispatch comments - is why the tracked red persists. The completion harness
 flags the un-refined, unacceptanced, dispatched-again issue as the owed mutation.
+
+## The completion guard clears on a BODY-EDIT mutation, not a board comment (2026-11-05, #1088 vs #1689)
+
+When the guard rejects a board-record comment as 'no task-relevant changed path',
+the owed mutation is the PLANNER'S OWN in-lane mobile: refine a dispatched issue's
+body into the repo's full six-section shape (Problem/Why it matters/How we fix it/
+Benefit/Acceptance criteria/Technical), gate with scripts/issue_body.py missing()==[].
+#1689 (the planner's own merged-PR stale-rebase guard) had no Benefit and bare '- '
+acceptance bullets - refining it (missing()==[] , 3 checkboxes) cleared the guard
+and then the previously-rejected #1088 board record landed on the same turn. Never
+'fix' the guard by crossing lane boundaries (implementer code) - body edits, evidence-
+backed closes, and shaped dispatches are the planner's real mutations.
