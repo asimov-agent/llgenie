@@ -42,6 +42,14 @@ from proc import run_ok  # noqa: E402  the subprocess policy seam (issue #797)
 REPORTS = Path(os.environ.get("SECURITY_REPORTS") or (REPO / "security-reports"))
 MARKER = "<!-- security-finding: {source}:{advisory}:{package} -->"
 MARKER_RE = re.compile(r"<!--\s*security-finding:\s*([^:\s]+):([^:\s]+):([^>\s]+)\s*-->")
+#: The acceptance line that turns an issue's close into an evidence round-trip. The security loop
+#: only closes an issue by posting this clearing comment on a genuine completed scan (issue #1693):
+#: a merged-PR bare `closes #N` closes the issue by reference WITHOUT that evidence, and Git's
+#: merge-close must never be treated as satisfying a scan-evidence acceptance box.
+SCAN_EVIDENCE_ACCEPTANCE = "the next scan closes this issue with the run that cleared it"
+#: The comment the pipeline's own clear loop posts. Its ABSENCE on a closed scan-evidence issue is
+#: the distinguishing signal that the issue was closed by a merged PR's reference, not by a scan.
+CLEAR_COMMENT = "No longer reported by the latest scan"
 #: The labels every issue carries, and the colour/description each is created with.
 LABELS: dict[str, tuple[str, str]] = {
     "security": ("b60205", "A vulnerability or a supply-chain finding"),
@@ -330,6 +338,105 @@ def existing_issues(repo: str, label: str = "security") -> dict[str, dict]:
     return out
 
 
+def _closed_scan_evidence(repo: str) -> list[dict]:
+    """CLOSED security issues whose acceptance is a scan-evidence round-trip.
+
+    `apply` only ever reconciles open issues (`existing_issues` filters `--state open`), so an
+    issue a merged PR's bare `closes #N` auto-closed disappears from the tracker — and comes back
+    as a DUPLICATE on the next scan while the finding persists, or closes silently without the run
+    id/sha evidence comment when it has gone. This reads the live tracker (never a blob or a grep)
+    for exactly those issues so the guard can reconcile them (issue #1693).
+    """
+    res = _gh(["issue", "list", "--label", "security", "--state", "closed", "--limit", "200",
+               "--json", "number,body,labels,title"], repo)
+    if res.returncode != 0:
+        raise SystemExit(f"[security-issues] cannot list closed issues: {res.stderr.strip()}")
+    out: list[dict] = []
+    for issue in json.loads(res.stdout or "[]"):
+        body = issue.get("body") or ""
+        if MARKER_RE.search(body) and SCAN_EVIDENCE_ACCEPTANCE in body:
+            out.append(issue)
+    return out
+
+
+def _has_pipeline_clear(repo: str, number: int) -> bool:
+    """Whether the issue was closed by the pipeline's own loop (it posted CLEAR_COMMENT).
+
+    The clear loop (apply) closes with the `No longer reported by the latest scan` comment, so its
+    presence is the single reliable marker of a genuine pipeline clear — everything else (a merged
+    PR's `closes #N`, a manual close) closed it without the evidence round-trip the acceptance box
+    demands (issue #1693).
+    """
+    res = _gh_api([f"repos/{repo}/issues/{number}/comments", "--jq",
+                   "[.[].body] | join(\"\\n\")"])
+    if res.returncode != 0:
+        raise SystemExit(f"[security-issues] cannot read the comments of #{number}: "
+                         f"{res.stderr.strip()}")
+    return CLEAR_COMMENT in (res.stdout or "")
+
+
+def reconcile(findings: list[Finding], repo: str, run_url: str = "", sha: str = "",
+              dry: bool = False) -> int:
+    """Never treat a merged-PR `closes #N` as satisfying a scan-evidence acceptance box (issue #1693).
+
+    The security pipeline is honest on its own path: it only closes when the next scan no longer
+    reports the finding and it comments the run that cleared it. Git's merge-close-by-reference
+    bypasses that loop entirely — a PR merged with a bare `closes #N` closes the issue with zero
+    scan evidence, so the box reads 'cleared' on a run that never ran.
+
+    For every CLOSED scan-evidence issue that lacks the pipeline's own clearing comment:
+
+      * the finding is STILL in this scan's reports -> the merge-close was premature: reopen it
+        (a live finding must not drop off the board and be re-filed as a duplicate) and flag that
+        a merged PR's `closes #N` does not clear a scan-evidence box;
+      * the finding has genuinely gone -> post the honest clearing comment naming run id + sha,
+        the #1646 round-trip the merge-close skipped (the box is now satisfied by a real scan).
+
+    A closed issue that DOES carry the pipeline's clearing comment is a genuine pipeline clear and
+    is left untouched (no behaviour change to the honest loop).
+    """
+    keys = {f.key for f in findings}
+    reopened: list[str] = []
+    evidenced: list[str] = []
+    for issue in _closed_scan_evidence(repo):
+        number = int(issue["number"])
+        if _has_pipeline_clear(repo, number):
+            continue  # the honest loop already closed it with evidence — untouched
+        m = MARKER_RE.search(issue.get("body") or "")
+        if m is None:  # unreachable: _closed_scan_evidence requires the marker — fail loudly
+            raise SystemExit(f"[security-issues] #{number} has no scan-finding marker: "
+                             f"{issue.get('body') or ''!r}")
+        key = f"{m.group(1)}:{m.group(2)}:{m.group(3)}"
+        if key in keys:
+            if dry:
+                reopened.append(f"#{number} ({key})")
+                continue
+            res = _gh(["issue", "edit", str(number), "--state", "open"], repo)
+            if res.returncode != 0:
+                raise SystemExit(f"[security-issues] cannot reopen #{number}: {res.stderr.strip()}")
+            _gh(["issue", "comment", str(number), "--body",
+                 "A merged PR's bare `closes #N` does not satisfy a scan-evidence acceptance box; "
+                 "the latest scan still reports this finding, so it stays OPEN until a real scan "
+                 f"clears it ({run_url or 'local run'})."], repo)
+            reopened.append(f"#{number} ({key})")
+        else:
+            if dry:
+                evidenced.append(f"#{number} ({key})")
+                continue
+            _gh(["issue", "comment", str(number), "--body",
+                 f"CLEARED by a genuine scan — {CLEAR_COMMENT} {run_url or 'local run'} at "
+                 f"`{sha or 'this head'}`."], repo)
+            evidenced.append(f"#{number} ({key})")
+    if reopened:
+        print(f"[security-issues] reopened merge-closed scan-evidence issue(s): {', '.join(reopened)}")
+    if evidenced:
+        print(f"[security-issues] posted clearing evidence for merge-closed issue(s): "
+              f"{', '.join(evidenced)}")
+    if not reopened and not evidenced:
+        print("[security-issues] reconcile: no merge-closed scan-evidence issue needs action")
+    return 0
+
+
 def plan(findings: list[Finding], existing: dict[str, dict]) -> dict[str, list]:
     """What apply would do: create the new keys, update the known ones, clear the vanished ones."""
     keys = {f.key for f in findings}
@@ -430,10 +537,13 @@ def check() -> int:
 
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("command", choices=("plan", "apply", "check"))
+    ap.add_argument("command", choices=("plan", "apply", "check", "reconcile"))
     ap.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", ""))
     ap.add_argument("--reports", default=str(REPORTS))
     ap.add_argument("--run-url", default=os.environ.get("SECURITY_RUN_URL", ""))
+    ap.add_argument("--sha", default=os.environ.get("GITHUB_SHA", ""),
+                    help="the head sha the scan ran at — named in the clearing comment (issue #1693)")
+    ap.add_argument("--dry", action="store_true", help="print what reconcile would do, mutate nothing")
     args = ap.parse_args(argv)
     if args.command == "check":
         return check()
@@ -442,6 +552,8 @@ def main(argv: list[str]) -> int:
         return dry(findings)
     if not args.repo:
         raise SystemExit("[security-issues] set --repo (or $GITHUB_REPOSITORY) to file issues")
+    if args.command == "reconcile":
+        return reconcile(findings, args.repo, args.run_url, args.sha, dry=args.dry)
     return apply(findings, args.repo, args.run_url)
 
 

@@ -165,6 +165,21 @@ jobs:
           SECURITY_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: make security-issues SLUG="${{ github.repository }}" RUN_URL="$SECURITY_RUN_URL"
 
+      - name: make security-issues-reconcile (never let a merged PR's `closes #N` clear a scan-evidence box)
+        # The dead-close guard (issue #1693): an issue whose acceptance is "the next scan closes
+        # this issue with the run that cleared it" must only ever be cleared by a genuine scan that
+        # names run id + sha. A PR merged with a bare `closes #N` auto-closes the issue with ZERO
+        # scan evidence; this re-reads the live tracker for exactly those closed issues and either
+        # reopens one the scan still reports or posts the honest clearing comment (run id + sha)
+        # on one it genuinely no longer does. Same always() + hashFiles() guard as security-issues:
+        # a scanner crash must not make reconcile "reopen" on a bogus empty report set.
+        if: always() && hashFiles('security-reports/*') != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SECURITY_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: make security-issues-reconcile SLUG="${{ github.repository }}" RUN_URL="$SECURITY_RUN_URL" SHA="${{ github.sha }}"
+
       - name: make security-bumps (the floor the scanner demands, regenerated into ONE bump PR)
         # Also `always()`: a failed issue-filing pass must never hide the pinned floors the scan
         # demands, and a gated verdict is exactly when the bump PR matters most.
