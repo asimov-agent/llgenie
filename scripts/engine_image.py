@@ -204,7 +204,16 @@ def _buildx(tag: str, ctx: str, push: bool, cache_ref: str, force: bool = False)
     # Only name it when it exists — a fresh Colima on the macOS runner has no
     # builder called "default" and buildx errors instead of falling back.
     cmd = [RUNTIME, "buildx", "build", "--progress=plain"]
-    if _sh([RUNTIME, "buildx", "inspect", "default"], capture_output=True).returncode == 0:
+    # The legacy docker-driver builder sees locally loaded base images, but only the
+    # docker-container driver can EXPORT a registry cache (docker driver -> "Cache export
+    # is not supported for the docker driver"). When CACHE_WRITE=1 we are about to add
+    # `--cache-to type=registry`, so stay on the ACTIVE builder — the docker-container
+    # instance setup-buildx-action created and `--use`d (engine-build.yml) — rather than
+    # overriding it with the driver that cannot write. When CACHE_WRITE is unset the build
+    # only READS the registry cache (both drivers support `--cache-from type=registry`),
+    # so preferring `default` for locally-loaded images is still correct, and it alone
+    # avoids the fresh-Colima case (no default builder -> buildx must not error).
+    if not CACHE_WRITE and _sh([RUNTIME, "buildx", "inspect", "default"], capture_output=True).returncode == 0:
         cmd += ["--builder", "default"]
     cmd += [*no_cache, "-t", tag, "--load"]
     if REGISTRY and not force:

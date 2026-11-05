@@ -106,6 +106,41 @@ def test_a_nonpush_unforced_build_writes_back_the_cache_only_when_privileged(mon
     assert any_to and all("mode=max" in str(a) for a in any_to)
 
 
+def test_a_cache_write_build_stays_on_the_container_builder(monkeypatch, tmp_path):
+    """CACHE_WRITE=1 stops forcing the legacy `--builder default` (docker driver).
+
+    The docker-driver `default` builder can read a registry cache but cannot EXPORT one
+    ("Cache export is not supported for the docker driver" — measured on run
+    41944882169, job 126975033244). When the owner-guarded engine-build dispatch (which
+    sets LLGENIE_CACHE_WRITE=1 and creates a docker-container builder via
+    setup-buildx-action) writes --cache-to type=registry, the build must stay on the ACTIVE
+    container builder — never override it with --builder default. When the flag is unset
+    (fork/PR/local), --builder default is still preferred so locally-loaded base images are
+    seen (a fresh Colima has no default builder, so the inspect guard remains).
+    """
+
+    # Given a non-pushing build with the default builder present (inspect returns 0)
+    def _driver(cache_write: bool) -> list[str]:
+        calls = _record(monkeypatch)
+        monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+        monkeypatch.setattr(ei, "CACHE_WRITE", cache_write)
+        ei._buildx("llgenie/demo:t", str(tmp_path), False, "ghcr.io/asimov-agent/llgenie/demo:buildcache")
+        return calls[-1]
+
+    # When CACHE_WRITE is set (registry cache export is intended)
+    build = _driver(True)
+    # Then the docker-driver default builder must NOT override the container one
+    assert "--builder" not in build, build
+    assert any(str(a).startswith("type=registry,ref=") and "mode=max" in str(a) for a in build)
+
+    # When CACHE_WRITE is unset (read-only fork/PR/local build)
+    build = _driver(False)
+    # Then the default builder is still preferred and the cache is read but not written
+    assert "--builder" in build and "default" in build, build
+    assert any(str(a).startswith("type=registry,ref=") for a in build)
+    assert not any(a == "--cache-to" for a in build)
+
+
 def test_a_forced_push_build_does_not_read_the_cache(monkeypatch, tmp_path):
     """A publishing forced build passes --no-cache and still writes the cache for later runs."""
 
