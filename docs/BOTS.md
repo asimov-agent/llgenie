@@ -832,6 +832,18 @@ body and a live diff), so both `ci.yml`'s `guard` job and `scope.yml`'s docs gat
 `check-pr-sync-line`, fetching that body via `gh api` (issue #1589); a push to main has no body and
 prints a `nothing to validate` note instead of failing. Implemented as issue #1807.
 
+`make check-pr-acceptance-form` is the #1796 PR-body form preflight mounted in CI: it refuses a bot
+PR whose body carries no own `## Acceptance criteria` `- [ ]` checklist — the owner's universal form
+rule that every issue a lane files AND every PR body it opens has a tickable acceptance section, each
+criterion a `- [ ]` checkbox, one per provable outcome (a criterion a reviewer cannot tick is not one,
+issue #745). It is the PR-BODY half of #1792 (the #1792 gate verifies the *linked issue's* criteria are
+ticked at merge; this surface catches a body that never had the boxes at all). It reuses
+`acceptance_writeback.acceptance_items` (imported, never restated) and is VERIFICATION/surface only —
+never a #1088 merge-blocker, never a tick (that stays #1644). Both `ci.yml`'s `guard` job and
+`scope.yml`'s docs gate run it beside `check-pr-closing`/`check-pr-acceptance`, fetching that body via
+`gh api` (issue #1589); a push to main has no body and prints a `nothing to validate` note instead of
+failing. Implemented as issue #1796.
+
 #### Each write uses the token that can perform it (issue #430)
 
 The PR step makes two different writes and needs two different tokens. `GH_TOKEN: ${{ github.token }}`

@@ -1102,6 +1102,8 @@ check-pr-sync-line: ## CI: fail when a profile-editing bot PR (a diff under agen
 	python3 scripts/check_pr_hygiene.py sync-line --head "$(if $(PR_HEAD),$(PR_HEAD),HEAD)" --base "$(PR_BASE)" --body-file "$(PR_BODY)"
 check-pr-openspec-change: ## CI: fail when an implementing bot PR's final diff adds no `openspec/changes/<name>/` file and its body names no ACTIVE change it implements against (`OPENSPEC: <name>`) — the presence half #1807 (AGENTS.md MANDATORY change-first; `ci-openspec` only iterates EXISTING changes, so an openspec-empty implementing PR is otherwise CI-green); the guard jobs call it with the LIVE PR body, never from a hermetic chain. Reuses the existing openspec gates (openspec-validate-all / openspec-tasks-check own structure and ticks) — never weakened
 	python3 scripts/check_pr_hygiene.py openspec-change --head "$(if $(PR_HEAD),$(PR_HEAD),HEAD)" --base "$(PR_BASE)" --body-file "$(PR_BODY)"
+check-pr-acceptance-form: ## CI: fail when a bot PR's body carries no own `## Acceptance criteria` `- [ ]` checklist — the owner's universal form rule (issue #1796): every issue a lane files AND every PR body it opens has a tickable acceptance section; verification/surface only, never a #1088 merge-blocker, never a tick (that stays #1644); the guard jobs call it with the LIVE PR body, never from a hermetic chain
+	python3 scripts/check_pr_hygiene.py acceptance-form --head "$(if $(PR_HEAD),$(PR_HEAD),HEAD)" --base "$(PR_BASE)" --body-file "$(PR_BODY)"
 check-pr-acceptance: ## CI: fail when a merged PR closes an issue whose `## Acceptance criteria` carries an unmarked `- [ ]` item, or when the PR body ticks a criterion the linked issue still has unchecked (issue #1792) — verification only, it never ticks boxes (that stays #1644, the verdict-gated write-back); the guard jobs call it with the LIVE PR body (same fetch as check-pr-closing, issue #1589) and the LIVE linked issue at merge time, and with the squash commit range (PR_BASE/PR_HEAD) so a `(closes #N)` that lives ONLY in the squash text GitHub's native close reads is held too (issue #1815)
 	python3 scripts/check_pr_acceptance.py check --body-file "$(if $(PR_BODY),$(PR_BODY),/dev/null)" $(if $(PR_BASE),--base "$(PR_BASE)",) --rev "$(if $(PR_HEAD),$(PR_HEAD),HEAD)"
 pr-hygiene-report: ## Show every producer the PR/commit-message guard reads, and its verdict
@@ -1115,6 +1117,7 @@ pr-closing-report: ## Show the closing references a PR body carries, the squash 
 .PHONY: check-pr-closing pr-closing-report
 .PHONY: check-pr-acceptance
 .PHONY: check-pr-openspec-change
+.PHONY: check-pr-acceptance-form
 .PHONY: check-pr-base
 .PHONY: worktree-base
 check-proc-gate: ## CI: fail when a subprocess.run/check_output/Popen appears in scripts/ outside scripts/proc.py or a `# proc-allow:` line — the ONE subprocess policy seam (issue #797)
