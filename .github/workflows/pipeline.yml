@@ -265,9 +265,9 @@ jobs:
       - name: make test-env (Python 3.11 - Linux pulls llgenie/test from GHCR, macOS builds the 3.11 venv)
         if: matrix.row != 'none'
         run: make test-env
-      - name: make ci-top-tier (same targets on both OSes; macOS Colima, not a Docker GitHub Action)
+      - name: make ci-top-tier (same targets on both OSes; macOS Colima, not a Docker GitHub Action; #1714 surfaces the real exit-2 log tail in the annotation)
         if: matrix.row != 'none'
-        run: make ci-top-tier
+        run: bash scripts/surface_failure_tail.sh "$RUNNER_TEMP/top-tier.log" -- make ci-top-tier
       - name: Prune orphaned test containers
         if: matrix.row != 'none' && always()
         run: make test-clean
