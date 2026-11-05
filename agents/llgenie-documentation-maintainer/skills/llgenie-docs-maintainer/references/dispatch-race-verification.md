@@ -85,3 +85,10 @@ falsify the doc against the current consumer.
 
 The gap is real work: cut the branch from the freshly fetched origin/main sha, write it into the
 first comment, and land the trio normally — still no merge/arm of the merged base (#1088).
+
+## If the red is a stale base, not a stale dispatch
+
+`check-pr-base` failing on an OPEN PR whose change is still valid means `origin/main` moved past the
+cut sha — the base is stale, the change is not. Rebase, regenerate AGENTS:/BASE:/SYNC: at the new
+base, force-push with lease, and judge the fresh head. Procedure and the gh/git field-name traps:
+`references/base-race-rebase-and-metadata.md`.
