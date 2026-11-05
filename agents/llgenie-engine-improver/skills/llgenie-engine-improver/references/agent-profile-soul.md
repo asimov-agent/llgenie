@@ -105,8 +105,13 @@ the drifted files**, not a fresh first-time copy:
 summary `N of M file(s) differ … first: <path>`. `rc=2` on its own does not mean your change is wrong — read
 the **byte order per line**:
 
-- **tree bytes < live bytes → the fatal shape.** The tree copy is truncated relative to what the lane
-  actually runs. `make sync-agent-profile PROFILE=<p>` is **one-way (tree → live)**, so running it would
+- **tree bytes < live bytes → the fatal shape — but only if the TREE SIDE IS CURRENT.** The checker reads the
+  WORKING TREE of whatever checkout you run it in, and the shared primary checkout is routinely parked on
+  another lane's branch with stale files. Run `CHECK=1` from a worktree whose HEAD is `refs/remotes/origin/main`;
+  from a stale checkout it fabricates `TRUNCATED?` rows for files that already match on main. Confirm before
+  believing it: `gh api repos/asimov-agent/llgenie/contents/<path>?ref=main --jq .size` versus the local file
+  size — if main's copy is the larger one, the red is your checkout, not the tree. A real fatal row means
+  the tree copy is truncated relative to what the lane actually runs. `make sync-agent-profile PROFILE=<p>` is **one-way (tree → live)**, so running it would
   REPLACE live behaviour with the shorter copy and destroy accumulated lessons. Do **not** run the sync; the
   remedy is the opposite direction — commit the complete live content into the tree via issue+PR (a
   live-only edit is itself a `check_agent_profiles` finding).

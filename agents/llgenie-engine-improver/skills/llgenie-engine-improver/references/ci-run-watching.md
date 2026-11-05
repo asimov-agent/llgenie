@@ -330,6 +330,11 @@ application/vnd.github+json' --allow-escape-sequences` (redirect to a file, then
 `FAIL|Error|exit status|not found`). The plain REST logs URL can answer 403 `AuthenticationFailed`;
 the `gh api … --allow-escape-sequences` form is the one that works — do not hand-roll the auth.
 
+**A log file that lands at ~99 bytes under the plain `gh api .../logs` form is the escape-suppressed
+artifact, not a 404 and not an empty log.** Re-run the identical call with `--allow-escape-sequences` and
+the same job yields the real text (measured: 99 bytes → ~30 KB). Treat the byte count as the tell; never
+conclude "log not retrievable" from a 99-byte file while the job is `completed`.
+
 Map the failing sub-step to its owner:
 
 - **`engine-launchers` + `[install] FAIL cuda host without the NVIDIA CDI spec`** — the runner host has no
