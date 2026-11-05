@@ -1,0 +1,1 @@
+| 2026-11-05 | llgenie-pr-merge-conflict lane carries the #1796/#791 acceptance-criteria form contract verbatim in its SKILL.md Hard rules (#1812) | [2026-11-05-pr-merge-conflict-acceptance-form-contract-1812.md](agent-wiki/2026-11-05-pr-merge-conflict-acceptance-form-contract-1812.md) | #1812 |
