@@ -1392,7 +1392,9 @@ def test_discover_top_tier_high_and_lower_per_provider(monkeypatch):
     (which barely fits) nor all-Q8 picks across many providers."""
     repos = [
         {"repo": "unsloth/Qwen3.8-27B-GGUF", "downloads": 1, "likes": 1, "trendingScore": 300},
-        {"repo": "unsloth/Qwen3.8-27B-UD-GGUF", "downloads": 1, "likes": 1, "trendingScore": 280},
+        # distinct owner so a provider is genuinely a MAKER (the acceptance test groups by the
+        # repo's owner, the part before "/" — two repos under one owner are one provider) #1723
+        {"repo": "myspace/Qwen3.8-27B-UD-GGUF", "downloads": 1, "likes": 1, "trendingScore": 280},
         {"repo": "orcarouter/Qwen3.8-27B-Uncensored-GGUF", "downloads": 1, "likes": 1,
          "trendingScore": 120},
     ]
@@ -1402,7 +1404,7 @@ def test_discover_top_tier_high_and_lower_per_provider(monkeypatch):
             {"path": "model-Q8_0.gguf", "size_bytes": 20 * 1024 ** 3, "size_gb": 20.0},
             {"path": "model-Q4_K_M.gguf", "size_bytes": 12 * 1024 ** 3, "size_gb": 12.0},  # clearly lower
         ],
-        "unsloth/Qwen3.8-27B-UD-GGUF": [
+        "myspace/Qwen3.8-27B-UD-GGUF": [
             {"path": "model-Q6_K.gguf", "size_bytes": 16 * 1024 ** 3, "size_gb": 16.0},
             {"path": "model-Q3_K_S.gguf", "size_bytes": 9 * 1024 ** 3, "size_gb": 9.0},
         ],
@@ -1969,10 +1971,13 @@ def test_discover_skips_gated_repo_and_refills(tmp_path, monkeypatch):
     repos_files = {
         "good/A": {"trend": 900, "files": [("q8.gguf", 20.0)]},
         "gated/B": {"trend": 800, "files": [("q8.gguf", 25.0)]},   # probe -> access-denied
-        "good/C": {"trend": 700, "files": [("q8.gguf", 30.0)]},
+        # distinct owner so it is a genuinely SEPARATE provider: under the #1723
+        # owner-level contract (the acceptance test groups an owner's picks across
+        # all its repos), a same-owner second repo would collapse into its pick.
+        "next/C": {"trend": 700, "files": [("q8.gguf", 30.0)]},
     }
     _mock_discovery(monkeypatch, repos_files, min_gb=1.0,
-                    probe_result={"good/A": "ok", "gated/B": "access-denied", "good/C": "ok"})
+                    probe_result={"good/A": "ok", "gated/B": "access-denied", "next/C": "ok"})
     total = 512 * G
     head = 3 * G
     limit = 2
@@ -1982,7 +1987,7 @@ def test_discover_skips_gated_repo_and_refills(tmp_path, monkeypatch):
     placed = [c["repo"] for c in result]
     assert len(result) == limit, f"must refill to {limit}, got {len(result)}: {placed}"
     assert "gated/B" not in placed, f"gated repo must be excluded, got {placed}"
-    assert "good/A" in placed and "good/C" in placed, f"must refill from next provider, got {placed}"
+    assert "good/A" in placed and "next/C" in placed, f"must refill from next provider, got {placed}"
 
 
 def test_probe_downloadable_verifies_real_gguf_chunk(monkeypatch):
@@ -2057,8 +2062,8 @@ FAMILY_QWEN_REPOS = [
      "trendingScore": 120},        # gated (probe -> access-denied): skipped + refilled
     {"repo": "maddes/Another-Qwen-GGUF", "downloads": 90000, "likes": 30,
      "trendingScore": 10},
-    {"repo": "Qwen/Qwen2.5-0.5B-Instruct-GGUF", "downloads": 700000, "likes": 100,
-     "trendingScore": 5},          # refill provider (low trend)
+    {"repo": "qwenlite/Qwen2.5-0.5B-Instruct-GGUF", "downloads": 700000, "likes": 100,
+     "trendingScore": 5},          # refill provider (low trend), distinct owner so it is a provider (#1723)
 ]
 
 FAMILY_QWEN_FILES = {
@@ -2079,7 +2084,7 @@ FAMILY_QWEN_FILES = {
         ("another-qwen-Q6_K.gguf", 12.0),
         ("another-qwen-Q4_K_M.gguf", 8.5),
     ],
-    "Qwen/Qwen2.5-0.5B-Instruct-GGUF": [
+    "qwenlite/Qwen2.5-0.5B-Instruct-GGUF": [
         ("qwen2.5-0.5b-instruct-q4_0.gguf", 4.5),
     ],
 }
@@ -2517,8 +2522,6 @@ def test_family_scope_mocked(monkeypatch):
     Then   high+lower per provider, gated skip+refill, provider-aware
            placement, and ranking all hold.
     """
-    # Given the fake family wired into the network seams, a 48 GB card,
-    #        and a gated repo
     probe = {"orcarouter/Qwen3.8-27B-Uncensored-GGUF": "access-denied"}
     _install_family_mocks(monkeypatch, FAMILY_QWEN_REPOS, FAMILY_QWEN_FILES,
                           probe_result=probe)
@@ -2576,7 +2579,7 @@ def test_family_scope_mocked(monkeypatch):
         "unsloth/Qwen3.8-27B-GGUF",           # trend 120, 1.0M downloads
         "bartowski/Qwen3.8-27B-GGUF",         # trend 120, 400k downloads
         "maddes/Another-Qwen-GGUF",           # trend 10
-        "Qwen/Qwen2.5-0.5B-Instruct-GGUF",    # trend 5 (refilled after gated skip)
+        "qwenlite/Qwen2.5-0.5B-Instruct-GGUF",    # trend 5 (refilled after gated skip)
     ], f"provider ranking wrong: {order}"
 
 

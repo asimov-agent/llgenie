@@ -1067,17 +1067,88 @@ def discover_top_tier(limit=10, total_ram_bytes=None, headroom_bytes=None,
              # trending provider only offers those (a 27B at ~8-11 GB is poor quality).
              and not re.search(r"(?:-|_)(IQ[123]_|IQ[12]XS|IQ[123][0-9])", os.path.basename(f["path"]), re.I)
              ],
-            key=lambda f: f["size_gb"], reverse=True,
+            key=lambda f: f["size_bytes"], reverse=True,
         )
 
-    # Per provider: take the best-fit (largest = highest quant) and then a clearly
-    # LOWER quant (Q4/Q5/Q6 class, ~30%+ smaller) so you get high + lower quality
-    # variety from each provider, and the lower quants fit with comfortable margin.
-    # Both must fit comfortably.
+    # Per provider (OWNER — the org/maker the acceptance test groups by): take the best-fit
+    # (largest = highest quant) and then a clearly LOWER quant (Q4/Q5/Q6 class, ~30%+ smaller)
+    # so you get high + lower quality variety from each owner, and the lower quants fit with
+    # comfortable margin. Both must fit comfortably. The high+lower decision is by the size
+    # threshold (>= ~25% smaller), never by array order, and near-identical sizes (a 32-byte
+    # tier boundary) must never appear as a "lower" pick or out of order (#1723). Each owner is
+    # one bucket across ALL its repos, so two near-identical best-fits from two repos of the
+    # same owner collapse to ONE pick (the largest), matching the acceptance test's
+    # `(sizes[0]-sizes[1]) >= 0.25 * sizes[0]` on the owner's combined picks.
     cands = []
     skipped = []  # (repo, filename, reason) for gated/dead repos
     seen_repos = set()
+    # owner -> {"best": (trendingScore, downloads), "files": [(repo, repo_info, f), ...]}
+    owners: dict = {}
+    _probed: dict = {}  # (owner, filename) -> cand or None (a probe is a network call: run once)
     window = max(limit, 10) * 3
+
+    def _owner_files():
+        """The owner buckets, each file sorted descending by size_bytes."""
+        return {owner: sorted(bucket["files"], key=lambda t: -t[2]["size_bytes"])
+                for owner, bucket in owners.items()}
+
+    def _emit():
+        """Select each owner's high + clearly-lower picks and build the candidate dicts.
+
+        Near-identical sizes within one owner collapse to the single largest; a next pick is
+        kept only when it is >= ~25% smaller than the last kept (so the owner's combined picks
+        are strictly descending and the acceptance test's 25% rule holds). Probes are cached per
+        (owner, filename) so a widening refill pass never re-probes a file it already saw.
+        """
+        out: list[dict] = []
+        ordered_files = _owner_files()
+        for owner, ordered in ordered_files.items():
+            chosen: list[tuple] = []
+            prev = None
+            for repo, repo_info, f in ordered:
+                if prev is None or prev - f["size_bytes"] >= 0.25 * prev:
+                    chosen.append((repo, repo_info, f))
+                    prev = f["size_bytes"]
+                if len(chosen) >= per_provider:
+                    break
+            for repo, repo_info, f in chosen:
+                filename = os.path.basename(f["path"])
+                key = (owner, filename)
+                if key in _probed:
+                    if _probed[key] is not None:
+                        out.append(_probed[key])
+                    continue
+                # PRE-FLIGHT: verify the object is actually downloadable (skip gated/dead fast).
+                probe = _probe_file_downloadable(repo, filename)
+                if probe == "access-denied":
+                    skipped.append((repo, filename, "access-denied"))
+                    print(f"[top-tier] skipping {repo}::{filename}: access-denied (403)", flush=True)
+                    _probed[key] = None
+                    continue
+                if probe == "dead":
+                    skipped.append((repo, filename, "dead"))
+                    print(f"[top-tier] skipping {repo}::{filename}: dead (404)", flush=True)
+                    _probed[key] = None
+                    continue
+                if probe is None:
+                    # transient or a 200-HTML shell served without the right body;
+                    # do NOT hard-skip (could be a blip), but do not count it either here.
+                    print(f"[top-tier] probe inconclusive for {repo}::{filename}", flush=True)
+                _probed[key] = {
+                    "repo": repo,
+                    "filename": filename,
+                    "size_bytes": f["size_bytes"],
+                    "size_gb": f["size_gb"],
+                    "downloads": repo_info["downloads"],
+                    "likes": repo_info["likes"],
+                    "trendingScore": repo_info["trendingScore"],
+                    "tier_folder": pick_tier_folder(f["size_bytes"], total),
+                    "dest_path": provider_dest_path(repo, filename, f["size_bytes"],
+                                                    models_root=models_root, total_ram_bytes=total),
+                }
+                out.append(_probed[key])
+        return out
+
     while len(cands) < limit:
         if family is not None:
             # The complete family list (pre-supplied by the CLI or fetched here),
@@ -1089,79 +1160,42 @@ def discover_top_tier(limit=10, total_ram_bytes=None, headroom_bytes=None,
         else:
             repos = _trending_gguf_repos(limit=window)
         new_repos = [r for r in repos if r["repo"] not in seen_repos]
-        if not new_repos:
-            break  # source list exhausted (all seen) — nothing more to refill with
+        added = False
         for repo_info in new_repos:
             seen_repos.add(repo_info["repo"])
             if repo_info["trendingScore"] < min_trending_score:
                 continue
             repo = repo_info["repo"]
             files = candidate_files(repo)
-            owner_picks = []
-            best = None
-            for f in files:
-                if f["size_bytes"] + head + kv_reserve > total:
-                    continue  # doesn't fit comfortably -> skip
-                if best is None:
-                    best = f["size_bytes"]
-                    owner_picks.append(f)
-                    continue
-                # 2nd+ pick: must be a clearly-different (lower) quant tier (~25% smaller)
-                if best - f["size_bytes"] >= 0.25 * best:
-                    owner_picks.append(f)
-                    best = f["size_bytes"]  # allow a further-lower quant after this one
-                if len(owner_picks) >= per_provider:
-                    break
-            for chosen in owner_picks:
-                filename = os.path.basename(chosen["path"])
-                # PRE-FLIGHT: verify the object is actually downloadable (skip gated/dead fast).
-                probe = _probe_file_downloadable(repo, filename)
-                if probe == "access-denied":
-                    skipped.append((repo, filename, "access-denied"))
-                    print(f"[top-tier] skipping {repo}::{filename}: access-denied (403)", flush=True)
-                    continue
-                if probe == "dead":
-                    skipped.append((repo, filename, "dead"))
-                    print(f"[top-tier] skipping {repo}::{filename}: dead (404)", flush=True)
-                    continue
-                if probe is None:
-                    # transient or a 200-HTML shell served without the right body;
-                    # do NOT hard-skip (could be a blip), but do not count it either here.
-                    print(f"[top-tier] probe inconclusive for {repo}::{filename}", flush=True)
-                cands.append({
-                    "repo": repo,
-                    "filename": filename,
-                    "size_bytes": chosen["size_bytes"],
-                    "size_gb": chosen["size_gb"],
-                    "downloads": repo_info["downloads"],
-                    "likes": repo_info["likes"],
-                    "trendingScore": repo_info["trendingScore"],
-                    "tier_folder": pick_tier_folder(chosen["size_bytes"], total),
-                    "dest_path": provider_dest_path(repo, filename,
-                                                    chosen["size_bytes"], models_root=models_root,
-                                                    total_ram_bytes=total),
-                })
-            if len(cands) >= limit:
-                break
+            owner = repo.split("/", 1)[0] if "/" in repo else repo
+            bucket = owners.setdefault(owner, {
+                "best": (repo_info["trendingScore"], repo_info["downloads"]),
+                "files": [],
+            })
+            if (repo_info["trendingScore"], repo_info["downloads"]) > bucket["best"]:
+                bucket["best"] = (repo_info["trendingScore"], repo_info["downloads"])
+            fitting = [(repo, repo_info, f) for f in files
+                       if f["size_bytes"] + head + kv_reserve <= total]  # fit gate
+            if fitting:
+                bucket["files"].extend(fitting)
+                added = True
+        cands = _emit()
+        if not added and not new_repos:
+            break  # source list exhausted (all seen) — nothing more to refill with
+        if len(cands) >= limit:
+            break
         window = max(window * 2, limit * 3)  # widen the search window for the next pass
     # populate the skip summary (repo, reason) for the caller's completion report
     if skip_summary is not None:
         skip_summary.extend(skipped)
-    # Rank so a provider's high + lower quants stay together (group by provider).
-    # Order PROVIDERS by what's TRENDING now (highest trendingScore first,
-    # downloads desc tie-break — trendingScore is sparse, so downloads breaks
-    # ties honestly), each with its high + lower quant. (NOT by file size, which
-    # would surface the biggest file of a niche provider over a genuinely
-    # trending one.)
-    cands.sort(key=lambda c: (c["repo"], -c["size_gb"]))              # group by provider, high first
-    providers = {}
-    for c in cands:
-        providers.setdefault(c["repo"], []).append(c)
+    # Order OWNERS by what's TRENDING now (highest trendingScore first, downloads desc
+    # tie-break — trendingScore is sparse, so downloads breaks ties honestly), each with its
+    # high + lower quant. (NOT by file size, which would surface the biggest file of a niche
+    # provider over a genuinely trending one.) Each owner's picks were emitted strictly
+    # descending (the _emit high+lower threshold) regardless of discovery order.
     ordered = []
-    for repo in sorted(providers,
-                       key=lambda r: (-providers[r][0]["trendingScore"],
-                                      -providers[r][0]["downloads"])):
-        ordered.extend(providers[repo])
+    for owner in sorted(owners, key=lambda o: (-owners[o]["best"][0], -owners[o]["best"][1])):
+        ordered.extend([c for c in cands if (c["repo"].split("/", 1)[0] if "/" in c["repo"] else c["repo"]) == owner])
     return ordered[:limit]
 
 
