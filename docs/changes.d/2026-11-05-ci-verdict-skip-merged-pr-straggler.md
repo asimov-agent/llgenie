@@ -1,0 +1,1 @@
+| 2026-11-05 | ci-verdict: a post-merge straggler (a pull_request run whose PR is already merged) goes neutral, never red, via scripts/ci_verdict.py::merged_pr_run | [note](agent-wiki/2026-11-05-ci-verdict-skip-merged-pr-straggler.md) | #1741 |

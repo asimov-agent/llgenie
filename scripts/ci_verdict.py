@@ -196,6 +196,47 @@ def superseding_run(repo: str, run: dict) -> dict | None:
     return sorted(later, key=lambda r: str(r.get("created_at")))[-1] if later else None
 
 
+def merged_pr_run(repo: str, run: dict) -> dict | None:
+    """The pull request this run belonged to, if it is already MERGED — a post-merge straggler.
+
+    A `pull_request` run created (or completed) after its PR was merged can never publish a
+    legitimate scope decision: the diff's jobs already landed on `main`, `ci.yml`'s `guard` never
+    produced a `ci-scope-decision` for a diff that will not re-select these jobs (or wrote none at
+    all), and the branch may already be deleted. Redding that run only puts a `verdict` failure on
+    the head — measured 2026-11-05, run 41948125618 @ 8bc3be7d, created 01:22:53Z ~24 min after
+    #1737 merged (00:58:13Z) on a branch since deleted — and confuses the merge gate for the NEXT
+    PR, whose run is judged independently.
+
+    Like SUPERSEDED, the answer is `neutral`, never `success`: a straggler's head must never read as
+    a pass, but it must not take the board red either.
+
+    `run.pull_requests` is authoritative when present. An empty list means the branch was deleted
+    and GitHub dropped the association (`pull_requests` came back `[]` on the straggler), so resolve
+    the PR by `head_branch:head_sha` over `state=all`.
+    """
+    if run.get("event") != "pull_request":
+        return None
+    prs = run.get("pull_requests") or []
+    if prs:
+        number = (prs[0] or {}).get("number")
+        if not number:
+            return None
+        pr = _api(f"repos/{repo}/pulls/{number}")
+    else:
+        branch = run.get("head_branch") or ""
+        sha = run.get("head_sha") or ""
+        if not branch or not sha:
+            return None
+        listing = _api(f"repos/{repo}/pulls?state=all&head={branch}&per_page=100")
+        candidates = listing if isinstance(listing, list) else listing.get("pulls") or []
+        pr = next((p for p in candidates if (p or {}).get("head", {}).get("sha") == sha), None)
+        if pr is None and candidates:
+            pr = candidates[0]
+    if pr and pr.get("state") == "closed" and pr.get("merged"):
+        return pr
+    return None
+
+
 def verdict_lines(result: dict, run: dict | None, superseding: dict | None) -> list[str]:
     """The decision report plus the run it is about — one line per finding, the summary last."""
     header: list[str] = []
@@ -250,6 +291,11 @@ def main(argv: list[str] | None = None) -> int:
         else:
             decision_obj = None
         superseding = superseding_run(args.repo, run) if run else None
+        # A post-merge straggler (a run on a branch whose PR is already merged) can never publish a
+        # legitimate scope decision. Detect it HERE so an API failure in the query is a reachable-
+        # verdict error (exit 2), never a traceback and never a silent default. (#1730-class,
+        # measured 41948125618 @ 8bc3be7d.)
+        merged_pr = merged_pr_run(args.repo, run) if run else None
     except (RuntimeError, OSError, json.JSONDecodeError) as exc:
         # Never a pass: a verdict that could not be reached is reported as its own failure.
         print(f"{TAG} FAILED: could not reach a verdict — {exc}", file=sys.stderr)
@@ -257,13 +303,19 @@ def main(argv: list[str] | None = None) -> int:
 
     result = ci_scope.verify(decision_obj, jobs)
     lines = verdict_lines(result, run, superseding)
+    if merged_pr is not None:
+        lines.append(
+            f"{TAG} MERGED-BRANCH STRAGGLER: run is a `pull_request` run whose PR "
+            f"#{merged_pr.get('number')} is already merged (state={merged_pr.get('state')}) — "
+            f"there is no legitimate scope decision for it, so the verdict posted below is neutral, "
+            f"never success and never red")
     for line in lines:
         print(line)
 
     head_sha = args.head_sha or (run or {}).get("head_sha") or ""
     if result["verdict"] == ci_scope.GREEN:
         conclusion, code = "success", EXIT_GREEN
-    elif superseding is not None:
+    elif superseding is not None or merged_pr is not None:
         conclusion, code = "neutral", EXIT_GREEN
     else:
         conclusion, code = "failure", EXIT_RED

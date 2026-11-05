@@ -623,3 +623,130 @@ def test_the_roster_names_this_workflow_so_a_red_verdict_is_routed():
 
     roster = _on(reactor)["workflow_run"]["workflows"]
     assert name in roster, roster
+
+
+# ---- 9. a post-merge straggler (a run on a branch whose PR is already merged) ----------
+
+#: Run 41948125618 @ 8bc3be7d — measured 2026-11-05. A `pull_request` run created 01:22:53Z, ~24
+#: min after #1737 merged (00:58:13Z) on a branch since deleted; `pull_requests` came back `[]`.
+MERGED_PR = {"number": 1737, "state": "closed", "merged": True, "head": {"sha": "8bc3be7d" + "0" * 33}}
+OPEN_PR = {"number": 111, "state": "open", "merged": False, "head": {"sha": "8bc3be7d" + "0" * 33}}
+
+
+def test_merged_pr_run_detects_a_run_whose_pull_request_is_merged(monkeypatch):
+    """The straggler's own run row carries `pull_requests` when the branch still resolves."""
+    run = {"event": "pull_request", "pull_requests": [{"number": 1737}]}
+    monkeypatch.setattr(cv, "_api", lambda path: MERGED_PR)
+
+    assert cv.merged_pr_run("o/r", run) == MERGED_PR
+
+
+def test_merged_pr_run_resolves_a_deleted_branch_by_head_sha(monkeypatch):
+    """`pull_requests` is `[]` once the branch is deleted — fall back to a head-sha lookup."""
+    calls = []
+
+    def fake_api(path):
+        calls.append(path)
+        return [MERGED_PR]
+
+    run = {"event": "pull_request", "pull_requests": [],
+           "head_branch": "fix/top-tier-pick-size-threshold", "head_sha": "8bc3be7d" + "0" * 33}
+    monkeypatch.setattr(cv, "_api", fake_api)
+
+    assert cv.merged_pr_run("o/r", run) == MERGED_PR
+    assert any("state=all&head=fix/top-tier-pick-size-threshold" in c for c in calls), calls
+
+
+def test_merged_pr_run_returns_none_for_an_open_or_unmerged_pr(monkeypatch):
+    """A PR that is NOT yet merged is not a straggler — its run can still decide, so it stays judged."""
+    monkeypatch.setattr(cv, "_api", lambda path: OPEN_PR)
+    run = {"event": "pull_request", "pull_requests": [{"number": 111}]}
+
+    assert cv.merged_pr_run("o/r", run) is None
+
+
+def test_merged_pr_run_ignores_non_pull_request_events():
+    """A `push`-event run on a branch is not a straggler — only PR runs can have a merged PR."""
+    assert cv.merged_pr_run("o/r", {"event": "push", "head_branch": "main"}) is None
+
+
+def _stub_gh_straggler(tmp_path: Path, pr) -> str:
+    """A `gh` that answers the verdict's calls PLUS the merged-PR lookup, driving the real logic."""
+    script = tmp_path / "gh"
+    run = {"id": 41948125618, "name": "CI", "head_sha": "8bc3be7d" + "0" * 33,
+           "conclusion": "failure", "status": "completed",
+           "head_branch": "fix/top-tier-pick-size-threshold", "workflow_id": 7,
+           "created_at": "2026-11-05T01:22:53Z", "event": "pull_request",
+           "pull_requests": []}
+    runs = {"workflow_runs": [run], "total_count": 1}
+    artifacts = {"artifacts": []}
+    straggler_jobs = [
+        {"name": "guard", "status": "completed", "conclusion": "failure"},
+        {"name": "linux", "status": "completed", "conclusion": "skipped"},
+        {"name": "ci-images", "status": "completed", "conclusion": "skipped"},
+        {"name": "scanner-images", "status": "completed", "conclusion": "skipped"},
+    ]
+    payloads = {
+        "/actions/runs/41948125618": run,
+        "/actions/runs/41948125618/jobs": {"jobs": straggler_jobs, "total_count": 4},
+        "/actions/runs/41948125618/artifacts": artifacts,
+        "/actions/runs?branch=fix/top-tier-pick-size-threshold": runs,
+        "/pulls?state=all&head=fix/top-tier-pick-size-threshold": [pr],
+    }
+    script.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, sys\n"
+        f"payloads = {payloads!r}\n"
+        f"merged = {json.dumps(pr)!r}\n"
+        "argv = sys.argv[1:]\n"
+        "if argv[:1] == ['run']:\n"
+        "    d = argv[argv.index('-D') + 1]\n"
+        "    import pathlib\n"
+        "    p = pathlib.Path(d); p.mkdir(parents=True, exist_ok=True)\n"
+        "    sys.exit(0)\n"
+        "path = argv[1].split('repos/o/r', 1)[1]\n"
+        "for key in sorted(payloads, key=len, reverse=True):\n"
+        "    if path.startswith(key):\n"
+        "        print(json.dumps(payloads[key])); sys.exit(0)\n"
+        "if path.startswith('/pulls?'):\n"
+        "    print(json.dumps([merged])); sys.exit(0)\n"
+        "sys.stderr.write('stub gh: no answer for ' + path + '\\n'); sys.exit(1)\n",
+        encoding="utf-8",
+    )
+    script.chmod(script.stat().st_mode | stat.S_IEXEC)
+    return str(script)
+
+
+def test_a_merged_branch_straggler_is_neutral_never_red(tmp_path, monkeypatch, capsys):
+    """#1730-class: a run on a branch whose PR already merged can never publish a scope decision, and
+    must not red the head — neutral, exactly like a superseded head."""
+    monkeypatch.setenv("CI_VERDICT_GH", _stub_gh_straggler(tmp_path, MERGED_PR))
+    checks = tmp_path / "check-run.json"
+
+    rc = cv.main(["--repo", "o/r", "--run-id", "41948125618", "--check-run-out", str(checks)])
+    out = capsys.readouterr().out
+
+    # Then  it exits 0 (no red on a straggler) and names the reason
+    assert rc == 0, out
+    assert "MERGED-BRANCH STRAGGLER" in out and "#1737" in out, out
+
+    # And  the check-run is NEUTRAL: never success, so the head never reads as a pass
+    payload = json.loads(checks.read_text(encoding="utf-8"))
+    assert payload["conclusion"] == "neutral", payload
+
+
+def test_an_open_pr_run_with_no_decision_is_still_red(tmp_path, monkeypatch, capsys):
+    """The gate must not be weakened: an open PR's run with no decision still reds — only a MERGED
+    PR's straggler is neutral."""
+    monkeypatch.setenv("CI_VERDICT_GH", _stub_gh_straggler(tmp_path, OPEN_PR))
+    checks = tmp_path / "check-run.json"
+
+    rc = cv.main(["--repo", "o/r", "--run-id", "41948125618", "--check-run-out", str(checks)])
+    out = capsys.readouterr().out
+
+    # Then  it still reds (no decision + a failing guard, no merged PR to make it neutral),
+    # and the straggler path is NOT taken — the gate is not weakened
+    assert rc == 1, out
+    assert "MERGED-BRANCH STRAGGLER" not in out, out
+    payload = json.loads(checks.read_text(encoding="utf-8"))
+    assert payload["conclusion"] == "failure", payload
