@@ -1738,6 +1738,15 @@ reds `make check-report-hygiene` (`scripts/check_report_hygiene.py`, in the `ci-
 
 `make report-hygiene-report` prints every reporting leg the guard reads and its verdict.
 
+The **report-header guard** (issue #1615) is the sibling contract: a reporting leg that emits a status
+line must carry the FULL six-field header `BOT <name> · working on #<id> · branch <ref> · since
+<hh:mmZ> · blocked on <x|none> · next <y>`, or stay silent - a report without an id, a branch or a run
+id is not a report. `make check-report-header` (`scripts/check_report_header.py`) reds `ci-unit` when a
+leg emits a `·`-separated `BOT` status line or a concrete `working on #<id>` fragment missing any of the
+six fields; a bare `BOT` config variable, an em-dash prose story, a docstring quote, and a full
+placeholder template that only teaches the rule never red. `make report-header-report` prints every
+reporting leg the guard reads and its verdict.
+
 
 ## The run-failure reactor (issue #286)
 
@@ -2096,6 +2105,8 @@ make docs-report       # show every user-facing target: documented, missing, or 
 make check-pr-hygiene  # fail when a producer's commit message or PR body is empty, a placeholder, a subject with no body, or when AGENTS.md lost the mandate (issue #313)
 make check-report-hygiene  # fail when a reporting leg blames ownership (another lane, someone else, this lane) without a @<sha> evidence anchor — evidence-or-silence (issue #1292)
 make report-hygiene-report # show every reporting leg the ownership-guard reads, and its verdict
+make check-report-header  # fail when a reporting leg emits a status header missing one of the six fields (issue #1615)
+make report-header-report # show every reporting leg the header-guard reads, and its verdict
 make pr-hygiene-report # show every producer the PR/commit-message guard reads, and its verdict
 make check-pr-closing  # CI: fail when a claimed issue lacks an adjacent closes/fixes/resolves #N in the joined commit messages and, when the body is supplied, in the PR body, or when an agent/* body names an issue with no adjacent keyword (issues #1329, #1417)
 make pr-closing-report # show the closing references a PR body carries, the squash closes, and whether the agent/* scope applies (issues #1329, #1417)
