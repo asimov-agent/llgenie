@@ -251,6 +251,33 @@ def build_base(backend: str, force: bool = False, push: bool = False) -> int:
     return rc
 
 
+def _combine_base_stage(backend: str, derived: str, base: str) -> str:
+    """Merge the backend toolchain base into the derived Dockerfile as an internal stage.
+
+    On the docker-container buildx driver a base left by a PREVIOUS buildx invocation is never
+    resolvable by a later `FROM` — probe-verified: `-t`, `--load` and `--output type=image,name=`
+    all leave the image outside the build that runs the next `FROM <base>`, which falls through
+    to the registry and is denied (RUN 41971301136, job 127060077658: base `--load` onto the
+    container builder -> derived `FROM llgenie/base-cpu:<sha>` -> docker.io `insufficient_scope`).
+    A derived cell that `FROM`s a separately-built base therefore cannot build on the
+    cache-capable driver unless the base is a STAGE INSIDE THE SAME invocation. We alias the
+    base's top-level `FROM` and point the derived `FROM <base>` at that stage: one buildx build,
+    no registry dependency, and `--load` of the ONE image lands the whole tree in the daemon.
+
+    The read-only verification cell has no push rights, so this is the only correct shape there;
+    the docker `default` driver (read-only fork/PR path) still builds base and derived as one
+    tree too — the internal-stage form is driver-neutral and never re-lifts a cross-invocation `FROM`.
+    """
+    base_df = (es.BASE_DIR / f"Dockerfile.{backend}").read_text()
+    lines = base_df.splitlines()
+    alias_idx = next(i for i, l in enumerate(lines) if l.startswith("FROM "))
+    lines[alias_idx] = f"{lines[alias_idx]} AS llgenie-base"
+    combined = "\n".join(lines) + "\n" + derived.replace(f"FROM {base}", "FROM llgenie-base")
+    if not combined.endswith("\n"):
+        combined += "\n"
+    return combined
+
+
 def build(spec: dict, force: bool = False, push: bool = False) -> int:
     tag = spec["tag"]
     if not force and _available(tag):
@@ -260,13 +287,21 @@ def build(spec: dict, force: bool = False, push: bool = False) -> int:
     if not dockerfile.exists():
         raise SystemExit(f"[engine-image] missing {spec['dockerfile']}; run: make generate-engine-params")
     text = dockerfile.read_text()
-    base = es.base_tag(spec["backend"])
-    if f"FROM {base}" in text:  # compiled engine on the shared toolchain base
-        rc = build_base(spec["backend"], force=force, push=push)
-        if rc:
-            return rc
-        if REGISTRY and push:  # the published base must be addressable by the FROM line
+    backend = spec.get("backend", "cpu")
+    base = es.base_tag(backend)
+    from_base = f"FROM {base}" in text
+    if from_base:
+        if REGISTRY and push:
+            # Publishing path: push the base to the registry and address it by the qualified FROM
+            # (the builder pulls it from a registry it can reach). build_base publishes it first.
+            rc = build_base(backend, force=force, push=push)
+            if rc:
+                return rc
             text = text.replace(f"FROM {base}", f"FROM {REGISTRY}/{base}")
+        else:
+            # Verification / local path: the base is built INSIDE this very build so the
+            # cache-capable driver never resolves a cross-invocation `FROM <base>` (issue #1753).
+            text = _combine_base_stage(backend, text, base)
     params = json.loads((es.REPO_ROOT / spec["params_file"]).read_text())
     variant = {**params["variants"][spec["variant"]], "pinned": params["pinned"], "repo": params["repo"]}
     with tempfile.TemporaryDirectory(prefix="llgenie-ctx-") as ctx:

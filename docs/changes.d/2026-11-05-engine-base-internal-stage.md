@@ -1,0 +1,1 @@
+| 2026-11-05 | derived engine images build their base as an internal stage: scripts/engine_image.py::build() folds containers/engines/base/Dockerfile.<backend> in as the first stage so a derived cell's FROM resolves on the docker-container driver (a prior-invocation base is never FROM-resolvable there) | [note](agent-wiki/2026-11-05-engine-base-internal-stage.md) | #1753 |

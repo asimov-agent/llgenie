@@ -181,25 +181,71 @@ def test_a_forced_build_ignores_an_available_image(monkeypatch, tmp_path):
     assert built == []
 
 
-def test_a_forced_build_forces_the_shared_base_too(monkeypatch, tmp_path):
-    """A forced engine build must not reuse the shared toolchain base."""
+def test_a_forced_build_rebuilds_the_base_stage_too(monkeypatch, tmp_path):
+    """A forced engine build must not reuse the shared toolchain base (issue #638).
 
-    # Given the base and buildx are recorded
+    Since the fix for #1753 inlines the base as an internal stage INSIDE the derived build
+    (a docker-container driver cannot see a base left by a previous buildx invocation — issue
+    #1753, verified on RUN 41971301136), a forced build cannot short-circuit the base: the
+    `--no-cache` force reaches the ONE combined buildx invocation, which rebuilds the base
+    stage AND the derived stage. Asserting `build_base` is called is no longer the contract —
+    the base is not built as a separate invocation in the verify path; it is a stage in this one.
+    """
+
+    # Given the base and derived Dockerfiles exist on disk and the build records its ctx
     monkeypatch.setattr(ei, "image_exists", lambda tag: True)
-    seen: list[dict] = []
+    monkeypatch.setattr(ei, "REGISTRY", None)          # read-only fork/PR/verify path
+    forced: list[bool] = []
+    captured: dict[str, str] = {}
 
-    def base(backend, force=False, push=False):
-        seen.append({"backend": backend, "force": force, "push": push})
+    def buildx(tag, ctx, push, cache_ref, force=False):
+        forced.append(bool(force))
+        captured["ctx_dockerfile"] = (Path(ctx) / "Dockerfile").read_text()
         return 0
 
-    monkeypatch.setattr(ei, "build_base", base)
-    monkeypatch.setattr(ei, "_buildx", lambda *a, **k: 0)
+    monkeypatch.setattr(ei, "_buildx", buildx)
 
     # When  the cell is built with force
     ei.build(_spec(), force=True)
 
-    # Then  build_base received force=True
-    assert seen and seen[0]["force"] is True
+    # Then  the ONE combined build got the force (--no-cache rebuilds the inlined base stage too)…
+    assert forced == [True]
+    # …and the base is a stage INSIDE the derived build, not a cross-invocation FROM base
+    df = captured["ctx_dockerfile"]
+    assert "AS llgenie-base" in df, df
+    assert "FROM llgenie-base" in df, df
+    assert "FROM llgenie/base-cpu:" not in df, df  # never re-lifts a separately-left base
+
+
+def test_a_readonly_local_build_inlines_the_base_as_an_internal_stage(monkeypatch, tmp_path):
+    """A non-pushing verification build must make the base resolvable on the cache-capable driver.
+
+    Pre-#1753 the derived cell did `FROM llgenie/base-cpu:<sha>` referenced in a SEPARATE buildx
+    call, which fails on the docker-container driver (base `--load`ed into the daemon is invisible
+    to a later buildkit `FROM`; it falls through to docker.io and is denied — RUN 41971301136).
+    The fix folds the base Dockerfile in as the first stage, rewrites the derived `FROM <base>`
+    to `FROM llgenie-base`, and lifts derived in the SAME single invocation. No push rights are
+    available in this cell, so a registry-qualified FROM is not an option.
+    """
+
+    monkeypatch.setattr(ei, "image_exists", lambda tag: False)
+    monkeypatch.setattr(ei, "REGISTRY", None)          # read-only verify cell: no REGISTRY push
+    seen: list[str] = []
+
+    def buildx(tag, ctx, push, cache_ref, force=False):
+        seen.append((Path(ctx) / "Dockerfile").read_text())
+        return 0
+
+    monkeypatch.setattr(ei, "_buildx", buildx)
+
+    # When  a from-base cell is built read-only (the engine-build dispatch push=false path)
+    ei.build(_spec(), force=False)
+
+    # Then  the derived build lifted base+derived in one invocation, FROM points at the stage
+    assert len(seen) == 1, "must be ONE buildx invocation (base is an internal stage)"
+    df = seen[0]
+    assert "AS llgenie-base" in df and "FROM llgenie-base" in df, df
+    assert "FROM llgenie/base-cpu:" not in df, df
 
 
 def test_build_engines_forwards_force_to_every_row():
