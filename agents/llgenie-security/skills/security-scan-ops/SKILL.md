@@ -180,13 +180,34 @@ measured mechanism: `references/rule-set-freshness.md`.
 
 ## Gates to run before opening the PR
 
-**One PR that closes two duplicate findings needs an adjacent `closes #N` for EACH issue, in the joined commit text AND the PR body.** `scripts/check_pr_closing.py` (make `check-pr-closing`) reads the squash/commit range and the body and requires the same adjacent-close set in both; a duplicate pair (same finding, bodies differing only by the scan-run URL) routed to this lane is closed by one branch whose commit body and PR body each carry `closes #1593` and `closes #1597` on their own lines (keyword adjacent to `#N`, nothing between — `closes #1593, #1597` in prose or a markdown wrapper does not count). Prove it locally before pushing. **The two scripts take DIFFERENT flag sets — do not reuse one for the other:**
-`python3 scripts/check_pr_closing.py check --body-file /tmp/pr-body.md --head HEAD` (expect OK — this script
-accepts only `--body-file` and `--head`; passing `--base`/`--rev` errors `unrecognized arguments`), and
-`python3 scripts/check_pr_base.py check --base <main-tip> --rev HEAD` (this one accepts `--base`/`--rev`; passing
-`--head` errors `unrecognized arguments`). Getting the flags wrong looks like a gate failure when it is only a
-usage error — read the usage line before believing a red. check_pr_base asserts the branch is cut from the base
-(merge-base == base, no foreign commits). Both are cheap and catch the two most common PR reds on this lane.
+**One PR that closes two duplicate findings needs an adjacent `closes #N` for EACH issue, in the joined commit text AND the PR body.** `scripts/check_pr_closing.py` (make `check-pr-closing`) reads the squash/commit range and the body and requires the same adjacent-close set in both; a duplicate pair (same finding, bodies differing only by the scan-run URL) routed to this lane is closed by one branch whose commit body and PR body each carry `closes #1593` and `closes #1597` on their own lines (keyword adjacent to `#N`, nothing between — `closes #1593, #1597` in prose or a markdown wrapper does not count). Prove it locally before pushing. **The gate scripts' accepted flags DRIFT — read the script's own usage line before believing a red, and never
+reuse one script's flags on another.** A remembered flag list is stale the moment the script is edited:
+`check_pr_closing.py check` rejected `--base`/`--rev` as `unrecognized arguments` in one version and **accepted
+both** (`check --body-file <f> --head <ref> --base <base> --rev <rev>` → OK) in a later one, so do not treat
+either behaviour as permanent. `python3 scripts/check_pr_base.py check --base <main-tip> --rev HEAD` asserts the
+branch is cut from the base (merge-base == base, no foreign commits). A wrong flag looks like a gate failure
+when it is only a usage error — run `python3 scripts/<script>.py check --help` (or read the printed error)
+before concluding a gate reds on content. Both scripts are cheap and catch the two most common PR reds on this
+lane.
+
+**The bot-PR body must ALSO carry the `AGENTS:` and `BASE:` preflight lines — a docs/record PR reds `scope` at
+`check-pr-agents-line` even after `check-pr-closing` passes.** Generate both with `make bot-preflight` (its
+stdout is exactly the two lines: `AGENTS: <sha> <bytes>b <lines>l` and `BASE: <sha> (== origin/main at open)`)
+and paste them into the PR body beside each other; the gate reds `[check-pr-hygiene] PR body: no BASE: ... line` (or the `AGENTS:` equivalent) when either is missing. `make bot-preflight` ITSELF REFUSES when HEAD has
+diverged from `origin/main` — that refusal is the rebase signal, not a bug: `git fetch origin main`, `git
+rebase origin/main`, THEN regenerate the preflight lines against the new base and re-push. Because the
+`AGENTS:`/`BASE:` sha is the base you are cut from, a rebase invalidates pre-rebase preflight output — always
+regenerate after rebasing, and the body you push must be the one you re-ran both gates against.
+
+**Stage named paths, never `git add -A`, and keep body/message scratch files OUTSIDE the worktree.** A file
+written for `--body-file` or a commit message (`commit-body.txt`, a scratch note) is still sitting in the
+worktree when the commit is built; `git add -A`/`git add .` sweeps it in, and because the path matches no
+`CLASSES` entry in the scope classifier the `scope` gate reads the diff as WIDE and reds while guard, lint,
+openspec and holds stay green (a lone `scope` red on a small PR is a stray path before it is a content
+problem). Defend cheaply: write scratch files to `/tmp` or the profile scratch dir, stage with
+`git add <path> <path>`, confirm with `git status --short` that the staged list is exactly the intended files,
+and read back what landed with `git show --stat HEAD`. Evicting a stray file afterwards means amend +
+`--force-with-lease` + a fresh CI run over the new sha — the cheapest fix is never staging it.
 
 **A `gh` usage error also impersonates a missing field or a dead command — read the error, do not re-read the
 object.** `--json` names are validated against a printed list (`Unknown JSON field: "baseRefName@"` → retry
@@ -211,6 +232,12 @@ origin <branch>` against that true fetched sha.
 
 **`gh run list` has no `--head` flag** — to find the run(s) for a PR's head sha, use `gh pr checks <n>` (parse
 the `runs/<id>` from the details URL) or `gh run list --commit <sha>`; `gh run list --head` errors `unknown flag`.
+
+**`gh pr checks` exits 8 while any check is pending and 1 on a failure — a non-zero exit is not by itself a
+red run.** Read the per-check verdict (`--json name,state,bucket`) instead of trusting the exit code, and if
+the output is piped through a truncating utility, capture `$?` on the `gh` call itself or the pipe eats it (`cmd | trunc; echo
+EC=$?` reports the last pipe element's status). A run that is merely in progress reports pending checks and a rollup field of
+`""`; only `bucket=fail` is a red.
 
 **`gh pr checks` is not the run inventory — a `failure` run with ZERO jobs can be a workflow-file issue, and
 it can be invisible to the PR view.** Corroborate every rollup with `gh run list --commit <sha>` (or the
@@ -364,6 +391,7 @@ the red to your diff — if it did, a one-byte restore is a documented drive-by,
   this lane places one, the same comment names the issue that makes the tag removable and the exact
   condition for removal, and the lane removes the tag itself when that evidence exists. Detail:
   `references/holds-and-publishing.md`.
+- **Read an issue's state before quoting it as open/closed — a finding you report as "still open" without a fresh re-read is a false board claim.** The completion guard and the planner have both caught this lane reciting stale "both open" phrasing for #1652/#1661 after their fix-merge closed them hours earlier; a board claim about today's state must be measured today, never restated from a session summary, a compaction snapshot, or "what we said last time". The league standard: `gh issue view <n> --json state,stateReason,closedAt,labels` FOR the issue before it appears in a report, and when the state differs from what you last held, post the correction on the issue naming the merged sha + the re-measure, quote `closed_at`, and say the earlier phrasing is superseded. The durable source of the stale line is the compacted-context Active-State/Blocked snapshot — after correcting on-record, no future report may cite the old phrasing.
 - **Every finding names the sha it scanned and the command that produced it.** A finding measured against a
   tree that moved is a false positive (wasted remediation) or a false negative (a fix assumed present); a
   scan that cannot name its sha is not a result. Start from a freshly fetched `origin/main`
@@ -390,6 +418,23 @@ the red to your diff — if it did, a one-byte restore is a documented drive-by,
   NOT the `cleared` close path: the finding still needs the workflow's run id to close, so leave it OPEN and
   never close a merged-fix finding by hand. A silent security lane and a scanned-clean one look identical
   from outside; only the run id tells them apart.
+
+- **Never restate a finding's OPEN/CLOSED state from memory — re-read the tracker first, and prove a close by
+  the mechanism being ABSENT from the current tree.** A finding's state moves under you the moment a fix PR
+  merges: a squash body carrying `closes #N` closes the issue even while the implementer keeps working past
+  that moment, so any report that repeats an earlier "both OPEN" without a fresh read is a false claim about
+  time, not about the tree (measured: a lane re-stated two findings as OPEN for hours after the merged fix had
+  closed both, and the completion-integrity check was right to reject until it re-measured). Measure per
+  finding: `gh issue view <n> --json state,stateReason,closedAt`, then find the closing vehicle
+  (`gh api 'search/issues?q=repo:<o>/<r>+is:pr+is:merged+"<n>"'` → the merged PR whose title carries
+  `closes #N`). Then verify the close is **legitimate, not premature**, by checking the named mechanism is
+  gone from the CURRENT tree — `git grep -n '<the pin/symbol the finding names>' origin/main` returning only
+  docs/`agent-wiki` records and no live manifest means the exposure is gone (a host-level red from
+  `make check-engine-launchers CHECK_REGISTRY=1` such as "NOT PUBLISHED" / "stale launcher" is launcher-tag
+  staleness on THAT host, not a committed-tree ref — do not read it as the finding still live when the pins are
+  absent from the tree). A premature close (mechanism still in the tree) is reopened with the fresh gate; a
+  legitimate close is corrected on-record with the merged sha + the tree measurement, superseding the stale
+  phrasing.
 - **A deliberate weakening is never the fix.** No allowlist entry, no widened severity set, no
   `require_fix: false`, no emptied `fail_on` to turn a run green.
 - **Report scope, not remediation-by-patch.** What is exposed, the measurement (command + output + sha),
@@ -420,7 +465,7 @@ the red to your diff — if it did, a one-byte restore is a documented drive-by,
 
 An own-domain audit that files findings must land BOTH the finding (open, six-section, tagged) AND the audit record (agent-wiki + changes.d + PR). **The audit-record PR must NOT carry `closes #N` for the finding it records.** The record PR merges docs and is a changed path, but a finding closes only when its FIX PR merges — a `closes #<finding>` on the record PR falsely closes a live finding whose fix never landed (reopen required). The record is evidence; the fix is the implement queue's. Verify the finding stays OPEN (stateReason REOPENED, labels intact) and quote the still-present exposure (e.g. the registry refs still 404) as the proof it must stay open.
 
-  **This collides with the `check-pr-closing` gate — but the gate does NOT force `closes #<finding>`, and reading it that way is what produces a supersede cycle.** `check_pr_closing.py` reds ANY `agent/*` head whose body names a `#N` with no adjacent `closes #N` (a body naming nothing at all hits the `no-ref` red; an empty body hits `empty-body`). It is satisfied by *any* adjacent closing keyword, not specifically the finding's: file a **separate tracking issue** for the record extension and put `closes #<tracking>` in both body and squash text, while the body still *mentions* `#<finding>` in prose. Measured green (#1667 closing #1666, body referencing #1652/#1661, `check-pr-closing OK`). Do NOT conclude "green forces re-closing the finding" and open-then-close a record PR as superseded (#1659) — that churn is avoidable: one PR, one tracking issue, findings untouched. Confirm the findings stay `OPEN` (`#1652` read `REOPENED`, `#1661` `OPEN`) after the PR opens; the gate is a body/squash-text contract, not a merge-time closure of every number mentioned. When a merged record later needs a nuance folded in (a corrective run surfaced an extra defect class), prefer the **lane skill's rule** as its durable home — the merged record + the still-OPEN durable finding + the exercised pipeline are the deliverable without any further PR. Extend the tree only when the merged note's text is factually misleading to the next reader, and then via the tracking-issue PR described above (green, findings untouched). If a record PR was opened WITHOUT a tracking issue and reds `scope`, fix it by adding the tracking issue — never by shoving `closes #<finding>` onto it, which is exactly the premature-close defect this rule exists to prevent.
+  **This collides with the `check-pr-closing` gate — but the gate does NOT force `closes #<finding>`, and reading it that way is what produces a supersede cycle.** `check_pr_closing.py` reds ANY `agent/*` head whose body names a `#N` with no adjacent `closes #N` (a body naming nothing at all hits the `no-ref` red; an empty body hits `empty-body`). It is satisfied by *any* adjacent closing keyword, not specifically the finding's: file a **separate tracking issue** for the record extension and put `closes #<tracking>` in both body and squash text, while the body still *mentions* `#<finding>` in prose — **but the prose must not put a closing token next to the finding's number.** The parser token-matches negation: a body line like "this PR does NOT close #1652" is read as `close #1652`, so body closes {finding, tracking} while the squash text closes only {tracking} and `guard`/`check-pr-closing` reds on the mismatch. Refer to the finding by bare number, or in a form with no closing keyword adjacent ("#1652 stays open", "fix ownership remains with #1652"). Measured green: a record-extension PR closing only its tracking issue, body referencing the findings without a closing token. Do NOT conclude "green forces re-closing the finding" and open-then-close a record PR as superseded (#1659) — that churn is avoidable: one PR, one tracking issue, findings untouched. Confirm the findings stay `OPEN` (`#1652` read `REOPENED`, `#1661` `OPEN`) after the PR opens; the gate is a body/squash-text contract, not a merge-time closure of every number mentioned. When a merged record later needs a nuance folded in (a corrective run surfaced an extra defect class), prefer the **lane skill's rule** as its durable home — the merged record + the still-OPEN durable finding + the exercised pipeline are the deliverable without any further PR. Extend the tree only when the merged note's text is factually misleading to the next reader, and then via the tracking-issue PR described above (green, findings untouched). If a record PR was opened WITHOUT a tracking issue and reds `scope`, fix it by adding the tracking issue — never by shoving `closes #<finding>` onto it, which is exactly the premature-close defect this rule exists to prevent.
 
 A work product that is only comments is not a verifiable change — land the record in the tree. An own-domain audit (#1245 re-audit) that files one-or-more findings must ALSO land the audit record itself as a committed artifact (agent-wiki note + changes.d fragment + PR), not just file the findings on the issue: the completion guard measures a changed path in the tree, and an audit conclusion that exists only as issue comments is rejected however many were posted. File the finding (exposure, indexed, tagged) AND commit the record.
 
