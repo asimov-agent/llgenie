@@ -485,3 +485,15 @@ name the run, re-dispatch the fixer onto the fresh base, and record it - even wh
 the red is a pre-existing tracked class that everyone already knows about. A
 pre-existing class that recurs at EVERY new tip is the strongest signal the fix is
 the blocker, and re-pinning it is the planner's real work.
+
+## Correct a rebase lane that cites an OLD commit of the SAME branch as 'the head' (2026-11-05, #1696 dfbaea27 vs 689cc6c5a)
+
+A lane reported a 'hold on a live run' over head dfbaea27 / bases 031b652af+a9f05258b.
+Fresh API: the branch fix/1558-vllm-rocm-build's LIVE head is 689cc6c5a (all checks
+SUCCESS, incl the two jobs the lane said in_progress); dfbaea27 is a PRIOR commit on
+the same branch the author later re-cut; bases 031b652af (quant-catalog 22:49Z) and
+a9f05258b (docs 22:55Z) are obsolete (main=b85901726); #1015 is a 404. Rule: when a
+lane pushes or rebases a PR whose author may re-cut, read pulls/<n>.head.sha and
+.base.sha at claim time - never trust the lane's own stated head/base for a branch it
+may not be last-pusher-of. A real hold needs a REAL in_progress run at the LIVE head;
+a stale-commit 'hold' delays the one real task (rebase head onto current main).
