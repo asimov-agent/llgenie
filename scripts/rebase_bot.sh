@@ -173,6 +173,33 @@ elif ! CLOSE_OUT="$(python3 "${SELF_DIR}/check_pr_closing.py" check --base "${OR
 fi
 rm -f "$CLOSE_BODY"
 
+# A PR can MERGE between the sweep's `--state open` decision and this push (issue #1733). The
+# force-with-lease guards a moved branch TIP, not a closed/merged PR: a push onto a MERGED PR's
+# branch is an incident-class action on a dead vehicle — no rebase-able branch exists, the push
+# is discarded, and the merge state reads as a null-state trap. Re-read the LIVE API at the only
+# moment that matters (right before the push) and hard-stop with a `gave-up` marker, branch
+# untouched, if the PR is no longer open or is merged. The same close/merge re-read that the
+# sweep did at decision time is NOT enough: the gap between decide and push is exactly the window
+# a human merge fills.
+if [ -n "$DRY" ]; then
+  echo "[rebase-bot] DRY: gh pr view $PR --repo $REPO --json state,merged --jq '.state + \"/\" + (.merged|tostring)'"
+else
+  PR_LIVE="$(gh pr view "$PR" --repo "$REPO" --json state,merged --jq '.state + "/" + (.merged|tostring)' 2>/dev/null)"; PR_GH_RC=$?
+  PR_STATE="${PR_LIVE%/*}"; PR_MERGED="${PR_LIVE#*/}"
+  if [ "$PR_GH_RC" != "0" ] || [ -z "$PR_LIVE" ]; then
+    # A PR whose state cannot be read is NOT a go signal: refuse like every other fail-closed
+    # re-read in this script (the sweep, the body, the gates). A push that cannot prove the
+    # vehicle is open is a push on faith.
+    comment "The rebase started but the PR's state could not be re-read on the live API before the force-push (gh pr view rc=$PR_GH_RC). Nothing was pushed; the vehicle may have merged while this run worked — refuse the dead-vehicle push. <!-- $MARKER: $TODAY -->"
+    echo "[rebase-bot] could not re-read PR #$PR state at push time (rc=$PR_GH_RC); refusing the force-push (issue #1733)" >&2; exit 1
+  fi
+  if [ "$PR_STATE" != "open" ] || [ "$PR_MERGED" = "true" ]; then
+    comment "The rebase started but PR #$PR is no longer open at push time (state=$PR_STATE merged=$PR_MERGED) — it may have merged while this run worked, and a force-push onto a merged PR's branch is a dead-vehicle push. Nothing was pushed; the branch is untouched. <!-- $MARKER: $TODAY -->"
+    echo "[rebase-bot] PR #$PR is not open at push time (state=$PR_STATE merged=$PR_MERGED); refusing the force-push onto a dead vehicle (issue #1733)" >&2; exit 1
+  fi
+  echo "[rebase-bot] dead-vehicle re-check OK: PR #$PR open and unmerged at push time"
+fi
+
 run git push --force-with-lease "$REMOTE" "HEAD:$HEAD_BRANCH"
 comment "$OUTCOME. The structural checks (\`make -n ci-unit\`, \`make lint\`, \`make check-wiring\`) and the squash-close re-check (check-pr-closing against ${ORIGIN}/main and the live body) pass on the result; CI runs the full suite on this push. Nothing was merged. <!-- $MARKER: $TODAY -->" rebased
 echo "[rebase-bot] pushed $HEAD_BRANCH to $REMOTE"

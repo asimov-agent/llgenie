@@ -283,13 +283,17 @@ def _scratch_repo(tmp_path: Path):
     return work, remote, env
 
 
-def _run_actor(tmp_path, work, env, agent_cmd, dry="", gates="true"):
+def _run_actor(tmp_path, work, env, agent_cmd, dry="", gates="true", pr_state="open/false"):
     # A deterministic `gh` (empty body, comments swallowed) is first on PATH: the actor now runs
-    # the squash-close re-check (issue #1716), which reads the LIVE PR body via `gh api pull/42`.
+    # the squash-close re-check (issue #1716), which reads the LIVE PR body via `gh api pull/42`,
+    # and the dead-vehicle re-read (issue #1733), which reads `gh pr view --json state,merged`.
     # A real `gh` would hit the network for PR 42 in this hermetic harness.
     ghbin = tmp_path / "ghbin"
     ghbin.mkdir(parents=True, exist_ok=True)
     (ghbin / "body.txt").write_text("")
+    (ghbin / "state.txt").write_text(pr_state)
+    comments = ghbin / "comments.log"
+    comments.write_text("")
     _gh = ghbin / "gh"
     _gh.write_text(f'''#!{sys.executable}
 import pathlib, sys
@@ -297,6 +301,16 @@ here = pathlib.Path(__file__).parent
 args = sys.argv[1:]
 if args and args[0] == "api" and "pulls/" in args[1]:
     sys.stdout.write((here / "body.txt").read_text()); sys.exit(0)
+if args and args[0] == "pr" and args[1] == "view":
+    sys.stdout.write((here / "state.txt").read_text()); sys.exit(0)
+if args and args[0] == "pr" and args[1] == "comment":
+    # the --body value is `--body <text>`; record it so the test can assert the posted marker.
+    try:
+        i = args.index("--body")
+        (here / "comments.log").open("a").write(args[i + 1] + "\\n")
+    except (ValueError, IndexError):
+        pass
+    sys.exit(0)
 sys.exit(0)
 ''')
     _gh.chmod(0o755)
@@ -340,6 +354,54 @@ def test_the_actor_uses_the_lease_never_a_plain_force(tmp_path):
     assert "--force-with-lease" in out, out
     assert "--force " not in out and "--force\n" not in out, "a plain --force must never appear"
     assert out.index("make -n ci-unit") < out.index("--force-with-lease"), "gates before the push"
+
+
+def test_the_actor_refuses_a_merged_pr_before_pushing(tmp_path):
+    """A PR merged between the sweep and the push is a dead vehicle (issue #1733): the
+    force-with-lease must NOT fire, a `gave-up` reason is posted, and the branch is untouched."""
+    work, remote, env = _scratch_repo(tmp_path)
+    before = subprocess.run(["git", "--git-dir", str(remote), "rev-parse", "feat/conflict"],
+                            capture_output=True, text=True, check=True).stdout.strip()
+    agent = tmp_path / "agent.sh"
+    agent.write_text('#!/usr/bin/env bash\nset -e\ncat >/dev/null\n'
+                     'printf "from main\\nfrom the PR\\n" > shared.txt\n'
+                     'git add shared.txt\n')
+    agent.chmod(0o755)
+    # the re-read answers merged=true: the PR is a dead vehicle by the time the push would fire
+    r = _run_actor(tmp_path, work, env, str(agent), pr_state="closed/true")
+    assert r.returncode != 0, "a merged PR must stop the run"
+    assert "--force-with-lease" not in r.stdout, "no push may fire on a merged PR:\n" + r.stdout
+    assert "not open at push time" in r.stderr, r.stderr
+    # a `gave-up` comment was posted naming the dead vehicle (the comment helper defaults to
+    # `gave-up`; see test_a_gave_up_marker_does_not_record_the_day for the marker semantics)
+    posts = (tmp_path / "ghbin" / "comments.log").read_text().splitlines()
+    assert posts, "a comment must be posted on the merged-PR refusal"
+    joined = "\n".join(posts)
+    assert "open at push time" in joined, posts
+    # the `gave-up` marker is recorded (never `rebased`) — the sweep counts only `gave-up` as done
+    assert "bot-done:" in joined and "gave-up" in joined, posts
+    after = subprocess.run(["git", "--git-dir", str(remote), "rev-parse", "feat/conflict"],
+                           capture_output=True, text=True, check=True).stdout.strip()
+    assert before == after, "the merged PR's branch must be untouched"
+
+
+def test_the_actor_refuses_an_unreadable_pr_state(tmp_path):
+    """A re-read that returns nothing is NOT a go signal — fail closed, never push (issue #1733)."""
+    work, remote, env = _scratch_repo(tmp_path)
+    before = subprocess.run(["git", "--git-dir", str(remote), "rev-parse", "feat/conflict"],
+                            capture_output=True, text=True, check=True).stdout.strip()
+    agent = tmp_path / "agent.sh"
+    agent.write_text('#!/usr/bin/env bash\nset -e\ncat >/dev/null\n'
+                     'printf "from main\\nfrom the PR\\n" > shared.txt\n'
+                     'git add shared.txt\n')
+    agent.chmod(0o755)
+    r = _run_actor(tmp_path, work, env, str(agent), pr_state="")
+    assert r.returncode != 0
+    assert "--force-with-lease" not in r.stdout
+    assert "could not re-read" in r.stderr, r.stderr
+    after = subprocess.run(["git", "--git-dir", str(remote), "rev-parse", "feat/conflict"],
+                           capture_output=True, text=True, check=True).stdout.strip()
+    assert before == after, "the branch must be untouched on an unreadable state"
 
 
 def test_a_failing_agent_stops_the_run_without_pushing(tmp_path):
