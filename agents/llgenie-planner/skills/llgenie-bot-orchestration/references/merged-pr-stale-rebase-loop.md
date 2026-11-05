@@ -550,3 +550,14 @@ still in_progress (run 41939115039): success at a9f05258b/0717ab72a/1ea27e95d is
 fold-tip's verdict. Rule: when agreeing a lane's reconciliation, state BOTH facts - the durable
 ancestry-met conclusion AND the current-tip check that is still pending - so the board never
 claims the live tip is re-proven green on a prior-tip run.
+
+## Attribute the FULL reactive cluster of a tracked main red, then pin it to the body (2026-11-05, #1723@b85901726)
+
+The tracked top-tier failure (run 41939115306) at main tips cascades: ci-verdict names the
+run + verdict=red success=9 failure=1, and monitor/requeue/verdict rows read the same red
+(their output.title fields were EMPTY - read the ci-verdict summary, not the empty titles, to
+attribute). So one tracked class = N reactive reds; do not file them as new. Pin the blast
+radius into the canonical tracker's body via PATCH (six-section gate missing()==[] before/after),
+so the fix PR's value = clearing the whole reactive cluster at the tip. This is the task-
+relative body mutation. A reactive-red's title field being empty does NOT mean un-attributed -
+the ci-verdict summary is the attribution source.
