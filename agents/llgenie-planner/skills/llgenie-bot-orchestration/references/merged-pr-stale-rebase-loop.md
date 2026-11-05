@@ -582,3 +582,14 @@ it matters / How we fix it / Benefit / Acceptance criteria / Technical, preservi
 evidence (sha 75f85118, change-note trio), 4 tickable checkboxes, ''## Technical'' last. This is
 the planner's refine-before-dispatch duty: a gate-failing body is not routable even when its
 content is right. A refined tracker must PASS missing()==[] live, not just in the draft.
+
+## A live class recurred as two fresh trackers - close both against the canonical, keep canonical open, leave the in_progress fold to the owning lane (2026-11-05, #1735+#1736 -> #1709)
+
+The zero-job-pending class (#1709 canonical) recurs as fresh trackers #1735 (run 41900117746)
+and #1736 (run 41911046740) - same six-section template, same class alarm, both runs still
+IN_PROGRESS at close. Because the runs are live (not concluded), close each duplicate with an
+evidence comment (comment id per issue) + state_reason=duplicate, keep #1709 OPEN as canonical,
+and let the owning lane fold the fresh in_progress run id into #1709's evidence when it lands.
+A fresh occurrence of a LIVE class is not a settled duplicate - but it is still one tracker per
+class, not one tracker per alarm. One canonical open tracker + closed duplicates beats N open
+trackers all recording the same class. #1710 is the same precedent, #1250 is the churn both avoid.
