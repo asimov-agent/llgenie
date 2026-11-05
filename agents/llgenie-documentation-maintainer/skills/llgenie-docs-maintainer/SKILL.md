@@ -1,7 +1,7 @@
 ---
 name: llgenie-docs-maintainer
 description: "Use when auditing, filing or landing LLGenie docs changes."
-version: 1.0.21
+version: 1.0.22
 author: Hermes Agent
 license: MIT
 metadata:
@@ -729,6 +729,7 @@ fragments by `make changes-index` (`scripts/changes_index.py`). Rules that follo
 - **A PR's head may live on the FORK, so `git push origin HEAD:<branch>` can leave an existing PR unmoved and create a stray upstream branch.** `origin` is the upstream (`asimov-agent/llgenie`) but an existing PR's `headRepository` is often the fork (`andyholst/llgenie`). Pushing to `origin` then prints `[new branch]`, creates the branch on the upstream, and **the PR head does not change**. Check `gh pr view <n> --json headRepositoryOwner,headRepository` first; push to `fork` (`git push fork HEAD:<branch>`), delete the stray (`git push origin --delete <branch>`), and confirm the head moved (`gh pr view <n> --json headRefOid`). **This applies only to a PR that already exists** — for a brand-new branch there is no PR head yet, so pushing to `origin` (upstream) and `gh pr create --base main --head <branch>` records a same-repo head and is valid; verify it with `gh pr view <n> --json headRepositoryOwner,headRefOid` after creation. Read `git remote -v` before deciding, not a remembered layout.
 - **Do not re-derive a bot's numbers by hand in prose.** Copy them from a command output you just
   ran, and quote the command in the PR body so a reviewer can reproduce it.
+- **A doc that names a host-agent roster or count sources it from `agents/manifest.json`, never a prose sentence.** When a doc states how many or which host agents the fleet runs, read the roster from `agents/manifest.json` and `make agent-profiles-report` at that moment and copy the output — never a prose-sentence count, which is a stale census about to be true of nobody. And when a small example `agents/` tree is shown under that roster, caption it as an illustrative two-of-N sample, not the whole set, so a reader does not then write "two" because an example tree under the count showed two.
 - **A raw audit is mostly false positives — filter before you report or file anything.** Only
   hyphenated `make` tokens that match a target or a `target-%:` pattern are commands (the words
   after "make" in prose are not, and `build-engine-<engine>-<arch>` is legal because the Makefile
