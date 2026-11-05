@@ -204,16 +204,26 @@ jobs:
         run: |
           echo "head_sha=${{ github.sha }}" | tee -a "$GITHUB_STEP_SUMMARY"
           echo "head_sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+      - name: "capability: can this cell serve? (engine-capabilities.json archs, issue #1748) — gate serve-leg + host-verify"
+        id: served_arch
+        if: ${{ matrix.engine != 'none' && inputs.push == 'true' }}
+        run: |
+          if make engine-capability-serve ENGINE="${{ matrix.engine }}" ARCH="${{ matrix.variant }}" >/dev/null 2>&1; then
+            echo "served_arch=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "served_arch=no" >> "$GITHUB_OUTPUT"
+            echo "::warning::engine ${{ matrix.engine }} does not declare arch ${{ matrix.variant }} in engine-capabilities.json — binary-flags-only, no serve assertion (issue #1748)"
+          fi
       - name: make push-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} (ONLY after the test above passed; re-checks the binary's flags before publishing)
         if: ${{ matrix.engine != 'none' && inputs.push == 'true' }}
         run: make push-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}
-      - name: "serve-leg: make test-published-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} — pull the JUST-published image (digest == :ARCH), re-check the binary version, then SERVE it and answer 'hi' (cpu-fallback rows; GPU-only rows get the version test via --no-gpu so the published binary is still exercised)"
-        if: ${{ matrix.engine != 'none' && inputs.push == 'true' }}
+      - name: "serve-leg: make test-published-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} — pull the JUST-published image (digest == :ARCH), re-check the binary version, then SERVE it and answer 'hi' (cpu-fallback rows; GPU-only rows get the version test via --no-gpu so the published binary is still exercised). Runs ONLY for cells whose engine declares the arch in engine-capabilities.json (serve-vs-flags decision, issue #1748): a cell whose engine does not declare the arch proves only the binary flags and never runs a serve assertion."
+        if: ${{ matrix.engine != 'none' && inputs.push == 'true' && steps.served_arch.outputs.served_arch == 'yes' }}
         run: make test-published-engine ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}
       - name: "install-leg: make test-engine-install ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} — install + the installed launcher's engine version (test-built-engine) + uninstall the image this row just published (product `llgenie --dry` lives in pipeline.yml's ci-install, not here; #1027)"
         if: ${{ matrix.engine != 'none' && inputs.push == 'true' }}
         run: make test-engine-install ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }}
-      - name: "host-verify MATRIX last step: make test-engine-host ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} MODEL=${{ inputs.model }} — the parameterized host-verify command (issue #1322): in parallel (max-parallel 20, one matrix element per supported engine x arch cell), pull the JUST-published image (never build), serve it against MODEL (default: the engine's smallest supported model), assert an llm-local /v1/chat/completions answer and report the measured t/s. The supported set is keyed off the RUNNER's own arch types at runtime (the command reuses engine_skills nvidia_compute_caps()/rocm_gfx_targets()); a GPU-less runner SKIPS the GPU legs with a documented reason (issue #1240) and never reddens them."
-        if: ${{ matrix.engine != 'none' && inputs.push == 'true' }}
+      - name: "host-verify MATRIX last step: make test-engine-host ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} MODEL=${{ inputs.model }} — the parameterized host-verify command (issue #1322): in parallel (max-parallel 20, one matrix element per supported engine x arch cell), pull the JUST-published image (never build), serve it against MODEL (default: the engine's smallest supported model), assert an llm-local /v1/chat/completions answer and report the measured t/s. The supported set is keyed off the RUNNER's own arch types at runtime (the command reuses engine_skills nvidia_compute_caps()/rocm_gfx_targets()); a GPU-less runner SKIPS the GPU legs with a documented reason (issue #1240) and never reddens them. Runs ONLY for cells whose engine declares the arch in engine-capabilities.json (serve-vs-flags decision, issue #1748); a cell whose engine does not declare the arch proves only the binary flags and never runs a serve assertion."
+        if: ${{ matrix.engine != 'none' && inputs.push == 'true' && steps.served_arch.outputs.served_arch == 'yes' }}
         # nosemgrep: yaml.github-actions.security.run-shell-injection.run-shell-injection — matrix constants, quoted, make-routed (issue #1595)
         run: make test-engine-host ENGINE=${{ matrix.engine }} ARCH=${{ matrix.variant }} MODEL=${{ inputs.model }}

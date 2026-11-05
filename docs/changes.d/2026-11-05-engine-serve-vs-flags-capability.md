@@ -1,0 +1,1 @@
+| 2026-11-05 | engine-build serve-vs-flags is capability-driven: serve-leg/host-verify run only for cells whose engine declares the arch in data/engine-capabilities.json (mlx-cpu stays a serve test); other cells prove only the binary flags (-h/--version) | [note](agent-wiki/2026-11-05-engine-serve-vs-flags-capability.md) | #1748 |
