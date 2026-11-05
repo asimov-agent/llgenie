@@ -91,10 +91,7 @@ def fetch_base(root: Path, base: str) -> tuple[list[str], str]:
     # URL-detected "best" remote, which can differ (e.g. `upstream` in a fork-origin
     # clone) and would refresh a ref this gate does not compare.
     ref = f"+refs/heads/main:refs/remotes/{remote}/main"
-    r = subprocess.run(
-        ["git", "-C", str(root), "fetch", "--no-tags", remote, ref],
-        capture_output=True, text=True,
-    )  # proc-allow: direct subprocess call site, tracked remainder for issue #797
+    r = subprocess.run(["git", "-C", str(root), "fetch", "--no-tags", remote, ref], capture_output=True, text=True)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     if r.returncode != 0:
         err = (r.stderr or r.stdout).strip()
         return [], (f"could not fetch fresh `{remote}/main` for base `{base}` " +
