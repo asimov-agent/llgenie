@@ -1118,6 +1118,11 @@ check-report-hygiene: ## CI: fail when a reporting leg blames ownership (another
 	python3 scripts/check_report_hygiene.py check
 report-hygiene-report: ## Show every reporting leg the ownership-guard reads and its verdict
 	python3 scripts/check_report_hygiene.py report
+.PHONY: check-report-header report-header-report
+check-report-header: ## CI: fail when a reporting leg emits a status header missing one of the six fields (`BOT <name>` · `working on #<id>` · `branch <ref>` · `since <hh:mmZ>` · `blocked on <x|none>` · `next <y>`) — a report without an id, a branch or a run id is not a report (issue #1615)
+	python3 scripts/check_report_header.py check
+report-header-report: ## Show every reporting leg the header-guard reads and its verdict
+	python3 scripts/check_report_header.py report
 check-arms: # internal alarm plumbing (rule 16 consumer) — stays out of the user-facing docs; its scheduled workflow arms.yml is the caller
 	python3 scripts/check_arms.py check
 arms-report: # internal alarm plumbing (rule 16 consumer) — stays out of the user-facing docs
@@ -1792,6 +1797,7 @@ ci-unit: bash-check ## CI job unit: hermetic unit tests + registry / skill / Str
 	$(MAKE) check-dispatch-forms
 	$(MAKE) check-pr-hygiene
 	$(MAKE) check-report-hygiene
+	$(MAKE) check-report-header
 	$(MAKE) check-proc-gate
 	$(MAKE) proc-gate-report
 	$(MAKE) check-issue-bodies
