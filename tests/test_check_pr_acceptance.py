@@ -13,12 +13,20 @@ REPO = Path(__file__).resolve().parents[1]
 
 
 def _issue(ticked: list[int], total: int, extra: str = "") -> str:
-    """A repo-shaped issue body with `total` acceptance criteria, `ticked` of them proven."""
+    """A repo-shaped issue body with `total` acceptance criteria, `ticked` of them proven.
+
+    A ticked criterion carries a provable `(proven: …)` marker exactly as `acceptance_writeback`
+    writes it (issue #1644) — the #1784/#1819 defect this gate polices is a tick that names a
+    hash/cmp but no run id and no reproducible command+rc+sha.
+    """
     lines = ["## Problem", "", "measured defect", "", "## How we fix it", "", "1. fix it", "",
              "## Benefit", "", "done", "", "## Acceptance criteria", ""]
     for i in range(1, total + 1):
         state = "x" if i in ticked else " "
-        lines.append(f"- [{state}] criterion {i} is met")
+        text = f"criterion {i} is met"
+        if state == "x":
+            text += "  (proven: reviewer=llgenie-pr-reviever comment=1 head=abc1234 run=42191377162)"
+        lines.append(f"- [{state}] {text}")
     lines += ["", "## Technical", "", "- details", ""]
     if extra:
         lines += extra.splitlines() + [""]
@@ -198,3 +206,51 @@ def test_cli_check_two_issue_pr_renders_distinct_numbers(tmp_path, monkeypatch):
     text = out.read_text()
     assert "#1000" in text and "#1001" in text
     assert "closes #<n>" not in text
+
+
+# --- tick-unprovable: a ticked criterion must name run= or a reproducible command+rc+sha (#1858) ---
+
+
+def _ticked(rest: str, total: int = 1) -> str:
+    """An issue whose single acceptance criterion is `- [x]` with `rest` as the full line tail."""
+    return ("## Problem\n\nx\n\n## Acceptance criteria\n\n"
+            f"- [x] {rest}\n\n## Technical\n\n- t\n")
+
+
+def test_a_fold_sync_tick_with_no_run_id_or_rc_is_RED():
+    # The #1784/#1819 class: a fold/sync tick naming a hash/compare + sync-check but neither a CI run
+    # id nor a reproducible command+rc+sha. Re-measuring it means re-doing the whole byte-compare.
+    issue = _ticked("idle-audit.md  (proven: llgenie-security dispatch verify · PR #1819 head "
+                    "c1d2b640 · cmp live==tree references/idle-audit.md + agent_profile_sync "
+                    "--check OK 13/13 byte-for-byte (2026-11-06))")
+    findings = g.acceptance_verdict(issue, _pr("closes #1000"), 1000)
+    assert any(f["key"] == "tick-unprovable" for f in findings), [f["key"] for f in findings]
+
+
+def test_a_tick_with_only_a_sha_but_no_rc_is_RED():
+    # a `(proven: …)` that names a sha but no `rc=` and no `run=` cannot be re-measured — the read
+    # byte-compare is exactly what the gate exists to make unnecessary.
+    issue = _ticked("criterion  (proven: cmp live==tree references/idle-audit.md equals 4c3ac6f7)")
+    assert any(f["key"] == "tick-unprovable" for f in g.acceptance_verdict(issue, _pr("closes #1000"), 1000))
+
+
+def test_a_named_ci_run_id_tick_is_GREEN():
+    # `run=<id>` names a live workflow run — the reviewer write-back form (#1644) — reprovable at a glance.
+    issue = _ticked("criterion  (proven: reviewer=llgenie-pr-reviever comment=1 "
+                    "head=4c3ac6f7eaf282044491ad502966631ec268ba9a run=42191377162)")
+    assert g.acceptance_verdict(issue, _pr("closes #1000"), 1000) == []
+
+
+def test_a_reproducible_command_rc_sha_tick_is_GREEN():
+    # the drift-lamp form (AC2): a command + its exit code + the tree sha is ONE re-runnable step.
+    issue = _ticked("criterion  (proven: agent_profile_sync --check PROFILE=llgenie-security "
+                    "rc=0 cdcbac4a2e3a16551f6ee88d5ed339c212ee6c62)")
+    assert g.acceptance_verdict(issue, _pr("closes #1000"), 1000) == []
+
+
+def test_a_bare_self_tick_with_no_proven_is_RED():
+    # A `- [x]` with no evidence line at all is the #745 self-tick class — unprovable by definition.
+    issue = _ticked("criterion 7 is met")
+
+    assert any(f["key"] == "tick-unprovable" for f in g.acceptance_verdict(issue, _pr("closes #1000"), 1000))
+
