@@ -41,10 +41,12 @@ read by `scripts/engine_skills.py` → `make generate-engine-params`, never by a
 | `llgenie-engine-improver` | **no leg** — host skill | the engine loop a GPU host runs: sync → skill → params/image → tune → picker |
 | `llgenie-architecture-pass` | **no leg** — host skill | the architecture pass a host agent runs: measure `origin/main` → audit → file issues |
 | `llgenie-pr-rebase` | **no leg** — host skill | rebase a CONFLICTING/DIRTY llgenie PR onto `main` as one reviewable commit, keeping the `HOST_SKILLS`-admitted outer half split from `rebase-conflict`'s inner staging |
+| `security-pipeline` | **no leg** — host skill | the security pipeline an agent runs for a vulnerability leg: scan → floor → tagged issues → remediation bot |
 
-`llgenie-engine-improver`, `llgenie-architecture-pass` and `llgenie-pr-rebase` are the HOST skills: operator loops a host
+`llgenie-engine-improver`, `llgenie-architecture-pass`, `llgenie-pr-rebase` and `security-pipeline` are the HOST skills: operator loops a host
 runs on demand (the engine loop needs a real GPU; the architecture pass needs a host checkout; the rebase rewrites a
-shared branch on the force-push-approved rebase profile), so no
+shared branch on the force-push-approved rebase profile; the security pipeline is driven by the daily scan and its own
+make/`gh` seams), so no
 CI leg preloads them. They are admitted by name in `HOST_SKILLS` (`scripts/check_agent_skills.py`) and
 are exempt from the unused-skill rule only — they still owe frontmatter and `Inputs`/`Output`/`Rules`.
 

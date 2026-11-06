@@ -53,6 +53,7 @@ HOST_SKILLS = frozenset({
     "llgenie-engine-improver",
     "llgenie-architecture-pass",
     "llgenie-pr-rebase",
+    "security-pipeline",
 })
 #: The rule AGENTS.md must keep, so the seam cannot be deleted silently.
 AGENTS_MARKER = "## A bot's behaviour lives in its project skill"
