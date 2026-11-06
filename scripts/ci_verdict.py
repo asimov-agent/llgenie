@@ -241,9 +241,18 @@ def verdict_lines(result: dict, run: dict | None, superseding: dict | None) -> l
     """The decision report plus the run it is about — one line per finding, the summary last."""
     header: list[str] = []
     if run:
+        # Attribute the verdict to the run it JUDGED, not to the `workflow_run` wrapper's own head
+        # (which is always the default branch and makes a PR-run red look like a merge-tip red — #1862).
+        attribution = f"event={run.get('event') or '-'}"
+        prs = [p.get("number") for p in (run.get("pull_requests") or []) if p.get("number")]
+        if prs:
+            attribution += f" pr={'+'.join(str(p) for p in prs)}"
+        branch = (run.get("head_branch") or "").strip()
+        if branch:
+            attribution += f" branch={branch}"
         header.append(
             f"{TAG} run {run.get('id')} {run.get('name') or ''} head={str(run.get('head_sha'))[:7]} "
-            f"conclusion={run.get('conclusion') or run.get('status')}")
+            f"{attribution} conclusion={run.get('conclusion') or run.get('status')}")
     lines = header + result["lines"]
     if superseding is not None:
         lines.append(

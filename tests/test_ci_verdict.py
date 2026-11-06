@@ -224,6 +224,28 @@ def test_the_check_run_payload_maps_the_verdict_and_never_calls_none_a_success()
     assert "run 1" in payload["output"]["title"]
 
 
+def test_the_verdict_header_attributes_the_judged_run_event_and_pr_not_the_wrapper():
+    """The posted verdict names the run it JUDGED (event + PR + branch), so a PR-run red never reads
+    as a merged-main-tip red (#1862). The wrapper's own head is the default branch; the attribution
+    keeps the judged run's identity in the summary a board quotes."""
+    run = {"id": 42216017972, "name": "CI", "head_sha": "bcd3fea614a76a6d748145292aadf39a56e486e6",
+           "conclusion": "failure", "event": "pull_request",
+           "pull_requests": [{"number": 1850}], "head_branch": "agent/issue-1849-pr-mc-log-read"}
+    result = {"lines": ["[ci-scope] summary: verdict=red"], "verdict": cs.RED}
+    lines = cv.verdict_lines(result, run, None)
+    header = lines[0]
+    assert "event=pull_request" in header, header
+    assert "pr=1850" in header, header
+    assert "branch=agent/issue-1849-pr-mc-log-read" in header, header
+    assert "head=bcd3fea" in header, header
+    # and a push-to-main run attributes as a push, never inventing a PR
+    push = {"id": 42215438505, "name": "CI", "head_sha": "cdcbac4a2e3a16551f6ee88d5ed339c212ee6c62",
+            "conclusion": "success", "event": "push", "pull_requests": [], "head_branch": "main"}
+    plines = cv.verdict_lines({"lines": ["ok"], "verdict": cs.GREEN}, push, None)
+    assert "event=push" in plines[0] and "pr=" not in plines[0], plines[0]
+    assert "branch=main" in plines[0], plines[0]
+
+
 # ---- 6. the classifier's decision round-trips through the artifact -------------------
 
 def test_the_decision_artifact_round_trips_and_the_run_is_green(tmp_path):
