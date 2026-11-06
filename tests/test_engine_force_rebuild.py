@@ -174,6 +174,41 @@ def test_a_missing_cache_image_builds_cold_not_red(monkeypatch, tmp_path):
     assert "--cache-to" not in build, build
 
 
+def test_push_build_missing_cache_image_builds_cold_not_red(monkeypatch, tmp_path):
+    """A never-seeded cache must not red a PUSH build either (issue #1880).
+
+    The AC1 failing cell (`engine-build-tensorfold-cuda` in the default sweep, run
+    `42280478755`) is a PUSH build: `_buildx(..., push=True)` runs the
+    `if push and REGISTRY:` branch that appends `_cache_write_args`. The write-side
+    tolerance must hold there too — when the engine's package is absent from the
+    registry (`buildcache-cuda: not found`), the push build proceeds cold with no
+    `--cache-to` and no `--cache-from`, never red.
+    """
+
+    calls: list[list[str]] = []
+
+    def sh(cmd, **kw):
+        calls.append(list(cmd))
+        # "imagetools inspect" is the cache-existence probe: report it absent (rc 1).
+        # Every other command (the build, the pull, the tag) succeeds.
+        probe = any("imagetools" in a for a in cmd)
+        return subprocess.CompletedProcess(cmd, 1 if probe else 0)
+
+    monkeypatch.setattr(ei, "_sh", sh)
+    monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+    monkeypatch.setattr(ei, "CACHE_WRITE", True)
+
+    # When an unforced PUSH build runs against a never-seeded cache
+    ei._buildx("llgenie/demo:t", str(tmp_path), True, "ghcr.io/asimov-agent/llgenie/demo:buildcache")
+
+    # Then the PUSH build is COLD: no --cache-from and no --cache-to — a missing
+    # cache is a time cost, never a red cell, on the push path too
+    build = next(c for c in calls if "--push" in c)
+    assert "--cache-from" not in build, build
+    assert "--cache-to" not in build, build
+    assert "--push" in build, build
+
+
 def test_a_present_cache_image_keeps_cache_from(monkeypatch, tmp_path):
     """A seeded registry cache is still read: the tolerance only suppresses the failure."""
 
