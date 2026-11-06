@@ -101,6 +101,14 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/verdict"
           gh api "repos/$REPO/actions/runs/$RUN_ID/jobs?per_page=100" > "$RUNNER_TEMP/verdict/jobs.json"
+          # The head the verdict is about: an explicit dispatch input wins, else the input's own run
+          # (a dispatch fallback), else the workflow_run event's head. Always authoritative: a dispatch
+          # must not post a check-run with an empty HEAD_SHA just because the operator omitted the input.
+          if [ -n "${{ inputs.head_sha }}" ]; then
+            echo "${{ inputs.head_sha }}" > "$RUNNER_TEMP/verdict/head_sha"
+          else
+            gh api "repos/$REPO/actions/runs/$RUN_ID" --jq '.head_sha' > "$RUNNER_TEMP/verdict/head_sha"
+          fi
           if gh run download "$RUN_ID" --repo "$REPO" -n ci-scope-decision \
                -D "$RUNNER_TEMP/verdict/decision" >/dev/null 2>&1; then
             echo "Decision artifact read from run $RUN_ID."
@@ -126,6 +134,9 @@ jobs:
           JOBS="$RUNNER_TEMP/verdict/jobs.json"
           DECISION="$RUNNER_TEMP/verdict/decision/ci-scope-decision.json"
           test -f "$DECISION" || DECISION=""
+          # HEAD_SHA: an explicit input/event wins; otherwise the run's own head (resolved above), never
+          # an empty string — a check-run must land on a real head even for a bare run_id dispatch.
+          test -s "$RUNNER_TEMP/verdict/head_sha" && HEAD_SHA="$(cat "$RUNNER_TEMP/verdict/head_sha")"
           make ci-verdict REPO="$REPO" RUN_ID="$RUN_ID" JOBS="$JOBS" DECISION="$DECISION" \
                HEAD_SHA="$HEAD_SHA" CHECK_RUN_OUT="$CHECK_RUN_OUT"
 

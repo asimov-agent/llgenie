@@ -7,3 +7,4 @@
 - [x] Openspec change `ci-verdict-dispatch-rejudge` (proposal + spec requirements/scenarios + tasks) validates: `make openspec-validate NAME=ci-verdict-dispatch-rejudge`.
 - [x] Docs trio: `docs/changes.d/2026-11-07-ci-verdict-dispatch-rejudge-1886.md` (one table row) + `agent-wiki/2026-11-07-ci-verdict-dispatch-rejudge-1886.md` narrative + regenerated `CHANGES.md`; `make check-docs` green.
 - [x] PR body carries `AGENTS:`/`BASE:` (#792), `closes #1886`; normal review flow (owner merges). No merge/arm (#1088).
+- [x] On a dispatch with run_id but no head_sha input, the judge resolves HEAD_SHA from the run"s own head (GH API) and posts the check-run there — never an empty HEAD_SHA.
