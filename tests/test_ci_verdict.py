@@ -828,3 +828,26 @@ def test_an_open_pr_run_with_no_decision_is_still_red(tmp_path, monkeypatch, cap
     assert "MERGED-BRANCH STRAGGLER" not in out, out
     payload = json.loads(checks.read_text(encoding="utf-8"))
     assert payload["conclusion"] == "failure", payload
+
+
+def test_the_dispatch_rejudge_path_is_declared_and_self_sufficient_for_head():
+    """PR #1887 (issue #1886): ci-verdict.yml MUST declare a workflow_dispatch re-judge (run_id input)
+    and, for a bare run_id dispatch (no head_sha input), resolve HEAD_SHA from the judged run itself —
+    never post a check-run with an empty head. The auto workflow_run path is unchanged."""
+    wf = _workflow("ci-verdict.yml")
+    on = _on(wf)
+    disp = on.get("workflow_dispatch") or {}
+    inputs = (disp.get("inputs") or {})
+    # the dispatch trigger with the run_id input the re-judge is driven by
+    assert "workflow_run" in on and "workflow_dispatch" in on, list(on)
+    assert "run_id" in inputs, inputs
+    # the run_id input is required, so a dispatch always names one run to re-judge
+    assert inputs["run_id"].get("required") is True, inputs["run_id"]
+    # the made step resolves HEAD_SHA from the run's own head when the input is omitted
+    text = (WF / "ci-verdict.yml").read_text(encoding="utf-8")
+    assert "$RUNNER_TEMP/verdict/head_sha" in text          # we persist the resolved head
+    assert "gh api \"repos/$REPO/actions/runs/$RUN_ID\"" in text  # we read the run's head via API
+    assert "cat \"$RUNNER_TEMP/verdict/head_sha\"" in text   # the make step consumes the file
+    # the auto workflow_run trigger is not displaced by the addition
+    assert on["workflow_run"]["types"] == ["completed"]
+    assert "CI" in on["workflow_run"]["workflows"]
