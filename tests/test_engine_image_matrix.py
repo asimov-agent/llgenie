@@ -533,3 +533,107 @@ def test_every_supported_arch_has_a_generated_dockerfile():
                 missing.append(f"{p.stem}/{v}")
     assert checked > 0, "no engine params found — the audit would pass vacuously"
     assert not missing, f"supported arch(es) with no generated Dockerfile: {missing}"
+
+
+# ---------------------------------------------------------------------------
+# The derived-cell base-stage merge (issue #1753 / #1832): on the docker-container
+# buildx driver a base left by a PREVIOUS buildx invocation is never resolvable by a
+# later `FROM <base>` — buildx falls through to the registry (docker.io for a bare
+# `llgenie/base-*` name) and is denied with `insufficient_scope`. `_combine_base_stage`
+# aliases the backend toolchain `FROM` and points the derived `FROM <base>` at that
+# internal stage, so ONE build resolves it with no registry dependency. These lock the
+# conversion on the REALLY-committed per-arch Dockerfiles, so a param/Dockerfile change
+# that reintroduces a cross-invocation base pull is caught here.
+# ---------------------------------------------------------------------------
+
+
+def test_combine_base_stage_removes_cross_invocation_base_pull():
+    """A derived Dockerfile that `FROM`s the backend base must, after the stage merge,
+    resolve the base INSIDE the build (an alias stage) — never as a bare image name that
+    buildx would pull from the registry (issue #1753, run 41971301136 @ 84e9684ca2)."""
+
+    # Given every REAL derived engine Dockerfile that FROMs its backend toolchain base
+    df_dir = REPO / "containers" / "engines" / "dockerfiles"
+    checked = 0
+    for df in sorted(df_dir.glob("*/Dockerfile.*")):
+        backend = df.suffix[1:]
+        if backend not in {"cpu", "cuda", "rocm", "vulkan"}:
+            continue
+        derived = df.read_text()
+        tag = es.base_tag(backend)
+        if f"FROM {tag}" not in derived:
+            continue  # not a FROM<base> cell (e.g. an env-only variant); nothing to merge
+        combined = ei._combine_base_stage(backend, derived, tag)
+        checked += 1
+
+        # When it is merged, the derived's cross-invocation base FROM is gone
+        assert "FROM llgenie-base" in combined, f"{df.name}: derived FROM not aliased to llgenie-base"
+        assert f"FROM {tag}" not in combined.replace("FROM llgenie-base", ""), \
+            f"{df.name}: a bare {tag} FROM survives the merge — buildx would pull it from the registry"
+        assert combined.count("AS llgenie-base") == 1, \
+            f"{df.name}: the backend toolchain base must be aliased exactly once"
+        assert not any("docker.io" in line for line in combined.splitlines()), \
+            f"{df.name}: an raw docker.io ref leaked into the combined Dockerfile"
+    assert checked >= 1, "no derived cell FROMs a backend base — this audit would pass vacuously"
+
+
+def test_vllm_cuda_dockerfile_base_stage_is_hermetic():
+    """vllm/cuda's base resolves as an internal stage, never a docker.io pull."""
+    derived = (REPO / "containers" / "engines" / "dockerfiles" / "vllm" / "Dockerfile.cuda").read_text()
+    tag = es.base_tag("cuda")
+    assert f"FROM {tag}" in derived, "the committed cuda Dockerfile must FROM the cuda base"
+    combined = ei._combine_base_stage("cuda", derived, tag)
+    assert "FROM llgenie-base" in combined
+    assert f"FROM {tag}" not in combined.replace("FROM llgenie-base", "")
+    assert "docker.io" not in combined
+    assert combined.count("AS llgenie-base") == 1
+
+
+def test_build_push_false_routes_from_base_cell_through_internal_stage(tmp_path, monkeypatch):
+    """build() with push=false (the read-only verify cell, issue #1832) must route a `FROM <base>`
+    cell through _combine_base_stage: the ONE Dockerfile written into the buildx ctx carries the
+    internal `AS llgenie-base` stage and no bare base `FROM` / docker.io ref, so the cache-capable
+    buildx driver never falls through to a denied registry pull."""
+    repo, _ = _repo(tmp_path, {".gitkeep": ""})
+    (repo / "containers" / "engines" / "base").mkdir(parents=True)
+    (repo / "containers" / "engines" / "base" / "Dockerfile.cuda").write_text("FROM nvidia/cuda:13.0.2-devel-ubuntu24.04\n")
+    (repo / "containers" / "engines" / "scripts").mkdir(parents=True)
+    (repo / "scripts").mkdir(parents=True)
+    (repo / "scripts" / "engine_runner.py").write_text("# runner\n")
+    (repo / "containers" / "engines" / "entrypoint.sh").write_text("#!/bin/sh\n")
+
+    _point(monkeypatch, repo)
+
+    spec = {
+        "id": "vllm", "backend": "cuda", "variant": "cuda", "tag": "llgenie/vllm:test",
+        "dockerfile": "containers/engines/dockerfiles/vllm/Dockerfile.cuda",
+        "params_file": "containers/engines/params/vllm.json",
+    }
+    (repo / "containers" / "engines" / "dockerfiles" / "vllm").mkdir(parents=True)
+    (repo / "containers" / "engines" / "dockerfiles" / "vllm" / "Dockerfile.cuda").write_text(
+        f"FROM {es.base_tag('cuda')}\nRUN echo build\n")
+    params = json.dumps({
+        "repo": "vllm/vllm", "pinned": "<sha>",
+        "variants": {"cuda": {"image": "ubuntu", "build": ["echo"]}},
+    })
+    (repo / "containers" / "engines" / "params").mkdir(parents=True)
+    (repo / "containers" / "engines" / "params" / "vllm.json").write_text(params)
+
+    captured = {}
+
+    def fake_buildx(tag, ctx, push, buildcache, force=False):
+        captured["ctx"] = (Path(ctx) / "Dockerfile").read_text()
+        captured["push"] = push
+        return 0
+
+    monkeypatch.setattr(ei, "_buildx", fake_buildx)
+    monkeypatch.setattr(ei, "REGISTRY", "")
+
+    assert ei.build(spec, force=True, push=False) == 0
+
+    combined = captured["ctx"]
+    assert captured["push"] is False
+    assert "FROM llgenie-base" in combined
+    assert f"FROM {es.base_tag('cuda')}" not in combined.replace("FROM llgenie-base", "")
+    assert "docker.io" not in combined
+    assert combined.count("AS llgenie-base") == 1
