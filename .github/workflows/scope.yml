@@ -137,11 +137,15 @@ jobs:
           fi
           if [ -n "$PR_BODY" ]; then printf '%s\n' "$PR_BODY" > /tmp/pr-body.md; export PR_BODY=/tmp/pr-body.md; fi
           make check-pr-closing
-      - name: make check-pr-acceptance (a merged PR must close an issue whose own acceptance criteria are checked — issues #1792/#745)
+      - name: make check-pr-acceptance (a merged PR must close an issue whose own acceptance criteria are checked — issues #1792/#745, and the squash-text close GitHub's native close reads is held too — issue #1815)
         env:
           # Docs-only bot PRs skip linux/unit, so this step — beside check-pr-closing — is where
           # they are held to the #1792 acceptance check. Same live-body read (issue #1589); the
-          # linked issue's criteria are read LIVE at merge time.
+          # linked issue's criteria are read LIVE at merge time. PR_BASE/PR_HEAD feed the squash
+          # commit range so a `(closes #N)` in the squash text (GitHub's native close) is held too
+          # (issue #1815).
+          PR_BASE: origin/main
+          PR_HEAD: ${{ github.event.pull_request.head.sha || 'HEAD' }}
           PR_NUMBER: ${{ github.event.pull_request.number || '' }}
           PR_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
@@ -152,6 +156,7 @@ jobs:
           fi
           if [ -n "$PR_BODY" ]; then
             printf '%s\n' "$PR_BODY" > /tmp/pr-body.md; export PR_BODY=/tmp/pr-body.md
+            git fetch --no-tags --prune origin main
             make check-pr-acceptance
           else
             echo "[check-pr-acceptance] no PR body on this run (a push to main): nothing to validate"

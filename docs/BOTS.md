@@ -797,9 +797,14 @@ the LIVE linked issue at merge time and holds a PR whose `closes #N` targets an 
 `## Acceptance criteria` `- [ ]` item (unless the PR names it out of scope under `## Not covered` with a
 linked work item) or whose own body ticks a criterion the linked issue still has unchecked — the
 acceptance-side sibling that stops a merge verifying green against an issue's unproven "done" (issue
-#745). It is VERIFICATION only: it never ticks a box — that stays `acceptance_writeback`'s verdict-gated
+#745). Its linked-issue set is taken from the PR body AND the joined squash commit messages (issue
+#1815): GitHub's native close-on-merge reads the SQUASH text, so a `(closes #N)` that lives only in the
+commit messages would otherwise auto-close a multi-lane rollout umbrella while its criteria are still
+unticked — the gate now holds it (and the close parse is negation-aware: `does not close #N` is not a
+close). It is VERIFICATION only: it never ticks a box — that stays `acceptance_writeback`'s verdict-gated
 seam (issue #1644). Both `ci.yml`'s `guard` job and `scope.yml`'s docs gate run it beside
-`check-pr-closing`, fetching that body via `gh api` (issue #1589); a push to main has no body and prints
+`check-pr-closing`, fetching that body via `gh api` (issue #1589) and passing the live squash range via
+`PR_BASE`/`PR_HEAD`; a push to main has no body and prints
 a `nothing to validate` note instead of failing. Implemented as issue #1792.
 
 `make check-pr-sync-line` is the #1724 profile-propagation preflight mounted in CI: it refuses a bot PR

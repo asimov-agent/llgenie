@@ -22,12 +22,21 @@ Commands:
 
 Usage:
     python3 scripts/check_pr_acceptance.py check --body-file /tmp/pr-body.md --repo asimov-agent/llgenie
+    python3 scripts/check_pr_acceptance.py check --body-file /tmp/pr-body.md --base origin/main --rev HEAD
     python3 scripts/check_pr_acceptance.py report --body-file /tmp/pr-body.md
 
 The issue body is read LIVE (`gh api repos/<o>/<r>/issues/<n>`) at merge time — the issue-side
 counterpart of the live PR-body reads `check-pr-closing`/`check-pr-agents-line` already do (issue
 #1589). This is VERIFICATION, never write-back: the gate ticks nothing, it reports the discrepancy so
 a lane/tool intended to prove the criteria can (that stays #1644's verdict-driven seam).
+
+The linked-issue set is derived from the PR body AND, when `--base`/`--rev` are supplied, the joined
+squash commit messages (issue #1815): GitHub's native close-on-merge reads the SQUASH TEXT, so a
+`(closes #N)` that lives only in the commit messages is a real close that would auto-close a
+multi-lane rollout umbrella with unticked criteria (measured 2026-11-05: #1813 `(closes #1812)`
+auto-closed #1812 at 0/5, 1/3 lanes merged). The close parse is negation-aware — `does not close #N`
+is NOT a close. When a close lives only in the squash text, the gate names it on-record
+(`squash-only-close`) and still holds the umbrella via `acceptance_verdict`.
 """
 from __future__ import annotations
 
@@ -52,6 +61,44 @@ BASE_REPO = "asimov-agent/llgenie"
 #: `## Not covered` bullet that names a `#<n>` reference. The repo issue shape already reserves that
 #: section for exactly this ("out-of-scope work is its own linked issue", issue_body.OPTIONAL_SECTION).
 OUT_OF_SCOPE = re.compile(r"(?im)^-.*\s*#\d+\s*$")
+#: A close keyword that a preceding negation makes NON-closing (issue #1815): "does not close #N",
+#: "won't close #N", "can't close #N", "without closing #N" are NOT closes. GitHub's native
+#: close-on-merge is keyword-naive, so our parse must be negation-aware to tell a lane that is
+#: deliberately NOT closing an umbrella from one that is — otherwise a "does not close #umbrella"
+#: would be held to the umbrella's unticked criteria as if it had closed it.
+NEGATED_CLOSE = re.compile(
+    r"\b(?:does\s+not|do\s+not|don'?t|won'?t|will\s+not|shall\s+not|cannot|can'?t|never|"
+    r"without|no\s+longer)\s+(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)",
+    re.IGNORECASE,
+)
+
+
+def _closing_count(body: str) -> set[str]:
+    """The issue ids a text closes, minus any a preceding negation renders NON-closing.
+
+    This is the linked-issue set BOTH for the PR body and for the joined squash commit messages.
+    `check_pr_closing.CLOSING` is GitHub's keyword-naive parse (a "closes #N" adjacency is what
+    GitHub actually acts on); `NEGATED_CLOSE` subtracts the deliberate "does not close #N" a lane
+    writes to avoid closing an umbrella when it only references it (issue #1815).
+    """
+    closed = set(cpc.closing_references(body or ""))
+    negated = {m.group(1) for m in NEGATED_CLOSE.finditer(body or "")}
+    return closed - negated
+
+
+def linked_issue_numbers(body: str) -> list[int]:
+    """Every issue a PR body actually closes (negation-aware, de-duplicated, sorted)."""
+    return sorted({int(n) for n in _closing_count(body)})
+
+
+def linked_squash_numbers(messages: list[str]) -> list[int]:
+    """Every issue the joined squash commit messages close (negation-aware, sorted).
+
+    The squash text is what GitHub's native close-on-merge actually reads (COMMIT_MESSAGES), so a
+    `(closes #N)` that lives ONLY in the commit messages and NEVER in the PR body is a real close
+    GitHub acts on — and before issue #1815 the acceptance gate never saw it.
+    """
+    return sorted({int(n) for n in _closing_count("\n\n".join(messages))})
 
 #: The inline `(proven: …)` evidence a TICKED criterion carries (acceptance_writeback #1644).
 PROVEN_MARKER = re.compile(r"\(proven:\s*(.*?)\)\s*$", re.S)
@@ -233,10 +280,46 @@ def main(argv: list[str] | None = None) -> int:
         c.add_argument("--body", default=None, help="the PR body as a literal string (tests)")
         c.add_argument("--repo", default=BASE_REPO, help="the repo the issues live in (default %(default)s)")
         c.add_argument("--gh", default="gh")
+        c.add_argument("--base", default=None, help="git base of the squash range (PR_BASE; omit to skip the squash half)")
+        c.add_argument("--rev", default="HEAD", help="git rev of the PR head (default HEAD)")
+        c.add_argument("--cwd", default=None, help="repository the squash range is read from")
     args = p.parse_args(argv)
     body = args.body if args.body is not None else (
         Path(args.body_file).read_text() if args.body_file else "")
-    closed = [int(n) for n in cpc.closing_references(body)]
+    closed = linked_issue_numbers(body)
+    squash_notes: list[dict] = []
+    squash_range_error: dict | None = None
+    if args.base:
+        cwd = Path(args.cwd) if args.cwd else REPO_ROOT
+        try:
+            messages = cpc.commit_messages(args.base, args.rev, cwd)
+            squash_closed = linked_squash_numbers(messages)
+            closed = sorted(set(closed) | set(squash_closed))
+            # An umbrella whose close lives ONLY in the squash text (the text GitHub's native close
+            # reads) is the exact premature-close hazard #1815 targets — name it. The HOLD that
+            # blocks the merge is `acceptance_verdict` on the unticked umbrella (now included in
+            # `closed`); this note is the on-record explanation, never an independent red.
+            squash_only = sorted(set(squash_closed) - set(linked_issue_numbers(body)))
+            for n in squash_only:
+                squash_notes.append({
+                    "key": "squash-only-close",
+                    "title": "ci: a close keyword lives in the squash commit text but not the PR body",
+                    "evidence": (
+                        f"#{n} is adjacently closed by the joined squash commit messages but not by "
+                        f"the PR body. GitHub's native close-on-merge reads the SQUASH TEXT, so this "
+                        f"close WILL auto-close #{n} on merge even a multi-lane rollout umbrella whose "
+                        f"criteria are still unticked (issue #1815, instance #1812). Keep the close on "
+                        f"the FINAL lane only, when the umbrella's criteria are ticked."
+                    ),
+                    "where": "squash-commits",
+                })
+        except RuntimeError as exc:
+            squash_range_error = {
+                "key": "squash-range",
+                "title": "ci: the squash range for the acceptance gate could not be read",
+                "evidence": str(exc),
+                "where": f"{args.base}..{args.rev}",
+            }
     if args.cmd == "report":
         print(f"[check-pr-acceptance] linked issues: {', '.join(f'#{n}' for n in closed) or '(none)'}")
         for n in closed:
@@ -246,8 +329,14 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"[check-pr-acceptance] #{n}: unreadable ({exc})")
                 continue
             print(f"[check-pr-acceptance] #{n}: {len([i for i in items if i[1]])}/{len(items)} criteria ticked")
+        if squash_range_error:
+            print(f"[check-pr-acceptance] {squash_range_error['title']} — {squash_range_error['evidence']}")
+        for f in squash_notes:
+            print(f"[check-pr-acceptance] {f['title']} — {f['evidence']}")
         return 0
     items: list[dict] = []
+    if squash_range_error:
+        items.append(squash_range_error)
     for n in closed:
         try:
             issue = _fetch_issue_body(args.gh, args.repo, n)
