@@ -86,7 +86,7 @@ def _declared_out_of_scope(pr_body: str, criterion: str) -> bool:
     return bool(lead and lead in nc)
 
 
-def acceptance_verdict(issue_body_text: str, pr_body: str) -> list[dict]:
+def acceptance_verdict(issue_body_text: str, pr_body: str, issue: int) -> list[dict]:
     """The findings a merged PR closing `issue_body_text` carries.
 
     Two classes, exactly the dispatch's:
@@ -94,6 +94,8 @@ def acceptance_verdict(issue_body_text: str, pr_body: str) -> list[dict]:
         body does not name it out of scope with a linked work item;
       * `claim-exceeds` — the PR body's own `- [x]` names a criterion the issue has UNTICKED.
     An issue with no `## Acceptance criteria` (or none tickable) returns no finding: nothing to prove.
+    Every finding names the linked `#N` (`issue`) so a multi-issue PR's violations are distinguishable
+    from a single CI log.
     """
     items = _acceptance_items(issue_body_text)
     if not items:
@@ -107,16 +109,16 @@ def acceptance_verdict(issue_body_text: str, pr_body: str) -> list[dict]:
             continue
         out.append({
             "key": "acceptance-unchecked",
-            "title": "ci: a merged PR closes an issue whose acceptance criterion is unchecked",
+            "title": f"ci: a merged PR closes the issue #{issue} whose acceptance criterion is unchecked",
             "evidence": (
                 f"acceptance item {pos} (\u201c{text[:80]}\u201d) is still `- [ ]` in the linked issue's "
-                f"`## Acceptance criteria`, yet the PR body closes the issue. `closes #<n>` proves the "
+                f"`## Acceptance criteria`, yet the PR body closes the issue. `closes #{issue}` proves the "
                 f"PR names the issue, not that its own definition of done (issue #745) was met — the "
                 f"only write-back is verdict-gated (#1644), so an un-reviewed merge stays honest. "
                 f"Prove the criterion (tick it via `acceptance_writeback`) or name it out of scope "
                 f"under `## Not covered` with a linked work item."
             ),
-            "where": "issue-criteria",
+            "where": f"#{issue}",
         })
 
     # claim-exceeds: the PR body ticks a box the issue still has open.
@@ -128,13 +130,13 @@ def acceptance_verdict(issue_body_text: str, pr_body: str) -> list[dict]:
     for lead in sorted(overlap):
         out.append({
             "key": "acceptance-exceeds",
-            "title": "ci: the PR body claims a ticked criterion the linked issue still has unchecked",
+            "title": f"ci: the PR body claims a ticked criterion the linked issue #{issue} still has unchecked",
             "evidence": (
                 f"the PR body carries a `- [x]` for a criterion beginning \u201c{lead}\u201d that the "
                 f"linked issue's `## Acceptance criteria` still has `- [ ]`. A merged PR must not "
                 f"present as done what the issue it closes has not proven."
             ),
-            "where": "pr-body-vs-issue",
+            "where": f"#{issue}",
         })
     return out
 
@@ -207,7 +209,7 @@ def main(argv: list[str] | None = None) -> int:
                 "where": f"#{n}",
             })
             continue
-        items.extend(acceptance_verdict(issue, body))
+        items.extend(acceptance_verdict(issue, body, n))
     print(render(items))
     return 1 if items else 0
 
