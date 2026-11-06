@@ -26,6 +26,9 @@ name: ci-verdict — holds a finished CI run to its published scope decision, an
 # Flow: read the finished run's job rows -> read back the `ci-scope-decision` artifact (absent = no
 #       decision, never an error) -> `make ci-verdict` (scripts/ci_verdict.py) decides ->
 #       post the check-run it wrote.
+# Trigger surface: `workflow_run` (every finished CI run, auto-judged) plus `workflow_dispatch`
+#                  (a manual re-judge of one finished run, owner/collaborator-only) — never a
+#                  `pull_request` or `push`.
 # Never: re-runs or merges anything, edits no branch, and reads no repository secret. The ONE exception is
 # a manual `workflow_dispatch` re-judge (issue #1886): an operator may dispatch this workflow to RE-JUDGE a
 # specific finished run through the same judge steps — it still reads only that run's jobs + decision and
@@ -63,9 +66,10 @@ on:
         required: true
         type: string
       head_sha:
-        description: "the commit the verdict is about; default is the judged run's head sha"
+        description: "the commit the verdict is about; empty = the judged run's head sha"
         required: false
         type: string
+        default: ""
 
 permissions:
   contents: read
@@ -82,7 +86,62 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  guard:
+    # Only the owner, a collaborator with WRITE access, or the bot may drive this workflow (the
+    # byte-identical shape every dispatchable workflow carries, issue #295). A `workflow_dispatch`
+    # re-judge is started by a person, so the trigger guard runs first.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Owner / collaborator trigger guard
+        env:
+          ACTOR: ${{ github.actor }}
+          TRIGGER: ${{ github.triggering_actor }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.repository }}
+          # The run's head repository: empty for every non-PR event (issue #510).
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name || '' }}
+          # The event + ref: on a `workflow_dispatch` the head repo is empty, so the bot's same-repo-head
+          # intent is reached via event+ref instead (the all-pipelines sweep dispatching `main`, issue
+          # #1571).
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for u in "$ACTOR" "$TRIGGER"; do
+            if [ "$u" = "$OWNER" ]; then continue; fi
+            # The repository's own bot is a GitHub App login, so it is never a collaborator and the
+            # permission read below answers 404 -> `none`: every bot-opened PR was refused (run
+            # 39650944430, #495). It may pass ONLY when the run's head is a branch in THIS repository —
+            # a same-repo head can be produced only by a token with write access — while the bot as the
+            # actor of a FOREIGN head (a bot commenting on a stranger's PR) is still refused (#510).
+            # It also passes on a `workflow_dispatch` of this repository (issue #1571): a dispatch can
+            # only target this repository's own refs, and only this repository's own automation (a
+            # workflow scoped `actions: write` dispatching via GITHUB_TOKEN) can make the bot the
+            # actor of one — the same-repo-head intent reached via the event instead of the (empty)
+            # HEAD_REPO. A workflow_dispatch is how the weekly all-pipelines sweep drives its targets.
+            if [ "$u" = "github-actions[bot]" ]; then
+              if [ -n "${HEAD_REPO:-}" ] && [ "${HEAD_REPO:-}" = "$REPO" ]; then
+                echo "Repository bot $u on a same-repo head ($HEAD_REPO) - allowed."
+                continue
+              fi
+              if [ "${EVENT:-}" = "workflow_dispatch" ]; then
+                echo "Repository bot $u on a workflow_dispatch of this repository - allowed."
+                continue
+              fi
+            fi
+            perm=$(gh api "repos/$REPO/collaborators/$u/permission" --jq .permission 2>/dev/null || echo none)
+            case "$perm" in
+              admin|maintain|write) echo "Collaborator $u has $perm - allowed." ;;
+              *) echo "Refused: $u is not the owner or a collaborator with write access (permission: ${perm:-none})."; exit 1 ;;
+            esac
+          done
+          echo "Allowed: actor=$ACTOR triggering_actor=$TRIGGER"
+
   judge:
+    needs: [guard]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
