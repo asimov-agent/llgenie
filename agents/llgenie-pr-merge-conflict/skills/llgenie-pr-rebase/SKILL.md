@@ -32,6 +32,16 @@ The pin is `tests/fixtures/host-bot-capabilities.json` in asimov-agent/llgenie (
 - `references/sweep-mechanics.md` — the sweep loops that do the work; its per-PR probe reads
   `gh pr view --json state` FIRST so a `MERGED` PR's leftover pre-merge ref is never rebound
   (guard #1, state==MERGED-first — issue #1464).
+- **On a red bot-gate, read the failing job's OWN log first** — before any green/red/reviewable/mergeable
+  claim, before any fix dispatch, before any re-push: name the run and head (`gh run view <run-id> --json
+  status,conclusion,headSha`), find the failing job (`gh api …/runs/<run-id>/jobs`), read that job's own log
+  (`gh api …/jobs/<job-id>/logs --allow-escape-sequences`), and quote the failing step + `[step] FAILED`
+  line + Makefile target/script before attributing the root cause to THAT gate (gate→defect map) or routing
+  it — never forward a red as "another lane's drift" until the log is read. Report green only off a completed
+  run id + head sha with no `linux/*` or guard/scope row `in_progress`/`cancelled`. Canonical procedure with
+  the verbatim commands and the gate→defect map: `agents/llgenie-issse-implementer/skills/containerized-repo-verification/references/red-bot-gate-read-the-failing-job-log.md` (merged via #1840). This reproduces the 
+  reproduce-on-rebased-tree discipline below (read the run at the PR's current head, reproduce on the rebased
+  tree and the pristine `origin/main`) — the log is the evidence either way.
 
 ## When to Use
 Use when a pull request in `asimov-agent/llgenie` shows `mergeable: CONFLICTING` / `mergeStateStatus: DIRTY` or `BEHIND`, and it must be brought onto the current `main` tip while staying a single reviewable commit.
