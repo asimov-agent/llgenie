@@ -302,6 +302,17 @@ the gate order and flakes that are not the author's. For keeping a verdict tied 
 rebasing off a squash-merged ancestor, and re-verifying your findings on the merged sha — see
 `references/base-and-merge-integrity.md`.
 
+## Read the failing job's log first (#1791-AC3 pointer)
+
+On a red bot-gate, read the failing job's OWN log before any dispatch/green/red/mergeable claim.
+The canonical procedure (name run + head, find failing job, read that job's log verbatim, quote
+the failing step, attribute to THAT gate via its gate→defect map, report green only off a
+completed run id + head sha with no `linux/*`/guard/scope row in_progress/cancelled) is
+**`references/read-the-failing-job-log-pointer.md`**, pointing to the implementer-lane canonical
+`agents/llgenie-issse-implementer/skills/containerized-repo-verification/references/red-bot-gate-read-the-failing-job-log.md`
+(merged via #1840). Load it before a verdict, write-back, hold, or routing decision.
+
+
 ## Traps that cost real time
 
 - **`docs/ARCHITECTURE.md` is generated and its census goes stale fast, and it goes stale
