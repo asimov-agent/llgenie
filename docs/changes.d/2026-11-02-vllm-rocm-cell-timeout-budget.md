@@ -1,0 +1,1 @@
+| 2026-11-02 | 2026-11-02 vllm/rocm engine-build cell timeout raised 240 → 480 (issue #1568) | [2026-11-02-vllm-rocm-cell-timeout-budget.md](agent-wiki/2026-11-02-vllm-rocm-cell-timeout-budget.md) | #1568 |

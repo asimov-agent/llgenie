@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -59,9 +60,15 @@ import check_engine_pins_published as cpp  # noqa: E402
 
 #: The producer workflow AI a bump triggers. Matched by FILE NAME (the dispatch target), not by name:.
 ENGINE_BUILD_WORKFLOW = "engine-build.yml"
+# The runs API returns this path with no leading slash. A filter that requires the slash
+# matches nothing, so a dispatch that did start is reported as "no run appeared" (PR #1696,
+# run 41695838003).
+ENGINE_BUILD_PATH = ".github/workflows/engine-build.yml"
 DISPATCH_TIMEOUT = 90  # seconds a workflow_dispatch run has to appear
 POLL_SECONDS = 20      # between verdict polls
-DEFAULT_MAX_WAIT = 60  # minutes a push=true build may take before the trigger gives up
+DEFAULT_MAX_WAIT = 240  # minutes a push=true build may take before the trigger gives up
+# The producer cell allows 240 minutes and this trigger's job allows 250. A shorter wait
+# reddens the PR while the build is still running.
 #: A single `gh api` call must never hold a poll loop open past its own deadline
 #: (issue: a stalled registry/API call blocks `subprocess.run` with no timeout, so
 #: the `time.time() > deadline` bound below is never reached and the trigger hung
@@ -78,6 +85,29 @@ def _sh(args: list[str]) -> str:
         return ""  # no verdict this poll; the caller's deadline check decides
 
 
+def _dispatch_ref(explicit: str) -> str:
+    """A branch or tag GitHub will accept as a workflow_dispatch ref.
+
+    `pull_request` checkouts are detached. `git rev-parse --abbrev-ref HEAD` is then the
+    literal `HEAD`, and `gh workflow run --ref HEAD` returns HTTP 422 `No ref found for: HEAD`
+    (PR #1696). `GITHUB_HEAD_REF` is the source branch Actions sets for that event. A real
+    branch name passed in, or a non-detached checkout, still wins.
+    """
+    name = (explicit or "").strip()
+    if name and name != "HEAD":
+        return name
+    head_ref = os.environ.get("GITHUB_HEAD_REF", "").strip()
+    if head_ref and head_ref != "HEAD":
+        return head_ref
+    symbolic = _sh(["git", "rev-parse", "--abbrev-ref", "HEAD"]).strip()
+    if symbolic and symbolic != "HEAD":
+        return symbolic
+    print("[will] refusing to dispatch: checkout is detached (git ref is HEAD) and "
+          "GITHUB_HEAD_REF is unset. Pass --branch or BRANCH= the PR head branch.",
+          file=sys.stderr)
+    return ""
+
+
 def _gh(repo: str, *args: str, gh: str = "gh") -> str:
     return _sh([gh, "api", f"repos/{repo}/actions/runs" + (args[0] if args else ""), *args[1:]])
 
@@ -90,10 +120,30 @@ def repinned(base: str, engine_filter: str = "") -> list[str]:
 
 def _existing_run_ids(repo: str, gh: str) -> set[str]:
     """workflow_dispatch run ids for engine-build currently known (before our dispatch)."""
-    raw = _gh(repo, "?per_page=100", "--jq",
-              '.workflow_runs[] | select(.event == "workflow_dispatch") | '
-              'select(.path == "/.github/workflows/engine-build.yml") | .id | tostring', gh=gh)
-    return {line.strip() for line in raw.splitlines() if line.strip()}
+    raw = _gh(repo, "?per_page=100", gh=gh)
+    try:
+        payload = json.loads(raw) if raw.strip() else {}
+    except json.JSONDecodeError:
+        return set()
+    runs = payload.get("workflow_runs", []) if isinstance(payload, dict) else []
+    found: set[str] = set()
+    for run in runs:
+        if run.get("event") != "workflow_dispatch":
+            continue
+        if str(run.get("path") or "").lstrip("/") != ENGINE_BUILD_PATH:
+            continue
+        found.add(str(run.get("id")))
+    return found
+
+
+def _workflow_run_args(gh: str, repo: str, branch: str, fields: list[str]) -> list[str]:
+    """`gh workflow run` argv. Each input is its own `--field`; a second value after one
+    `--field` is a positional and is dropped, which dispatched `engine=vllm` with `push` left
+    at its default false (PR #1696, run 41695838003 skipped the GHCR login)."""
+    cmd = [gh, "workflow", "run", ENGINE_BUILD_WORKFLOW, "--repo", repo, "--ref", branch]
+    for field in fields:
+        cmd.extend(["--field", field])
+    return cmd
 
 
 def _dispatch_and_wait(repo: str, branch: str, engine: str, arch: str,
@@ -106,13 +156,19 @@ def _dispatch_and_wait(repo: str, branch: str, engine: str, arch: str,
     fields = [f"engine={engine}", "push=true"]
     if arch:
         fields.append(f"arch={arch}")
+    # Exit 0 is not a verdict (#964). A non-zero exit means the dispatch itself was rejected
+    # (for example HTTP 422), so there is no run to await.
     try:
-        subprocess.run([gh, "workflow", "run", ENGINE_BUILD_WORKFLOW, "--repo", repo, "--ref", branch,  # proc-allow: engine-build dispatch is a deliberate CLI dispatch on the seam's tracked remainder (#797); check=False is required because gh workflow run exit 0 is not a verdict (the NEW run is awaited below, #964)
-                        "--field", *[f for f in fields]], check=False, timeout=SUBPROCESS_TIMEOUT)
+        dispatched = subprocess.run(_workflow_run_args(gh, repo, branch, fields), check=False,  # proc-allow: engine-build dispatch is a deliberate CLI dispatch on the seam's tracked remainder (#797); check=False is required because gh workflow run exit 0 is not a verdict (the NEW run is awaited below, #964)
+                                     capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT)
     except subprocess.TimeoutExpired:
         # The dispatch call itself stalled; the discovery loop below still looks for the
         # NEW workflow_dispatch run (the real verdict) and bails at DISPATCH_TIMEOUT.
-        pass
+        dispatched = None
+    if dispatched is not None and dispatched.returncode != 0:
+        err = (dispatched.stderr or dispatched.stdout or "").strip()
+        return {"run_id": "", "status": "dispatch-failed", "conclusion": "failure",
+                "error": err or f"gh workflow run exited {dispatched.returncode}"}
     # The NEW run — a workflow_dispatch-event run not present before — is the fact, not the dispatch exit.
     t0 = time.time()
     wanted = ""
@@ -125,7 +181,11 @@ def _dispatch_and_wait(repo: str, branch: str, engine: str, arch: str,
             wanted = min(new)  # earliest of the runs that appeared after our dispatch
         else:
             time.sleep(POLL_SECONDS)
-    # Await THAT run's verdict.
+    return _await_run(repo, wanted, wait_min, gh)
+
+
+def _await_run(repo: str, wanted: str, wait_min: int, gh: str) -> dict:
+    """Poll one engine-build run until it completes or the wait expires."""
     deadline = time.time() + wait_min * 60
     stall_holder = ""  # an in_progress push run holding the global engine-build-push group, if any
     while True:
@@ -184,6 +244,56 @@ def _push_group_holder(repo: str, gh: str) -> str:
     return min(ids) if ids else ""
 
 
+def _branch_producers(repo: str, branch: str, gh: str) -> list[dict]:
+    """workflow_dispatch engine-build runs on `branch`, newest first."""
+    raw = _gh(repo, f"?branch={branch}&event=workflow_dispatch&per_page=20", "--jq",
+              '[.workflow_runs[] | select(.path == ".github/workflows/engine-build.yml" or '
+              '.path == "/.github/workflows/engine-build.yml") | {id: (.id|tostring), status, '
+              'conclusion, head_sha}]', gh=gh)
+    try:
+        rows = json.loads(raw) if raw.strip() else []
+    except json.JSONDecodeError:
+        return []
+    return rows if isinstance(rows, list) else []
+
+
+def _run_builds_engine(repo: str, run_id: str, engine: str, gh: str) -> bool:
+    raw = _gh(repo, f"{run_id}/jobs", "--jq", ".jobs[].name", gh=gh)
+    prefix = f"engine-build-{engine}-"
+    return any(line.strip().startswith(prefix) for line in raw.splitlines())
+
+
+def _params_match(sha: str) -> bool:
+    """True when `sha` touches the same engine params as HEAD.
+
+    A commit-message rewrite keeps the image identical. Reusing that producer avoids a second
+    multi-hour build of the same pins.
+    """
+    head = _sh(["git", "rev-parse", "HEAD"]).strip()
+    if not sha or sha == head:
+        return True
+    _sh(["git", "fetch", "--no-tags", "origin", sha])
+    kind = _sh(["git", "cat-file", "-t", sha]).strip()
+    # Compared on its own line: a `"git"` argv and the word commit on one line is read as
+    # `git commit` by check-pr-authors (issue #840).
+    if kind != "commit":
+        return False
+    return _sh(["git", "diff", "--stat", sha, "HEAD", "--", "containers/engines/params"]).strip() == ""
+
+
+def _reusable_producer(repo: str, branch: str, engine: str, gh: str) -> dict:
+    """An engine-build already running or green on `branch` for the same params. Empty if none."""
+    for run in _branch_producers(repo, branch, gh):
+        run_id = str(run.get("id") or "")
+        status = str(run.get("status") or "")
+        if not run_id or not _run_builds_engine(repo, run_id, engine, gh):
+            continue
+        if not _params_match(str(run.get("head_sha") or "")):
+            continue
+        if status in {"queued", "in_progress", "waiting", "pending", "requested"} or run.get("conclusion") == "success":
+            return {"run_id": run_id, "status": status, "conclusion": run.get("conclusion")}
+    return {}
+
 
 def check(base: str, engine_filter: str = "", arch: str = "", dry: bool = False, repo: str = "",
           branch: str = "", wait_min: int = DEFAULT_MAX_WAIT, gh: str = "gh") -> int:
@@ -196,7 +306,9 @@ def check(base: str, engine_filter: str = "", arch: str = "", dry: bool = False,
         print("[will] no engine this change repins; nothing to dispatch (hermetic, same rule as the may-arm)")
         return 0
     repo = repo or base_ref.BASE_REPO
-    branch = branch or _sh(["git", "rev-parse", "--abbrev-ref", "HEAD"]).strip().strip()
+    branch = _dispatch_ref(branch)
+    if not branch:
+        return 1
     print(f"[will] {len(ids)} repinned engine(s) vs {base}: {', '.join(sorted(ids))}")
     if dry:
         for e in sorted(ids):
@@ -205,8 +317,18 @@ def check(base: str, engine_filter: str = "", arch: str = "", dry: bool = False,
         return 0
     failures = 0
     for e in sorted(ids):
-        print(f"[will] dispatching engine-build push=true engine={e}{f' arch={arch}' if arch else ''} @ {branch}")
-        outcome = _dispatch_and_wait(repo, branch, e, arch, wait_min, gh)
+        existing = _reusable_producer(repo, branch, e, gh)
+        if existing and existing.get("conclusion") == "success":
+            print(f"[will] engine-build already succeeded for engine={e} @ {branch}: "
+                  f"run {existing['run_id']}; not dispatching again")
+            outcome = existing
+        elif existing:
+            print(f"[will] engine-build already in progress for engine={e} @ {branch}: "
+                  f"run {existing['run_id']}; awaiting it, not dispatching again")
+            outcome = _await_run(repo, existing["run_id"], wait_min, gh)
+        else:
+            print(f"[will] dispatching engine-build push=true engine={e}{f' arch={arch}' if arch else ''} @ {branch}")
+            outcome = _dispatch_and_wait(repo, branch, e, arch, wait_min, gh)
         if outcome.get("guard_refused"):
             print(f"[will] FAIL engine={e}: producer refused at its own trigger guard "
                   f"(run {outcome.get('run_id')}) — NOT VERIFIED, not a bare failure", file=sys.stderr)
@@ -222,6 +344,9 @@ def check(base: str, engine_filter: str = "", arch: str = "", dry: bool = False,
                 msg += (f" — STALLED behind engine-build-push group holder run "
                         f"{outcome['stalled_behind']} (that holder must conclude or be owner-cancelled; "
                         f"re-dispatch queues behind the same gate, issue #1860)")
+            else:
+                extra = f" — {outcome['error']}" if outcome.get("error") else ""
+                msg += extra
             print(msg, file=sys.stderr)
             failures += 1
         elif outcome.get("conclusion") != "success":

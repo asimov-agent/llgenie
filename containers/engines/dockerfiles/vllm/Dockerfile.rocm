@@ -7,7 +7,7 @@ FROM llgenie/base-rocm:17779d5326
 
 ENV DEBIAN_FRONTEND=noninteractive HF_HOME=/models/hf \
     PATH=/opt/llgenie/bin:/usr/local/cuda/bin:${PATH}
-ENV LLGENIE_GPU_TARGETS=gfx1030;gfx1100;gfx1101;gfx1102;gfx1151;gfx1200;gfx1201;gfx942
+ENV LLGENIE_GPU_TARGETS=gfx942;gfx1100;gfx1101;gfx1201
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         python3-dev \
