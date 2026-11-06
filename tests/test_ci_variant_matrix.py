@@ -247,3 +247,31 @@ def test_install_ci_runs_make_install_and_make_uninstall():
     assert "engine-launchers" not in run and "test-built-engine" not in run
 
 
+
+
+def test_engine_build_build_job_timeout_is_matrix_aware():
+    """The engine-build build job's cap is matrix-aware (issue #1818): rocm cells
+    get ~360m, every other variant keeps 240m — not a flat shared wall that
+    cancels the heavy vllm/rocm cell on a slow-but-legitimate build."""
+    # Given the engine-build workflow
+    eb = yaml.safe_load((REPO / ".github/workflows/engine-build.yml").read_text())["jobs"]
+    build = eb["build"]
+    # When the build job's timeout is read
+    expr = build.get("timeout-minutes")
+    # Then it is the matrix-aware expression (changes on variant), not a flat int
+    assert isinstance(expr, str), f"timeout must be an expression, got {expr!r}"
+    assert "matrix.variant" in expr, f"timeout must key on matrix.variant, got {expr!r}"
+
+    # And evaluating it over the emitted matrix variants yields rocm=360, others=240
+    import scripts.engine_image as ei
+    variants = {r["variant"] for r in ei.matrix(ci=True)}
+    # the branch is reachable: rocm is an emitted variant
+    assert "rocm" in variants, f"matrix has no rocm row: {sorted(variants)}"
+    for v in variants:
+        if v == "rocm":
+            assert "360" in expr, f"rocm should get 360, expr={expr!r}"
+        else:
+            assert "240" in expr, f"non-rocm should keep 240, expr={expr!r}"
+
+    # The expression must be the exact single-line form (reds on any flat value)
+    assert "${{ (matrix.variant == 'rocm') && 360 || 240 }}" in expr, expr
