@@ -181,6 +181,20 @@ def resolve(engine: str, backend: str | None, variant: str | None = None) -> dic
     return es.image_spec(params, es.pick_variant(params, b, {**hw, "backend": b}))
 
 
+def _cache_exists(cache_ref: str) -> bool:
+    """True when the registry layer-cache image exists (the cache-existence probe).
+
+    `docker buildx imagetools inspect` issues the same registry manifest GET that the
+    `--cache-from`/`--cache-to` flags would. A non-zero exit means the ref is absent —
+    either the cache was never seeded (#1842, read side) or the engine's package is not
+    on the registry yet (#1880, write side). Both sides tolerate the absence (build cold)
+    rather than red; this is the single probe they share.
+    """
+    if not REGISTRY:
+        return False
+    return _sh([RUNTIME, "buildx", "imagetools", "inspect", cache_ref], capture_output=True).returncode == 0
+
+
 def _cache_read_args(cache_ref: str) -> list[str]:
     """`--cache-from type=registry` for the read, tolerating a never-seeded cache image.
 
@@ -193,10 +207,7 @@ def _cache_read_args(cache_ref: str) -> list[str]:
     red. The absence is a recorded decision (a printed note), not a silent skip (#1796). The
     write (`--cache-to`) is untouched: the first cold build seeds the cache for its next run.
     """
-    if not REGISTRY:
-        return []
-    exists = _sh([RUNTIME, "buildx", "imagetools", "inspect", cache_ref], capture_output=True).returncode == 0
-    if not exists:
+    if not _cache_exists(cache_ref):
         print(f"[engine-image] registry cache {cache_ref} absent -> cold build (cache read skipped; #1842)",
               flush=True)
         return []
@@ -216,10 +227,7 @@ def _cache_write_args(cache_ref: str) -> list[str]:
     the engine's package exists on the registry (a later publish), so the write is only ever skipped
     for an engine that has never been published at all.
     """
-    if not REGISTRY:
-        return []
-    exists = _sh([RUNTIME, "buildx", "imagetools", "inspect", cache_ref], capture_output=True).returncode == 0
-    if not exists:
+    if not _cache_exists(cache_ref):
         print(f"[engine-image] registry cache {cache_ref} absent -> cold build (cache write skipped; #1880)",
               flush=True)
         return []
