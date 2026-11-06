@@ -209,6 +209,36 @@ def test_push_build_missing_cache_image_builds_cold_not_red(monkeypatch, tmp_pat
     assert "--push" in build, build
 
 
+def test_push_build_present_cache_still_writes_when_privileged(monkeypatch, tmp_path):
+    """A seeded cache ref is still written on a PUSH build (issue #1880).
+
+    The write tolerance only suppresses the failure when the engine's package is
+    absent from the registry. On the push path (`if push and REGISTRY:`), a present
+    cache ref with `CACHE_WRITE=1` must still seed `--cache-to` for the next run —
+    the write is not unconditionally dropped on push builds either.
+    """
+
+    calls: list[list[str]] = []
+
+    def sh(cmd, **kw):
+        calls.append(list(cmd))
+        # "imagetools inspect" is the cache-existence probe: report it present (rc 0).
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(ei, "_sh", sh)
+    monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+    monkeypatch.setattr(ei, "CACHE_WRITE", True)
+
+    # When an unforced PUSH build runs against a seeded cache
+    ei._buildx("llgenie/demo:t", str(tmp_path), True, "ghcr.io/asimov-agent/llgenie/demo:buildcache")
+
+    # Then the PUSH build still writes --cache-to (and reads --cache-from)
+    build = next(c for c in calls if "--push" in c)
+    assert "--cache-from" in build, build
+    assert any(str(a).startswith("type=registry,ref=ghcr.io/asimov-agent/llgenie/demo:buildcache")
+               and "mode=max" in a for a in build), build
+
+
 def test_a_present_cache_image_keeps_cache_from(monkeypatch, tmp_path):
     """A seeded registry cache is still read: the tolerance only suppresses the failure."""
 
