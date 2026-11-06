@@ -852,6 +852,12 @@ publish-path input — **never a full `engine="" arch=""` sweep** — and quote 
 indistinguishable from never-built. A cross-invocation base no longer forces a full sweep: the
 internal-stage base (#1753/#1756) means a republish of ONE cell republishes only that cell at its ref.
 
+**Read the failing job's log before any dispatch or any green/red/reviewable claim (#1791-AC3).** This
+lane's SOUL carries the read-the-failing-job-log-first discipline verbatim; the full mandatory sequence
+(open the failing step's OWN log — run id + job id + head sha —, quote the error line, and attribute the
+root cause to that gate before dispatching or claiming a verdict) loads from the canonical #1791
+procedure reference via `references/read-the-failing-job-log-pointer.md`.
+
 **An empty queue triggers the own-domain continuous-improvement audit, not idleness (owner 2026-11-01,
 #1774).** When this lane's reactive queue is empty, run a bounded, measurable audit of its domain and
 produce the next finding — the two named domains: **engine-cell pin validity** (a pinned engines/params
