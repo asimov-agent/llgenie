@@ -7,10 +7,17 @@ a criterion a reviewer cannot tick is not one) was met. The only write-back — 
 nothing (#1088-class), so an issue that merges 5/5 `- [ ]` stays honest and the merge verifies green.
 This gate reads the LINKED ISSUE at merge time so that a close is not silently verified against nothing.
 
+A tick is only as honest as the run behind it (issue #1858, audit #1857): a TICKED criterion must name
+reproducible evidence — a named CI run (`run=<id>`), or a reproducible command + its exit code +
+the measured tree sha (`proven: <command> rc=<n> <sha>`). A fold/sync tick that claims a hash/cmp or a
+sync-check with no run id and no rc+sha is not re-verifiable from the issue thread alone, so the gate
+reds it as `tick-unprovable` rather than trusting the text (#1784/#1819 class).
+
 Commands:
     check_pr_acceptance.py check   exit non-zero when a PR's closed issue carries unticked
-                                  `## Acceptance criteria`, or when the PR body ticks a criterion the
-                                  issue has unticked
+                                  `## Acceptance criteria`, when the PR body ticks a criterion the
+                                  issue has unticked, or when a ticked criterion names no provable
+                                  evidence (run id or reproducible command+rc+sha)
     check_pr_acceptance.py report  print the linked issues, their criterion counts and the verdict
 
 Usage:
@@ -45,6 +52,28 @@ BASE_REPO = "asimov-agent/llgenie"
 #: `## Not covered` bullet that names a `#<n>` reference. The repo issue shape already reserves that
 #: section for exactly this ("out-of-scope work is its own linked issue", issue_body.OPTIONAL_SECTION).
 OUT_OF_SCOPE = re.compile(r"(?im)^-.*\s*#\d+\s*$")
+
+#: The inline `(proven: …)` evidence a TICKED criterion carries (acceptance_writeback #1644).
+PROVEN_MARKER = re.compile(r"\(proven:\s*(.*?)\)\s*$", re.S)
+#: A named CI workflow run — `run=42191377162` — the strongest provable evidence (issue #1858).
+RUN_ID = re.compile(r"\brun\s*=\s*\d+\b")
+#: The reproducible fold/sync form: a command + its exit code + the measured tree sha, e.g.
+#: `cmp live==tree <path> · agent_profile_sync --check PROFILE=x (rc 0, 4c3ac6f)`. A hash/compare
+#: with no `rc=` (or no sha) is not re-measurable from the issue thread alone (#1784/#1819 class).
+RC_SHA = re.compile(r"\brc(?:\s*=\s*|[\s(])\s*\S+\b")
+GIT_SHA = re.compile(r"\b[0-9a-f]{7,40}\b")
+
+
+def _is_provable_tick(text: str) -> bool:
+    """True when a ticked criterion's `(proven: …)` names a CI run or a reproducible command+rc+sha."""
+    m = PROVEN_MARKER.search(str(text or ""))
+    if not m:
+        return False  # a ticked box with no evidence is exactly the #745 self-tick class
+    ref = m.group(1).strip()
+    if RUN_ID.search(ref):
+        return True  # a live named run is reproducible from the issue thread
+    return bool(RC_SHA.search(ref) and GIT_SHA.search(ref))
+
 
 
 def _acceptance_items(body: str) -> list[tuple[int, bool, str]]:
@@ -137,6 +166,27 @@ def acceptance_verdict(issue_body_text: str, pr_body: str, issue: int) -> list[d
                 f"present as done what the issue it closes has not proven."
             ),
             "where": f"#{issue}",
+        })
+
+    # tick-unprovable: a TICKED criterion with no re-measurable evidence (issue #1858, #1784/#1819 class).
+    for pos, _t, text in [it for it in items if it[1]]:
+        m = PROVEN_MARKER.search(str(text or ""))
+        ref = m.group(1).strip() if m else ""
+        if _is_provable_tick(text):
+            continue
+        lack = (f"its `(proven: …)` names no CI run and no reproducible `command + rc=<n> + <sha>` "
+                f"(measured text: \u201c{ref[:80]}\u201d)")
+        out.append({
+            "key": "tick-unprovable",
+            "title": "ci: a ticked acceptance criterion names no replayable run id or reproducible command+rc+sha",
+            "evidence": (
+                f"acceptance item {pos} (\u201c{text[:80]}\u201d) is `- [x]` but {lack}. "
+                f"A tick is only as honest as the run behind it (issue #745): it must name a CI run "
+                f"(`run=<id>`) or a reproducible `proven: <command> rc=<n> <sha>` so a re-measurer "
+                f"repeats one command, not a whole byte-compare. Fix the tick's evidence, or un-tick "
+                f"it until a run/command actually proves it."
+            ),
+            "where": "issue-criteria-proof",
         })
     return out
 

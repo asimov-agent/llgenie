@@ -1,0 +1,1 @@
+| 2026-11-06 | check-pr-acceptance reds an acceptance tick naming no run id or reproducible command+rc+sha (fold/sync #1784/#1819 class) | [2026-11-06-acceptance-tick-provability.md](agent-wiki/2026-11-06-acceptance-tick-provability.md) | #1858 |
