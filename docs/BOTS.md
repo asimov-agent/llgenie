@@ -801,11 +801,13 @@ acceptance-side sibling that stops a merge verifying green against an issue's un
 #1815): GitHub's native close-on-merge reads the SQUASH text, so a `(closes #N)` that lives only in the
 commit messages would otherwise auto-close a multi-lane rollout umbrella while its criteria are still
 unticked — the gate now holds it (and the close parse is negation-aware: `does not close #N` is not a
-close). It is VERIFICATION only: it never ticks a box — that stays `acceptance_writeback`'s verdict-gated
-seam (issue #1644). Both `ci.yml`'s `guard` job and `scope.yml`'s docs gate run it beside
-`check-pr-closing`, fetching that body via `gh api` (issue #1589) and passing the live squash range via
-`PR_BASE`/`PR_HEAD`; a push to main has no body and prints
-a `nothing to validate` note instead of failing. Implemented as issue #1792.
+close). When the canonical `## Acceptance criteria` section is ABSENT but `- [ ]` checkboxes sit under
+another `##` heading (issue #1811), a found-headings canary names those headings and refuses the
+unproven close instead of silently passing. It is VERIFICATION only: it never ticks a box — that stays
+`acceptance_writeback`'s verdict-gated seam (issue #1644). Both `ci.yml`'s `guard` job and `scope.yml`'s
+docs gate run it beside `check-pr-closing`, fetching that body via `gh api` (issue #1589) and passing
+the live squash range via `PR_BASE`/`PR_HEAD`; a push to main has no body and prints
+a `nothing to validate` note instead of failing. Implemented as issue #1792, canary as issue #1811.
 
 `make check-pr-sync-line` is the #1724 profile-propagation preflight mounted in CI: it refuses a bot PR
 whose diff changes a directory under `agents/<profile>/` (a SOUL/skills/rule change) without reporting
