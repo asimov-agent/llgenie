@@ -16,3 +16,13 @@ write is only ever skipped for an engine that has never been published at all. T
 `test_a_missing_cache_image_builds_cold_not_red` now asserts no `--cache-to` on a missing ref,
 and `test_a_present_cache_image_still_writes_when_privileged` asserts the write survives when
 the ref exists.
+
+## Acceptance coverage
+
+- **AC1** (run `42275925732` cell failure attributed to a named stage with the log line quoted)
+  — recorded under `## Not covered`'s sibling issue evidence and pending the reviewer's
+  verdict-gated `--proven` tick (#1644); see #1880.
+- **AC2** (a default `make engine-build` sweep completes with **all** cells `success`) — **out of
+  scope for this PR**, deferred to the tracked work item **#1888**: the default sweep's
+  `engine-build-tensorfold-cuda` cell is blocked by the tensorfold-cuda `-h`/`--help`/`-V` flag
+  probe answering nothing (exit 2), a defect distinct from the cache-write handling this PR fixes.
