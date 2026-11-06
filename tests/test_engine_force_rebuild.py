@@ -296,6 +296,48 @@ def test_cache_write_args_empty_without_registry(monkeypatch):
     assert ei._cache_write_args("ghcr.io/asimov-agent/llgenie/demo:buildcache") == []
 
 
+def test_cache_exists_probe_contract(monkeypatch):
+    """`_cache_exists` is the single probe the read (#1842) and write (#1880) sides share.
+
+    It issues exactly one `docker buildx imagetools inspect` (the same registry manifest GET
+    the `--cache-from`/`--cache-to` flags would) and maps a non-zero exit to "absent". No
+    REGISTRY means no probe at all (local build). This is the direct contract test for the
+    helper the two tolerances were refactored onto (issue #1880).
+    """
+
+    # present: probe rc 0 -> True, and the probe command is the documented one
+    calls: list[list[str]] = []
+
+    def sh_ok(cmd, **kw):
+        calls.append(list(cmd))
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(ei, "_sh", sh_ok)
+    monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+    assert ei._cache_exists("ghcr.io/asimov-agent/llgenie/demo:buildcache") is True
+    assert calls == [["docker", "buildx", "imagetools", "inspect",
+                      "ghcr.io/asimov-agent/llgenie/demo:buildcache"]]
+
+    # absent: probe rc 1 -> False
+    def sh_miss(cmd, **kw):
+        return subprocess.CompletedProcess(cmd, 1)
+
+    monkeypatch.setattr(ei, "_sh", sh_miss)
+    assert ei._cache_exists("ghcr.io/asimov-agent/llgenie/demo:buildcache") is False
+
+    # no REGISTRY: no probe issued, always absent (local build)
+    calls2: list[list[str]] = []
+
+    def sh_noreg(cmd, **kw):
+        calls2.append(list(cmd))
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(ei, "_sh", sh_noreg)
+    monkeypatch.setattr(ei, "REGISTRY", "")
+    assert ei._cache_exists("ghcr.io/asimov-agent/llgenie/demo:buildcache") is False
+    assert calls2 == []
+
+
 def test_a_present_cache_image_keeps_cache_from(monkeypatch, tmp_path):
     """A seeded registry cache is still read: the tolerance only suppresses the failure."""
 
