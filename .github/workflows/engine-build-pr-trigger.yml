@@ -38,10 +38,14 @@ permissions:
   actions: write        # to dispatch the engine-build producer and read its run verdicts
   contents: read
 
-# One static group per PR, never cancelled: the trigger dispatches a real producer run, and cancelling this
-# job mid-wait would leave that run unobserved ("never cancel a live run", #1102 design).
+# One group per PR-HEAD, never cancelled: the trigger dispatches a real producer run, and cancelling this
+# job mid-wait would leave that run unobserved ("never cancel a live run", #1102 design). Scoping the key to
+# the head SHA (not just the PR number) means a synchronize push onto the same PR (e.g. a rebase) fires a NEW
+# trigger run for the new head instead of being queued behind the old head's build for up to ~90 min with
+# zero jobs and a frozen updated_at (issue #1831). cancel-in-progress: false is still preserved so a stale
+# head never cancels a producer run that is mid-build.
 concurrency:
-  group: engine-build-pr-trigger-${{ github.event.pull_request.number }}
+  group: engine-build-pr-trigger-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
   cancel-in-progress: false
 
 jobs:
