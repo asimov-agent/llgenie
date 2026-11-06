@@ -39,7 +39,7 @@ The pin is `tests/fixtures/host-bot-capabilities.json` in asimov-agent/llgenie (
   line + Makefile target/script before attributing the root cause to THAT gate (gate→defect map) or routing
   it — never forward a red as "another lane's drift" until the log is read. Report green only off a completed
   run id + head sha with no `linux/*` or guard/scope row `in_progress`/`cancelled`. Canonical procedure with
-  the verbatim commands and the gate→defect map: `agents/llgenie-issse-implementer/skills/containerized-repo-verification/references/red-bot-gate-read-the-failing-job-log.md` (merged via #1840). This reproduces the 
+  the verbatim commands and the gate→defect map: `references/read-the-failing-job-log-pointer.md` (merged via #1840). This reproduces the 
   reproduce-on-rebased-tree discipline below (read the run at the PR's current head, reproduce on the rebased
   tree and the pristine `origin/main`) — the log is the evidence either way.
 
