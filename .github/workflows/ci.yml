@@ -419,6 +419,7 @@ jobs:
     permissions:
       contents: read
       packages: read
+      actions: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -429,7 +430,8 @@ jobs:
         run: |
           set -euo pipefail
           git fetch --no-tags --prune origin main
-          make check-engine-pins-published WAIT=290
+          make check-engine-pins-published WAIT=290 \
+            REPO=${{ github.repository }} BRANCH=${{ github.head_ref || github.ref_name }}
 
   linux:
     # `guard` is in `needs` for its row-selection output (issue #859): `linux / top-tier` follows
