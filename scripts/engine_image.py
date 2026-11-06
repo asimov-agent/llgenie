@@ -195,7 +195,7 @@ def _cache_exists(cache_ref: str) -> bool:
     return _sh([RUNTIME, "buildx", "imagetools", "inspect", cache_ref], capture_output=True).returncode == 0
 
 
-def _cache_read_args(cache_ref: str) -> list[str]:
+def _cache_read_args(cache_ref: str, exists: bool | None = None) -> list[str]:
     """`--cache-from type=registry` for the read, tolerating a never-seeded cache image.
 
     The registry layer cache for a cell may not exist yet — a new engine/variant's first build,
@@ -206,15 +206,20 @@ def _cache_read_args(cache_ref: str) -> list[str]:
     manifest GET the import would issue — and, when the image is absent, build COLD rather than
     red. The absence is a recorded decision (a printed note), not a silent skip (#1796). The
     write (`--cache-to`) is untouched: the first cold build seeds the cache for its next run.
+
+    `exists` threads a probe result already computed by the caller (the push path probes once and
+    passes it to both the read and the write), so the probe is not issued twice per build.
     """
-    if not _cache_exists(cache_ref):
+    if exists is None:
+        exists = _cache_exists(cache_ref)
+    if not exists:
         print(f"[engine-image] registry cache {cache_ref} absent -> cold build (cache read skipped; #1842)",
               flush=True)
         return []
     return ["--cache-from", f"type=registry,ref={cache_ref}"]
 
 
-def _cache_write_args(cache_ref: str) -> list[str]:
+def _cache_write_args(cache_ref: str, exists: bool | None = None) -> list[str]:
     """`--cache-to type=registry` for the write, tolerating an engine whose package is not on GHCR.
 
     The read side already builds COLD when the cache ref is absent (#1842). The write side has the
@@ -226,8 +231,13 @@ def _cache_write_args(cache_ref: str) -> list[str]:
     skip the cache write (a printed note, not a silent skip, #1796). The cache is seeded as soon as
     the engine's package exists on the registry (a later publish), so the write is only ever skipped
     for an engine that has never been published at all.
+
+    `exists` threads a probe result already computed by the caller (the push path probes once and
+    passes it to both the read and the write), so the probe is not issued twice per build.
     """
-    if not _cache_exists(cache_ref):
+    if exists is None:
+        exists = _cache_exists(cache_ref)
+    if not exists:
         print(f"[engine-image] registry cache {cache_ref} absent -> cold build (cache write skipped; #1880)",
               flush=True)
         return []
@@ -241,12 +251,18 @@ def _buildx(tag: str, ctx: str, push: bool, cache_ref: str, force: bool = False)
     `force` (issue #638) is a REAL rebuild: `--no-cache`, and the registry cache is not read,
     so a fully cached build can no longer re-tag the previous layers.
     """
-    cache_args = [] if force else _cache_read_args(cache_ref)
+    # Probe the registry cache ONCE (a single `imagetools inspect` per build) and thread the
+    # result through both the read and the write, so a push build does not issue one probe per
+    # side on the same ref (issue #1880's shared-probe contract). A forced LOCAL build consults
+    # neither side (no read on force, no write without push), so it issues no probe at all —
+    # `_cache_exists` also short-circuits (no probe) when REGISTRY is unset.
+    cache_exists = _cache_exists(cache_ref) if (push or not force) else False
+    cache_args = [] if force else _cache_read_args(cache_ref, cache_exists)
     no_cache = ["--no-cache"] if force else []
     if push and REGISTRY:
         # push ONLY the registry-qualified tag (a bare llgenie/... tag would go to Docker Hub)
         cmd = [RUNTIME, "buildx", "build", "--progress=plain", "-t", f"{REGISTRY}/{tag}", *no_cache, *cache_args,
-               *_cache_write_args(cache_ref), "--push", ctx]
+               *_cache_write_args(cache_ref, cache_exists), "--push", ctx]
         rc = _sh(cmd).returncode
         if rc == 0:  # make the image available locally under its bare tag too
             _sh([RUNTIME, "pull", f"{REGISTRY}/{tag}"], capture_output=True)

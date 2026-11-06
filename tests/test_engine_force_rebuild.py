@@ -475,6 +475,36 @@ def test_a_forced_push_build_missing_cache_writes_cold(monkeypatch, tmp_path):
     assert "--cache-to" not in build, build
 
 
+def test_a_push_build_probes_the_cache_once(monkeypatch, tmp_path):
+    """A push build issues exactly ONE `imagetools inspect` probe (issue #1880).
+
+    `_buildx` probes the cache existence once and threads the result into both
+    `_cache_read_args` and `_cache_write_args`, so the same registry ref is NOT inspected
+    twice per push build — one shared probe, per the refactor's contract.
+    """
+
+    calls: list[list[str]] = []
+
+    def sh(cmd, **kw):
+        calls.append(list(cmd))
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(ei, "_sh", sh)
+    monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+    monkeypatch.setattr(ei, "CACHE_WRITE", True)
+
+    # When an unforced PUSH build runs (read + write both consult the cache)
+    ei._buildx("llgenie/demo:t", str(tmp_path), True, "ghcr.io/asimov-agent/llgenie/demo:buildcache")
+
+    # Then the buildx imagetools inspect probe appears exactly once in the recorded calls,
+    # and the build reads AND writes the cache (both rooted in that single probe result)
+    probes = [c for c in calls if c[:4] == ["docker", "buildx", "imagetools", "inspect"]]
+    assert len(probes) == 1, probes
+    build = next(c for c in calls if "buildx" in c and "build" in c)
+    assert "--cache-from" in build, build
+    assert "--cache-to" in build, build
+
+
 def test_a_forced_build_ignores_an_available_image(monkeypatch, tmp_path):
     """`available -> no rebuild` must not short-circuit a forced build."""
 
