@@ -49,6 +49,25 @@ CLOSING = re.compile(
 )
 #: A bare reference `#N` anywhere — title, prose, a table cell.
 ANY_REF = re.compile(r"#(\d+)")
+#: A reference governed by a resolving verb — the body says the change fixes/completes an issue
+#: without the strict adjacent-close grammar (`fully resolves #1582`, `the fix for #9`). This is the
+#: completeness signal #1629: a PR that resolvingly names an issue must close it or justify-open it,
+#: even when it closes another issue (`closes #1617` alone leaves the resolved #1582 orphaned).
+#: The `clos(e|es|ed|ing)` forms are deliberately excluded: narrating that an issue WAS closed
+#: (`closed only the descoped #1617`) is not a claim that this change resolves it — that is a
+#: genuinely-closed issue which a pure-text guard must not hold hostage (issue #1629 remediation).
+RESOLVING = re.compile(
+    r"\b(?:fix(?:e[sd])?|fixing|resolv(?:e|es|ed|ing)|complet(?:e|es|ed|ing)|implement(?:s|ed|ing)?|repair(?:e|es|ed|ing)?)\b[a-z ]{0,24}?#(\d+)",
+    re.IGNORECASE,
+)
+#: An on-record justification that an issue is left open on purpose. First and third person, in the
+#: repo's own voice (`We do not close #1582 because ...`, `The PR does not close #9 since ...`) —
+#: a body-only note carrying `not close`/`not closed` must be honoured, not flagged (issue #1629
+#: remediation). The `not` grabs the modal before it (`do not`, `does not`, `can not`, `will not`).
+NOT_CLOSED = re.compile(
+    r"\bnot\s+(?:close|closes|closing|closed)\s+#(\d+)\s+(?:because|as|since)\b",
+    re.IGNORECASE,
+)
 #: `Issue: #N` at the start of a line. The same claim the issue cleaner reads off a merge commit.
 ISSUE_LINE = re.compile(r"(?im)^\s*Issue:\s*#(\d+)\b")
 #: A subject, or a pull-request title, that ends with `(#N)` and nothing after it but space.
@@ -61,9 +80,21 @@ def closing_references(body: str) -> list[str]:
     """The issues a text actually closes: keyword ADJACENT to `#N`.
 
     A `**`, `:` or other separator between the keyword and `#N` is not returned. A bare `#N` is not
-    a close.
+    a close. A NEGATED close is not a close: `We do not ``close #1582`` because ...` justifies the
+    issue open, and `closing_references` must not hand it to the an address that then cannot match
+    (issue #1629 remediation). The negation forms are `not close`, `n't close`, `cannot close`.
     """
-    return sorted({m.group(1) for m in CLOSING.finditer(body or "")}, key=int)
+    if not body:
+        return []
+    # A close keyword that sits under a negation is a justification, not an auto-close. The whole
+    # negated clause (`do not close #1582`, `does not close #N`, `cannot close #N`, `didn't close
+    # #N`) is removed so the `#N` it names cannot survive as a closing reference.
+    negated = re.compile(
+        r"\b(?:(?:do|does|did|will|would|can|could|should|shall|may|might)\s+not|cannot|not|don'?t|doesn'?t|didn'?t|won'?t|can'?t)\s+close[sd]?\s+#\d+",
+        re.IGNORECASE,
+    )
+    body = negated.sub("", body)
+    return sorted({m.group(1) for m in CLOSING.finditer(body)}, key=int)
 
 
 def referenced_issues(body: str) -> list[str]:
@@ -100,6 +131,40 @@ def _fmt(nums: set[str]) -> str:
     return ", ".join("#" + n for n in sorted(nums, key=int))
 
 
+def check_completeness(text: str) -> list[dict]:
+    """A resolving reference must be closed or on-record justified-open (issue #1629).
+
+    A PR whose body or commit text resolvingly names an issue (`fully resolves #1582`, `the fix for
+    #9`) must grant that issue an adjacent closing keyword, or carry an explicit `does not close #N
+    because <reason>` justification. Closes of a *different* issue do not satisfy a resolving
+    reference to `#N`: that is the #1628 defect, where `closes #1617` left the fully-resolved root
+    cause #1582 orphaned-open. A bare reference (`see #9`, a `## Not covered` remainder) is not a
+    resolving reference and is not a finding.
+    """
+    closed = set(closing_references(text or ""))
+    justified = {m.group(1) for m in NOT_CLOSED.finditer(text or "")}
+    out: list[dict] = []
+    seen: set[str] = set()
+    for n in {m.group(1) for m in RESOLVING.finditer(text or "")}:
+        if n in closed or n in justified or n in seen:
+            continue
+        seen.add(n)
+        out.append({
+            "key": f"close-set/{n}",
+            "title": "ci: this change fixes #%s but neither closes it nor says why it does not" % n,
+            "evidence": (
+                f"The text resolvingly names #{n} (\"fixes/resolves/completes/repairs/… #{n}\") but "
+                f"gives it no adjacent closing keyword and no on-record `does not close #{n} because "
+                f"<reason>` note. A change that implements an issue must close it or justify leaving "
+                f"it open: closes of another issue do not bind this one (#1628 closed #1617 but left "
+                f"the resolved root cause #1582 orphaned-OPEN). Add `closes #{n}` to the body, or an "
+                f"explicit \"does not close #{n} because …\" note."
+            ),
+            "where": "pr-body and squash text",
+        })
+    return out
+
+
 def check_squash(messages: list[str], body: str | None = None, title: str = "") -> list[dict]:
     """The joined commit messages are the squash body GitHub will write.
 
@@ -111,6 +176,9 @@ def check_squash(messages: list[str], body: str | None = None, title: str = "") 
     claimed = claims_in(messages, body, title)
     commit_closed = set(closing_references(joined))
     out: list[dict] = []
+    out.extend(check_completeness(joined))
+    if body is not None:
+        out.extend(check_completeness(body))
     missing_in_commits = sorted(claimed - commit_closed, key=int)
     if missing_in_commits:
         out.append({
@@ -201,6 +269,7 @@ def check_body(body_path: Path, head: str, root: Path = REPO_ROOT) -> list[dict]
     if not head or not AGENT_HEAD.search(head):
         return out
     body = body_path.read_text() if body_path.exists() else ""
+    out.extend(check_completeness(body))
     closed = closing_references(body)
     if closed:
         return out

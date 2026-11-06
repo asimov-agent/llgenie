@@ -119,6 +119,87 @@ def test_cli_check_and_report(tmp_path, monkeypatch):
     assert run_cli(["check", "--body-file", str(p), "--head", AGENT_HEAD]) != 0
 
 
+# --- close-set completeness (issue #1629): resolving name must close or justify-open ------------
+
+
+def test_completeness__names_and_fixes_X_closes_only_Y_is_RED():
+    # The #1628 defect: closes #1617 but resolvingly names the root-cause #1582 without closing it.
+    body = (
+        "This closes #1617. The change resolves the #1582 truncation-guard defect — branch_runs now "
+        "paginates so a genuine shortfall binds and cannot slip past truncation."
+    )
+    finding = cpc.check_completeness(body)
+    assert any(f["key"] == "close-set/1582" for f in finding), finding
+    assert all(f["key"] != "close-set/1617" for f in finding), finding
+
+
+def test_completeness__closes_both_is_GREEN():
+    body = "closes #1582 and closes #1617 — both issues resolved by this change."
+    assert cpc.check_completeness(body) == []
+
+
+def test_completeness__names_X_with_on_record_does_not_close_reason_is_GREEN():
+    body = (
+        "closes #1617. We do not close #1582 because its measuring band is a separate "
+        "capacity decision tracked by #1818, not fixed here."
+    )
+    assert cpc.check_completeness(body) == []
+
+
+def test_completeness__first_person_justification_is_honoured():
+    # The repo's own voice is first person: "We do not close #1582 because ...". A body-only note
+    # in that form must keep the issue green, not be flagged (issue #1629 remediation — the guard
+    # used to accept only third-person "does not close").
+    body = (
+        "We do not close #1582 because the tracked root-cause issue was already routed "
+        "NOT_PLANNED on 2026-11-03 after #1628's fix."
+    )
+    assert cpc.check_completeness(body) == []
+
+
+def test_completeness__narrative_close_of_an_already_closed_issue_is_green():
+    # "closed only the descoped #1617" narrates that #1617 was already closed by a prior PR; it is
+    # NOT a claim that THIS change resolves #1617. A pure-text guard must not hold a genuinely
+    # closed issue hostage from prose (issue #1629 remediation — `clos(e|es|ed|ing)` was
+    # over-matching and reported #1617 even though it is closed in the tracker).
+    body = "#1628 fixed the #1582 truncation defect, closed only the descoped #1617."
+    finding = cpc.check_completeness(body)
+    assert any(f["key"] == "close-set/1582" for f in finding), finding
+    assert all(f["key"] != "close-set/1617" for f in finding), finding
+
+
+def test_closing_references_drop_a_negated_close():
+    # "We do not close #1582 because ..." is NOT a closing reference — it justifies leaving the
+    # issue open. The squash/body mismatch check reads these, so a negated close must not leak in.
+    assert cpc.closing_references("We do not close #1582 because it is out of scope.") == []
+    assert cpc.closing_references("closes #1629. We do not close #1582 because it stays.") == ["1629"]
+
+
+def test_completeness__bare_reference_is_not_a_finding():
+    # 'see #9' or a Not-covered remainder is not a resolving reference.
+    body = "Full background in see #9; this PR only touches the gate."
+    assert cpc.check_completeness(body) == []
+
+
+def test_completeness__check_body_surface_closes_other_issue_leaves_root_open_is_RED(monkeypatch, tmp_path):
+    # The agent-head body surface binds too: resolving the root issue while closing the symptom is red.
+    monkeypatch.chdir(REPO)
+    p = tmp_path / "body.md"
+    p.write_text(
+        "closes #1617. The change resolves the #1582 guard by paginating the branch runs so a shortfall is real."
+    )
+    finding = cpc.check_body(p, AGENT_HEAD)
+    assert any(f["key"] == "close-set/1582" for f in finding), finding
+
+
+def test_completeness__check_squash_surface_reports_the_orphan(tmp_path):
+    # check_squash joins commit messages and the body; the completeness guard reports on both.
+    body = "closes #1617."
+    messages = ["docs: paginate branch runs, resolving the #1582 truncation guard (closes #1617)"]
+    finding = cpc.check_squash(messages, body, "paginate branch runs (#1617)")
+    assert any("close-set/1582" in f["key"] for f in finding), finding
+
+
 # --- the post-rebase squash-close re-check gate (issue #1716) -------------------------
 # The rebase bot now runs exactly this CLI after each rebase, against the LIVE body, so a dropped
 # `closes #N` (the #1697/#1707/#1702 close-drop) is a hard RED before anything is pushed. These
