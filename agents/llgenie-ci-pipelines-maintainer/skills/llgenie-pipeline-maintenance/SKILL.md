@@ -44,6 +44,8 @@ When this lane's reactive queue is empty for N=2 consecutive passes (no dispatch
 
 > A job that ended `cancelled` at its `timeout-minutes` wall with no test summary is **UNTESTED, never green** — usually a live-network stall, not a failing test. See `references/diagnosing-cancelled-runs.md`.
 
+> A red is a verdict, not a cause — on any red bot-gate, read the failing job's OWN log and quote the failing step (run id + job id + head sha) before ANY dispatch or green/red/reviewable claim. Pointer to the canonical cross-lane sequence (implementer lane, PR #1840, required by #1791-AC3): `references/red-bot-gate-read-the-failing-job-log.md`.
+
 > Re-pointing a PR's closing issue: amend the commit's `closes #N` too, not just body/title — see `references/pr-issue-linking-and-force-push.md`.
 
 The task is "do the pipelines at https://github.com/asimov-agent/llgenie/actions still do what they say". Use this for the audit loop (measure intent vs reality, file the gap, fix it behind a reviewable
