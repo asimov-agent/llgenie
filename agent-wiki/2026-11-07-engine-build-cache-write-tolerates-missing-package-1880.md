@@ -19,9 +19,12 @@ the ref exists.
 
 ## Acceptance coverage
 
-- **AC1** (run `42275925732` cell failure attributed to a named stage with the log line quoted)
-  — recorded under `## Not covered`'s sibling issue evidence and pending the reviewer's
-  verdict-gated `--proven` tick (#1644); see #1880.
+- **AC1** (cell failure attributed to a named stage with the log line quoted — failing job
+  `128107985154` in run `42280478755`, `engine-build-tensorfold-cuda` FAILURE; the former
+  citation `42275925732`/scanner-images was a red herring) — evidence comment on #1880
+  (`6696229562`, corrected 22:07:30Z) quotes the `[engine-image]` cache-read `docker buildx
+  imagetools inspect ... buildcache-cuda` ERROR line verbatim; still pending the reviewer's
+  verdict-gated `--proven` tick (#1644).
 - **AC2** (a default `make engine-build` sweep completes with **all** cells `success`) — **out of
   scope for this PR**, deferred to three distinct tracked work items, each OPEN:
   - **#1888** — the default sweep's `engine-build-tensorfold-cuda` cell is blocked by the
