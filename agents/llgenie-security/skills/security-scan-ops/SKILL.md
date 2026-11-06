@@ -199,6 +199,23 @@ rebase origin/main`, THEN regenerate the preflight lines against the new base an
 `AGENTS:`/`BASE:` sha is the base you are cut from, a rebase invalidates pre-rebase preflight output — always
 regenerate after rebasing, and the body you push must be the one you re-ran both gates against.
 
+**A PR that changes `agents/<profile>/**` ALSO reds `guard`+`scope` at `check-pr-sync-line` unless the body
+carries a `SYNC:` line for EACH changed profile** — literally `SYNC: <profile> make sync-agent-profile
+PROFILE=<profile>`. This is a body/squash-text contract (#1724), NOT a command that must actually run: once
+merged the branch tree already equals live, so the declared `make sync-agent-profile` is a forward-looking
+no-op a reviewer can verify. Do NOT satisfy it by actually running `make sync-agent-profile` tree→live — that
+direction REFUSES when the live profile is ahead of the tree, which is the correct one-way LIVE→TREE invariant
+(see the lane-behaviour rule), and running it is a truncation attempt, not a fix. Add the line to the PR body,
+then rerun the failed check (`gh run rerun <run-id> --failed`) — a body edit alone does not re-trigger the
+push workflows, and the per-check-run rerun endpoint 404s; the run-level rerun's jobs see the CURRENT body
+because these gates fetch it live.
+
+**A `ci-verdict` check reporting `red (run <id>)` is a snapshot pinned to that run, not a live verdict — it
+recomputes to green only when that run CONCLUDES.** Rerunning the run's failing guard/scope jobs does not
+refresh it; letting the run's long job (e.g. `linux / unit`, routinely 10+ min) finish does. So a lone red
+`ci-verdict` beside an in-progress unit job is "not recomputed yet", not a defect — do not chase it, do not
+edit the workflow, just let the run complete and re-read `gh pr checks <n>`.
+
 **Stage named paths, never `git add -A`, and keep body/message scratch files OUTSIDE the worktree.** A file
 written for `--body-file` or a commit message (`commit-body.txt`, a scratch note) is still sitting in the
 worktree when the commit is built; `git add -A`/`git add .` sweeps it in, and because the path matches no
@@ -258,7 +275,12 @@ sha and the gate. Only a same-sha control (a peer run that dispatched) settles w
 landed with `gh pr view <n> --json state,mergedAt,mergeCommit` (`MERGED`) + the issue's `state`, not with
 `git merge-base --is-ancestor` (which reds on a correct squash merge) — and read the sha as
 `.mergeCommit.oid` (`.mergeCommit[0:10]` errors `expected an array but got: object`). Once merged the
-auto= verdict is moot: report `merged (<sha>)`.
+auto= verdict is moot: report `merged (<sha>)`. **After a merge lands, clean only YOUR refs — auto-merge
+deletes the REMOTE branch but leaves the local branch and a stale `origin/<branch>` tracking ref:**
+`git branch -D <branch>` + `git update-ref -d refs/remotes/origin/<branch>` + `git fetch origin --prune`, then
+confirm by branch NAME. Do NOT check for leftovers with `git for-each-ref | grep <issue-number>` — the number
+matches sha SUBSTRINGS in unrelated branches (`...b1773...`), which reads as "still there" when your branch is
+gone.
 
 ```bash
 make check-security-scan check-security-issues check-security-bumps check-workflows check-docs check-wiring
@@ -461,7 +483,7 @@ the red to your diff — if it did, a one-byte restore is a documented drive-by,
   looks complete from the filer's side and is half-routed on the board.
 - **An own-domain audit finding that is NOT a scanner-report advisory must never carry the `<!-- security-finding: {source}:{advisory}:{package} -->` body marker. `security_issues.py` adopts any open `security`-labelled issue whose body matches `MARKER_RE` and closes every adopted key absent from the latest scanner report as "No longer reported by the latest scan" — so a dependency-pin finding filed with that marker is auto-closed on EVERY scan and can never reach the implement queue. Reopening is not the fix; the body form is. File such findings with a different first-line comment (e.g. `<!-- dependency-pin-finding: ... -->`), keep the six-section shape + labels, and PROVE the repo's own `MARKER_RE` does not match the body (marker_re loaded from `security_issues.py`) before posting.
 
-- **Never create an issue in a parallel batch — create ONE, read it back, then dedupe-search before any retry.** One intended liveness-coverage finding, fired as duplicate `gh issue create` calls in a single batched turn, landed five copies (#1661/#1662/#1663/#1665) plus a junk connectivity probe (#1664) on the board. Creation is not idempotent; a read-back that misses the first copy (search index lag versus a fresh `sort=created&direction=desc` API read) leads to re-creating under a differently-worded title. File the issue once with the exact title/body/labels, `gh issue view <n> --json body,labels` it, and only act further after confirming there is exactly one open copy (`gh api 'repos/<o>/<r>/issues?state=open&sort=created&direction=desc'`), closing any stray duplicates immediately as `reason=not planned` with a duplicate-closure comment naming the canonical number.
+- **Never create an issue in a parallel batch — create ONE, read it back, then dedupe-search before any retry.** One intended liveness-coverage finding, fired as duplicate `gh issue create` calls in a single batched turn, landed five copies (#1661/#1662/#1663/#1665) plus a junk connectivity probe (#1664) on the board. Creation is not idempotent; a read-back that misses the first copy (search index lag versus a fresh `sort=created&direction=desc` API read) leads to re-creating under a differently-worded title. File the issue once with the exact title/body/labels, `gh issue view <n> --json body,labels` it, and only act further after confirming there is exactly one open copy (`gh api 'repos/<o>/<r>/issues?state=open&sort=created&direction=desc'`), closing any stray duplicates immediately as `reason=not planned` with a duplicate-closure comment naming the canonical number. **The same collision hits `gh issue comment`/`gh pr comment`: two near-identical comment posts fired in one parallel batch land as TWO comments on the thread —** post a comment as ONE call, read it back by id, and only if absent retry; when a duplicate already landed, delete the redundant one (`gh api -X DELETE repos/<o>/<r>/issues/comments/<id>`) and keep exactly one, so a decision thread never carries a doubled record.
 
 An own-domain audit that files findings must land BOTH the finding (open, six-section, tagged) AND the audit record (agent-wiki + changes.d + PR). **The audit-record PR must NOT carry `closes #N` for the finding it records.** The record PR merges docs and is a changed path, but a finding closes only when its FIX PR merges — a `closes #<finding>` on the record PR falsely closes a live finding whose fix never landed (reopen required). The record is evidence; the fix is the implement queue's. Verify the finding stays OPEN (stateReason REOPENED, labels intact) and quote the still-present exposure (e.g. the registry refs still 404) as the proof it must stay open.
 
@@ -495,8 +517,20 @@ A work product that is only comments is not a verifiable change — land the rec
   intended gate, not a defect to chase. **If the check STILL rejects after the run has gone green, do not
   re-exercise the pipeline or invent another record — audit the findings you filed for their dispatch state
   (above): an un-dispatched finding (label but zero comments) is a genuine, in-scope changed path to close by
-  posting its acceptance, and it is the mutation the guard is right to want.** A green run plus a complete
+  posting its acceptance, and it is the mutation the guard is right to want.**  A green run plus a complete
   filing plus a fully-routed finding set is done; anything short of that is the gap, not churn.
+
+  **A dispatch whose whole deliverable is GitHub-REMOTE (file a tracker issue, post it back on a thread, report
+  to the planner) has no local filesystem mutation to offer, and the completion guard's "no task-relevant
+  change" is NOT cleared by a scratch edit — it warns that itself.** Do not fabricate a local file, do not
+  re-implement the fix the dispatch explicitly routed to another lane's queue, and do not invent churn to
+  satisfy a monitor. Adjudicate through the completion channel instead: `nerve_verify` with a structured
+  `state` enumerating each dispatched item and its verified evidence (issue `state`+labels from a fresh
+  `gh issue view`, the comment id present in `gh api .../issues/<n>/comments`), and report the `PASS`/`ESCALATE`
+  it returns. Confirm the gate is advisory before treating it as a wall: `nerve_stats --section gate` reports
+  `gate_mode: advisory` with a tiny `bypass_rate` — an advisory hook is a nudge, not a blocked write. A
+  remote-only dispatch re-verified on the API plus a formal `PASS` is complete; a fabricated local artifact is
+  the wrong answer even when the guard keeps nagging.
 - **A scanner is untrusted code that holds nothing** — digest not tag, read-only mount, no write token in
   the job that ran it.
 - **Never add `push:`/`pull_request:` triggers** to `security-scan.yml`: `make check-security-scan` refuses
