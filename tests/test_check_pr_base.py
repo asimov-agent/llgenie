@@ -16,9 +16,12 @@ unreachable the gate refuses with a fetch-failure and never quietly passes.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
+
+import yaml
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -207,3 +210,48 @@ def test_the_cli_exits_correctly_for_both_cases(tmp_path):
         capture_output=True, text=True, env=ENV)
     assert borrowed_gate.returncode != 0, borrowed_gate.stdout + borrowed_gate.stderr
     assert "foreign commits" in borrowed_gate.stdout or "NOT cut" in borrowed_gate.stdout
+
+
+def _ci_guard_step() -> dict:
+    """The `make check-pr-base` step in ci.yml's guard job, as parsed YAML."""
+    wf = yaml.safe_load((REPO / ".github" / "workflows" / "ci.yml").read_text())
+    guard = wf["jobs"]["guard"]
+    for step in guard.get("steps", []):
+        name = step.get("name", "")
+        if name and name.startswith("make check-pr-base"):
+            return step
+    raise AssertionError("ci.yml guard job declares no 'make check-pr-base' step")
+
+
+def test_the_check_pr_base_step_is_gated_to_pull_request():
+    """#1867: ci.yml runs `make check-pr-base` only on a `pull_request` event.
+
+    On a push to main the pushed commit IS main's history the instant the run starts, but the
+    step re-fetches `origin/main` LIVE and a busy fleet has already advanced it — so
+    `merge-base(origin/main, HEAD) == HEAD != origin/main` and the gate reds on a phantom
+    base-staleness (foreign commits (0), content IS on main). The #845 protection exists to
+    catch a PR branch cut from another PR, which a push event cannot be — so the step must be
+    skipped on push and judged only for PRs.
+    """
+    step = _ci_guard_step()
+    cond = step.get("if")
+    assert cond is not None, (
+        "ci.yml 'make check-pr-base' step has no event guard — a push-to-main run re-fetches "
+        "a live origin/main that already advanced past the pushed HEAD and reds on a phantom "
+        "base-staleness (issue #1867)"
+    )
+    # A GitHub `if:` condition may be spelled bare (`if: github.event_name == 'pull_request'`)
+    # or wrapped in an expression. Strip an optional wrapper so the behaviour is what is tested.
+    expr = str(cond).strip()
+    m = re.fullmatch(r"\$\{\{\s*(.*?)\s*\}\}", expr, re.S)
+    if m:
+        expr = m.group(1).strip()
+    bound = re.sub(r"github\.event_name", "'pull_request'", expr)
+    # GitHub evaluates an empty/absent expression; here we already asserted cond is not None.
+    assert bool(eval(bound, {"__builtins__": {}}, {})), (  # noqa: S307 — repo-owned expression
+        f"check-pr-base must run on a pull_request (expression evaluates false): {cond!r}"
+    )
+    bound_push = re.sub(r"github\.event_name", "'push'", expr)
+    assert not bool(eval(bound_push, {"__builtins__": {}}, {})), (  # noqa: S307 — repo-owned expression
+        f"check-pr-base must be SKIPPED on a push (expression evaluates true): {cond!r}"
+    )

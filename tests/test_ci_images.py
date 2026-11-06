@@ -678,11 +678,18 @@ def test_no_ci_step_or_job_is_skipped():
         # matrix axis comes from `make ci-slow-rows`, so a row a pull request does not schedule runs no
         # make target — and, combined with the OS condition, the docker step stays Linux-only on a row
         # that did run (`matrix.row != 'none' && always()` is its container prune).
+        # `github.event_name == 'pull_request'` is the guard's `check-pr-base` step (issue #1867):
+        # the gate re-fetches LIVE origin/main and on a push-to-main the pushed commit IS main's
+        # history the instant the run starts, so a fleet that advanced main reds the step on phantom
+        # base-staleness (foreign commits (0), content IS on main). It is judged only for PRs, and is
+        # skipped on push — a push cannot be a branch cut from another PR, which is the #845 case the
+        # gate exists to catch. This condition gates the RUNNERS of the step, never a row or job.
         assert cond in ("${{ !cancelled() }}", "always()", "runner.os == 'Linux'", "runner.os == 'macOS'",
                         "${{ matrix.engine != 'none' }}", "${{ matrix.backend != 'none' }}",
                         "matrix.row != 'none'",
                         "matrix.row != 'none' && runner.os == 'Linux'",
-                        "matrix.row != 'none' && always()"), key
+                        "matrix.row != 'none' && always()",
+                        "github.event_name == 'pull_request'"), key
 
     # And the OS / matrix decisions live in make: ci-free-disk and test-engine-stage
     mk = (REPO / "Makefile").read_text()

@@ -257,12 +257,20 @@ jobs:
             echo "[check-pr-acceptance] no PR body on this run (a push to main): nothing to validate"
           fi
       - name: make check-pr-base (a branch cut from another PR carries its diff under its own closes — merge-base must be the base itself, issue #845)
+        # #1867: THIS gate is meaningful ONLY on a pull_request. On a push to main the
+        # pushed commit IS main's history the instant the run starts, but the gate re-fetches
+        # `origin/main` LIVE below (#1734/#1527) and a busy fleet has already advanced it —
+        # so merge-base(origin/main, HEAD) == HEAD != origin/main and the gate reds on a
+        # phantom base-staleness (foreign commits (0), content IS on main; measured runs
+        # 42209323920 @ d7f5b33329 and 42209857316 @ 7b2c9e5d57, both #1867). The #845
+        # protection exists to catch a PR branch cut from another PR, which a push-to-main
+        # event cannot be — so the step is skipped on push and judged only for PRs.
+        if: github.event_name == 'pull_request'
         env:
           # PR_BASE is the LIVE base branch ref (origin/main). check-pr-base reads
           # `git merge-base origin/main HEAD` and fails when the branch was cut from
           # something else — the kanban worktree that inherited the primary checkout's
-          # parked branch is exactly this shape. A push to main has origin/main == HEAD,
-          # so the gate is a tautology there and stays green. HEAD is refreshed the same
+          # parked branch is exactly this shape. HEAD is refreshed the same
           # way check-pr-closing refreshes origin/main below.
           PR_BASE: origin/main
           PR_HEAD: ${{ github.event.pull_request.head.sha || 'HEAD' }}
