@@ -48,6 +48,9 @@ def test_a_forced_build_passes_no_cache_and_drops_cache_from(monkeypatch, tmp_pa
     build = calls[-1]
     assert "--no-cache" in build
     assert not any(a == "--cache-from" for a in build)
+    # and, being a forced LOCAL build, it consults neither cache side, so the cache-existence
+    # probe is never issued (issue #1880's single-probe contract: probe only when a side reads)
+    assert not any(c[:4] == ["docker", "buildx", "imagetools", "inspect"] for c in calls)
 
 
 def test_an_unforced_build_keeps_the_registry_cache(monkeypatch, tmp_path):
