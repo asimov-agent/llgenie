@@ -394,7 +394,7 @@ def test_a_present_cache_image_still_writes_when_privileged(monkeypatch, tmp_pat
                and "mode=max" in str(a) for a in build)
 
 
-def test_a_privileged_nonpush_build_missing_cache_writes_cold(monkeypatch, tmp_path):
+def test_a_privileged_nonpush_build_missing_cache_writes_cold(monkeypatch, tmp_path, capsys):
     """Non-push privileged build still tolerates a missing package (issue #1880).
 
     The write tolerance lives on `_cache_write_args`, reached on the non-push path at
@@ -424,6 +424,12 @@ def test_a_privileged_nonpush_build_missing_cache_writes_cold(monkeypatch, tmp_p
     assert "--cache-from" not in build, build
     assert "--cache-to" not in build, build
     assert "--no-cache" not in build  # unforced: it is a real build but not a force rebuild
+    # and the cold-read decision is printed EXACTLY once — the local branch reuses the probe
+    # computed once at the top of _buildx rather than re-invoking the read helper (a fix that
+    # previously double-printed the cold note on non-push builds).
+    err = capsys.readouterr()
+    read_notes = [l for l in err.out.splitlines() if "cache read skipped" in l]
+    assert len(read_notes) == 1, err.out
 
 
 def test_a_nonpush_privileged_build_probes_the_cache_once(monkeypatch, tmp_path):

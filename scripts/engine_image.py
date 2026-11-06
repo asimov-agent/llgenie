@@ -252,12 +252,14 @@ def _buildx(tag: str, ctx: str, push: bool, cache_ref: str, force: bool = False)
     so a fully cached build can no longer re-tag the previous layers.
     """
     # Probe the registry cache ONCE (a single `imagetools inspect` per build) and thread the
-    # result through both the read and the write, so a push build does not issue one probe per
-    # side on the same ref (issue #1880's shared-probe contract). A forced LOCAL build consults
-    # neither side (no read on force, no write without push), so it issues no probe at all —
-    # `_cache_exists` also short-circuits (no probe) when REGISTRY is unset.
+    # result through both sides, so a build never issues one probe per side on the same ref
+    # (issue #1880's shared-probe contract). A forced LOCAL build consults neither side (no
+    # read on force, no write without push), so it issues no probe at all — `_cache_exists`
+    # also short-circuits (no probe) when REGISTRY is unset. `cache_args` (the read side) is
+    # computed only where it is used: the push branch appends it; the local branch builds its
+    # own read args at the point of use, so computing it here would double-call the helper.
     cache_exists = _cache_exists(cache_ref) if (push or not force) else False
-    cache_args = [] if force else _cache_read_args(cache_ref, cache_exists)
+    cache_args = [] if (force or not push) else _cache_read_args(cache_ref, cache_exists)
     no_cache = ["--no-cache"] if force else []
     if push and REGISTRY:
         # push ONLY the registry-qualified tag (a bare llgenie/... tag would go to Docker Hub)
