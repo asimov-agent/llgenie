@@ -13,7 +13,15 @@ closes that gap.
 - New `.github/workflows/engine-build-pr-trigger.yml` fires on `pull_request` narrowed to
   `containers/engines/params/**`, gates on a same-repo head (a fork bump never reaches a push=true
   dispatch — issues #510/#1571), sets `cancel-in-progress: false` so a stale-head PR never cancels a live
-  producer run, and calls `make engine-build-pr-trigger`.
+  producer run, and calls `make engine-build-pr-trigger`. The checkout is detached, so the ref is
+  `github.head_ref` (`BRANCH=`), never `git rev-parse --abbrev-ref HEAD` — that string is the literal
+  `HEAD`, and `gh workflow run --ref HEAD` is HTTP 422 `No ref found for: HEAD` (PR #1696). A non-zero
+  `gh workflow run` fails the trigger immediately; exit 0 is still not a verdict. Each dispatch input is
+  its own `--field` (`engine` and `push`); one `--field` leaves `push` at the default false, and the run
+  skips the GHCR login (run 41695838003). The runs API reports the workflow path without a leading slash,
+  and the trigger counts that path. It waits 240 minutes, the producer cell's own ceiling. A producer
+  already in progress or green on the same branch, building this engine from the same params, is awaited
+  instead of dispatched again (a commit-message rewrite must not start a second image build).
 - `engine-build.yml` is UNTOUCHED: its owner/collaborator-with-write guard still runs before any secret,
   and a push=true dispatch joins the producer's own `engine-build-push` concurrency group (issue #917).
 - No repin => hermetic green, zero dispatch — the same "no engine repinned => green and no network" rule

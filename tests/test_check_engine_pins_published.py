@@ -127,10 +127,36 @@ def test_the_real_diff_detects_a_repin_and_checks_the_registry():
     assert (REPO / "containers" / "engines" / "params" / f"{engine}.json").read_text() == orig
 
 
+def test_a_404_is_polled_until_the_producer_publishes(monkeypatch, capsys):
+    """CI waits. A tag that 404s on the first look and resolves on the next is green."""
+    monkeypatch.setattr(cpp, "repinned_engine_ids", lambda base, root=None: ["mlx"])
+    seen: dict[str, int] = {}
+
+    def digest(ref: str):
+        seen[ref] = seen.get(ref, 0) + 1
+        if seen[ref] == 1:
+            return "", "HTTP Error 404: Not Found"
+        return "sha256:" + "b" * 64, ""
+
+    monkeypatch.setattr(cpp.time, "sleep", lambda _seconds: None)
+    rc = cpp.check(_head(), digest=digest, registry=REGISTRY, wait_min=5)
+    assert rc == 0
+    assert seen and all(n >= 2 for n in seen.values())
+    assert "waiting for" in capsys.readouterr().out
+
+
 def test_the_gate_is_wired_into_ci_unit_and_phony():
-    """The gate runs in the PR pipeline (ci-unit) and is .PHONY, else it is a defect."""
+    """The gate runs in the PR pipeline and is .PHONY, else it is a defect.
+
+    It is not a step of ci-unit. That job's ceiling is 120 minutes and the
+    producer is allowed 240, so a one-shot 404 redded the PR while the image
+    was still building (PR #1696). ci.yml's engine-pins job polls instead.
+    """
     mk = (REPO / "Makefile").read_text()
-    assert "$(MAKE) check-engine-pins-published" in mk, "ci-unit must run the gate"
+    ci_unit = mk.split("\nci-unit:", 1)[1].split("\n\n", 1)[0]
+    assert "check-engine-pins-published" not in ci_unit, "unit must not 404 while the producer runs"
+    workflow = (REPO / ".github" / "workflows" / "ci.yml").read_text()
+    assert "make check-engine-pins-published WAIT=" in workflow
     # .PHONY spans backslash-continuation lines (issue #883): read the whole block
     phony = re.search(r"^\.PHONY:.*?^\S", mk, re.MULTILINE | re.DOTALL)
     assert phony and re.search(r"\bcheck-engine-pins-published\b", phony.group(0)), \
@@ -140,3 +166,4 @@ def test_the_gate_is_wired_into_ci_unit_and_phony():
     target = re.search(r"^check-engine-pins-published:.*(?=^\S)", mk, re.MULTILINE | re.DOTALL)
     assert target and "python3 scripts/check_engine_pins_published.py check" in target.group(0)
     assert target and "--base" in target.group(0), "the gate must diff against the base"
+    assert target and "--wait-min" in target.group(0), "CI must be able to poll"

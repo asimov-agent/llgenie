@@ -1301,12 +1301,12 @@ check-engine-launchers: ## CI: fail when a ~/bin/llgenie-engine-* launcher names
 	python3 scripts/check_engine_launchers.py check $(if $(BIN),--bin "$(BIN)",) $(if $(ARCH),--arch "$(ARCH)",) $(if $(CHECK_REGISTRY),--check-registry,)
 engine-launchers-report: ## Print, per engine, the image tag this host's launcher carries next to the one the committed params compute (issue #842)
 	python3 scripts/check_engine_launchers.py report $(if $(BIN),--bin "$(BIN)",) $(if $(ARCH),--arch "$(ARCH)",)
-check-engine-pins-published: ## CI: fail when an engine THIS CHANGE repins is not yet published in the registry — a pin bump may merge only once its exact image tag resolves a manifest (issue #1622; PRE-BASE resolves via scripts/base_ref, issue #925; no engine repinned => green and no network)
-	python3 scripts/check_engine_pins_published.py check $(if $(BASE),--base "$(BASE)",)
+check-engine-pins-published: ## CI: fail when an engine THIS CHANGE repins is not yet published in the registry — a pin bump may merge only once its exact image tag resolves a manifest (issue #1622; WAIT= minutes polls until the producer publishes, because linux/unit's 120-minute ceiling cannot hold a 240-minute engine-build; PRE-BASE resolves via scripts/base_ref, issue #925; no engine repinned => green and no network)
+	python3 scripts/check_engine_pins_published.py check $(if $(BASE),--base "$(BASE)",) $(if $(WAIT),--wait-min "$(WAIT)",)
 engine-pins-published-report: ## Print the engines this change repins vs the base and their published-tag set (issue #1622)
 	python3 scripts/check_engine_pins_published.py report $(if $(BASE),--base "$(BASE)",)
 engine-build-pr-trigger: ## CI: dispatch engine-build push=true for every engine THIS change repins and await each verdict — the "will" arm of the pin-bump gate (issue #1633; PR_BASE/BASE resolves the base; no engine repinned => green, hermetic, nothing dispatched; --dry prints the plan)
-	python3 scripts/engine_build_trigger.py check $(if $(BASE),--base "$(BASE)",) $(if $(DRY),--dry,)
+	python3 scripts/engine_build_trigger.py check $(if $(BASE),--base "$(BASE)",) $(if $(BRANCH),--branch "$(BRANCH)",) $(if $(DRY),--dry,)
 engine-build-pr-trigger-report: ## Print the engines this change repins and the dispatch plan (never dispatches; issue #1633)
 	python3 scripts/engine_build_trigger.py report $(if $(BASE),--base "$(BASE)",)
 check-model-links: ## CI: prove every committed model/GGUF link a test depends on resolves (static, no network; LIVE=1 probes the real Hub via tests/hub_probe — the ONE liveness authority, issue #1000; LIMIT bounds a live sweep)
@@ -1385,7 +1385,7 @@ test-engine-image: ## GPU images on GPU-less CI: run tests/test_engine_version.p
 	@$(CI_HOME_CLEAN)
 test-engine: ## Run ENGINE's image: the engine binary smoke (the DEFAULT, deterministic gate, never a 1200 s serving wait). Serve conformance is the explicit --serve tier: `make test-engine-serve` (issue #1717)
 	@test -n "$(ENGINE)" || { echo "Usage: make test-engine ENGINE=<id> [ARCH=cpu-portable]"; exit 1; }
-	python3 scripts/engine_smoke.py "$(ENGINE)" $(ARCH_ARGS) --image
+	python3 scripts/engine_smoke.py "$(ENGINE)" $(ARCH_ARGS) $(if $(filter cpu,$(ARCH)),--timeout 1200,) --image
 test-engine-serve: ## ENGINE's image: binary smoke AND the serving conformance tier (run the image, assert /v1/model+llm-local answers via the OpenAI SDK) — the --serve opt-in (issue #1717)
 	@test -n "$(ENGINE)" || { echo "Usage: make test-engine-serve ENGINE=<id> [ARCH=cpu-portable]"; exit 1; }
 	python3 scripts/engine_smoke.py "$(ENGINE)" $(ARCH_ARGS) --image --serve
@@ -1801,7 +1801,6 @@ ci-unit: bash-check ## CI job unit: hermetic unit tests + registry / skill / Str
 	$(MAKE) check-engine-source
 	$(MAKE) check-engine-capabilities
 	$(MAKE) check-engine-launchers
-	$(MAKE) check-engine-pins-published
 	$(MAKE) check-model-links
 	$(MAKE) check-wiring
 	$(MAKE) check-secret-output

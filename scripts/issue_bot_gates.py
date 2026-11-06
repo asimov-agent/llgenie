@@ -90,7 +90,6 @@ DEFERRED: dict[str, str] = {
     "check-engine-source": "reads every engine's upstream source at its pin; network-bound",
     "check-engine-capabilities": "reads every engine skill's backends/formats and the committed params against data/engine-capabilities.json: a static read of the same files ci-unit re-checks on the issue-bot's own PR, and widening FAST_GATES past the #475 six is that issue's follow-up, not this change",
     "check-engine-launchers": "reads this host's ~/bin launchers against the committed params: a host-local file the bot's PR cannot change, and ci-unit (where the bot's own PR is re-checked) has no launchers at all, so it is informational there by design (issue #842)",
-    "check-engine-pins-published": "probes the engine registry for the exact tag of every engine THIS change repins (committed params differ from the base): a live registry read, slow and network-bound, deferred exactly like check-engine-source — ci-unit re-checks it on the bot's own PR, which is where an engine bump and its pin would land (issue #1622)",
     "check-secret-output": "compares SECRET_VARS with AGENT_SHELL_KEYS; fast, but #475 names a fixed list and widening it is that issue's follow-up, not this one",
     "check-dispatch-forms": "reads the dispatchable workflows' input forms; fast, but not in #475's list (follow-up issue, not this change)",
     "check-pr-authors": "reads the PR's commit range, which does not exist before the push",
