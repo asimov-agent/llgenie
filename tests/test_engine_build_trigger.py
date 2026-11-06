@@ -14,6 +14,8 @@ subprocess would run the real 13-engine repin set and touch nothing the patches 
 from __future__ import annotations
 
 import json
+import sys
+import time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -127,6 +129,22 @@ def test_report_never_dispatches(monkeypatch):
     _fake_gh(monkeypatch, before_ids=[1], new_run=None)
     rc = _run(["report", "--base", _BASE])
     assert rc == 0
+
+
+def test_a_stalled_gh_call_cannot_hold_the_poll_past_its_deadline(monkeypatch):
+    """The poll bound is authoritative even when a single `gh`/shell call blocks.
+
+    Regression for the hung trigger (run 42180155072): `_sh` used `subprocess.run` with NO
+    timeout, so a stalled `gh api` never returned and the `time.time() > deadline` check in
+    `_dispatch_and_wait` was never reached. `_sh` must now cap each subprocess at
+    SUBPROCESS_TIMEOUT and yield "" on TimeoutExpired, so the deadline decides.
+    """
+    monkeypatch.setattr(ebt, "SUBPROCESS_TIMEOUT", 1)  # 1s cap so a slow call fails fast
+    t0 = time.time()
+    out = ebt._sh([sys.executable, "-c", "import time; time.sleep(10)"])
+    # The stalled subprocess is bounded: _sh returns promptly, "" on TimeoutExpired.
+    assert out == ""
+    assert time.time() - t0 < 5  # returned in ~1s, not after the 10s sleep
 
 
 def test_dry_run_prints_the_plan_without_dispatching(monkeypatch, capsys):

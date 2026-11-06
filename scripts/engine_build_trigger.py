@@ -62,10 +62,21 @@ ENGINE_BUILD_WORKFLOW = "engine-build.yml"
 DISPATCH_TIMEOUT = 90  # seconds a workflow_dispatch run has to appear
 POLL_SECONDS = 20      # between verdict polls
 DEFAULT_MAX_WAIT = 60  # minutes a push=true build may take before the trigger gives up
+#: A single `gh api` call must never hold a poll loop open past its own deadline
+#: (issue: a stalled registry/API call blocks `subprocess.run` with no timeout, so
+#: the `time.time() > deadline` bound below is never reached and the trigger hung
+#: ~69 min past its 60-min DEFAULT_MAX_WAIT on run 42180155072). This caps each
+#: subprocess it performs; a timeout yields an empty response so the loop keeps
+#: polling until the deadline and then fails with the existing clear message.
+SUBPROCESS_TIMEOUT = 30  # seconds a single shell/gh call may take
 
 
 def _sh(args: list[str]) -> str:
-    return subprocess.run(args, capture_output=True, text=True).stdout  # proc-allow: direct subprocess call site, tracked remainder for issue #797
+    try:
+        return subprocess.run(args, capture_output=True, text=True,
+                              timeout=SUBPROCESS_TIMEOUT).stdout  # proc-allow: direct subprocess call site, tracked remainder for issue #797
+    except subprocess.TimeoutExpired:
+        return ""  # no verdict this poll; the caller's deadline check decides
 
 
 def _gh(repo: str, *args: str, gh: str = "gh") -> str:
@@ -96,8 +107,13 @@ def _dispatch_and_wait(repo: str, branch: str, engine: str, arch: str,
     fields = [f"engine={engine}", "push=true"]
     if arch:
         fields.append(f"arch={arch}")
-    subprocess.run([gh, "workflow", "run", ENGINE_BUILD_WORKFLOW, "--repo", repo, "--ref", branch,  # proc-allow: engine-build dispatch is a deliberate CLI dispatch on the seam's tracked remainder (#797); check=False is required because gh workflow run exit 0 is not a verdict (the NEW run is awaited below, #964)
-                    "--field", *[f for f in fields]], check=False)
+    try:
+        subprocess.run([gh, "workflow", "run", ENGINE_BUILD_WORKFLOW, "--repo", repo, "--ref", branch,  # proc-allow: engine-build dispatch is a deliberate CLI dispatch on the seam's tracked remainder (#797); check=False is required because gh workflow run exit 0 is not a verdict (the NEW run is awaited below, #964)
+                        "--field", *[f for f in fields]], check=False, timeout=SUBPROCESS_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        # The dispatch call itself stalled; the discovery loop below still looks for the
+        # NEW workflow_dispatch run (the real verdict) and bails at DISPATCH_TIMEOUT.
+        pass
     # The NEW run — a workflow_dispatch-event run not present before — is the fact, not the dispatch exit.
     t0 = time.time()
     wanted = ""
