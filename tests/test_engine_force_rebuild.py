@@ -426,6 +426,35 @@ def test_a_privileged_nonpush_build_missing_cache_writes_cold(monkeypatch, tmp_p
     assert "--no-cache" not in build  # unforced: it is a real build but not a force rebuild
 
 
+def test_a_nonpush_privileged_build_probes_the_cache_once(monkeypatch, tmp_path):
+    """A non-push privileged local build is also a single probe (issue #1880).
+
+    Completes the shared-probe contract: the local branch's `_cache_read_args` and
+    `_cache_write_args` also reuse the `cache_exists` computed once at the top of `_buildx`,
+    so an unforced non-push build inspects the ref exactly once — not one probe per side.
+    """
+
+    calls: list[list[str]] = []
+
+    def sh(cmd, **kw):
+        calls.append(list(cmd))
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(ei, "_sh", sh)
+    monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+    monkeypatch.setattr(ei, "CACHE_WRITE", True)
+
+    # When an unforced non-push privileged build runs (read + write both consult the cache)
+    ei._buildx("llgenie/demo:t", str(tmp_path), False, "ghcr.io/asimov-agent/llgenie/demo:buildcache")
+
+    # Then exactly one imagetools inspect probe is issued, and both sides root in it
+    probes = [c for c in calls if c[:4] == ["docker", "buildx", "imagetools", "inspect"]]
+    assert len(probes) == 1, probes
+    build = next(c for c in calls if "buildx" in c and "build" in c)
+    assert "--cache-from" in build, build
+    assert "--cache-to" in build, build
+
+
 def test_a_forced_push_build_does_not_read_the_cache(monkeypatch, tmp_path):
     """A publishing forced build passes --no-cache and still writes the cache for later runs."""
 

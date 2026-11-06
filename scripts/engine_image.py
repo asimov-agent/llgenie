@@ -286,14 +286,16 @@ def _buildx(tag: str, ctx: str, push: bool, cache_ref: str, force: bool = False)
         cmd += ["--builder", "default"]
     cmd += [*no_cache, "-t", tag, "--load"]
     if REGISTRY and not force:
-        cmd += _cache_read_args(cache_ref)
+        # reuses `cache_exists` (computed once above) so the local build is also a single
+        # probe — not one per side (issue #1880's shared-probe contract)
+        cmd += _cache_read_args(cache_ref, cache_exists)
         # A verification-only engine-build run (push=false) still warms the shared cache for the
         # NEXT run of the same cell — that is the whole point of the build-and-verify sweep, which
         # reads a cold cache on every fresh runner otherwise (#1694). The write is privileged: it
         # runs only when LLGENIE_CACHE_WRITE=1, set solely by the owner-guarded engine-build
         # dispatch job (never a PR/fork/local build), so a read-only runner never attempts it.
         if CACHE_WRITE:
-            cmd += _cache_write_args(cache_ref)
+            cmd += _cache_write_args(cache_ref, cache_exists)
     return _sh(cmd + [ctx]).returncode
 
 
