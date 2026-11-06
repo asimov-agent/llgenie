@@ -3386,3 +3386,35 @@ def test_deleting_a_declared_rule_from_one_of_the_four_reds_the_gate(tmp_path):
 
     # the tree is back to the shipped state after every restore
     assert guard.findings(root) == guard.findings(root), "restore not idempotent"
+
+
+def test_fleet_rule_19_rejudge_and_expiry_block_is_in_canonical_and_every_soul():
+    """Issue #1889: the re-judge-and-expiry fleet rule must be stated verbatim in the
+    single canonical copy and in every profile's SOUL fleet section (#873 pattern).
+
+    A subset/content check, not a full-block equality: the canonical bullet plus its two
+    load-bearing phrases (re-judge via workflow_dispatch; expired records => trapped => fresh
+    run) must appear in agents/standing-rules.md and in every agents/<profile>/SOUL.md, so a
+    rule added here and not propagated is a failing test rather than a rule that silently stops
+    existing.
+    """
+    import pathlib
+    root = pathlib.Path(__file__).resolve().parents[1]
+    canonical = (root / "agents" / "standing-rules.md").read_text(encoding="utf-8")
+    phrases = [
+        "Re-judge a red `ci-verdict` via the manual `workflow_dispatch`",
+        "is the expensive, last-resort path, not the default",
+        "can never be re-judged green",
+        "ABSENT",
+        "a FRESH run at the head",
+    ]
+    for phrase in phrases:
+        assert phrase in canonical, f"standing-rules.md lost the #1889 bullet: {phrase!r}"
+    for soul in sorted((root / "agents").glob("*/SOUL.md")):
+        text = soul.read_text(encoding="utf-8")
+        assert "Re-judge a red `ci-verdict` via the manual `workflow_dispatch`" in text, (
+            f"{soul.relative_to(root)} does not state the #1889 fleet rule"
+        )
+        assert "can never be re-judged green" in text, (
+            f"{soul.relative_to(root)} lost the #1889 expiry trap"
+        )

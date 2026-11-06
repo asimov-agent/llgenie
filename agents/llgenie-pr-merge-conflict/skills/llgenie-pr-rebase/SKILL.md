@@ -25,6 +25,7 @@ The pin is `tests/fixtures/host-bot-capabilities.json` in asimov-agent/llgenie (
 
 ## References
 - `references/measurement-and-readback.md` — read-back/measurement pitfalls: exit codes behind a pipe,
+- `references/ci-verdict-rejudge-and-expiry.md` — a red verdict whose judged jobs are otherwise green is re-judged via `workflow_dispatch`, never re-run; an expired run (shredded `total_count`) is trapped and needs a fresh run at the head
   `gh pr merge --auto` proof via explicit GraphQL fields (jq-on-null and REST false-nulls), tools that read
   the checked-out tree vs the fetched remote, and attributing a red to the base vs the branch
   (includes guard #4, mtime-vs-mergedAt: a post-merge gate re-read finding newer than the fold's
