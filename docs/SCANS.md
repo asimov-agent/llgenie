@@ -27,6 +27,16 @@ actionable (remove + rotate, never "wait for a patched version") — it blocks t
 though it has no fixed version, while `fail_on` still gates a `medium`/`unknown` secret to recorded,
 not red.
 
+**The scan also sees the engine runtime deps** (issue #1282). A cell's pinned deps live as JSON
+strings in `containers/engines/params/*.json` install lines, which no scanner parses as a dependency
+declaration — so a vulnerable or silently-unsatisfiable `torch==2.14.0` / `litert-lm==0.19.0` /
+`ziglang==0.17.0` (and its `--index-url`) never touched the SBOM. `make sbom` / `make
+security-scan-all` therefore first run `make engine-pins`, which writes the Exact pins each cell
+actually installs into `security-reports/engine-pins/` (a requirements-shaped file + a sha-bound
+manifest). The same Syft/Trivy pass scans that artifact, so a known-bad engine pin reports with the
+same verdict/issue path as a `tools/` finding, and `make check-security-scan` fails while an
+inventoried pin is absent from the SBOM.
+
 The manual form asks two things: `tools` (`all` or one scanner) and `enforce` (`full`, or `report` to
 run the whole sweep without gating). The `guard` job runs **before any scanner** and allows the owner,
 `github-actions[bot]` on a same-repo head, and any collaborator with `admin`/`maintain`/`write`;
@@ -65,6 +75,9 @@ would leave root-owned files in the tree (issue #433).
 
 - **CycloneDX SBOM** — `security-reports/sbom.cdx.json`, written by Syft from the Grype image;
   uploaded as the `security-reports` artifact (30-day retention) together with every scanner report.
+- **Engine pins** — `security-reports/engine-pins/requirements.txt` + `manifest.json`, invented by
+  `make engine-pins` (a prerequisite of `make sbom`); the SAME Syft/Trivy pass scans it, so the
+  engine runtime deps are covered (issue #1282).
 - **SARIF** — `security-reports/trivy.sarif`, uploaded to the Security tab with
   `github/codeql-action/upload-sarif` (pinned by SHA), category `trivy`.
 - **Reports** — `security-reports/sbom.cdx.json`, `trivy.json`, `grype.json`, `semgrep.json`.
@@ -75,11 +88,12 @@ would leave root-owned files in the tree (issue #433).
 
 | Target | What it does |
 |---|---|
-| `make sbom` | Syft → `security-reports/sbom.cdx.json` |
+| `make engine-pins` | invent the engine install-string pins into `security-reports/engine-pins/` (issue #1282) |
+| `make sbom` | `make engine-pins` first, then Syft → `security-reports/sbom.cdx.json` |
 | `make security-scan TOOL=<id>` | one scanner from its pinned image (Grype needs `make sbom` first) |
-| `make security-scan-all` | Syft SBOM, then Trivy, Grype, Semgrep |
+| `make security-scan-all` | `make engine-pins`, then Syft SBOM, then Trivy, Grype, Semgrep |
 | `make security-verdict MODE=full\|pr` | apply the policy to the reports; the run's exit code |
-| `make check-security-scan` | **The gate** (inside `make ci-unit`): empty/unknown policy severities, `pr_fail_on ⊄ fail_on`, or a scanner missing from `digests.json` fails |
+| `make check-security-scan` | **The gate** (inside `make ci-unit`): empty/unknown policy severities, `pr_fail_on ⊄ fail_on`, a scanner missing from `digests.json`, or an engine install-string pin absent from the SBOM fails |
 
 ## Findings become tagged issues
 
