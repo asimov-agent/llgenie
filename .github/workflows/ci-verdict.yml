@@ -26,7 +26,10 @@ name: ci-verdict — holds a finished CI run to its published scope decision, an
 # Flow: read the finished run's job rows -> read back the `ci-scope-decision` artifact (absent = no
 #       decision, never an error) -> `make ci-verdict` (scripts/ci_verdict.py) decides ->
 #       post the check-run it wrote.
-# Never: dispatches, re-runs or merges anything, edits no branch, and reads no repository secret.
+# Never: re-runs or merges anything, edits no branch, and reads no repository secret. The ONE exception is
+# a manual `workflow_dispatch` re-judge (issue #1886): an operator may dispatch this workflow to RE-JUDGE a
+# specific finished run through the same judge steps — it still reads only that run's jobs + decision and
+# posts a fresh check-run; it does not re-run the judged CI and edits nothing.
 # The verdict's decisions live in scripts/ci_verdict.py (tested in tests/test_ci_verdict.py), never in
 # a job-level `if:` - a skipped job is invisible in the job list and
 # tests/test_ci_images.py::test_no_ci_step_or_job_is_skipped forbids that shape.
@@ -48,6 +51,21 @@ on:
       # with the workflows on disk.
       - CI
     types: [completed]
+  # MANUAL RE-JUDGE (issue #1886): ci-verdict has no machine-facing re-run, so a run whose verdict was
+  # red for a reason that has since cleared (or whose job records were about to be judged) could only be
+  # re-judged by re-running the WHOLE heavy CI fan-out. A `workflow_dispatch` with `run_id` lets an
+  # operator re-judge one finished run through the SAME `judge` steps as the auto path — it reads the
+  # run's jobs + decision and posts a fresh check-run; it never re-runs the judged CI and edits nothing.
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: the finished run id to re-judge (a `CI` run that has published a scope decision)
+        required: true
+        type: string
+      head_sha:
+        description: "the commit the verdict is about; default is the judged run's head sha"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -56,9 +74,11 @@ permissions:
 
 # ONE GROUP PER FINISHED RUN, never superseded (issue #917's lesson: a shared group makes sweeps stack,
 # and `cancel-in-progress: true` would let a verdict kill a verdict - the failure mode this whole file
-# exists to report). Keyed by the run id, so two different CI runs never cancel each other.
+# exists to report). Keyed by the run id, so two different CI runs never cancel each other. The dispatch
+# path keys on the same run id it is asked to re-judge, so a manual re-judge and its auto twin collapse
+# to one group member (never a second verdict racing the first).
 concurrency:
-  group: ci-verdict-${{ github.event.workflow_run.id }}
+  group: ci-verdict-${{ inputs.run_id || github.event.workflow_run.id }}
   cancel-in-progress: false
 
 jobs:
@@ -76,7 +96,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_ID: ${{ inputs.run_id || github.event.workflow_run.id }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/verdict"
@@ -94,8 +114,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          RUN_ID: ${{ github.event.workflow_run.id }}
-          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_ID: ${{ inputs.run_id || github.event.workflow_run.id }}
+          HEAD_SHA: ${{ inputs.head_sha || github.event.workflow_run.head_sha }}
           CHECK_RUN_OUT: ${{ runner.temp }}/verdict/check-run.json
         # The verdict's exit code IS the job's: a red verdict fails this run, so the reactor routes it
         # to a remedy instead of the board reading "0 failures" (issue #286). A superseded head exits 0
