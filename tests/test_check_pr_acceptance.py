@@ -326,6 +326,44 @@ def test_cli_check_holds_a_squash_only_umbrella_close(tmp_path, monkeypatch):
     assert rc != 0, "a squash-text-only close on an unticked umbrella must be held (issue #1815)"
 
 
+def test_squash_close_fires_on_an_unticked_umbrella_with_open_lanes_is_RED(tmp_path, monkeypatch):
+    """The #1849 fixture: a squash whose CLOSING keyword fires on a multi-lane rollout umbrella whose
+    `- [ ]` acceptance criteria are ALL still unticked must red the close (issue #1859, the #1815 class
+    recurrence). #1849 was auto-closed 11:23:10Z by #1856's squash while all 3 criteria were `- [ ]` and
+    #1850/#1853/#1855 were still open; a guard that reads only the PR body never saw the close.
+    """
+    import subprocess as _sp
+
+    def git(*a, cwd=None):
+        e = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
+             "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com", "HOME": "/tmp"}
+        return _sp.run(["git", *a], capture_output=True, text=True, cwd=cwd, env=e)
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git("init", "-q", "-b", "main", cwd=repo)
+    (repo / "f").write_text("base\n")
+    git("add", "-A", cwd=repo); git("commit", "-qm", "base", cwd=repo)
+    git("checkout", "-q", "-b", "feat", cwd=repo)
+    (repo / "g").write_text("change\n")
+    # The #1849 shape: a lane vehicle's squash carries the umbrella's close keyword (`(closes #1849)`)
+    # while the umbrella's OWN acceptance criteria are all unticked and the other lanes' vehicles open.
+    git("add", "-A", cwd=repo)
+    git("commit", "-qm", "ci(pr-reviever): land the pointer (closes #1849)\n", cwd=repo)
+    head = git("rev-parse", "HEAD", cwd=repo).stdout.strip()
+    base = git("rev-parse", "main", cwd=repo).stdout.strip()
+
+    # Fake gh answers `issue view 1849 --json body` with the 3/3-unticked umbrella.
+    _fake_gh(tmp_path, _issue(ticked=[], total=3), monkeypatch)
+
+    body = tmp_path / "pr.md"
+    body.write_text("a lane-body that never mentions #1849\n")
+
+    rc = run_cli(["check", "--body-file", str(body), "--base", base, "--rev", head,
+                  "--cwd", str(repo)])
+    assert rc != 0, "a squash close on a rollout umbrella with 3/3 unticked criteria must be held (#1859, #1849 fixture)"
+
+
 # --- the acceptance-gate workflow steps pass the live squash range (issue #1815) ----------------
 # A body-only CI fix must clear on rerun; the squash union requires the guard step to export
 # PR_BASE/PR_HEAD and refresh origin/main (the #1589 live read) or the closes never include the
