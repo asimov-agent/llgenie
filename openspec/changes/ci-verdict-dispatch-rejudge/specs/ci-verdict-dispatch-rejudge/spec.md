@@ -15,9 +15,10 @@ THEN it judges that run's jobs and decision and posts a fresh check-run, without
 #### Scenario: a dispatch re-judges the named run and posts a fresh check-run
 
 - **Given** a finished run whose `run_id` is passed as the dispatch input
-- **When** an operator dispatches `ci-verdict.yml` with that `run_id`
-- **Then** the `judge` job reads that run's jobs and decision and posts a `ci-verdict` check-run on
-  the head, and no job of the judged run is re-executed
+- **When** an operator dispatches `ci-verdict.yml` with that `run_id` (head_sha omitted)
+- **Then** the `judge` job reads that run's jobs and decision, resolves `HEAD_SHA` from the run's own
+  `head_sha` (never empty), and posts a `ci-verdict` check-run on the head; no job of the judged run is
+  re-executed
 
 ### Requirement: the auto workflow_run path is unchanged
 
