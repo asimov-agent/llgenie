@@ -181,6 +181,28 @@ def resolve(engine: str, backend: str | None, variant: str | None = None) -> dic
     return es.image_spec(params, es.pick_variant(params, b, {**hw, "backend": b}))
 
 
+def _cache_read_args(cache_ref: str) -> list[str]:
+    """`--cache-from type=registry` for the read, tolerating a never-seeded cache image.
+
+    The registry layer cache for a cell may not exist yet — a new engine/variant's first build,
+    or a cache the sweep has not warmed (e.g. `tensorfold`'s `buildcache-cuda`, issue #1842).
+    buildx `--cache-from type=registry,ref=<missing>` hard-fails the WHOLE build with
+    `manifest unknown`, turning a cold build (a cost in time) into a red cell on the build-and-
+    verify sweep. We probe the ref with `docker buildx imagetools inspect` — the same registry
+    manifest GET the import would issue — and, when the image is absent, build COLD rather than
+    red. The absence is a recorded decision (a printed note), not a silent skip (#1796). The
+    write (`--cache-to`) is untouched: the first cold build seeds the cache for its next run.
+    """
+    if not REGISTRY:
+        return []
+    exists = _sh([RUNTIME, "buildx", "imagetools", "inspect", cache_ref], capture_output=True).returncode == 0
+    if not exists:
+        print(f"[engine-image] registry cache {cache_ref} absent -> cold build (cache read skipped; #1842)",
+              flush=True)
+        return []
+    return ["--cache-from", f"type=registry,ref={cache_ref}"]
+
+
 def _buildx(tag: str, ctx: str, push: bool, cache_ref: str, force: bool = False) -> int:
     """docker buildx with a registry layer cache: unchanged layers are reused
     across CI runs and machines (cache_ref = <registry>/<name>:buildcache).
@@ -188,7 +210,7 @@ def _buildx(tag: str, ctx: str, push: bool, cache_ref: str, force: bool = False)
     `force` (issue #638) is a REAL rebuild: `--no-cache`, and the registry cache is not read,
     so a fully cached build can no longer re-tag the previous layers.
     """
-    cache_args = [] if force else ["--cache-from", f"type=registry,ref={cache_ref}"]
+    cache_args = [] if force else _cache_read_args(cache_ref)
     no_cache = ["--no-cache"] if force else []
     if push and REGISTRY:
         # push ONLY the registry-qualified tag (a bare llgenie/... tag would go to Docker Hub)
@@ -217,7 +239,7 @@ def _buildx(tag: str, ctx: str, push: bool, cache_ref: str, force: bool = False)
         cmd += ["--builder", "default"]
     cmd += [*no_cache, "-t", tag, "--load"]
     if REGISTRY and not force:
-        cmd += ["--cache-from", f"type=registry,ref={cache_ref}"]
+        cmd += _cache_read_args(cache_ref)
         # A verification-only engine-build run (push=false) still warms the shared cache for the
         # NEXT run of the same cell — that is the whole point of the build-and-verify sweep, which
         # reads a cold cache on every fresh runner otherwise (#1694). The write is privileged: it

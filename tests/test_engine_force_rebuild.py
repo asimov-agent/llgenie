@@ -141,6 +141,63 @@ def test_a_cache_write_build_stays_on_the_container_builder(monkeypatch, tmp_pat
     assert not any(a == "--cache-to" for a in build)
 
 
+def test_a_missing_cache_image_builds_cold_not_red(monkeypatch, tmp_path):
+    """A never-seeded registry cache must not red the cell (issue #1842).
+
+    `--cache-from type=registry,ref=<missing>` makes buildx fail the whole build with
+    `manifest unknown`. The read must tolerate the absence: when the probe finds no cache
+    image the build proceeds cold (no --cache-from) — a time cost, never a red cell — while
+    the privileged write (--cache-to) still seeds the cache for the next run.
+    """
+
+    calls: list[list[str]] = []
+
+    def sh(cmd, **kw):
+        calls.append(list(cmd))
+        # "imagetools inspect" is the cache-existence probe: report it absent (rc 1).
+        # Every other command (including the build itself) succeeds.
+        probe = any("imagetools" in a for a in cmd)
+        return subprocess.CompletedProcess(cmd, 1 if probe else 0)
+
+    monkeypatch.setattr(ei, "_sh", sh)
+    monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+    monkeypatch.setattr(ei, "CACHE_WRITE", True)
+
+    # When an unforced build runs against a never-seeded cache
+    ei._buildx("llgenie/demo:t", str(tmp_path), False, "ghcr.io/asimov-agent/llgenie/demo:buildcache")
+
+    # Then the build is COLD: no --cache-from is passed (no manifest-unknown failure)…
+    build = calls[-1]
+    assert "--cache-from" not in build, build
+    # …but the privileged cache WRITE still seeds the cache for the next run
+    assert any(str(a).startswith("type=registry,ref=ghcr.io/asimov-agent/llgenie/demo:buildcache,")
+               and "mode=max" in str(a) for a in build)
+
+
+def test_a_present_cache_image_keeps_cache_from(monkeypatch, tmp_path):
+    """A seeded registry cache is still read: the tolerance only suppresses the failure."""
+
+    calls: list[list[str]] = []
+
+    def sh(cmd, **kw):
+        calls.append(list(cmd))
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(ei, "_sh", sh)
+    monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+    monkeypatch.setattr(ei, "CACHE_WRITE", False)
+
+    # When an unforced build runs against an existing cache image
+    ei._buildx("llgenie/demo:t", str(tmp_path), False, "ghcr.io/asimov-agent/llgenie/demo:buildcache")
+
+    # Then --cache-from is still emitted (unchanged layers are reused)
+    build = calls[-1]
+    assert any(str(a).startswith("type=registry,ref=ghcr.io/asimov-agent/llgenie/demo:buildcache")
+               and "--" not in a for a in build)
+    assert "--cache-from" in build, build
+    assert not any(a == "--cache-to" for a in build)  # unprivileged read stays read-only
+
+
 def test_a_forced_push_build_does_not_read_the_cache(monkeypatch, tmp_path):
     """A publishing forced build passes --no-cache and still writes the cache for later runs."""
 
