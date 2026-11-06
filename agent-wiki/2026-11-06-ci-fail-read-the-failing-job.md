@@ -14,7 +14,8 @@ codifies the mandatory sequence on a red bot-gate: name the run and head
 (`gh api .../actions/jobs/<job-id>/logs --allow-escape-sequences`) and quote the failing step +
 `[step] FAILED` + Makefile target + run id at the real head BEFORE any fix dispatch or any
 green/red/reviewable claim; attribute the root cause to THAT gate via the gate→defect map (#792
-AGENTS, #845 base/check-pr-base, #1724 SYNC, #1329 closing, #858/#843 cancelled). A green report
+AGENTS, #845 base/check-pr-base, #1724 SYNC, #1329 closing, #858/#843 cancelled, #1792
+acceptance-criteria self-red = reviewer-owned until the verdict write-back #1644). A green report
 cites the completed run id + head sha with no `linux/*` or guard/scope row `in_progress`/`cancelled`.
 An unretrievable log mid-run is reported as "error line not yet retrievable — unlocks at run
 completion", never a fabricated cause.
