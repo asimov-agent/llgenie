@@ -137,6 +137,11 @@ jobs:
   matrix:
     needs: [guard]
     runs-on: ubuntu-latest
+    # (#1865, #1250-class) a job with no `timeout-minutes` has no bound to exceed, so a hung cell
+    # can never be surfaced — the #1696 zombies (3h35m in_progress) were exactly that shape. This
+    # job only runs `make engine-build-matrix`, a sub-second call, so a short window covers it and
+    # any future unbounded creep here reds the guard in tests/test_engine_build_timeouts.py.
+    timeout-minutes: 10
     outputs:
       matrix: ${{ steps.m.outputs.matrix }}
     steps:
