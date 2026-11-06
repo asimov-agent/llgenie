@@ -1,0 +1,1 @@
+| 2026-11-06 | `ci-verdict` now attributes the run it judged (event, PR numbers, branch) in the posted check-run header, so a PR-run red can never read as a merged-main-tip red; the verdict grammar is unchanged so a genuine guard/selected-job failure still reds (AC2 intact) (#1862) | [note](agent-wiki/2026-11-06-ci-verdict-attributes-judged-run-1862.md) | #1862 |
