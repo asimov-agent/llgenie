@@ -239,6 +239,63 @@ def test_push_build_present_cache_still_writes_when_privileged(monkeypatch, tmp_
                and "mode=max" in a for a in build), build
 
 
+def test_cache_write_args_tolerates_missing_package(monkeypatch):
+    """`_cache_write_args` returns [] when the engine's package is absent (issue #1880).
+
+    The write-side tolerance is the whole point of #1881: a `--cache-to
+    type=registry,ref=<missing-package>` fails the WHOLE build with `not found` when
+    the engine's package is not on the registry yet. Direct unit test of the function
+    (the push-path tests exercise it through `_buildx`; this pins the contract).
+    """
+
+    calls: list[list[str]] = []
+
+    def sh(cmd, **kw):
+        calls.append(list(cmd))
+        # "imagetools inspect" is the cache-existence probe: report it absent (rc 1).
+        return subprocess.CompletedProcess(cmd, 1)
+
+    monkeypatch.setattr(ei, "_sh", sh)
+    monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+
+    # When the engine's package is absent from the registry
+    args = ei._cache_write_args("ghcr.io/asimov-agent/llgenie/demo:buildcache")
+
+    # Then no --cache-to is emitted (a cold build, never a red cell)
+    assert args == [], args
+
+
+def test_cache_write_args_emits_cache_to_when_present(monkeypatch):
+    """`_cache_write_args` emits --cache-to when the cache ref exists (issue #1880).
+
+    The tolerance only suppresses the failure when the package is absent; a present
+    cache ref must still be written (mode=max) for the next run.
+    """
+
+    calls: list[list[str]] = []
+
+    def sh(cmd, **kw):
+        calls.append(list(cmd))
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(ei, "_sh", sh)
+    monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+
+    # When the engine's package IS on the registry
+    args = ei._cache_write_args("ghcr.io/asimov-agent/llgenie/demo:buildcache")
+
+    # Then --cache-to is emitted with mode=max (the write still seeds the cache)
+    assert args == ["--cache-to", "type=registry,ref=ghcr.io/asimov-agent/llgenie/demo:buildcache,mode=max"], args
+
+
+def test_cache_write_args_empty_without_registry(monkeypatch):
+    """`_cache_write_args` returns [] when REGISTRY is unset (local build)."""
+
+    monkeypatch.setattr(ei, "REGISTRY", "")
+
+    assert ei._cache_write_args("ghcr.io/asimov-agent/llgenie/demo:buildcache") == []
+
+
 def test_a_present_cache_image_keeps_cache_from(monkeypatch, tmp_path):
     """A seeded registry cache is still read: the tolerance only suppresses the failure."""
 
