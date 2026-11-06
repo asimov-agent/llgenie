@@ -127,21 +127,45 @@ def _dispatch_and_wait(repo: str, branch: str, engine: str, arch: str,
             time.sleep(POLL_SECONDS)
     # Await THAT run's verdict.
     deadline = time.time() + wait_min * 60
+    stall_holder = ""  # an in_progress push run holding the global engine-build-push group, if any
     while True:
         raw = _gh(repo, f"{wanted}", "--jq", "{status, conclusion, completed_at}")
         try:
             run = json.loads(raw)
         except json.JSONDecodeError:
             run = {}
+        # A push=true run sits `pending` with 0 jobs and NO heartbeat while it waits behind the
+        # global engine-build-push concurrency group (engine-build.yml:80, issue #917/#621). It will
+        # never materialise a job until the group holder concludes — a re-dispatch is futile and this
+        # trigger must name the holder rather than report a bare "queued/None" (measured stall:
+        # #1696 channel 42201352115 behind 42191808660's hung vllm-rocm, 3h+ 0-jobs, issue #1860).
+        if run.get("status") in ("pending", "queued") and not stall_holder:
+            stall_holder = _push_group_holder(repo, gh)
         if run.get("status") == "completed" or time.time() > deadline:
             guard = ""
             if run.get("conclusion") == "failure":
                 jobs = _gh(repo, f"{wanted}/jobs", "--jq",
                            ".jobs[] | select(.name == \"guard\") | .conclusion")
                 guard = "Y" if "failure" in jobs else "N"
-            return {"run_id": wanted, "status": run.get("status"), "conclusion": run.get("conclusion"),
-                    "guard_refused": guard == "Y"}
+            kwargs = {"run_id": wanted, "status": run.get("status"), "conclusion": run.get("conclusion"),
+                      "guard_refused": guard == "Y"}
+            if stall_holder and not run.get("conclusion"):
+                kwargs["stalled_behind"] = stall_holder
+            return kwargs
         time.sleep(POLL_SECONDS)
+
+
+def _push_group_holder(repo: str, gh: str) -> str:
+    """In-progress engine-build push run holding the global `engine-build-push` group (the gate a
+    pending push=true dispatch waits behind). Empty when none found — the gate is free then, so a
+    pending run is worth surfacing to the producer logic rather than blaming a holder."""
+    raw = _gh(repo, "?per_page=100", "--jq",
+              '.workflow_runs[] | select(.path == "/.github/workflows/engine-build.yml") | '
+              'select(.status == "in_progress") | select(.event == "workflow_dispatch") | '
+              'select([.display_title] | length > 0) | .id | tostring', gh=gh)
+    ids = [line.strip() for line in raw.splitlines() if line.strip()]
+    return min(ids) if ids else ""
+
 
 
 def check(base: str, engine_filter: str = "", arch: str = "", dry: bool = False, repo: str = "",
@@ -171,8 +195,13 @@ def check(base: str, engine_filter: str = "", arch: str = "", dry: bool = False,
                   f"(run {outcome.get('run_id')}) — NOT VERIFIED, not a bare failure", file=sys.stderr)
             failures += 1
         elif outcome.get("conclusion") != "success":
-            print(f"[will] FAIL engine={e}: run {outcome.get('run_id')} concluded "
-                  f"{outcome.get('status')}/{outcome.get('conclusion')}", file=sys.stderr)
+            msg = (f"[will] FAIL engine={e}: run {outcome.get('run_id')} concluded "
+                   f"{outcome.get('status')}/{outcome.get('conclusion')}")
+            if outcome.get("stalled_behind"):
+                msg += (f" — STALLED behind engine-build-push group holder run "
+                        f"{outcome['stalled_behind']} (that holder must conclude or be owner-cancelled; "
+                        f"re-dispatch queues behind the same gate, issue #1860)")
+            print(msg, file=sys.stderr)
             failures += 1
         else:
             print(f"[will] OK engine={e}: producer run {outcome.get('run_id')} success")
