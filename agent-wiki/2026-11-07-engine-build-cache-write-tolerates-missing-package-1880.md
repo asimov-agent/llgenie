@@ -25,8 +25,11 @@ the ref exists.
   (`6696229562` at 22:10:11Z and `6693601677` de-markered to a pointer+snippet at 22:18:29Z)
   quote the `[engine-image]` cache-read `docker buildx
   imagetools inspect ... buildcache-cuda` ERROR line verbatim; no bare path marker remains.
-  Still pending the reviewer's
-  verdict-gated `--proven` tick (#1644).
+  AC1 is now TICKED by the reviewer (`- [x] ... (proven: reviewer verdict #1881 @ b48bf9fc)`),
+  but the gate still reds the tick's evidence (#745): the annotation names no replayable CI
+  run and no `command + rc=<n> + <sha>`. The replayable evidence exists — run `42280478755`,
+  job `128107985154`, log line in comment `6696229562` — and the reviewer has been
+  re-dispatched to fix the tick's `(proven: …)` to name it. Verdict-gated (#1644, #1792).
 - **AC2** (a default `make engine-build` sweep completes with **all** cells `success`) — **out of
   scope for this PR**, deferred to three distinct tracked work items, each OPEN:
   - **#1888** — the default sweep's `engine-build-tensorfold-cuda` cell is blocked by the
