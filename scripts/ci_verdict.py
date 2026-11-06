@@ -101,7 +101,22 @@ def jobs_of(repo: str, run_id: str) -> list[dict]:
         raise RuntimeError(
             f"run {run_id} reports {payload.get('total_count')} job(s) and one page returned {len(jobs)}: "
             f"a truncated listing cannot be a verdict")
-    return jobs
+    return own_check_run(jobs)
+
+
+def own_check_run(jobs: list[dict]) -> list[dict]:
+    """Drop the verdict's OWN posted `ci-verdict` check-run from the job set it judges.
+
+    The `ci-verdict` step posts its answer as a check-run on the judged run's head (issue #1864).
+    GitHub lists that posted row BACK as a job of the very run being judged (measured 2026-11-06,
+    run 42275871131: 11 rows, the 11th `ci-verdict => failure wf=CI`). Unless it is removed here,
+    `ci_scope.verify()` counts it as an unaccounted `failure` on EVERY re-judge — the verdict reads
+    its own one-off `failure` from an earlier stale pass and stays red forever (a self-referential
+    loop, blocking #1837). The row is the verdict's OUTPUT, never one of the run's input jobs, so it
+    is stripped before the accounting. `verify()`'s rule that an unknown failing job is red stays
+    intact for real jobs; this only removes the judge's own echo, identified by `CHECK_NAME`.
+    """
+    return [job for job in jobs if str(job.get("name") or "") != CHECK_NAME]
 
 
 def decision_of(repo: str, run_id: str) -> dict | None:
@@ -289,6 +304,10 @@ def main(argv: list[str] | None = None) -> int:
                 if args.jobs else jobs_of(args.repo, args.run_id))
         if isinstance(jobs, dict):
             jobs = jobs.get("jobs") or []
+        # The verdict never judges its own posted `ci-verdict` check-run: GitHub lists it back as a
+        # job of the run being judged (measured run 42275871131), and verify() would count its
+        # `failure` as unaccounted on every re-judge — a self-referential permanent red (#1837).
+        jobs = own_check_run(jobs)
         if args.decision:
             decision_obj = json.loads(Path(args.decision).read_text(encoding="utf-8"))
             if decision_obj.get("schema") != ci_scope.DECISION_SCHEMA:

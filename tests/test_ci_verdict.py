@@ -585,6 +585,60 @@ def test_an_artifact_that_exists_but_cannot_be_downloaded_is_an_error_not_a_verd
     assert "FAILED" in err and "could not reach a verdict" in err, err
 
 
+# ---- 7. the judge never reads its own posted `ci-verdict` row back into the verdict (#1837) --
+
+#: Run 42275871131 — a green CI run PLUS the `ci-verdict` check-run the judge itself posted that
+#: GitHub lists BACK as an 11th job of the very run being judged (measured 2026-11-06).
+GREEN_PLUS_OWN_CHECK = [
+    {"name": "guard", "status": "completed", "conclusion": "success"},
+    {"name": "ci-images", "status": "completed", "conclusion": "success"},
+    {"name": "scanner-images", "status": "completed", "conclusion": "success"},
+    {"name": "linux / cpu-health", "status": "completed", "conclusion": "success"},
+    {"name": "linux / unit", "status": "completed", "conclusion": "success"},
+    {"name": "linux / top-tier (none)", "status": "completed", "conclusion": "success"},
+    {"name": "linux / agents-read", "status": "completed", "conclusion": "success"},
+    {"name": "linux / openspec", "status": "completed", "conclusion": "success"},
+    {"name": "linux / install", "status": "completed", "conclusion": "success"},
+    {"name": "linux / lint", "status": "completed", "conclusion": "success"},
+    {"name": "ci-verdict", "status": "completed", "conclusion": "failure"},
+]
+
+
+def test_the_judges_own_check_run_is_not_counted_as_a_failure():
+    """A green run must not red because the judge's own posted `ci-verdict` row came back."""
+
+    # Given a green full-matrix run AND the judge's own posted check-run listed back as a job
+    assertion_bug = cs.verify(decision_for(FULL_MATRIX_PATH), GREEN_PLUS_OWN_CHECK)
+    stripped = cv.own_check_run(GREEN_PLUS_OWN_CHECK)
+
+    # When  the judge's own output is removed from what it judges (the #1837 fix)
+    fixed = cs.verify(decision_for(FULL_MATRIX_PATH), stripped)
+
+    # Then  without the fix the verdict reds on its own echo...
+    assert assertion_bug["verdict"] == cs.RED, assertion_bug["lines"]
+    assert assertion_bug["counts"]["failure"] == 1, assertion_bug["counts"]
+
+    # ...while the fix drops only that one row and the run reads green, its ten real jobs intact
+    assert len(stripped) == 10 and all(j.get("name") != "ci-verdict" for j in stripped)
+    assert fixed["verdict"] == cs.GREEN, fixed["lines"]
+    assert fixed["counts"]["failure"] == 0 and fixed["counts"]["success"] == 10, fixed["counts"]
+
+
+def test_a_real_unknown_failing_job_still_reds_even_with_the_fix():
+    """Excluding the verdict's own row must never hide a genuine unclassified failure."""
+
+    # Given a green run plus a REAL job the scope table does not name, failing for its own reason
+    real = GREEN_PLUS_OWN_CHECK[:-1] + [{"name": "npm-audit-prod", "status": "completed", "conclusion": "failure"}]
+
+    # When  it is judged (the fix only removes `ci-verdict`, never an unknown real job)
+    stripped = cv.own_check_run(real)
+    result = cs.verify(decision_for(FULL_MATRIX_PATH), stripped)
+
+    # Then  the unknown failing job is still an unaccounted failure — the #1111 rule is not weakened
+    assert any("npm-audit-prod" in j.get("name", "") for j in stripped), stripped
+    assert result["verdict"] == cs.RED and result["counts"]["failure"] == 1, result["lines"]
+
+
 # ---- 8. the wiring: published by ci.yml, consumed by ci-verdict.yml ------------------
 
 def _workflow(name: str) -> dict:
