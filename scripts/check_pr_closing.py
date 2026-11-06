@@ -49,6 +49,19 @@ CLOSING = re.compile(
 )
 #: A bare reference `#N` anywhere — title, prose, a table cell.
 ANY_REF = re.compile(r"#(\d+)")
+#: A reference governed by a resolving verb — the body says the change fixes/completes an issue
+#: without the strict adjacent-close grammar (`fully resolves #1582`, `the fix for #9`). This is the
+#: completeness signal #1629: a PR that resolvingly names an issue must close it or justify-open it,
+#: even when it closes another issue (`closes #1617` alone leaves the resolved #1582 orphaned).
+RESOLVING = re.compile(
+    r"\b(?:fix(?:e[sd])?|fixing|resolv(?:e|es|ed|ing)|complet(?:e|es|ed|ing)|implement(?:s|ed|ing)?|repair(?:e|es|ed|ing)?|clos(?:e|es|ed|ing))\b[a-z ]{0,24}?#(\d+)",
+    re.IGNORECASE,
+)
+#: An on-record justification that an issue is left open on purpose.
+NOT_CLOSED = re.compile(
+    r"(?:does\s+not\s+(?:close|closes)|(?:is|was)\s+not\s+closed)\s+#(\d+)\s+(?:because|as|since)\b",
+    re.IGNORECASE,
+)
 #: `Issue: #N` at the start of a line. The same claim the issue cleaner reads off a merge commit.
 ISSUE_LINE = re.compile(r"(?im)^\s*Issue:\s*#(\d+)\b")
 #: A subject, or a pull-request title, that ends with `(#N)` and nothing after it but space.
@@ -100,6 +113,40 @@ def _fmt(nums: set[str]) -> str:
     return ", ".join("#" + n for n in sorted(nums, key=int))
 
 
+def check_completeness(text: str) -> list[dict]:
+    """A resolving reference must be closed or on-record justified-open (issue #1629).
+
+    A PR whose body or commit text resolvingly names an issue (`fully resolves #1582`, `the fix for
+    #9`) must grant that issue an adjacent closing keyword, or carry an explicit `does not close #N
+    because <reason>` justification. Closes of a *different* issue do not satisfy a resolving
+    reference to `#N`: that is the #1628 defect, where `closes #1617` left the fully-resolved root
+    cause #1582 orphaned-open. A bare reference (`see #9`, a `## Not covered` remainder) is not a
+    resolving reference and is not a finding.
+    """
+    closed = set(closing_references(text or ""))
+    justified = {m.group(1) for m in NOT_CLOSED.finditer(text or "")}
+    out: list[dict] = []
+    seen: set[str] = set()
+    for n in {m.group(1) for m in RESOLVING.finditer(text or "")}:
+        if n in closed or n in justified or n in seen:
+            continue
+        seen.add(n)
+        out.append({
+            "key": f"close-set/{n}",
+            "title": "ci: this change fixes #%s but neither closes it nor says why it does not" % n,
+            "evidence": (
+                f"The text resolvingly names #{n} (\"fixes/resolves/completes/repairs/… #{n}\") but "
+                f"gives it no adjacent closing keyword and no on-record `does not close #{n} because "
+                f"<reason>` note. A change that implements an issue must close it or justify leaving "
+                f"it open: closes of another issue do not bind this one (#1628 closed #1617 but left "
+                f"the resolved root cause #1582 orphaned-OPEN). Add `closes #{n}` to the body, or an "
+                f"explicit \"does not close #{n} because …\" note."
+            ),
+            "where": "pr-body and squash text",
+        })
+    return out
+
+
 def check_squash(messages: list[str], body: str | None = None, title: str = "") -> list[dict]:
     """The joined commit messages are the squash body GitHub will write.
 
@@ -111,6 +158,9 @@ def check_squash(messages: list[str], body: str | None = None, title: str = "") 
     claimed = claims_in(messages, body, title)
     commit_closed = set(closing_references(joined))
     out: list[dict] = []
+    out.extend(check_completeness(joined))
+    if body is not None:
+        out.extend(check_completeness(body))
     missing_in_commits = sorted(claimed - commit_closed, key=int)
     if missing_in_commits:
         out.append({
@@ -201,6 +251,7 @@ def check_body(body_path: Path, head: str, root: Path = REPO_ROOT) -> list[dict]
     if not head or not AGENT_HEAD.search(head):
         return out
     body = body_path.read_text() if body_path.exists() else ""
+    out.extend(check_completeness(body))
     closed = closing_references(body)
     if closed:
         return out
