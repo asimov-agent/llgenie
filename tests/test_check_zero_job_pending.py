@@ -32,7 +32,10 @@ def _gh_stub(tmp_path: Path, runs: list[dict], jobs_total: dict[int, int], monke
     bindir = tmp_path / "bin"
     bindir.mkdir(exist_ok=True)
     scenario = tmp_path / "sc.json"
-    scenario.write_text(json.dumps({"runs": runs, "jobs_total": jobs_total}))
+    # the jobs reply uses REAL gh shape: {"jobs":[...]} with NO total_count key (measured 2026-11-06)
+    jobs_reply = {str(rid): {"jobs": [{"name": f"j{n}", "status": "in_progress"} for n in range(total)]}
+                  for rid, total in jobs_total.items()}
+    scenario.write_text(json.dumps({"runs": runs, "jobs_reply": jobs_reply}))
     gh = bindir / "gh"
     gh.write_text(f"""#!/usr/bin/env python3
 import json, pathlib, sys
@@ -43,9 +46,7 @@ if a[:2] == ["run", "list"]:
     runs = [r for r in sc["runs"] if r.get("status") == status]
     print(json.dumps(runs)); sys.exit(0)
 if a[:2] == ["run", "view"]:
-    rid = a[2]
-    total = sc["jobs_total"].get(rid, 0)
-    print(json.dumps({{"total_count": total}})); sys.exit(0)
+    print(json.dumps(sc["jobs_reply"].get(a[2], {{"jobs": []}}))); sys.exit(0)
 print("unhandled: " + " ".join(a), file=sys.stderr); sys.exit(1)
 """)
     gh.chmod(0o755)
@@ -120,7 +121,9 @@ def _gh_stub_with_issues(tmp_path: Path, open_issues: list[dict], jobs_total: di
     """A gh answering run list/view + issue list, so delivery dedupe runs for real."""
     bindir = tmp_path / "bin"; bindir.mkdir(exist_ok=True)
     scenario = tmp_path / "sc.json"
-    scenario.write_text(json.dumps({"issues": open_issues, "jobs_total": jobs_total}))
+    jobs_reply = {str(rid): {"jobs": [{"name": f"j{n}", "status": "in_progress"} for n in range(total)]}
+                  for rid, total in jobs_total.items()}
+    scenario.write_text(json.dumps({"issues": open_issues, "jobs_reply": jobs_reply}))
     gh = bindir / "gh"
     gh.write_text(f"""#!/usr/bin/env python3
 import json, pathlib, sys
@@ -133,7 +136,7 @@ if a[:2] == ["run", "list"]:
                           "url": "u", "status": "queued"}}] if r.get("status") == st]
     print(json.dumps(runs)); sys.exit(0)
 if a[:2] == ["run", "view"]:
-    print(json.dumps({{"total_count": sc["jobs_total"].get(a[2], 0)}})); sys.exit(0)
+    print(json.dumps(sc["jobs_reply"].get(a[2], {{"jobs": []}}))); sys.exit(0)
 if a[:2] == ["issue", "list"]:
     print(json.dumps(sc["issues"])); sys.exit(0)
 if a[:2] == ["issue", "create"]:
@@ -164,8 +167,10 @@ def _gh_stub_recorded(tmp_path: Path, runs: list[dict], jobs_total: dict[int, in
     delivery event to events.json so the guard can assert exact POST counts."""
     bindir = tmp_path / "bin"; bindir.mkdir(exist_ok=True)
     scenario = tmp_path / "sc.json"
+    jobs_reply = {str(rid): {"jobs": [{"name": f"j{n}", "status": "in_progress"} for n in range(total)]}
+                  for rid, total in jobs_total.items()}
     scenario.write_text(json.dumps(
-        {"runs": runs, "jobs_total": jobs_total, "issues": open_issues or []}))
+        {"runs": runs, "jobs_reply": jobs_reply, "issues": open_issues or []}))
     events = tmp_path / "events.json"
     events.write_text("[]")
     gh = bindir / "gh"
@@ -182,7 +187,7 @@ if a[:2] == ["run", "list"]:
     runs = [r for r in sc["runs"] if r.get("status") == st]
     print(json.dumps(runs)); sys.exit(0)
 if a[:2] == ["run", "view"]:
-    print(json.dumps({{"total_count": sc["jobs_total"].get(a[2], 0)}})); sys.exit(0)
+    print(json.dumps(sc["jobs_reply"].get(a[2], {{"jobs": []}}))); sys.exit(0)
 if a[:2] == ["issue", "list"]:
     print(json.dumps(sc["issues"])); sys.exit(0)
 if a[:2] == ["issue", "create"]:

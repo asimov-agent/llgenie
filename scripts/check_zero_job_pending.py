@@ -118,7 +118,12 @@ def zero_job_pending_runs(repo: str, minutes: float = 30.0, now: dt.datetime | N
             continue
         rid = run.get("databaseId")
         jobs = json.loads(_gh(["run", "view", str(rid), "--repo", repo, "--json", "jobs"]) or "{}")
-        total = int((jobs.get("total_count") if isinstance(jobs, dict) else None) or 0)
+        # `gh run view --json jobs` returns `{"jobs":[...]}` — the jobs ARRAY, with NO `total_count`
+        # key (measured 2026-11-06: run 42141213441 reported 3 live jobs, the key was absent). Counting
+        # the array is the honest total: a run whose jobs array is non-empty has instantiated jobs and is
+        # NOT this monitor's zero-job case, however long it has run (a live 2h compile must never be
+        # named a "no runner matched" false positive — the #1822/#1823 class).
+        total = len((jobs.get("jobs") if isinstance(jobs, dict) else None) or [])
         if total != 0:
             continue
         age = _age_minutes(run.get("createdAt"), now)
