@@ -36,7 +36,7 @@ def _stub_repin(monkeypatch, engine=None) -> None:
         monkeypatch.setattr(ebt.cpp, "repinned_engine_ids", lambda base, root=None: [engine])
 
 
-def _fake_gh(monkeypatch, before_ids=None, new_run=None, guard_conclusion="success"):
+def _fake_gh(monkeypatch, before_ids=None, new_run=None, guard_conclusion="success", stall_holder=None):
     """A fake `gh`-API recorder. `_gh` is a module-level function (not the `gh` binary), so we stub the API
     read path; the `gh workflow run` dispatch call is a subprocess we neutralize via `_dispatch_and_wait`'s
     `--gh gh` default by replacing NOTHING there — instead we only stub `_gh` and give no branch/ref that
@@ -46,14 +46,35 @@ def _fake_gh(monkeypatch, before_ids=None, new_run=None, guard_conclusion="succe
     def fake_gh_api(repo, *args, gh="gh"):
         # args: ("?per_page=100", "--jq", "<expr>")  OR  ("<runid>/jobs", "--jq", "<expr>")  OR  ("<runid>", "--jq", ...)
         target = args[0] if args else ""
+        target_jq = args[2] if len(args) > 2 else ""
+        in_progress_ids = {str(stall_holder)} if stall_holder else set()
         if "per_page=100" in target:
             runs = [{"id": str(_id), "event": "workflow_dispatch",
                      "path": "/.github/workflows/engine-build.yml"} for _id in (before_ids or [])]
+            # A run that is still `pending`/queued (our dispatched run, or a genuinely queued one) is
+            # NOT a push-group holder: `_push_group_holder` filters `.status == "in_progress"` (the
+            # global engine-build-push gate is held only by a RUN THAT IS RUNNING). The fake must
+            # model that filter or it would surface a pending run as the gate holder.
+            def _mark(r):
+                r = dict(r)
+                if r["id"] not in in_progress_ids:
+                    r.setdefault("status", "queued")
+                return r
+            runs = [_mark(r) for r in runs]
+            # A stall holder is an in_progress push run that `_push_group_holder` picks up; it is
+            # present in the list both before and after our dispatch (so it never counts as "new").
+            if stall_holder:
+                runs.insert(0, {"id": str(stall_holder), "event": "workflow_dispatch",
+                                "path": "/.github/workflows/engine-build.yml",
+                                "status": "in_progress"})
             # The dispatched run exists ONLY after the (neutralized) dispatch subprocess ran, so the
             # before/after diff the code computes behaves like the real API: the new id is absent before.
             if state["dispatched"] and new_run is not None:
                 runs.append({"id": state["new_id"], "event": "workflow_dispatch",
                              "path": "/.github/workflows/engine-build.yml"})
+            # `_push_group_holder` filters `.status == "in_progress"`; the plain run-list reads do not.
+            if "in_progress" in target_jq:
+                runs = [r for r in runs if r.get("status") == "in_progress"]
             return "\n".join(str(r["id"]) for r in runs)
         if "/jobs" in target:
             return json.dumps({"jobs": [{"name": "guard", "conclusion": state["guard_conclusion"]}]})
@@ -120,6 +141,45 @@ def test_guard_refused_is_named_not_a_bare_failure(monkeypatch):
              guard_conclusion="failure")
     rc = _run(["check", "--base", _BASE, "--repo", "asimov-agent/llgenie", "--branch", "main", "--gh", "gh"])
     assert rc == 1
+
+
+def test_stalled_behind_push_holder_is_named_not_a_bare_queued(monkeypatch, capsys):
+    """A dispatched run left `pending` behind the global engine-build-push group must be reported as
+    STALLED with its holder named — never a bare `concluded queued/None` that invites a futile re-dispatch.
+
+    Regression for the #1696 diagnosis (issue #1860): channel 42201352115 sat pending/0-jobs for 3h+,
+    gated behind holder 42191808660's hung vllm-rocm; `engine_build_trigger.py` then bailed at deadline
+    with only `concluded queued/None`, so the reviewer saw nothing to identify the concurrency gate.
+    """
+    _stub_base(monkeypatch)
+    _stub_repin(monkeypatch, engine="vllm")
+    # Holder "5" (in_progress push run) gates the new run "77", which stays `pending` (0-jobs).
+    _fake_gh(monkeypatch, before_ids=[99], new_run={"status": "pending", "conclusion": None},
+             stall_holder="5")
+    # --wait-min 0 makes the deadline expire on the first poll, so the test runs instantly and still
+    # exercises the stall branch (status "pending" != completed).
+    rc = _run(["check", "--base", _BASE, "--repo", "asimov-agent/llgenie", "--branch", "main",
+               "--wait-min", "0", "--gh", "gh"])
+    assert rc == 1
+    captured = capsys.readouterr()
+    assert "STALLED behind engine-build-push group holder run 5" in captured.err
+    assert "re-dispatch queues behind the same gate" in captured.err
+    # The bare queued/None line must still be there (the verdict facts), just not alone.
+    assert "concluded pending/None" in captured.err
+
+
+def test_stalled_without_holder_is_a_plain_failure(monkeypatch, capsys):
+    """A pending run with NO holder found is still a failure, but without the STALLED suffix."""
+    _stub_base(monkeypatch)
+    _stub_repin(monkeypatch, engine="vllm")
+    _fake_gh(monkeypatch, before_ids=[99], new_run={"status": "pending", "conclusion": None},
+             stall_holder=None)
+    rc = _run(["check", "--base", _BASE, "--repo", "asimov-agent/llgenie", "--branch", "main",
+               "--wait-min", "0", "--gh", "gh"])
+    assert rc == 1
+    captured = capsys.readouterr()
+    assert "STALLED behind" not in captured.err
+    assert "concluded pending/None" in captured.err
 
 
 def test_report_never_dispatches(monkeypatch):
