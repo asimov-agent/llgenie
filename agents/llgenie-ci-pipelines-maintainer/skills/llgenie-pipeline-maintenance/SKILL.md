@@ -32,6 +32,15 @@ A defect in a workflow, a gate, or a make target this lane owns is this lane's p
 
 When this lane's reactive queue is empty for N=2 consecutive passes (no dispatched work, no in-flight gate it owns), run ONE bounded own-domain audit instead of idling — this lane is never parked as "nothing to do". Audit definition for this lane: **gate-coverage review** (which failures current gates cannot see), **workflow robustness** (cancelled-mid-flight, stale-head races — the #1250 class), **step-sharpening**. Every finding is filed as a refined issue in the six-section shape tagged `agent:implement`, never implemented by the same pass; otherwise record `re-audited at <sha>, no findings`. Findings route through the normal queue. One-pass scope, no infinite loop, never overrides reactive work.
 
+## Contract: an engine/build step is never unbounded (2026-11-06, #1865; #1250-class)
+
+Every job in the engine-build workflows declares a maximum runtime (`timeout-minutes`); a job with no bound is a hang waiting to happen, because it can never be surfaced (there is no bound to exceed) — the #1696 zombies (`42191808660`/`42191768249 @ a90fb89aec`, 3h35m `in_progress`) stalled every push=true run behind the concurrency gate until a human noticed. Two obligations, enforced in this lane's view:
+
+- **A new engine/build job must carry `timeout-minutes`.** Guarded by `tests/test_engine_build_timeouts.py` (every job in `engine-build.yml` + `engine-build-pr-trigger.yml` is assert-bounded), so a future unbounded addition reds the suite — never edit that guard to name a narrower job list.
+- **On overrun, the step is surfaced, not silently re-run as a long job.** The #1860 stall-watchdog names the concurrency-gate holder; a cell that exceeds its declared bound is eligible for truncation per the workflow's own rule and the park/`needs truncation` row is visible as a fault. This is the standing rule #1865 codifies: a step never runs unbounded.
+
+Measured on this change: the `matrix` job of `engine-build.yml` was the one unbounded job (no `timeout-minutes`); the guard test reds on it and this PR bounds it (`timeout-minutes: 10`). The build cells already carry the #1818 matrix-aware bound (`240`, rocm `360`); the trigger carries the #1860 250m window.
+
 ## When to Use
 
 > Hygiene: `references/repo-artifact-conventions.md`
