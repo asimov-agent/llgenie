@@ -181,7 +181,21 @@ def resolve(engine: str, backend: str | None, variant: str | None = None) -> dic
     return es.image_spec(params, es.pick_variant(params, b, {**hw, "backend": b}))
 
 
-def _cache_read_args(cache_ref: str) -> list[str]:
+def _cache_exists(cache_ref: str) -> bool:
+    """True when the registry layer-cache image exists (the cache-existence probe).
+
+    `docker buildx imagetools inspect` issues the same registry manifest GET that the
+    `--cache-from`/`--cache-to` flags would. A non-zero exit means the ref is absent —
+    either the cache was never seeded (#1842, read side) or the engine's package is not
+    on the registry yet (#1880, write side). Both sides tolerate the absence (build cold)
+    rather than red; this is the single probe they share.
+    """
+    if not REGISTRY:
+        return False
+    return _sh([RUNTIME, "buildx", "imagetools", "inspect", cache_ref], capture_output=True).returncode == 0
+
+
+def _cache_read_args(cache_ref: str, exists: bool | None = None) -> list[str]:
     """`--cache-from type=registry` for the read, tolerating a never-seeded cache image.
 
     The registry layer cache for a cell may not exist yet — a new engine/variant's first build,
@@ -192,15 +206,44 @@ def _cache_read_args(cache_ref: str) -> list[str]:
     manifest GET the import would issue — and, when the image is absent, build COLD rather than
     red. The absence is a recorded decision (a printed note), not a silent skip (#1796). The
     write (`--cache-to`) is untouched: the first cold build seeds the cache for its next run.
+
+    `exists` threads a probe result already computed by the caller — `_buildx` probes the ref
+    ONCE at the top and passes the result to BOTH the read and the write, on the push and the
+    local branches alike, so the probe is never issued twice per build.
     """
-    if not REGISTRY:
-        return []
-    exists = _sh([RUNTIME, "buildx", "imagetools", "inspect", cache_ref], capture_output=True).returncode == 0
+    if exists is None:
+        exists = _cache_exists(cache_ref)
     if not exists:
         print(f"[engine-image] registry cache {cache_ref} absent -> cold build (cache read skipped; #1842)",
               flush=True)
         return []
     return ["--cache-from", f"type=registry,ref={cache_ref}"]
+
+
+def _cache_write_args(cache_ref: str, exists: bool | None = None) -> list[str]:
+    """`--cache-to type=registry` for the write, tolerating an engine whose package is not on GHCR.
+
+    The read side already builds COLD when the cache ref is absent (#1842). The write side has the
+    same hazard in reverse: `--cache-to type=registry,ref=<missing-package>` fails the WHOLE build
+    with `not found` when the engine's package does not exist on the registry yet (e.g. tensorfold's
+    `buildcache-cuda` before its first publish, issue #1880) — the ref's parent image namespace is
+    not there for buildx to create the cache under. We probe the ref with the same
+    `docker buildx imagetools inspect` the read uses; when the image is absent we build COLD and
+    skip the cache write (a printed note, not a silent skip, #1796). The cache is seeded as soon as
+    the engine's package exists on the registry (a later publish), so the write is only ever skipped
+    for an engine that has never been published at all.
+
+    `exists` threads a probe result already computed by the caller — `_buildx` probes the ref
+    ONCE at the top and passes the result to BOTH the read and the write, on the push and the
+    local branches alike, so the probe is never issued twice per build.
+    """
+    if exists is None:
+        exists = _cache_exists(cache_ref)
+    if not exists:
+        print(f"[engine-image] registry cache {cache_ref} absent -> cold build (cache write skipped; #1880)",
+              flush=True)
+        return []
+    return ["--cache-to", f"type=registry,ref={cache_ref},mode=max"]
 
 
 def _buildx(tag: str, ctx: str, push: bool, cache_ref: str, force: bool = False) -> int:
@@ -210,12 +253,20 @@ def _buildx(tag: str, ctx: str, push: bool, cache_ref: str, force: bool = False)
     `force` (issue #638) is a REAL rebuild: `--no-cache`, and the registry cache is not read,
     so a fully cached build can no longer re-tag the previous layers.
     """
-    cache_args = [] if force else _cache_read_args(cache_ref)
+    # Probe the registry cache ONCE (a single `imagetools inspect` per build) and thread the
+    # result through both sides, so a build never issues one probe per side on the same ref
+    # (issue #1880's shared-probe contract). A forced LOCAL build consults neither side (no
+    # read on force, no write without push), so it issues no probe at all — `_cache_exists`
+    # also short-circuits (no probe) when REGISTRY is unset. `cache_args` (the read side) is
+    # computed only where it is used: the push branch appends it; the local branch builds its
+    # own read args at the point of use, so computing it here would double-call the helper.
+    cache_exists = _cache_exists(cache_ref) if (push or not force) else False
+    cache_args = [] if (force or not push) else _cache_read_args(cache_ref, cache_exists)
     no_cache = ["--no-cache"] if force else []
     if push and REGISTRY:
         # push ONLY the registry-qualified tag (a bare llgenie/... tag would go to Docker Hub)
         cmd = [RUNTIME, "buildx", "build", "--progress=plain", "-t", f"{REGISTRY}/{tag}", *no_cache, *cache_args,
-               "--cache-to", f"type=registry,ref={cache_ref},mode=max", "--push", ctx]
+               *_cache_write_args(cache_ref, cache_exists), "--push", ctx]
         rc = _sh(cmd).returncode
         if rc == 0:  # make the image available locally under its bare tag too
             _sh([RUNTIME, "pull", f"{REGISTRY}/{tag}"], capture_output=True)
@@ -239,14 +290,16 @@ def _buildx(tag: str, ctx: str, push: bool, cache_ref: str, force: bool = False)
         cmd += ["--builder", "default"]
     cmd += [*no_cache, "-t", tag, "--load"]
     if REGISTRY and not force:
-        cmd += _cache_read_args(cache_ref)
+        # reuses `cache_exists` (computed once above) so the local build is also a single
+        # probe — not one per side (issue #1880's shared-probe contract)
+        cmd += _cache_read_args(cache_ref, cache_exists)
         # A verification-only engine-build run (push=false) still warms the shared cache for the
         # NEXT run of the same cell — that is the whole point of the build-and-verify sweep, which
         # reads a cold cache on every fresh runner otherwise (#1694). The write is privileged: it
         # runs only when LLGENIE_CACHE_WRITE=1, set solely by the owner-guarded engine-build
         # dispatch job (never a PR/fork/local build), so a read-only runner never attempts it.
         if CACHE_WRITE:
-            cmd += ["--cache-to", f"type=registry,ref={cache_ref},mode=max"]
+            cmd += _cache_write_args(cache_ref, cache_exists)
     return _sh(cmd + [ctx]).returncode
 
 

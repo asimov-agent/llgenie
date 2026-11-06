@@ -48,6 +48,9 @@ def test_a_forced_build_passes_no_cache_and_drops_cache_from(monkeypatch, tmp_pa
     build = calls[-1]
     assert "--no-cache" in build
     assert not any(a == "--cache-from" for a in build)
+    # and, being a forced LOCAL build, it consults neither cache side, so the cache-existence
+    # probe is never issued (issue #1880's single-probe contract: probe only when a side reads)
+    assert not any(c[:4] == ["docker", "buildx", "imagetools", "inspect"] for c in calls)
 
 
 def test_an_unforced_build_keeps_the_registry_cache(monkeypatch, tmp_path):
@@ -142,12 +145,13 @@ def test_a_cache_write_build_stays_on_the_container_builder(monkeypatch, tmp_pat
 
 
 def test_a_missing_cache_image_builds_cold_not_red(monkeypatch, tmp_path):
-    """A never-seeded registry cache must not red the cell (issue #1842).
+    """A never-seeded registry cache must not red the cell (issues #1842, #1880).
 
     `--cache-from type=registry,ref=<missing>` makes buildx fail the whole build with
-    `manifest unknown`. The read must tolerate the absence: when the probe finds no cache
-    image the build proceeds cold (no --cache-from) — a time cost, never a red cell — while
-    the privileged write (--cache-to) still seeds the cache for the next run.
+    `manifest unknown`, and `--cache-to type=registry,ref=<missing-package>` fails with
+    `not found` when the engine's package is not on the registry yet. The read AND the
+    write must tolerate the absence: when the probe finds no cache image the build
+    proceeds cold (no --cache-from, no --cache-to) — a time cost, never a red cell.
     """
 
     calls: list[list[str]] = []
@@ -166,12 +170,175 @@ def test_a_missing_cache_image_builds_cold_not_red(monkeypatch, tmp_path):
     # When an unforced build runs against a never-seeded cache
     ei._buildx("llgenie/demo:t", str(tmp_path), False, "ghcr.io/asimov-agent/llgenie/demo:buildcache")
 
-    # Then the build is COLD: no --cache-from is passed (no manifest-unknown failure)…
+    # Then the build is COLD: no --cache-from and no --cache-to (no manifest-unknown /
+    # not-found failure) — a missing cache is a time cost, never a red cell
     build = calls[-1]
     assert "--cache-from" not in build, build
-    # …but the privileged cache WRITE still seeds the cache for the next run
-    assert any(str(a).startswith("type=registry,ref=ghcr.io/asimov-agent/llgenie/demo:buildcache,")
-               and "mode=max" in str(a) for a in build)
+    assert "--cache-to" not in build, build
+
+
+def test_push_build_missing_cache_image_builds_cold_not_red(monkeypatch, tmp_path):
+    """A never-seeded cache must not red a PUSH build either (issue #1880).
+
+    The AC1 failing cell (`engine-build-tensorfold-cuda` in the default sweep, run
+    `42280478755`) is a PUSH build: `_buildx(..., push=True)` runs the
+    `if push and REGISTRY:` branch that appends `_cache_write_args`. The write-side
+    tolerance must hold there too — when the engine's package is absent from the
+    registry (`buildcache-cuda: not found`), the push build proceeds cold with no
+    `--cache-to` and no `--cache-from`, never red.
+    """
+
+    calls: list[list[str]] = []
+
+    def sh(cmd, **kw):
+        calls.append(list(cmd))
+        # "imagetools inspect" is the cache-existence probe: report it absent (rc 1).
+        # Every other command (the build, the pull, the tag) succeeds.
+        probe = any("imagetools" in a for a in cmd)
+        return subprocess.CompletedProcess(cmd, 1 if probe else 0)
+
+    monkeypatch.setattr(ei, "_sh", sh)
+    monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+    monkeypatch.setattr(ei, "CACHE_WRITE", True)
+
+    # When an unforced PUSH build runs against a never-seeded cache
+    ei._buildx("llgenie/demo:t", str(tmp_path), True, "ghcr.io/asimov-agent/llgenie/demo:buildcache")
+
+    # Then the PUSH build is COLD: no --cache-from and no --cache-to — a missing
+    # cache is a time cost, never a red cell, on the push path too
+    build = next(c for c in calls if "--push" in c)
+    assert "--cache-from" not in build, build
+    assert "--cache-to" not in build, build
+    assert "--push" in build, build
+
+
+def test_push_build_present_cache_still_writes_when_privileged(monkeypatch, tmp_path):
+    """A seeded cache ref is still written on a PUSH build (issue #1880).
+
+    The write tolerance only suppresses the failure when the engine's package is
+    absent from the registry. On the push path (`if push and REGISTRY:`), a present
+    cache ref with `CACHE_WRITE=1` must still seed `--cache-to` for the next run —
+    the write is not unconditionally dropped on push builds either.
+    """
+
+    calls: list[list[str]] = []
+
+    def sh(cmd, **kw):
+        calls.append(list(cmd))
+        # "imagetools inspect" is the cache-existence probe: report it present (rc 0).
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(ei, "_sh", sh)
+    monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+    monkeypatch.setattr(ei, "CACHE_WRITE", True)
+
+    # When an unforced PUSH build runs against a seeded cache
+    ei._buildx("llgenie/demo:t", str(tmp_path), True, "ghcr.io/asimov-agent/llgenie/demo:buildcache")
+
+    # Then the PUSH build still writes --cache-to (and reads --cache-from)
+    build = next(c for c in calls if "--push" in c)
+    assert "--cache-from" in build, build
+    assert any(str(a).startswith("type=registry,ref=ghcr.io/asimov-agent/llgenie/demo:buildcache")
+               and "mode=max" in a for a in build), build
+
+
+def test_cache_write_args_tolerates_missing_package(monkeypatch):
+    """`_cache_write_args` returns [] when the engine's package is absent (issue #1880).
+
+    The write-side tolerance is the whole point of #1881: a `--cache-to
+    type=registry,ref=<missing-package>` fails the WHOLE build with `not found` when
+    the engine's package is not on the registry yet. Direct unit test of the function
+    (the push-path tests exercise it through `_buildx`; this pins the contract).
+    """
+
+    calls: list[list[str]] = []
+
+    def sh(cmd, **kw):
+        calls.append(list(cmd))
+        # "imagetools inspect" is the cache-existence probe: report it absent (rc 1).
+        return subprocess.CompletedProcess(cmd, 1)
+
+    monkeypatch.setattr(ei, "_sh", sh)
+    monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+
+    # When the engine's package is absent from the registry
+    args = ei._cache_write_args("ghcr.io/asimov-agent/llgenie/demo:buildcache")
+
+    # Then no --cache-to is emitted (a cold build, never a red cell)
+    assert args == [], args
+
+
+def test_cache_write_args_emits_cache_to_when_present(monkeypatch):
+    """`_cache_write_args` emits --cache-to when the cache ref exists (issue #1880).
+
+    The tolerance only suppresses the failure when the package is absent; a present
+    cache ref must still be written (mode=max) for the next run.
+    """
+
+    calls: list[list[str]] = []
+
+    def sh(cmd, **kw):
+        calls.append(list(cmd))
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(ei, "_sh", sh)
+    monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+
+    # When the engine's package IS on the registry
+    args = ei._cache_write_args("ghcr.io/asimov-agent/llgenie/demo:buildcache")
+
+    # Then --cache-to is emitted with mode=max (the write still seeds the cache)
+    assert args == ["--cache-to", "type=registry,ref=ghcr.io/asimov-agent/llgenie/demo:buildcache,mode=max"], args
+
+
+def test_cache_write_args_empty_without_registry(monkeypatch):
+    """`_cache_write_args` returns [] when REGISTRY is unset (local build)."""
+
+    monkeypatch.setattr(ei, "REGISTRY", "")
+
+    assert ei._cache_write_args("ghcr.io/asimov-agent/llgenie/demo:buildcache") == []
+
+
+def test_cache_exists_probe_contract(monkeypatch):
+    """`_cache_exists` is the single probe the read (#1842) and write (#1880) sides share.
+
+    It issues exactly one `docker buildx imagetools inspect` (the same registry manifest GET
+    the `--cache-from`/`--cache-to` flags would) and maps a non-zero exit to "absent". No
+    REGISTRY means no probe at all (local build). This is the direct contract test for the
+    helper the two tolerances were refactored onto (issue #1880).
+    """
+
+    # present: probe rc 0 -> True, and the probe command is the documented one
+    calls: list[list[str]] = []
+
+    def sh_ok(cmd, **kw):
+        calls.append(list(cmd))
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(ei, "_sh", sh_ok)
+    monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+    assert ei._cache_exists("ghcr.io/asimov-agent/llgenie/demo:buildcache") is True
+    assert calls == [["docker", "buildx", "imagetools", "inspect",
+                      "ghcr.io/asimov-agent/llgenie/demo:buildcache"]]
+
+    # absent: probe rc 1 -> False
+    def sh_miss(cmd, **kw):
+        return subprocess.CompletedProcess(cmd, 1)
+
+    monkeypatch.setattr(ei, "_sh", sh_miss)
+    assert ei._cache_exists("ghcr.io/asimov-agent/llgenie/demo:buildcache") is False
+
+    # no REGISTRY: no probe issued, always absent (local build)
+    calls2: list[list[str]] = []
+
+    def sh_noreg(cmd, **kw):
+        calls2.append(list(cmd))
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(ei, "_sh", sh_noreg)
+    monkeypatch.setattr(ei, "REGISTRY", "")
+    assert ei._cache_exists("ghcr.io/asimov-agent/llgenie/demo:buildcache") is False
+    assert calls2 == []
 
 
 def test_a_present_cache_image_keeps_cache_from(monkeypatch, tmp_path):
@@ -196,6 +363,105 @@ def test_a_present_cache_image_keeps_cache_from(monkeypatch, tmp_path):
                and "--" not in a for a in build)
     assert "--cache-from" in build, build
     assert not any(a == "--cache-to" for a in build)  # unprivileged read stays read-only
+    # and, being a read-only local build, it consults only the read side — exactly ONE probe
+    probes = [c for c in calls if c[:4] == ["docker", "buildx", "imagetools", "inspect"]]
+    assert len(probes) == 1, probes
+
+
+def test_a_present_cache_image_still_writes_when_privileged(monkeypatch, tmp_path):
+    """A seeded cache ref is still written by the privileged owner-guarded run (issue #1880).
+
+    The write tolerance only suppresses the failure when the engine's package is absent
+    from the registry. When the cache ref exists (the package is published), the
+    CACHE_WRITE=1 owner-guarded build still seeds `--cache-to` for the next run — the
+    write is not unconditionally dropped.
+    """
+
+    calls: list[list[str]] = []
+
+    def sh(cmd, **kw):
+        calls.append(list(cmd))
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(ei, "_sh", sh)
+    monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+    monkeypatch.setattr(ei, "CACHE_WRITE", True)
+
+    # When a privileged build runs against an existing cache image
+    ei._buildx("llgenie/demo:t", str(tmp_path), False, "ghcr.io/asimov-agent/llgenie/demo:buildcache")
+
+    # Then the cache is read AND written (the write is not dropped by the #1880 tolerance)
+    build = calls[-1]
+    assert "--cache-from" in build, build
+    assert any(str(a).startswith("type=registry,ref=ghcr.io/asimov-agent/llgenie/demo:buildcache,")
+               and "mode=max" in str(a) for a in build)
+
+
+def test_a_privileged_nonpush_build_missing_cache_writes_cold(monkeypatch, tmp_path, capsys):
+    """Non-push privileged build still tolerates a missing package (issue #1880).
+
+    The write tolerance lives on `_cache_write_args`, reached on the non-push path at
+    `if CACHE_WRITE: cmd += _cache_write_args(cache_ref)` (line ~279-280). When the
+    engine's package is absent from the registry (probe rc 1), a CACHE_WRITE=1 local
+    build must build cold and skip the cache WRITE (no `--cache-to`) without red — this
+    is the verification-only owner-guarded dispatch reading a not-yet-published engine.
+    """
+
+    calls: list[list[str]] = []
+
+    def sh(cmd, **kw):
+        calls.append(list(cmd))
+        if "imagetools" in cmd:  # the _cache_exists probe -> absent
+            return subprocess.CompletedProcess(cmd, 1)
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(ei, "_sh", sh)
+    monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+    monkeypatch.setattr(ei, "CACHE_WRITE", True)
+
+    # When a privileged non-push build runs against a missing cache ref
+    ei._buildx("llgenie/demo:t", str(tmp_path), False, "ghcr.io/asimov-agent/llgenie/demo:buildcache")
+
+    # Then it builds cold with no --cache-from and no --cache-to (write tolerance), never red
+    build = calls[-1]
+    assert "--cache-from" not in build, build
+    assert "--cache-to" not in build, build
+    assert "--no-cache" not in build  # unforced: it is a real build but not a force rebuild
+    # and the cold-read decision is printed EXACTLY once — the local branch reuses the probe
+    # computed once at the top of _buildx rather than re-invoking the read helper (a fix that
+    # previously double-printed the cold note on non-push builds).
+    err = capsys.readouterr()
+    read_notes = [l for l in err.out.splitlines() if "cache read skipped" in l]
+    assert len(read_notes) == 1, err.out
+
+
+def test_a_nonpush_privileged_build_probes_the_cache_once(monkeypatch, tmp_path):
+    """A non-push privileged local build is also a single probe (issue #1880).
+
+    Completes the shared-probe contract: the local branch's `_cache_read_args` and
+    `_cache_write_args` also reuse the `cache_exists` computed once at the top of `_buildx`,
+    so an unforced non-push build inspects the ref exactly once — not one probe per side.
+    """
+
+    calls: list[list[str]] = []
+
+    def sh(cmd, **kw):
+        calls.append(list(cmd))
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(ei, "_sh", sh)
+    monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+    monkeypatch.setattr(ei, "CACHE_WRITE", True)
+
+    # When an unforced non-push privileged build runs (read + write both consult the cache)
+    ei._buildx("llgenie/demo:t", str(tmp_path), False, "ghcr.io/asimov-agent/llgenie/demo:buildcache")
+
+    # Then exactly one imagetools inspect probe is issued, and both sides root in it
+    probes = [c for c in calls if c[:4] == ["docker", "buildx", "imagetools", "inspect"]]
+    assert len(probes) == 1, probes
+    build = next(c for c in calls if "buildx" in c and "build" in c)
+    assert "--cache-from" in build, build
+    assert "--cache-to" in build, build
 
 
 def test_a_forced_push_build_does_not_read_the_cache(monkeypatch, tmp_path):
@@ -210,11 +476,77 @@ def test_a_forced_push_build_does_not_read_the_cache(monkeypatch, tmp_path):
                "ghcr.io/asimov-agent/llgenie/demo:buildcache", force=True)
 
     # Then  no layer cache is read, but the fresh layers are written back
-    build = calls[0]
+    build = next(c for c in calls if "buildx" in c and "build" in c)
     assert "--no-cache" in build and "--push" in build
     assert not any(a == "--cache-from" for a in build)
     assert any(str(a).startswith("type=registry,ref=ghcr.io/asimov-agent/llgenie/demo:buildcache")
                for a in build)
+    # force drops the read side; only the write side consults the cache, so exactly ONE probe
+    probes = [c for c in calls if c[:4] == ["docker", "buildx", "imagetools", "inspect"]]
+    assert len(probes) == 1, probes
+
+
+def test_a_forced_push_build_missing_cache_writes_cold(monkeypatch, tmp_path):
+    """A forced PUSH build with a missing package still writes cold, never red (#1880).
+
+    On a force push build (`force=True, push=True`), `_cache_write_args` is still
+    appended to the command (the write path is not skipped by force). When the engine's
+    package is absent from the registry (`buildcache-cuda: not found`), the write
+    tolerance must hold there too: no `--cache-to`, no `--cache-from` (force never reads),
+    and the build proceeds — a time cost, never a red cell.
+    """
+
+    calls: list[list[str]] = []
+
+    def sh(cmd, **kw):
+        calls.append(list(cmd))
+        # "imagetools inspect" is the cache-existence probe: report it absent (rc 1).
+        probe = any("imagetools" in a for a in cmd)
+        return subprocess.CompletedProcess(cmd, 1 if probe else 0)
+
+    monkeypatch.setattr(ei, "_sh", sh)
+    monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+    monkeypatch.setattr(ei, "CACHE_WRITE", True)
+
+    # When a forced PUSH build runs against a never-seeded cache
+    ei._buildx("llgenie/demo:t", str(tmp_path), True,
+               "ghcr.io/asimov-agent/llgenie/demo:buildcache", force=True)
+
+    # Then the build is COLD: --no-cache, no --cache-from, no --cache-to — never red
+    build = next(c for c in calls if "buildx" in c and "build" in c)
+    assert "--no-cache" in build and "--push" in build
+    assert "--cache-from" not in build, build
+    assert "--cache-to" not in build, build
+
+
+def test_a_push_build_probes_the_cache_once(monkeypatch, tmp_path):
+    """A push build issues exactly ONE `imagetools inspect` probe (issue #1880).
+
+    `_buildx` probes the cache existence once and threads the result into both
+    `_cache_read_args` and `_cache_write_args`, so the same registry ref is NOT inspected
+    twice per push build — one shared probe, per the refactor's contract.
+    """
+
+    calls: list[list[str]] = []
+
+    def sh(cmd, **kw):
+        calls.append(list(cmd))
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(ei, "_sh", sh)
+    monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+    monkeypatch.setattr(ei, "CACHE_WRITE", True)
+
+    # When an unforced PUSH build runs (read + write both consult the cache)
+    ei._buildx("llgenie/demo:t", str(tmp_path), True, "ghcr.io/asimov-agent/llgenie/demo:buildcache")
+
+    # Then the buildx imagetools inspect probe appears exactly once in the recorded calls,
+    # and the build reads AND writes the cache (both rooted in that single probe result)
+    probes = [c for c in calls if c[:4] == ["docker", "buildx", "imagetools", "inspect"]]
+    assert len(probes) == 1, probes
+    build = next(c for c in calls if "buildx" in c and "build" in c)
+    assert "--cache-from" in build, build
+    assert "--cache-to" in build, build
 
 
 def test_a_forced_build_ignores_an_available_image(monkeypatch, tmp_path):
