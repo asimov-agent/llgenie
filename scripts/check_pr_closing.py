@@ -53,13 +53,19 @@ ANY_REF = re.compile(r"#(\d+)")
 #: without the strict adjacent-close grammar (`fully resolves #1582`, `the fix for #9`). This is the
 #: completeness signal #1629: a PR that resolvingly names an issue must close it or justify-open it,
 #: even when it closes another issue (`closes #1617` alone leaves the resolved #1582 orphaned).
+#: The `clos(e|es|ed|ing)` forms are deliberately excluded: narrating that an issue WAS closed
+#: (`closed only the descoped #1617`) is not a claim that this change resolves it — that is a
+#: genuinely-closed issue which a pure-text guard must not hold hostage (issue #1629 remediation).
 RESOLVING = re.compile(
-    r"\b(?:fix(?:e[sd])?|fixing|resolv(?:e|es|ed|ing)|complet(?:e|es|ed|ing)|implement(?:s|ed|ing)?|repair(?:e|es|ed|ing)?|clos(?:e|es|ed|ing))\b[a-z ]{0,24}?#(\d+)",
+    r"\b(?:fix(?:e[sd])?|fixing|resolv(?:e|es|ed|ing)|complet(?:e|es|ed|ing)|implement(?:s|ed|ing)?|repair(?:e|es|ed|ing)?)\b[a-z ]{0,24}?#(\d+)",
     re.IGNORECASE,
 )
-#: An on-record justification that an issue is left open on purpose.
+#: An on-record justification that an issue is left open on purpose. First and third person, in the
+#: repo's own voice (`We do not close #1582 because ...`, `The PR does not close #9 since ...`) —
+#: a body-only note carrying `not close`/`not closed` must be honoured, not flagged (issue #1629
+#: remediation). The `not` grabs the modal before it (`do not`, `does not`, `can not`, `will not`).
 NOT_CLOSED = re.compile(
-    r"(?:does\s+not\s+(?:close|closes)|(?:is|was)\s+not\s+closed)\s+#(\d+)\s+(?:because|as|since)\b",
+    r"\bnot\s+(?:close|closes|closing|closed)\s+#(\d+)\s+(?:because|as|since)\b",
     re.IGNORECASE,
 )
 #: `Issue: #N` at the start of a line. The same claim the issue cleaner reads off a merge commit.
@@ -74,9 +80,21 @@ def closing_references(body: str) -> list[str]:
     """The issues a text actually closes: keyword ADJACENT to `#N`.
 
     A `**`, `:` or other separator between the keyword and `#N` is not returned. A bare `#N` is not
-    a close.
+    a close. A NEGATED close is not a close: `We do not ``close #1582`` because ...` justifies the
+    issue open, and `closing_references` must not hand it to the an address that then cannot match
+    (issue #1629 remediation). The negation forms are `not close`, `n't close`, `cannot close`.
     """
-    return sorted({m.group(1) for m in CLOSING.finditer(body or "")}, key=int)
+    if not body:
+        return []
+    # A close keyword that sits under a negation is a justification, not an auto-close. The whole
+    # negated clause (`do not close #1582`, `does not close #N`, `cannot close #N`, `didn't close
+    # #N`) is removed so the `#N` it names cannot survive as a closing reference.
+    negated = re.compile(
+        r"\b(?:(?:do|does|did|will|would|can|could|should|shall|may|might)\s+not|cannot|not|don'?t|doesn'?t|didn'?t|won'?t|can'?t)\s+close[sd]?\s+#\d+",
+        re.IGNORECASE,
+    )
+    body = negated.sub("", body)
+    return sorted({m.group(1) for m in CLOSING.finditer(body)}, key=int)
 
 
 def referenced_issues(body: str) -> list[str]:

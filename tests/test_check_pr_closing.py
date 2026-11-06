@@ -146,6 +146,35 @@ def test_completeness__names_X_with_on_record_does_not_close_reason_is_GREEN():
     assert cpc.check_completeness(body) == []
 
 
+def test_completeness__first_person_justification_is_honoured():
+    # The repo's own voice is first person: "We do not close #1582 because ...". A body-only note
+    # in that form must keep the issue green, not be flagged (issue #1629 remediation — the guard
+    # used to accept only third-person "does not close").
+    body = (
+        "We do not close #1582 because the tracked root-cause issue was already routed "
+        "NOT_PLANNED on 2026-11-03 after #1628's fix."
+    )
+    assert cpc.check_completeness(body) == []
+
+
+def test_completeness__narrative_close_of_an_already_closed_issue_is_green():
+    # "closed only the descoped #1617" narrates that #1617 was already closed by a prior PR; it is
+    # NOT a claim that THIS change resolves #1617. A pure-text guard must not hold a genuinely
+    # closed issue hostage from prose (issue #1629 remediation — `clos(e|es|ed|ing)` was
+    # over-matching and reported #1617 even though it is closed in the tracker).
+    body = "#1628 fixed the #1582 truncation defect, closed only the descoped #1617."
+    finding = cpc.check_completeness(body)
+    assert any(f["key"] == "close-set/1582" for f in finding), finding
+    assert all(f["key"] != "close-set/1617" for f in finding), finding
+
+
+def test_closing_references_drop_a_negated_close():
+    # "We do not close #1582 because ..." is NOT a closing reference — it justifies leaving the
+    # issue open. The squash/body mismatch check reads these, so a negated close must not leak in.
+    assert cpc.closing_references("We do not close #1582 because it is out of scope.") == []
+    assert cpc.closing_references("closes #1629. We do not close #1582 because it stays.") == ["1629"]
+
+
 def test_completeness__bare_reference_is_not_a_finding():
     # 'see #9' or a Not-covered remainder is not a resolving reference.
     body = "Full background in see #9; this PR only touches the gate."
