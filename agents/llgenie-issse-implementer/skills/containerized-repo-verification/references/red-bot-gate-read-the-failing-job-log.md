@@ -35,6 +35,10 @@ guess (owner standing rule, versioned in the implementer SOUL).
 - **closing / `check-pr-close`** → the body's `closes #n` line issue matches (#1329).
 - **`cancelled` runs** → non-verdicts: diagnose the concurrency/queue, never read as pass or fail
   (#858 / #843).
+- **`check-pr-acceptance` on a `closes #<n>` PR** → the #1792 AC self-red is BY DESIGN until the
+  reviewer's verdict-gated write-back (#1644): the gate reads the ISSUE's still-`- [ ]` boxes, not
+  the PR body's ticks. Do NOT chase it as a defect, do NOT self-tick the issue, do NOT un-tick the
+  PR body to "pass" it — report it as reviewer-owned and hold.
 
 ## Log-read commands verbatim
 
