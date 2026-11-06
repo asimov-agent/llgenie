@@ -391,6 +391,38 @@ def test_a_present_cache_image_still_writes_when_privileged(monkeypatch, tmp_pat
                and "mode=max" in str(a) for a in build)
 
 
+def test_a_privileged_nonpush_build_missing_cache_writes_cold(monkeypatch, tmp_path):
+    """Non-push privileged build still tolerates a missing package (issue #1880).
+
+    The write tolerance lives on `_cache_write_args`, reached on the non-push path at
+    `if CACHE_WRITE: cmd += _cache_write_args(cache_ref)` (line ~279-280). When the
+    engine's package is absent from the registry (probe rc 1), a CACHE_WRITE=1 local
+    build must build cold and skip the cache WRITE (no `--cache-to`) without red — this
+    is the verification-only owner-guarded dispatch reading a not-yet-published engine.
+    """
+
+    calls: list[list[str]] = []
+
+    def sh(cmd, **kw):
+        calls.append(list(cmd))
+        if "imagetools" in cmd:  # the _cache_exists probe -> absent
+            return subprocess.CompletedProcess(cmd, 1)
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(ei, "_sh", sh)
+    monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+    monkeypatch.setattr(ei, "CACHE_WRITE", True)
+
+    # When a privileged non-push build runs against a missing cache ref
+    ei._buildx("llgenie/demo:t", str(tmp_path), False, "ghcr.io/asimov-agent/llgenie/demo:buildcache")
+
+    # Then it builds cold with no --cache-from and no --cache-to (write tolerance), never red
+    build = calls[-1]
+    assert "--cache-from" not in build, build
+    assert "--cache-to" not in build, build
+    assert "--no-cache" not in build  # unforced: it is a real build but not a force rebuild
+
+
 def test_a_forced_push_build_does_not_read_the_cache(monkeypatch, tmp_path):
     """A publishing forced build passes --no-cache and still writes the cache for later runs."""
 
