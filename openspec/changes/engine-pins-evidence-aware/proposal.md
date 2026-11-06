@@ -6,11 +6,17 @@ Issue: [#1844](https://github.com/asimov-agent/llgenie/issues/1844)
 
 The `engine-pins` job (added in #1696's ci.yml diff) polls up to `WAIT=290`
 minutes for a repinned engine image to appear on GHCR then self-fails at the
-`timeout-minutes: 300` ceiling. When the pin-producing engine-build cell is red
-(vllm cpu serve-leg #1440, tensorfold cache-write #1842), NO image can ever be
-published, so every #1696 cycle burns ~5 runner-hours on a deterministic
-timer-based fail — the worst kind of red: cannot be diagnosed, cannot be fixed
-by re-running (evidence runs 42180155067, 42191768243).
+`timeout-minutes: 300` ceiling. When the pin-producing engine-build cell is
+red, NO image can ever be published, so every #1696 cycle today burns ~5
+runner-hours on a deterministic timer-based fail — the worst kind of red:
+cannot be diagnosed, cannot be fixed by re-running. The reigning proof is the
+#1848 AC-2 re-probe (**run 42249201251** @ `main` `5bb742b2c2`, 26/29,
+concluded `failure`) — three red producing cells measured from the fresh logs:
+`engine-build-vllm-rocm` (job 127999598828, poetry/rocm==0.1.0 → #1558),
+`engine-build-vllm-cuda` (job 127999598717, buildcache-cuda → #1843),
+`engine-build-tensorfold-cuda` (job 127999598844, ghcr 403 → #1843). Earlier
+evidence runs 42180155067, 42191768243 (vllm cpu serve-leg #1440, tensorfold
+cache-write #1842) made the same point.
 
 ## What Changes
 
