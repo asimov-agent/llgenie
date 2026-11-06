@@ -21,9 +21,11 @@ the ref exists.
 
 - **AC1** (cell failure attributed to a named stage with the log line quoted — failing job
   `128107985154` in run `42280478755`, `engine-build-tensorfold-cuda` FAILURE; the former
-  citation `42275925732`/scanner-images was a red herring) — evidence comment on #1880
-  (`6696229562`, corrected 22:10:11Z) quotes the `[engine-image]` cache-read `docker buildx
-  imagetools inspect ... buildcache-cuda` ERROR line verbatim; still pending the reviewer's
+  citation `42275925732`/scanner-images was a red herring) — evidence comments on #1880
+  (`6696229562` at 22:10:11Z and `6693601677` de-markered to a pointer+snippet at 22:18:29Z)
+  quote the `[engine-image]` cache-read `docker buildx
+  imagetools inspect ... buildcache-cuda` ERROR line verbatim; no bare path marker remains.
+  Still pending the reviewer's
   verdict-gated `--proven` tick (#1644).
 - **AC2** (a default `make engine-build` sweep completes with **all** cells `success`) — **out of
   scope for this PR**, deferred to three distinct tracked work items, each OPEN:
