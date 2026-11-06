@@ -30,6 +30,16 @@ name: ci-verdict — holds a finished CI run to its published scope decision, an
 # The verdict's decisions live in scripts/ci_verdict.py (tested in tests/test_ci_verdict.py), never in
 # a job-level `if:` - a skipped job is invisible in the job list and
 # tests/test_ci_images.py::test_no_ci_step_or_job_is_skipped forbids that shape.
+#
+# WHY THE JOB IS NAMED `judge`, NOT `verdict` (#1871): GitHub auto-creates ONE check-run per job,
+# named after the job's key/`name` and attached to the head the workflow ran on. A `workflow_run`
+# workflow runs on the DEFAULT branch, so this job's auto row (`verdict` before #1871) lands on the
+# default-branch head no matter which run it judged. A green `main` tip then showed a red `verdict`
+# auto row that belonged to a judged PR (e.g. #1870) alongside the posted `ci-verdict: success` for
+# the tip itself - #1864 relocated the POSTED check-run to the judged head, but GitHub's auto job row
+# is not movable from the workflow side. Renaming the job to `judge` keeps the AUTHORITATIVE
+# `ci-verdict` check-run the only "verdict"-named row a reader must trust, and names the auto row for
+# what it is: the job that JUDGED a run. Verdict conclusions are untouched (#1862 AC-3).
 on:
   workflow_run:
     workflows:
@@ -52,7 +62,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  verdict:
+  judge:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

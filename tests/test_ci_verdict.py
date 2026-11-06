@@ -647,6 +647,26 @@ def test_the_roster_names_this_workflow_so_a_red_verdict_is_routed():
     assert name in roster, roster
 
 
+def test_the_judge_job_key_does_not_collide_with_the_authoritative_check_run_name():
+    """GitHub's auto job check-run is named after the job KEY on the DEFAULT-branch head, so a
+    `judge`-shaped run judging a PR must not also be named `verdict` (#1871).
+
+    Before #1871 the job key was `verdict`, so a green `main` tip showed BOTH the posted
+    `ci-verdict: success` (the tip's own verdict, posted at the judged head by #1864) AND an auto
+    `verdict` job row that belonged to a judged PR (measured at `5bb742b2c2`, runs `42244374725` /
+    `42244789060`, grading PR #1870's stale base). A reader on the tip could not tell the red apart
+    from a tip failure. The job is renamed `judge` so the ONLY "verdict"-named check-run is the
+    posted, authoritative one.
+    """
+    wf = _workflow("ci-verdict.yml")
+    assert "verdict" not in wf["jobs"], wf["jobs"].keys()
+    assert "judge" in wf["jobs"], wf["jobs"].keys()
+    # the authoritative posted check-run keeps its distinct, reader-facing name
+    text = (WF / "ci-verdict.yml").read_text(encoding="utf-8")
+    assert "make ci-verdict REPO=" in text
+    assert "ci-verdict" not in wf["jobs"], "the auto job row must not steal the posted check-run name"
+
+
 # ---- 9. a post-merge straggler (a run on a branch whose PR is already merged) ----------
 
 #: Run 41948125618 @ 8bc3be7d — measured 2026-11-05. A `pull_request` run created 01:22:53Z, ~24
