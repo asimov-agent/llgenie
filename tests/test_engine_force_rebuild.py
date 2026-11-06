@@ -481,6 +481,9 @@ def test_a_forced_push_build_does_not_read_the_cache(monkeypatch, tmp_path):
     assert not any(a == "--cache-from" for a in build)
     assert any(str(a).startswith("type=registry,ref=ghcr.io/asimov-agent/llgenie/demo:buildcache")
                for a in build)
+    # force drops the read side; only the write side consults the cache, so exactly ONE probe
+    probes = [c for c in calls if c[:4] == ["docker", "buildx", "imagetools", "inspect"]]
+    assert len(probes) == 1, probes
 
 
 def test_a_forced_push_build_missing_cache_writes_cold(monkeypatch, tmp_path):
