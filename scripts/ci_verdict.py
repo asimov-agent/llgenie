@@ -310,6 +310,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{TAG} FAILED: could not reach a verdict — {exc}", file=sys.stderr)
         return EXIT_ERROR
 
+    # The verdict's OWN check-run is attributed back into the run's job list (measured on run
+    # 42275871131 @ cf88d285, #1882): `ci-verdict.yml`'s `judge` posts a check-run named
+    # `CHECK_NAME` to the head, and GitHub lists that posted check-run as a job of the judged run
+    # (`workflow_name: "CI"`). `ci_scope.verify()` then sees a `ci-verdict` job that is not in the
+    # 10-job decision table, concludes `failure`, and reds a run whose real jobs are all green —
+    # a feedback loop (once red, every re-judge re-counts it). The verdict must not judge itself:
+    # drop the row named `CHECK_NAME` from the observed set before verifying.
+    jobs = [j for j in jobs if ci_scope.normalise_job_name(j.get("name") or "") != CHECK_NAME]
     result = ci_scope.verify(decision_obj, jobs)
     lines = verdict_lines(result, run, superseding)
     if merged_pr is not None:

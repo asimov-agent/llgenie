@@ -301,6 +301,42 @@ def _cli(tmp_path, jobs, decision=None) -> tuple[int, Path]:
     return cv.main(argv), checks
 
 
+def test_the_verdict_does_not_judge_its_own_posted_check_run(tmp_path, capsys):
+    """A green run whose job list contains its own `ci-verdict` check-run judges green (#1882).
+
+    `ci-verdict.yml`'s `judge` posts a check-run named `ci-verdict` to the head, and GitHub
+    attributes that posted check-run back into the judged run's job list (measured on run
+    42275871131 @ cf88d285: an 11th job `ci-verdict` with `workflow_name: "CI"`). Before the fix
+    `verify()` saw a `ci-verdict` job not in the 10-job decision table, concluded `failure`, and
+    red a run whose real jobs were all green — a feedback loop. The verdict must not judge itself.
+    """
+
+    # Given a full-matrix decision and the 10 real jobs all green PLUS the run's own ci-verdict row
+    decision = decision_for(FULL_MATRIX_PATH)
+    jobs = [{"name": "guard", "status": "completed", "conclusion": "success"},
+            {"name": "ci-images", "status": "completed", "conclusion": "success"},
+            {"name": "scanner-images", "status": "completed", "conclusion": "success"},
+            {"name": "linux/lint", "status": "completed", "conclusion": "success"},
+            {"name": "linux/unit", "status": "completed", "conclusion": "success"},
+            {"name": "linux/install", "status": "completed", "conclusion": "success"},
+            {"name": "linux/agents-read", "status": "completed", "conclusion": "success"},
+            {"name": "linux/openspec", "status": "completed", "conclusion": "success"},
+            {"name": "linux/top-tier", "status": "completed", "conclusion": "success"},
+            {"name": "linux/cpu-health", "status": "completed", "conclusion": "success"},
+            {"name": "ci-verdict", "status": "completed", "conclusion": "failure"}]
+
+    # When  the verdict runs against those jobs
+    rc, checks = _cli(tmp_path, jobs, decision=decision)
+    out = capsys.readouterr().out
+
+    # Then  it exits 0 and posts success — the ci-verdict row is not counted as a failure
+    assert rc == 0, out
+    payload = json.loads(checks.read_text(encoding="utf-8"))
+    assert payload["conclusion"] == "success"
+    assert "verdict=green" in payload["output"]["summary"], payload["output"]["summary"]
+    assert "ci-verdict FAILED" not in payload["output"]["summary"], payload["output"]["summary"]
+
+
 def test_the_cli_exits_one_and_writes_a_failure_check_run_for_a_cancelled_run(tmp_path, capsys):
     # Given the measured cancelled fan-out and no decision
     rc, checks = _cli(tmp_path, CANCELLED_FANOUT)
