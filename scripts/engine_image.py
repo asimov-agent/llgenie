@@ -203,6 +203,29 @@ def _cache_read_args(cache_ref: str) -> list[str]:
     return ["--cache-from", f"type=registry,ref={cache_ref}"]
 
 
+def _cache_write_args(cache_ref: str) -> list[str]:
+    """`--cache-to type=registry` for the write, tolerating an engine whose package is not on GHCR.
+
+    The read side already builds COLD when the cache ref is absent (#1842). The write side has the
+    same hazard in reverse: `--cache-to type=registry,ref=<missing-package>` fails the WHOLE build
+    with `not found` when the engine's package does not exist on the registry yet (e.g. tensorfold's
+    `buildcache-cuda` before its first publish, issue #1880) — the ref's parent image namespace is
+    not there for buildx to create the cache under. We probe the ref with the same
+    `docker buildx imagetools inspect` the read uses; when the image is absent we build COLD and
+    skip the cache write (a printed note, not a silent skip, #1796). The cache is seeded as soon as
+    the engine's package exists on the registry (a later publish), so the write is only ever skipped
+    for an engine that has never been published at all.
+    """
+    if not REGISTRY:
+        return []
+    exists = _sh([RUNTIME, "buildx", "imagetools", "inspect", cache_ref], capture_output=True).returncode == 0
+    if not exists:
+        print(f"[engine-image] registry cache {cache_ref} absent -> cold build (cache write skipped; #1880)",
+              flush=True)
+        return []
+    return ["--cache-to", f"type=registry,ref={cache_ref},mode=max"]
+
+
 def _buildx(tag: str, ctx: str, push: bool, cache_ref: str, force: bool = False) -> int:
     """docker buildx with a registry layer cache: unchanged layers are reused
     across CI runs and machines (cache_ref = <registry>/<name>:buildcache).
@@ -215,7 +238,7 @@ def _buildx(tag: str, ctx: str, push: bool, cache_ref: str, force: bool = False)
     if push and REGISTRY:
         # push ONLY the registry-qualified tag (a bare llgenie/... tag would go to Docker Hub)
         cmd = [RUNTIME, "buildx", "build", "--progress=plain", "-t", f"{REGISTRY}/{tag}", *no_cache, *cache_args,
-               "--cache-to", f"type=registry,ref={cache_ref},mode=max", "--push", ctx]
+               *_cache_write_args(cache_ref), "--push", ctx]
         rc = _sh(cmd).returncode
         if rc == 0:  # make the image available locally under its bare tag too
             _sh([RUNTIME, "pull", f"{REGISTRY}/{tag}"], capture_output=True)
@@ -246,7 +269,7 @@ def _buildx(tag: str, ctx: str, push: bool, cache_ref: str, force: bool = False)
         # runs only when LLGENIE_CACHE_WRITE=1, set solely by the owner-guarded engine-build
         # dispatch job (never a PR/fork/local build), so a read-only runner never attempts it.
         if CACHE_WRITE:
-            cmd += ["--cache-to", f"type=registry,ref={cache_ref},mode=max"]
+            cmd += _cache_write_args(cache_ref)
     return _sh(cmd + [ctx]).returncode
 
 

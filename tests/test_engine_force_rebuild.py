@@ -142,12 +142,13 @@ def test_a_cache_write_build_stays_on_the_container_builder(monkeypatch, tmp_pat
 
 
 def test_a_missing_cache_image_builds_cold_not_red(monkeypatch, tmp_path):
-    """A never-seeded registry cache must not red the cell (issue #1842).
+    """A never-seeded registry cache must not red the cell (issues #1842, #1880).
 
     `--cache-from type=registry,ref=<missing>` makes buildx fail the whole build with
-    `manifest unknown`. The read must tolerate the absence: when the probe finds no cache
-    image the build proceeds cold (no --cache-from) — a time cost, never a red cell — while
-    the privileged write (--cache-to) still seeds the cache for the next run.
+    `manifest unknown`, and `--cache-to type=registry,ref=<missing-package>` fails with
+    `not found` when the engine's package is not on the registry yet. The read AND the
+    write must tolerate the absence: when the probe finds no cache image the build
+    proceeds cold (no --cache-from, no --cache-to) — a time cost, never a red cell.
     """
 
     calls: list[list[str]] = []
@@ -166,12 +167,11 @@ def test_a_missing_cache_image_builds_cold_not_red(monkeypatch, tmp_path):
     # When an unforced build runs against a never-seeded cache
     ei._buildx("llgenie/demo:t", str(tmp_path), False, "ghcr.io/asimov-agent/llgenie/demo:buildcache")
 
-    # Then the build is COLD: no --cache-from is passed (no manifest-unknown failure)…
+    # Then the build is COLD: no --cache-from and no --cache-to (no manifest-unknown /
+    # not-found failure) — a missing cache is a time cost, never a red cell
     build = calls[-1]
     assert "--cache-from" not in build, build
-    # …but the privileged cache WRITE still seeds the cache for the next run
-    assert any(str(a).startswith("type=registry,ref=ghcr.io/asimov-agent/llgenie/demo:buildcache,")
-               and "mode=max" in str(a) for a in build)
+    assert "--cache-to" not in build, build
 
 
 def test_a_present_cache_image_keeps_cache_from(monkeypatch, tmp_path):
@@ -198,6 +198,35 @@ def test_a_present_cache_image_keeps_cache_from(monkeypatch, tmp_path):
     assert not any(a == "--cache-to" for a in build)  # unprivileged read stays read-only
 
 
+def test_a_present_cache_image_still_writes_when_privileged(monkeypatch, tmp_path):
+    """A seeded cache ref is still written by the privileged owner-guarded run (issue #1880).
+
+    The write tolerance only suppresses the failure when the engine's package is absent
+    from the registry. When the cache ref exists (the package is published), the
+    CACHE_WRITE=1 owner-guarded build still seeds `--cache-to` for the next run — the
+    write is not unconditionally dropped.
+    """
+
+    calls: list[list[str]] = []
+
+    def sh(cmd, **kw):
+        calls.append(list(cmd))
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(ei, "_sh", sh)
+    monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+    monkeypatch.setattr(ei, "CACHE_WRITE", True)
+
+    # When a privileged build runs against an existing cache image
+    ei._buildx("llgenie/demo:t", str(tmp_path), False, "ghcr.io/asimov-agent/llgenie/demo:buildcache")
+
+    # Then the cache is read AND written (the write is not dropped by the #1880 tolerance)
+    build = calls[-1]
+    assert "--cache-from" in build, build
+    assert any(str(a).startswith("type=registry,ref=ghcr.io/asimov-agent/llgenie/demo:buildcache,")
+               and "mode=max" in str(a) for a in build)
+
+
 def test_a_forced_push_build_does_not_read_the_cache(monkeypatch, tmp_path):
     """A publishing forced build passes --no-cache and still writes the cache for later runs."""
 
@@ -210,7 +239,7 @@ def test_a_forced_push_build_does_not_read_the_cache(monkeypatch, tmp_path):
                "ghcr.io/asimov-agent/llgenie/demo:buildcache", force=True)
 
     # Then  no layer cache is read, but the fresh layers are written back
-    build = calls[0]
+    build = next(c for c in calls if "buildx" in c and "build" in c)
     assert "--no-cache" in build and "--push" in build
     assert not any(a == "--cache-from" for a in build)
     assert any(str(a).startswith("type=registry,ref=ghcr.io/asimov-agent/llgenie/demo:buildcache")
