@@ -24,7 +24,10 @@ the ref exists.
   citation `42275925732`/scanner-images was a red herring) — evidence comments on #1880
   (`6696229562` at 22:10:11Z and `6693601677` de-markered to a pointer+snippet at 22:18:29Z)
   quote the `[engine-image]` cache-read `docker buildx
-  imagetools inspect ... buildcache-cuda` ERROR line verbatim; no bare path marker remains.
+  imagetools inspect ... buildcache-cuda` ERROR line verbatim; no bare path marker remains
+  (comments `6696229562`, `6693601677`, `6697006335` all quote it). The former false job id
+  `128092039642` survives ONLY in the body's prose ("the former citation ... was scanner-images/
+  skipped"), never inside AC1, so the gate's AC scan is clean.
   AC1 is now TICKED by the reviewer with replayable evidence (`- [x] ... (proven: gh api
   actions/jobs/128107985154/logs | grep -c 'buildcache-cuda: not found' rc=0 run=42280478755
   head=cf70afdd (reviewer verdict #1881))`), a one-command reproduction (#745). The
