@@ -160,7 +160,12 @@ jobs:
       max-parallel: 20
       matrix: ${{ fromJSON(needs.matrix.outputs.matrix) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 240
+    # Per-cell budget (issue #1818, owner ruling 2026-11-02, measured band):
+    # the vllm/rocm cell was cancelled on the flat 240m wall 5 times
+    # (runs killed at exactly 241m) while its completed-success band is
+    # p50 ~60m / max ~107m (#1694); rocm gets ~360 (3.4x max success) and every
+    # other cell keeps the tight 240m budget. Capacity only, no check weakened.
+    timeout-minutes: ${{ (matrix.variant == 'rocm') && 360 || 240 }}
     permissions:
       contents: read
       packages: write
