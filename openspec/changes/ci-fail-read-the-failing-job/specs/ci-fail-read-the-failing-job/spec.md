@@ -19,7 +19,8 @@ Then the lane first reads the failing job's own log with
 `gh api .../actions/jobs/<job-id>/logs --allow-escape-sequences`
 And quotes the exact failing step + `[step] FAILED` line + Makefile target + run id at the real head.
 And attributes the root cause to that gate via the gate→defect map (#792 AGENTS, #845 base,
-#1724 SYNC, #1329 closing, #858/#843 cancelled).
+#1724 SYNC, #1329 closing, #858/#843 cancelled, #1792 acceptance-criteria self-red =
+reviewer-owned).
 
 #### Scenario: green is reported only off a concluded run
 
