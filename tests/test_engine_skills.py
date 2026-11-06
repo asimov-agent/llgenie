@@ -860,7 +860,7 @@ def test_push_targets_only_the_registry_tag(monkeypatch):
     rc = ei._buildx("llgenie/base-cpu:abc", "/ctx", True, "ghcr.io/asimov-agent/llgenie/base-cpu:buildcache")
 
     # Then the build pushes only the qualified tag, with the registry cache in and out
-    build = calls[0]
+    build = next(c for c in calls if "--push" in c)
     tags = [build[i + 1] for i, a in enumerate(build) if a == "-t"]
     assert rc == 0
     assert tags == ["ghcr.io/asimov-agent/llgenie/base-cpu:abc"]
