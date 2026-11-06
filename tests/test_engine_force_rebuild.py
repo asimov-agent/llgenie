@@ -368,6 +368,39 @@ def test_a_forced_push_build_does_not_read_the_cache(monkeypatch, tmp_path):
                for a in build)
 
 
+def test_a_forced_push_build_missing_cache_writes_cold(monkeypatch, tmp_path):
+    """A forced PUSH build with a missing package still writes cold, never red (#1880).
+
+    On a force push build (`force=True, push=True`), `_cache_write_args` is still
+    appended to the command (the write path is not skipped by force). When the engine's
+    package is absent from the registry (`buildcache-cuda: not found`), the write
+    tolerance must hold there too: no `--cache-to`, no `--cache-from` (force never reads),
+    and the build proceeds — a time cost, never a red cell.
+    """
+
+    calls: list[list[str]] = []
+
+    def sh(cmd, **kw):
+        calls.append(list(cmd))
+        # "imagetools inspect" is the cache-existence probe: report it absent (rc 1).
+        probe = any("imagetools" in a for a in cmd)
+        return subprocess.CompletedProcess(cmd, 1 if probe else 0)
+
+    monkeypatch.setattr(ei, "_sh", sh)
+    monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+    monkeypatch.setattr(ei, "CACHE_WRITE", True)
+
+    # When a forced PUSH build runs against a never-seeded cache
+    ei._buildx("llgenie/demo:t", str(tmp_path), True,
+               "ghcr.io/asimov-agent/llgenie/demo:buildcache", force=True)
+
+    # Then the build is COLD: --no-cache, no --cache-from, no --cache-to — never red
+    build = next(c for c in calls if "buildx" in c and "build" in c)
+    assert "--no-cache" in build and "--push" in build
+    assert "--cache-from" not in build, build
+    assert "--cache-to" not in build, build
+
+
 def test_a_forced_build_ignores_an_available_image(monkeypatch, tmp_path):
     """`available -> no rebuild` must not short-circuit a forced build."""
 
