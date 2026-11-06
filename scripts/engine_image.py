@@ -42,7 +42,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import engine_skills as es  # noqa: E402
 import hf_auth  # noqa: E402
-from proc import run_ok  # noqa: E402  the subprocess policy seam (issue #797)
+from proc import run_ok, run_live  # noqa: E402  the subprocess policy seam (issue #797)
 
 # Generated with the params (make generate-engine-params): engine -> variant ->
 # {binary, flags}. The binary-file check reads it instead of a skill, so the
@@ -138,6 +138,17 @@ def _sh(cmd: list[str], **kw) -> subprocess.CompletedProcess:
                 sys.stderr.write(stream if stream.endswith("\n") else stream + "\n")
                 sys.stderr.flush()
     return r
+
+
+def _sh_live(cmd: list[str], **kw) -> subprocess.CompletedProcess:
+    """Run a long-running build, streaming BOTH streams to the caller's log in real time.
+
+    Deliberately separate from `_sh`: `_sh` captures so a failing child's output can be re-surfaced;
+    `_sh_live` passes the child's streams straight through so an engine compile's per-step progress
+    lands on the terminal / CI log the moment it is written (proc.py run_live policy, issue #797).
+    """
+    print("[engine-image] $", " ".join(cmd), flush=True)
+    return run_live(cmd, **kw)
 
 
 def image_exists(tag: str) -> bool:

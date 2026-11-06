@@ -432,6 +432,30 @@ jobs:
       - name: make ci-scanner-images (build + version-test every scanner; publish on a push run)
         run: make ci-scanner-images
 
+  # The pin gate waits for engine-build to publish. It is not a step of linux/unit:
+  # that job's ceiling is 120 minutes (#1173) and the producer is allowed 240.
+  # A one-shot 404 there redded the PR while CUDA and ROCm were still compiling
+  # (PR #1696, run 41718281623). This job only polls the registry. A change that
+  # repins nothing returns immediately. 300 is the hang ceiling tests allow.
+  engine-pins:
+    needs: [guard]
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - name: Wait until every repinned engine image is published
+        env:
+          LLGENIE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --prune origin main
+          make check-engine-pins-published WAIT=290
+
   linux:
     # `guard` is in `needs` for its row-selection output (issue #859): `linux / top-tier` follows
     # the `ci:slow` label, every other row of this call does not.

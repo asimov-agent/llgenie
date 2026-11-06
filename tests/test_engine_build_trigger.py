@@ -82,10 +82,13 @@ def _fake_gh(monkeypatch, before_ids=None, new_run=None, guard_conclusion="succe
             if state["dispatched"] and new_run is not None:
                 runs.append({"id": state["new_id"], "event": "workflow_dispatch",
                              "path": ".github/workflows/engine-build.yml"})
-            # `_push_group_holder` filters `.status == "in_progress"`; the plain run-list reads do not.
+            # `_push_group_holder` filters `.status == "in_progress"` (and reads "\n"-joined
+            # ids); the plain run-list reads (`_existing_run_ids`, `_branch_producers`) want
+            # the JSON dict and match the real no-leading-slash `.path` shape (#2043, #1696).
             if "in_progress" in target_jq:
                 runs = [r for r in runs if r.get("status") == "in_progress"]
-            return "\n".join(str(r["id"]) for r in runs)
+                return "\n".join(str(r["id"]) for r in runs)
+            return json.dumps({"workflow_runs": runs})
         if "/jobs" in target:
             return json.dumps({"jobs": [{"name": "guard", "conclusion": state["guard_conclusion"]}]})
         # single-run verdict
@@ -106,6 +109,7 @@ def _fake_gh(monkeypatch, before_ids=None, new_run=None, guard_conclusion="succe
         return type("R", (), {"stdout": "", "returncode": 0})()
 
     monkeypatch.setattr(ebt.subprocess, "run", fake_run)
+    state["calls"] = recorded["calls"]
     return state
 
 
@@ -293,6 +297,95 @@ def test_a_stalled_gh_call_cannot_hold_the_poll_past_its_deadline(monkeypatch):
     # The stalled subprocess is bounded: _sh returns promptly, "" on TimeoutExpired.
     assert out == ""
     assert time.time() - t0 < 5  # returned in ~1s, not after the 10s sleep
+
+
+def test_detached_head_dispatches_the_pull_request_branch(monkeypatch):
+    """A detached pull_request checkout must not dispatch `--ref HEAD` (HTTP 422, PR #1696)."""
+    assert ebt._dispatch_ref("fix/1558-vllm-rocm-build") == "fix/1558-vllm-rocm-build"
+    monkeypatch.setenv("GITHUB_HEAD_REF", "fix/1558-vllm-rocm-build")
+    assert ebt._dispatch_ref("") == "fix/1558-vllm-rocm-build"
+    assert ebt._dispatch_ref("HEAD") == "fix/1558-vllm-rocm-build"
+
+
+def test_a_rejected_dispatch_fails_without_waiting(monkeypatch, capsys):
+    """HTTP 422 from `gh workflow run` is the failure. Do not poll for a run that was never created."""
+    _stub_base(monkeypatch)
+    _stub_repin(monkeypatch, engine="vllm")
+
+    def fake_run(args, **kwargs):
+        return type("R", (), {"stdout": "", "stderr": "could not create workflow dispatch event: HTTP 422: No ref found for: HEAD", "returncode": 1})()
+
+    monkeypatch.setattr(ebt.subprocess, "run", fake_run)
+    monkeypatch.setattr(ebt, "_gh", lambda *a, **k: "")
+    rc = _run(["check", "--base", _BASE, "--repo", "asimov-agent/llgenie",
+               "--branch", "fix/1558-vllm-rocm-build", "--gh", "gh"])
+    assert rc == 1
+    assert "No ref found for: HEAD" in capsys.readouterr().err
+
+
+def test_slashless_workflow_path_counts_as_the_producer(monkeypatch):
+    """The runs API omits the leading slash. That run is the producer (PR #1696)."""
+    payload = json.dumps({"workflow_runs": [
+        {"id": 5, "event": "workflow_dispatch", "path": ".github/workflows/engine-build.yml"},
+        {"id": 6, "event": "workflow_dispatch", "path": "/.github/workflows/engine-build.yml"},
+        {"id": 7, "event": "pull_request", "path": ".github/workflows/engine-build.yml"},
+        {"id": 8, "event": "workflow_dispatch", "path": ".github/workflows/ci.yml"},
+    ]})
+    monkeypatch.setattr(ebt, "_gh", lambda *a, **k: payload)
+    assert ebt._existing_run_ids("asimov-agent/llgenie", "gh") == {"5", "6"}
+
+
+def test_dispatch_repeats_field_so_push_is_an_input(monkeypatch):
+    """`push=true` must be its own `--field`. One `--field` drops the rest and the run does not publish."""
+    assert ebt._workflow_run_args("gh", "asimov-agent/llgenie", "fix/1558-vllm-rocm-build",
+                                  ["engine=vllm", "push=true"]) == [
+        "gh", "workflow", "run", "engine-build.yml", "--repo", "asimov-agent/llgenie",
+        "--ref", "fix/1558-vllm-rocm-build", "--field", "engine=vllm", "--field", "push=true",
+    ]
+    _stub_base(monkeypatch)
+    _stub_repin(monkeypatch, engine="vllm")
+    state = _fake_gh(monkeypatch, before_ids=[1],
+                     new_run={"status": "completed", "conclusion": "success", "completed_at": "2026-11-03T00:00:00Z"})
+    rc = _run(["check", "--base", _BASE, "--repo", "asimov-agent/llgenie",
+               "--branch", "fix/1558-vllm-rocm-build", "--gh", "gh"])
+    assert rc == 0
+    cmd = next(c for c in state["calls"] if c and c[:2] == ["gh", "workflow"])
+    assert cmd.count("--field") == 2
+    assert cmd[cmd.index("--field") + 1] == "engine=vllm"
+    assert cmd[cmd.index("push=true") - 1] == "--field"
+
+
+def test_an_in_progress_producer_on_this_branch_is_awaited(monkeypatch, capsys):
+    """A second trigger for the same params must not dispatch another engine-build."""
+    _stub_base(monkeypatch)
+    _stub_repin(monkeypatch, engine="vllm")
+    calls = []
+
+    def fake_run(args, **kwargs):
+        calls.append(list(args) if args else [])
+        return type("R", (), {"stdout": "", "stderr": "", "returncode": 0})()
+
+    def fake_gh(repo, *args, gh="gh"):
+        target = args[0] if args else ""
+        if "branch=" in target:
+            return json.dumps([{
+                "id": "41696864556", "status": "in_progress", "conclusion": None,
+                "head_sha": "7487a1c6",
+            }])
+        if target.startswith("41696864556/jobs"):
+            return "engine-build-vllm-cpu\nengine-build-vllm-rocm\n"
+        if target.startswith("41696864556"):
+            return json.dumps({"status": "completed", "conclusion": "success"})
+        return json.dumps({"workflow_runs": []})
+
+    monkeypatch.setattr(ebt, "_params_match", lambda sha: True)
+    monkeypatch.setattr(ebt.subprocess, "run", fake_run)
+    monkeypatch.setattr(ebt, "_gh", fake_gh)
+    rc = _run(["check", "--base", _BASE, "--repo", "asimov-agent/llgenie",
+               "--branch", "fix/1558-vllm-rocm-build", "--gh", "gh"])
+    assert rc == 0
+    assert not any(c[:2] == ["gh", "workflow"] for c in calls)
+    assert "awaiting it, not dispatching again" in capsys.readouterr().out
 
 
 def test_dry_run_prints_the_plan_without_dispatching(monkeypatch, capsys):

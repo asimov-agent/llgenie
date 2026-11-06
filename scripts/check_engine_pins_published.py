@@ -24,6 +24,12 @@ lookup per repinned tag (`engine_image._digest_http`), the same hermetic-testabl
 probe `wait_published` uses (issue #169). LLGENIE_REGISTRY overrides the registry
 (a fork's GHCR), matching every other engine path.
 
+A one-shot 404 is the local and unit-test verdict. CI passes `--wait-min` because
+the producer (`engine-build`, 240 minutes) is still compiling when this gate first
+runs. The `linux / unit` job cannot hold that long: its ceiling is 120 minutes
+(#1173). The waiter is its own job. It polls until every repinned tag resolves or
+the wait expires. A tag that is still absent at the deadline fails the job.
+
 Usage:
     python3 scripts/check_engine_pins_published.py check [--base REF]   # exit 1 on an unavailable repinned tag
     python3 scripts/check_engine_pins_published.py report [--base REF]  # print the repinned set and the lookups
@@ -37,6 +43,7 @@ import argparse
 import json
 import subprocess
 import sys
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -45,6 +52,8 @@ sys.path.insert(0, str(REPO / "scripts"))
 
 import engine_image as ei  # noqa: E402
 import base_ref  # noqa: E402
+
+POLL_SECONDS = 30  # a published tag is visible within a poll; the log stays alive
 
 
 def repinned_engine_ids(base: str, root: Path | None = None) -> list[str]:
@@ -72,16 +81,8 @@ def exact_tags(engine: str, variant: str) -> str:
     return ei.resolve(engine, None, variant)["tag"]
 
 
-def check(base: str, root: Path | None = None,
-          digest: Callable[[str], tuple[str, str]] | None = None,
-          registry: str | None = None) -> int:
-    """Exit 0 only when every repinned engine's exact tag resolves a manifest."""
-    registry = registry if registry is not None else ei.REGISTRY
-    probe = digest if digest is not None else ei._digest_http
-    ids = repinned_engine_ids(base, root)
-    if not ids:
-        print("[pins] no engine this change repins; nothing to check")
-        return 0
+def _probe_repins(ids: list[str], probe, registry: str) -> tuple[list[str], int]:
+    """Look up every buildable variant. Returns (missing refs, how many were checked)."""
     missing: list[str] = []
     checked = 0
     for engine in ids:
@@ -91,21 +92,44 @@ def check(base: str, root: Path | None = None,
                 continue
             tag = exact_tags(engine, variant)
             ref = f"{registry}/{tag}"
-            d, err = probe(ref)
+            digest, err = probe(ref)
             checked += 1
-            if d:
+            if digest:
                 print(f"[pins] PUBLISHED {ref}")
             else:
                 missing.append(ref)
                 print(f"[pins] NOT PUBLISHED {ref} ({err})")
-    if missing:
-        print(f"[pins] FAIL {len(missing)} repinned image(s) are not published "
-              f"(of {checked} checked): a pin bump may merge only once its image is "
-              f"on the registry — dispatch engine-build with push=true for the "
-              f"repinned engine, then re-run this check (issue #1622)", file=sys.stderr)
-        return 1
-    print(f"[pins] every repinned engine image ({checked}) is published")
-    return 0
+    return missing, checked
+
+
+def check(base: str, root: Path | None = None,
+          digest: Callable[[str], tuple[str, str]] | None = None,
+          registry: str | None = None, wait_min: int = 0) -> int:
+    """Exit 0 only when every repinned engine's exact tag resolves a manifest.
+
+    `wait_min` polls a 404 until the producer publishes the tag. Zero is one shot.
+    """
+    registry = registry if registry is not None else ei.REGISTRY
+    probe = digest if digest is not None else ei._digest_http
+    ids = repinned_engine_ids(base, root)
+    if not ids:
+        print("[pins] no engine this change repins; nothing to check")
+        return 0
+    deadline = time.time() + max(0, wait_min) * 60
+    while True:
+        missing, checked = _probe_repins(ids, probe, registry)
+        if not missing:
+            print(f"[pins] every repinned engine image ({checked}) is published")
+            return 0
+        if wait_min <= 0 or time.time() >= deadline:
+            print(f"[pins] FAIL {len(missing)} repinned image(s) are not published "
+                  f"(of {checked} checked): a pin bump may merge only once its image is "
+                  f"on the registry — dispatch engine-build with push=true for the "
+                  f"repinned engine, then re-run this check (issue #1622)", file=sys.stderr)
+            return 1
+        print(f"[pins] waiting for {len(missing)} tag(s); the engine-build producer "
+              f"publishes them (poll {POLL_SECONDS}s, up to {wait_min} min)")
+        time.sleep(POLL_SECONDS)
 
 
 def report(base: str) -> int:
@@ -118,11 +142,13 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("cmd", choices=("check", "report"), nargs="?", default="check")
     ap.add_argument("--base", default="")
+    ap.add_argument("--wait-min", type=int, default=0,
+                    help="poll a 404 until the producer publishes the tag (0 = one shot)")
     args = ap.parse_args(argv)
     base = base_ref.resolve_base(explicit=args.base, quiet=True)
     if args.cmd == "report":
         return report(base)
-    return check(base)
+    return check(base, wait_min=args.wait_min)
 
 
 if __name__ == "__main__":

@@ -82,4 +82,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          make engine-build-pr-trigger BASE="${{ github.event.pull_request.base.sha }}"
+          # pull_request checkouts are detached. Dispatch at the source branch, not the
+          # literal HEAD ref (HTTP 422 "No ref found for: HEAD", PR #1696).
+          make engine-build-pr-trigger BASE="${{ github.event.pull_request.base.sha }}" BRANCH="${{ github.head_ref }}"
