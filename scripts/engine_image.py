@@ -967,6 +967,13 @@ def container_name(spec: dict) -> str:
 # CI builds these variants of every engine (in parallel, one job each). The
 # full per-arch list stays buildable on demand with make build-engine ARCH=.
 CI_VARIANTS = ("cpu", "cuda", "rocm", "vulkan")   # one image per backend (fat GPU arch lists)
+# Engines whose DEFAULT whole-set sweep (ARCH= empty) builds CPU only: the GPU cell
+# does not fit the standard runner, so it must not be in the default build-engine
+# pipeline — a GPU vllm image is built only when ARCH=cuda / ARCH=rocm is explicit
+# (issue #1836; owner directive 2026-11-06: vllm rocm/cuda "not part of the default
+# build engine pipeline"). cuda OOMs on the 16 GiB runner (run 42176975953, exit 143),
+# rocm runs ~4 h and is wall-cancelled (run 42159549121).
+DEFAULT_CPU_ONLY = {"vllm"}
 # Engine x arch images that are NOT built, published, installed or tested until
 # their tracking issue is fixed (CI run 37398159369 on PR #101). The single
 # source of truth: `matrix(ci=True)` drops them, make install never pulls them
@@ -1059,6 +1066,14 @@ def matrix(ci: bool = False, changed: str = "", params_dir=None,
             continue
         for key, v in params["variants"].items():
             if arch and key != arch:
+                continue
+            # Default whole-set sweep: engines in DEFAULT_CPU_ONLY build their cpu
+            # cell only — a GPU cell that does not fit the runner (vllm cuda/rocm)
+            # is intentionally NOT part of the default build-engine pipeline
+            # (issue #1836). An explicit ARCH=cuda/rocm still builds exactly that
+            # variant because the `arch and key != arch` branch above already
+            # narrowed `key` to the requested arch.
+            if not arch and params["id"] in DEFAULT_CPU_ONLY and key != "cpu":
                 continue
             if ci and (key not in CI_VARIANTS or disabled(params["id"], key)):
                 continue

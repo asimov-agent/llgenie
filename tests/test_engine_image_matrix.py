@@ -413,7 +413,9 @@ def test_each_bumped_engine_gets_its_make_calls(tmp_path):
         path.write_text(original)
 
         # Then CI's make commands name that engine and each of its CI variants
-        variants = [v for v in params["variants"] if v in ei.CI_VARIANTS and not ei.disabled(engine, v)]
+        variants = [v for v in params["variants"]
+                    if v in ei.CI_VARIANTS and not ei.disabled(engine, v)
+                    and not (engine in ei.DEFAULT_CPU_ONLY and v != "cpu")]
         if not variants:
             assert rows == [PLACEHOLDER], engine
             continue
@@ -460,6 +462,33 @@ def test_a_variant_param_builds_only_that_variant(tmp_path):
 
     # Then only vllm/cpu is rebuilt; its cuda/rocm rows are already published
     assert {(r["engine"], r["variant"]) for r in rows} == {("vllm", "cpu")}
+
+
+def test_default_vllm_matrix_is_cpu_only_and_explicit_arch_builds_gpu(tmp_path):
+    """Issue #1836: the default whole-set sweep builds vllm CPU only; the GPU
+    cells are built only when ARCH=cuda / ARCH=rocm is explicit.
+
+    The vllm cuda cell OOMs the standard runner (run 42176975953, exit 143) and
+    the rocm cell runs ~4 h and is wall-cancelled (run 42159549121), so a GPU
+    vllm cell must NOT be part of the default build-engine pipeline. An explicit
+    ARCH= still emits exactly that variant.
+    """
+
+    # Given the real committed build inputs (params carry vllm cuda/rocm/cpu)
+    repo, sha = _real_build_inputs(tmp_path)
+
+    # When the default (ARCH= empty, CI) matrix is computed
+    default = ei.matrix(ci=True)
+
+    # Then vllm is CPU-only: cpu present, cuda/rocm absent
+    vllm = {r["variant"] for r in default if r["engine"] == "vllm"}
+    assert "cpu" in vllm
+    assert vllm == {"cpu"}, vllm
+
+    # And the explicit-arch matrix still emits exactly that GPU variant
+    for arch in ("cuda", "rocm"):
+        gpu = {r["variant"] for r in ei.matrix(ci=True, arch=arch) if r["engine"] == "vllm"}
+        assert gpu == {arch}, (arch, gpu)
 
 
 def test_a_shared_build_file_rebuilds_every_ci_engine(tmp_path):
