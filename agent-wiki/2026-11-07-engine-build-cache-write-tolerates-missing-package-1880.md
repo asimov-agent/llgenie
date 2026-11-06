@@ -23,6 +23,11 @@ the ref exists.
   — recorded under `## Not covered`'s sibling issue evidence and pending the reviewer's
   verdict-gated `--proven` tick (#1644); see #1880.
 - **AC2** (a default `make engine-build` sweep completes with **all** cells `success`) — **out of
-  scope for this PR**, deferred to the tracked work item **#1888**: the default sweep's
-  `engine-build-tensorfold-cuda` cell is blocked by the tensorfold-cuda `-h`/`--help`/`-V` flag
-  probe answering nothing (exit 2), a defect distinct from the cache-write handling this PR fixes.
+  scope for this PR**, deferred to three distinct tracked work items, each OPEN:
+  - **#1888** — the default sweep's `engine-build-tensorfold-cuda` cell is blocked by the
+    tensorfold-cuda `-h`/`--help`/`-V` flag probe answering nothing (exit 2);
+  - **#1832** — `make build-engine ENGINE=vllm ARCH=cuda` fails (`buildcache-cuda: not found`),
+    reds every producer at any head;
+  - **#1558** — the vllm/rocm `rocm==0.1.0` runtime dep build fails under `--no-build-isolation`
+    (poetry backend missing; `buildcache-rocm: not found`).
+  These are defects distinct from the cache-write handling this PR fixes.
