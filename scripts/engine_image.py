@@ -207,8 +207,9 @@ def _cache_read_args(cache_ref: str, exists: bool | None = None) -> list[str]:
     red. The absence is a recorded decision (a printed note), not a silent skip (#1796). The
     write (`--cache-to`) is untouched: the first cold build seeds the cache for its next run.
 
-    `exists` threads a probe result already computed by the caller (the push path probes once and
-    passes it to both the read and the write), so the probe is not issued twice per build.
+    `exists` threads a probe result already computed by the caller — `_buildx` probes the ref
+    ONCE at the top and passes the result to BOTH the read and the write, on the push and the
+    local branches alike, so the probe is never issued twice per build.
     """
     if exists is None:
         exists = _cache_exists(cache_ref)
@@ -232,8 +233,9 @@ def _cache_write_args(cache_ref: str, exists: bool | None = None) -> list[str]:
     the engine's package exists on the registry (a later publish), so the write is only ever skipped
     for an engine that has never been published at all.
 
-    `exists` threads a probe result already computed by the caller (the push path probes once and
-    passes it to both the read and the write), so the probe is not issued twice per build.
+    `exists` threads a probe result already computed by the caller — `_buildx` probes the ref
+    ONCE at the top and passes the result to BOTH the read and the write, on the push and the
+    local branches alike, so the probe is never issued twice per build.
     """
     if exists is None:
         exists = _cache_exists(cache_ref)
