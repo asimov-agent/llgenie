@@ -23,7 +23,11 @@ a timer),
 `references/queue-and-pr-mechanics.md` (a starved sweeper, queue depth vs `cancel-in-progress`, diff and
 `gh pr list` lookups, union merges, silent arming, and — for a gate that rejects its own branch's
 identities — changing its comparison key: enumerate every consumer of the keyed data, close the pair gap
-symmetrically in every consumer, gate on the tests not the self-run, and negative-control each), `references/llgenie-engine-pipeline.md` (how a registry
+symmetrically in every consumer, gate on the tests not the self-run, and negative-control each), `references/red-bot-gate-read-the-failing-job-log.md` (on a red bot-gate: read the failing job's OWN log
+and quote the failing step + `[step] FAILED` line + Makefile target + run id at the real head BEFORE any
+fix dispatch or any green/red/reviewable claim; attribute the root cause to THAT gate via the
+gate→defect map, and report green only off a completed run id + head sha with no `linux/*` or
+guard/scope row `in_progress`/`cancelled`), `references/llgenie-engine-pipeline.md` (how a registry
 engine becomes a built, published image, and which bot/gate owns each step).
 
 Use whenever `make <gate>` shells into a test image (`docker run … <repo>/test:latest python -m pytest …`)
