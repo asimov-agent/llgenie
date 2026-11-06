@@ -73,8 +73,7 @@ SUBPROCESS_TIMEOUT = 30  # seconds a single shell/gh call may take
 
 def _sh(args: list[str]) -> str:
     try:
-        return subprocess.run(args, capture_output=True, text=True,
-                              timeout=SUBPROCESS_TIMEOUT).stdout  # proc-allow: direct subprocess call site, tracked remainder for issue #797
+        return subprocess.run(args, capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT).stdout  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (timeout so a stalled call cannot hold the poll past its deadline)
     except subprocess.TimeoutExpired:
         return ""  # no verdict this poll; the caller's deadline check decides
 
