@@ -363,6 +363,9 @@ def test_a_present_cache_image_keeps_cache_from(monkeypatch, tmp_path):
                and "--" not in a for a in build)
     assert "--cache-from" in build, build
     assert not any(a == "--cache-to" for a in build)  # unprivileged read stays read-only
+    # and, being a read-only local build, it consults only the read side — exactly ONE probe
+    probes = [c for c in calls if c[:4] == ["docker", "buildx", "imagetools", "inspect"]]
+    assert len(probes) == 1, probes
 
 
 def test_a_present_cache_image_still_writes_when_privileged(monkeypatch, tmp_path):
