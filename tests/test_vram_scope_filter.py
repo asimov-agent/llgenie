@@ -148,7 +148,7 @@ def test_consumers_read_the_scoped_view(tmp_path, monkeypatch):
     assert "cyber-frost-3.8-mlx" in [m["id"] for m in wide]
 
     # And the consumers that funnel through trend_list read the same view
-    assert "cyber-frost-3.8-mlx" not in [m["id"] for m in
+    assert "cyber-frost-3.8-mlx" not in [r["model"]["id"] for r in
                                          mp.rank_models(reg, "cuda", 64, vram_range=None)]
     assert "cyber-frost-3.8-mlx" not in [m["id"] for m in
                                          [r["model"] for r in mp.recommend(reg, "cuda", 64, ram_gb=64)]]
