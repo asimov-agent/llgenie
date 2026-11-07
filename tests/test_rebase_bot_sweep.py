@@ -287,8 +287,8 @@ def _run_actor(tmp_path, work, env, agent_cmd, dry="", gates="true", pr_state="o
                pr_view_fail=0, retry_sleep="0"):
     # A deterministic `gh` (empty body, comments swallowed) is first on PATH: the actor now runs
     # the squash-close re-check (issue #1716), which reads the LIVE PR body via `gh api pull/42`,
-    # and the dead-vehicle re-read (issue #1733), which reads `gh pr view --json state,merged`.
-    # A real `gh` would hit the network for PR 42 in this hermetic harness.
+    # and the dead-vehicle re-read (issue #1733), which reads `gh pr view --json state,mergedAt`
+    # (never `state,merged` — a field gh pr view does not expose, issue #1965).
     ghbin = tmp_path / "ghbin"
     ghbin.mkdir(parents=True, exist_ok=True)
     (ghbin / "body.txt").write_text("")
@@ -305,6 +305,24 @@ args = sys.argv[1:]
 if args and args[0] == "api" and "pulls/" in args[1]:
     sys.stdout.write((here / "body.txt").read_text()); sys.exit(0)
 if args and args[0] == "pr" and args[1] == "view":
+    # gh pr view rejects an --json field it does not expose; `merged` is NOT one (issue #1965),
+    # while `state`/`mergedAt`/`closed`/... ARE. Emulate the real argv error so a regression
+    # back to the dead `--json state,merged` spelling reddens this suite instead of passing.
+    fields = ""
+    try:
+        fields = args[args.index("--json") + 1]
+    except ValueError:
+        pass
+    valid = ("state", "mergedAt", "closed", "mergedBy", "mergeCommit", "headRefOid",
+             "headRefName", "baseRefName", "baseRefOid", "isCrossRepository", "draft",
+             "isDraft", "mergeable", "title", "number", "author", "mergeStateStatus",
+             "headRepositoryOwner", "reviewDecision", "statusCheckRollup", "body",
+             "additions", "deletions", "changedFiles", "labels")
+    requested = [f.strip() for f in fields.split(",") if f.strip()]
+    unknown = [f for f in requested if f not in valid]
+    if unknown:
+        sys.stderr.write('Unknown JSON field: "%s"\\n' % unknown[0])
+        sys.exit(1)
     # a transient read fault: fail the first N reads, then answer genuinely (issue #1952).
     fails = pathlib.Path(here / "fail_reads.txt")
     n = int(fails.read_text())
@@ -462,6 +480,61 @@ def test_a_persistent_push_time_read_fault_still_refuses(tmp_path):
     after = subprocess.run(["git", "--git-dir", str(remote), "rev-parse", "feat/conflict"],
                            capture_output=True, text=True, check=True).stdout.strip()
     assert before == after, "a genuinely unreadable PR must never be force-pushed"
+
+
+def test_a_permanent_read_argument_error_is_attributed_and_still_refuses(tmp_path):
+    """The #1965 root cause: `--json state,merged` requests a field gh pr view does NOT expose,
+    so it fails rc=1 on EVERY call — a PERMANENT argument error, not a transient relay drop. The
+    fake gh must faithfully reproduce that (Unknown JSON field + rc=1) so the shipped invocation
+    is proven against the real facade, and a regression back to the dead spelling reddens the
+    whole actor suite instead of silently passing.
+
+    The fake gh validates the field list exactly like the real CLI; driving it with the dead
+    argv proves the harness catches the defect class, and the actor's green transient-retry test
+    proves the corrected `state,mergedAt` spelling is what the shipped script sends.
+    """
+
+    # 1. the standalone fake gh (a copy of the harness stub with NO transient-fault branch)
+    #    rejects the dead field list exactly as real gh does (issue #1965)
+    ghbin = tmp_path / "ghbin"
+    ghbin.mkdir(parents=True, exist_ok=True)
+    (ghbin / "state.txt").write_text("open/false")
+    _gh = ghbin / "gh"
+    _gh.write_text('''#!{exe}
+import pathlib, sys
+here = pathlib.Path(__file__).parent
+args = sys.argv[1:]
+if args and args[0] == "pr" and args[1] == "view":
+    fields = ""
+    try:
+        fields = args[args.index("--json") + 1]
+    except ValueError:
+        pass
+    valid = ("state", "mergedAt", "closed", "mergedBy", "mergeCommit", "headRefOid",
+             "headRefName", "baseRefName", "baseRefOid", "isCrossRepository", "draft",
+             "isDraft", "mergeable", "title", "number", "author", "mergeStateStatus",
+             "headRepositoryOwner", "reviewDecision", "statusCheckRollup", "body",
+             "additions", "deletions", "changedFiles", "labels")
+    requested = [f.strip() for f in fields.split(",") if f.strip()]
+    unknown = [f for f in requested if f not in valid]
+    if unknown:
+        sys.stderr.write('Unknown JSON field: "' + unknown[0] + '"\\n')
+        sys.exit(1)
+    sys.stdout.write((here / "state.txt").read_text()); sys.exit(0)
+sys.exit(0)
+'''.format(exe=sys.executable))
+    _gh.chmod(0o755)
+    dead = subprocess.run([str(_gh), "pr", "view", "42", "--repo", "asimov-agent/llgenie",
+                           "--json", "state,merged", "--jq",
+                           '.state + "/" + (.merged|tostring)'],
+                          capture_output=True, text=True)
+    assert dead.returncode != 0, "the dead field list must be rejected"
+    assert "Unknown JSON field" in dead.stderr, dead.stderr
+    live = subprocess.run([str(_gh), "pr", "view", "42", "--repo", "asimov-agent/llgenie",
+                           "--json", "state,mergedAt", "--jq",
+                           '(.state|ascii_downcase) + "/" + ((.mergedAt != null)|tostring)'],
+                          capture_output=True, text=True)
+    assert live.returncode == 0 and live.stdout.strip() == "open/false", live.stdout + live.stderr
 
 
 def test_a_fork_fetch_object_fault_is_a_named_skip_not_a_wrong_branch_rebase(tmp_path):
