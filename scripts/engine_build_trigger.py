@@ -364,8 +364,9 @@ def check(base: str, engine_filter: str = "", arch: str = "", dry: bool = False,
             print(msg, file=sys.stderr)
             failures += 1
         elif outcome.get("conclusion") != "success":
+            extra = f" — {outcome['error']}" if outcome.get("error") else ""
             print(f"[will] FAIL engine={e}: run {outcome.get('run_id')} concluded "
-                  f"{outcome.get('status')}/{outcome.get('conclusion')}", file=sys.stderr)
+                  f"{outcome.get('status')}/{outcome.get('conclusion')}{extra}", file=sys.stderr)
             failures += 1
         else:
             print(f"[will] OK engine={e}: producer run {outcome.get('run_id')} success")
