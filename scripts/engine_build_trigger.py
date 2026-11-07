@@ -149,6 +149,17 @@ def _dispatch_and_wait(repo: str, branch: str, engine: str, arch: str,
         if run.get("conclusion") in ("cancelled", "skipped"):
             return {"run_id": wanted, "status": run.get("status"), "conclusion": run.get("conclusion"),
                     "cause": f"producer {run['conclusion']} — nothing to wait for"}
+        # A SUCCESS producer is TERMINAL — nothing left to wait for (issue #1994): a run's
+        # `conclusion` is only ever populated once the run has finished, so `conclusion:
+        # "success"` is the final verdict even when the `status` field the trigger polled is a
+        # stale/mid-flight snapshot that never reports "completed" (measured: trigger run
+        # 42352054921 hung 3h54m in_progress on producer 42352074711 `{status: completed,
+        # conclusion: success, completed_at: null}`). #1936 made `cancelled`/`skipped` terminal;
+        # `success` is the green mirror — without it a succeeded producer holds the trigger past
+        # its `wait_min` wall-clock bound instead of concluding promptly with a verdict.
+        if run.get("conclusion") == "success":
+            return {"run_id": wanted, "status": run.get("status"), "conclusion": "success",
+                    "cause": None}
         if run.get("status") == "completed":
             guard = ""
             if run.get("conclusion") == "failure":
