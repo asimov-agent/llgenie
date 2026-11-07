@@ -437,6 +437,13 @@ sync-agent-profile: ## Copy agents/<PROFILE>/ into that profile's Hermes home (P
 	@test -n "$(PROFILE)" || { echo "Usage: make sync-agent-profile PROFILE=<profile> [CHECK=1] [FORCE=1]"; exit 2; }
 	python3 scripts/agent_profile_sync.py --profile "$(PROFILE)" $(if $(CHECK),--check,) $(if $(FORCE),--force,)
 
+skill-parity: ## Report live↔tree skill parity for every llgenie profile (issue #1924, Layer A) — HOST-ONLY and READ-ONLY: it diffs agents/<profile>/skills/ against the live ~/.hermes/profiles/<profile>/skills/ and prints live-only / tree-only counts and names; it NEVER writes (a CI runner has no live profiles, so this is one finding that needs a caller where they exist). No sync, no fold (#791/#1062)
+	@python3 scripts/skill_parity.py report
+
+check-skill-code-parity: ## CI: fail when a skill reference (<profile>/skills/**/*.md) cites a test id (`tests/x.py::test_y`) whose test is not in the hermetic suite, or names a repository-owned code symbol that does not resolve — the documented mechanism must match the code (issue #1924, Layer B)
+	python3 scripts/check_skill_code_parity.py check
+
+.PHONY: skill-parity check-skill-code-parity
 tester-fold-live: ## Enumerate a described live host-agent lane's files against its tree copy; COPY=1 writes live→tree (PROFILE=<profile>; issue #1079) — host-only: a CI runner has no live profile to fold from
 	@test -n "$(PROFILE)" || { echo "Usage: make tester-fold-live PROFILE=<profile> [COPY=1]"; exit 2; }
 	python3 scripts/fold-live-profile.py --profile "$(PROFILE)" $(if $(COPY),--copy,)
@@ -1823,6 +1830,7 @@ ci-unit: bash-check ## CI job unit: hermetic unit tests + registry / skill / Str
 	$(MAKE) check-proc-gate
 	$(MAKE) proc-gate-report
 	$(MAKE) check-issue-bodies
+	$(MAKE) check-skill-code-parity
 	$(MAKE) check-pr-authors
 	$(MAKE) check-pr-closing
 	$(MAKE) check-pr-base

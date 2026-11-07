@@ -172,7 +172,7 @@ the test reading live master from the other. Patch both `sys.modules['scripts.sy
   the normal producer-driven sync once the producer merges, not as a side effect of a contract PR.
 - The gate's live re-scrape NOTES (engagement-counter drift) are non-fatal; only `LOSS` findings (and
   a non-note hard finding) return 1. Read the exact `return` condition before chasing note noise.
-- `scripts/check_registry.py`'s CLI needs an explicit `--dest`; a bare positional `dest` does not work.
+- `scripts/sync_registry.py`'s CLI needs an explicit `--dest`; a bare positional `dest` does not work.
 
 ## Verify PR gates with the real scripts, not a log or body snapshot
 
