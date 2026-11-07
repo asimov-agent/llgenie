@@ -1591,6 +1591,13 @@ Three rules make it safe, and each is a test rather than a convention:
   same question the CI-triggered merge job's `conclusion == 'success'` carries, so both the CI-triggered
   path and the scheduled recheck defer a verdict on a head with zero runs, an unfinished run, or no
   completed-success exit — absence-of-red is not green (#1551).
+- **An approve verdict's `run=` must itself be a concluded-success run at that head (#2035).** The `run=`
+  slot is the record of WHICH run proved the tree, so resolving it as the newest *completed* run could
+  name a red sibling at the same head (a flaky re-run, a cancelled superseded attempt). Both producers
+  gate it: `review-verdict.yml` resolves `select(.status=="completed" and .conclusion=="success")`, and
+  `bot_verdict.post` refuses (rc 2) an `approve` whose `--run` is not a concluded-success run at `--head`.
+  A `changes` verdict may cite any run — it names the run that found the problem, not one that proved
+  the tree green.
 - **The marker is not an approval and not a label.** It cannot flip `reviewDecision`, it cannot be
   mistaken for a human sign-off, and it posts one comment per (head, verdict) — a repeated run is quiet.
 - **It cannot be forged.** A PR comment may be written by anyone, so a verdict counts only when the
