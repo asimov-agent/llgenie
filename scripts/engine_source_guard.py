@@ -58,6 +58,12 @@ KNOWN_NOT_SOURCE = {
                        "compiled `prebuilt/<os>/libLiteRt.so`; `bazel build //python/litert_lm_cli:wheel` "
                        "fails at repository mapping in 92 s (measured 2026-10-29) and the C++ target is a "
                        "different CLI — the skill carries the dated decision",
+    ("surogate", "cuda"): "#1962 install is upstream's published manylinux cu130 wheel "
+                          "(`surogate-<ver>+cu130-cp312-abi3-manylinux_2_39_x86_64.whl`); the C++ serving "
+                          "engine is the precompiled product delivered by that wheel (auditwheel-vendored "
+                          "into surogate.libs, per upstream Dockerfile.cu130), so there is no source build "
+                          "step — installing the wheel IS shipping the engine. Revisit if upstream ships a "
+                          "source sdist build.",
 }
 
 
