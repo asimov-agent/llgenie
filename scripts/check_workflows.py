@@ -51,6 +51,14 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WORKFLOWS = ".github/workflows"
 YAML_SUFFIXES = (".yml", ".yaml")
+#: YAML that GitHub never reads as a workflow: the vendored Semgrep rule pack (issue #1284). Its
+#: rule set is third-party detection data — one entry's pattern is literally a `${{ github.event... }}`
+#: GitHub-actions rule — which the JSON-expression parser here rejects even though the file is NEVER
+#: fed to GitHub's workflow engine (it is a scanner rules snapshot, read only by the semgrep binary).
+#: The carve is path-scoped to that one data file; every actual workflow/YAML still gets the parse.
+VENDORED_PATHS: tuple[str, ...] = (
+    "containers/scanners/semgrep/rules/default.yml",
+)
 #: Every `${{ ... }}` in a file. GitHub scans the raw text, so a comment inside a `run:` block counts.
 EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.S)
 #: A top-level YAML key (column zero), used for the `name:` rule without a YAML library.
@@ -270,10 +278,13 @@ def workflow_files(root: Path = REPO_ROOT) -> list[Path]:
 
 
 def check_expressions(root: Path = REPO_ROOT) -> list[dict]:
-    """No YAML file may carry a `${{ ... }}` GitHub's parser would refuse."""
+    """No YAML file may carry a `${{ ... }}` GitHub's parser would refuse — except the vendored
+    Semgrep rule pack, which GitHub never reads as a workflow (issue #1284, `VENDORED_PATHS`)."""
     out: list[dict] = []
     for path in yaml_files(root):
         where = str(path.relative_to(root))
+        if where in VENDORED_PATHS:
+            continue
         text = path.read_text()
         for lineno, line in enumerate(text.splitlines(), start=1):
             for m in EXPRESSION.finditer(line):
