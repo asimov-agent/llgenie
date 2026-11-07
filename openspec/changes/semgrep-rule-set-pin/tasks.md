@@ -6,4 +6,4 @@
 - [x] `renovate.json` scanner-version regex manager.
 - [x] Tests (test_security_scan.py, and semgrep gate/freshness cases); all green in llgenie/test.
 - [x] Docs (SCANNERS.md, SCANS.md) + agent-wiki note + changes.d fragment.
-- [ ] Gates: make bot-preflight, check-security-scan, check-scanner-images, check-docs, lint, openspec-validate all pass.
+- [x] Gates: make bot-preflight, check-security-scan, check-scanner-images, check-docs, lint, openspec-validate all pass.
