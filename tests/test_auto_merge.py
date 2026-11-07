@@ -1213,21 +1213,54 @@ def test_a_deferred_pr_is_retried_and_merged_when_the_blocker_cleared(tmp_path):
     assert merges and "--admin" not in merges[0], merges
 
 
-def test_a_marker_for_another_head_is_not_retried(tmp_path):
-    """That verdict described a different tree; the current head has its own run."""
+def test_a_stale_marker_green_head_is_retried_and_merged(tmp_path):
+    """#1910: a deferral marker for an OLD head, on a PR whose current head is GREEN, is retried.
 
-    # Given a deferral marker for an OLD head, on a PR whose head has since moved
+    The pre-fix sweep printed "no deferral marker for the current head — not a retry" and
+    skipped the PR forever. #1817's green head `41e522e4` was exactly that: its CI completed
+    while the `auto-merge-success` group was saturated by main-tip churn, so no `workflow_run`
+    ever fired at it, and every deferral marker named an older head. The stale-by-move marker
+    must not strand a green head — it is the same backlog, evaluated against the current tree.
+    """
+
+    # Given a PR with all its deferral markers for an OLD head, whose current head is green + CLEAN
     trust = {"nameWithOwner": "asimov-agent/llgenie"}
-    view = _deferred_view(_state(headRepository=trust), "0ld" * 13 + "ab")
-    gh = _fake_gh(tmp_path, _state(headRepository=trust),
-                  prs=[{"number": 541, "headRefOid": HEAD}], views={"541": view})
+    view = _deferred_view(_state(reviewDecision="APPROVED", headRepository=trust),
+                          "0ld" * 13 + "ab")
+    gh = _fake_gh(tmp_path, _state(reviewDecision="APPROVED", headRepository=trust),
+                  prs=[{"number": 1910, "headRefOid": HEAD}], views={"1910": view})
 
     # When  the sweep runs
     rc = am.recheck(str(gh), "asimov-agent/llgenie")
 
-    # Then  nothing is merged or approved
+    # Then  it evaluates and merges the current green head — never a permanent skip
     calls = _calls(tmp_path / "gh.log")
-    assert rc == 0
+    merges = [c for c in calls if c[:2] == ["pr", "merge"]]
+    assert rc == 0, rc
+    assert merges and "--admin" not in merges[0], calls
+
+def test_a_stale_marker_red_head_is_not_retried(tmp_path):
+    """The stale-marker sweep must NOT clear a red current head (issue #1910's guard).
+
+    The old marker names a different tree; the CURRENT head's own run is what matters. A stale
+    marker on a PR whose current head is red must not be approved or merged — the recheck
+    retains the #1386 rule (a red pipeline is not merged) for this path too.
+    """
+
+    # Given a PR with a deferral marker for an OLD head, whose CURRENT head has a red scope check
+    trust = {"nameWithOwner": "asimov-agent/llgenie"}
+    view = _deferred_view(_state(headRepository=trust), "0ld" * 13 + "ab")
+    gh = _fake_gh(tmp_path, _state(mergeStateStatus="BLOCKED", reviewDecision="REVIEW_REQUIRED",
+                                   headRepository=trust),
+                  prs=[{"number": 1910, "headRefOid": HEAD}], views={"1910": view},
+                  checks=_scope_failure(), jobs=SCOPE_JOB)
+
+    # When  the sweep runs
+    rc = am.recheck(str(gh), "asimov-agent/llgenie")
+
+    # Then  nothing is merged or approved, and the red is deferred with the reason
+    calls = _calls(tmp_path / "gh.log")
+    assert rc == 0, rc
     assert not [c for c in calls if c[:2] == ["pr", "merge"]]
     assert not [c for c in calls if c[:2] == ["pr", "review"]]
 

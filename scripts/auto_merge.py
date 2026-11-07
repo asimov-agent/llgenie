@@ -732,6 +732,18 @@ def deferred_for_head(gh: str, repo: str, pr: int, head_sha: str) -> bool:
     return any(marker in body for body in pr_comments(gh, repo, pr))
 
 
+def has_any_deferral_marker(gh: str, repo: str, pr: int) -> bool:
+    """Whether this PR carries a deferral marker for ANY head (issue #1910).
+
+    `deferred_for_head` alone cannot see a PR the gate deferred at an OLD head whose head
+    then moved: the marker names a previous tree, so the current head has no marker and the
+    recheck would print "not a retry" and skip a green head forever. Carrying ANY deferral
+    marker is the sign this PR is the merger's own backlog — it was already deferred, the
+    head moved, and the new head deserves the same decision, not a permanent skip.
+    """
+    return any("auto-merge: deferred" in body for body in pr_comments(gh, repo, pr))
+
+
 def recheck(gh: str, repo: str, max_prs: int = 5, dry: bool = False) -> int:
     """Re-evaluate the PRs whose own deferral marker matches their CURRENT head (issue #545).
 
@@ -740,6 +752,13 @@ def recheck(gh: str, repo: str, max_prs: int = 5, dry: bool = False) -> int:
     push. This sweep closes that hole by running the SAME decision again — no second merge path — only for a
     PR the gate itself deferred at the head it still has. A stale marker (the head moved) is skipped: that
     verdict described a different tree.
+
+    Since issue #1910 a green head whose marker became stale by a head MOVE is still swept: the PR carries a
+    deferral marker for an older head, its current head is green (no red, a concluded green run), and the
+    merge sweep that would normally fire on a CI completion never ran at that head (main-tip churn saturated
+    the `auto-merge-success` concurrency group). The stale marker must not strand that green head forever, so
+    it is treated like a retry — the same decision runs, and if it still defers a fresh marker for the CURRENT
+    head is posted (one-comment-per-head dedupe), so the next cron keeps it visible.
     """
     out = _gh(gh, ["pr", "list", "--repo", repo, "--state", "open", "--limit", "100",
                    "--json", "number,headRefOid"])
@@ -750,21 +769,28 @@ def recheck(gh: str, repo: str, max_prs: int = 5, dry: bool = False) -> int:
         head = (pr.get("headRefOid") or "")
         if not deferred_for_head(gh, repo, num, head):
             state = pr_state(gh, repo, num)
-            if not review_blocked(state):
+            blocked = review_blocked(state)
+            red = failing_checks(gh, repo, head)
+            red_why = red if red else None
+            # A PR the gate deferred at an OLD head whose CURRENT head is green: the marker
+            # is stale-by-move, and the head would otherwise be skipped forever (issue #1910).
+            stale_by_move = has_any_deferral_marker(gh, repo, num) and not red and not \
+                no_concluded_green(gh, repo, head)
+            if not blocked and not stale_by_move:
                 print(f"[recheck] #{num}: no deferral marker for {(head or '?')[:8]} — not a retry")
                 continue
-            # #1401: BLOCKED + REVIEW_REQUIRED while `scope` was already failure. That is not "review
-            # is the only blocker", and approving it is what reached `gh pr merge --admin`.
-            red = failing_checks(gh, repo, head)
-            if red:
-                print(f"[recheck] #{num}: {red}")
-                defer(gh, repo, num, head, red, dry=dry)
+            if red_why:
+                print(f"[recheck] #{num}: {red_why}")
+                defer(gh, repo, num, head, red_why, dry=dry)
                 continue
             if seen >= max_prs:
                 print(f"[recheck] cap reached ({max_prs} PRs this sweep); the rest waits for the next one")
                 break
             seen += 1
-            print(f"[recheck] #{num}: review is the only blocker at {(head or '?')[:8]} — approving")
+            why = ("review is the only blocker" if blocked
+                   else f"the head moved since the deferral, and {(head or '?')[:8]} is green "
+                        f"(stale-by-move marker, issue #1910)")
+            print(f"[recheck] #{num}: {why} at {(head or '?')[:8]} — re-evaluating")
             if dry:
                 print(f"[recheck] #{num}: --dry, decision not run")
                 continue

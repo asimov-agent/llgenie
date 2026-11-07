@@ -1,0 +1,1 @@
+| 2026-11-07 | auto-merge recheck sweeps a green head whose deferral marker is stale-by-move | [2026-11-07-auto-merge-recheck-stale-head.md](agent-wiki/2026-11-07-auto-merge-recheck-stale-head.md) | #1910, #545 |
