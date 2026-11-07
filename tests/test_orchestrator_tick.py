@@ -33,6 +33,7 @@ SCRIPT = REPO / "scripts" / "orchestrator_tick.py"
 REPO_SLUG = "asimov-agent/llgenie"
 
 from scripts import orchestrator_tick as tick  # noqa: E402  (the real module, not a copy)
+from scripts import bot_claims  # noqa: E402  (the dispatch's claim-liveness reader, issue #1959)
 
 #: A `gh` that answers the four reads this producer makes, out of the fixture file `$TICK_FIXTURE`.
 #: `$TICK_FAIL=1` makes every call fail, which is how the loud-read test drives the real error path.
@@ -65,6 +66,9 @@ elif cmd == "pr" and sub == "view":
 elif cmd == "issue" and sub == "view":
     num = args[2]
     print(json.dumps((fixture.get("issue_view") or {}).get(num, {"state": "OPEN"})))
+elif cmd == "run" and sub == "view":
+    rid = args[2]
+    print(json.dumps((fixture.get("run_view") or {}).get(rid, {"status": "in_progress"})))
 else:
     print(f"stub: unexpected gh {' '.join(args)}", file=sys.stderr)
     raise SystemExit(2)
@@ -330,6 +334,65 @@ def test_pending_prints_without_acknowledging(tmp_path):
     assert "[measured 21:14:07Z]" in first.stdout
     assert (tmp_path / "outbox.log").read_bytes() == before
     assert state(tmp_path)["acked"] == []
+
+
+def test_a_dead_run_s_claim_does_not_gate_the_dispatch(tmp_path):
+    """#1959: a claim whose run has concluded is RELEASED now, in the dispatch AND the reader.
+
+    The measured case (origin/main@5045d5a1): run-failure-reactor claimed #1901/#1926 with
+    ttl=240m ("expires ~11:39Z/11:51Z"); both runs concluded seconds later, so
+    bot_claims.occupied(..., is_live=run_is_live) returns None — the claims were already dead.
+    The dispatch (this producer) used to gate on the marker TTL, disagreeing with the sweep. Now it
+    reads liveness from the run the claim names, the same way bot_claims._decide does (one reader:
+    `gh run view <id> --json status,conclusion`, issue #799/#1959).
+    """
+    claimed_at = "2026-11-07T07:39:20Z"
+    issue_with_dead_claim = {
+        "number": 1901, "title": "a claim whose run died", "comments": [
+            {"body": f"<!-- bot-claim: fix-bot {claimed_at} fix ttl=240m run=42352164427 -->\n"
+                     "`fix-bot` is fixing this now."}]}
+    bindir, fixture_path = stub(tmp_path, {
+        "issues": [issue_with_dead_claim],
+        # the dead run the claim names: concluded failure seconds after posting (measured #1901)
+        "run_view": {"42352164427": {"status": "completed", "conclusion": "failure"}},
+    })
+
+    # Given the dispatch model's hold-read... when the claim's run is DEAD
+    # Then the subject is released: the tick emits IMPLEMENT-READY and prints the release (the run,
+    # not the marker TTL)
+    out = run(tmp_path, bindir, fixture_path, "emit", "--now", "2026-11-07T09:31:00Z")
+    assert out.returncode == 0, out.stderr
+    assert "IMPLEMENT-READY #1901  no live claim" in out.stdout, out.stdout
+    assert "42352164427 is no longer running" in out.stderr, out.stderr
+    assert "expires" not in out.stderr and "11:39Z" not in out.stderr, out.stderr
+
+    # ...and the shared reader agrees, with the same run-status probe as the cited authority
+    comments = issue_with_dead_claim["comments"]
+    is_live = lambda rid: bool(_run_status({"42352164427": {"status": "completed"}}, rid))
+    assert bot_claims.occupied(comments, "orchestrator-tick", is_live=is_live) is None
+    assert bot_claims.released(comments, "orchestrator-tick", is_live=is_live) is not None
+
+
+def _run_status(run_view: dict, rid: str | int) -> bool | None:
+    """Reconstruct the probe the stub serves: live iff `status == \"completed\"` is not true."""
+    data = run_view.get(str(rid))
+    return None if data is None else data.get("status") != "completed"
+
+
+def test_a_live_run_s_claim_still_gates_the_dispatch(tmp_path):
+    """#1959 (belt): a claim whose run is STILL GOING keeps the subject out of the dispatch."""
+    claimed_at = "2026-11-07T07:39:20Z"
+    bindir, fixture_path = stub(tmp_path, {
+        "issues": [{
+            "number": 1902, "title": "a claim whose run is live", "comments": [
+                {"body": f"<!-- bot-claim: fix-bot {claimed_at} fix ttl=240m run=42352164428 -->\n"
+                         "`fix-bot` is fixing this now."}]}],
+        "run_view": {"42352164428": {"status": "in_progress"}},
+    })
+
+    out = run(tmp_path, bindir, fixture_path, "emit", "--now", "2026-11-07T09:31:00Z")
+    assert out.returncode == 0, out.stderr
+    assert "IMPLEMENT-READY" not in out.stdout, out.stdout
 
 
 def test_report_counts_the_outbox_without_emitting(tmp_path):

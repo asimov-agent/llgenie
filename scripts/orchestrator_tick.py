@@ -118,6 +118,13 @@ def measure(repo: str, now: dt.datetime, gh_cmd: str = "gh") -> dict[str, dict]:
     """
     measured = stamp(now)
     facts: dict[str, dict] = {}
+    #: The dispatch's claim-hold read. It uses the SAME liveness probe as every other reader
+    #: (`bot_claims.run_is_live` — the one reader, issue #799), so a claim whose run has concluded
+    #: releases the subject NOW (issue #1959). Without this, the tick gated a dead claim on its
+    #: marker TTL — the exact disagreement measured on #1901/#1926 where a dead run's claim was
+    #: still reported as "protected until ~11:39Z".
+    def _live(run_id: int) -> "bool | None":
+        return bot_claims.run_is_live(run_id, lambda args: gh(*args, gh_cmd=gh_cmd))
 
     prs = _json(gh("pr", "list", "--repo", repo, "--state", "open", "--limit", "200",
                    "--json", "number,headRefName,headRefOid,mergeStateStatus", gh_cmd=gh_cmd)) or []
@@ -136,8 +143,13 @@ def measure(repo: str, now: dt.datetime, gh_cmd: str = "gh") -> dict[str, dict]:
     for issue in issues:
         num = int(issue["number"])
         comments = issue.get("comments") or []
-        if bot_claims.occupied(comments, TICK, now):
-            continue  # somebody is already on it; a claimed subject is not work to dispatch
+        if bot_claims.occupied(comments, TICK, now, is_live=_live):
+            continue  # a live claim is still work to dispatch to its holder, not here (issue #1959)
+        gone = bot_claims.released(comments, TICK, now, is_live=_live)
+        if gone:
+            # The claim's run has concluded: the subject is free NOW. Say the release out loud
+            # (the run, not the marker TTL) so the holder and the reader agree on when it was freed.
+            print(f"[orchestrator-tick] #{num}: {gone}", file=sys.stderr)
         detail = "no live claim"
         rec = _record(IMPLEMENT, num, detail, measured,
                       f"{IMPLEMENT:<15} #{num}  no live claim  [measured {measured}]")
