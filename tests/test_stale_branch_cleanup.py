@@ -158,6 +158,58 @@ def test_default_branch_never_touched(tmp_path):
     assert "applied: 0 deleted" in out.stdout
 
 
+def test_branch_list_read_does_not_suppress_body_with_silent(tmp_path):
+    """`gh api --silent` suppresses the response BODY (stdout), not just progress noise (issue #1968).
+
+    The `--silent` flag on `gh api` makes the branch-list read return rc=0 with an EMPTY stdout on
+    EVERY call, so `_paged_json` retries (still empty) and raises `BranchListReadError` — the daily
+    reds even though the API is perfectly healthy. This fake `gh` MODELS real `gh` behaviour: a
+    `--silent` branch-list call prints nothing (the body is suppressed), a non-silent call prints
+    the JSON. The test fails on the old tree (whose `_paged_json` adds `--silent`) and passes on the
+    fix — the stub models the real CLI's projection instead of papering the bug over.
+
+    The branch carries a MERGED PR (so it is a true would-delete candidate once the read works); a
+    silent body that collapsed to [] would inflate the "kept" count with no WOULD-DELETE row.
+    """
+    branches = [{"name": "fix/123-old-delivered", "commit": {"sha": _newer_sha()}}]
+    old_date = (datetime.now(timezone.utc).replace(tzinfo=None)
+                - __import__("datetime").timedelta(days=10)).isoformat()
+    lines = [
+        "import json, sys",
+        "def out(x): print(x); sys.exit(0)",
+        "args = sys.argv[1:]",
+        "if args[:2] == ['repo', 'view']:",
+        "    out('main')",
+        "if args[:2] == ['pr', 'list']:",
+        "    head_branch = args[args.index('--head')+1]",
+        "    stq = args[args.index('--state')+1]",
+        "    if stq == 'open':",
+        "        out('[]')",
+        "    out('[{\"number\": 1, \"state\": \"MERGED\"}]')",  # this branch's PR is merged
+        "if args[:1] == ['api']:",
+        "    ep = next(a for a in args[1:] if a.startswith('repos/'))",
+        "    silent = '--silent' in args",
+        "    if 'branches?' in ep:",
+        "        if silent:",
+        "            sys.exit(0)   # real `gh api --silent` prints NOTHING to stdout, body suppressed",
+        "        out(BR_1968)",
+        "    if '/branches/' in ep and '/protection' in ep:",
+        "        sys.stderr.write('gh: Not Found (HTTP 404)\\n'); sys.exit(1)",
+        "    if '/commits/' in ep:",
+        "        out(DATE_1968)",
+        "    if 'compare/' in ep:",
+        "        out('behind')",
+        "    sys.exit(0)",
+        "sys.exit(1)",
+    ]
+    script = f"BR_1968={json.dumps(branches)!r}\nDATE_1968={old_date!r}\n" + "\n".join(lines) + "\n"
+    bindir = _write_gh(tmp_path, script)
+    out = _run(["--repo", "asimov-agent/llgenie", "--age-days", "3"], bindir)
+    assert out.returncode == 0, f"silent-free branch-list read must complete, got rc={out.returncode}:\n{out.stdout}\n{out.stderr}"
+    assert "WOULD-DELETE fix/123-old-delivered" in out.stdout, out.stdout
+    assert "branch-list read failed" not in out.stdout and "branch-list read failed" not in out.stderr
+
+
 def _faulted_gh(tmp_path: Path, rc: int = 1) -> str:
     """A `gh` that fails EVERY call with the given rc — a branch-list read must not read as a clean board."""
     bindir = _write_gh(tmp_path, f"import sys\nsys.stderr.write('gh: simulated failure\\n')\nsys.exit({rc})\n")
