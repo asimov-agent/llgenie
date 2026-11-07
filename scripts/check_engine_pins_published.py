@@ -120,7 +120,7 @@ def _producer_cell_conclusions(repo: str, branch: str, engine: str,
             "-f", f"branch={branch}",
             "-f", "event=workflow_dispatch",
             "-f", "per_page=5"]
-    raw = subprocess.run(args, capture_output=True, text=True).stdout
+    raw = subprocess.run(args, capture_output=True, text=True).stdout  # proc-allow: direct gh api probe for the evidence-aware producer-cell pre-poll, tracked remainder for issue #797 (read-only GET, no timeout so a stalled call surfaces at the poll deadline)
     try:
         runs = json.loads(raw) if raw.strip() else []
     except json.JSONDecodeError:
@@ -129,7 +129,7 @@ def _producer_cell_conclusions(repo: str, branch: str, engine: str,
     for run in runs:
         if not run.get("conclusion"):
             continue
-        j = subprocess.run([gh, "api", run.get("jobs_url", "").replace(
+        j = subprocess.run([gh, "api", run.get("jobs_url", "").replace(  # proc-allow: direct gh api probe for the producer-cell job conclusions, tracked remainder for issue #797 (read-only GET)
             "https://api.github.com/", ""),
             "--jq", f"[.jobs[] | select(.name | startswith(\"{prefix}\")) | .conclusion] | unique | .[]"],
             capture_output=True, text=True).stdout.strip()
