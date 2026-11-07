@@ -878,6 +878,81 @@ def stated_budget_gb(model: dict, measurement: dict | None = None) -> float | No
     return stated_gb(footprint(model, measurement).get("weight_gb"))
 
 
+#: The VRAM band llgenie works with by default (GB, inclusive of both ends): the
+#: consumer/workstation discrete-GPU band. Provenance: llgenie targets the 8–48 GB
+#: cards a consumer or workstation owns (entry-level RTX 4070 / RX 7600 at 8 GB up to
+#: an RTX 6000 Ada / W7900-class board at 48 GB); a smaller box (a 2 GB phone, an
+#: iGPU) or a bigger one (a 128 GB Apple box, a datacenter card) widens the range to
+#: include those tiers rather than changing the data (issue #227). Apple/CPU-only
+#: rows — a model with no numeric VRAM requirement — are always in scope (they run
+#: on system/unified memory, not a discrete slot).
+DEFAULT_VRAM_RANGE: tuple[float, float] = (8.0, 48.0)
+
+
+def effective_vram_range(vram_range: tuple[float, float] | None = None) -> tuple[float, float]:
+    """The VRAM band a caller actually means: the explicit one, else `LLGENIE_VRAM_RANGE`
+    (`"lo,hi"` GB) when set, else the default consumer/workstation band.
+
+    The env override is the "ask for a bigger/smaller box" seam (issue #227): a 128 GB
+    Apple box widens to `LLGENIE_VRAM_RANGE=8,512`; a 2 GB phone narrows to
+    `LLGENIE_VRAM_RANGE=1,8`. `scope_models` stays a pure function of `(registry, range)`;
+    this resolves the default that a caller who names no range gets.
+    """
+    if vram_range is not None:
+        return vram_range
+    raw = os.environ.get("LLGENIE_VRAM_RANGE", "").strip()
+    if raw:
+        parts = raw.replace(" ", "").split(",")
+        if len(parts) == 2:
+            try:
+                return (float(parts[0]), float(parts[1]))
+            except ValueError:
+                pass  # a malformed override falls back to the default, never a crash
+    return DEFAULT_VRAM_RANGE
+
+
+def scope_vram_gb(model: dict) -> float | None:
+    """The model's README VRAM tier as GB (issue #227 reads the band from the display
+    tier — the bucket the registry lists the model under — not the measured minimum,
+    which is the card-gate's field, #669).
+
+    A CPU/Apple-only row (tier `CPU`/`CPU-only`, non-numeric) is `None`: it has no
+    discrete-slot VRAM tier and is always in scope (issue #227: "Apple/CPU rows
+    are in scope (they are today)")."""
+    tier = _num(model.get("vram_tier"))
+    return tier if tier > 0 else None
+
+
+def model_in_scope(model: dict, vram_range: tuple[float, float] = DEFAULT_VRAM_RANGE) -> bool:
+    """Whether `model` is in the view llgenie works with for the VRAM `vram_range`.
+
+    A CPU/Apple-only row (no numeric VRAM figure) is always in scope — it has no
+    discrete-slot VRAM requirement to band against (issue #227). Otherwise the model
+    is in scope iff its stated VRAM figure is within `[lo, hi]`, inclusive.
+    """
+    lo, hi = vram_range
+    gb = scope_vram_gb(model)
+    if gb is None:
+        return True
+    return lo <= gb <= hi
+
+
+def scope_models(registry: dict, vram_range: tuple[float, float] = DEFAULT_VRAM_RANGE) -> dict:
+    """The full registry narrowed to the models llgenie works with for `vram_range`
+    (default: the consumer/workstation band, 8–48 GB, issue #227).
+
+    A pure function of `(registry, range)`: it returns a NEW registry whose `models`
+    holds the in-scope rows, never mutates the input, and never drops data from
+    `data/models.json` (the vendored file is unchanged by `make sync-registry`; this
+    is a read-time filtered view, not a sync-time drop). A wider or narrower range
+    just changes the returned view — the 128 GB `cyber-frost-3.8-mlx` omitted by the
+    default band reappears when the range includes its tier (e.g. `(8, 512)`).
+    """
+    lo, hi = vram_range
+    return {**registry, "models": [m for m in registry.get("models") or []
+                                   if model_in_scope(m, (lo, hi))]}
+
+
 def registry_today(registry: dict):
     """The date the upstream README ranking was computed for (its generated_utc), so
     bands (trending/recent/stale) match the README exactly, not the local clock."""
@@ -906,7 +981,8 @@ def card_order(rows: list[dict], gb: float | None, registry: dict,
 
 def trend_list(registry: dict, gb: float | None = None, ram_gb: float | None = None,
                arch: str | None = None, readme_path: Path | str | None = None,
-               readme_text: str | None = None) -> list[dict]:
+               readme_text: str | None = None,
+               vram_range: tuple[float, float] | None = None) -> list[dict]:
     """The models this card fits, in the card's own order.
 
     Membership is the gate (`fits`: measured evidence, plus the stated `system_ram_min` floor);
@@ -916,7 +992,17 @@ def trend_list(registry: dict, gb: float | None = None, ram_gb: float | None = N
     global order (which this used to return) is `Bonsai 2 9B`, `Qwen3.6-35B-A3B`, …
     `readme_path`/`readme_text` inject the README source (issue #1068); `None` = today's
     vendored one.
+
+    `vram_range` scopes the registry to the band llgenie works with when a caller EXPLICITLY
+    names one (issue #227): an out-of-band tier is filtered from the view, never dropped from the
+    file, and reappears when the range includes it. It is NOT applied by default here — `trend_list`
+    is also the ranking primitive `rank_models`/`recommend` and the runtime callers drive over the
+    FULL registry (order is #225's concern, out of scope for #227); the interactive VIEW
+    (`offer`/`matrix`) resolves `effective_vram_range(None)` to the default band and passes a
+    concrete range, so plain `llgenie` still shows the consumer/workstation band by default.
     """
+    if vram_range is not None:
+        registry = scope_models(registry, vram_range)
     gb = card_gb() if gb is None else gb
     return card_order([m for m in registry.get("models") or [] if fits(m, gb, ram_gb, arch)],
                       gb, registry, readme_path, readme_text)
@@ -924,11 +1010,13 @@ def trend_list(registry: dict, gb: float | None = None, ram_gb: float | None = N
 
 
 def rank_models(registry: dict, arch: str | None = None, gb: float | None = None, today=None,
-                readme_path: Path | str | None = None, readme_text: str | None = None) -> list[dict]:
+                readme_path: Path | str | None = None, readme_text: str | None = None,
+                vram_range: tuple[float, float] | None = None) -> list[dict]:
     """trend_list() models that have a runnable engine here, README order kept."""
     ids = engine_ids()
     rows = []
-    for m in trend_list(registry, gb, arch=arch, readme_path=readme_path, readme_text=readme_text):
+    for m in trend_list(registry, gb, arch=arch, readme_path=readme_path, readme_text=readme_text,
+                        vram_range=vram_range):
         engines = rank_engines(m, arch, ids, gb)
         if engines:
             rows.append({"model": m, "engines": engines, "tps": engines[0]["tps"]})
@@ -941,15 +1029,19 @@ DOWNLOADABLE = ("gguf", "litertlm", "mlx-safetensors", "safetensors")  # formats
 def recommend(registry: dict, arch: str | None = None, gb: float | None = None,
               fmt: str | None = None, limit: int | None = None, today=None, all_rows: bool = False,
               ram_gb: float | None = None, readme_path: Path | str | None = None,
-              readme_text: str | None = None) -> list[dict]:
+              readme_text: str | None = None,
+              vram_range: tuple[float, float] | None = None) -> list[dict]:
     """The README trend list that fits this card, in README order, with each model's
     engines here (no Hub lookups). fmt narrows the engines to readers of that
     format; `why` = "" when an engine is left, else the reason. all_rows=False
     keeps only rows with an engine. `readme_path`/`readme_text` inject the README
-    source (issue #1068); `None` = today's vendored one."""
+    source (issue #1068); `None` = today's vendored one. `vram_range` scopes the
+    registry to the band llgenie works with (default the consumer/workstation band,
+    issue #227)."""
     ids = engine_ids()
     rows = []
-    for m in trend_list(registry, gb, ram_gb, arch, readme_path=readme_path, readme_text=readme_text):
+    for m in trend_list(registry, gb, ram_gb, arch, readme_path=readme_path, readme_text=readme_text,
+                        vram_range=vram_range):
         everything = rank_engines(m, arch, ids, gb)
         engines = [e for e in everything if fmt is None or fmt in e.get("formats", [])]
         if engines:
@@ -968,7 +1060,8 @@ def recommend(registry: dict, arch: str | None = None, gb: float | None = None,
 
 def offer(registry: dict, arch: str | None = None, gb: float | None = None,
           root: Path | None = None, ram_gb: float | None = None,
-          readme_path: Path | str | None = None, readme_text: str | None = None) -> list[dict]:
+          readme_path: Path | str | None = None, readme_text: str | None = None,
+          vram_range: tuple[float, float] | None = None) -> list[dict]:
     """The rows plain `llgenie` prints: the README trend list that fits the card, in
     README order. For each model the engines here are matched to a format llgenie
     can get for it: the local copy's format, else a download plan that fits
@@ -982,7 +1075,8 @@ def offer(registry: dict, arch: str | None = None, gb: float | None = None,
     arch = arch or host_arch()
     gb = card_gb() if gb is None else gb
     rows = recommend(registry, arch, gb, all_rows=True, ram_gb=ram_gb,
-                     readme_path=readme_path, readme_text=readme_text)
+                     readme_path=readme_path, readme_text=readme_text,
+                     vram_range=effective_vram_range(vram_range))
     own = ("strata", "tensorfold")  # engines that read only their own checkpoints
     for r in rows:
         r["local"] = resolve_local(r["model"], root)
@@ -1862,9 +1956,12 @@ def pick_quant(model: dict, eng: dict, gb: float, ram_gb: float | None = None,
 
 
 def matrix(registry: dict, gb: float | None = None, ram_gb: float | None = None,
-           arch: str | None = None) -> dict:
+           arch: str | None = None,
+           vram_range: tuple[float, float] | None = None) -> dict:
     """The exhaustive map an interactive `llgenie --matrix` pick proves: every
-    README trend model that fits the VRAM `gb`, every engine that can run it on
+    README trend model that fits the VRAM `gb` (within the `vram_range` band the
+    registry is scoped to, default the consumer/workstation band — issue #227),
+    every engine that can run it on
     `arch`, and the exact quantized HF download it would use (the largest that
     fits `weight_budget_gb(gb, is_moe, ram_gb, arch)` — VRAM, + RAM for MoE).
     Returns {"permutations": [ {model, engines: [{engine, use_format, plan, url,
@@ -1880,7 +1977,7 @@ def matrix(registry: dict, gb: float | None = None, ram_gb: float | None = None,
     # models this host cannot run.
     ram_gb = (system_ram_gb() or 0.0) if ram_gb is None else ram_gb
     permutations, skipped = [], []
-    for m in trend_list(registry, gb, ram_gb):
+    for m in trend_list(registry, gb, ram_gb, vram_range=effective_vram_range(vram_range)):
         engines = rank_engines(m, arch, gb=gb)
         if not engines:
             names = sorted({e["engine"] for e in m.get("engines") or []} | set(m.get("supported_engines") or []))

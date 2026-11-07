@@ -345,6 +345,10 @@ make render-trend-list-matrix  # rewrite tests/fixtures/trend-list-matrix.json (
                               # answers that build read into tests/fixtures/hub-snapshot.json
 make check-trend-list-matrix   # CI: fail if that file differs from matrix() — hermetic: it replays
                               # the recorded Hub answers, so no route is needed (LIVE=1 = live read)
+make render-vram-scope-view    # rewrite tests/fixtures/vram-scope-view.json: the committed default-band
+                              # (8-48 GB) view of the vendored registry, from scope_models(registry)
+make check-vram-scope-view     # CI: fail if that committed default-range view differs from scope_models()
+                              # on the vendored registry — pure function, hermetic (issue #227)
 make registry-change-report    # print what the working-tree store changed vs HEAD: added/removed/
                                # renamed models, new engines, contract keys, README rows, table counts
 make sync-change-issue         # open ONE issue stating that change (the weekly sync runs it; it

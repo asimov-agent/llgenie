@@ -97,7 +97,9 @@ def trend_rows(registry: dict, vram: float, ram: float, arch: str) -> list[dict]
     listed = {row["model"]["id"]: row for row in res["permutations"]}
     skipped = {item["model"]: item["why"] for item in res["skipped"]}
     rows = []
-    for model in mp.trend_list(registry, vram, ram):
+    # The model set must be the SAME band `matrix()` scopes to (issue #227): the matrix is the
+    # interactive view, so it works with the default consumer/workstation band unless widened.
+    for model in mp.trend_list(registry, vram, ram, vram_range=mp.effective_vram_range()):
         hit = listed.get(model["id"])
         if hit:
             engine = hit["engines"][0]["engine"]

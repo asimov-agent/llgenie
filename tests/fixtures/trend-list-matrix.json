@@ -17,14 +17,6 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cuda engine image (MLX, llama.cpp)"
-        },
-        {
           "model": "LFM3-1.7B",
           "server": "llama.cpp",
           "tps": 25.0,
@@ -193,14 +185,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "",
           "tps": 0,
@@ -239,14 +223,6 @@
           "measured_on": "",
           "variant": "",
           "why": "no cuda engine image (MLX)"
-        },
-        {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "cuda",
-          "why": ""
         },
         {
           "model": "Llama 3.1 8B",
@@ -350,14 +326,6 @@
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cuda engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -560,14 +528,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "",
           "tps": 0,
@@ -614,14 +574,6 @@
           "measured_on": "",
           "variant": "",
           "why": "no cuda engine image (MLX)"
-        },
-        {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "cuda",
-          "why": ""
         },
         {
           "model": "Llama 3.1 8B",
@@ -725,14 +677,6 @@
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cuda engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -943,14 +887,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "",
           "tps": 0,
@@ -997,14 +933,6 @@
           "measured_on": "",
           "variant": "",
           "why": "no cuda engine image (MLX)"
-        },
-        {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "cuda",
-          "why": ""
         },
         {
           "model": "Llama 3.1 8B",
@@ -1108,14 +1036,6 @@
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cuda engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -1334,14 +1254,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Nemotron 3.5 Super VL 120B",
           "server": "llama.cpp",
           "tps": 35.1,
@@ -1396,14 +1308,6 @@
           "measured_on": "",
           "variant": "",
           "why": "no cuda engine image (MLX)"
-        },
-        {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "cuda",
-          "why": ""
         },
         {
           "model": "Llama 3.1 8B",
@@ -1475,14 +1379,6 @@
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cuda engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -1725,14 +1621,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -1771,14 +1659,6 @@
           "measured_on": "",
           "variant": "",
           "why": "no cuda engine image (MLX)"
-        },
-        {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "cuda",
-          "why": ""
         },
         {
           "model": "Qwen 3.6 27B",
@@ -1938,14 +1818,6 @@
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cuda engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -2252,14 +2124,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -2324,14 +2188,6 @@
           "why": "no cuda engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "cuda",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 140.0,
@@ -2386,14 +2242,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cuda engine image (MLX)"
         },
         {
           "model": "Qwen3.6-27B (official repo)",
@@ -2513,14 +2361,6 @@
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cuda engine image (MLX, llama.cpp)"
         },
         {
           "model": "DeepSeek-V4.1-Flash",
@@ -2843,14 +2683,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -2915,14 +2747,6 @@
           "why": "no cuda engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "cuda",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 140.0,
@@ -2977,14 +2801,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cuda engine image (MLX)"
         },
         {
           "model": "Qwen3.6-27B (official repo)",
@@ -3104,14 +2920,6 @@
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cuda engine image (MLX, llama.cpp)"
         },
         {
           "model": "DeepSeek-V4.1-Flash",
@@ -3442,14 +3250,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Nemotron 3.5 Super VL 120B",
           "server": "llama.cpp",
           "tps": 35.1,
@@ -3522,14 +3322,6 @@
           "why": "no cuda engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "cuda",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 140.0,
@@ -3584,14 +3376,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cuda engine image (MLX)"
         },
         {
           "model": "Qwen3.6-27B (official repo)",
@@ -3663,14 +3447,6 @@
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cuda engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -3953,14 +3729,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -4007,14 +3775,6 @@
           "measured_on": "",
           "variant": "",
           "why": "no cuda engine image (MLX)"
-        },
-        {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "cuda",
-          "why": ""
         },
         {
           "model": "Qwen 3.6 27B",
@@ -4182,14 +3942,6 @@
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cuda engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -4544,14 +4296,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -4632,14 +4376,6 @@
           "why": "no cuda engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "cuda",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 37.0,
@@ -4694,14 +4430,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cuda engine image (MLX)"
         },
         {
           "model": "Gemma 4 31B",
@@ -4829,14 +4557,6 @@
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cuda engine image (MLX, llama.cpp)"
         },
         {
           "model": "DeepSeek-V4.1-Flash",
@@ -5223,14 +4943,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -5311,14 +5023,6 @@
           "why": "no cuda engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "cuda",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 37.0,
@@ -5373,14 +5077,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cuda engine image (MLX)"
         },
         {
           "model": "Gemma 4 31B",
@@ -5508,14 +5204,6 @@
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cuda engine image (MLX, llama.cpp)"
         },
         {
           "model": "DeepSeek-V4.1-Flash",
@@ -5910,14 +5598,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Nemotron 3.5 Super VL 120B",
           "server": "llama.cpp",
           "tps": 35.1,
@@ -6006,14 +5686,6 @@
           "why": "no cuda engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "cuda",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 37.0,
@@ -6068,14 +5740,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cuda engine image (MLX)"
         },
         {
           "model": "Gemma 4 31B",
@@ -6155,14 +5819,6 @@
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cuda engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -6453,14 +6109,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -6507,14 +6155,6 @@
           "measured_on": "",
           "variant": "",
           "why": "no cuda engine image (MLX)"
-        },
-        {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "cuda",
-          "why": ""
         },
         {
           "model": "Qwen 3.6 27B",
@@ -6698,14 +6338,6 @@
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cuda engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -7084,14 +6716,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -7180,14 +6804,6 @@
           "why": "no cuda engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "cuda",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 140.0,
@@ -7250,14 +6866,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cuda engine image (MLX)"
         },
         {
           "model": "Meta Llama 3.1 70B (Q4, MLX)",
@@ -7401,14 +7009,6 @@
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cuda engine image (MLX, llama.cpp)"
         },
         {
           "model": "DeepSeek-V4.1-Flash",
@@ -7827,14 +7427,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -7923,14 +7515,6 @@
           "why": "no cuda engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "cuda",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 140.0,
@@ -7993,14 +7577,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cuda engine image (MLX)"
         },
         {
           "model": "Meta Llama 3.1 70B (Q4, MLX)",
@@ -8144,14 +7720,6 @@
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cuda engine image (MLX, llama.cpp)"
         },
         {
           "model": "DeepSeek-V4.1-Flash",
@@ -8578,14 +8146,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Nemotron 3.5 Super VL 120B",
           "server": "llama.cpp",
           "tps": 35.1,
@@ -8682,14 +8242,6 @@
           "why": "no cuda engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "cuda",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 140.0,
@@ -8752,14 +8304,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cuda engine image (MLX)"
         },
         {
           "model": "Meta Llama 3.1 70B (Q4, MLX)",
@@ -8855,14 +8399,6 @@
           "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no rocm engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -9033,14 +8569,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "",
           "tps": 0,
@@ -9079,14 +8607,6 @@
           "measured_on": "",
           "variant": "",
           "why": "no rocm engine image (MLX)"
-        },
-        {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "rocm",
-          "why": ""
         },
         {
           "model": "Llama 3.1 8B",
@@ -9190,14 +8710,6 @@
           "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no rocm engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -9400,14 +8912,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "",
           "tps": 0,
@@ -9454,14 +8958,6 @@
           "measured_on": "",
           "variant": "",
           "why": "no rocm engine image (MLX)"
-        },
-        {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "rocm",
-          "why": ""
         },
         {
           "model": "Llama 3.1 8B",
@@ -9565,14 +9061,6 @@
           "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no rocm engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -9783,14 +9271,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "",
           "tps": 0,
@@ -9837,14 +9317,6 @@
           "measured_on": "",
           "variant": "",
           "why": "no rocm engine image (MLX)"
-        },
-        {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "rocm",
-          "why": ""
         },
         {
           "model": "Llama 3.1 8B",
@@ -9948,14 +9420,6 @@
           "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no rocm engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -10174,14 +9638,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Nemotron 3.5 Super VL 120B",
           "server": "llama.cpp",
           "tps": 35.1,
@@ -10236,14 +9692,6 @@
           "measured_on": "",
           "variant": "",
           "why": "no rocm engine image (MLX)"
-        },
-        {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "rocm",
-          "why": ""
         },
         {
           "model": "Llama 3.1 8B",
@@ -10315,14 +9763,6 @@
           "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no rocm engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -10565,14 +10005,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -10611,14 +10043,6 @@
           "measured_on": "",
           "variant": "",
           "why": "no rocm engine image (MLX)"
-        },
-        {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "rocm",
-          "why": ""
         },
         {
           "model": "Qwen 3.6 27B",
@@ -10778,14 +10202,6 @@
           "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no rocm engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -11092,14 +10508,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -11164,14 +10572,6 @@
           "why": "no rocm engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "rocm",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 140.0,
@@ -11226,14 +10626,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no rocm engine image (MLX)"
         },
         {
           "model": "Qwen3.6-27B (official repo)",
@@ -11353,14 +10745,6 @@
           "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no rocm engine image (MLX, llama.cpp)"
         },
         {
           "model": "DeepSeek-V4.1-Flash",
@@ -11683,14 +11067,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -11755,14 +11131,6 @@
           "why": "no rocm engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "rocm",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 140.0,
@@ -11817,14 +11185,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no rocm engine image (MLX)"
         },
         {
           "model": "Qwen3.6-27B (official repo)",
@@ -11944,14 +11304,6 @@
           "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no rocm engine image (MLX, llama.cpp)"
         },
         {
           "model": "DeepSeek-V4.1-Flash",
@@ -12282,14 +11634,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Nemotron 3.5 Super VL 120B",
           "server": "llama.cpp",
           "tps": 35.1,
@@ -12362,14 +11706,6 @@
           "why": "no rocm engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "rocm",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 140.0,
@@ -12424,14 +11760,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no rocm engine image (MLX)"
         },
         {
           "model": "Qwen3.6-27B (official repo)",
@@ -12503,14 +11831,6 @@
           "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no rocm engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -12793,14 +12113,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -12847,14 +12159,6 @@
           "measured_on": "",
           "variant": "",
           "why": "no rocm engine image (MLX)"
-        },
-        {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "rocm",
-          "why": ""
         },
         {
           "model": "Qwen 3.6 27B",
@@ -13022,14 +12326,6 @@
           "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no rocm engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -13384,14 +12680,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -13472,14 +12760,6 @@
           "why": "no rocm engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "rocm",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 140.0,
@@ -13534,14 +12814,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no rocm engine image (MLX)"
         },
         {
           "model": "Gemma 4 31B",
@@ -13669,14 +12941,6 @@
           "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no rocm engine image (MLX, llama.cpp)"
         },
         {
           "model": "DeepSeek-V4.1-Flash",
@@ -14063,14 +13327,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -14151,14 +13407,6 @@
           "why": "no rocm engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "rocm",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 140.0,
@@ -14213,14 +13461,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no rocm engine image (MLX)"
         },
         {
           "model": "Gemma 4 31B",
@@ -14348,14 +13588,6 @@
           "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no rocm engine image (MLX, llama.cpp)"
         },
         {
           "model": "DeepSeek-V4.1-Flash",
@@ -14750,14 +13982,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Nemotron 3.5 Super VL 120B",
           "server": "llama.cpp",
           "tps": 35.1,
@@ -14846,14 +14070,6 @@
           "why": "no rocm engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "rocm",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 140.0,
@@ -14908,14 +14124,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no rocm engine image (MLX)"
         },
         {
           "model": "Gemma 4 31B",
@@ -14995,14 +14203,6 @@
           "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no rocm engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -15293,14 +14493,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -15347,14 +14539,6 @@
           "measured_on": "",
           "variant": "",
           "why": "no rocm engine image (MLX)"
-        },
-        {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "rocm",
-          "why": ""
         },
         {
           "model": "Qwen 3.6 27B",
@@ -15540,14 +14724,6 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no rocm engine image (MLX, llama.cpp)"
-        },
-        {
           "model": "LFM3-1.7B",
           "server": "llama.cpp",
           "tps": 25.0,
@@ -15924,14 +15100,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -16020,14 +15188,6 @@
           "why": "no rocm engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "rocm",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 140.0,
@@ -16090,14 +15250,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no rocm engine image (MLX)"
         },
         {
           "model": "Meta Llama 3.1 70B (Q4, MLX)",
@@ -16241,14 +15393,6 @@
           "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no rocm engine image (MLX, llama.cpp)"
         },
         {
           "model": "DeepSeek-V4.1-Flash",
@@ -16667,14 +15811,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -16763,14 +15899,6 @@
           "why": "no rocm engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "rocm",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 140.0,
@@ -16833,14 +15961,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no rocm engine image (MLX)"
         },
         {
           "model": "Meta Llama 3.1 70B (Q4, MLX)",
@@ -16984,14 +16104,6 @@
           "measured_on": "CUDA",
           "variant": "rocm",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no rocm engine image (MLX, llama.cpp)"
         },
         {
           "model": "DeepSeek-V4.1-Flash",
@@ -17418,14 +16530,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Nemotron 3.5 Super VL 120B",
           "server": "llama.cpp",
           "tps": 35.1,
@@ -17522,14 +16626,6 @@
           "why": "no rocm engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "rocm",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 140.0,
@@ -17592,14 +16688,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no rocm engine image (MLX)"
         },
         {
           "model": "Meta Llama 3.1 70B (Q4, MLX)",
@@ -17695,14 +16783,6 @@
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no vulkan engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -17873,14 +16953,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "",
           "tps": 0,
@@ -17919,14 +16991,6 @@
           "measured_on": "",
           "variant": "",
           "why": "no vulkan engine image (MLX)"
-        },
-        {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "vulkan",
-          "why": ""
         },
         {
           "model": "Llama 3.1 8B",
@@ -18030,14 +17094,6 @@
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no vulkan engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -18240,14 +17296,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "",
           "tps": 0,
@@ -18294,14 +17342,6 @@
           "measured_on": "",
           "variant": "",
           "why": "no vulkan engine image (MLX)"
-        },
-        {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "vulkan",
-          "why": ""
         },
         {
           "model": "Llama 3.1 8B",
@@ -18405,14 +17445,6 @@
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no vulkan engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -18623,14 +17655,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "",
           "tps": 0,
@@ -18677,14 +17701,6 @@
           "measured_on": "",
           "variant": "",
           "why": "no vulkan engine image (MLX)"
-        },
-        {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "vulkan",
-          "why": ""
         },
         {
           "model": "Llama 3.1 8B",
@@ -18788,14 +17804,6 @@
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no vulkan engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -19014,14 +18022,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Nemotron 3.5 Super VL 120B",
           "server": "llama.cpp",
           "tps": 35.1,
@@ -19076,14 +18076,6 @@
           "measured_on": "",
           "variant": "",
           "why": "no vulkan engine image (MLX)"
-        },
-        {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "vulkan",
-          "why": ""
         },
         {
           "model": "Llama 3.1 8B",
@@ -19155,14 +18147,6 @@
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no vulkan engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -19405,14 +18389,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -19451,14 +18427,6 @@
           "measured_on": "",
           "variant": "",
           "why": "no vulkan engine image (MLX)"
-        },
-        {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "vulkan",
-          "why": ""
         },
         {
           "model": "Qwen 3.6 27B",
@@ -19618,14 +18586,6 @@
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no vulkan engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -19932,14 +18892,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -20004,14 +18956,6 @@
           "why": "no vulkan engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "vulkan",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 140.0,
@@ -20066,14 +19010,6 @@
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no vulkan engine image (MLX)"
         },
         {
           "model": "Qwen3.6-27B (official repo)",
@@ -20193,14 +19129,6 @@
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no vulkan engine image (MLX, llama.cpp)"
         },
         {
           "model": "DeepSeek-V4.1-Flash",
@@ -20523,14 +19451,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -20595,14 +19515,6 @@
           "why": "no vulkan engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "vulkan",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 140.0,
@@ -20657,14 +19569,6 @@
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no vulkan engine image (MLX)"
         },
         {
           "model": "Qwen3.6-27B (official repo)",
@@ -20784,14 +19688,6 @@
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no vulkan engine image (MLX, llama.cpp)"
         },
         {
           "model": "DeepSeek-V4.1-Flash",
@@ -21122,14 +20018,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Nemotron 3.5 Super VL 120B",
           "server": "llama.cpp",
           "tps": 35.1,
@@ -21202,14 +20090,6 @@
           "why": "no vulkan engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "vulkan",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 140.0,
@@ -21264,14 +20144,6 @@
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no vulkan engine image (MLX)"
         },
         {
           "model": "Qwen3.6-27B (official repo)",
@@ -21343,14 +20215,6 @@
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no vulkan engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -21633,14 +20497,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -21687,14 +20543,6 @@
           "measured_on": "",
           "variant": "",
           "why": "no vulkan engine image (MLX)"
-        },
-        {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "vulkan",
-          "why": ""
         },
         {
           "model": "Qwen 3.6 27B",
@@ -21862,14 +20710,6 @@
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no vulkan engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -22224,14 +21064,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -22312,14 +21144,6 @@
           "why": "no vulkan engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "vulkan",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 140.0,
@@ -22374,14 +21198,6 @@
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no vulkan engine image (MLX)"
         },
         {
           "model": "Gemma 4 31B",
@@ -22509,14 +21325,6 @@
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no vulkan engine image (MLX, llama.cpp)"
         },
         {
           "model": "DeepSeek-V4.1-Flash",
@@ -22903,14 +21711,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -22991,14 +21791,6 @@
           "why": "no vulkan engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "vulkan",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 140.0,
@@ -23053,14 +21845,6 @@
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no vulkan engine image (MLX)"
         },
         {
           "model": "Gemma 4 31B",
@@ -23188,14 +21972,6 @@
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no vulkan engine image (MLX, llama.cpp)"
         },
         {
           "model": "DeepSeek-V4.1-Flash",
@@ -23590,14 +22366,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Nemotron 3.5 Super VL 120B",
           "server": "llama.cpp",
           "tps": 35.1,
@@ -23686,14 +22454,6 @@
           "why": "no vulkan engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "vulkan",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 140.0,
@@ -23748,14 +22508,6 @@
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no vulkan engine image (MLX)"
         },
         {
           "model": "Gemma 4 31B",
@@ -23835,14 +22587,6 @@
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no vulkan engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -24133,14 +22877,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -24187,14 +22923,6 @@
           "measured_on": "",
           "variant": "",
           "why": "no vulkan engine image (MLX)"
-        },
-        {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "vulkan",
-          "why": ""
         },
         {
           "model": "Qwen 3.6 27B",
@@ -24378,14 +23106,6 @@
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no vulkan engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -24764,14 +23484,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -24860,14 +23572,6 @@
           "why": "no vulkan engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "vulkan",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 140.0,
@@ -24930,14 +23634,6 @@
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no vulkan engine image (MLX)"
         },
         {
           "model": "Meta Llama 3.1 70B (Q4, MLX)",
@@ -25081,14 +23777,6 @@
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no vulkan engine image (MLX, llama.cpp)"
         },
         {
           "model": "DeepSeek-V4.1-Flash",
@@ -25507,14 +24195,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -25603,14 +24283,6 @@
           "why": "no vulkan engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "vulkan",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 140.0,
@@ -25673,14 +24345,6 @@
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no vulkan engine image (MLX)"
         },
         {
           "model": "Meta Llama 3.1 70B (Q4, MLX)",
@@ -25824,14 +24488,6 @@
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no vulkan engine image (MLX, llama.cpp)"
         },
         {
           "model": "DeepSeek-V4.1-Flash",
@@ -26258,14 +24914,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Nemotron 3.5 Super VL 120B",
           "server": "llama.cpp",
           "tps": 35.1,
@@ -26362,14 +25010,6 @@
           "why": "no vulkan engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "vulkan",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 140.0,
@@ -26432,14 +25072,6 @@
           "measured_on": "CUDA",
           "variant": "vulkan",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no vulkan engine image (MLX)"
         },
         {
           "model": "Meta Llama 3.1 70B (Q4, MLX)",
@@ -26535,14 +25167,6 @@
           "measured_on": "",
           "variant": "",
           "why": "smallest GGUF is 5 GB > 3 GB this host can hold"
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no metal engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -26713,14 +25337,6 @@
           "why": "stated weights are 5.7 GB > 3 GB this host can hold"
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "metal",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "",
           "tps": 0,
@@ -26759,14 +25375,6 @@
           "measured_on": "",
           "variant": "",
           "why": "no metal engine image (MLX)"
-        },
-        {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "metal",
-          "why": ""
         },
         {
           "model": "Llama 3.1 8B",
@@ -26870,14 +25478,6 @@
           "measured_on": "",
           "variant": "",
           "why": "smallest GGUF is 5 GB > 3 GB this host can hold"
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no metal engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -27080,14 +25680,6 @@
           "why": "stated weights are 5.7 GB > 3 GB this host can hold"
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "metal",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "",
           "tps": 0,
@@ -27134,14 +25726,6 @@
           "measured_on": "",
           "variant": "",
           "why": "no metal engine image (MLX)"
-        },
-        {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "metal",
-          "why": ""
         },
         {
           "model": "Llama 3.1 8B",
@@ -27245,14 +25829,6 @@
           "measured_on": "",
           "variant": "",
           "why": "smallest GGUF is 5 GB > 3 GB this host can hold"
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no metal engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -27463,14 +26039,6 @@
           "why": "stated weights are 5.7 GB > 3 GB this host can hold"
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "metal",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "",
           "tps": 0,
@@ -27517,14 +26085,6 @@
           "measured_on": "",
           "variant": "",
           "why": "no metal engine image (MLX)"
-        },
-        {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "metal",
-          "why": ""
         },
         {
           "model": "Llama 3.1 8B",
@@ -27628,14 +26188,6 @@
           "measured_on": "",
           "variant": "",
           "why": "smallest GGUF is 5 GB > 3 GB this host can hold"
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no metal engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -27854,14 +26406,6 @@
           "why": "stated weights are 5.7 GB > 3 GB this host can hold"
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "metal",
-          "why": ""
-        },
-        {
           "model": "Nemotron 3.5 Super VL 120B",
           "server": "",
           "tps": 0,
@@ -27916,14 +26460,6 @@
           "measured_on": "",
           "variant": "",
           "why": "no metal engine image (MLX)"
-        },
-        {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "metal",
-          "why": ""
         },
         {
           "model": "Llama 3.1 8B",
@@ -27995,14 +26531,6 @@
           "measured_on": "CUDA",
           "variant": "metal",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no metal engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -28245,14 +26773,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "metal",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -28291,14 +26811,6 @@
           "measured_on": "",
           "variant": "",
           "why": "no metal engine image (MLX)"
-        },
-        {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "metal",
-          "why": ""
         },
         {
           "model": "Qwen 3.6 27B",
@@ -28458,14 +26970,6 @@
           "measured_on": "CUDA",
           "variant": "metal",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no metal engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -28772,14 +27276,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "metal",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -28844,14 +27340,6 @@
           "why": "no metal engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "metal",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "",
           "tps": 0,
@@ -28906,14 +27394,6 @@
           "measured_on": "CUDA",
           "variant": "metal",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no metal engine image (MLX)"
         },
         {
           "model": "Qwen3.6-27B (official repo)",
@@ -29033,14 +27513,6 @@
           "measured_on": "CUDA",
           "variant": "metal",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no metal engine image (MLX, llama.cpp)"
         },
         {
           "model": "DeepSeek-V4.1-Flash",
@@ -29363,14 +27835,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "metal",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -29435,14 +27899,6 @@
           "why": "no metal engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "metal",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "",
           "tps": 0,
@@ -29497,14 +27953,6 @@
           "measured_on": "CUDA",
           "variant": "metal",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no metal engine image (MLX)"
         },
         {
           "model": "Qwen3.6-27B (official repo)",
@@ -29624,14 +28072,6 @@
           "measured_on": "CUDA",
           "variant": "metal",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no metal engine image (MLX, llama.cpp)"
         },
         {
           "model": "DeepSeek-V4.1-Flash",
@@ -29962,14 +28402,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "metal",
-          "why": ""
-        },
-        {
           "model": "Nemotron 3.5 Super VL 120B",
           "server": "",
           "tps": 0,
@@ -30042,14 +28474,6 @@
           "why": "no metal engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "metal",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "",
           "tps": 0,
@@ -30104,14 +28528,6 @@
           "measured_on": "CUDA",
           "variant": "metal",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no metal engine image (MLX)"
         },
         {
           "model": "Qwen3.6-27B (official repo)",
@@ -30183,14 +28599,6 @@
           "measured_on": "CUDA",
           "variant": "metal",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no metal engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -30473,14 +28881,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "metal",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -30527,14 +28927,6 @@
           "measured_on": "",
           "variant": "",
           "why": "no metal engine image (MLX)"
-        },
-        {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "metal",
-          "why": ""
         },
         {
           "model": "Qwen 3.6 27B",
@@ -30704,14 +29096,6 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no metal engine image (MLX, llama.cpp)"
-        },
-        {
           "model": "LFM3-1.7B",
           "server": "llama.cpp",
           "tps": 25.0,
@@ -31064,14 +29448,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "metal",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -31152,14 +29528,6 @@
           "why": "no metal engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "metal",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 140.0,
@@ -31214,14 +29582,6 @@
           "measured_on": "CUDA",
           "variant": "metal",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no metal engine image (MLX)"
         },
         {
           "model": "Gemma 4 31B",
@@ -31349,14 +29709,6 @@
           "measured_on": "CUDA",
           "variant": "metal",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no metal engine image (MLX, llama.cpp)"
         },
         {
           "model": "DeepSeek-V4.1-Flash",
@@ -31743,14 +30095,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "metal",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -31831,14 +30175,6 @@
           "why": "no metal engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "metal",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 140.0,
@@ -31893,14 +30229,6 @@
           "measured_on": "CUDA",
           "variant": "metal",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no metal engine image (MLX)"
         },
         {
           "model": "Gemma 4 31B",
@@ -32028,14 +30356,6 @@
           "measured_on": "CUDA",
           "variant": "metal",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no metal engine image (MLX, llama.cpp)"
         },
         {
           "model": "DeepSeek-V4.1-Flash",
@@ -32426,14 +30746,6 @@
           "server": "MLX",
           "tps": 40.0,
           "measured_on": "Metal",
-          "variant": "metal",
-          "why": ""
-        },
-        {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
           "variant": "metal",
           "why": ""
         },
@@ -32526,14 +30838,6 @@
           "why": "no metal engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "metal",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 140.0,
@@ -32588,14 +30892,6 @@
           "measured_on": "CUDA",
           "variant": "metal",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no metal engine image (MLX)"
         },
         {
           "model": "Gemma 4 31B",
@@ -32675,14 +30971,6 @@
           "measured_on": "CUDA",
           "variant": "metal",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no metal engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -32973,14 +31261,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "metal",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -33027,14 +31307,6 @@
           "measured_on": "",
           "variant": "",
           "why": "no metal engine image (MLX)"
-        },
-        {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "metal",
-          "why": ""
         },
         {
           "model": "Qwen 3.6 27B",
@@ -33218,14 +31490,6 @@
           "measured_on": "CUDA",
           "variant": "metal",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no metal engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -33604,14 +31868,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "metal",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -33700,14 +31956,6 @@
           "why": "no metal engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "metal",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 140.0,
@@ -33770,14 +32018,6 @@
           "measured_on": "CUDA",
           "variant": "metal",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no metal engine image (MLX)"
         },
         {
           "model": "Meta Llama 3.1 70B (Q4, MLX)",
@@ -33921,14 +32161,6 @@
           "measured_on": "CUDA",
           "variant": "metal",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no metal engine image (MLX, llama.cpp)"
         },
         {
           "model": "DeepSeek-V4.1-Flash",
@@ -34347,14 +32579,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "metal",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -34443,14 +32667,6 @@
           "why": "no metal engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "metal",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 140.0,
@@ -34513,14 +32729,6 @@
           "measured_on": "CUDA",
           "variant": "metal",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no metal engine image (MLX)"
         },
         {
           "model": "Meta Llama 3.1 70B (Q4, MLX)",
@@ -34664,14 +32872,6 @@
           "measured_on": "CUDA",
           "variant": "metal",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no metal engine image (MLX, llama.cpp)"
         },
         {
           "model": "DeepSeek-V4.1-Flash",
@@ -35094,14 +33294,6 @@
           "server": "MLX",
           "tps": 40.0,
           "measured_on": "Metal",
-          "variant": "metal",
-          "why": ""
-        },
-        {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
           "variant": "metal",
           "why": ""
         },
@@ -35202,14 +33394,6 @@
           "why": "no metal engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "metal",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 140.0,
@@ -35272,14 +33456,6 @@
           "measured_on": "CUDA",
           "variant": "metal",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no metal engine image (MLX)"
         },
         {
           "model": "Meta Llama 3.1 70B (Q4, MLX)",
@@ -35375,14 +33551,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cpu engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -35553,14 +33721,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "",
           "tps": 0,
@@ -35599,14 +33759,6 @@
           "measured_on": "",
           "variant": "",
           "why": "no cpu engine image (MLX)"
-        },
-        {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
         },
         {
           "model": "Llama 3.1 8B",
@@ -35712,14 +33864,6 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cpu engine image (MLX, llama.cpp)"
-        },
-        {
           "model": "LFM3-1.7B",
           "server": "llama.cpp",
           "tps": 25.0,
@@ -35920,14 +34064,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "",
           "tps": 0,
@@ -35974,14 +34110,6 @@
           "measured_on": "",
           "variant": "",
           "why": "no cpu engine image (MLX)"
-        },
-        {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
         },
         {
           "model": "Llama 3.1 8B",
@@ -36087,14 +34215,6 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cpu engine image (MLX, llama.cpp)"
-        },
-        {
           "model": "LFM3-1.7B",
           "server": "llama.cpp",
           "tps": 25.0,
@@ -36303,14 +34423,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "",
           "tps": 0,
@@ -36357,14 +34469,6 @@
           "measured_on": "",
           "variant": "",
           "why": "no cpu engine image (MLX)"
-        },
-        {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
         },
         {
           "model": "Llama 3.1 8B",
@@ -36470,14 +34574,6 @@
           "why": ""
         },
         {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cpu engine image (MLX, llama.cpp)"
-        },
-        {
           "model": "LFM3-1.7B",
           "server": "llama.cpp",
           "tps": 25.0,
@@ -36694,14 +34790,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Nemotron 3.5 Super VL 120B",
           "server": "",
           "tps": 0,
@@ -36756,14 +34844,6 @@
           "measured_on": "",
           "variant": "",
           "why": "no cpu engine image (MLX)"
-        },
-        {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
         },
         {
           "model": "Llama 3.1 8B",
@@ -36835,14 +34915,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cpu engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -37085,14 +35157,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -37131,14 +35195,6 @@
           "measured_on": "",
           "variant": "",
           "why": "no cpu engine image (MLX)"
-        },
-        {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
         },
         {
           "model": "Qwen 3.6 27B",
@@ -37298,14 +35354,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cpu engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -37612,14 +35660,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -37684,14 +35724,6 @@
           "why": "no cpu engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 140.0,
@@ -37746,14 +35778,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cpu engine image (MLX)"
         },
         {
           "model": "Qwen3.6-27B (official repo)",
@@ -37873,14 +35897,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cpu engine image (MLX, llama.cpp)"
         },
         {
           "model": "DeepSeek-V4.1-Flash",
@@ -38203,14 +36219,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -38275,14 +36283,6 @@
           "why": "no cpu engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 140.0,
@@ -38337,14 +36337,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cpu engine image (MLX)"
         },
         {
           "model": "Qwen3.6-27B (official repo)",
@@ -38464,14 +36456,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cpu engine image (MLX, llama.cpp)"
         },
         {
           "model": "DeepSeek-V4.1-Flash",
@@ -38798,14 +36782,6 @@
           "server": "MLX",
           "tps": 40.0,
           "measured_on": "Metal",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -38882,14 +36858,6 @@
           "why": "no cpu engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 140.0,
@@ -38944,14 +36912,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cpu engine image (MLX)"
         },
         {
           "model": "Qwen3.6-27B (official repo)",
@@ -39023,14 +36983,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cpu engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -39313,14 +37265,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -39367,14 +37311,6 @@
           "measured_on": "",
           "variant": "",
           "why": "no cpu engine image (MLX)"
-        },
-        {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
         },
         {
           "model": "Qwen 3.6 27B",
@@ -39542,14 +37478,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cpu engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -39904,14 +37832,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -39992,14 +37912,6 @@
           "why": "no cpu engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 140.0,
@@ -40054,14 +37966,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cpu engine image (MLX)"
         },
         {
           "model": "Gemma 4 31B",
@@ -40189,14 +38093,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cpu engine image (MLX, llama.cpp)"
         },
         {
           "model": "DeepSeek-V4.1-Flash",
@@ -40583,14 +38479,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -40671,14 +38559,6 @@
           "why": "no cpu engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 140.0,
@@ -40733,14 +38613,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cpu engine image (MLX)"
         },
         {
           "model": "Gemma 4 31B",
@@ -40868,14 +38740,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cpu engine image (MLX, llama.cpp)"
         },
         {
           "model": "DeepSeek-V4.1-Flash",
@@ -41266,14 +39130,6 @@
           "server": "MLX",
           "tps": 40.0,
           "measured_on": "Metal",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -41366,14 +39222,6 @@
           "why": "no cpu engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 140.0,
@@ -41428,14 +39276,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cpu engine image (MLX)"
         },
         {
           "model": "Gemma 4 31B",
@@ -41515,14 +39355,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cpu engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -41813,14 +39645,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -41867,14 +39691,6 @@
           "measured_on": "",
           "variant": "",
           "why": "no cpu engine image (MLX)"
-        },
-        {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
         },
         {
           "model": "Qwen 3.6 27B",
@@ -42058,14 +39874,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cpu engine image (MLX, llama.cpp)"
         },
         {
           "model": "LFM3-1.7B",
@@ -42444,14 +40252,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -42540,14 +40340,6 @@
           "why": "no cpu engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 140.0,
@@ -42610,14 +40402,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cpu engine image (MLX)"
         },
         {
           "model": "Meta Llama 3.1 70B (Q4, MLX)",
@@ -42761,14 +40545,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cpu engine image (MLX, llama.cpp)"
         },
         {
           "model": "DeepSeek-V4.1-Flash",
@@ -43187,14 +40963,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -43283,14 +41051,6 @@
           "why": "no cpu engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 140.0,
@@ -43353,14 +41113,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cpu engine image (MLX)"
         },
         {
           "model": "Meta Llama 3.1 70B (Q4, MLX)",
@@ -43504,14 +41256,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cpu engine image (MLX, llama.cpp)"
         },
         {
           "model": "DeepSeek-V4.1-Flash",
@@ -43934,14 +41678,6 @@
           "server": "MLX",
           "tps": 40.0,
           "measured_on": "Metal",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
           "variant": "cpu",
           "why": ""
         },
@@ -44042,14 +41778,6 @@
           "why": "no cpu engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 140.0,
@@ -44112,14 +41840,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cpu engine image (MLX)"
         },
         {
           "model": "Meta Llama 3.1 70B (Q4, MLX)",
@@ -44271,14 +41991,6 @@
           "measured_on": "CUDA",
           "variant": "cuda",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 2B",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cuda engine image (MLX, llama.cpp)"
         },
         {
           "model": "DeepSeek-V4.1-Flash",
@@ -44601,14 +42313,6 @@
           "why": ""
         },
         {
-          "model": "Gemma 4 E2B",
-          "server": "LiteRT",
-          "tps": 9.0,
-          "measured_on": "CPU",
-          "variant": "cpu",
-          "why": ""
-        },
-        {
           "model": "Ternary Bonsai 2 27B",
           "server": "llama.cpp (PrismML fork)",
           "tps": 35.0,
@@ -44673,14 +42377,6 @@
           "why": "no cuda engine image (MLX)"
         },
         {
-          "model": "DeepSeek R1 1.5B",
-          "server": "Ollama",
-          "tps": 4.0,
-          "measured_on": "CPU",
-          "variant": "cuda",
-          "why": ""
-        },
-        {
           "model": "Qwen 3.6 27B",
           "server": "llama.cpp",
           "tps": 140.0,
@@ -44735,14 +42431,6 @@
           "measured_on": "CUDA",
           "variant": "cpu",
           "why": ""
-        },
-        {
-          "model": "Bonsai 2 27B on M4 Max",
-          "server": "",
-          "tps": 0,
-          "measured_on": "",
-          "variant": "",
-          "why": "no cuda engine image (MLX)"
         },
         {
           "model": "Qwen3.6-27B (official repo)",
