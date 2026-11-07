@@ -46,3 +46,22 @@ attribute it to the owning lane as the **next** fold's work, never report the cu
 on it. Only a finding whose live mtime is **older than** `mergedAt` (present in the tree the fold
 landed) is evidence the landed fold itself missed something. Both timestamps are facts; compare them
 per finding before naming a fold.
+
+## Cite a PR as green only from its live `check-runs` conclusions (fleet-witness rule, #1854)
+When any dispatch, audit, or report cites \"PR X passed\" or \"PR X is green\" as a contrast witness, read that
+PR's conclusions **from the API at the measured head** — `gh api repos/<r>/commits/<sha>/check-runs --jq
+'[.check_runs[] | {name, status, conclusion}]'` — never a `mergeable` status and never a relayed claim.
+A PR that is `MERGEABLE` and \"ready-for-review\" is not CI-green; a `cancelled` run (superseded by a newer
+push / `cancel-in-progress`) is *not yet*, not a pass; a `failure` conclusion naming a fold is the wire fact.
+The #1850 audit defect class: the audit cited its own vehicle as \"passed\" from a stale witness while the
+live `guard`/`scope` runs at the head were red — `mergeable` said yes, `check-runs` said no. Prove a green
+with `.conclusion == \"success\"` rows at the **current head sha** (a new push invalidates every earlier
+conclusion, including your own).
+
+## A per-lane vehicle that touches `agents/<lane>/` carries its `SYNC:` line in the same push (#1854, #1724)
+Any profile-editing PR (anything that edits `agents/<profile>/SOUL.md` or a lane skill under
+`agents/<profile>/`) must include `SYNC: <profile> make sync-agent-profile PROFILE=<profile>` in its body **in
+the same commit/push that adds the skill edit** — the `check-pr-sync-line` (#1724) propagation rule is real and
+reds a live-again vehicle whose body omits it. Never land the edit and defer the SYNC line to a re-push: the
+gate reds on the wire in the gap, and a `MERGEABLE` PR red on `check-pr-sync-line` is exactly the
+red-and-referenced-green failure the fleet witness rule exists to catch.
