@@ -224,6 +224,10 @@ def test_llgenie_matrix_prints_urls(tmp_path):
     smoke = REPO / "tests" / "fixtures" / "matrix-smoke-registry.json"
     env = {**os.environ, "LLGENIE_REGISTRY_SRC": str(smoke),
            "LLGENIE_QUANT_CATALOG": str(mp.QUANT_CATALOG),
+           # the smoke model is the 2 GB health-check tier; widen the default band
+           # so this CLI-plumbing test keeps exercising the full matrix machinery
+           # (issue #227: the default band is 8-48 GB, the smoke model is below it)
+           "LLGENIE_VRAM_RANGE": "1, 64",
            "LLAMA_MODELS_ROOT": str(tmp_path), "LLAMA_BACKEND": "cpu"}
     # Given --matrix 24 32 on stdin that is not a tty
     r = subprocess.run([sys.executable, str(REPO / "scripts" / "llgenie_serve.py"),

@@ -89,10 +89,14 @@ def _launcher() -> Path:
 
 def _env(arch: str, vram: float, ram: float, models: Path) -> dict:
     """The mocked host, through the same env seams the permutation tests use: the real
-    detection path (card_gb / system_ram_gb / host_arch) reads these."""
+    detection path (card_gb / system_ram_gb / host_arch) reads these. The smoke model
+    is the 2 GB health-check tier, so `LLGENIE_VRAM_RANGE` widens the default band
+    (issue #227: 8-48 GB by default, the smoke model is below it) and keeps this
+    installed-launcher plumbing test exercising the full matrix machinery."""
     return {**os.environ, "LLGENIE_REGISTRY_SRC": str(SMOKE), "LLAMA_MODELS_ROOT": str(models),
             "LLAMA_BACKEND": arch, "LLAMA_RAM_BYTES": str(int(vram * GB)),
-            "LLGENIE_SYSTEM_RAM_BYTES": str(int(ram * GB))}
+            "LLGENIE_SYSTEM_RAM_BYTES": str(int(ram * GB)),
+            "LLGENIE_VRAM_RANGE": "1, 64"}
 
 
 def _run(args: list[str], env: dict, launcher: Path) -> subprocess.CompletedProcess:

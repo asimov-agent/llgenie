@@ -66,7 +66,8 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	build-server build-variant serve-variant test-serve-variant stop-serve-variant install-prism-cpu install-upstream-cpu \
 	install-prism-cuda install-upstream-cuda install-prism-metal install-upstream-metal \
 	sync-registry check-registry skills-validate engine-list engine-hardware engine-plan engine-check engine-install engine-detect engine-smoke test-engine test-engine-serve ci-engine-images build-engine-base build-engines generate-build-engine-params test-engine-image push-engine test-published-engine test-install-published engine-launchers test-built-engine test-uninstalled engine-capability-serve \
-	sync-quant-catalog check-quant-catalog render-trend-list-matrix check-trend-list-matrix render-engine-skill-gap check-engine-skill-gap \
+		sync-quant-catalog check-quant-catalog render-trend-list-matrix check-trend-list-matrix render-engine-skill-gap check-engine-skill-gap \
+	render-vram-scope-view check-vram-scope-view \
 	engine-gate-report engine-skill-gap engine-skill-gap-md spawn-engine-skill-issues engine-skill-scaffold registry-change-report sync-change-issue registry-review-brief registry-sync-review registry-review-publish sync-strata-models check-strata-models check-wiring wiring-report check-secret-output secret-output-report \
 	secret-scan secret-scan-history secret-scan-self-test \
 	queued-alarm check-zero-job-pending stale-branch-cleanup issue-cleaner-scan issue-cleaner-apply worktree-report worktree-prune fix-loop fix-loop-image fix-bot-sweep fix-bot-report agent-image-ref issue-bot-dispatch issue-bot-open-pr issue-bot-image ci-requeue-cancelled ci-frozen-reaper issue-bot-pr-body-check agent-repo-ownership \
@@ -322,6 +323,10 @@ render-trend-list-matrix: ## Rewrite tests/fixtures/trend-list-matrix.json from 
 	python3 scripts/trend_list_matrix.py
 check-trend-list-matrix: ## CI: fail when the committed trend-list matrix differs from matrix() on the vendored registry — hermetic: it replays tests/fixtures/hub-snapshot.json (issue #1080; LIVE=1 for the live comparison)
 	python3 scripts/trend_list_matrix.py --check $(if $(LIVE),--live,)
+render-vram-scope-view: ## Rewrite tests/fixtures/vram-scope-view.json from scope_models(registry, DEFAULT_VRAM_RANGE) on the vendored registry — the committed default-band view (issue #227)
+	python3 scripts/vram_scope_view.py
+check-vram-scope-view: ## CI: fail when the committed default-band vram scope view differs from scope_models() on the vendored registry — pure function, no Hub, hermetic (issue #227)
+	python3 scripts/vram_scope_view.py --check
 render-engine-skill-gap: ## Rewrite data/engine-skill-gap.json (per-engine status + the models only unskilled engines serve) from the vendored registry, the skills and the dated decisions
 	python3 scripts/engine_skill_gap.py render
 check-engine-skill-gap: ## CI: fail when a registry engine has no skill and no dated decision in data/unsupported-engines.json, or when data/engine-skill-gap.json is stale
@@ -1797,6 +1802,7 @@ ci-unit: bash-check ## CI job unit: hermetic unit tests + registry / skill / Str
 	$(MAKE) check-strata-models
 	$(MAKE) check-quant-catalog
 	$(MAKE) check-trend-list-matrix
+	$(MAKE) check-vram-scope-view
 	$(MAKE) skills-validate REGISTRY=data/models.json UNSUPPORTED=data/unsupported-engines.json
 	$(MAKE) check-engine-skill-gap
 	$(MAKE) check-engine-params
