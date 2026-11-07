@@ -11,6 +11,12 @@ made to work by any ordering of edits:
     sys-path  a `sys.path.insert` / `sys.path.append` outside `tests/conftest.py`
     bare      `import <name>` / `from <name> import …` where `<name>` is a module that lives in `scripts/`
 
+A NEW test file must import a `scripts/` module as `from scripts import <name>`, never `import <name>`:
+bare imports are refused by the `bare` rule, and the recorded bare-import debt already in the tree may
+only shrink — it can never rise (issue #796, ratcheted by the baseline below). Copying a sibling's
+`sys.path.insert` bootstrap or bare import is copying REMAINING refactor debt, not the accepted
+spelling, and a new file that does so trips the ratchet with "a NEW import root is refused".
+
 Both are refusals, not warnings. `--allow` takes a path prefix that is exempt (the conftest, and a
 deliberate exception recorded with its reason in the same list), so the list is the record of every
 exception rather than a comment somewhere.
