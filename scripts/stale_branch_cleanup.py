@@ -61,7 +61,7 @@ def _paged_json(endpoint: str, *, strict: bool = True):
     """
     last: tuple[int, str] | None = None
     for attempt in range(2):
-        rc, out = _gh(["api", "--paginate", "--silent", endpoint])
+        rc, out = _gh(["api", "--paginate", endpoint])
         if rc != 0 or not out.strip():
             last = (rc, out or "")
             continue  # one retry for the transient class
