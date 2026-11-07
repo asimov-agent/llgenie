@@ -241,6 +241,37 @@ def test_a_serving_cell_still_probes_its_binary_first():
     assert "&&" in serve, "the serve branch must fail closed when the binary test fails"
 
 
+def test_every_cell_has_a_fail_fast_disk_headroom_gate():
+    """An oversized CUDA/ROCm/prebuilt cell must free disk and gate on a free-space floor BEFORE
+    the build, so a too-small runner reds with the df line in seconds, not 13 minutes later with
+    `no space left on device` mid-export (issue #1893)."""
+    text = workflow()
+    # Given: the cell's pre-build disk step
+    step = text.split("name: Disk headroom")[1].split("- uses:")[0] if "name: Disk headroom" in text else ""
+    assert step, "the disk-headroom step is missing from the build job"
+    # When: its freeing + guard behaviour is read
+    # Then: it frees the docker/buildx layer cache AND the big toolchain dirs,
+    # measures free disk, records it, and fails fast below a tunable floor.
+    assert "LLGENIE_DISK_FLOOR_GB" in step
+    assert "docker builder prune" in step
+    assert "df -h /" in step or "df -B1" in step
+    assert "FREE_DISK_GB" in step
+    assert "exit 1" in step, "the gate must fail closed on an under-disk runner"
+    assert "issue #1893" in step + text.split("Disk headroom")[0], "the policy must be self-documented"
+
+
+def test_disk_gate_frees_the_giant_layer_cache_before_the_build():
+    """The docker/buildx cache is the first thing freed: a previous oversized cell's image can be
+    tens of GB, and freeing it is what turns a guaranteed ENOSPC into headroom (issue #1893)."""
+    text = workflow()
+    step = text.split("Disk headroom", 1)[1].split("- uses:", 1)[0]
+    assert "docker builder prune -af" in step
+    assert "rm -rf" in step
+
+
+
+
+
 def test_the_dispatch_can_force_a_rebuild():
     """`force` is a dispatch input (default false) wired to FORCE=1 on the build step only (issue #638)."""
 
