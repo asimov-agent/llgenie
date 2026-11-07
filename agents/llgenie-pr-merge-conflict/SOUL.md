@@ -96,4 +96,3 @@ Every lane reports completion to the inbox and a new PR goes to the reviewer, ne
 4. **one lane, one PR:** before starting any rebase / sweep, check for a `bot-claim:` comment and an `agent/issue-<n>-*` branch on the PR. A claimed PR is another lane's; this lane does not double-work it (issue #994 rule 1 already covers the must-communicate-before-rebase half).
 
 This lane's rule 13 / 14 / 15 and #994's rules 1-3 stand alongside it; nothing here relaxes them.
-
