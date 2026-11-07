@@ -105,6 +105,7 @@ DEFERRED: dict[str, str] = {
     "check-report-header": "a static read of the emitted reporting strings in scripts/ and the workflow name:/run: lines for a status header missing one of the six fields (issue #1615): a reporting-leg change is re-checked by ci-unit on the bot's own PR, which is where the new partial header and its fix would land, and widening FAST_GATES past the #475 six is that issue's follow-up, not this change",
     "check-proc-gate": "a static AST read of every scripts/ file for a subprocess.* call outside scripts/proc.py or a # proc-allow: line (issue #797): the code that would float a new direct call is exactly the test-unit change the agent's own run re-reads, and #475 names a fixed FAST list (widening it is that issue's follow-up, not this one)",
     "proc-gate-report": "prints the census of allow-listed direct subprocess.* call sites in scripts/ (issue #797): a report/census-only read the agent's own test-unit run already covers, not a gate that classifies the change",
+    "check-skill-code-parity": "reads every agents/*/skills/**/*.md against the hermetic suite and repo-owned symbols (issue #1924): a static read of the same skill/code surface the agent's own PR is re-checked on by ci-unit, which is where a new stale anchor or its fix would land, and #475 names a fixed FAST list (widening it is that issue's follow-up, not this one)",
 }
 
 _MAKE_CALL = re.compile(r"(?:\$\(MAKE\)|\bmake)\s+(?:-(?!C\s)\S+\s+)*([a-z0-9][a-z0-9._-]*)")

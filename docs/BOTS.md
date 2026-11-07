@@ -459,6 +459,8 @@ make agent-profiles-report                                            # every pr
 make profile-drift                                                   # host-only: tree copies that are PREFIXES of the live rulebook (#928)
 make profile-drift-alarm                                             # the SCHEDULED caller: file ONE issue on drift (#928)
 make tester-fold-live PROFILE=llgenie-tester                         # host-only: fold live→tree for a lane (or --check only) (#1079)
+make skill-parity                                                     # host-only, READ-ONLY: report live↔tree skill drift (#1924)
+make check-skill-code-parity                                          # CI (ci-unit): every skill reference cites a real, suite-ran test and repo-owned symbol
 ```
 
 `make sync-agent-profile` (`scripts/agent_profile_sync.py`, stdlib only) writes each file the tree

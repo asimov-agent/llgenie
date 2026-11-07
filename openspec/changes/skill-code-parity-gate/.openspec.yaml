@@ -1,0 +1,6 @@
+name: skill-code-parity-gate
+id: skill-code-parity-gate
+specs:
+  - specs/skill-code-parity/spec.md
+tasks:
+  - tasks.md
