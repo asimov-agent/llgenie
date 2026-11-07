@@ -53,6 +53,22 @@ def _cmd(cmd: Sequence[str], *, timeout: float | None, cwd: str | None,
                           timeout=timeout, cwd=cwd, env=env)
 
 
+def run_live(cmd: Sequence[str], *, timeout: float | None = None,
+             cwd: str | None = None, env: dict[str, str] | None = None,
+             **_: Any) -> subprocess.CompletedProcess[str]:
+    """Run `cmd`, streaming BOTH streams to the caller's stdout/stderr in real time.
+
+    This is the policy for a long-running command whose progress matters while it runs (a build,
+    a test sweep): each line lands on the caller's terminal / log the moment the child writes it,
+    not once at the end. The child's streams are passed through uninspected (no capture buffer), so a
+    runaway build cannot be memory-bombed by its own output. A non-zero exit never raises — the caller
+    inspects `rc`, the same contract as `run_ok`. `OSError`/`TimeoutExpired` still propagate.
+    """
+    return subprocess.run(list(cmd), text=True, stdout=None, stderr=None,
+                          timeout=timeout, cwd=cwd, env=env)
+
+
+
 def run_ok(cmd: Sequence[str], *, timeout: float | None = None,
            cwd: str | None = None, env: dict[str, str] | None = None,
            **_: Any) -> subprocess.CompletedProcess[str]:

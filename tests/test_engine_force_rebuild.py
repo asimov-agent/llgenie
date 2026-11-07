@@ -29,7 +29,11 @@ def _record(monkeypatch, rc: int = 0) -> list[list[str]]:
         calls.append(list(cmd))
         return subprocess.CompletedProcess(cmd, rc)
 
+    # `_buildx` streams the real build via `_sh_live` (proc.py run_live policy, issue #797);
+    # the recorder must capture BOTH call sites or the build command (the flags under test)
+    # is never recorded and `calls[-1]` is the unrelated `docker buildx inspect`.
     monkeypatch.setattr(ei, "_sh", sh)
+    monkeypatch.setattr(ei, "_sh_live", sh)  # _buildx builds via _sh_live (run_live policy)
     return calls
 
 
@@ -164,6 +168,7 @@ def test_a_missing_cache_image_builds_cold_not_red(monkeypatch, tmp_path):
         return subprocess.CompletedProcess(cmd, 1 if probe else 0)
 
     monkeypatch.setattr(ei, "_sh", sh)
+    monkeypatch.setattr(ei, "_sh_live", sh)  # _buildx builds via _sh_live (run_live policy, #797)
     monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
     monkeypatch.setattr(ei, "CACHE_WRITE", True)
 
@@ -351,6 +356,7 @@ def test_a_present_cache_image_keeps_cache_from(monkeypatch, tmp_path):
         return subprocess.CompletedProcess(cmd, 0)
 
     monkeypatch.setattr(ei, "_sh", sh)
+    monkeypatch.setattr(ei, "_sh_live", sh)  # _buildx builds via _sh_live (run_live policy, #797)
     monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
     monkeypatch.setattr(ei, "CACHE_WRITE", False)
 
