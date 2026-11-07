@@ -47,5 +47,8 @@ THEN the generated manifest records `probe: "version"` for that cell and validat
 - **When** `make generate-engine-params` runs
 - **Then** `containers/engines/binaries.json` carries `tensorfold/cuda` `probe: "version"`, and
   skill validation (`BINARY_PROBES`) accepts it
-- **Test:** `tests/test_engine_skills.py::test_each_ci_cell_is_in_the_committed_manifest` (the
-  probe-set assertion now includes `version`)
+- **Test:** `tests/test_engine_skills.py::test_probe_policy_honours_the_version_only_per_backend_branch`
+  (direct: reads the committed tensorfold skill, asserts `probe_policy(tf, "cuda") == "version"`,
+  `metal == "flags"`, and that the generated manifest carries `probe: "version"`); plus
+  `tests/test_engine_skills.py::test_each_ci_cell_is_in_the_committed_manifest` (the probe-set
+  assertion now includes `version`)
