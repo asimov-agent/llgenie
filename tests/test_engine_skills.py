@@ -1173,6 +1173,33 @@ def test_validator_requires_documented_binary_flags(skills):
     assert es.validate(skills) == []
 
 
+def test_probe_policy_honours_the_version_only_per_backend_branch():
+    """`binary_probe: {cuda: version}` returns 'version' for cuda and the default 'flags'
+    for a backend left unset (tensorfold: help is a separate subcommand at the 1.2.1 pin,
+    issue #1888) — and the committed tensorfold manifest carries it."""
+
+    import scripts.engine_skills as es
+
+    # Given the committed tensorfold skill, whose per-backend binary_probe marks cuda version
+    tf = es.get_skill("tensorfold")
+    assert isinstance(tf.get("binary_probe"), dict), tf.get("binary_probe")
+
+    # When the per-backend probe policy is read for each backend
+    cuda = es.probe_policy(tf, "cuda")
+
+    # Then  cuda is version-only (no help family); a backend with no override stays "flags"
+    assert cuda == "version", cuda
+    assert es.probe_policy(tf, "metal") == "flags"  # the macOS binary answers --help too
+
+    # And the policy is part of the generated manifest, not a separate hand-edit
+    entries = es.documented_flags(tf, "cuda"), es.probe_policy(tf, "cuda")
+    manifest = {}
+    es.generate_params(tf, manifest)
+    tf_cuda = (manifest.get("cuda") or {})
+    assert tf_cuda.get("probe") == "version", tf_cuda
+    print(f"[probe_policy] tensorfold/cuda -> {entries[1]}, generated manifest probe = {tf_cuda.get('probe')}")
+
+
 def test_each_engine_binary_is_the_file_in_its_image():
     """Prebuilt images use the container path. Built images use the rendered skill path.
 
