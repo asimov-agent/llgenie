@@ -86,7 +86,17 @@ elif a[:2] == ["pr", "comment"]:
 elif a[:2] == ["workflow", "run"]:
     pass
 elif a[:2] == ["issue", "list"]:
-    hit = [k for k in sc["filed"] if k in " ".join(a)]
+    # Model GitHub's search phrase rule, which the reactor must satisfy (issue #1990): a quoted
+    # phrase cannot itself contain a double-quote, so a query for a marker that embeds one (e.g.
+    # a workflow display name `says "no verdict" out loud`) breaks and matches nothing. The reactor
+    # strips `"` from the marker (issue #1990), so only a quote-free phrase reaches this branch;
+    # a filed marker is then found by its quote-stripped spelling (GitHub's index drops the `"`).
+    query = " ".join(a)
+    if query.count('"') != 2:  # exactly the two outer wrappers, never an interior quote
+        hit = []
+    else:
+        phrase = query.split('"')[1]
+        hit = [k for k in sc["filed"] if k.replace('"', "") in phrase]
     print(json.dumps([{{"number": 1, "title": k}} for k in hit]))
 elif a[:2] == ["issue", "create"]:
     print("https://github.com/asimov-agent/llgenie/issues/900")
@@ -162,6 +172,27 @@ def test_the_same_head_sha_again_files_nothing(tmp_path):
     # When the reactor routes the same run again
     r = run_reactor(tmp_path, ["--repo", f"{OWNER}/llgenie", "--run-id", "123"])
     # Then it files nothing and exits 0
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "already filed" in r.stdout
+    assert not [l for l in log.read_text().splitlines() if l.startswith("issue create")]
+
+
+def test_a_quoted_workflow_name_still_dedupes(tmp_path):
+    # Given an OPEN issue already carrying the marker for a workflow whose display name embeds a
+    # double-quote (`ci-verdict — … and says "no verdict" out loud`) — the 13-issue burst of #1990:
+    # the marker's `"` used to break GitHub's quoted `--search` phrase, so `filed()` never matched
+    # and a fresh issue was filed for every failing run.
+    m = reactor.marker('ci-verdict — holds a finished CI run to its published scope decision, and '
+                       'says "no verdict" out loud', "judge", "05185f9aecc9")
+    assert '"' in m, "the fixture must actually embed a quote to model the defect"
+    log = gh_stub(tmp_path, failed_run(workflow='ci-verdict — holds a finished CI run to its '
+                                                        'published scope decision, and says '
+                                                        '"no verdict" out loud', job="judge",
+                                        head_sha="05185f9aecc9"),
+                  [], filed=[m])
+    # When the reactor routes the same quoted-workflow run again
+    r = run_reactor(tmp_path, ["--repo", f"{OWNER}/llgenie", "--run-id", "123"])
+    # Then it finds the existing marker (phrase is quote-stripped) and files nothing
     assert r.returncode == 0, r.stdout + r.stderr
     assert "already filed" in r.stdout
     assert not [l for l in log.read_text().splitlines() if l.startswith("issue create")]

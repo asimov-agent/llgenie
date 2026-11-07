@@ -440,10 +440,30 @@ def issue_body(run: dict, job: dict, log_tail: str, marker: str) -> str:
     )
 
 
+def filed_phrase(marker: str) -> str:
+    """The `--search` phrase for a marker, safe for GitHub's issue search (issue #1990).
+
+    GitHub's search cannot express a double-quote inside a quoted phrase, and a workflow display
+    name like `ci-verdict — … and says "no verdict" out loud` embeds one in the marker. The index
+    treats `"` as a separator, so the phrase built from the marker with every `"` removed still
+    finds the marker exactly as it was written in the body — and the quoted phrase survives.
+    """
+    return (marker or "").replace('"', "")
+
+
 def filed(repo: str, marker: str) -> bool:
-    """Has this workflow/job@head-sha been filed already? The marker is the memory."""
+    """Has this workflow/job@head-sha been filed already? The marker is the memory.
+
+    The search phrase is built from the marker with its double-quote characters removed (issue #1990):
+    a workflow display name like `ci-verdict — … and says "no verdict" out loud` embeds a `"`, and
+    GitHub's issue search cannot express a double-quote inside a quoted phrase — the verbatim marker
+    NEVER matched, so a duplicate was filed for every failing run (13 issues for one head+job+step).
+    GitHub's index treats the `"` as a separator, so the quote-stripped phrase still finds the marker
+    exactly as it was written in the body.
+    """
+    phrase = filed_phrase(marker)
     out = _gh(["issue", "list", "--repo", repo, "--state", "open", "--search",
-               f"\"{marker}\" in:body", "--limit", "5", "--json", "number"])
+               f'"{phrase}" in:body', "--limit", "5", "--json", "number"])
     return bool(json.loads(out or "[]") or [])
 
 
