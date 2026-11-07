@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import check_main_ruleset as rs
+from scripts import check_main_ruleset as rs
 
 FIX = Path(__file__).resolve().parent / "fixtures"
 
