@@ -810,6 +810,12 @@ unproven close instead of silently passing. It is VERIFICATION only: it never ti
 docs gate run it beside `check-pr-closing`, fetching that body via `gh api` (issue #1589) and passing
 the live squash range via `PR_BASE`/`PR_HEAD`; a push to main has no body and prints
 a `nothing to validate` note instead of failing. Implemented as issue #1792, canary as issue #1811.
+The gate also refuses a close on a rollout umbrella while a referenced LANE issue is still open
+(issue #1859): even when the umbrella's own `- [ ]` boxes are all ticked, a `#<n>` the umbrella cites
+in its body that is still OPEN and cites the umbrella back is held as `rollout-lane-open` — the half
+#1816's unticked-criteria hold cannot see (measured #1849: #1856's squash auto-closed it while its
+lanes were in flight). The lane set is derived from the umbrella's own citations and probed live,
+never a hand-kept roster (issue #301).
 
 `make check-pr-sync-line` is the #1724 profile-propagation preflight mounted in CI: it refuses a bot PR
 whose diff changes a directory under `agents/<profile>/` (a SOUL/skills/rule change) without reporting
