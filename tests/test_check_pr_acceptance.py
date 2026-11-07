@@ -69,6 +69,33 @@ def test_issue_with_no_acceptance_section_is_GREEN():
     assert g.acceptance_verdict(body, _pr("closes #1000"), 1000) == []
 
 
+def _issue_with_noncanonical_heading(extra: str = "## Fix (acceptance criteria)") -> str:
+    """The #1807 shape — criteria authored under `## Fix (acceptance criteria)`, not the canonical name."""
+    return ("## Problem\n\nmeasured\n\n## Why it matters\n\nconsequence\n\n"
+            + extra + "\n- [ ] criterion 1 is met\n- [ ] criterion 2 is met\n"
+            + "## Technical\n\n- details\n")
+
+
+def test_noncanonical_acceptance_heading_is_RED_naming_the_headings():
+    # #1807 closed 5/5-unverified because `## Fix (acceptance criteria)` emptied section_body and the
+    # gate printed OK. The canary must red it and name the heading the boxes live under.
+    findings = g.acceptance_verdict(_issue_with_noncanonical_heading(), _pr("closes #1000"), 1000)
+    assert findings, "a non-canonically-headed unticked issue must be red, not silently OK"
+    assert findings[0]["key"] == "acceptance-heading-masked", [f["key"] for f in findings]
+    assert "## Fix (acceptance criteria)" in findings[0]["evidence"]
+    # a checkboxless canonical-absent body STAYS green (nothing to prove) — the canary only fires on
+    # real checkboxes under a non-canonical heading, never on prose.
+    assert g.acceptance_verdict("## Problem\n\nx\n## Reference\n\n- none\n", _pr("closes #1000"), 1000) == []
+
+
+def test_canonical_heading_still_judges_UNCHANGED():
+    # the canonical `## Acceptance criteria` path is untouched: unticked still red on claim-unchecked,
+    # ticked still green. The canary never fires when the canonical section exists.
+    assert any(f["key"] == "acceptance-unchecked"
+               for f in g.acceptance_verdict(_issue(ticked=[1], total=2), _pr("closes #1000"), 1000))
+    assert g.acceptance_verdict(_issue(ticked=[1, 2], total=2), _pr("closes #1000"), 1000) == []
+
+
 def test_out_of_scope_with_linked_work_item_is_GREEN():
     # The exemption: the close is held UNLESS the PR names the criterion as out of scope with a
     # linked work item under `## Not covered`.

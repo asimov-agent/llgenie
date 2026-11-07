@@ -143,6 +143,33 @@ def _acceptance_items(body: str) -> list[tuple[int, bool, str]]:
     return items
 
 
+def _acceptance_headings_elsewhere(body: str) -> list[str]:
+    """The `##` headings that carry `- [ ]` boxes when the canonical `## Acceptance criteria` is absent.
+
+    A `##` heading is only a criteria section when it matches the canonical name exactly
+    (`issue_body.section_body`, issue #745) — a non-canonical authoring like `## Fix (acceptance
+    criteria)` (measured on #1807) empties `section_body`, so `_acceptance_items` yields `[]` and the
+    gate would print `OK` on an issue whose boxes are still `- [ ]`. This names every heading that
+    carries a checkbox but is NOT the canonical section — the found-headings canary (mirrors #1802's
+    seam title). Uses `issue_body.HEADING_RE` so the gate and the renderer agree.
+    """
+    lines = (body or "").splitlines()
+    section = issue_body.section_body(body, "Acceptance criteria")
+    if section:
+        return []
+    current = None
+    boxes_under: list[str] = []
+    for line in lines:
+        m = issue_body.HEADING_RE.match(line)
+        if m:
+            current = m.group(1).strip()
+            continue
+        if current and current != "Acceptance criteria" and CHECKBOX_RE.match(line):
+            if current not in boxes_under:
+                boxes_under.append(current)
+    return boxes_under
+
+
 def _declared_out_of_scope(pr_body: str, criterion: str) -> bool:
     """True when the PR body marks `criterion` out of scope by naming a linked `#<n>` under `## Not covered`.
 
@@ -171,10 +198,31 @@ def acceptance_verdict(issue_body_text: str, pr_body: str, issue: int) -> list[d
       * `claim-exceeds` — the PR body's own `- [x]` names a criterion the issue has UNTICKED.
     An issue with no `## Acceptance criteria` (or none tickable) returns no finding: nothing to prove.
     Every finding names the linked `#N` (`issue`) so a multi-issue PR's violations are distinguishable
-    from a single CI log.
+    from a single CI log. But a body whose `- [ ]` boxes live under a DIFFERENT `##` heading (the
+    #1807 `## Fix (acceptance criteria)` shape) is not the same as a body with no criteria — the
+    criteria are structurally invisible to the exact-match read, so the found-headings canary reds
+    instead of verifying nothing.
     """
     items = _acceptance_items(issue_body_text)
     if not items:
+        # canary: an issue whose checkboxes sit under a non-canonical heading must refuse, never pass,
+        # so a closed unverified issue cannot silently go green (measured on #1807).
+        masked_headings = _acceptance_headings_elsewhere(issue_body_text)
+        if masked_headings:
+            return [{
+                "key": "acceptance-heading-masked",
+                "title": "ci: a closed issue's acceptance criteria sit under a non-## Acceptance criteria heading",
+                "evidence": (
+                    "the linked issue carries `- [ ]` item(s) under "
+                    f"heading(s) {', '.join('`## ' + h + '`' for h in masked_headings)} but no "
+                    "`## Acceptance criteria` section (issue_body.section_body matches that heading "
+                    "exactly, issue #745). The criteria are structurally invisible to this gate, so a "
+                    "close here cannot be called verified. Re-head the section to `## Acceptance "
+                    "criteria` (the #745 definitive form) and tick the proved boxes, or this gate "
+                    "refuses the unproven close."
+                ),
+                "where": f"#{issue}",
+            }]
         return []
     out: list[dict] = []
     unticked = [it for it in items if not it[1]]
