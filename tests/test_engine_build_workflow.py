@@ -119,6 +119,32 @@ def test_it_publishes_only_when_the_dispatch_asks_for_it():
     assert "PUSH=$PUBLISH" not in text, "the build step must not publish"
 
 
+def test_cache_write_env_and_ghcr_login_share_one_gate():
+    """Issue #1843: `LLGENIE_CACHE_WRITE=1` is set unconditionally on every engine cell, so the
+    GHCR-login step must run for the same single condition (engine != none) — not be gated off
+    `inputs.push == 'true'`. A login gated off the very condition that arms the cache write reds a
+    build-and-verify cell with an unauthenticated `--cache-to` (403), so this test fails if the two
+    describe different contracts.
+    """
+
+    text = workflow()
+
+    # The cache-write env is unconditional on an owner-guarded dispatch cell — the comment block
+    # above it says the run logs in, even a push=false cell, to warm the shared cache (#1694).
+    assert 'LLGENIE_CACHE_WRITE: "1"' in text
+
+    # The login step exists, and its if-condition is the single engine!=none gate — NOT push-gated.
+    login_block = text.split("Log in to GHCR", 1)[1].split("\n      - name:", 1)[0]
+    assert "if: ${{ matrix.engine != 'none' }}" in login_block
+    assert "inputs.push == 'true'" not in login_block, \
+        "a cache-write cell whose login is gated off inputs.push arms an unauthenticated --cache-to (403, #1843)"
+
+    # The push path is unaffected (no regression): the publish step keeps its push gate, so
+    # publishing still happens exactly when the dispatch asks (and only after the test passed).
+    push_block = text.split("make push-engine", 1)[1].split("\n      - name:", 1)[0]
+    assert "inputs.push == 'true'" in push_block
+
+
 def test_every_published_row_install_tests_the_image_it_just_published():
     """Issue #1027 (producer-owned install): after a row pushes, it install + dry + uninstalls the
     exact image it published via `make test-engine-install`, so "test the latest engines built"
