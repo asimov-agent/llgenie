@@ -100,10 +100,10 @@ def restore_order() -> list[str]:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--repo", default=None, help="owner/repo (measure only; restore accepts and ignores it)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("restore", help="print the ordered restore list")
     m = sub.add_parser("measure", help="sample the live queue once; 0 = healthy, 1 = stuck")
+    m.add_argument("--repo", default=None, help="owner/repo (measure only)")
     m.add_argument("--gh", default=None, help="path to gh (default: BOTS_RESTORE_HEALTH_GH / gh on PATH)")
     m.add_argument("--now", default=None, help="ISO-8601 observation time (test/CLI override)")
     m.add_argument("--readings", type=int, default=None,
