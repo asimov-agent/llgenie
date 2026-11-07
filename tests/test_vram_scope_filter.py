@@ -125,7 +125,7 @@ def test_model_in_scope_is_the_single_predicate():
         assert got == want
 
 
-def test_consumers_read_the_scoped_view(tmp_path, monkeypatch):
+def test_the_interactive_view_scopes_to_the_default_band(monkeypatch):
     # Given a registry and the engine set
     reg = _registry()
     monkeypatch.setattr(mp, "engine_ids", lambda: {"llama.cpp": {"id": "llama-cpp",
@@ -134,24 +134,62 @@ def test_consumers_read_the_scoped_view(tmp_path, monkeypatch):
     monkeypatch.setattr(mp, "_tree", lambda repo, revision="main": [])
     monkeypatch.setenv("LLGENIE_QUANT_CATALOG", "0")
 
-    # When a consumer runs with the DEFAULT band (a 64 GB card, so out-of-band rows would fit)
-    tl = mp.trend_list(reg, 64, ram_gb=64, arch="cuda")
-    tl_ids = [m["id"] for m in tl]
+    # When the VIEW resolves its own default range and drives the ranker on a 64 GB card
+    # (so out-of-band rows would fit), the band still scopes it — `effective_vram_range(None)`
+    # is exactly what `offer`/`matrix` thread into `trend_list` (issue #227)
+    band = mp.effective_vram_range(None)
+    view = mp.trend_list(reg, 64, ram_gb=64, arch="cuda", vram_range=band)
+    view_ids = [m["id"] for m in view]
 
     # Then the 128 GB entry and the 2 GB entries are NOT in the default view
-    assert "cyber-frost-3.8-mlx" not in tl_ids
-    assert "deepseek-r1-1.5b" not in tl_ids
-    assert "gemma-4-e2b" not in tl_ids
+    assert "cyber-frost-3.8-mlx" not in view_ids
+    assert "deepseek-r1-1.5b" not in view_ids
+    assert "gemma-4-e2b" not in view_ids
+    # A CPU-only row is always in the view
+    assert "kolibri-1" in view_ids
 
-    # And when the SAME consumer widens the range, the out-of-band entries enter again
+    # And when the SAME view widens the range (LLGENIE_VRAM_RANGE / an explicit band,
+    # the "ask for a bigger/smaller box" seam), the out-of-band entries enter again
+    wide = mp.trend_list(reg, 64, ram_gb=64, arch="cuda", vram_range=(2.0, 512.0))
+    wide_ids = [m["id"] for m in wide]
+    assert "deepseek-r1-1.5b" in wide_ids
+    assert "gemma-4-e2b" in wide_ids
+    # The 128 GB entry needs a card that fits it, whatever the band
+    big = mp.trend_list(reg, 128, ram_gb=128, arch="cuda", vram_range=(8.0, 512.0))
+    assert "cyber-frost-3.8-mlx" in [m["id"] for m in big]
+
+
+def test_ranking_primitives_only_band_when_a_range_is_explicit(monkeypatch):
+    # Given a registry and the engine set
+    reg = _registry()
+    monkeypatch.setattr(mp, "engine_ids", lambda: {"llama.cpp": {"id": "llama-cpp",
+                                                                 "formats": ["gguf"],
+                                                                 "variants": ["cuda", "cpu"]}})
+    monkeypatch.setattr(mp, "_tree", lambda repo, revision="main": [])
+    monkeypatch.setenv("LLGENIE_QUANT_CATALOG", "0")
+
+    # When the ranking primitive runs with NO range, it sees the FULL registry (order/fit is
+    # #225's concern; #227 scopes the view, not the ranking primitive — issue #227 out-of-scope)
+    full = mp.trend_list(reg, 64, ram_gb=64, arch="cuda")
+    full_ids = [m["id"] for m in full]
+
+    # Then the 128 GB / 2 GB entries are present (they fit a 64 GB card; no band applied)
+    assert "cyber-frost-3.8-mlx" in full_ids
+    assert "deepseek-r1-1.5b" in full_ids
+    assert "gemma-4-e2b" in full_ids
+    assert "kolibri-1" in full_ids
+
+    # And an EXPLICIT default band scopes the same call (the view passes a concrete tuple)
+    band = mp.trend_list(reg, 64, ram_gb=64, arch="cuda", vram_range=(8.0, 48.0))
+    band_ids = [m["id"] for m in band]
+    assert "cyber-frost-3.8-mlx" not in band_ids
+    assert "deepseek-r1-1.5b" not in band_ids
+    assert "gemma-4-e2b" not in band_ids
+    assert "kolibri-1" in band_ids  # CPU-only row always in scope
+
+    # And a wide range widens the primitive the same way
     wide = mp.trend_list(reg, 64, ram_gb=64, arch="cuda", vram_range=(8.0, 512.0))
     assert "cyber-frost-3.8-mlx" in [m["id"] for m in wide]
-
-    # And the consumers that funnel through trend_list read the same view
-    assert "cyber-frost-3.8-mlx" not in [r["model"]["id"] for r in
-                                         mp.rank_models(reg, "cuda", 64, vram_range=None)]
-    assert "cyber-frost-3.8-mlx" not in [m["id"] for m in
-                                         [r["model"] for r in mp.recommend(reg, "cuda", 64, ram_gb=64)]]
 
 
 def test_vram_range_env_override_widens_the_default(monkeypatch):

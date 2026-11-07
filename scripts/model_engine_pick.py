@@ -993,11 +993,16 @@ def trend_list(registry: dict, gb: float | None = None, ram_gb: float | None = N
     `readme_path`/`readme_text` inject the README source (issue #1068); `None` = today's
     vendored one.
 
-    `vram_range` scopes the registry to the band llgenie works with FIRST (`scope_models`,
-    default the consumer/workstation band, issue #227) — an out-of-band tier is filtered
-    from the view, never dropped from the file, and reappears when the range includes it.
+    `vram_range` scopes the registry to the band llgenie works with when a caller EXPLICITLY
+    names one (issue #227): an out-of-band tier is filtered from the view, never dropped from the
+    file, and reappears when the range includes it. It is NOT applied by default here — `trend_list`
+    is also the ranking primitive `rank_models`/`recommend` and the runtime callers drive over the
+    FULL registry (order is #225's concern, out of scope for #227); the interactive VIEW
+    (`offer`/`matrix`) resolves `effective_vram_range(None)` to the default band and passes a
+    concrete range, so plain `llgenie` still shows the consumer/workstation band by default.
     """
-    registry = scope_models(registry, effective_vram_range(vram_range))
+    if vram_range is not None:
+        registry = scope_models(registry, vram_range)
     gb = card_gb() if gb is None else gb
     return card_order([m for m in registry.get("models") or [] if fits(m, gb, ram_gb, arch)],
                       gb, registry, readme_path, readme_text)
