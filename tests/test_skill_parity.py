@@ -2,13 +2,9 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO / "scripts"))
-
-import skill_parity as sp  # noqa: E402
+from scripts import skill_parity as sp
 
 
 def _setup(tmp_path: Path, monkeypatch):

@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO / "scripts"))
 
-import check_skill_code_parity as g  # noqa: E402
+from scripts import check_skill_code_parity as g
 
 
 def _write_ref(tmp_path: Path, profile: str, text: str) -> Path:
