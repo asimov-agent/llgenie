@@ -21,6 +21,13 @@ there gives a confident, wrong census. Fix:
 
 Remove the scratch worktree when done (it is yours, not a fleet vehicle); never remove another lane's.
 
+**Removing a worktree your shell was `cd`'d into bricks the shell's persisted cwd.** The next
+`terminal` call starts in the deleted path and dies with `cd: /tmp/<wt>: No such file or directory`
+before any command runs — it looks like the command failed, not the cwd. Either leave the scratch
+worktree until the session ends (cheap), or, after removing it, pass an explicit `workdir` on every
+later `terminal` call and use `git -C <repo> …` instead of a `cd` prefix. Never rely on the
+auto-persisted cwd surviving a worktree removal.
+
 ## Check 1 — main vs docs alignment
 
 Pick the sentence the dispatch names and **read the code path it describes, not just a grep of the
@@ -63,6 +70,89 @@ change-note finding off a stem you invented; a real gap makes the gate itself re
 
 ## Deliverable and the missing tracker
 
-The clean-audit record needs a durable home. If no **open** docs-lane tracking issue exists (the
-past audit issues are often already CLOSED), say so in the report and send the `re-audited at <sha>
-no findings` to `@llgenie-planner` rather than fabricating a tracker.
+The clean-audit record needs a durable home. **If an open docs-lane tracking issue exists, post the
+record there as a comment** — measured-at sha, each check's gate rc, and the four-AC-box read. If no
+**open** docs-lane tracking issue exists (past audit issues are often already CLOSED), say so in the
+report and send the `re-audited at <sha> no findings` to `@llgenie-planner` rather than fabricating a
+tracker. If the planner DM is refused (`queue_full`, `do not resend`), do **not** resend — the
+durable on-issue comment is the fleet's source of truth; a transport refusal is not a missing report.
+
+**A clean audit owes no PR — even when the dispatch body carries PR-template boilerplate.** A
+dispatch may spell out branch names, `AGENTS:`/`BASE:` lines and "ready-for-review PR, never draft";
+that template is for audits that surface a fixable finding. When all three checks are green and no
+`scripts/`/`tests/`/workflows change arose, opening a PR with no diff is inventing work — the clean
+result is the record (above), not a vehicle. Say `no PR owed: a clean audit records rather than
+invents tree work` and arm nothing (`auto=none`, #1088).
+
+## Posting the record: exit code is not proof, and the sha must be greppable
+
+Two write-side traps cost a duplicate record and a false "missing" read this class:
+
+- **`gh issue comment` can exit nonzero AND still have posted.** The exit code is not the fact; a
+  retry after a nonzero exit produces a **duplicate** record on the tracker. Before re-posting, read
+  the wire back and only post if the record is absent:
+
+      gh api repos/<owner>/<repo>/issues/<n>/comments \
+        --jq '[.[] | select(.body|contains("re-audited at <sha>"))] | length'   # 0 -> safe to post
+
+  If you did create a duplicate, delete the extra one with the comments API — **`gh api` uses
+  `-X DELETE --silent` (and `-i` for the status line), NOT curl's `-w`**, which gh rejects as an
+  unknown flag:
+
+      gh api repos/<owner>/<repo>/issues/comments/<id> -X DELETE --silent -i   # expect HTTP/2 204
+
+- **Keep the canonical clean line literal so a grep matches it.** Write the line as
+  `re-audited at <bare-sha>, no findings` with the sha **bare** — do **not** backtick or bold-wrap the
+  sha inside that token. A verification `grep 're-audited at <sha>'` (or an API `contains(...)`
+  check) matches the literal string; `re-audited at \`<sha>\`` silently does not, and your own
+  read-back then reports the record "missing" while it sits visibly on the wire. Verify with a
+  backtick-tolerant pattern if the sha is already wrapped, but prefer writing it bare.
+
+A clean audit's only required mutation is the durable on-wire record. **Verify it landed by reading
+it back, then stop** — do not re-post, open an empty PR, or invent a finding to satisfy a completion
+guard; a fabricated issue to clear a guard is worse than a guard left unanswered.
+
+## Skill-freshness is not an invented per-skill release count
+
+`CHANGES.md` keeps no per-skill release sequence — versions appear sporadically and most skills sit
+at a freshly-folded `1.0.0` — so a `version:` frontmatter cannot be "2+ releases behind" anything, and
+digging for a release ledger that does not exist wastes the pass. Measure the dimension the only way
+it is real: `cmp` each lane skill's tree copy against its live `~/.hermes/profiles/<p>/skills/**` (the
+standing live-vs-tree drift class, #791), and treat a live-ahead file — live newer/larger than the
+tree, e.g. the lane's own `SKILL.md` one version past the tree — as the finding, routed under that
+standing drift umbrella rather than filed as a new one-off. A skill with no live counterpart and no
+tree change since its last note is fresh; say so and move on.
+
+## Fleet-wide drift snapshot: ONE routed issue, not one per file
+
+When the live-vs-tree dimension surfaces many lanes' files at one sha (the `live-longer` /
+`live-lines-missing` / `live-edited-not-tree` set under #791) and no existing issue names *that
+measured snapshot*, the deliverable is a single six-section issue carrying a per-file table (tree
+bytes, live bytes, live mtime, class) that routes each file to its owning lane — never one issue per
+file (a dozen queue entries nobody can close together) and never a fold performed here (this lane does
+not implement; each lane owns its #791/#1060 vehicle). For a *single* already-tracked file, comment on
+the umbrella instead of opening a new one-off. Name the smallest in-queue unit in the body so the
+issue has an entry point.
+
+## A CLOSED issue + a MERGED fix is not an OpenSpec-green change
+
+The change-object can survive both with unchecked task boxes, redding `openspec-tasks-check` on every
+PR. Re-measure `make ci-openspec` at the true tip and read the change's OWN `tasks.md`, not the
+issue's closure or the fix PR's file list. A triage relay can report "#N CLOSED COMPLETED, its fix #M
+MERGED" while `openspec/changes/<name>/tasks.md` still carries `- [ ]` boxes — the fix PR touched
+only classification gates and docs/tests, never the change's acceptance list, so `make ci-openspec`
+exits rc=2 (`openspec-tasks FAIL <name>: unchecked task checkbox(es) at lines […]`) on every balanced
+PR, and the residual has NO live owner issue. File it as its own six-section issue with the
+current-head measurement and two allowed resolutions: complete the named tasks + archive out of the
+ACTIVE set, or record an explicit supersession-by-<fix-PR> + archive — either must make `ci-openspec`
+rc=0 at its merged head. This lane reports and routes; it does not implement the code task.
+
+## A fold that just closed is not proof drift reached zero
+
+Re-measure the fold's own target file against the current live mtime, and check whether the closing
+issue even named it. A lane can merge a fold for `file A` and close its tracker while `A` was edited
+again in the live profile *after* the fold's snapshot. The gate's `live-edited-not-tree` line carries
+both timestamps (live edit vs tree commit): compare `git show <fold-merge-sha>:<A> | wc -c` with the
+live file's size and mtime — if live post-dates the fold, the fold is stale by its own acceptance;
+and if the closed issue never named `A`, "closed" reads as tracked-to-zero while the file still
+drifts. Report it as continuing drift since the fold sha, with fresh live size and mtime.
