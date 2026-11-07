@@ -156,6 +156,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           RUN_ID: ${{ inputs.run_id || github.event.workflow_run.id }}
+          # The optional dispatch `head_sha` is carried via env (never interpolated into the shell),
+          # so a crafted value cannot inject shell commands into this `checks: write` job: GitHub
+          # expands workflow expressions before the shell runs (security.run-shell-injection, #1972).
+          HEAD_SHA: ${{ inputs.head_sha }}
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/verdict"
@@ -163,8 +167,8 @@ jobs:
           # The head the verdict is about: an explicit dispatch input wins, else the input's own run
           # (a dispatch fallback), else the workflow_run event's head. Always authoritative: a dispatch
           # must not post a check-run with an empty HEAD_SHA just because the operator omitted the input.
-          if [ -n "${{ inputs.head_sha }}" ]; then
-            echo "${{ inputs.head_sha }}" > "$RUNNER_TEMP/verdict/head_sha"
+          if [ -n "$HEAD_SHA" ]; then
+            echo "$HEAD_SHA" > "$RUNNER_TEMP/verdict/head_sha"
           else
             gh api "repos/$REPO/actions/runs/$RUN_ID" --jq '.head_sha' > "$RUNNER_TEMP/verdict/head_sha"
           fi
