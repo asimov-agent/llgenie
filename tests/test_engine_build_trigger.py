@@ -143,6 +143,56 @@ def test_guard_refused_is_named_not_a_bare_failure(monkeypatch):
     assert rc == 1
 
 
+def test_cancelled_producer_terminates_with_named_cause(monkeypatch, capsys):
+    """A producer that concludes `cancelled` is TERMINAL: the trigger stops waiting and names the cause
+    instead of polling a run whose `status` never flips to `completed`.
+
+    Regression for the hung trigger (issue #1931): run 42326516316 sat `in_progress` 3.5h on producer
+    run 42326545643 which was CANCELLED 12 s after the trigger started. GitHub may report a
+    concurrency-cancelled run with `conclusion: cancelled` while its `status` stays `in_progress`, so
+    the terminal decision must come from the CONCLUSION. A far `--wait-min` proves we do not wait it out.
+    """
+    _stub_base(monkeypatch)
+    _stub_repin(monkeypatch, engine="llama.cpp")
+    _fake_gh(monkeypatch, before_ids=[1],
+             new_run={"status": "in_progress", "conclusion": "cancelled"})
+    rc = _run(["check", "--base", _BASE, "--repo", "asimov-agent/llgenie", "--branch", "main",
+               "--wait-min", "120", "--gh", "gh"])
+    assert rc == 1
+    captured = capsys.readouterr()
+    assert "producer cancelled — nothing to wait for" in captured.err
+
+
+def test_skipped_producer_terminates_with_named_cause(monkeypatch, capsys):
+    """A producer that concludes `skipped` is equally terminal — nothing to wait for (#1931)."""
+    _stub_base(monkeypatch)
+    _stub_repin(monkeypatch, engine="llama.cpp")
+    _fake_gh(monkeypatch, before_ids=[1],
+             new_run={"status": "in_progress", "conclusion": "skipped"})
+    rc = _run(["check", "--base", _BASE, "--repo", "asimov-agent/llgenie", "--branch", "main",
+               "--wait-min", "120", "--gh", "gh"])
+    assert rc == 1
+    captured = capsys.readouterr()
+    assert "producer skipped — nothing to wait for" in captured.err
+
+
+def test_wait_expiry_names_the_run_and_last_status(monkeypatch, capsys):
+    """A producer that NEVER concludes cannot hold the trigger past `wait_min`: expiry fails with the
+    run id and its last known status, never a bare `concluded queued/None` (#1931, wall-clock bound).
+    `--wait-min 0` expires on the first poll so the test drives the bound instantly."""
+    _stub_base(monkeypatch)
+    _stub_repin(monkeypatch, engine="llama.cpp")
+    _fake_gh(monkeypatch, before_ids=[1],
+             new_run={"status": "in_progress", "conclusion": None})
+    rc = _run(["check", "--base", _BASE, "--repo", "asimov-agent/llgenie", "--branch", "main",
+               "--wait-min", "0", "--gh", "gh"])
+    assert rc == 1
+    captured = capsys.readouterr()
+    assert "wait bound (0 min) expired" in captured.err
+    assert "producer run 77 never concluded" in captured.err
+    assert "last status in_progress" in captured.err
+
+
 def test_stalled_behind_push_holder_is_named_not_a_bare_queued(monkeypatch, capsys):
     """A dispatched run left `pending` behind the global engine-build-push group must be reported as
     STALLED with its holder named — never a bare `concluded queued/None` that invites a futile re-dispatch.
@@ -164,8 +214,10 @@ def test_stalled_behind_push_holder_is_named_not_a_bare_queued(monkeypatch, caps
     captured = capsys.readouterr()
     assert "STALLED behind engine-build-push group holder run 5" in captured.err
     assert "re-dispatch queues behind the same gate" in captured.err
-    # The bare queued/None line must still be there (the verdict facts), just not alone.
-    assert "concluded pending/None" in captured.err
+    # The wait bound expired while the run sat pending; the line names the run, its last status and
+    # the holder — never a bare `concluded pending/None` (the message shape #1931 makes explicit).
+    assert "wait bound (0 min) expired" in captured.err
+    assert "last status pending" in captured.err
 
 
 def test_stalled_without_holder_is_a_plain_failure(monkeypatch, capsys):
@@ -179,7 +231,9 @@ def test_stalled_without_holder_is_a_plain_failure(monkeypatch, capsys):
     assert rc == 1
     captured = capsys.readouterr()
     assert "STALLED behind" not in captured.err
-    assert "concluded pending/None" in captured.err
+    # A pending run with no holder still fails at the wait bound, named with run + last status.
+    assert "wait bound (0 min) expired" in captured.err
+    assert "last status pending" in captured.err
 
 
 def test_report_never_dispatches(monkeypatch):
