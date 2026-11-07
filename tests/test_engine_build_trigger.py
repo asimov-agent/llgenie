@@ -14,6 +14,7 @@ subprocess would run the real 13-engine repin set and touch nothing the patches 
 from __future__ import annotations
 
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -49,8 +50,17 @@ def _fake_gh(monkeypatch, before_ids=None, new_run=None, guard_conclusion="succe
         target_jq = args[2] if len(args) > 2 else ""
         in_progress_ids = {str(stall_holder)} if stall_holder else set()
         if "per_page=100" in target:
+            # The mock models the GitHub API's ACTUAL `.path` shape — no leading slash (the
+            # leading-slash spelling in a source filter matches 0 runs and makes discovery
+            # always "new run not found"; see openspec/changes/fix-engine-build-trigger-path-filter).
             runs = [{"id": str(_id), "event": "workflow_dispatch",
-                     "path": "/.github/workflows/engine-build.yml"} for _id in (before_ids or [])]
+                     "path": ".github/workflows/engine-build.yml"} for _id in (before_ids or [])]
+            # Apply the `.path == "…"` literal the SOURCE filter passes, exactly as the API would:
+            # the mock runs carry the real no-leading-slash path, so a source filter that asks for
+            # `/.github/…` matches nothing and the discovery loop correctly reports "no new run".
+            m = re.search(r'\.path == "([^"]+)"', target_jq)
+            if m:
+                runs = [r for r in runs if r.get("path") == m.group(1)]
             # A run that is still `pending`/queued (our dispatched run, or a genuinely queued one) is
             # NOT a push-group holder: `_push_group_holder` filters `.status == "in_progress"` (the
             # global engine-build-push gate is held only by a RUN THAT IS RUNNING). The fake must
@@ -65,13 +75,13 @@ def _fake_gh(monkeypatch, before_ids=None, new_run=None, guard_conclusion="succe
             # present in the list both before and after our dispatch (so it never counts as "new").
             if stall_holder:
                 runs.insert(0, {"id": str(stall_holder), "event": "workflow_dispatch",
-                                "path": "/.github/workflows/engine-build.yml",
+                                "path": ".github/workflows/engine-build.yml",
                                 "status": "in_progress"})
             # The dispatched run exists ONLY after the (neutralized) dispatch subprocess ran, so the
             # before/after diff the code computes behaves like the real API: the new id is absent before.
             if state["dispatched"] and new_run is not None:
                 runs.append({"id": state["new_id"], "event": "workflow_dispatch",
-                             "path": "/.github/workflows/engine-build.yml"})
+                             "path": ".github/workflows/engine-build.yml"})
             # `_push_group_holder` filters `.status == "in_progress"`; the plain run-list reads do not.
             if "in_progress" in target_jq:
                 runs = [r for r in runs if r.get("status") == "in_progress"]
