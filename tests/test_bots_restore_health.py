@@ -12,8 +12,7 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO / "scripts"))
-import bots_restore_health as b  # noqa: E402
+from scripts import bots_restore_health as b
 
 
 def _stub_gh(tmp_path) -> str:
