@@ -237,6 +237,28 @@ def merged_pr_run(repo: str, run: dict) -> dict | None:
     return None
 
 
+def require_settled(jobs: list[dict]) -> None:
+    """Refuse a jobs listing whose rows are not all terminal — a mid-upload snapshot is never a verdict.
+
+    A `workflow_run` `completed` event can fire while the run's OWN records are still settling:
+    measured 2026-11-07 on the `#2010`/`#1969` class, the judge read a run whose `linux / unit`
+    job was mid-upload — the listing still carried `status: in_progress` for it (no `conclusion`)
+    even though the run was reported complete. `ci_scope.verify()` then counted that row as
+    `pending`, producing a `no_verdict` for a run that was going to conclude green a moment later.
+
+    That is the race this gate closes: a job that has not reported `completed` is a run still in
+    flight, and the verdict must not be reached — `raise RuntimeError` so the caller exits 2 and
+    the `ci-verdict.yml` judge surfaces it as its own unreachable-verdict failure, never as a
+    posted `ci-verdict: failure` on a head whose rows were not all there yet.
+    """
+    unsettled = [j.get("name") for j in jobs
+                 if (j.get("status") or "completed").strip().lower() != "completed"]
+    if unsettled:
+        raise RuntimeError(
+            f"run is not settled: {len(unsettled)} job(s) have not reported `completed` — "
+            f"{', '.join(str(n) for n in unsettled)}; a mid-upload run cannot be judged")
+
+
 def verdict_lines(result: dict, run: dict | None, superseding: dict | None) -> list[str]:
     """The decision report plus the run it is about — one line per finding, the summary last."""
     header: list[str] = []
@@ -289,6 +311,10 @@ def main(argv: list[str] | None = None) -> int:
                 if args.jobs else jobs_of(args.repo, args.run_id))
         if isinstance(jobs, dict):
             jobs = jobs.get("jobs") or []
+        # Settle gate (#2010 / #1969): a run whose own job rows are still settling (a job
+        # `in_progress` mid-upload) is never judged — refuse before the decision artifact is
+        # read, so a verdict is not reached from a snapshot the run has not finished writing.
+        require_settled(jobs)
         if args.decision:
             decision_obj = json.loads(Path(args.decision).read_text(encoding="utf-8"))
             if decision_obj.get("schema") != ci_scope.DECISION_SCHEMA:

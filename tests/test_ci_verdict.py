@@ -365,6 +365,68 @@ def test_the_cli_exits_zero_and_writes_a_success_check_run_for_a_decided_skip(tm
     assert "skipped-by-decision=5" in payload["output"]["summary"], payload["output"]["summary"]
 
 
+def test_a_mid_upload_job_row_is_refused_not_a_verdict(tmp_path, capsys):
+    """The #2010/#1969 race: a `workflow_run` `completed` event can fire while the run's own
+    `linux / unit` is still mid-upload — the jobs listing carries `in_progress` with no
+    conclusion. Counting that row as `pending` posted a false `no_verdict`. The settle gate
+    must REFUSE (exit 2, no check-run), never reach a verdict from a snapshot the run has not
+    finished writing."""
+    # Given a decision that selects the whole matrix, and a jobs listing where linux/unit has
+    # NOT yet reported completed (still in_progress, mid-upload — the measured race shape)
+    jobs = [{"name": "guard", "status": "completed", "conclusion": "success"},
+            {"name": "ci-images", "status": "completed", "conclusion": "success"},
+            {"name": "scanner-images", "status": "completed", "conclusion": "success"},
+            {"name": "linux / unit", "status": "in_progress", "conclusion": None}]
+
+    # When  the verdict CLI runs against that unsettled snapshot
+    rc, checks = _cli(tmp_path, jobs, decision=decision_for(FULL_MATRIX_PATH))
+    err = capsys.readouterr().err
+
+    # Then  it exits 2 — never 0 and never a red verdict — and writes NO check-run
+    assert rc == 2, err
+    assert "not settled" in err and "linux / unit" in err, err
+    assert not checks.exists(), "a mid-upload run must not produce a posted verdict"
+
+
+def test_a_mid_upload_row_is_an_error_never_a_pass_through_the_api(tmp_path, monkeypatch, capsys):
+    """The same gate on the run-id (API) path: the stub answers run_info/branch reads while a
+    --jobs file carries the in_progress row — the judge exits 2 with its own FAILED line, and the
+    workflow surfaces it rather than a verdict on the head."""
+    jobs = [{"name": "guard", "status": "completed", "conclusion": "success"},
+            {"name": "linux / unit", "status": "in_progress", "conclusion": None}]
+    jobs_file = tmp_path / "unsettled.json"
+    jobs_file.write_text(json.dumps({"jobs": jobs, "total_count": len(jobs)}), encoding="utf-8")
+
+    monkeypatch.setenv("CI_VERDICT_GH", _stub_gh(tmp_path, artifact=True, later_run=False))
+    rc = cv.main(["--repo", "o/r", "--run-id", "41134761297",
+                  "--jobs", str(jobs_file), "--head-sha", "0bd5ac6e"])
+    err = capsys.readouterr().err
+    assert rc == cv.EXIT_ERROR, err
+    assert "not settled" in err and "linux / unit" in err, err
+
+
+def test_a_fully_settled_red_run_still_exits_one_through_the_settle_gate(tmp_path, capsys):
+    """The settle gate never weakens a real red: every job `completed`, the unit failed — verdict
+    is still red (exit 1), exactly as before the gate existed."""
+    rc, checks = _cli(tmp_path, RED_RUN, decision=decision_for(FULL_MATRIX_PATH))
+    out = capsys.readouterr().out
+    assert rc == 1, out
+    assert "linux/unit FAILED" in out, out
+    payload = json.loads(checks.read_text(encoding="utf-8"))
+    assert payload["conclusion"] == "failure"
+
+
+def test_a_fully_settled_no_decision_run_is_still_red_through_the_settle_gate(tmp_path, capsys):
+    """A genuinely cancelled run with all rows `completed` and no decision stays `none` (red):
+    the settle gate only refuses rows that are NOT terminal; a settled cancelled run is judged."""
+    rc, checks = _cli(tmp_path, CANCELLED_FANOUT)
+    out = capsys.readouterr().out
+    assert rc == 1, out
+    assert "verdict=none" in out, out
+    assert "0 failures is not a verdict" in out, out
+    assert json.loads(checks.read_text(encoding="utf-8"))["conclusion"] == "failure"
+
+
 def test_the_cli_refuses_to_invent_a_verdict_without_input(capsys):
     # Given no run and no job rows
     rc = cv.main([])
