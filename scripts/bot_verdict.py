@@ -120,6 +120,43 @@ def _gh(gh: str, args: "list[str]", token: str = "") -> str:
     return r.stdout
 
 
+def _runs_for_head(gh: str, repo: str, head: str, conclusion: str = "") -> list[dict]:
+    """The pull_request Action runs at `head` (the #1551 read, shared with auto_merge).
+
+    `conclusion` optionally filters server-side (`conclusion=success`); the caller still re-checks the
+    pitfall fields (status/conclusion/id) client-side, because a server filter is not a guarantee.
+    Raises SystemExit when the read fails (the caller turns that into a refusal, never a silent pass).
+    """
+    query = f"head_sha={head}&event=pull_request&per_page=100"
+    if conclusion:
+        query += f"&conclusion={conclusion}"
+    out = _gh(gh, ["api", f"repos/{repo}/actions/runs?{query}",
+                   "--jq", "[.workflow_runs[] | {status: .status, conclusion: .conclusion, id: .id}]"])
+    runs = json.loads(out or "[]")
+    return runs if isinstance(runs, list) else []
+
+
+def _not_concluded_success_at_head(gh: str, repo: str, head: str, run: str) -> str:
+    """A reason when `run` is NOT a concluded-success pull_request run at `head`, else \"\"."""
+    try:
+        runs = _runs_for_head(gh, repo, head)
+    except SystemExit as exc:
+        return f"could not read head {head[:8]}'s runs to verify run {run} ({exc})"
+    ids = {str(r.get("id") or "") for r in runs}
+    if run not in ids:
+        return (f"run {run} is not a pull_request run at head {head[:8]} (runs there: "
+                f"{', '.join(sorted(ids)) or 'none'})")
+    for r in runs:
+        if str(r.get("id") or "") != run:
+            continue
+        if str(r.get("status") or "").lower() != "completed":
+            return f"run {run} has not concluded at head {head[:8]}, so it never proved that tree green"
+        if str(r.get("conclusion") or "").lower() != "success":
+            return (f"run {run} concluded {r.get('conclusion') or 'none'} at head {head[:8]} — an "
+                    f"approve verdict's run= must be a concluded-SUCCESS run, never a red one (#2035)")
+    return ""
+
+
 def comments(gh: str, repo: str, pr: int) -> list[dict]:
     out = _gh(gh, ["pr", "view", str(pr), "--repo", repo, "--json", "comments"])
     return json.loads(out or "{}").get("comments") or []
@@ -158,6 +195,15 @@ def post(gh: str, repo: str, pr: int, head: str, run: str, verdict: str, reviewe
         print(f"[bot-verdict] refusing: --verdict must be one of {', '.join(ACCEPTING + BLOCKING)}",
               file=sys.stderr)
         return 2
+    # #2035: an ACCEPTING verdict's `run=` is the record of WHICH run proved that tree green, so the
+    # slot must name a real concluded-SUCCESS run at `--head`, never a red/cancelled/unfinished sibling
+    # at the same head. A `changes` verdict cites the run that named the problem and may cite any run.
+    if verdict in ACCEPTING:
+        why = _not_concluded_success_at_head(gh, repo, head, run)
+        if why:
+            print(f"[bot-verdict] refusing: --verdict approve needs --run to be a concluded-SUCCESS "
+                  f"run at --head {head[:8]}; {why} (issue #2035)", file=sys.stderr)
+            return 2
     existing = [c for c in comments(gh, repo, pr) if parse(str(c.get("body") or ""))]
     for c in existing:
         v = parse(str(c.get("body") or ""))
