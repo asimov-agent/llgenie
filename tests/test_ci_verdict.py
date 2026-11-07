@@ -388,6 +388,29 @@ def test_a_mid_upload_job_row_is_refused_not_a_verdict(tmp_path, capsys):
     assert not checks.exists(), "a mid-upload run must not produce a posted verdict"
 
 
+def test_a_completed_row_without_a_conclusion_is_refused_not_a_red_verdict(tmp_path, capsys):
+    """The #2046/#2035 half of the mid-upload race: GitHub writes a finishing run's `status`
+    before its `conclusion`, so a row that reports `status: completed` with a still-empty
+    `conclusion` is a run still settling through the conclusion field. The settle gate must
+    REFUSE it (exit 2, no check-run) — never count it `pending` and reach a red verdict from a
+    snapshot the run has not finished writing (the pre-fix behaviour was exit 1 + a posted
+    `conclusion=failure`, measured against this tree before the conclusion check existed)."""
+    # Given a decided run where linux/unit reports `completed` but its conclusion has not landed yet
+    jobs = [{"name": "guard", "status": "completed", "conclusion": "success"},
+            {"name": "ci-images", "status": "completed", "conclusion": "success"},
+            {"name": "scanner-images", "status": "completed", "conclusion": "success"},
+            {"name": "linux / unit", "status": "completed", "conclusion": None}]
+
+    # When  the verdict CLI runs against that still-settling snapshot
+    rc, checks = _cli(tmp_path, jobs, decision=decision_for(FULL_MATRIX_PATH))
+    err = capsys.readouterr().err
+
+    # Then  it exits 2 — never 0 and never a red verdict — and writes NO check-run
+    assert rc == 2, err
+    assert "not settled" in err and "linux / unit" in err, err
+    assert not checks.exists(), "a completed-but-conclusion-less row must not produce a posted verdict"
+
+
 def test_a_mid_upload_row_is_an_error_never_a_pass_through_the_api(tmp_path, monkeypatch, capsys):
     """The same gate on the run-id (API) path: the stub answers run_info/branch reads while a
     --jobs file carries the in_progress row — the judge exits 2 with its own FAILED line, and the
