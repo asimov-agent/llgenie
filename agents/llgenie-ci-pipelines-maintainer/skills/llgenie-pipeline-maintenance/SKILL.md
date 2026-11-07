@@ -46,6 +46,7 @@ Measured on this change: the `matrix` job of `engine-build.yml` was the one unbo
 > Hygiene: `references/repo-artifact-conventions.md`
 
 > Rollups/polling/arming: `references/monitoring-check-rollups.md`
+> A red verdict with otherwise-green jobs is re-judged, never re-rolled; an expired run's verdict is trapped (fresh run, not re-judge): `references/ci-verdict-rejudge-and-expiry.md`
 > Tree parity vs live: `references/verifying-agent-tree-parity.md`
 > Planner claims a branch/run/merge is missing — re-measure canonically first: `references/verifying-planner-claims.md`
 

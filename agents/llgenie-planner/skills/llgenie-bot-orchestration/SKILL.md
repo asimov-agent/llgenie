@@ -1046,3 +1046,7 @@ Deferring is a decision you make and record; a PR left open under the old premis
 ## Pitfalls
 
 `references/orchestration-pitfalls.md` — the pitfalls checklist lives verbatim in the reference.
+
+## ci-verdict re-judge vs expiry trap
+
+A red `ci-verdict` whose judged jobs are otherwise green is RE-JUDGED via `workflow_dispatch` (`references/ci-verdict-rejudge-and-expiry.md`); an expired run (shredded `total_count`) is trapped and needs a FRESH run at the head, never a re-judge of the dead run.
