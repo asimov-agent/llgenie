@@ -220,19 +220,28 @@ rm -f "$CLOSE_BODY"
 # sweep did at decision time is NOT enough: the gap between decide and push is exactly the window
 # a human merge fills.
 if [ -n "$DRY" ]; then
-  echo "[rebase-bot] DRY: gh pr view $PR --repo $REPO --json state,merged --jq '.state + \"/\" + (.merged|tostring)'"
+  echo "[rebase-bot] DRY: gh pr view $PR --repo $REPO --json state,mergedAt --jq '(.state|ascii_downcase) + \"/\" + ((.mergedAt != null)|tostring)'"
 else
   # The dead-vehicle re-read is authoritative at push time, but a TRANSIENT read fault (rc=1 / an
   # empty answer from a gh relay drop) is not evidence the PR merged — reddening the whole sweep on
   # one API hiccup teaches operators to ignore the red (the #1602/#1603 discipline). Bounded-retry
   # the read so a single glitch does not abort the run; a persistent unreadable state still fails
   # closed exactly as before.
+  #
+  # The field list is `--json state,mergedAt`, NEVER `state,merged` (issue #1965): `merged` is not a
+  # field `gh pr view` exposes, so asking for it fails rc=1 with `Unknown JSON field: "merged"` on
+  # EVERY call — a permanent argument error, indistinguishable from a transient relay drop when
+  # stderr is discarded, so the retry ring burns 3 attempts and refuses an OPEN, unmerged PR. `state`
+  # is the merged/closed/open vocabulary and `mergedAt != null` is the merged boolean; `state` comes
+  # back UPPERCASE (`OPEN`), so lowercase it, or the `!= "open"` test below reds an open PR too.
   PR_LIVE=""
   PR_GH_RC=1
+  LIVE_ERR="$(mktemp)"
   for _attempt in 1 2 3; do
-    PR_LIVE="$(gh pr view "$PR" --repo "$REPO" --json state,merged --jq '.state + "/" + (.merged|tostring)' 2>/dev/null)"; PR_GH_RC=$?
+    PR_LIVE="$(gh pr view "$PR" --repo "$REPO" --json state,mergedAt --jq '(.state|ascii_downcase) + "/" + ((.mergedAt != null)|tostring)' 2>"$LIVE_ERR")"; PR_GH_RC=$?
     if [ "$PR_GH_RC" = "0" ] && [ -n "$PR_LIVE" ]; then break; fi
-    echo "[rebase-bot] live re-read of PR #$PR failed (attempt $_attempt/3 rc=$PR_GH_RC); retrying" >&2
+    # Surface stderr so a mis-arg / auth / relay fault is NAMED in the run log, never masked (issue #1965).
+    echo "[rebase-bot] live re-read of PR #$PR failed (attempt $_attempt/3 rc=$PR_GH_RC); retrying ($(tr -d '\n' <"$LIVE_ERR"))" >&2
     sleep "${RETRY_SLEEP:-2}"
   done
   PR_STATE="${PR_LIVE%/*}"; PR_MERGED="${PR_LIVE#*/}"
@@ -240,9 +249,10 @@ else
     # A PR whose state cannot be read is NOT a go signal: refuse like every other fail-closed
     # re-read in this script (the sweep, the body, the gates). A push that cannot prove the
     # vehicle is open is a push on faith.
-    comment "The rebase started but the PR's state could not be re-read on the live API before the force-push (gh pr view rc=$PR_GH_RC after 3 attempts). Nothing was pushed; the vehicle may have merged while this run worked — refuse the dead-vehicle push. <!-- $MARKER: $TODAY -->"
-    echo "[rebase-bot] could not re-read PR #$PR state at push time (rc=$PR_GH_RC after 3 attempts); refusing the force-push (issue #1733)" >&2; exit 1
+    comment "The rebase started but the PR's state could not be re-read on the live API before the force-push (gh pr view rc=$PR_GH_RC after 3 attempts; last error: $(tr -d '\n' <"$LIVE_ERR" 2>/dev/null)). Nothing was pushed; the vehicle may have merged while this run worked — refuse the dead-vehicle push. <!-- $MARKER: $TODAY -->"
+    echo "[rebase-bot] could not re-read PR #$PR state at push time (rc=$PR_GH_RC after 3 attempts); refusing the force-push (issue #1733)" >&2; rm -f "$LIVE_ERR"; exit 1
   fi
+  rm -f "$LIVE_ERR"
   if [ "$PR_STATE" != "open" ] || [ "$PR_MERGED" = "true" ]; then
     comment "The rebase started but PR #$PR is no longer open at push time (state=$PR_STATE merged=$PR_MERGED) — it may have merged while this run worked, and a force-push onto a merged PR's branch is a dead-vehicle push. Nothing was pushed; the branch is untouched. <!-- $MARKER: $TODAY -->"
     echo "[rebase-bot] PR #$PR is not open at push time (state=$PR_STATE merged=$PR_MERGED); refusing the force-push onto a dead vehicle (issue #1733)" >&2; exit 1
