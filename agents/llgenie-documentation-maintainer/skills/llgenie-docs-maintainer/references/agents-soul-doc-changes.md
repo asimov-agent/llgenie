@@ -30,7 +30,28 @@ from pathlib import Path; print(c._stated_block(Path("agents/<lane>/SOUL.md").re
 c.fleet_block(Path("agents")))'` — must print `True`. Note this SOUL.md write hits the protected-write
 prompt (§6): without a live human answer it does not land, and the PR stays correctly BLOCKED.
 
-## 3. Dedup a duplicated canonical rule by de-bolding the restatement
+## 3. A whole-fleet propagation reds twice more — fix the SYNC lines and the splice source
+
+When the canonical fleet bullet is propagated to **every** lane SOUL (a fleet-rule PR, not the
+single-lane SOUL edit of §2a), two independent reds fire beyond the verbatim check, and both are yours:
+
+- **One `SYNC:` line per changed profile.** `check-pr-sync-line` (`check_pr_hygiene.py`) requires a
+  `SYNC: <profile>` line in the PR body for **each** `agents/<profile>/` tree the branch touches. A
+  whole-fleet bullet touches every SOUL, so the honest body carries one line per profile, not a single
+  generic sync. Earlier fleet PRs that touched all SOULs without SYNC lines merged **before the gate
+  existed** — they are not evidence the lines are optional; treat the current gate as binding.
+- **The pr-rebase lane's splice source must carry the bullet.** That lane splices the fleet block from
+  its versioned `references/standing-rules.md` copy under `agents/llgenie-pr-rebase-conflicts/`. If a
+  SOUL now carries a bullet that source copy lacks,
+  `test_the_fleet_splice_is_idempotent_and_refuses_an_older_source` refuses with "the rule source is
+  older than this SOUL — it would lose the newer rule." Add the identical bullet to that lane's
+  `references/standing-rules.md` in the same PR, and normalise any trailing blank line your insert left
+  in the SOUL — the splice re-assembles the SOUL from the source block, so a trailing-newline diff
+  breaks byte-idempotency even when the text matches. Run that one test locally
+  (`pytest tests/test_rebase_lane_scripts.py -k splice`) before pushing; it is green at base and goes
+  red only because of your edit, so it is yours to clear, not a pre-existing red.
+
+## 3a. Dedup a duplicated canonical rule by de-bolding the restatement
 `_duplicate_rule_debts` counts occurrences of the bolded `**Title.**` rule form and emits a
 non-blocking note when the count is >1. To dedup: keep the fleet bullet as the single canonical
 bolded occurrence and reword the other restatement into lane prose that preserves every operational
@@ -41,6 +62,22 @@ detail but drops the bold title. Verify the count drops to 1 by reading the file
 `check_docs.py` `change_note_problems` treats `agents/*/SOUL.md` as a behavioural surface: the branch
 must add a `docs/changes.d/*.md` fragment **and** an `agent-wiki/*.md` note, or the gate fails. The
 issue body usually names both. Regenerate `CHANGES.md` after adding the fragment.
+
+### 4a. The change→note test pin must quote the bullet byte-exact, and the dispatch's gates run through `make`
+`tests/test_agent_profiles.py` pins a fleet bullet by asserting **substrings of the bullet** in
+`agents/standing-rules.md` and in every `agents/<lane>/SOUL.md`. Those substrings must be byte-exact
+substrings of the bullet — backticks and capitalisation included. A bullet sentence
+`` `git fetch` the canonical upstream `main` `` does **not** contain the phrase
+`git fetch the canonical upstream` (the backticks break it), and `Re-judge …` is not matched by a
+lower-cased `re-judge …`. Before pushing, run the pin and fix any phrase: dump each asserted phrase and
+`assert phrase in bullet_text` against a real copy of the bullet; a case/backtick mismatch reds only your
+new pin while base is green, so it is yours to clear. Copy the phrase straight out of the bullet you
+inserted rather than retyping it.
+
+Run the gates a dispatch names **as `make` targets** (`make -s check-docs check-wiring check-workflows
+lint`), not by invoking the underlying `scripts/*.py` directly: those named gates *are* make targets, and a
+completion/verification check that still reports the run unmet after a direct script call is cleared by
+re-running through `make` (the target, not the script, is the registered verification).
 
 ## 5. Run the profile gate in CI-parity mode
 On a dev host with `~/.hermes/profiles`, `check_agent_profiles.py` reports `live-longer` /
@@ -65,6 +102,13 @@ The write-sync is only safe **after** no file is live-richer, so the order is:
    (exit 0), and `grep` the live file for the landed phrase to prove content actually moved.
 5. Record the propagation on the tracking issue with the before/after (`grep -c` 0 → 1) and the CHECK
    result. A sync that is only asserted is not done; the `CHECK=1 … byte for byte` line is the proof.
+
+### 5b. A brand-new reference/skill file must be `git add`-ed or the sync test skips it
+`test_sync_copies_the_tree_into_a_temporary_profile_home` re-materialises the tree through the
+**git-tracked** view (`git ls-files`), not a raw `rglob`. A freshly created `references/*.md` that is
+**untracked** is silently dropped by the sync, so the temp dest is missing exactly your new file and the
+test reds on a count mismatch (e.g. 112/113) while the same test is green at base. Stage the new file
+(`git add -A`) before running the suite; the fix is tracking the file, never editing the test.
 
 ## 6. SOUL.md and AGENTS.md are protected instruction files
 Writing either triggers a one-operation desktop approval prompt from `file_tools_write_guards.py`. The
@@ -96,6 +140,14 @@ failing step and its reason quickly: (1) `gh api repos/<o>/<r>/actions/runs/<run
 name the failing step (usually `make ci-unit`); (2) `gh run view <run> --job <jobid> --log-failed` —
 this returns the failure lines inline and is faster/more reliable than paging the raw job log API. Do
 not paste whole logs into the issue; quote the single `AssertionError` / `FAILED tests/...` line.
+**A `linux / unit` failure is yours only if it also fails at the merge-base.** Before spending time on
+it, check the base sha out into a second worktree and run the identical test there; the same failure at
+base is main's own baseline, not your change — quote the base sha and the identical failure line, and do
+not edit the test to "fix" it. The cleanest proof is a side-by-side full-file run: `pytest
+tests/test_agent_profiles.py -q` at head and at a detached base worktree, then report the passed-count
+delta (head N vs base N−1 = only the one test you added) with the one failing test named identically in
+both. Note also that a `docs`-classified PR can **skip** the `linux / unit` matrix in CI, so a local
+environment-baseline red in that suite may never gate the merge — do not chase it.
 
 ## 8. Posting the bookend / evidence comment: use `--body-file`
 A quoted heredoc (`<<'EOF'`) does **not** interpolate `$PR` / `$SHA`, so a literal `${PR}` lands on the
@@ -129,3 +181,12 @@ close is the clean push.
 After `git push`, `gh api repos/<o>/<r>/pulls/<n> --jq .head.sha` can still show the previous sha for a
 moment. Re-read (short sleep) before you report the head — a report naming a stale head is a claim about
 a branch that no longer exists.
+
+### 9a. Push the sha explicitly after another lane rebases your branch
+When another lane rebases your PR onto new main, your worktree's **local branch ref still points at the
+pre-rebase commit**. `git push --force origin <branch>` then resolves `<branch>` to that stale local ref
+and can regress the wire to a commit missing the other lane's work and your own later fixes. Push the
+commit you actually mean by sha — `git push --force-with-lease=<branch>:<current-wire-sha> origin
+<commit-sha>:<branch>` — after confirming `git rev-parse <commit>^` equals the current wire head. Read
+the wire head immediately before the force (`gh api .../pulls/<n> --jq .head.sha`), and treat a branch
+Treat a branch another lane repaired as read-only: fetch, re-verify the parent chain, then push the exact sha. **Diagnose a differing wire head before touching it:** if `git merge-base <your-commit> <wire-head>` returns the OLD base sha (not the new main), the wire head is *your* change cleanly rebased onto new main by the rebase lane — the extra files a `git diff <your-commit> <wire-head>` shows are whatever landed on main between the old and new base, not a foreign change. Read-only: leave it, do not clobber with your stale local ref.

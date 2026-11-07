@@ -86,6 +86,30 @@ falsify the doc against the current consumer.
 The gap is real work: cut the branch from the freshly fetched origin/main sha, write it into the
 first comment, and land the trio normally — still no merge/arm of the merged base (#1088).
 
+## If the dispatch's done-definition contradicts the issue's own acceptance criteria
+
+A dispatch is a **template** (`Done = ready-for-review PR that closes #<n> …`), and the template can
+contradict the issue it dispatches. Measure the issue before building the vehicle; do not let the
+template pick the shape for you.
+
+- **"PR closes #<n>" against an issue whose own AC says the tracker STAYS OPEN.** A record-home /
+  audit-tracker issue carries an AC like "this tracker stays OPEN across audits (close only when
+  superseded)". A PR that `closes #<n>` directly reds that AC and ships a meaningless close. Such an
+  issue is often all-behavioural: its AC are "stay open", "post the audit outcome here", "findings
+  route through the queue" — none are PR-livable, and its body may already pass the six-section gate
+  (`issue_body.missing()==[]`), so **no repo-file change is owed at all**. Verify by reading the AC
+  list and checking the six-section headers; do not invent an edit to look busy.
+- **A `closes #<n>` done-definition whose AC are already satisfied on main.** When the fix already
+  landed (the code, its openspec change-dir, its test all present at origin/main), the docs deliverable
+  is the durable-rule *note* (wiki + change-note + fleet bullet), not a re-implementation — but the
+  close-line still needs the AC ticked with the on-main evidence.
+
+When the template and the AC disagree, **post the contradiction on the issue and ask the dispatch
+owner (the planner) for the ruling** — do not guess a vehicle, and do not build one that reds its own
+acceptance criterion. A reconstructed done-definition in a PR body becomes a claim the board reads as
+fact; asking is cheaper than a wrong merge. Claim the issue and cut the worktree first (so the claim
+is durable), then hold the vehicle on the contradiction until answered.
+
 ## If the red is a stale base, not a stale dispatch
 
 `check-pr-base` failing on an OPEN PR whose change is still valid means `origin/main` moved past the

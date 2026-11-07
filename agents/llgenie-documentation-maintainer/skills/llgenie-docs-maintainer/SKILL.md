@@ -1,7 +1,7 @@
 ---
 name: llgenie-docs-maintainer
 description: "Use when auditing, filing or landing LLGenie docs changes."
-version: 1.0.22
+version: 1.0.23
 author: Hermes Agent
 license: MIT
 metadata:
@@ -16,6 +16,9 @@ metadata:
 > `make check-docs` before branching — `references/dispatch-race-verification.md`.
 > Editing an `agents/<profile>/` SOUL or skill is a behavioural-surface change with its own gates
 > (change→note, verbatim fleet block, protected-write prompt) — `references/agents-soul-doc-changes.md`.
+> A change landed via `cp`+git can leave a completion gate reporting "no task-relevant changed path",
+> and local git is not proof: write through the editing tool and compare sha256 on the wire —
+> `references/landed-change-verification.md`.
 >
 > **A lane that re-serves a stale snapshot is not argued down by repeat DMs.** Stop re-messaging it;
 > break the loop through the channels the acting lane reads: (1) post the current truth durably on the
@@ -326,8 +329,13 @@ pair is a finding, someone else's implementation remains theirs. `check-docs` st
 backstop; it is not the process.
 
 Every finding is filed as a refined six-section issue tagged `agent:implement`, routed through the
-normal queue — never implemented by the same pass; otherwise record "re-audited at `<sha>`, no
-findings". One-pass scope, no infinite loop; never overrides real reactive work.
+normal queue — never implemented by the same pass; otherwise record "re-audited at <bare-sha>, no
+findings" with the sha **bare** (no backticks/bold inside the token, so a read-back pattern match
+catches it). One-pass scope, no infinite loop; never overrides real reactive work. **Posting the record has
+its own traps** — `gh issue comment` can exit nonzero AND still post (read the wire back before any
+retry, or you create a duplicate; delete with `gh api … -X DELETE --silent`, not curl's `-w`), and a
+clean audit's only mutation is the verified on-wire record — never re-post, empty-PR, or invent a
+finding to satisfy a completion guard: `references/own-domain-audit.md` ("Posting the record").
 
 **Run the audit in a fresh scratch worktree at `refs/remotes/origin/main`, never the repo's
 main checkout.** That checkout usually sits on a local `main` branch many merges behind the remote
@@ -341,51 +349,15 @@ after; name the fetched sha in the record. **Prove change-note coverage with `ma
 so a PR-number glob returns 0 and reads as a missing note that is not missing; trust the gate over
 the glob.
 
-**Skill-freshness is NOT judged by an invented per-skill release count.** `CHANGES.md` keeps no
-per-skill release sequence — versions appear sporadically and most skills sit at a freshly-folded
-`1.0.0` — so a `version:` frontmatter cannot be "2+ releases behind" anything, and digging for a
-release ledger that does not exist wastes the pass. Measure the dimension the only way it is real:
-`cmp` each lane skill's tree copy against its live `~/.hermes/profiles/<p>/skills/**` (the standing
-live-vs-tree drift class, #791), and treat a live-ahead file — live newer/larger than the tree, e.g.
-the lane's own `SKILL.md` one version past the tree — as the finding, routed under that standing
-drift umbrella rather than filed as a new one-off. A skill with no live counterpart and no tree
-change since its last note is fresh; say so and move on.
-
-**A fleet-wide drift SNAPSHOT is ONE owner-facing issue that ROUTES; a single live-ahead skill stays
-under the standing umbrella.** When the live-vs-tree dimension surfaces many lanes' files at one sha
-(the `live-longer` / `live-lines-missing` / `live-edited-not-tree` set under #791) and no existing
-issue names *that measured snapshot*, the deliverable is a single six-section issue carrying a
-per-file table (tree bytes, live bytes, live mtime, class) that routes each file to its owning lane —
-never one issue per file (a dozen queue entries nobody can close together) and never a fold performed
-here (this lane does not implement; each lane owns its #791/#1060 vehicle). For a *single* already-
-tracked file, comment on the umbrella instead of opening a new one-off. Name the smallest in-queue
-unit in the body (one lane's lone file) so the issue has an entry point.
-
-**A CLOSED issue plus a MERGED fix is not proof the OpenSpec gate is green — the change-object
-itself can survive both with unchecked task boxes, redding `openspec-tasks-check` on every PR.
-Re-measure `make ci-openspec` at the true tip and check the change's OWN `tasks.md`, not the
-issue's closure or the fix PR's file list.** A triage relay can report "#N CLOSED COMPLETED, its
-fix #M MERGED" while `openspec/changes/<name>/tasks.md` still carries `- [ ]` boxes — the fix PR
-(MERGED) touched only the *classification* gates (`scripts/issue_bot_gates.py` DEFERRED entries) and
-docs/tests, never the OpenSpec change's own acceptance list, so the change stays ACTIVE and
-`make ci-openspec` exits rc=2 (`openspec-tasks FAIL <name>: unchecked task checkbox(es) at lines
-[…]`) on every balanced PR. The residual then has NO live owner issue (#N is closed, #M is merged)
-and the board keeps red while a reader thinks completion was real. File it as its own six-section
-issue with the current-head measurement (`make ci-openspec` at the fetched tip, the four unchecked
-lines), two allowed resolutions: complete the named tasks + archive the change out of the ACTIVE set,
-or record an explicit supersession-by-<fix-PR> + archive — either must make `ci-openspec` rc=0 at
-its merged head. This lane reports and routes; it does not implement the code task 6 may truthfully
-require.
-
-**A fold issue that JUST closed is not proof drift reached zero — re-measure its own target file
-against the current live mtime, and check whether the closing issue even named it.** A lane can merge
-a fold for `file A` and close its tracker while `A` was edited again in the live profile *after* the
-fold's snapshot. The gate's `live-edited-not-tree` line carries both timestamps (live edit vs the tree
-commit): compare `git show <fold-merge-sha>:<A> | wc -c` with the live file's size and mtime — if live
-post-dates the fold, the fold is already stale by its own acceptance; and if the closed issue never
-named `A` at all, "closed" reads to the next reader as tracked-to-zero while the file still drifts.
-Report it as continuing drift since the fold sha, with the fresh live size and mtime — the sharpest row
-in the fleet table is often the file a lane just thought it closed.
+**The four audit traps live in `references/own-domain-audit.md`** — read it before running or
+reporting the sweep. In one line each: (a) skill-freshness is **not** an invented per-skill release
+count (no ledger exists) — `cmp` each lane skill's tree copy against its live
+`~/.hermes/profiles/<p>/skills/**` and treat live-ahead as the finding; (b) a fleet-wide drift
+snapshot is ONE routed six-section issue with a per-file table, never one issue per file and never a
+fold here; (c) a CLOSED issue + MERGED fix is not an OpenSpec-green change — re-measure `make
+ci-openspec` at the tip against the change's OWN `tasks.md`; (d) a fold that just closed is not proof
+drift reached zero — re-measure its target file's live size/mtime, and check the closing issue even
+named it.
 
 ## Landing a docs PR (the loop that works)
 

@@ -22,6 +22,28 @@ means the real CI push run with the unit leg passing.
 5. Report run id + job id + main sha together, timestamped. A verdict with no sha is a claim about
    a branch that may no longer exist.
 
+## Gate exit codes lie through a pipe
+
+`make <gate> 2>&1 | tail -2; echo $?` prints **tail's** status, not make's. A red gate (`Error 1`)
+reads `rc=0`, and you carry a drift you just measured into a "green" report. Run the gate bare, or use
+`set -o pipefail` / `${PIPESTATUS[0]}`, and echo that rc beside the summary line it produced. When a
+summary looks *too* good, re-run it unpiped before believing it — the re-run is cheap, the wrong claim
+travels.
+
+## Reading a PR's check rollup (before the merge)
+
+`gh pr checks <n> --repo <o>/<r>` is the PR-level view; it is not the same thing as the push run at
+the tip. Its shape is lopsided by design: guard/scope/holds/ci-images finish in seconds while
+`linux / unit` needs ~12-15 minutes, so an early rollup reads "almost green" and is **not green**.
+
+- Group for shape, read the raw line for the leg: `gh pr checks <n> | awk '{print $1,$2}' | sort |
+  uniq -c` shows the counts, but only the ungrouped row names *which* leg is `pending`.
+- A single foreground wait is capped (~420 s) and shorter than the long pole — poll in bounded sleeps
+  and re-read, rather than one long loop that dies mid-run.
+- Claim green only when every row at the SAME head sha reads `pass`; then re-read
+  `gh pr view <n> --json state,mergeStateStatus,reviewDecision` — a PR that already merged answers
+  `mergeable: UNKNOWN` because it is history, not work.
+
 ## API quirk
 
 Workflow-run objects return `id` (not `database_id`); `--jq .database_id` yields `null` and silently
