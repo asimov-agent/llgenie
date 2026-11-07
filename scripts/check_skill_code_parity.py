@@ -65,7 +65,7 @@ def _strip_fences(text: str) -> str:
 
 def _collected_tests(root: Path) -> set[str]:
     """The hermetic suite's collected node ids (`tests/<file>.py`), via unit_tests.py."""
-    out = subprocess.run([sys.executable, str(root / "scripts/unit_tests.py"), "list"],
+    out = subprocess.run([sys.executable, str(root / "scripts/unit_tests.py"), "list"],  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                          capture_output=True, text=True, cwd=root)
     return {ln.strip() for ln in out.stdout.splitlines() if ln.strip()}
 
