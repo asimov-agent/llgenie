@@ -1332,7 +1332,7 @@ check-engine-pins-published: ## CI: fail when an engine THIS CHANGE repins is no
 engine-pins-published-report: ## Print the engines this change repins vs the base and their published-tag set (issue #1622)
 	python3 scripts/check_engine_pins_published.py report $(if $(BASE),--base "$(BASE)",)
 engine-build-pr-trigger: ## CI: dispatch engine-build push=true for every engine THIS change repins and await each verdict — the "will" arm of the pin-bump gate (issue #1633; PR_BASE/BASE resolves the base; no engine repinned => green, hermetic, nothing dispatched; --dry prints the plan)
-	python3 scripts/engine_build_trigger.py check $(if $(BASE),--base "$(BASE)",) $(if $(DRY),--dry,)
+	python3 scripts/engine_build_trigger.py check $(if $(BASE),--base "$(BASE)",) $(if $(BRANCH),--branch "$(BRANCH)",) $(if $(DRY),--dry,)
 engine-build-pr-trigger-report: ## Print the engines this change repins and the dispatch plan (never dispatches; issue #1633)
 	python3 scripts/engine_build_trigger.py report $(if $(BASE),--base "$(BASE)",)
 check-model-links: ## CI: prove every committed model/GGUF link a test depends on resolves (static, no network; LIVE=1 probes the real Hub via tests/hub_probe — the ONE liveness authority, issue #1000; LIMIT bounds a live sweep)
