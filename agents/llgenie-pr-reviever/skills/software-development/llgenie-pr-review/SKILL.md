@@ -34,7 +34,7 @@ The pin is `tests/fixtures/host-bot-capabilities.json` in asimov-agent/llgenie (
 The artifact is the review comment: file, line, verdict, sha, and run id. Do not write the fix. `message_agent` to `llgenie-planner` with the PR number, the sha, the run id, and the verdict.
 
 ## Local verification depth
-
+`references/rebase-at-worktree-start.md` — the first-edit pre-flight (fleet rule #1891): fetch canonical upstream `main` and rebase the worktree onto the just-fetched tip before reviewing an updated PR
 `references/local-verification.md` — the repo's own test venv and the `-s`/`-x` trap, golden/fixture
 `references/ci-verdict-rejudge-and-expiry.md` — a red verdict whose judged jobs are otherwise green is re-judged via `workflow_dispatch`, never re-run; an expired run (shredded `total_count`) is trapped and needs a fresh run at the head
 freshness (a golden can be in the PR diff *and* stale), measuring on the data path the test actually

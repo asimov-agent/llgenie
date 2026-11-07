@@ -294,7 +294,7 @@ advice, never as measured fact:
 
 ## 3c. A starved runner queue is a finding, not a reason to push harder
 
-See `references/push-and-rerun-discipline.md`.
+See `references/push-and-rerun-discipline.md`. First pre-flight of ANY task — new or update — fetch the canonical upstream and rebase the worktree onto the just-fetched tip before editing (`references/rebase-at-worktree-start.md`, fleet rule #1891).
 
 ## 3d. Two PRs, one seam: prove the merge before you pick an order
 

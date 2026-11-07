@@ -21,6 +21,7 @@ write path and the harm it must not over-fire on, versioning a new fleet rule in
 lane's SOUL when its tree copy is the broken side, an audible skip, and why a hand re-seed needs a CALLER on
 a timer),
 `references/queue-and-pr-mechanics.md` (a starved sweeper, queue depth vs `cancel-in-progress`, diff and
+First pre-flight of ANY task — new or update — fetch the canonical upstream and rebase the worktree onto the just-fetched tip before editing (`references/rebase-at-worktree-start.md`, fleet rule #1891).
 `gh pr list` lookups, union merges, silent arming, and — for a gate that rejects its own branch's
 identities — changing its comparison key: enumerate every consumer of the keyed data, close the pair gap
 symmetrically in every consumer, gate on the tests not the self-run, and negative-control each), `references/red-bot-gate-read-the-failing-job-log.md` (on a red bot-gate: read the failing job's OWN log

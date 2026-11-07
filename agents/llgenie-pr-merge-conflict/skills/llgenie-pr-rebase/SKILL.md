@@ -24,6 +24,7 @@ The pin is `tests/fixtures/host-bot-capabilities.json` in asimov-agent/llgenie (
 <!-- host-bot-tools:end -->
 
 ## References
+- `references/rebase-at-worktree-start.md` — the first-edit pre-flight (fleet rule #1891): fetch canonical upstream `main` and `git rebase origin/main` the worktree before EVERY task, new or update; never a merged branch, never through a live run, never a shared worktree, own-branch-only
 - `references/measurement-and-readback.md` — read-back/measurement pitfalls: exit codes behind a pipe,
 - `references/ci-verdict-rejudge-and-expiry.md` — a red verdict whose judged jobs are otherwise green is re-judged via `workflow_dispatch`, never re-run; an expired run (shredded `total_count`) is trapped and needs a fresh run at the head
   `gh pr merge --auto` proof via explicit GraphQL fields (jq-on-null and REST false-nulls), tools that read
