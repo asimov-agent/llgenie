@@ -102,19 +102,81 @@ def _probe_repins(ids: list[str], probe, registry: str) -> tuple[list[str], int]
     return missing, checked
 
 
+def _producer_cell_conclusions(repo: str, branch: str, engine: str,
+                               gh: str = "gh") -> tuple[str, str] | None:
+    """The newest engine-build workflow_dispatch run on `branch` that builds `engine`,
+    and its per-engine cell conclusion, or None when none such concluded run exists.
+
+    Mirrors `engine_build_trigger._branch_producers`/`_run_builds_engine` (issue #893
+    reads the producer's job state the same way). Returns (run_id, conclusion).
+    """
+    args = [gh, "api",
+            f"repos/{repo}/actions/runs",
+            "-X", "GET",
+            "--jq", ('[.workflow_runs[] | select((.path == "/.github/workflows/engine-build.yml" '
+                     'or .path == ".github/workflows/engine-build.yml") and .status == "completed") '
+                     '| {id: (.id|tostring), conclusion, jobs_url}] '
+                     '| sort_by(.id) | reverse | .[0:5]'),
+            "-f", f"branch={branch}",
+            "-f", "event=workflow_dispatch",
+            "-f", "per_page=5"]
+    raw = subprocess.run(args, capture_output=True, text=True).stdout
+    try:
+        runs = json.loads(raw) if raw.strip() else []
+    except json.JSONDecodeError:
+        return None
+    prefix = f"engine-build-{engine}-"
+    for run in runs:
+        if not run.get("conclusion"):
+            continue
+        j = subprocess.run([gh, "api", run.get("jobs_url", "").replace(
+            "https://api.github.com/", ""),
+            "--jq", f"[.jobs[] | select(.name | startswith(\"{prefix}\")) | .conclusion] | unique | .[]"],
+            capture_output=True, text=True).stdout.strip()
+        if j:
+            return str(run["id"]), j
+    return None
+
+
 def check(base: str, root: Path | None = None,
           digest: Callable[[str], tuple[str, str]] | None = None,
-          registry: str | None = None, wait_min: int = 0) -> int:
+          registry: str | None = None, wait_min: int = 0,
+          repo: str = "", branch: str = "",
+          producer: Callable[[str], tuple[str, str] | None] | None = None,
+          gh: str = "gh") -> int:
     """Exit 0 only when every repinned engine's exact tag resolves a manifest.
 
     `wait_min` polls a 404 until the producer publishes the tag. Zero is one shot.
+
+    Evidence-aware pre-poll (issue #1844): when `wait_min` is set AND the pin-producing
+    cell for a repinned engine ALREADY concluded red (failure/cancelled), no publish can
+    ever happen — the check concludes immediately with a recorded `skipped` decision
+    instead of burning the wait. `producer` injects the cell-conclusion query (hermetic
+    tests stub it); the default uses `_producer_cell_conclusions` via `gh`. `repo` names
+    the repo for that real query. The wait itself is untouched: a pin whose producing
+    cell is green-but-not-yet-published still polls (the gate is not weakened).
     """
     registry = registry if registry is not None else ei.REGISTRY
     probe = digest if digest is not None else ei._digest_http
+    conductor = producer if producer is not None else (
+        (lambda engine: _producer_cell_conclusions(repo, branch, engine, gh))
+        if repo and branch else None)
     ids = repinned_engine_ids(base, root)
     if not ids:
         print("[pins] no engine this change repins; nothing to check")
         return 0
+    if wait_min > 0 and conductor is not None:
+        for engine in sorted(ids):
+            cell = conductor(engine)
+            if not cell:
+                continue
+            concs = [c for c in cell[1].splitlines() if c]
+            red = [c for c in concs if c not in ("success", "neutral", "skipped")]
+            if red:
+                print(f"[pins] SKIPPED engine={engine}: pin-producing cell(s) concluded "
+                      f"{', '.join(red)} (run {cell[0]}) — no publish can happen from a red "
+                      f"cell, so no wait is owed (issue #1844)", file=sys.stderr)
+                return 0
     deadline = time.time() + max(0, wait_min) * 60
     while True:
         missing, checked = _probe_repins(ids, probe, registry)
@@ -144,11 +206,15 @@ def main(argv=None) -> int:
     ap.add_argument("--base", default="")
     ap.add_argument("--wait-min", type=int, default=0,
                     help="poll a 404 until the producer publishes the tag (0 = one shot)")
+    ap.add_argument("--repo", default="",
+                    help="owner/repo for the evidence-aware producer-cell pre-poll")
+    ap.add_argument("--branch", default="",
+                    help="branch to read producer cell conclusions from")
     args = ap.parse_args(argv)
     base = base_ref.resolve_base(explicit=args.base, quiet=True)
     if args.cmd == "report":
         return report(base)
-    return check(base, wait_min=args.wait_min)
+    return check(base, wait_min=args.wait_min, repo=args.repo, branch=args.branch)
 
 
 if __name__ == "__main__":
