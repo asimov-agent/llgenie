@@ -373,6 +373,34 @@ def test_a_table_that_names_a_subset_passes(tmp_path, capsys):
     assert rc == 0, out
 
 
+def test_a_tree_module_with_no_group_row_reddens_naming_it(tmp_path, capsys):
+    """The NEW reverse direction (tree ⊆ named): a tracked scripts/ module with no §Scripts group row
+    reddens the gate, naming that module — the see-saw #2015 closed (issue #2015)."""
+
+    # Given a tree whose census pin holds `scripts/orphan_module.py` but whose §Scripts table
+    # does not name it (a module that joined the tree without a group row)
+    where, base, _ = scratch_repo(tmp_path)
+    (where / "scripts" / "orphan_module.py").write_text("print('orphan')\n", encoding="utf-8")
+    tree_head = commit_all(where, "add scripts/orphan_module.py")
+    census = census_text(where, tree_head)          # re-point the doc at the NEW tree head
+    table = "| CI entrypoints | `demo.py` |\n"
+    write_doc(where, census + "\n## Scripts\n\n" + table)
+    gate = load_gate(where)
+    assert gate.doc_measured_sha() == tree_head
+    # the reverse check names the unmapped module; the forward check stays silent (demo.py exists)
+    assert gate._coverage_problems(tree_head) == ["orphan_module.py"]
+    assert gate._referent_problems(tree_head) == []
+
+    # When  the gate runs
+    rc = gate.check()
+
+    # Then  it exits non-zero and names the module that has no group row
+    out = capsys.readouterr().out
+    assert rc == 1, out
+    assert "orphan_module.py" in out
+    assert "scripts-map-coverage" in out
+
+
 def doc_measured(text: str) -> str:
     import re
     found = re.search(r"measured at `([0-9a-f]{7,})`", text)

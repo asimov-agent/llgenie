@@ -57,6 +57,8 @@ def _ls_names(path: str = "", ref: str = "HEAD") -> list[str]:
 # (`engine_matrix_pushed.py`) or a `scripts/`-prefixed path (`scripts/foo.py`). The §Scripts table
 # and the BOTS.md sentence name modules by basename, so the referent check reads those names out of
 # the prose and resolves them against `git ls-tree -r --name-only <sha> -- scripts/`.
+# A script whose BASENAME is hyphenated (`fold-live-profile.py`) is resolved by `_scripts_coverage_names`,
+# which additionally recognises `scripts/`-prefixed paths (issue #2015).
 _SCRIPTS_MODULE_RE = re.compile(r"(?<![\w./])([\w]+\.(?:py|sh))(?![\w])")
 
 
@@ -97,13 +99,72 @@ def _scripts_tree_names(ref: str) -> set[str]:
 
 
 def _referent_problems(ref: str) -> list[str]:
-    """Named §Scripts/BOTS modules that do not exist at `ref` (subset check: named ⊆ tree)."""
+    """Named §Scripts/BOTS modules that do not exist at `ref` (subset check: named ⊆ tree).
+
+    The §Scripts half is read with the hyphen-aware `_scripts_coverage_names` (NOT the `\\w`-only
+    `_SCRIPTS_MODULE_RE`): the table now rows `fold-live-profile.py`, and the plain regex would
+    capture a phantom `profile.py` out of it. The BOTS push-fact sentence has no hyphenated module,
+    so it keeps the plain spelling (issue #2015).
+    """
     arch = (REPO_ROOT / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
     bots_path = REPO_ROOT / "docs" / "BOTS.md"
     bots = bots_path.read_text(encoding="utf-8") if bots_path.exists() else ""
     tree = _scripts_tree_names(ref)
-    return [name for name in _scripts_mentions(_scripts_section(arch), _bots_push_fact_paragraph(bots))
-            if name not in tree]
+    section_names = _scripts_coverage_names(_scripts_section(arch))
+    bots_names = _scripts_mentions(_bots_push_fact_paragraph(bots))
+    return [name for name in (section_names | set(bots_names)) if name not in tree]
+
+
+# Modules a §Scripts group row is not expected to name, with the reason each is exempt.
+# `__init__.py` is the package marker the §Scripts opening line states but never rows; it is its
+# own spelling by construction and the reverse check must not chase it. A module added here needs a
+# dated reason in this comment — an exemption is a decision, not a hole (issue #2015).
+_SCRIPTS_MAP_EXEMPT: set[str] = {"__init__.py"}
+
+
+def _scripts_coverage_names(section: str) -> set[str]:
+    """The set of `scripts/*.py|.sh` names the §Scripts section names, in any spelling it uses.
+
+    The table rows name modules as backticked basenames; the opening line and the two trailing
+    paragraphs name `scripts/`-prefixed paths (`scripts/__init__.py`, `scripts/tools/llgenie_harness.py`,
+    `scripts/module_name_guard.py`) and a hyphenated basename (`fold-live-profile.py`) that the plain
+    `\\w`-only `_SCRIPTS_MODULE_RE` cannot see. The coverage direction must recognise every spelling
+    the map uses or the reverse check chases phantom gaps (issue #2015). Three passes:
+    - `scripts/…/name.ext` paths → basename (a `scripts/` prefix is the map's own path spelling);
+    - backticked bare basenames (`` `name.py` ``) and comma/pipe-delimited one-word basenames;
+    - a `-`-tolerant basename scan so `fold-live-profile.py` is captured whole, never as `profile.py`.
+    """
+    names = {
+        m.group(1) for m in _SCRIPTS_PATH_RE.finditer(section)
+    } | {
+        m.group(1) for m in _SCRIPTS_BASENAME_RE.finditer(section)
+    }
+    return names
+
+
+# `scripts/`-prefixed path spellings: take the leaf basename of a `scripts/…/name.py|.sh` token.
+_SCRIPTS_PATH_RE = re.compile(r"scripts/[\w./-]*?/([\w-]+\.(?:py|sh))")
+# A bare one-word basename that may carry a hyphen (`fold-live-profile.py`); the lookbehind refuses a
+# preceding `[\w-]` so the hyphenated name is captured whole and `profile.py` is not stolen from it.
+_SCRIPTS_BASENAME_RE = re.compile(r"(?<![\w-])([\w-]+\.(?:py|sh))(?![-\w])")
+
+
+def _coverage_problems(ref: str) -> list[str]:
+    """Every tracked `scripts/*.py|.sh` at `ref` that the §Scripts section does not name (issue #2015).
+
+    The reverse of `_referent_problems`: a module that joins `scripts/` without a row in the §Scripts
+    group table is invisible to the map a reviewer reads, and the census never noticed. That module
+    is the defect — `tree ⊆ named-in-doc`, except the documented `_SCRIPTS_MAP_EXEMPT` set.
+    """
+    arch = (REPO_ROOT / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
+    section = _scripts_section(arch)
+    if not section:
+        # No §Scripts section, no map to hold the tree to — the reverse direction is vacuous
+        # (matches the forward check, which also reads an empty section as naming nothing).
+        return []
+    named = _scripts_coverage_names(section)
+    tree = _scripts_tree_names(ref)
+    return sorted(name for name in (tree - named - _SCRIPTS_MAP_EXEMPT))
 
 
 def measure(ref: str = "HEAD") -> dict[str, int]:
@@ -269,6 +330,10 @@ def check() -> int:
             problems.append(f"referent-membership: §Scripts/BOTS names `scripts/{name}` but the "
                             f"tree at `{stated}` does not contain it — the module was removed; "
                             f"correct the prose or restore the file")
+        for name in _coverage_problems(stated):
+            problems.append(f"scripts-map-coverage: `scripts/{name}` exists at `{stated}` but the "
+                            f"§Scripts group table does not name it — the tree is no longer fully "
+                            f"mapped; add it to its group row")
 
     for problem in problems:
         print(f"[census-gate] {problem}")
