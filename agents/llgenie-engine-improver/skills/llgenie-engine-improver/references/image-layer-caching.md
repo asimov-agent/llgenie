@@ -42,6 +42,67 @@ publishes `buildcache-<variant>`, later builds (local and CI) reuse the compiled
 The image tag itself hashes four inputs: variant params, committed Dockerfile, `containers/engines/entrypoint.sh`,
 `scripts/engine_runner.py` — classify drift by which of the four moved.
 
+## `--cache-to` only exists on a `docker-container` driver — gate on the DRIVER, never assume
+
+A registry cache WRITE (`--cache-to type=registry,…`) is a buildx capability of the selected builder's
+driver, not a flag you can always pass. On the classic `docker` driver buildx aborts the whole build at
+the export step after minutes of real compile:
+
+```
+ERROR: failed to build: Cache export is not supported for the docker driver.
+Switch to a different driver, or turn on the containerd image store, and try again.
+```
+
+The trap that produced it: `engine_image.py::_buildx` probes `docker buildx inspect <builder>` and, if the
+`default` builder EXISTS, appends `--builder default`. On an ubuntu GHA runner a `default` builder always
+exists and it is the classic docker driver — so even when `setup-buildx-action` created and `--use`d a
+capable `docker-container` builder (`Driver: docker-container`, `"Cache export": true` in its inspect
+output), the forced `--builder default` discards it and the cache write reds. A fresh Colima/macOS host
+has no `default` builder, so the flag is omitted and buildx falls back to the active (docker-container)
+builder — which is why the same code reds on Linux CI and works elsewhere.
+
+Rule: append `--cache-to` **only when the driver of the builder actually selected for the build is
+`docker-container` (or containerd image store)**; otherwise log a one-line documented skip and let the
+build stay read-only. Never infer capability from `setup-buildx-action` having run, and never infer it
+from the builder the action `--use`d — probe the builder you name.
+
+**`docker buildx inspect` does not support `--format`** on every buildx build (it errors); parse the
+`Driver:` line out of the default table output instead:
+
+```python
+def _buildx_driver(builder: str) -> str:
+    out = subprocess.run(["docker", "buildx", "inspect", builder],
+                         capture_output=True, text=True).stdout
+    for line in out.splitlines():
+        if line.strip().startswith("Driver:"):
+            return line.split(":", 1)[1].strip()
+    return ""
+```
+
+**Pick the builder that is ACTIVE, not `default`.** `default` is a builder *name*, not a capability — on a GHA runner it exists and is the classic docker driver, so "name `default` when the caller names none" re-introduces the exact bug the gate was meant to stop. Selection order for an unnamed builder:
+
+1. the row marked `*` in `docker buildx ls` (that is what a plain `docker buildx build` would use, i.e. the builder `setup-buildx-action` created and `--use`d);
+2. only if no `*` row is findable, fall back to `default` (or omit the flag).
+
+```python
+def _buildx_active() -> str:
+    out = subprocess.run(["docker", "buildx", "ls"], capture_output=True, text=True).stdout
+    for line in out.splitlines()[1:]:
+        m = re.match(r"\s*(\S+)", line)
+        if m:
+            name = m.group(1)
+            if "*" in line.split()[0:2] or name.endswith("*"):
+                return name.rstrip("*")
+    return "default"
+```
+
+Abbreviated rows (`default *  docker`) and long-name rows can put the `*` on either of the first two tokens — check both, and strip it from the returned name. Then feed that name into `_buildx_driver()`. Never `inspect <builder> <builder>`: resolve the name ONCE, then pass it.
+
+The two halves are one change, not two: **active-builder selection** decides *which* builder, the **driver gate** decides *whether* `--cache-to` is legal. A fix that only gates on the driver of a forced `default` still loses the warm cache on capable runners (the capable builder is never selected), and a fix that only selects the active builder still reds if the active one happens to be classic. Ship both together. Verify the gate against the real binary, not a mock:
+`_buildx_driver("default")` → `'docker'` → SKIP on a GHA runner; a `docker-container` builder → WRITE.
+`tests/test_engine_image_matrix.py` is the regression suite for `engine_image.py` (21 tests) — run it at
+any change to `_buildx` before pushing.
+
 ## MAX_JOBS=2 is a CI memory guard, not a host tuning
 
 The install step carries `MAX_JOBS=2 CMAKE_BUILD_PARALLEL_LEVEL=2` inline (the #1558 fix for the
