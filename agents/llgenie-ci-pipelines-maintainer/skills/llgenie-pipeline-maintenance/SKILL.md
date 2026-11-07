@@ -107,6 +107,8 @@ asserting plus the command that shows it, then carry on — the correction is th
 argument.
 
 ## Before you measure: fetch a fresh upstream main (fleet rule 15, #873)
+First pre-flight of ANY task — new or update — fetch the canonical upstream and rebase the worktree
+onto the just-fetched tip (`references/rebase-at-worktree-start.md`, fleet rule #1891).
 
 The automation is a lane, so its measurements carry the same rule as the lanes': **a number is only meaningful
 against a named sha.** Operative, in order, on every audit or fix run:

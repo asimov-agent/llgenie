@@ -3418,3 +3418,36 @@ def test_fleet_rule_19_rejudge_and_expiry_block_is_in_canonical_and_every_soul()
         assert "can never be re-judged green" in text, (
             f"{soul.relative_to(root)} lost the #1889 expiry trap"
         )
+
+
+def test_fleet_rule_20_rebase_at_worktree_start_is_in_canonical_and_every_soul():
+    """Issue #1891: the rebase-at-worktree-start pre-flight must be stated verbatim in the
+    single canonical copy and in every profile's SOUL fleet section (#873 pattern).
+
+    A subset/content check, not a full-block equality: the canonical bullet plus its load-bearing
+    phrases must appear in agents/standing-rules.md and in every agents/<profile>/SOUL.md, so a
+    rule added here and not propagated is a failing test rather than a rule that silently stops
+    existing.
+    """
+    import pathlib
+    root = pathlib.Path(__file__).resolve().parents[1]
+    canonical = (root / "agents" / "standing-rules.md").read_text(encoding="utf-8")
+    phrases = [
+        "Rebase at worktree start",
+        "`git fetch` the canonical upstream `main`",
+        "never rebase a merged branch",
+        "never through a live run",
+        "never a shared worktree",
+        "own-branch-only",
+        "no second PR",
+    ]
+    for phrase in phrases:
+        assert phrase in canonical, f"standing-rules.md lost the #1891 bullet: {phrase!r}"
+    for soul in sorted((root / "agents").glob("*/SOUL.md")):
+        text = soul.read_text(encoding="utf-8")
+        assert "Rebase at worktree start" in text, (
+            f"{soul.relative_to(root)} does not state the #1891 fleet rule"
+        )
+        assert "own-branch-only" in text, (
+            f"{soul.relative_to(root)} lost the #1891 own-branch constraint"
+        )
