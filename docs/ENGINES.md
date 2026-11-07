@@ -467,7 +467,11 @@ initialises its device at startup still has to CONTAIN the file, and (for the fo
 comes from `entrypoint.sh detect` (CI #106). A CLI whose parser has **no version flag at all**
 (`binary_probe: help`: mlx cpu — argparse `--help`/`-h` only) must answer the help family,
 and its version likewise comes from `detect`; without that policy the probe would fail an
-engine for a flag it never had (found by the dispatch sweep, issue #614). When a `detect` has to fall
+engine for a flag it never had (found by the dispatch sweep, issue #614). A CLI whose parser
+has **no help flag at all** (`binary_probe: version`: tensorfold cuda at the 1.2.1 pin —
+`-h`/`--help` are a separate subcommand, cf. #1685) must answer its version family — the
+binary self-proves, and the image's own `detect` re-answers it — while the help family is
+exempt because the binary truthfully has none (issue #1888). When a `detect` has to fall
 back because the installed distribution reports nothing usable (`0.0.0`, the ROCm wheel), the fallback
 is the **pinned version** (`0.5.23`), never the commit sha: `pin 7df5dd09…` is not a version, and
 `make test-built-engine` rightly rejects it (#636/#650).

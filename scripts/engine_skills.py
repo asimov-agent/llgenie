@@ -68,8 +68,11 @@ SERVABLE_KEYS = ("install", "binary", "detect", "launch", "health", "alias_mode"
 BINARY_FLAGS = ("--version", "--help", "-h")
 # `binary_probe` policies (#580 / #614): "flags" is the default (both families must answer),
 # "device" is a CLI that needs its device to answer a flag, "help" is a CLI with no version
-# flag at all — the help family must answer and the image's `detect` proves the version.
-BINARY_PROBES = ("device", "help")
+# flag at all — the help family must answer and the image's `detect` proves the version,
+# "version" is a CLI with no help flag at all (its help is a separate subcommand) — the
+# version family must answer and the help family is exempt because the binary has none
+# (measured: tensorfold/cuda at the 1.2.1 pin, issue #1888).
+BINARY_PROBES = ("device", "help", "version")
 ALIAS_MODES = ("flag", "create", "config", "symlink", "any-name")
 
 
@@ -798,7 +801,7 @@ def documented_flags(skill: dict, backend: str | None = None) -> list[str]:
 
 
 def probe_policy(skill: dict, backend: str) -> str:
-    """How this variant's binary is proven: "flags" (default), "device" or "help".
+    """How this variant's binary is proven: "flags" (default), "device", "help" or "version".
 
     `binary_probe: {cuda: device}` marks a backend whose CLI initialises the
     device at startup, so it cannot answer a flag on a device-less CI runner
@@ -807,9 +810,14 @@ def probe_policy(skill: dict, backend: str) -> str:
     `binary_probe: {cpu: help}` marks a CLI whose parser has NO version flag at
     all (argparse-only, e.g. mlx_lm.server): the help family must answer, and the
     version is proven by `detect`.
+    `binary_probe: {cuda: version}` marks a CLI whose parser has NO help flag at
+    all (its help is a separate subcommand, e.g. tensorfold/cuda at the 1.2.1
+    pin): the version family must answer (the binary self-proves — the image's
+    own `detect` re-answers it), and the help family is exempt because the
+    binary truthfully has none (issue #1888).
     """
     value = str(_per_backend(skill.get("binary_probe"), backend) or "").strip()
-    return value if value in ("device", "help") else "flags"
+    return value if value in ("device", "help", "version") else "flags"
 
 
 def generate_params(skill: dict, manifest: dict | None = None) -> dict | None:
@@ -1185,8 +1193,9 @@ def validate(skills: dict, registry: dict | None = None, unsupported: dict | Non
             for b, v in (probe_map or {}).items() if isinstance(probe_map, dict) else []:
                 if str(v).strip() not in BINARY_PROBES:
                     errors.append(f"{where}: binary_probe.{b} must be one of {list(BINARY_PROBES)} "
-                                  f"(device: needs its device to answer a flag; "
-                                  f"help: the CLI has no version flag, detect proves it)")
+                                  f"(device: needs its device to answer a flag; help: has no version "
+                                  f"flag, detect proves it; version: has no help flag, the version "
+                                  f"family self-proves)")
                 if b not in (s.get("backends") or []):
                     errors.append(f"{where}: binary_probe.{b} is not a backend of this engine")
             if s.get("alias_mode") not in ALIAS_MODES:

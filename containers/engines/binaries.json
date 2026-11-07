@@ -229,7 +229,7 @@
         "flags": [
           "--version"
         ],
-        "probe": "flags"
+        "probe": "version"
       }
     },
     "tensorrt-llm": {

@@ -1009,7 +1009,7 @@ def test_every_published_image_has_a_binary_and_documented_flags():
         assert entry["binary"], f"{row['engine']}/{row['variant']} has no binary file"
         assert entry["flags"], f"{row['engine']}/{row['variant']} documents no flag"
         assert set(entry["flags"]) <= set(es.BINARY_FLAGS), entry["flags"]
-        assert entry["probe"] in ("flags", "device", "help"), entry
+        assert entry["probe"] in ("flags", "device", "help", "version"), entry
 
     # And the frozen params (what make install pulls) are covered too, not just the CI subset
     for path in (REPO / "containers/engines/params").glob("*.json"):
@@ -1171,6 +1171,33 @@ def test_validator_requires_documented_binary_flags(skills):
 
     # Then the committed skills pass
     assert es.validate(skills) == []
+
+
+def test_probe_policy_honours_the_version_only_per_backend_branch():
+    """`binary_probe: {cuda: version}` returns 'version' for cuda and the default 'flags'
+    for a backend left unset (tensorfold: help is a separate subcommand at the 1.2.1 pin,
+    issue #1888) — and the committed tensorfold manifest carries it."""
+
+    import scripts.engine_skills as es
+
+    # Given the committed tensorfold skill, whose per-backend binary_probe marks cuda version
+    tf = es.get_skill("tensorfold")
+    assert isinstance(tf.get("binary_probe"), dict), tf.get("binary_probe")
+
+    # When the per-backend probe policy is read for each backend
+    cuda = es.probe_policy(tf, "cuda")
+
+    # Then  cuda is version-only (no help family); a backend with no override stays "flags"
+    assert cuda == "version", cuda
+    assert es.probe_policy(tf, "metal") == "flags"  # the macOS binary answers --help too
+
+    # And the policy is part of the generated manifest, not a separate hand-edit
+    entries = es.documented_flags(tf, "cuda"), es.probe_policy(tf, "cuda")
+    manifest = {}
+    es.generate_params(tf, manifest)
+    tf_cuda = (manifest.get("cuda") or {})
+    assert tf_cuda.get("probe") == "version", tf_cuda
+    print(f"[probe_policy] tensorfold/cuda -> {entries[1]}, generated manifest probe = {tf_cuda.get('probe')}")
 
 
 def test_each_engine_binary_is_the_file_in_its_image():
