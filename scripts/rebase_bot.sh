@@ -98,8 +98,46 @@ ${done_marker}" >/dev/null || echo "[rebase-bot] could not comment" >&2
 
 echo "[rebase-bot] PR #$PR: $HEAD_REPO:$HEAD_BRANCH -> main (remote $REMOTE)"
 run git fetch "$ORIGIN" main --quiet
-run git fetch "$REMOTE" "$HEAD_BRANCH" --quiet
+# Fetching the PR's head is a WRITE into this checkout's object store, exactly where a runner can
+# transiently fault ("insufficient permission for adding an object to repository database
+# .git/objects", run 42354009408 on #1926). The fetch has no `set -e` behind it, so a bare failure
+# used to slip past: the `git checkout -B` that follows then failed on a ref that never arrived and
+# the actor cascade-failed onto a rebase of WHATEVER branch was last checked out (main) — a wrong-
+# vehicle push that the squash-close re-check then caught only by accident. So a fetch fault is a
+# LASTING stop, not a silent pass: retry once (a transient object-write clears), then refuse.
+fetch_head() {
+  local attempt out
+  for attempt in 1 2 3; do
+    out="$(git fetch "$REMOTE" "$HEAD_BRANCH" --quiet 2>&1)" && \
+      git rev-parse --verify -q "refs/remotes/$REMOTE/$HEAD_BRANCH" >/dev/null 2>&1 && return 0
+    echo "[rebase-bot] fetch of $REMOTE/$HEAD_BRANCH failed (attempt $attempt/3): $out" >&2
+    sleep "${RETRY_SLEEP:-2}"
+  done
+  return 1
+}
+if [ -n "$DRY" ]; then
+  echo "[rebase-bot] DRY: git fetch $REMOTE $HEAD_BRANCH --quiet (+ ref-verify)"
+else
+  if ! fetch_head; then
+    # classify+skip with a NAMED error: the outer sweep counts this PR as failed and continues,
+    # and the tree stays exactly where it started — never a bare fatal that aborts the sweep.
+    comment "The rebase bot could not fetch \`$REMOTE/$HEAD_BRANCH\` into the runner's object store after 3 attempts (a git object-write/fetch failure). Nothing was pushed; the branch was left untouched and the sweep continued. <!-- $MARKER: $TODAY -->"
+    echo "[rebase-bot] could not fetch $REMOTE/$HEAD_BRANCH after 3 attempts; giving up on this PR (issue #1952)" >&2
+    exit 1
+  fi
+fi
 run git checkout -B "$HEAD_BRANCH" "$REMOTE/$HEAD_BRANCH"
+# The checkout is the point of no return: the rebase below operates on the CURRENT branch, so a
+# checkout that did not land (the same silent-slip class as the fetch) must stop before any code
+# moves on the wrong base. Verify the ref and the branch both exist, then leave HEAD on it.
+if [ -n "$DRY" ]; then
+  echo "[rebase-bot] DRY: git rev-parse --verify HEAD == $HEAD_BRANCH"
+elif ! { git rev-parse --verify -q "refs/heads/$HEAD_BRANCH" >/dev/null 2>&1 \
+  && [ "$(git rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$HEAD_BRANCH" ]; }; then
+  echo "[rebase-bot] checkout of $HEAD_BRANCH did not land; refusing to rebase a different branch" >&2
+  abort_rebase
+  exit 1
+fi
 
 # rerere replays its RECORDED resolution, which may be wrong or stale: resolve by hand instead.
 if run git -c rerere.enabled=false rebase "$ORIGIN/main"; then
@@ -184,14 +222,26 @@ rm -f "$CLOSE_BODY"
 if [ -n "$DRY" ]; then
   echo "[rebase-bot] DRY: gh pr view $PR --repo $REPO --json state,merged --jq '.state + \"/\" + (.merged|tostring)'"
 else
-  PR_LIVE="$(gh pr view "$PR" --repo "$REPO" --json state,merged --jq '.state + "/" + (.merged|tostring)' 2>/dev/null)"; PR_GH_RC=$?
+  # The dead-vehicle re-read is authoritative at push time, but a TRANSIENT read fault (rc=1 / an
+  # empty answer from a gh relay drop) is not evidence the PR merged — reddening the whole sweep on
+  # one API hiccup teaches operators to ignore the red (the #1602/#1603 discipline). Bounded-retry
+  # the read so a single glitch does not abort the run; a persistent unreadable state still fails
+  # closed exactly as before.
+  PR_LIVE=""
+  PR_GH_RC=1
+  for _attempt in 1 2 3; do
+    PR_LIVE="$(gh pr view "$PR" --repo "$REPO" --json state,merged --jq '.state + "/" + (.merged|tostring)' 2>/dev/null)"; PR_GH_RC=$?
+    if [ "$PR_GH_RC" = "0" ] && [ -n "$PR_LIVE" ]; then break; fi
+    echo "[rebase-bot] live re-read of PR #$PR failed (attempt $_attempt/3 rc=$PR_GH_RC); retrying" >&2
+    sleep "${RETRY_SLEEP:-2}"
+  done
   PR_STATE="${PR_LIVE%/*}"; PR_MERGED="${PR_LIVE#*/}"
   if [ "$PR_GH_RC" != "0" ] || [ -z "$PR_LIVE" ]; then
     # A PR whose state cannot be read is NOT a go signal: refuse like every other fail-closed
     # re-read in this script (the sweep, the body, the gates). A push that cannot prove the
     # vehicle is open is a push on faith.
-    comment "The rebase started but the PR's state could not be re-read on the live API before the force-push (gh pr view rc=$PR_GH_RC). Nothing was pushed; the vehicle may have merged while this run worked — refuse the dead-vehicle push. <!-- $MARKER: $TODAY -->"
-    echo "[rebase-bot] could not re-read PR #$PR state at push time (rc=$PR_GH_RC); refusing the force-push (issue #1733)" >&2; exit 1
+    comment "The rebase started but the PR's state could not be re-read on the live API before the force-push (gh pr view rc=$PR_GH_RC after 3 attempts). Nothing was pushed; the vehicle may have merged while this run worked — refuse the dead-vehicle push. <!-- $MARKER: $TODAY -->"
+    echo "[rebase-bot] could not re-read PR #$PR state at push time (rc=$PR_GH_RC after 3 attempts); refusing the force-push (issue #1733)" >&2; exit 1
   fi
   if [ "$PR_STATE" != "open" ] || [ "$PR_MERGED" = "true" ]; then
     comment "The rebase started but PR #$PR is no longer open at push time (state=$PR_STATE merged=$PR_MERGED) — it may have merged while this run worked, and a force-push onto a merged PR's branch is a dead-vehicle push. Nothing was pushed; the branch is untouched. <!-- $MARKER: $TODAY -->"

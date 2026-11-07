@@ -283,7 +283,8 @@ def _scratch_repo(tmp_path: Path):
     return work, remote, env
 
 
-def _run_actor(tmp_path, work, env, agent_cmd, dry="", gates="true", pr_state="open/false"):
+def _run_actor(tmp_path, work, env, agent_cmd, dry="", gates="true", pr_state="open/false",
+               pr_view_fail=0, retry_sleep="0"):
     # A deterministic `gh` (empty body, comments swallowed) is first on PATH: the actor now runs
     # the squash-close re-check (issue #1716), which reads the LIVE PR body via `gh api pull/42`,
     # and the dead-vehicle re-read (issue #1733), which reads `gh pr view --json state,merged`.
@@ -292,6 +293,8 @@ def _run_actor(tmp_path, work, env, agent_cmd, dry="", gates="true", pr_state="o
     ghbin.mkdir(parents=True, exist_ok=True)
     (ghbin / "body.txt").write_text("")
     (ghbin / "state.txt").write_text(pr_state)
+    #: how many `pr view` re-reads fail before one answers (issue #1952's transient-read retry).
+    (ghbin / "fail_reads.txt").write_text(str(pr_view_fail))
     comments = ghbin / "comments.log"
     comments.write_text("")
     _gh = ghbin / "gh"
@@ -302,6 +305,12 @@ args = sys.argv[1:]
 if args and args[0] == "api" and "pulls/" in args[1]:
     sys.stdout.write((here / "body.txt").read_text()); sys.exit(0)
 if args and args[0] == "pr" and args[1] == "view":
+    # a transient read fault: fail the first N reads, then answer genuinely (issue #1952).
+    fails = pathlib.Path(here / "fail_reads.txt")
+    n = int(fails.read_text())
+    if n > 0:
+        fails.write_text(str(n - 1))
+        sys.stderr.write("gh relay dropped the read\\n"); sys.exit(1)
     sys.stdout.write((here / "state.txt").read_text()); sys.exit(0)
 if args and args[0] == "pr" and args[1] == "comment":
     # the --body value is `--body <text>`; record it so the test can assert the posted marker.
@@ -319,7 +328,8 @@ sys.exit(0)
         cwd=str(work), env={**env, "PATH": f"{ghbin}:{os.environ.get('PATH', '')}",
                             "PR": "42", "HEAD_BRANCH": "feat/conflict",
                             "HEAD_REPO": "andyholst", "REPO": f"{OWNER}/{NAME}",
-                            "AGENT_CMD": agent_cmd, "GATES": gates, "DRY": dry},
+                            "AGENT_CMD": agent_cmd, "GATES": gates, "DRY": dry,
+                            "RETRY_SLEEP": retry_sleep},
         capture_output=True, text=True, timeout=180)
 
 
@@ -402,6 +412,81 @@ def test_the_actor_refuses_an_unreadable_pr_state(tmp_path):
     after = subprocess.run(["git", "--git-dir", str(remote), "rev-parse", "feat/conflict"],
                            capture_output=True, text=True, check=True).stdout.strip()
     assert before == after, "the branch must be untouched on an unreadable state"
+
+
+def test_a_transient_push_time_read_fault_is_retried_not_fatal(tmp_path):
+    """A single gh relay drop (rc=1) must not redden the run — retry once, then push (issue #1952).
+
+    The #1901 failure: the actor had fully resolved the conflict, then ONE live `gh pr view`
+    read returned rc=1 and the whole sweep aborted as a false red. The dead-vehicle guard
+    (issue #1733) is about a CONFIRMED merge, not a transient read; a glitch is retried.
+    """
+    work, remote, env = _scratch_repo(tmp_path)
+    before = subprocess.run(["git", "--git-dir", str(remote), "rev-parse", "feat/conflict"],
+                            capture_output=True, text=True, check=True).stdout.strip()
+    agent = tmp_path / "agent.sh"
+    agent.write_text('#!/usr/bin/env bash\nset -e\ncat >/dev/null\n'
+                     'printf "from main\nfrom the PR\n" > shared.txt\n'
+                     'git add shared.txt\n')
+    agent.chmod(0o755)
+    # the first push-time re-read faults (rc=1); the retry answers open/false genuinely.
+    r = _run_actor(tmp_path, work, env, str(agent), pr_view_fail=1)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "retrying" in r.stderr, "the transient fault must be logged as a retry:\n" + r.stderr
+    # and the branch was really published — a retry that merely LOOKED green but dropped the push
+    # would be a silent data loss, so the proof is the pushed content, not the exit code.
+    after = subprocess.run(["git", "--git-dir", str(remote), "rev-parse", "feat/conflict"],
+                           capture_output=True, text=True, check=True).stdout.strip()
+    assert before != after, "the retried push must actually reach the fork"
+    pushed = subprocess.run(["git", "--git-dir", str(remote), "show", "feat/conflict:shared.txt"],
+                            capture_output=True, text=True, check=True).stdout
+    assert "from main" in pushed and "from the PR" in pushed
+
+
+def test_a_persistent_push_time_read_fault_still_refuses(tmp_path):
+    """All retries failing is STILL a dead-vehicle refusal — the retry is hardening, not a
+    weakening of the fail-closed guard (issue #1952, the #1602/#1603 discipline)."""
+    work, remote, env = _scratch_repo(tmp_path)
+    before = subprocess.run(["git", "--git-dir", str(remote), "rev-parse", "feat/conflict"],
+                            capture_output=True, text=True, check=True).stdout.strip()
+    agent = tmp_path / "agent.sh"
+    agent.write_text('#!/usr/bin/env bash\nset -e\ncat >/dev/null\n'
+                     'printf "from main\nfrom the PR\n" > shared.txt\n'
+                     'git add shared.txt\n')
+    agent.chmod(0o755)
+    # the read keeps faulting through all 3 attempts
+    r = _run_actor(tmp_path, work, env, str(agent), pr_view_fail=10)
+    assert r.returncode != 0
+    assert "--force-with-lease" not in r.stdout
+    assert "could not re-read" in r.stderr
+    after = subprocess.run(["git", "--git-dir", str(remote), "rev-parse", "feat/conflict"],
+                           capture_output=True, text=True, check=True).stdout.strip()
+    assert before == after, "a genuinely unreadable PR must never be force-pushed"
+
+
+def test_a_fork_fetch_object_fault_is_a_named_skip_not_a_wrong_branch_rebase(tmp_path):
+    """A fetch object-write fault (the #1926 `.git/objects` class) must stop THIS PR with a named
+    error and leave the tree where it started — never cascade onto a rebase of the wrong branch
+    (issue #1952). The old code had no `set -e` on the fetch, so the fault slipped past, the
+    checkout failed on a ref that never arrived, and the actor rebased WHATEVER was checked out."""
+    work, remote, env = _scratch_repo(tmp_path)
+    before = subprocess.run(["git", "--git-dir", str(remote), "rev-parse", "feat/conflict"],
+                            capture_output=True, text=True, check=True).stdout.strip()
+    # point the fork remote at a broken URL so the fetch cannot obtain the head object
+    subprocess.run(["git", "-C", str(work), "remote", "set-url", "fork", "/nonexistent/fork.git"],
+                   check=True)
+    r = _run_actor(tmp_path, work, env, "true")
+    assert r.returncode != 0, "a fetch that cannot get the head must be a red, not a silent pass"
+    assert "--force-with-lease" not in r.stdout, "no push may fire on an unfetched head"
+    # the NEXT branch must not have been rebased: the tree is still where it started
+    assert "refusing to rebase a different branch" not in r.stderr  # never even reached the checkout guard
+    assert "could not fetch fork/feat/conflict" in r.stderr, r.stderr
+    after = subprocess.run(["git", "--git-dir", str(remote), "rev-parse", "feat/conflict"],
+                           capture_output=True, text=True, check=True).stdout.strip()
+    assert before == after, "the unreachable fork's branch must be untouched"
+    # a named `gave-up` comment was posted, so the sweep can count this PR and continue the others
+    posts = (tmp_path / "ghbin" / "comments.log").read_text().splitlines()
+    assert posts and "could not fetch" in " ".join(posts), posts
 
 
 def test_a_failing_agent_stops_the_run_without_pushing(tmp_path):
