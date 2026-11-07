@@ -118,56 +118,104 @@ def foreign_commits(root: Path, base: str, rev: str) -> list[str]:
     return [ln for ln in out.splitlines() if ln.strip()]
 
 
+def _own_vs_foreign(root: Path, base: str, rev: str) -> tuple[list[str], list[str]]:
+    """Split `base..rev` into the branch's OWN commits and genuine foreign (#845) commits.
+
+    A commit the head carries that does not belong to this branch is reachable from a
+    ref that is NOT the base and does NOT contain the head: it was added on ANOTHER
+    branch/PR and inherited under the head's closes. The discriminator is reachability
+    (`for-each-ref --contains`, one call per commit): for a clean-but-stale branch (cut
+    from an older real main tip, carrying only its own work) every commit in `base..rev`
+    is reachable ONLY from the base's history and the head's own branch — no other ref
+    contains it. For the genuine #845 leak (a worktree that inherited the primary
+    checkout's parked branch) the inherited PR's commits ARE contained by that other
+    branch's ref, so they are provably foreign.
+
+    `own` returns the commits attributable to the branch; `foreign` the ones reachable
+    from another ref. Only the base ref itself and the head's own refs (those already
+    containing `rev`) are skipped — every other branch/tag/PR ref is a foreign-signal.
+    """
+    commits = foreign_commits(root, base, rev)
+    own, foreign = [], []
+    if not commits:
+        return own, foreign
+    head_refs = set(_git(root, "for-each-ref", "--contains", rev, "--format=%(refname)").splitlines())
+    for commit in commits:
+        sha = commit.split()[0] if commit.split() else None
+        if not sha:
+            own.append(commit)
+            continue
+        containing = [r for r in _git(root, "for-each-ref", "--contains", sha, "--format=%(refname)").splitlines()
+                      if r != base and r not in head_refs]
+        if containing:
+            foreign.append(f"{commit}  (reachable from `{'`, `'.join(containing)}`)")
+        else:
+            own.append(commit)
+    return own, foreign
+
+
+
+def _verdict(root: Path, base: str, rev: str) -> tuple[str, list[str], list[str]]:
+    """Classify the head against `base`. Returns (verdict, own_commits, foreign_commits).
+    """
+    _warnings, err = fetch_base(root, base)
+    if err:
+        return "refused", [], [err]
+    base_sha = _git(root, "rev-parse", "--verify", "--quiet", f"{base}^{{commit}}")
+    if not base_sha:
+        return "refused", [], [f"base `{base}` does not resolve to a commit in this clone"]
+    mb = _git(root, "merge-base", base, rev)
+    if not mb:
+        return "refused", [], [f"`{base}` and `{rev}` share no common ancestor in this clone"]
+    mb = mb.splitlines()[0]
+    if mb == base_sha:
+        return "clean", [], []
+    foreign = foreign_commits(root, base, rev)
+    if not foreign:
+        # merge-base != base but `base..rev` empty: the head IS an ancestor of the live
+        # base — a push to main overtaken by a newer main (#1867/#1906..#1909). No diff
+        # to leak; passes as the ANCESTOR exemption.
+        return "clean", [], []
+    own, leaked = _own_vs_foreign(root, base, rev)
+    # Is the merge-base itself on `main`'s history (an older real main tip)? If YES and
+    # nothing leaked from another ref, the branch is stale-but-clean. If the merge-base
+    # is off `main` entirely, the branch forked from a divergent lineage — that IS a leak.
+    on_main = subprocess.run(["git", "-C", str(root), "merge-base", "--is-ancestor", mb, base],  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
+                             capture_output=True, text=True).returncode == 0
+    if on_main and not leaked:
+        return "stale", own, []
+    return "foreign", own, leaked or foreign
+
+
 def check(root: Path, base: str, rev: str) -> tuple[bool, list[str]]:
     """Is the branch cut from `base` itself? Returns (ok, foreign_or_error_lines).
 
     Fetches `base`'s remote `main` freshly first (#1734), so the verdict is against
     the live main tip, not a stale `refs/remotes/origin/main`. A fetch failure is a
-    refusal (False), never a stale pass. `ok` is True exactly when either
-    `git merge-base <base> <rev> == <base>` (the head adds commits on top of the
-    base and nothing else — the #845 negative control, a one-commit-ahead clean
-    branch), OR `base..rev` is empty (the head is an ANCESTOR of the live base:
-    a push to main whose commit a newer main already overtook — nothing foreign
-    can leak, so it passes, issue #1867/#1906..#1909). A branch
-    cut from another PR has the base NOT an ancestor, so the merge-base is older
-    and the head carries commits not on the base.
+    refusal (False), never a stale pass. `ok` is True for a clean cut, the
+    #1867 ancestor/push exemption, and a STALE-BUT-CLEAN branch (merge-base on `main`,
+    every carry the branch's own — issue #2016: a rebase clears it, not a #845 leak).
+    `ok` is False only for a genuine #845 foreign-branch leak (a carry belonging to
+    another ref) or a refused measure.
     """
-    _warnings, err = fetch_base(root, base)
-    if err:
-        return False, [err]
-    base_sha = _git(root, "rev-parse", "--verify", "--quiet", f"{base}^{{commit}}")
-    if not base_sha:
-        return False, [f"base `{base}` does not resolve to a commit in this clone"]
-    mb = _git(root, "merge-base", base, rev)
-    if not mb:
-        return False, [f"`{base}` and `{rev}` share no common ancestor in this clone"]
-    if mb.splitlines()[0] != base_sha:
-        # merge-base is NOT the base tip, but that is only a #845 leak when the
-        # head actually CARRIES commits absent from the base (`base..rev`
-        # non-empty): a branch cut from another PR. When `base..rev` is EMPTY the
-        # head is an ANCESTOR of the live base — a push to main whose commit was
-        # already overtaken by a newer main (back-to-back merges) — and there is
-        # nothing foreign to leak, so the gate must not red it. Refuse on the
-        # foreign diff, not on the merge-base inequality alone (#1906/#1907/#1908/#1909).
-        foreign = foreign_commits(root, base, rev)
-        if foreign:
-            return False, foreign
-        return True, []
-    return True, []
+    verdict, _own, foreign = _verdict(root, base, rev)
+    return verdict in ("clean", "stale"), foreign
 
 
 def render(ok: bool, base: str, rev: str, foreign: list[str], root: Path = REPO_ROOT) -> list[str]:
-    """The verdict as lines; the OK path and the refusal both name their facts.
+    """The verdict as lines; the OK/stale path and the refusal both name their facts.
 
     Every verdict carries the main sha it measured against (#1734), so a FAILED is
-    auditable at a glance and a stale measure is provable instead of assumed.
+    auditable at a glance and a stale measure is provable instead of assumed. The pass
+    path distinguishes the three shapes a green verdict can take from the git facts:
+    the ordinary clean cut (merge-base == base), the ancestor/push-to-main exemption
+    (`base..rev` empty, #1867/#1906..#1909), and the STALE-BUT-CLEAN branch (merge-base
+    IS a `main` ancestor but older than the live tip, every carry the branch's own,
+    issue #2016 — a rebase clears it, not a #845 leak).
     """
-    measured = f"{TAG} measured against `{base}` at `{_measured_sha(root, base)}`"
-    if ok:
-        # Distinguish the clean-cut from the ancestor/push-to-main exemption from
-        # the git facts: merge-base == base is the ordinary PR cut; merge-base is
-        # an OLDER commit while `base..rev` is empty is the push-to-main overtaken
-        # case (#1867/#1906..#1909) — nothing foreign can leak, so it passes.
+    verdict, own, leaked = _verdict(root, base, rev)
+    measured = f"{TAG} measured against `{base}` at `{base and _measured_sha(root, base)}`"
+    if verdict == "clean":
         mb = _git(root, "merge-base", base, rev)
         if mb and mb.splitlines()[0] != _measured_sha(root, base):
             return [
@@ -180,21 +228,34 @@ def render(ok: bool, base: str, rev: str, foreign: list[str], root: Path = REPO_
             f"{TAG} no foreign commits carried",
             measured,
         ]
-    if foreign and (foreign[0].startswith("base `") or foreign[0].startswith("could not fetch ")
-                    or foreign[0].startswith("`")):
-        # A refusal that already names its own cause (a resolvable-base failure or a
-        # fetch failure): there is no measure, so no measured-sha line is appended.
-        return [f"{TAG} FAILED: {foreign[0]}"]
+    if verdict == "stale":
+        mb = _git(root, "merge-base", base, rev)
+        return [
+            f"{TAG} STALE: `{rev}` is behind `{base}` — its merge-base with ",
+            f"{TAG} `{base}` is `{mb.splitlines()[0] if mb else '(none)'}`, an OLDER ",
+            f"{TAG} `{base}` ancestor, and every commit it carries is its OWN (nothing is ",
+            f"{TAG} reachable from another ref). It is NOT the #845 foreign-commit leak — no ",
+            f"{TAG} foreign diff present. Rebase onto a fresh `{base}` before opening/pushing.",
+            f"{TAG} own commits carried ({len(own)}):",
+            *([f"  {c}" for c in own] or ["  (none)"]),
+            measured,
+        ]
+    # A refusal (verdict == "refused") or a genuine #845 leak. A refusal already names
+    # its own cause (a fetch failure / unresolvable base / no-common-ancestor): no
+    # measured-sha line is appended because there is no measure.
+    if verdict == "refused" or (foreign and foreign[0].startswith(("base `", "could not fetch ", "`"))):
+        refused = foreign[0] if foreign else (leaked[0] if leaked else "(no measure)")
+        return [f"{TAG} FAILED: {refused}"]
     # The base IS a commit and the head DOES share history; the refusal names the
     # foreign work. The merge-base is re-read in the SAME root the merge-base was
     # measured in, so the message carries the sha that proved the defect.
     mb = _git(root, "merge-base", base, rev)
-    head = [f"  {f}" for f in foreign] if foreign else ["  (no commits in base..rev)"]
+    head = [f"  {f}" for f in (leaked or foreign)] if (leaked or foreign) else ["  (no commits in base..rev)"]
     return [
         f"{TAG} FAILED: `{rev}` is NOT cut from `{base}` — its merge-base with ",
         f"{TAG} `{base}` is `{mb.splitlines()[0] if mb else '(none)'}`, not `{base}` itself, ",
         f"{TAG} so the branch carries commits from another PR / another base (issue #845).",
-        f"{TAG} foreign commits ({len(foreign)}):",
+        f"{TAG} foreign commits ({len(leaked or foreign)}):",
         *head,
         f"{TAG} The next lane to open a PR from this branch would leak that diff under ",
         f"{TAG} its own `closes #n`; rebase onto a fresh `{base}` before pushing.",

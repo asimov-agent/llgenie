@@ -288,3 +288,99 @@ def test_the_check_pr_base_step_is_gated_to_pull_request():
     assert not bool(eval(bound_push, {"__builtins__": {}}, {})), (  # noqa: S307 — repo-owned expression
         f"check-pr-base must be SKIPPED on a push (expression evaluates true): {cond!r}"
     )
+
+
+def test_a_stale_but_clean_branch_passes_with_distinct_message(tmp_path):
+    """#2016: a branch cut from an OLDER main (merge-base IS a main ancestor, own commits
+    only) passes with the distinct 'rebase onto a fresh origin/main' STALE message — it is
+    NOT attributed to the #845 foreign-branch leak.
+
+    This is the `#1969/#1976/#1933` shape: the branch is cut from an older main tip (merge-base
+    is on main's history), carries only its OWN work, and is merely behind the live tip. The old
+    gate redded it with the same message as a genuine leak ('so the branch carries commits from
+    another PR / another base (issue #845)') — a false accusation that cancelled the guard job's
+    walking legs (issue #2016). Under the fix it exits 0, keeps its own-commits facts, and names a
+    rebase owed, not a leak.
+    """
+    work = repo(tmp_path)
+    # a branch cut from the THEN-current main (the seed), carrying only its OWN commit
+    git(work, "switch", "-q", "-c", "pr/stale", "main")
+    (work / "stale.txt").write_text("my own work\n")
+    git(work, "add", ".")
+    git(work, "commit", "-q", "-m", "feat(mine): my own work (issue #2016)")
+    head = git(work, "rev-parse", "HEAD")
+    # origin/main ADVANCES past the point pr/stale was cut at (a merge / another PR)
+    git(work, "switch", "-q", "main")
+    (work / "adv1.txt").write_text("advance one\n")
+    git(work, "add", ".")
+    git(work, "commit", "-q", "-m", "main advance one")
+    (work / "adv2.txt").write_text("advance two\n")
+    git(work, "add", ".")
+    git(work, "commit", "-q", "-m", "main advance two")
+    git(work, "push", "-q", "origin", "main")
+
+    ok, foreign = cpb.check(work, cpb.DEFAULT_BASE, "pr/stale")
+    assert ok is True, foreign
+    assert foreign == []
+    lines = cpb.render(ok, cpb.DEFAULT_BASE, "pr/stale", foreign, work)
+    text = "\n".join(lines)
+    # the distinct STALE verdict: a rebase is owed, NOT a #845 leak accusation
+    assert "STALE" in text, text
+    assert "Rebase onto a fresh" in text, text
+    assert "NOT the #845 foreign-commit leak" in text, text
+    assert "carries commits from another PR" not in text, text
+    assert text.count("issue #845") == 0, text
+    # the merge-base IS on main (the STALE verdict itself requires merge-base-on-main,
+    # so this asserts the probe carried a real main-tip ancestor)
+    mb = git(work, "merge-base", cpb.DEFAULT_BASE, head)
+    assert mb
+
+    # and the CLI exits 0 — the guard job passes, so linux/ci-images/scanner-images run
+    r = subprocess.run([sys.executable, str(REPO / "scripts" / "check_pr_base.py"), "check",
+                        "--base", cpb.DEFAULT_BASE, "--rev", "pr/stale", "--cwd", str(work)],
+                       capture_output=True, text=True, env=ENV)
+    assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_a_genuine_leak_cut_from_a_stale_other_pr_still_reds(tmp_path):
+    """#2016 regression guard: the discriminator must NOT weaken the real #845 detection.
+
+    A branch cut from ANOTHER PR's tip (the worktree-inherits-parked-branch shape) carries a
+    commit reachable from that OTHER branch's ref — a genuine foreign leak — and must STILL red
+    with the original issue #845 message even though the merge-base happens to be on main.
+    This mirrors the existing `test_a_foreign_commit_fails_and_is_named` but asserts the message
+    -- not merely the exit code -- is the #845 accusation, proving the discriminator did not
+    reclassify a real leak as stale.
+    """
+    work = repo(tmp_path)
+    git(work, "switch", "-q", "-c", "pr/other", "main")
+    (work / "other.txt").write_text("other lane\n")
+    git(work, "add", ".")
+    git(work, "commit", "-q", "-m", "other PR's work")
+    foreign = git(work, "rev-parse", "HEAD")
+    git(work, "switch", "-q", "main")
+    (work / "adv.txt").write_text("main moves on\n")
+    git(work, "add", ".")
+    git(work, "commit", "-q", "-m", "origin/main advances")
+    git(work, "push", "-q", "origin", "main")
+    # our branch cut from that OTHER PR's tip — the #794/#845 worktree shape
+    git(work, "switch", "-q", "-c", "pr/mine", "pr/other")
+    (work / "mine.txt").write_text("my lane work\n")
+    git(work, "add", ".")
+    git(work, "commit", "-q", "-m", "my work on top")
+
+    ok, leaked = cpb.check(work, cpb.DEFAULT_BASE, "pr/mine")
+    assert ok is False, "a genuine #845 leak must still red"
+    assert leaked, "the foreign commit must be named"
+    assert "other PR's work" in " ".join(leaked)
+    lines = cpb.render(ok, cpb.DEFAULT_BASE, "pr/mine", leaked, work)
+    text = "\n".join(lines)
+    assert "issue #845" in text, text
+    assert "carries commits from another PR" in text, text
+    assert "STALE" not in text, "the leak is NOT a stale-but-clean verdict"
+    # and the CLI exits non-zero — the guard job fails, so the legs are cancelled for a leak
+    r = subprocess.run([sys.executable, str(REPO / "scripts" / "check_pr_base.py"), "check",
+                        "--base", cpb.DEFAULT_BASE, "--rev", "pr/mine", "--cwd", str(work)],
+                       capture_output=True, text=True, env=ENV)
+    assert r.returncode != 0, r.stdout + r.stderr
+
