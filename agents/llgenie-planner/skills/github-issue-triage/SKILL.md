@@ -131,10 +131,13 @@ read, not a verdict per issue.
 
 - **A committed-but-EMPTY fixture stub passes every earlier gate and reds only at the gate that READS it.** A branch adding a snapshot fixture (`tests/fixtures/*-hub-snapshot.json`) containing `{trees:{},searches:{},errors:{}}` looks green until the gate that replays it (`make check-quant-catalog`) runs — and `linux/unit` reaches that gate only after `make test-unit` (cron+check-docs) passes, so the failure appears late and mimics a fresh regression (`HubSnapshotMissing` on the Qwen mlx search). Diagnose by diffing the fixture, not by re-reading logs: `git show <head>:<path> | wc -c` versus the same path on `origin/main` (absent there ⇒ the branch introduced the empty stub). The fix is the owner-approved one-shot live regen (`make sync-quant-catalog`, CI hermetic afterwards), never hand-editing the stub — and the populated snapshot moves the head, so the pre-fix sha must not be armed.
 
-- **A bot claim is a lease with a TTL, not a status.** The claim comment reads `bot-claim: <actor> <ISO>
-ttl=<N>m`; it is live only while `now < stamp + ttl`. Compute it against `date -u` instead of eyeballing
-the timestamp. An expired claim with a pushed branch and no PR is STALLED work nobody owns — report it as
-such, never as "in progress".
+- **A bot claim is a lease with a TTL AND a run — the run releases it first.** The claim comment reads
+  `bot-claim: <actor> <ISO> ttl=<N>m run=<id>`; when the marker names a run, `bot_claims.run_is_live`
+  (the one reader, issue #799) releases the subject the moment that run concludes — a dead run is free
+  NOW regardless of the TTL, and the reader says so (`its run <id> is no longer running`, issue #1959).
+  Only a claim with no `run=` (or an unverifiable one) is aged purely by `now < stamp + ttl`. Compute the
+  run and the TTL against the measured time instead of eyeballing the timestamp; an expired claim with a
+  pushed branch and no PR is STALLED work nobody owns — report it as such, never as "in progress".
 - **"changed=true, PR: none opened" in a bot's run summary is a failure mode, not a detail.** The run
   wrote a branch and left no PR, which is exactly what keeps the queue re-offering the issue every hour.
   Sweep those branches together with the ones belonging to closed issues.

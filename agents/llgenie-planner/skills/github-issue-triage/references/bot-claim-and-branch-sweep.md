@@ -19,13 +19,33 @@ not when it expires.
 
 ## Liveness arithmetic
 
+A claim has TWO release triggers, and the run is the earlier one. Only after the run question is answered
+does the marker TTL matter:
+
 ```python
-import datetime, re
-stamp = datetime.datetime.fromisoformat(iso.replace("Z", "+00:00"))
-live = datetime.datetime.now(datetime.timezone.utc) < stamp + datetime.timedelta(minutes=ttl)
+import datetime, re, sys
+sys.path.insert(0, "scripts")                 # the claim protocol lives here (issue #799)
+import bot_claims                             # the ONE run-liveness reader, never re-open the probe
+m = re.search(r"bot-claim:\s*(\S+) ([\d\-T:Z]+) (\w+)(?: ttl=(\d+)m run=(\d+))?", _body)
+stamp = datetime.datetime.fromisoformat(m.group(2).replace("Z", "+00:00"))
+# 1. The run the marker names decides first: a concluded/cancelled run releases the claim NOW,
+#    whatever the TTL says (issue #291/#1959).
+run = m.group(5)
+if run:
+    live = bot_claims.run_is_live(int(run))   # True/False/None; None = could not check = still held
+    if live is False:
+        print(f"released by liveness: its run {run} is no longer running")   # the RELEASE, not the TTL
+# 2. Only a still-live (or unverifiable) claim ages by its marker TTL.
+live = datetime.datetime.now(datetime.timezone.utc) < stamp + datetime.timedelta(minutes=int(m.group(4) or 240))
 ```
 
 Rules that follow:
+
+- **A dead run is a released claim before the TTL is read.** `bot_claims.run_is_live` returns False the
+  moment the workflow run concludes (issue #291), so a reader that can ask GitHub never waits out the
+  marker window for a run that already ended. Report the measured release (the run id), never a spuriously
+  fresh "expires <stamp+ttl>" — that is the #1959 disagreement, measured on #1901/#1926 where a dead
+  run's claim still read "protected until ~11:39Z".
 
 - **Multiple claims on one issue: the live one wins.** A repo can carry a claim from three days ago and a
   fresh one; a stale claim is not evidence of current work and must not be reported as such.
