@@ -1105,6 +1105,17 @@ bind-proof: ## Bind a proof run's head_sha to the PR head it is cited for — fa
 
 .PHONY: check-holds holds-report bind-proof
 
+check-main-ruleset: ## CI: fail when the main ruleset has no required_status_checks or misses a pinned context (the missing merge-block gate, issue #1400) — runs in the monitor workflow main-ruleset.yml; exits 2 when the ruleset cannot be read
+	python3 scripts/check_main_ruleset.py check --repo $(GH_REPO) $(if $(RULESET_ID),--ruleset-id $(RULESET_ID),)
+
+main-ruleset-report: ## Print the main ruleset's measured state and the pinned required contexts, always exit 0 (issue #1400)
+	python3 scripts/check_main_ruleset.py report --repo $(GH_REPO) $(if $(RULESET_ID),--ruleset-id $(RULESET_ID),)
+
+main-ruleset-apply: ## DRY by default: print the add-only required_status_checks PUT body; APPLY=1 with an admin token performs it (owner-admin-only, issue #1400)
+	python3 scripts/check_main_ruleset.py apply --repo $(GH_REPO) $(if $(RULESET_ID),--ruleset-id $(RULESET_ID),) $(if $(filter 1,$(APPLY)),--apply,)
+
+.PHONY: check-main-ruleset main-ruleset-report main-ruleset-apply
+
 check-pr-hygiene: ## CI: fail when a producer's commit message or PR body is empty, a placeholder, a subject with no body, or when AGENTS.md lost the mandate (issue #313); also fail when a CHANGES.md row has no docs/changes.d/<stem>.md fragment or a note appears twice (issue #1063)
 	python3 scripts/check_pr_hygiene.py check
 	python3 scripts/check_pr_hygiene.py changes-index

@@ -1758,6 +1758,28 @@ for the *hold*, which is why an "any `#N`" rule would have passed every hold eve
 
 The lane that placed the hold removes it when its fix lands, and says so with the sha or run id that proves it.
 
+## The main ruleset's required status checks are measured, not trusted (issue #1400)
+
+The repository's only branch protection is the `main` ruleset. GitHub applies `required_status_checks` as a
+merge block ONLY when the ruleset lists them; the ruleset carried none, so a red CI run could land on `main`
+entirely authorised at the platform layer and nothing in the repo read the ruleset to alarm. The guard closes
+that gap on the measurement side — the platform mutation itself (the scripted apply) is owner-admin-only, so
+the guard is what makes the missing rule loud until the owner applies it:
+
+```
+make check-main-ruleset     # main-ruleset.yml (daily-except-Monday + dispatch): read the live ruleset, fail
+                            # when required_status_checks is missing or a pinned context is not listed; the
+                            # red run is routed by run-failure-reactor (a consumer exists, issue #1400)
+make main-ruleset-report    # print the measured state + the pinned contexts, always exit 0
+make main-ruleset-apply     # DRY: print the add-only required_status_checks PUT body (APPLY=1 with an ADMIN
+                            # token performs it — ruleset writes are owner-admin-only, measured 404)
+```
+
+The required-context floor is pinned in `scripts/check_main_ruleset.py` from the check-runs a real merged PR
+emits (additive: adding a context the pipeline grows into is not a finding; `linux / top-tier` is deliberately
+NOT pinned because its check-run spelling is `ci:slow`-label-dependent). This monitor never mutates — `apply`
+is a separate owner command.
+
 ### A proof must bind to the head it is cited for (issue #1293)
 
 The strongest evidence a lane hands a reviewer is a build-and-verify run that went green at a named head. But a
@@ -1899,6 +1921,7 @@ The table below is generated from the workflows by `make dispatch-forms-report` 
 them by `make check-dispatch-forms`, so the documentation you read before dispatching cannot drift
 from the pipeline that will run.
 <!-- dispatch-forms:begin -->
+
 | workflow | what the run does | dispatch inputs |
 |---|---|---|
 | `all-pipelines.yml` | weekly sweep of every dispatchable pipeline (awaits each run, reports every disabled one) | none — the sweep has nothing to parameterise: it sweeps every dispatchable workflow in the |
@@ -1917,6 +1940,7 @@ from the pipeline that will run.
 | `issue-bot.yml` | implements ONE issue per run as a reviewable PR (never merges) | `issue_number` (optional) — Issue to implement (owner only). Leave BLANK and the bot picks the oldest agent:implement issue itself - one issue per run, exactly like the schedule |
 | `issue-dedupe.yml` | retires a duplicate of an issue, FOUR times a day, never a claimed one | none — the bot decides by itself which ONE pair to compare (scripts/issue_dedup.py). |
 | `issue-refiner.yml` | reviews ONE not-yet-implemented issue, never opens a PR | none — the bot decides by itself which ONE issue to review (scripts/issue_refiner.py); |
+| `main-ruleset.yml` | fails when the main ruleset has no required status checks (the missing merge-block gate) | none — it measures the ruleset and fails on the gap; a hand run re-checks the board. |
 | `publish-agent-image.yml` | builds + pushes the Hermes agent image when its hash is not on GHCR yet | `force` (optional, default `false`) — Rebuild + push even if the hash tag is already on GHCR |
 | `queued-alarm.yml` | reports CI jobs queued far too long, once per affected run | `minutes` (optional, default `30`) — report jobs queued longer than this many minutes |
 | `rebase-bot.yml` | keeps every open PR current with main, every eligible PR per run (never merges) | `max_prs` (optional, default `10`) — Most PRs this run may rebase (the sweep's daily cap still applies on top) |
@@ -1927,6 +1951,7 @@ from the pipeline that will run.
 | `security-bot.yml` | turns ONE auto-fixable vulnerability issue into a green PR (never merges) | `dry` (optional, default `false`) — Preview the issue it would take and the edit it would make, pushing nothing |
 | `security-scan.yml` | the daily vulnerability pipeline (Trivy + Syft + Grype + Semgrep), never a PR or push check | `tools` (optional, default `all`) — Which scanners to run: all, or one of syft / trivy / grype / semgrep<br>`enforce` (optional, default `full`) — Failure policy for THIS dispatch: full = the daily policy, report = never gate |
 | `stale-branch-cleanup.yml` | delete non-main branches with no live vehicle, older than 3 days (daily cron) | `APPLY` (optional, default `false`) — delete the selected stale branches (default false = report-only, never mutates) |
+
 <!-- dispatch-forms:end -->
 
 ## The weekly umbrella sweep (issue #1102)

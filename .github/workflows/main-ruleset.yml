@@ -1,0 +1,105 @@
+# The main ruleset's required-status-checks gate is measured, not trusted (issue #1400).
+name: main-ruleset — fails when the main ruleset has no required status checks (the missing merge-block gate)
+#
+# The repository's only branch protection is the `main` ruleset (id 24862727). GitHub applies
+# `required_status_checks` as a merge block ONLY when the ruleset lists them; a ruleset whose full rule
+# list is `deletion` + `non_fast_forward` lets a red CI run land on main entirely authorised at the
+# platform layer (measured: no rule lists status checks, `merge_queue: null`). Nothing in the repo read
+# that state, so the gap rotted silently. `make check-main-ruleset`
+# (scripts/check_main_ruleset.py) is the measure-and-alarm control: it reads the live ruleset and fails
+# when the gate is missing or under-pinned, and this sweep is its consumer — a red run the lane and the
+# owner can see instead of a definition nobody runs. Applying is `make main-ruleset-apply APPLY=1` with
+# an admin token (owner-admin-only — a non-admin ruleset PUT returns 404); this workflow NEVER mutates,
+# it alarms.
+#
+# Trigger surface: schedule daily-except-Monday `31 7 * * 0,2,3,4,5,6` (minute 31 — an odd minute free
+# on those six weekdays, issue #275: no bot shares a slot) + workflow_dispatch for the owner/collaborators.
+# It does NOT run in a pull request: while the platform rule is legitimately absent, a per-PR run would red
+# every open PR at once, the same reason `arms.yml` and `holds.yml` stay schedule + dispatch only (arms.yml
+# says it two ways: "It must NOT run on pull_request ... schedule + hand-dispatch only"). A push to main is
+# also left out: the schedule re-alarms the gap on its own cadence, and while it is legitimately open a
+# merge would turn every main run red — the lane's monitors (arms/holds/queued-alarm) are schedule-dispatch
+# only for exactly that reason.
+# Flow: guard (owner/collaborator) -> make check-main-ruleset (scripts/check_main_ruleset.py: read the
+#       live ruleset, fail when required_status_checks is missing or a pinned context is not listed).
+# Never: never mutates the ruleset (apply is a separate owner-admin command), never merges, never cancels
+#        a run, and is never a required check on a PR.
+# dispatch: no inputs — it measures the ruleset and fails on the gap; a hand run re-checks the board.
+on:
+  schedule:
+    - cron: "31 7 * * 0,2,3,4,5,6"   # daily except Monday 07:31 UTC — minute 31 is free on those weekdays (issue #275)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# concurrency: superseding is safe — this sweep RE-READS the live ruleset each run and alarms (never
+# mutates it, never cancels), so a newer run's red/green verdict replaces an older one's. One repo-wide
+# group keeps two overlapping runs from posting the state twice.
+concurrency:
+  group: main-ruleset-alarm
+  cancel-in-progress: true
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Owner / collaborator trigger guard
+        env:
+          ACTOR: ${{ github.actor }}
+          TRIGGER: ${{ github.triggering_actor }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.repository }}
+          # The run's head repository: empty for every non-PR event (issue #510).
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name || '' }}
+          # The event + ref: on a `workflow_dispatch` the head repo is empty, so the bot's same-repo-head
+          # intent is reached via event+ref instead (the all-pipelines sweep dispatching `main`, issue
+          # #1571).
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for u in "$ACTOR" "$TRIGGER"; do
+            if [ "$u" = "$OWNER" ]; then continue; fi
+            # The repository's own bot is a GitHub App login, so it is never a collaborator and the
+            # permission read below answers 404 -> `none`: every bot-opened PR was refused (run
+            # 39650944430, #495). It may pass ONLY when the run's head is a branch in THIS repository —
+            # a same-repo head can be produced only by a token with write access — while the bot as the
+            # actor of a FOREIGN head (a bot commenting on a stranger's PR) is still refused (#510).
+            # It also passes on a `workflow_dispatch` of this repository (issue #1571): a dispatch can
+            # only target this repository's own refs, and only this repository's own automation (a
+            # workflow scoped `actions: write` dispatching via GITHUB_TOKEN) can make the bot the
+            # actor of one — the same-repo-head intent reached via the event instead of the (empty)
+            # HEAD_REPO. A workflow_dispatch is how the weekly all-pipelines sweep drives its targets.
+            if [ "$u" = "github-actions[bot]" ]; then
+              if [ -n "${HEAD_REPO:-}" ] && [ "${HEAD_REPO:-}" = "$REPO" ]; then
+                echo "Repository bot $u on a same-repo head ($HEAD_REPO) - allowed."
+                continue
+              fi
+              if [ "${EVENT:-}" = "workflow_dispatch" ]; then
+                echo "Repository bot $u on a workflow_dispatch of this repository - allowed."
+                continue
+              fi
+            fi
+            perm=$(gh api "repos/$REPO/collaborators/$u/permission" --jq .permission 2>/dev/null || echo none)
+            case "$perm" in
+              admin|maintain|write) echo "Collaborator $u has $perm - allowed." ;;
+              *) echo "Refused: $u is not the owner or a collaborator with write access (permission: ${perm:-none})."; exit 1 ;;
+            esac
+          done
+          echo "Allowed: actor=$ACTOR triggering_actor=$TRIGGER"
+
+  monitor:
+    needs: [guard]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - name: Fail when the main ruleset does not require the repo's status checks (issue #1400)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: make check-main-ruleset

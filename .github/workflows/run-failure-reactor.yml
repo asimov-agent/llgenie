@@ -46,6 +46,7 @@ on:
       - issue-bot — implements ONE issue per run as a reviewable PR (never merges)
       - issue-dedupe — retires a duplicate of an issue, FOUR times a day, never a claimed one
       - issue-refiner — reviews ONE not-yet-implemented issue, never opens a PR
+      - main-ruleset — fails when the main ruleset has no required status checks (the missing merge-block gate)
       - pipeline
       - publish-agent-image — builds + pushes the Hermes agent image when its hash is not on GHCR yet
       - queued-alarm — reports CI jobs queued far too long, once per affected run
