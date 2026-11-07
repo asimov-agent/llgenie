@@ -92,7 +92,7 @@ def _existing_run_ids(repo: str, gh: str) -> set[str]:
     """workflow_dispatch run ids for engine-build currently known (before our dispatch)."""
     raw = _gh(repo, "?per_page=100", "--jq",
               '.workflow_runs[] | select(.event == "workflow_dispatch") | '
-              'select(.path == "/.github/workflows/engine-build.yml") | .id | tostring', gh=gh)
+              'select(.path == ".github/workflows/engine-build.yml") | .id | tostring', gh=gh)
     return {line.strip() for line in raw.splitlines() if line.strip()}
 
 
@@ -188,7 +188,7 @@ def _push_group_holder(repo: str, gh: str) -> str:
     pending push=true dispatch waits behind). Empty when none found — the gate is free then, so a
     pending run is worth surfacing to the producer logic rather than blaming a holder."""
     raw = _gh(repo, "?per_page=100", "--jq",
-              '.workflow_runs[] | select(.path == "/.github/workflows/engine-build.yml") | '
+              '.workflow_runs[] | select(.path == ".github/workflows/engine-build.yml") | '
               'select(.status == "in_progress") | select(.event == "workflow_dispatch") | '
               'select([.display_title] | length > 0) | .id | tostring', gh=gh)
     ids = [line.strip() for line in raw.splitlines() if line.strip()]
