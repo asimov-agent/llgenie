@@ -185,9 +185,34 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         if: ${{ matrix.engine != 'none' }}
-      - name: Free disk (CUDA/ROCm bases are large)
+      - name: Disk headroom (CUDA/ROCm / oversized prebuilt bases like sglang carry multi-GB baked trees; a too-small runner must fail fast with the df line, never 13 minutes later with ENOSPC — issue #1893)
         if: ${{ matrix.engine != 'none' }}
-        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL && df -h /
+        env:
+          # A free-space floor, in GiB, for the cell's build + export. An oversized cell whose
+          # runner cannot guarantee it below this floor reds HERE (a second, readable df verdict)
+          # instead of spending the build writing layers and hitting `no space left on device`
+          # mid-export. Tunable; the measured failure had 104G free and still exhausted the disk
+          # (sglang-cuda prebuilt base), so the floor is a durable headroom policy, not a retry.
+          LLGENIE_DISK_FLOOR_GB: "30"
+        run: |
+          set -euo pipefail
+          # Free every reclaimable byte first: the docker/buildx layer cache (a previous cell's
+          # giant prebuilt-derived image can be tens of GB) plus the remaining big toolchain dirs.
+          sudo rm -rf \
+            /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL \
+            /usr/local/lib/node_modules /usr/local/share/powershell /opt/pipx /usr/lib/mono \
+            ~/.cache/pip ~/.cache/uv ~/.cargo ~/.rustup 2>/dev/null || true
+          if command -v docker >/dev/null 2>&1; then docker builder prune -af >/dev/null 2>&1 || true; fi
+          read -r avail _ < <(df -B1 --output=avail / | tail -1)
+          free_gb=$(( avail / 1024 / 1024 / 1024 ))
+          echo "free_gb=${free_gb}"
+          echo "FREE_DISK_GB=${free_gb}" >> "$GITHUB_OUTPUT"
+          echo "::notice::engine=${{ matrix.engine }} variant=${{ matrix.variant }} free_disk_gb=${free_gb} floor_gb=${LLGENIE_DISK_FLOOR_GB} (issue #1893 disk-headroom policy)"
+          df -h /
+          if [ "$free_gb" -lt "${LLGENIE_DISK_FLOOR_GB}" ]; then
+            echo "::error::engine=${{ matrix.engine }}/${{ matrix.variant }} free disk ${free_gb}G below the ${LLGENIE_DISK_FLOOR_GB}G oversized-cell floor — fail fast instead of a 13-minute ENOSPC (issue #1893)"
+            exit 1
+          fi
       - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3
         if: ${{ matrix.engine != 'none' }}
       - name: Log in to GHCR (only when this run publishes)
