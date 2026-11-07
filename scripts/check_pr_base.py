@@ -25,9 +25,12 @@ never pass, and a failed fetch must fail the gate, not fall back.
 Commands:
 
     check_pr_base.py check --base <ref> --rev <rev>
-        exit 0 when `git merge-base <base> <rev> == <base>`; exit 1 when the
-        branch was not cut from the base (naming the foreign commit(s)) or when
-        the base ref cannot be fetched freshly.
+        exit 0 when `git merge-base <base> <rev> == <base>`; exit 0 also when
+        `base..rev` is EMPTY (the head is an ancestor of the live base — a push to
+        main whose commit a newer main already overtook, where nothing foreign can
+        leak, issue #1867/#1906..#1909); exit 1 when the branch was not cut from
+        the base AND carries foreign commits (naming them) or when the base ref
+        cannot be fetched freshly.
 
     check_pr_base.py report --base <ref> --rev <rev>
         print the merge-base and its verdict, exit 0 either way.
@@ -120,10 +123,12 @@ def check(root: Path, base: str, rev: str) -> tuple[bool, list[str]]:
 
     Fetches `base`'s remote `main` freshly first (#1734), so the verdict is against
     the live main tip, not a stale `refs/remotes/origin/main`. A fetch failure is a
-    refusal (False), never a stale pass. `ok` is True exactly when
-    `git merge-base <base> <rev> == <base>`, i.e. when `<base>` is an ancestor of
-    the head — the head adds commits on top of the base and nothing else. A
-    one-commit-ahead clean branch passes (the negative control of #845); a branch
+    refusal (False), never a stale pass. `ok` is True exactly when either
+    `git merge-base <base> <rev> == <base>` (the head adds commits on top of the
+    base and nothing else — the #845 negative control, a one-commit-ahead clean
+    branch), OR `base..rev` is empty (the head is an ANCESTOR of the live base:
+    a push to main whose commit a newer main already overtook — nothing foreign
+    can leak, so it passes, issue #1867/#1906..#1909). A branch
     cut from another PR has the base NOT an ancestor, so the merge-base is older
     and the head carries commits not on the base.
     """
@@ -137,7 +142,17 @@ def check(root: Path, base: str, rev: str) -> tuple[bool, list[str]]:
     if not mb:
         return False, [f"`{base}` and `{rev}` share no common ancestor in this clone"]
     if mb.splitlines()[0] != base_sha:
-        return False, foreign_commits(root, base, rev)
+        # merge-base is NOT the base tip, but that is only a #845 leak when the
+        # head actually CARRIES commits absent from the base (`base..rev`
+        # non-empty): a branch cut from another PR. When `base..rev` is EMPTY the
+        # head is an ANCESTOR of the live base — a push to main whose commit was
+        # already overtaken by a newer main (back-to-back merges) — and there is
+        # nothing foreign to leak, so the gate must not red it. Refuse on the
+        # foreign diff, not on the merge-base inequality alone (#1906/#1907/#1908/#1909).
+        foreign = foreign_commits(root, base, rev)
+        if foreign:
+            return False, foreign
+        return True, []
     return True, []
 
 
@@ -149,6 +164,17 @@ def render(ok: bool, base: str, rev: str, foreign: list[str], root: Path = REPO_
     """
     measured = f"{TAG} measured against `{base}` at `{_measured_sha(root, base)}`"
     if ok:
+        # Distinguish the clean-cut from the ancestor/push-to-main exemption from
+        # the git facts: merge-base == base is the ordinary PR cut; merge-base is
+        # an OLDER commit while `base..rev` is empty is the push-to-main overtaken
+        # case (#1867/#1906..#1909) — nothing foreign can leak, so it passes.
+        mb = _git(root, "merge-base", base, rev)
+        if mb and mb.splitlines()[0] != _measured_sha(root, base):
+            return [
+                f"{TAG} OK: `{rev}` is an ANCESTOR of `{base}` (`base..rev` empty) — ",
+                f"{TAG} a push to main overtaken by a newer main; no foreign commit can leak",
+                measured,
+            ]
         return [
             f"{TAG} OK: `{rev}` is cut from `{base}` (merge-base == base) — ",
             f"{TAG} no foreign commits carried",

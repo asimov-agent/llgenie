@@ -212,6 +212,39 @@ def test_the_cli_exits_correctly_for_both_cases(tmp_path):
     assert "foreign commits" in borrowed_gate.stdout or "NOT cut" in borrowed_gate.stdout
 
 
+def test_a_pushed_main_commit_overtaken_by_a_newer_main_passes(tmp_path):
+    """#1867/#1906..#1909: a head that is an ANCESTOR of live main must pass.
+
+    A push to main whose commit a busy fleet already overtook (back-to-back
+    merges) has `merge-base(origin/main, HEAD) == HEAD != origin/main` — yet
+    `base..rev` is empty: HEAD carries nothing absent from live main, so a PR
+    from it would leak nothing (#845's concern is a branch cut from ANOTHER PR,
+    which always leaves non-empty `base..rev`). Reddening this shape is the
+    phantom base-staleness the reactor filed issues #1906..#1909 for; the gate
+    must stay green while still failing a genuine foreign-commit leak.
+    """
+    work = repo(tmp_path)
+    # main advances to B; a pushed commit A (already part of main's history) is
+    # now an ANCESTOR of the live tip.
+    git(work, "switch", "-q", "main")
+    (work / "a.txt").write_text("first merge\n")
+    git(work, "add", ".")
+    git(work, "commit", "-q", "-m", "merge A lands on main")
+    a = git(work, "rev-parse", "HEAD")
+    git(work, "push", "-q", "origin", "main")
+    (work / "b.txt").write_text("second merge\n")
+    git(work, "add", ".")
+    git(work, "commit", "-q", "-m", "merge B lands right after A (back-to-back)")
+    git(work, "push", "-q", "origin", "main")
+
+    # the pushed commit A is the run's HEAD; live origin/main is already B
+    ok, foreign = cpb.check(work, cpb.DEFAULT_BASE, a)
+    assert ok is True, foreign
+    assert foreign == []
+    lines = cpb.render(ok, cpb.DEFAULT_BASE, a, foreign, work)
+    assert "ANCESTOR" in "\n".join(lines)
+
+
 def _ci_guard_step() -> dict:
     """The `make check-pr-base` step in ci.yml's guard job, as parsed YAML."""
     wf = yaml.safe_load((REPO / ".github" / "workflows" / "ci.yml").read_text())
