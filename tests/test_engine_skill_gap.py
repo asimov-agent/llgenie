@@ -263,7 +263,12 @@ def test_the_october_fixture_registry_validates_with_the_real_decisions():
     # Then the manifest form accepts the covered fixture, and strict still names an
     # engine with no skill at all
     engines = json.loads(before.read_text())["engines"]
-    assert es.validate(skills, engines, es.load_unsupported(MANIFEST)) == []
+    # The fixture's engines are the denominator: a skill for an engine the frozen October
+    # registry predates (Surogate, #1962) is not a fixture covered by it. Validate only
+    # the skills whose engine the fixture actually names — the counter-example below still
+    # proves a missing skill is named.
+    fixture_skills = {sid: s for sid, s in skills.items() if s.get("engine") in engines}
+    assert es.validate(fixture_skills, engines, es.load_unsupported(MANIFEST)) == []
     extra = {**engines, "NothingShipsThis": {"backend": "CUDA", "url": "https://example.invalid"}}
     assert any("has no skill" in e for e in es.validate(skills, extra))
 
