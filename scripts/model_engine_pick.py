@@ -1074,9 +1074,14 @@ def offer(registry: dict, arch: str | None = None, gb: float | None = None,
     inject the README source (issue #1068); `None` = today's vendored one."""
     arch = arch or host_arch()
     gb = card_gb() if gb is None else gb
+    # The card list is gated by `fits()` (issue #669), NOT by the display-tier band:
+    # every model that fits the card is a row here, including one whose README tier
+    # falls outside the default 8-48 GB band (issue #2047). The band is respected only
+    # when a caller EXPLICITLY passes vram_range; the default (None) is the full fitting
+    # list the trend tests assert (test_trend_pick / test_trend_list_acceptance AC1).
     rows = recommend(registry, arch, gb, all_rows=True, ram_gb=ram_gb,
                      readme_path=readme_path, readme_text=readme_text,
-                     vram_range=effective_vram_range(vram_range))
+                     vram_range=vram_range)
     own = ("strata", "tensorfold")  # engines that read only their own checkpoints
     for r in rows:
         r["local"] = resolve_local(r["model"], root)
@@ -1976,8 +1981,19 @@ def matrix(registry: dict, gb: float | None = None, ram_gb: float | None = None,
     # in `offer()` (issue #669/#414). Without it `llgenie --matrix` without `--ram` listed
     # models this host cannot run.
     ram_gb = (system_ram_gb() or 0.0) if ram_gb is None else ram_gb
+    band = effective_vram_range(vram_range)
+    lo, hi = band
     permutations, skipped = [], []
-    for m in trend_list(registry, gb, ram_gb, vram_range=effective_vram_range(vram_range)):
+    # The band narrows which models are OFFERED; it must never silently absent a model
+    # the card gate fits (issue #669). Enumerate the FULL fitting registry and account
+    # every model: out-of-band-but-fitting rows are skipped-with-a-reason, never dropped
+    # (issue #2047). `trend_list` without a range is the full card gate (#227 ranking
+    # primitives only band on an EXPLICIT range; `matrix` resolves its own default below).
+    for m in trend_list(registry, gb, ram_gb):
+        if not model_in_scope(m, band):
+            skipped.append({"model": m["id"], "why": f"outside the {lo:g}-{hi:g} GB VRAM band "
+                                                     f"(tier {m.get('vram_tier')})"})
+            continue
         engines = rank_engines(m, arch, gb=gb)
         if not engines:
             names = sorted({e["engine"] for e in m.get("engines") or []} | set(m.get("supported_engines") or []))
