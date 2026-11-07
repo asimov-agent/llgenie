@@ -130,14 +130,6 @@
    "backend": "CUDA",
    "upstream": "https://github.com/hardenedlinux/SonicBoom"
   },
-  "Surogate": {
-   "decision": "deferred",
-   "decided": "2026-11-07",
-   "reason": "Auto-registered CUDA engine (invergent-ai/surogate, Apache-2.0, C++/CUDA): a native OpenAI/Anthropic-compatible server with a manylinux CUDA wheel, but it was auto-registered from a single announced tweet with one stated run (Qwen3.8-Flash-Next 125B at 35.2 t/s on RTX 5090, 2026-11-01) and ships no llgenie skill/image yet. Deferred pending a ship decision tracked by #1962, consistent with how a just-listed engine with no artifact ages into the queue.",
-   "issue": 1962,
-   "backend": "CUDA",
-   "upstream": "https://github.com/invergent-ai/surogate"
-  },
   "TandemLLM": {
    "decision": "deferred",
    "decided": "2026-10-27",

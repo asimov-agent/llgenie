@@ -223,6 +223,15 @@
         "probe": "flags"
       }
     },
+    "surogate": {
+      "cuda": {
+        "binary": "surogate",
+        "flags": [
+          "--version"
+        ],
+        "probe": "device"
+      }
+    },
     "tensorfold": {
       "cuda": {
         "binary": "/opt/llgenie/engines/tensorfold/current/bin/tensorfold",
