@@ -7,4 +7,4 @@
 - [x] OpenSpec change `ci-verdict-judge-waits-for-settled-run` validates: `make openspec-validate NAME=ci-verdict-judge-waits-for-settled-run`.
 - [x] Docs trio: `docs/changes.d/2026-11-07-ci-verdict-judge-waits-for-settled-run-2010.md` (one table row) + `agent-wiki/2026-11-07-ci-verdict-judge-waits-for-settled-run-2010.md` narrative (`#2010`, `#<PR>`); `make check-docs` green.
 - [x] PR body carries `AGENTS:`/`BASE:` (#792) and `closes #2010`; the PR is ready (never draft); no merge/arm (owner/CI lands it).
-- [ ] Reported: head sha, a run id proving the judge green on a main push, and the failing-run ids tested against.
+- [x] Reported: head sha, a run id proving the judge green on a main push, and the failing-run ids tested against.
