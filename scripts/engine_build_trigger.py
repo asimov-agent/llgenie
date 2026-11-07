@@ -141,7 +141,15 @@ def _dispatch_and_wait(repo: str, branch: str, engine: str, arch: str,
         # #1696 channel 42201352115 behind 42191808660's hung vllm-rocm, 3h+ 0-jobs, issue #1860).
         if run.get("status") in ("pending", "queued") and not stall_holder:
             stall_holder = _push_group_holder(repo, gh)
-        if run.get("status") == "completed" or time.time() > deadline:
+        # A cancelled/skipped producer is TERMINAL, never something to wait out (issue #1931): a run
+        # cancelled mid-wait (concurrency cancel on a newer push) can report `conclusion: "cancelled"`
+        # while its `status` never flips to "completed", so concluding on the status field alone polls
+        # that corpse forever (measured: trigger run 42326516316 hung in_progress 3.5h on a producer
+        # cancelled 12 s after the trigger started, run 42326545643). Stop waiting and name the cause.
+        if run.get("conclusion") in ("cancelled", "skipped"):
+            return {"run_id": wanted, "status": run.get("status"), "conclusion": run.get("conclusion"),
+                    "cause": f"producer {run['conclusion']} — nothing to wait for"}
+        if run.get("status") == "completed":
             guard = ""
             if run.get("conclusion") == "failure":
                 jobs = _gh(repo, f"{wanted}/jobs", "--jq",
@@ -149,6 +157,15 @@ def _dispatch_and_wait(repo: str, branch: str, engine: str, arch: str,
                 guard = "Y" if "failure" in jobs else "N"
             kwargs = {"run_id": wanted, "status": run.get("status"), "conclusion": run.get("conclusion"),
                       "guard_refused": guard == "Y"}
+            if stall_holder and not run.get("conclusion"):
+                kwargs["stalled_behind"] = stall_holder
+            return kwargs
+        # Wall-clock bound (issue #1931): a producer that NEVER reports a terminal verdict must not
+        # hold the trigger past `wait_min`. On expiry fail with the run id and its last known status —
+        # never a bare "concluded queued/None" that reads like a verdict that never happened.
+        if time.time() > deadline:
+            kwargs = {"run_id": wanted, "status": run.get("status"), "conclusion": run.get("conclusion"),
+                      "expired": True}
             if stall_holder and not run.get("conclusion"):
                 kwargs["stalled_behind"] = stall_holder
             return kwargs
@@ -194,14 +211,22 @@ def check(base: str, engine_filter: str = "", arch: str = "", dry: bool = False,
             print(f"[will] FAIL engine={e}: producer refused at its own trigger guard "
                   f"(run {outcome.get('run_id')}) — NOT VERIFIED, not a bare failure", file=sys.stderr)
             failures += 1
-        elif outcome.get("conclusion") != "success":
-            msg = (f"[will] FAIL engine={e}: run {outcome.get('run_id')} concluded "
-                   f"{outcome.get('status')}/{outcome.get('conclusion')}")
+        elif outcome.get("cause"):
+            print(f"[will] FAIL engine={e}: {outcome['cause']} (run {outcome.get('run_id')})",
+                  file=sys.stderr)
+            failures += 1
+        elif outcome.get("expired"):
+            msg = (f"[will] FAIL engine={e}: wait bound ({wait_min} min) expired — producer run "
+                   f"{outcome.get('run_id')} never concluded, last status {outcome.get('status')}")
             if outcome.get("stalled_behind"):
                 msg += (f" — STALLED behind engine-build-push group holder run "
                         f"{outcome['stalled_behind']} (that holder must conclude or be owner-cancelled; "
                         f"re-dispatch queues behind the same gate, issue #1860)")
             print(msg, file=sys.stderr)
+            failures += 1
+        elif outcome.get("conclusion") != "success":
+            print(f"[will] FAIL engine={e}: run {outcome.get('run_id')} concluded "
+                  f"{outcome.get('status')}/{outcome.get('conclusion')}", file=sys.stderr)
             failures += 1
         else:
             print(f"[will] OK engine={e}: producer run {outcome.get('run_id')} success")
