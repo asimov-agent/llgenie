@@ -41,3 +41,24 @@ version family suffices, as it does for every other version-only engine).
 
 The vllm-cuda / vllm-rocm cells in the same run are separate defects (buildcache refs + a `poetry`
 import) and are out of scope, as is #1880's cache-write tolerance.
+
+## Delivery
+
+- PR #1892 (one vehicle, `fix/1888-tensorfold-help-probe`), head `38a1ece9`, `closes #1888`.
+- `scripts/engine_skills.py`: `BINARY_PROBES = ("device", "help", "version")`; `probe_policy()`
+  accepts `version`; validation names all four.
+- `scripts/engine_image.py::decide()`: help family exempt only when `policy == "version"`; the
+  version family must still answer (a `version` cell whose version answers nothing still reds —
+  #625 holds).
+- `skills/engines/tensorfold/SKILL.md`: `binary_probe: {cuda: version}` (metal unchanged).
+- `containers/engines/binaries.json`: tensorfold/cuda `probe: "version"`, flags `["--version"]`.
+- Tests: `test_a_version_only_cli_is_not_failed_for_having_no_help_flag`,
+  `test_a_version_only_cli_with_a_dead_version_flag_still_reds`, and
+  `test_binary_file_works_passes_the_version_cell_with_dead_help_flags` (the real `binary_file_works`
+  gate with the exact measured probe output); plus `probe_policy()` per-backend unit in
+  `test_engine_skills.py`. 151 passed across binary_flags/skills/gate_strict/force_rebuild.
+
+Measured evidence (run `42280478755`, job `128107985154`): `--version -> tensorfold 1.2.1`,
+`-h`/`--help`/`-V` → exit 2 with no output; under `probe: version` the cell is green, under
+`flags` it reds the help family. The default-sweep AC1 is a reviewer-gated post-merge verdict.
+
