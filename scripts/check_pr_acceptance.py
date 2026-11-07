@@ -100,6 +100,14 @@ def linked_squash_numbers(messages: list[str]) -> list[int]:
     """
     return sorted({int(n) for n in _closing_count("\n\n".join(messages))})
 
+#: A bare issue citation (`#123`) in an umbrella body — the candidate rollout-lane population.
+#: The gate DERIVES the lanes from the umbrella's own `#<n>` references (issue #301: never a
+#: hand-kept roster), then probes each referenced issue's LIVE body+state; a referenced issue that
+#: is still OPEN and cites the umbrella back is a rollout lane that must hold the close even when
+#: the umbrella's own boxes are all ticked (issue #1859). References that do NOT cite the umbrella
+#: back (process context like #1791/#1792 in #1849's body) are not lanes and never hold.
+CITE = re.compile(r"#(\d+)")
+
 #: The inline `(proven: …)` evidence a TICKED criterion carries (acceptance_writeback #1644).
 PROVEN_MARKER = re.compile(r"\(proven:\s*(.*?)\)\s*$", re.S)
 #: A named CI workflow run — `run=42191377162` — the strongest provable evidence (issue #1858).
@@ -309,6 +317,64 @@ def _fetch_issue_body(gh: str, repo: str, issue: int) -> str:
     return json.loads(stdout)["body"]
 
 
+def _fetch_issue_meta(gh: str, repo: str, issue: int) -> tuple[str, str]:
+    """The live `(body, state)` of one referenced issue — the lane probe (issue #1859).
+
+    The rollout-lane gate needs each candidate's live body (to confirm it cites the umbrella back)
+    and its live state (to confirm it is still open). This is the same `gh issue view` seam the
+    linked-issue read uses (#1589), not a second hand-rolled fetch.
+    """
+    try:
+        stdout = proc.run_checked(
+            [gh, "issue", "view", str(issue), "--repo", repo, "--json", "body,state"])
+    except proc.ProcError as exc:
+        raise RuntimeError(
+            f"gh issue view {issue} failed ({exc.returncode}): {(exc.stderr or exc.stdout).strip()}"
+        ) from exc
+    rec = json.loads(stdout)
+    return rec.get("body") or "", (rec.get("state") or "").strip().upper()
+
+
+def rollout_lane_findings(umbrella_body: str, umbrella: int, gh: str, repo: str) -> list[dict]:
+    """The `rollout-lane-open` findings a close on umbrella `umbrella` carries (issue #1859).
+
+    Enumerates the `#<n>` citations in the umbrella's OWN live body (the candidate population,
+    derived at merge time, never a hand-kept list — issue #301), then probes each referenced
+    issue's live body + state. A referenced issue that is still OPEN and whose own body cites the
+    umbrella back is a rollout lane and holds the close — even when the umbrella's `- [ ]` boxes
+    are all ticked, which is exactly the gap #1816's unticked-criteria hold cannot see (#1856
+    auto-closed #1849 while its lanes were open). A referenced issue that does NOT cite the
+    umbrella back (process context: #1791/#1792/#1724/#791 in #1849's body measure no `#1849`
+    reverse-citation) or that is CLOSED is not a lane and never holds. An unreadable reference is
+    not provably an open lane, so it neither holds nor reds on its own — this gate holds exactly
+    when a lane is measurable and open.
+    """
+    findings: list[dict] = []
+    refs = sorted({int(n) for n in CITE.findall(umbrella_body or "")} - {umbrella})
+    for n in refs:
+        try:
+            body, state = _fetch_issue_meta(gh, repo, n)
+        except RuntimeError:
+            continue  # unreadable ≠ provably an open lane; do not hold on a data gap
+        if state in ("CLOSED", "MERGED", "DONE"):
+            continue
+        if umbrella not in {int(ci) for ci in CITE.findall(body)}:
+            continue  # open but does NOT cite the umbrella back → process context, not a lane
+        findings.append({
+            "key": "rollout-lane-open",
+            "title": f"ci: a referenced rollout lane of #{umbrella} is still OPEN — a close here would auto-close an in-flight rollout",
+            "evidence": (
+                f"the umbrella's body references `#{n}`, which is still OPEN and cites the umbrella "
+                f"(`#{umbrella}`) back — a rollout lane in flight. A squash `closes #{umbrella}` would "
+                f"auto-close the umbrella while this lane is unfinished (measured class #1815/#1812, "
+                f"recurrence #1856→#1849). Land and close the lane, or move the close keyword off the "
+                f"umbrella until its lanes are done."
+            ),
+            "where": f"#{umbrella} → lane #{n}",
+        })
+    return findings
+
+
 def render(items: list[dict]) -> str:
     if not items:
         return "[check-pr-acceptance] OK — every closed issue's `## Acceptance criteria` is checked or named out of scope"
@@ -397,6 +463,11 @@ def main(argv: list[str] | None = None) -> int:
             })
             continue
         items.extend(acceptance_verdict(issue, body, n))
+        # The #1859/AC-1 half #1816 cannot see: even when the umbrella's own `- [ ]` boxes are all
+        # ticked, a referenced rollout lane still OPEN must hold the close (measured #1849: #1856's
+        # squash auto-closed it while its lanes were in flight). Derived from the umbrella's own
+        # citations, probed live (#1589 seam), never a hardcoded roster (issue #301).
+        items.extend(rollout_lane_findings(issue, n, args.gh, args.repo))
     print(render(items))
     return 1 if items else 0
 
