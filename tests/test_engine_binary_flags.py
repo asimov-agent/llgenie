@@ -245,6 +245,39 @@ def test_a_version_only_cli_with_a_dead_version_flag_still_reds():
     assert any("version family" in f or "did not answer" in f for f in verdict["failures"]), verdict["failures"]
 
 
+def test_binary_file_works_passes_the_version_cell_with_dead_help_flags(monkeypatch):
+    """The ACTUAL gate `binary_file_works` passes tensorfold/cuda (probe: version, documented:
+    --version) even though the help family exits 2 — mirroring the measured run 42280478755
+    job 128107985154 output. This exercises the shipped probe-parser + decide pipeline, not just
+    the pure decide() unit."""
+
+    # Given the exact per-flag probe output the measured tensorfold binary produced:
+    probe_stdout = ("binary file: /opt/llgenie/engines/tensorfold/current/bin/tensorfold\n"
+                    "LG-FLAG --version 0 19\n"
+                    "LG-OUT-BEGIN --version\ntensorfold 1.2.1\nLG-OUT-END --version\n"
+                    "LG-FLAG -h 2 0\n"
+                    "LG-FLAG --help 2 0\n"
+                    "LG-FLAG -V 2 0\n")
+
+    seen = []
+    def fake_run(cmd, **kw):
+        seen.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, probe_stdout, "")
+    monkeypatch.setattr(ei.subprocess, "run", fake_run)
+
+    # When the real tensorfold/cuda cell is checked (its committed manifest says probe: version)
+    spec = {"tag": "llgenie/tensorfold:x-cuda", "id": "tensorfold", "variant": "cuda"}
+    assert ei.binary_file_works(spec) == 0
+
+    # Then  it ran the docker probe exactly once and probed the documented flag first
+    assert len(seen) == 1, seen
+    probe_args = seen[0]
+    assert "llgenie-binary" in probe_args
+    flags = probe_args[probe_args.index("llgenie-binary") + 2:]
+    assert flags[0] == "--version", flags  # documented flag first
+    assert "--version" in flags and "-h" in flags and "--help" in flags and "-V" in flags
+
+
 def test_a_device_probe_is_contained_only_for_a_named_cell(tmp_path):
     """vllm cuda/rocm cannot answer without its device — but ONLY because they are named (#625).
 
