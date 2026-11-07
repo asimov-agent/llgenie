@@ -92,8 +92,11 @@ jobs:
           esac
 
       # The run that measured this head (#1551). Same read auto_merge.no_concluded_green makes
-      # (actions/runs?head_sha=...&event=pull_request); here it names the newest CONCLUDED run id so
-      # the marker is auditable. A head with no concluded run has nothing that measured it.
+      # (actions/runs?head_sha=...&event=pull_request); here it names the newest CONCLUDED-SUCCESS
+      # run id so the marker is auditable AND green (#2035) — an approve verdict's run= slot is the
+      # record of WHICH run proved that tree, so it must be one that concluded `success`, never a
+      # failed/cancelled sibling at the same head. A head with no concluded-success run has nothing
+      # that measured it green.
       - name: Resolve the run that measured this head
         id: run
         if: steps.verdict.outputs.SKIP != 'true'
@@ -105,9 +108,9 @@ jobs:
           set -euo pipefail
           run_id=$(gh api \
             "repos/$REPO/actions/runs?head_sha=$HEAD&event=pull_request&per_page=100" \
-            --jq '[.workflow_runs[] | select(.status=="completed")][0].id // empty' 2>/dev/null || true)
+            --jq '[.workflow_runs[] | select(.status=="completed" and .conclusion=="success")][0].id // empty' 2>/dev/null || true)
           if [ -z "${run_id:-}" ]; then
-            echo "::notice title=no-run::head $HEAD has no concluded pull_request run - a verdict without a run is not a verdict (#1551); posting nothing"
+            echo "::notice title=no-run::head $HEAD has no concluded-success pull_request run - a verdict's run= slot must name the run that proved this tree green (#1551/#2035); posting nothing"
             echo "SKIP=true" >> "$GITHUB_OUTPUT"
           else
             echo "RUN=$run_id" >> "$GITHUB_OUTPUT"

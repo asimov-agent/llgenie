@@ -26,25 +26,33 @@ RUN = "42796343593"
 BOTS = (REPO / "docs" / "BOTS.md").read_text()
 
 
-def _fake_gh(tmp_path: Path, existing: "list[dict] | None" = None):
-    """A `gh` that answers `pr view` (with comments) and records `pr comment` in a log.
+def _fake_gh(tmp_path: Path, existing: "list[dict] | None" = None, runs: "list[dict] | None" = None):
+    """A `gh` that answers `pr view` (with comments) / `api …actions/runs` and records `pr comment`.
 
     A posted comment is APPENDED to the thread the next `pr view` returns, so the producer's
-    idempotence is measured against a real second read rather than a static fixture.
+    idempotence is measured against a real second read rather than a static fixture. `runs` answers the
+    head's `actions/runs` read (issue #2035's concluded-green check); it defaults to one completed-and-
+    SUCCESSFUL run whose id is RUN, so a plain approve post passes the verification it adds. A test
+    passes `runs=[{"id": "1", "status": "completed", "conclusion": "failure"}]` (etc.) to exercise the
+    refusing direction.
     """
     tmp_path.mkdir(parents=True, exist_ok=True)
     log = tmp_path / "gh.log"
     thread = tmp_path / "thread.json"
     thread.write_text(json.dumps(existing or []))
+    runs_default = [{"id": RUN, "status": "completed", "conclusion": "success"}]
     gh = tmp_path / "gh"
     gh.write_text(f'''#!{sys.executable}
 import json, sys
 args = sys.argv[1:]
 with open({str(log)!r}, "a") as fh:
-    fh.write(json.dumps(args) + "\\n")
+    print(json.dumps(args), file=fh)
 THREAD = {str(thread)!r}
+RUNS = {json.dumps(runs_default if runs is None else runs)}
 if args[:2] == ["pr", "view"]:
     print(json.dumps({{"headRefOid": {HEAD!r}, "comments": json.load(open(THREAD))}})); sys.exit(0)
+if len(args) >= 2 and args[0] == "api" and "actions/runs" in args[1]:
+    print(json.dumps(RUNS)); sys.exit(0)
 if args[:2] == ["pr", "comment"]:
     body = args[args.index("--body") + 1]
     comments = json.load(open(THREAD))
@@ -59,6 +67,10 @@ print("unexpected: " + " ".join(args)); sys.exit(1)
 
 def _calls(log: Path) -> "list[list[str]]":
     return [json.loads(l) for l in log.read_text().splitlines() if l.strip()] if log.exists() else []
+
+
+def _comments_written(log: Path) -> "list[list[str]]":
+    return [c for c in _calls(log) if c[:2] == ["pr", "comment"]]
 
 
 def test_the_marker_round_trips():
@@ -151,7 +163,7 @@ def test_post_writes_one_comment_and_is_idempotent(tmp_path):
                   note="read the diff")
 
     # Then  exactly ONE `pr comment` was made, and the body carries the marker
-    comments = [c for c in _calls(log) if c[:2] == ["pr", "comment"]]
+    comments = _comments_written(log)
     assert (rc1, rc2) == (0, 0)
     assert len(comments) == 1, comments
     body = comments[0][comments[0].index("--body") + 1]
@@ -195,6 +207,104 @@ def test_post_refuses_a_missing_run_id(tmp_path):
     # Then  it is refused, the marker is never written, and nothing is commented
     assert rc == 2
     assert not [c for c in _calls(tmp_path / "gh.log") if c[:2] == ["pr", "comment"]]
+
+
+# ---------------------------------------------------------------------------
+# issue #2035: an APPROVE verdict's run= slot is the record of WHICH run proved
+# that tree GREEN. It must verify --run is a concluded-SUCCESS run at --head.
+# A `changes` verdict cites the run that named the problem, so it may cite any run.
+# ---------------------------------------------------------------------------
+RED = "1111111111"      # a run id that is at the head but concluded failure
+GREEN = "2222222222"    # a run id that is at the head and concluded success
+OTHER_HEAD_RUN = "3333333333"     # a run id not among the head's runs at all
+
+
+def test_post_approve_refuses_a_run_that_concluded_failure_at_the_head(tmp_path):
+    """An approve verdict's run= must be the run that proved the tree GREEN, not a red sibling (#2035).
+
+    The head has a completed-and-FAILED run and an older completed-and-SUCCESSFUL run. The accepting
+    verdict on that head must cite the green one; citing the failed one is refused (rc 2) and nothing
+    is written.
+    """
+    # Given a head whose runs are concluded-failure and concluded-success
+    gh = _fake_gh(tmp_path, runs=[
+        {"id": RED, "status": "completed", "conclusion": "failure"},
+        {"id": GREEN, "status": "completed", "conclusion": "success"},
+    ])
+    log = tmp_path / "gh.log"
+
+    # When  an approve verdict cites the FAILED run
+    rc = bv.post(str(gh), "asimov-agent/llgenie", 2035, HEAD, RED, "approve", "asimov-agent")
+
+    # Then  it is refused, naming why, and nothing is written
+    assert rc == 2
+    assert not _comments_written(log)
+
+    # And  the same verdict citing the GREEN run is accepted
+    assert bv.post(str(gh), "asimov-agent/llgenie", 2035, HEAD, GREEN, "approve",
+                   "asimov-agent") == 0
+    assert len(_comments_written(log)) == 1
+
+
+def test_post_approve_refuses_a_run_that_is_not_at_the_head(tmp_path):
+    """A run id that never measured this head is not an evidence anchor, even if it was green (#2035).
+
+    `--run` belonging to a DIFFERENT head (or a phantom id) must be refused for an approve verdict —
+    the whole point of the slot is that it names the run that measured THIS tree.
+    """
+    # Given a head whose only run has a different id than the one cited
+    gh = _fake_gh(tmp_path, runs=[{"id": RED, "status": "completed", "conclusion": "failure"}])
+    log = tmp_path / "gh.log"
+
+    # When  an approve verdict cites a run id that is not among this head's runs
+    rc = bv.post(str(gh), "asimov-agent/llgenie", 2035, HEAD, OTHER_HEAD_RUN, "approve",
+                 "asimov-agent")
+
+    # Then  it is refused and nothing is written
+    assert rc == 2
+    assert not _comments_written(log)
+
+
+def test_a_changes_verdict_can_cite_any_run(tmp_path):
+    """A `changes` verdict names the run that found the problem, so it is not green-gated (#2035).
+
+    Only the ACCEPTING direction proves the tree green; a changes verdict may cite a red run.
+    """
+    # Given a head whose run concluded failure
+    gh = _fake_gh(tmp_path, runs=[{"id": RED, "status": "completed", "conclusion": "failure"}])
+    log = tmp_path / "gh.log"
+
+    # When  a changes verdict cites that red run
+    rc = bv.post(str(gh), "asimov-agent/llgenie", 2035, HEAD, RED, "changes", "asimov-agent")
+
+    # Then  it IS posted (the problem-run is exactly what a changes verdict names)
+    assert rc == 0
+    assert len(_comments_written(log)) == 1
+
+
+def test_the_workflow_run_resolution_is_pinned_to_concluded_success(tmp_path):
+    """review-verdict.yml must resolve the marker's run as a concluded-SUCCESS run, never the newest
+    completed run whatever its conclusion (#2035). A head whose newest completed run failed but an
+    older one succeeded must cite the GREEN id.
+
+    The resolution step's jq is the pin — it must select `status == "completed"` AND
+    `conclusion == "success"`. Dropping the conclusion filter (a future edit could) must flip this red.
+    """
+    wf_path = REPO / ".github" / "workflows" / "review-verdict.yml"
+    text = wf_path.read_text()
+
+    # When  the run-resolution jq is read
+    # Then  it requires a concluded-SUCCESS run, and does not select newest-completed no matter what
+    assert 'select(.status=="completed" and .conclusion=="success")' in text, (
+        "review-verdict.yml's run-resolution must select .status==\"completed\" AND "
+        ".conclusion==\"success\" so an approve verdict never cites a red run (issue #2035)."
+    )
+
+    # And  dropping the conclusion filter flips this RED (the guard reads the shape, not a fact told it)
+    mutated = text.replace('select(.status=="completed" and .conclusion=="success")',
+                           'select(.status=="completed")')
+    assert mutated != text
+    assert 'select(.status=="completed" and .conclusion=="success")' not in mutated
 
 
 # ---------------------------------------------------------------------------
@@ -263,7 +373,7 @@ def test_the_producer_has_at_least_one_caller_on_the_real_tree():
 def test_the_wiring_guard_fails_when_the_caller_is_removed(tmp_path):
     """Removing the callers reds the guard: the wiring is pinned, not just the parser (#1550).
 
-    The real-tree test above passes because a caller exists. Deleting every caller (as a future edit
+    The real-tree test passes because a caller exists. Deleting every caller (as a future edit
     could) must flip it to RED — this proves the guard reads the callers rather than a fact it was
     told. A tree WITHOUT the caller is a tree `test_the_producer_has_at_least_one_caller` is MISSING;
     running its own assertion against that tree must raise.
@@ -339,6 +449,3 @@ def test_the_checkout_guard_reds_when_a_workflow_caller_job_lacks_checkout(tmp_p
         "the checkout guard did not fail on a workflow caller whose invoking job had its checkout "
         "removed — the wiring pin must hold the runtime, not just the call (issue #1565)."
     )
-
-
-
