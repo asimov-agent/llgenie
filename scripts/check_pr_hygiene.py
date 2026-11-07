@@ -723,6 +723,39 @@ def _active_change_names(root: Path) -> list[str]:
     return out
 
 
+def pr_acceptance_form_findings(root: Path, head: str, base: str, body: str) -> list[dict]:
+    """A bot PR's body must carry its own `## Acceptance criteria` `- [ ]` checklist (issue #1796).
+
+    The owner's form rule (#1796): every issue a lane files AND every PR body it opens carries a
+    `## Acceptance criteria` section with each criterion a `- [ ] ` markdown checkbox, one per provable
+    outcome; a criterion a reviewer cannot tick is not one (#745). This is the PR-BODY half: the
+    merge-time `check-pr-acceptance` gate (issue #1792) verifies the LINKED ISSUE's criteria are ticked,
+    so a close of an un-proven issue does not verify green silently — but it is silent when the PR body
+    itself never had the boxes to tick. This surface flags THAT: a bot-authored PR body with no (or an
+    empty) acceptance checklist. Verification/surface only — it never blocks #1088 auto-merge and never
+    ticks a box (that stays #1644). Human-only ranges are skipped (the rule is stated for fleet lanes, and
+    `is_bot_pr` mirrors the other lookups).
+    """
+    if not is_bot_pr(root, base, head):
+        return []
+    from acceptance_writeback import acceptance_items, BodyError  # noqa: PLC0415  reuse, never restate (#1796)
+    try:
+        items = acceptance_items(body)
+    except BodyError:
+        items = []
+    if items:
+        return []
+    return [{
+        "key": "acceptance-form",
+        "where": "PR body",
+        "detail": "a bot PR body must carry its own `## Acceptance criteria` `- [ ]` checklist — each "
+                  "criterion a `- [ ]` checkbox, one per provable outcome (#745); a criterion a reviewer "
+                  "cannot tick is not one. This body has no tickable acceptance checklist (issue #1796) — "
+                  "add the `## Acceptance criteria` section with at least one `- [ ]` item, one per "
+                  "provable outcome",
+    }]
+
+
 def _git(root: Path, *args: str) -> str | None:
     r = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, check=False)  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
     return r.stdout.strip() if r.returncode == 0 else None
@@ -857,6 +890,11 @@ def main(argv=None) -> int:
     o.add_argument("--head", required=True, help="the PR head ref or sha")
     o.add_argument("--base", required=True, help="the PR base ref or sha")
     o.add_argument("--body-file", required=True, help="the file holding the PR body")
+    a = sub.add_parser("acceptance-form", help="a bot PR's body carries its own `## Acceptance criteria` `- [ ]` checklist (issue #1796)")
+    a.add_argument("--root", default=str(REPO_ROOT))
+    a.add_argument("--head", required=True, help="the PR head ref or sha")
+    a.add_argument("--base", required=True, help="the PR base ref or sha")
+    a.add_argument("--body-file", required=True, help="the file holding the PR body")
     c = sub.add_parser("changes-index", help="a CHANGES.md row has a docs/changes.d/<stem>.md fragment, and no note appears twice (issue #1063)")
     c.add_argument("--root", default=str(REPO_ROOT))
     args = p.parse_args(argv)
@@ -892,6 +930,15 @@ def main(argv=None) -> int:
                 print(f"[check-pr-hygiene] {it['where']}: {it['detail']}", file=sys.stderr)
             return 1
         print("[check-pr-hygiene] OK: the bot PR's diff adds (or the body names) its own OpenSpec change")
+        return 0
+    if args.cmd == "acceptance-form":
+        body = Path(args.body_file).read_text()
+        items = pr_acceptance_form_findings(root, args.head, args.base, body)
+        if items:
+            for it in items:
+                print(f"[check-pr-hygiene] {it['where']}: {it['detail']}", file=sys.stderr)
+            return 1
+        print("[check-pr-hygiene] OK: this bot PR's body carries its own `## Acceptance criteria` `- [ ]` checklist")
         return 0
     if args.cmd == "changes-index":
         items = changes_index_findings(root)

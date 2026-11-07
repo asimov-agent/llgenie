@@ -230,6 +230,31 @@ jobs:
           else
             echo "[check-pr-openspec-change] no PR body on this run (a push to main): nothing to validate"
           fi
+      - name: make check-pr-acceptance-form (a bot PR's body carries its own ## Acceptance criteria - [ ] checklist — the universal form rule, issue #1796)
+        env:
+          # Same live-body read as check-pr-closing (issue #1589): the body is fetched from the PR
+          # record via gh api, NOT an event snapshot, so a body-only fix clears on rerun. The gate
+          # is bot-gated via the range read (issue #1796); a push to main has no PR number and the
+          # gate is a no-op there. Verification/surface only — never a #1088 merge-blocker. This
+          # step runs BEFORE check-pr-acceptance so its verdict is not masked when the sibling
+          # issue-state gate reds on the introducing PR's own unticked issue boxes (#1796).
+          PR_HEAD: ${{ github.event.pull_request.head.sha || 'HEAD' }}
+          PR_BASE: origin/main
+          PR_NUMBER: ${{ github.event.pull_request.number || '' }}
+          PR_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git fetch --no-tags --prune origin main   # live origin/main, so the diff/range read is not a stale ref (issue #1527)
+          PR_BODY=""
+          if [ -n "$PR_NUMBER" ]; then
+            PR_BODY="$(gh api "repos/$PR_REPO/pulls/$PR_NUMBER" --jq '.body // ""' 2>/dev/null || true)"
+          fi
+          if [ -n "$PR_BODY" ]; then printf '%s\n' "$PR_BODY" > /tmp/pr-body.md; export PR_BODY=/tmp/pr-body.md; fi
+          if [ -n "$PR_BODY" ]; then
+            make check-pr-acceptance-form
+          else
+            echo "[check-pr-acceptance-form] no PR body on this run (a push to main): nothing to validate"
+          fi
       - name: make check-pr-acceptance (a merged PR must close an issue whose own acceptance criteria are checked — issues #1792/#745, and the squash-text close GitHub's native close reads is held too — issue #1815)
         env:
           # Same live-body read as check-pr-closing (issue #1589): the body is fetched from the PR
