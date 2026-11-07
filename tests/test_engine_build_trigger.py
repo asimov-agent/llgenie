@@ -143,6 +143,30 @@ def test_guard_refused_is_named_not_a_bare_failure(monkeypatch):
     assert rc == 1
 
 
+def test_success_producer_terminates_even_with_status_not_completed(monkeypatch, capsys):
+    """A producer that concludes `success` is TERMINAL even when its `status` stays in_progress.
+
+    Regression for the hung trigger (issue #1994): the trigger's await loop used to conclude ONLY on
+    `status == \"completed\"`, so a SUCCESS producer whose run object reads to the poll as a stale/
+    mid-flight snapshot (e.g. `{status: in_progress, conclusion: success}`) held the trigger in_progress
+    until its wall-clock bound (measured: trigger run 42352054921 hung 3h54m on producer 42352074711
+    which was `{status: completed, conclusion: success, completed_at: null}`). #1936 made `cancelled`/
+    `skipped` terminal; `success` is the green mirror. A far `--wait-min` proves we do not wait it out.
+    """
+    _stub_base(monkeypatch)
+    _stub_repin(monkeypatch, engine="llama.cpp")
+    _fake_gh(monkeypatch, before_ids=[1],
+             new_run={"status": "in_progress", "conclusion": "success"})
+    # `--wait-min 0` becomes the wall-clock bound of the test: on the OLD code (no success branch)
+    # the loop falls through to the deadline and expires — rc 1 — so a regression fails FAST instead
+    # of polling out a long bound; the success branch returns before the deadline, rc 0.
+    rc = _run(["check", "--base", _BASE, "--repo", "asimov-agent/llgenie", "--branch", "main",
+               "--wait-min", "0", "--gh", "gh"])
+    assert rc == 0
+    captured = capsys.readouterr()
+    assert "producer run 77 success" in captured.out
+
+
 def test_cancelled_producer_terminates_with_named_cause(monkeypatch, capsys):
     """A producer that concludes `cancelled` is TERMINAL: the trigger stops waiting and names the cause
     instead of polling a run whose `status` never flips to `completed`.
