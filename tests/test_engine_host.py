@@ -139,6 +139,92 @@ def test_model_parameter_selects_what_is_served(monkeypatch):
     assert calls["model"] == "Qwen/Qwen0.5B", calls
 
 
+def test_serve_published_passes_the_full_warmup_window_to_chat(monkeypatch):
+    """The cold-model first request must NOT have its window pre-capped at any fixed 120s value in
+    serve_published: the full configured timeout is the warm-up budget (mlx-cpu, issue #1894), and
+    the retry cap lives in _chat, not here."""
+    seen = {}
+    def _run(spec, model, port, name, models_dir, wait):
+        return 0
+    def _pull(spec):
+        return "tag"
+    monkeypatch.setattr(eht.ei, "pull_published", _pull)
+    monkeypatch.setattr(eht.ei, "run", _run)
+    monkeypatch.setattr(eht.ei, "container_name", lambda spec: "c")
+    monkeypatch.setattr(eht.smoke, "free_port", lambda: 18000)
+    def _chat(payload, port, timeout, retries=2):
+        seen["timeout"] = timeout
+        return {"choices": [{"message": {"content": "hi"}}]}
+    monkeypatch.setattr(eht, "_chat", _chat)
+    monkeypatch.setattr(eht.subprocess, "run",
+                        lambda *a, **k: types.SimpleNamespace(returncode=0))
+
+    spec = {"id": "x", "variant": "cpu", "backend": "cpu"}
+    assert eht.serve_published(spec, "m", 18000, 900) == 0
+    # The full 900s is the first-attempt budget; nothing capped it to 120 here.
+    assert seen["timeout"] == 900, seen
+
+
+def test_chat_first_attempt_gets_the_cold_model_warmup_budget(monkeypatch):
+    """The first /v1/chat/completions after READY gets the configured warm-up window, and a retry
+    drops to the conversation-norm cap — a health-yes / first-token-timeout split is a cold-start
+    artifact (mlx-cpu, issue #1894), not a serving bug, and a true hang stays time-bounded."""
+    seen = []
+    class _Body:  # file-like whose .read() feeds json.load (what the real HTTP response is)
+        def __init__(self, text):
+            self._text = text
+        def read(self):
+            return self._text
+    class _Resp:  # a real context manager (dunder lookup is on the type, not instance attrs)
+        def __init__(self, body):
+            self._body = body
+        def __enter__(self):
+            return _Body(self._body)
+        def __exit__(self, *a):
+            return False
+    # A warm-up that times out on the first (long) call and answers on the second (capped) one.
+    def _urlopen(req, timeout):  # noqa: ANN001 — hermetic urlopen recording the budget
+        seen.append(timeout)
+        if len(seen) == 1:
+            raise TimeoutError(f"timed out (budget {timeout})")
+        return _Resp('{"choices":[{"message":{"content":"hi"}}]}')
+    monkeypatch.setattr(eht.urllib.request, "urlopen", _urlopen)
+    monkeypatch.setattr(eht.time, "sleep", lambda s: None)
+
+    body = eht._chat({"model": "llm-local"}, 11434, 900, retries=1)
+    assert body["choices"][0]["message"]["content"] == "hi"
+    # Attempt 0 got the full 900s warm-up window; the retry got the 120s conversation-norm cap.
+    assert seen[0] == 900, seen
+    assert seen[1] == eht._CHAT_RETRY_CAP_S == 120, seen
+
+
+def test_chat_budget_narrows_on_caller_timeout_below_the_cap(monkeypatch):
+    """When the caller's timeout is under the cap, the retry budget is the caller's value, never
+    larger (the warm-up window is the floor, the configured timeout is the ceiling)."""
+    seen = []
+    class _Body:
+        def __init__(self, text):
+            self._text = text
+        def read(self):
+            return self._text
+    class _Resp:
+        def __enter__(self):
+            return _Body('{"choices":[{"message":{"content":"hi"}}]}')
+        def __exit__(self, *a):
+            return False
+    def _urlopen(req, timeout):  # noqa: ANN001
+        seen.append(timeout)
+        if len(seen) == 1:
+            raise TimeoutError(f"timed out (budget {timeout})")
+        return _Resp()
+    monkeypatch.setattr(eht.urllib.request, "urlopen", _urlopen)
+    monkeypatch.setattr(eht.time, "sleep", lambda s: None)
+
+    eht._chat({"model": "llm-local"}, 11434, 60, retries=1)
+    assert seen[0] == 60, seen
+    assert seen[1] == 60, seen
+
+
 def test_smallest_model_retries_transient_503(monkeypatch):
     """A transient Hub 503/5xx during the model fetch is retried, not fatal (measured in the sweep)."""
     calls = {"n": 0}

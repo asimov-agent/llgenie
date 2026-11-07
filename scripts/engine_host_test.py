@@ -48,6 +48,12 @@ import engine_image as ei     # noqa: E402
 import engine_skills as es    # noqa: E402
 import engine_smoke as smoke  # noqa: E402  (TEST_MODELS + slot-free port + model fetch)
 
+# The conversation-norm budget for /v1/chat/completions RETRIES after the cold-model first
+# attempt. The first turn after READY gets the full configured warm-up window (some engines load
+# the model lazily on the first prompt — mlx-cpu, issue #1894); a retry runs at this shorter cap so
+# a genuine hang stays time-bounded.
+_CHAT_RETRY_CAP_S = 120
+
 
 def _vulkan_render_nodes() -> list[str]:
     return [p for p in ("/dev/dri/renderD128", "/dev/dri/renderD129") if Path(p).exists()]
@@ -107,18 +113,31 @@ def smallest_model(skill: dict) -> str:
 
 
 def _chat(payload: dict, port: int, timeout: float, retries: int = 2) -> dict:
+    """POST /v1/chat/completions, asserting llm-local, with a cold-model warm-up budget.
+
+    The FIRST attempt after READY gets the full configured warm-up window (`timeout`): some
+    engines (mlx-cpu, issue #1894) load the model lazily on the first prompt, so a health-yes /
+    first-token-timeout split is a cold-start artifact, not a serving bug. Subsequent retries drop
+    to the conversation-norm cap when the caller passes a larger first budget; a genuine hang is
+    still bounded (bounded attempts, small sleep) and still fails loudly.
+    """
     url = f"http://127.0.0.1:{port}/v1/chat/completions"
     last = None
     for i in range(retries + 1):
+        # Attempt 0 is the cold-model window (the full budget the caller configured); retries use
+        # the same cap value unless the caller narrowed it, so a warm-up miss is retried on the
+        # (now warm) vertex while a true hang stays time-bounded.
+        budget = timeout if i == 0 else min(timeout, _CHAT_RETRY_CAP_S)
         try:
             req = urllib.request.Request(
                 url, data=json.dumps(payload).encode(),
                 headers={"Content-Type": "application/json"})
-            with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310 (loopback)
+            with urllib.request.urlopen(req, timeout=budget) as r:  # noqa: S310 (loopback)
                 return json.load(r)
         except Exception as exc:  # noqa: BLE001 — a warm-up missing the first turn is retried
             last = exc
             if i < retries:
+                print(f"[host] chat attempt {i + 1}: {exc} (budget {budget:.0f}s); retrying warm-up", flush=True)
                 time.sleep(3)
     if last is not None:
         raise last
@@ -162,8 +181,12 @@ def serve_published(spec: dict, model: str, port: int, timeout: float) -> int:
             print(f"[host] FAIL {spec['id']}/{spec['variant']}: serve exited {rc}")
             return rc
         # Assert the llm-local contract exactly as a harness would (issue #1322).
+        # Pass the FULL configured window as the first-attempt budget: _chat gives attempt 0 that
+        # full window for a cold-model load (mlx-cpu, issue #1894) and caps retries at the
+        # conversation norm — the 120s cap that used to be applied HERE was cutting the cold-model
+        # first request to 120s even when the caller allowed a 900s warm-up.
         body = _chat({"model": "llm-local", "messages": [{"role": "user", "content": "hi"}],
-                      "max_tokens": 32}, port, min(timeout, 120))
+                      "max_tokens": 32}, port, timeout)
         text = (body.get("choices") or [{}])[0].get("message", {}).get("content") or ""
         if not text.strip():
             print(f"[host] FAIL {spec['id']}/{spec['variant']}: empty llm-local reply")
