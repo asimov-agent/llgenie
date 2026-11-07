@@ -11,15 +11,7 @@ is always in scope. The consumers (`trend_list`, `recommend`, `offer`,
 """
 from __future__ import annotations
 
-import os
-import sys
-from pathlib import Path
-
-import pytest
-
-REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO / "scripts"))
-import model_engine_pick as mp  # noqa: E402
+from scripts import model_engine_pick as mp
 
 
 def _model(id_, tier, vram_min=None, num_min=True):
