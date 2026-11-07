@@ -205,6 +205,46 @@ def test_a_help_only_cli_is_not_failed_for_having_no_version_flag():
     assert "version family" in " ".join(flags_verdict["failures"])
 
 
+def test_a_version_only_cli_is_not_failed_for_having_no_help_flag():
+    """tensorfold/cuda (1.2.1 pin) answers --version and lets the help family exit 2 (its -h/--help
+    is a separate subcommand, cf. #1685). `probe: version` (issue #1888) requires the version family
+    to answer (the binary self-proves) and exempts the help family the binary truthfully has none."""
+
+    # Given a CLI that answers --version but exits 2 on every help spelling (the measured tensorfold)
+    verdicts = {"--version": {"rc": 0, "bytes": 20, "output": "tensorfold 1.2.1"},
+                "-V": {"rc": 2, "bytes": 10, "output": ""},
+                "-h": {"rc": 2, "bytes": 10, "output": ""},
+                "--help": {"rc": 2, "bytes": 10, "output": ""}}
+
+    # When  the verdict is decided with the version policy, and with the default one
+    version_verdict = ei.decide(["--version"], verdicts, policy="version")
+    flags_verdict = ei.decide(["--version"], verdicts, policy="flags")
+
+    # Then  version passes (the binary self-proves its version; help is exempt) while the strict
+    #       policy still reds the cell — a `probe: flags` cell must answer the help family regardless
+    assert version_verdict["ok"], version_verdict
+    assert not flags_verdict["ok"]
+    assert "help family" in " ".join(flags_verdict["failures"])
+
+
+def test_a_version_only_cli_with_a_dead_version_flag_still_reds():
+    """`probe: version` is not an escape hatch: if the version family also answers nothing, the cell
+    reds the same way every other policy would — the version is NOT left to `detect` (issue #1888)."""
+
+    # Given a CLI that answers nothing at all
+    verdicts = {"--version": {"rc": 2, "bytes": 10, "output": ""},
+                "-V": {"rc": 2, "bytes": 10, "output": ""},
+                "-h": {"rc": 2, "bytes": 10, "output": ""},
+                "--help": {"rc": 2, "bytes": 10, "output": ""}}
+
+    # When  the verdict is decided with the version policy
+    verdict = ei.decide(["--version"], verdicts, policy="version")
+
+    # Then  it fails — the version family did not self-prove
+    assert not verdict["ok"], verdict
+    assert any("version family" in f or "did not answer" in f for f in verdict["failures"]), verdict["failures"]
+
+
 def test_a_device_probe_is_contained_only_for_a_named_cell(tmp_path):
     """vllm cuda/rocm cannot answer without its device — but ONLY because they are named (#625).
 

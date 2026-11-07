@@ -1009,7 +1009,7 @@ def test_every_published_image_has_a_binary_and_documented_flags():
         assert entry["binary"], f"{row['engine']}/{row['variant']} has no binary file"
         assert entry["flags"], f"{row['engine']}/{row['variant']} documents no flag"
         assert set(entry["flags"]) <= set(es.BINARY_FLAGS), entry["flags"]
-        assert entry["probe"] in ("flags", "device", "help"), entry
+        assert entry["probe"] in ("flags", "device", "help", "version"), entry
 
     # And the frozen params (what make install pulls) are covered too, not just the CI subset
     for path in (REPO / "containers/engines/params").glob("*.json"):

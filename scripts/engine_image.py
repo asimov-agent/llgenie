@@ -594,6 +594,8 @@ def decide(documented: list[str], verdicts: dict[str, dict], policy: str = "flag
       * EVERY documented flag must answer on its own — one working flag never vouches for a dead one;
       * the help family and the version family must each be answered by one of their spellings, which
         is what survives engines that hyphenate help differently (six of them document `--help` only);
+        a `probe: version` CLI (issue #1888) is exempt from the help family because it truthfully has
+        no help flag (its help is a separate subcommand) — its version family must still answer;
       * an engine that documents nothing falls back to the trio and needs one answer;
       * **at least one probed flag must exit 0 — always** (issue #625). Until #625 a `probe: device`
         variant whose flags ALL failed was accepted on the promise that `detect` would prove the
@@ -648,8 +650,11 @@ def decide(documented: list[str], verdicts: dict[str, dict], policy: str = "flag
 
     # A family is judged only over the members that were PROBED: `binary_file_works` always probes all
     # of TYPED_FLAGS, so an absent member here is a caller that never ran it — not an engine failing.
+    # `probe: version` (issue #1888) is a CLI whose parser has NO help flag at all (its help is a
+    # separate subcommand, e.g. tensorfold/cuda at the 1.2.1 pin): the help family is exempt because
+    # the binary truthfully has none — the version family must still answer (the binary self-proves).
     help_probed = [f for f in HELP_FAMILY if f in verdicts]
-    if help_probed and not any(_answered(verdicts, f) for f in help_probed):
+    if policy != "version" and help_probed and not any(_answered(verdicts, f) for f in help_probed):
         failures.append(f"the help family answers to neither {' nor '.join(help_probed)}: a user "
                         "typing either gets nothing")
     # `probe: help` is for a CLI whose parser HAS no version flag at all (argparse-only, e.g.

@@ -49,6 +49,11 @@ binary: "{prefix}/current/bin/{id}"
 binary_flags:
   metal: ["--help", "--version"]   # the macOS binary answers both (its --version is the pinned release)
   cuda: ["--version"]              # the CUDA server answers only --version (--help is a separate subcommand, cf. #1685)
+binary_probe:
+  cuda: version                    # version-only CLI: the version family must answer (--version exit 0 proves the
+                                   # binary); the help family is exempt because TensorFold's CLI has NO help flag
+                                   # at this pin (-h/--help are a separate subcommand, cf. #1685). The image's own
+                                   # detect re-answers --version, so the version is double-proven.
 detect: "{binary} --version"
 launch:
   common: "{binary} serve {model} --host {host} --port {port} --name {alias}"
