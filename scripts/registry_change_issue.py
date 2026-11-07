@@ -282,6 +282,9 @@ def labels_of(repo: str, number: int) -> list[str]:
     return [line.strip() for line in (out or "").splitlines() if line.strip()]
 
 
+_REFUSED = ("HTTP 403", "not accessible by personal access token")
+
+
 def set_labels(repo: str, number: int, labels: list[str]) -> None:
     """Label the issue through the REST API and PROVE it stuck, or fail the step.
 
@@ -289,12 +292,31 @@ def set_labels(repo: str, number: int, labels: list[str]) -> None:
     and #749 were filed with zero labels, and no `labeled` event exists in their timelines), so
     the create flag is not a write. The POST is the write; the read-back decides. An unlabelled
     change issue is invisible to every bot that selects on `agent:implement`, which looks exactly
-    like a green step — hence SystemExit, naming the issue and the missing label.
+    like a green step — hence SystemExit for a write that CLAIMED success but never stuck,
+    naming the issue and the missing label.
+
+    The one case that must NOT die is the write GitHub refuses outright with an HTTP 403
+    (`Resource not accessible by personal access token`): a credential fact, not a dropped
+    write — it will not fix itself on retry, and dying on it in `registry-sync` turns the job
+    red, which skips the `Open / update the sync PR` step (gated `steps.diff.outputs.changed`,
+    no `always()`) and loses the sync's actual PR. So a refused write prints one loud `stderr`
+    line and returns: the change issue is already filed, the leg survives, and the sync PR
+    still opens. Every other gh failure still raises (a transport/CLI fault is fatal), and a
+    write that EXITS 0 but is absent on the read-back (the #819 silent drop) still reds.
     """
     args = ["-X", "POST", f"repos/{repo}/issues/{number}/labels"]
     for label in labels:
         args += ["-f", f"labels[]={label}"]
-    _gh_api(args)
+    try:
+        _gh_api(args)
+    except RuntimeError as exc:
+        if any(token in str(exc) for token in _REFUSED):
+            print(f"[registry-change] #{number} label write refused by the credential "
+                  f"({str(exc)}) — the change issue is filed but carries no {', '.join(labels)}; "
+                  "a token that can write labels must queue it. The sync PR is not lost by this.",
+                  file=sys.stderr)
+            return
+        raise
     have = labels_of(repo, number)
     missing = [label for label in labels if label not in have]
     if missing:

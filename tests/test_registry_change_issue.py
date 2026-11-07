@@ -101,10 +101,12 @@ class _Gh:
     real `open_issue()`/`set_labels()`/`labels_of()` run against it; only `gh` is a stand-in.
     """
 
-    def __init__(self, open_issues: list | None = None, label_sticks: bool = True):
+    def __init__(self, open_issues: list | None = None, label_sticks: bool = True,
+                 label_refused: bool = False):
         self.calls: list[list[str]] = []
         self.open_issues = open_issues or []
         self.label_sticks = label_sticks
+        self.label_refused = label_refused
         self.labels: dict[str, list[str]] = {}
         self._next = 705
 
@@ -120,6 +122,11 @@ class _Gh:
         if args[:1] == ["api"]:
             path = next(a for a in args if a.startswith("repos/"))
             n = path.split("/issues/")[1].split("/")[0]
+            if "POST" in args and self.label_refused:
+                # The runner's PAT refuses the label write outright (#775): like real gh, it
+                # exits non-zero and stderr names the 403, which the product must survive.
+                raise RuntimeError(f"gh {' '.join(args)} failed: gh: Resource not "
+                                   f"accessible by personal access token (HTTP 403)")
             if "POST" in args and self.label_sticks:
                 for i, a in enumerate(args):
                     if a == "-f" and args[i + 1].startswith("labels[]="):
@@ -198,6 +205,32 @@ def test_a_change_issue_that_cannot_be_labelled_fails_the_step(monkeypatch):
 
     # And    the failure is the READ-BACK, not a skipped write
     assert [c for c in gh.calls if c[:1] == ["api"] and "POST" in c]
+
+
+def test_a_change_issue_survives_a_label_write_the_credential_refuses(monkeypatch, capsys):
+    """A refused label write (HTTP 403) must not lose the change issue AND the sync PR: the
+    step files the issue, names the refusal, and returns — it never dies on a label it cannot
+    apply (#775, the #724/#819 PAT class).
+    """
+    # Given  a tracker whose label POST is REFUSED by the credential (the runner PAT 403)
+    gh = _Gh(label_refused=True)
+    monkeypatch.setattr(RCI, "run_gh", gh)
+
+    # When   the report is opened
+    result = RCI.open_issue("body", "2026-10-27T00:00:00Z", "asimov-agent/llgenie")
+
+    # Then   the change issue is still filed (the analysis is the artifact), no exception
+    assert result.endswith("/issues/705")
+    creates = [c for c in gh.calls if c[:2] == ["issue", "create"]]
+    assert len(creates) == 1
+
+    # And    the refusal is reported loudly on stderr, never swallowed
+    err = capsys.readouterr().err
+    assert "#705" in err and "refused by the credential" in err
+    assert "Resource not accessible by personal access token" in err or "HTTP 403" in err
+
+    # And    the step returns successfully — the leg survives so the sync PR step still runs
+    assert not [c for c in gh.calls if c[:1] == ["api"] and "--jq" in c]
 
 
 def test_dry_run_mutates_nothing(monkeypatch):
