@@ -5,8 +5,8 @@ NOT RUN — do not report it as done.
 SETUP — set these once, use them in every step below:
     export REPO="$HOME/repository/git/llgenie"
     export SLUG=asimov-agent/llgenie
-    export TB="$HOME/.hermes/profiles/llgenie-planner/cache/scratch/tick_board.sh"
-    export SW="$HOME/.hermes/profiles/llgenie-planner/cache/scratch/stall_reclaim.sh"
+    export TB="$HOME/.hermes/profiles/llgenie-planner/bin/tick_board.sh"
+    export SW="$HOME/.hermes/profiles/llgenie-planner/bin/stall_reclaim.sh"
     export HERMES_BIN="$HOME/.hermes/hermes-agent/.hermes/bin/hermes"
 
 STEP 1 — PREFLIGHT. One command, and it is the sha for the whole pass:
@@ -34,6 +34,27 @@ STEP 4 — RED PRs OUTRANK THE BACKLOG (section B). Apply this before any other 
       tasks were working 648896aa and 520db900 while main was 78c39175. That is the treadmill.
   4c. A PR that is BLOCKED and MERGEABLE with no failing job is waiting on REVIEW, not on work —
       say that with the required-review count instead of dispatching a lane that can do nothing.
+  4d. ARM AUTO-MERGE — measure arm state per PR, then act on exactly four states:
+        gh pr view <n> --repo "$SLUG" --json autoMergeRequest,mergeStateStatus,mergeable,reviewDecision
+      armed            autoMergeRequest present -> nothing to do, say so
+      unarmed          no autoMergeRequest
+      armed-but-DIRTY  ARMED **and** DIRTY -> THE ARM IS INERT. A DIRTY PR gets no CI run and the
+                       merge queue never sees it, so it can never merge. Report it as impossible,
+                       NOT as handled, and dispatch llgenie-pr-merge-conflict for the rebase.
+      green+approved+unarmed
+                       every check pass, reviewDecision APPROVED, no arm
+  4e. ARM ONLY green+approved+unarmed, and only AFTER its last push:
+        gh pr merge <n> --repo "$SLUG" --squash --auto
+        gh pr view <n> --repo "$SLUG" --json autoMergeRequest   # READ IT BACK — this is the proof
+      `gh pr merge --auto` exits 0 and arms NOTHING when the base is not the default branch (#964),
+      so the exit code is not the fact. Report the arm time with the read-back in the same comment.
+      NEVER arm a PR whose head has a live run or that is mid-rebase: the next push destroys the
+      green the arm is waiting on (#2069: green+armed at cc72588c, rebased, green lost, never merged).
+  4f. UNARMED AND NOT GREEN -> the failing check owns it (step 5). Arming is premature; do not arm
+      a red PR "so it merges when it goes green" — you will not know which check it waited on.
+  4g. If EVERY open PR reds the SAME check, that is ONE defect, not N. Name it and route it to that
+      check's tracker instead of dispatching per-PR fixes that cannot succeed. Measured 2026-11-08:
+      all 17 open PRs redded ci-verdict because ci-scope published no scope decision (#2156).
       A red that is only a bot-fixable body stamp (check-pr-agents-line, check-pr-base ancestry)
       is METADATA: fix or dispatch the stamp, never park the PR on it.
 Quote: the per-PR table line you acted on, before and after your dispatch.
@@ -57,7 +78,7 @@ Quote: the idle list before, and the running-per-lane list after.
 leave an idle lane idle.
 
 STEP 6 — HOW TO DELEGATE. One command does the whole dispatch and proves it landed:
-    export DG="$HOME/.hermes/profiles/llgenie-planner/cache/scratch/delegate.sh"
+    export DG="$HOME/.hermes/profiles/llgenie-planner/bin/delegate.sh"
     bash "$DG" --lane <lane> --issue <n> --brief /tmp/brief_<n>.md --message
 
   It performs, in order, and REFUSES to continue if any step fails:
