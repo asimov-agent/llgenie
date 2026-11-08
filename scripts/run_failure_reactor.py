@@ -592,36 +592,68 @@ def issue_body(run: dict, job: dict, log_tail: str, marker: str,
     workflow = run.get("workflowName") or "?"
     job_name = job.get("name") or "?"
     owned = lane.name if lane else "unclassified (filed with no implementation label)"
+    # The registry-liveness / engine-pins publish class: the failing step is a liveness GATE naming a
+    # committed tag whose manifest is missing — the remedy is a PUBLISH (`engine-build push=true`),
+    # not a code PR (issue #2259). The "no PR this bot can repair" truth is useless on its own; name
+    # the publish so the reader has the actual remedy, and #2259 wires the gate to do it for us.
+    is_pins_publish = "registry-liveness" in workflow.lower() or "pins-public" in step.lower() or \
+        "not published" in (log_tail or "").lower() or "manifest unknown" in (log_tail or "").lower()
     return render_body(
         marker=marker,
         problem=(
             f"The `{workflow}` run `{run.get('displayTitle') or '?'}` (event "
             f"`{run.get('event') or '?'}`, head `{(run.get('headSha') or '')[:12]}`) failed in job "
-            f"`{job_name}`, step `{step or '(none named)'}`, and no pull request this bot can repair "
-            "was found for it."
+            f"`{job_name}`, step `{step or '(none named)'}`."
+            + ("" if is_pins_publish else
+               " No pull request this bot can repair was found for it.")
         ),
         why=(
             "A failed run that no bot repairs and nobody tracks is work that quietly stops being "
             "done: `main` stays red, or a bot's scheduled job stops producing its artifact, and the "
             "next reader has to reconstruct the failure from a log that has since expired."
+            + (" For this class the red IS the remedy signal: a committed engine tag with no "
+               "manifest is a partial publish, and it self-heals by dispatching the producer, never "
+               "by editing code (issue #2259)." if is_pins_publish else "")
         ),
-        how=[
+        how=[(
+            "Confirm the gate dispatched the publish: registry-liveness (-#2259) fires "
+            "`engine-build push=true` for the NOT PUBLISHED engine/arch and opens a tracking issue; "
+            "re-run registry-liveness after it lands."
+            if is_pins_publish else
             "Read the failing log tail in `## Technical` and reproduce the failure with the make "
-            "target that step ran (`make <target>`), never by re-running the workflow blind.",
+            "target that step ran (`make <target>`), never by re-running the workflow blind."
+        ), (
+            "Move the pin to a published commit or dispatch `engine-build` with `push=true` for the "
+            "named cell, then re-run `check-engine-pins-published`."
+            if is_pins_publish else
             "Fix the cause in the repository, so the gate is green for the next run instead of this "
-            "one being retried.",
+            "one being retried."
+        ), (
+            "Keep this issue open until the tag resolves a manifest; the hard-fail only clears when "
+            "the publish lands (ALL=1 is not weakened, #2245/#2259)."
+            if is_pins_publish else
             "Reference this issue from the PR (`closes #<n>`) so the failure and its fix stay one "
-            "work item.",
-        ],
+            "work item."
+        )],
         benefit=(
             "Every failed run has an owner and a work item: the failure is reproduced from its own "
             "log instead of guessed at, and the class of failure is fixed rather than re-run."
+            + (" A partial publish now has a dispatch, not just a name." if is_pins_publish else "")
         ),
-        acceptance=[
-            "the failing make target is green locally on this host, with its real output recorded",
-            "the PR that fixes it is green in CI on the same job that failed",
-            "`closes #<this issue>` is in that PR, so merging it closes the failure",
-        ],
+        acceptance=[(
+            "the NOT PUBLISHED tag resolves a ghcr manifest (the dispatched engine-build `push=true` "
+            "cell is green)"
+            if is_pins_publish else
+            "the failing make target is green locally on this host, with its real output recorded"
+        ), (
+            "the tag no longer appears in `check-engine-pins-published ALL=1` output"
+            if is_pins_publish else
+            "the PR that fixes it is green in CI on the same job that failed"
+        ), (
+            "the tracking issue's tag is published (`ghcr_publish_probe.sh` -> PUBLISHED)"
+            if is_pins_publish else
+            "`closes #<this issue>` is in that PR, so merging it closes the failure"
+        )],
         technical=[
             f"**owned by lane:** `{owned}`",
             f"**failure class:** `{workflow}/{step or job_name}`",

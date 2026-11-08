@@ -439,6 +439,45 @@ def build(spec: dict, force: bool = False, push: bool = False) -> int:
     return 0
 
 
+def collect(engine: str, arch: str = "", force: bool = False, push: bool = False) -> int:
+    """Build (and, when `push`, publish) EVERY enabled CI cell of an engine as ONE sweep.
+
+    Issue #2259: a cell failure used to abort the sweep, so a params edit that retagged every backend
+    left the later cells at the new hash silently unpublished (measured: vllm cuda/rocm 404 for five
+    days while cpu carried the new tag). This is the build-and-collect form: every cell is attempted,
+    a success is built (and pushed when `push`), a failure is NAMED and does not stop the next cell, and
+    the exit is 0 only when every cell succeeded. The caller (a dispatch, a PR trigger) can therefore
+    report the sweep as all-green or explicitly partial — never silently.
+    """
+    rows = matrix(ci=True, engine=engine, arch=arch)
+    results: list[tuple[str, str, int]] = []  # (engine, variant, rc)
+    for row in rows:
+        if row["engine"] == "none":
+            continue
+        variant = row["variant"]
+        engine_id = row["engine"]
+        try:
+            spec = resolve(engine_id, None, variant)
+        except SystemExit as e:  # a disabled/absent cell must not abort the sweep
+            results.append((engine_id, variant, 1))
+            print(f"[engine-image] FAIL collect {engine_id}/{variant}: {e}", flush=True)
+            continue
+        rc = build(spec, force=force, push=push)
+        results.append((engine_id, variant, rc))
+        if not push:
+            print(f"[engine-image] collect {engine_id}/{variant}: built rc={rc} "
+                  f"(push not set; verifying only)", flush=True)
+    ok = [r for r in results if r[2] == 0]
+    bad = [r for r in results if r[2] != 0]
+    print(f"[engine-image] collect sweep {engine or '*'} arch={arch or '*'}: "
+          f"{len(ok)} ok, {len(bad)} failed "
+          + (f"; failed: {', '.join(f'{e}/{v}' for e, v, _ in bad)}" if bad else ""))
+    for e, v, rc in bad:
+        print(f"[engine-image] FAIL collect {e}/{v} (exit {rc}) — not published at the new tag", \
+              file=sys.stderr)
+    return 0 if not bad else 1
+
+
 def container_model(model: str, models_dir: Path) -> str:
     """Host path under ~/models -> /models/...; anything else (HF repo id) as is."""
     p = Path(model).expanduser()
@@ -1299,6 +1338,13 @@ def main(argv=None) -> int:
     m.add_argument("--changed", default="", help="ref: only images whose tag differs from it")
     m.add_argument("--engine", default="", help="only this engine id (the dispatched sweep)")
     m.add_argument("--arch", default="", help="only this backend/variant")
+    c = sub.add_parser("collect", help="build (and publish with --push) EVERY cell of one engine as "
+                                       "one sweep: success is built, failure named, nothing aborts the "
+                                       "rest (#2259)")
+    c.add_argument("--engine", default="", help="engine id; empty = every engine (a full fleet sweep)")
+    c.add_argument("--arch", default="", help="one backend (cpu|cuda|rocm|vulkan); empty = all variants")
+    c.add_argument("--force", action="store_true")
+    c.add_argument("--push", action="store_true")
     a = ap.parse_args(argv)
 
     if a.cmd == "build-base":
@@ -1312,6 +1358,8 @@ def main(argv=None) -> int:
         print(json.dumps({"include": rows}) if a.json else
               "\n".join(f"{r['engine']:28} {r['variant']:18} {'smoke' if r['smoke'] else ''}" for r in rows))
         return 0
+    if a.cmd == "collect":
+        return collect(a.engine, a.arch, a.force, a.push)
     spec = resolve(a.engine, a.backend, a.variant)
     if a.cmd == "tag":
         print(spec["tag"])
