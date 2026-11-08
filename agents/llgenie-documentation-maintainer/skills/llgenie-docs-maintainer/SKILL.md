@@ -20,7 +20,8 @@ metadata:
 > A gate red on YOUR branch may be main's red: reproduce it on a clean detached base first, because a
 > red `main` disables the gate for every PR and is an issue to file, not a drive-by fix — and the
 > architecture census pointer is the usual culprit (`git merge-base --is-ancestor <ptr> HEAD`) —
-> `references/gate-red-triage.md`.
+> `references/gate-red-triage.md`. A red `ci-verdict` is usually downstream of that same guard (it
+> reads a scope-decision artifact the guard never published) — trace the chain before re-judging.
 > Editing an `agents/<profile>/` SOUL or skill is a behavioural-surface change with its own gates
 > (change→note, verbatim fleet block, protected-write prompt) — `references/agents-soul-doc-changes.md`.
 > A change landed via `cp`+git can leave a completion gate reporting "no task-relevant changed path",

@@ -97,6 +97,42 @@ dotfile beside the tree you are about to stage.
 - Verify the delivered scope with the comparison that will be reviewed:
   `git diff --name-only <base> HEAD` — not the staged list, which is gone after commit.
 
+## A red `ci-verdict` is usually DOWNSTREAM — trace the publication chain before re-judging
+
+`ci-verdict` is a judge, not a detector: it reads the `ci-scope-decision` artifact that `ci.yml`'s
+**guard** job publishes, and reds with `NO DECISION: this run published no scope decision` when that
+artifact is absent. A guard that died on an earlier step never publishes it, so one upstream red shows
+up as three:
+
+```
+ci.yml guard fails on check-pr-acceptance  (reviewer-gated tick, do not self-tick)
+  -> guard never uploads ci-scope-decision
+  -> GET /actions/runs/<id>/artifacts -> total_count: 0
+  -> ci-verdict reads no decision -> "NO DECISION" -> red
+```
+
+So before treating a `ci-verdict` red as its own defect, read the guard's failing step and the run's
+artifact count:
+
+```bash
+gh api repos/<org>/<repo>/actions/runs/<id>/jobs \
+  --jq '.jobs[]|select(.conclusion=="failure")|"\(.name): "+([.steps[]|select(.conclusion=="failure")|.name]|join(";"))'
+gh api repos/<org>/<repo>/actions/runs/<id>/artifacts --jq '.total_count'
+```
+
+One root cause, three symptoms — say that, do not list them as three problems.
+
+**Re-judging cannot manufacture a decision.** The manual `workflow_dispatch` of `ci-verdict` re-reads
+the same run; a run whose guard never published a decision re-posts the same `NO DECISION`. Re-judge
+is the right move for a verdict that is *stale or judged against a superseded measure* — not for one
+whose judged run genuinely holds no decision. Running it anyway is not diligence; it is a red you
+spend a run to reproduce.
+
+**Do not correct into a second wrong.** When the re-judge re-reds, reading `NO DECISION` as a *new,
+independent cause* is the easy next mistake — it is downstream of the same gate. Verify the chain (which
+job publishes the artifact this one reads) before you write either "same verdict" or "distinct cause"
+on the wire. Both phrasings have shipped as confident fact and both were wrong.
+
 ## Report the triage, not just the verdict
 
 When the red was main's, the report is: the base sha, the gate's own error line, the ancestor check's

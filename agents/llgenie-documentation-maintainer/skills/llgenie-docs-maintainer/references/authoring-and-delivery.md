@@ -51,6 +51,21 @@ df -i /tmp
 Put new worktrees under `$HOME/...`. Cleaning up your own scratch dirs is fine; a lane's vehicle is
 not — never prune another lane's worktree, report it instead.
 
+## Push a rebased branch: fetch by explicit refspec, then read the wire head
+
+`--force-with-lease` refusing after your own push is almost always a **stale local tracking ref**, not
+another lane. Do not conclude someone else touched the branch until you have fetched the real tip:
+
+```bash
+git fetch origin +refs/heads/main:refs/remotes/origin/main
+git fetch origin <branch>
+git log --oneline -1 origin/<branch>     # is this your own last push, or a stranger?
+```
+
+If the wire head is your own previous push, re-push with `--force-with-lease --force-if-includes`. A
+plain `--force` here is how a repair another lane made gets silently discarded. After the push, read
+the PR's `headRefOid` and `mergeable` back — a push that exits 0 has not necessarily moved the PR.
+
 ## A stacked PR dies when its base merges
 
 GitHub **closes** a stacked PR whose base branch merges, and it cannot be reopened
