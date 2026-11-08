@@ -26,11 +26,19 @@ def _iso(hours_ago: float, now: dt.datetime) -> str:
     return (now - dt.timedelta(hours=hours_ago)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _fake_gh(tmp_path: Path, runs: list[dict], sha_runs: dict[str, int]):
-    """A `gh` that serves the two list endpoints and records every `run rerun` it is given."""
+def _fake_gh(tmp_path: Path, runs: list[dict], sha_runs: dict[str, int],
+             job_counts: dict[str, int] | None = None, rerun_errors: dict[str, str] | None = None):
+    """A `gh` that serves the runs/jobs list endpoints and records every `run rerun` it is given.
+
+    `job_counts` maps a run id -> jobs `total_count` (default 1, a retryable run), so the DRY
+    classifier can be exercised. `rerun_errors` maps a run id -> stderr the rerun call returns
+    (default: non-zero with that stderr), so the runtime "cannot be retried" path can be driven.
+    """
     tmp_path.mkdir(parents=True, exist_ok=True)
     (tmp_path / "runs.json").write_text(json.dumps(runs))
     (tmp_path / "sha_runs.json").write_text(json.dumps(sha_runs))
+    (tmp_path / "job_counts.json").write_text(json.dumps(job_counts or {}))
+    (tmp_path / "rerun_errors.json").write_text(json.dumps(rerun_errors or {}))
     log = tmp_path / "gh.log"
     gh = tmp_path / "gh"
     gh.write_text(f'''#!{sys.executable}
@@ -40,10 +48,19 @@ args = sys.argv[1:]
 with open({str(log)!r}, "a") as fh:
     fh.write(json.dumps(args) + "\\n")
 if args[:2] == ["run", "rerun"]:
+    rid = args[2]
+    errs = json.loads((here / "rerun_errors.json").read_text())
+    if rid in errs:
+        print(errs[rid], file=sys.stderr)
+        sys.exit(1)
     print("")
     sys.exit(0)
 url = args[1] if len(args) > 1 else ""
-if "head_sha=" in url:
+if "/jobs" in url:
+    rid = url.split("/runs/")[1].split("/jobs")[0]
+    counts = json.loads((here / "job_counts.json").read_text())
+    print(json.dumps({{"total_count": counts.get(rid, 1), "jobs": []}}))
+elif "head_sha=" in url:
     sha = url.split("head_sha=")[1].split("&")[0]
     n = json.loads((here / "sha_runs.json").read_text()).get(sha, 1)
     print(json.dumps({{"workflow_runs": [{{"id": i}} for i in range(n)]}}))
@@ -330,3 +347,86 @@ def test_stalls_are_ordered_by_how_long_they_ran():
             _run("cancelled", "2026-10-28T16:00:00Z", "2026-10-28T17:45:00Z", 2)]
 
     assert [r["database_id"] for r in rq.stalls(runs, minimum_minutes=30)] == [2, 1]
+
+
+# --------------------------------------------------------------------------------------------------
+# issue #2295: GitHub's "This workflow run cannot be retried" is a DECISION, not a transient
+# failure. A cancelled run GitHub refuses to retry must be recorded as skipped (never failed) so
+# the sweep exits 0, while a genuinely transient `gh run rerun` failure stays fatal.
+def test_a_cancelled_run_with_no_jobs_is_skipped_at_plan(tmp_path, monkeypatch, capsys):
+    """#2295: a cancelled run that instantiated ZERO jobs is non-retryable (nothing to retry);
+    `plan` classifies it as skipped WITHOUT dispatching, so DRY names it in the skip bucket too."""
+    now = dt.datetime.now(dt.timezone.utc)
+    # a workflow_dispatch/engine-build cancelled run with no jobs (the measured #2295 shape)
+    runs = [_run_record(42521713581, "f" * 40, "cancelled", 0.5, now,
+                        branch="main", event="workflow_dispatch")]
+    gh, _log = _fake_gh(tmp_path, runs, {"f" * 40: 1}, job_counts={"42521713581": 0})
+    monkeypatch.setenv("CI_REQUEUE_GH", str(gh))
+
+    requeue, skipped = rq.plan("asimov-agent/llgenie", rq.parse_window("2h"), now=now)
+
+    assert requeue == [], requeue
+    assert [r["id"] for r in skipped] == [42521713581], skipped
+    assert "no jobs instantiated" in skipped[0]["why"], skipped
+
+
+def test_plan_dry_puts_a_zero_job_run_in_the_skip_bucket(tmp_path, monkeypatch, capsys):
+    """#2295 AC3: `make ci-requeue-cancelled DRY=1` prints the non-retryable run in a `skip`
+    bucket, so a reader sees the classification without the sweep spending a runner."""
+    now = dt.datetime.now(dt.timezone.utc)
+    runs = [_run_record(42521713581, "f" * 40, "cancelled", 0.5, now,
+                        branch="main", event="workflow_dispatch"),
+            _run_record(710, "9" * 40, "cancelled", 0.2, now, branch="feat/z")]
+    gh, log = _fake_gh(tmp_path, runs, {"f" * 40: 1, "9" * 40: 1},
+                       job_counts={"42521713581": 0})  # 710 unlisted -> retryable (default 1)
+    monkeypatch.setenv("CI_REQUEUE_GH", str(gh))
+
+    assert rq.main(["run", "--dry"]) == 0
+    out = capsys.readouterr().out
+
+    # the non-retryable run is skip-bucketed with a reason, and nothing was dispatched
+    assert "keep 42521713581" in out and "no jobs instantiated" in out, out
+    reruns = [c for c in _calls(log) if c[:2] == ["run", "rerun"]]
+    assert reruns == [], reruns  # DRY dispatches nothing
+    assert "would re-run 710" in out, out
+
+
+def test_a_run_github_refuses_to_retry_is_skipped_not_failed(tmp_path, monkeypatch, capsys):
+    """#2295 AC1/negative control 1: when the runtime hits GitHub's refusal on a run it *tried*
+    to requeue (jobs probe said retryable, GitHub disagreed), that run is recorded SKIPPED and the
+    sweep still re-runs the genuinely retryable one, exiting 0 — not aborting on the first."""
+    now = dt.datetime.now(dt.timezone.utc)
+    runs = [_run_record(720, "e" * 40, "cancelled", 0.5, now, branch="feat/a"),
+            _run_record(721, "d" * 40, "cancelled", 0.2, now, branch="feat/b")]
+    gh, log = _fake_gh(tmp_path, runs, {"e" * 40: 1, "d" * 40: 1},
+                       rerun_errors={"720": "run 720 cannot be rerun; This workflow run cannot be retried"})
+    monkeypatch.setenv("CI_REQUEUE_GH", str(gh))
+
+    assert rq.main(["run", "--repo", "asimov-agent/llgenie"]) == 0
+    out = capsys.readouterr().out
+
+    reruns = [c for c in _calls(log) if c[:2] == ["run", "rerun"]]
+    # 720 was genuinely attempted, GitHub refused it -> recorded SKIPPED; 721 still re-runs.
+    assert reruns == [["run", "rerun", "720", "--repo", "asimov-agent/llgenie", "--failed"],
+                      ["run", "rerun", "721", "--repo", "asimov-agent/llgenie", "--failed"]], reruns
+    assert "keep 720" in out and "GitHub will not retry" in out, out
+    assert "re-ran 721" in out, out
+
+
+def test_a_transient_rerun_failure_is_still_fatal(tmp_path, monkeypatch, capsys):
+    """#2295 AC2 negative control: a genuinely transient `gh run rerun` failure (rate limit, 5xx)
+    must still abort the sweep non-zero — a real problem is never swallowed by the refusal skip."""
+    now = dt.datetime.now(dt.timezone.utc)
+    runs = [_run_record(730, "c" * 40, "cancelled", 0.5, now, branch="feat/a")]
+    gh, _log = _fake_gh(tmp_path, runs, {"c" * 40: 1},
+                        rerun_errors={"730": "API rate limit exceeded for github.com"})
+    monkeypatch.setenv("CI_REQUEUE_GH", str(gh))
+
+    try:
+        rq.main(["run", "--repo", "asimov-agent/llgenie"])
+    except SystemExit as exc:
+        # Then the transient failure aborts the sweep with a non-zero exit and the real cause
+        assert exc.code != 0, exc.code
+        assert "rate limit" in str(exc), exc
+    else:                                    # pragma: no cover - the guard this test exists for
+        raise AssertionError("a transient gh run rerun failure must be fatal")
