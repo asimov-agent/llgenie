@@ -122,11 +122,14 @@ if [ "$MODE" = "all" ]; then
   [ -n "$list" ] && [ -f "$list" ] && list="$(cat "$list")"
   [ -z "$list" ] && list="$(gh pr list --repo "$SLUG" --state open --limit 100 \
       --json number,autoMergeRequest,mergeStateStatus,mergeable,reviewDecision 2>/dev/null || echo "[]")"
-  printf '%s' "$list" | python3 -c "
+  sweep_rc=0
+  while read -r n; do
+    arm "$n" || { rc=$?; echo "[arm] sweep: PR #$n exit $rc" >&2; [ "$rc" = "2" ] && sweep_rc=2; }
+  done < <(printf '%s' "$list" | python3 -c "
 import sys,json
 for p in json.load(sys.stdin): print(p['number'])
-" | while read -r n; do arm "$n" || true; done
-  exit 0
+")
+  exit "$sweep_rc"
 fi
 
 arm "$N"
