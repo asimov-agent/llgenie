@@ -28,6 +28,13 @@ a scan is a mutable tool on a mutable base, with network access while it is judg
   and its sha256 is recorded next to the scanner version in `digests.json` (`semgrep.rules_sha`).
   A scan runs `--config <committed pack>`, so the same tree at the same sha scans byte-identically;
   `make check-security-scan` fails when the sha is omitted or the committed file is changed.
+- **The pack's own bytes are not a credential shape** (PR #2082) — gitleaks' `private-key` rule reads
+  any `-----BEGIN … PRIVATE KEY-----` header in a committable file as a leaked key, and a rule pack
+  made of secret-detection patterns is full of them. Every such header in the pack writes the `KEY`
+  with a YAML `\x59` escape: the bytes carry no header, while the pattern semgrep loads is unchanged
+  and still matches a real key (proved by `tests/test_security_scan.py` against a fixture, and by the
+  scanner image still reporting the fixture). Re-vendoring the pack must re-apply the escape; if it is
+  dropped, `make secret-scan` reds the PR at the header's line.
 
 `containers/scanners/digests.json` is the file the scan workflow reads: one entry per scanner with
 the pinned version and the content-hash ref. It is generated — `make scanner-digests` — and

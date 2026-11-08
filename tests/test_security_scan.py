@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import stat
 import sys
 from pathlib import Path
@@ -596,6 +597,42 @@ def test_semgrep_strips_wallclock_so_output_is_reproducible(tmp_path, monkeypatc
     data = json.loads(out.read_text(encoding="utf-8"))
     assert "time" not in data and "profiling_results" not in data
     assert data["results"] == [{"rule": "x"}]
+
+
+def test_semgrep_rule_pack_is_not_itself_a_credential_shape():
+    """The committed semgrep pack is a set of DETECTION rules, so its own bytes must not look like
+    the credential it detects (issue #1284, measured on PR #2082): `make secret-scan` red at
+    `containers/scanners/semgrep/rules/default.yml:1465` with gitleaks' `private-key` rule, which
+    reads any `-----BEGIN … PRIVATE KEY-----` header in a committable file as a leaked key. Each
+    header writes the `KEY` with a YAML `\\x59` escape, so the pattern semgrep LOADS is unchanged
+    while the file's bytes carry no header.
+    """
+
+    import yaml
+
+    # Given the committed pack, parsed the way semgrep parses it
+    raw = (REPO / "containers" / "scanners" / "semgrep" / "rules" / "default.yml").read_text(
+        encoding="utf-8")
+    rules = yaml.safe_load(raw)
+
+    # Then  no PEM private-key header is present in the file's bytes (that shape is the finding)
+    assert not re.search(r"-----BEGIN[ A-Z0-9_-]{0,100}PRIVATE KEY( BLOCK)?-----", raw)
+
+    # And   the escape resolved: a loaded rule still names a key header, so the pack still detects
+    #       one, and no loaded string kept a literal escape (which would silently neuter the rule)
+    def strings(node):
+        if isinstance(node, dict):
+            for value in node.values():
+                yield from strings(value)
+        elif isinstance(node, list):
+            for value in node:
+                yield from strings(value)
+        elif isinstance(node, str):
+            yield node
+
+    loaded = list(strings(rules))
+    assert any("PRIVATE KEY-----" in s for s in loaded), "no loaded rule names a private-key header"
+    assert not any("\\x59" in s for s in loaded), "an escape is unresolved in the loaded rule set"
 
 
 def test_check_fails_when_digests_omits_the_semgrep_rules_sha(tmp_path, monkeypatch):

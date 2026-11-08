@@ -34,3 +34,11 @@ binaries were digest-pinned but the rules they ran (and the engine versions) wer
   content-hash tag; `make check-scanner-images` and `make check-security-scan` both exit 0.
 - `tests/test_security_scan.py`: committed-pack scan argv, byte-identical output after timing-strip,
   gate reds on missing `rules_sha` and on a lagging engine baseline — all pass in llgenie/test.
+- The rule pack is not itself a credential shape (PR #2082): the repo's `make secret-scan` red at
+  `containers/scanners/semgrep/rules/default.yml:1465` on gitleaks' `private-key` rule, because the
+  pack carries the `-----BEGIN … PRIVATE KEY-----` headers it detects. Fixed in the content, not in
+  `.gitleaks.toml`: every header in the pack writes the `KEY` with a YAML `\x59` escape, so the
+  bytes carry no header while the pattern semgrep loads is unchanged. Proven both ways on the
+  pinned semgrep image — the pack still reports a planted PGP/RSA/plain key fixture (3 findings),
+  and `make secret-scan` reports none; `make scanner-digests` advanced `semgrep.rules_sha`; a
+  regression test locks "no literal header in the raw bytes, and the loaded pattern still names one".

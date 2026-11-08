@@ -9,7 +9,7 @@
     "dockerfile": "containers/scanners/semgrep/Dockerfile",
     "ref": "ghcr.io/asimov-agent/llgenie/semgrep:5954e2aad609",
     "rules_file": "containers/scanners/semgrep/rules/default.yml",
-    "rules_sha": "1504c181cee6d4fc665d2d69f06e69ba2ae2f6b3ddb084f3a56d772a5c186333",
+    "rules_sha": "35377b8f3956d14a382d44886fa2b76a81ddb78c64744d8ae01af9f063ab5828",
     "tag": "5954e2aad609",
     "version": "1.165.0-r0"
   },

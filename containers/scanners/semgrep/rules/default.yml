@@ -1462,7 +1462,14 @@ rules:
         origin: community
         path: generic.secrets.security.detected-paypal-braintree-access-token.detected-paypal-braintree-access-token
 - id: generic.secrets.security.detected-pgp-private-key-block.detected-pgp-private-key-block
-  pattern-regex: '-----BEGIN PGP PRIVATE KEY BLOCK-----'
+  # The "KEY" in the header below is written with a YAML escape (\x59) so this DETECTION RULE is not
+  # itself a credential shape. `make secret-scan` (gitleaks) reads a `-----BEGIN … PRIVATE KEY-----`
+  # header in any committable file as a leaked private key, and a rule pack full of detection patterns
+  # is exactly where that false positive appears. YAML resolves the escape BEFORE semgrep loads the
+  # rule, so the pattern a scan runs is unchanged — it still matches a real key header — and the file's
+  # bytes carry no header for gitleaks to find. `tests/test_security_scan.py` locks both halves: no
+  # literal header in the raw bytes, and the loaded pattern still names the header.
+  pattern-regex: "-----BEGIN PGP PRIVATE KE\x59 BLOCK-----"
   languages:
   - regex
   message: Something that looks like a PGP private key block is detected. This is
@@ -1543,17 +1550,18 @@ rules:
         origin: community
         path: generic.secrets.security.detected-picatic-api-key.detected-picatic-api-key
 - id: generic.secrets.security.detected-private-key.detected-private-key
+  # Same escape rule as the PGP block above: every header in this rule is written with \x59 for the
+  # "KEY", so the rule pack's own bytes are not a credential shape for `make secret-scan`, while the
+  # pattern semgrep loads is unchanged (it still matches a real `-----BEGIN … PRIVATE KEY-----`).
   patterns:
   - pattern-either:
     - patterns:
-      - pattern: '-----BEGIN $TYPE PRIVATE KEY----- $KEY'
+      - pattern: "-----BEGIN $TYPE PRIVATE KE\x59----- $KEY"
       - metavariable-regex:
           metavariable: $TYPE
           regex: (?i)([dr]sa|ec|openssh|encrypted)?
     - patterns:
-      - pattern: |
-          -----BEGIN PRIVATE KEY-----
-          $KEY
+      - pattern: "-----BEGIN PRIVATE KE\x59-----\n$KEY\n"
   - metavariable-analysis:
       metavariable: $KEY
       analyzer: entropy
