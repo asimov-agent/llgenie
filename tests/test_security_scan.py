@@ -42,6 +42,27 @@ TRIVY_SECRET_MEDIUM = {"Results": [{"Target": "tools/timeout.py", "Secrets": [
     {"RuleID": "generic-api-key", "Category": "Generic", "Severity": "MEDIUM",
      "Match": "sk-*******************************"},
 ]}]}
+# An IaC misconfiguration (issue #2234): trivy's `misconfig` scanner writes a `Misconfigurations`
+# array under a result whose `Class` is `config` (the vuln/secret results carry `Class`
+# `os-pkgs`/`lang-pkgs`/absent). The shape is the real JSON the pinned trivy image emits for a
+# planted bad Dockerfile (a missing non-root `USER` → `DS-0002`), measured 2026-11-08: ID, Title,
+# Severity, Message — no package version and no fixed version.
+TRIVY_MISCONFIG = {"Results": [{
+    "Target": "containers/example/Dockerfile", "Class": "config", "Type": "dockerfile",
+    "Misconfigurations": [{
+        "ID": "DS-0002", "Title": "Image user should not be 'root'", "Severity": "HIGH",
+        "Message": "Specify at least 1 USER command in Dockerfile with non-root user as argument",
+        "Namespace": "builtin.dockerfile.DS002", "Query": "data.builtin.dockerfile.DS002.deny",
+        "PrimaryURL": "https://avd.aquasec.com/misconfig/ds-0002", "Status": "FAIL",
+    }],
+}]}
+TRIVY_MISCONFIG_MEDIUM = {"Results": [{
+    "Target": ".github/workflows/deploy.yml", "Class": "config", "Type": "github actions",
+    "Misconfigurations": [{
+        "ID": "AVD-EXAMPLE-1", "Title": "workflow drift", "Severity": "MEDIUM",
+        "Message": "a workflow gift", "Status": "FAIL",
+    }],
+}]}
 GRYPE_ONE = {"matches": [{
     "vulnerability": {"id": "GHSA-1", "severity": "Critical"},
     "artifact": {"name": "openssl", "version": "3.0"},
@@ -214,8 +235,9 @@ def test_a_semgrep_warning_is_recorded_never_blocking():
     assert ss.blocking(items, POLICY, "pr") == []
 
 
-def test_trivy_runs_both_the_vuln_and_secret_scanners(tmp_path, monkeypatch):
-    """The daily scan asks the SAME pinned trivy image for its `secret` ruleset too (issue #1283)."""
+def test_trivy_runs_all_three_scanners(tmp_path, monkeypatch):
+    """The daily scan asks the SAME pinned trivy image for its `secret` and `misconfig` rulesets
+    too (issues #1283, #2234)."""
 
     # Given a docker stub that records its argv
     log = _docker_stub(tmp_path, monkeypatch, pull_ok=True, inspect_ok=True)
@@ -223,13 +245,82 @@ def test_trivy_runs_both_the_vuln_and_secret_scanners(tmp_path, monkeypatch):
     # When  a trivy scan is launched
     ss.scan("trivy")
 
-    # Then  both runs carry `--scanners vuln,secret` — a committed secret is in scope, always
+    # Then  both runs carry `--scanners vuln,secret,misconfig` — a committed secret and an IaC
+    #       misconfiguration are in scope, always
     runs = [json.loads(l) for l in log.read_text().splitlines() if json.loads(l)[0] == "run"]
     assert len(runs) == 2  # JSON verdict + SARIF
     for argv in runs:
         scanners = argv[argv.index("--scanners") + 1]
-        assert set(scanners.split(",")) == {"vuln", "secret"}, scanners
-        assert "vuln" in scanners and "secret" in scanners
+        assert set(scanners.split(",")) == {"vuln", "secret", "misconfig"}, scanners
+        for req in ("vuln", "secret", "misconfig"):
+            assert req in scanners
+
+
+def test_trivy_misconfig_findings_are_normalised():
+    """An IaC misconfiguration (a trivy `misconfig`-class match) is a first-class finding (issue
+    #2234)."""
+
+    # Given a trivy report with one HIGH misconfiguration against a Dockerfile
+    # When  it is normalised
+    items = ss._trivy_misconfig_findings(TRIVY_MISCONFIG)
+
+    # Then  it is one finding with the misconfig source, no package or fixed version — its fix is
+    #       editing the matched IaC, so the issue path labels it `component:code`
+    assert items == [{
+        "id": "DS-0002", "package": "containers/example/Dockerfile",
+        "current": "Specify at least 1 USER command in Dockerfile with non-root user as argument",
+        "fixed": "", "severity": "high", "source": ss.MISCONFIG_SOURCE}]
+
+
+def test_a_misconfig_flows_through_findings(tmp_path, monkeypatch):
+    """The dedicated misconfig classifier is read by the same `findings()` gate as the scanners."""
+
+    # Given a trivy report that also carries an IaC misconfiguration and a vuln advisory
+    report = {"Results": [
+        {"Class": "os-pkgs", "Vulnerabilities": [
+            {"VulnerabilityID": "CVE-1", "PkgName": "numpy", "InstalledVersion": "1.0",
+             "FixedVersion": "1.1", "Severity": "CRITICAL"}]},
+        {"Target": "containers/example/Dockerfile", "Class": "config", "Type": "dockerfile",
+         "Misconfigurations": TRIVY_MISCONFIG["Results"][0]["Misconfigurations"]},
+    ]}
+    monkeypatch.setattr(ss, "REPORTS", _reports(tmp_path, trivy=report))
+
+    # When  every finding is read
+    items = ss.findings()
+
+    # Then  both the advisory and the IaC misconfiguration are present, in the fixed finding shape
+    assert any(i["source"] == "trivy" and i["id"] == "CVE-1" for i in items)
+    assert any(i["source"] == ss.MISCONFIG_SOURCE and i["id"] == "DS-0002" for i in items)
+
+
+def test_a_critical_misconfig_blocks_even_with_require_fix(tmp_path, monkeypatch):
+    """A HIGH IaC misconfiguration blocks — a misconfig is always actionable (edit the IaC, never
+    wait for a patched version), so `require_fix` must not suppress it (issue #2234)."""
+
+    # Given a HIGH misconfiguration in the report (no package, no fixed version)
+    items = ss._trivy_misconfig_findings(TRIVY_MISCONFIG)
+
+    # When  the full policy is applied
+    bad = ss.blocking(items, POLICY, "full")
+
+    # Then  it blocks even with `require_fix` on — a misconfiguration's fix is editing the file
+    assert [i["id"] for i in bad] == ["DS-0002"]
+    assert ss.blocking(items, dict(POLICY, require_fix=True), "full") != []
+
+
+def test_a_medium_misconfig_is_recorded_never_blocking():
+    """`fail_on` still gates an IaC misconfiguration: MEDIUM is recorded, never a red (issue
+    #2234)."""
+
+    # Given a MEDIUM misconfiguration
+    items = ss._trivy_misconfig_findings(TRIVY_MISCONFIG_MEDIUM)
+
+    # When  the full policy is applied
+    bad = ss.blocking(items, POLICY, "full")
+
+    # Then  it is not blocking (only critical/high gate), and the report-only PR mode is empty too
+    assert bad == []
+    assert ss.blocking(items, POLICY, "pr") == []
 
 
 def test_grype_findings_are_normalised():
