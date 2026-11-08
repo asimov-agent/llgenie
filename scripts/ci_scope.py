@@ -434,24 +434,27 @@ def verify(decision_obj: dict | None, jobs: list[dict]) -> dict:
 
 
 def check_run_payload(verdict: str, head_sha: str, lines: list[str],
-                      conclusion: str | None = None, run_label: str = "") -> dict:
+                      conclusion: str | None = None, run_label: str = "", title: str | None = None) -> dict:
     """The `POST /repos/{owner}/{repo}/check-runs` body the verdict posts on the run's head.
 
     A `workflow_run` run creates NO check-run of its own on the commit (measured on 0bd5ac6e: the
     cancelled CI run's rows are the only ones, `auto-merge`'s own run is absent), so a verdict that is
     only a red workflow would still read clean to every check-run reader. Posting it is what puts the
     answer where the question is asked. `conclusion` overrides the verdict's mapping for the
-    SUPERSEDED case, where the head is owed nothing because a later run owns it.
+    SUPERSEDED case, where the head is owed nothing because a later run owns it. `title` names the
+    EFFECTIVE verdict the posted conclusion carries (issue #2221): when the head's unjudged reds force
+    a failure over a green judged run, the title must say "red", never "green" on a failure row.
     """
     mapped = {"green": "success", "red": "failure", "none": "failure"}
     summary = "\n".join(lines)
+    title_word = title if title is not None else verdict
     return {
         "name": "ci-verdict",
         "head_sha": head_sha,
         "status": "completed",
         "conclusion": conclusion or mapped[verdict],
         "output": {
-            "title": (f"ci-verdict: {verdict}" + (f" ({run_label})" if run_label else ""))[:255],
+            "title": (f"ci-verdict: {title_word}" + (f" ({run_label})" if run_label else ""))[:255],
             "summary": summary[:65000],
         },
     }
