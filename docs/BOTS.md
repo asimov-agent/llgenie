@@ -459,6 +459,7 @@ agents/
 ```bash
 make sync-agent-profile PROFILE=llgenie-planner                       # copy agents/<p>/ into the profile's Hermes home
 make sync-agent-profile PROFILE=llgenie-planner CHECK=1               # compare instead; names the first differing path
+make provision-agent-profiles                                          # profile-creation/rebuild entrypoint: materialise EVERY lane from agents/ into its home, then gate it back against the tree (issue #2165) — wired into make install so a rebuild cannot skip it
 make check-agent-profiles                                             # CI (ci-unit): the tree is honest
 make agent-profiles-report                                            # every profile, its SOUL, skills and rules
 make profile-drift                                                   # host-only: tree copies that are PREFIXES of the live rulebook (#928)

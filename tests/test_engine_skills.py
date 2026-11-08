@@ -1417,7 +1417,7 @@ def test_install_writes_container_start_scripts(tmp_path, monkeypatch):
     assert 'name="llgenie-prism-server-$port"' in prism and 'name="llgenie-llama-server-$port"' in stock
     # And make test-built-engine drives the --version check
     mk = (REPO / "Makefile").read_text()
-    assert "install: bash-check venv-install engine-launchers link test-built-engine smoke" in mk
+    assert "install: bash-check venv-install engine-launchers link test-built-engine smoke provision-agent-profiles" in mk
     assert "install_engine_launchers.py --bin \"$(BIN)\" --test" in mk
 
 
