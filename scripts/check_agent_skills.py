@@ -61,6 +61,20 @@ AGENTS_MARKER = "## A bot's behaviour lives in its project skill"
 RETIRED_RULES_FILE = Path("scripts") / "fix_bot_rules.md"
 #: Text that belongs in `bot-unattended/SKILL.md` and nowhere near a make recipe.
 INLINE_UNATTENDED = "NEVER ask a question"
+#: The hard cap `skill_manage` enforces on ONE SKILL.md (issue #2084). It counts CHARACTERS, not bytes:
+#: a skill at 100,330 characters cannot save another lesson at all — every later `skill_manage` batch
+#: rolls back with "SKILL.md content is N characters (limit: 100000)", so the lane stops learning and
+#: nothing in CI says why. Measured at #2084: four tree skills were over this cap simultaneously
+#: (bot-orchestration 101,586; pipeline-maintenance 103,203; engine-improver 106,407;
+#: pr-rebase 103,927), which is why the gate checks every agent skill and not one.
+SKILL_CHAR_LIMIT = 100_000
+#: Where the overflow must go. Named in the finding so the message carries the REMEDY, not only the number.
+SKILL_OVERFLOW_REMEDY = (
+    "move whole sections into `references/<topic>.md` and leave a one-line pointer in SKILL.md "
+    "— that is the only shape that keeps the file inside the cap without losing a rule"
+)
+#: Every versioned agent skill. `agents/<profile>/skills/<skill>/SKILL.md`.
+AGENT_SKILL_GLOB = "agents/*/skills/*/SKILL.md"
 #: The preflight every unattended leg owes before it reads anything else (issue #792).
 PREFLIGHT_OBLIGATION = "make bot-preflight"
 LEG_SOURCES = ("Makefile", "scripts/*.sh")
@@ -336,6 +350,27 @@ def findings(root: Path = REPO_ROOT) -> list[dict]:
                 "where": "AGENTS.md",
                 "detail": f"does not carry the heading `{AGENTS_MARKER}`, so the rule that a bot's "
                           "behaviour lives in its skill can be deleted without anything noticing",
+            })
+    # ---- a skill the tool would refuse to save --------------------------------
+    # `skill_manage` rejects a SKILL.md over SKILL_CHAR_LIMIT CHARACTERS and rolls the whole batch
+    # back, so the lane silently stops learning. Nothing else in CI measured this, and four tree
+    # skills were over it at once (issue #2084).
+    for path in sorted(root.glob(AGENT_SKILL_GLOB)):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            items.append({"key": "skill-size-unreadable",
+                          "where": str(path.relative_to(root)),
+                          "detail": f"cannot be read, so its length is unknown: {exc}"})
+            continue
+        if len(text) > SKILL_CHAR_LIMIT:
+            items.append({
+                "key": "skill-over-char-limit",
+                "where": str(path.relative_to(root)),
+                "detail": f"is {len(text):,} characters, {len(text) - SKILL_CHAR_LIMIT:,} over the "
+                          f"{SKILL_CHAR_LIMIT:,}-character limit `skill_manage` enforces — the next "
+                          f"lesson this lane learns cannot be saved at all and the whole batch rolls "
+                          f"back. Remedy: {SKILL_OVERFLOW_REMEDY}",
             })
     return items
 
