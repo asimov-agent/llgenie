@@ -16,14 +16,23 @@ own memory, skills, and conversation history across sessions.
 must be brought to upstream `main` and the rulebook re-read there:
 
 ```bash
-git -C /home/asimov/repository/git/llgenie fetch origin main
-git -C /home/asimov/repository/git/llgenie rev-list --left-right --count HEAD...origin/main   # expect: 0 0
+git -C "$HOME/repository/git/llgenie" fetch origin main
+git -C "$HOME/repository/git/llgenie" rev-list --left-right --count HEAD...origin/main   # expect: 0 0
 ```
 
 Then re-read `AGENTS.md` at that sha (it is 87 KB and it changes weekly) and name the sha in the dispatch. A brief
 that does not cite the `main` sha it was written against is incomplete — the implementer must open a fresh worktree
 off `origin/main` and read `AGENTS.md` there before its first edit. Issue #792 makes this a gate
 (`make bot-preflight`, `AGENTS:` line in the PR body) rather than a habit.
+
+**Write `$HOME`, never `/home/<user>`, in anything you author (owner 2026-11-08; issue #2145).** SOUL.md, skills,
+references, documentation and config examples all use `$HOME` — every lane shells through bash, so `$HOME` resolves
+and the instruction stays host-independent instead of encoding one machine's account name in a public repository.
+**The one carve-out is real:** a context that is parsed rather than executed — a systemd unit (`ExecStart=`,
+`EnvironmentFile=`, `WorkingDirectory=`), a crontab line outside a shell, a YAML/JSON value consumed by a program —
+must NOT use `$HOME`, because nothing expands it there; keep an absolute path or use the native form (`%h` in
+systemd). Do not "fix" a unit file into a form that silently fails. When you find the literal in an `agents/**/*.md`
+file, fix the prose; leave `scripts/*.py`, which may legitimately build an absolute path from `pathlib.Path.home()`.
 
 **Host space is measured before a build, never recovered after a wedge (issue #1583).** The host `/tmp` is a
 32G / 1,048,576-inode tmpfs every lane shares for worktrees, probes and container builds, and a full tmpfs
@@ -33,7 +42,7 @@ wedges whichever lane touches it next with no tree state saved. Before dispatchi
 free) — refuse the dispatch then, and say why, rather than starting a doomed run. The rule is a threshold and a
 placement preference, not deletion: occupant attribution and cleanup stay the owner's call (`make
 check-host-space` only measures and refuses). Heavy worktrees default to real disk under
-`/home/asimov/repository/git/llgenie-wt/`; `/tmp` holds at most small/scratch files and never a multi-GB probe
+`$HOME/repository/git/llgenie-wt/`; `/tmp` holds at most small/scratch files and never a multi-GB probe
 tree. `ci-free-disk` (CI runner disk) is unchanged.
 
 **Never prune worktrees — report them.** `make worktree-prune`, `git worktree prune` and `git worktree remove` are
@@ -143,6 +152,19 @@ to edit another lane's files, a commit author is not a cosmetic field (an unallo
 via `check-pr-authors` — #840), and a label is board state that belongs to the planner. Report with a one-line reason
 and a one-line unblock condition instead.
 
+**A "failed main pipeline" or a "failed PR" is only a fact at the sha you just fetched (owner 2026-11-08).** `main`
+moves roughly every 26 minutes here, so a red verdict read against a remembered sha is a claim about the past. Before
+you file on, dispatch for, or report a main-tip failure: resolve the failing check-run's `head_sha` and compare it to
+`origin/main`. If they differ, the red describes that commit, not the tip — say so instead of reporting main as red,
+and re-measure at the current tip, which may already be green. The same applies to a PR: re-read its `headRefOid`
+before calling it red, because a lane may have pushed since your last look.
+
+**When the checkout is dirty, measure at `origin/main`, never in the working tree.** The primary clone is
+owner-mediated and routinely carries uncommitted files; you do not clean it, and a `HEAD...origin/main` that is not
+`0 0` is a finding you report (with the blocking paths), not a repair you perform. Read recipes, gates and workflows
+with `git show origin/main:<path>` and search with `git grep <pat> origin/main` — a stale working tree is the
+cheapest way to "prove" drift that does not exist.
+
 ## Standing rules (fleet, learned 2026-10-28)
 
 
@@ -168,4 +190,13 @@ and a one-line unblock condition instead.
 
 ## This lane's rules (kept outside the fleet block)
 
-Rules 13 and 14, verbatim from `agents/standing-rules.md` (issue #873), copied at commit time.
+Rules 13 and 14, verbatim from `agents/standing-rules.md` (issue #873), copied at commit time — plus
+this lane's own standing rules, which are not fleet-wide and so do not belong in the canonical block.
+The block above must stay byte-identical to `agents/standing-rules.md` (the `fleet-block-drift` gate);
+lane-specific rules live here.
+
+- **Host-lane precedence over CI (issue #2073).** The owner's instruction: *"your own behaviour for working with your bots should always take precedence on the host; the CI is just the CI really"* (recorded on #2073, comment `6716290537`). Operational test: on every pass ask **"which host lane owns unblocking this?"** and answer it *before* any in-repo CI bot is touched, re-dispatched or diagnosed. A red CI job is **evidence, never a repair target** — reading a script to diagnose is fine, editing or pushing it is not (you do not implement). If an in-repo bot declines or is blind, dispatch the owning host lane anyway **and** file the bot's defect as its own issue for the code lane: two trails, never one repaired in place. Precedence chain: rebase/force-push → `llgenie-pr-merge-conflict`; product code → `llgenie-issse-implementer`; docs (`docs/**`, `agent-wiki/**`, `CHANGES.md`) → `llgenie-documentation-maintainer`; scripts/workflows/gates/make targets → `llgenie-ci-pipelines-maintainer`; engine pins/serving drift → `llgenie-engine-improver`; test evidence → `llgenie-tester`; review verdict/acceptance write-back → `llgenie-pr-reviever`. Test to end a pass: *did I dispatch the host lane that owns this action?* — "I dispatched a CI bot" or "I diagnosed a script" means the pass is not finished. (issue #2073; rule lifted from `references/host-lane-precedence.md` and the orchestrator tick prompt, not reinvented)
+
+- **Recall before you classify.** Before deciding what any red means, call `hindsight_recall` against the shared bank for the failure class (e.g. "check-pr-acceptance verdict write-back", "check-pr-base stale base", "ci-verdict no verdict", "trigger 404 poll", "check-docs change note", "openspec presence"). The same handful of classes recur every pass; recognise them instead of re-deriving them from first principles. If recall returns nothing useful for a class you had to diagnose yourself, `hindsight_retain` the class→cause→owner mapping so the next pass — and the other twelve lanes — start ahead.
+
+- **Nudge `llgenie-documentation-maintainer` and `llgenie-architect` on EVERY pass — docs and architecture are not optional work you wait to be asked for.** Neither lane has a cron; both are turn-based and act only when messaged, so a pass that does not nudge them is a pass in which the repository's written truth cannot move, however busy the board looks. **Gaps exist between the gates:** `check-docs` fires only on a PR that touches a behaviour file, so a note written thin (its presence satisfied the gate, its content did not), a doc that drifted because two merges combined into behaviour neither described, a skill two releases stale whose file nobody touched, and a structural change (lane boundary, `agents/` layout, pipeline shape, a gate's own contract) merged with no `docs/ARCHITECTURE.md` or openspec update are ALL green in CI and wrong in the tree. Nudge with measurements, not with "go look": documentation gets `make check-docs` plus `git log --oneline origin/main -20`, then verifies the note trio (`agent-wiki/<stem>.md`, `docs/changes.d/<stem>.md`, the `CHANGES.md` index row) for each merged behaviour change and reports counts (merged N, notes M, gaps N−M); the architect gets the four structural surfaces (cross-lane boundary, `agents/` layout, pipeline shape, gate contract) and files what it finds as a refined six-section issue, routing implementation to the owning lane rather than implementing. A clean audit is recorded as `docs audited at <sha>, no gaps` with its counts — a silent pass is indistinguishable from a skipped one, and you must read silence as non-compliance. Both nudges are recorded on the board (issue comment or new refined issue), never only in a DM: a DM is not a plan. (owner instruction 2026-11-08; contract issue #2117)
