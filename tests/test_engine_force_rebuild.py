@@ -587,7 +587,7 @@ def test_a_forced_build_rebuilds_the_base_stage_too(monkeypatch, tmp_path):
     forced: list[bool] = []
     captured: dict[str, str] = {}
 
-    def buildx(tag, ctx, push, cache_ref, force=False):
+    def buildx(tag, ctx, push, cache_ref, force=False, **kw):
         forced.append(bool(force))
         captured["ctx_dockerfile"] = (Path(ctx) / "Dockerfile").read_text()
         return 0
@@ -621,7 +621,7 @@ def test_a_readonly_local_build_inlines_the_base_as_an_internal_stage(monkeypatc
     monkeypatch.setattr(ei, "REGISTRY", None)          # read-only verify cell: no REGISTRY push
     seen: list[str] = []
 
-    def buildx(tag, ctx, push, cache_ref, force=False):
+    def buildx(tag, ctx, push, cache_ref, force=False, **kw):
         seen.append((Path(ctx) / "Dockerfile").read_text())
         return 0
 
@@ -735,3 +735,87 @@ def test_a_not_yet_published_latest_does_not_fail_the_pull_but_a_drifted_one_doe
     # And   once :latest exists with another digest, the pull fails
     digests["llama-cpp:latest"] = "sha256:bb"
     assert ei.pull_published(spec) == ""
+
+
+def test_a_forced_local_build_never_needs_the_container_driver(monkeypatch, tmp_path):
+    """A FORCE=1 verification build exports no cache, so it must not pay the container driver's disk.
+
+    Issue #1915: the driver gate read `not CACHE_WRITE` alone, so a FORCED local build — which
+    passes neither `--cache-from` nor `--cache-to` — still ran on the docker-container builder.
+    That driver's `--load` writes the image as a tar and unpacks it into dockerd on top of its
+    own content store (~3x the unpacked image), and the freetoken/rocm cell died ENOSPC with
+    107 GiB free (run 42326740375) after the same cell had gone green on the docker driver
+    (run 41957934540). With no cache to export, the docker driver is both legal and cheap.
+    """
+
+    # Given a FORCED local build while the privileged cache-write flag is set
+    calls = _record(monkeypatch)
+    monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+    monkeypatch.setattr(ei, "CACHE_WRITE", True)
+
+    # When  it builds
+    ei._buildx("llgenie/ft-rocm:ba31db2e-a724f1d8-rocm", str(tmp_path), False,
+               "ghcr.io/asimov-agent/llgenie/ft-rocm:buildcache", force=True)
+
+    # Then  it runs on the docker driver and carries no cache flags at all
+    build = calls[-1]
+    assert "--builder" in build and build[build.index("--builder") + 1] == "default", build
+    assert "--no-cache" in build
+    assert not any(a in ("--cache-from", "--cache-to") for a in build), build
+
+
+def test_a_cell_that_cannot_afford_the_export_builds_on_the_docker_driver(monkeypatch, tmp_path):
+    """A cell whose image cannot fit the container driver's export+load skips the cache export.
+
+    Issue #1915: freetoken/rocm is 16.10 GiB compressed / ~35 GiB unpacked, and the container
+    driver's local path needs ~3x that on a ~107 GiB-free hosted runner. The cell must therefore
+    build on the docker driver (straight into the daemon, no tar, no second copy) even on an
+    unforced verification run that would otherwise export the registry cache.
+    """
+
+    # Given an UNFORCED local build of a cell listed in NO_CACHE_EXPORT
+    calls = _record(monkeypatch)
+    monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+    monkeypatch.setattr(ei, "CACHE_WRITE", True)
+
+    # When  it builds
+    ei._buildx("llgenie/ft-rocm:ba31db2e-a724f1d8-rocm", str(tmp_path), False,
+               "ghcr.io/asimov-agent/llgenie/ft-rocm:buildcache", no_cache_export=True)
+
+    # Then  the docker driver is chosen and neither cache side is touched
+    build = calls[-1]
+    assert "--builder" in build and build[build.index("--builder") + 1] == "default", build
+    assert not any(a in ("--cache-from", "--cache-to") for a in build), build
+
+
+def test_a_cell_not_in_the_map_still_exports_its_cache(monkeypatch, tmp_path):
+    """The docker-driver path is per-cell: an ordinary cell keeps reading and writing the cache."""
+
+    # Given an unforced local build of a cell that is NOT listed
+    calls = _record(monkeypatch)
+    monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
+    monkeypatch.setattr(ei, "CACHE_WRITE", True)
+
+    # When  it builds
+    ei._buildx("llgenie/llama-cpp:1b6935b2-3932631f-cpu", str(tmp_path), False,
+               "ghcr.io/asimov-agent/llgenie/llama-cpp:buildcache-cpu", no_cache_export=False)
+
+    # Then  it stays on the container builder and both cache sides are present
+    build = calls[-1]
+    assert "--builder" not in build, build
+    assert "--cache-from" in build and "--cache-to" in build, build
+
+
+def test_the_no_cache_export_map_names_a_real_committed_cell():
+    """Every NO_CACHE_EXPORT key is a committed params id x variant — no orphan, no typo."""
+
+    import json
+
+    # Given the committed engine params
+    params_dir = REPO / "containers" / "engines" / "params"
+
+    # When  each listed cell is looked up in its params file
+    # Then  the engine ships that exact variant
+    for engine, variant in ei.NO_CACHE_EXPORT:
+        data = json.loads((params_dir / f"{engine}.json").read_text())
+        assert variant in data["variants"], f"{engine} has no {variant} variant"
