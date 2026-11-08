@@ -2793,6 +2793,9 @@ nothing about which model or base URL the daemon actually uses. The check that *
 A green `/health` with a stale `HINDSIGHT_API_LLM_BASE_URL` in `/proc/<pid>/environ` is a wired-wrong daemon,
 not a healthy one.
 
+The pointer from the lane profiles reference (`agents/*/skills/*/references/agent-profiles.md`) is tracked
+separately as **#2064**; this docs change is `docs/`-only by its own scope rule.
+
 ## How the bots stay out of each other's way
 
 Four bots (`issue-bot`, `issue-refiner`, `fix-bot`, `rebase-bot`) write to the same issues and PR

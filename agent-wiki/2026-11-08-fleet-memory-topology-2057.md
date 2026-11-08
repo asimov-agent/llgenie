@@ -45,10 +45,8 @@ Docs only — no script, no Makefile target, no code (AC7).
 
 ## Not covered
 
-- AC5 names the link source as the lane profiles reference under
-  `agents/*/skills/*/references/agent-profiles.md`. Adding a pointer there is an `agents/` change,
-  which AC7 forbids on this vehicle ("touches `docs/` (and its change note) only"). The link is
-  therefore provided from `docs/BOTS.md`'s own profiles section (the doc a reader reaches first);
-  wiring the `agents/` skill reference is a follow-up work item under the change→note gate, not
-  this docs PR.
+- The profiles reference the lanes preload links to the new section — the Technical names that reference
+  as `agents/*/skills/*/references/agent-profiles.md`, an `agents/` change AC7 forbids on this vehicle
+  ("touches `docs/` (and its change note) only"). The link is provided from `docs/BOTS.md`'s own profiles
+  section instead; wiring the `agents/` skill reference is tracked as #2064.
 
