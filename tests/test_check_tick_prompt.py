@@ -9,6 +9,7 @@ without). These tests run the real script against fixture files, no live
 
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -93,8 +94,13 @@ def test_gate_counts_both_byte_sizes_on_divergence(tmp_path):
     )
     r = _run(lf)
     assert r.returncode == 1
-    # both byte counts must be named so the reviewer sees the magnitude
-    assert "b)" in r.stdout and "b)" in r.stdout.replace("(", " (", 1)
+    # both byte counts must be named so the reviewer sees the magnitude: the
+    # live prompt's and the versioned copy's, as two distinct {n} b) tokens.
+    sizes = re.findall(r"\((\d+) b\)", r.stdout)
+    assert len(sizes) == 2, (r.stdout, sizes)
+    live_n, ver_n = (int(s) for s in sizes)
+    assert live_n == 4, (live_n, r.stdout)     # "diff" is 4 bytes
+    assert ver_n == len(VERSIONED.read_text()), ver_n
 
 
 def test_gate_exits_2_when_job_missing(tmp_path):
