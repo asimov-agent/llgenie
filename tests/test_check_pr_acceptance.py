@@ -129,20 +129,21 @@ def test_pr_body_claim_matching_a_ticked_criterion_is_GREEN():
 # --- CLI: live issue read at merge time ---------------------------------------------------------------
 
 
-def _fake_gh(tmp_path: Path, issue_body: str, monkeypatch) -> None:
-    """A `gh` on PATH answering `issue view N --json body` from a sidecar file.
+def _fake_gh(tmp_path: Path, issue_body: str, monkeypatch, state: str = "OPEN") -> None:
+    """A `gh` on PATH answering the issues API (`api repos/<o>/<r>/issues/N`) from a sidecar file.
 
     The sidecar keeps the issue body's real newlines out of the script source, so the detector cannot
-    misread an f-string/escaping artifact for a live response.
+    misread an f-string/escaping artifact for a live response. `state` is served as the issue's live
+    state; no `pull_request` key means an ISSUE, exactly as the real API answers.
     """
     bindir = tmp_path / "bin"
     bindir.mkdir()
-    (bindir / "issue.json").write_text(json.dumps({"body": issue_body}))
+    (bindir / "issue.json").write_text(json.dumps({"body": issue_body, "state": state}))
     gh = bindir / "gh"
     gh.write_text(
         "#!/usr/bin/env python3\nimport json, sys, os\n"
-        "if sys.argv[1:3] == ['issue', 'view']:\n"
-        "    here = os.path.dirname(os.path.abspath(__file__))\n"
+        "here = os.path.dirname(os.path.abspath(__file__))\n"
+        "if sys.argv[1:2] == ['api'] or sys.argv[1:3] == ['issue', 'view']:\n"
         "    print(open(here + '/issue.json').read()); sys.exit(0)\n"
         "sys.exit(1)\n")
     gh.chmod(0o755)
@@ -392,11 +393,13 @@ def test_squash_close_fires_on_an_unticked_umbrella_with_open_lanes_is_RED(tmp_p
 
 
 def _fake_gh_map(tmp_path: Path, mapping: dict[str, dict], monkeypatch) -> None:
-    """A `gh` answering `issue view N --json body` or `--json body,state` from a per-N sidecar.
+    """A `gh` answering the issues API from a per-N sidecar (also `issue view`, so the fixture is
+    indifferent to which read seam the gate uses).
 
     The rollout-lane gate probes each referenced issue's live body + state, so the fake must serve
     DIFFERENT bodies/states per issue number (the single-issue `_fake_gh` cannot). `mapping` is
-    `{issue-no-as-string: {body, state}}`.
+    `{issue-no-as-string: {body, state}}`, plus `pr: True` to make that number a PULL REQUEST (the
+    API then carries a `pull_request` key, exactly as it does for a real PR — issue #2088).
     """
     bindir = tmp_path / "bin"
     bindir.mkdir()
@@ -404,12 +407,15 @@ def _fake_gh_map(tmp_path: Path, mapping: dict[str, dict], monkeypatch) -> None:
     gh = bindir / "gh"
     gh.write_text(
         "#!/usr/bin/env python3\nimport json, sys, os\n"
-        "if sys.argv[1:3] == ['issue', 'view']:\n"
-        "    here = os.path.dirname(os.path.abspath(__file__))\n"
-        "    num = sys.argv[3]\n"
+        "here = os.path.dirname(os.path.abspath(__file__))\n"
+        "if sys.argv[1:2] == ['api'] or sys.argv[1:3] == ['issue', 'view']:\n"
+        "    num = (sys.argv[2].rsplit('/', 1)[-1] if sys.argv[1:2] == ['api'] else sys.argv[3])\n"
         "    m = json.load(open(here + '/issues.json'))\n"
         "    rec = m.get(num, {})\n"
-        "    print(json.dumps(rec)); sys.exit(0)\n"
+        "    out = {'body': rec.get('body', ''), 'state': rec.get('state', 'OPEN')}\n"
+        "    if rec.get('pr'):\n"
+        "        out['pull_request'] = {'merged_at': rec.get('merged_at')}\n"
+        "    print(json.dumps(out)); sys.exit(0)\n"
         "sys.exit(1)\n")
     gh.chmod(0o755)
     monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
@@ -470,6 +476,58 @@ def test_closed_referenced_lane_does_not_hold(tmp_path, monkeypatch):
     pr.write_text("closes #1000\n")
     rc = run_cli(["check", "--body-file", str(pr)])
     assert rc == 0, "a CLOSED referenced lane does not hold the umbrella close (#1859)"
+
+def test_open_pull_request_citing_the_umbrella_is_not_a_lane(tmp_path, monkeypatch):
+    """The #1696 shape (issue #2088): the umbrella cites the OPEN PR that implements it.
+
+    Measured on run `42440654316` job `128608975606` at head `0d09448b`: #1558's body cites `#1696`
+    — an OPEN pull request whose body cites `#1558` back — and the gate read that pair as
+    `umbrella #1558 → lane #1696`, so the PR redded on a finding about ITSELF and could never close
+    the umbrella. The issues API answers `state: open` for a PR, which is why `pull_request` has to
+    be read: a PR is the vehicle for an umbrella, never a lane of it.
+    """
+    body = _umbrella_with_cited_lanes([1696], self_ref=1000)
+    mapping = {
+        "1000": {"body": body, "state": "OPEN"},
+        # the PR: OPEN, cites the umbrella back — but it is a pull request, not a lane
+        "1696": {"body": "supersedes the AMD route — the umbrella tracked by #1000", "state": "OPEN", "pr": True},
+    }
+    _fake_gh_map(tmp_path, mapping, monkeypatch)
+
+    assert g.rollout_lane_findings(body, 1000, "gh", "asimov-agent/llgenie") == [], \
+        "a referenced PULL REQUEST is never a rollout lane, whatever its state (#2088)"
+
+    pr = tmp_path / "pr.md"
+    pr.write_text("closes #1000\n")
+    rc = run_cli(["check", "--body-file", str(pr)])
+    assert rc == 0, "an OPEN PR that cites the umbrella back must not hold the umbrella's close (#2088)"
+
+
+def test_already_closed_close_target_yields_no_lane_finding(tmp_path, monkeypatch):
+    """Issue #2088 facet 2: `#1694` was CLOSED 2026-11-04T21:09:51Z yet a 2026-11-08 run flagged it.
+
+    A `closes #N` aimed at an already-closed issue cannot auto-close anything, so its lane probe is
+    not a control. The fixture is a genuinely RED one otherwise: the target's body cites an OPEN
+    ISSUE lane that cites the target back — proving the short-circuit (not a weak fixture) is what
+    makes it green. The open-target control at the end shows the same fixture still reds.
+    """
+    body = _umbrella_with_cited_lanes([101])
+
+    def _run(target_state: str) -> int:
+        work = tmp_path / target_state.lower()
+        work.mkdir()
+        mapping = {
+            "1000": {"body": body, "state": target_state},
+            "101": {"body": "agents(implementer): land the pointer — umbrella tracked by #1000", "state": "OPEN"},
+        }
+        _fake_gh_map(work, mapping, monkeypatch)
+        pr = work / "pr.md"
+        pr.write_text("closes #1000\n")
+        return run_cli(["check", "--body-file", str(pr)])
+
+    assert _run("CLOSED") == 0, "an already-CLOSED close target must not be lane-probed (#2088)"
+    assert _run("OPEN") != 0, "control: the same fixture with an OPEN target still holds (#1859)"
+
 
 def test_umbrella_with_no_cited_lane_is_green(tmp_path, monkeypatch):
     """A fully-ticked umbrella that cites no other issue has no lanes to probe — green."""
