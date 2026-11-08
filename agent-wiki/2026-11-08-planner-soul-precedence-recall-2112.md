@@ -58,7 +58,12 @@ therefore belong beside the block, not in it, which is what the section header a
 
 ## Files
 
-- `agents/llgenie-planner/SOUL.md` (+2 rules, 21,129 b → 23,200 b)
+- `agents/llgenie-planner/SOUL.md` (+2 rules)
+- `tests/test_agent_profiles.py` — `test_the_planner_soul_states_host_lane_precedence_and_recall_before_classify`,
+  the same content-pin pattern this lane used for #1889 (`test_fleet_rule_19`) and #1891
+  (`test_fleet_rule_20`). It reds if either rule disappears and asserts neither pre-existing rule was
+  duplicated. AC5 says "verifiable after merge by grep at the merged sha"; a pin makes that true at any
+  sha by running one test, which is strictly stronger than a grep.
 - `docs/changes.d/2026-11-08-planner-soul-precedence-recall-2112.md`
 - `agent-wiki/2026-11-08-planner-soul-precedence-recall-2112.md` (this note)
 - `CHANGES.md` (regenerated index)
