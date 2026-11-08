@@ -25,6 +25,11 @@ metadata:
 > Fleet-integrity meta-audit (enumerate lanes → SOUL+SKILL presence gate → role-split overlap/gap
 > via `agents/manifest.json` → operational-lane idle-audit-encoding grep → one refined issue per gap →
 > route to the OWNING lane, never self-implement): `references/lane-role-audit.md`.
+>
+> Host-lane working takes precedence over CI machinery, always (owner 2026-11-08): a pass reaches
+> for the owning host lane FIRST — a declined or blind in-repo bot is a dispatch trigger for that
+> host lane plus one issue in its code lane, never a reason the planner repairs the CI itself:
+> `references/host-lane-precedence.md` (ownership map + two-trail rule; planner authors no code).
 
 <!-- host-bot-tools:begin -->
 
