@@ -119,6 +119,7 @@ arm() {
 
 if [ "$MODE" = "all" ]; then
   list="$PR_LIST"
+  [ -n "$list" ] && [ -f "$list" ] && list="$(cat "$list")"
   [ -z "$list" ] && list="$(gh pr list --repo "$SLUG" --state open --limit 100 \
       --json number,autoMergeRequest,mergeStateStatus,mergeable,reviewDecision 2>/dev/null || echo "[]")"
   printf '%s' "$list" | python3 -c "

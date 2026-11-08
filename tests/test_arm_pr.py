@@ -42,19 +42,28 @@ def _pr(armed=False, ms="CLEAN", mergeable="MERGEABLE", review="APPROVED"):
 
 
 class FakeGH:
-    """A configurable fake `gh` on a temp PATH."""
+    """A configurable fake `gh` on a temp PATH.
 
-    def __init__(self, tmp_path, checks="", merge_rc=0, view_after_arm="armed"):
+    view_map (optional): {pr_number: state_json} returned by `gh pr view`.
+    When empty, the single fixed response (armed/unarmed) is returned. Used to
+    drive `--all` sweeps with per-PR states.
+    """
+
+    def __init__(self, tmp_path, checks="", merge_rc=0, view_after_arm="armed",
+                 view_map=None):
         self.dir = Path(tmp_path) / "bindir"
         self.dir.mkdir(parents=True, exist_ok=True)
         self.gh = self.dir / "gh"
-        # view_after_arm: what `pr view` returns for autoMergeRequest AFTER merge:
-        #   "armed"  -> real arm read back (success)
-        #   "unarmed" -> armed nothing (#964 shape)
+        import shlex
+        vm = "\n".join(f"{n}) printf %s {shlex.quote(json.dumps(c))}; exit 0 ;;"
+                       for n, c in (view_map or {}).items())
         script = f"""#!/bin/bash
 if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then printf %s '{checks}'; exit 0; fi
 if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then exit {merge_rc}; fi
 if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
+  case "$3" in
+{vm}
+  esac
   if [ "$VIEW_AFTER" = "unarmed" ]; then printf %s '{{"autoMergeRequest":null}}'
   else printf %s '{{"autoMergeRequest":{{"enabledAt":"2026-11-08T00:00:00Z"}}}}'; fi
   exit 0
@@ -79,6 +88,34 @@ def _run(state, view_after_arm="armed", checks="", dry=False):
     }
     out = subprocess.run(
         ["bash", str(SCRIPT), "7"], capture_output=True, text=True, env=env, timeout=60
+    )
+    return out
+
+
+def _run_all(pr_list, view_map, dry=True):
+    """Drive `arm_pr.sh --all` with an open-PR PR_LIST and per-number state map.
+
+    `--all` reads the PR_LIST, then `arm` reads each PR's state via `gh pr view`
+    (PR_STATE is not set in the sweep). The fake gh returns the per-number state
+    from view_map. Dry-run only -- this test asserts classification/reporting,
+    never a real merge.
+    """
+    tmp = Path(tempfile.mkdtemp())
+    fgh = FakeGH(tmp, view_map=view_map)
+    plf = tmp / "prlist.json"
+    plf.write_text(json.dumps(pr_list))
+    env = {
+        **os.environ,
+        "PATH": f"{fgh.dir}:{os.environ.get('PATH','')}",
+        "REPO": str(tmp),
+        "SLUG": "asimov-agent/llgenie",
+        "PR_LIST": str(plf),
+        "PR_STATE": "",
+        "VIEW_AFTER": "armed",
+        "DRY": "1" if dry else "0",
+    }
+    out = subprocess.run(
+        ["bash", str(SCRIPT), "--all"], capture_output=True, text=True, env=env, timeout=60
     )
     return out
 
@@ -144,3 +181,30 @@ def test_dry_run_classifies_without_running_the_arm(tmp_path):
     assert "DRY:" in out.stdout
     assert "gh pr merge 7" in out.stdout
     assert "ARMED #7" not in out.stdout  # nothing actually armed
+
+
+def test_all_sweep_classifies_four_states(tmp_path):
+    # The orchestrated `--all` path (what the tick invokes) must distinguish all
+    # four states across the board, not just a single PR.
+    pr_list = [
+        {"number": 1},
+        {"number": 2},
+        {"number": 3},
+        {"number": 4},
+    ]
+    view_map = {
+        1: _pr(armed=True),                                          # armed
+        2: _pr(review="CHANGES_REQUESTED"),                          # unarmed-not-green
+        3: _pr(armed=True, ms="DIRTY", mergeable="CONFLICTING"),     # inert
+        4: _pr(),                                                    # green+approved+unarmed
+    }
+    out = _run_all(pr_list, view_map, dry=True)
+    assert out.returncode == 0, out.stdout + out.stderr
+    assert "already armed" in out.stdout                       # #1
+    assert "unarmed and not green" in out.stdout               # #2
+    assert "ARMED-BUT-DIRTY" in out.stdout and "INERT" in out.stdout      # #3
+    assert "llgenie-pr-merge-conflict" in out.stdout           # #3 routed
+    assert "DRY: gh pr merge 4" in out.stdout                  # #4 would arm
+    assert "gh pr merge 1" not in out.stdout                   # armed PRs not re-armed
+    assert "gh pr merge 3" not in out.stdout                   # inert PRs not armed
+
