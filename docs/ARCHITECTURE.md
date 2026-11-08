@@ -835,8 +835,12 @@ nothing.
 A finished CI run is held to its published scope decision by `.github/workflows/ci-verdict.yml`
 (`scripts/ci_verdict.py`): it reads the only `scope` check (the `pull_request`-scoped docs/PR
 classification in `scripts/ci_scope.py`) and fails/passes the run's verdict against it, and
-says "no verdict" out loud when the event carries none. The optional dispatch `head_sha` is
-carried through the step's `env:` block — never interpolated into the `run:` shell — because
+says "no verdict" out loud when the event carries none. It judges a run only from its
+**settled** rows — `require_settled` refuses (RuntimeError, exit code 2, no check-run) any jobs
+listing with a row that is not `status: completed` with a non-empty `conclusion`, so a mid-upload
+snapshot or a concluded-without-conclusion run is never turned into a verdict (issues #2017,
+#2051) — then holds the settled run to its published decision, and the optional dispatch `head_sha`
+is carried through the step's `env:` block — never interpolated into the `run:` shell — because
 GitHub expands `${{ }}` before the shell runs, so a crafted value could inject shell commands
 into the `checks: write` judge job (issue #1972). `.github/workflows/review-verdict.yml`
 records a submitted review as the bot-verdict marker at the head it judged, and
