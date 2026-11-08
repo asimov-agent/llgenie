@@ -53,6 +53,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -69,6 +70,17 @@ ARTIFACT = "ci-scope-decision"
 #: The check-run name a reader looks for. It is not derived from a job name on purpose: it must be the
 #: same string on a run whose jobs do not exist, which is exactly when it matters most.
 CHECK_NAME = "ci-verdict"
+
+#: The conclusions that make a head NOT clean. `scripts/auto_merge.py` refuses a merge on exactly this
+#: set (`failure`, `timed_out`, `startup_failure`, `cancelled` and the `neutral` a superseded verdict
+#: posts, #1386/#1250), so a verdict that ignored them would call a head clean that can never merge.
+#: `tests/test_ci_verdict.py` asserts the two sets stay equal — the merger's rule is the definition.
+BLOCKING_CONCLUSIONS = frozenset({"failure", "timed_out", "startup_failure", "cancelled", "neutral"})
+
+#: The Actions run id inside a check-run's `details_url`
+#: (`https://github.com/o/r/actions/runs/<run>/job/<job>`) — how a check-run names the workflow that
+#: posted it, which the check-runs payload itself does not say.
+RUN_IN_DETAILS = re.compile(r"/actions/runs/(\d+)(?:/|$)")
 
 EXIT_GREEN = 0
 EXIT_RED = 1
@@ -102,6 +114,105 @@ def jobs_of(repo: str, run_id: str) -> list[dict]:
             f"run {run_id} reports {payload.get('total_count')} job(s) and one page returned {len(jobs)}: "
             f"a truncated listing cannot be a verdict")
     return jobs
+
+
+def check_runs_of(repo: str, head_sha: str) -> list[dict]:
+    """Every check-run on the head, latest only — the rows the verdict must agree are all judged.
+
+    `filter=latest` collapses re-runs so a superseded failed attempt does not shadow the row that
+    replaced it. The listing is one page of 100 (GitHub's maximum for this endpoint) and, exactly like
+    `jobs_of`, a page that returns fewer rows than `total_count` is refused: a truncated listing cannot
+    be a verdict.
+    """
+    payload = _api(f"repos/{repo}/commits/{head_sha}/check-runs?per_page=100&filter=latest")
+    rows = payload.get("check_runs") or []
+    if int(payload.get("total_count") or 0) > len(rows):
+        raise RuntimeError(
+            f"head {head_sha} reports {payload.get('total_count')} check-run(s) and one page returned "
+            f"{len(rows)}: a truncated listing cannot be a verdict")
+    return rows
+
+
+def workflow_of(repo: str, check_run: dict, cache: dict | None = None) -> dict:
+    """The workflow that posted a check-run, from the Actions run id in its `details_url`.
+
+    `{name, path}` where `path` is the workflow FILE (`.github/workflows/x.yml`) and `name` is the
+    workflow's own `name:`, as GitHub recorded them on the run. **`path` is the identity**, not the
+    name: GitHub stores a run's `name` TRUNCATED (measured: `engine-build-pr-trigger — a pin-bump PR
+    starts the producer and waits on it (issue` — the file's `name:` ends `(issue #1633)`), so matching
+    the judged roster on the name silently fails for any workflow whose name is long. The file path is
+    exact, and the roster now resolves to files for exactly that comparison.
+
+    The check-runs payload itself names the row and the app, never the workflow, so the link back has
+    to be the run the row belongs to. A row with no Actions run in it (another app, or a payload with
+    no link) is reported under its app, because an unresolvable red must never be silently dropped.
+    """
+    url = str(check_run.get("details_url") or "")
+    m = RUN_IN_DETAILS.search(url)
+    slug = ((check_run.get("app") or {}).get("slug") or "unknown")
+    if m is None:
+        return {"name": f"<app: {slug}>", "path": ""}
+    run_id = m.group(1)
+    if cache is not None and run_id in cache:
+        return cache[run_id]
+    info = _api(f"repos/{repo}/actions/runs/{run_id}") or {}
+    found = {"name": str(info.get("name") or f"<run {run_id}>"), "path": str(info.get("path") or "")}
+    if cache is not None:
+        cache[run_id] = found
+    return found
+
+
+def unjudged_reds(repo: str, head_sha: str, judged_files: set[str],
+                  check_runs: list[dict] | None = None) -> list[dict]:
+    """The head's blocking check-runs that belong to a workflow the verdict did NOT judge (#2116).
+
+    `ci-verdict` judged exactly ONE workflow (`CI`, file `ci.yml`) while `scripts/auto_merge.py`
+    refuses the merge on ANY red check-run at the head. Measured on PR #1982 head `aeac049f`:
+    `ci-verdict: success`, `autoMergeRequest` armed, and `engine-build-pr-trigger` `failure` (run
+    42440650801) — a head that was green on the one surface every reader trusts and unmergeable in
+    fact.
+
+    `judged_files` is the judged roster resolved to workflow FILE names (`verdict_roster.judged_files`),
+    because that is the only stable identity a check-run resolves to (see `workflow_of`).
+
+    The verdict's own row (`CHECK_NAME`) is skipped: it is the answer being posted, not a finding.
+    Everything else that blocks the merge is returned, so the caller can NAME it and refuse to call
+    the head clean.
+    """
+    rows = check_runs if check_runs is not None else check_runs_of(repo, head_sha)
+    cache: dict[str, dict] = {}
+    out: list[dict] = []
+    for row in rows:
+        conclusion = str(row.get("conclusion") or "").strip().lower()
+        if conclusion not in BLOCKING_CONCLUSIONS:
+            continue
+        name = str(row.get("name") or "")
+        if ci_scope.normalise_job_name(name) == CHECK_NAME:
+            continue
+        found = workflow_of(repo, row, cache)
+        if Path(found["path"]).name in judged_files:
+            continue
+        match = RUN_IN_DETAILS.search(str(row.get("details_url") or ""))
+        out.append({
+            "name": name,
+            "conclusion": conclusion,
+            "workflow": found["name"],
+            "path": found["path"],
+            "run_id": match.group(1) if match is not None else "",
+            "details_url": str(row.get("details_url") or ""),
+        })
+    return out
+
+
+def judged_roster() -> set[str]:
+    """The workflow FILES `ci-verdict.yml` judges, read from the checkout the judge runs on (base)."""
+    import verdict_roster  # noqa: PLC0415 - the roster module reads the tree, not the network
+    files = verdict_roster.judged_files()
+    if not files:
+        raise RuntimeError(
+            f"no judged workflow roster: {verdict_roster.VERDICT_WORKFLOW} names none, so every red "
+            f"check-run on the head would be unjudged — a verdict that judges nothing cannot pass")
+    return files
 
 
 def decision_of(repo: str, run_id: str) -> dict | None:
@@ -307,6 +418,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="the commit the verdict is about (default: the run's head sha)")
     parser.add_argument("--check-run-out", default=os.environ.get("CHECK_RUN_OUT"),
                         help="write the POST /check-runs body to this file")
+    parser.add_argument("--checks", default=os.environ.get("CI_VERDICT_CHECKS"),
+                        help="read the head's check-runs from this file instead of the API "
+                             "(a test, a replay)")
     args = parser.parse_args(argv)
 
     if not args.run_id and not args.jobs:
@@ -339,6 +453,27 @@ def main(argv: list[str] | None = None) -> int:
         # verdict error (exit 2), never a traceback and never a silent default. (#1730-class,
         # measured 41948125618 @ 8bc3be7d.)
         merged_pr = merged_pr_run(args.repo, run) if run else None
+        # The head's OTHER check-runs (#2116): the verdict must not call a head clean while a red
+        # posted by a workflow it does not judge is sitting on it — `auto_merge.py` refuses that merge
+        # whatever the verdict says. Read it whenever there is a live judgment (a run id) or an
+        # explicit `--checks` file; a pure `--jobs` replay has no head to read and says so below.
+        judged: set[str] = set()
+        unjudged: list[dict] = []
+        if args.checks or args.run_id:
+            head_for_checks = args.head_sha or (run or {}).get("head_sha") or ""
+            if not head_for_checks:
+                raise RuntimeError(
+                    "no head sha: the head's check-runs cannot be read, so a red this verdict did not "
+                    "judge cannot be ruled out — an unreadable head is not a clean head")
+            rows = None
+            if args.checks:
+                payload = json.loads(Path(args.checks).read_text(encoding="utf-8"))
+                rows = payload.get("check_runs") or [] if isinstance(payload, dict) else payload
+            judged = judged_roster()
+            unjudged = unjudged_reds(args.repo, head_for_checks, judged, rows)
+        else:
+            print(f"{TAG} NOTE: no run id and no --checks — the head's unjudged check-runs were NOT "
+                  f"read (a replay has no head); any real judgment does read them")
     except (RuntimeError, OSError, json.JSONDecodeError) as exc:
         # Never a pass: a verdict that could not be reached is reported as its own failure.
         print(f"{TAG} FAILED: could not reach a verdict — {exc}", file=sys.stderr)
@@ -360,11 +495,22 @@ def main(argv: list[str] | None = None) -> int:
             f"#{merged_pr.get('number')} is already merged (state={merged_pr.get('state')}) — "
             f"there is no legitimate scope decision for it, so the verdict posted below is neutral, "
             f"never success and never red")
+    if unjudged:
+        lines.append(
+            f"{TAG} UNJUDGED RED: this head carries {len(unjudged)} check-run(s) that BLOCK the merge "
+            f"(`scripts/auto_merge.py` refuses any red at the head, #1386) and this verdict did NOT "
+            f"judge — it judges only {sorted(judged)}. A plain `success` here would be the #2116 "
+            f"defect, so the verdict is not clean:")
+        for red in unjudged:
+            run_label = f" run={red['run_id']}" if red["run_id"] else ""
+            lines.append(
+                f"{TAG}   check {red['name']!r} conclusion={red['conclusion']} "
+                f"workflow={red['workflow']!r}{run_label} {red['details_url']}")
     for line in lines:
         print(line)
 
     head_sha = args.head_sha or (run or {}).get("head_sha") or ""
-    if result["verdict"] == ci_scope.GREEN:
+    if result["verdict"] == ci_scope.GREEN and not unjudged:
         conclusion, code = "success", EXIT_GREEN
     elif superseding is not None or merged_pr is not None:
         conclusion, code = "neutral", EXIT_GREEN

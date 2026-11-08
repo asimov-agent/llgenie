@@ -474,7 +474,10 @@ def _stub_gh(tmp_path: Path, *, artifact: bool, later_run: bool) -> str:
     run = {"id": 41134761297, "name": "CI", "head_sha": "0bd5ac6e" + "0" * 32,
            "conclusion": "cancelled", "status": "completed", "head_branch": "docs/x",
            "workflow_id": 7, "created_at": "2026-10-30T20:00:00Z"}
+    # The head's OTHER check-runs (the #2116 read): an empty list means nothing was posted beside the
+    # judged workflow, so these cases still test exactly the decision/supersede logic they name.
     payloads = {
+        "/commits/": {"check_runs": [], "total_count": 0},
         "/actions/runs/41134761297": run,
         "/actions/runs/41134761297/jobs": {"jobs": CANCELLED_FANOUT, "total_count": 4},
         "/actions/runs/41134761297/artifacts": artifacts,
@@ -850,6 +853,7 @@ def _stub_gh_straggler(tmp_path: Path, pr) -> str:
         {"name": "scanner-images", "status": "completed", "conclusion": "skipped"},
     ]
     payloads = {
+        "/commits/": {"check_runs": [], "total_count": 0},
         "/actions/runs/41948125618": run,
         "/actions/runs/41948125618/jobs": {"jobs": straggler_jobs, "total_count": 4},
         "/actions/runs/41948125618/artifacts": artifacts,
@@ -936,3 +940,180 @@ def test_the_dispatch_rejudge_path_is_declared_and_self_sufficient_for_head():
     # the auto workflow_run trigger is not displaced by the addition
     assert on["workflow_run"]["types"] == ["completed"]
     assert "CI" in on["workflow_run"]["workflows"]
+
+
+# ---- 10. #2116: a red this verdict did not judge is NAMED, never a plain success ------
+
+#: Run 42440650801 — the `engine-build-pr-trigger` run on PR #1982's head `aeac049f`, exactly as the
+#: specimen table in #2116 records it: the verdict judged only `CI` and posted `success` beside this.
+SPECIMEN_RED_URL = "https://github.com/asimov-agent/llgenie/actions/runs/42440650801/job/128608980091"
+SPECIMEN_CI_URL = "https://github.com/asimov-agent/llgenie/actions/runs/42440650781/job/128609091467"
+
+#: The head's check-runs, abridged to the two that matter plus the verdict's own posted row.
+SPECIMEN_CHECKS = [
+    {"name": "linux / unit", "conclusion": "success", "status": "completed",
+     "details_url": SPECIMEN_CI_URL},
+    {"name": "trigger", "conclusion": "failure", "status": "completed",
+     "details_url": SPECIMEN_RED_URL},
+    {"name": "ci-verdict", "conclusion": "success", "status": "completed",
+     "details_url": "https://github.com/asimov-agent/llgenie/runs/128612503555"},
+]
+
+
+def _specimen_api(monkeypatch):
+    """The Actions `runs/<id>` read `workflow_of()` makes — the external system, never the logic."""
+    def fake_api(path: str):
+        if "/actions/runs/42440650801" in path:
+            return {"name": "engine-build-pr-trigger — a pin-bump PR starts the producer and waits on it "
+                            "(issue",  # GitHub TRUNCATES a run's name; the path is the identity
+                    "path": ".github/workflows/engine-build-pr-trigger.yml"}
+        if "/actions/runs/42440650781" in path:
+            return {"name": "CI", "path": ".github/workflows/ci.yml"}
+        raise AssertionError(f"unexpected API path: {path}")
+    monkeypatch.setattr(cv, "_api", fake_api)
+
+
+def test_the_1982_specimen_names_the_unjudged_red_and_its_run_id(monkeypatch):
+    """The measured #2116 state: a green judged run and a red `engine-build-pr-trigger` beside it."""
+    # Given the specimen head's check-runs
+    _specimen_api(monkeypatch)
+
+    # When  the verdict asks which of them it did not judge
+    reds = cv.unjudged_reds("asimov-agent/llgenie", "aeac049f", {"ci.yml"}, SPECIMEN_CHECKS)
+
+    # Then  exactly one is named, with the workflow and the run id the table records
+    assert len(reds) == 1, reds
+    assert reds[0]["name"] == "trigger"
+    assert reds[0]["conclusion"] == "failure"
+    assert reds[0]["workflow"].startswith("engine-build-pr-trigger")
+    assert reds[0]["run_id"] == "42440650801"
+    assert reds[0]["details_url"] == SPECIMEN_RED_URL
+
+
+def test_a_judged_workflows_red_and_the_verdicts_own_row_are_not_unjudged(monkeypatch):
+    """A `CI` red is the judged run's business, and `ci-verdict` is the answer being posted."""
+    _specimen_api(monkeypatch)
+    rows = [
+        {"name": "linux / unit", "conclusion": "failure", "details_url": SPECIMEN_CI_URL},
+        {"name": "ci-verdict", "conclusion": "failure",
+         "details_url": "https://github.com/asimov-agent/llgenie/runs/128612503555"},
+        {"name": "linux / lint", "conclusion": "skipped", "details_url": SPECIMEN_CI_URL},
+    ]
+
+    reds = cv.unjudged_reds("asimov-agent/llgenie", "aeac049f", {"ci.yml"}, rows)
+
+    assert reds == [], reds
+
+
+def _cli_with_checks(tmp_path, checks) -> tuple[int, Path]:
+    jobs = [{"name": "guard", "status": "completed", "conclusion": "success"},
+            {"name": "ci-images", "status": "completed", "conclusion": "success"},
+            {"name": "scanner-images", "status": "completed", "conclusion": "success"},
+            {"name": "linux / unit", "status": "completed", "conclusion": "success"},
+            {"name": "linux / lint", "status": "completed", "conclusion": "success"},
+            {"name": "linux / install", "status": "completed", "conclusion": "success"},
+            {"name": "linux / agents-read", "status": "completed", "conclusion": "success"},
+            {"name": "linux / openspec", "status": "completed", "conclusion": "success"},
+            {"name": "linux / top-tier (none)", "status": "completed", "conclusion": "success"},
+            {"name": "linux / cpu-health", "status": "completed", "conclusion": "success"}]
+    jobs_file = tmp_path / "jobs.json"
+    jobs_file.write_text(json.dumps({"jobs": jobs, "total_count": len(jobs)}), encoding="utf-8")
+    decision_file = tmp_path / "decision.json"
+    decision_file.write_text(json.dumps(decision_for(FULL_MATRIX_PATH)), encoding="utf-8")
+    checks_file = tmp_path / "checks.json"
+    checks_file.write_text(json.dumps({"check_runs": checks, "total_count": len(checks)}),
+                           encoding="utf-8")
+    out = tmp_path / "check-run.json"
+    return cv.main(["--jobs", str(jobs_file), "--decision", str(decision_file),
+                    "--checks", str(checks_file), "--head-sha", "aeac049f",
+                    "--check-run-out", str(out)]), out
+
+
+def test_green_ci_beside_an_unjudged_red_is_not_posted_as_success(tmp_path, monkeypatch, capsys):
+    """The whole defect in one assertion: the judged run is green, the head is NOT clean."""
+    _specimen_api(monkeypatch)
+
+    # Given a fully green judged run AND a red check-run from a workflow the verdict never reads
+    rc, checks = _cli_with_checks(tmp_path, SPECIMEN_CHECKS)
+    out = capsys.readouterr().out
+
+    # Then  the verdict reds, and the output NAMES the check, the workflow and the run id
+    assert rc == 1, out
+    assert "UNJUDGED RED" in out, out
+    assert "'trigger'" in out and "run=42440650801" in out, out
+    assert "engine-build-pr-trigger" in out, out
+
+    # And  what is posted on the head is a FAILURE, never a plain success
+    payload = json.loads(checks.read_text(encoding="utf-8"))
+    assert payload["conclusion"] == "failure", payload
+    assert "run=42440650801" in payload["output"]["summary"], payload["output"]["summary"]
+
+
+def test_the_same_head_with_that_check_green_returns_to_a_clean_verdict(tmp_path, monkeypatch, capsys):
+    """The negative control's other half: the identical head, the sibling check green."""
+    _specimen_api(monkeypatch)
+    checks = [dict(row) for row in SPECIMEN_CHECKS]
+    checks[1]["conclusion"] = "success"
+
+    rc, out_file = _cli_with_checks(tmp_path, checks)
+    out = capsys.readouterr().out
+
+    # Then  nothing is unjudged and the verdict is a plain success again
+    assert rc == 0, out
+    assert "UNJUDGED RED" not in out, out
+    payload = json.loads(out_file.read_text(encoding="utf-8"))
+    assert payload["conclusion"] == "success", payload
+
+
+def test_a_check_run_from_another_app_is_named_not_dropped(monkeypatch):
+    """An unresolvable red must fail closed: it is reported under its app, never ignored."""
+    rows = [{"name": "external/scan", "conclusion": "failure",
+             "details_url": "https://ci.example.com/build/7",
+             "app": {"slug": "example-ci"}}]
+
+    reds = cv.unjudged_reds("asimov-agent/llgenie", "aeac049f", {"ci.yml"}, rows)
+
+    assert len(reds) == 1 and reds[0]["workflow"] == "<app: example-ci>", reds
+    assert reds[0]["run_id"] == ""
+
+
+def test_the_blocking_conclusions_are_the_merger_s_rule():
+    """The verdict must not call a head clean that `auto_merge.py` will refuse to merge (#1386)."""
+    import scripts.auto_merge as am
+
+    assert cv.BLOCKING_CONCLUSIONS == am.RED_CONCLUSIONS, (
+        cv.BLOCKING_CONCLUSIONS, am.RED_CONCLUSIONS)
+
+
+def test_a_run_with_no_head_sha_is_refused_not_assumed_clean(tmp_path, monkeypatch, capsys):
+    """The #2116 read needs a head. A run that reports none must exit 2 (no check-run), never a pass."""
+    # Given a finished run whose own record carries an empty head_sha
+    script = tmp_path / "gh"
+    script.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, sys\n"
+        "payloads = {\n"
+        "  '/actions/runs/1': {'id': 1, 'name': 'CI', 'head_sha': '', 'conclusion': 'success',\n"
+        "                      'status': 'completed'},\n"
+        "  '/actions/runs/1/jobs': {'jobs': [{'name': 'guard', 'status': 'completed',\n"
+        "                                      'conclusion': 'success'}], 'total_count': 1},\n"
+        "  '/actions/runs/1/artifacts': {'artifacts': []},\n"
+        "}\n"
+        "path = sys.argv[2].split('repos/o/r', 1)[1]\n"
+        "for key in sorted(payloads, key=len, reverse=True):\n"
+        "    if path.startswith(key):\n"
+        "        print(json.dumps(payloads[key])); sys.exit(0)\n"
+        "sys.stderr.write('stub gh: no answer for ' + path + '\\n'); sys.exit(1)\n",
+        encoding="utf-8")
+    script.chmod(script.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setenv("CI_VERDICT_GH", str(script))
+    out = tmp_path / "check-run.json"
+
+    # When  the verdict runs against it
+    rc = cv.main(["--repo", "o/r", "--run-id", "1", "--check-run-out", str(out)])
+    err = capsys.readouterr().err
+
+    # Then  it exits 2 and posts nothing — an unreadable head is not a clean head
+    assert rc == 2, err
+    assert "no head sha" in err, err
+    assert not out.exists(), "a verdict with no head must not be posted"
