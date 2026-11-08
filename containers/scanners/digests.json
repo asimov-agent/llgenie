@@ -1,14 +1,16 @@
 {
   "grype": {
     "dockerfile": "containers/scanners/grype/Dockerfile",
-    "ref": "ghcr.io/asimov-agent/llgenie/grype:08ab6b123e1a",
-    "tag": "08ab6b123e1a",
-    "version": "0.121.0-r0"
+    "ref": "ghcr.io/asimov-agent/llgenie/grype:a607057cfd07",
+    "tag": "a607057cfd07",
+    "version": "0.121.2-r1"
   },
   "semgrep": {
     "dockerfile": "containers/scanners/semgrep/Dockerfile",
-    "ref": "ghcr.io/asimov-agent/llgenie/semgrep:69170b46efd8",
-    "tag": "69170b46efd8",
+    "ref": "ghcr.io/asimov-agent/llgenie/semgrep:5954e2aad609",
+    "rules_file": "containers/scanners/semgrep/rules/default.yml",
+    "rules_sha": "35377b8f3956d14a382d44886fa2b76a81ddb78c64744d8ae01af9f063ab5828",
+    "tag": "5954e2aad609",
     "version": "1.165.0-r0"
   },
   "trivy": {

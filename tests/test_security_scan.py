@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import stat
 import sys
 from pathlib import Path
@@ -46,7 +47,7 @@ GRYPE_ONE = {"matches": [{
     "artifact": {"name": "openssl", "version": "3.0"},
     "fix": {"versions": ["3.1"]},
 }]}
-# A Semgrep SAST block (issue #1554): the real `semgrep.json` shape a `p/default` run writes — one
+# A Semgrep SAST block (issue #1554): the real `semgrep.json` shape a committed-pack run writes — one
 # result per fired rule, each with a check_id, a path, a start line and the matched region in
 # `extra.lines`, and a rule severity of ERROR/WARNING/INFO (NOT the policy's critical/high/…).
 SEMGREP_ONE = {"results": [{
@@ -539,8 +540,10 @@ def test_a_failed_build_is_loud(tmp_path, monkeypatch):
         raise AssertionError("a scanner that could not be obtained was accepted")
 
 
-def test_semgrep_uses_an_explicit_pack_not_auto(tmp_path, monkeypatch):
-    """`--config auto` is refused by Semgrep when metrics are off, so an explicit pack is pinned."""
+def test_semgrep_uses_the_committed_content_addressed_pack(tmp_path, monkeypatch):
+    """Semgrep runs the COMMITTED, content-pinned rules pack, not a floating registry alias, and
+    keeps metrics off (issue #1284): `--config <repo>/rules/default.yml` — the same immutable rule
+    set for the same tree, with no registry fetch at scan time."""
 
     # Given a docker stub that records the argv
     log = _docker_stub(tmp_path, monkeypatch, pull_ok=True, inspect_ok=True)
@@ -548,12 +551,135 @@ def test_semgrep_uses_an_explicit_pack_not_auto(tmp_path, monkeypatch):
     # When  a semgrep scan is launched
     ss.scan("semgrep")
 
-    # Then  the argv names an explicit pack and keeps metrics off
+    # Then  the argv names the committed pack file (not `p/default`, not `auto`) and keeps metrics off
     runs = [json.loads(l) for l in log.read_text().splitlines() if json.loads(l)[0] == "run"]
     argv = runs[-1]
-    assert "--config=p/default" in argv
-    assert "auto" not in argv
+    flag = argv[argv.index("--config") + 1]
+    assert flag.endswith("containers/scanners/semgrep/rules/default.yml"), flag
+    assert "p/default" not in argv and "auto" not in argv
     assert "--metrics" in argv and "off" in argv
+
+
+def test_semgrep_scan_excludes_the_report_directory(tmp_path, monkeypatch):
+    """The scan must not scan its own output: `security-reports/` is excluded from the semgrep run,
+    or the second of two scans at the same tree sha reports `paths.scanned` with one more entry
+    (issue #1284's byte-identical criterion; measured in the review of PR #2082). The committed rule
+    pack is excluded too (issue #2105): the pack lives inside the scan root and its own bytes are
+    detector patterns, so scanning them reports a self-finding whose only "fix" would weaken the
+    scanner — the exclusion removes the self-reference and nothing else."""
+
+    # Given a docker stub that records the argv
+    log = _docker_stub(tmp_path, monkeypatch, pull_ok=True, inspect_ok=True)
+
+    # When  a semgrep scan is launched
+    ss.scan("semgrep")
+
+    # Then  the argv excludes the report directory it writes into AND its own rule pack
+    runs = [json.loads(l) for l in log.read_text().splitlines() if json.loads(l)[0] == "run"]
+    argv = runs[-1]
+    pair = [argv[i + 1] for i, a in enumerate(argv) if a == "--exclude"]
+    assert "security-reports" in pair, argv
+    assert "containers/scanners/semgrep/rules" in pair, argv
+
+
+def test_semgrep_strips_wallclock_so_output_is_reproducible(tmp_path, monkeypatch):
+    """Two scans of the same tree / pack must be byte-identical (issue #1284): the `time` and
+    `profiling_results` wall-clock blocks semgrep embeds every run are removed from semgrep.json."""
+
+    # Given a report with a timing block that differs between runs
+    report = tmp_path / "reports"
+    report.mkdir()
+    out = report / "semgrep.json"
+    out.write_text(json.dumps({"results": [{"rule": "x"}], "time": {"total_time": 1.0},
+                               "profiling_results": [{"x": 2.0}]}), encoding="utf-8")
+    monkeypatch.setattr(ss, "REPORTS", report)
+
+    # When  the timing is stripped
+    ss._strip_semgrep_timing(out)
+
+    # Then  the report has no wall-clock and the findings/structure are unchanged
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert "time" not in data and "profiling_results" not in data
+    assert data["results"] == [{"rule": "x"}]
+
+
+def test_semgrep_rule_pack_is_not_itself_a_credential_shape():
+    """The committed semgrep pack is a set of DETECTION rules, so its own bytes must not look like
+    the credential it detects (issue #1284, measured on PR #2082): `make secret-scan` red at
+    `containers/scanners/semgrep/rules/default.yml:1465` with gitleaks' `private-key` rule, which
+    reads any `-----BEGIN … PRIVATE KEY-----` header in a committable file as a leaked key. Each
+    header writes the `KEY` with a YAML `\\x59` escape, so the pattern semgrep LOADS is unchanged
+    while the file's bytes carry no header.
+    """
+
+    import yaml
+
+    # Given the committed pack, parsed the way semgrep parses it
+    raw = (REPO / "containers" / "scanners" / "semgrep" / "rules" / "default.yml").read_text(
+        encoding="utf-8")
+    rules = yaml.safe_load(raw)
+
+    # Then  no PEM private-key header is present in the file's bytes (that shape is the finding)
+    assert not re.search(r"-----BEGIN[ A-Z0-9_-]{0,100}PRIVATE KEY( BLOCK)?-----", raw)
+
+    # And   the escape resolved: a loaded rule still names a key header, so the pack still detects
+    #       one, and no loaded string kept a literal escape (which would silently neuter the rule)
+    def strings(node):
+        if isinstance(node, dict):
+            for value in node.values():
+                yield from strings(value)
+        elif isinstance(node, list):
+            for value in node:
+                yield from strings(value)
+        elif isinstance(node, str):
+            yield node
+
+    loaded = list(strings(rules))
+    assert any("PRIVATE KEY-----" in s for s in loaded), "no loaded rule names a private-key header"
+    assert not any("\\x59" in s for s in loaded), "an escape is unresolved in the loaded rule set"
+
+
+def test_check_fails_when_digests_omits_the_semgrep_rules_sha(tmp_path, monkeypatch):
+    """A scan whose SAST rule set is not content-pinned cannot be trusted (issue #1284):
+    `make check-security-scan` fails when digests.json's semgrep entry has no `rules_sha`."""
+
+    # Given a digests.json without the semgrep rules_sha the committed pack requires
+    recorded = json.loads(ss.DIGESTS.read_text(encoding="utf-8"))
+    recorded["semgrep"] = {k: v for k, v in recorded["semgrep"].items() if k != "rules_sha"}
+    fake = tmp_path / "digests.json"
+    fake.write_text(json.dumps(recorded), encoding="utf-8")
+    monkeypatch.setattr(ss, "DIGESTS", fake)
+
+    # When  the gate runs, it must fail naming the missing content-pin
+    import io
+    from contextlib import redirect_stdout
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = ss.check()
+    assert rc == 1
+    assert "rules_sha" in buf.getvalue()
+
+
+def test_check_fails_when_a_scanner_version_lags_the_declared_baseline(tmp_path, monkeypatch):
+    """A pinned engine that silently lags the declared current-release baseline is a freshness
+    finding (issue #1284): the gate fails until the Dockerfile + make scanner-digests catch up."""
+
+    # Given a digests.json with an older semgrep than the declared baseline
+    recorded = json.loads(ss.DIGESTS.read_text(encoding="utf-8"))
+    recorded["semgrep"]["version"] = "0.9.0-r0"
+    fake = tmp_path / "digests.json"
+    fake.write_text(json.dumps(recorded), encoding="utf-8")
+    monkeypatch.setattr(ss, "DIGESTS", fake)
+
+    # When  the gate runs
+    import io
+    from contextlib import redirect_stdout
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = ss.check()
+    # Then  it fails naming the lagging engine and the baseline
+    assert rc == 1
+    assert "semgrep" in buf.getvalue() and "baseline" in buf.getvalue()
 
 
 def test_the_stack_needs_no_account_and_no_secret(tmp_path, monkeypatch):

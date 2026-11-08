@@ -25,6 +25,7 @@ refuses both the trigger and a policy that would gate such an event.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -73,6 +74,29 @@ SEMGREP_SOURCE = "semgrep"
 #: into the policy's known set so `verdict()` / `blocking()` count SAST findings against `fail_on`
 #: (ERROR is a definite vuln pattern, the top of Semgrep's scale → gated; issue #1554).
 SEMGREP_SEVERITY = {"ERROR": "high", "WARNING": "medium", "INFO": "low"}
+#: The declared current-release baseline per scanner (issue #1284): the newest version the Linux
+#: apk repo publishes for the scanner's `apk add` — the honest "current" the Dockerfile can reach.
+#: `make check-security-scan` fails when digests.json records an older one, so a pinned engine
+#: cannot silently lag the releases it should cover. Measured against packages.wolfi.dev (x86_64
+#: APKINDEX) on 2026-11-07; bump with the Dockerfile via `make scanner-digests` + PR.
+SCANNER_BASELINE: dict[str, str] = {
+    "semgrep": "1.165.0-r0",
+    "trivy": "0.70.0-r5",
+    "grype": "0.121.2-r1",
+}
+
+
+def scanner_baseline(tool: str) -> str:
+    return SCANNER_BASELINE.get(tool, "")
+
+
+def _version_sort_key(version: str) -> tuple:
+    """A sortable key for an apk build string `X.Y.Z[-rN]` (issue #1284 freshness gate)."""
+    nums, _, rev = version.partition("-")
+    return (tuple(int(x) for x in re.split(r"[+.~]", nums) if x.isdigit()),
+            int(rev.lstrip("r").partition("_")[0] or 0))
+
+
 DEFAULT_POLICY = {
     "fail_on": ["critical", "high"],
     "pr_fail_on": [],
@@ -192,12 +216,36 @@ def scan(tool: str) -> int:
         return _run(["sbom:/work/security-reports/sbom.cdx.json", "-o", "json",
                      "--file", "/work/security-reports/grype.json"], image_ref(tool))
     if tool == "semgrep":
-        # An EXPLICIT registry pack, not `--config auto`: Semgrep refuses `auto` when metrics are
-        # off ("Cannot create auto config when metrics are off"), and sending telemetry from CI is
-        # not something this run should require. `p/default` is the curated ruleset and needs no
-        # per-run decision (measured on the 4th CI run of this job).
-        return _run(["scan", "--config=p/default", "--json", "--output",
-                     "/work/security-reports/semgrep.json", "--metrics", "off", "."], image_ref(tool))
+        # A COMMITTED, content-addressed rule snapshot, not a floating registry pack: the pipeline's
+        # immutability promise (issue #714) must cover the SAST rules a scan runs too, else the same
+        # tree re-scanned a week apart can give different results with zero tree change. The pack is
+        # pinned in `containers/scanners/semgrep/rules/default.yml` (baked when the image is built)
+        # and its sha256 is recorded in `digests.json` (`semgrep.rules_sha`) — the same digests
+        # mechanism that pins the scanner binaries (issue #1284). An explicit local pack also means
+        # no `--config auto` (Semgrep refuses `auto` when metrics are off — measured on the 4th CI
+        # run of this job), no registry fetch at scan time, and no per-run decision.
+        pack = REPO / "containers" / "scanners" / "semgrep" / "rules" / "default.yml"
+        if not pack.is_file():
+            raise SystemExit("[security-scan] the pinned semgrep rules pack is missing — "
+                             "make scanner-digests / commit containers/scanners/semgrep/rules/default.yml")
+        rc = _run(["scan", "--config", f"/work/{pack.relative_to(REPO)}",
+                   "--exclude", "security-reports",
+                   "--exclude", "containers/scanners/semgrep/rules",
+                   "--json", "--output",
+                   "/work/security-reports/semgrep.json", "--metrics", "off", "."], image_ref(tool))
+        # Two scans of the same tree must be byte-identical (issue #1284): semgrep embeds a `time`
+        # (and `profiling_results`) block of wall-clock measurements, which differs every run. Strip
+        # it so `semgrep.json` is reproducible from the tree + the pinned pack. The report directory
+        # itself is excluded from the scan, or the second run would scan the first run's own output
+        # and `paths.scanned` would grow — measured by the review of PR #2082, where the naive
+        # two-run differed at exactly that key. The rule pack lives inside the scan root and is
+        # itself excluded too (issue #2105): the pack's own bytes are detector patterns, so scanning
+        # them reports a finding whose only "fix" would weaken the scanner; the pack is what the scan
+        # RUNS, not what it audits. Excluding it removes the self-reference and nothing else.
+        out = REPORTS / "semgrep.json"
+        if out.is_file() and rc == 0:
+            _strip_semgrep_timing(out)
+        return rc
     raise SystemExit(f"[security-scan] unknown tool `{tool}`; known: {', '.join(ALL_TOOLS)}")
 
 
@@ -219,6 +267,16 @@ def _trivy_findings(report: dict) -> list[dict]:
         "source": "trivy",
     } for result in report.get("Results") or []
         for vuln in result.get("Vulnerabilities") or []]
+
+
+def _strip_semgrep_timing(path: Path) -> None:
+    """Remove the wall-clock `time`/`profiling_results` blocks so semgrep.json is byte-identical
+    across re-scans of the same tree (issue #1284). Semgrep always embeds them; the findings live
+    in `results`, which the timings do not change."""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data.pop("time", None)
+    data.pop("profiling_results", None)
+    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def _trivy_secret_findings(report: dict) -> list[dict]:
@@ -433,6 +491,28 @@ def check() -> int:
                 problems.append(f"digests.json: `{tool}` has no `{key}`")
         if entry.get("tag") and f":{entry['tag']}" not in image_ref(tool):
             problems.append(f"digests.json: `{tool}` tag is not the ref's tag")
+    # The SAST rule set is immutability too (issue #1284): the rules a scan runs are pinned by sha in
+    # the SAME digests.json that pins the binaries, and the pinned engine versions must not lag the
+    # declared current-release baseline. `make check-security-scan` fails on either, so a scan that
+    # is not reproducible (or that silently runs an old set) cannot be trusted.
+    sem = recorded.get("semgrep") or {}
+    if not sem.get("rules_sha"):
+        problems.append("digests.json: `semgrep` has no `rules_sha` — the SAST rule set a scan "
+                        "runs is not content-pinned (issue #1284)")
+    pack = REPO / "containers" / "scanners" / "semgrep" / "rules" / "default.yml"
+    if not pack.is_file():
+        problems.append("containers/scanners/semgrep/rules/default.yml is missing — the scan "
+                        "would run an uncommitted rule set (issue #1284)")
+    elif sem.get("rules_sha") and hashlib.sha256(pack.read_bytes()).hexdigest() != sem["rules_sha"]:
+        problems.append("digests.json: `semgrep.rules_sha` does not match the committed "
+                        "containers/scanners/semgrep/rules/default.yml — run `make scanner-digests`")
+    for tool in TOOLS:
+        baseline = scanner_baseline(tool)
+        version = (recorded.get(tool) or {}).get("version")
+        if baseline and version and _version_sort_key(version) < _version_sort_key(baseline):
+            problems.append(f"digests.json: `{tool}` records {version!r}, older than the declared "
+                            f"current-release baseline {baseline!r} — bump the Dockerfile and "
+                            "`make scanner-digests` (issue #1284)")
     if problems:
         print(f"[security-scan] {len(problems)} problem(s):")
         for item in problems:

@@ -1231,7 +1231,7 @@ security-scan-all: engine-pins ## Run every scanner from its pinned image in dep
 	python3 scripts/security_scan.py all
 security-verdict: ## Apply data/security-policy.json to the reports (EVENT=<github event> decides whether that event may gate; ENFORCE=pr forces report-only; issue #715, #738)
 	python3 scripts/security_scan.py verdict --event "$(EVENT)" $(if $(ENFORCE),--mode "$(ENFORCE)",)
-check-security-scan: ## CI: fail when the scan policy is empty/unknown, a scanner ref is missing from digests.json, or the engine install-string pins are not inventoried / absent from the SBOM (issues #715, #1282)
+check-security-scan: ## CI: fail when the scan policy is empty/unknown, a scanner ref is missing from digests.json, the semgrep rule pack lacks a content pin or lags the declared baseline, the engine install-string pins are not inventoried / absent from the SBOM (issues #715, #1282, #1284)
 	python3 scripts/security_scan.py check
 	python3 scripts/engine_pins.py check
 engine-pins: ## Invent the engine install-string dependency pins (torch/litert/ziglang and every --index-url) into security-reports/engine-pins/ so the SBOM/Trivy pass covers them (issue #1282)

@@ -80,7 +80,9 @@ would leave root-owned files in the tree (issue #433).
   engine runtime deps are covered (issue #1282).
 - **SARIF** — `security-reports/trivy.sarif`, uploaded to the Security tab with
   `github/codeql-action/upload-sarif` (pinned by SHA), category `trivy`.
-- **Reports** — `security-reports/sbom.cdx.json`, `trivy.json`, `grype.json`, `semgrep.json`.
+- **Reports** — `security-reports/sbom.cdx.json`, `trivy.json`, `grype.json`, `semgrep.json`. Semgrep
+  runs the committed, content-addressed rule pack (issue #1284); its output has the wall-clock
+  `time`/`profiling_results` blocks stripped so two scans of the same tree are byte-identical.
 - **No scanner takes a secret.** Trivy, Syft, Grype and Semgrep run from their pinned images, so
   no scan is ever skipped for a missing credential.
 
@@ -93,7 +95,7 @@ would leave root-owned files in the tree (issue #433).
 | `make security-scan TOOL=<id>` | one scanner from its pinned image (Grype needs `make sbom` first) |
 | `make security-scan-all` | `make engine-pins`, then Syft SBOM, then Trivy, Grype, Semgrep |
 | `make security-verdict MODE=full\|pr` | apply the policy to the reports; the run's exit code |
-| `make check-security-scan` | **The gate** (inside `make ci-unit`): empty/unknown policy severities, `pr_fail_on ⊄ fail_on`, a scanner missing from `digests.json`, or an engine install-string pin absent from the SBOM fails |
+| `make check-security-scan` | **The gate** (inside `make ci-unit`): empty/unknown policy severities, `pr_fail_on ⊄ fail_on`, a scanner missing from `digests.json`, a semgrep rule pack with no content pin, an engine version older than the declared baseline, or an engine install-string pin absent from the SBOM fails |
 
 ## Findings become tagged issues
 
