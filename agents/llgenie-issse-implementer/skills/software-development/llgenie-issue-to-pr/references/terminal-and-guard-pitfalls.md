@@ -355,7 +355,7 @@ orphan row or a fragment that indexes no note).
 
 ### Host-only-wiring fixture: a CI-reachable test for a host-only script makes its fixture entry STALE — delete it
 
-A host-only script (e.g. `scripts/check_tick_prompt.py`, which needs a live `jobs.json`) is
+A host-only script (an engine- or lane-local check that needs a live `jobs.json`) is
 recorded in the host-only-wiring fixture so `check-wiring` accepts it as not-CI-reachable. If you
 LATER add a hermetic `tests/test_<script>.py` for it, the script IS now CI-reachable — the fixture
 entry is stale and `check-wiring` reds on it. The fixture's own rule is the round-trip: adding the

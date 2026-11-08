@@ -70,7 +70,7 @@ sanctioned path), or wait for a real run+write-back.
 
 A reviewer's `--proven` write-back needs evidence it can RE-RUN, not prose. Put one line per acceptance
 criterion in the body: the exact command, its observed `rc`, and the head sha it was measured at — e.g.
-`pytest tests/test_x.py::test_y -q  # rc=0 @ <head>` and `grep -c '<placeholder>' scripts/y.py  # rc=1 @ <head>`.
+`pytest tests/test_x.py::test_name -q  # rc=0 @ <head>` and `grep -c '<placeholder>' scripts/placeholder.py  # rc=1 @ <head>`.
 A bare "tested, passes" gives the reviewer nothing to pin the `(proven: reviewer=… run=… head=…)` provenance
 to; reproducible per-AC commands let the write-back land on the first pass instead of a round-trip. Beware:
 the commands' own literals (`closes #1000`, a placeholder `closes #<n>`) are parsed by `check-pr-closing` —
