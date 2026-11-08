@@ -51,10 +51,10 @@ contradicts the body** (a planner comment pivoting from matrix placeholders to t
 
 ## 2. Run the changed files' gates, not the whole pipeline
 
-- Worktrees live under `/home/asimov/repository/git/llgenie-wt/<name>`; if the branch is already
+- Worktrees live under `$HOME/repository/git/llgenie-wt/<name>`; if the branch is already
   checked out there, reuse it and **leave it clean** (`git diff > patch`, `git checkout -- .`).
 - **Run pytest inside the CI image, not with `--noconftest`.**
-  `docker run --rm -u root -v "$PWD":/repo -v /home/asimov/repository/git/llgenie:/home/asimov/repository/git/llgenie -w /repo -e HOME=/root llgenie/test:latest python -m pytest <node ids> -q --no-header`
+  `docker run --rm -u root -v "$PWD":/repo -v "$HOME/repository/git/llgenie":"$HOME/repository/git/llgenie" -w /repo -e HOME=/root llgenie/test:latest python -m pytest <node ids> -q --no-header`
   is the unit stage's own environment: conftest loaded, no-skip rule enforced. `--noconftest` is how a
   `pytest.skip` fallback looks green locally and red in CI — conftest is what rejects skips, and it
   also pulls `scripts.llgenie_serve` (gguf+numpy), which is why people reach for `--noconftest` in the
@@ -89,7 +89,7 @@ contradicts the body** (a planner comment pivoting from matrix placeholders to t
   `docker run … python -m pytest … > /repo/x.txt` is redirected by YOUR shell, not the container, so
   the file lands at the host's `/repo` root (root-owned, invisible to `ls /repo`) or the redirect
   fails before docker even starts. Write to the worktree by full path —
-  `> /home/asimov/repository/git/llgenie-wt/<name>/x.txt` — and read it from the host that already
+  `> "$HOME/repository/git/llgenie-wt/<name>/x.txt"` — and read it from the host that already
   owns the tree. Same for a `PULSE_DONE` marker: `echo … >> "$OUT"` on the same absolute path, and
   wake on the marker line.
 - **To learn where a slow stage's time really goes, run `--durations=N` over the suspect files, not
