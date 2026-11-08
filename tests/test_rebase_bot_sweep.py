@@ -42,6 +42,11 @@ def _fake_gh(tmp_path: Path, opts: dict | None = None):
     (tmp_path / "nochecks.json").write_text(json.dumps(opts.get("no_checks_by_pr", [])))
     #: PRs whose `pr view --json comments` read fails hard (a real crash, not a no-checks answer).
     (tmp_path / "failcomments.json").write_text(json.dumps(opts.get("fail_comments_by_pr", [])))
+    #: Per-PR staleness as the GitHub `compare` endpoint answers it (issue #2071): a map of
+    #: headRefName -> {"behind": bool}. A branch missing from the map answers "fresh".
+    (tmp_path / "compare.json").write_text(json.dumps(opts.get("behind_by_branch", {})))
+    #: headRefName values whose `compare` read must fail (a crashed read, issue #801).
+    (tmp_path / "failcompare.json").write_text(json.dumps(opts.get("fail_compare_for", [])))
     gh = tmp_path / "gh"
     gh.write_text(f'''#!{sys.executable}
 import json, sys, pathlib
@@ -91,6 +96,24 @@ elif args[:2] == ["pr", "checks"]:
     by_pr = json.loads(f.read_text()) if f.exists() else {{}}
     states = by_pr.get(args[2], [])
     print(json.dumps([{{"state": s}} for s in states]))
+elif args[:1] == ["api"]:
+    # `gh api repos/<repo>/compare/<base>...<head>` — the DIRECT staleness measurement (#2071).
+    # The payload carries the three fields the shared definition reads: merge_base_commit.sha,
+    # base_commit.sha and behind_by. "behind" means merge_base != base tip.
+    spec = args[1] if len(args) > 1 else ""
+    head = spec.rsplit("...", 1)[-1] if "..." in spec else ""
+    broke = here / "failcompare.json"
+    if broke.exists() and head in json.loads(broke.read_text()):
+        sys.stderr.write("gh: Not Found (HTTP 404)\\\\n")
+        sys.exit(1)
+    cf = here / "compare.json"
+    by_branch = json.loads(cf.read_text()) if cf.exists() else {{}}
+    behind = bool((by_branch.get(head) or {{}}).get("behind", False))
+    tip = "a" * 40
+    # A behind branch's merge-base is an OLDER commit; a fresh one's IS the tip.
+    mb = ("0" * 40) if behind else tip
+    print(json.dumps({{"merge_base_commit": {{"sha": mb}}, "base_commit": {{"sha": tip}},
+                       "behind_by": 3 if behind else 0, "ahead_by": 1, "status": "ahead"}}))
 else:
     print("")
 ''')
@@ -678,6 +701,140 @@ def test_a_red_pr_that_is_only_behind_is_left_to_the_fix_bot(tmp_path):
     # the conflicted one is taken even though it is red: the rebase is the precondition
     assert res["pr"] == 2, res
     assert any("the fix-bot owns that" in r for r in res["reasons"])
+
+
+# ------------------------------------- the DIRECT staleness measurement (issue #2071)
+
+
+def test_a_blocked_mergeable_pr_that_is_behind_is_rebased_not_none(tmp_path):
+    """THE measured shape of #2071: BLOCKED + MERGEABLE + genuinely behind ⇒ REBASE.
+
+    GitHub reports `mergeStateStatus=BLOCKED` (a review pending / a check failing) for a branch
+    that is also behind main, so the state-only read classified it `NONE` and the one automatic
+    rebase passed over exactly the PR that needed it. Measured 2026-11-08: all six open PRs were
+    `BLOCKED` + `MERGEABLE` + behind, and a live dispatch reported `rebased: 0`.
+    """
+    gh, log = _fake_gh(tmp_path, {
+        "search": [],
+        "prs": [_pr(51, "BLOCKED", created="2026-09-01T00:00:00Z", mergeable="MERGEABLE")],
+        "behind_by_branch": {"feat/51": {"behind": True}},
+    })
+    res = rb.sweep(str(gh), f"{OWNER}/{NAME}", today="2026-10-14", own_fork="andyholst")
+    assert res["action"] == "rebase" and res["pr"] == 51, res
+    # the row still reads BLOCKED — we did not fake a state string to make it work
+    assert rb.outcome("BLOCKED", mergeable="MERGEABLE") is rb.NONE, (
+        "the state-only classification is unchanged; only the measurement adds the answer")
+    assert rb.outcome("BLOCKED", mergeable="MERGEABLE", behind=True) is rb.REBASE
+    assert rb.outcome("BLOCKED", mergeable="MERGEABLE", behind=False) is rb.NONE
+    # and it measured via the compare endpoint, naming main and the PR head
+    asked = [json.loads(line) for line in log.read_text().splitlines()]
+    compares = [a for a in asked if a[:1] == ["api"]]
+    assert compares, asked
+    assert compares[0][1].endswith("/compare/main...feat/51"), compares[0]
+
+
+def test_the_report_names_that_a_pr_was_measured_behind(tmp_path):
+    """`rebased: 0` must not be printable while a genuinely-behind PR was passed over (AC5)."""
+    gh, _log = _fake_gh(tmp_path, {
+        "search": [],
+        "prs": [_pr(51, "BLOCKED", created="2026-09-01T00:00:00Z", mergeable="MERGEABLE")],
+        "behind_by_branch": {"feat/51": {"behind": True}},
+    })
+    res = rb.sweep(str(gh), f"{OWNER}/{NAME}", today="2026-10-14", own_fork="andyholst")
+    assert res.get("behind") is True, res
+    assert "measured behind" in res["reason"], res["reason"]
+    assert any("MEASURED behind main" in r for r in res["reasons"]), res["reasons"]
+
+
+def test_a_fresh_pr_is_reported_as_measured_not_behind(tmp_path):
+    """The negative side: a BLOCKED PR that is NOT behind is passed over, and says why."""
+    gh, _log = _fake_gh(tmp_path, {
+        "search": [],
+        "prs": [_pr(52, "BLOCKED", created="2026-09-01T00:00:00Z", mergeable="MERGEABLE")],
+        "behind_by_branch": {"feat/52": {"behind": False}},
+    })
+    res = rb.sweep(str(gh), f"{OWNER}/{NAME}", today="2026-10-14", own_fork="andyholst")
+    assert res["action"] == "none", res
+    assert any("NOT behind" in r for r in res["reasons"]), res["reasons"]
+
+
+def test_checks_in_flight_still_skip_a_pr_that_is_behind(tmp_path):
+    """The cancel guard is NOT weakened by the new measurement (AC3, issue #2071/#1102).
+
+    A rebase force-pushes, which cancels the run that is deciding the PR — that stays true no
+    matter how confidently we know the branch is behind.
+    """
+    gh, _log = _fake_gh(tmp_path, {
+        "search": [],
+        "prs": [_pr(53, "BLOCKED", created="2026-09-01T00:00:00Z", mergeable="MERGEABLE")],
+        "behind_by_branch": {"feat/53": {"behind": True}},
+        "checks_by_pr": {"53": ["IN_PROGRESS"]},
+    })
+    res = rb.sweep(str(gh), f"{OWNER}/{NAME}", today="2026-10-14", own_fork="andyholst")
+    assert res["action"] == "none", res
+    assert any("checks in flight" in r for r in res["reasons"]), res["reasons"]
+
+
+def test_a_behind_pr_whose_only_red_is_the_staleness_gate_is_taken_not_deferred(tmp_path):
+    """Half B (#2071): the fix-bot owns RED, but it cannot repair branch lineage.
+
+    Measured: fix-bot held claims on the six stale PRs, re-ran `success`, and never cleared
+    `check-pr-base` — the red WAS the staleness gate. The narrow keeps a genuinely-red PR (a
+    failing test) with the fix-bot, but a measured-behind one is this bot's, because the rebase
+    is the precondition for the gate that is red.
+    """
+    gh, _log = _fake_gh(tmp_path, {
+        "search": [],
+        "prs": [_pr(54, "BLOCKED", created="2026-09-01T00:00:00Z", mergeable="MERGEABLE")],
+        "behind_by_branch": {"feat/54": {"behind": True}},
+        "checks_by_pr": {"54": ["FAILURE"]},       # red — and the red is check-pr-base
+    })
+    res = rb.sweep(str(gh), f"{OWNER}/{NAME}", today="2026-10-14", own_fork="andyholst")
+    assert res["action"] == "rebase" and res["pr"] == 54, res
+    assert not any("the fix-bot owns that" in r for r in res["reasons"]), res["reasons"]
+
+
+def test_a_red_pr_that_is_behind_but_not_measured_behind_still_belongs_to_the_fix_bot(tmp_path):
+    """The other side of the narrow: red + BEHIND + measured FRESH stays the fix-bot's."""
+    gh, _log = _fake_gh(tmp_path, {
+        "search": [],
+        "prs": [_pr(55, "BEHIND", created="2026-09-01T00:00:00Z")],
+        "behind_by_branch": {"feat/55": {"behind": False}},
+        "checks_by_pr": {"55": ["FAILURE"]},
+    })
+    res = rb.sweep(str(gh), f"{OWNER}/{NAME}", today="2026-10-14", own_fork="andyholst")
+    assert res["action"] == "none", res
+    assert any("the fix-bot owns that" in r for r in res["reasons"]), res["reasons"]
+
+
+def test_an_unreadable_compare_is_never_read_as_not_behind(tmp_path):
+    """A failed read is not a decision (issue #801): it must not be silently "fresh"."""
+    gh, _log = _fake_gh(tmp_path, {
+        "search": [],
+        "prs": [_pr(56, "BLOCKED", created="2026-09-01T00:00:00Z", mergeable="MERGEABLE")],
+        "fail_compare_for": ["feat/56"],
+    })
+    res = rb.sweep(str(gh), f"{OWNER}/{NAME}", today="2026-10-14", own_fork="andyholst")
+    assert res["action"] != "rebase", res
+    assert any("could not be measured" in r for r in res["reasons"]), res["reasons"]
+
+
+def test_staleness_from_compare_is_the_check_pr_base_definition():
+    """The sweep and `check-pr-base` share ONE definition, so they cannot drift (#2071)."""
+    from scripts import check_pr_base as cpb
+    tip = "a" * 40
+    older = "0" * 40
+    # merge-base == base tip ⇒ fresh
+    assert cpb.staleness_from_compare(
+        {"merge_base_commit": {"sha": tip}, "base_commit": {"sha": tip}, "behind_by": 0}) is False
+    # merge-base != base tip ⇒ behind (the #845 definition the gate enforces)
+    assert cpb.staleness_from_compare(
+        {"merge_base_commit": {"sha": older}, "base_commit": {"sha": tip}, "behind_by": 4}) is True
+    # an older payload shape with only behind_by still answers
+    assert cpb.staleness_from_compare({"behind_by": 2}) is True
+    assert cpb.staleness_from_compare({"behind_by": 0}) is False
+    # and it agrees with the gate's own verdict function on the same git facts
+    assert cpb.staleness_from_compare({}) is False
 
 
 def test_a_blocked_pr_is_still_rebased_when_its_mergeable_is_conflicting(tmp_path):

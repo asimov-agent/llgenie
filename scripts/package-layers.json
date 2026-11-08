@@ -341,6 +341,11 @@
    "reason": "the lane pre-flight runs the fleet's FAST_GATES from issue_bot_gates, so the lane and the bot cannot disagree about the list (issue #475)."
   },
   {
+   "from": "rebase_bot_sweep",
+   "to": "check_pr_base",
+   "reason": "check_pr_base holds the ONE definition of staleness — the merge-base-is-not-the-base-tip rule of issue #845 — and the sweep measures a PR's staleness through it (staleness_from_compare) instead of restating the rule, so the gate that reds a stale branch and the sweep that rebases it cannot drift (issue #2071)."
+  },
+  {
    "from": "registry_review",
    "to": "model_engine_pick",
    "reason": "the sync-PR review renders the VRAM selection check from model_engine_pick's own rank/offer calls."

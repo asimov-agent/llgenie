@@ -4,15 +4,25 @@ The bot runs every 6 hours (`.github/workflows/rebase-bot.yml`). AGENTS.md and i
 a CI job that can skip itself, so the workflow is ONE job that always runs and this decides:
 *one PR per run*, with a stated reason for every PR it passes over.
 
-What it looks for: an open, non-draft PR against `main` whose merge state is BEHIND (a clean
-rebase) or DIRTY (conflicts the agent has to resolve).
+What it looks for: an open, non-draft PR against `main` that has to come back onto `main`.
+Two independent signals, and they disagree on purpose:
+
+  * the platform's own `mergeable == CONFLICTING` — a real conflict, whatever the state says;
+  * a DIRECT lineage measurement (#2071): the head's merge-base with `main` is not `main`'s tip,
+    so the branch is behind. This one exists because `mergeStateStatus` cannot answer staleness:
+    GitHub reports `BLOCKED` for a pending review or a failing check and `UNSTABLE` for a failing
+    check, so a stale-AND-red PR never says `BEHIND` and a state-only read passed it over. Six
+    PRs sat unrebasable that way (measured 2026-11-08, all `BLOCKED`+`MERGEABLE`+behind).
+    The definition is shared with `check-pr-base` (`scripts/check_pr_base.staleness_from_compare`)
+    so the sweep and the gate cannot drift.
 
 It also keeps out of the other bots' way, because three of them touch branches:
 
   * a PR with checks IN FLIGHT is skipped — rebasing it would cancel the run that is deciding it;
-  * a merely-BEHIND PR that is RED is the FIX-BOT's, not this one's (a rebase fixes staleness, not a
-    failing test); a CONFLICTED PR is taken even when red, because the rebase is the precondition
-    for everything else;
+  * a PR that is behind AND whose only red is the staleness gate is taken here, not deferred to
+    the fix-bot (#2071, half B): the rebase is the PRECONDITION for that gate, so "fix-bot owns a
+    red PR" cannot swallow a stale one. A PR that is red for a real failing test is still the
+    fix-bot's — the narrowing keys on the measured-behind fact, never on the state string;
   * the implementer never has a PR here to race — it pushes a NEW branch and only then opens the PR,
     which is therefore fresh, and the refiner never touches a branch at all.
  A PR this bot already rebased **today** is
@@ -36,6 +46,7 @@ import datetime as dt
 from datetime import datetime, timezone
 
 import bot_claims
+import check_pr_base
 
 #: The `bot-done` kind that means "this PR really was rebased today". A claim, a `gave-up`, and
 #: any other kind do NOT count: reading "any comment that names the bot" is what turned a failed
@@ -67,7 +78,36 @@ CONFLICTING = "CONFLICTING"
 REBASE, NONE, DEFER, ERROR = "rebase", "none", "defer", "error"
 
 
-def outcome(state: str, crashed: bool = False, mergeable: str | None = None) -> str:
+def measure_behind(gh: str, repo: str, base: str, head_ref: str) -> bool | None:
+    """Is this PR's head genuinely behind `base`, measured directly from lineage?
+
+    The defect #2071 names: `mergeStateStatus` cannot answer this. GitHub reports `BLOCKED`
+    whenever a required review is pending or a check is failing, and `UNSTABLE` for a failing
+    check — so a stale-and-red PR never says `BEHIND`, `outcome()` returns `NONE`, and the one
+    automatic rebase passes over exactly the PR that needs it.
+
+    The measurement is the SAME definition `check-pr-base` enforces (`Makefile:1136`, issue
+    #845): the head is behind iff its merge-base with the base is not the base tip. Read here
+    through the platform's own `compare` endpoint, which answers merge-base/base/behind_by over
+    REST — so it works for a remote PR head the runner has never fetched. `check_pr_base`'s
+    `staleness_from_compare()` holds the single definition; this function only fetches the
+    payload, so the sweep and the gate cannot drift apart.
+
+    Returns `True` (behind, needs a rebase), `False` (cut from the live base tip), or `None`
+    when the payload could not be read — a failed read is never "not behind" (issue #801).
+    """
+    try:
+        out = _gh(gh, ["api", f"repos/{repo}/compare/{base}...{head_ref}"])
+        data = json.loads(out or "{}") or {}
+    except SystemExit:
+        return None
+    if not data or "merge_base_commit" not in data:
+        return None
+    return check_pr_base.staleness_from_compare(data)
+
+
+def outcome(state: str, crashed: bool = False, mergeable: str | None = None,
+            behind: bool | None = None) -> str:
     """Classify one PR's merge state into exactly one of the four outcomes.
 
     `crashed` is an argument rather than a separate code path on purpose: a read that failed is an
@@ -79,10 +119,19 @@ def outcome(state: str, crashed: bool = False, mergeable: str | None = None) -> 
     — otherwise the sweep silently skips the exact PR it exists to rebase (#536 class). `UNKNOWN`
     re-query and DEFER semantics are unchanged: conflict beats a pending state, but never changes a
     crashed read into a rebase.
+
+    `behind` is the DIRECT lineage measurement (#2071), not a state string. A genuinely-behind
+    branch is `REBASE` whatever GitHub labels the row, because `BLOCKED`/`UNSTABLE`/`CLEAN` mask
+    staleness behind a pending review or a failing check. It outranks the `UNKNOWN`→`DEFER` branch
+    for the same reason it exists: DEFER says "the platform has not told us", and this is the
+    answer. `None` means "not measured" and leaves every prior rule exactly as it was, so a caller
+    that cannot measure does not silently change behaviour.
     """
     if crashed:
         return ERROR
     if (mergeable or "").upper() == CONFLICTING:
+        return REBASE
+    if behind is True:
         return REBASE
     value = (state or "").upper()
     if value in NEEDS:
@@ -282,14 +331,39 @@ def sweep(gh: str, repo: str, today: str | None = None, max_per_day: int = MAX_P
             if not isinstance(resolved, tuple):
                 continue
             state, mergeable = resolved
-        if outcome(state, mergeable=mergeable) is not REBASE:
+        # --- the DIRECT staleness measurement (#2071) ---
+        # `mergeStateStatus` can never prove a branch is fresh: BLOCKED is reported for a pending
+        # review or a failing check, UNSTABLE for a failing check, so a stale-and-red PR never
+        # says BEHIND and the old state-only read classified it NONE. Measure the lineage itself,
+        # on EVERY PR, with the same definition `check-pr-base` enforces (merge-base == base tip
+        # ⇒ fresh). Measuring even when the state already reads BEHIND is deliberate: half B of
+        # #2071 needs to know whether a red PR is behind in order to take it from the fix-bot.
+        # `None` (unreadable) stays `None`: a failed read is never "not behind" (#801).
+        behind = _read_pr(crashed, label, measure_behind, gh, repo, "main",
+                          pr.get("headRefName") or "")
+        measured_behind = behind is True
+        if not isinstance(behind, bool):
+            behind = None
+        if outcome(state, mergeable=mergeable, behind=behind) is not REBASE:
             if state == "UNKNOWN":
                 deferred.append(num)
                 reasons.append(f"#{num} has no computed merge state (UNKNOWN) after "
                                f"{unknown_attempts} re-queries — deferred to the next run")
+            elif behind is None:
+                reasons.append(f"#{num} is {state or 'unknown'} against main and its staleness "
+                               f"could not be measured — left for the next run "
+                               f"(a failed read is not a decision, #801)")
             else:
-                reasons.append(f"#{num} is {state or 'unknown'} against main")
+                reasons.append(f"#{num} is {state or 'unknown'} against main and NOT behind "
+                               f"(measured: merge-base == base tip)")
             continue
+        if measured_behind:
+            # Name it per PR, so `rebased: 0` can never be printed while a genuinely-behind PR
+            # was passed over (acceptance criterion 5).
+            reasons.append(f"#{num} is {state or 'unknown'} but MEASURED behind main "
+                           f"(merge-base != base tip) — the state masks staleness (#2071)")
+            state = "BEHIND" if (state or "").upper() in ("", "UNKNOWN", "BLOCKED",
+                                                          "UNSTABLE", "CLEAN") else state
         # --- coexistence with the other bots: never invalidate a run, never race the fix-bot ---
         # A claim is how the other bot says "I am on this branch" (issue #285): a fix-bot repair
         # spends up to 180 minutes in the agent with nothing in flight and no commit yet, so the
@@ -315,7 +389,7 @@ def sweep(gh: str, repo: str, today: str | None = None, max_per_day: int = MAX_P
         if running:
             reasons.append(f"#{num} has checks in flight; rebasing now would cancel that run")
             continue
-        if red and state == "BEHIND":
+        if red and state == "BEHIND" and not measured_behind:
             reasons.append(f"#{num} is red and only behind: the fix-bot owns that, a rebase is not "
                            "the blocker (a conflicted PR is taken, since the rebase is one)")
             continue
@@ -323,9 +397,11 @@ def sweep(gh: str, repo: str, today: str | None = None, max_per_day: int = MAX_P
             break                            # a partial scan is not a decision (#801): report it
         return {"action": "rebase", "pr": num, "head_branch": pr.get("headRefName"),
                 "head_repo": head_repo or owner, "state": state, "title": pr.get("title"),
+                "behind": measured_behind,
                 "fingerprint": f"{head_repo}:{pr.get('headRefName')}",
                 "reasons": reasons, "deferred": deferred,
-                "reason": f"#{num} is {state} against main"}
+                "reason": f"#{num} is {state} against main"
+                          + (" (measured behind main's tip)" if measured_behind else "")}
     if crashed:
         return {"action": "error", "pr": None, "reasons": reasons, "deferred": deferred,
                 "crashed": crashed,
