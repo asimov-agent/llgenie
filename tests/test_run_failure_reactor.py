@@ -126,14 +126,14 @@ def run_reactor(tmp_path: Path, args: list[str], dispatch_token: str | None = OW
                           env=env, capture_output=True, text=True, timeout=60)
 
 
-def failed_run(workflow="ci.yml", job="unit", head_sha="abcdef1234567890", event="push",
-               conclusion="failure", job_id=42, created_at="", job_conclusion=None):
+def failed_run(workflow="CI", job="unit", head_sha="abcdef1234567890", event="push",
+               conclusion="failure", job_id=42, created_at="", job_conclusion=None, steps=None):
     return {"conclusion": conclusion, "headSha": head_sha, "event": event,
             "workflowName": workflow, "displayTitle": f"{workflow} run",
             "createdAt": created_at,
             "jobs": [{"name": job, "conclusion": job_conclusion or conclusion,
                       "databaseId": job_id,
-                      "steps": [{"name": "run tests", "conclusion": job_conclusion or conclusion}]}]}
+                      "steps": steps or [{"name": "run tests", "conclusion": job_conclusion or conclusion}]}]}
 
 
 def pr(num, branch="feat/x", owner=OWNER):
@@ -145,9 +145,11 @@ RED = [{"name": "linux / unit", "state": "FAILURE", "bucket": "fail"}]
 
 
 def _body_of(line: str) -> str:
-    """The `--body` argument of an `issue create` log line (between `--body ` and ` --label`)."""
+    """The `--body` argument of an `issue create` log line, up to a trailing ` --label` if any."""
     start = line.index("--body ") + len("--body ")
-    end = line.index(" --label", start)
+    end = line.find(" --label", start)
+    if end == -1:
+        end = len(line)
     return line[start:end]
 
 
@@ -165,18 +167,63 @@ def test_a_red_main_run_with_no_pr_files_one_issue(tmp_path):
     assert len(creates) == 1, creates
     assert "--label" in creates[0] and "agent:implement" in creates[0]
     body = _body_of(creates[0])
-    assert "ci.yml" in body and "unit" in body
+    assert "CI" in body and "unit" in body
     assert "line5" in body, "the log tail travels with the claim"
-    assert reactor.marker("ci.yml", "unit", "abcdef1234567890") in body
+    assert reactor.marker("CI", "run tests") in body
 
 
-def test_the_same_head_sha_again_files_nothing(tmp_path):
-    # Given an OPEN issue already carrying the marker for this workflow/job@head-sha
-    m = reactor.marker("ci.yml", "unit", "abcdef1234567890")
-    log = gh_stub(tmp_path, failed_run(), [], filed=[m])
-    # When the reactor routes the same run again
+def test_a_red_pipeline_gate_run_files_ci_pipelines_label(tmp_path):
+    # Given a completed failed ci-verdict run on main with no pull request
+    wf = ('ci-verdict — holds a finished CI run to its published scope decision, and says '
+          '"no verdict" out loud')
+    log = gh_stub(tmp_path, failed_run(workflow=wf), [])
+    # When the reactor routes the run
     r = run_reactor(tmp_path, ["--repo", f"{OWNER}/llgenie", "--run-id", "123"])
-    # Then it files nothing and exits 0
+    # Then it files exactly one issue labelled for the ci-pipelines lane, NOT the product implementer
+    assert r.returncode == 0, r.stdout + r.stderr
+    creates = [l for l in log.read_text().splitlines() if l.startswith("issue create")]
+    assert len(creates) == 1, creates
+    assert "--label" in creates[0] and "agent:ci-pipelines-maintainer" in creates[0]
+    assert "agent:implement" not in creates[0]
+    body = _body_of(creates[0])
+    assert "**owned by lane:** `llgenie-ci-pipelines-maintainer`" in body
+
+
+def test_an_unclassified_workflow_files_with_no_implementation_label(tmp_path):
+    # Given a completed failed run of a workflow the classifier does not recognise
+    log = gh_stub(tmp_path, failed_run(workflow="some-future-workflow"), [])
+    # When the reactor routes the run
+    r = run_reactor(tmp_path, ["--repo", f"{OWNER}/llgenie", "--run-id", "123"])
+    # Then it still files the issue, but with NO implementation label and the class named
+    assert r.returncode == 0, r.stdout + r.stderr
+    creates = [l for l in log.read_text().splitlines() if l.startswith("issue create")]
+    assert len(creates) == 1, creates
+    assert "--label" not in creates[0]
+    assert "**failure class:** `some-future-workflow/run tests`" in _body_of(creates[0])
+    assert "**owned by lane:** `unclassified" in _body_of(creates[0])
+
+
+def test_an_engine_workflow_files_with_no_implementation_label(tmp_path):
+    # Given a completed failed engine-bump run (a lane with no agent:* queue label)
+    log = gh_stub(tmp_path, failed_run(workflow="engine-bump — bumps pinned engines"), [])
+    # When the reactor routes the run
+    r = run_reactor(tmp_path, ["--repo", f"{OWNER}/llgenie", "--run-id", "123"])
+    # Then it files the issue with the engine lane named but no implementation label
+    assert r.returncode == 0, r.stdout + r.stderr
+    creates = [l for l in log.read_text().splitlines() if l.startswith("issue create")]
+    assert len(creates) == 1, creates
+    assert "--label" not in creates[0]
+    assert "**owned by lane:** `llgenie-engine-improver`" in _body_of(creates[0])
+
+
+def test_a_repeated_broken_gate_files_nothing(tmp_path):
+    # Given an OPEN issue already carrying the class-level marker for this workflow/failing-step
+    # (a DIFFERENT run sha than the current one — the marker is class-level, issue #2076)
+    m = reactor.marker("CI", "run tests")
+    log = gh_stub(tmp_path, failed_run(head_sha="9999f9f9"), [], filed=[m])
+    # When the reactor routes the same broken gate again
+    r = run_reactor(tmp_path, ["--repo", f"{OWNER}/llgenie", "--run-id", "456"])
+    # Then it files nothing and exits 0 — the run sha is no longer part of the dedupe key
     assert r.returncode == 0, r.stdout + r.stderr
     assert "already filed" in r.stdout
     assert not [l for l in log.read_text().splitlines() if l.startswith("issue create")]
@@ -188,7 +235,7 @@ def test_a_quoted_workflow_name_still_dedupes(tmp_path):
     # the marker's `"` used to break GitHub's quoted `--search` phrase, so `filed()` never matched
     # and a fresh issue was filed for every failing run.
     m = reactor.marker('ci-verdict — holds a finished CI run to its published scope decision, and '
-                       'says "no verdict" out loud', "judge", "05185f9aecc9")
+                       'says "no verdict" out loud', "run tests")
     assert '"' in m, "the fixture must actually embed a quote to model the defect"
     log = gh_stub(tmp_path, failed_run(workflow='ci-verdict — holds a finished CI run to its '
                                                         'published scope decision, and says '
@@ -637,7 +684,7 @@ def test_a_timed_out_run_with_no_pr_files_one_issue(tmp_path):
     assert len(creates) == 1, creates
     assert "--label" in creates[0] and "agent:implement" in creates[0]
     body = _body_of(creates[0])
-    assert "ci.yml" in body and "unit" in body
+    assert "CI" in body and "unit" in body
     # And it was NOT reported as cancelled/pending — a verdict routes, it is not deferred
     assert "CANCELLED" not in r.stdout and "not a failure, nothing to do" not in r.stdout, r.stdout
 

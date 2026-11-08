@@ -1879,10 +1879,15 @@ make run-failure-reactor REPO=asimov-agent/llgenie RUN_ID=<run> DRY=1   # previe
   An unparseable refusal is surfaced the same way, with `HTTP ?`, never swallowed.
 - **Route B** — no pushable PR (a red `main` push, a red scheduled bot run, a red publish job):
   the reactor files **exactly ONE** issue whose title names the workflow + failing job, whose body
-  carries the failing job, its step, and a tail of `gh run view --log-failed`, deduped by the
-  marker `<!-- run-fixer: WORKFLOW/JOB@SHORTSHA -->` (searched `in:body`), and labelled
-  `agent:implement` so the issue-bot picks it up. An OPEN issue already carrying the marker files
-  nothing.
+  carries the failing job, its step, a tail of `gh run view --log-failed`, and the owning lane
+  (`**owned by lane:**` + `**failure class:**`), deduped by the class-level marker
+  `<!-- run-fixer: WORKFLOW/STEP -->` (the failing STEP, not the run sha — so N runs of one broken
+  gate collapse into one issue, issue #2076) searched `in:body`. It is labelled with the OWNING
+  LANE's label (`classify_workflow`, issue #2076): a pipeline/gate/bot failure carries
+  `agent:ci-pipelines-maintainer` (not the product implementer), a product-workflow failure keeps
+  `agent:implement`, and an unclassified workflow is filed with NO implementation label and the
+  class named in the body — never defaulted to the implementer. An OPEN issue already carrying the
+  marker files nothing.
 - **Route B files only work that is still work (issue #565).** "No pushable PR" covers two very
   different states and only one of them is a work item. A `pull_request`-event run is filed only
   while an **open** PR exists for its head — a draft, or a PR whose repair attempts are spent. A
@@ -2227,7 +2232,7 @@ measured on PR #1982 head `aeac049f`: `engine-build-pr-trigger` `failure` (run 4
 
 make run-failure-reactor  # route a failed CI run to a remedy (REPO=; RUN_ID=; DRY=1 previews): a PR this bot can push
                        # (this repo or the owner's fork) -> dispatch the fix-bot as the OWNER (DISPATCH_TOKEN); else file
-                       # ONE deduped issue labelled agent:implement (issue #286, fork routing #555)
+                       # ONE lane-labelled deduped issue (issue #286, #2076, fork routing #555)
 make openspec-validate NAME=<change>   # validate ONE OpenSpec change (fail-closed)
 make openspec-validate-all             # validate the structure of EVERY active change — what ci-openspec runs (issue #156)
 make openspec-new NAME=<change>        # create a change dir (the OpenSpec CLI, containerized)
