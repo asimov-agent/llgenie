@@ -7,13 +7,15 @@ non-zero exit does. Eleven never inspected `.returncode` (the failure was droppe
 turned a failed command into `""` (`detect_server._run`, `engine_skills._run`), which version/hardware
 detection reads as the benign "no version" branch.
 
-This module is that disagreement collapsed into three named policies. A caller states its policy by
+This module is that disagreement collapsed into four named policies. A caller states its policy by
 naming the function — there is NO policy default and no `_run(cmd, check=None)` escape hatch:
 
 - `run_text(cmd, ...) -> str` — give me stdout; a non-zero exit is a failure (raises `ProcError`).
 - `run_ok(cmd, ...) -> CompletedProcess` — never raises on a non-zero exit; I inspect `rc/stdout/stderr`.
 - `run_checked(cmd, ...) -> str` — give me stdout; a non-zero exit raises `ProcError` naming the
   command and its stderr (check-style, the shape the old checking wrappers hand-rolled).
+- `run_live(cmd, ...) -> CompletedProcess` — pass the child's streams straight through as it runs
+  (a long build's progress IS the log); same non-raising `rc` contract as `run_ok`.
 
 `OSError`/`TimeoutExpired` are NEVER swallowed by any policy — they propagate, because a probe whose
 command cannot even run is a louder failure than the caller acting on a value.
@@ -50,6 +52,25 @@ def _cmd(cmd: Sequence[str], *, timeout: float | None, cwd: str | None,
          env: dict[str, str] | None) -> subprocess.CompletedProcess[str]:
     """Run `cmd` capturing both streams, propagating OSError/TimeoutExpired (never swallowed)."""
     return subprocess.run(list(cmd), capture_output=True, text=True,
+                          timeout=timeout, cwd=cwd, env=env)
+
+
+def run_live(cmd: Sequence[str], *, timeout: float | None = None,
+             cwd: str | None = None, env: dict[str, str] | None = None,
+             **_: Any) -> subprocess.CompletedProcess[str]:
+    """Run `cmd`, streaming BOTH streams to the caller's own stdout/stderr in real time.
+
+    This is the policy for a long-running command whose PROGRESS is the evidence while it runs — a
+    cold engine compile, a build sweep: each line lands on the caller's terminal / CI log the moment
+    the child writes it, instead of once at the end. The child inherits the caller's descriptors (no
+    capture buffer), so a runaway build cannot be memory-bombed by its own output and the log can
+    never be silent for the 30-60 minutes a HIP/nvcc compile takes (issue #2089).
+
+    The exit-code contract is `run_ok`'s: a non-zero exit never raises, the caller inspects
+    `returncode`. `OSError`/`TimeoutExpired` still propagate — a command that could not be run is not
+    a return code. `stdout`/`stderr` on the returned process are `None` (they were not captured).
+    """
+    return subprocess.run(list(cmd), text=True, stdout=None, stderr=None,
                           timeout=timeout, cwd=cwd, env=env)
 
 

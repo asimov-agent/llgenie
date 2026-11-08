@@ -851,10 +851,14 @@ def test_push_targets_only_the_registry_tag(monkeypatch):
 
     import scripts.engine_image as ei
 
-    # Given a registry and a recorder instead of docker
+    # Given a registry and a recorder instead of docker. BOTH policies are recorded: the long
+    # `buildx build` step goes through the STREAMING `_sh_live` (issue #2089) while the short
+    # pull/tag calls stay on the capturing `_sh`.
     calls = []
     monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
-    monkeypatch.setattr(ei, "_sh", lambda cmd, **kw: (calls.append(cmd), subprocess.CompletedProcess(cmd, 0))[1])
+    recorder = lambda cmd, **kw: (calls.append(cmd), subprocess.CompletedProcess(cmd, 0))[1]  # noqa: E731
+    monkeypatch.setattr(ei, "_sh", recorder)
+    monkeypatch.setattr(ei, "_sh_live", recorder)
 
     # When a pushed build runs
     rc = ei._buildx("llgenie/base-cpu:abc", "/ctx", True, "ghcr.io/asimov-agent/llgenie/base-cpu:buildcache")

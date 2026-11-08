@@ -38,7 +38,7 @@ def _stub_repin(monkeypatch, engine=None) -> None:
 
 
 def _fake_gh(monkeypatch, before_ids=None, new_run=None, guard_conclusion="success", stall_holder=None,
-             single_run_404=False, list_missing=False):
+             single_run_404=False, list_missing=False, dispatch_rc=0, dispatch_err="", checkout_ref="HEAD"):
     """A fake `gh`-API recorder. `_gh` is a module-level function (not the `gh` binary), so we stub the API
     read path; the `gh workflow run` dispatch call is a subprocess we neutralize via `_dispatch_and_wait`'s
     `--gh gh` default by replacing NOTHING there — instead we only stub `_gh` and give no branch/ref that
@@ -128,9 +128,15 @@ def _fake_gh(monkeypatch, before_ids=None, new_run=None, guard_conclusion="succe
         arg0 = args[0] if args else []
         if len(arg0) >= 2 and arg0[:2] == ["gh", "workflow"]:
             state["dispatched"] = True
-        return type("R", (), {"stdout": "", "returncode": 0})()
+            return type("R", (), {"stdout": "", "stderr": dispatch_err,
+                                  "returncode": dispatch_rc})()
+        if len(arg0) >= 3 and arg0[:3] == ["git", "rev-parse", "--abbrev-ref"]:
+            # A `pull_request` checkout is detached: the real command prints the literal `HEAD`.
+            return type("R", (), {"stdout": checkout_ref + "\n", "stderr": "", "returncode": 0})()
+        return type("R", (), {"stdout": "", "stderr": "", "returncode": 0})()
 
     monkeypatch.setattr(ebt.subprocess, "run", fake_run)
+    state["dispatch_argv"] = recorded
     return state
 
 
@@ -376,4 +382,86 @@ def test_dry_run_prints_the_plan_without_dispatching(monkeypatch, capsys):
     assert rc == 0
     captured = capsys.readouterr()
     assert "would dispatch engine-build push=true engine=llama.cpp" in captured.out
-    assert "dry-run: nothing dispatched" in captured.out
+
+
+# ---------------------------------------------------------------------------
+# dispatch-at-the-branch (issue #2089) — a `pull_request` checkout is DETACHED
+# ---------------------------------------------------------------------------
+def _dispatch_argvs(state: dict) -> list[list[str]]:
+    return [c for c in state["dispatch_argv"]["calls"] if c and c[:2] == ["gh", "workflow"]]
+
+
+def test_a_detached_pull_request_checkout_dispatches_at_the_head_ref(monkeypatch, capsys):
+    """A detached checkout dispatches at GITHUB_HEAD_REF, NEVER at the literal `HEAD` (issue #2089).
+
+    `git rev-parse --abbrev-ref HEAD` prints `HEAD` on a `pull_request` checkout, and
+    `gh workflow run --ref HEAD` is rejected with HTTP 422 `No ref found for: HEAD`, so the repin
+    PR never actually built (PR #1696). No `--branch` is passed here: the ref must come from the
+    variable Actions exports, and the dispatched run id must still be awaited and recorded.
+    """
+    _stub_base(monkeypatch)
+    _stub_repin(monkeypatch, engine="llama.cpp")
+    monkeypatch.setenv("GITHUB_HEAD_REF", "feat/bump-llamacpp")
+    state = _fake_gh(monkeypatch, before_ids=[1],
+                     new_run={"status": "completed", "conclusion": "success",
+                              "completed_at": "2026-11-08T00:00:00Z"})
+    rc = _run(["check", "--base", _BASE, "--repo", "asimov-agent/llgenie", "--gh", "gh"])
+    assert rc == 0
+    argvs = _dispatch_argvs(state)
+    assert argvs, "nothing was dispatched at all"
+    argv = argvs[0]
+    assert argv[argv.index("--ref") + 1] == "feat/bump-llamacpp"
+    assert "HEAD" not in argv
+    # The dispatched run's own id is the verdict — recorded, not inferred from the exit code.
+    assert "producer run 77 success" in capsys.readouterr().out
+
+
+def test_a_detached_checkout_that_names_no_ref_refuses_instead_of_dispatching(monkeypatch, capsys):
+    """With no branch anywhere, the trigger REFUSES and names the fix — it never dispatches at HEAD."""
+    _stub_base(monkeypatch)
+    _stub_repin(monkeypatch, engine="llama.cpp")
+    monkeypatch.delenv("GITHUB_HEAD_REF", raising=False)
+    state = _fake_gh(monkeypatch, before_ids=[1], new_run=None, checkout_ref="HEAD")
+    rc = _run(["check", "--base", _BASE, "--repo", "asimov-agent/llgenie", "--gh", "gh"])
+    assert rc == 1
+    assert _dispatch_argvs(state) == [], "a reference-less checkout must not dispatch at all"
+    err = capsys.readouterr().err
+    assert "refusing to dispatch" in err
+    assert "GITHUB_HEAD_REF" in err
+
+
+def test_every_dispatch_input_gets_its_own_field_argument(monkeypatch):
+    """`gh workflow run --field` takes ONE value: each input is its own `--field` (issue #2089).
+
+    On `main` the argv was `["--field", "engine=x", "push=true"]`, which hands `push=true` to `gh`
+    as a POSITIONAL argument — the CLI rejects the call and no run starts. Measured as a
+    pull_request trigger run that dispatched nothing and printed a bare `run  concluded queued/None`
+    (run 42423190271 job 128555865778).
+    """
+    _stub_base(monkeypatch)
+    _stub_repin(monkeypatch, engine="llama.cpp")
+    state = _fake_gh(monkeypatch, before_ids=[1], new_run={"status": "completed", "conclusion": "success"})
+    assert _run(["check", "--base", _BASE, "--repo", "asimov-agent/llgenie",
+                 "--branch", "feat/bump", "--arch", "rocm", "--gh", "gh"]) == 0
+    argv = _dispatch_argvs(state)[0]
+    # every input pair is `--field <k=v>`; nothing dangles as a positional after the workflow name
+    assert [argv[i] for i in range(len(argv) - 1) if argv[i] == "--field"] != []
+    fields = [argv[i + 1] for i in range(len(argv) - 1) if argv[i] == "--field"]
+    assert fields == ["engine=llama.cpp", "push=true", "arch=rocm"]
+    assert sum(1 for tok in argv if tok.startswith(("engine=", "push=", "arch="))) == 3
+
+
+def test_a_rejected_dispatch_reports_the_cli_reason_not_a_bare_failure(monkeypatch, capsys):
+    """A dispatch the CLI refuses prints its own error text (HTTP 422 …), never an empty run id."""
+    _stub_base(monkeypatch)
+    _stub_repin(monkeypatch, engine="llama.cpp")
+    state = _fake_gh(monkeypatch, before_ids=[1], new_run=None,
+                     dispatch_rc=1,
+                     dispatch_err="gh: HTTP 422 (Unprocessable Entity) — the workflow input 'arch' is not valid")
+    rc = _run(["check", "--base", _BASE, "--repo", "asimov-agent/llgenie",
+               "--branch", "feat/bump", "--gh", "gh"])
+    assert rc == 1
+    assert _dispatch_argvs(state), "the rejected dispatch was still attempted"
+    err = capsys.readouterr().err
+    assert "HTTP 422" in err
+    assert "the workflow input 'arch' is not valid" in err

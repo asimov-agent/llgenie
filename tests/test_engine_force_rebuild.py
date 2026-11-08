@@ -22,6 +22,17 @@ def _spec() -> dict:
             "params_file": "containers/engines/params/llama.cpp.json"}
 
 
+def _patch_shell(monkeypatch, sh) -> None:
+    """Record BOTH shell policies on `engine_image`.
+
+    The long `buildx build` step goes through the STREAMING `_sh_live` (issue #2089) while the short
+    probes/pulls/tags stay on the capturing `_sh` — a recorder installed on `_sh` alone would see no
+    build command at all.
+    """
+    monkeypatch.setattr(ei, "_sh", sh)
+    monkeypatch.setattr(ei, "_sh_live", sh)
+
+
 def _record(monkeypatch, rc: int = 0) -> list[list[str]]:
     calls: list[list[str]] = []
 
@@ -29,7 +40,8 @@ def _record(monkeypatch, rc: int = 0) -> list[list[str]]:
         calls.append(list(cmd))
         return subprocess.CompletedProcess(cmd, rc)
 
-    monkeypatch.setattr(ei, "_sh", sh)
+    # Both policies record into the ONE list (see `_patch_shell`), so `calls` is one ordered list.
+    _patch_shell(monkeypatch, sh)
     return calls
 
 
@@ -163,7 +175,7 @@ def test_a_missing_cache_image_builds_cold_not_red(monkeypatch, tmp_path):
         probe = any("imagetools" in a for a in cmd)
         return subprocess.CompletedProcess(cmd, 1 if probe else 0)
 
-    monkeypatch.setattr(ei, "_sh", sh)
+    _patch_shell(monkeypatch, sh)
     monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
     monkeypatch.setattr(ei, "CACHE_WRITE", True)
 
@@ -197,7 +209,7 @@ def test_push_build_missing_cache_image_builds_cold_not_red(monkeypatch, tmp_pat
         probe = any("imagetools" in a for a in cmd)
         return subprocess.CompletedProcess(cmd, 1 if probe else 0)
 
-    monkeypatch.setattr(ei, "_sh", sh)
+    _patch_shell(monkeypatch, sh)
     monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
     monkeypatch.setattr(ei, "CACHE_WRITE", True)
 
@@ -228,7 +240,7 @@ def test_push_build_present_cache_still_writes_when_privileged(monkeypatch, tmp_
         # "imagetools inspect" is the cache-existence probe: report it present (rc 0).
         return subprocess.CompletedProcess(cmd, 0)
 
-    monkeypatch.setattr(ei, "_sh", sh)
+    _patch_shell(monkeypatch, sh)
     monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
     monkeypatch.setattr(ei, "CACHE_WRITE", True)
 
@@ -258,7 +270,7 @@ def test_cache_write_args_tolerates_missing_package(monkeypatch):
         # "imagetools inspect" is the cache-existence probe: report it absent (rc 1).
         return subprocess.CompletedProcess(cmd, 1)
 
-    monkeypatch.setattr(ei, "_sh", sh)
+    _patch_shell(monkeypatch, sh)
     monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
 
     # When the engine's package is absent from the registry
@@ -281,7 +293,7 @@ def test_cache_write_args_emits_cache_to_when_present(monkeypatch):
         calls.append(list(cmd))
         return subprocess.CompletedProcess(cmd, 0)
 
-    monkeypatch.setattr(ei, "_sh", sh)
+    _patch_shell(monkeypatch, sh)
     monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
 
     # When the engine's package IS on the registry
@@ -350,7 +362,7 @@ def test_a_present_cache_image_keeps_cache_from(monkeypatch, tmp_path):
         calls.append(list(cmd))
         return subprocess.CompletedProcess(cmd, 0)
 
-    monkeypatch.setattr(ei, "_sh", sh)
+    _patch_shell(monkeypatch, sh)
     monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
     monkeypatch.setattr(ei, "CACHE_WRITE", False)
 
@@ -383,7 +395,7 @@ def test_a_present_cache_image_still_writes_when_privileged(monkeypatch, tmp_pat
         calls.append(list(cmd))
         return subprocess.CompletedProcess(cmd, 0)
 
-    monkeypatch.setattr(ei, "_sh", sh)
+    _patch_shell(monkeypatch, sh)
     monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
     monkeypatch.setattr(ei, "CACHE_WRITE", True)
 
@@ -415,7 +427,7 @@ def test_a_privileged_nonpush_build_missing_cache_writes_cold(monkeypatch, tmp_p
             return subprocess.CompletedProcess(cmd, 1)
         return subprocess.CompletedProcess(cmd, 0)
 
-    monkeypatch.setattr(ei, "_sh", sh)
+    _patch_shell(monkeypatch, sh)
     monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
     monkeypatch.setattr(ei, "CACHE_WRITE", True)
 
@@ -449,7 +461,7 @@ def test_a_nonpush_privileged_build_probes_the_cache_once(monkeypatch, tmp_path)
         calls.append(list(cmd))
         return subprocess.CompletedProcess(cmd, 0)
 
-    monkeypatch.setattr(ei, "_sh", sh)
+    _patch_shell(monkeypatch, sh)
     monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
     monkeypatch.setattr(ei, "CACHE_WRITE", True)
 
@@ -504,7 +516,7 @@ def test_a_forced_push_build_missing_cache_writes_cold(monkeypatch, tmp_path):
         probe = any("imagetools" in a for a in cmd)
         return subprocess.CompletedProcess(cmd, 1 if probe else 0)
 
-    monkeypatch.setattr(ei, "_sh", sh)
+    _patch_shell(monkeypatch, sh)
     monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
     monkeypatch.setattr(ei, "CACHE_WRITE", True)
 
@@ -533,7 +545,7 @@ def test_a_push_build_probes_the_cache_once(monkeypatch, tmp_path):
         calls.append(list(cmd))
         return subprocess.CompletedProcess(cmd, 0)
 
-    monkeypatch.setattr(ei, "_sh", sh)
+    _patch_shell(monkeypatch, sh)
     monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent")
     monkeypatch.setattr(ei, "CACHE_WRITE", True)
 
@@ -715,7 +727,7 @@ def test_a_not_yet_published_latest_does_not_fail_the_pull_but_a_drifted_one_doe
     def sh(cmd, **kw):
         return subprocess.CompletedProcess(cmd, 0)
 
-    monkeypatch.setattr(ei, "_sh", sh)
+    _patch_shell(monkeypatch, sh)
     monkeypatch.setattr(ei, "publish_refs", lambda spec: [
         "ghcr.io/asimov-agent/llgenie/llama-cpp:1b6935b2-3932631f-cpu",
         "ghcr.io/asimov-agent/llgenie/llama-cpp:cpu",

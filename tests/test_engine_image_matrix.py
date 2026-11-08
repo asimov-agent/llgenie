@@ -666,3 +666,59 @@ def test_build_push_false_routes_from_base_cell_through_internal_stage(tmp_path,
     assert f"FROM {es.base_tag('cuda')}" not in combined.replace("FROM llgenie-base", "")
     assert "docker.io" not in combined
     assert combined.count("AS llgenie-base") == 1
+
+
+# ---------------------------------------------------------------------------
+# the LONG build step streams its log (issue #2089) — never a captured buffer
+# ---------------------------------------------------------------------------
+class _FakeProc:
+    def __init__(self, returncode: int = 0) -> None:
+        self.returncode = returncode
+        self.stdout = None
+        self.stderr = None
+
+
+def _capture_build_step(monkeypatch, *, push: bool, rc: int = 0) -> dict:
+    """Run `_buildx` with a recording `run_live` and a `_sh` that REFUSES to run a build.
+
+    The refusal is the discrimination: if a build step is routed through the capturing `_sh`
+    (as it was before the fix) the assertion fires instead of the test silently passing.
+    """
+    seen: dict = {}
+    monkeypatch.setattr(ei, "_cache_exists", lambda ref: True)
+    monkeypatch.setattr(ei, "REGISTRY", "ghcr.io/asimov-agent/llgenie")
+    monkeypatch.setattr(ei, "CACHE_WRITE", False)
+
+    def fake_live(cmd, **kw):
+        seen.setdefault("live", []).append(list(cmd))
+        return _FakeProc(rc)
+
+    def fake_sh(cmd, **kw):
+        assert "build" not in cmd, f"a build step was CAPTURED instead of streamed: {cmd}"
+        return _FakeProc(0)
+
+    monkeypatch.setattr(ei, "run_live", fake_live)
+    monkeypatch.setattr(ei, "_sh", fake_sh)
+    seen["rc"] = ei._buildx("llgenie/x:pinhash-arch", "/tmp/ctx2089", push, "ghcr.io/x:buildcache")
+    return seen
+
+
+def test_a_local_build_streams_its_log_through_run_live(monkeypatch):
+    """`_buildx`'s local build step runs through `proc.run_live`, so buildx's own progress lands on
+    the log as it is written — the difference between a diagnosable cold compile and a silent cell."""
+    seen = _capture_build_step(monkeypatch, push=False)
+    assert seen["rc"] == 0
+    assert seen["live"], "the build step never reached run_live"
+    cmd = seen["live"][0]
+    assert cmd[:3] == [ei.RUNTIME, "buildx", "build"]
+    assert "--progress=plain" in cmd
+    assert "--load" in cmd
+
+
+def test_a_push_build_streams_its_log_and_keeps_the_exit_code(monkeypatch):
+    """The `--push` build step streams too, and its rc is still the caller's verdict (a failing
+    compile reds the cell)."""
+    seen = _capture_build_step(monkeypatch, push=True, rc=2)
+    assert seen["rc"] == 2
+    cmd = seen["live"][0]
+    assert "--push" in cmd and "--progress=plain" in cmd
