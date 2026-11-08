@@ -1,7 +1,7 @@
 {
   "generated_utc": "2026-11-04T15:29:04Z",
   "registry_engines": 46,
-  "skills": 16,
+  "skills": 17,
   "shipped": [
     "DFlash2",
     "ExLlamaV3 (ROCm fork)",
@@ -12,6 +12,7 @@
     "Ollama",
     "SGLang",
     "Strata",
+    "Surogate",
     "TensorFold",
     "TensorRT-LLM",
     "WebLLM",
@@ -138,13 +139,6 @@
       "decided": "2026-10-27",
       "reason": "A C++/CUDA tensor runtime loaded as libsonicboom.so through a stable C ABI (Guile first-class, no Python), verified end to end on two GGUF families; it is GPL-3.0-or-later and a library rather than a server, so llgenie has no endpoint to image and drive.",
       "issue": 229
-    },
-    {
-      "engine": "Surogate",
-      "decision": "deferred",
-      "decided": "2026-11-07",
-      "reason": "Auto-registered CUDA engine (invergent-ai/surogate, Apache-2.0, C++/CUDA): a native OpenAI/Anthropic-compatible server with a manylinux CUDA wheel, but it was auto-registered from a single announced tweet with one stated run (Qwen3.8-Flash-Next 125B at 35.2 t/s on RTX 5090, 2026-11-01) and ships no llgenie skill/image yet. Deferred pending a ship decision tracked by #1962, consistent with how a just-listed engine with no artifact ages into the queue.",
-      "issue": 1962
     },
     {
       "engine": "TandemLLM",
@@ -350,7 +344,6 @@
       "unsupported": [
         "ExLlamaV3",
         "Slotstream",
-        "Surogate",
         "TokenSpeed",
         "mlx-serve",
         "oMLX",
@@ -1669,13 +1662,15 @@
       "id": "strata"
     },
     "Surogate": {
-      "status": "known-unsupported",
+      "status": "shipped",
       "backends": [
         "CUDA"
       ],
       "url": "https://github.com/invergent-ai/surogate",
-      "image": false,
-      "variants": [],
+      "image": true,
+      "variants": [
+        "cuda"
+      ],
       "models": [
         "qwen3.8-flash-next-125b"
       ],
@@ -1686,10 +1681,7 @@
         "metal": [],
         "cpu": []
       },
-      "decision": "deferred",
-      "decided": "2026-11-07",
-      "reason": "Auto-registered CUDA engine (invergent-ai/surogate, Apache-2.0, C++/CUDA): a native OpenAI/Anthropic-compatible server with a manylinux CUDA wheel, but it was auto-registered from a single announced tweet with one stated run (Qwen3.8-Flash-Next 125B at 35.2 t/s on RTX 5090, 2026-11-01) and ships no llgenie skill/image yet. Deferred pending a ship decision tracked by #1962, consistent with how a just-listed engine with no artifact ages into the queue.",
-      "issue": 1962
+      "id": "surogate"
     },
     "TandemLLM": {
       "status": "known-unsupported",

@@ -1,0 +1,53 @@
+{
+  "_generated_by": "make generate-engine-params (scripts/engine_skills.py) - do not edit; edit the skill",
+  "engine": "Surogate",
+  "id": "surogate",
+  "repo": "https://github.com/invergent-ai/surogate",
+  "ref": "v1.5.15",
+  "pinned": "ad6c0bbf1f5c43e4ad844fcc02af5406a9323b0b",
+  "native": {},
+  "variants": {
+    "cuda": {
+      "id": "surogate",
+      "engine": "Surogate",
+      "backend": "cuda",
+      "arch": "",
+      "base": "nvidia/cuda:13.0.2-devel-ubuntu24.04",
+      "prebuilt": false,
+      "runtime_base": "",
+      "runtime_copy": [],
+      "apt": [
+        "libglib2.0-0t64",
+        "libx11-6",
+        "libxext6",
+        "libxrender1"
+      ],
+      "build_args": {
+        "CUDA_ARCH": "",
+        "GPU_TARGETS": "",
+        "TORCH_BACKEND": "cu130"
+      },
+      "install": [
+        "uv pip install --system --break-system-packages 'torch==2.11.0+cu130' 'torchvision==0.26.0+cu130' 'torchaudio==2.11.0+cu130' --index-url https://download.pytorch.org/whl/cu130",
+        "uv pip install --system --break-system-packages https://github.com/invergent-ai/surogate/releases/download/v1.5.15/surogate-1.5.15+cu130-cp312-abi3-manylinux_2_39_x86_64.whl",
+        "uv pip install --system --break-system-packages 'nvidia-cuda-runtime==13.1.80' 'nvidia-cudnn-cu13>=9.10.2.21' 'nvidia-nccl-cu13==2.29.3' 'nvidia-cufile==1.16.1.26' 'nvidia-cuda-nvrtc==13.1.115'",
+        "apt-get update && apt-get install -y --no-install-recommends libglib2.0-0t64 libx11-6 libxext6 libxrender1 && rm -rf /var/lib/apt/lists/*",
+        "python3 -c 'import site; p=site.getsitepackages()[0]; f=open(\"/etc/ld.so.conf.d/surogate-cu13.conf\",\"w\"); f.write(p+\"/nvidia/cuda_runtime/lib\\n\"+p+\"/nvidia/cudnn/lib\\n\"+p+\"/nvidia/nccl/lib\\n\"+p+\"/nvidia/cufile/lib\\n\"); f.close()' && ldconfig"
+      ],
+      "env": {},
+      "detect": "python3 -c 'import importlib.metadata as m; v=m.version(\"surogate\"); print(\"surogate\", v if v else \"1.5.15\")'",
+      "pre_launch": null,
+      "launch": "surogate serve {model} --host {host} --port {port} --served-model-name llm-local",
+      "post_launch": null,
+      "health": "GET /health",
+      "alias_mode": "flag",
+      "run_args": [
+        "--device",
+        "nvidia.com/gpu=all",
+        "--shm-size",
+        "2g"
+      ],
+      "port": 11434
+    }
+  }
+}

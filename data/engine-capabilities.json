@@ -128,6 +128,14 @@
       "formats": ["mlc"],
       "ternary": false,
       "cite": "SKILL.md: browser-only, servable: false, no linux image"
+    },
+    "surogate": {
+      "reg_name": "Surogate",
+      "repo": "https://github.com/invergent-ai/surogate",
+      "archs": ["cuda"],
+      "formats": ["gguf", "safetensors"],
+      "ternary": false,
+      "cite": "SKILL.md backends+formats (cu130 manylinux wheel serving GGUF + safetensors per docs/inference/api.md)"
     }
   }
 }

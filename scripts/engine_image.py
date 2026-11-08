@@ -653,6 +653,7 @@ DEVICE_ONLY: dict[tuple[str, str], str] = {
     ("vllm", "rocm"): "#625 same CLI, same import-time device probe (in _compute_kwargs)",
     ("tensorrt-llm", "cuda"): "#625 `trtllm-serve --help/--version` fail at import (line 1, in <module>)",
     ("mlx", "cuda"): "#625 `mlx_lm.server` imports libcuda.so.1 at import: ImportError without a device",
+    ("surogate", "cuda"): "#1962 `surogate --help/--version` import `_surogate` which links libcuda.so.1 at import (ImportError without a device; measured on the surogate:cuda image-build runner, runs first engine-build then test-engine-image) — probe: device, version from the image's detect",
 }
 def decide(documented: list[str], verdicts: dict[str, dict], policy: str = "flags",
            engine: str = "", variant: str = "") -> dict:

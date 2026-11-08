@@ -1,0 +1,1 @@
+| 2026-11-07 | engines: ship Surogate as a cuda engine skill and carry its registry entry additively (closes #1962) | [2026-11-07-surogate-engine-skill-1962.md](agent-wiki/2026-11-07-surogate-engine-skill-1962.md) | #1962 |
