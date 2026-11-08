@@ -230,5 +230,26 @@ def test_the_liveness_workflow_hard_fails_on_a_committed_manifest_unknown():
     assert 'id: fleet' in wf and 'if: always()' in wf, "the issue-filer must still run after a red gate"
     assert 'check-engine-launchers CHECK_REGISTRY=1 ARCH=all' in wf, \
         "the #1652 per-backend sweep must still run (ARCH=all)"
-    assert '--search "\\"$tag\\""' in wf or '--search "$tag"' in wf, \
+    assert '--search "\\\"$tag\\\""' in wf or '--search "$tag"' in wf, \
         "the issue-filer dedup must match the exact tag, not a fuzzy engine search"
+
+
+def test_the_liveness_workflow_dispatches_the_publish_not_just_names_it():
+    """Issue #2259: the gate must CAUSE the producer to publish a missing committed tag, not
+    just file an issue and stay red. The dispatch step runs after the ALL=1 check (always, so a
+    red fleet gate still fires it), names engine+arch from the NOT PUBLISHED tag, and calls
+    `engine-build` with `push=true`. This is the live-proof piece: a repin that the sweep aborted
+    on is now self-dispatched instead of 404-red for five days."""
+    from pathlib import Path as _P
+    wf = (_P(__file__).resolve().parents[1] / ".github/workflows/registry-liveness.yml").read_text()
+    assert "dispatch engine-build push=true" in wf, "the gate must have a dispatch step"
+    # The dispatch parses engine+arch from the NOT PUBLISHED tag and needed the repo's dispatch
+    # right (`actions: write`), which must be granted or `gh workflow run` cannot start the producer.
+    assert "actions: write" in wf, "the dispatch step needs actions:write to run gh workflow run"
+    assert "workflow run engine-build.yml" in wf, "the dispatch must start the engine-build producer"
+    assert "-f push=true" in wf or "--field push=true" in wf, "the dispatch must publish (push=true)"
+    # It must parse a variant out of the <pin8>-<hash8>-<variant> committed tag.
+    assert "awk -F- '{print $NF}'" in wf, "the dispatch must derive the arch from the tag suffix"
+    # Keep the ALL=1 hard-fail: the dispatch step may not weaken or bypass the fleet gate's exit.
+    assert 'exit "$rc"' in wf, "ALL=1 hard-fail must be untouched by the dispatch wiring"
+

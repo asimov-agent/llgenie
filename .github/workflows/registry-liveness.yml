@@ -37,6 +37,12 @@ on:
 permissions:
   contents: read
   issues: write
+  # The dispatch step (below) must be able to start the engine-build producer on the SAME
+  # repository — `gh workflow run` on a workflow in this repo requires `actions: write`
+  # (issue #2259 closes the "the gate only names the gap, nothing performs the publish"
+  # gap). This does NOT grant engine-build's registry write (that stays in
+  # engine-build.yml's `packages: write`, unchanged), and it does not touch the fork guard.
+  actions: write
 
 concurrency:
   group: registry-liveness
@@ -96,7 +102,7 @@ jobs:
           while read -r engine tag; do
             [ -n "$engine" ] || continue
             title="engine: committed tag $tag ($engine) is not published in ghcr"
-            body="BOT registry-liveness: committed image tag $tag ($engine) has NO manifest in ghcr. Either publish it via engine-build (make push-engine ENGINE=$engine) or move the pin to a published commit (#1365 class). See #2190."
+            body="BOT registry-liveness: committed image tag $tag ($engine) has NO manifest in ghcr. A publish is the remedy, and #2259 now makes this gate DISPATCH it: the next registry-liveness run (or the config-page rerun button) fires engine-build push=true for this cell. Either confirm that dispatch/PR landed the tag, or move the pin to a published commit (#1365 class). See #2190/#2259."
             open=$(gh issue list --repo "$REPO" --state open --search "\"$tag\"" --json number --jq '.[0].number' 2>/dev/null || true)
             if [ -n "$open" ]; then
               echo "issue #$open already open for $tag"
@@ -104,3 +110,40 @@ jobs:
               gh issue create --repo "$REPO" --title "$title" --body "$body" --label bug >/dev/null && echo "filed issue for $engine ($tag)"
             fi
           done < unnamed.txt
+      - name: dispatch engine-build push=true for every missing committed tag (#2259)
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set +e
+          make check-engine-pins-published ALL=1 > dispatch.out 2>&1
+          rc=$?
+          set -e
+          if [ "$rc" = "0" ] && [ "${{ steps.fleet.outputs.fleet_rc }}" = "0" ]; then
+            echo "all committed engine tags published; nothing to dispatch"
+            exit 0
+          fi
+          # Parse the fleet gate's `NOT PUBLISHED <engine>: <commit-tag>` lines. Two formats may
+          # appear (the #2245 fleet gate, and the #1652 per-backend sweep above):
+          #   [pins]      NOT PUBLISHED ghcr.io/.../vllm:3a4d82f5-9be509b4-cuda (HTTP 404)
+          #   [launchers] NOT PUBLISHED vllm: llgenie/vllm:...-cuda resolves no manifest
+          grep "NOT PUBLISHED" dispatch.out \
+            | grep -oE '(ghcr\.io/[^ :]+[:/])?[^ :]+:[0-9a-f]{8}-[0-9a-f]{8}-[a-z]+' \
+            | sed -E 's#ghcr.io/##' | sort -u > missing-tags.txt
+          if [ ! -s missing-tags.txt ]; then
+            echo "gate red but no NOT PUBLISHED commit tag parseable from dispatch.out:"
+            cat dispatch.out
+            exit 0   # the fleet step already reds the run; dispatch cannot name a tag, so do not fail twice
+          fi
+          while read -r tag; do
+            [ -n "$tag" ] || continue
+            engine=$(echo "$tag" | cut -d: -f1 | sed 's#.*/##')
+            # The commit tag is <pin8>-<hash8>-<variant>; the variant is the trailing segment.
+            variant=$(echo "$tag" | cut -d: -f2 | awk -F- '{print $NF}')
+            echo "dispatching engine-build push=true for $engine/$variant (missing tag $tag)"
+            gh workflow run engine-build.yml --repo "$REPO" --ref main \
+              -f engine="$engine" -f arch="$variant" -f push=true \
+              || echo "dispatch failed for $engine/$variant (rc $?); the tracking issue above stays the record"
+          done < missing-tags.txt
+          echo "dispatched for the missing commit tags; re-run registry-liveness after the build publishes"
