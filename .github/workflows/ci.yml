@@ -136,6 +136,15 @@ jobs:
         run: make git-identity-apply
       - name: make check-git-identity (fail in seconds when the identity is off the allowlist)
         run: make check-git-identity
+      - name: make check-agent-skills (the skill-writer 100,000-character cap, at the top of the always-running job — issue #2084)
+        # WHY HERE AND NOT ONLY IN `linux / unit` (issue #2084): `linux` declares
+        # `needs: [ci-images, guard]`, so ANY guard red skips the whole matrix — and a run whose
+        # `check-agent-skills` never executed looks identical to one where it passed. The size gate was
+        # first wired only into `ci-unit`, and at head 614c6a62 the guard red left `linux` skipped with
+        # ZERO runs of the new gate, so the gate was unproven rather than green. It is seconds of work
+        # (it reads every `agents/*/skills/*/SKILL.md` and compares lengths), so it belongs in the job
+        # that always runs.
+        run: make check-agent-skills
       - name: make check-pr-authors (the same author gate linux/unit runs, at the top of the cheapest job)
         env:
           # A pull request measures its own base; a push to main has no base_ref, and `origin/main`

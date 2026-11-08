@@ -548,3 +548,71 @@ def test_the_variable_expansion_is_bounded_and_safe(tmp_path):
     # Then  the known one is replaced and the others are left alone
     assert "$(GOOD)" not in out and ",gamma," in out
     assert "$(MISSING)" in out
+
+
+# ---- a skill the tool would refuse to save (issue #2084) ------------------------------
+# `skill_manage` rejects ONE SKILL.md over 100,000 CHARACTERS and rolls the whole batch back, so the
+# lane silently stops learning. Four tree skills were over it at once when this was written.
+
+def _skill_at(tmp_path, profile: str, skill: str, body: str) -> Path:
+    d = tmp_path / "agents" / profile / "skills" / skill
+    d.mkdir(parents=True)
+    p = d / "SKILL.md"
+    p.write_text(body, encoding="utf-8")
+    return p
+
+
+def test_a_skill_over_the_char_limit_is_a_finding(tmp_path):
+    """The failure shape: a SKILL.md the skill writer would refuse, named with its overflow."""
+
+    # Given a skill 500 characters past the cap
+    _skill_at(tmp_path, "p", "s", "x" * (guard.SKILL_CHAR_LIMIT + 500))
+
+    # When  the guard reads the tree
+    items = [i for i in guard.findings(tmp_path) if i["key"] == "skill-over-char-limit"]
+
+    # Then  it names the file and the overflow, not only the total
+    assert len(items) == 1, items
+    assert "agents/p/skills/s/SKILL.md" in items[0]["where"], items[0]
+    assert "500" in items[0]["detail"], items[0]
+
+
+def test_the_finding_carries_the_remedy_not_only_the_number(tmp_path):
+    """A lane told "over the limit" learns nothing; it must be told where the text goes."""
+
+    _skill_at(tmp_path, "p", "s", "x" * (guard.SKILL_CHAR_LIMIT + 1))
+    items = [i for i in guard.findings(tmp_path) if i["key"] == "skill-over-char-limit"]
+
+    assert "references/" in items[0]["detail"], items[0]
+    assert "pointer" in items[0]["detail"], items[0]
+
+
+def test_a_skill_exactly_at_the_limit_passes(tmp_path):
+    """The boundary is a cap, not a budget: 100,000 exactly is still saveable (the tool allows it)."""
+
+    _skill_at(tmp_path, "p", "s", "x" * guard.SKILL_CHAR_LIMIT)
+
+    assert not [i for i in guard.findings(tmp_path) if i["key"] == "skill-over-char-limit"]
+
+
+def test_the_limit_is_measured_in_characters_not_bytes(tmp_path):
+    """The tool counts CHARACTERS (issue #2084). A multibyte file must not be reddened for its encoding.
+
+    100,000 characters of a 2-byte character is ~200,000 BYTES but exactly at the cap, and the tool
+    would save it — so a byte-based rule here would be a false red on a correct file.
+    """
+
+    body = "é" * guard.SKILL_CHAR_LIMIT
+    _skill_at(tmp_path, "p", "s", body)
+
+    assert len(body.encode()) > guard.SKILL_CHAR_LIMIT, "the fixture must be over in BYTES"
+    assert not [i for i in guard.findings(tmp_path) if i["key"] == "skill-over-char-limit"]
+
+
+def test_no_tree_skill_is_over_the_limit():
+    """The regression that #2084 was filed for: the real tree must stay saveable."""
+
+    items = [i for i in guard.findings(REPO) if i["key"] == "skill-over-char-limit"]
+
+    assert not items, "the skill writer would refuse these: " + "; ".join(
+        f"{i['where']}: {i['detail']}" for i in items)
