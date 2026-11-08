@@ -79,7 +79,7 @@ STEP 5 — PUT EVERY IDLE LANE ON A RED PR (section C). For each lane showing `<
       check-docs change-note gap → llgenie-documentation-maintainer; product code / linux / unit
       red → llgenie-issse-implementer; scripts, workflows, gates, Makefile → llgenie-ci-pipelines-
       maintainer; acceptance write-back / verdict → llgenie-pr-reviever; evidence for an acceptance
-      claim → llgenie-tester; engine pins / serving drift → llgenie-engine-improver; scan coverage
+      claim → llgenie-tester; engine pins / serving drift → llgenie-engine-improver (engine-domain map #2270: new-engine scaffold/params/rebuild AND engine-bump PR repair → engine-improver; a gate-SCRIPT defect in engine-bump.yml → ci-pipelines-maintainer, two-trails #2073); scan coverage
       / rule freshness → llgenie-security.
   5d. Re-run `bash "$TB"` after dispatching and re-read section C. If ANY lane is still at 0 and an
       open red PR in its own domain is unowned, THIS PASS IS NOT FINISHED — dispatch it out loud
