@@ -42,3 +42,20 @@ Fold byte-identity via `scripts/verify_fold_identity.py` sampled across the fold
 `live-lines-missing`/`live-edited-not-tree`; `fold-live-profile.py --check` → 77 same, 2 drifted
 (the two tree-newer files), 1 live-missing. `make check-docs`, `make changes-index`, `make lint`
 green at the branch head.
+
+## Acceptance coverage
+
+Two issue #2173 acceptance criteria cannot be proven at this PR's pre-merge head — both are
+post-merge/fleet endpoints of the fold, so they are deferred to tracked work items here and flagged
+`## Not covered` in the PR body:
+
+- **AC 3** — "`make sync-agent-profile PROFILE=llgenie-issse-implementer CHECK=1` reports **0 of 64
+  file(s) differ** at the fixing head". At the PR head the comparator reads `3 of 80 differ`: the
+  fold deliberately leaves `SOUL.md` (tree 11,182 b / live 8,801 b) and
+  `containerized-repo-verification/SKILL.md` (tree 28,139 b / live 27,932 b) tree-newer and
+  `rebase-at-worktree-start.md` tree-only — a fold of them would lose tree lines. `0 of 64` is
+  reachable only after the post-merge tree→live sync that **#1724** gates.
+- **AC 6** — "`make check-agent-profiles` is green at the fixing head". This lane IS green
+  (`0 same-lane rows` across all four live classes, above); the whole-gate `rc=1` is other lanes'
+  ambient `absent-from-tree` drift (e.g. `llgenie-pr-merge-conflict`), each folded by its own
+  per-lane issue under the fleet measure **#2135**.
