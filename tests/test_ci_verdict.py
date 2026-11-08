@@ -1186,3 +1186,139 @@ def test_a_run_with_no_head_sha_is_refused_not_assumed_clean(tmp_path, monkeypat
     assert rc == 2, err
     assert "no head sha" in err, err
     assert not out.exists(), "a verdict with no head must not be posted"
+
+
+# ---- 11. #2221: the verdict's own rows and a cancelled auto-merge are not unjudged reds ----------
+
+def _main_head_api(monkeypatch):
+    """Resolve the check-runs at a main head the way the live runs do (`workflow_of` reads the run)."""
+    def fake_api(path: str):
+        if "/actions/runs/42461521651" in path:           # a prior ci-verdict `judge` run
+            return {"name": "ci-verdict", "path": ".github/workflows/ci-verdict.yml"}
+        if "/actions/runs/42461576425" in path:
+            return {"name": "ci-verdict", "path": ".github/workflows/ci-verdict.yml"}
+        if "/actions/runs/42461420528" in path:           # auto-merge `merge=cancelled`
+            return {"name": "auto-merge", "path": ".github/workflows/auto-merge.yml"}
+        if "/actions/runs/42461420529" in path:           # auto-merge `merge=failure`
+            return {"name": "auto-merge", "path": ".github/workflows/auto-merge.yml"}
+        if "/actions/runs/42460411318" in path:           # the judged CI run
+            return {"name": "CI", "path": ".github/workflows/ci.yml"}
+        raise AssertionError(f"unexpected API path: {path}")
+    monkeypatch.setattr(cv, "_api", fake_api)
+
+
+def test_the_measured_main_head_has_no_unjudged_reds(monkeypatch):
+    """#2221 measured: a green main head whose ONLY blocking rows are the verdict's own `judge`
+    jobs and auto-merge `merge=cancelled` must not post failure."""
+    _main_head_api(monkeypatch)
+    rows = [
+        {"name": "judge", "conclusion": "failure",
+         "details_url": "https://github.com/asimov-agent/llgenie/actions/runs/42461521651/job/1"},
+        {"name": "judge", "conclusion": "failure",
+         "details_url": "https://github.com/asimov-agent/llgenie/actions/runs/42461576425/job/1"},
+        {"name": "merge", "conclusion": "cancelled",
+         "details_url": "https://github.com/asimov-agent/llgenie/actions/runs/42461420528/job/1"},
+        {"name": "linux / unit", "conclusion": "success",
+         "details_url": "https://github.com/asimov-agent/llgenie/actions/runs/42460411318/job/1"},
+    ]
+    reds = cv.unjudged_reds("asimov-agent/llgenie", "07a7db2a34e00352fd9da32a4ebeaecccd73c219",
+                            {"ci.yml"}, rows)
+    assert reds == [], reds
+
+
+def test_the_verdicts_own_judge_rows_are_not_unjudged_reds_even_when_red(monkeypatch):
+    """#2221: a prior verdict run's `judge` failure on the default-branch head is the verdict
+    reporting on itself — excluded by workflow FILE, not by its `ci-verdict` check name."""
+    _main_head_api(monkeypatch)
+    rows = [
+        {"name": "judge", "conclusion": "failure",
+         "details_url": "https://github.com/asimov-agent/llgenie/actions/runs/42461521651/job/1"},
+        {"name": "guard", "conclusion": "cancelled",
+         "details_url": "https://github.com/asimov-agent/llgenie/actions/runs/42461521651/job/2"},
+    ]
+    reds = cv.unjudged_reds("asimov-agent/llgenie", "07a7db2a34e00352fd9da32a4ebeaecccd73c219",
+                            {"ci.yml"}, rows)
+    assert reds == [], reds
+
+
+def test_a_cancelled_auto_merge_merge_row_is_not_an_unjudged_red(monkeypatch):
+    """#2221/#917: auto-merge cancels its own superseded sweeps repo-wide — a `merge=cancelled`
+    row is the merger superseding itself on a busy head, never a defect the verdict must surface."""
+    _main_head_api(monkeypatch)
+    rows = [
+        {"name": "merge", "conclusion": "cancelled",
+         "details_url": "https://github.com/asimov-agent/llgenie/actions/runs/42461420528/job/1"},
+    ]
+    reds = cv.unjudged_reds("asimov-agent/llgenie", "07a7db2a34e00352fd9da32a4ebeaecccd73c219",
+                            {"ci.yml"}, rows)
+    assert reds == [], reds
+
+
+def test_a_real_auto_merge_merge_failure_is_still_an_unjudged_red(monkeypatch):
+    """#2221: only `cancelled` is the churn — a real auto-merge `merge=failure` is a defect and
+    must still red the verdict; the exemption never weakens the gate."""
+    _main_head_api(monkeypatch)
+    rows = [
+        {"name": "merge", "conclusion": "failure",
+         "details_url": "https://github.com/asimov-agent/llgenie/actions/runs/42461420529/job/1"},
+    ]
+    reds = cv.unjudged_reds("asimov-agent/llgenie", "07a7db2a34e00352fd9da32a4ebeaecccd73c219",
+                            {"ci.yml"}, rows)
+    assert len(reds) == 1 and reds[0]["name"] == "merge" and reds[0]["conclusion"] == "failure", reds
+
+
+def test_the_measured_green_main_head_posts_success_not_failure(tmp_path, monkeypatch, capsys):
+    """#2221 end-to-end: run 42460411318 was green (success=10), and #2221 posted failure only
+    because it counted its own `judge` rows + auto-merge's `merge=cancelled`. With both excluded the
+    verdict must post conclusion=success and exit 0."""
+    _main_head_api(monkeypatch)
+    jobs = [{"name": "guard", "status": "completed", "conclusion": "success"},
+            {"name": "ci-images", "status": "completed", "conclusion": "success"},
+            {"name": "scanner-images", "status": "completed", "conclusion": "success"},
+            {"name": "linux / unit", "status": "completed", "conclusion": "success"},
+            {"name": "linux / lint", "status": "completed", "conclusion": "success"},
+            {"name": "linux / install", "status": "completed", "conclusion": "success"},
+            {"name": "linux / agents-read", "status": "completed", "conclusion": "success"},
+            {"name": "linux / openspec", "status": "completed", "conclusion": "success"},
+            {"name": "linux / top-tier (none)", "status": "completed", "conclusion": "success"},
+            {"name": "linux / cpu-health", "status": "completed", "conclusion": "success"}]
+    checks = [
+        {"name": "judge", "conclusion": "failure",
+         "details_url": "https://github.com/asimov-agent/llgenie/actions/runs/42461521651/job/1"},
+        {"name": "judge", "conclusion": "failure",
+         "details_url": "https://github.com/asimov-agent/llgenie/actions/runs/42461576425/job/1"},
+        {"name": "merge", "conclusion": "cancelled",
+         "details_url": "https://github.com/asimov-agent/llgenie/actions/runs/42461420528/job/1"},
+    ]
+    jobs_file = tmp_path / "jobs.json"
+    jobs_file.write_text(json.dumps({"jobs": jobs, "total_count": len(jobs)}), encoding="utf-8")
+    decision_file = tmp_path / "decision.json"
+    decision_file.write_text(json.dumps(decision_for(FULL_MATRIX_PATH)), encoding="utf-8")
+    checks_file = tmp_path / "checks.json"
+    checks_file.write_text(json.dumps({"check_runs": checks, "total_count": len(checks)}),
+                           encoding="utf-8")
+    out = tmp_path / "check-run.json"
+
+    rc = cv.main(["--jobs", str(jobs_file), "--decision", str(decision_file),
+                  "--checks", str(checks_file), "--head-sha", "07a7db2a34e00352fd9da32a4ebeaecccd73c219",
+                  "--check-run-out", str(out)])
+    text = capsys.readouterr().out
+
+    assert rc == 0, text
+    assert "UNJUDGED RED" not in text, text
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["conclusion"] == "success", payload
+    assert "verdict=green" in payload["output"]["summary"], payload["output"]["summary"]
+
+
+def test_a_failed_head_with_a_real_unjudged_red_is_never_titled_green(tmp_path, monkeypatch, capsys):
+    """#2221: the posted title says what the posted conclusion says — a green verdict beside a real
+    unjudged red posts conclusion=failure and must not read `ci-verdict: green`."""
+    _specimen_api(monkeypatch)
+    rc, checks = _cli_with_checks(tmp_path, SPECIMEN_CHECKS)
+    out = capsys.readouterr().out
+    assert rc == 1, out
+    payload = json.loads(checks.read_text(encoding="utf-8"))
+    assert payload["conclusion"] == "failure", payload
+    assert "green" not in payload["output"]["title"], payload["output"]["title"]
+    assert payload["output"]["title"].startswith("ci-verdict: failure"), payload["output"]["title"]

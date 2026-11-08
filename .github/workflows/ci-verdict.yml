@@ -35,6 +35,12 @@ name: ci-verdict — holds a finished CI run to its published scope decision, an
 # conclusion is `failure`, never a plain `success`. The roster that decides which workflows are judged
 # is `data/verdict-roster.json` + `scripts/verdict_roster.py` (`make verdict-roster`), gated by
 # `make check-workflows` — a new `pull_request` workflow without a dated judgement decision reds CI.
+# NOT every blocked head is an unjudged red (#2221): the verdict's OWN workflow's auto job rows
+# (a `workflow_run` runs on the default branch, so its `judge`/`guard` rows sit on a `main` head) are
+# the verdict reporting on itself and are excluded by FILE, and an auto-merge `merge=cancelled` row is
+# the merger cancelling its own superseded sweep (`cancel-in-progress: true`, #917) — churn, not a
+# defect; a real auto-merge `merge=failure` is still red. The posted check-run's title says what its
+# conclusion says (`green` only on `success`), so a failed head never reads `ci-verdict: green`.
 # Trigger surface: `workflow_run` (every finished CI run, auto-judged) plus `workflow_dispatch`
 #                  (a manual re-judge of one finished run, owner/collaborator-only) — never a
 #                  `pull_request` or `push`.

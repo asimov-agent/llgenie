@@ -61,6 +61,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ci_scope  # noqa: E402
+import verdict_roster  # noqa: E402
 
 TAG = "[ci-verdict]"
 
@@ -70,6 +71,20 @@ ARTIFACT = "ci-scope-decision"
 #: The check-run name a reader looks for. It is not derived from a job name on purpose: it must be the
 #: same string on a run whose jobs do not exist, which is exactly when it matters most.
 CHECK_NAME = "ci-verdict"
+
+#: The verdict's OWN workflow file — the auto-created per-job check-runs whose rows must never be
+#: counted as EXTERNAL unjudged reds (#2221). A `workflow_run` workflow auto-creates one check-run
+#: per job on the head it runs on (the default branch), named after the job KEY (#1871); `judge` and
+#: `guard` rows therefore sit on a main head, and a prior verdict run's red leaves them `failure`.
+#: The existing CHECK_NAME skip only sees the *posted* row (named `ci-verdict`), not these auto job
+#: rows — so the own-workflow exclusion is by FILE, the identity `workflow_of` resolves, never by the
+#: check name. `verdict_roster.VERDICT_WORKFLOW` is that file, so a rename cannot silently drift.
+OWN_WORKFLOW_FILE = Path(verdict_roster.VERDICT_WORKFLOW).name  # "ci-verdict.yml"
+#: The merger's workflow FILE. auto-merge cancels its own superseded sweeps repo-wide
+#: (`cancel-in-progress: true`, #917), so a `merge=cancelled` row at a busy head means "a newer
+#: sweep took over", never "the tree is broken" (#2221). Only `cancelled` is the churn; every other
+#: auto-merge blocking conclusion (a real `merge=failure`) stays an unjudged red.
+AUTO_MERGE_WORKFLOW_FILE = "auto-merge.yml"
 
 #: The conclusions that make a head NOT clean. `scripts/auto_merge.py` refuses a merge on exactly this
 #: set (`failure`, `timed_out`, `startup_failure`, `cancelled` and the `neutral` a superseded verdict
@@ -212,11 +227,26 @@ def unjudged_reds(repo: str, head_sha: str, judged_files: set[str],
         conclusion = str(row.get("conclusion") or "").strip().lower()
         if conclusion not in BLOCKING_CONCLUSIONS:
             continue
+        found = workflow_of(repo, row, cache)
+        file_name = Path(found["path"]).name
+        # The verdict's OWN workflow rows (#2221): a `workflow_run` workflow auto-creates one
+        # check-run per job on the head it runs on (the default branch), named after the job KEY
+        # (#1871) — so `judge`/`guard` rows sit on a main head and a prior red leaves them `failure`.
+        # Counting them would re-count the verdict into its own red (measured run 42461521651 at
+        # 07a7db2a: `verdict=green success=10 failure=0` and STILL `conclusion=failure`). The posted
+        # row is skipped by its CHECK_NAME above; these auto job rows are skipped by their FILE.
+        if file_name == OWN_WORKFLOW_FILE:
+            continue
         name = str(row.get("name") or "")
         if ci_scope.normalise_job_name(name) == CHECK_NAME:
             continue
-        found = workflow_of(repo, row, cache)
-        if Path(found["path"]).name in judged_files:
+        if file_name in judged_files:
+            continue
+        # A CANCELLED auto-merge `merge` row (#2221): auto-merge cancels its own superseded sweeps
+        # repo-wide (`cancel-in-progress: true`, #917), so `cancelled` is the merger superseding
+        # itself on a busy head — churn, not a defect. A real auto-merge failure/timed_out/neutral
+        # STILL qualifies below: only `cancelled` is exempt, so the gate is never weakened.
+        if file_name == AUTO_MERGE_WORKFLOW_FILE and conclusion == "cancelled":
             continue
         match = RUN_IN_DETAILS.search(str(row.get("details_url") or ""))
         out.append({
@@ -548,6 +578,14 @@ def main(argv: list[str] | None = None) -> int:
             result["verdict"], head_sha, lines, conclusion=conclusion,
             run_label=f"run {args.run_id}" if args.run_id else "replay")
         payload["name"] = CHECK_NAME
+        # The title must say what the POSTED conclusion says, never the judged verdict word (#2221):
+        # a green VERDICT beside unjudged reds posts conclusion=failure, and a row titled
+        # `ci-verdict: green` with a failure conclusion is exactly how the measured false red read
+        # ("ci-verdict: green (run 42460411318)"). Only `success` is titled green.
+        title_word = {"success": "green", "neutral": "neutral", "failure": "failure"}.get(
+            conclusion, conclusion)
+        label = f"run {args.run_id}" if args.run_id else "replay"
+        payload["output"]["title"] = (f"ci-verdict: {title_word} ({label})")[:255]
         Path(args.check_run_out).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
         print(f"{TAG} check-run payload -> {args.check_run_out} (conclusion={conclusion})")
 
