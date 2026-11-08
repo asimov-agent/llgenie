@@ -50,6 +50,12 @@
    "decided": "2026-11-01",
    "issue": 1079
   },
+  "scripts/check_tick_prompt.py": {
+   "reason": "Compares the live ~/.hermes/profiles/llgenie-planner/cron/jobs.json prompt against the versioned copy \\u2014 a CI runner has no live jobs.json, so the only caller is a human/planner on the host with that file present. Same host-only shape as scripts/profile_drift_alarm.py.",
+   "target": "check-tick-prompt",
+   "decided": "2026-11-08",
+   "issue": 2159
+  },
   "tests/test_procedure_recall_step.py": {
    "reason": "The orchestrator STEP 2 recall-fallback proof (issue #2186) POSTs to the LIVE hindsight daemon on 127.0.0.1:9177 (HINDSIGHT_API_PORT in ~/.hindsight/profiles/hermes.env). No CI runner has that daemon and this repo forbids skips (issue #1110), so the hermetic gate cannot carry it; make test-recall-step runs it on the tick host where the daemon lives, and a host without it fails loudly.",
    "target": "test-recall-step",
