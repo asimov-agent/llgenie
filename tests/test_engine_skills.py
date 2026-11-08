@@ -686,7 +686,7 @@ def test_official_upstream_images_are_used_as_bases(skills):
 
     # When their FROM lines are read
     # Then the still-prebuilt cells keep the official image, and the converted ones compile
-    assert "FROM nvcr.io/nvidia/tensorrt-llm/release:1.2.1" in df("tensorrt-llm", "cuda")
+    assert "FROM nvcr.io/nvidia/tensorrt-llm/release:1.2.4" in df("tensorrt-llm", "cuda")
     # #1306: sglang/cuda is prebuilt (OOM-safe) — it starts FROM its official image
     # and runs no install; sglang/rocm and vllm x3 / ollama x4 still compile.
     assert "FROM lmsysorg/sglang:v0.5.23" in df("sglang", "cuda")
@@ -1179,7 +1179,7 @@ def test_validator_requires_documented_binary_flags(skills):
 
 def test_probe_policy_honours_the_version_only_per_backend_branch():
     """`binary_probe: {cuda: version}` returns 'version' for cuda and the default 'flags'
-    for a backend left unset (tensorfold: help is a separate subcommand at the 1.2.1 pin,
+    for a backend left unset (tensorfold: help is a separate subcommand at the 1.2.4 pin,
     issue #1888) — and the committed tensorfold manifest carries it."""
 
     import scripts.engine_skills as es
