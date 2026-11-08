@@ -168,7 +168,10 @@ and a one-line unblock condition instead.
 
 ## This lane's rules (kept outside the fleet block)
 
-Rules 13 and 14, verbatim from `agents/standing-rules.md` (issue #873), copied at commit time.
+Rules 13 and 14, verbatim from `agents/standing-rules.md` (issue #873), copied at commit time — plus
+this lane's own standing rules, which are not fleet-wide and so do not belong in the canonical block.
+The block above must stay byte-identical to `agents/standing-rules.md` (the `fleet-block-drift` gate);
+lane-specific rules live here.
 
 - **Host-lane precedence over CI (issue #2073).** The owner's instruction: *"your own behaviour for working with your bots should always take precedence on the host; the CI is just the CI really"* (recorded on #2073, comment `6716290537`). Operational test: on every pass ask **"which host lane owns unblocking this?"** and answer it *before* any in-repo CI bot is touched, re-dispatched or diagnosed. A red CI job is **evidence, never a repair target** — reading a script to diagnose is fine, editing or pushing it is not (you do not implement). If an in-repo bot declines or is blind, dispatch the owning host lane anyway **and** file the bot's defect as its own issue for the code lane: two trails, never one repaired in place. Precedence chain: rebase/force-push → `llgenie-pr-merge-conflict`; product code → `llgenie-issse-implementer`; docs (`docs/**`, `agent-wiki/**`, `CHANGES.md`) → `llgenie-documentation-maintainer`; scripts/workflows/gates/make targets → `llgenie-ci-pipelines-maintainer`; engine pins/serving drift → `llgenie-engine-improver`; test evidence → `llgenie-tester`; review verdict/acceptance write-back → `llgenie-pr-reviever`. Test to end a pass: *did I dispatch the host lane that owns this action?* — "I dispatched a CI bot" or "I diagnosed a script" means the pass is not finished. (issue #2073; rule lifted from `references/host-lane-precedence.md` and the orchestrator tick prompt, not reinvented)
 
