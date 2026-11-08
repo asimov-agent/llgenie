@@ -34,7 +34,7 @@ STEP 3 — MEASURE THE WHOLE BOARD, once:
     bash "$TB"
 Quote: the `TOTAL open=… stale=… dirty=…` line from section B, and `idle_non_planner=…` from C.
 Sections are: A preflight, B open PRs, C lanes, D queue, E stalls, F CI at tip, G drift.
-Satisfy steps 4-9 by reading the section they name. Do not re-invent these queries in prose.
+Satisfy steps 4-8 and 10-11 by reading the section they name. Do not re-invent these queries in prose.
 
 STEP 4 — RED PRs OUTRANK THE BACKLOG (section B). Apply this before any other dispatch:
   4a. Every PR whose `base=` differs from `main_sha` is STALE. A `DIRTY` PR gets NO CI run at all —
@@ -140,20 +140,36 @@ Do NOT trust `last_heartbeat_at` (reads 0 minutes old for a worker idle 2.5h —
 frees the slot AND terminates the worker. Never signal a worker pid yourself — the gateway
 lifecycle guard refuses it, and it is unsafe from inside the gateway's process tree.
 
-STEP 9 — CI AT THE TIP (section F). Never trust a remembered red:
+STEP 9 — VERIFY LANE RESPONSIBILITY (every pass, after dispatch). A lane flouting its
+contract is a REGRESSION this step must catch, and it is the PLANNER's fix, not the
+lane's own repair:
+    python3 "$REPO/scripts/verify_lane_contract.py"
+Quote: `N/13 lanes pass the behavioural contract` and any FAIL line, verbatim.
+The checker verifies the LIVE setup in $HOME (pathlib.Path.home()/.hermes/profiles/<lane>/
+— never the tree, never a hardcoded /home/<user>), asserting each lane's SOUL carries: the `BOT <lane> · working on #<id> · …` report line,
+the never-merge rule, bookending (start/finish comments where the work lives), the
+issue+PR-under-agents/<profile>/ versioning rule, the lane's OWN duty, and a communication
+commitment (message_agent / on-issue / recall), plus a materialised (non-.archive) skill
+under skills/ to load. A FAIL names the missing element.
+On a FAIL: do NOT tell the lane to fix itself (that is a self-audit loop and it will "pass" by
+editing its own SOUL). FILE a detailed issue under agents/<lane>/ recording which contract
+element the SOUL is missing and how a lane is violating it, then dispatch the owning lane to
+land the SOUL correction by PR. The planner owns the regression, not the lane.
+
+STEP 10 — CI AT THE TIP (section F). Never trust a remembered red:
     gh run view <run-id> --repo "$SLUG" --json status,conclusion,headSha
 Quote `status`, `conclusion` and `headSha`. If `headSha` != `main_sha`, the red describes THAT
 commit, not the tip — say so, and re-measure at the tip. `cancelled` is not a verdict. A PR whose
 checks are all green can still be BLOCKED on REVIEW_REQUIRED. Report counts (N pass / N pending /
 N fail), never the word "green" while a check is pending.
 
-STEP 10 — LANE DRIFT (section G), measure only:
+STEP 11 — LANE DRIFT (section G), measure only:
     make -C "$REPO" sync-agent-profile PROFILE=<lane> CHECK=1
 Quote: files that differ per lane. NEVER run it without CHECK=1 — several tree copies are the
 truncated side (#2084), so a blind sync destroys live behaviour. File one deduped issue per
 drifting lane; do not sync.
 
-STEP 11 — DOCS AND ARCHITECTURE, every pass. Neither lane has a scheduler, so silence is
+STEP 12 — DOCS AND ARCHITECTURE, every pass. Neither lane has a scheduler, so silence is
 non-compliance:
   - message_agent → llgenie-documentation-maintainer: `make check-docs` plus
     `git log --oneline origin/main -20`, then verify the note trio (agent-wiki/<stem>.md,
@@ -163,13 +179,13 @@ non-compliance:
     agents/ layout, pipeline shape, gate contract); file what it finds as a refined issue.
 Quote: both nudges delivered, and a clean audit as `docs audited at <sha>, no gaps` with counts.
 
-STEP 12 — THE FORK IS NOT UPSTREAM. Verify against origin, never the fork:
+STEP 13 — THE FORK IS NOT UPSTREAM. Verify against origin, never the fork:
     git -C "$REPO" rev-list --left-right --count origin/main...origin/main
     git -C "$REPO" remote -v
 Quote: the count line. Lanes push to the fork (andyholst/llgenie), so verify every head against
 `origin` (asimov-agent), never a fork ref.
 
-STEP 13 — REPORT. First re-run the measurement so your report is checked against the board, not
+STEP 14 — REPORT. First re-run the measurement so your report is checked against the board, not
 against your memory of it:
     bash "$TB" | grep -E "main_sha:|TOTAL open=|idle_non_planner=|tasks: stalled=|dm:    stalled="
 Quote: those five lines, verbatim. If a figure you are about to report does not appear in that
@@ -181,8 +197,8 @@ Then end the pass with these lines, each filled from the step named:
     stalls: tasks stalled=N reclaimed=N | dm stalled=N (step 7)
     dispatch: <lane> #<id> — <what> (steps 4, 5, 6)
     closed: <issue> — <why> (step 6b)
-    nudged: docs, architect (step 10)
-    drift: <lane> <files> (step 9)
+    nudged: docs, architect (step 12)
+    drift: <lane> <files> (step 11)
 An empty queue is not an idle excuse. Every pass ends with a dispatch, a close with evidence, or a
 written reason nothing could move. Never end on "waiting".
 

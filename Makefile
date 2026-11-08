@@ -474,6 +474,11 @@ check-tick-prompt: ## Fail when the live orchestrator cron prompt diverges from 
 
 .PHONY: check-tick-prompt
 
+verify-lane-contract: ## Verify each live llgenie lane's SOUL commits to the behavioural contract (report line, never-merge, bookend, versioned-edit, own duty, communication + materialised skills) — host-only: a CI runner has no live ~/.hermes profiles; prints `N/13 lanes pass` and names FAIL lanes + the missing element (issue #2260)
+	@python3 scripts/verify_lane_contract.py
+
+.PHONY: verify-lane-contract
+
 profile-drift: ## Fail when a tree copy is a PREFIX of the live rulebook (issue #928) — host-only: a CI runner has no live profiles, so this is the one finding that needs a caller where they exist
 	@python3 scripts/check_agent_profiles.py check --only live-longer
 
