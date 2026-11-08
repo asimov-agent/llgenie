@@ -77,6 +77,24 @@ CHECK_NAME = "ci-verdict"
 #: `tests/test_ci_verdict.py` asserts the two sets stay equal — the merger's rule is the definition.
 BLOCKING_CONCLUSIONS = frozenset({"failure", "timed_out", "startup_failure", "cancelled", "neutral"})
 
+#: The verdict's own workflow FILE (basename), held equal to `ci-verdict.yml`. A `workflow_run`
+#: workflow posts its `judge`/`guard` JOB check-runs at the default-branch head every run it makes
+#: (#1871), so every verdict leaves its own job rows on `main`. Those rows are the verdict's own
+#: footprint, never someone else's unjudged red — a verdict must never red a head on its own rows.
+#: `unjudged_reds` excludes a row whose workflow file is this one, by file, not by row name (issue
+#: #2221: the measured `judge` failure rows of this workflow's own runs were counted as "unjudged").
+OUR_WORKFLOW_FILE = "ci-verdict.yml"
+
+#: The conclusions that make ANOTHER workflow's row an unjudged red in `unjudged_reds`. A `cancelled`
+#: or `neutral` unjudged row is a transient — a superseded / owed-nothing run (this verdict posts
+#: `neutral` for exactly that reason) — so it must not paint a green judged head red (issue #2221,
+#: measured `auto-merge` `merge=cancelled` at a `main` push head). Only a genuinely-red conclusion
+#: blocks the verdict. `BLOCKING_CONCLUSIONS` above is the MERGER's rule (#1386) and is deliberately
+#: unchanged: `auto_merge.py` still refuses a merge on `cancelled`/`neutral`; this narrower set only
+#: decides what the VERDICT refuses to call a clean judged head over (tests/../test_ci_verdict.py
+#: `test_the_blocking_conclusions_are_the_merger_s_rule` pins that equality).
+UNJUDGED_RED_CONCLUSIONS = frozenset({"failure", "timed_out", "startup_failure"})
+
 #: The Actions run id inside a check-run's `details_url`
 #: (`https://github.com/o/r/actions/runs/<run>/job/<job>`) — how a check-run names the workflow that
 #: posted it, which the check-runs payload itself does not say.
@@ -201,9 +219,13 @@ def unjudged_reds(repo: str, head_sha: str, judged_files: set[str],
     `judged_files` is the judged roster resolved to workflow FILE names (`verdict_roster.judged_files`),
     because that is the only stable identity a check-run resolves to (see `workflow_of`).
 
-    The verdict's own row (`CHECK_NAME`) is skipped: it is the answer being posted, not a finding.
-    Everything else that blocks the merge is returned, so the caller can NAME it and refuse to call
-    the head clean.
+    The verdict's own surface is skipped — the posted `CHECK_NAME` row AND this workflow's own
+    `judge`/`guard` JOB auto-rows, resolved to `OUR_WORKFLOW_FILE` by FILE (not by row name): a
+    `workflow_run` posts those job rows at the default-branch head every run, so counting them would
+    red the head on the verdict's own footprint (#2221, measured `judge` failure rows on `main`).
+    A genuinely-red conclusion from a workflow the verdict did not judge is returned so the caller
+    can NAME it and refuse to call the head clean. An unjudged `cancelled`/`neutral` row is a
+    transient (a superseded / owed-nothing run) and never reds the verdict (`UNJUDGED_RED_CONCLUSIONS`).
     """
     rows = check_runs if check_runs is not None else check_runs_of(repo, head_sha)
     cache: dict[str, dict] = {}
@@ -216,6 +238,10 @@ def unjudged_reds(repo: str, head_sha: str, judged_files: set[str],
         if ci_scope.normalise_job_name(name) == CHECK_NAME:
             continue
         found = workflow_of(repo, row, cache)
+        if Path(found["path"]).name == OUR_WORKFLOW_FILE:
+            continue
+        if conclusion not in UNJUDGED_RED_CONCLUSIONS:
+            continue
         if Path(found["path"]).name in judged_files:
             continue
         match = RUN_IN_DETAILS.search(str(row.get("details_url") or ""))
@@ -538,15 +564,21 @@ def main(argv: list[str] | None = None) -> int:
     head_sha = args.head_sha or (run or {}).get("head_sha") or ""
     if result["verdict"] == ci_scope.GREEN and not unjudged:
         conclusion, code = "success", EXIT_GREEN
+        title_word = "green"
     elif superseding is not None or merged_pr is not None:
         conclusion, code = "neutral", EXIT_GREEN
+        title_word = "neutral"
     else:
         conclusion, code = "failure", EXIT_RED
+        # Issue #2221, title/conclusion contradiction: a green judged run the head's unjudged reds
+        # force RED must not post a title saying "green" on a failure row. The title names the
+        # EFFECTIVE verdict the conclusion posts — red for the not-clean head, else the judged verdict.
+        title_word = "red" if result["verdict"] == ci_scope.GREEN else result["verdict"]
 
     if args.check_run_out:
         payload = ci_scope.check_run_payload(
             result["verdict"], head_sha, lines, conclusion=conclusion,
-            run_label=f"run {args.run_id}" if args.run_id else "replay")
+            run_label=f"run {args.run_id}" if args.run_id else "replay", title=title_word)
         payload["name"] = CHECK_NAME
         Path(args.check_run_out).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
         print(f"{TAG} check-run payload -> {args.check_run_out} (conclusion={conclusion})")

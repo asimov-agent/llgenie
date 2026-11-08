@@ -1074,6 +1074,85 @@ def test_a_judged_workflows_red_and_the_verdicts_own_row_are_not_unjudged(monkey
     assert reds == [], reds
 
 
+def test_the_verdicts_own_judge_rows_are_not_unjudged_reds(monkeypatch):
+    # A `judge`/`guard` job-row from THIS workflow at the head is the verdict's own footprint, not
+    # a red it did not judge (#2221). A `workflow_run` posts those job rows at the default-branch
+    # head on every run, so at main 07a7db2a this workflow's own `judge` failure rows were counted
+    # as unjudged and re-red the green head — a self-feedback loop. Excluded by workflow FILE
+    # (OUR_WORKFLOW_FILE), not by row name.
+    def fake_api(path):
+        if "/actions/runs/42461521651" in path:
+            return {"name": "ci-verdict — holds a finished CI run …",
+                    "path": ".github/workflows/ci-verdict.yml"}
+        raise AssertionError(f"unexpected API path: {path}")
+
+    monkeypatch.setattr(cv, "_api", fake_api)
+    own = "https://github.com/asimov-agent/llgenie/actions/runs/42461521651/job/128671657213"
+    rows = [
+        {"name": "judge", "conclusion": "failure", "details_url": own},
+        {"name": "guard", "conclusion": "success", "details_url": own},
+        {"name": "linux / lint", "conclusion": "success", "details_url": SPECIMEN_CI_URL},
+    ]
+    reds = cv.unjudged_reds("asimov-agent/llgenie", "07a7db2a", {"ci.yml"}, rows)
+
+    assert reds == [], reds
+
+
+def test_a_cancelled_unjudged_row_is_a_transient_not_a_blocker(monkeypatch):
+    # auto-merge's `merge=cancelled` at a main push head never reds the verdict (#2221). A
+    # cancelled/neutral unjudged row is a superseded / owed-nothing transient — the same reason this
+    # verdict posts `neutral` for a superseded head — so it does not paint a green judged head red.
+    # Only a genuinely-red unjudged conclusion blocks (UNJUDGED_RED_CONCLUSIONS); BLOCKING_CONCLUSIONS
+    # (the merger's #1386 rule) is deliberately untouched.
+    def fake_api(path):
+        if "/actions/runs/42461420528" in path:
+            return {"name": "auto-merge", "path": ".github/workflows/auto-merge.yml"}
+        raise AssertionError(f"unexpected API path: {path}")
+
+    monkeypatch.setattr(cv, "_api", fake_api)
+    rows = [
+        {"name": "merge", "conclusion": "cancelled",
+         "details_url": "https://github.com/asimov-agent/llgenie/actions/runs/42461420528/job/128671320856"},
+        {"name": "linux / unit", "conclusion": "success", "details_url": SPECIMEN_CI_URL},
+    ]
+    reds = cv.unjudged_reds("asimov-agent/llgenie", "07a7db2a", {"ci.yml"}, rows)
+
+    assert reds == [], reds
+
+
+def test_a_failure_from_an_unjudged_workflow_still_blocks(monkeypatch):
+    # The transient exemption is narrow: a genuinely-red conclusion from an unjudged workflow —
+    # auto-merge included — still names the red and blocks (#2221 must not weaken #2116).
+    def fake_api(path):
+        if "/actions/runs/99" in path:
+            return {"name": "auto-merge", "path": ".github/workflows/auto-merge.yml"}
+        raise AssertionError(f"unexpected API path: {path}")
+
+    monkeypatch.setattr(cv, "_api", fake_api)
+    rows = [
+        {"name": "merge", "conclusion": "failure",
+         "details_url": "https://github.com/asimov-agent/llgenie/actions/runs/99/job/1"},
+        {"name": "linux / unit", "conclusion": "success", "details_url": SPECIMEN_CI_URL},
+    ]
+    reds = cv.unjudged_reds("asimov-agent/llgenie", "07a7db2a", {"ci.yml"}, rows)
+
+    assert len(reds) == 1 and reds[0]["name"] == "merge", reds
+    assert reds[0]["conclusion"] == "failure", reds
+
+
+def test_a_failure_conclusion_is_never_titled_green():
+    # [ci_scope] The posted title names the EFFECTIVE verdict: a failure conclusion must never be
+    # titled `ci-verdict: green` (#2221, measured at main 07a7db2a / check-run 128671762099).
+    bad = cs.check_run_payload(cs.GREEN, "abc", ["x"], conclusion="failure", title="red")
+    assert bad["conclusion"] == "failure"
+    assert "green" not in bad["output"]["title"], bad["output"]["title"]
+    assert bad["output"]["title"].startswith("ci-verdict: red"), bad["output"]["title"]
+
+    # the default path (no override) still maps the verdict's own word
+    ok = cs.check_run_payload(cs.GREEN, "abc", ["x"])
+    assert ok["output"]["title"].startswith("ci-verdict: green"), ok["output"]["title"]
+
+
 def _cli_with_checks(tmp_path, checks) -> tuple[int, Path]:
     jobs = [{"name": "guard", "status": "completed", "conclusion": "success"},
             {"name": "ci-images", "status": "completed", "conclusion": "success"},
@@ -1116,6 +1195,10 @@ def test_green_ci_beside_an_unjudged_red_is_not_posted_as_success(tmp_path, monk
     payload = json.loads(checks.read_text(encoding="utf-8"))
     assert payload["conclusion"] == "failure", payload
     assert "run=42440650801" in payload["output"]["summary"], payload["output"]["summary"]
+
+    # And  the failure row is never titled green (#2221: the title names the effective verdict)
+    assert "green" not in payload["output"]["title"], payload["output"]["title"]
+    assert payload["output"]["title"].startswith("ci-verdict: red"), payload["output"]["title"]
 
 
 def test_the_same_head_with_that_check_green_returns_to_a_clean_verdict(tmp_path, monkeypatch, capsys):

@@ -32,7 +32,11 @@ name: ci-verdict — holds a finished CI run to its published scope decision, an
 # to read `ci-verdict: success` with auto-merge armed and no merge possible (PR #1982 head aeac049f,
 # run 42440650801). `scripts/ci_verdict.py` now reads the head's check-runs, resolves each blocking one
 # to its workflow through the Actions run in `details_url`, and NAMES every one it did not judge; the
-# conclusion is `failure`, never a plain `success`. The roster that decides which workflows are judged
+# conclusion is `failure`, never a plain `success`. Two families of rows are never UNJUDGED REDs
+# (issue #2221): the verdict's OWN `judge`/`guard` job rows (excluded by workflow FILE, so the verdict
+# never reds a head on its own footprint on `main`), and any unjudged row whose conclusion is
+# `cancelled`/`neutral` — that is a superseded / owed-nothing transient, never a block; only a
+# genuinely-red unjudged conclusion (`failure`/`timed_out`/`startup_failure`) reds the head. The roster that decides which workflows are judged
 # is `data/verdict-roster.json` + `scripts/verdict_roster.py` (`make verdict-roster`), gated by
 # `make check-workflows` — a new `pull_request` workflow without a dated judgement decision reds CI.
 # Trigger surface: `workflow_run` (every finished CI run, auto-judged) plus `workflow_dispatch`
