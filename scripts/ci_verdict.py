@@ -120,17 +120,43 @@ def check_runs_of(repo: str, head_sha: str) -> list[dict]:
     """Every check-run on the head, latest only — the rows the verdict must agree are all judged.
 
     `filter=latest` collapses re-runs so a superseded failed attempt does not shadow the row that
-    replaced it. The listing is one page of 100 (GitHub's maximum for this endpoint) and, exactly like
-    `jobs_of`, a page that returns fewer rows than `total_count` is refused: a truncated listing cannot
-    be a verdict.
+    replaced it. The listing paginates by `page` for a fixed `per_page=100` (GitHub's maximum for this
+    endpoint), and a busy head exceeds one page — measured 2026-11-08 on a `push` to `main` at head
+    `520db900` (run `42452592982`): 192 check-runs, one page returning 100 was NOT truncation, it was
+    page 1 of 2. So, exactly like `branch_runs` (issue #1617), the fetch walks pages until `total_count`
+    is satisfied (deduping by id) and the guard refuses only a GENUINE shortfall: when the pages that
+    can be read still fall short of the reported `total_count`, or a page ends before `total_count` and
+    its next adds nothing. A truncated listing is never a verdict; a well-formed multi-page listing is
+    not truncation.
     """
-    payload = _api(f"repos/{repo}/commits/{head_sha}/check-runs?per_page=100&filter=latest")
-    rows = payload.get("check_runs") or []
-    if int(payload.get("total_count") or 0) > len(rows):
+    collected: list[dict] = []
+    seen: set[int] = set()
+    page = 1
+    total: int | None = None
+    while True:
+        # Page 1 carries NO `&page=` (GitHub treats a bare listing as page 1, and the shape is the
+        # one every existing stub and the workflow's older reads matched); only later pages add it.
+        suffix = "" if page == 1 else f"&page={page}"
+        payload = _api(
+            f"repos/{repo}/commits/{head_sha}/check-runs?per_page=100&filter=latest{suffix}")
+        rows = payload.get("check_runs") or []
+        total = int(payload.get("total_count") or 0)
+        fresh = [row for row in rows if row.get("id") not in seen]
+        collected.extend(fresh)
+        seen.update(row.get("id") for row in rows if row.get("id") is not None)
+        if total and len(seen) >= total:
+            break
+        # An empty page, or a page with only already-seen rows, is the end of the listing — never a
+        # verdict by itself. The truncation guard below binds only when the pages read still fall
+        # short of `total_count` (exactly `branch_runs`'s #1617 contract).
+        if not rows or not fresh:
+            break
+        page += 1
+    if total and len(seen) < total:
         raise RuntimeError(
-            f"head {head_sha} reports {payload.get('total_count')} check-run(s) and one page returned "
-            f"{len(rows)}: a truncated listing cannot be a verdict")
-    return rows
+            f"head {head_sha} reports {total} check-run(s) and the pages returned {len(seen)}: "
+            f"a truncated listing cannot be a verdict")
+    return collected
 
 
 def workflow_of(repo: str, check_run: dict, cache: dict | None = None) -> dict:
