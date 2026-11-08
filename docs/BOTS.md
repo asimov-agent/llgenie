@@ -539,6 +539,40 @@ OpenSpec change, the text committed under `agents/<profile>/`, a PR a human appr
 (discovered by `make test-unit`) carries one rejection per rule above and drives the real scripts
 against fixture trees and a temporary `HERMES_PROFILE_HOME`.
 
+### Host-lane working takes precedence over CI machinery (issue #2073)
+
+The owner rule (2026-11-08, #2073): **`your own behaviour for working with your bots should always
+take precedence on the host.. the CI is just the CI really`**. The fleet's hands are the **host
+lanes** — the Hermes profiles under `agents/` that run on the owner's machine; the CI workflows are
+**support**, the thing that reports red, never the thing a host lane repairs. On every pass the
+planner (and any lane) reaches for the owning host lane first and treats a red CI job as *evidence*
+that drives a dispatch, not as an invitation to work on the pipeline itself.
+
+**A host lane owns unblocking a PR.** When a PR needs an action a bot cannot or will not perform
+(a stale base, a refused fix, a label no in-repo bot can set), the pass answers *"which host lane
+owns unblocking this PR?"* and dispatches it — never re-dispatches the in-repo bot, never repairs
+the pipeline locally. The work class → owning host lane map:
+
+| work class | owning host lane |
+|---|---|
+| rebase / force-push / conflicted `DIRTY` PR | `llgenie-pr-merge-conflict` |
+| product code | `llgenie-issse-implementer` |
+| docs | `llgenie-documentation-maintainer` |
+| workflow / gate / script | `llgenie-ci-pipelines-maintainer` |
+| engine / serving | `llgenie-engine-improver` |
+| test evidence | `llgenie-tester` |
+| review verdict | `llgenie-pr-reviever` |
+
+**The planner files and dispatches, never repairs CI.** Its binds are `never-implement` and
+`never-merge`; a branch, commit or code change authored by the planner is a defect. A declined or
+blind automation job produces exactly two trails, kept separate: **one issue in the owning code
+lane** for the automation defect (the code lane fixes it), and **one host-lane dispatch** (plus an
+on-PR anchor) for the unblock. The two are never folded.
+
+The detailed rule lives in
+`agents/llgenie-planner/skills/llgenie-bot-orchestration/references/host-lane-precedence.md`
+(the source of truth the planner reads at dispatch time); this section records the shape so the
+cross-lane ownership boundary is discoverable from the product docs.
 
 ## The issue-implementer (issue #248)
 
