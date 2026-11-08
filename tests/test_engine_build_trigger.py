@@ -256,6 +256,9 @@ def test_a_404_poll_that_is_visible_in_the_run_list_concludes_success(monkeypatc
     assert rc == 0, "a 404-visible-but-successful producer must not red the trigger"
     captured = capsys.readouterr()
     assert "producer run 77 success" in captured.out
+    # The re-resolution is a RECORDED decision (#1796), not a silent skip: a reader must be able to
+    # see that the single-run endpoint 404'd and the run list supplied the verdict.
+    assert "404 on the single-run endpoint" in captured.out, captured.out
 
 
 def test_an_unresolved_404_at_expiry_is_named_a_poll_race_not_a_build_failure(monkeypatch, capsys):

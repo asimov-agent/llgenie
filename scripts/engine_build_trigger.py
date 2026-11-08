@@ -113,7 +113,12 @@ def _run_verdict(repo: str, run_id: str, gh: str) -> dict:
         listed = json.loads(raw)
     except json.JSONDecodeError:
         listed = {}
-    return listed if isinstance(listed, dict) and listed.get("status") else not_found
+    if isinstance(listed, dict) and listed.get("status"):
+        # Recorded decision, not a silent skip (#1796): the single-run endpoint lied about visibility.
+        print(f"[will] producer run {run_id}: 404 on the single-run endpoint — resolved from the run "
+              f"list as {listed.get('status')}/{listed.get('conclusion')} (issue #2059)", flush=True)
+        return listed
+    return not_found
 
 
 def repinned(base: str, engine_filter: str = "") -> list[str]:
