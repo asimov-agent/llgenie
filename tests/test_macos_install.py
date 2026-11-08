@@ -585,7 +585,7 @@ def test_agents_read_builds_its_own_python312_venv():
 
     # Then test-agents-read depends on the venv, built with python3.12 and the pinned deps
     assert recipe.split("\n")[1].startswith("test-agents-read: agents-read-venv")
-    assert "PY312             ?= python3.12" in mk and "HERMES_AGENT_PIN  := hermes-agent==0.19.0" in mk
+    assert "PY312             ?= python3.12" in mk and "HERMES_AGENT_PIN  := hermes-agent==0.19.1" in mk
     assert "$(PY312) -m venv" in venv_rule and '"$(HERMES_AGENT_PIN)" pytest' in venv_rule
 
     # And the scan and the guard's tests run with that venv's python

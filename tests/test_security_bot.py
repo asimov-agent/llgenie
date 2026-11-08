@@ -70,7 +70,7 @@ def _root(tmp_path: Path, gate_exit: int = 0) -> Path:
     """A real checkout: a `.in` pin, a bare `origin`, and a `make` whose gates exit as asked."""
     root = tmp_path / "work"
     (root / "tools").mkdir(parents=True)
-    (root / "tools" / "requirements.in").write_text("numpy==1.26.0\ngguf==0.19.0\n", encoding="utf-8")
+    (root / "tools" / "requirements.in").write_text("numpy==1.26.0\ngguf==0.19.1\n", encoding="utf-8")
     (root / "Makefile").write_text(
         "".join(f"{t}:\n\t@true\n" for t in sb.GATES) if gate_exit == 0 else
         "".join(f"{t}:\n\t@false\n" for t in sb.GATES), encoding="utf-8")

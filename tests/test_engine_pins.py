@@ -1,6 +1,6 @@
 """The engine install-string dependency pins are inventoried into the scan (issue #1282).
 
-The pins a cell actually installs (`torch==2.14.0`, `litert-lm==0.19.0`, `ziglang==0.17.0`, the
+The pins a cell actually installs (`torch==2.14.0`, `litert-lm==0.19.1`, `ziglang==0.17.0`, the
 `--index-url` for the rocm/cpu/cuda wheels) are JSON strings inside `containers/engines/params/*.json`,
 which no scanner parses as a dependency declaration. This module walks the committed install lines,
 writes the pins as a requirements-shaped artifact the SAME Trivy/Syft pass scans, and `make
