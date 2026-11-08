@@ -1348,8 +1348,8 @@ check-engine-launchers: ## CI: fail when a ~/bin/llgenie-engine-* launcher names
 	python3 scripts/check_engine_launchers.py check $(if $(BIN),--bin "$(BIN)",) $(if $(ARCH),--arch "$(ARCH)",) $(if $(CHECK_REGISTRY),--check-registry,)
 engine-launchers-report: ## Print, per engine, the image tag this host's launcher carries next to the one the committed params compute (issue #842)
 	python3 scripts/check_engine_launchers.py report $(if $(BIN),--bin "$(BIN)",) $(if $(ARCH),--arch "$(ARCH)",)
-check-engine-pins-published: ## CI: fail when an engine THIS CHANGE repins is not yet published in the registry — a pin bump may merge only once its exact image tag resolves a manifest (issue #1622; PRE-BASE resolves via scripts/base_ref, issue #925; no engine repinned => green and no network)
-	python3 scripts/check_engine_pins_published.py check $(if $(BASE),--base "$(BASE)",)
+check-engine-pins-published: ## CI: fail when an engine THIS CHANGE repins is not yet published in the registry — a pin bump may merge only once its exact image tag resolves a manifest (issue #1622; PRE-BASE resolves via scripts/base_ref, issue #925; no engine repinned => green and no network; ALL=1 sweeps the WHOLE committed fleet — every enabled cell's exact tag, red on any committed manifest unknown, issue #2190)
+	python3 scripts/check_engine_pins_published.py check $(if $(BASE),--base "$(BASE)",) $(if $(ALL),--all,)
 # Deliberately internal (no ## help line): the committed-set sweep's own routable hook is the
 # @pytest.mark.network live test in tests/test_check_engine_pins_published.py (ci-network pipeline,
 # issue #1000), so this target exists for a manual/all-new-backend call, never a CI gate that would
