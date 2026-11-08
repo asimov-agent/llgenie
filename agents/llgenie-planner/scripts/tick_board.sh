@@ -89,7 +89,7 @@ for p in d:
     # INERT — it can never merge (DIRTY gets no CI run, queue never sees it) and
     # must never be counted as handled.
     if has_arm and is_dirty:
-        arm = 'ARM-INERT (armed, impossible)'
+        arm = 'ARM-INERT (armed+DIRTY, impossible) -> llgenie-pr-merge-conflict'
         inert += 1
     elif has_arm:
         arm = 'ARMED'
@@ -104,8 +104,9 @@ for p in d:
     print(f\"  #{p['number']:<5} {tag:<22} base={base} head={(p.get('headRefOid') or '')[:8]} {arm:<28} {review:<15} {p['title'][:30]}\")
 print(f'\n  TOTAL open={len(d)}  stale={stale}  dirty={dirty}')
 print(f'  ARM armed={armed} unarmed={unarmed} armed-but-DIRTY(inert)={inert}')
-print('  ARMED != handled: an armed-but-DIRTY PR is impossible, not waiting.')
-print('  A stale base is ONE board-wide sweep, not N tasks. A DIRTY PR has no CI run at all.')
+print('  ARMED != handled: an armed-but-DIRTY PR is INERT (impossible, not waiting) —')
+print('  route it to llgenie-pr-merge-conflict for a rebase. A stale base is ONE')
+print('  board-wide sweep, not N tasks. A DIRTY PR has no CI run at all.')
 "
 
 # --- C. LANES: running count per lane, idle named ---------------------------

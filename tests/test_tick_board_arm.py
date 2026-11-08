@@ -90,9 +90,11 @@ def test_known_unarmed_reports_unarmed(tmp_path):
 
 def test_armed_but_dirty_is_inert_never_handled(tmp_path):
     # An armed DIRTY PR is impossible (no CI run, queue never sees it) — labelled
-    # ARM-INERT, never counted as armed/handled.
+    # ARM-INERT, never counted as armed/handled, and NAME the owning lane (AC 7:
+    # every case names its lane) so the prompt can dispatch it.
     out = _run([_pr(3, mergeStateStatus="DIRTY", mergeable="CONFLICTING", armed=True)])
     assert "ARM-INERT" in out, out
+    assert "llgenie-pr-merge-conflict" in out, "inert PRs must name the rebase lane"
     assert re.search(r"ARM armed=0 unarmed=0 armed-but-DIRTY\(inert\)=1", out), out
 
 
