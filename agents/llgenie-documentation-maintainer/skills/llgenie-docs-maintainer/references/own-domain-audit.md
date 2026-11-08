@@ -70,6 +70,20 @@ change-note finding off a stem you invented; a real gap makes the gate itself re
 
 ## Deliverable and the missing tracker
 
+**The six-section gate wants exactly its six headings — a seventh `##` reds it.** A body with the
+required sections plus an extra `## Root cause` / `## Why this recurs` reports missing sections and you
+lose a round-trip guessing. Fold supporting argument into the allowed section as a **bold lead-in** on a
+paragraph instead:
+
+    ## Problem
+    …statement…
+    **Root cause.** …paragraph…          # not: ## Root cause
+
+Verify before filing with the repo's own parser, on the body you are about to send:
+
+    python3 -c "import sys; sys.path.insert(0,'scripts'); import issue_body; \
+      print(issue_body.missing(open('<bodyfile>').read()) or 'none')"
+
 The clean-audit record needs a durable home. **If an open docs-lane tracking issue exists, post the
 record there as a comment** — measured-at sha, each check's gate rc, and the four-AC-box read. If no
 **open** docs-lane tracking issue exists (past audit issues are often already CLOSED), say so in the
@@ -122,6 +136,30 @@ standing live-vs-tree drift class, #791), and treat a live-ahead file — live n
 tree, e.g. the lane's own `SKILL.md` one version past the tree — as the finding, routed under that
 standing drift umbrella rather than filed as a new one-off. A skill with no live counterpart and no
 tree change since its last note is fresh; say so and move on.
+
+## A SKIPPED comparison is not a clean result
+
+Two readings look identical to "no findings" and are neither. Check both before writing a count.
+
+- **The live-vs-tree comparison can silently skip.** `check_agent_profiles.py` prints an explicit
+  `SKIPPED … the LIVE RULEBOOKS were NOT compared` line when it cannot resolve a live profile home —
+  the runner has none, so **CI is structurally blind to this dimension** and a bare `make
+  check-agent-profiles` on a host without the env var can report zero findings while hundreds exist.
+  Measure with the home named explicitly and read the class names, not just the exit code:
+
+      HERMES_PROFILES_HOME="$HOME/.hermes/profiles" python3 scripts/check_agent_profiles.py check
+      # count live-longer / live-lines-missing / live-edited-not-tree / absent-from-tree separately
+
+  Never quote "N findings" from a run whose output contains `SKIPPED` or `NOT compared`.
+
+- **An audit run against a RED gate cannot report clean.** If the gate that would catch the finding is
+  itself failing on `main`, "green in CI" and "0 gaps" both describe an instrument that was off. Reproduce
+  the docs gate on a clean detached base worktree FIRST; if it reds there, the audit's headline is that
+  fact (with the issue filed), not a clean pass — see `references/gate-red-triage.md`.
+
+A count stated without the command that produced it and the sha it was measured at is not a measurement,
+and a second wrong count on the same tracker costs more trust than the finding was worth. Correct an
+earlier record with an explicit supersede comment naming what the earlier measure got wrong.
 
 ## Fleet-wide drift snapshot: ONE routed issue, not one per file
 
