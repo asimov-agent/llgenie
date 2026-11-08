@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -55,6 +56,7 @@ from scripts import check_pr_closing as cpc  # noqa: E402  the linked-issue set 
 from scripts.acceptance_writeback import CHECKBOX_RE  # noqa: E402  the issue checkbox parse, reused
 from scripts import issue_body  # noqa: E402  the ## Acceptance criteria section scope
 from scripts import proc  # noqa: E402  the ONE subprocess seam (issue #797)
+from scripts import bot_verdict  # noqa: E402  the trusted verdict trail (`verdict_for_head`, #852/#2187)
 
 BASE_REPO = "asimov-agent/llgenie"
 #: A PR body marking a criterion out of scope with its own linked work item (issue #1792): a
@@ -197,15 +199,46 @@ def _declared_out_of_scope(pr_body: str, criterion: str) -> bool:
     return bool(lead and lead in nc)
 
 
-def acceptance_verdict(issue_body_text: str, pr_body: str, issue: int) -> list[dict]:
+def verdict_evidence(gh: str, repo: str, pr: "int | str", head: str) -> "dict | None":
+    """The trusted APPROVE verdict whose marker names exactly `head`, or None — the "proven" evidence (#2187).
+
+    The #1644/#1808 seam that ticks an acceptance box is VERDICT-GATED: only a reviewer's commented
+    verdict at the judged head drives the write-back. The gate reads that same evidence: when a
+    criterion box is unticked but the PR carries a trusted *approving* verdict at the current head,
+    the criterion is proven-but-awaiting-writer — a distinct, non-blocking state — versus genuinely
+    unproven (no verdict trail), which stays `acceptance-unchecked`. `bot_verdict.verdict_for_head`
+    enforces trusted author, reviewer == author, and exact head match. Only an ACCEPTING verdict is
+    evidence: a `changes` verdict proves nothing. An unreadable comment trail returns None, so the
+    criterion stays `unproven` (red) — evidence is never fabricated from a data gap.
+    """
+    if not pr or not head:
+        return None
+    comment_pr = int(pr) if str(pr).strip().isdigit() else 0
+    try:
+        comments = bot_verdict.comments(gh, repo, comment_pr)
+    except (SystemExit, RuntimeError, OSError):
+        return None  # an unreadable PR comment trail is not proof; the box stays unproven (red)
+    v = bot_verdict.verdict_for_head(comments, head)
+    if not v or (v.get("verdict") or "").lower() not in {a.lower() for a in bot_verdict.ACCEPTING}:
+        return None  # a changes/reject verdict, or a verdict at another head, proves nothing here
+    return v
+
+
+def acceptance_verdict(issue_body_text: str, pr_body: str, issue: int,
+                       verdict: "dict | None" = None) -> list[dict]:
     """The findings a merged PR closing `issue_body_text` carries.
 
-    Two classes, exactly the dispatch's:
-      * `claim-unchecked` — an acceptance criterion in the closed issue is still `- [ ]` and the PR
-        body does not name it out of scope with a linked work item;
-      * `claim-exceeds` — the PR body's own `- [x]` names a criterion the issue has UNTICKED.
-    An issue with no `## Acceptance criteria` (or none tickable) returns no finding: nothing to prove.
-    Every finding names the linked `#N` (`issue`) so a multi-issue PR's violations are distinguishable
+    Three states a close can be in (issue #2187's gate half):
+      * `claim-unchecked` — an acceptance criterion in the closed issue is still `- [ ]` and there is
+        NO trusted approve verdict at the PR's current head. This is genuinely `unproven`: red, and
+        the author (or a re-prover) must tick it via `acceptance_writeback`.
+      * `acceptance-proven-awaiting-writer` — the box is `- [ ]` BUT a trusted approve verdict at the
+        current head already proves the tree was reviewed. The write-back that would tick the box has
+        no CI trigger (#1644/#1808 seam), so this state is NOT a red the author can clear — it is
+        reported distinctly (`proven-awaiting-writer`), never as `acceptance-unchecked`.
+      * a criterion the PR body names out of scope under `## Not covered` with a linked work item is
+        not a finding.
+    Every finding names the linked `#N` (`issue`) so a multi-issue PR's states are distinguishable
     from a single CI log. But a body whose `- [ ]` boxes live under a DIFFERENT `##` heading (the
     #1807 `## Fix (acceptance criteria)` shape) is not the same as a body with no criteria — the
     criteria are structurally invisible to the exact-match read, so the found-headings canary reds
@@ -219,6 +252,7 @@ def acceptance_verdict(issue_body_text: str, pr_body: str, issue: int) -> list[d
         if masked_headings:
             return [{
                 "key": "acceptance-heading-masked",
+                "blocking": True,
                 "title": "ci: a closed issue's acceptance criteria sit under a non-## Acceptance criteria heading",
                 "evidence": (
                     "the linked issue carries `- [ ]` item(s) under "
@@ -235,12 +269,32 @@ def acceptance_verdict(issue_body_text: str, pr_body: str, issue: int) -> list[d
     out: list[dict] = []
     unticked = [it for it in items if not it[1]]
 
-    # claim-unchecked: the close is held while unproven criteria stay unticked, unless out-of-scope.
+    # claim-unchecked / proven-awaiting-writer: an unticked box is red only when it is UNPROVEN. A
+    # trusted approve verdict at the current head proves the tree was reviewed, so the box is awaiting
+    # its #1644 write-back (which has no CI trigger) — a distinct state, not a red the author clears.
     for pos, _t, text in unticked:
         if _declared_out_of_scope(pr_body, text):
             continue
+        if verdict:
+            out.append({
+                "key": "acceptance-proven-awaiting-writer",
+                "blocking": False,
+                "title": f"ci: a merged PR closes the issue #{issue} whose criterion is proven by a review verdict but awaits its write-back",
+                "evidence": (
+                    f"acceptance item {pos} (\u201c{text[:80]}\u201d) is `- [ ]` in the linked issue, yet "
+                    f"the PR carries a trusted approve verdict at the current head "
+                    f"(head={str(verdict.get('head'))[:12]}, run={verdict.get('run')}, reviewer="
+                    f"{verdict.get('reviewer')}). The write-back that ticks the box is verdict-gated "
+                    f"and has no CI trigger (#1644/#1808), so this is `proven-awaiting-writer`, not "
+                    f"`unproven` — the author cannot clear it; the verdict-writer's `acceptance_"
+                    f"writeback` does. Do not re-prove; land the write-back or the verdict."
+                ),
+                "where": f"#{issue}",
+            })
+            continue
         out.append({
             "key": "acceptance-unchecked",
+            "blocking": True,
             "title": f"ci: a merged PR closes the issue #{issue} whose acceptance criterion is unchecked",
             "evidence": (
                 f"acceptance item {pos} (\u201c{text[:80]}\u201d) is still `- [ ]` in the linked issue's "
@@ -262,6 +316,7 @@ def acceptance_verdict(issue_body_text: str, pr_body: str, issue: int) -> list[d
     for lead in sorted(overlap):
         out.append({
             "key": "acceptance-exceeds",
+            "blocking": True,
             "title": f"ci: the PR body claims a ticked criterion the linked issue #{issue} still has unchecked",
             "evidence": (
                 f"the PR body carries a `- [x]` for a criterion beginning \u201c{lead}\u201d that the "
@@ -281,6 +336,7 @@ def acceptance_verdict(issue_body_text: str, pr_body: str, issue: int) -> list[d
                 f"(measured text: \u201c{ref[:80]}\u201d)")
         out.append({
             "key": "tick-unprovable",
+            "blocking": True,
             "title": "ci: a ticked acceptance criterion names no replayable run id or reproducible command+rc+sha",
             "evidence": (
                 f"acceptance item {pos} (\u201c{text[:80]}\u201d) is `- [x]` but {lack}. "
@@ -386,9 +442,16 @@ def rollout_lane_findings(umbrella_body: str, umbrella: int, gh: str, repo: str)
 def render(items: list[dict]) -> str:
     if not items:
         return "[check-pr-acceptance] OK — every closed issue's `## Acceptance criteria` is checked or named out of scope"
-    lines = [f"[check-pr-acceptance] {len(items)} violation(s)"]
-    for it in items:
+    blocking = [it for it in items if it.get("blocking", True)]
+    pending = [it for it in items if not it.get("blocking", True)]
+    # A PROVEN-but-unticked box is not a "violation" the author must clear (#2187): it is reported
+    # distinctly, so a board reads `proven-awaiting-writer` instead of `acceptance-unchecked`.
+    lines = [f"[check-pr-acceptance] {len(blocking)} violation(s) · {len(pending)} proven-awaiting-writer"]
+    for it in blocking:
         lines.append(f"  {it['title']}")
+        lines.append(f"    {it['evidence']}")
+    for it in pending:
+        lines.append(f"  [proven-awaiting-writer] {it['title']}")
         lines.append(f"    {it['evidence']}")
     return "\n".join(lines)
 
@@ -402,6 +465,7 @@ def main(argv: list[str] | None = None) -> int:
         c.add_argument("--body", default=None, help="the PR body as a literal string (tests)")
         c.add_argument("--repo", default=BASE_REPO, help="the repo the issues live in (default %(default)s)")
         c.add_argument("--gh", default="gh")
+        c.add_argument("--pr", default=os.environ.get("PR_NUMBER", ""), help="PR number — reads the trusted verdict trail on it (issue #2187)")
         c.add_argument("--base", default=None, help="git base of the squash range (PR_BASE; omit to skip the squash half)")
         c.add_argument("--rev", default="HEAD", help="git rev of the PR head (default HEAD)")
         c.add_argument("--cwd", default=None, help="repository the squash range is read from")
@@ -459,18 +523,27 @@ def main(argv: list[str] | None = None) -> int:
     items: list[dict] = []
     if squash_range_error:
         items.append(squash_range_error)
+    # The trusted APPROVE verdict at the current head, if any (issue #2187). Read ONCE per run: the
+    # verdict trail is a PR property shared across every linked issue. A genuine unproven close stays
+    # red (`acceptance-unchecked`); only a verdict at the current head downgrades to awaiting-writer.
+    verdict = verdict_evidence(args.gh, args.repo, args.pr, args.rev)
+    if verdict:
+        print(f"[check-pr-acceptance] trusted approve verdict at head {str(verdict.get('head'))[:12]} "
+              f"(run {verdict.get('run')}, reviewer {verdict.get('reviewer')}) — proving criteria, "
+              f"awaiting write-back (#2187)")
     for n in closed:
         try:
             issue, target_state, _is_pr = _fetch_issue_meta(args.gh, args.repo, n)
         except RuntimeError as exc:
             items.append({
                 "key": "issue-unreadable",
+                "blocking": True,
                 "title": f"ci: the linked issue #{n} could not be read at merge time",
                 "evidence": str(exc),
                 "where": f"#{n}",
             })
             continue
-        items.extend(acceptance_verdict(issue, body, n))
+        items.extend(acceptance_verdict(issue, body, n, verdict=verdict))
         # A close target that is ALREADY closed cannot be closed prematurely, so its lane probe is
         # not a control — measured #1694 (CLOSED 2026-11-04T21:09:51Z) still flagged by a
         # 2026-11-08 run (issue #2088). The acceptance half above stays: a closed issue's unticked
@@ -483,7 +556,9 @@ def main(argv: list[str] | None = None) -> int:
         # citations, probed live (#1589 seam), never a hardcoded roster (issue #301).
         items.extend(rollout_lane_findings(issue, n, args.gh, args.repo))
     print(render(items))
-    return 1 if items else 0
+    # Only BLOCKING findings red the gate. A proven-awaiting-writer criterion is not a red the author
+    # can clear, so it must not hold the merge; every genuinely-unproven finding stays blocking.
+    return 1 if any(it.get("blocking", True) for it in items) else 0
 
 
 if __name__ == "__main__":
