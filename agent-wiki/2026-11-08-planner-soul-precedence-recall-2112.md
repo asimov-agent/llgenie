@@ -42,9 +42,19 @@ Restating either under new wording would teach the next reader to trust neither.
 ## Placement
 
 Both rules went into the lane-rules section, **not** the `## Standing rules (fleet, learned 2026-10-28)`
-block: that block is gate-compared byte-for-byte against the canonical `agents/standing-rules.md`
-(`fleet-block-drift`), so a planner-only rule there would red the gate.
-`python3 scripts/check_agent_profiles.py check --only fleet-block-drift,fleet-block-source` stays rc=0.
+block.
+
+The reason is not that a gate would fire today — it would not: `llgenie-planner` is currently in
+`agents/fleet-block-exemptions.json` (it has not yet stated fleet rule 15, #1706), so `fleet-block-drift`
+tolerates its drift. **Measured**: inserting a test bullet inside the block leaves
+`check_agent_profiles.py check --only fleet-block-drift` at rc=0.
+
+The reason is that the block is defined as a **verbatim copy** of the canonical
+`agents/standing-rules.md`, and the exemption is a *debt*, not a permanent state. Two lane-specific rules
+placed in it would mean the planner can never state the canonical block verbatim, so the exemption could
+never be retired — `fleet-exemption-stale` exists precisely to force that retirement. Lane-specific rules
+therefore belong beside the block, not in it, which is what the section header already says.
+`check_agent_profiles.py check --only fleet-block-drift,fleet-block-source` stays rc=0 either way.
 
 ## Files
 
