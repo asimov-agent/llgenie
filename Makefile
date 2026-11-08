@@ -1081,9 +1081,9 @@ fix-bot-resolve: ## Resolve the open PR a failed CI run belongs to for the fix-b
 	@test -n "$(REPO)" && test -n "$(RUN_ID)" && test -n "$(HEAD_OWNER)" && test -n "$(HEAD_BRANCH)" || { echo "Usage: make fix-bot-resolve REPO=<owner/repo> RUN_ID=<id> HEAD_OWNER=<owner> HEAD_BRANCH=<branch>"; exit 1; }
 	python3 scripts/resolve_run_pr.py resolve --repo "$(GH_REPO)" --run-id $(RUN_ID) --head-owner "$(HEAD_OWNER)" --head-branch "$(HEAD_BRANCH)" --allow-none
 
-auto-merge-recheck: ## Re-evaluate the open PRs whose own deferral marker matches their current head — a deferral is retried without a push (REPO= [MAX=5] [DRY=1]) (issue #545)
-	@test -n "$(REPO)" || { echo "Usage: make auto-merge-recheck REPO=<owner/repo> [MAX=5] [DRY=1]"; exit 1; }
-	python3 scripts/auto_merge.py recheck --repo "$(GH_REPO)" --max-prs $(if $(MAX),$(MAX),5) $(if $(DRY),--dry,)
+auto-merge-recheck: ## Re-evaluate deferred PRs, and any concluded-green head no sweep ever decided — a cancelled or preempted sweep is retried without a push (REPO= [MAX=50] [DRY=1]) (issues #545, #2101)
+	@test -n "$(REPO)" || { echo "Usage: make auto-merge-recheck REPO=<owner/repo> [MAX=50] [DRY=1]"; exit 1; }
+	python3 scripts/auto_merge.py recheck --repo "$(GH_REPO)" --max-prs $(if $(MAX),$(MAX),50) $(if $(DRY),--dry,)
 
 auto-merge-explain: ## Print why a PR was (or was not) auto-merged: state, mergeability, merge state, review decision, author and the verdict — writes NOTHING (PR= REPO= [HEAD_SHA=])
 	@test -n "$(PR)" && test -n "$(REPO)" || { echo "Usage: make auto-merge-explain PR=<n> REPO=<owner/repo> [HEAD_SHA=<sha>]"; exit 1; }

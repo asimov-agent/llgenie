@@ -49,8 +49,20 @@ on:
       - "ci-scope — selects the CI stages a diff needs, and runs the docs gates a docs-only PR still needs"
     types: [completed]
   # A deferral is exit 0 by design, so nothing retries it: this sweep re-runs the same decision for the PRs
-  # the gate itself deferred at the head they still have (issue #545). Every 30 minutes; by hand with
-  # `make auto-merge-recheck REPO=…` or a re-run of the last sweep.
+  # the gate itself deferred at the head they still have (issue #545), AND for any open PR whose current
+  # head already concluded green even when no deferral marker exists — a cancelled sweep left none
+  # (issue #2101). By hand with `make auto-merge-recheck REPO=…` or a re-run of the last sweep.
+  #
+  # THE CADENCE IS NOT 48/day AND THIS FILE MUST NOT CLAIM IT IS (issue #2101, measured 2026-11-08).
+  # `3,33 * * * *` declares 48 slots/day; the workflow actually received 3-5/day across eight measured
+  # days, median gap 5.01h, with ZERO gaps under one hour. This is the GitHub scheduler dropping slots,
+  # NOT runner starvation: no schedule run was ever `cancelled` (auto-merge: success=72, cancelled=0) and
+  # the created_at→run_started_at lag is a median of 0.0 min (max 195 min). Every scheduled workflow here
+  # under-fires identically regardless of declared cadence (`fix-bot` hourly → ~4-7/day; `queued-alarm`
+  # 48/day → 5-8/day; `rebase-bot` 4/day → 6.81h median, i.e. the one cron asking for <5/day IS met), so
+  # the rate is a repo-wide scheduling cap and cannot be fixed from this file. Therefore nothing may
+  # DEPEND on this schedule: the retry path is in-run (`settle_unfinished_head`) and marker-free (the
+  # recheck's `green_unmarked` class), and this cron is a best-effort backstop only.
   #
   # ODD MINUTES ONLY (issue #560). This cron was `*/30 * * * *` — minutes :00 and :30 — and produced ZERO
   # runs (0 `schedule` of 66 runs, measured 2026-10-23) while queued-alarm (:07/:37), fix-bot (:17),
@@ -90,29 +102,28 @@ permissions:
 # concurrency: superseding is safe — a sweep re-reads the PR and merges with one atomic
 # `gh pr merge`, so a cancelled sweep has done nothing that needs redoing, while sixteen sweeps
 # waiting for each other cost the fleet its merger (issue #917).
-concurrency:
-  # REPO-WIDE within each OUTCOME, not per branch. Two facts decide this line:
-  #
-  # 1. `cancel-in-progress: false` does NOT protect a PENDING run — GitHub keeps one running plus one pending
-  #    per group and replaces the pending one whatever the flag says. A per-branch group therefore let the
-  #    scheduled sweeps (no `head_branch`) collapse into one empty-name group and cancel each other: 16 of the
-  #    last 25 runs ended `cancelled` with no job rows, so nothing drained.
-  # 2. A sweep fired by a FAILING CI run decides nothing — the `merge` job requires `conclusion == 'success'`
-  #    — so under one group it would cancel the pending sweep of a PR that IS mergeable: a harmless extra run
-  #    turned into a lost merge. Partitioning by conclusion costs one extra group and removes that.
-  #
-  #    `workflow_run.types` cannot filter by conclusion (it only offers `completed`), so this partition IS the
-  #    filter: a failed or cancelled CI run gets its own group, supersedes only its own kind, and spends no
-  #    runner deciding something the `if:` below would refuse anyway.
-  #
-  # "Newest replaces older" is safe here specifically: a sweep holds no state between runs, each merge is one
-  # atomic `gh pr merge` so a cancel lands before or after a merge and never inside one, and a PR whose sweep
-  # is preempted is picked up by the next sweep, including the scheduled recheck.
-  group: auto-merge-${{ github.event.workflow_run.conclusion || 'schedule' }}
-  cancel-in-progress: true
 
 jobs:
   merge:
+    # CONCURRENCY LIVES ON THIS JOB, NOT ON THE WORKFLOW (issue #2101). A workflow-level
+    # `concurrency:` with `cancel-in-progress: true` cancels the ENTIRE RUN — including the `recheck`
+    # job below, which is the retry for the very sweep it is cancelling. So the two halves are
+    # separated: this job supersedes an older sweep (which is correct and safe — it re-reads every
+    # PR's state and merges with one atomic `gh pr merge`), while the retry half keeps its own group
+    # with `cancel-in-progress: false` and is therefore never killed by a newer sweep.
+    concurrency:
+      # REPO-WIDE within each OUTCOME, not per branch. `cancel-in-progress: false` does NOT protect a
+      # PENDING run — GitHub keeps one running plus one pending per group and replaces the pending one
+      # whatever the flag says — so a per-branch group let the scheduled sweeps (no `head_branch`)
+      # collapse into one empty-name group and cancel each other: 16 of 25 runs ended `cancelled` with
+      # no job rows, so nothing drained.
+      #
+      # Partitioning by conclusion is the filter `workflow_run.types` cannot express (it offers only
+      # `completed`): a failed or cancelled CI run decides nothing (`the if: below requires
+      # conclusion == 'success'`), so it gets its own group and cannot cancel the pending sweep of a PR
+      # that IS mergeable.
+      group: auto-merge-${{ github.event.workflow_run.conclusion || 'schedule' }}
+      cancel-in-progress: true
     # A PR run that finished green, and nothing else: a push run on main has no pull request to merge.
     if: >-
       github.event_name == 'workflow_run' &&
@@ -195,14 +206,26 @@ jobs:
         run: make auto-merge PR="$PR" REPO="$REPO" HEAD_SHA="$HEAD_SHA" APPROVE=1 ACTOR="$ACTOR"
 
   recheck:
-    # The retry half of the same gate (issue #545): only the PRs whose deferral marker names their CURRENT
-    # head are re-evaluated, through the same make target.
+    # THE RETRY MUST NOT BE CANCELLABLE BY THE THING IT RETRIES (issue #2101). This job gets its own
+    # concurrency group with `cancel-in-progress: false`: a newer sweep may supersede an older SWEEP
+    # (that is the #917 fix on the `merge` job), but it must never kill the recovery pass, or the
+    # 41%-cancellation rate simply cancels the net along with the catch.
+    #
+    # `cancel-in-progress: false` on this group means concurrent rechecks QUEUE rather than replace —
+    # acceptable because the sweep is idempotent (it re-reads every PR's live state and merges with one
+    # atomic `gh pr merge`) and bounded (`MAX=50` refreshes at most the open board).
+    concurrency:
+      group: auto-merge-recheck
+      cancel-in-progress: false
+    # The retry half of the same gate (issue #545): deferred PRs at their current head, plus any
+    # concluded-green head no sweep ever decided (#2101), through the same make target.
     #
     # It runs on EVERY CI completion as well as on the cron (issue #558): the scheduled trigger produced no
     # runs at all while it sat on :00/:30 (measured: 0 `schedule` runs, while issue-refiner.yml's hourly cron
     # runs fine), so a deferral used to wait for a push that may never come. `always()` is what makes it run
     # after the merge job whether that job merged, deferred or was skipped. The cron itself moved to odd
-    # minutes in issue #560 — it is the only retry for a deferral that clears with no push, so it must fire.
+    # minutes in issue #560 — and #2101 measured that it still only fires ~4-5x/day, which is exactly why
+    # this job is made uncancellable and marker-free instead of trusting the schedule.
     needs: [merge]
     if: always()
     runs-on: ubuntu-latest
@@ -224,7 +247,7 @@ jobs:
           GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
           APPROVER_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-        run: make auto-merge-recheck REPO="$REPO"
+        run: make auto-merge-recheck REPO="$REPO" MAX=50
       - name: Alert when a merged PR's head pipeline was red (issue #1386)
         env:
           GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
