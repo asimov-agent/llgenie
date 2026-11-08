@@ -1,43 +1,66 @@
-# ci-verdict-red-names-failing-jobs Specification
+# ci-verdict-red-names-failing-jobs — a RED summary names the failing jobs, never "0 failures" (issue #2061)
 
-## Purpose
+## ADDED Requirements
 
-Hold a finished CI run to its scope decision with a summary that states the
-cause of a non-green verdict truthfully: a RED verdict names its failing
-job(s), a NONE verdict keeps the #1111 "0 failures is not a verdict" sentence,
-and a GREEN verdict adds nothing.
+### Requirement: A RED verdict names the jobs that failed
 
-## Goals
+When a run's own `guard` job fails, every selected row is skipped or absent and
+`counts["failure"] = 1`, so the #1111 sentence `0 failures is not a verdict` — written for a run
+with *zero* failures — directly contradicts the `guard FAILED` line printed above it, and a board
+quotes "0 failures" for a red run. A non-green verdict with at least one failure MUST therefore state
+that failure in its own final line, while a non-green verdict with zero failures keeps the #1111
+sentence (where zero is the point).
 
-- A red `ci-verdict` never prints "0 failures" beside an actual failure.
-- The failing job is named (`1 FAILED (guard)`), not hidden behind a count.
-- `verdict`, `counts`, and the process exit code are byte-identical between the
-  old and new code paths for every shape.
+WHEN  a run is held to its scope decision and the verdict is `red` (`counts["failure"] >= 1`)
+THEN  the summary ends with a line that names the failing job(s) and never contains the wording
+      `0 failures is not a verdict`.
 
-## Non-Goals
+#### Scenario: a guard failure is named as the cause
 
-- No change to which jobs are selected, how conclusions are normalised, or the
-  exit-code / check-run posting contract.
-- No change to `ci-verdict.yml`, `ci.yml`, or any security gate.
+Given a run whose own `guard` job FAILED and the selected rows skipped/absent, and no decision,
+When   `scripts/ci_scope.py::verify` is run,
+Then   the verdict is `red`, `counts["failure"]` is 1, and the final summary line reads
+       `RED: N job(s) unaccounted for — 1 FAILED (guard), M unaccounted, 0 pending` and contains no
+       `0 failures is not a verdict` wording.
+- **Test:** `tests/test_ci_verdict.py::test_a_failed_guard_is_named_as_the_cause_never_zero_failures`
 
-## Requirements
+#### Scenario: a guard failure with a decision is still a named red through the CLI
 
-### REQ-1: A RED verdict names its failing jobs
+Given a full-matrix decision and the same guard-failed run,
+When   `make ci-verdict` runs with `CHECK_RUN_OUT` set,
+Then   it exits 1 (a red verdict), the output names `1 FAILED (guard)`, and the payload conclusion
+       is `failure`.
+- **Test:** `tests/test_ci_verdict.py::test_a_guard_failure_with_a_decision_is_a_named_red`
 
-Given a run whose own guard job FAILED and the selected rows skipped/absent
-(no decision), when the verdict is computed, then the summary ends with a line
-that contains `1 FAILED (guard)` and contains no `0 failures is not a verdict`
-wording, and `verdict` is `red`.
+### Requirement: A NONE verdict keeps the #1111 sentence
 
-### REQ-2: A NONE verdict keeps the #1111 sentence
+Zero failures with absent/skipped rows is the exact case #1111 wrote the sentence for: the count is
+zero, and that IS the point. The wording must not change for a `none` verdict.
 
-Given a run with zero failures and absent/skipped rows and no decision, when
-the verdict is computed, then the summary ends with the exact sentence
-`NO VERDICT: N job(s) unaccounted for — 0 failures is not a verdict` and
-`verdict` is `none`.
+WHEN  a run is held to its scope decision and the verdict is `none` (`failure == 0` with unaccounted
+      rows)
+THEN  the summary ends with `NO VERDICT: N job(s) unaccounted for — 0 failures is not a verdict`,
+      unchanged.
 
-### REQ-3: A GREEN verdict is unchanged
+#### Scenario: a cancelled fan-out with no failures keeps the #1111 sentence
 
-Given a run for which every selected job reported success, when the verdict is
-computed, then no final non-green sentence is added, `verdict` is `green`, and
-`counts`/exit code are unchanged.
+Given the measured cancelled fan-out of run 41134761297 and no decision artifact,
+When   `verify` is run,
+Then   the verdict is `none` and the summary contains `0 failures is not a verdict`.
+- **Test:** `tests/test_ci_verdict.py::test_a_cancelled_fan_out_with_no_decision_is_never_green`
+
+### Requirement: verdict, counts and exit code are unchanged
+
+The message split must never alter a verdict decision: the same rows produce the same `verdict`,
+`counts` and process exit code as before the change.
+
+WHEN  any run is held to its decision and its rows and decision are the same as before this change
+THEN  `verdict`, `counts` and the exit code are byte-identical.
+
+#### Scenario: a fully green decided run is unchanged
+
+Given a `tests/**`-class decision and a run whose unselected jobs were skipped,
+When   `verify` is run,
+Then   the verdict is `green`, every legitimate skip is `skipped-by-decision`, and no non-green
+       summary line is added.
+- **Test:** `tests/test_ci_verdict.py::test_a_skip_the_decision_made_is_green_and_counted`

@@ -1,4 +1,4 @@
-# 2026-11-08 — ci-verdict RED names its failing jobs (issue #2061, PR #2278)
+# 2026-11-08 — ci-verdict RED names its failing jobs (issue #2061, PR #2279)
 
 The `ci-verdict` judge's summary line said `NO VERDICT: N job(s) unaccounted for — 0 failures is
 not a verdict` even when the run's own `guard` job FAILED (`counts["failure"] = 1`) — the exact
