@@ -22,10 +22,14 @@ The route decision lives HERE, in a stdlib-only, no-LLM script (unit-testable, l
   * Route B — no pushable PR (a red main push, a red scheduled bot run, a red publish job): file
     exactly ONE issue whose title names the workflow plus the failing job, and whose body carries
     the failing job, its step, and a tail of the failing log (`gh run view RUNID --log-failed`).
-    Dedupe with a body marker `<!-- run-fixer: WORKFLOW/JOB@SHORTSHA -->` (SHORTSHA = first 12
-    chars of the head sha), searched with `gh issue list --search ... in:body`. If an OPEN issue
-    already carries that marker, file NOTHING. Label the issue `agent:implement` so the issue-bot
-    can pick it up.
+    Dedupe with a body marker `<!-- run-fixer: WORKFLOW/STEP -->` (the failing STEP, not the run
+    sha — a class-level key, so N runs of one broken gate collapse into one issue, issue #2076),
+    searched with `gh issue list --search ... in:body`. If an OPEN issue already carries that
+    marker, file NOTHING. Label the issue with the OWNING LANE's label (`classify_workflow`, issue
+    #2076): a pipeline/gate/bot failure carries `agent:ci-pipelines-maintainer` (not the product
+    implementer), a product-workflow failure keeps `agent:implement`, and a workflow that cannot
+    be classified confidently is filed with NO implementation label and the class named in the
+    body — never defaulted to the implementer.
   * Route B files only WORK THAT IS STILL WORK (issue #565). "No pushable PR" covers two very
     different states, and only one of them is a work item:
       - the PR is OPEN but not pushable right now (a draft, or its repair attempts are spent) -
@@ -78,11 +82,104 @@ RUN_FIXER = "run-failure-reactor"
 OWN_WORKFLOW = "run-failure-reactor"
 
 #: The label the filed issue carries so the issue-bot picks it up (scripts/issue_implementer.py
-#: picks `agent:implement` first).
+#: picks `agent:implement` first). This is the PRODUCT lane's label; a pipeline/workflow failure
+#: carries the ci-pipelines lane's label instead (issue #2076).
 IMPLEMENT_LABEL = "agent:implement"
 
-#: The dedupe marker prefix. The full marker is `<!-- run-fixer: WORKFLOW/JOB@SHORTSHA -->`.
+#: The dedupe marker prefix. The full marker is `<!-- run-fixer: WORKFLOW/STEP -->` — a
+#: CLASS-LEVEL key (the failing step, not the run sha), so N runs of one broken gate collapse
+#: into one issue (issue #2076).
 MARKER_PREFIX = "run-fixer:"
+
+
+class Lane:
+    """One owner lane a failing workflow is routed to (issue #2076).
+
+    The reactor files a Route-B issue with the OWNING LANE's label, so a pipeline failure reaches
+    the lane that owns `.github/workflows/**` and `scripts/` instead of queueing behind product
+    work. ``label`` is the GitHub label that queues the issue for that lane; ``None`` means the
+    issue is filed with NO implementation label (an engine failure, or an unclassified workflow)
+    and the class is named in the body instead of defaulting to the product implementer.
+    """
+
+    __slots__ = ("name", "label")
+
+    def __init__(self, name: str, label: str | None) -> None:
+        self.name = name          # the owning lane's human name, stated in the issue body
+        self.label = label        # the GitHub label to apply, or None for no implementation label
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return f"Lane({self.name!r}, {self.label!r})"
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, Lane) and self.name == other.name and self.label == other.label
+
+
+#: The lanes this repo routes CI failures to (issue #2076). The lane names come from the fleet
+#: roster (`scripts/host_bot_capabilities.py::REPO_SKILL_PROFILES`); the labels are the live
+#: `agent:*` queue labels on the repo. Engine work has a lane but no `agent:*` label, so an engine
+#: failure is filed with no implementation label and the lane named in the body.
+PRODUCT_LANE = Lane("llgenie-issse-implementer", IMPLEMENT_LABEL)
+PIPELINES_LANE = Lane("llgenie-ci-pipelines-maintainer", "agent:ci-pipelines-maintainer")
+DOCS_LANE = Lane("llgenie-documentation-maintainer", "agent:documentation")
+ENGINE_LANE = Lane("llgenie-engine-improver", None)
+
+#: Workflows (by display `name:`) that run the PRODUCT's own gates — a failed run here means the
+#: product code is at fault, so the issue routes to the implementer exactly as it always has.
+PRODUCT_WORKFLOWS = frozenset({"ci", "pipeline"})
+
+#: Workflow display-name stems whose failures are pipeline/gate/bot work (the ci-pipelines lane).
+#: A stem matches when the workflow's lowercased display name STARTS with it, so `ci-verdict — …`
+#: matches `ci-verdict` and `fix-bot — …` matches `fix-bot`. A bot's red run is a PIPELINE defect
+#: (its fix lives in `scripts/**` / `.github/workflows/**`), so `-bot` workflows all route here.
+PIPELINE_STEMS = (
+    "ci-frozen-reaper", "ci-requeue", "ci-scope", "ci-verdict", "rebase-bot", "fix-bot",
+    "issue-bot", "issue-dedupe", "issue-refiner", "code-review-bot", "main-ruleset", "arms",
+    "auto-merge", "holds", "queued-alarm", "registry-liveness", "registry-sync",
+    "run-failure-reactor", "scope", "search-smoke", "security-bot", "security-scan",
+    "stale-branch-cleanup", "zero-job-pending", "all-pipelines", "review-verdict",
+    "publish-agent-image", "architecture-bot",
+)
+
+#: Workflow display-name stems whose failures belong to the engine/serving lane (engine-improver).
+ENGINE_STEMS = (
+    "engine-build", "engine-build-pr-trigger", "engine-bump", "engine-bump-rebase",
+)
+
+#: Workflow display-name stems whose failures belong to the documentation lane. None of the
+#: reactor's triggered workflows is a docs-content failure today (a bot that rewrites docs is a
+#: pipeline defect), so this stays empty — the lane is in the map for a future docs workflow.
+DOC_STEMS: tuple[str, ...] = ()
+
+
+def classify_workflow(workflow: str) -> Lane | None:
+    """The lane a failing workflow's issue routes to, or None when it cannot be classified.
+
+    Classifies the failing workflow (its display `name:` as the API reports it) into the lane
+    that owns the fix (issue #2076), NEVER defaulting an unclassified workflow to the product
+    implementer:
+      * a PRODUCT workflow (`CI` / `pipeline` — they run the product's own gates) -> implementer;
+      * a pipeline/gate/bot/script workflow -> the ci-pipelines lane;
+      * an engine workflow -> the engine lane (no `agent:*` label: filed unlabelled, lane named);
+      * a docs workflow -> the documentation lane;
+      * anything else -> None (filed with no implementation label, the class named in the body).
+    """
+    name = (workflow or "").strip().lower()
+    if not name:
+        return None
+    if name in PRODUCT_WORKFLOWS:
+        return PRODUCT_LANE
+    for stem in ENGINE_STEMS:
+        if name.startswith(stem):
+            return ENGINE_LANE
+    for stem in DOC_STEMS:
+        if name.startswith(stem):
+            return DOCS_LANE
+    for stem in PIPELINE_STEMS:
+        if name.startswith(stem):
+            return PIPELINES_LANE
+    return None
+
 
 #: The fork owner whose PRs this bot may push: every agent PR is pushed there, and the fix-bot's
 #: own sweep repairs it (`fix_bot_sweep.eligible(..., own_fork=...)`, issue #477).
@@ -120,10 +217,16 @@ def _gh_soft(args: list[str]) -> str | None:
     return r.stdout
 
 
-def marker(workflow: str, job: str, head_sha: str) -> str:
-    """The dedupe marker for one workflow/job@head-sha: the memory a later run reads."""
-    short = (head_sha or "")[:12]
-    return f"<!-- {MARKER_PREFIX} {workflow}/{job}@{short} -->"
+def marker(workflow: str, step: str) -> str:
+    """The dedupe marker for one FAILURE CLASS — workflow + failing step (issue #2076).
+
+    Deliberately class-level, NOT run-scoped: the key is `WORKFLOW/STEP`, with no head sha, so
+    N runs of one broken gate (different shas, same failing step) collapse into ONE issue. The
+    run sha was the old key, which is exactly why three `ci-verdict` runs filed three issues
+    (#2056/#2067/#2070). `step` is the failing step's name (the raw `job.steps[].name`), which
+    is stable across runs of a broken gate.
+    """
+    return f"<!-- {MARKER_PREFIX} {workflow}/{step} -->"
 
 
 def run_rest(repo: str, run_id: int) -> dict:
@@ -469,15 +572,26 @@ def _pr_from_run(repo: str, run: dict, run_id: int, rest: dict | None = None) ->
     return None
 
 
-def issue_body(run: dict, job: dict, log_tail: str, marker: str) -> str:
-    """The issue body: the shape every issue in this repository carries (issue #745)."""
-    step = ""
+def failing_step(job: dict) -> str:
+    """The name of the job's first failing step (issue #286)."""
     for s in (job.get("steps") or []):
         if (s.get("conclusion") or "").lower() in ("failure", "cancelled", "timed_out"):
-            step = s.get("name") or ""
-            break
+            return s.get("name") or ""
+    return ""
+
+
+def issue_body(run: dict, job: dict, log_tail: str, marker: str,
+               lane: Lane | None = None) -> str:
+    """The issue body: the shape every issue in this repository carries (issue #745).
+
+    Names the owning lane and the failure class (issue #2076) so a reader sees the routing without
+    re-deriving it: the lane is the label the issue carries (or `unclassified` when None, meaning
+    the issue was filed with no implementation label), and the class is the failing step.
+    """
+    step = failing_step(job)
     workflow = run.get("workflowName") or "?"
     job_name = job.get("name") or "?"
+    owned = lane.name if lane else "unclassified (filed with no implementation label)"
     return render_body(
         marker=marker,
         problem=(
@@ -509,6 +623,8 @@ def issue_body(run: dict, job: dict, log_tail: str, marker: str) -> str:
             "`closes #<this issue>` is in that PR, so merging it closes the failure",
         ],
         technical=[
+            f"**owned by lane:** `{owned}`",
+            f"**failure class:** `{workflow}/{step or job_name}`",
             f"**workflow:** `{workflow}`",
             f"**run:** `{run.get('displayTitle') or '?'}`",
             f"**event:** `{run.get('event') or '?'}`",
@@ -523,7 +639,7 @@ def issue_body(run: dict, job: dict, log_tail: str, marker: str) -> str:
             "",
             "Filed by the run-failure reactor (`scripts/run_failure_reactor.py`). The issue-bot owns "
             "the implementation; the fix-bot owns PR repair. Nothing was changed by the run that "
-            "filed this. The marker on line 1 is the dedupe key (`workflow/job@sha`).",
+            "filed this. The marker on line 1 is the dedupe key (`workflow/step`, a class-level key).",
         ],
     )
 
@@ -540,7 +656,10 @@ def filed_phrase(marker: str) -> str:
 
 
 def filed(repo: str, marker: str) -> bool:
-    """Has this workflow/job@head-sha been filed already? The marker is the memory.
+    """Has this failure CLASS (workflow/failing-step) been filed already? The marker is the memory.
+
+    The marker is class-level (issue #2076) — the failing step, not the run sha — so a second run
+    of the same broken gate finds the first one's issue and files nothing.
 
     The search phrase is built from the marker with its double-quote characters removed (issue #1990):
     a workflow display name like `ci-verdict — … and says "no verdict" out loud` embeds a `"`, and
@@ -556,8 +675,14 @@ def filed(repo: str, marker: str) -> bool:
 
 
 def file_issue(repo: str, run: dict, job: dict, log_tail: str, marker: str,
-               dry: bool = False) -> str | None:
-    """File ONE issue for this failure; return its URL, or None when already filed / dry."""
+               lane: Lane | None = None, dry: bool = False) -> str | None:
+    """File ONE issue for this failure; return its URL, or None when already filed / dry.
+
+    Labels the issue with the OWNING LANE's label (issue #2076): a pipeline failure carries
+    `agent:ci-pipelines-maintainer` instead of the product implementer's `agent:implement`, and an
+    unclassified workflow (``lane is None``) is filed with NO implementation label — never the
+    product implementer by default. The body names the lane and the failure class.
+    """
     if filed(repo, marker):
         print(f"[run-fixer] already filed: {marker}", flush=True)
         return None
@@ -565,9 +690,11 @@ def file_issue(repo: str, run: dict, job: dict, log_tail: str, marker: str,
     if dry:
         print(f"[run-fixer] would file: {title} ({marker})", flush=True)
         return None
-    out = _gh(["issue", "create", "--repo", repo, "--title", title,
-               "--body", issue_body(run, job, log_tail, marker),
-               "--label", IMPLEMENT_LABEL])
+    cmd = ["issue", "create", "--repo", repo, "--title", title,
+           "--body", issue_body(run, job, log_tail, marker, lane)]
+    if lane and lane.label:
+        cmd += ["--label", lane.label]
+    out = _gh(cmd)
     print(f"[run-fixer] filed: {out.strip()}", flush=True)
     return out.strip()
 
@@ -668,8 +795,15 @@ def route(repo: str, run_id: int, check: str = "make ci-unit", dry: bool = False
         return 1
     job = jobs[0]
     log_tail = failing_log_tail(repo, run_id, job.get("databaseId"))
-    m = marker(run.get("workflowName") or "?", job.get("name") or "?", run.get("headSha") or "")
-    file_issue(repo, run, job, log_tail, m, dry=dry)
+    lane = classify_workflow(run.get("workflowName") or "")
+    if lane:
+        print(f"[run-fixer] run {run_id} -> {lane.name}", flush=True)
+    else:
+        print(f"[run-fixer] run {run_id} -> unclassified workflow: filing with no implementation label",
+              flush=True)
+    step = failing_step(job) or (job.get("name") or "?")
+    m = marker(run.get("workflowName") or "?", step)
+    file_issue(repo, run, job, log_tail, m, lane=lane, dry=dry)
     return 0
 
 

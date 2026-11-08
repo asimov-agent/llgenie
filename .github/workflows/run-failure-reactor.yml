@@ -20,8 +20,10 @@ name: run-failure-reactor — routes a failed run to a fix or a deduped issue (n
 #         Route A — the failed run has a pushable same-repo PR: claim it (scripts/bot_claims.py,
 #                    issues #279/#285) and dispatch the EXISTING fix-bot for it.
 #         Route B — no pushable PR (a red main push, a red scheduled bot run, a red publish job):
-#                    file ONE marker-deduped issue labelled `agent:implement` so the issue-bot
-#                    picks it up.
+#                    file ONE marker-deduped issue labelled with the OWNING LANE's label
+#                    (classify_workflow, issue #2076) — a pipeline/gate/bot failure carries the
+#                    ci-pipelines lane's label, a product failure keeps agent:implement, and an
+#                    unclassified workflow is filed with no implementation label.
 # Never: never repairs, commits, pushes or merges in the file-issue path — it files; the issue-bot
 #        owns implementation, the fix-bot owns PR repair. A run it cannot diagnose is reported
 #        loudly, never silently dropped.
