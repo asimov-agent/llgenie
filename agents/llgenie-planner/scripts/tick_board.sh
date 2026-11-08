@@ -57,14 +57,17 @@ printf 'main_sha: %s\n' "$MAIN"
 printf 'fetched_at_utc: %s\n' "$FETCHED_UTC"
 printf 'agents_md: %sb %sl   <- cite this sha and size in every brief\n' "$AGENTS_B" "$AGENTS_L"
 
-# --- B. OPEN PRs: base, staleness vs the freshly-fetched tip, DIRTY ---------
+# --- B. OPEN PRs: base, staleness vs the freshly-fetched tip, DIRTY, arm state -
 # A DIRTY PR gets NO CI run at all, so nobody is ever notified of it again.
-say "B. OPEN PRs (base vs main, staleness, DIRTY)"
+# The measurement is only as good as the --json field list: WITHOUT
+# autoMergeRequest,reviewDecision every PR below reads `unarmed` silently — the
+# false-measurement bug of #2182. Any field a row prints MUST be in the list.
+say "B. OPEN PRs (base vs main, staleness, DIRTY, arm state)"
 if [ -n "${PR_LIST_JSON:-}" ]; then
   cat "$PR_LIST_JSON"
 else
   gh pr list --repo "$SLUG" --state open --limit 100 \
-    --json number,baseRefOid,mergeStateStatus,mergeable,headRefOid,title 2>/dev/null
+    --json number,baseRefOid,mergeStateStatus,mergeable,headRefOid,title,autoMergeRequest,reviewDecision 2>/dev/null
 fi \
 | python3 -c "
 import sys,json
@@ -72,15 +75,32 @@ try: d=json.load(sys.stdin)
 except Exception: d=[]
 main='$MAIN'
 stale=dirty=0
+narm=0; inert=0
 for p in d:
     base=(p.get('baseRefOid') or '')[:8]
     st=p.get('mergeStateStatus') or '?'
     is_stale = base != main
     is_dirty = st == 'DIRTY'
     stale += is_stale; dirty += is_dirty
+    armed = bool(p.get('autoMergeRequest'))
+    narm += armed
+    # armed-but-DIRTY is the INERT state: DIRTY gets no CI run and the merge
+    # queue never sees it, so the arm can never fulfil. Report it as impossible,
+    # NEVER as handled — an armed-DIRTY PR read as 'handled' is a hold whose
+    # reason expired and a merge that cannot happen.
+    inert_state = armed and is_dirty
+    inert += inert_state
+    if inert_state:      arm = 'ARM-INERT'        # armed AND DIRTY -> impossible
+    elif armed:          arm = 'ARMED'            # merge-queued and waiting
+    elif (p.get('reviewDecision') == 'APPROVED' and p.get('mergeable') == 'MERGEABLE'
+          and not is_dirty): arm = 'green+appr+unarm'  # ready to arm now
+    else:                arm = 'unarmed'
+    rev = p.get('reviewDecision') or '-'
     tag = ('STALE ' if is_stale else 'fresh ') + ('DIRTY' if is_dirty else st)
-    print(f\"  #{p['number']:<5} {tag:<22} base={base} head={(p.get('headRefOid') or '')[:8]}  {p['title'][:52]}\")
-print(f'\n  TOTAL open={len(d)}  stale={stale}  dirty={dirty}')
+    print(f\"  #{p['number']:<5} {tag:<22} {arm:<17} rev={(rev or '-')[:15]:<15} mrg={(p.get('mergeable') or '-')[:11]:<11} base={base} head={(p.get('headRefOid') or '')[:8]}  {p['title'][:24]}\")
+print(f'\n  ARM   armed={narm}  unarmed={len(d)-narm}  armed-but-DIRTY(inert)={inert}')
+print('  ARM-INERT is NOT handled: dispatch llgenie-pr-merge-conflict for the rebase.')
+print(f'  TOTAL open={len(d)}  stale={stale}  dirty={dirty}')
 print('  A stale base is ONE board-wide sweep, not N tasks. A DIRTY PR has no CI run at all.')
 "
 
