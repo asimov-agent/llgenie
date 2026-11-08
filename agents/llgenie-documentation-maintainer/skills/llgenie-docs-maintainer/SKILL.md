@@ -25,6 +25,10 @@ metadata:
 > issue (main sha, CI run id, green job id, issue state), and (2) message the lane *about to act* to
 > reconcile against those ids before branching. Then stand by — the stale cache is the other lane's
 > defect. "Green on merged main" needs the CI run: `references/merged-ci-verification.md`.
+>
+> **A red `scope` step may be an exemption-format bug, not a by-design hold.** Read the gate's own
+> source and test it against the on-wire PR body before labelling it verdict-gated — the
+> `## Not covered` exemption is a single line ending in a bare `#<n>` —`references/acceptance-writeback.md`.
 
 <!-- host-bot-tools:begin -->
 

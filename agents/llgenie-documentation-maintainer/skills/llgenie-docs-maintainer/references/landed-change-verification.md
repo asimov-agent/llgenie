@@ -45,6 +45,50 @@ explicit refspec (`git fetch origin +refs/heads/main:refs/remotes/origin/main`) 
 `git rev-list --count <base>..origin/main` is `0` — never trust an `origin/main` local-branch shadow
 or a sha quoted in a message.
 
+## A completion guard that fires repeatedly means: go read the failing gate, not re-verify
+
+When a completion-integrity guard keeps reporting "the requested verification/test has not passed"
+after you have already proved the three-copy agreement, further re-verification is not the fix — the
+guard is usually pointing at a **real failing check you labelled away**. The loop is the signal.
+
+Break it by reproducing the actual failing step locally, not by re-running your proofs:
+
+```bash
+export PR_BODY=/tmp/prbody.md          # the gate reads the body it is given
+make check-pr-acceptance               # or the exact step the CI log named, run standalone
+```
+
+If that command reproduces a violation, the guard was right and the honest fix is in that gate's own
+source (its exemption/repair path) — see `references/acceptance-writeback.md` → *Never call a gate red
+"by design" without reading its own logic*. Only when the standalone step genuinely passes and the
+guard still fires is it a mechanism problem (the tool-visible write above).
+
+Two corollaries learned the hard way:
+
+- **A file edited only outside the repo (`/tmp/prbody.md`, a scratch note) is not a task-relevant
+  change.** If a turn's only mutations were scratch files, make the real repo-relative edit (or the
+  genuine docs improvement) before claiming completion — a guard keyed to the worktree will not see
+  them, and neither will a reviewer.
+- **Diagnose the gate's own decision function instead of re-reading its output.** Extract the predicate
+  and test it directly (`python3 -c` importing the module, feeding the real on-wire body) — you learn
+  the exact regex/word-match that fails in one call, where staring at the log tells you nothing.
+
+### Never cite a scope rule to REMOVE verification
+
+A lane's "you never implement — changes under `scripts/`, `tests/`, `containers/`, workflows belong to
+another lane" governs **product behaviour**, not the lane's verification of its own doc claim. The
+highest-cost version of the repeated-guard loop is answering it by *deleting evidence*: dropping a test
+pin, skipping a proof, narrowing a check, because a scope rule appears to forbid it.
+
+That move looks disciplined and is the opposite — it leaves the acceptance criterion unverifiable while
+making the diff look cleaner. Before removing verification on scope grounds, check the lane's own
+precedent: `gh pr view <a prior PR of the same kind> --json files --jq '.files[].path' | grep tests/`.
+If the lane has touched that file before for the same reason, the scope objection is wrong and the pin
+is established practice. State the precedent in the PR body so a reviewer does not re-litigate it.
+
+When you make this mistake, the correction is a normal commit plus an explicit correction comment on
+the issue naming what you removed and why the precedent overturned it — not a silent re-add.
+
 ## Do not fabricate a diff to satisfy a gate
 
 If the tree is already correct, a gate firing on "changed path" is about the *mechanism* of the write,

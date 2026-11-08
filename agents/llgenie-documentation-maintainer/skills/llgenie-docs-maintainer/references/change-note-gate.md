@@ -7,8 +7,12 @@
 edits `docs/BOTS.md`, `docs/ARCHITECTURE.md` or any other `docs/*.md` owes the full trio:
 
 1. `agent-wiki/<stem>.md` — a real note (frontmatter + body), naming the issue it came from.
-2. `docs/changes.d/<stem>.md` — one row in the form
-   `| YYYY-MM-DD | summary | [<stem>](agent-wiki/<stem>.md) | #<issue> |`
+2. `docs/changes.d/<stem>.md` — **exactly one line**: one row in the form
+   `| YYYY-MM-DD | summary | [<stem>](agent-wiki/<stem>.md) | #<issue> |`.
+   A markdown TABLE header, a blank line, or a trailing summary line all red it:
+   `[changes-index] ERROR: <fragment>: holds 4 line(s); a fragment is exactly one row`. One file =
+   one row, no header row, no trailing newline content. A fragment that also fails to reference its
+   `agent-wiki` note reds `is not indexed` in the same run — write the row first, then regenerate.
 3. `CHANGES.md` regenerated from the fragments via `make changes-index` (the fragment is not indexed
    until you regenerate).
 
