@@ -144,11 +144,23 @@ fi
 # command string, after a ~35-minute matrix.
 #
 # The test: every line the base has in a tracked text file, and HEAD lacks, must correspond to a
-# deletion the branch actually intends. We cannot read intent, so instead we surface the deletions
-# of base lines in files the branch does NOT otherwise add to -- that is the reverting shape.
+# deletion the branch actually intends. We cannot read intent directly, so we compare the base
+# lines HEAD lost AGAINST the branch's OWN diff -- the lines the branch deleted from the fork
+# point it diverged from the base. The branch's own diff is the pre-rebase tip (`git rebase`
+# records it in ORIG_HEAD) diffed back to `merge-base(base, ORIG_HEAD)`:
+#
+#   - A CORRECT edit deleted those lines itself: the line is a `-` in the branch's own diff,
+#     so the base-line loss is accounted for -- intended, reported as a NOTE, never FAIL.
+#   - A replayed REVERT (`-X theirs` resolves the hunk to the branch's older side) dropped a
+#     base line the branch NEVER touched: the line is absent from the branch's own `-` set,
+#     so the loss is unexplained -- the provable revert shape, and it FAILs.
+#
+# This replaces the old `gone>0 && added>0` predicate, which treated every substitution as a
+# revert and fired FAIL on every ordinary code edit (#2069 `engine_build_trigger.py(5-51)`,
+# #2085 `engine_image.py(5-49)` were both clean rebases whose only conflict was CHANGES.md).
 # Generated files are excluded: they are re-rendered, not merged, so their diffs are expected.
 # The test must distinguish a REVERT from simply being BEHIND. A file the branch never touched
-# appears to "lose" every line main added after the merge-base — that is staleness, not a revert.
+# appears to "lose" every line main added after the merge-base -- that is staleness, not a revert.
 # So this check runs ONLY when the base is genuinely an ancestor of HEAD (a real post-rebase
 # state, the condition assertion 8 already tests). In that state there is no staleness to
 # confuse, and any base line missing from HEAD was dropped by the resolution.
@@ -156,40 +168,60 @@ GEN_RE='^(CHANGES\.md|docs/ARCHITECTURE\.md|.*/\.openspec\.yaml)$'
 rev_files=""
 del_files=""
 if git merge-base --is-ancestor "$BASE" HEAD 2>/dev/null; then
-  # What is provable: a -X-strategy revert is a SUBSTITUTION -- base's line is gone and a different
-  # line took its place (`ci_images.py latest agent` -> `ref agent`). Intent is NOT provable: after
-  # a rebase the merge-base IS the base, so a replayed revert sits inside the branch's own commits
-  # and any "did the branch mean this" test classifies it as intended. And a PURE deletion may be
-  # entirely correct (a branch removing an obsolete line), so failing on it would reject correct
-  # work -- the thing this lane's rules forbid a test from doing.
-  #
-  # So: substitution FAILS (the confirmed defect shape), pure deletion is REPORTED for a human
-  # without failing the push.
+  # Branch's own diff = pre-rebase tip (ORIG_HEAD) vs the fork point where it left the base.
+  # ORIG_HEAD is only meaningful for a real rebase; without it, intent is unprovable, so we fall
+  # back to a NOTE rather than FAIL -- over-firing is the exact defect this rewrite removes.
+  OWN_TIP=""
+  if git rev-parse --verify --quiet ORIG_HEAD >/dev/null 2>&1; then
+    OWN_TIP=$(git rev-parse ORIG_HEAD)
+    if [ "$OWN_TIP" = "$(git rev-parse HEAD)" ]; then OWN_TIP=""; fi
+  fi
+  if [ -n "$OWN_TIP" ]; then
+    FORK=$(git merge-base "$BASE" "$OWN_TIP" 2>/dev/null || true)
+  else
+    FORK=""
+  fi
   while IFS= read -r f; do
     [ -n "$f" ] || continue
     case "$f" in
       *.png|*.jpg|*.jpeg|*.gif|*.ico|*.pdf|*.zip|*.gz|*.woff*|*.ttf|*.lock) continue ;;
     esac
     printf '%s\n' "$f" | grep -Eq "$GEN_RE" && continue
-    gone=$(git diff --no-color "$BASE" HEAD -- "$f" 2>/dev/null | grep -c '^-[^-]')
-    added=$(git diff --no-color "$BASE" HEAD -- "$f" 2>/dev/null | grep -c '^+[^+]')
-    if [ "$gone" -gt 0 ] && [ "$added" -gt 0 ]; then
-      rev_files="$rev_files $(printf '%s(%s-%s)' "$f" "$gone" "$added")"
-    elif [ "$gone" -gt 0 ]; then
-      del_files="$del_files $(printf '%s(%s)' "$f" "$gone")"
+    gone=$(git diff --no-color "$BASE" HEAD -- "$f" 2>/dev/null | grep '^-[^-]' | cut -c2-)
+    added=$(git diff --no-color "$BASE" HEAD -- "$f" 2>/dev/null | grep '^+[^+]' | cut -c2-)
+    [ -n "$gone" ] || continue
+    gone_n=$(printf '%s\n' "$gone" | grep -c . )
+    # Which gone base lines did the BRANCH itself delete? (its own diff fork..own-tip, `-` set)
+    if [ -n "$FORK" ]; then
+      own_del=$(git diff --no-color "$FORK" "$OWN_TIP" -- "$f" 2>/dev/null | grep '^-[^-]' | cut -c2-)
+      unexplained=$(comm -23 <(printf '%s\n' "$gone" | sort -u) <(printf '%s\n' "$own_del" | sort -u))
+    else
+      # No ORIG_HEAD means no provable intent either way. A `-X theirs` revert and a deliberate
+      # edit look identical without the pre-rebase tip, so reserving FAIL for the provable shape
+      # (the issue's rule) means: with no ORIG_HEAD, report as NOTE, never FAIL -- over-firing is
+      # the exact defect this rewrite removes.
+      unexplained=""
+    fi
+    if [ -n "$unexplained" ]; then
+      un_n=$(printf '%s\n' "$unexplained" | grep -c .)
+      add_n=$(printf '%s\n' "$added" | grep -c . || true)
+      rev_files="$rev_files $(printf '%s(%s-%s)' "$f" "$un_n" "$add_n")"
+    else
+      del_files="$del_files $(printf '%s(%s)' "$f" "$gone_n")"
     fi
   done < <(git diff --name-only "$BASE" HEAD 2>/dev/null)
 fi
 if [ -n "$rev_files" ]; then
-  bad "base lines replaced:$rev_files"
-  echo "     These files lost base lines AND gained others — the shape a --strategy flag"
-  echo "     (-X theirs / -X ours) leaves when it resolves a hunk that never should have differed:"
-  echo "     measured, main's 'ci_images.py latest agent' became an older 'ref agent'. Diff each"
-  echo "     file against $BASE_SHA by hand and restore the base's wording, keeping your additions."
+  bad "base lines reverted:$rev_files"
+  echo "     These files LOST base lines the branch's own diff never deleted — the shape a"
+  echo "     strategy flag (-X theirs / -X ours) leaves when it resolves a hunk that never"
+  echo "     should have differed: measured, main's 'ci_images.py latest agent' became an"
+  echo "     older 'ref agent'. Diff each file against $BASE_SHA by hand and restore the base's"
+  echo "     wording, keeping your additions."
 elif [ -n "$del_files" ]; then
-  say "base lines deleted (review):$del_files" "NOTE"
-  echo "     No file above added anything while losing base lines, so this reads as a deliberate"
-  echo "     removal rather than a revert — NOT a failure. Confirm each is intended."
+  say "base lines replaced by branch's own diff (review):$del_files" "NOTE"
+  echo "     Every lost base line IS a deletion in the branch's own diff, so these are the"
+  echo "     branch's intended substitutions — NOT a revert. Confirm each is what was meant."
 else
   ok "no base lines lost"
 fi
