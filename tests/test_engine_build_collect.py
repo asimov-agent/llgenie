@@ -94,7 +94,8 @@ def test_pinned_unchanged_but_install_changed_still_repins(monkeypatch, tmp_path
     (params_dir / "vllm.json").write_text(json.dumps(base))
     subprocess.run(["git", "init", "-q", str(root)], check=True)
     subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
-    subprocess.run(["git", "-C", str(root), "commit", "-qm", "base"], check=True)
+    subprocess.run(["git", "-C", str(root), "-c", "user.name=t", "-c", "user.email=t@example.com",
+                    "commit", "-qm", "base"], check=True)
     base_oid = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"],
                               capture_output=True, text=True).stdout.strip()
     (params_dir / "vllm.json").write_text(json.dumps(head))
