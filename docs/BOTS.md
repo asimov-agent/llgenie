@@ -441,6 +441,11 @@ returned nothing.
 `agents/` is their home now, one directory per profile (the structure below is an illustrative
 two-of-N sample, not the whole set — see `manifest.json` for the full roster):
 
+> **Fleet memory wiring** — how the profiles' Hindsight memory is wired on a host (one embedded
+> daemon, shared plugin profile, endpoint/model, key source, bank layout) lives in
+> [Fleet memory: one Hindsight daemon per host, shared plugin profile](#fleet-memory-one-hindsight-daemon-per-host-shared-plugin-profile-issue-2057)
+> below. Read it before adding a profile, a second host, or recovering after a daemon restart.
+
 ```
 agents/
   manifest.json                                    # which profiles this tree is the source of truth for
@@ -2723,6 +2728,76 @@ dispatch yes) is executed rather than read off the YAML (issue #510). The guard 
 and script — byte-for-byte in every workflow that carries it, so a fix to the rule cannot miss a copy of it. The
 accepted **permission set** is read from the guard's own `case` arm, not matched as substrings, so an arm
 that also accepts `read`/`triage` (or a bare `*`) fails the suite and names the workflow (issue #306).
+
+## Fleet memory: one Hindsight daemon per host, shared plugin profile (issue #2057)
+
+Fleet memory is **not** per-profile isolated plumbing — it is one embedded daemon on the host that every
+`llgenie-*` lane talks to, keyed off a *config* profile name (`hermes`), **not** `HERMES_HOME`. Two sessions
+on one host therefore share one env file and one daemon. This section is the tree's record of that topology so
+a new profile, a second host, or a post-restart recovery starts from a written shape instead of four
+hand-edited files.
+
+### The shape (measured 2026-11-08 on this host)
+
+- **Mode:** `local_embedded` — Hindsight runs as a local process on the host, not a remote service. All 13
+  `llgenie-*` profiles carry `"mode": "local_embedded"`.
+- **One daemon per host**, on `127.0.0.1:9177`, launched as
+  `uvx hindsight-api@1.2.0 --idle-timeout 0 --port 9177` (the launcher `uvx` execs the real
+  `python …/bin/hindsight-api` child; the child is the PID that owns the socket). The daemon is detached:
+  reparented to PID 1 and its own session leader, so restarting the Hermes gateway does **not** signal it.
+- **Shared plugin profile name:** the plugin keys the daemon off the config `profile` field (`hermes`), which
+  is why every lane shares `~/.hindsight/profiles/hermes.env` and one daemon, regardless of which
+  `~/.hermes/profiles/llgenie-*` home a lane runs under.
+- **Endpoint + model:** `llm_provider: "openai_compatible"`, `llm_model: "deepseek/deepseek-v4-flash-0731"`,
+  `llm_base_url: "https://inference-api.nousresearch.com/v1"`. (Embeddings `BAAI/bge-small-en-v1.5` and the
+  reranker `hindsight-ai/hs-rerank-1` run locally, so only extraction/reflection leaves the host.)
+- **Key source:** the per-profile `.env` carries `HINDSIGHT_LLM_API_KEY=` (each of the 13 profile homes has
+  exactly one such line); the daemon's shared `~/.hindsight/profiles/hermes.env` carries
+  `HINDSIGHT_API_LLM_API_KEY`, `HINDSIGHT_API_LLM_BASE_URL`, `HINDSIGHT_API_LLM_MODEL`,
+  `HINDSIGHT_API_LLM_PROVIDER`, `HINDSIGHT_API_PORT`, `HINDSIGHT_API_LOG_LEVEL`,
+  `HINDSIGHT_EMBED_DAEMON_IDLE_TIMEOUT`. No key value is ever written to a log.
+- **Permissions:** the per-profile `hindsight/config.json` and the per-profile `.env` are `0600`; the shared
+  `~/.hindsight/profiles/hermes.env` is `0600`. All 13 profile configs measured `600`.
+- **Bank layout:** `bank_id_template: "{profile}"` gives each lane its own primary bank (each `llgenie-*`
+  lane writes to its own bank), plus `additional_banks: "llgenie-shared"` — every lane also writes to and
+  recalls from the shared `llgenie-shared` bank. The legacy `hermes` bank is no longer read by any lane.
+
+### Why the rule exists: the wiring is silently reversible
+
+Measured in `~/.hindsight/profiles/hermes.log` on 2026-11-08 (+01:00), a second session rewrote the shared
+config and flipped the daemon's endpoint mid-run — the same daemon whose job list is one host-wide resource:
+
+```
+02:11:27 Connection verified: openai/deepseek/deepseek-v4-flash-0731
+02:14:29 Connection verified: openai/qwen3.8-27b-iq3_s
+```
+
+Between those two lines the per-profile `hindsight/config.json` was rewritten (mtime `02:13:51`) and the
+shared `hermes.env` rewritten (mtime `02:14:53`), and the daemon restarted on a local llama.cpp endpoint.
+A second session **must not reconfigure this**: the plugin's config-profile keying means its edit lands on
+every lane's daemon, not just its own.
+
+### What a healthy check looks like (and what is NOT evidence)
+
+`/health` is **not** evidence that the endpoint is wired the way the docs say — it only proves the HTTP
+server answers and its database is connected (`{"status":"healthy","database":"connected",…}`); it says
+nothing about which model or base URL the daemon actually uses. The check that *is* evidence:
+
+1. **PID** — `pgrep -af hindsight-api` names the launcher (`uvx`) and the real `hindsight-api` child; the
+   child (the one listening on `127.0.0.1:9177`) is the PID to inspect.
+2. **`/proc/<pid>/environ`** — `tr '\0' '\n' < /proc/<child-pid>/environ | grep '^HINDSIGHT_API_LLM_'`
+   prints the model, base URL and provider the running process actually holds. This is the ground truth.
+3. **Log line** — the newest `Connection verified: <provider>/<model>` line in
+   `~/.hindsight/profiles/hermes.log` matches the process env above.
+
+A green `/health` with a stale `HINDSIGHT_API_LLM_BASE_URL` in `/proc/<pid>/environ` is a wired-wrong daemon,
+not a healthy one.
+
+The pointer from the lane profiles reference (`agents/*/skills/*/references/agent-profiles.md`) is tracked
+separately as **#2064**; this docs change is `docs/`-only by its own scope rule. The link the lanes reach
+first is the cross-link from this file's own profiles section above — `docs/BOTS.md` is the reference four
+lane skills preload (`llgenie-pipeline-maintenance`, `llgenie-docs-maintainer`, `github-issue-triage`,
+`llgenie-bot-orchestration`).
 
 ## How the bots stay out of each other's way
 
