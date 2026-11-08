@@ -85,15 +85,26 @@ BLOCKING_CONCLUSIONS = frozenset({"failure", "timed_out", "startup_failure", "ca
 #: #2221: the measured `judge` failure rows of this workflow's own runs were counted as "unjudged").
 OUR_WORKFLOW_FILE = "ci-verdict.yml"
 
-#: The conclusions that make ANOTHER workflow's row an unjudged red in `unjudged_reds`. A `cancelled`
-#: or `neutral` unjudged row is a transient — a superseded / owed-nothing run (this verdict posts
-#: `neutral` for exactly that reason) — so it must not paint a green judged head red (issue #2221,
-#: measured `auto-merge` `merge=cancelled` at a `main` push head). Only a genuinely-red conclusion
-#: blocks the verdict. `BLOCKING_CONCLUSIONS` above is the MERGER's rule (#1386) and is deliberately
-#: unchanged: `auto_merge.py` still refuses a merge on `cancelled`/`neutral`; this narrower set only
-#: decides what the VERDICT refuses to call a clean judged head over (tests/../test_ci_verdict.py
-#: `test_the_blocking_conclusions_are_the_merger_s_rule` pins that equality).
-UNJUDGED_RED_CONCLUSIONS = frozenset({"failure", "timed_out", "startup_failure"})
+#: The conclusions that make ANOTHER workflow's row an unjudged red in `unjudged_reds`. This is
+#: exactly the MERGER's block set — `scripts/auto_merge.py::RED_CONCLUSIONS`, pinned equal here by
+#: `tests/test_ci_verdict.py::test_the_blocking_conclusions_are_the_merger_s_rule`. A `cancelled`/
+#: `neutral` unjudged row IS a blocker: `auto_merge` refuses a merge on it (issue #1250 Finding B,
+#: `failing_checks`), so a verdict that ignored it would call a head clean that the merger refuses —
+#: the #2116/#2237 contract. A transient exemption is granted per WORKFLOW FILE (`TRANSIENT_FILES`,
+#: see `unjudged_reds`), never per conclusion class: only a workflow's OWN owed-nothing rows are
+#: silently skipped, and everything else in this set is a named unjudged red.
+UNJUDGED_RED_CONCLUSIONS = BLOCKING_CONCLUSIONS
+
+#: Workflow FILEs (basenames) whose OWN `cancelled`/`neutral` rows are a transient, not someone else's
+#: red (`unjudged_reds`). auto-merge's `merge` job leaves `merge=cancelled` at a `main` push wherever
+#: that sweep is superseded or found nothing new to merge (issue #2221, measured run 42461420528 at
+#: `main` 07a7db2a); that row is auto-merge's OWN footprint, so it must not paint a green judged head
+#: red. A `cancelled`/`neutral` row from ANY OTHER workflow (engine-build-pr-trigger, holds, ...)
+#: still blocks — `auto_merge.RED_CONCLUSIONS` names both — and is a named unjudged red (issue #2237:
+#: #2231's fix exempted the whole conclusion class and made `UNJUDGED_RED_CONCLUSIONS` a strict subset;
+#: this narrows the exemption back to the specific file whose rows are owed-nothing).
+TRANSIENT_FILES = frozenset({"auto-merge.yml"})
+TRANSIENT_CONCLUSIONS = frozenset({"cancelled", "neutral"})
 
 #: The Actions run id inside a check-run's `details_url`
 #: (`https://github.com/o/r/actions/runs/<run>/job/<job>`) — how a check-run names the workflow that
@@ -223,9 +234,13 @@ def unjudged_reds(repo: str, head_sha: str, judged_files: set[str],
     `judge`/`guard` JOB auto-rows, resolved to `OUR_WORKFLOW_FILE` by FILE (not by row name): a
     `workflow_run` posts those job rows at the default-branch head every run, so counting them would
     red the head on the verdict's own footprint (#2221, measured `judge` failure rows on `main`).
-    A genuinely-red conclusion from a workflow the verdict did not judge is returned so the caller
-    can NAME it and refuse to call the head clean. An unjudged `cancelled`/`neutral` row is a
-    transient (a superseded / owed-nothing run) and never reds the verdict (`UNJUDGED_RED_CONCLUSIONS`).
+    A workflow's OWN transient rows are skipped by FILE (`TRANSIENT_FILES` — auto-merge's
+    `merge=cancelled` at a `main` push; a superseded / owed-nothing run), but a `cancelled`/`neutral`
+    row from ANY OTHER workflow is a BLOCKER and is named: `auto_merge.RED_CONCLUSIONS` names both, so
+    the verdict that ignored them would call a head clean the merger refuses (issue #2116/#2237). A
+    genuinely-red conclusion from a workflow the verdict did not judge is likewise returned so the
+    caller can NAME it and refuse to call the head clean (`UNJUDGED_RED_CONCLUSIONS` is exactly the
+    merger's block set).
     """
     rows = check_runs if check_runs is not None else check_runs_of(repo, head_sha)
     cache: dict[str, dict] = {}
@@ -240,7 +255,8 @@ def unjudged_reds(repo: str, head_sha: str, judged_files: set[str],
         found = workflow_of(repo, row, cache)
         if Path(found["path"]).name == OUR_WORKFLOW_FILE:
             continue
-        if conclusion not in UNJUDGED_RED_CONCLUSIONS:
+        if (Path(found["path"]).name in TRANSIENT_FILES
+                and conclusion in TRANSIENT_CONCLUSIONS):
             continue
         if Path(found["path"]).name in judged_files:
             continue

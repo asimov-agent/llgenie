@@ -1098,12 +1098,11 @@ def test_the_verdicts_own_judge_rows_are_not_unjudged_reds(monkeypatch):
     assert reds == [], reds
 
 
-def test_a_cancelled_unjudged_row_is_a_transient_not_a_blocker(monkeypatch):
-    # auto-merge's `merge=cancelled` at a main push head never reds the verdict (#2221). A
-    # cancelled/neutral unjudged row is a superseded / owed-nothing transient — the same reason this
-    # verdict posts `neutral` for a superseded head — so it does not paint a green judged head red.
-    # Only a genuinely-red unjudged conclusion blocks (UNJUDGED_RED_CONCLUSIONS); BLOCKING_CONCLUSIONS
-    # (the merger's #1386 rule) is deliberately untouched.
+def test_auto_merges_own_cancelled_row_is_a_transient_not_a_blocker(monkeypatch):
+    # auto-merge's own `merge=cancelled` at a main push head never reds the verdict (#2221). That
+    # row is auto-merge's OWN footprint — the `merge` job is superseded or found nothing new at a
+    # `main` push — so it is exempted by WORKFLOW FILE (TRANSIENT_FILES), not by the whole `cancelled`/
+    # `neutral` conclusion class. A like conclusion from ANY OTHER workflow still blocks (#2237).
     def fake_api(path):
         if "/actions/runs/42461420528" in path:
             return {"name": "auto-merge", "path": ".github/workflows/auto-merge.yml"}
@@ -1118,6 +1117,30 @@ def test_a_cancelled_unjudged_row_is_a_transient_not_a_blocker(monkeypatch):
     reds = cv.unjudged_reds("asimov-agent/llgenie", "07a7db2a", {"ci.yml"}, rows)
 
     assert reds == [], reds
+
+
+def test_a_cancelled_unjudged_row_from_another_workflow_blocks(monkeypatch):
+    # #2237: a `cancelled`/`neutral` unjudged row from a workflow OTHER than auto-merge / ci-verdict
+    # (engine-build-pr-trigger, holds, ...) IS a red — `auto_merge.RED_CONCLUSIONS` names `cancelled`
+    # and `neutral` (#1250 Finding B), so the verdict that ignored it would call a head clean that the
+    # merger refuses. The transient exemption is per FILE, never per conclusion class.
+    def fake_api(path):
+        if "/actions/runs/31337" in path:
+            return {"name": "engine-build-pr-trigger",
+                    "path": ".github/workflows/engine-build-pr-trigger.yml"}
+        raise AssertionError(f"unexpected API path: {path}")
+
+    monkeypatch.setattr(cv, "_api", fake_api)
+    rows = [
+        {"name": "trigger", "conclusion": "cancelled",
+         "details_url": "https://github.com/asimov-agent/llgenie/actions/runs/31337/job/1"},
+        {"name": "linux / unit", "conclusion": "success", "details_url": SPECIMEN_CI_URL},
+    ]
+    reds = cv.unjudged_reds("asimov-agent/llgenie", "aeac049f", {"ci.yml"}, rows)
+
+    assert len(reds) == 1 and reds[0]["name"] == "trigger", reds
+    assert reds[0]["conclusion"] == "cancelled", reds
+    assert reds[0]["workflow"] == "engine-build-pr-trigger", reds
 
 
 def test_a_failure_from_an_unjudged_workflow_still_blocks(monkeypatch):
@@ -1235,6 +1258,14 @@ def test_the_blocking_conclusions_are_the_merger_s_rule():
 
     assert cv.BLOCKING_CONCLUSIONS == am.RED_CONCLUSIONS, (
         cv.BLOCKING_CONCLUSIONS, am.RED_CONCLUSIONS)
+    # #2237: the unjudged-red set must be exactly the merger's block set, never a strict subset — a
+    # `cancelled`/`neutral` unjudged row (auto-merge refuses on both, #1250 Finding B) must red the
+    # verdict or it will call a head clean the merger refuses. Transients are exempted per WORKFLOW
+    # FILE (TRANSIENT_FILES), never by shrinking this conclusion set. This assertion is the pin that
+    # would have caught #2231's over-broad exempt-every-cancelled fix: with it, `UNJUDGED_RED_CONCLUSIONS`
+    # could not drift to a subset without this test reddening.
+    assert cv.UNJUDGED_RED_CONCLUSIONS == am.RED_CONCLUSIONS, (
+        cv.UNJUDGED_RED_CONCLUSIONS, am.RED_CONCLUSIONS)
 
 
 def test_a_run_with_no_head_sha_is_refused_not_assumed_clean(tmp_path, monkeypatch, capsys):

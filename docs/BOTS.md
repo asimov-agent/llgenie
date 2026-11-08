@@ -2267,8 +2267,12 @@ measured on PR #1982 head `aeac049f`: `engine-build-pr-trigger` `failure` (run 4
   the Actions run in its `details_url` (the run's **`path`** is the identity — GitHub truncates a run's
   `name`), and when the judged run is green and a check-run it did not judge blocks the merge, the
   posted verdict is `failure` naming that check, its workflow and its run id. The blocking set is
-  exactly `auto_merge.RED_CONCLUSIONS`, asserted equal by a test, so the verdict can never call a head
-  clean that the merger will refuse.
+  exactly `auto_merge.RED_CONCLUSIONS` (asserted equal by test, and `UNJUDGED_RED_CONCLUSIONS` is pinned
+  to the same set — issue #2237), so the verdict can never call a head clean that the merger will
+  refuse. A `cancelled`/`neutral` check-run from a workflow the verdict did not judge IS a blocker and
+  is named (`auto_merge` refuses on both, #1250 Finding B); the only transient exemption is a workflow's
+  OWN rows, excluded by file — the verdict's own `ci-verdict.yml` and auto-merge's `merge=cancelled`
+  sweep at a `main` push (#2221).
 - `scripts/verdict_roster.py` (rendered by `make verdict-roster`) lists every workflow that can post a
   check-run at a PR head, the judged set, and the difference, and holds the two as a **subset**
   (`judged <= posters`) so the workflow set can grow. `data/verdict-roster.json` carries one dated
