@@ -132,6 +132,18 @@ def _concurrency(wf: dict):
     return conc, None
 
 
+def _job_concurrency(wf: dict) -> list:
+    """[(group, cancel-in-progress)] for every job in the workflow, or None for a job that
+    declares none — so the caller can tell 'every job is covered' from 'a job is missed'.
+    A bot moves its concurrency onto its jobs when a workflow-level block would over-cancel
+    (auto-merge.yml, issue #2101: workflow-level `cancel-in-progress: true` cancels the
+    `recheck` retry it exists to recover); the isolation rule then holds per job instead of
+    per workflow, and this is how the test reads that shape.
+    """
+    jobs = wf.get("jobs") or {}
+    return [(_concurrency(j) if isinstance(j, dict) else None) for j in jobs.values()]
+
+
 def test_the_scope_is_derived_from_the_workflow_files():
     """The bot set is read from the tree, not hand-listed (issue #301).
 
@@ -181,26 +193,41 @@ def test_every_bot_has_its_own_concurrency_group():
     dupes: list[str] = []
 
     for name in BOT_WORKFLOWS:
-        conc = _concurrency(_load(name))
+        wf = _load(name)
+        # A bot may declare its group at the workflow level, or — when a workflow-level
+        # block would over-cancel (auto-merge.yml, issue #2101 — the `recheck` retry must
+        # not be cancelled by the sweep it exists to recover) — on every one of its jobs.
+        # The isolation the rule protects is the same either way: a dispatch cannot overlap
+        # a run, because every overlapping unit serialises (the workflow, or each job).
+        conc = _concurrency(wf)
+        if conc is None:
+            job_concs = _job_concurrency(wf)
+            assert job_concs and all(c is not None for c in job_concs), (
+                f"{name}: no concurrency group at workflow or job level "
+                "(a dispatch can overlap a run)"
+            )
+            concs = job_concs
+        else:
+            concs = [conc]
 
-        # Then it names a group and never cancels an in-progress run
-        assert conc is not None, f"{name}: no concurrency group (a dispatch can overlap a run)"
-        group, cancel = conc
-        assert isinstance(group, str) and group.strip(), f"{name}: empty concurrency group"
-        # … unless the workflow says why superseding is safe (#917). The rule this protects is real: a
-        # queued run must not be killed mid-work. But a sweep that holds no state between runs and takes ONE
-        # atomic action is idempotent, and starving it costs the fleet its merger - so the exemption is a
-        # greppable line IN the workflow, reviewed with the setting, exactly as `test_ci_concurrency.py` does.
-        assert cancel is False or SUPERSEDE_MARKER in (WF / name).read_text(), (
-            f"{name}: cancel-in-progress must be false so a queued run is not cancelled, unless the file "
-            f"states `{SUPERSEDE_MARKER} — <reason>`"
-        )
+        for conc in concs:
+            # Then it names a group and never cancels an in-progress run
+            group, cancel = conc
+            assert isinstance(group, str) and group.strip(), f"{name}: empty concurrency group"
+            # … unless the workflow says why superseding is safe (#917). The rule this protects is real: a
+            # queued run must not be killed mid-work. But a sweep that holds no state between runs and takes ONE
+            # atomic action is idempotent, and starving it costs the fleet its merger - so the exemption is a
+            # greppable line IN the workflow, reviewed with the setting, exactly as `test_ci_concurrency.py` does.
+            assert cancel is False or SUPERSEDE_MARKER in (WF / name).read_text(), (
+                f"{name}: cancel-in-progress must be false so a queued run is not cancelled, unless the file "
+                f"states `{SUPERSEDE_MARKER} — <reason>`"
+            )
 
-        # And the group is the bot's own, not shared with another bot
-        prior = seen.get(group)
-        if prior and prior != name:
-            dupes.append(f"group {group!r} used by both {prior} and {name}")
-        seen[group] = name
+            # And the group is the bot's own, not shared with another bot
+            prior = seen.get(group)
+            if prior and prior != name:
+                dupes.append(f"group {group!r} used by both {prior} and {name}")
+            seen[group] = name
 
     assert not dupes, "bot concurrency groups collide:\n  " + "\n  ".join(dupes)
 
