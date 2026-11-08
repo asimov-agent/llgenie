@@ -306,33 +306,34 @@ def _pr_checkboxes(body: str) -> list[tuple[int, bool, str]]:
     return items
 
 
-def _fetch_issue_body(gh: str, repo: str, issue: int) -> str:
-    """The live issue body — the merge-tip measure, never a cached copy."""
-    try:
-        stdout = proc.run_checked([gh, "issue", "view", str(issue), "--repo", repo, "--json", "body"])
-    except proc.ProcError as exc:
-        raise RuntimeError(
-            f"gh issue view {issue} failed ({exc.returncode}): {(exc.stderr or exc.stdout).strip()}"
-        ) from exc
-    return json.loads(stdout)["body"]
+def _fetch_issue_meta(gh: str, repo: str, issue: int) -> tuple[str, str, bool]:
+    """The live `(body, state, is_pull_request)` of one referenced issue — the lane probe (#1859).
 
-
-def _fetch_issue_meta(gh: str, repo: str, issue: int) -> tuple[str, str]:
-    """The live `(body, state)` of one referenced issue — the lane probe (issue #1859).
-
-    The rollout-lane gate needs each candidate's live body (to confirm it cites the umbrella back)
-    and its live state (to confirm it is still open). This is the same `gh issue view` seam the
-    linked-issue read uses (#1589), not a second hand-rolled fetch.
+    The rollout-lane gate needs each candidate's live body (to confirm it cites the umbrella back),
+    its live state (to confirm it is still open) and, since #2088, whether the number is a PR at
+    all: the issues API answers for a pull request too (`state: open`), so a PR citing the umbrella
+    it closes registered as that umbrella's own open lane and blocked its own close (measured
+    #1696 → #1558/#1694). `pull_request` is the PR/issue distinction — a PR is the vehicle for an
+    umbrella, never a lane of it — so it is read from the API rather than guessed from the number.
     """
     try:
-        stdout = proc.run_checked(
-            [gh, "issue", "view", str(issue), "--repo", repo, "--json", "body,state"])
+        stdout = proc.run_checked([gh, "api", f"repos/{repo}/issues/{issue}"])
     except proc.ProcError as exc:
         raise RuntimeError(
-            f"gh issue view {issue} failed ({exc.returncode}): {(exc.stderr or exc.stdout).strip()}"
+            f"gh api repos/{repo}/issues/{issue} failed ({exc.returncode}): "
+            f"{(exc.stderr or exc.stdout).strip()}"
         ) from exc
     rec = json.loads(stdout)
-    return rec.get("body") or "", (rec.get("state") or "").strip().upper()
+    pr = rec.get("pull_request") or {}
+    state = (rec.get("state") or "").strip().upper()
+    if pr.get("merged_at"):
+        state = "MERGED"  # a merged PR answers `state: closed`; the merge is what matters here
+    return rec.get("body") or "", state, bool(rec.get("pull_request"))
+
+
+def _fetch_issue_body(gh: str, repo: str, issue: int) -> str:
+    """The live issue body — the merge-tip measure, never a cached copy."""
+    return _fetch_issue_meta(gh, repo, issue)[0]
 
 
 def rollout_lane_findings(umbrella_body: str, umbrella: int, gh: str, repo: str) -> list[dict]:
@@ -348,14 +349,21 @@ def rollout_lane_findings(umbrella_body: str, umbrella: int, gh: str, repo: str)
     reverse-citation) or that is CLOSED is not a lane and never holds. An unreadable reference is
     not provably an open lane, so it neither holds nor reds on its own — this gate holds exactly
     when a lane is measurable and open.
+
+    A referenced PULL REQUEST is never a lane, whatever its state (issue #2088): the issues API
+    answers `state: open` for a PR, so the PR that cites the umbrella it implements registered as
+    that umbrella's own open lane and blocked its own close (#1696 → #1558/#1694). A PR is the
+    vehicle for an umbrella, never a lane of it.
     """
     findings: list[dict] = []
     refs = sorted({int(n) for n in CITE.findall(umbrella_body or "")} - {umbrella})
     for n in refs:
         try:
-            body, state = _fetch_issue_meta(gh, repo, n)
+            body, state, is_pr = _fetch_issue_meta(gh, repo, n)
         except RuntimeError:
             continue  # unreadable ≠ provably an open lane; do not hold on a data gap
+        if is_pr:
+            continue  # a PR is the vehicle for an umbrella, never a lane of it (issue #2088)
         if state in ("CLOSED", "MERGED", "DONE"):
             continue
         if umbrella not in {int(ci) for ci in CITE.findall(body)}:
@@ -453,7 +461,7 @@ def main(argv: list[str] | None = None) -> int:
         items.append(squash_range_error)
     for n in closed:
         try:
-            issue = _fetch_issue_body(args.gh, args.repo, n)
+            issue, target_state, _is_pr = _fetch_issue_meta(args.gh, args.repo, n)
         except RuntimeError as exc:
             items.append({
                 "key": "issue-unreadable",
@@ -463,6 +471,12 @@ def main(argv: list[str] | None = None) -> int:
             })
             continue
         items.extend(acceptance_verdict(issue, body, n))
+        # A close target that is ALREADY closed cannot be closed prematurely, so its lane probe is
+        # not a control — measured #1694 (CLOSED 2026-11-04T21:09:51Z) still flagged by a
+        # 2026-11-08 run (issue #2088). The acceptance half above stays: a closed issue's unticked
+        # criteria are still unproven, and this issue does not change that verdict.
+        if target_state in ("CLOSED", "MERGED"):
+            continue
         # The #1859/AC-1 half #1816 cannot see: even when the umbrella's own `- [ ]` boxes are all
         # ticked, a referenced rollout lane still OPEN must hold the close (measured #1849: #1856's
         # squash auto-closed it while its lanes were in flight). Derived from the umbrella's own
