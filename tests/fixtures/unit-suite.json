@@ -103,6 +103,12 @@
    "issue": 577,
    "decided": "2026-10-24",
    "target": "test-agent-skills-live"
+  },
+  "tests/test_procedure_recall_step.py": {
+   "reason": "The orchestrator STEP 2 recall fallback proof (issue #2186) reaches the LIVE hindsight daemon on 127.0.0.1:9177 (HINDSIGHT_API_PORT in ~/.hindsight/profiles/hermes.env). No CI runner has that daemon and this repo forbids skips (issue #1110), so the hermetic gate cannot carry it; `make test-recall-step` runs it on the tick host where the daemon lives, and a host without it fails loudly.",
+   "issue": 2186,
+   "decided": "2026-11-08",
+   "target": "test-recall-step"
   }
  },
  "deselect": {
