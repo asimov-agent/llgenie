@@ -22,11 +22,23 @@ a scan is a mutable tool on a mutable base, with network access while it is judg
   different tag, so a published tag can never mean two builds.
 - **No scanner needs a secret** — every scanner is an apk package, so a scan is reproducible from
   its Dockerfile alone: there is no credential to provision and none to leak into a scan run.
+- **The SAST rule set is immutable too** (issue #1284) — Semgrep does not resolve its rule pack at
+  scan time. The `p/default` registry pack is fetched once, committed as
+  `containers/scanners/semgrep/rules/default.yml` (baked into the image by the Dockerfile `COPY`),
+  and its sha256 is recorded next to the scanner version in `digests.json` (`semgrep.rules_sha`).
+  A scan runs `--config <committed pack>`, so the same tree at the same sha scans byte-identically;
+  `make check-security-scan` fails when the sha is omitted or the committed file is changed.
 
 `containers/scanners/digests.json` is the file the scan workflow reads: one entry per scanner with
 the pinned version and the content-hash ref. It is generated — `make scanner-digests` — and
 `make check-scanner-images` fails when it disagrees with a Dockerfile (a stale entry points a scan
 at a build that no longer matches the tree).
+
+**The engines advance through the same bump path** (issue #1284): `containers/scanners/` Dockerfile
+`*_VERSION` pins are a declared current-release baseline, so `make check-scanner-images` (and
+`make check-security-scan`) fail when a pinned engine is older than the current apk release — a pin
+cannot silently straggle. Renovate also manages the scanner version ARGs, so the engines move with
+`make scanner-digests` + a PR.
 
 ## Targets
 

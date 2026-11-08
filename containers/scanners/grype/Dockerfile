@@ -14,8 +14,8 @@ FROM cgr.dev/chainguard/wolfi-base@sha256:0feab531471d2edfcca55f18883441cb7df598
 # Syft WRITES the CycloneDX SBOM and Grype READS it. They share this image on purpose: a Grype run
 # against the SBOM of a different Syft version is a different result, so the pair is pinned and
 # shipped together — the scan pipeline never installs either.
-ARG SYFT_VERSION=1.55.0-r1
-ARG GRYPE_VERSION=0.121.0-r0
+ARG SYFT_VERSION=1.57.0-r1
+ARG GRYPE_VERSION=0.121.2-r1
 RUN apk add --no-cache ca-certificates "syft=${SYFT_VERSION}" "grype=${GRYPE_VERSION}"
 
 USER 65532:65532
