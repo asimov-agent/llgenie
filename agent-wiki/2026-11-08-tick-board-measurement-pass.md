@@ -30,6 +30,18 @@ This change makes each pass a procedure:
   the `BOT <lane> · #<id> · <task-id> · <status>` report line. STEP 4 (already in
   the live prompt) carries the red-PR priority incl. ARM-only-green (4e),
   unarmed-and-not-green (4f) and one-check-many-PRs (4g).
+- **`agents/llgenie-planner/scripts/delegate.sh`** — the dispatch mechanism STEP 6
+  invokes as **one** command (`$DG --lane --issue --brief --message`). It
+  validates the brief (rejects one lacking the `AGENTS:` stamp / `$HOME` rule /
+  branch / `BOT <lane> · …` line, exiting non-zero naming what's missing), FATALs
+  on a missing brief file, refuses a second vehicle for the same lane+issue
+  (`ALREADY DELEGATED: t_…`), creates the task, dispatches, and **confirms by
+  reading the board back** into the three states `running` / `ready (queued on
+  capacity, spawned=0)` (never reported as running) / `BLOCKED`. `--message`
+  (default on) makes skipping the `message_agent` send loud — task + message are
+  two channels for ONE assignment. `tests/test_delegate.py` covers each gate
+  (incomplete brief rejected, missing brief rejected, duplicate refused, dry-run
+  creates nothing, ready-queued and BLOCKED confirmation, message-required).
 - **`make check-tick-prompt`** — divergence gate (`scripts/check_tick_prompt.py`):
   reds (exit 1) when the live `jobs.json` prompt differs from the versioned copy,
   naming both byte counts; green (exit 0) when they match. Runs on any host with
