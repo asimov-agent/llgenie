@@ -819,8 +819,14 @@ The gate also refuses a close on a rollout umbrella while a referenced LANE issu
 (issue #1859): even when the umbrella's own `- [ ]` boxes are all ticked, a `#<n>` the umbrella cites
 in its body that is still OPEN and cites the umbrella back is held as `rollout-lane-open` — the half
 #1816's unticked-criteria hold cannot see (measured #1849: #1856's squash auto-closed it while its
-lanes were in flight). The lane set is derived from the umbrella's own citations and probed live,
-never a hand-kept roster (issue #301).
+lanes were in flight). A referenced number that is a **pull request** is never a rollout lane
+(issue #2088): the issues API answers `state: open` for a PR too, so the gate skips `pull_request`
+whatever its state — otherwise the PR that implements an umbrella registers as that umbrella's own
+open lane and holds its own close. A `closes` target already **CLOSED** (`stateReason COMPLETED` or a
+merged PR) is likewise skipped as a lane, because an umbrella's closed lane is not open work — its
+unticked criteria are still unproven, which is the *other* half and is reported separately. The lane
+set is derived from the umbrella's own citations and probed live, never a hand-kept roster
+(issue #301).
 
 `make check-pr-sync-line` is the #1724 profile-propagation preflight mounted in CI: it refuses a bot PR
 whose diff changes a directory under `agents/<profile>/` (a SOUL/skills/rule change) without reporting
