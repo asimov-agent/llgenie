@@ -30,9 +30,9 @@ WORKFLOW = REPO_ROOT / ".github/workflows/engine-bump.yml"
 # The env the step receives (mirrors `env:` on the step).
 _OS_ENV = {
     "ID": "ollama",
-    "OLD": "04088e7c9d41cba5d33bafbf788d87a465c79d5b",
-    "NEW": "04088e7c9d41cba5d33bafbf788d87a465c79d5b",
-    "REF": "v0.40.13",
+    "OLD": "02480ca2a47153e1f9c31cbe1e05536da97ce1ba",
+    "NEW": "02480ca2a47153e1f9c31cbe1e05536da97ce1ba",
+    "REF": "v0.40.15",
 }
 
 _REPO = "acme/llgenie"
@@ -46,10 +46,10 @@ _EXPECTED_BASE = (
     "Automated engine pin bump (issue #107).\n"
     "\n"
     "- **Engine:** `ollama`\n"
-    "- **Pin:** `04088e7c` -> `04088e7c` (`v0.40.13`)\n"
+    "- **Pin:** `02480ca2` -> `02480ca2` (`v0.40.15`)\n"
     "- **Compare:** https://github.com/acme/llgenie/compare/"
-    "04088e7c9d41cba5d33bafbf788d87a465c79d5b..."
-    "04088e7c9d41cba5d33bafbf788d87a465c79d5b\n"
+    "02480ca2a47153e1f9c31cbe1e05536da97ce1ba..."
+    "02480ca2a47153e1f9c31cbe1e05536da97ce1ba\n"
     "- CI builds and tests ONLY this engine's images. A red PR means the new "
     "commit needs a manual skill fix."
 )
@@ -208,7 +208,7 @@ def test_generated_commit_message_does_not_trip_the_closing_gate():
         ["bash", "-c", script], check=True, capture_output=True, text=True
     ).stdout
     # A rendered bump commit (subject + message) claims no issue.
-    title = "chore(engine): bump ollama to v0.40.13@04088e7c"
+    title = "chore(engine): bump ollama to v0.40.15@02480ca2"
     claims = cpc.claims_in([rendered], None, title)
     assert claims == set(), (
         "engine-bump commit must not claim an issue the rolling pin does not close. "
