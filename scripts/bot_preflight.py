@@ -31,6 +31,13 @@ location `scripts/check_pr_hygiene.py:518`.
 
 Never a silent proceed: a checkout that cannot be brought to `origin/main` (dirty, or diverged with
 commits both ways) is an error naming the paths, not a warning.
+
+`--stamp BODY` is the WRITE side of the same contract (issue #2050): it inserts or replaces the
+`AGENTS:`/`BASE:` pair in a PR body file, measuring the rulebook from the first ref of
+`--base`/`--refs` that resolves (`origin/main`, then a producer's own `main`). Every bot PR producer
+calls it before `gh pr create`/`gh pr edit` — `make bot-stamp-body` — so a bot PR carries the pair at
+OPEN instead of depending on a leg remembering `make bot-preflight`. It never syncs: a producer that
+is mid-run stands where it stands, and a refused measurement is a refused PR, never an unstamped one.
 """
 
 from __future__ import annotations
@@ -160,6 +167,58 @@ def base_line(record: dict) -> str:
     return f"BASE: {record['main']} (== origin/main at open)"
 
 
+def stamp_body(text: str, record: dict) -> str:
+    """Insert or REPLACE the `AGENTS:`/`BASE:` pair in a PR body — the one stamp authority (#2050).
+
+    A bot PR opened unstamped because the pair was a step a leg had to remember: the producer that
+    builds the body (`issue_implementer.render_pr_body`, `engine-bump.yml`, `registry-sync.yml`,
+    `security_bot`) never wrote it, and a repair pass (`fix-bot`) never re-wrote it, so the guard job
+    redded five bot PRs at once. This function is what those producers call, so the pair is written by
+    the seam that OPENS the PR instead of by the agent's memory.
+
+    Both lines are emitted FLUSH-LEFT and adjacent, exactly as `render()` prints them: the gate matches
+    `^AGENTS:`/`^BASE:` with `re.MULTILINE`, so an indented or quoted copy does not count. Any existing
+    `AGENTS:`/`BASE:` line (valid-looking, stale or mangled prose) is dropped first, which makes the
+    stamp idempotent and lets a re-stamp repair a body a previous pass got wrong.
+    """
+    from check_pr_hygiene import AGENTS_LINE, BASE_LINE  # noqa: PLC0415  (one gate, never a restated copy)
+
+    kept: list[str] = []
+    for line in text.rstrip().splitlines():
+        bare = line.strip()
+        if bare.startswith(("AGENTS:", "BASE:")):
+            continue                                    # replaced by the measured pair below
+        kept.append(line)
+    while kept and not kept[-1].strip():
+        kept.pop()                                       # no blank padding before the pair
+    pair = [agents_line(record), base_line(record)]
+    if not (AGENTS_LINE.fullmatch(pair[0]) and BASE_LINE.fullmatch(pair[1])):
+        raise PreflightError(f"the stamp would not satisfy the gate: {pair!r}")
+    return "\n".join([*kept, "", *pair, ""])
+
+
+def resolve_record(root: Path = REPO_ROOT, base: str = BASE, refs: tuple[str, ...] = ()) -> dict:
+    """The record to stamp with, from the first ref that resolves — `origin/main`, `origin/HEAD`, `main`.
+
+    A producer's checkout is `main` itself (engine-bump, registry-sync) and `origin/main` may not be a
+    ref there, so the caller names the fallbacks it trusts. `HEAD` is deliberately NOT a default: on an
+    agent branch `HEAD` is the branch tip, and a rulebook cited from there is not an ancestor of the
+    base, which the gate reds (`check_pr_hygiene.agents_line_findings`). Refusing is the point — a
+    producer that cannot measure `main` must not open a PR with a stamp it cannot stand behind.
+    """
+    tried: list[str] = []
+    for ref in (base, *refs):
+        tried.append(ref)
+        r = _git(root, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}")
+        if r.returncode == 0 and r.stdout.strip():
+            return rulebook(root, ref)
+    raise PreflightError(
+        f"no ref to measure the rulebook at (tried {', '.join(tried)}) — fetch `origin/main` or pass "
+        "`BASE=<the main ref this checkout stands on>`; a PR must not open with an unmeasurable stamp "
+        "(issue #2050)"
+    )
+
+
 def render(record: dict) -> str:
     return "\n".join(
         [
@@ -263,8 +322,33 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--body-file", default=None,
                    help="the prospective PR body; when the working diff touches agents/<profile>/, its "
                         "SYNC: lines are checked here (issue #1724), so a lane hears the verdict pre-push")
+    p.add_argument("--stamp", metavar="BODY", default=None,
+                   help="insert/replace the AGENTS:/BASE: pair in this PR body file (in place, or into "
+                        "--out) and print the result — the #2050 stamp authority every bot PR producer "
+                        "calls before `gh pr create`/`gh pr edit`. Measures the rulebook, never syncs")
+    p.add_argument("--out", default=None,
+                   help="with --stamp: write the stamped body here instead of back into BODY")
+    p.add_argument("--refs", default="",
+                   help="with --stamp: comma-separated fallback refs to measure main at (e.g. "
+                        "'origin/HEAD,main'), tried after --base; a producer checked out ON main passes "
+                        "'main'")
     args = p.parse_args(argv)
     root = Path(args.root).resolve()
+    if args.stamp:
+        try:
+            body = Path(args.stamp).read_text()
+            record = resolve_record(root, args.base,
+                                    tuple(r for r in args.refs.split(",") if r.strip()))
+        except (OSError, PreflightError) as exc:
+            print(f"[bot-preflight] REFUSED: cannot stamp {args.stamp}: {exc}", file=sys.stderr)
+            return 1
+        stamped = stamp_body(body, record)
+        out = Path(args.out) if args.out else Path(args.stamp)
+        out.write_text(stamped)
+        print(f"[bot-preflight] stamped {args.stamp} -> {out} at {record['main']} "
+              f"({record['agents_bytes']}b / {record['agents_lines']}l) (issue #2050)", file=sys.stderr)
+        print(stamped, end="")
+        return 0
     body = ""
     if args.body_file:
         try:

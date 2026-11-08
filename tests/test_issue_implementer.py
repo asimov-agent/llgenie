@@ -31,6 +31,15 @@ OWNER = "asimov-agent"
 REPO_NAME = "llgenie"
 SLUG = "fix-the-thing"
 
+#: The rulebook measurement the PR body is stamped from at open (issues #792/#845/#2050).
+RECORD = {
+    "main": "cb6c56a955124d58818d595bca34c4d60745c0ab",
+    "agents_bytes": 91766,
+    "agents_lines": 1363,
+    "agents_headings": 42,
+    "agents_headings_sha256": "0" * 64,
+}
+
 
 def _fake_gh(tmp_path: Path, opts: dict | None = None):
     """`gh` that records every argv as ONE JSON line and answers the product's queries.
@@ -195,7 +204,7 @@ def test_open_pr_links_the_issue_and_never_merges(tmp_path):
     body_file.write_text("Issue: #11 — the thing\n\nFix: changed x\n\nBenefit: less drift\n\n"
                          "Technical: scripts/x.py\n")
     url = ii.open_pr(str(gh), f"{OWNER}/{REPO_NAME}", 11, f"agent/issue-11-{SLUG}",
-                     "fix(issue-bot): the thing", str(body_file))
+                     "fix(issue-bot): the thing", str(body_file), record=RECORD)
     assert url == "https://github.com/acme/llgenie/pull/99"
     creates = [c for c in _calls(log) if c[:2] == ["pr", "create"]]
     assert len(creates) == 1
@@ -620,7 +629,8 @@ def test_opening_the_pr_records_a_pr_open_done(monkeypatch, tmp_path):
                         lambda gh, args, token=None: calls.append(args) or "https://x.invalid/pull/9")
     body_file = tmp_path / ii.PR_BODY_FILE
     body_file.write_text("Issue: #11 — x\n\nFix: y\n\nBenefit: z\n\nTechnical: scripts/x.py\n")
-    url = ii.open_pr("gh", "o/r", 11, "agent/issue-11-s", "fix(x): t", str(body_file), dry=False)
+    url = ii.open_pr("gh", "o/r", 11, "agent/issue-11-s", "fix(x): t", str(body_file), dry=False,
+                     record=RECORD)
     assert url.endswith("/pull/9")
     comments = [c for c in calls if c[:2] == ["issue", "comment"]]
     assert comments, "no comment was posted"

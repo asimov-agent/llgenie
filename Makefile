@@ -406,6 +406,10 @@ model-pin-report: ## Print the bots' pinned model snapshot, where each place dec
 .PHONY: bot-preflight
 bot-preflight: ## Fetch origin/main, fast-forward a behind checkout, and record the AGENTS.md this run is measured against (issue #792); when the working diff touches agents/<profile>/, surfaces the #1724 SYNC-line obligation (BODY=<prospective PR body> refuses a missing/mis-cited SYNC line, issue #1782)
 	python3 scripts/bot_preflight.py $(if $(CHECK),--check,) $(if $(BODY),--body-file "$(BODY)",)
+.PHONY: bot-stamp-body
+bot-stamp-body: ## Stamp BODY=<pr body file> in place (or into OUT=) with the `AGENTS:`/`BASE:` pair measured at origin/main — the ONE stamp authority every bot PR producer calls before `gh pr create`/`gh pr edit`, so a bot PR never opens unstamped (issue #2050); BASE=/REFS= name the main ref a producer's checkout actually stands on
+	@test -n "$(BODY)" || { echo "Usage: make bot-stamp-body BODY=<pr body file> [OUT=<file>] [BASE=origin/main] [REFS=origin/HEAD,main]"; exit 1; }
+	python3 scripts/bot_preflight.py --stamp "$(BODY)" $(if $(OUT),--out "$(OUT)",) $(if $(BASE),--base "$(BASE)",) $(if $(REFS),--refs "$(REFS)",)
 .PHONY: check-import-roots
 check-import-roots: ## CI: fail when a test file carries its own `sys.path` entry or imports a `scripts/` module bare — a ratchet against the recorded counts (issue #796)
 	python3 scripts/check_import_roots.py ratchet

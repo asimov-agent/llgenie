@@ -56,6 +56,15 @@ Benefit: a leg that finished its work lands a reviewable PR instead of a phantom
 Technical: make agent-repo-ownership chowns the mount; make issue-bot-pr-body-check runs check-body.
 """
 
+#: The rulebook measurement the PR body is stamped from at open (issues #792/#845/#2050).
+RECORD = {
+    "main": "cb6c56a955124d58818d595bca34c4d60745c0ab",
+    "agents_bytes": 91766,
+    "agents_lines": 1363,
+    "agents_headings": 42,
+    "agents_headings_sha256": "0" * 64,
+}
+
 
 def test_a_body_with_an_empty_technical_part_is_refused_by_name(tmp_path):
     # Given the #759 shape: every part present, `Technical:` empty
@@ -105,7 +114,7 @@ def test_body_problems_is_the_one_rule_both_paths_share():
     assert problems == ["`Benefit:` states nothing"]
     assert ii.body_problems(GOOD) == []
     with pytest.raises(SystemExit) as exc:
-        ii.render_pr_body(empty_benefit, 1, "a | 1 +")
+        ii.render_pr_body(empty_benefit, 1, "a | 1 +", RECORD)
     assert "`Benefit:` states nothing" in str(exc.value)
 
 
