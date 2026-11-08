@@ -17,15 +17,21 @@ pass so two passes were not comparable.
    queue with every READY task, stalled workers both classes, CI at the tip
    tagged TIP/other by `headSha`, lane drift command). Versioned under
    `agents/llgenie-planner/scripts/`.
-2. **The tick prompt** is a numbered, ordered procedure where every step names
+2. **`delegate.sh`** — the one-command dispatch STEP 6 invokes: validates the
+   brief, refuses a second vehicle for the same lane+issue, creates the task,
+   dispatches, and confirms by reading the board back (running / ready-queued /
+   BLOCKED), with the default `--message` making the `message_agent` send loud.
+   Versioned under `agents/llgenie-planner/scripts/`.
+3. **The tick prompt** is a numbered, ordered procedure where every step names
    its exact command and the output line it quotes as evidence; red PRs and the
    board-wide stale-base sweep precede any backlog dispatch; no step refers
    forward. The running `jobs.json` prompt was already rewritten to this shape
    and is captured verbatim under `agents/llgenie-planner/cron/llgenie-orchestrator-tick.md`
    (kept as the initial commit per #2136).
-3. **A drift gate** `make check-tick-prompt` reds when the live `jobs.json`
+4. **A drift gate** `make check-tick-prompt` reds when the live `jobs.json`
    prompt diverges from the versioned copy — host-only (a CI runner has no live
    jobs.json), mirroring `profile-drift`.
-4. Hermetic tests `tests/test_tick_board.py` pin the 2026-11-08 reproduction
-   (`stale=12 dirty=2 idle_non_planner=7`) and the fixed A–G section order via
-   PR/KANBAN/MAIN fixtures.
+5. Hermetic tests `tests/test_tick_board.py`, `tests/test_check_tick_prompt.py`
+   and `tests/test_delegate.py` pin the A–G order, the drift gate, every delegate
+   gate, and the 2026-11-08 reproduction (`stale=12 dirty=2 idle_non_planner=7`)
+   via PR/KANBAN/HERMES/MAIN fixtures.
