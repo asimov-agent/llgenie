@@ -349,7 +349,14 @@ A unit test builds from a copy of the repo with `skills/` deleted.
    recorded `KNOWN_UNBUILT` exception. `make engine-coverage-report` prints the same census.
 5. CI's `engine-image-*` matrix (`make list-engine-images CI=1`) builds each cell, `make
    test-engine-stage` runs its probe, `make push-engine` publishes it after that passes, and
-   `engine-published-test` pulls it back and chats with it (`make test-published-engine`).
+   `engine-published-test` pulls it back and chats with it (`make test-published-engine`). When a
+   served engine never becomes ready (a readiness timeout or a non-zero serve exit), the probe
+   first dumps the **in-container serve log** (last 4000 bytes via
+   `docker exec …, tail -c 4000 "$TMPDIR/engine-runner-serve.log"`) plus the `docker logs` tail,
+   and *then* reports failure — so the reason survives the caller's cleanup instead of being
+   destroyed with the container — and an engine that produced no output is named `EMPTY/absent`,
+   never a silent pass (issue #2065, measured on run `42428390792` job `128571645259` head
+   `8cb8e6f7`).
 
 Steps 2–4 are one `make ci-unit` run on every PR; step 5 runs on the same PR and again on `main`.
 
