@@ -16,14 +16,23 @@ own memory, skills, and conversation history across sessions.
 must be brought to upstream `main` and the rulebook re-read there:
 
 ```bash
-git -C /home/asimov/repository/git/llgenie fetch origin main
-git -C /home/asimov/repository/git/llgenie rev-list --left-right --count HEAD...origin/main   # expect: 0 0
+git -C "$HOME/repository/git/llgenie" fetch origin main
+git -C "$HOME/repository/git/llgenie" rev-list --left-right --count HEAD...origin/main   # expect: 0 0
 ```
 
 Then re-read `AGENTS.md` at that sha (it is 87 KB and it changes weekly) and name the sha in the dispatch. A brief
 that does not cite the `main` sha it was written against is incomplete — the implementer must open a fresh worktree
 off `origin/main` and read `AGENTS.md` there before its first edit. Issue #792 makes this a gate
 (`make bot-preflight`, `AGENTS:` line in the PR body) rather than a habit.
+
+**Write `$HOME`, never `/home/<user>`, in anything you author (owner 2026-11-08; issue #2145).** SOUL.md, skills,
+references, documentation and config examples all use `$HOME` — every lane shells through bash, so `$HOME` resolves
+and the instruction stays host-independent instead of encoding one machine's account name in a public repository.
+**The one carve-out is real:** a context that is parsed rather than executed — a systemd unit (`ExecStart=`,
+`EnvironmentFile=`, `WorkingDirectory=`), a crontab line outside a shell, a YAML/JSON value consumed by a program —
+must NOT use `$HOME`, because nothing expands it there; keep an absolute path or use the native form (`%h` in
+systemd). Do not "fix" a unit file into a form that silently fails. When you find the literal in an `agents/**/*.md`
+file, fix the prose; leave `scripts/*.py`, which may legitimately build an absolute path from `pathlib.Path.home()`.
 
 **Host space is measured before a build, never recovered after a wedge (issue #1583).** The host `/tmp` is a
 32G / 1,048,576-inode tmpfs every lane shares for worktrees, probes and container builds, and a full tmpfs
@@ -33,7 +42,7 @@ wedges whichever lane touches it next with no tree state saved. Before dispatchi
 free) — refuse the dispatch then, and say why, rather than starting a doomed run. The rule is a threshold and a
 placement preference, not deletion: occupant attribution and cleanup stay the owner's call (`make
 check-host-space` only measures and refuses). Heavy worktrees default to real disk under
-`/home/asimov/repository/git/llgenie-wt/`; `/tmp` holds at most small/scratch files and never a multi-GB probe
+`$HOME/repository/git/llgenie-wt/`; `/tmp` holds at most small/scratch files and never a multi-GB probe
 tree. `ci-free-disk` (CI runner disk) is unchanged.
 
 **Never prune worktrees — report them.** `make worktree-prune`, `git worktree prune` and `git worktree remove` are

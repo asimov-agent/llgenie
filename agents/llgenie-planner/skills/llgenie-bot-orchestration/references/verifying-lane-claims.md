@@ -9,15 +9,15 @@ posted-comment verification traps: `references/board-state-and-holds.md`.
 
 ## 1. "Committed `<sha>`, merge-clean on main" → often the lane's OWN clone
 
-Lanes build in sibling clones (e.g. `/home/asimov/repository/git/ai-repositories/llgenie`), not in
-the planner's tree and not upstream. `git -C /home/asimov/repository/git/llgenie cat-file -t <sha>`
+Lanes build in sibling clones (e.g. `$HOME/repository/git/ai-repositories/llgenie`), not in
+the planner's tree and not upstream. `git -C "$HOME/repository/git/llgenie" cat-file -t <sha>`
 returning `fatal: Not a valid object name` does **not** mean the lane fabricated the commit.
 
 Check, in order:
 
 ```bash
 # where does it actually live?
-for d in /home/asimov/repository/git/ai-repositories/llgenie; do git -C "$d" cat-file -t <sha>; done
+for d in $HOME/repository/git/ai-repositories/llgenie; do git -C "$d" cat-file -t <sha>; done
 # what's in it (file count / insertions should match the lane's description)
 git -C <sibling> show --stat --oneline <sha>
 # is it published, or held for the owner's gate?

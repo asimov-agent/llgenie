@@ -87,6 +87,40 @@ Known and deliberate divergence after this change: the tree is now *richer* than
 carries the two #2112 rules and the restored lane-rules explanatory prose that live lost. A tree→live sync
 restores live; a live→tree sync would now destroy the tree. Direction matters.
 
+
+## Fifth change: the `$HOME`-authoring rule and 3 hardcoded paths (#2145)
+
+Live carried a rule the tree lacked entirely — *"Write `$HOME`, never `/home/<user>`, in anything you
+author (owner 2026-11-08; issue #2145)"*, including its real carve-out (a context that is *parsed* rather
+than executed — a systemd unit, a crontab line, a YAML value — must NOT use `$HOME`, because nothing
+expands it there). Folded verbatim.
+
+That rule immediately indicted the tree it landed in: `agents/llgenie-planner/SOUL.md` carried **3**
+hardcoded absolute-home paths which live had already fixed.
+
+```
+19:git -C <hardcoded-home>/repository/git/llgenie fetch origin main
+20:git -C <hardcoded-home>/repository/git/llgenie rev-list --left-right --count HEAD...origin/main
+45:`<hardcoded-home>/repository/git/llgenie-wt/`; ...
+```
+
+All three now read `$HOME`. A fourth file,
+`references/verifying-lane-claims.md`, had the same defect (3 lines); folded live→tree, a clean 1:1 swap of
+the absolute home path for `$HOME/...` with no content change. Verified: a `grep` for the literal home
+path is **0** in
+both the SOUL and that reference, tree and live.
+
+## The live profile was repaired, surgically
+
+`make sync-agent-profile PROFILE=llgenie-planner` **refused**, correctly: six live files were ahead of the
+tree, so a plain sync would have overwritten them. Rather than `--force` (which is how #791 destroys
+content), the two lost rules were appended to the live SOUL directly and parity verified rule-by-rule —
+all six rules now read `tree=1 live=1`, and the only remaining live-only line is the superseded
+"Rules 13 and 14 …" sentence the tree states more fully.
+
+**This is the point the whole change exists for:** the planner had reported the rules as delivered in
+live, and live did not have them.
+
 ## Files
 
 - `agents/llgenie-planner/SOUL.md` (+2 rules from #2112, + the #2117 nudge rule, + the two #2144 paragraphs)
