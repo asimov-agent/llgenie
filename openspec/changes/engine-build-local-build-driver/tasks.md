@@ -1,0 +1,9 @@
+# engine-build-local-build-driver — tasks
+
+- [x] `scripts/engine_image.py`: the local driver gate becomes `cache_export = CACHE_WRITE and REGISTRY and not push and not force and not no_cache_export`, so a forced local build (which exports nothing) runs on the `default` docker driver instead of the container builder's tar + unpack (~3x the unpacked image; the freetoken/rocm ENOSPC in run 42326740375 with 107 GiB free).
+- [x] `scripts/engine_image.py`: committed per-cell `NO_CACHE_EXPORT` map (keyed `(engine id, variant)` like `DISABLED`) with `("freetoken", "rocm")` and its measured footprint (16.10 GiB compressed / ~35 GiB unpacked); `_buildx` skips the cache read/write and prints the reason, `build()` passes it for a non-pushing build only (a publish build streams to the registry and still warms the cache).
+- [x] Four regression tests in `tests/test_engine_force_rebuild.py`: forced build → docker driver; listed cell → docker driver with no cache flags; unlisted cell → container builder with both cache sides; every map key names a committed variant.
+- [x] Container/builder tests green: `tests/test_engine_force_rebuild.py` (30 passed) and `test_engine_force_rebuild.py` + `test_engine_image_matrix.py` + `test_engine_build_workflow.py` (69 passed).
+- [x] `make openspec-validate NAME=engine-build-local-build-driver` passes; the checklist is fully ticked once the cell-level proof below lands.
+- [x] Docs trio per #1123: `agent-wiki/2026-11-08-engine-build-local-build-driver.md` note + `docs/changes.d/` fragment; `make check-docs` green.
+- [x] Cell-level proof: single-cell re-dispatch `engine-build` with `engine=freetoken arch=rocm force=true` at the fix head — **run `42443268329`, job `128616860898`, head `1fe1a396`, conclusion `success`**, the cell's own log naming `--builder default` and the issue-#1915 note; run id quoted on the PR and on #1915.

@@ -246,13 +246,26 @@ def _cache_write_args(cache_ref: str, exists: bool | None = None) -> list[str]:
     return ["--cache-to", f"type=registry,ref={cache_ref},mode=max"]
 
 
-def _buildx(tag: str, ctx: str, push: bool, cache_ref: str, force: bool = False) -> int:
+def _buildx(tag: str, ctx: str, push: bool, cache_ref: str, force: bool = False,
+            no_cache_export: bool = False) -> int:
     """docker buildx with a registry layer cache: unchanged layers are reused
     across CI runs and machines (cache_ref = <registry>/<name>:buildcache).
 
     `force` (issue #638) is a REAL rebuild: `--no-cache`, and the registry cache is not read,
     so a fully cached build can no longer re-tag the previous layers.
+
+    `no_cache_export` (issue #1915) says this cell's local build must NOT export a registry
+    cache, so it can run on the cheap docker driver: a cell whose image cannot afford the
+    docker-container driver's export+load path (which writes the whole image as a tar AND
+    unpacks it into dockerd, ~3x the unpacked image) is verified on the driver that builds
+    straight into the daemon instead of dying ENOSPC.
     """
+    # Does THIS build export a registry cache? Only a local build can carry the flag, a push
+    # streams to the registry (no local export at all), and `force` consults neither cache
+    # side — so a forced build has nothing to export even when the flag is set. That is the
+    # bug issue #1915 fixes: the driver gate read `not CACHE_WRITE` alone, so a FORCED
+    # verification build (no cache args at all) still paid the container driver's ~3x disk.
+    cache_export = bool(CACHE_WRITE and REGISTRY and not push and not force and not no_cache_export)
     # Probe the registry cache ONCE (a single `imagetools inspect` per build) and thread the
     # result through both sides, so a build never issues one probe per side on the same ref
     # (issue #1880's shared-probe contract). A forced LOCAL build consults neither side (no
@@ -260,7 +273,7 @@ def _buildx(tag: str, ctx: str, push: bool, cache_ref: str, force: bool = False)
     # also short-circuits (no probe) when REGISTRY is unset. `cache_args` (the read side) is
     # computed only where it is used: the push branch appends it; the local branch builds its
     # own read args at the point of use, so computing it here would double-call the helper.
-    cache_exists = _cache_exists(cache_ref) if (push or not force) else False
+    cache_exists = _cache_exists(cache_ref) if ((push or not force) and not no_cache_export) else False
     cache_args = [] if (force or not push) else _cache_read_args(cache_ref, cache_exists)
     no_cache = ["--no-cache"] if force else []
     if push and REGISTRY:
@@ -286,10 +299,10 @@ def _buildx(tag: str, ctx: str, push: bool, cache_ref: str, force: bool = False)
     # only READS the registry cache (both drivers support `--cache-from type=registry`),
     # so preferring `default` for locally-loaded images is still correct, and it alone
     # avoids the fresh-Colima case (no default builder -> buildx must not error).
-    if not CACHE_WRITE and _sh([RUNTIME, "buildx", "inspect", "default"], capture_output=True).returncode == 0:
+    if not cache_export and _sh([RUNTIME, "buildx", "inspect", "default"], capture_output=True).returncode == 0:
         cmd += ["--builder", "default"]
     cmd += [*no_cache, "-t", tag, "--load"]
-    if REGISTRY and not force:
+    if REGISTRY and not force and not no_cache_export:
         # reuses `cache_exists` (computed once above) so the local build is also a single
         # probe — not one per side (issue #1880's shared-probe contract)
         cmd += _cache_read_args(cache_ref, cache_exists)
@@ -300,6 +313,14 @@ def _buildx(tag: str, ctx: str, push: bool, cache_ref: str, force: bool = False)
         # dispatch job (never a PR/fork/local build), so a read-only runner never attempts it.
         if CACHE_WRITE:
             cmd += _cache_write_args(cache_ref, cache_exists)
+    elif no_cache_export:
+        # A cell whose image cannot fit the container driver's export+load path: the docker
+        # driver that IS chosen above cannot import a registry cache either, so the build is
+        # cold. Printed, never a silent skip (#1796) — and the cache is still warmed by the
+        # cell's publish runs, which stream to the registry without a local export.
+        print(f"[engine-image] {tag}: local build runs on the docker driver (no cache export) — "
+              f"its image cannot afford the container driver's export+load on a hosted runner "
+              f"(issue #1915)", flush=True)
     return _sh(cmd + [ctx]).returncode
 
 
@@ -385,8 +406,13 @@ def build(spec: dict, force: bool = False, push: bool = False) -> int:
         shutil.copy2(es.CONTAINER_DIR / "entrypoint.sh", c / "entrypoint.sh")
         shutil.copy2(es.REPO_ROOT / "scripts" / "engine_runner.py", c / "engine_runner.py")
         (c / "params.json").write_text(json.dumps(variant, indent=2) + "\n")
+        # A cell listed in NO_CACHE_EXPORT cannot afford the container driver's export+load on a
+        # hosted runner (issue #1915): its LOCAL build runs on the docker driver instead. A
+        # publish build streams straight to the registry and never pays that cost, so it stays
+        # on the cache-capable driver.
+        no_cache_export = (not push) and (spec["id"], spec["variant"]) in NO_CACHE_EXPORT
         rc = _buildx(tag, ctx, push, f"{REGISTRY}/{tag.split(':')[0]}:buildcache-{spec['variant']}",
-                     force=force)
+                     force=force, no_cache_export=no_cache_export)
     if rc:
         print(f"[engine-image] FAIL build {tag} (exit {rc})")
         return rc
@@ -1093,6 +1119,26 @@ def disabled(engine: str, variant: str) -> str:
     """The tracking reason when this engine x arch image is disabled, else ''."""
     return DISABLED.get((engine, variant), "")
 SMOKE_SKIP = {"tensorrt-llm", "sglang", "tensorfold", "freetoken"}  # cuda-only servers, no cpu smoke
+
+# Cells whose LOCAL build must not use buildx's docker-container driver (issue #1915).
+#
+# The docker-container driver's local path (`--load`) writes the whole image as a tar and then
+# unpacks it into dockerd ON TOP of the builder's own content store — about 3x the unpacked
+# image. A GitHub-hosted runner offers ~107 GiB free, so a cell whose unpacked image is ~35 GiB
+# dies ENOSPC mid-load even though the build itself succeeded and the same image pushes fine.
+# These cells build on the `default` (docker) driver, which builds straight into the daemon
+# (no tar, no second copy); they lose the registry-cache read/write on that path only.
+#
+# Keyed (engine id, variant) exactly like DISABLED. Add a cell here only with its MEASURED
+# footprint, never a guess.
+NO_CACHE_EXPORT = {
+    ("freetoken", "rocm"): (
+        "16.10 GiB compressed / ~35 GiB unpacked (rocm/pytorch 7.2.4 base + the torch rocm wheel's "
+        "hipblaslt and aotriton trees); the container driver's export+load needs ~3x that and hit "
+        "`no space left on device` with 107 GiB free (runs 42326740375 and 41971301136), while the "
+        "same cell on the docker driver went green with 104 GiB free (run 41957934540)"
+    ),
+}
 
 
 def _bytes_at(ref: str, rel: str, root) -> bytes | None:

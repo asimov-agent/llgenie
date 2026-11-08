@@ -650,7 +650,7 @@ def test_build_push_false_routes_from_base_cell_through_internal_stage(tmp_path,
 
     captured = {}
 
-    def fake_buildx(tag, ctx, push, buildcache, force=False):
+    def fake_buildx(tag, ctx, push, buildcache, force=False, **kw):
         captured["ctx"] = (Path(ctx) / "Dockerfile").read_text()
         captured["push"] = push
         return 0
