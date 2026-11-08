@@ -53,8 +53,13 @@ def main() -> int:
         return 2
     versioned_text = versioned.read_text()
 
-    if live_prompt == versioned_text:
-        print(f"[check-tick-prompt] OK live prompt == versioned ({len(versioned_text)} b)")
+    # The lint gate commits files with a trailing newline; the live JSON value
+    # stores the prompt without one. Strip exactly one trailing newline from the
+    # versioned read so the two compare on content, not on file-vs-json framing.
+    versioned_norm = versioned_text[:-1] if versioned_text.endswith("\n") else versioned_text
+
+    if live_prompt == versioned_norm:
+        print(f"[check-tick-prompt] OK live prompt == versioned ({len(versioned_norm)} b)")
         return 0
 
     print(f"[check-tick-prompt] LIVE prompt ({len(live_prompt)} b) != versioned copy "
