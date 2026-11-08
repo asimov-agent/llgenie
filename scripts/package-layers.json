@@ -149,6 +149,7 @@
    "orchestrator_tick",
    "pr_heads",
    "profile_drift_alarm",
+   "provision_agent_profiles",
    "queued_run_alarm",
    "rebase_bot_sweep",
    "registry_change_issue",
@@ -175,6 +176,11 @@
    "from": "agent_profile_sync",
    "to": "check_agent_profiles",
    "reason": "the sync writes a profile tree the validator defines: it reuses that module's reader/writer rather than restating the shape."
+  },
+  {
+   "from": "provision_agent_profiles",
+   "to": "check_agent_profiles",
+   "reason": "the provisioning entrypoint reuses check_agent_profiles' manifest reader (via agent_profile_sync) rather than restating the lane roster."
   },
   {
    "from": "architecture_bot",
