@@ -24,13 +24,17 @@ never pass, and a failed fetch must fail the gate, not fall back.
 
 Commands:
 
-    check_pr_base.py check --base <ref> --rev <rev>
+    check_pr_base.py check --base <ref> --rev <rev> [--head-ref-name <branch>] [--pr-number <n>]
         exit 0 when `git merge-base <base> <rev> == <base>`; exit 0 also when
         `base..rev` is EMPTY (the head is an ancestor of the live base — a push to
         main whose commit a newer main already overtook, where nothing foreign can
-        leak, issue #1867/#1906..#1909); exit 1 when the branch was not cut from
-        the base AND carries foreign commits (naming them) or when the base ref
-        cannot be fetched freshly.
+        leak, issue #1867/#1906..#1909); exit 0 also for a STALE-BUT-CLEAN branch
+        (merge-base on `main` but older, every carry the branch's own, issue #2016);
+        exit 1 when the branch was not cut from the base AND carries foreign commits
+        (naming them) or when the base ref cannot be fetched freshly. On a branch the
+        PR's head is checked out as its MERGE ref (`linux / unit`), pass
+        `--head-ref-name <PR_BRANCH>` / `--pr-number <PR_NUM>` so the branch's own refs
+        count as OWN and are never mis-reported foreign (issue #2138).
 
     check_pr_base.py report --base <ref> --rev <rev>
         print the merge-base and its verdict, exit 0 either way.
@@ -118,7 +122,9 @@ def foreign_commits(root: Path, base: str, rev: str) -> list[str]:
     return [ln for ln in out.splitlines() if ln.strip()]
 
 
-def _own_vs_foreign(root: Path, base: str, rev: str) -> tuple[list[str], list[str]]:
+def _own_vs_foreign(root: Path, base: str, rev: str,
+                    head_ref_name: str | None = None,
+                    pr_number: str | None = None) -> tuple[list[str], list[str]]:
     """Split `base..rev` into the branch's OWN commits and genuine foreign (#845) commits.
 
     A commit the head carries that does not belong to this branch is reachable from a
@@ -131,22 +137,49 @@ def _own_vs_foreign(root: Path, base: str, rev: str) -> tuple[list[str], list[st
     checkout's parked branch) the inherited PR's commits ARE contained by that other
     branch's ref, so they are provably foreign.
 
+    The head's OWN refs are not just the refs that CONTAIN `rev`. In the `linux / unit`
+    checkout GitHub checks out the PR **merge ref** (a synthetic 2-parent commit), so
+    `rev` is that merge and the branch's own remote ref — which points at the head
+    commit, an ancestor of the merge — does NOT contain `rev` (issue #2138). If the
+    discriminator trusted only ``--contains rev`` it would see the branch's own remote
+    ref as a foreign signal and accuse the branch of carrying a leak it never made. The
+    head's own refs are therefore also the refs that NAME the head branch
+    (`refs/heads/<branch>` and `refs/remotes/origin/<branch>`, from the PR's
+    `head_ref_name`) and the PR's synthetic merge/head refs (`refs/pull/<n>/merge`,
+    `refs/pull/<n>/head`), none of which is a foreign-signal for the branch's own work.
+    A commit reachable only from those (plus the base) is OWN; one reachable from any
+    other branch/tag/PR ref is genuinely foreign.
+
     `own` returns the commits attributable to the branch; `foreign` the ones reachable
-    from another ref. Only the base ref itself and the head's own refs (those already
-    containing `rev`) are skipped — every other branch/tag/PR ref is a foreign-signal.
+    from another ref. The base ref itself, the head's own refs, and the PR's own refs
+    are skipped — every other branch/tag/PR ref is a foreign-signal.
     """
     commits = foreign_commits(root, base, rev)
     own, foreign = [], []
     if not commits:
         return own, foreign
-    head_refs = set(_git(root, "for-each-ref", "--contains", rev, "--format=%(refname)").splitlines())
+    head_refs = set(_git(root, "for-each-ref", "--contains",
+                         rev, "--format=%(refname)").splitlines())
+    own_refs = set(head_refs)
+    if head_ref_name:
+        # The head branch's own refs, whether or not they contain the (possibly merge)
+        # `rev` — a branch ref pointing at the head commit is the PR's own lineage even
+        # when the merge-base with `base` is not `base` itself (issue #2138).
+        for line in _git(root, "for-each-ref",
+                         "--format=%(refname)").splitlines():
+            if line in (f"refs/heads/{head_ref_name}",
+                        f"refs/remotes/origin/{head_ref_name}"):
+                own_refs.add(line)
+    if pr_number:
+        own_refs.add(f"refs/pull/{pr_number}/head")
+        own_refs.add(f"refs/pull/{pr_number}/merge")
     for commit in commits:
         sha = commit.split()[0] if commit.split() else None
         if not sha:
             own.append(commit)
             continue
         containing = [r for r in _git(root, "for-each-ref", "--contains", sha, "--format=%(refname)").splitlines()
-                      if r != base and r not in head_refs]
+                      if r != base and r not in own_refs]
         if containing:
             foreign.append(f"{commit}  (reachable from `{'`, `'.join(containing)}`)")
         else:
@@ -155,7 +188,9 @@ def _own_vs_foreign(root: Path, base: str, rev: str) -> tuple[list[str], list[st
 
 
 
-def _verdict(root: Path, base: str, rev: str) -> tuple[str, list[str], list[str]]:
+def _verdict(root: Path, base: str, rev: str,
+             head_ref_name: str | None = None,
+             pr_number: str | None = None) -> tuple[str, list[str], list[str]]:
     """Classify the head against `base`. Returns (verdict, own_commits, foreign_commits).
     """
     _warnings, err = fetch_base(root, base)
@@ -176,7 +211,7 @@ def _verdict(root: Path, base: str, rev: str) -> tuple[str, list[str], list[str]
         # base — a push to main overtaken by a newer main (#1867/#1906..#1909). No diff
         # to leak; passes as the ANCESTOR exemption.
         return "clean", [], []
-    own, leaked = _own_vs_foreign(root, base, rev)
+    own, leaked = _own_vs_foreign(root, base, rev, head_ref_name, pr_number)
     # Is the merge-base itself on `main`'s history (an older real main tip)? If YES and
     # nothing leaked from another ref, the branch is stale-but-clean. If the merge-base
     # is off `main` entirely, the branch forked from a divergent lineage — that IS a leak.
@@ -213,7 +248,9 @@ def staleness_from_compare(compare: dict) -> bool:
     return bool(compare.get("behind_by"))
 
 
-def check(root: Path, base: str, rev: str) -> tuple[bool, list[str]]:
+def check(root: Path, base: str, rev: str,
+          head_ref_name: str | None = None,
+          pr_number: str | None = None) -> tuple[bool, list[str]]:
     """Is the branch cut from `base` itself? Returns (ok, foreign_or_error_lines).
 
     Fetches `base`'s remote `main` freshly first (#1734), so the verdict is against
@@ -224,11 +261,13 @@ def check(root: Path, base: str, rev: str) -> tuple[bool, list[str]]:
     `ok` is False only for a genuine #845 foreign-branch leak (a carry belonging to
     another ref) or a refused measure.
     """
-    verdict, _own, foreign = _verdict(root, base, rev)
+    verdict, _own, foreign = _verdict(root, base, rev, head_ref_name, pr_number)
     return verdict in ("clean", "stale"), foreign
 
 
-def render(ok: bool, base: str, rev: str, foreign: list[str], root: Path = REPO_ROOT) -> list[str]:
+def render(ok: bool, base: str, rev: str, foreign: list[str], root: Path = REPO_ROOT,
+           head_ref_name: str | None = None,
+           pr_number: str | None = None) -> list[str]:
     """The verdict as lines; the OK/stale path and the refusal both name their facts.
 
     Every verdict carries the main sha it measured against (#1734), so a FAILED is
@@ -239,7 +278,7 @@ def render(ok: bool, base: str, rev: str, foreign: list[str], root: Path = REPO_
     IS a `main` ancestor but older than the live tip, every carry the branch's own,
     issue #2016 — a rebase clears it, not a #845 leak).
     """
-    verdict, own, leaked = _verdict(root, base, rev)
+    verdict, own, leaked = _verdict(root, base, rev, head_ref_name, pr_number)
     measured = f"{TAG} measured against `{base}` at `{base and _measured_sha(root, base)}`"
     if verdict == "clean":
         mb = _git(root, "merge-base", base, rev)
@@ -296,11 +335,17 @@ def main(argv: list[str] | None = None) -> int:
         c = sub.add_parser(name)
         c.add_argument("--base", default=DEFAULT_BASE, help=f"the ref the PR must be cut from (default {DEFAULT_BASE})")
         c.add_argument("--rev", default="HEAD", help="the PR head rev (default HEAD)")
+        c.add_argument("--head-ref-name", "--pr-branch", default=None,
+                       help="the PR's head branch name (its refs are the head's OWN, not a "
+                            "foreign signal even when `rev` is the merge ref — issue #2138)")
+        c.add_argument("--pr-number", default=None,
+                       help="the PR number, for the `refs/pull/<n>/{head,merge}` own refs (issue #2138)")
         c.add_argument("--cwd", default=None, help="repository the merge-base is read from")
     args = p.parse_args(argv)
     root = Path(args.cwd) if args.cwd else REPO_ROOT
-    ok, foreign = check(root, args.base, args.rev)
-    for line in render(ok, args.base, args.rev, foreign, root):
+    ok, foreign = check(root, args.base, args.rev, args.head_ref_name, args.pr_number)
+    for line in render(ok, args.base, args.rev, foreign, root,
+                       args.head_ref_name, args.pr_number):
         print(line)
     return 0 if ok else 1
 
