@@ -93,14 +93,39 @@ python3 scripts/check_pr_acceptance.py check --body-file /tmp/wirebody.md --base
 # [check-pr-acceptance] OK — every closed issue's `## Acceptance criteria` is checked or named out of scope
 ```
 
+## Closing-set mechanics: one keyword per issue, and the honest `does not close`
+
+`check-pr-closing` compares two sets — the issues the **joined commit messages** close and the issues
+the **PR body** closes — and reds when they differ, because the squash body is what `git log` keeps and
+the PR body is what GitHub auto-closes from. Three consequences:
+
+- The closing regex is `\b(?:fix(?:e[sd])?|close[sd]?|resolve[sd]?)\s+#(\d+)`. A **comma is not a
+  separator**: `closes #11, #12, #13` closes only `#11`. Repeat the keyword, one issue per line, in the
+  body and the commit message alike.
+- A branch that **carries a base PR's commits** (stacked) also carries that PR's `closes #N`, so `#N`
+  must appear in your body too. When the base lands and you rebase, those commits leave the branch and
+  `#N` must come **out** of the body in the same push.
+- Naming an issue resolvingly without closing it is itself a red. If a PR genuinely cannot satisfy an
+  issue's acceptance criteria (its remaining ACs name something that is not a repository artifact —
+  a cron prompt, a live host profile), write an explicit `does not close #<n> because <reason>` note.
+  That removes the issue from `check-pr-acceptance` entirely, which is the honest alternative to a
+  self-tick or leaving the issue silently orphaned.
+
+Related: the `BASE:` line must name the **same** `origin/main` sha as the `AGENTS:` line
+(`BASE: <sha> (== origin/main at open)`). A branch name in that slot fails `agents-line`, and so does a
+sha that differs from the `AGENTS:` one — "stacked on #N" belongs in prose, not in that line.
+
 ## Never call a gate red "by design" without reading its own logic
 
 A red `check-pr-acceptance` (or any `scope` step) looks like the documented "un-reviewed merge stays
 honest" state, so it is tempting to report it as by-design and move on. Before you do, open the gate's
 source and test it against the real body: most such gates carry an exemption/repair path (a lenient
 heading match, an out-of-scope declaration, a canary). A red you labelled by-design and never read is
-a defect you left on the board — and a body-only edit that fixes it needs a fresh push to re-trigger CI
-(a body edit alone does not re-run check-runs keyed to the head sha).
+a defect you left on the board — and a body-only edit needs a gate re-read to take effect. Check-runs are keyed to the head sha, so a
+body edit alone re-triggers nothing — but you do not need a new commit to validate it: re-running the
+failed jobs (`gh run rerun <run-id> --failed`) re-reads the PR body from the wire at run time, so the
+corrected body is exactly what the gate judges. Push an empty commit only when you also need a fresh
+head sha.
 
 ## Don't reconstruct a merged fold's boxes by eye
 

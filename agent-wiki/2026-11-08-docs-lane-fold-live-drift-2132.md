@@ -1,9 +1,9 @@
-# Documentation lane: fold live→tree drift for 9 skill files (#2132)
+# Documentation lane: fold live→tree drift for 10 skill files (#2132)
 
 ## What changed
 
 Folded the documentation lane's live profile ahead-of-tree content into the repository, in the
-**live → tree** direction that `live-longer` requires. Nine files under
+**live → tree** direction that `live-longer` requires. Ten files under
 `agents/llgenie-documentation-maintainer/skills/llgenie-docs-maintainer/`:
 
 | file | tree before | tree after |
@@ -16,6 +16,7 @@ Folded the documentation lane's live profile ahead-of-tree content into the repo
 | `references/live-vs-tree-drift.md` | 8,774 b | 11,136 b |
 | `references/own-domain-audit.md` | 10,901 b | 13,196 b |
 | `references/gate-red-triage.md` | *(absent)* | 5,385 b (new file) |
+| `references/authoring-and-delivery.md` | *(absent)* | 3,371 b (new file — the live profile grew a second time mid-fold) |
 
 ## Measured
 

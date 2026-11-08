@@ -104,6 +104,14 @@ The record carries: measured `main` sha + clock, per-lane totals, and 3-4 highli
 live-vs-tree byte gap with live mtime). The set GROWS between measurements as lanes edit live while
 the tree sits — re-measure at the fresh tip, never re-quote the tracker's old count.
 
+**The same applies to claiming a set CLOSED.** A spot list of the rules you folded (`grep -c` on the
+ones you remember touching) is not an enumeration, and "tree and live no longer disagree" asserted off
+it is false the moment live carries one more paragraph. Enumerate the complement instead —
+`diff <(sort tree) <(sort live) | grep '^>'` for live-only, `'^<'` for tree-only — and quote those two
+numbers, never the list of things you set out to fix. Live edits land *while you work*, so a fold that
+was complete at the cut point is already stale at the head: re-run the enumeration after the last edit
+and before making the claim.
+
 ## Capture the delta (this is what the issue/PR body carries)
 
 Every touched or cited SOUL/skill issue or PR must end its review with a **delta record** in the

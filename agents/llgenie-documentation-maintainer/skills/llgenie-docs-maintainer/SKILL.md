@@ -12,6 +12,9 @@ metadata:
 
 # Maintaining the LLGenie docs
 
+> Write `$HOME`, never `/home/<user>`, in anything you author; cut worktrees under `$HOME`, never
+> `/tmp`; and a stacked PR is closed for good when its base merges — `references/authoring-and-delivery.md`.
+>
 > A dispatch may race a fix already merged by another lane: check issue state, the closing PR and
 > `make check-docs` before branching — `references/dispatch-race-verification.md`.
 > A gate red on YOUR branch may be main's red: reproduce it on a clean detached base first, because a
