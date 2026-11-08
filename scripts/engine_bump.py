@@ -4,10 +4,13 @@ Scope: update each engine skill's upstream pin to the latest commit for its
 `ref`, derive the build parameters from the upstream tree (no LLM), apply the
 derived params into the skill, and regenerate the params/Dockerfiles.
 
-One engine's release archive is handled too (issue #830): `_native_archives`,
-`_release_assets` and `release_archive_install` list a PINNED release's assets,
-classify the one that is native for this machine's arch, checksum it and install
-it. The pinned version is always read from the engine's params at run time
+One engine's release archive is handled too (issue #830): the step lives in
+`scripts/engine_release_archive.py` — `_release_assets`, `_native_archives` and
+`release_archive_install` list a PINNED release's assets, classify the one that
+is native for this machine's arch, checksum it and install it — and this module
+re-exports them. They sit in that module rather than here so `engine_params_derive`
+can read the release without importing this module: the bump -> derive pipeline
+is one direction (issue #795). The pinned version is always read from the engine's params at run time
 (`_pinned_ref`), never passed as a literal, so a bump moves the archive path
 with the pin.
 
@@ -42,10 +45,26 @@ except ImportError:  # pragma: no cover - script mode
 try:
     from . import engine_skills as es
     from . import engine_params_derive as epd
+    # Re-exported: the release-archive step moved out of this module so the
+    # bump -> derive pipeline stops being a cycle (issue #795). Callers and the
+    # tests keep reading it from here, but the ONE owner is
+    # scripts/engine_release_archive.py, which both directions may import.
+    from .engine_release_archive import (  # noqa: F401  (public surface, unchanged)
+        _native_archives,
+        _pip_install,
+        _release_assets,
+        release_archive_install,
+    )
 except ImportError:  # pragma: no cover - script mode
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     import engine_skills as es
     import engine_params_derive as epd
+    from engine_release_archive import (  # noqa: F401
+        _native_archives,
+        _pip_install,
+        _release_assets,
+        release_archive_install,
+    )
 
 REPO_ROOT = es.REPO_ROOT
 SKILLS_DIR = es.SKILLS_DIR
@@ -261,120 +280,6 @@ def _download(url: str, dest: Path) -> None:
             if not chunk:
                 break
             f.write(chunk)
-
-
-def _github_token() -> str:
-    """The forwarded GitHub token. `GITHUB_TOKEN`, else `GH_TOKEN`. Never logged."""
-    for key in ("GITHUB_TOKEN", "GH_TOKEN"):
-        token = os.environ.get(key, "").strip()
-        if token:
-            return token
-    return ""
-
-
-def _release_json(url: str, headers: dict) -> dict:
-    import json as _json
-    import urllib.request
-    req = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(req, timeout=30) as r:
-        data = _json.load(r)
-    return data if isinstance(data, dict) else {}
-
-
-def _release_assets(repo: str, tag: str) -> list[dict]:
-    """The published GitHub release's assets for `tag`. Empty on any failure
-    (a missing release is "no archive", not a hard fail — other engines continue).
-
-    Sends the token the test container forwarded (`GITHUB_TOKEN`, else
-    `GH_TOKEN`). An installation token is scoped to this repository and GitHub
-    answers 401 or 403 for another public repo; that one denial is retried
-    with no Authorization header.
-    """
-    m = re.match(r"https?://github\.com/([^/]+/[^/]+?)(?:\.git)?/?$", repo.strip())
-    if not m:
-        return []
-    url = f"https://api.github.com/repos/{m.group(1)}/releases/tags/{tag}"
-    base = {"Accept": "application/vnd.github+json", "User-Agent": "llgenie-engine-bump"}
-    token = _github_token()
-    headers = dict(base)
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    try:
-        data = _release_json(url, headers)
-    except Exception as exc:
-        if not (token and getattr(exc, "code", None) in (401, 403)):
-            return []
-        try:
-            data = _release_json(url, base)
-        except Exception:
-            return []
-    return [{"name": a.get("name", "")} for a in data.get("assets") or []]
-
-
-# (backend) -> (os token, arch token) in `<name>-<version>-<os>-<arch>.tar.gz`.
-_ARCHIVE_TARGET = {"cuda": ("linux", "x86_64"), "rocm": ("linux", "x86_64"),
-                   "vulkan": ("linux", "x86_64"), "cpu": ("linux", "x86_64"),
-                   "metal": ("macos", "arm64")}
-_ARCHIVE = re.compile(r"^(?P<name>.+)-(?P<ver>[0-9][0-9.]*)-(?P<os>linux|macos)-(?P<arch>[A-Za-z0-9_]+)\.tar\.gz$")
-
-
-def _native_archives(assets: list[dict]) -> dict[tuple[str, str], str]:
-    """`(os, arch) -> asset name` for archives that ship a sibling `.sha256`."""
-    names = {a["name"] for a in assets}
-    out = {}
-    for name in sorted(names):
-        m = _ARCHIVE.match(name)
-        if m and f"{name}.sha256" in names:
-            out[(m.group("os"), m.group("arch"))] = name
-    return out
-
-
-def _pip_install(steps) -> bool:
-    return any(re.search(r"\b(uv|pip3?)\b", str(s)) and "git+" in str(s) for s in (steps or []))
-
-
-def release_archive_install(skill: dict, assets: list[dict]) -> dict | None:
-    """Install steps that unpack the release archive, or None when the release
-    is not a native-archive release (or the skill does not pip-install from git)."""
-    found = _native_archives(assets)
-    if not found:
-        return None
-    install = skill.get("install") or {}
-    if not isinstance(install, dict) or not any(_pip_install(v if isinstance(v, list) else [v])
-                                                for v in install.values()):
-        return None
-    steps_for = {}
-    for backend in skill.get("backends") or []:
-        target = _ARCHIVE_TARGET.get(backend)
-        if target is None or target not in found:
-            return None  # a backend we cannot place an archive for: do not guess
-        asset = found[target]
-        # `{version}` is the skill version with no leading v, which is how the
-        # archive is named (tensorfold-1.0.5-linux-x86_64.tar.gz)
-        ver = re.search(r"-([0-9][0-9.]*)-", asset)
-        if ver is None:
-            return None
-        asset_tmpl = asset.replace(f"-{ver.group(1)}-", "-{version}-", 1)
-        check = "sha256sum -c" if target[0] == "linux" else "shasum -a 256 -c"
-        # The archive's bin/ name is upstream's (tensorfold-native), not the
-        # skill id. Link the one executable to {id} so binary/detect/launch
-        # share one path. No pipe: the runner uses bash -o pipefail.
-        link = ("exe=$(find {prefix}/{version}/bin -maxdepth 1 -type f -perm -111); "
-                "set -- $exe; ln -sfn \"$1\" {prefix}/{version}/bin/{id}")
-        # A pinned version in the binary path would bake {version} into detect,
-        # so native_status could only ever say missing/current (issue #386).
-        # Point {prefix}/current at the release and detect the INSTALLED binary
-        # through it, so `binary --version` can report an older/newer release.
-        steps_for[backend] = [
-            "mkdir -p {prefix}/{version}",
-            "curl -fsSL -o {prefix}/" + asset_tmpl + " {repo}/releases/download/v{version}/" + asset_tmpl,
-            "curl -fsSL -o {prefix}/" + asset_tmpl + ".sha256 {repo}/releases/download/v{version}/" + asset_tmpl + ".sha256",
-            "cd {prefix} && " + check + " " + asset_tmpl + ".sha256",
-            "tar -xzf {prefix}/" + asset_tmpl + " -C {prefix}/{version} --strip-components=1",
-            link,
-            "ln -sfn {prefix}/{version} {prefix}/current",
-        ]
-    return steps_for
 
 
 def _dump_install(steps_for: dict) -> str:
