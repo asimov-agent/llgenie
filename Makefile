@@ -451,7 +451,7 @@ tester-fold-live: ## Enumerate a described live host-agent lane's files against 
 	@test -n "$(PROFILE)" || { echo "Usage: make tester-fold-live PROFILE=<profile> [COPY=1]"; exit 2; }
 	python3 scripts/fold-live-profile.py --profile "$(PROFILE)" $(if $(COPY),--copy,)
 
-check-agent-profiles: ## CI: fail when a listed host-agent profile has no SOUL.md, a skill's frontmatter name disagrees with its directory, a skill names a missing reference or carries a secret value, a SOUL.md dropped a standing rule — searched in the file's own voice, so a QUOTED rule satisfies nothing — or a file, or a whole skill directory, exists only in the live profile with no counterpart in the tree (issue #791, #922, #1069, #1086)
+check-agent-profiles: ## CI: fail when a listed host-agent profile has no SOUL.md, a skill's frontmatter name disagrees with its directory, a skill names a missing reference, exceeds the 100,000-character skill-writer limit, or carries a secret value, a SOUL.md dropped a standing rule — searched in the file's own voice, so a QUOTED rule satisfies nothing — or a file, or a whole skill directory, exists only in the live profile with no counterpart in the tree (issue #791, #922, #1069, #1086, #2084)
 	python3 scripts/check_agent_profiles.py check
 
 profile-drift-alarm: ## The SCHEDULED caller for #928: run on a host with live profiles, file ONE issue on drift (exit 2 = could not compare, 3 = drift)
