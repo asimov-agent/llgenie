@@ -236,12 +236,15 @@ def derive(skill: dict, sha: str, repo_dir: Path | None = None,
         # failure) leaves install alone.
         tag = ref or skill.get("ref")
         if skill.get("ref_kind") == "tag" and tag:
+            # The shared release-archive step, not `engine_bump`: deriving reads
+            # the release, and the bump -> derive pipeline is one direction
+            # (issue #795). `engine_bump` re-exports these names.
             try:
-                from . import engine_bump as _eb
+                from . import engine_release_archive as era
             except ImportError:
-                import engine_bump as _eb
-            assets = _eb._release_assets(skill.get("repo", ""), tag)
-            if assets and _eb._native_archives(assets):
+                import engine_release_archive as era
+            assets = era._release_assets(skill.get("repo", ""), tag)
+            if assets and era._native_archives(assets):
                 findings["auto"]["release_assets"] = assets
 
         # E7: python/torch

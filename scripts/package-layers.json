@@ -1,0 +1,393 @@
+{
+ "note": "The layering of scripts/ as data (issue #795). The five groups are the \u00a7Scripts groups of docs/ARCHITECTURE.md; every module of scripts/ belongs to exactly one. A cross-group import is refused unless it is listed in allowed_edges with its reason, a cycle is always refused, and a listed edge that no longer exists is refused too, so this file cannot rot into fiction. Read by scripts/check_package_layers.py (`make check-package-layers`, wired into `make ci-unit`).",
+ "groups": {
+  "Product path": [
+   "detect_server",
+   "download_test_model",
+   "engine_bump",
+   "engine_bump_rebase",
+   "engine_bump_sync",
+   "engine_deps",
+   "engine_host_test",
+   "engine_image",
+   "engine_params_derive",
+   "engine_params_review",
+   "engine_release_archive",
+   "engine_runner",
+   "engine_skill_gap",
+   "engine_skills",
+   "engine_smoke",
+   "ensure_user_path",
+   "env_seam",
+   "gen_trending_quant_catalog",
+   "hf_auth",
+   "hf_download",
+   "install_engine_launchers",
+   "llgenie_serve",
+   "loopback_server",
+   "model_engine_pick",
+   "native_build_env",
+   "registry_keys",
+   "serve_variant",
+   "strata_models",
+   "sync_registry",
+   "trend_list_matrix",
+   "vram_scope_view"
+  ],
+  "Security pipeline": [
+   "check_renovate",
+   "engine_pins",
+   "pin_actions",
+   "scanner_image",
+   "security_bot",
+   "security_bumps",
+   "security_issues",
+   "security_scan"
+  ],
+  "Structural gates": [
+   "changes_index",
+   "check_agent_profiles",
+   "check_agent_skills",
+   "check_architecture_census",
+   "check_arms",
+   "check_bash",
+   "check_dispatch_forms",
+   "check_docs",
+   "check_empty_files",
+   "check_engine_capabilities",
+   "check_engine_launchers",
+   "check_engine_pins_published",
+   "check_holds",
+   "check_host_space",
+   "check_import_roots",
+   "check_issue_body",
+   "check_main_ruleset",
+   "check_model_links_liveness",
+   "check_openspec_tasks",
+   "check_package_layers",
+   "check_pr_acceptance",
+   "check_pr_authors",
+   "check_pr_base",
+   "check_pr_closing",
+   "check_pr_hygiene",
+   "check_proc_gate",
+   "check_python",
+   "check_report_header",
+   "check_report_hygiene",
+   "check_secret_output",
+   "check_skill_code_parity",
+   "check_wiring",
+   "check_workflows",
+   "check_zero_job_pending",
+   "claim_reader_guard",
+   "engine_coverage",
+   "engine_gate_report",
+   "engine_source_guard",
+   "git_identity",
+   "issue_bot_gates",
+   "lint_linefeeds",
+   "module_name_guard",
+   "proc",
+   "scan_agents_md",
+   "secret_scan",
+   "secret_scan_self_test",
+   "skill_parity",
+   "targets_coverage",
+   "unit_tests",
+   "worktree_base",
+   "worktree_prune_guard",
+   "worktree_report"
+  ],
+  "CI entrypoints": [
+   "all_pipelines",
+   "ci_engines",
+   "ci_health",
+   "ci_images",
+   "ci_scope",
+   "ci_slow_rows",
+   "ci_verdict",
+   "engine_build_trigger",
+   "engine_capability",
+   "lane_preflight",
+   "loop_harness"
+  ],
+  "Bots and automation": [
+   "acceptance_writeback",
+   "agent_model_pin",
+   "agent_profile_sync",
+   "agent_shell_keys_check",
+   "architecture_bot",
+   "arm_auto_merge",
+   "auto_merge",
+   "auto_merge_channel",
+   "base_ref",
+   "bind_proof",
+   "bot_claims",
+   "bot_preflight",
+   "bot_verdict",
+   "bots_restore_health",
+   "ci_frozen_reaper",
+   "ci_requeue",
+   "code_review",
+   "engine_skill_scaffold",
+   "fetch_smoke",
+   "fix_bot_report",
+   "fix_bot_sweep",
+   "fold-live-profile",
+   "hermes_skills_register",
+   "hermes_smoke",
+   "host_bot_capabilities",
+   "issue_body",
+   "issue_cleaner",
+   "issue_dedup",
+   "issue_implementer",
+   "issue_refiner",
+   "jev_preflight_tracker",
+   "nerve_profile_check",
+   "orchestrator_tick",
+   "pr_heads",
+   "profile_drift_alarm",
+   "queued_run_alarm",
+   "rebase_bot_sweep",
+   "registry_change_issue",
+   "registry_review",
+   "require_env",
+   "resolve_run_pr",
+   "review_finalize",
+   "run_failure_reactor",
+   "scrub_log",
+   "stale_branch_cleanup",
+   "sweep_concurrency",
+   "verify_closure",
+   "web_evidence",
+   "worktree_prune"
+  ]
+ },
+ "allowed_edges": [
+  {
+   "from": "acceptance_writeback",
+   "to": "proc",
+   "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
+  },
+  {
+   "from": "agent_profile_sync",
+   "to": "check_agent_profiles",
+   "reason": "the sync writes a profile tree the validator defines: it reuses that module's reader/writer rather than restating the shape."
+  },
+  {
+   "from": "architecture_bot",
+   "to": "git_identity",
+   "reason": "git_identity is the ONE source of the commit identity a bot must author with (issue #840)."
+  },
+  {
+   "from": "architecture_bot",
+   "to": "module_name_guard",
+   "reason": "module_name_guard is the shared rename rule the doc refresh runs over the tree (issue #573)."
+  },
+  {
+   "from": "architecture_bot",
+   "to": "proc",
+   "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
+  },
+  {
+   "from": "bot_preflight",
+   "to": "check_pr_hygiene",
+   "reason": "the pre-flight runs the PR-body SYNC/agents-line findings from the hygiene gate itself, so the two cannot disagree (issue #1724/#1796)."
+  },
+  {
+   "from": "check_engine_capabilities",
+   "to": "engine_skills",
+   "reason": "a structural gate reads the skill loader: the gate's subject is the skill data, and a second reader would be a second parser."
+  },
+  {
+   "from": "check_engine_launchers",
+   "to": "engine_image",
+   "reason": "the launcher gate reads the ONE tag/disabled source in engine_image."
+  },
+  {
+   "from": "check_engine_launchers",
+   "to": "install_engine_launchers",
+   "reason": "the launcher gate checks the writer's own plan, so the formula is read, never restated (issue #1027)."
+  },
+  {
+   "from": "check_engine_pins_published",
+   "to": "base_ref",
+   "reason": "base_ref is the ONE base-ref resolver (issue #925); a gate comparing against main reads it rather than re-deriving the base."
+  },
+  {
+   "from": "check_engine_pins_published",
+   "to": "engine_image",
+   "reason": "the pin gate resolves tags with engine_image's exact-tag formula, the same one the build uses."
+  },
+  {
+   "from": "check_issue_body",
+   "to": "issue_body",
+   "reason": "the issue-body gate's subject is issue_body.PRODUCERS: a gate must read the renderer it holds to its shape."
+  },
+  {
+   "from": "check_pr_acceptance",
+   "to": "acceptance_writeback",
+   "reason": "the PR-acceptance gate reuses acceptance_writeback's CHECKBOX_RE, so the PR and the issue are read by one regex (issue #1796)."
+  },
+  {
+   "from": "check_pr_authors",
+   "to": "base_ref",
+   "reason": "base_ref is the ONE base-ref resolver (issue #925); the author gate bounds its commit range with it."
+  },
+  {
+   "from": "check_pr_hygiene",
+   "to": "acceptance_writeback",
+   "reason": "the acceptance items are read from acceptance_writeback, reused rather than restated (issue #1796)."
+  },
+  {
+   "from": "check_zero_job_pending",
+   "to": "ci_scope",
+   "reason": "ci_scope owns the verdict grammar and the check-run payload the monitor posts."
+  },
+  {
+   "from": "check_zero_job_pending",
+   "to": "issue_body",
+   "reason": "the monitor files its alarm through the ONE issue-body renderer (issue #745)."
+  },
+  {
+   "from": "ci_images",
+   "to": "proc",
+   "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
+  },
+  {
+   "from": "detect_server",
+   "to": "proc",
+   "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
+  },
+  {
+   "from": "engine_build_trigger",
+   "to": "base_ref",
+   "reason": "base_ref is the ONE base-ref resolver (issue #925)."
+  },
+  {
+   "from": "engine_build_trigger",
+   "to": "check_engine_pins_published",
+   "reason": "the trigger asks the pin gate which cells a change repins instead of re-implementing the repin diff."
+  },
+  {
+   "from": "engine_bump",
+   "to": "proc",
+   "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
+  },
+  {
+   "from": "engine_bump_rebase",
+   "to": "bot_claims",
+   "reason": "bot_claims is the shared claim protocol (issues #279/#285); a lane that moves a branch reads claims, it does not keep its own."
+  },
+  {
+   "from": "engine_coverage",
+   "to": "engine_image",
+   "reason": "engine_image is the ONE source of DISABLED / CI_VARIANTS the coverage gate holds the matrix to."
+  },
+  {
+   "from": "engine_coverage",
+   "to": "engine_skills",
+   "reason": "the coverage gate walks the skills; it reads them through the loader, never a second parser."
+  },
+  {
+   "from": "engine_gate_report",
+   "to": "engine_image",
+   "reason": "engine_image is the ONE source of DISABLED / DEVICE_ONLY the per-cell census reports."
+  },
+  {
+   "from": "engine_image",
+   "to": "proc",
+   "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
+  },
+  {
+   "from": "engine_pins",
+   "to": "proc",
+   "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
+  },
+  {
+   "from": "engine_skill_gap",
+   "to": "issue_body",
+   "reason": "a new engine is filed through the ONE issue-body renderer (issue #745)."
+  },
+  {
+   "from": "engine_skill_scaffold",
+   "to": "engine_skills",
+   "reason": "the scaffold writes a skill the loader must read back, so it uses the loader's own module."
+  },
+  {
+   "from": "engine_skill_scaffold",
+   "to": "model_engine_pick",
+   "reason": "the scaffold derives the catalog cell from model_engine_pick's own offer/rank rules (issue #683)."
+  },
+  {
+   "from": "engine_skills",
+   "to": "proc",
+   "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
+  },
+  {
+   "from": "issue_implementer",
+   "to": "git_identity",
+   "reason": "git_identity is the ONE source of the commit identity + the PR body's Author line (issue #840)."
+  },
+  {
+   "from": "lane_preflight",
+   "to": "issue_bot_gates",
+   "reason": "the lane pre-flight runs the fleet's FAST_GATES from issue_bot_gates, so the lane and the bot cannot disagree about the list (issue #475)."
+  },
+  {
+   "from": "registry_review",
+   "to": "model_engine_pick",
+   "reason": "the sync-PR review renders the VRAM selection check from model_engine_pick's own rank/offer calls."
+  },
+  {
+   "from": "resolve_run_pr",
+   "to": "proc",
+   "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
+  },
+  {
+   "from": "scanner_image",
+   "to": "proc",
+   "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
+  },
+  {
+   "from": "scrub_log",
+   "to": "check_secret_output",
+   "reason": "SECRET_VARS lives once in the gate's module; the redactor reads that set rather than keeping a second roster (issue #379)."
+  },
+  {
+   "from": "security_bot",
+   "to": "git_identity",
+   "reason": "git_identity is the ONE source of the commit identity a bot must author with (issue #840)."
+  },
+  {
+   "from": "security_bot",
+   "to": "proc",
+   "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
+  },
+  {
+   "from": "security_bumps",
+   "to": "git_identity",
+   "reason": "git_identity is the ONE source of the commit identity a bot must author with (issue #840)."
+  },
+  {
+   "from": "security_bumps",
+   "to": "proc",
+   "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
+  },
+  {
+   "from": "security_issues",
+   "to": "issue_body",
+   "reason": "a finding is filed through the ONE issue-body renderer (issue #745)."
+  },
+  {
+   "from": "security_issues",
+   "to": "proc",
+   "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
+  },
+  {
+   "from": "serve_variant",
+   "to": "ci_health",
+   "reason": "the serve-variant download reuses ci_health's model + hf discovery, so both legs fetch the same model the health check serves."
+  }
+ ]
+}
