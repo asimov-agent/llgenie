@@ -216,3 +216,19 @@ def test_every_committed_engine_cell_tag_is_published_live():
     rc = cpp.check_committed()
     assert rc == 0, "every committed engine cell's published image must resolve a manifest"
 
+
+
+def test_the_liveness_workflow_hard_fails_on_a_committed_manifest_unknown():
+    """The registry-liveness scheduled gate must FAIL (exit the gate's rc), not exit 0 and
+    file issues (the #2190 silent-recurrence: tensorfold/cuda printed NOT PUBLISHED but the
+    run concluded success and the fuzzy dedup filed nothing, so no one saw it). ALL=1's
+    exit is the job's exit, and the issue-filer runs after regardless."""
+    from pathlib import Path as _P
+    wf = (_P(__file__).resolve().parents[1] / ".github/workflows/registry-liveness.yml").read_text()
+    assert "check-engine-pins-published ALL=1" in wf, "the fleet gate must run ALL=1"
+    assert 'exit "$rc"' in wf and "fleet_rc=" in wf, "the fleet gate's rc must fail the job"
+    assert 'id: fleet' in wf and 'if: always()' in wf, "the issue-filer must still run after a red gate"
+    assert 'check-engine-launchers CHECK_REGISTRY=1 ARCH=all' in wf, \
+        "the #1652 per-backend sweep must still run (ARCH=all)"
+    assert '--search "\\"$tag\\""' in wf or '--search "$tag"' in wf, \
+        "the issue-filer dedup must match the exact tag, not a fuzzy engine search"

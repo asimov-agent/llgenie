@@ -53,26 +53,40 @@ jobs:
           ref: main
       - name: make test-env
         run: make test-env
-      - name: CHECK_REGISTRY liveness gate
-        id: liveness
+      - name: full-fleet committed-tag pin-validity gate
+        id: fleet
         run: |
+          # The #2190 class: a committed engine tag (pin + params hash) that resolves
+          # `manifest unknown` in ghcr must FAIL this job — not be filed as a soft issue
+          # and swallowed. `check-engine-pins-published check --all` sweeps EVERY committed
+          # enabled cell's exact tag (not just the songs a change repins), so a pin a prior
+          # merged bump committed but the build never pushed (tensorfold/cuda @ #1519) reds
+          # here and stays red until engine-build push=true publishes it. ALL=1 hard-fails:
+          # the job's exit is the gate's, so a committed manifest-unknown turns the scheduled
+          # run RED, not a silently-green issue-filer.
           set +e
-          # Issue #1652 (the "#1365 class has no cuda consumer" gap): sweep EVERY backend, not
-          # just the run host's — a committed cuda pin that was never published reds this gate
-          # exactly like a cpu one (`--arch all` is derived from engine_image.CI_VARIANTS, so a
-          # new backend is swept the day it is added, not when a list here is edited).
-          make check-engine-launchers CHECK_REGISTRY=1 ARCH=all > liveness.out 2>&1
+          make check-engine-pins-published ALL=1 > fleet.out 2>&1
           rc=$?
           set -e
-          sed 's/^/  /' liveness.out
-          echo "rc=$rc" >> "$GITHUB_OUTPUT"
-          exit 0
+          sed 's/^/  /' fleet.out
+          echo "fleet_rc=$rc" >> "$GITHUB_OUTPUT"
+          echo "fleet_rc=$rc"
+          exit "$rc"
       - name: file one tracking issue per unpublished pinned image
-        if: "${{ steps.liveness.outputs.rc != '0' }}"
+        if: always()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
         run: |
+          set +e
+          make check-engine-launchers CHECK_REGISTRY=1 ARCH=all > liveness.out 2>&1
+          rc=$?
+          set -e
+          sed 's/^/  /' liveness.out
+          if [ "$rc" = "0" ] && [ "${{ steps.fleet.outputs.fleet_rc }}" = "0" ]; then
+            echo "all committed engine tags published; nothing to file"
+            exit 0
+          fi
           grep "NOT PUBLISHED" liveness.out | sed -E 's/.*NOT PUBLISHED ([^:]+): ([^ ]+).*/\1 \2/' > unnamed.txt
           if [ ! -s unnamed.txt ]; then
             echo "gate red but no NOT PUBLISHED named:"
@@ -81,11 +95,11 @@ jobs:
           fi
           while read -r engine tag; do
             [ -n "$engine" ] || continue
-            title="engine: launcher pin for $engine ($tag) is not published in ghcr"
-            body="BOT registry-liveness: pinned image $tag has NO manifest in ghcr. Either publish it via engine-build (make push-engine ENGINE=$engine) or move the pin to a published commit (#1365 class)."
-            open=$(gh issue list --repo "$REPO" --state open --search "launcher pin for $engine" --json number --jq '.[0].number' 2>/dev/null || true)
+            title="engine: committed tag $tag ($engine) is not published in ghcr"
+            body="BOT registry-liveness: committed image tag $tag ($engine) has NO manifest in ghcr. Either publish it via engine-build (make push-engine ENGINE=$engine) or move the pin to a published commit (#1365 class). See #2190."
+            open=$(gh issue list --repo "$REPO" --state open --search "\"$tag\"" --json number --jq '.[0].number' 2>/dev/null || true)
             if [ -n "$open" ]; then
-              echo "issue #$open already open for $engine"
+              echo "issue #$open already open for $tag"
             else
               gh issue create --repo "$REPO" --title "$title" --body "$body" --label bug >/dev/null && echo "filed issue for $engine ($tag)"
             fi
