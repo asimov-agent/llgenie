@@ -445,7 +445,19 @@ jobs:
   linux:
     # `guard` is in `needs` for its row-selection output (issue #859): `linux / top-tier` follows
     # the `ci:slow` label, every other row of this call does not.
+    #
+    # A guard that fails on a PR-BODY text gate (check-pr-acceptance-form / check-pr-acceptance /
+    # the sibling body-hygiene steps, issue #2285) must NOT skip the code-verification fan-out this
+    # call carries: `linux / unit` + `linux / openspec` are the only code measurement a PR head
+    # gets, and GitHub's needs-default would auto-skip them the moment the guard exits non-zero —
+    # a body red would silently convert the code gates from "red" to "unmeasured". So the call runs
+    # even when the guard body-reds (`always()` overrides the needs-skip), while a genuine
+    # `ci-images` FAILURE still stops it (its result is the other half of the condition) — a real
+    # image-build red, not a body-text red, must not start this fan-out for nothing. The guard
+    # body-red itself is unchanged: it still fails the run and blocks the merge; what changes is
+    # that the code behind it is MEASURED, never skipped to unmeasured.
     needs: [ci-images, guard]
+    if: ${{ always() && needs['ci-images'].result != 'failure' }}
     uses: ./.github/workflows/pipeline.yml
     # A called workflow can never grant MORE than the caller passes it, so a permission
     # `pipeline.yml` needs must be named HERE too: `actions: read` is what lets its
@@ -467,7 +479,13 @@ jobs:
       RUN_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     with:
       runner: ubuntu-latest
-      top_tier_rows: ${{ needs.guard.outputs.top_tier_rows }}
+      # The guard's row-selection, with a fallback for the case the guard did NOT reach its `rows`
+      # step: a body-gate red stops the guard job before it, and a failed job's outputs are not
+      # propagated to dependents, so `needs.guard.outputs.top_tier_rows` is empty. `["none"]` is the
+      # PR-safe placeholder that runs no top-tier stage, so the reusable call still starts on a
+      # guard body-red (issue #2285). A green guard supplies the real value and behaviour is
+      # unchanged.
+      top_tier_rows: ${{ needs.guard.outputs.top_tier_rows || '["none"]' }}
 
   # ------------------------------------------------------------------
   # auto-merge is NOT a job here (issue #493). A `pull_request` run from a fork receives NO repository

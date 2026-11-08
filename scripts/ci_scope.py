@@ -329,7 +329,10 @@ def verify(decision_obj: dict | None, jobs: list[dict]) -> dict:
       * there is no decision at all -> every non-success row is `no_verdict`, and `verdict=none`.
     """
     lines: list[str] = []
-    counts = {"success": 0, "failure": 0, "skipped_by_decision": 0, "no_verdict": 0, "pending": 0}
+    counts = {"success": 0, "failure": 0, "skipped_by_decision": 0, "no_verdict": 0, "pending": 0,
+              "blocked": 0}
+    #: The jobs that FAILED — the cause a RED verdict must name, never bury under "0 failures".
+    failed_jobs: list[str] = []
     observed: dict[str, list[dict]] = {}
     for job in jobs:
         observed.setdefault(normalise_job_name(job.get("name") or ""), []).append(job)
@@ -346,6 +349,26 @@ def verify(decision_obj: dict | None, jobs: list[dict]) -> dict:
     #: The CALLERS whose children `JOBS` names (`linux` -> `linux/unit`, ...): the children are the
     #: accounting unit, so the caller's own row is reported and never counted twice.
     container_names = {job.split("/", 1)[0] for job in table if "/" in job}
+
+    def gate_state(name: str) -> str | None:
+        """The observed state of the gate that drives `name`'s job, or None when it is clean.
+
+        The fan-out's root gates only: a `linux / *` child is gated by its `linux` caller row, every
+        other selected job by `guard`. When that gate is observed as anything but `success` — the
+        guard body-red that GitHub's `needs:` default turns into `skipped`/absent for every
+        dependent — the row is the gate's consequence, not an independent mystery (issue #2285). A
+        succumbing linux caller's child falls back to the guard, which is why the guard itself red.
+        """
+        prefix = name.split("/", 1)[0] if "/" in name else None
+        candidates = ([prefix] if prefix and prefix in container_names else []) + ["guard"]
+        for gate in candidates:
+            rows = observed.get(gate)
+            if not rows:
+                continue
+            states = sorted({conclusion_of(j) for j in rows})
+            if states != ["success"]:
+                return f"{gate} {','.join(states)}"
+        return None
 
     def no_answer(conclusion: str) -> None:
         """Count a row that is not a verdict: `pending` is its own bucket, every other its own."""
@@ -375,8 +398,13 @@ def verify(decision_obj: dict | None, jobs: list[dict]) -> dict:
             rows = observed.get(job)
             if not rows:
                 if requires:
-                    counts["no_verdict"] += 1
-                    lines.append(f"{TAG} {job} ABSENT — the decision selected it ({why}) and no row reported")
+                    gate = gate_state(job)
+                    if gate:
+                        counts["blocked"] += 1
+                        lines.append(f"{TAG} {job} ABSENT — blocked by {gate}; the decision selected it ({why}) but the gate never started it")
+                    else:
+                        counts["no_verdict"] += 1
+                        lines.append(f"{TAG} {job} ABSENT — the decision selected it ({why}) and no row reported")
                 else:
                     counts["skipped_by_decision"] += 1
                     lines.append(f"{TAG} {job} absent — not selected by the decision ({why})")
@@ -388,13 +416,19 @@ def verify(decision_obj: dict | None, jobs: list[dict]) -> dict:
                     lines.append(f"{TAG} {job} success")
                 elif conclusion == "failure":
                     counts["failure"] += 1
+                    failed_jobs.append(job)
                     lines.append(f"{TAG} {job} FAILED")
                 elif not requires:
                     counts["skipped_by_decision"] += 1
                     lines.append(f"{TAG} {job} {conclusion} — the decision did not select it ({why})")
                 else:
-                    no_answer(conclusion)
-                    lines.append(f"{TAG} {job} {conclusion} — the decision selected it ({why})")
+                    gate = gate_state(job)
+                    if gate:
+                        counts["blocked"] += 1
+                        lines.append(f"{TAG} {job} {conclusion} — blocked by {gate}; the decision selected it ({why})")
+                    else:
+                        no_answer(conclusion)
+                        lines.append(f"{TAG} {job} {conclusion} — the decision selected it ({why})")
         for name in sorted(set(observed) - set(table)):
             # A row the table does not name (a new job nobody classified, or another workflow's job):
             # reported, never silently counted as covered.
@@ -411,25 +445,36 @@ def verify(decision_obj: dict | None, jobs: list[dict]) -> dict:
                     lines.append(f"{TAG} {name} {conclusion} — no job in the scope table owns this name")
                 elif conclusion == "failure":
                     counts["failure"] += 1
+                    failed_jobs.append(name)
                     lines.append(f"{TAG} {name} FAILED")
                 else:
                     counts["success"] += 1
                     lines.append(f"{TAG} {name} success — not in the scope table")
         verdict = RED if counts["failure"] else (
-            NONE if (counts["no_verdict"] or counts["pending"]) else GREEN)
+            NONE if (counts["no_verdict"] or counts["pending"] or counts["blocked"]) else GREEN)
 
-    unaccounted = counts["failure"] + counts["no_verdict"] + counts["pending"]
+    # The rows that produced no verdict — explained (blocked) or not (no_verdict/pending) — are what
+    # a "not a verdict" sentence must name. A failure is never hidden behind that sentence: it is
+    # already the loudest line in the summary (issues #2061/#2285).
+    unaccounted = counts["no_verdict"] + counts["pending"] + counts["blocked"]
     lines.append(
         f"{TAG} summary: verdict={verdict} success={counts['success']} failure={counts['failure']} "
         f"skipped-by-decision={counts['skipped_by_decision']} no-verdict={counts['no_verdict']} "
-        f"pending={counts['pending']}"
+        f"blocked={counts['blocked']} pending={counts['pending']}"
     )
-    if verdict != GREEN:
-        # The sentence a summary must print instead of "0 failures": the number is what made this
-        # defect invisible, so the summary names it rather than repeating it (issue #1111).
+    if verdict == NONE:
+        # Zero failures and rows that never produced a verdict IS the #1111 point, so the sentence
+        # stays exactly as it was written for that case: "0 failures is not a verdict" is true there.
         lines.append(
-            f"{TAG} NO VERDICT: {unaccounted} job(s) unaccounted for — 0 failures is not a verdict"
-        )
+            f"{TAG} NO VERDICT: {unaccounted} job(s) unaccounted for — 0 failures is not a verdict")
+    elif verdict == RED:
+        # A red names its cause: the failing job(s) and the rows its failed gate blocked — never a
+        # "0 failures" sentence beside an actual failure, and never an anonymous counter that hides
+        # a guard that prevented the matrix it belongs to (#2285).
+        cause = ", ".join(failed_jobs) or "no job row named a failure"
+        lines.append(
+            f"{TAG} RED: {counts['failure']} job(s) FAILED ({cause}); {counts['blocked']} blocked by "
+            f"a gate; {counts['no_verdict']} unaccounted; {counts['pending']} pending")
     return {"verdict": verdict, "lines": lines, "counts": counts, "has_decision": bool(decision_obj)}
 
 

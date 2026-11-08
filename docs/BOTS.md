@@ -2257,6 +2257,21 @@ the summary every board line quotes read `success=3, failed=0`, while the same c
 `d92ee6a3` had failed that gate for real. The verdict writes `verdict=none — 0 failures is not a
 verdict` for that head. Its own red is routed by `run-failure-reactor.yml`'s roster.
 
+**A guard PR-body red must not hide the code fan-out (issue #2285).** `guard`'s body-text gates
+(`check-pr-acceptance-form` / `check-pr-acceptance` / the sibling hygiene steps) fail the RUN — that
+is unchanged — but GitHub's `needs:` default would auto-skip every dependent the instant the guard
+exits non-zero, silently converting the ONLY code measurement a PR head gets
+(`linux / unit` + `linux / openspec`) from "red" into "unmeasured" (measured runs 42515444174@PR#2274,
+42510844644@PR#2279 ed08b376). `ci.yml`'s `linux` call therefore carries
+`if: ${{ always() && needs['ci-images'].result != 'failure' }}`: a guard BODY-red no longer skips it —
+the code fan-out runs and is measured at that head — while a genuine `ci-images` FAILURE still stops
+it (a real image-build red does not start the fan-out for nothing), and its `top_tier_rows` input
+falls back to `["none"]` when the failed guard propagates no output. `ci_scope.py` then counts a
+selected row absent or non-success while its gate (the `linux` caller, else `guard`) is non-success
+as `blocked` and names the gate, so the summary resolves to `RED: N FAILED (guard); M blocked by a
+gate` instead of an anonymous `NO VERDICT ... 0 failures is not a verdict` beside the `guard FAILED`
+line.
+
 **A red the verdict did not judge is NAMED, never hidden (issue #2116).** `ci-verdict` judged exactly
 one workflow (`CI`), matched VERBATIM against a workflow's `name:` (no wildcard, #349), while
 `auto_merge.py` refuses the merge on ANY blocking check-run at the head (#1386). Three `pull_request`

@@ -126,6 +126,106 @@ def test_a_cancelled_row_the_decision_selected_is_unaccounted_not_skipped_by_dec
     assert any("ci-images cancelled" in line and "selected it" in line for line in result["lines"])
 
 
+# ---- 2b. a guard that reds on a BODY-text gate BLOCKS the fan-out — named, never anonymous ----
+
+#: Run shape 42515444174 (PR #2274): `guard` failed on a PR-body hygiene gate, so GitHub's
+#: `needs:` default skipped every dependent — `ci-images`/`scanner-images` reported `skipped` and the
+#: `linux` caller was skipped, so its `linux / *` children reported NO rows at all (issue #2285).
+GUARD_BODY_RED_FANOUT = [
+    {"name": "guard", "status": "completed", "conclusion": "failure"},
+    {"name": "ci-images", "status": "completed", "conclusion": "skipped"},
+    {"name": "scanner-images", "status": "completed", "conclusion": "skipped"},
+    {"name": "linux", "status": "completed", "conclusion": "skipped"},
+]
+
+
+def test_a_guard_body_red_names_the_gate_it_blocked_and_is_a_named_red_not_no_verdict():
+    """The negative control for #2285: the measured pre-fix shape no longer yields the
+    `NO VERDICT: ... 0 failures is not a verdict` line, and every blocked row names the gate."""
+
+    # Given the measured guard-body-red fan-out (guard FAILED, the matrix skipped behind it)
+    result = cs.verify(decision_for(FULL_MATRIX_PATH), GUARD_BODY_RED_FANOUT)
+
+    # When  the accounting runs with the guard-blocked classification
+    # Then  the verdict is a named RED (the guard), not `none`, and no "0 failures" sentence appears
+    assert result["verdict"] == cs.RED, result["lines"]
+    assert result["counts"]["failure"] == 1 and result["counts"]["no_verdict"] == 0, result["counts"]
+    assert result["counts"]["blocked"] == 9, result["counts"]   # ci-images + scanner-images + 7 linux/*
+    assert "guard FAILED" in "\n".join(result["lines"])
+    assert not any("0 failures is not a verdict" in l for l in result["lines"]), result["lines"]
+    assert not any("NO VERDICT:" in l for l in result["lines"]), result["lines"]
+
+    # And  every blocked row names the gate that prevented it — never an anonymous "no row reported"
+    joined = "\n".join(result["lines"])
+    assert "ci-images skipped — blocked by guard failure" in joined, joined
+    assert "linux/unit ABSENT — blocked by linux skipped" in joined, joined
+    assert "linux/lint ABSENT — blocked by linux skipped" in joined, joined
+    assert not any("ABSENT — the decision selected it" in l and "blocked by" not in l
+                   for l in result["lines"]), result["lines"]
+
+
+def test_a_guard_body_red_with_the_code_matrix_run_still_names_the_guard_and_measures_code():
+    """The post-fix shape (issue #2285): with the linux caller decoupled, `linux / *` REPORT so the
+    code is measured, while the guard-gated image jobs remain named as guard-blocked. The verdict is
+    a red naming the guard — never an anonymous unaccounted counter that hid the matrix."""
+
+    # Given the pre-fix shape, but with the linux fan-out RUN (the workflow fix schedules it) and
+    #       green, while the guard-gated image jobs are still skipped behind the failed guard
+    jobs = GUARD_BODY_RED_FANOUT + [
+        {"name": "linux / lint", "status": "completed", "conclusion": "success"},
+        {"name": "linux / unit", "status": "completed", "conclusion": "success"},
+        {"name": "linux / install", "status": "completed", "conclusion": "success"},
+        {"name": "linux / agents-read", "status": "completed", "conclusion": "success"},
+        {"name": "linux / openspec", "status": "completed", "conclusion": "success"},
+        {"name": "linux / top-tier (none)", "status": "completed", "conclusion": "success"},
+        {"name": "linux / cpu-health", "status": "completed", "conclusion": "success"},
+    ]
+    result = cs.verify(decision_for(FULL_MATRIX_PATH), jobs)
+
+    # Then  the code matrix is measured (7 success), the guard red is the cause, the two image rows
+    #       are named as guard-blocked, and no "0 failures / NO VERDICT" sentence is produced
+    assert result["verdict"] == cs.RED, result["lines"]
+    assert result["counts"]["success"] == 7 and result["counts"]["blocked"] == 2, result["counts"]
+    assert "linux/unit success" in "\n".join(result["lines"])
+    assert "ci-images skipped — blocked by guard failure" in "\n".join(result["lines"])
+    assert not any("0 failures is not a verdict" in l for l in result["lines"]), result["lines"]
+
+
+def test_a_failed_linux_caller_child_is_blocked_by_the_caller_and_a_clean_gate_row_stays_unaccounted():
+    """A linux/* child that never ran because its `linux` CALLER was skipped is blocked by the caller
+    (the immediate gate); a child that is absent while BOTH its caller and the guard are clean stays
+    an honest no-verdict — blocking is never over-applied to a gate that did not fail."""
+
+    # Given a clean guard (success) and the linux caller skipped, so its children report no rows —
+    #       the caller, not the guard, is the immediate gate that blocked them
+    caller_skip = [
+        {"name": "guard", "status": "completed", "conclusion": "success"},
+        {"name": "linux", "status": "completed", "conclusion": "skipped"},
+    ]
+    result = cs.verify(decision_for(FULL_MATRIX_PATH), caller_skip)
+
+    # Then  the children are blocked by the CALLER (the observed non-success gate above them),
+    #       named as such, and the verdict stays `none` because nothing failed
+    assert result["verdict"] == cs.NONE, result["lines"]
+    assert result["counts"]["blocked"] == 7, result["counts"]     # the 7 linux/* children
+    assert "linux/unit ABSENT — blocked by linux skipped" in "\n".join(result["lines"])
+
+    # Given instead a run where both the guard and the linux caller are clean but a child simply
+    #       never reported (a genuine gap nobody's failure explains)
+    clean_and_absent = [
+        {"name": "guard", "status": "completed", "conclusion": "success"},
+        {"name": "linux", "status": "completed", "conclusion": "success"},
+    ]
+    result = cs.verify(decision_for(FULL_MATRIX_PATH), clean_and_absent)
+
+    # Then  that child is an honest no-verdict (no gate is non-success to blame), and the #1111
+    #       sentence is preserved
+    assert result["counts"]["blocked"] == 0 and result["counts"]["no_verdict"] >= 1, result["counts"]
+    assert any("linux/unit ABSENT — the decision selected it" in l and "blocked by" not in l
+               for l in result["lines"]), result["lines"]
+    assert any("0 failures is not a verdict" in l for l in result["lines"]), result["lines"]
+
+
 # ---- 3. a skip the DECISION made is green, and it is named --------------------------
 
 #: A `tests/**` change: `unit` and `lint` are selected, the scanner images, `install`, `agents-read`,
