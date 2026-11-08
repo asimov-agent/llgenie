@@ -59,7 +59,7 @@ LABELS: dict[str, tuple[str, str]] = {
     "severity:medium": ("fbca04", "Scanner severity: medium"),
     "component:python": ("1d76db", "A Python dependency (requirements*.in / tools/)"),
     "component:container": ("5319e7", "A container image or a Dockerfile base"),
-    "component:code": ("0e8a16", "Application code (SAST finding)"),
+    "component:code": ("0e8a16", "Application code, SAST or IaC (a file rule, not a dependency pin)"),
     "auto-fixable": ("0e8a16", "The scanner names a fixed version the bot can apply"),
 }
 
@@ -121,11 +121,13 @@ def issue_findings(reports: Path = REPORTS, policy: dict | None = None) -> list[
     for item in ss.findings(reports):
         if item["severity"] not in wanted:
             continue
-        # A committed credential and a SAST finding are always actionable (a secret's fix is removal
-        # and rotation; a semgrep finding's is editing the matched code), so `require_fix` must not
-        # suppress them from the tracker either (issues #1283, #1554).
+        # A committed credential, a SAST finding and an IaC misconfiguration are always actionable
+        # (a secret's fix is removal and rotation; a semgrep finding's is editing the matched code; a
+        # misconfig finding's is editing the matched IaC), so `require_fix` must not suppress them
+        # from the tracker either (issues #1283, #1554, #2234).
         if (pol.get("require_fix") and not item["fixed"]
-                and item.get("source") not in (ss.SECRET_SOURCE, ss.SEMGREP_SOURCE)):
+                and item.get("source") not in (ss.SECRET_SOURCE, ss.SEMGREP_SOURCE,
+                                               ss.MISCONFIG_SOURCE)):
             continue
         advisory = item.get("id") or "unknown"
         package = item.get("package") or "unknown"

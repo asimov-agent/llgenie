@@ -6,7 +6,7 @@ a scan is a mutable tool on a mutable base, with network access while it is judg
 
 | Scanner | Image | What it does |
 |---|---|---|
-| Trivy | `containers/scanners/trivy/` | filesystem/repo and image vulnerabilities, secrets, misconfigurations |
+| Trivy | `containers/scanners/trivy/` | OS/language vulnerabilities, committed secrets, and IaC misconfigurations (Dockerfile / Compose / Terraform / K8s / GitHub Actions) |
 | Grype + Syft | `containers/scanners/grype/` | Syft writes the CycloneDX SBOM, Grype matches it |
 | Semgrep | `containers/scanners/semgrep/` | SAST over the application code |
 

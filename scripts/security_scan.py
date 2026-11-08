@@ -45,9 +45,9 @@ NEVER_GATING = ("push", "pull_request")
 KNOWN_EVENTS = ("schedule", "workflow_dispatch", "push", "pull_request", "issues", "release")
 REPORTS = Path(os.environ.get("SECURITY_REPORTS") or (REPO / "security-reports"))
 #: What a scan runs by DEFAULT: the three scanners that need no account, no token and no telemetry.
-#: Trivy covers OS/language vulnerabilities (and secrets/misconfigs when asked), Syft writes the
-#: CycloneDX SBOM and Grype matches it, Semgrep covers SAST. Between them they answer "is anything in
-#: this tree known-vulnerable" from data shipped/downloaded to the runner.
+#: Trivy covers OS/language vulnerabilities, committed secrets, and IaC misconfigurations;
+#: Syft writes the CycloneDX SBOM and Grype matches it, Semgrep covers SAST. Between them they answer
+#: "is anything in this tree known-vulnerable" from data shipped/downloaded to the runner.
 TOOLS = ("trivy", "grype", "semgrep")
 #: Syft is a tool id without an image of its own: it writes the SBOM through the Grype image
 #: (`--entrypoint syft`), so it is in the tool set a caller may ask for but not in the roster
@@ -65,6 +65,12 @@ ALL_TOOLS = (SBOM_TOOL,) + TOOLS
 #: secret is ALWAYS actionable: a committed credential's remediation is removal, not "wait for a
 #: patched version", so `require_fix` must not suppress it while it still honours `fail_on`.
 SECRET_SOURCE = "trivy-secret"
+#: The source a Trivy IaC misconfiguration finding carries (a `misconfig`-class match, issue
+#: #2234). Distinct from the plain `trivy` source so the issue path labels a Dockerfile / workflow
+#: drift a `component:code` finding (it lives in a file, not a dependency). A misconfiguration has
+#: no package or fixed version — its remediation is editing the matched IaC — so it is ALWAYS
+#: actionable and `require_fix` must not suppress it while it still honours `fail_on`.
+MISCONFIG_SOURCE = "trivy-misconfig"
 #: The source a Semgrep SAST finding carries. Like a committed secret, a SAST finding's remediation
 #: is editing the code (the matched region), NOT awaiting a patched package version — so it has no
 #: `fixed` version and `require_fix` must not suppress it. `source` distinguishes it from the CVE
@@ -204,7 +210,15 @@ def scan(tool: str) -> int:
         # carries a `fail_on` severity and is always actionable) makes the daily security-scan run
         # red — which the all-pipelines sweep reads as the admission gate red. No new image, no new
         # network, no fixed-version games: the same scanner, just asked for its secret ruleset.
-        base = ["fs", "--severity", "CRITICAL,HIGH,MEDIUM", "--scanners", "vuln,secret"]
+        #
+        # The `misconfig` scanner (issue #2234) is the IaC half of the same gate: `--scanners
+        # vuln,secret,misconfig` asks the SAME image for its built-in Dockerfile/Compose/Terraform/K8s
+        # rule set, so a hardening drift (a Dockerfile missing its non-root `USER`, a workflow with
+        # an unsafe privilege shape) becomes a first-class finding too. The rule set is the pinned
+        # version's own (trivy 0.70.0-r5 ships the misconfig checks; the image is content-addressed
+        # by digest — see `containers/scanners/trivy/Dockerfile` and `digests.json`), so no separate
+        # rule pack needs pinning and the scanner cannot silently drift.
+        base = ["fs", "--severity", "CRITICAL,HIGH,MEDIUM", "--scanners", "vuln,secret,misconfig"]
         rc = _run([*base, "--format", "json", "--output", "security-reports/trivy.json", "."],
                   image_ref(tool))
         rc |= _run([*base, "--format", "sarif", "--output", "security-reports/trivy.sarif", "."],
@@ -299,6 +313,30 @@ def _trivy_secret_findings(report: dict) -> list[dict]:
         for sec in result.get("Secrets") or []]
 
 
+def _trivy_misconfig_findings(report: dict) -> list[dict]:
+    """Trivy's IaC misconfiguration matches, normalised into the shared finding shape (issue #2234).
+
+    A `misconfig`-class result carries `Results[].Misconfigurations[]` (ID, Title, Severity,
+    Message) under a result whose `Class` is `config` — measured against the pinned trivy image on
+    a planted bad Dockerfile. There is no package version or fixed version for a misconfiguration
+    — its remediation is editing the matched IaC (a Dockerfile `USER`, a workflow privilege), never
+    a bump — so `package` names the file and `current` is the message from the fired check.
+    `source` is `MISCONFIG_SOURCE` so the issue path labels it `component:code` and `blocking()`
+    treats it as actionable regardless of `require_fix`, exactly like a committed secret or a SAST
+    finding.
+    """
+    return [{
+        "id": cfg.get("ID") or cfg.get("AVDID"),
+        "package": result.get("Target"),
+        "current": cfg.get("Message") or cfg.get("Title") or "",
+        "fixed": "",
+        "severity": str(cfg.get("Severity", "")).lower() or "unknown",
+        "source": MISCONFIG_SOURCE,
+    } for result in report.get("Results") or []
+        if result.get("Class") == "config"
+        for cfg in result.get("Misconfigurations") or []]
+
+
 def _grype_findings(report: dict) -> list[dict]:
     return [{
         "id": (match.get("vulnerability") or {}).get("id"),
@@ -337,6 +375,7 @@ def findings(reports: Path | None = None) -> list[dict]:
     out: list[dict] = []
     for name, reader in (("trivy.json", _trivy_findings),
                          ("trivy.json", _trivy_secret_findings),
+                         ("trivy.json", _trivy_misconfig_findings),
                          ("grype.json", _grype_findings),
                          ("semgrep.json", _semgrep_findings)):
         path = reports / name
@@ -359,12 +398,13 @@ def blocking(items: list[dict], pol: dict, mode: str = "full") -> list[dict]:
     for item in items:
         if item["severity"] not in fail_on:
             continue
-        if item.get("source") in (SECRET_SOURCE, SEMGREP_SOURCE):
-            # A committed credential and a SAST finding are ALWAYS actionable: their remediation is
-            # removal/masking (secret) or editing the matched code (semgrep), never "await a patched
-            # version", so `require_fix` — which exists to stop an unfixable advisory from stalling
-            # the pipeline — must not suppress them. `fail_on` still gates: a `medium`/`unknown`
-            # SAST or secret finding is recorded, never a red (issues #1283, #1554).
+        if item.get("source") in (SECRET_SOURCE, SEMGREP_SOURCE, MISCONFIG_SOURCE):
+            # A committed credential, a SAST finding and an IaC misconfiguration are ALWAYS
+            # actionable: their remediation is removal/masking (secret), editing the matched code
+            # (semgrep) or editing the matched IaC (misconfig), never "await a patched version", so
+            # `require_fix` — which exists to stop an unfixable advisory from stalling the pipeline
+            # — must not suppress them. `fail_on` still gates: a `medium`/`unknown` SAST, secret or
+            # misconfig finding is recorded, never a red (issues #1283, #1554, #2234).
             out.append(item)
         elif pol.get("require_fix") and not item["fixed"]:
             continue
