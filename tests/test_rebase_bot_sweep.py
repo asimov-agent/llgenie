@@ -38,6 +38,8 @@ def _fake_gh(tmp_path: Path, opts: dict | None = None):
     (tmp_path / "comments.json").write_text(json.dumps(opts.get("comments_by_pr", {})))
     (tmp_path / "states.json").write_text(json.dumps(opts.get("states_by_pr", {})))
     (tmp_path / "mergeable.json").write_text(json.dumps(opts.get("mergeable_by_pr", {})))
+    #: #2101: PRs ARMED for auto-merge (a non-empty `autoMergeRequest`), keyed by PR number.
+    (tmp_path / "armed.json").write_text(json.dumps(opts.get("armed_by_pr", {})))
     #: PRs whose `pr checks` answers the documented non-zero: "no checks reported" (issue #801).
     (tmp_path / "nochecks.json").write_text(json.dumps(opts.get("no_checks_by_pr", [])))
     #: PRs whose `pr view --json comments` read fails hard (a real crash, not a no-checks answer).
@@ -64,6 +66,15 @@ elif args[:2] == ["pr", "list"]:
     print((here / "prs.json").read_text())
 elif args[:2] == ["pr", "view"]:
     fields = args[args.index("--json") + 1] if "--json" in args else ""
+    if "autoMergeRequest" in fields:
+        # #2101: the arm state — a PR armed for auto-merge whose head is green is the MERGER's.
+        armf = here / "armed.json"
+        arm = json.loads(armf.read_text()) if armf.exists() else {{}}
+        mby2 = here / "mergeable.json"
+        mb = json.loads(mby2.read_text()) if mby2.exists() else {{}}
+        print(json.dumps({{"autoMergeRequest": arm.get(args[2]) or None,
+                         "mergeable": mb.get(args[2], "")}}))
+        sys.exit(0)
     if "mergeStateStatus" in fields:
         f = here / "states.json"
         by_pr = json.loads(f.read_text()) if f.exists() else {{}}
@@ -646,6 +657,51 @@ def test_a_plain_comment_does_not_hold_a_pr_that_is_behind(tmp_path):
     # Then  the note does not hold it, and it is selected for rebase
     assert res["action"] == "rebase" and res["pr"] == 498, res
     assert not any("held by another bot" in r for r in res["reasons"]), res["reasons"]
+
+
+def test_an_armed_green_head_is_not_rebased_out_from_under_the_merger(tmp_path):
+    """#2101's AC7, enforced in the sweep: `#2069` @ `cc72588c` was armed and 16/16 green.
+
+    The rebase lane force-pushed it to `fbbc29a6` at `04:02:38Z`, discarding a verified green tree
+    and re-running the whole matrix — so recovering a missed merge cost MORE CI than the merge. A
+    rebase is only owed by a branch that cannot merge as it stands; an armed green head belongs to
+    the merger.
+    """
+    gh, _log = _fake_gh(tmp_path, {
+        "search": [],
+        "prs": [_pr(61, "BEHIND", created="2026-09-01T00:00:00Z")],
+        "checks_by_pr": {"61": ["SUCCESS"]},
+        "armed_by_pr": {"61": {"enabledBy": {"login": "andyholst"}, "mergeMethod": "SQUASH"}},
+        "mergeable_by_pr": {"61": "MERGEABLE"},
+    })
+    res = rb.sweep(str(gh), f"{OWNER}/{NAME}", today="2026-10-14", own_fork="andyholst")
+    assert res["action"] == "none", res
+    joined = " | ".join(res["reasons"])
+    assert "ARMED for auto-merge" in joined and "issue #2101" in joined, joined
+
+
+def test_an_unarmed_behind_head_is_still_rebased(tmp_path):
+    """The negative control: disarming (or never arming) restores the normal rebase."""
+    gh, _log = _fake_gh(tmp_path, {
+        "search": [],
+        "prs": [_pr(62, "BEHIND", created="2026-09-01T00:00:00Z")],
+        "checks_by_pr": {"62": ["SUCCESS"]},
+        "armed_by_pr": {},                      # never armed
+    })
+    res = rb.sweep(str(gh), f"{OWNER}/{NAME}", today="2026-10-14", own_fork="andyholst")
+    assert res["action"] == "rebase" and res["pr"] == 62, res
+
+
+def test_an_armed_but_red_head_is_still_available_to_the_rebase(tmp_path):
+    """An armed head that is NOT green is not a finished merge: only a settled green head is held."""
+    gh, _log = _fake_gh(tmp_path, {
+        "search": [],
+        "prs": [_pr(63, "DIRTY", created="2026-09-01T00:00:00Z")],
+        "checks_by_pr": {"63": ["FAILURE"]},
+        "armed_by_pr": {"63": {"enabledBy": {"login": "andyholst"}}},
+    })
+    res = rb.sweep(str(gh), f"{OWNER}/{NAME}", today="2026-10-14", own_fork="andyholst")
+    assert res["action"] == "rebase" and res["pr"] == 63, res
 
 
 def test_a_pr_the_other_bot_has_claimed_is_left_alone(tmp_path):

@@ -286,6 +286,38 @@ def _read_pr(crashed: list[str], label: str, fn, *args):
         return _READ_FAILED
 
 
+def armed_green_head(gh: str, repo: str, num: int) -> "str | None":
+    """A reason when this PR's head is armed for auto-merge AND fully green — else None.
+
+    The #2101 casualty: `#2069` at `cc72588c` was armed, had 16/16 checks `success`, and the rebase
+    lane force-pushed it to `fbbc29a6` at `04:02:38Z` — discarding a verified green tree and
+    re-running 16 jobs. Recovering a missed merge must not cost more CI than the merge would have.
+
+    A rebase is only owed by a branch that cannot merge as it stands. When the head is armed and
+    every concluded check is green, the MERGER owns that head: a force-push destroys the very tree it
+    was about to merge. So this reads the arm state (`autoMergeRequest`) and the head's checks, and
+    the sweep passes the PR over — recording the mergeability answer it measured, per #2101.
+
+    Returns a reason string (the sweep skips and states it) or None (not armed, or not green, or
+    something unreadable — in which case the normal rules decide, unchanged).
+    """
+    try:
+        out = _gh(gh, ["pr", "view", str(num), "--repo", repo,
+                       "--json", "autoMergeRequest,mergeable"])
+        data = json.loads(out or "{}") or {}
+    except SystemExit:
+        return None
+    if not data.get("autoMergeRequest"):
+        return None                      # not armed: a rebase owes nothing to a merge queue
+    running, red = _checks(gh, repo, num)
+    if running or red:
+        return None                      # not a settled green head
+    mergeable = (data.get("mergeable") or "unknown")
+    return (f"#{num} is ARMED for auto-merge and its head is green (mergeable {mergeable}) — the "
+            f"merger owns this head; a rebase would discard a verified green tree and re-run the "
+            f"whole matrix (issue #2101)")
+
+
 def sweep(gh: str, repo: str, today: str | None = None, max_per_day: int = MAX_PER_DAY,
           own_fork: str | None = None, unknown_attempts: int = UNKNOWN_ATTEMPTS,
           unknown_delay: float = UNKNOWN_DELAY_S, skip: list[int] | None = None) -> dict:
@@ -392,6 +424,11 @@ def sweep(gh: str, repo: str, today: str | None = None, max_per_day: int = MAX_P
         if red and state == "BEHIND" and not measured_behind:
             reasons.append(f"#{num} is red and only behind: the fix-bot owns that, a rebase is not "
                            "the blocker (a conflicted PR is taken, since the rebase is one)")
+            continue
+        # A rebase must never discard a verified green tree the merger was about to land (#2101).
+        armed = _read_pr(crashed, label, armed_green_head, gh, repo, num)
+        if isinstance(armed, str):
+            reasons.append(armed)
             continue
         if crashed:
             break                            # a partial scan is not a decision (#801): report it

@@ -57,7 +57,8 @@ def _fake_gh(tmp_path: Path, pr: dict, issues: dict | None = None, token_login: 
              permissions: dict | None = None, tokens: dict | None = None, merge_rc: int = 0,
              settle_after: int = 0, prs: list | None = None, views: dict | None = None,
              unknown_reads: int = 0, refuse_user_for: list | None = None,
-             checks=None, jobs=None, merged=None, runs=None, runs_rc: int = 0):
+             checks=None, jobs=None, merged=None, runs=None, runs_rc: int = 0,
+             runs_after=None, runs_then: int = 1):
     """A `gh` answering `pr view` / `pr review` / `pr merge` / `issue view` / `api user` / permission.
 
     It records every argv (the assertion surface) and flips the PR's state through marker files, so a test
@@ -95,6 +96,8 @@ JOBS = json.loads({json.dumps(jobs or {})!r})
 MERGED = json.loads({json.dumps(merged or [])!r})
 RUNS = json.loads({json.dumps(runs_default if runs is None else runs)!r})
 RUNS_RC = {runs_rc!r}
+RUNS_AFTER = {json.dumps(runs_after) if runs_after is not None else "None"}
+RUNS_THEN = {runs_then!r}
 if os.path.exists({str(log)!r} + ".approved"):
     PR = dict(PR, reviewDecision="APPROVED", mergeStateStatus="CLEAN")
 if os.path.exists({str(log)!r} + ".merged"):
@@ -114,6 +117,14 @@ if len(args) >= 2 and args[0] == "api" and "check-runs" in args[1]:
 if len(args) >= 2 and args[0] == "api" and "actions/runs" in args[1]:
     if RUNS_RC:
         print("gh: not found", file=sys.stderr); sys.exit(RUNS_RC)
+    # #2101: a sequenced read — the first N answers are RUNS, then it flips to RUNS_AFTER. This is
+    # what lets a test prove an in_progress row that then CONCLUDES GREEN is merged in the same run.
+    if RUNS_AFTER is not None:
+        cntf = pathlib.Path({str(log)!r} + ".runsread")
+        n = int(cntf.read_text()) if cntf.exists() else 0
+        cntf.write_text(str(n + 1))
+        if n >= RUNS_THEN:
+            print(json.dumps(RUNS_AFTER)); sys.exit(0)
     print(json.dumps(RUNS)); sys.exit(0)
 if len(args) >= 2 and args[0] == "api" and "/actions/jobs/" in args[1]:
     job = args[1].split("/actions/jobs/")[1].split("/")[0].split("?")[0]
@@ -548,15 +559,41 @@ def test_a_bot_author_is_recognised_by_its_login_alone(tmp_path):
 
 # ---- issue #917: the merger must not queue behind itself ----
 
-def _concurrency_block(workflow: str) -> str:
-    """The `concurrency:` mapping as text, so its SHAPE can be asserted rather than its presence.
+def _concurrency_block(workflow: str, job: str = "merge") -> str:
+    """One job's `concurrency:` mapping as text, so its SHAPE can be asserted rather than its presence.
 
     Comments are stripped: the block carries its own explanation, and an assertion about what the workflow
     DOES must not be satisfied or defeated by prose that quotes the very values it forbids.
+
+    Since issue #2101 the block lives on the `merge` JOB, not at workflow level: a workflow-level
+    `cancel-in-progress: true` cancels the whole run, which killed the `recheck` job — the retry for the
+    very sweep it cancelled. These assertions therefore read the job's block and pin the same BEHAVIOUR.
     """
-    m = re.search(r"^concurrency:\s*\n((?:[ \t]+.*\n)+)", workflow, re.M)
-    assert m, "auto-merge.yml has no concurrency block at all"
+    jm = re.search(rf"^  {re.escape(job)}:\n(.*?)(?=^  [a-z-]+:\n|\Z)", workflow, re.M | re.S)
+    assert jm, f"auto-merge.yml has no `{job}` job"
+    m = re.search(r"^    concurrency:\s*\n((?:[ \t]+.*\n)+)", jm.group(1), re.M)
+    assert m, f"the `{job}` job has no concurrency block"
     return "\n".join(line for line in m.group(1).splitlines() if not line.lstrip().startswith("#"))
+
+
+def test_the_workflow_has_no_top_level_concurrency_block():
+    """#2101: a workflow-level `cancel-in-progress: true` cancels the `recheck` job too.
+
+    The retry must not be cancellable by the thing it retries — measured: 41% of auto-merge runs are
+    cancelled, and when the cancellation took the recheck job with it, the recovery pass died with the
+    merge attempt it existed to recover.
+    """
+    assert not re.search(r"^concurrency:", MERGE_WF, re.M), (
+        "a top-level concurrency block cancels every job, including the retry (#2101)")
+
+
+def test_the_recheck_job_is_never_cancelled_by_a_newer_sweep():
+    """The retry keeps its own group with `cancel-in-progress: false` (issue #2101)."""
+    block = _concurrency_block(MERGE_WF, job="recheck")
+
+    assert "group: auto-merge-recheck" in block, block
+    assert "cancel-in-progress: false" in block, (
+        "a cancellable retry is cancelled by the sweep it is retrying (#2101): " + block)
 
 
 def test_a_later_sweep_supersedes_an_earlier_one():
@@ -1290,13 +1327,20 @@ def test_a_review_blocked_pr_without_a_marker_is_approved_and_merged(tmp_path):
     assert merges and "--admin" not in merges[0], merges
 
 
-def test_a_pr_without_a_deferral_marker_is_not_touched(tmp_path):
-    """The sweep retries its OWN deferrals, not every open PR."""
+def test_a_pr_without_a_deferral_marker_and_no_concluded_green_run_is_not_touched(tmp_path):
+    """The sweep retries deferrals and concluded-green heads — never a head with no green run.
 
-    # Given an open PR with no deferral marker
+    Superseded contract (#2101): this used to be "not every open PR", which made the net blind to
+    the PRs a CANCELLED sweep produces (a cancelled sweep posts no deferral marker). The negative
+    control survives and is what this test now pins: a markerless PR whose head has NOT concluded
+    green is still skipped, so the widening never reaches an unmeasured tree.
+    """
+
+    # Given an open PR with no deferral marker and no concluded green run at its head
     trust = {"nameWithOwner": "asimov-agent/llgenie"}
     gh = _fake_gh(tmp_path, _state(headRepository=trust),
-                  prs=[{"number": 600, "headRefOid": HEAD}], views={"600": _state(headRepository=trust)})
+                  prs=[{"number": 600, "headRefOid": HEAD}], views={"600": _state(headRepository=trust)},
+                  runs=[{"status": "in_progress", "conclusion": None}])
 
     # When  the sweep runs
     rc = am.recheck(str(gh), "asimov-agent/llgenie")
@@ -1304,6 +1348,165 @@ def test_a_pr_without_a_deferral_marker_is_not_touched(tmp_path):
     # Then  it merges nothing
     assert rc == 0
     assert not [c for c in _calls(tmp_path / "gh.log") if c[:2] == ["pr", "merge"]]
+
+
+def test_a_markerless_concluded_green_head_is_merged(tmp_path):
+    """#2101: the concurrency group cancels 41% of sweeps, and a cancelled sweep posts NO marker.
+
+    A marker-only net is therefore blind to exactly the PRs the cancellation produces — measured on
+    `#2069` at `cc72588c`: armed, 16/16 checks green, no merge, and nothing looked at it again. So a
+    concluded-green head with no deferral marker must be decided by the sweep.
+    """
+
+    # Given an open PR with NO deferral marker whose head concluded green
+    trust = {"nameWithOwner": "asimov-agent/llgenie"}
+    gh = _fake_gh(tmp_path, _state(headRepository=trust),
+                  prs=[{"number": 601, "headRefOid": HEAD}], views={"601": _state(headRepository=trust)})
+
+    # When  the sweep runs
+    rc = am.recheck(str(gh), "asimov-agent/llgenie")
+
+    # Then  the head is decided and merged (no marker was needed)
+    assert rc == 0
+    merges = [c for c in _calls(tmp_path / "gh.log") if c[:2] == ["pr", "merge"]]
+    assert merges and merges[0][2] == "601", merges
+
+
+def test_a_markerless_red_head_is_still_refused(tmp_path):
+    """The negative control for #2101: widening the sweep must never merge a red head."""
+
+    # Given an open PR with NO deferral marker whose head carries a red check
+    trust = {"nameWithOwner": "asimov-agent/llgenie"}
+    gh = _fake_gh(tmp_path, _state(headRepository=trust),
+                  prs=[{"number": 602, "headRefOid": HEAD}], views={"602": _state(headRepository=trust)},
+                  checks=[{"name": "linux", "status": "completed", "conclusion": "failure"}])
+
+    # When  the sweep runs
+    rc = am.recheck(str(gh), "asimov-agent/llgenie")
+
+    # Then  nothing is merged
+    assert rc == 0
+    assert not [c for c in _calls(tmp_path / "gh.log") if c[:2] == ["pr", "merge"]]
+
+
+def test_the_recheck_covers_every_open_pr_not_just_five(tmp_path):
+    """#2101: 12 PRs were open and `--max-prs 5` starved 7 of them on every sweep."""
+
+    # Given twelve open PRs, every one a concluded-green head with no deferral marker
+    trust = {"nameWithOwner": "asimov-agent/llgenie"}
+    nums = list(range(700, 712))
+    gh = _fake_gh(tmp_path, _state(headRepository=trust),
+                  prs=[{"number": n, "headRefOid": HEAD} for n in nums],
+                  views={str(n): _state(headRepository=trust) for n in nums})
+
+    # When  the sweep runs with its default cap
+    am.recheck(str(gh), "asimov-agent/llgenie")
+
+    # Then  every one of them was evaluated, not five
+    evaluated = {c[2] for c in _calls(tmp_path / "gh.log")
+                 if c[:2] == ["pr", "merge"]}
+    assert len(evaluated) == len(nums), (len(evaluated), sorted(evaluated))
+
+
+def test_an_unfinished_row_that_concludes_green_is_merged_in_the_same_run(tmp_path):
+    """#2101's casualty exactly: `#2069` @ `cc72588c` — 16/16 checks green, one run row in_progress.
+
+    The sweep deferred it under #1551, that row then finished green WITHOUT producing a completion this
+    workflow watches, nothing re-decided the head, and a rebase later force-pushed the green away. The
+    deferral must settle its own re-decision instead of waiting for an event that never comes.
+    """
+
+    # Given a head whose run row reads in_progress at first and completed-green on the next read
+    trust = {"nameWithOwner": "asimov-agent/llgenie"}
+    gh = _fake_gh(tmp_path, _state(headRepository=trust),
+                  prs=[{"number": 603, "headRefOid": HEAD}], views={"603": _state(headRepository=trust)},
+                  runs=[{"status": "in_progress", "conclusion": None}],
+                  runs_after=[{"status": "completed", "conclusion": "success"}], runs_then=1)
+
+    # When  the settle helper is asked (zero delay: the test's clock)
+    reason = am.settle_unfinished_head(str(gh), "asimov-agent/llgenie", HEAD,
+                                      attempts=3, delay=0.0)
+
+    # Then  the re-decision happened IN RUN and the head is verified — no event was waited for
+    assert reason is None, reason
+    calls = _calls(tmp_path / "gh.log")
+    assert not [c for c in calls if c[:2] == ["pr", "merge"]], "the settle only decides; run() merges"
+
+
+def test_run_itself_waits_for_an_unfinished_row_and_then_merges(tmp_path):
+    """The WIRING that matters: `run()` must call the settle, not the bare read (mutation-pinned).
+
+    If `run()` reverts to `no_concluded_green`, a head whose row is still in_progress is deferred even
+    though that row concludes green a moment later — which is the #2069/`cc72588c` loss exactly.
+    """
+
+    # Given a green, mergeable head whose run row is in_progress on the first read
+    trust = {"nameWithOwner": "asimov-agent/llgenie"}
+    state = _state(headRepository=trust)
+    gh = _fake_gh(tmp_path, state,
+                  runs=[{"status": "in_progress", "conclusion": None}],
+                  runs_after=[{"status": "completed", "conclusion": "success"}], runs_then=1)
+
+    # When  run() decides the head (zero-delay monkeypatch so the test does not sleep)
+    orig = am.SETTLE_DELAY_S
+    am.SETTLE_DELAY_S = 0.0
+    try:
+        am.run(str(gh), "asimov-agent/llgenie", 604, HEAD)
+    finally:
+        am.SETTLE_DELAY_S = orig
+
+    # Then  it waited the row out and merged in the same invocation
+    merges = [c for c in _calls(tmp_path / "gh.log") if c[:2] == ["pr", "merge"]]
+    assert merges, "a row that concludes green must not defer the head forever"
+
+
+def test_a_head_with_a_concluded_green_run_needs_no_wait(tmp_path):
+    """The positive side: a verified head returns None immediately (no sleep, no extra reads)."""
+
+    trust = {"nameWithOwner": "asimov-agent/llgenie"}
+    gh = _fake_gh(tmp_path, _state(headRepository=trust))
+    assert am.settle_unfinished_head(str(gh), "asimov-agent/llgenie", HEAD, attempts=3) is None
+
+
+def test_the_settle_bound_is_far_below_the_job_timeout():
+    """The in-run wait must fit inside the job's timeout-minutes (10), with room to merge."""
+
+    assert am.SETTLE_ATTEMPTS * am.SETTLE_DELAY_S <= 300, "the wait must stay well under 10 minutes"
+
+
+def test_the_recheck_does_not_settle_per_pr_it_would_blow_its_own_timeout(tmp_path, monkeypatch):
+    """#2101 follow-on: 50 heads × the 3-minute settle is 150 min against a 10-minute job.
+
+    The merge job decides ONE head and can afford to wait for its unfinished row. The recheck decides up
+    to MAX_RECHECK_PRS heads, so waiting per-PR would make the retry kill itself. It must take the fast
+    read.
+
+    Asserted by observing which read the recheck actually calls — a fixture-based version could not tell
+    the two apart, and the mutation check proves this one can.
+    """
+    trust = {"nameWithOwner": "asimov-agent/llgenie"}
+    view = _deferred_view(_state(reviewDecision="APPROVED", headRepository=trust), HEAD)
+    gh = _fake_gh(tmp_path, _state(reviewDecision="APPROVED", headRepository=trust),
+                  prs=[{"number": 605, "headRefOid": HEAD}], views={"605": view},
+                  runs=[{"status": "in_progress", "conclusion": None}])
+
+    calls = []
+    monkeypatch.setattr(am, "settle_unfinished_head",
+                        lambda *a, **k: calls.append("settle") or "an unfinished run")
+    monkeypatch.setattr(am, "no_concluded_green",
+                        lambda *a, **k: calls.append("fast") or "an unfinished run")
+
+    rc = am.recheck(str(gh), "asimov-agent/llgenie")
+
+    assert rc == 0
+    assert calls == ["fast"], f"a multi-PR sweep must not settle per head, called: {calls}"
+    assert not [c for c in _calls(tmp_path / "gh.log") if c[:2] == ["pr", "merge"]]
+
+
+def test_the_worst_case_settle_fits_the_merge_job_timeout():
+    """The single-PR settle must fit the merge job's `timeout-minutes: 10` with room left to merge."""
+
+    assert am.SETTLE_ATTEMPTS * am.SETTLE_DELAY_S < 10 * 60 / 2
 
 
 def test_the_recheck_is_scheduled_and_runs_the_make_target():

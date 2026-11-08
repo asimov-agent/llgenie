@@ -258,6 +258,21 @@ def review_blocked(state: dict) -> bool:
 # merge gate as if it were green. `skipped` stays non-red: a docs-only pull request has no `linux`
 # job, and `linux` on #1385 was skipped beside real failures — that is the one legitimate "no verdict".
 RED_CONCLUSIONS = frozenset({"failure", "timed_out", "startup_failure", "cancelled", "neutral"})
+
+#: How long a deferral waits for its OWN unfinished run to conclude before giving up (#2101).
+#: The scheduled recheck that used to cover this fires ~4-5x/day rather than 48x/day (measured
+#: 2026-11-08: median gap 5.01h, zero gaps under 1h, and the same under-fire on every scheduled
+#: workflow in the repo including the hourly `fix-bot`), so a deferral cannot rely on it. Six
+#: attempts at 30 s is a three-minute bound: long enough for a concluding row to report, far
+#: shorter than the job's `timeout-minutes: 10`.
+SETTLE_ATTEMPTS = 6
+SETTLE_DELAY_S = 30.0
+
+#: How many open PRs one recheck sweep may evaluate. The old default of 5 starved 7 of 12 open PRs
+#: every sweep (#2101), and `pr list` is already read with `--limit 100`. The sweep is idempotent —
+#: it re-reads every PR's live state and each merge is one atomic `gh pr merge` — so a higher bound
+#: costs reads, never extra merges.
+MAX_RECHECK_PRS = 50
 _RUN_JOB = re.compile(r"/actions/runs/(\d+)/job/(\d+)")
 _RUN_ONLY = re.compile(r"/runs/(\d+)")
 
@@ -329,6 +344,35 @@ def no_concluded_green(gh: str, repo: str, sha: str) -> "str | None":
                 f"absence-of-red is not green, so a head whose CI never finished green is not merged "
                 f"(issue #1551)")
     return None
+
+
+def settle_unfinished_head(gh: str, repo: str, sha: str, attempts: int = SETTLE_ATTEMPTS,
+                           delay: float = SETTLE_DELAY_S) -> "str | None":
+    """Wait, bounded, for an `in_progress` run at this head to conclude — then re-ask the question.
+
+    The #2101 casualty: `#2069` at `cc72588c` had all 16 check-runs `success`, but one *workflow run*
+    row was still `in_progress`, so `no_concluded_green` deferred it under #1551. That row then
+    finished green — and produced no completion this workflow watches, so nothing re-decided the
+    head; the next scheduled sweep was hours away (the cron fires ~4-5x/day, measured), and a rebase
+    force-pushed the green head away before it ran.
+
+    So the deferral must schedule its OWN re-decision instead of hoping for another event. This
+    waits a bounded time for the unfinished row to conclude and returns the fresh verdict: `None`
+    when the head is now verified (the caller proceeds to merge, in this same run), or the deferral
+    reason when it is still mid-flight after the bound.
+
+    This does NOT weaken #1551: the head is still never merged while a run is genuinely unfinished.
+    It only stops a *finite* wait from being replaced by an event that may never arrive.
+    """
+    reason = no_concluded_green(gh, repo, sha)
+    for attempt in range(1, attempts + 1):
+        if not reason or "unfinished run" not in reason:
+            return reason
+        time.sleep(delay)
+        reason = no_concluded_green(gh, repo, sha)
+        print(f"[auto-merge] head {sha[:8]}: waited {attempt}/{attempts} for the unfinished run — "
+              f"{'now verified' if not reason else 'still not verified'}")
+    return reason
 
 
 def failing_checks(gh: str, repo: str, sha: str) -> "str | None":
@@ -693,7 +737,8 @@ def _merge_review_cleared(gh: str, repo: str, pr: int, head_sha: str, state: dic
 
 
 def run(gh: str, repo: str, pr: int, head_sha: str, dry: bool = False,
-        approve_when_review_required: bool = False, actor: str = "") -> int:
+        approve_when_review_required: bool = False, actor: str = "",
+        settle: bool = True) -> int:
     state = pr_state(gh, repo, pr)
     if (state.get("mergeable") or "").upper() == "UNKNOWN" and not dry:
         state = settle_mergeable(gh, repo, pr)
@@ -708,7 +753,14 @@ def run(gh: str, repo: str, pr: int, head_sha: str, dry: bool = False,
     if red:
         defer(gh, repo, pr, head_sha or (state.get("headRefOid") or ""), red, dry=dry)
         return 0
-    not_green = no_concluded_green(gh, repo, head_sha or (state.get("headRefOid") or ""))
+    # A SINGLE-PR sweep (`merge`, one head) may wait out its own unfinished row (#2101). A MULTI-PR
+    # sweep (`recheck`, up to MAX_RECHECK_PRS heads) must NOT: 50 heads x the 3-minute bound is 150
+    # minutes against the recheck job's 10-minute timeout, so the retry would be killed by its own
+    # patience. The recheck takes the fast read and lets the next pass (or the merge job's in-run
+    # settle) do the waiting.
+    not_green = (settle_unfinished_head(gh, repo, head_sha or (state.get("headRefOid") or ""))
+                 if settle
+                 else no_concluded_green(gh, repo, head_sha or (state.get("headRefOid") or "")))
     if not_green:
         defer(gh, repo, pr, head_sha or (state.get("headRefOid") or ""), not_green, dry=dry)
         return 0
@@ -744,21 +796,25 @@ def has_any_deferral_marker(gh: str, repo: str, pr: int) -> bool:
     return any("auto-merge: deferred" in body for body in pr_comments(gh, repo, pr))
 
 
-def recheck(gh: str, repo: str, max_prs: int = 5, dry: bool = False) -> int:
-    """Re-evaluate the PRs whose own deferral marker matches their CURRENT head (issue #545).
+def recheck(gh: str, repo: str, max_prs: int = MAX_RECHECK_PRS, dry: bool = False) -> int:
+    """Re-evaluate open PRs the gate deferred, plus any green head no sweep ever decided (#545, #2101).
 
     A deferral is exit 0 by design, so nothing retries it: the blocker can clear (a secret added, a review
     posted, `do-not-merge` removed, a pending check finished) and the PR stays green and unmerged until a
-    push. This sweep closes that hole by running the SAME decision again — no second merge path — only for a
-    PR the gate itself deferred at the head it still has. A stale marker (the head moved) is skipped: that
-    verdict described a different tree.
+    push. This sweep closes that hole by running the SAME decision again — no second merge path.
 
-    Since issue #1910 a green head whose marker became stale by a head MOVE is still swept: the PR carries a
-    deferral marker for an older head, its current head is green (no red, a concluded green run), and the
-    merge sweep that would normally fire on a CI completion never ran at that head (main-tip churn saturated
-    the `auto-merge-success` concurrency group). The stale marker must not strand that green head forever, so
-    it is treated like a retry — the same decision runs, and if it still defers a fresh marker for the CURRENT
-    head is posted (one-comment-per-head dedupe), so the next cron keeps it visible.
+    Two classes are swept, and the second one is #2101's gap:
+
+      * a PR the gate deferred at the head it still has (#545), and a green head whose marker became
+        stale by a head move (#1910);
+      * ANY open PR whose CURRENT head has a concluded green run and no red check, whether or not it
+        carries a deferral marker. A sweep that was CANCELLED never posted a marker — the concurrency
+        group cancels 41% of sweeps — so a marker-only net is blind to exactly the PRs the cancellation
+        produces. The negative control is the same read: a red check, or a head with no concluded green
+        run, is still refused (so an un-pushed red head is never merged).
+
+    `max_prs` defaults to MAX_RECHECK_PRS rather than 5: with 12 open PRs a cap of 5 starved 7 of them
+    every sweep (#2101). The sweep is idempotent, so covering them all costs reads, not merges.
     """
     out = _gh(gh, ["pr", "list", "--repo", repo, "--state", "open", "--limit", "100",
                    "--json", "number,headRefOid"])
@@ -776,8 +832,15 @@ def recheck(gh: str, repo: str, max_prs: int = 5, dry: bool = False) -> int:
             # is stale-by-move, and the head would otherwise be skipped forever (issue #1910).
             stale_by_move = has_any_deferral_marker(gh, repo, num) and not red and not \
                 no_concluded_green(gh, repo, head)
-            if not blocked and not stale_by_move:
-                print(f"[recheck] #{num}: no deferral marker for {(head or '?')[:8]} — not a retry")
+            # #2101: a CANCELLED sweep leaves NO marker, so a marker-only net is blind to exactly
+            # the PRs the 41%-cancellation rate produces. Any open PR whose current head has a
+            # concluded green run and no red check is the merger's own backlog too. The negative
+            # control is unchanged: a red check, or a head with no concluded green run, is refused.
+            green_unmarked = (not has_any_deferral_marker(gh, repo, num)
+                              and not red and not no_concluded_green(gh, repo, head))
+            if not blocked and not stale_by_move and not green_unmarked:
+                print(f"[recheck] #{num}: no deferral marker for {(head or '?')[:8]} and its head "
+                      f"is not concluded green — not a retry")
                 continue
             if red_why:
                 print(f"[recheck] #{num}: {red_why}")
@@ -788,14 +851,17 @@ def recheck(gh: str, repo: str, max_prs: int = 5, dry: bool = False) -> int:
                 break
             seen += 1
             why = ("review is the only blocker" if blocked
-                   else f"the head moved since the deferral, and {(head or '?')[:8]} is green "
-                        f"(stale-by-move marker, issue #1910)")
+                   else (f"the head moved since the deferral, and {(head or '?')[:8]} is green "
+                         f"(stale-by-move marker, issue #1910)" if stale_by_move
+                         else f"{(head or '?')[:8]} is a concluded green head that NO sweep ever "
+                              f"decided (no deferral marker — a cancelled sweep leaves none, "
+                              f"issue #2101)"))
             print(f"[recheck] #{num}: {why} at {(head or '?')[:8]} — re-evaluating")
             if dry:
                 print(f"[recheck] #{num}: --dry, decision not run")
                 continue
             run(gh, repo, num, head, dry=False, approve_when_review_required=True,
-                actor=token_login(gh))
+                actor=token_login(gh), settle=False)
             continue
         if seen >= max_prs:
             print(f"[recheck] cap reached ({max_prs} PRs this sweep); the rest waits for the next one")
@@ -808,7 +874,7 @@ def recheck(gh: str, repo: str, max_prs: int = 5, dry: bool = False) -> int:
         # The sweep runs as the repository's own scheduled job, so the token's account is its actor: that is
         # what authorises a bot-opened PR (a bot has no permission endpoint to ask).
         run(gh, repo, num, head, dry=False, approve_when_review_required=True,
-            actor=token_login(gh))
+            actor=token_login(gh), settle=False)
     if seen == 0:
         print("[recheck] no deferred PR needs a retry")
     return 0
@@ -972,9 +1038,9 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--limit", type=int, default=20)
     s.add_argument("--gh", default="gh")
     s.add_argument("--dry", action="store_true")
-    r = sub.add_parser("recheck", help="re-evaluate the PRs whose deferral marker matches their head")
+    r = sub.add_parser("recheck", help="re-evaluate deferred PRs and any concluded-green head no sweep decided")
     r.add_argument("--repo", required=True)
-    r.add_argument("--max-prs", type=int, default=5)
+    r.add_argument("--max-prs", type=int, default=MAX_RECHECK_PRS)
     r.add_argument("--gh", default="gh")
     r.add_argument("--dry", action="store_true")
 
