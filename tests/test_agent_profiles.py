@@ -413,6 +413,97 @@ def test_skill_reference_that_is_not_in_the_tree_is_rejected(tmp_path):
     assert "skill-reference-missing" in keys(root)
 
 
+def test_a_skill_past_the_writer_cap_is_a_finding_that_names_the_remedy(tmp_path):
+    """An over-limit SKILL.md is un-patchable: `skill_manage` refuses it and rolls the batch back."""
+
+    # Given a skill whose body is past the skill writer's 100,000-character cap
+    root = fixture_tree(tmp_path)
+    name = "too-long"
+    body = SKILL_BODY.format(name=name) + "\n" + ("- filler rule\n" * 8000)
+    assert len(body) > guard.SKILL_MAX_CHARS
+    write_skill(root / "agents", "llgenie-planner", name, body)
+
+    # When  the gate reads the tree
+    items = [i for i in guard.findings(root, guard.AGENTS_DIR) if i["key"] == "skill-size"]
+
+    # Then  it names the file, the characters over the cap, and the remedy — a bare count teaches nothing
+    assert len(items) == 1, items
+    where, detail = items[0]["where"], items[0]["detail"]
+    assert where.endswith(f"skills/{name}/SKILL.md"), where
+    assert f"{len(body) - guard.SKILL_MAX_CHARS:,} over" in detail, detail
+    assert "references/" in detail and "never raise the cap" in detail, detail
+
+    # And   slimming it under the cap greens that finding (the failure is the size, not the shape)
+    write_skill(root / "agents", "llgenie-planner", name,
+                SKILL_BODY.format(name=name) + "\n- one rule\n")
+
+    # Then  no skill-size finding remains
+    assert "skill-size" not in keys(root)
+
+
+def test_an_over_limit_skill_with_a_dated_exemption_is_reported_not_failed(tmp_path):
+    """An exemption is a decision with a tracking issue — visible in the report, never a silent pass."""
+
+    # Given an over-limit SKILL.md and a dated exemption naming its own issue
+    root = fixture_tree(tmp_path)
+    name = "too-long"
+    body = SKILL_BODY.format(name=name) + "\n" + ("- filler rule\n" * 8000)
+    write_skill(root / "agents", "llgenie-planner", name, body)
+    rel = f"agents/llgenie-planner/skills/{name}/SKILL.md"
+    record = root / guard.SKILL_SIZE_EXCEPTIONS
+    record.parent.mkdir(parents=True, exist_ok=True)
+    record.write_text(json.dumps({"files": {rel: {
+        "reason": "measured at the gate's first run", "issue": "#2114", "date": "2026-11-08"}}}), encoding="utf-8")
+
+    # When  the gate reads the tree
+    keys_ = keys(root)
+
+    # Then  the size failure is exempted ...
+    assert "skill-size" not in keys_
+    # And   the exemption is still audible in the report, with the issue that removes it
+    text = guard.report(root, guard.AGENTS_DIR)
+    assert rel in text and "#2114" in text, text
+
+
+def test_an_exemption_whose_file_is_back_under_the_cap_is_stale(tmp_path):
+    """An allowance kept after its fix is indistinguishable from a silent pass, so it must be deleted."""
+
+    # Given an exemption for a skill that is comfortably under the cap
+    root = fixture_tree(tmp_path)
+    rel = "agents/llgenie-planner/skills/llgenie-bot-orchestration/SKILL.md"
+    record = root / guard.SKILL_SIZE_EXCEPTIONS
+    record.parent.mkdir(parents=True, exist_ok=True)
+    record.write_text(json.dumps({"files": {rel: {
+        "reason": "slimmed since", "issue": "#2114", "date": "2026-11-08"}}}), encoding="utf-8")
+
+    # When  the gate reads the tree
+    items = [i for i in guard.findings(root, guard.AGENTS_DIR)
+             if i["key"] == "skill-size-exemption-stale"]
+
+    # Then  the expired entry is a finding that says to delete it
+    assert len(items) == 1, items
+    assert "expired; delete the entry" in items[0]["detail"], items[0]
+
+
+def test_an_exemption_with_no_issue_is_a_finding(tmp_path):
+    """An exemption that names no tracking issue is an omission wearing a decision's clothes."""
+
+    # Given an exemption entry carrying no issue and no date
+    root = fixture_tree(tmp_path)
+    record = root / guard.SKILL_SIZE_EXCEPTIONS
+    record.parent.mkdir(parents=True, exist_ok=True)
+    record.write_text(json.dumps({"files": {
+        "agents/llgenie-planner/skills/llgenie-bot-orchestration/SKILL.md": {"reason": "trust me"}}}),
+        encoding="utf-8")
+
+    # When  the gate reads the tree
+    found = [i for i in guard.findings(root, guard.AGENTS_DIR) if i["key"] == "skill-size-exemptions"]
+
+    # Then  it names the fields the entry is missing
+    assert len(found) == 1, found
+    assert "carries no issue/date" in found[0]["detail"], found[0]
+
+
 def test_profile_data_in_the_tree_is_rejected(tmp_path):
     """A profile's memory, sessions and state database are data, never behaviour."""
 

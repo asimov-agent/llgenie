@@ -1,0 +1,21 @@
+{
+ "note": "Tree SKILL.md bodies that are past the skill writer's 100,000-character cap and are still being slimmed, recorded so the size gate can be ON while they wait (issue #2084). An entry here is a dated decision with a tracking issue, never a pass: `make check-agent-profiles` still reds on any NEW over-limit SKILL.md, prints each exempted file as a note, and reports an entry STALE the moment its file is back under the cap (or gone) so it must be deleted then. Method each fix follows: take the TREE copy as the base, move self-contained sections verbatim into references/<topic>.md, link them from the body, and prove the pre-change distinct-line set is a subset of the slim body plus the new references (issue #2114).",
+ "decided_utc": "2026-11-08",
+ "files": {
+  "agents/llgenie-ci-pipelines-maintainer/skills/llgenie-pipeline-maintenance/SKILL.md": {
+   "reason": "103,203 characters at main c3f3b2ac — measured by the size gate the day it landed; its own slimming is tracked so the gate does not red on it while it waits (never raise the cap).",
+   "issue": "#2114",
+   "date": "2026-11-08"
+  },
+  "agents/llgenie-engine-improver/skills/llgenie-engine-improver/SKILL.md": {
+   "reason": "106,407 characters at main c3f3b2ac — measured by the size gate the day it landed; its own slimming is tracked so the gate does not red on it while it waits (never raise the cap).",
+   "issue": "#2114",
+   "date": "2026-11-08"
+  },
+  "agents/llgenie-pr-merge-conflict/skills/llgenie-pr-rebase/SKILL.md": {
+   "reason": "103,927 characters at main c3f3b2ac — measured by the size gate the day it landed; its own slimming is tracked so the gate does not red on it while it waits (never raise the cap).",
+   "issue": "#2114",
+   "date": "2026-11-08"
+  }
+ }
+}

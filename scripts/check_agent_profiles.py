@@ -20,6 +20,10 @@ Hermes itself loads) and this gate is what keeps it honest:
 * a skill with no `---` frontmatter block, or an empty `description:` — invisible in the index;
 * a skill whose body names a `references/<file>.md` that is not in the tree — a promised recipe
   that is missing after a sync;
+* a `SKILL.md` past the skill writer's 100,000-character cap — `skill_manage` refuses every patch to
+  it, so the versioned copy can only drift further from live behaviour and a tree->live sync would
+  push the un-patchable body into the profile (issue #2084); the finding names the overflow AND the
+  remedy (`references/`), because a bare character count teaches nothing;
 * a secret-shaped value in any committed file of the tree — the whole point is that these are read
   by an agent that holds write credentials, so a key in here is a leak with a diff;
 * a `SOUL.md` that stops stating a standing rule the manifest declares for that profile (the
@@ -133,6 +137,17 @@ SECRET_PATTERNS = (
 )
 #: A skill body may point at a recipe it expects beside itself.
 REFERENCE_RE = re.compile(r"references/[A-Za-z0-9._-]+\.md")
+#: The skill writer's hard cap on ONE `SKILL.md`. Hermes `skill_manage` refuses a save past it and rolls
+#: the WHOLE batch back, so an over-limit skill is un-patchable: the versioned copy can only drift further
+#: from live behaviour, every correction has to be made live (unreviewable), and the tree->live sync turns
+#: destructive because it would write the un-patchable body into the profile (issue #2084). The remedy is
+#: `references/`, never a raised cap — so the finding names it.
+SKILL_MAX_CHARS = 100_000
+#: Over-limit skills recorded as a DATED decision (file -> {reason, issue, date}) while each one's own slimming
+#: issue is open (issue #2114). An exemption is never a pass: the gate still refuses any NEW over-limit
+#: `SKILL.md`, every exempted file is printed as a note, and an entry whose file is back under the cap (or gone)
+#: is STALE and must be deleted — otherwise an expired exemption is indistinguishable from a silent green.
+SKILL_SIZE_EXCEPTIONS = Path("tests") / "fixtures" / "skill-size-exceptions.json"
 
 #: Every finding key the gate can emit. `--only` accepts any subset of these; a caller that names a key
 #: not listed here has broken the invocation and gets the list back (exit 2), instead of a silent
@@ -141,7 +156,8 @@ KNOWN_KEYS = frozenset({
     "agents-dir", "manifest-missing", "manifest-invalid", "manifest-empty", "manifest-entry",
     "manifest-rule-unknown", "manifest-rule", "profile-directory", "soul-missing",
     "standing-rule-quoted", "standing-rule", "skill-frontmatter", "skill-name", "skill-description",
-    "skill-reference-missing", "forbidden-path", "profile-unlisted", "secret", "unreadable",
+    "skill-reference-missing", "skill-size", "skill-size-exemptions", "skill-size-exemption-stale",
+    "forbidden-path", "profile-unlisted", "secret", "unreadable",
     "live-longer", "live-lines-missing", "unreadable-live-file", "live-edited-not-tree",
     "absent-from-tree", "fleet-block-drift", "fleet-block-source", "fleet-exemption-unknown",
     "fleet-exemption-stale", "fleet-exemptions",
@@ -267,8 +283,72 @@ def _secret_findings(path: Path, root: Path, key: str = "secret") -> list[dict]:
     return items
 
 
-def _skill_findings(skill_dir: Path, root: Path) -> list[dict]:
-    """One skill's frontmatter, sections and reference links."""
+def skill_size_exceptions(root: Path) -> tuple[dict[str, dict], list[dict]]:
+    """The dated over-limit exemptions, plus every finding the RECORD itself carries.
+
+    A missing record is not a finding — the ordinary state is no exemption at all. An unreadable one, or an
+    entry with no `reason`/`issue`/`date`, is: an exemption with no decision behind it and no tracking issue is
+    an omission wearing a decision's clothes, and the next reader cannot tell whether it was ever reviewed.
+    """
+    path = root / SKILL_SIZE_EXCEPTIONS
+    where = SKILL_SIZE_EXCEPTIONS.as_posix()
+    if not path.is_file():
+        return {}, []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return {}, [{"key": "skill-size-exemptions", "where": where, "detail": f"unreadable JSON: {exc}"}]
+    raw = data.get("files") if isinstance(data, dict) else None
+    if not isinstance(raw, dict):
+        return {}, [{
+            "key": "skill-size-exemptions",
+            "where": where,
+            "detail": "no `files` object — a record that names nothing cannot be read as a decision",
+        }]
+    items: list[dict] = []
+    for rel, entry in raw.items():
+        missing = [k for k in ("reason", "issue", "date") if not isinstance(entry, dict) or not entry.get(k)]
+        if missing:
+            items.append({
+                "key": "skill-size-exemptions",
+                "where": where,
+                "detail": f"`{rel}` carries no {'/'.join(missing)} — an exemption must name why it exists and "
+                          "which issue removes it",
+            })
+    return raw, items
+
+
+def _stale_exemption_findings(root: Path, exempt: dict[str, dict]) -> list[dict]:
+    """Exemptions that no longer describe anything: the file is under the cap again, or it is gone.
+
+    An entry that the fix has overtaken is indistinguishable from a silent pass, so it is a finding and the
+    remedy is deletion — the gate must not keep an allowance for a defect that no longer exists.
+    """
+    where = SKILL_SIZE_EXCEPTIONS.as_posix()
+    items: list[dict] = []
+    for rel in sorted(exempt):
+        path = root / rel
+        try:
+            size = len(path.read_text(encoding="utf-8"))
+        except OSError:
+            items.append({
+                "key": "skill-size-exemption-stale",
+                "where": where,
+                "detail": f"`{rel}` is exempted but the file is gone — delete the entry",
+            })
+            continue
+        if size <= SKILL_MAX_CHARS:
+            items.append({
+                "key": "skill-size-exemption-stale",
+                "where": where,
+                "detail": f"`{rel}` is {size:,} characters, under the {SKILL_MAX_CHARS:,} limit — the exemption "
+                          "expired; delete the entry so an allowed defect is not kept alive after its fix",
+            })
+    return items
+
+
+def _skill_findings(skill_dir: Path, root: Path, exempt: frozenset[str] = frozenset()) -> list[dict]:
+    """One skill's frontmatter, sections, reference links and body size."""
     items: list[dict] = []
     path = skill_dir / SKILL_FILE
     where = str(path.relative_to(root))
@@ -296,6 +376,18 @@ def _skill_findings(skill_dir: Path, root: Path) -> list[dict]:
                 "detail": "empty `description:` — that is the line the agent's skill index shows",
             })
     body = path.read_text(encoding="utf-8")
+    size = len(body)
+    if size > SKILL_MAX_CHARS and where not in exempt:
+        items.append({
+            "key": "skill-size",
+            "where": where,
+            "detail": f"is {size:,} characters ({path.stat().st_size:,} bytes), "
+                      f"{size - SKILL_MAX_CHARS:,} over the {SKILL_MAX_CHARS:,}-character skill-writer "
+                      "limit — `skill_manage` refuses every patch to this file and rolls the whole batch "
+                      "back, so the versioned copy can only drift further from live behaviour and a "
+                      "tree->live sync would push the un-patchable body into the profile; move sections "
+                      "into `references/` (linked from this file) until it fits, never raise the cap",
+        })
     for reference in sorted(set(REFERENCE_RE.findall(body))):
         if not (skill_dir / reference).is_file():
             items.append({
@@ -865,6 +957,8 @@ def findings(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR) -> list[dict
                       "the state issue #791 removes",
         }]
 
+    size_exempt, exemption_items = skill_size_exceptions(root)
+    items.extend(exemption_items)
     profiles, manifest_items = read_manifest(agents)
     items.extend(manifest_items)
     items.extend(shrink_findings(root, agents_dir))
@@ -925,7 +1019,7 @@ def findings(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR) -> list[dict
         skills_dir = base / SKILLS
         if skills_dir.is_dir():
             for skill_dir in sorted(p for p in skills_dir.iterdir() if (p / SKILL_FILE).is_file()):
-                items.extend(_skill_findings(skill_dir, root))
+                items.extend(_skill_findings(skill_dir, root, frozenset(size_exempt)))
         for path in _text_files(base):
             rel = path.relative_to(base)
             if path.name in FORBIDDEN_NAMES or any(part in FORBIDDEN_DIRS for part in rel.parts[:-1]):
@@ -938,6 +1032,7 @@ def findings(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR) -> list[dict
             items.extend(_secret_findings(path, root))
 
     items.extend(_fleet_findings(agents, profiles))
+    items.extend(_stale_exemption_findings(root, size_exempt))
 
     for entry in sorted(p for p in agents.iterdir() if p.is_dir()):
         if entry.name not in listed:
@@ -1130,6 +1225,12 @@ def report(root: Path = REPO_ROOT, agents_dir: Path = AGENTS_DIR) -> str:
         lines.append("fleet block — still owned, not yet verbatim:")
         for name, reason in sorted(exempt.items()):
             lines.append(f"  {name}: {reason}")
+    size_exempt, _ = skill_size_exceptions(root)
+    if size_exempt:
+        lines.append("")
+        lines.append(f"over the {SKILL_MAX_CHARS:,}-character skill-writer cap — exempted, still owed (issue #2114):")
+        for rel, entry in sorted(size_exempt.items()):
+            lines.append(f"  {rel}: {entry.get('issue', '(no issue)')} {entry.get('reason', '')}".rstrip())
     dups = _duplicate_rule_debts(agents, profiles)
     if dups:
         lines.append("")
@@ -1284,7 +1385,8 @@ def main(argv: list[str] | None = None) -> int:
         scope = (f" (scoped to {scoped_profile!r})" if scoped_profile else "")
         print(f"[check-agent-profiles] OK{scope}: {len(profiles)} host-agent profile(s), each with a "
               "SOUL.md stating the rules its manifest declares; every skill's frontmatter name "
-              f"matches its directory and carries no secret value"
+              f"matches its directory, its body is under the {SKILL_MAX_CHARS:,}-character "
+              "skill-writer cap, and it carries no secret value"
               + ("" if live_base is None else
                  ", and no file exists only in the live profile")
               + f"{caveat}")
