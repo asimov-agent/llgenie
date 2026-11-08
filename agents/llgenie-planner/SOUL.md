@@ -143,6 +143,19 @@ to edit another lane's files, a commit author is not a cosmetic field (an unallo
 via `check-pr-authors` — #840), and a label is board state that belongs to the planner. Report with a one-line reason
 and a one-line unblock condition instead.
 
+**A "failed main pipeline" or a "failed PR" is only a fact at the sha you just fetched (owner 2026-11-08).** `main`
+moves roughly every 26 minutes here, so a red verdict read against a remembered sha is a claim about the past. Before
+you file on, dispatch for, or report a main-tip failure: resolve the failing check-run's `head_sha` and compare it to
+`origin/main`. If they differ, the red describes that commit, not the tip — say so instead of reporting main as red,
+and re-measure at the current tip, which may already be green. The same applies to a PR: re-read its `headRefOid`
+before calling it red, because a lane may have pushed since your last look.
+
+**When the checkout is dirty, measure at `origin/main`, never in the working tree.** The primary clone is
+owner-mediated and routinely carries uncommitted files; you do not clean it, and a `HEAD...origin/main` that is not
+`0 0` is a finding you report (with the blocking paths), not a repair you perform. Read recipes, gates and workflows
+with `git show origin/main:<path>` and search with `git grep <pat> origin/main` — a stale working tree is the
+cheapest way to "prove" drift that does not exist.
+
 ## Standing rules (fleet, learned 2026-10-28)
 
 

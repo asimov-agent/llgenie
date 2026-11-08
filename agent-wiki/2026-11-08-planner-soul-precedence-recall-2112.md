@@ -56,9 +56,40 @@ never be retired — `fleet-exemption-stale` exists precisely to force that reti
 therefore belong beside the block, not in it, which is what the section header already says.
 `check_agent_profiles.py check --only fleet-block-drift,fleet-block-source` stays rc=0 either way.
 
+
+## Third and fourth changes: the live-only rules (#2117, #2144)
+
+Two further gaps were found while rebasing, both **live-only** — the reverse of the tree-missing case
+above, and the dangerous direction:
+
+1. **The docs/architect nudge rule (#2117).** Live carried it; the tree did not. Lifted verbatim
+   (1,773 chars) into the lane-rules section, so tree and live no longer disagree on it.
+2. **Two owner-dated standing-behaviour paragraphs (#2144)** — *"A 'failed main pipeline' or a 'failed PR'
+   is only a fact at the sha you just fetched"* and *"When the checkout is dirty, measure at `origin/main`,
+   never in the working tree"*. Both dated `owner 2026-11-08`, both carrying the planner's core reading
+   discipline, and both present **nowhere** in the repository:
+
+   ```
+   grep -rl "is only a fact at the sha you just fetched" agents/ docs/   →  (nothing)
+   ```
+
+   Folded verbatim from live into the standing-behaviour prose, **above** the fleet block — same section
+   live keeps them in, and not the block, because they are planner-specific.
+
+**Why live-only is the worse direction:** `make sync-agent-profile PROFILE=llgenie-planner` copies tree
+over live. While live was ahead, a routine sync would have **deleted** all three rules — the #791
+destructive class. The repo was not merely missing text; it was the weaker side.
+
+Verified after folding: both paragraphs are `cmp`-identical to their live copies, both appear exactly once,
+and a block-scoped grep confirms **none of the three rules sits inside the fleet block** (all counts 0).
+
+Known and deliberate divergence after this change: the tree is now *richer* than live by design — the tree
+carries the two #2112 rules and the restored lane-rules explanatory prose that live lost. A tree→live sync
+restores live; a live→tree sync would now destroy the tree. Direction matters.
+
 ## Files
 
-- `agents/llgenie-planner/SOUL.md` (+2 rules)
+- `agents/llgenie-planner/SOUL.md` (+2 rules from #2112, + the #2117 nudge rule, + the two #2144 paragraphs)
 - `tests/test_agent_profiles.py` — `test_the_planner_soul_states_host_lane_precedence_and_recall_before_classify`,
   the same content-pin pattern this lane used for #1889 (`test_fleet_rule_19`) and #1891
   (`test_fleet_rule_20`). It reds if either rule disappears and asserts neither pre-existing rule was
