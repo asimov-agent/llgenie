@@ -25,6 +25,7 @@ refuses both the trigger and a policy that would gate such an event.
 from __future__ import annotations
 
 import argparse
+import datetime as _dt
 import hashlib
 import json
 import os
@@ -90,6 +91,15 @@ SCANNER_BASELINE: dict[str, str] = {
     "trivy": "0.70.0-r5",
     "grype": "0.121.2-r1",
 }
+
+#: The recency floor for the committed semgrep rules pack (issue #2283). `digests.json` records
+#: `semgrep.rules_captured_at` — the ISO date the pack was last resolved from upstream `p/default`.
+#: A pack whose `rules_captured_at` is older than this many days fails `make check-security-scan`,
+#: so a frozen rule set reds instead of silently aging behind upstream. 30 days = one upstream
+#: refresh cycle plus slack; the renovate/manual capture path re-resolves p/default and rewrites
+#: `rules_captured_at` (and `rules_count`) alongside `rules_sha`. Widening this number to dodge a
+#: red is a deliberate weakening (issue #2283).
+RULES_BASELINE_DAYS = 30
 
 
 def scanner_baseline(tool: str) -> str:
@@ -546,6 +556,30 @@ def check() -> int:
     elif sem.get("rules_sha") and hashlib.sha256(pack.read_bytes()).hexdigest() != sem["rules_sha"]:
         problems.append("digests.json: `semgrep.rules_sha` does not match the committed "
                         "containers/scanners/semgrep/rules/default.yml — run `make scanner-digests`")
+    # The pack must also not silently age: `rules_captured_at`/`rules_count` record when the pack
+    # was last resolved from upstream `p/default` (#2283). A pack older than the recency floor
+    # reds here, so a frozen rule set cannot pass green while upstream adds rules it never sees.
+    captured = sem.get("rules_captured_at")
+    count = sem.get("rules_count")
+    if not captured:
+        problems.append("digests.json: `semgrep` has no `rules_captured_at` — the SAST rule set "
+                        "has no recency floor (issue #2283)")
+    else:
+        try:
+            captured_dt = _dt.date.fromisoformat(str(captured))
+        except ValueError:
+            problems.append(f"digests.json: `semgrep.rules_captured_at` {captured!r} is not an "
+                            "ISO date (issue #2283)")
+        else:
+            age = (_dt.date.today() - captured_dt).days
+            if age > RULES_BASELINE_DAYS:
+                problems.append(f"digests.json: `semgrep.rules_captured_at` is {captured} — the "
+                                f"committed semgrep rule pack is {age} days old, older than the "
+                                f"declared recency baseline {RULES_BASELINE_DAYS} days — re-resolve "
+                                "p/default and re-pin (issue #2283)")
+    if not count:
+        problems.append("digests.json: `semgrep` has no `rules_count` — the SAST rule set has no "
+                        "parity target against upstream p/default (issue #2283)")
     for tool in TOOLS:
         baseline = scanner_baseline(tool)
         version = (recorded.get(tool) or {}).get("version")
