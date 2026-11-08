@@ -198,6 +198,37 @@ def test_engine_build_serialises_publishing_runs_but_not_a_narrow_dispatch():
     assert cancel is False or str(cancel).lower() == "false", cancel
 
 
+def test_engine_build_pending_push_queue_runs_fifo():
+    """A pending engine-build push run is never superseded by the next dispatch (#2294).
+
+    `engine-build.yml`'s shared push concurrency group must set `queue: max`. GitHub's default is
+    `queue: single`, which cancels-and-replaces a PENDING run in the group the instant another run
+    lands (".github/workflows/engine-build.yml" declares no such default; a comment that only
+    *mentions* the word must not satisfy the assertion). `cancel-in-progress: false` protects only
+    the RUNNING holder, never the pending producers, so every newer push=true dispatch was killing
+    the older pending one — measured supersede chain 42522061057→42524063205, six engine-bump PRs
+    red with `producer cancelled — nothing to wait for`.`
+    """
+    # Given the engine-build workflow's concurrency block, parsed (not grepped)
+    conc = _load("engine-build.yml").get("concurrency")
+    assert conc, "engine-build.yml declares no concurrency block"
+
+    # Then  the shared push group exists...
+    group = conc.get("group")
+    assert group is not None, "engine-build.yml concurrency block has no group"
+    assert "push" in str(group), (
+        f"engine-build.yml group {group!r} is not the contended push group"
+    )
+
+    # And  a pending push run queues FIFO instead of being silently cancelled and replaced.
+    # `max` (<= 100 pending) is GitHub's queueing value; the bare default is `single`.
+    assert conc.get("queue") == "max", (
+        "engine-build.yml must set concurrency.queue = max on the shared push group: the default "
+        "queue:single cancels-and-replaces a pending push producer on every newer dispatch, leaving "
+        "engine-bump triggers 'producer cancelled — nothing to wait for' (#2294)"
+    )
+
+
 def test_the_unconditional_cancel_escape_needs_the_marker_in_the_workflow(tmp_path):
     """The hatch is one greppable line, so an unexplained `true` cannot ride along with a reasoned one."""
     reasoned = tmp_path / "a.yml"
