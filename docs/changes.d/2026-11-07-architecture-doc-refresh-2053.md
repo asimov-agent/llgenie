@@ -1,0 +1,1 @@
+| 2026-11-07 | Refresh docs/ARCHITECTURE.md for the tree at main cb6c56a9: the architecture doc lagged the code (last updated at 171b4fe76676) and was re-derived from real git state by the architecture bot, so its census again matches the tree; closes #2052 | [2026-11-07-architecture-doc-refresh-2053.md](agent-wiki/2026-11-07-architecture-doc-refresh-2053.md) | #2053 |
