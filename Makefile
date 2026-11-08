@@ -71,7 +71,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	engine-gate-report engine-skill-gap engine-skill-gap-md spawn-engine-skill-issues engine-skill-scaffold registry-change-report sync-change-issue registry-review-brief registry-sync-review registry-review-publish sync-strata-models check-strata-models check-wiring wiring-report check-secret-output secret-output-report \
 	secret-scan secret-scan-history secret-scan-self-test \
 	queued-alarm check-zero-job-pending stale-branch-cleanup issue-cleaner-scan issue-cleaner-apply worktree-report worktree-prune fix-loop fix-loop-image fix-bot-sweep fix-bot-report agent-image-ref issue-bot-dispatch issue-bot-open-pr issue-bot-image ci-requeue-cancelled ci-frozen-reaper issue-bot-pr-body-check agent-repo-ownership \
-	issue-bot-triage issue-bot-changed issue-bot-verdict issue-bot-gates issue-bot-gates-check lane-preflight implement-issue hermes-smoke agent-jev-preflight jev-preflight-required nerve-profile-check code-review-scan code-review-file rebase-bot-sweep rebase-bot rebase-bot-abort \
+	issue-bot-triage issue-bot-changed issue-bot-verdict issue-bot-gates issue-bot-gates-check lane-preflight implement-issue hermes-smoke agent-jev-preflight jev-preflight-required nerve-profile-check code-review-scan code-review-file rebase-bot-sweep rebase-bot rebase-bot-abort memory-check \
 	engine-params-review-brief engine-params-review engine-params-review-apply \
 	architecture-bot-brief architecture-bot-doc architecture-bot-publish architecture-bot check-arms arms-report \
 	scrub-log \
@@ -677,6 +677,9 @@ issue-bot-gates-check: ## CI: fail when a ci-unit gate is classified neither fas
 
 lane-preflight: ## Run the FAST gates before a host lane pushes, printing one line per gate and a final verdict; imports FAST_GATES from issue_bot_gates.py (one list) and refuses a dirty tree so the verdict describes the would-be-pushed head (issue #1058)
 	python3 scripts/lane_preflight.py run
+
+memory-check: # (issue #2057, vehicle B) Verify fleet memory wiring against the live Hindsight daemon and the shared hermes.env, naming any profile whose endpoint/model disagrees or whose LLM key is empty. HOST-ONLY: reads /proc and the host profile tree; it carries no make-help line on purpose (a help line would force documentation in docs/BOTS.md, which vehicle A owns as its own PR) and never runs on a bare runner.
+	python3 scripts/hindsight_memory_check.py check
 
 # The JEV preflight (issue #238). The agent image carries the Nerve/JEV decision layer, which
 # is what makes a bot run cheaper and more correct: the layer answers "is this the right next

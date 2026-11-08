@@ -22,7 +22,9 @@ list), so this command does not run it by default — pass `--gates check-import
 
 `make lane-preflight` runs the same set the issue-bot runs — the `FAST_GATES` tuple from
 `scripts/issue_bot_gates.py`, **imported, never restated** so the "one list" property of #475 holds
-and adding a gate stays a single edit — and prints one line per gate plus a final verdict.
+and adding a gate stays a single edit — plus the host-only `HOST_GATES` (`memory-check`, issue
+#2057, vehicle B) that read the live machine and so belong to a host lane, never to a bare runner
+— and prints one line per gate plus a final verdict.
 
 Two properties this adds over `make issue-bot-gates`:
 
@@ -63,6 +65,13 @@ from scripts.issue_bot_gates import FAST_GATES  # noqa: E402  (the single gate l
 
 REPO = _REPO
 
+#: Host-ONLY gates appended on top of FAST_GATES for a lane pushing from the host. These read
+#: the live machine (/proc, the host profile tree) and so can never be part of the #475 FAST
+#: list that ci-unit and the issue-bot run on a bare runner; they are exactly what the issue-bot
+#: cannot check. `memory-check` (issue #2057, vehicle B) verifies the fleet Hindsight wiring
+#: against the live daemon, so a dispatch cannot start on a flipped endpoint.
+HOST_GATES: tuple[str, ...] = ("memory-check",)
+
 
 
 def dirty_tracked_files(root: Path) -> list[str]:
@@ -90,12 +99,15 @@ def dirty_tracked_files(root: Path) -> list[str]:
     return changed
 
 
-def run(root: Path = REPO, gates: tuple[str, ...] = FAST_GATES) -> int:
+def run(root: Path = REPO, gates: tuple[str, ...] | None = None) -> int:
     """Run every gate, print `<gate>: rc=<n>` for each, and print the final verdict.
 
     Unlike `issue-bot-gates` (which stops at the first red because it gates a push), this runs the
-    whole set so a lane sees every failure in one pass.
+    whole set so a lane sees every failure in one pass. The default gate set is the #475 FAST_GATES
+    plus the host-only HOST_GATES (`memory-check`), since this command is a host-lane command.
     """
+    if gates is None:
+        gates = FAST_GATES + HOST_GATES
     dirty = dirty_tracked_files(root)
     if dirty:
         print("[lane-preflight] the working tree differs from HEAD on tracked file(s):",
@@ -128,10 +140,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("cmd", choices=("run",))
     ap.add_argument("--root", default=str(REPO),
                     help="the checkout to run in (default: this repo)")
-    ap.add_argument("--gates", nargs="+", default=list(FAST_GATES),
-                    help="the gates `run` executes, in order (default: FAST_GATES)")
+    ap.add_argument("--gates", nargs="+", default=None,
+                    help="the gates `run` executes, in order (default: FAST_GATES + host-only HOST_GATES)")
     a = ap.parse_args(argv)
-    return run(Path(a.root), tuple(a.gates))
+    return run(Path(a.root), tuple(a.gates) if a.gates is not None else None)
 
 
 if __name__ == "__main__":
