@@ -54,6 +54,7 @@ import argparse
 import datetime as dt
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -282,6 +283,90 @@ def claim_pr(repo: str, pr: dict) -> None:
                                   run_id=os.environ.get("GITHUB_RUN_ID"))])
 
 
+class DispatchRefused(RuntimeError):
+    """`gh workflow run` was REFUSED by the API: the status, and the scope the credential lacks.
+
+    A refusal is not a crash in the reactor (issue #2086): it is the repair leg saying it cannot act
+    with the credential it was given. It carries the facts a maintainer needs — the HTTP status and
+    which scope the token is missing — so the reactor can POST them on the PR instead of dying with a
+    stderr line nobody reads (`Resource not accessible by personal access token`, run 42442836444).
+    """
+
+    def __init__(self, status: "int | None", detail: str):
+        self.status = status
+        self.detail = " ".join((detail or "").split())
+        self.missing_scope = missing_scope(status)
+        super().__init__(f"dispatch refused: HTTP {status or '?'} - {self.missing_scope} "
+                         f"({self.detail or 'no detail'})")
+
+    def headline(self) -> str:
+        """`HTTP 403 - missing scope: …`, the sentence a reader gets on the PR."""
+        return f"HTTP {self.status or '?'} — {self.missing_scope}"
+
+
+#: `gh`'s refusal shape: `... HTTP 403: Resource not accessible by personal access token (https://…)`.
+_HTTP_STATUS_RE = re.compile(r"HTTP\s+(\d{3})\b")
+
+#: What the status means for the DISPATCH credential, in the terms the API itself uses. The dispatch
+#: endpoint needs the `workflow` scope on a classic PAT (`Actions: write` on a fine-grained one); a
+#: 401 means no scope helps, and a 404 means the workflow is not visible to the token at all.
+_SCOPE_BY_STATUS = {
+    401: "missing scope: none — the credential is invalid or expired",
+    403: ("missing scope: `workflow` (classic PAT) or `Actions: write` (fine-grained PAT) — "
+          "the dispatch endpoint requires it"),
+    404: ("missing scope: `Actions: read`/`write` on this repository — the workflow is not "
+          "visible to the credential"),
+}
+
+
+def missing_scope(status: "int | None") -> str:
+    """The scope a dispatch credential lacks for this HTTP status, in words a maintainer can act on."""
+    return _SCOPE_BY_STATUS.get(status or 0,
+                                "missing scope: unknown — the API did not name a known refusal")
+
+
+def parse_dispatch_refusal(stderr: str) -> DispatchRefused:
+    """Turn `gh workflow run`'s stderr into a `DispatchRefused` (issue #2086).
+
+    Never swallows an unrecognised refusal: an unparseable message is reported with no status rather
+    than dropped, because "the API answered something we do not understand" is still no repair.
+    """
+    detail = (stderr or "").strip()
+    found = _HTTP_STATUS_RE.search(detail)
+    return DispatchRefused(int(found.group(1)) if found else None, detail)
+
+
+def report_repair_unavailable(repo: str, pr: dict, run_id: int, refused: DispatchRefused) -> None:
+    """Post the refusal on the PR and RELEASE the claim - never red the whole reactor job (#2086).
+
+    The board must say *no repair* rather than nothing at all. Without this the refusal is a stderr
+    line inside a red `run-failure-reactor` run on `main`, which reads like a main-tip failure, and
+    the PR it was trying to repair says nothing — while the claim written just before the dispatch
+    keeps every other bot off that PR for the whole TTL.
+    """
+    now = dt.datetime.now(dt.timezone.utc)
+    body = "\n".join([
+        bot_claims.done_comment(RUN_FIXER, now, "repair-unavailable"),
+        f"**repair unavailable: {refused.headline()}**",
+        "",
+        f"`{RUN_FIXER}` could not wake `fix-bot` for this branch, so no automatic repair is running "
+        f"for run {run_id}. The dispatch credential was refused:",
+        "",
+        f"```\n{refused.detail or '(no detail from gh)'}\n```",
+        "",
+        "A human `fix-bot` dispatch, or its hourly sweep, is the repair path until the dispatch "
+        "credential carries that scope (issue #2086). This comment is the claim released, not a "
+        "skip: the branch is left to a human.",
+    ])
+    _gh(["pr", "comment", str(pr["number"]), "--repo", repo, "--body", body])
+    # A workflow annotation survives the PR being closed and is visible in the Actions UI, where a
+    # maintainer scanning reds actually looks (the job itself stays green, issue #2086).
+    print(f"::warning::run {run_id}: repair unavailable for #{pr['number']} - {refused.headline()}",
+          file=sys.stderr, flush=True)
+    print(f"[run-fixer] run {run_id} -> REPAIR UNAVAILABLE for #{pr['number']}: "
+          f"{refused.headline()} - posted on the PR", flush=True)
+
+
 def dispatch_fix_bot(repo: str, pr: dict, check: str = "make ci-unit") -> None:
     """Dispatch the EXISTING fix-bot for this PR, as the OWNER (issue #555).
 
@@ -290,6 +375,9 @@ def dispatch_fix_bot(repo: str, pr: dict, check: str = "make ci-unit") -> None:
     that died in its own guard (measured: run `39917926028`). So the dispatch takes its credential
     from the environment (`DISPATCH_TOKEN`), never from argv, and a missing one fails LOUDLY instead
     of producing a red no-op run we would then file an issue about.
+
+    A REFUSAL of the dispatch (the token lacks the scope the endpoint needs, measured: HTTP 403 on
+    run `42442836444`) is raised as `DispatchRefused` so the caller can post it on the PR (#2086).
     """
     token = (os.environ.get(DISPATCH_TOKEN_ENV) or "").strip()
     if not token:
@@ -302,7 +390,7 @@ def dispatch_fix_bot(repo: str, pr: dict, check: str = "make ci-unit") -> None:
                         "-f", f"check={check}", "-f", "rounds=3"],
                        capture_output=True, text=True, env=dict(os.environ, GH_TOKEN=token))
     if r.returncode != 0:
-        raise RuntimeError(f"dispatch failed: {r.stderr.strip()}")
+        raise parse_dispatch_refusal(r.stderr)
 
 
 def _fork_pr(repo: str, rest: dict, run_id: int) -> dict | None:
@@ -548,7 +636,15 @@ def route(repo: str, run_id: int, check: str = "make ci-unit", dry: bool = False
             return 0
         if not dry:
             claim_pr(repo, pr)
-            dispatch_fix_bot(repo, pr, check)
+            try:
+                dispatch_fix_bot(repo, pr, check)
+            except DispatchRefused as refused:
+                # A credential refusal is NOT this job's failure (#2086): posting it on the PR is
+                # what makes the board say "no repair", and staying green keeps the reactor's own
+                # reds meaning "the reactor broke". The claim written above is released in the same
+                # comment, so the PR is not left occupied for the whole TTL.
+                report_repair_unavailable(repo, pr, run_id, refused)
+                return 0
         print(f"[run-fixer] run {run_id} -> dispatched the fix-bot for #{pr['number']}",
               flush=True)
         return 0

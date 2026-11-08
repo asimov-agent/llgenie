@@ -1,0 +1,1 @@
+| 2026-11-08 | issue #2086: a refused fix dispatch is posted on the PR ("repair unavailable: HTTP 403 — missing scope: …") and releases the claim, instead of reddening the reactor; the credential itself is #2091 | [2026-11-08-2086-refused-dispatch-surface.md](agent-wiki/2026-11-08-2086-refused-dispatch-surface.md) | #2086, #2091 |

@@ -1862,6 +1862,15 @@ make run-failure-reactor REPO=asimov-agent/llgenie RUN_ID=<run> DRY=1   # previe
   the environment only) because the dispatched run's actor is the token's identity and every guarded
   workflow here refuses `github-actions[bot]` — a dispatch with the job token died in fix-bot's own
   guard (run `39917926028`). A missing `DISPATCH_TOKEN` is a loud failure, never a red no-op run.
+- **A REFUSED dispatch is reported on the PR, and does not red the job (issue #2086).** A dispatch
+  credential without the endpoint's scope is refused `HTTP 403 … Resource not accessible by personal
+  access token` (measured run `42442836444`, head `e51f2fd0`): the whole repair leg is dead and only
+  red PRs ever reach it, so nothing else names it. `scripts/run_failure_reactor.py` parses the status
+  and the scope the credential lacks (`workflow` on a classic PAT, `Actions: write` on a fine-grained
+  one), **posts `repair unavailable: HTTP 403 — missing scope: …` on the PR** together with the
+  claim's release (`bot-done`), and stays green with an `::warning::` annotation — the reactor's own
+  reds must keep meaning "the reactor broke", while the board reads *no repair* instead of nothing.
+  An unparseable refusal is surfaced the same way, with `HTTP ?`, never swallowed.
 - **Route B** — no pushable PR (a red `main` push, a red scheduled bot run, a red publish job):
   the reactor files **exactly ONE** issue whose title names the workflow + failing job, whose body
   carries the failing job, its step, and a tail of `gh run view --log-failed`, deduped by the
