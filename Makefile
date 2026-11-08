@@ -72,6 +72,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	secret-scan secret-scan-history secret-scan-self-test \
 	queued-alarm check-zero-job-pending stale-branch-cleanup issue-cleaner-scan issue-cleaner-apply worktree-report worktree-prune fix-loop fix-loop-image fix-bot-sweep fix-bot-report agent-image-ref issue-bot-dispatch issue-bot-open-pr issue-bot-image ci-requeue-cancelled ci-frozen-reaper issue-bot-pr-body-check agent-repo-ownership \
 	issue-bot-triage issue-bot-changed issue-bot-verdict issue-bot-gates issue-bot-gates-check lane-preflight implement-issue hermes-smoke agent-jev-preflight jev-preflight-required nerve-profile-check code-review-scan code-review-file rebase-bot-sweep rebase-bot rebase-bot-abort \
+	memory-install memory-bootstrap memory-verify memory-check \
 	engine-params-review-brief engine-params-review engine-params-review-apply \
 	architecture-bot-brief architecture-bot-doc architecture-bot-publish architecture-bot check-arms arms-report \
 	scrub-log \
@@ -902,6 +903,18 @@ _hermes-smoke: # (internal) one real Hermes call that MUST use its terminal tool
 	python3 scripts/hermes_smoke.py run --alias $(nous-model) --reasoning low
 nerve-profile-check: ## Probe the rule the agent image build enforces: a nerve setting whose module the selected profile does not register is inert, so the build fails (issue #611)
 	python3 scripts/nerve_profile_check.py --self-test
+
+memory-install:
+	@[ "$${DRY_RUN:-0}" = "1" ] && python3 scripts/memory_bootstrap.py install --dry-run || python3 scripts/memory_bootstrap.py install
+
+memory-bootstrap:
+	python3 scripts/memory_bootstrap.py bootstrap $${PROFILE:+--profiles $$PROFILE} $${DRY_RUN:+--dry-run}
+
+memory-verify:
+	python3 scripts/memory_bootstrap.py verify $${PROFILE:+--profiles $$PROFILE}
+
+memory-check:
+	python3 scripts/memory_bootstrap.py verify $${PROFILE:+--profiles $$PROFILE}
 
 sync-strata-models: ## Write data/strata_models.json from Strata's setup.py at the skill's pinned commit (the GGUF files Strata runs)
 	python3 scripts/strata_models.py sync
