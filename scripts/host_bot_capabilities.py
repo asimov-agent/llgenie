@@ -35,6 +35,7 @@ REPO_SKILL_PROFILES: dict[str, str] = {
     "agents/llgenie-documentation-maintainer/skills/llgenie-docs-maintainer/SKILL.md": "llgenie-documentation-maintainer",
     "agents/llgenie-engine-improver/skills/llgenie-engine-improver/SKILL.md": "llgenie-engine-improver",
     "agents/llgenie-issse-implementer/skills/bulk-mechanical-migration/SKILL.md": "llgenie-issse-implementer",
+    "agents/llgenie-issse-implementer/skills/software-development/bulk-mechanical-migration/SKILL.md": "llgenie-issse-implementer",
     "agents/llgenie-planner/skills/llgenie-bot-orchestration/SKILL.md": "llgenie-planner",
     "agents/llgenie-product-manager/skills/llgenie-product-manager/SKILL.md": "llgenie-product-manager",
     "agents/llgenie-pr-merge-conflict/skills/llgenie-pr-rebase/SKILL.md": "llgenie-pr-merge-conflict",
