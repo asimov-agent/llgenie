@@ -76,9 +76,13 @@ def _root(tmp_path: Path, gate_exit: int = 0) -> Path:
         "".join(f"{t}:\n\t@false\n" for t in sb.GATES), encoding="utf-8")
     bare = tmp_path / "origin.git"
     subprocess.run(["git", "init", "--bare", "-q", str(bare)], check=True)
-    for argv in (["git", "init", "-q"], ["git", "add", "-A"],
+    # A real checkout stands on `main` and has `origin/main`: the bot measures the `AGENTS:`/`BASE:`
+    # stamp's rulebook there before it opens the PR (issue #2050), so the fixture must offer it.
+    (root / "AGENTS.md").write_text("# Rules\n\n## Problem\n", encoding="utf-8")
+    for argv in (["git", "init", "-q", "-b", "main"], ["git", "add", "-A"],
                  ["git", "-c", "user.name=t", "-c", "user.email=t@example.com",
-                  "commit", "-qm", "init"], ["git", "remote", "add", "origin", str(bare)]):
+                  "commit", "-qm", "init"], ["git", "remote", "add", "origin", str(bare)],
+                 ["git", "push", "-q", "-u", "origin", "main"]):
         subprocess.run(argv, cwd=root, check=True, capture_output=True)
     return root
 
@@ -225,6 +229,11 @@ def test_green_gates_edit_push_and_open_the_pr(tmp_path, monkeypatch):
     body = (root / ".git" / "security-bot-pr-body.md").read_text(encoding="utf-8")
     for part in ("Issue:", "Fix:", "Benefit:", "Technical:", "closes #42"):
         assert part in body, part
+    # The body opened with the preflight pair, measured from the repo's own main (issue #2050).
+    import scripts.bot_preflight as bp_mod
+    record = bp_mod.rulebook(root, "main")
+    assert bp_mod.agents_line(record) in body.splitlines(), body
+    assert bp_mod.base_line(record) in body.splitlines(), body
     assert "pr create" in log.read_text()
 
 

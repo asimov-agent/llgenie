@@ -399,6 +399,16 @@
    "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
   },
   {
+   "from": "security_bot",
+   "to": "bot_preflight",
+   "reason": "bot_preflight is the ONE AGENTS:/BASE: stamp authority (issue #2050); the security-bot opens its PR through the same seam every other producer uses."
+  },
+  {
+   "from": "security_bumps",
+   "to": "bot_preflight",
+   "reason": "bot_preflight is the ONE AGENTS:/BASE: stamp authority (issue #2050); the security-bumps PR is stamped by the same seam every other producer uses."
+  },
+  {
    "from": "security_issues",
    "to": "issue_body",
    "reason": "a finding is filed through the ONE issue-body renderer (issue #745)."

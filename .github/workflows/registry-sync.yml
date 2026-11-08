@@ -190,8 +190,13 @@ jobs:
           # The author a reviewer sees, before the diff (issue #840), read from the same seam that set
           # the identity of the commit above.
           body=$(printf '%s\n\n%s' "$(make -s git-identity-line)" "$body")
+          # The `AGENTS:`/`BASE:` pair is written by the seam that OPENS the PR, not by a leg
+          # remembering `make bot-preflight` (issue #2050). BASE=main because this job checks
+          # `ref: main` out and branches from it, so that local branch IS origin/main at open.
+          printf '%s\n' "$body" > /tmp/pr-body.md
+          make bot-stamp-body BODY=/tmp/pr-body.md BASE=main REFS=origin/main
           if gh pr view chore/registry-sync --json state -q .state 2>/dev/null | grep -q OPEN; then
-            gh pr edit chore/registry-sync --title "chore(registry): sync models.json ($UTC)" --body "$body"
+            gh pr edit chore/registry-sync --title "chore(registry): sync models.json ($UTC)" --body-file /tmp/pr-body.md
           else
-            gh pr create --base main --head chore/registry-sync --title "chore(registry): sync models.json ($UTC)" --body "$body"
+            gh pr create --base main --head chore/registry-sync --title "chore(registry): sync models.json ($UTC)" --body-file /tmp/pr-body.md
           fi

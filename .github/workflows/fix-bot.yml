@@ -308,19 +308,44 @@ jobs:
         env:
           BRANCH: ${{ steps.pr.outputs.branch }}
 
+      # The body a repair leaves behind must satisfy the same gate as a fresh PR (issue #2050): the
+      # preflight pair is re-measured and re-written when the branch was synced onto the latest main
+      # (a sync moves the base; a repair that could not sync keeps the base it opened with).
+      - name: "Re-stamp the repaired PR body with the preflight AGENTS/BASE pair (issue #2050)"
+        id: stamp
+        if: steps.pr.outputs.number != '' && steps.push.outputs.pushed != '' && steps.sync.outputs.rc == '0'
+        env:
+          NUM: ${{ steps.pr.outputs.number }}
+        run: |
+          set -euo pipefail
+          gh pr view "$NUM" --repo "${{ github.repository }}" --json body -q .body > /tmp/pr-body.md
+          cp /tmp/pr-body.md /tmp/pr-body.before.md
+          make bot-stamp-body BODY=/tmp/pr-body.md
+          if cmp -s /tmp/pr-body.before.md /tmp/pr-body.md; then
+            echo "stamped=0" >> "$GITHUB_OUTPUT"
+          else
+            gh pr edit "$NUM" --repo "${{ github.repository }}" --body-file /tmp/pr-body.md
+            echo "stamped=1" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Comment the outcome on the PR
         if: always() && steps.pr.outputs.number != ''
         env:
           NUM: ${{ steps.pr.outputs.number }}
           OUTCOME: ${{ steps.loop.outcome }}
+          PUSHED: ${{ steps.push.outputs.pushed }}
           REPORT: /tmp/fix-report.txt
         run: |
           set -uo pipefail
           {
-            if [ "$OUTCOME" = "success" ]; then
+            if [ "$OUTCOME" = "success" ] && [ -n "${PUSHED:-}" ]; then
               echo "The fix-bot ran \`${FIX_CHECK}\`, repaired the failure, and the check is GREEN again."
               echo
-              echo "Pushed as one commit with the owner PAT, so CI re-runs on the new head. A human still reviews — the bot never merges."
+              echo "Pushed \`${PUSHED}\` as one commit with the owner PAT, so CI re-runs on the new head. A human still reviews — the bot never merges."
+            elif [ "$OUTCOME" = "success" ]; then
+              # issue #2050: the loop's own verdict is not the fact. A green loop with a clean tree
+              # pushed NOTHING, and claiming a push that never landed is what #2051 measured.
+              echo "The fix-bot ran \`${FIX_CHECK}\` and ended green with NO tree change to commit — the PR head did not move, so there is nothing new to re-test. A human still reviews — the bot never merges."
             else
               make fix-bot-report REPORT="$REPORT" CHECK="$FIX_CHECK" 2>/dev/null \
                 || echo "The fix-bot ran \`${FIX_CHECK}\` and it is still failing after ${FIX_ROUNDS} attempts; leaving it for a human."

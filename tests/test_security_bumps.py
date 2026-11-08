@@ -97,9 +97,13 @@ def _root(tmp_path: Path, compiled: dict[str, str] | None = None, gate_exit: int
         encoding="utf-8")
     bare = tmp_path / "origin.git"
     subprocess.run(["git", "init", "--bare", "-q", str(bare)], check=True)
-    for argv in (["git", "init", "-q"], ["git", "add", "-A"],
+    # A real checkout stands on `main` and has `origin/main`: the bot measures the `AGENTS:`/`BASE:`
+    # stamp's rulebook there before it opens the PR (issue #2050), so the fixture must offer it.
+    (root / "AGENTS.md").write_text("# Rules\n\n## Problem\n", encoding="utf-8")
+    for argv in (["git", "init", "-q", "-b", "main"], ["git", "add", "-A"],
                  ["git", "-c", "user.name=t", "-c", "user.email=t@example.com",
-                  "commit", "-qm", "init"], ["git", "remote", "add", "origin", str(bare)]):
+                  "commit", "-qm", "init"], ["git", "remote", "add", "origin", str(bare)],
+                 ["git", "push", "-q", "-u", "origin", "main"]):
         subprocess.run(argv, cwd=root, check=True, capture_output=True)
     return root
 

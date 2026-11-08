@@ -54,6 +54,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import bot_claims  # the shared claim protocol (scripts/bot_claims.py)
+import bot_preflight  # the ONE AGENTS:/BASE: stamp authority (issues #792/#845/#2050)
 import git_identity  # the ONE source of the commit identity + the PR body's Author line (issue #840)
 
 # How the cap recognises the bot's OWN PRs (issue #409). The author alone is not it:
@@ -413,10 +414,15 @@ def body_problems(text: str) -> list[str]:
     return problems
 
 
-def render_pr_body(text: str, num: int, diffstat: str) -> str:
-    """Validate the agent's PR body and compose it with the commit's own file list.
+def render_pr_body(text: str, num: int, diffstat: str, record: dict) -> str:
+    """Validate the agent's PR body and compose it with the commit's own file list, stamped.
 
     Refuses — loudly, naming what is missing — rather than opening a PR whose description says nothing.
+
+    `record` is the rulebook measurement (`bot_preflight.rulebook`) the `AGENTS:`/`BASE:` pair is written
+    from, and it is REQUIRED: a bot PR opened without that pair is redded by `make check-pr-agents-line`
+    before any substantive CI runs, which is the defect #2050 names. The body's stamp is therefore
+    written by the seam that opens the PR — never by the agent remembering `make bot-preflight`.
     """
     problems = body_problems(text)
     if problems:
@@ -428,8 +434,10 @@ def render_pr_body(text: str, num: int, diffstat: str) -> str:
     stat = diffstat.strip() or "(the pushed commit's file list is unavailable)"
     # The author a reviewer sees, before the diff (issue #840): the identity the bot commits as, from
     # the ONE seam that sets it — so a mismatch is visible without `gh api`.
-    return (f"{git_identity.pr_author_line()}\n\n{text.strip()}\n\nFiles changed:\n\n"
+    body = (f"{git_identity.pr_author_line()}\n\n{text.strip()}\n\nFiles changed:\n\n"
             f"```\n{stat}\n```\n\ncloses #{num}\n")
+    # The stamp LAST, flush-left, through the gate's own authority (issue #2050).
+    return bot_preflight.stamp_body(body, record)
 
 
 def diffstat(git: str = "git") -> str:
@@ -439,8 +447,14 @@ def diffstat(git: str = "git") -> str:
 
 
 def open_pr(gh: str, repo: str, num: int, branch: str, title: str, body_file: str = PR_BODY_FILE,
-            dry: bool = False, git: str = "git") -> str:
-    """Open a draft-free PR linking the issue, built from the run's material. Never merges."""
+            dry: bool = False, git: str = "git", record: dict | None = None) -> str:
+    """Open a draft-free PR linking the issue, built from the run's material. Never merges.
+
+    The body is stamped here, at OPEN (issue #2050): `record` is the rulebook measurement, resolved
+    from `origin/main` (then the checkout's own `main`) when the caller does not supply one. A
+    checkout where neither resolves is REFUSED — opening an unstamped bot PR is what redded five of
+    them at once, so "cannot measure" fails the leg instead of shipping a body no gate accepts.
+    """
     if not title:
         title = str(_thread(gh, repo, num).get("title") or "")
     pr_title_text = pr_title(title, num)
@@ -449,7 +463,14 @@ def open_pr(gh: str, repo: str, num: int, branch: str, title: str, body_file: st
         raise SystemExit(f"[issue-implementer] {path} is missing: the implement step must write the "
                          f"PR body ({', '.join(PR_PARTS)}) at the repo root; refusing to open a PR "
                          f"whose description says nothing (issue #429)")
-    body = render_pr_body(path.read_text(), num, diffstat(git))
+    if record is None:
+        try:
+            record = bot_preflight.resolve_record(Path.cwd(), bot_preflight.BASE,
+                                                  ("origin/HEAD", "main"))
+        except bot_preflight.PreflightError as exc:
+            raise SystemExit(f"[issue-implementer] refusing to open a PR without its "
+                             f"`AGENTS:`/`BASE:` stamp (issue #2050): {exc}")
+    body = render_pr_body(path.read_text(), num, diffstat(git), record)
     if dry:
         print(f"[issue-implementer] would open {pr_title_text} from {branch} -> main")
         print(body)

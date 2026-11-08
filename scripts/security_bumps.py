@@ -41,6 +41,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
+import bot_preflight  # noqa: E402  the ONE AGENTS:/BASE: stamp authority (issue #2050)
 import git_identity  # noqa: E402  the ONE source of the commit identity (issue #840)
 import security_issues as si  # noqa: E402
 import security_scan as ss  # noqa: E402
@@ -218,7 +219,8 @@ def matched_issues(fl: dict[str, Floor], repo: str) -> dict[int, Floor]:
 
 
 def pr_body(fl: dict[str, Floor], moved: list[tuple[str, str, str]],
-            issues: dict[int, Floor], root: Path = REPO) -> str:
+            issues: dict[int, Floor], root: Path = REPO, record: dict | None = None) -> str:
+    """The PR body, stamped with the `AGENTS:`/`BASE:` pair when a record is supplied (issue #2050)."""
     lines = [
         # The author a reviewer sees, before the diff (issue #840).
         git_identity.pr_author_line(),
@@ -246,7 +248,8 @@ def pr_body(fl: dict[str, Floor], moved: list[tuple[str, str, str]],
     ]
     if issues:
         lines += ["", "closes " + ", closes ".join(f"#{n}" for n in issues)]
-    return "\n".join(lines) + "\n"
+    body = "\n".join(lines) + "\n"
+    return bot_preflight.stamp_body(body, record) if record else body
 
 
 def branch_targets(root: Path) -> list[Path]:
@@ -301,6 +304,12 @@ def apply(repo: str, root: Path = REPO, dry: bool = False, reports: Path | None 
             path.write_text(before, encoding="utf-8")
         print(f"[security-bumps] gates red after the bump — reverted, no PR\n{output[-4000:]}")
         return 1
+    # The rulebook measurement comes BEFORE any git mutation, so a checkout that cannot name main
+    # refuses here instead of leaving a pushed branch behind (issue #2050).
+    try:
+        record = bot_preflight.resolve_record(root, bot_preflight.BASE, ("origin/HEAD", "main"))
+    except bot_preflight.PreflightError as exc:
+        raise SystemExit(f"[security-bumps] refusing to open an unstamped PR (issue #2050): {exc}")
     issues = matched_issues(fl, repo)
     branch = BRANCH
     # The identity comes from the ONE seam that sets it (`scripts/git_identity.py`, issue #840).
@@ -323,7 +332,7 @@ def apply(repo: str, root: Path = REPO, dry: bool = False, reports: Path | None 
         if res.returncode != 0:
             print(f"[security-bumps] `{' '.join(step)}` failed:\n{res.stderr.strip()[-2000:]}")
             return 1
-    body = pr_body(fl, moved, issues, root)
+    body = pr_body(fl, moved, issues, root, record)
     body_file = root / ".git" / "security-bumps-pr-body.md"
     body_file.write_text(body, encoding="utf-8")
     existing = _gh(["pr", "list", "--head", branch, "--state", "open", "--json", "number"], repo)

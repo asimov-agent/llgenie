@@ -25,9 +25,19 @@ import pytest
 
 REPO = Path(__file__).resolve().parent.parent
 
+from scripts import bot_preflight as bp
 from scripts import issue_implementer as ii
 
 MAKEFILE = (REPO / "Makefile").read_text()
+
+#: The rulebook measurement the `AGENTS:`/`BASE:` stamp is written from (issues #792/#845/#2050).
+RECORD = {
+    "main": "cb6c56a955124d58818d595bca34c4d60745c0ab",
+    "agents_bytes": 91766,
+    "agents_lines": 1363,
+    "agents_headings": 42,
+    "agents_headings_sha256": "0" * 64,
+}
 
 GOOD = (
     "Issue: #11 — the smoke proves a sentence, not a tool call\n\n"
@@ -62,7 +72,7 @@ def test_a_body_missing_a_part_is_refused():
 
     # When  it is rendered
     with pytest.raises(SystemExit) as refused:
-        ii.render_pr_body(thin, 11, " scripts/x.py | 1 +\n")
+        ii.render_pr_body(thin, 11, " scripts/x.py | 1 +\n", RECORD)
 
     # Then  the missing part is named
     assert "Benefit:" in str(refused.value), refused.value
@@ -76,7 +86,7 @@ def test_a_part_with_no_content_is_refused():
 
     # When  it is rendered
     with pytest.raises(SystemExit) as refused:
-        ii.render_pr_body(empty, 11, "")
+        ii.render_pr_body(empty, 11, "", RECORD)
 
     # Then  the empty part is named
     assert "Fix:" in str(refused.value), refused.value
@@ -90,7 +100,7 @@ def test_a_body_that_does_not_name_the_issue_is_refused():
 
     # When  it is rendered for #11
     with pytest.raises(SystemExit) as refused:
-        ii.render_pr_body(unnamed, 11, "")
+        ii.render_pr_body(unnamed, 11, "", RECORD)
 
     # Then  the missing reference is named
     assert "#11" in str(refused.value), refused.value
@@ -103,13 +113,16 @@ def test_a_real_body_carries_the_four_parts_the_stat_and_the_closes_marker():
     stat = " scripts/hermes_smoke.py | 120 ++++++++++++++++++++\n 1 file changed, 120 insertions(+)\n"
 
     # When  it is rendered
-    body = ii.render_pr_body(GOOD, 11, stat)
+    body = ii.render_pr_body(GOOD, 11, stat, RECORD)
 
-    # Then  every part, the file list and the closing marker are present, in that order
+    # Then  every part, the file list and the closing marker are present, in that order, and the
+    # body ENDS with the AGENTS:/BASE: stamp the guard job reads (issue #2050)
     for part in ii.PR_PARTS:
         assert part in body, body
     assert "Files changed:" in body and "scripts/hermes_smoke.py" in body, body
-    assert body.rstrip().endswith("closes #11"), body
+    assert "closes #11" in body, body
+    assert body.rstrip().endswith(bp.base_line(RECORD)), body
+    assert bp.agents_line(RECORD) in body, body
     assert body.index("Issue:") < body.index("Fix:") < body.index("Benefit:") < body.index("Technical:")
 
 

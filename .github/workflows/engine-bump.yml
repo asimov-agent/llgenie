@@ -246,8 +246,14 @@ jobs:
           if [ -s params-review-section.md ]; then
             body="$(printf '%b' "${body}" '\n')$(cat params-review-section.md)"
           fi
+          # The `AGENTS:`/`BASE:` pair is written by the seam that OPENS the PR, not by a leg
+          # remembering `make bot-preflight` (issue #2050: five bot PRs opened unstamped and the guard
+          # job redded all of them). BASE=main because this job checks `ref: main` out and branches
+          # from it, so that local branch IS origin/main at open.
+          printf '%s\n' "$body" > /tmp/pr-body.md
+          make bot-stamp-body BODY=/tmp/pr-body.md BASE=main REFS=origin/main
           if gh pr view "$branch" --json state -q .state 2>/dev/null | grep -q OPEN; then
-            gh pr edit "$branch" --title "chore(engine): bump ${ID} to ${REF}@${NEW:0:8}" --body "$body"
+            gh pr edit "$branch" --title "chore(engine): bump ${ID} to ${REF}@${NEW:0:8}" --body-file /tmp/pr-body.md
           else
-            gh pr create --base main --head "$branch" --title "chore(engine): bump ${ID} to ${REF}@${NEW:0:8}" --body "$body"
+            gh pr create --base main --head "$branch" --title "chore(engine): bump ${ID} to ${REF}@${NEW:0:8}" --body-file /tmp/pr-body.md
           fi

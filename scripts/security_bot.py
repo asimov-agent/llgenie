@@ -39,6 +39,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
+import bot_preflight  # noqa: E402  the ONE AGENTS:/BASE: stamp authority (issue #2050)
 import git_identity  # noqa: E402  the ONE source of the commit identity (issue #840)
 import security_issues as si  # noqa: E402
 from proc import run_ok  # noqa: E402  the subprocess policy seam (issue #797)
@@ -154,8 +155,10 @@ def gates(root: Path = REPO) -> tuple[bool, str]:
     return True, "\n".join(output)
 
 
-def pr_body(target: Target, path: Path, before: str, after: str, root: Path = REPO) -> str:
-    return "\n".join([
+def pr_body(target: Target, path: Path, before: str, after: str, root: Path = REPO,
+            record: dict | None = None) -> str:
+    """The PR body, stamped with the `AGENTS:`/`BASE:` pair when a record is supplied (issue #2050)."""
+    body = "\n".join([
         # The author a reviewer sees, before the diff (issue #840).
         git_identity.pr_author_line(),
         "",
@@ -175,6 +178,7 @@ def pr_body(target: Target, path: Path, before: str, after: str, root: Path = RE
         "",
         f"closes #{target.number}",
     ])
+    return bot_preflight.stamp_body(body, record) if record else body
 
 
 def branch_name(target: Target) -> str:
@@ -217,6 +221,12 @@ def apply(repo: str, root: Path = REPO, dry: bool = False, run_url: str = "") ->
                 f"change, so the branch was dropped.\n\n```\n{output[-4000:]}\n```")
         print("[security-bot] gates red after the edit — reverted, no PR")
         return 1
+    # The rulebook measurement comes BEFORE any git mutation, so a checkout that cannot name main
+    # refuses here instead of leaving a pushed branch behind (issue #2050).
+    try:
+        record = bot_preflight.resolve_record(root, bot_preflight.BASE, ("origin/HEAD", "main"))
+    except bot_preflight.PreflightError as exc:
+        raise SystemExit(f"[security-bot] refusing to open an unstamped PR (issue #2050): {exc}")
     branch = branch_name(target)
     # The identity comes from the ONE seam that sets it (`scripts/git_identity.py`, issue #840): a
     # command-line identity override beats every config layer by design, which is how a
@@ -239,7 +249,7 @@ def apply(repo: str, root: Path = REPO, dry: bool = False, run_url: str = "") ->
         if res.returncode != 0:
             raise SystemExit(f"[security-bot] `{' '.join(step)}` failed: {res.stderr.strip()}")
     body_file = root / ".git" / "security-bot-pr-body.md"
-    body_file.write_text(pr_body(target, path, before, after, root) + "\n", encoding="utf-8")
+    body_file.write_text(pr_body(target, path, before, after, root, record), encoding="utf-8")
     res = _gh(["pr", "create", "--head", branch, "--title",
                f"fix(security): bump {target.package} for {target.advisory}",
                "--body-file", str(body_file)], repo)
