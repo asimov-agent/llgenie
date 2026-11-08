@@ -37,11 +37,18 @@ def _stub_repin(monkeypatch, engine=None) -> None:
         monkeypatch.setattr(ebt.cpp, "repinned_engine_ids", lambda base, root=None: [engine])
 
 
-def _fake_gh(monkeypatch, before_ids=None, new_run=None, guard_conclusion="success", stall_holder=None):
+def _fake_gh(monkeypatch, before_ids=None, new_run=None, guard_conclusion="success", stall_holder=None,
+             single_run_404=False, list_missing=False):
     """A fake `gh`-API recorder. `_gh` is a module-level function (not the `gh` binary), so we stub the API
     read path; the `gh workflow run` dispatch call is a subprocess we neutralize via `_dispatch_and_wait`'s
     `--gh gh` default by replacing NOTHING there — instead we only stub `_gh` and give no branch/ref that
-    would need a real git read for the CODE path under test."""
+    would need a real git read for the CODE path under test.
+
+    `single_run_404=True` models the #2059 poll race: the SINGLE-run endpoint
+    (`/actions/runs/<id>`) answers the API's real 404 body (`{"message":"Not Found","status":"404"}`)
+    while the run LIST still carries the run's true verdict — so `_run_verdict`'s list fallback is what
+    resolves it.
+    """
     state = {"new_id": "77", "guard_conclusion": guard_conclusion, "dispatched": False}
 
     def fake_gh_api(repo, *args, gh="gh"):
@@ -50,6 +57,16 @@ def _fake_gh(monkeypatch, before_ids=None, new_run=None, guard_conclusion="succe
         target_jq = args[2] if len(args) > 2 else ""
         in_progress_ids = {str(stall_holder)} if stall_holder else set()
         if "per_page=100" in target:
+            # #2059 list fallback: `_run_verdict` re-reads a 404'd run from the LIST with the jq
+            # `select((.id|tostring) == "<id>") | {status, conclusion, completed_at}`. Model THAT:
+            # the list carries the true verdict of the dispatched run (single_run_404 only affects
+            # the single-run endpoint).
+            if "select((.id|tostring)" in target_jq:
+                if list_missing:
+                    return ""  # the id is invisible on BOTH endpoints (a genuine unresolved 404)
+                if state["dispatched"] and new_run is not None:
+                    return json.dumps(new_run if isinstance(new_run, dict) else {})
+                return ""
             # The mock models the GitHub API's ACTUAL `.path` shape — no leading slash (the
             # leading-slash spelling in a source filter matches 0 runs and makes discovery
             # always "new run not found"; see openspec/changes/fix-engine-build-trigger-path-filter).
@@ -89,6 +106,14 @@ def _fake_gh(monkeypatch, before_ids=None, new_run=None, guard_conclusion="succe
         if "/jobs" in target:
             return json.dumps({"jobs": [{"name": "guard", "conclusion": state["guard_conclusion"]}]})
         # single-run verdict
+        if single_run_404:
+            # The API's real 404 body — exactly what `gh api .../actions/runs/<id>` prints on stdout
+            # (measured: `{"message":"Not Found",...,"status":"404"}`, rc=1). The old code parsed this
+            # as a dict whose `status` is the literal string "404" and never concluded (issue #2059).
+            return json.dumps({"message": "Not Found",
+                               "documentation_url":
+                                   "https://docs.github.com/rest/actions/workflow-runs#get-a-workflow-run",
+                               "status": "404"})
         return json.dumps(new_run if new_run is not None else {"status": "queued", "conclusion": None})
 
     monkeypatch.setattr(ebt, "_gh", fake_gh_api)
@@ -208,6 +233,49 @@ def test_skipped_producer_terminates_with_named_cause(monkeypatch, capsys):
     assert rc == 1
     captured = capsys.readouterr()
     assert "producer skipped — nothing to wait for" in captured.err
+
+
+def test_a_404_poll_that_is_visible_in_the_run_list_concludes_success(monkeypatch, capsys):
+    """A producer that SUCCEEDED while its single-run endpoint kept answering 404 must conclude SUCCESS.
+
+    Regression for the #2059 hung trigger: the old poll parsed the API's 404 body
+    (`{"message":"Not Found","status":"404"}`) as a run whose `status` is the literal string "404",
+    which matches NO terminal branch, so it polled the full 60-min bound and then reported
+    `never concluded, last status 404` on a producer that had already succeeded (measured: #1982
+    producer 42428385314 `success`). `_run_verdict` re-reads the id from the run LIST, which carries
+    the same fields. A far `--wait-min` proves we do not wait the bound out.
+    """
+    _stub_base(monkeypatch)
+    _stub_repin(monkeypatch, engine="surogate")
+    # The run is INVISIBLE on /actions/runs/<id> but SUCCEEDED in the run list.
+    _fake_gh(monkeypatch, before_ids=[1],
+             new_run={"status": "completed", "conclusion": "success"},
+             single_run_404=True)
+    rc = _run(["check", "--base", _BASE, "--repo", "asimov-agent/llgenie", "--branch", "main",
+               "--wait-min", "120", "--gh", "gh"])
+    assert rc == 0, "a 404-visible-but-successful producer must not red the trigger"
+    captured = capsys.readouterr()
+    assert "producer run 77 success" in captured.out
+
+
+def test_an_unresolved_404_at_expiry_is_named_a_poll_race_not_a_build_failure(monkeypatch, capsys):
+    """When the id resolves on NEITHER endpoint for the whole bound, the failure must SAY so.
+
+    A reader has to be able to tell a poll-visibility race from a producer that genuinely concluded
+    and failed — issue #2059's third acceptance criterion.
+    """
+    _stub_base(monkeypatch)
+    _stub_repin(monkeypatch, engine="surogate")
+    _fake_gh(monkeypatch, before_ids=[1],
+             new_run={"status": "completed", "conclusion": "success"},
+             single_run_404=True, list_missing=True)
+    # --wait-min 0 expires on the first poll, so the test drives the bound instantly.
+    rc = _run(["check", "--base", _BASE, "--repo", "asimov-agent/llgenie", "--branch", "main",
+               "--wait-min", "0", "--gh", "gh"])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "POLL-VISIBILITY race" in err, err
+    assert "not a build result" in err, err
 
 
 def test_wait_expiry_names_the_run_and_last_status(monkeypatch, capsys):

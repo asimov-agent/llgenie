@@ -82,6 +82,40 @@ def _gh(repo: str, *args: str, gh: str = "gh") -> str:
     return _sh([gh, "api", f"repos/{repo}/actions/runs" + (args[0] if args else ""), *args[1:]])
 
 
+def _run_verdict(repo: str, run_id: str, gh: str) -> dict:
+    """Read ONE producer run's `{status, conclusion, completed_at}` — falling back to the run LIST on a 404.
+
+    A just-dispatched producer run can 404 on the SINGLE-run endpoint (`/actions/runs/<id>`) for a whole
+    wait-bound (token scope / propagation race) while that same run carries a live status in the run LIST
+    (`/actions/runs`), and may already have SUCCEEDED (issue #2059; measured producer 42428385314
+    `success` while the trigger polled `last status 404` for the full 60-min bound). The single-run 404
+    body (`{"message":"Not Found","status":"404"}`) parses as a dict that matches NO terminal branch in
+    the await loop, so the old code could never conclude on it. The list entry carries the same
+    `status`/`conclusion` fields, so re-resolve there instead of treating 404 as "not concluded".
+    Returns `{}` when neither endpoint yields a verdict (the loop's deadline still bounds the wait).
+    """
+    raw = _gh(repo, f"{run_id}", "--jq", "{status, conclusion, completed_at}", gh=gh)
+    try:
+        run = json.loads(raw)
+    except json.JSONDecodeError:
+        run = {}
+    if isinstance(run, dict) and run.get("status") != "404" and run.get("message") != "Not Found":
+        return run
+    # The single-run endpoint 404'd. Keep that verdict so a caller's failure message can NAME it
+    # (`last status 404`) rather than reporting an indistinguishable `None` (issue #2059).
+    not_found = run if isinstance(run, dict) and run.get("status") == "404" else {
+        "status": "404", "message": "Not Found"}
+    # The run LIST carries the same fields — resolve from there when it can.
+    raw = _gh(repo, "?per_page=100", "--jq",
+              '.workflow_runs[] | select((.id|tostring) == "%s") | {status, conclusion, completed_at}'
+              % run_id, gh=gh)
+    try:
+        listed = json.loads(raw)
+    except json.JSONDecodeError:
+        listed = {}
+    return listed if isinstance(listed, dict) and listed.get("status") else not_found
+
+
 def repinned(base: str, engine_filter: str = "") -> list[str]:
     """Engine ids this change repins vs `base`, optionally narrowed to one engine."""
     ids = [e for e in cpp.repinned_engine_ids(base) if not engine_filter or e == engine_filter]
@@ -129,11 +163,12 @@ def _dispatch_and_wait(repo: str, branch: str, engine: str, arch: str,
     deadline = time.time() + wait_min * 60
     stall_holder = ""  # an in_progress push run holding the global engine-build-push group, if any
     while True:
-        raw = _gh(repo, f"{wanted}", "--jq", "{status, conclusion, completed_at}")
-        try:
-            run = json.loads(raw)
-        except json.JSONDecodeError:
-            run = {}
+        run = _run_verdict(repo, wanted, gh)
+        # A 404 on the single-run endpoint is a POLL RACE, not a verdict (issue #2059): the run may
+        # already have SUCCEEDED while `/actions/runs/<id>` keeps answering 404. `_run_verdict` re-reads
+        # it from the run LIST, and if that still yields nothing this poll simply keeps watching — the
+        # wall-clock bound below still bounds the wait, and the failure names `404` so a reader can tell
+        # a poll race from a real conclusion.
         # A push=true run sits `pending` with 0 jobs and NO heartbeat while it waits behind the
         # global engine-build-push concurrency group (engine-build.yml:80, issue #917/#621). It will
         # never materialise a job until the group holder concludes — a re-dispatch is futile and this
@@ -177,6 +212,11 @@ def _dispatch_and_wait(repo: str, branch: str, engine: str, arch: str,
         if time.time() > deadline:
             kwargs = {"run_id": wanted, "status": run.get("status"), "conclusion": run.get("conclusion"),
                       "expired": True}
+            # A status of "404" at expiry is a POLL-VISIBILITY failure, not a build result (issue #2059):
+            # the producer id never resolved on EITHER endpoint for the whole bound. Name it so a reader
+            # can tell this apart from a producer that genuinely concluded and is worth re-reading.
+            if run.get("status") == "404" or run.get("message") == "Not Found":
+                kwargs["unresolved_404"] = True
             if stall_holder and not run.get("conclusion"):
                 kwargs["stalled_behind"] = stall_holder
             return kwargs
@@ -229,6 +269,10 @@ def check(base: str, engine_filter: str = "", arch: str = "", dry: bool = False,
         elif outcome.get("expired"):
             msg = (f"[will] FAIL engine={e}: wait bound ({wait_min} min) expired — producer run "
                    f"{outcome.get('run_id')} never concluded, last status {outcome.get('status')}")
+            if outcome.get("unresolved_404"):
+                msg += (" — the producer id never resolved on the run endpoint (404 for the whole bound): "
+                        "a POLL-VISIBILITY race, not a build result; re-run the trigger / re-check the run "
+                        "by hand before treating this as a failure (issue #2059)")
             if outcome.get("stalled_behind"):
                 msg += (f" — STALLED behind engine-build-push group holder run "
                         f"{outcome['stalled_behind']} (that holder must conclude or be owner-cancelled; "
