@@ -3542,3 +3542,56 @@ def test_fleet_rule_20_rebase_at_worktree_start_is_in_canonical_and_every_soul()
         assert "own-branch-only" in text, (
             f"{soul.relative_to(root)} lost the #1891 own-branch constraint"
         )
+
+
+def test_the_planner_soul_states_host_lane_precedence_and_recall_before_classify():
+    """Issue #2112: two rules that lived only in the orchestrator tick prompt (cron cc5d2bd4083a)
+    must be stated in the planner's SOUL, so they survive compaction, reload and every cold start.
+
+    The "fixed live, not versioned" shape this repo keeps re-learning: #2073's skill half and the
+    tick prompt carried the rule; the credential-holding agent's SOUL did not. This pins it the way
+    #1889 (test_fleet_rule_19) and #1891 (test_fleet_rule_20) pinned their rules — a content check
+    that reds when the rule disappears, so AC5's "verifiable after merge by grep" is true at any sha
+    by running one test instead of re-reading a diff.
+
+    These two rules are planner-specific (host-lane precedence names the planner's own dispatch
+    duty; recall-before-classify is the planner's triage step), so this asserts the planner SOUL
+    only — not the fleet-wide canonical block, which must stay byte-identical to
+    agents/standing-rules.md (fleet-block-drift).
+    """
+    import pathlib
+    root = pathlib.Path(__file__).resolve().parents[1]
+    soul = (root / "agents" / "llgenie-planner" / "SOUL.md").read_text(encoding="utf-8")
+
+    # 1. Host-lane precedence over CI (#2073): the owner's instruction and the operational test.
+    assert "Host-lane precedence over CI" in soul, (
+        "agents/llgenie-planner/SOUL.md lost the #2112 host-lane precedence rule"
+    )
+    assert "should always take precedence on the host" in soul, (
+        "the precedence rule no longer quotes the owner's instruction (#2073)"
+    )
+    assert "which host lane owns unblocking this?" in soul, (
+        "the precedence rule no longer states the 'which host lane owns this' test"
+    )
+    assert "A red CI job is **evidence, never a repair target**" in soul, (
+        "the precedence rule no longer states that a red CI job is evidence, not a repair target"
+    )
+
+    # 2. Recall before you classify: the recall call and the retain obligation.
+    assert "Recall before you classify" in soul, (
+        "agents/llgenie-planner/SOUL.md lost the #2112 recall-before-classify rule"
+    )
+    assert "hindsight_recall" in soul, (
+        "the recall rule no longer names the recall call against the shared bank"
+    )
+    assert "hindsight_retain" in soul, (
+        "the recall rule no longer names the retain obligation for a hand-diagnosed class"
+    )
+
+    # 3. The two pre-existing rules must not have been duplicated (#2112 AC3).
+    assert soul.count("Read the failing job's actual log") == 1, (
+        "the log-first rule was duplicated — it already existed at L166 before #2112"
+    )
+    assert soul.count("is not a verdict, and `green` is not `mergeable`") == 1, (
+        "the cancelled/green rule was duplicated — it already existed at L132 before #2112"
+    )
