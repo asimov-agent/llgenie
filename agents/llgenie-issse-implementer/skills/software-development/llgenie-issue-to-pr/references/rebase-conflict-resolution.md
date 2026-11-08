@@ -62,9 +62,98 @@ still prints "rebase in progress" / "You are currently editing a commit", and a 
 - Only after the marker is gone, re-run `make check-pr-base` and the gate set at the new head;
   a "measurement" taken while the marker exists describes a half-state, not the branch.
 
+## A conflict-free rebase can still be semantically broken — baseline pristine main before believing a red
+
+A rebase that CLEANLY replays your commit (zero `<<<<<<<` markers) can still produce a wrong
+tree: main merged a feature that RENAMED or reshaped a seam your commit or its tests rely on,
+and git saw no textual overlap. Tell: a test reds at the new head with no conflict — e.g. a test
+fixture that patched `_sh` now hits the real docker run because the rebased code streams through
+`_sh_live` instead. The rebase said "successfully rebased" and was still wrong.
+
+Discriminate a REAL regression from a container/clone artefact with a three-way baseline BEFORE
+touching code:
+
+1. Run the failing test file at pristine `origin/main` (detached checkout) — must PASS.
+2. Run it at your rebased head — FAILS.
+3. That delta IS your merge defect even though the rebase was clean. This is the only way to
+   separate "my rebase broke it" from "this container cannot run it" — never wave a post-rebase
+   red away as environmental without step 1.
+
+Fix: `grep` for the renamed symbol to find the seam that moved, patch the OLD caller to the NEW
+seam (patch BOTH the old and new names in a fake, mirroring whatever the surviving fixture already
+does), amend, re-run to green on a full clone.
+
 ## Confirm a genuine conflict first
 
 `git merge-tree --write-tree origin/main HEAD` with zero `CONFLICT` lines means there is
 no real content conflict — never rebase to satisfy a guard or a `mergeable_state=dirty`
 that a fresh regenerate already resolves. Only rebase on a true conflict or a merged base
 (issue #1015: do not chase every main move).
+
+## Measure the conflict surface before declaring it real
+
+Classify a `CONFLICTING`/`DIRTY` PR by intersecting what YOUR PR changes with what landed
+on main since your base. The size of that intersection says whether the rebase is a
+mechanical changelog union or a real logic collision — and lets you tell the rebase lane
+exactly what to expect instead of a vague "please rebase".
+
+```bash
+gh pr view <n> --repo O/R --json files --jq '[.files[].path]'          # your PR's files
+gh api repos/O/R/compare/<baseSha>...<mainTipSha> --jq '[.files[].filename]'  # moved on main
+# intersect the two sets: ONLY those files can conflict
+```
+
+If the intersection is only `CHANGES.md` (the shared-append index regenerates by union),
+the conflict is mechanical — say so and name the fix; do not churn. A real logic conflict
+is `scripts/`, `tests/`, or the feature's own `openspec/changes/<slug>/` appearing in the
+intersection.
+
+## A lane-owned rebase: hand measured intel, do not rebase it yourself
+
+When the dispatch assigns the rebase to another lane (a merge-conflict/`-rebase` lane) or
+the branch is under another lane's active edit, you do not push or force it. Post the
+measured overlap (the intersection above, with the base and main shas) on the issue AND
+message that lane: it turns their "rebase this" into a known-cheap union. A force-push of
+a branch another lane is working rewrites shas under their feet; a rebase request with no
+measurement is what stalls a lane.
+
+## A `git rebase --continue` that stops to edit the message hangs forever on a non-interactive call
+
+`git rebase --continue` opens the commit-message editor when the replayed commit's message
+needs confirmation. On a backgrounded/`terminal` call there is no TTY, so it blocks with no
+output — it looks like a hung rebase, not a prompt, and a background job can sit there until
+killed. Rule: run the continuation in the FOREGROUND with the editor neutralised, keeping the
+existing message:
+
+    GIT_EDITOR=true git rebase --continue
+
+If a background continuation is already blocked, kill it and re-run that way — do NOT
+`git rebase --abort` (the commit has usually already landed; see the marker section above).
+
+## When main already superseded your exact change, resolve to main and drop yours
+
+A conflict on the exact line your commit rewrote often means main merged a better /
+authoritative version of the same intent while your branch sat. Do not force your older
+value back in to "keep your change". Resolve to MAIN's version — that is the ruling that
+landed — then remove your now-redundant change so the rebase replays clean. Prove the drop
+with `git diff origin/main HEAD -- <that file>` = empty, and prove nothing else was lost by
+checking every other substantive file still differs. Taking main's side is not losing work;
+re-asserting your superseded line is the defect.
+
+## After a conflict-caused rebase, the PR body's head/base facts go stale
+
+The body's `**Head:** \`<sha>\` on \`origin/main\` \`<sha>\`` paragraph and any bullet
+describing a change main has since absorbed now describe the OLD head. Re-run `make
+bot-preflight` and copy the `AGENTS:`/`BASE:` literals it prints (they now read the new
+base), then PATCH the body so the head sha, base sha, and the superseded bullet all match
+the rebased wire head. A body citing a head no longer on the branch misleads the reviewer
+and can red `check-pr-agents-line` / `check-pr-base`.
+
+## Right after a force-push, `mergeable` reads `null` / `unknown` for a few seconds
+
+The PR API can return `mergeable: null, mergeable_state: unknown` while GitHub recomputes
+the new head. Read it back once more before concluding anything
+(`gh api repos/<o>/<r>/pulls/<n> --jq '{head:.head.sha, base:.base.sha, commits, mergeable, mergeable_state}'`);
+stable values arrive within seconds. Never report `unknown` as a verdict, and never read
+`mergeable_state=blocked` with required checks still `in_progress` as a failure — that is
+the normal running state.

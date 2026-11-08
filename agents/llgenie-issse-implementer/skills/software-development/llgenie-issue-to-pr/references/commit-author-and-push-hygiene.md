@@ -2,11 +2,15 @@
 
 ## `check-pr-authors` — the commit-identity gate
 
-The repo admits only an allowlisted author identity for every commit in the PR
-range: **`Asimov Agent <support@docondee.com>`**. The GitHub noreply address
-(`asimov-agent@users.noreply.github.com`) is NOT allowlisted — a PR whose only
-red is `guard` / `check-pr-authors` almost always means the commit was made with
-the default noreply identity, not that anything in the diff is wrong.
+The repo admits only allowlisted author identities for every commit in the PR
+range. There is **more than one** allowlisted identity (e.g. both
+`Asimov Agent <support@docondee.com>` and `Andy Holst <andy.holst@protonmail.com>`
+have passed); the default local identity (`<lane>@llgenie.local`) and the GitHub
+noreply address (`asimov-agent@users.noreply.github.com`) are NOT allowlisted. A
+PR whose only red is `guard` / `check-pr-authors` almost always means the commit
+was made with a non-allowlisted identity, not that anything in the diff is wrong.
+**Read the current allowlist from the gate script instead of assuming a single
+identity** — the set changes over time.
 
 Read the gate's own allowlist instead of guessing:
 
@@ -41,8 +45,18 @@ holds *right now* — read it, do not reuse a sha from earlier in the session:
 
 ```sh
 remote=$(git ls-remote origin refs/heads/<branch> | cut -f1)
-git push --force-with-lease=refs/heads/<branch>:$remote origin <branch>
+git push --force-with-lease=refs/heads/<branch>:$remote origin <local>:<branch>
 ```
+
+- **Push an explicit `src:dst` refspec** (`origin <local>:<branch>`), never a bare
+  `origin <local>`. A bare local-branch name pushes to a remote branch of that SAME name — when
+  your local branch name differs from the PR's branch, it silently CREATES a stray remote branch
+  and leaves the PR's branch untouched (the PR head does not move, and you get a phantom branch).
+  Delete the stray (`git push origin --delete <stray>`) and re-push with the colon.
+- **Never pass two sources for the same destination.** `git push origin <branch> <sha>:<branch>`
+  aborts with `dst ref refs/heads/<branch> receives from more than one src` and pushes NOTHING.
+  Pick one form: `git push origin HEAD:<branch>` (simplest after committing) or
+  `git push origin <sha>:<branch>`.  Instead, `git ls-remote origin <branch>` to confirm the remote now points to the sha you intended.
 
 Verify the PR actually moved before writing any verdict:
 
@@ -57,6 +71,28 @@ for 60–120 s. Poll `gh run list --branch <branch> --limit 3` instead of
 concluding "no CI"; a run list keyed on the branch surfaces them as soon as they
 register. Then confirm each run's jobs (`/actions/runs/<id>/jobs`) rather than
 reading the run's `conclusion` field, which stays empty until the last job ends.
+
+## Committing onto ANOTHER lane's PR branch (a fixture/pointer commit)
+
+When a dispatch says the change "belongs in an existing PR's lane, one vehicle",
+you push a commit onto a branch another lane owns. Two gates then apply to *your*
+commit on top of everything the branch already carries:
+
+- **`check-pr-authors`** — same rule as above: author the commit with an
+  allowlisted identity (`--reset-author` with `user.name`/`user.email` set), or the
+  whole PR reds on a commit that is otherwise fine.
+- **`check-pr-closing`** — the squash-text close set is the union of the PR body's
+  `closes #N` and every commit message's closing keywords. A commit message that
+  adds `closes #<other>` for an issue the PR body does not close reds the gate,
+  even when the body itself is correct. For a *reference* to another issue (not a
+  close), write it **without a closing keyword** — `(issue #N)` or `refs #N`, never
+  `closes #N` / `fixes #N`.
+
+Push it as a plain fast-forward when the current wire head is the commit's parent
+(no force needed); force-with-lease only if you rewrote your own commit. After the
+push, read the guard job's per-step list (see `gate-red-triage.md`) to confirm
+`check-pr-authors` and `check-pr-closing` both conclude `success` at the new head —
+the run's overall `failure` says nothing about *which* step reds.
 
 ## Gates to check before declaring a head done
 

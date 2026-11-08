@@ -1,5 +1,38 @@
 # Live→tree profile fold (folding a lane's live profile into `agents/`)
 
+## "Reload the skills and SOUL" is the OTHER direction — never reload by folding
+
+Three different verbs act on the same two copies, and using the wrong one silently destroys
+behaviour. Name which one is meant before running anything:
+
+| Goal | Direction | Command |
+|---|---|---|
+| start this session on the repo's current behaviour | tree → live (mirror) | `make sync-agent-profile PROFILE=<p>` |
+| version a live-only edit into the repo | live → tree | fold, then issue+PR |
+| see the drift without writing anything | neither | `make sync-agent-profile PROFILE=<p> CHECK=1`, `make tester-fold-live PROFILE=<p>` (no `COPY=1`) |
+
+- **`make tester-fold-live … COPY=1` REPLACES, it does not merge.** It copies live over the tree file
+  wholesale, so every tree-only line vanishes — measured at 72 lines across 12 files in one run
+  (SOUL.md 2, the lane's SKILL.md 35, two references 9 each). Recover with
+  `git checkout -- agents/<profile>` **before** any commit; nothing is unrecoverable, but an unnoticed
+  commit turns the loss into reviewable history. Run the read-only form first and read its
+  `DRIFT`/`LIVE-ONLY`/`LIVE-MISSING` lines, never `COPY=1` as a first move.
+- **`FORCE=1` on the sync is the same mistake with a different flag.** Both flags exist to silence a
+  guard whose finding is real.
+- **The sync's `TRUNCATED?` refusal is a SIZE heuristic — answer it with a LINE-SUBSET test, not
+  arithmetic.** The message (`the tree copy is N b and the profile's is M b — syncing would REPLACE …`)
+  only proves which side is bigger; a live file that legitimately repeats a block is "bigger" while a
+  genuine tree-ahead edit is "smaller". The question the guard is really asking is *would any live
+  line disappear?* Compute it directly: read both files, `lost = set(live_lines) - set(tree_lines)`.
+  `lost == 0` ⇒ the tree is a superset and the sync is lossless whatever the byte counts say;
+  `lost > 0` ⇒ the tree is behind and the content must be FOLDED first (issue+PR), never forced.
+- Report per-file counts (`tree lines / live lines / only-live / only-tree`): a lane can be tree-ahead
+  on SOUL.md and live-ahead on a dozen references in the same run — never generalise one file's
+  direction to the whole profile.
+- A "reload" needs no write at all when the live profile is already current: read `SOUL.md` and
+  `skill_view` the lane skill and the session is reloaded. Do not convert a reload request into a
+  tree edit; the tree edit is a separate vehicle with its own issue.
+
 A "fold" copies a lane's LIVE profile files (`~/.hermes/profiles/<profile>/…`) into the tree
 (`agents/<profile>/…`) byte-identically, so the live rulebook stops being the only copy. The live
 profile is written continuously by the owning lane, which is what makes this different from any
@@ -89,6 +122,26 @@ vehicle (that is legitimately yours to write *with consent*, not to force past t
 
 When a dispatch's deliverable IS committing standing behaviour under `agents/<lane>/SOUL.md` (yours
 or one the issue names — not a push into another lane's PR):
+
+- **Before you ask for consent, confirm the dispatch's target file is actually right.** A dispatch
+  that says "your lane's `SOUL.md` does not carry X" can be mis-targeted: peer lanes implementing the
+  same contract often put it in their ACTIVE in-tree `SKILL.md`
+  (`agents/<lane>/skills/<cat>/<skill>/SKILL.md`), not their `SOUL.md`. Read the already-landed peer
+  PRs' diffs and see which file they edited; if they used a SKILL.md, your lane's target is the same
+  file, and the earlier SOUL-write blocker is moot — do not spend a consent cycle on the wrong file.
+  Landing a lane rule in `SOUL.md` when the family convention is the skill's `SKILL.md` splits the
+  contract across two homes and is what makes a reviewer's per-lane check read the gap as unfixed.
+- **A lane's ACTIVE skill can be live-only (absent from the tree) — that is itself the gap, and the
+  fold rides the same commit as the edit.** If `check_agent_profiles.py` reports the skill as
+  `absent-from-tree`, the tree carries no versioned copy at all, so "main does not carry the
+  contract" is literally true. Fold the whole skill live→tree byte-identically AND add the rule in
+  the SAME commit; do not open a separate fold PR before the edit (one vehicle, one commit). After
+  the fold+edit, `make sync-agent-profile PROFILE=<name> CHECK=1` should report exactly ONE differing
+  file — your edited `SKILL.md`, tree-ahead — with every other file identical. That single
+  tree-ahead difference is the CORRECT pre-merge state (the #1724 SYNC flushes the tree→live after
+  merge), NOT a red; do not "fix" it by reverting the edit or by syncing live over the tree. Confirm
+  the direction: your head's file is larger/newer than live, not shorter (a shorter tree copy in a
+  fold is a truncated seed, the lost-lines defect).
 
 - Ask the owner directly with `clarify` BEFORE or as soon as the write blocks: name the file, quote
   the exact rule text being committed, and say why it must live in the tree rather than the private

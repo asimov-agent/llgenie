@@ -48,6 +48,23 @@ and the gate rejects a close on a closed issue):
 4. Prove nothing else moved: `git diff --stat <old-sha> HEAD` shows only the trios/docs files you
    deliberately added.
 
+## Build the message in a FILE — `git commit -F`, never `-m` with a multi-line body
+
+A commit message that quotes YAML (`${{ (matrix.variant == 'rocam') && 360 || 240 }}`), backticked
+paths and a `closes #<n>` footer carries several escape layers at once when it is assembled inside a
+shell command: shell double-quoting around the text, `${{`/brace expansion, and backtick command
+substitution. Any slip produces a mangled message, or a shell syntax error on the wrapper line — and
+you burn turns re-quoting prose. Write the message with `write_file`, then commit it:
+
+```
+git commit -F /tmp/<issue>_commit_msg.txt
+git log -1 --format=%B | grep -F '${{'     # the YAML fold survived verbatim
+```
+
+Verify the tokens you rely on survived (`git log -1 --format=%B`): the exact `${{ … }}` expression and
+the `closes #<n>` close line. Same reason and same class as writing the PR body to a file and using
+`gh pr create --body-file` (SKILL.md): an exit code 0 is not an intact message.
+
 ## Posting comments to satisfy a guard
 
 When a commit message or body correction is pushed via git subprocess, a runtime guard that only

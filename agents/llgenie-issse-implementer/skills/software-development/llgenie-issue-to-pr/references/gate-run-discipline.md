@@ -78,6 +78,26 @@ Poll the runs to conclusion (`gh run view <id> --json status,conclusion`), quote
 report. Local gates green is necessary, never sufficient — and never call a PR reviewable or
 mergeable while a heavyweight row is unread or queued.
 
+## Re-run vs new run: never re-run a job, and a re-run does not import new `main`
+
+Two different things are called "re-running CI", and confusing them turns one red check into a
+wrecked run.
+
+- **Re-run the whole run, never individual jobs.** `gh run rerun <run-id> --job <job-id>` (once,
+or per job across several turns) can leave the run at a later attempt with
+  `conclusion: startup_failure` and every job absent — the run is then unreadable, and any verdict
+  workflow that consumes it inherits the wreckage. Use `gh run rerun <run-id>` for the entire run
+  and wait for it to conclude; read `attempt,conclusion,status,headSha` to confirm which attempt
+  you are quoting, because a check posted by an older attempt is not current truth.
+- **A re-run replays the tree the event saw, not today's `main`.** A `workflow_run`-triggered workflow (a judge/verdict workflow, a report workflow) checks out the chain's head as resolved at
+  event time. Re-running it after a fix merged to `main` re-executes **pre-fix** code and posts the
+  identical red again — the exit is confusing because the run itself concludes `success`. Only a
+  run created **after** the merge picks up the fix: a fresh push (typically the rebase-and-push
+  that a moved base needs anyway) or a newly triggered run at a head cut from post-fix `main`.
+- Before blaming the judge's logic for a red that survived a merge, check the head sha its run
+  checked out (`gh run view <id> --json headSha,event`): `headSha` older than the merge commit
+  means the loop never had the fix.
+
 ## Force-push verification
 
 After an amend + `git push --force-with-lease <remote> <branch>`, prove it landed by comparing

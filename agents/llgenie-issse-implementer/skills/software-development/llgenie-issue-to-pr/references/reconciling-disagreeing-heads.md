@@ -4,7 +4,16 @@ Two directions of the same problem: another lane's quoted sha disagrees with wha
 branch actually is. The measurement recipe is identical; only the reply differs.
 
 Measure from independent sources in one turn — never argue from a DM log, never trust your
-own worktree HEAD as truth (it is the sha you last BUILT locally, often based on older main):
+own worktree HEAD as truth (it is the sha you last BUILT locally, often based on older main),
+and never trust a peer's quoted sha even when the peer says it "just re-verified at <time>" —
+`main` advances under every lane, so a correction timestamped minutes ago already cites a
+superseded tip. Two peers can each quote a DIFFERENT stale base and neither is current; the live
+API read NOW wins. Measure it in the same turn you correct a corrector:
+
+```bash
+gh api repos/<o>/<r>/commits/main --jq '.sha + " " + (.commit.message|split("\n")[0])'
+gh pr view <n> --json headRefOid,baseRefOid,mergeable,mergeStateStatus
+```
 
 ```bash
 gh api repos/<owner>/<repo>/git/refs/heads/<branch> --jq .object.sha
@@ -144,8 +153,116 @@ The #1015 no-chase rule protects an ARMED / under-review PR from churn — it do
 branch you have not opened yet. Rebase such a branch onto current main BEFORE the first push,
 and regenerate the AGENTS:/BASE: line to the new main sha.
 
+## Direction F — a LIVE "wait for the other lane's head" dispatch (hold, prep, acknowledge)
+
+Distinct from Direction A–E: there the wait gate is stale/already resolved. Here the wait is
+GENUINE and ACTIVE — the dispatcher re-issued a rebase/owner dispatch this turn and tells you
+"WAIT for the landed head first, THEN take the work up on the same branch". The correct
+behaviour is neither idle nor premature: hold the mutation, do read-only prep, acknowledge.
+
+- Do NOT create a worktree, branch, claim, or push off the PRE-wait head. The head you can
+  measure right now is the one the other lane is about to rewrite; cutting/claiming off it
+  races that lane, produces a churn commit, and sets up a duplicate-vehicle collision the
+  rebase then orphans. A branch that reads `MERGEABLE` at the old head is not licenced to act.
+- In the wait window do only read-only work: read the issue/PR body in full, run the scope
+  research, confirm the current wire state (`gh pr view --json state,headRefOid,mergeable,isDraft`,
+  `gh api repos/<o>/<r>/branches/<branch>`), and note the head you are waiting on.
+- Acknowledge to the dispatcher ONCE with the sequencing you will follow ("holding: taking up
+  <task> on <branch> only after your rebase-lane lands its head; I will post the claim + report
+  branch/head when I begin"), so the planner sees you received it and know you are not stalled.
+- Take the work up only after you can prove the other lane's head LANDED: `git ls-remote` ref
+  equals `gh pr view --json headRefOid`, and it differs from the pre-wait head. Then claim and edit.
+- A "WAIT" dispatch is NOT a stale-gate to correct and NOT a stale-PR to withdraw — do not
+  "settle" it by pushing, and do not de-scope or reopen anything to look busy. Holding IS the action.
+
+## Direction G — a peer's coordination ANSWER is itself a timed measurement (permission may be moot)
+
+A peer lane replying "the branch is free, I am not holding it — go ahead and add X / push when
+ready" has measured the branch at THEIR read, and answered a question you asked earlier. Treat
+the answer as a claim, not a licence: the work it grants permission for may already be at the
+head. Measure in the same turn, before any edit:
+
+```bash
+git ls-remote <remote> refs/heads/<branch>          # is my commit already on the remote?
+gh pr view <n> --json headRefOid,mergeable,mergeStateStatus
+```
+
+If the remote ref equals the PR head and that head IS your commit (the peer's quoted shas are its
+PARENTS), the permission is moot — reply "already landed at `<sha>`, nothing to push" and push
+nothing. Never manufacture a push to consume a granted permission, and never re-commit the same
+content onto the head to "take up" work that landed before the DM was sent.
+
+In the same reply, state SCOPE OWNERSHIP explicitly: name the part of the branch you own
+(test-only fixture, docs-only change) and say a base rebase is the **branch owner's** call. A peer
+writing "it is yours-or-the-owner's call" must not pull a rebase onto your lane when you are not
+the branch owner and were not dispatched for it — declining that half is correct, not a stall.
+Also correct any premise of your own that the thread has superseded (e.g. "the guard red is
+by-design" once a reviewer write-back has cleared it) in ONE short note.
+
+Post the conclusion on the PR/issue thread in addition to the DM — a decision that exists only in
+a DM does not exist for the next reader. Bookend it as the thread already expects: measured head
+sha, what you did (nothing to push / nothing touched), what remains and whose call it is.
+
+## Direction H — a peer asks you to CONFIRM a dispatch "landed" (report the receiver-side effect)
+
+A planner/reviewer asks "did the re-dispatch land — confirm the reviewer actually received my
+message `<id>`" (and may distinguish it from an earlier id it also cited). The message id is a
+SENDER-side artifact you cannot re-derive or verify; auditing which id went out is a dead end.
+The proof that the reviewer received AND APPLIED the evidence is the RECEIVER-side effect on the
+wire: the acceptance criterion is ticked `[x]` carrying the exact replayable
+`command + rc=… + run=… + head=…` you handed over, or the prescribed edit is present at the live
+head. Read that and report it as the confirmation:
+
+```bash
+gh issue view <n> --json body --jq .body | grep -n 'failure in job'   # AC ticked + evidence form?
+gh api "repos/<o>/<r>/contents/<path>?ref=<live-head>" --jq .content | base64 -d | grep -n <prescribed>
+```
+
+Reply shape: "the tick is live on #<n>/the edit is at `<sha>`, so whichever id carried it, the
+reviewer applied it." Do NOT chase the id, and do NOT re-send the evidence because the peer
+misremembers which id it was — a re-send on an already-applied dispatch is noise, and it restarts
+a delivery lag the peer will then re-quote back at you (its next settled pass may still show the
+stale value it generated before consuming your correction — that lag is not a disagreement).
+
+## Direction I — a peer asks YOU for all-clear to force-push a branch you do NOT own (verify the claim, route to the owner, never release another lane's hold)
+
+The inverse of Direction G. A rebase/merge lane messages you "you own branch X — confirm it is clear for
+me to force-push my rebased head" — but you may not own the branch at all, and it may carry a live hold
+that is not yours. Read the `bot-claim:` comment BEFORE accepting the role:
+
+```bash
+gh api repos/<o>/<r>/issues/comments/<claim-id> --jq '"by="+.user.login+"\n"+.body'   # who the claim NAMES
+gh pr view <n> --json headRefOid,baseRefName,mergeable,mergeStateStatus,state
+```
+
+- If the claim names a DIFFERENT lane (e.g. `bot-claim: llgenie-engine-improver`), you are NOT the owner
+  and cannot grant the push all-clear. Correct the premise once, name the real owner, and route the
+  decision to that lane — never answer "clear to push" on a branch you do not own. Being the lane whose
+  stacked PR was folded into the branch does not make you its owner.
+- A live TTL hold placed by ANOTHER lane (`<!-- bot-claim: <lane> <ts> <work> ttl=240m -->` "leave it
+  alone for the next 4 hours", often a `run-failure-reactor`/`github-actions[bot]` marker) is NOT yours to
+  release, even when the peer explicitly asks you to. A `bot-claim` is a lock the claiming lane owns; only
+  that lane or the planner can lift it. Report its `ttl`/expiry, say the hold must stand, and never waive
+  another lane's hold to unblock a push.
+- Before confirming anything, check whether YOUR stacked PR was already squash-merged INTO the base
+  branch — your separate branch ref may be GONE because it was consumed, and your content now lives in
+  the base history. Confirm by ancestry, not by the vanished ref (`couldn't find remote ref` is the
+  consumed signature, not damage):
+  ```bash
+  git fetch origin <base-branch>
+  git merge-base --is-ancestor <your-fold-sha> origin/<base-branch> && echo "my content is in the base"
+  ```
+- What you CAN confirm: that you will not push the branch (single-pusher, #824), and that your content
+  survives a base-refresh rebase (merge-tree rc=0 + the file present at the fetched head). Then HOLD — the
+  go/no-go belongs to the branch owner AND to the holder; state both.
+
 ## Pitfalls
 
+- A dispatch can cite COMMENT IDs (e.g. "full scope on comment 66…") that do not resolve on any
+  issue/PR from your side yet — the lane may still be landing them, or they live in the sender's
+  own session. That is not a blocker: fall back to the dispatch text + the issue/PR body, which
+  carry the scope; say once that the cited comment is not yet retrievable and that you will
+  re-read the thread before your first edit. Do not fabricate the comment's contents.
 - `gh pr view --json` with a jq expression that concatenates a string field fails
   (`cannot add: string and object`) — query fields individually or use `gh api`.
 - Do not hand-write a live profile file to "sync" a tree-only lint blank; that is the owning

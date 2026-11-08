@@ -4,6 +4,19 @@ After your PR is merged by the gate, verifying main is a SEPARATE measurement at
 commit sha. It is easy to conclude falsely in both directions: chasing a red that is not
 yours, or declaring green from a run that has not concluded.
 
+## A null arm readback is NOT proof the arm failed — it may mean it already merged
+
+`gh pr merge <n> --squash --auto` returning 0 proves nothing about whether auto-merge armed.
+A read-back of `autoMergeRequest:null` right after the call is likewise NOT proof it failed:
+auto-merge can have **consumed the PR already** the instant its last gate cleared (e.g. the
+required review landed between your `--auto` call and your read-back), so the PR is
+`state:MERGED` with `autoMergeRequest:null` — a null readback then looks identical to a failed
+arm. Read `state`/`mergedAt` BEFORE concluding "arm did not register" or re-issuing `--auto`:
+re-arming an already-`MERGED` PR no-ops/fails, and a polling loop that keeps retrying the arm
+reads as a broken arm while the deliverable already shipped. Only arm while `state:OPEN`.
+Also `gh pr merge` has NO `--verbose` flag — a bogus flag exits 1 on the flag itself and masks
+whether the arm would have worked; pass only real flags (`--squash --auto --match-head-commit`).
+
 ## Verify at the LANDED squash commit, not your branch head
 
 When a dispatched issue turns out to be **already merged** (the issue is closed and a merge
