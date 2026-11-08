@@ -68,3 +68,32 @@ Given the recorded 2026-11-08 PR list and kanban state as fixtures,
 when `tick_board.sh` runs against them with the same main sha,
 then section B prints `TOTAL open=14  stale=12  dirty=2` and section C prints
 `idle_non_planner=7`.
+
+### Requirement: a dispatch is one concrete command that is verified by reading the board back
+
+The tick must delegate via a versioned `delegate.sh` invoked as ONE command that
+validates the brief, refuses a second vehicle for the same lane+issue, creates
+the task, dispatches, and CONFIRMS by reading the board back. The confirmation
+distinguishes `running`, `ready (queued on capacity, spawned=0)` (never reported
+as running), and `BLOCKED`; the default `--message` makes skipping the
+`message_agent` send loud (task + message are two channels for ONE assignment).
+
+#### Scenario: a brief missing a mandatory field is rejected
+
+Given a brief lacking the `AGENTS:` stamp, the `$HOME` rule, a branch, or the
+`BOT <lane> · …` report line,
+when `delegate.sh --lane <lane> --issue <n> --brief <file>` runs,
+then it exits non-zero naming what is missing and creates no task.
+
+#### Scenario: a duplicate vehicle is refused for the same lane+issue
+
+Given an existing running/ready task for `<lane> #<n>`,
+when `delegate.sh --lane <lane> --issue <n> --brief <file>` runs,
+then it prints `ALREADY DELEGATED: t_xxxx …` and creates nothing (one vehicle per issue).
+
+#### Scenario: a queued task is confirmed as ready, never as running
+
+Given a created task that dispatch spawns with `Spawned: 0`,
+when the confirmation reads the board back,
+then it says exactly `CONFIRMED t_xxxx ready (queued on capacity …)` and the
+planner does not report the lane as running.
