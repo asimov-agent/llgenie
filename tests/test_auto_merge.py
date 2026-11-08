@@ -58,7 +58,8 @@ def _fake_gh(tmp_path: Path, pr: dict, issues: dict | None = None, token_login: 
              settle_after: int = 0, prs: list | None = None, views: dict | None = None,
              unknown_reads: int = 0, refuse_user_for: list | None = None,
              checks=None, jobs=None, merged=None, runs=None, runs_rc: int = 0,
-             runs_after=None, runs_then: int = 1):
+             runs_after=None, runs_then: int = 1,
+             merge_err: str | None = None, merged_after_merge_refusal: bool = False):
     """A `gh` answering `pr view` / `pr review` / `pr merge` / `issue view` / `api user` / permission.
 
     It records every argv (the assertion surface) and flips the PR's state through marker files, so a test
@@ -87,6 +88,8 @@ PERMS = json.loads({json.dumps(perms)!r})
 TOKEN = {token_login!r}
 TOKENS = json.loads({json.dumps(tokens or {})!r})
 MERGE_RC = {merge_rc!r}
+MERGED_AFTER_REFUSAL = {merged_after_merge_refusal!r}
+MERGE_ERR = {json.dumps(merge_err or "GraphQL: At least 1 approving review is required by reviewers with write access.")!r}
 SETTLE = {settle_after!r}
 UNKNOWN_READS = {unknown_reads!r}
 PRS = json.loads({json.dumps(prs or [])!r})
@@ -158,8 +161,12 @@ if args[:2] == ["issue", "view"]:
     print(json.dumps({{"state": ISSUES.get(args[2], "OPEN")}})); sys.exit(0)
 if args[:2] == ["pr", "merge"]:
     if MERGE_RC:
-        print("GraphQL: At least 1 approving review is required by reviewers with write access.",
-              file=sys.stderr)
+        print(MERGE_ERR, file=sys.stderr)
+        # A refusal can be a CONCURRENT merge (issue #2236): a sibling auto-merge run lands the
+        # same PR while this run's `gh pr merge` executes, GitHub answers "Pull Request is not
+        # mergeable", and a re-read shows the PR already MERGED. The marker lets a test model that.
+        if MERGED_AFTER_REFUSAL:
+            open({str(log)!r} + ".merged", "w").write("1")
         sys.exit(MERGE_RC)
     open({str(log)!r} + ".merged", "w").write("1")
     print("merged"); sys.exit(0)
@@ -686,6 +693,68 @@ def _review_blocked(author: str = "andyholst", **kw) -> dict:
             "headRepository": {"nameWithOwner": "asimov-agent/llgenie"}}
     base.update(kw)
     return _state(**base)
+
+
+def test_a_merge_refused_after_a_sibling_merged_is_not_a_red_run(tmp_path):
+    """#2236: a concurrent auto-merge run lands the same PR; the loser's `gh pr merge` is refused
+    ('Pull Request is not mergeable'), and the refusing run must treat the already-merged PR as
+    success — the run that read it CLEAN a second earlier must not die red (a red Makefile exit
+    leaves the board reading 'waits on approval' when nothing waits). The plain-CLEAN path is the
+    one that died in the field (run 42469582901 on PR #2102)."""
+
+    # Given a green, clean PR, and a `gh pr merge` refused because a sibling already merged it
+    gh = _fake_gh(tmp_path, _state(), merge_rc=1,
+                  merge_err="GraphQL: Pull Request is not mergeable (mergePullRequest)",
+                  merged_after_merge_refusal=True)
+
+    # When  the merge runs
+    rc = am.run(str(gh), "o/r", 482, HEAD)
+
+    # Then  it exits 0 and defers nothing: the PR already merged, so there is nothing to say or red
+    comments = [c for c in _calls(tmp_path / "gh.log") if c[:2] == ["pr", "comment"]]
+    assert rc == 0, rc
+    assert not comments, "an already-merged PR needs no deferral comment, and is never a red run"
+
+
+def test_a_merge_refused_while_still_open_defers_naming_it(tmp_path):
+    """Negative control for #2236: a refusal that is NOT a concurrent merge (the PR is still OPEN)
+    must defer with the reason ON the PR. A fix that swallowed the exception and returned 0 without
+    checking whether the merge actually landed would leave this PR silently stranded — exactly the
+    'waits on approval when nothing waits' defect — so it reds here."""
+
+    # Given a green, clean PR, and a `gh pr merge` refused while the PR stays OPEN
+    gh = _fake_gh(tmp_path, _state(), merge_rc=1,
+                  merge_err="GraphQL: Pull Request is not mergeable (mergePullRequest)")
+
+    # When  the merge runs
+    rc = am.run(str(gh), "o/r", 482, HEAD)
+
+    # Then  it exits 0 but the refusal is visible on the PR, never swallowed
+    comments = [c for c in _calls(tmp_path / "gh.log") if c[:2] == ["pr", "comment"]]
+    assert rc == 0, rc
+    assert comments, "a genuine refusal must be deferred with a reason on the PR, not swallowed"
+    assert "not mergeable" in " ".join(comments[0]), comments
+
+
+def test_a_review_blocked_pr_merged_by_a_sibling_is_not_a_red_run(tmp_path):
+    """#2236 exact shape: a review-blocked PR is approved by the other identity and then the merge
+    itself is refused because a sibling landed it — the (worthless) approval posts, the refusal is
+    treated as success, and nothing is deferred."""
+
+    # Given a review-blocked PR, and a `gh pr merge` refused because a sibling already merged it
+    gh = _fake_gh(tmp_path, _review_blocked(), permissions={"andyholst": "admin"}, merge_rc=1,
+                  merge_err="GraphQL: Pull Request is not mergeable (mergePullRequest)",
+                  merged_after_merge_refusal=True)
+
+    # When  the job runs with the review bypass enabled
+    rc = am.run(str(gh), "asimov-agent/llgenie", 482, HEAD, approve_when_review_required=True)
+
+    # Then  the approval was attempted, and the already-done merge is success, not a red run
+    calls = _calls(tmp_path / "gh.log")
+    comments = [c for c in calls if c[:2] == ["pr", "comment"]]
+    assert rc == 0, rc
+    assert ["pr", "review"] in [c[:2] for c in calls], calls
+    assert not comments, calls
 
 
 def test_a_review_blocked_green_pr_is_approved_by_the_other_identity_then_merged(tmp_path):

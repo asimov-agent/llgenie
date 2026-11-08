@@ -592,7 +592,26 @@ def _merge(gh: str, repo: str, pr: int, head_sha: str, state: dict, dry: bool,
         print(f"[auto-merge] would squash-merge PR #{pr} at {(head_sha or '')[:8]}{keeps}{bypass}")
         return 0
     print(f"[auto-merge] merging PR #{pr} at {(head_sha or '')[:8]} (green + CLEAN){keeps}{bypass}")
-    print(merge(gh, repo, pr, head_sha, delete_branch=same, admin=admin).strip())
+    try:
+        print(merge(gh, repo, pr, head_sha, delete_branch=same, admin=admin).strip())
+    except SystemExit as exc:
+        # A refusal the instant `gh pr merge` runs is the #2236 race: a sibling auto-merge run, or a
+        # transient async recompute, can move the PR between this run's own `pr view` (which said
+        # CLEAN) and the merge call — GitHub then answers `Pull Request is not mergeable`. The gate's
+        # contract, honoured everywhere else, is "a refusal is a deferral with the reason on the PR,
+        # never a red run"; the plain-CLEAN and post-approval paths were the two that lacked it (run
+        # 42469582901 died red on PR #2102 that a sibling had just merged). Re-read: already MERGED —
+        # a sibling landed it, so this run is SUCCESS, not red, and there is nothing to defer; still
+        # OPEN — the refusal is real, so say why on the PR.
+        again = pr_state(gh, repo, pr)
+        if (str(again.get("state") or "")).upper() == "MERGED":
+            print(f"[auto-merge] PR #{pr}: merge at {(head_sha or '')[:8]} was refused because a "
+                  f"sibling run already merged it — treating the already-done merge as success, "
+                  f"never a red run (#2236)")
+            return verify_closure.verify(gh, repo, pr)
+        defer(gh, repo, pr, head_sha,
+              f"GitHub refused the merge at {(head_sha or '')[:8]}: {exc}", dry=dry)
+        return 0
     announce_merge(gh, repo, pr, head_sha, admin=admin)
     return verify_closure.verify(gh, repo, pr)
 
