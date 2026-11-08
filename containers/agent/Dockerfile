@@ -111,13 +111,23 @@ RUN set -eux; \
     apt-get update; apt-get install -y --no-install-recommends gh; \
     rm -rf /var/lib/apt/lists/*
 
-# The CI build context is FLAT (ci_images.context copies each input file to the
-# context root), so the COPY path is the file's name, not its repo path.
+# The CI build context is FLAT for the install scripts and Dockerfile (ci_images.context copies
+# each input file to the context root), so the COPY path is the file's name, not its repo path.
+# The ONE exception is the agents/ tree: it is copied in under agents/ (subdirs preserved) so the
+# lane COPY below can reference it by its repo path — a flat copy would collide every profile's
+# SOUL.md onto the same basename.
 COPY install_hermes_ci.sh /usr/local/bin/install_hermes_ci.sh
 COPY hermes_skills_register.py /usr/local/bin/hermes_skills_register.py
 COPY install_nerve_ci.sh /usr/local/bin/install_nerve_ci.sh
 COPY nerve_profile_check.py /usr/local/bin/nerve_profile_check.py
 COPY agent_jev_preflight.sh /usr/local/bin/agent_jev_preflight.sh
+COPY agent_lanes_check.py /usr/local/bin/agent_lanes_check.py
+# The fleet's lane profiles (issue #2181). Before this image held NONE: no agents/ reference, no
+# profile, so a bot job asking for a named lane resolved against an empty profile home. This tree
+# (agents/manifest.json + one <name>/ per lane) is what the lane-install step below installs, and
+# scripts/agent_lanes_check.py is the build-time gate that REFUSES the image if any manifest lane
+# did not land.
+COPY agents /opt/llgenie/agents
 ENV HERMES_INSTALL_URL=${HERMES_INSTALL_URL} HERMES_PACKAGE=${HERMES_PACKAGE} \
     HERMES_ALIAS=${HERMES_ALIAS} HERMES_MODEL_ID=${HERMES_MODEL_ID} HERMES_BASE_URL=${HERMES_BASE_URL} \
     HERMES_MAX_TOKENS=${HERMES_MAX_TOKENS} HERMES_CONTEXT_WINDOW=${HERMES_CONTEXT_WINDOW} \
@@ -158,6 +168,25 @@ RUN chmod +x /usr/local/bin/install_nerve_ci.sh /usr/local/bin/agent_jev_preflig
     && test -x /usr/local/bin/agent_jev_preflight.sh \
     && ! env | grep -qE '^(TYPESAFE|OPENROUTER|OPENCODE)_API_KEY=' \
     && echo "[agent-image] JEV layer installed; provider key arrives at run time (scripts/agent_jev_preflight.sh wires it in)"
+
+# The llgenie lane profiles (issue #2181). This is the step the issue is about: before it, the
+# image carried NO lane — the Hermes CLI was installed but a bot job asking for a named profile
+# resolved against an empty profile home. Here each lane declared by agents/manifest.json is
+# copied into ${HERMES_HOME}/profiles/<name>/ (its SOUL.md + skills), mirroring how the host's
+# `make sync-agent-profile` populates ~/.hermes/profiles/<name>. Then scripts/agent_lanes_check.py
+# re-reads that same manifest against the installed profiles and FAILS THE BUILD when a declared
+# lane did not land — a container that would run a lane with no rulebook is the failure mode the
+# issue names, and it must be visible at build time, not inside a bot run.
+RUN set -eux; \
+    mkdir -p "${HERMES_HOME}/profiles"; \
+    for profile in $(python3 -c 'import json,sys; print(" ".join(p["name"] for p in json.load(open(sys.argv[1]))["profiles"]))' /opt/llgenie/agents/manifest.json); do \
+        mkdir -p "${HERMES_HOME}/profiles/${profile}"; \
+        cp -r "/opt/llgenie/agents/${profile}/." "${HERMES_HOME}/profiles/${profile}/"; \
+    done; \
+    python3 /usr/local/bin/agent_lanes_check.py \
+        --agents /opt/llgenie/agents \
+        --profiles "${HERMES_HOME}/profiles" \
+    && echo "[agent-image] llgenie lanes installed into ${HERMES_HOME}/profiles (agent_lanes_check.py passed)"
 
 # The repo is checked out by the workflow (the agent edits the working tree); this is only
 # the default working dir, and `git config` is left to the workflow so the bot's identity

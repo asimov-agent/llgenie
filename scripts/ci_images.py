@@ -58,6 +58,10 @@ PLATFORMS = "linux/amd64,linux/arm64"  # Linux + Intel-macOS runners, Apple-Sili
 # consumer exists to justify paying that, and no other image is affected.
 PLATFORMS_FOR = {"agent": "linux/amd64"}
 
+#: The agents/ tree the agent image COPYs in and installs its llgenie lanes from (issue #2181).
+#: It is a hash input too, so a changed lane profile moves the agent tag.
+AGENT_AGENTS = "agents"
+
 #: What a registry answers when a token is authenticated but not allowed to write the package.
 #: Measured on a fork PR (PR #651, run 40339517705): GHCR refused the fork-head write with exactly
 #: the first line. Same contract as scripts/engine_image.py (issue #155): a `pull_request` run's
@@ -101,11 +105,17 @@ IMAGES: dict[str, tuple[str, tuple[str, ...]]] = {
     # uses" the image of THIS commit, so a changed install script must move the tag.
     # scripts/nerve_profile_check.py is a hash input because the build RUNS it (issue #611): a setting
     # whose module the selected profile does not register would be written and never read.
+    # agents/ (the WHOLE lane tree, issue #2181) is a hash input because the build INSTALLS it:
+    # a changed SOUL.md or skill must move the agent tag, or a stale image keeps running a lane
+    # the repo no longer describes. scripts/agent_lanes_check.py is a hash input because the build
+    # RUNS it to prove every manifest lane landed.
     "agent": ("containers/agent/Dockerfile", ("scripts/install_hermes_ci.sh",
                                               "scripts/hermes_skills_register.py",
                                               "scripts/install_nerve_ci.sh",
                                               "scripts/nerve_profile_check.py",
-                                              "scripts/agent_jev_preflight.sh")),
+                                              "scripts/agent_jev_preflight.sh",
+                                              "scripts/agent_lanes_check.py",
+                                              "agents")),
 }
 
 
@@ -115,8 +125,21 @@ def registry() -> str:
 
 
 def inputs(name: str, root: Path = REPO) -> list[Path]:
+    """Every file the image is built from: the Dockerfile + each extra input.
+
+    The agent image's ``agents`` entry is a DIRECTORY: it is expanded to every file under it, so
+    ``tag`` hashes the whole lane tree (a SOUL.md edit moves the tag) and ``context`` places the
+    tree in the build context. Other images' extras are single files.
+    """
     dockerfile, extra = IMAGES[name]
-    return [root / dockerfile, *(root / f for f in extra)]
+    out = [root / dockerfile]
+    for f in extra:
+        p = root / f
+        if p.is_dir():
+            out.extend(sorted(child for child in p.rglob("*") if child.is_file()))
+        else:
+            out.append(p)
+    return out
 
 
 def tag(name: str, root: Path = REPO) -> str:
@@ -180,10 +203,22 @@ def published(r: str) -> bool:
 
 
 def context(name: str, root: Path = REPO) -> Path:
-    """A temp build context holding exactly the hashed inputs (Dockerfile + lockfiles)."""
+    """A temp build context holding exactly the hashed inputs (Dockerfile + lockfiles).
+
+    Install scripts and the Dockerfile land at the context ROOT (flat), so the Dockerfile's COPY
+    paths are their bare names. The agent image's whole agents/ tree — hashed the same way — is
+    copied in under ``agents/`` preserving its repo subpaths: a flat copy would put every lane's
+    ``SOUL.md`` on the same basename and the Dockerfile could not tell the profiles apart.
+    """
     ctx = Path(tempfile.mkdtemp(prefix=f"ci-image-{name}-"))
+    agents_root = root / AGENT_AGENTS
     for p in inputs(name, root):
-        shutil.copy2(p, ctx / p.name)
+        if name == "agent" and agents_root in p.parents:
+            dst = ctx / AGENT_AGENTS / p.relative_to(agents_root)
+        else:
+            dst = ctx / p.name
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(p, dst)
     return ctx
 
 
