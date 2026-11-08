@@ -61,7 +61,7 @@ block against one SOUL).
 
    ```
    cd <worktree> && python3 scripts/fold-live-profile.py --profile <n> --repo . \
-       --live-home /home/asimov/.hermes/profiles
+       --live-home "$HOME/.hermes/profiles"
    ```
 
    Exit **rc=1** means drift (it prints the `DRIFT` lines and a `N same, M drifted` table) — that is a
