@@ -69,13 +69,19 @@ def _body_slice() -> list[str]:
     """Return the source lines that assemble `body` (the printf + guarded append).
 
     Stops before the `gh pr view` / `gh pr edit|create` decision lines, which do
-    not affect body rendering and need network auth.
+    not affect body rendering and need network auth — and before the #2050 stamp
+    step (`printf > /tmp/pr-body.md` + `make bot-stamp-body`), which consumes the
+    assembled body rather than assembling it. That step is pinned by
+    `tests/test_bot_stamp_body.py`; here the subject is the rendering.
     """
     block = _run_block()
     lines = block.splitlines()
     start = next(i for i, l in enumerate(lines) if "body=" in l)
-    end = next((i for i, l in enumerate(lines) if "gh pr view" in l and i > start), None)
-    assert end is not None, "gh pr view not found after the body assembly"
+    end = next(
+        (i for i, l in enumerate(lines)
+         if i > start and ("gh pr view" in l or "/tmp/pr-body.md" in l or "bot-stamp-body" in l)),
+        None)
+    assert end is not None, "the PR write/stamp step was not found after the body assembly"
     return lines[start:end]
 
 
