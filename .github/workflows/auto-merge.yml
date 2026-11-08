@@ -79,7 +79,8 @@ permissions:
 
 # THE MERGER MUST NOT QUEUE BEHIND ITSELF (issue #917).
 #
-# Every `CI` completion fires a sweep and the schedule fires one every 30 minutes. With
+# Every `CI` completion fires a sweep, and the scheduled recheck is the 3-5/day backstop the sweep measures
+# (median gap 5.01h, ZERO sub-hour gaps — the `3,33` cron does NOT fire every 30 minutes, issue #2101). With
 # `cancel-in-progress: false` those runs STACK instead of superseding: measured 22:36Z-23:12Z, NINE sweeps
 # on `main` queued behind each other, and `auto-merge` became 12 of the 51 queued runs - behind a queue whose
 # oldest item had waited 4h25m. PRs sat armed, green and BLOCKED while the job that would merge them waited
