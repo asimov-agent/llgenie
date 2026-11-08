@@ -385,6 +385,7 @@ def verify(decision_obj: dict | None, jobs: list[dict]) -> dict:
                     lines.append(f"{TAG} {name} success")
                 elif conclusion == "failure":
                     counts["failure"] += 1
+                    failed_jobs.append(name)
                     lines.append(f"{TAG} {name} FAILED")
                 else:
                     no_answer(conclusion)
