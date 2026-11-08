@@ -246,17 +246,25 @@ def require_settled(jobs: list[dict]) -> None:
     even though the run was reported complete. `ci_scope.verify()` then counted that row as
     `pending`, producing a `no_verdict` for a run that was going to conclude green a moment later.
 
-    That is the race this gate closes: a job that has not reported `completed` is a run still in
-    flight, and the verdict must not be reached — `raise RuntimeError` so the caller exits 2 and
-    the `ci-verdict.yml` judge surfaces it as its own unreachable-verdict failure, never as a
+    A row is terminal only when BOTH it reports `status: completed` AND it carries a non-empty
+    `conclusion`. The second half is the `#2046`/`#2035` recurrence: GitHub's jobs API writes a
+    finishing row's `status` before its `conclusion`, so a `completed` row with an empty
+    conclusion is a run still settling through the conclusion field — counted `pending`, it posts
+    a false red exactly like the `in_progress` half (`#2017` closed the status half; this closes
+    the conclusion half).
+
+    That is the race this gate closes: a job that has not reported a completed conclusion is a run
+    still in flight, and the verdict must not be reached — `raise RuntimeError` so the caller exits
+    2 and the `ci-verdict.yml` judge surfaces it as its own unreachable-verdict failure, never as a
     posted `ci-verdict: failure` on a head whose rows were not all there yet.
     """
     unsettled = [j.get("name") for j in jobs
-                 if (j.get("status") or "completed").strip().lower() != "completed"]
+                 if not ((j.get("status") or "").strip().lower() == "completed"
+                         and (j.get("conclusion") or "").strip())]
     if unsettled:
         raise RuntimeError(
-            f"run is not settled: {len(unsettled)} job(s) have not reported `completed` — "
-            f"{', '.join(str(n) for n in unsettled)}; a mid-upload run cannot be judged")
+            f"run is not settled: {len(unsettled)} job(s) have not reported `completed` with a "
+            f"conclusion — {', '.join(str(n) for n in unsettled)}; a mid-upload run cannot be judged")
 
 
 def verdict_lines(result: dict, run: dict | None, superseding: dict | None) -> list[str]:
