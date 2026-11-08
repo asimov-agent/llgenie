@@ -10,7 +10,7 @@ runs* — even when your command has its own absolute `cd`.
 
 Rule: never `rm -rf` the directory the terminal is currently inside. Either `cd`
 to a live directory first, or — if you already deleted it — pass an explicit
-existing `workdir` on the terminal call (e.g. `workdir=/home/asimov`). The
+existing `workdir` on the terminal call (e.g. `workdir=$HOME`). The
 `workdir` parameter bypasses the stuck persisted cwd. This bit after removing a
 scratch clone from inside that clone.
 

@@ -103,7 +103,7 @@ follow-up `ps` still lists it.
 scratch files and container builds at once. A single large probe tree has driven it to ~71% space
 AND 100% inodes and wedged two lanes simultaneously (a tool channel and a reviewer's ENOSPC). So:
 
-- Put an issue's worktree on REAL disk — `/home/asimov/repository/git/llgenie-wt/<w>-<slug>` — never
+- Put an issue's worktree on REAL disk — `$HOME/repository/git/llgenie-wt/<w>-<slug>` — never
   under `/tmp`. `/tmp` holds small scratch files and short-lived probe output only.
 - Run the headroom preflight before putting a worktree or a container build there:
   `make check-host-space` (exits 1 below <20% space OR <50k free inodes and names the axis; a

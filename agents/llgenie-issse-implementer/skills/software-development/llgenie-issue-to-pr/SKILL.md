@@ -525,7 +525,7 @@ move on — a red nobody's process is measuring is not a defect. **A watcher's F
   file gap only after the ACTUAL directory listing names it.
 - **Edit worktree files by ABSOLUTE path — a relative or mis-scoped path silently lands on the
   canonical checkout.** When working in a scratch worktree (`/tmp/w<n>`), a `patch`/write whose
-  path resolves to `/home/asimov/repository/git/llgenie/...` edits the origin/main checkout
+  path resolves to `$HOME/repository/git/llgenie/...` edits the origin/main checkout
   instead of your worktree, dirtying the canonical tree while your worktree stays unchanged
   (your diff then shows nothing and the canonical repo needs a `git checkout -- <file>`
   restore). Pass the full `/tmp/w<n>/...` path to every edit; after a batch of edits, `git
