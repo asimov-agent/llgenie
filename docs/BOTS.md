@@ -2227,7 +2227,12 @@ make ci-verdict            # hold a FINISHED run to the scope decision it publis
                            # superseded is neutral, never success. It also reads the head's OTHER
                            # check-runs and NAMES any blocking one it did not judge (issue #2116) — a red
                            # `engine-build-pr-trigger` beside a green `CI` is `failure` with the check
-                           # name and its run id in the body, never a plain success
+                           # name and its run id in the body, never a plain success. It NEVER judges a
+                           # mid-upload run: `require_settled` refuses (RuntimeError, exit code 2, no
+                           # check-run posted) any jobs listing with a row that is not `status:
+                           # completed` with a non-empty `conclusion` — a run is judged only from its
+                           # settled rows, so a verdict can never be fabricated from a partially-uploaded
+                           # snapshot (issues #2017, #2051)
 make verdict-roster        # print every workflow that can post a check-run at a PR head, the set
                            # `ci-verdict` judges, the difference, and the roster findings (issue #2116);
                            # a SUBSET check (`judged <= posters`), never equality, so the workflow set
