@@ -37,4 +37,21 @@ Only a `closes #N` body with keyword directly before the space-separated ref (lo
 
 **Probing tip (measured):** `python3 scripts/check_pr_closing.py check --body-file /tmp/p.md --head agent/x` runs standalone on the host (host python3 has the argparse/re stdlib it needs).
 
+## A bare trailing `(#N)` in a commit subject or PR title is a CLAIM — distinct from a close keyword
+
+The `check-pr-closing` gate builds the required body close-set from TWO sources: the branch
+commit messages (and PR title) AND the body. A **close keyword** (`closes #N` / `fix #N` /
+`resolve #N`) on either side adds to the close-set. **Separately, a CLAIM**: any commit subject
+or PR title whose LAST token is a bare parenthetical issue ref — `... (#N)` — even with NO close
+keyword, registers that issue as claimed and requires the body to adjacently close it, or the
+gate reds `squash-commit: the body must adjacently close #N`.
+
+- Consequence: you cannot silently DROP an issue from the body close-set while any branch
+  commit subject still ends `(#N)`. Dropping it turns a passing gate into a red — the claim
+  survives in the commit text. Either keep the body `closes #N`, or rewrite the commit subject to
+  remove the trailing `(#N)`.
+- A parenthetical that is NOT the trailing token is NOT a claim: `(issue #N)` mid-subject, or
+  `#N` in prose, forces no body close. Measure instead of eyeballing: `git log --format=%s` and
+  look for any subject whose final token is `(#N)`; that is the claim set.
+
 **Verify every re-dispatch against the LIVE state, never the first-run log.** A queue re-dispatch quoting a guard job number (`"diagnosed from job 127202129880"`) is stale the moment it is written — the run it cites may have been superseded by a body fix and the PR merged. Before ANY edit, read `gh pr view <n> --json state,mergedAt,mergeCommit` and `gh issue view <n> --json state`: if `MERGED` + issue `CLOSED`, the cited red no longer exists; re-run the gate on the LIVE merged body (`gh pr view <n> --json body`) and report parity (closing references == squash closes == the one claim), refuse-with-evidence on-issue, and NEVER force-push a body edit to a merged/closed PR branch (issue #824: read-only forever; a body push to a closed vehicle is fabrication).

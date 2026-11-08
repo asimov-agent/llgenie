@@ -27,6 +27,54 @@ gh api repos/<owner>/<repo>/actions/workflows/engine-build.yml/dispatches -X POS
 - `-f 'inputs[engine]=x'` (inline `=`) is required: `--input`/`-F 'push=true'` tries to read a file
   named `push=true`, and a JSON body must nest everything under an `"inputs"` object.
 
+Shorter equivalent when dispatching a specific branch (no `inputs[...]` nesting):
+
+```bash
+gh workflow run engine-build.yml --repo <owner>/<repo> --ref <branch> \
+  -f engine=<engine> -f arch=<arch> -f push=false
+```
+
+## A full default sweep = dispatch with ONLY `ref` (empty-string inputs 422)
+
+To prove a "default sweep is green" acceptance, dispatch the WHOLE set at the workflow defaults
+(`engine=""`, `arch=""`, `push=false`) — not a narrowed cell. Passing the empty values explicitly
+fails: `-f engine='' -f arch='' -f push=false` returns `422 Invalid request. "arch", "engine",
+"force", "model", "push" are not permitted keys.` Omit every input and pass only the ref — the
+workflow's own `default: ""` / `false` then apply:
+
+```bash
+gh api repos/<owner>/<repo>/actions/workflows/engine-build.yml/dispatches -X POST -f 'ref=<branch>'
+```
+
+Dispatch it on the **PR branch head**, NOT `main`: a `workflow_dispatch` builds the code at the
+dispatched ref, so on the PR branch the run exercises YOUR fix (e.g. `DEFAULT_CPU_ONLY={"vllm"}`),
+which is exactly what a "default sweep excludes the GPU cells" acceptance asserts. A run on `main`
+proves pre-fix behaviour, not the change — the witness would be worthless.
+
+Confirm the dispatched run landed on the intended head before claiming the witness exists:
+
+```bash
+gh run list --workflow engine-build.yml --limit 5 \
+  --json databaseId,status,headBranch,headSha,event,startedAt \
+  --jq '.[] | "\(.databaseId) \(.status) \(.event) @\(.headSha[0:12]) \(.headBranch)"'
+```
+
+`gh run list --json` fields are camelCase (`createdAt`, `headSha`, `startedAt`, `databaseId`); a
+snake_case name like `created_at` errors `Unknown JSON field` and prints the valid list — rename
+the field, do not silently drop it.
+
+## When the PR-trigger's `ci-verdict` blocks the auto-dispatch: dispatch the cell DIRECTLY
+
+The `engine-build-pr-trigger` fires on PR sync and only dispatches `push=true` after its own
+`ci-verdict` job reads the guard green. If the guard reds on the DESIGNED self-red (e.g.
+`check-pr-acceptance` waiting on a reviewer verdict), `ci-verdict` is `failure` and the push=true
+build is **never dispatched** — the acceptance run you need for the issue does not exist yet. Do
+not wait for it or conclude the change is unverified. Read the acceptance criterion: an item
+phrased `engine-build <engine> arch=<arch> push=false is green` is satisfied by dispatching the
+build leg yourself with `push=false` (a build-and-verify — no GHCR publish, no merge, safe).
+Dispatch it at the deepened head, then prove it green from the cell's own log. `push=false` runs do
+not join the serialized publish concurrency group, so they can run alongside.
+
 ## The registry build cache is WRITTEN only on a push build — CI's build leg never seeds it
 
 `scripts/engine_image.py` `_buildx` writes the layer cache (`--cache-to …:buildcache-<variant>`)

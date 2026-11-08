@@ -103,6 +103,39 @@ request (#824).** Decline on-record with the merge sha + closed-at and do NOT cu
 worktree off a stale `origin/main <sha>` to re-claim landed work; a second vehicle for
 a closed issue is the defect, not the fix.
 
+## A dispatch's failure MECHANISM is a hypothesis — reproduce it before you author a fix
+
+A dispatch rarely says only "this test is red"; it explains WHY ("the index has no wheels so the
+resolver still picks the placeholder", "the build backend is poetry"). That mechanism is as much a
+claim as the run id. Authoring a fix against a misdiagnosed mechanism produces a diff that changes
+nothing real — and worse, a "deepen" that mutates a correct implementation. Verify the mechanism
+before the first edit.
+
+1. **Read the CITED run's own log for the exact error string the dispatch names.** Grep the failed
+   log for the claimed line (`poetry`, `rocm==0.1.0`, `No module named …`). If NO run in the
+   candidate set (`gh run list --branch <b>`) ever logged that error, the premise has no evidence —
+   it may be a different failure wearing the same label. A common trap: the cited "engine-build red"
+   is actually `Cache export is not supported for the docker driver` (a pipeline docker-driver
+   defect), miles from the packaging failure the dispatch attributes to it.
+2. **Reproduce the mechanism with a live minimal probe using the TREE'S EXACT flags**, not a
+   hand-typed guess at them. Resolver/packaging claims are falsifiable in seconds:
+   `uv pip compile --python-version <v> --python-platform linux --index-strategy unsafe-best-match
+   --extra-index-url <url> -o out.txt <req>` and read what it actually resolved. If the resolved
+   set contradicts the dispatch (e.g. it picks the real `rocm==7.14.1` sdist, not the `0.1.0`
+   placeholder), say so with the probe output BEFORE writing code.
+3. **"The index has zero .whl files" is NOT "the index lacks the package."** A PEP-503 simple
+   index that lists only `pkg-<ver>.tar.gz` tarballs still serves `pkg` — as an sdist for that
+   exact package name. Under `--index-strategy unsafe-best-match` uv picks the HIGHEST version
+   across all configured indexes, so an index offering `7.14.1` beats a PyPI placeholder at `0.1.0`;
+   the sdist's build backend is whatever it declares (check `build-backend` — a setuptools sdist
+   needs no poetry even if the placeholder in PyPI uses one). Confirm the mechanism at this level
+   before concluding the current flags "cannot defeat" the placeholder.
+4. **Do not force-push the deepen over a live push=true verdict run at the same head.** A
+   `workflow_dispatch` with `push=true` compiling the target cell (rocm/cuda/cpu) is the ground
+   truth; `cancel-in-progress` makes an authorised push destructive. Hold the push, report the
+   measured contradiction on the issue + a DM to the planner, and author the deepen only against
+   the ACTUAL log once the run concludes — or report green if its cell passes.
+
 ## Lane boundary (route, don't implement)
 
 - `.github/workflows/*` or a gate-source change (`PR_BODY:` event-snapshot, gate

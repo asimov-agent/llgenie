@@ -54,3 +54,24 @@ docker run ... python -m pytest tests/ -m 'not network' -p no:cacheprovider -q .
 
 And judge a unit run by its tail (`<n> passed, <m> deselected`) plus a plausible duration
 (the full llgenie unit suite takes ~8 minutes / ~495s), never by the exit code alone.
+
+## 3. Linked worktree false-reds GATES, but the change's own unit tests run fine in it
+
+The "never a linked worktree, always a standalone clone" rule governs **gate** runs: a
+linked worktree mounted into the container false-reds every *git-dependent* gate. But the
+change's own unit tests — modules that mock `subprocess` and read only the working tree —
+run correctly in the linked worktree. Running them by node id is the cheapest first proof
+of the change, before you bother cloning:
+
+```bash
+docker run --rm -u root --network host \
+  -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD":"$PWD":rw -w "$PWD" -e HOME=/tmp \
+  llgenie/test:latest python -m pytest tests/test_x.py::test_the_behaviour -p no:cacheprovider -q
+```
+
+- The docker socket is needed only if the target test itself shells out to docker.
+- Quote bare node ids; prefer the dedicated behaviour tests that assert THIS change over a
+  broad run — a `3 passed in 0.03s` at the current head is the crisp, non-fabricated proof
+  to quote when a full sweep/AC is externally blocked.
+- Match the module paths the repo uses (e.g. `tests/test_engine_*.py`), and treat the pass
+  count as the evidence — not the exit code (see §2).

@@ -50,6 +50,24 @@ This is the paired recovery to the "not my lane, route it" verdict above: route 
 re-run the blocked head. A re-run of the same head is also the correct recovery for a `cancelled`
 deciding run (see `references/worktree-and-run-safety.md`), never a rebuild.
 
+## A build-matrix cell red: prove the fix's own marker before calling the AC failed
+
+When the acceptance evidence is a build-matrix sweep and a cell reds, open THAT cell's own
+job log and grep it for your change's own marker line (the printed note the fix emits on
+its branch). If the marker is present, the tolerance worked and the red is downstream —
+never report it as "my fix failed".
+
+- A cell that shows your cold-build/skip path ran and then died at **exit code 143** was
+  SIGTERM'd by the runner (shutdown / cancel, often a wall-clock cap on a heavy multi-GB
+  build) — not a defect your diff introduced. Say so; do not attribute it to the change.
+- A build-dependency error inside a third-party project the repo does not track (e.g. a
+  vendored upstream's `pyproject.toml`/poetry gap) is outside the vehicle's file set:
+  record it as an upstream/out-of-scope red, name its owner, and do not widen your PR to
+  patch a file you do not own.
+- Record the sweep honestly as "N/M done, K red (with the real error line per red; the
+  fix's tolerance verified working on every red cell)" and do not tick or close on it —
+  the reviewer's verdict needs a green run at the rebased head.
+
 ## Re-read PR state before a long diagnosis
 
 The owner can merge the PR while you are mid-diagnosis. Before spending minutes fetching logs, `gh pr view <n> --json state,mergeStateStatus` — a `MERGED` state means stop diagnosing and verify the merge landed on main instead of chasing a log for a branch that already shipped.

@@ -38,6 +38,16 @@ with no `.git` at all:
 Record both numbers. "N failed on mine vs 1 pre-existing on pristine" without
 the identical invocation and the same network conditions is not a finding.
 
+## A committed-vs-working-tree diff test reds on a DIRTY tree, not a regression
+
+Some gate tests compare the COMMITTED file (`git show <ref>:path`) against the WORKING-TREE file
+(`(REPO/path).read_text()`), e.g. a "params identical to base are not deferred" check. Any
+uncommitted edit to a tracked file makes such a test red locally, while CI — a clean checkout —
+passes and the same test passes on the committed head. Before diagnosing a full-suite red as a
+regression, run `git status --short`; commit or stash the tree and re-run the suspect test, then
+confirm once more on the committed head. Do not chase a source fix that the test only sees because
+your tree was dirty.
+
 ## Container hygiene when several lanes test at once
 
 - Identify your containers by their mount path before touching any.

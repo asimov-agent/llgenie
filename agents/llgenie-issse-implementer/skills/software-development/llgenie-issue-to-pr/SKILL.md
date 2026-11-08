@@ -16,20 +16,18 @@ metadata:
 
 ## When to Use
 
-Load this whenever you are dispatched to implement, fix, or version something in
-`asimov-agent/llgenie` and the deliverable is a reviewable PR — a code fix, a skill
-live→tree sync, a docs/CHANGES row, a gate repair. Layer over `github` for gh/PR mechanics. Delivery loop: one issue, one branch, one PR, body
-`closes #<n>`; never push `main`, never merge by hand.
-PR body + squash-commit close line must be the PLAIN literal
-`closes #N` (no bold, no colon/hyphen before `#N`):
-`references/plain-close-line.md`.
-Terminal/guard pitfalls, persisted cwd + REPLAN + observe verify: `references/terminal-and-guard-pitfalls.md`. OpenSpec change-first: `references/openspec-change-first.md`.
-A PR that reds on close-mismatch + stale AGENTS line + non-live base
-(`check-pr-closing`/`check-pr-agents-line`/`check-pr-base` together):
-`references/pr-close-mismatch-recovery.md`.
+Load when dispatched to implement/fix/version in `asimov-agent/llgenie` with a
+reviewable PR as deliverable. Layer over `github` for gh mechanics. One issue, one
+branch, one PR, body `closes #<n>`; never push `main`, never merge by hand.
+Close line = PLAIN literal `closes #N` (no bold/colon/hyphen): `references/plain-close-line.md`.
+Terminal/guard pitfalls: `references/terminal-and-guard-pitfalls.md`. Comment posting/dedup: `references/comment-dedup-and-pagination.md`. OpenSpec change-first: `references/openspec-change-first.md`.
+Close/AGENTS/base gate reds: `references/pr-close-mismatch-recovery.md`.
+Acceptance reds / `## Not covered` / exemption-bullet regex: `references/acceptance-gate.md`.
 Index red → `references/mechanical-index-regeneration.md`.
-Fork PR head pinned to the old sha after a force-push, or CI's unit leg skipped
-for your head → `references/stale-pr-head-and-self-proof.md`.
+Amend/force-push voids gates; rerun + head==remote: `references/gate-rerun-and-verify.md`.
+Already-fixed defect → regression guard: `references/already-fixed-defect-regression-guard.md`.
+Local engine build + long-build monitoring: `references/local-engine-build-verification.md`.
+Stale fork PR head / skipped CI unit leg → `references/stale-pr-head-and-self-proof.md`; owner-focus: `references/owner-focus-and-verification.md`.
 Queue re-dispatches a **closed/merged** issue by number (residual `agent:implement`
 label keeps it "open" in a stale snapshot) → verify `gh issue view <n>` state, refuse
 the phantom, set a no-reply boundary: `references/closed-issue-redispatch.md`.
@@ -40,19 +38,15 @@ Whole batch of sibling PRs red on the same gates:
 CI false greens: `references/open-pr-measurement.md`, `references/post-merge-verification.md`.
 Shared red: `references/shared-vs-task-ci-red.md`.
 Container image non-root/build: `references/container-runtime-fixes.md`.
-Head disagreement / peer rebase ask (rule #994) → `references/reconciling-disagreeing-heads.md`.
-Premise may already be met (store landed / gate green) → `references/measure-scope.md`.
+Head disagreement / peer rebase ask (#994, live WAIT) → `references/reconciling-disagreeing-heads.md`.
+Premise met / orphan branch STACKED on unmerged PR → `references/measure-scope.md`.
 Engine decisions for a new store (`check-engine-skill-gap` staleness) → `references/engine-skill-gap-decisions.md`.
 Shared-checkout hazards (a stash popping another lane's files; the mutation guard reading a git
 subprocess as "no mutation") and generated-artefact drift: `references/local-worktree-hygiene.md`.
-Container won't start / pre-existing host failure: `references/local-unit-run.md`.
+Container/host failure: `references/local-unit-run.md`. Skill `references/`/new-file edits → `references/skill-reference-gates.md`.
 
 Folding a lane's LIVE profile into `agents/`: `references/live-profile-fold.md` (read before the
 first edit).
-
-## Acceptance-criteria form contract (#1796 #1, owner 2026-11-05)
-
-- **Every issue this lane files AND every PR body it opens carries a `## Acceptance criteria` section with each criterion a `- [ ]` markdown checkbox, one per provable outcome; a criterion a reviewer cannot tick is not one (#745).** A work item that defines "done" without a tickable checklist is not a work item this lane files — name the command/field each box proves so a reviewer (or #1792 at merge) can check it. The section MUST use the canonical `## ` heading, never a bare `**Acceptance criteria:**` bold line (that defeats `issue_body.missing()` and the verdict-gated ticking in `acceptance_writeback`, #1644). This contract is versioned here via #791 and re-synced with `make sync-agent-profile PROFILE=llgenie-issse-implementer` (SYNC per #1724). *cite #791 / #1796 / #1812*
 
 ## Procedure
 
@@ -83,14 +77,14 @@ first edit).
      as a broken image — pull/daemon are fine, the recursion is the whole problem.
 4. **Rebase only when `mergeable == CONFLICTING`.** Re-measure with
    `gh pr view <n> --json mergeable,mergeStateStatus` (UNKNOWN is a transient recompute —
-   re-poll before acting). A MERGEABLE-but-behind PR is not broken; do not chase main.
-   **The no-chase rule governs a PUSHED branch under review. A local branch you have never
-   pushed and never opened a PR for may be rebuilt onto the freshly fetched main at will** — no
-   lease, no reviewer, no shas anyone holds. A gate red on a file you never touched (lint on a
-   fixture, a docs-exceptions shape error) is usually the tell that main moved past your base, not
-   that you dirtied it: compare that file at `origin/main` against your base before assuming the
-   diff is yours, then `git rebase origin/main` and re-render any shared-append file (CHANGES.md)
-   from its fragments rather than hand-merging the markers.
+   re-poll before acting). A MERGEABLE-but-behind PR is not broken; do not chase main — **EXCEPT the `check-pr-base` gate:
+   `git merge-base origin/main HEAD == git rev-parse origin/main`. A peer merge reds it
+   (`… is NOT cut from origin/main`; your commits listed `foreign`) so the rebase is owed — diagnose
+   from the job log; rebase onto the measured tip, re-checking merge-base==main before push. See
+   `references/base-move-rebase.md`.**
+   **Otherwise no-chase governs a PUSHED branch; a branch you never pushed may be rebuilt onto fresh
+   main** (no lease, no shas anyone holds). A gate red on a file you never touched usually means
+   main moved past your base: compare it at `origin/main` vs your base, then rebase.
    Confirm a true conflict with `git merge-tree --write-tree origin/main HEAD`.
    **An engine-build gate red on `Cache export is not supported for the docker driver.`
    (or `manifest unknown`, `make: *** [Makefile:1306: build-engine] Error 1`) is NOT a stale-base
@@ -191,6 +185,21 @@ first edit).
   classify it in `scripts/issue_bot_gates.py` (`FAST_GATES`/`DEFERRED`)** — a gate nothing
   classifies is a wiring hole. Both reds reproduce on clean `origin/main` ONLY when the target
   already exists; they are YOURS the moment your branch introduces the target.
+- **A NEW `scripts/*.py` module must equal `scripts/package-layers.json` mentioning it — plus,
+  if it imports another module, an `allowed_edges` entry stating the cross-group edge — or
+  `tests/test_package_layers.py` reds `test_the_data_file_names_every_module_of_the_tree`
+  and `test_the_repository_tree_passes_its_own_layering_gate`.** `check-package-layers` is a
+  pure AST read of `scripts/` against the JSON (issue #795): any committed module with no
+  group is `missing`, and any import to a module in another group is an unstated `[cross-group]`
+  finding. Fix BOTH by hand-text edit in the canonical (1-space-indent, UTF-8) JSON fault — a
+  `json.dumps(..., indent=2, ensure_ascii=False)` REGENERATION churns the whole file (un-escapes
+  `\u00a7` etc.) and is wrong: this file is hand-maintained, so edit one line in the right group
+  (alphabetical order) and one `allowed_edges` block mirroring the sibling edge's `reason`.
+  Reuse the sibling's wording only if it states the real contract (e.g. provisioning reuses the
+  validator's manifest reader) — a false reason is a lie the next reader trusts. The moment your
+  branch adds `scripts/provision_agent_profiles.py`, `check_tick_prompt.py`, or any new module,
+  this test is YOURS; run `pytest tests/test_package_layers.py` before pushing, and re-run after
+  any scripts/ change. Reproduces on clean `origin/main` only if the module already exists there.
 - **A green-wait watcher can false-fire `ALL_GREEN` before all checks are even created — and
   the completed-only-filter variant is the same bug.** A loop that polls `success == total`
   with a floor like `total >= 13` fires the moment 13 checks exist and all passed — the long
@@ -962,11 +971,9 @@ move on — a red nobody's process is measuring is not a defect. **A watcher's F
   parse is indistinguishable from one that never ran; re-issuing it in the same or next batch puts
   two or three copies on the issue/PR (bookend comments included). Post comments SEQUENTIALLY, read
   back the id (`gh pr comment … #issuecomment-<id>`) once, and only proceed when you have it. To
-  clean duplicates, list and delete by id —
-  `gh api repos/<o>/<r>/issues/<n>/comments --jq '.[]|{id,user:.user.login,body:.body[0:60]}'`, keep
-  exactly one of YOURS, and `gh api -X DELETE repos/<o>/<r>/issues/comments/<id>` the rest (that
-  endpoint deletes a comment on any issue OR PR). Never delete another author's or the gate bot's
-  comment.
+  clean duplicates (the comments list is paginated OLDEST-first, so an unpaged query hides the
+  duplicate you just posted) see `references/comment-dedup-and-pagination.md`. Never delete another
+  author's or the gate bot's comment.
 - **`grep -c` prints `0` and EXITS 1 when there are no matches — an `&&` chain then stops right
   after a successful "zero findings" check.** `python3 scripts/check_agent_profiles.py | grep -c
   'llgenie-planner' && echo ok` short-circuits when the count is 0, which is exactly the GOOD
@@ -1010,10 +1017,10 @@ move on — a red nobody's process is measuring is not a defect. **A watcher's F
   the call chain, default `None` = current path) is how the historical fixture is made hermetic
   without touching the live default.
 
-See `references/gate-script-conventions.md` for the exit-code vocabulary (0 clean / 1 findings /
-2 bad invocation), diff-ADDED gate design (a whole-tree gate reds its own PR), why a
-git-dependent leg can skip and false-green, the `--only <key[,key…]>` filter pattern, and how to
-drive a gate script's real `main()` from a test — the conventions `scripts/check_*.py` share.
+See `references/gate-script-conventions.md` for exit codes, per-subject evidence naming (each
+violation names its own id, never a placeholder), diff-ADDED gate design, the skip/false-green
+trap, the `--only` filter, and driving gate `main()` from tests (fake `gh` on PATH) — the
+`scripts/check_*.py` conventions.
 
 See `scripts/verify_fold_identity.py` to verify a live→tree fold (one file or many) is byte-identical
 to the canonical ref the reviewer reads — raw-byte compare, aggregate sha256 plus per-file mismatches,

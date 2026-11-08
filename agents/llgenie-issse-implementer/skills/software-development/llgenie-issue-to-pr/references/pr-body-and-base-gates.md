@@ -49,7 +49,7 @@ ancestry check above is the real trigger, and it is computed locally in one comm
 
 ## `check-pr-agents-line` — the PR body must cite AGENTS at a reachable sha
 
-A bot PR body must carry an `AGENTS:` line naming a `BASE:` sha that is reachable from BOTH head and base. The gate reads the LIVE PR body on every run, so the fix is `gh pr edit <n> --body-file <f>` — a code push does nothing.
+A bot PR body must carry an `AGENTS:` line naming a `BASE:` sha that is reachable from BOTH head and base. The gate reads the LIVE PR body on every run, so the fix is `gh pr edit <n> --body-file <f>` — a code push does nothing. But a body edit also starts NO new run: the corrected body is only re-evaluated when a run EXECUTES, so after `gh pr edit` trigger one (`gh run rerun <run-id> --failed`, or dispatch the guard) and confirm the `check-pr-agents-line` step reads SUCCESS at the head — the same rerun-not-rebuild recovery used for a routed gate fix.
 
 The cited sha must be an ancestor of both sides (e.g. your fork point, or a main commit still on main after your rebase). A sha that is no longer an ancestor of the base makes the line unreachable and reds again — re-point it after any rebase.
 

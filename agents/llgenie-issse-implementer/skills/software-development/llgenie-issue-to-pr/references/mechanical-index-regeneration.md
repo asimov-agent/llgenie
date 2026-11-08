@@ -23,6 +23,27 @@ are replaying onto and `--theirs` is YOUR commit — the opposite of merge intui
 exactly why step 1 says take either side and let the renderer decide: reasoning about
 which side is "mine" during a rebase is where the wrong-resolution mistake comes from.
 
+## Folding an upstream commit onto your branch (`git cherry-pick -n <sha>`) — same renderer discipline
+
+When the owner lands a fix on a separate branch and you fold it onto your PR branch with
+`git cherry-pick -n <sha>`, a `CHANGES.md` conflict is almost always adjacent-row sorting (both
+sides add a dated row). Resolve it with the same discipline as a rebase conflict, but mind the
+side-inversion difference:
+
+- `git cherry-pick` is a MERGE, so `--ours` is YOUR branch HEAD and `--theirs` is the picked
+  commit — the normal merge sense, NOT the rebase inversion above. Reasoning about "mine" is
+  equally avoidable: take either side and let the renderer decide.
+- The picked commit usually also adds its `docs/changes.d/` fragment. Because that fragment is
+  now in the tree, `python3 scripts/changes_index.py write` (or `make changes-resolve
+  BASE=<fresh-main-sha>`) re-renders EVERY row including both, marker-free by construction.
+- A manual marker-union (keep both sides' rows, delete the `<<<<<<<`/`=======`/`>>>>>>>` lines)
+  also works and reads naturally, but it is NOT the finish line: the renderer's row order and
+  per-row md5/size/line stamps are the source of truth, so a hand-built union can leave
+  committed ≠ rendered and red the index gate later. ALWAYS follow ANY `CHANGES.md` conflict
+  resolution — union or either-side — with `python3 scripts/changes_index.py check` (or
+  `make changes-index`) and require it green BEFORE committing. Never commit a `CHANGES.md` you
+  resolved by hand without that check.
+
 A generated index (`docs/CHANGES.md`, rendered by `make changes-index` /
 `scripts/changes_index.py` from the `docs/changes.d` fragments) can be RED on the merged
 main while every PR head was green. This is the most common "main is red, docs lane

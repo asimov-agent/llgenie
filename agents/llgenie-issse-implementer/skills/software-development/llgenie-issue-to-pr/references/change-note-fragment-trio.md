@@ -64,6 +64,25 @@ and re-running `make check-docs` will keep reporting the same "adds no note" eve
 file is on disk. This is the trap that makes a correct fix look broken. Stage and **commit**
 the trio, then re-run the gate.
 
+## Pitfall: document the value AT THE HEAD, never copy an older note's value
+
+When a docs note records a resolved constant (a timeout budget, a retry count, a threshold), the
+number must be read from the file at the committed head — not copied from the previous note, not
+taken from the issue text, not taken from the dispatch's summary. An earlier note documents a value
+that a later fold superseded, and a new note that repeats the stale number is a wrong-answer doc that
+passes every gate (the gate checks shape, not truth). Before writing, grep the actual line:
+
+```
+git show HEAD:.github/workflows/<wf>.yml | grep -nF 'timeout-minutes'
+```
+
+Quote that exact expression in the note (e.g. `${{ (matrix.variant == 'rocm') && 360 || 240 }}` = 360
+rocm / 240 otherwise) and say which is the live value and which was superseded. If the issue or the
+dispatch names a number that disagrees with the head, the head wins — state the discrepancy in the
+note so the next reader sees why the number changed. Also confirm a docs-only change still meets the
+index contract: every `agent-wiki/` entry must reference an issue/PR and have its own
+`docs/changes.d/` row (`make check-docs` validates both even when `change->note` itself did not fire).
+
 ## Verify
 - `make check-docs` rc 0 at the committed head (it also runs the architecture census and the
   changes-index consistency check, so one rc 0 covers all three).

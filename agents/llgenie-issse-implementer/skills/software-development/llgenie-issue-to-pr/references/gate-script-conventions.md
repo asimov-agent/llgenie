@@ -30,6 +30,20 @@ Keep 1 and 2 distinct. A CI leg treats any nonzero as red either way, but a read
 "the tree is wrong" from "you typed the flag wrong", and two failures with identical exit codes
 become indistinguishable in the logs after the fact.
 
+## Per-subject violations must NAME their subject — a shared placeholder collapses them
+
+When a gate can emit one violation per subject (one linked issue, one file, one PR), thread the
+subject's identifier INTO each evidence string, never a fixed placeholder. A repeated literal
+(`closes #<n>`, `<file>`) across N violations makes two simultaneous violations
+indistinguishable: the reader cannot tell which issue/file each charge belongs to, and a test
+that only COUNTS violations passes the collapsed version. Build the evidence from the actual id
+(`f"... closes #{n} ..."`), and assert that a TWO-subject input yields two violations whose
+evidence each name their OWN id (`#1000` in one, `#1001` in the other) — a count-only assertion
+does not catch the placeholder. This is "assert behaviour, not text" applied to gate output: the
+test must prove the evidence DISCRIMINATES, not merely that it exists. When threading a new id
+through a helper, grep the whole test tree for the helper's old signature before widening it —
+a hand-rolled call site that passes the old arg count reds on a shard you did not run.
+
 ## The `ratchet` subcommand — a DIFFERENT contract from `check`
 
 A checker often ships two subcommands over the same scanning code, with INVERSE exit semantics:
@@ -174,6 +188,17 @@ Assert all four behaviours, each as its own block so a failure names which one b
 as pre-existing and skip the comparison. Without both, the live-direction findings never appear
 and the test passes for the wrong reason.
 
+### Driving the real `main()` when it shells out to `gh`
+
+A gate that fetches issue/PR bodies via `gh` can be exercised END-TO-END without network by putting
+a fake `gh` first on `PATH` — a tiny script answering `gh issue view <n> --json body` with a fixed
+`{"body": ...}` — then calling `main([...])` and reading the rendered violation lines. That proves
+the CLI's real output (each violation naming its own `#N`), not a unit-level reconstruction. Run it
+from the repo MOUNT ROOT so `scripts/` is importable: `docker run ... -w /repo python demo.py`.
+A bare `python /demo.py` puts the SCRIPT's dir on `sys.path`, not the repo, so
+`from scripts.check_x import main` fails with `ModuleNotFoundError: No module named 'scripts'` —
+copy the demo into the worktree or `cd` into the mount before invoking.
+
 ## A new Makefile gate must be CLASSIFIED in `issue_bot_gates`, not only wired
 
 Adding a `check-*` target to a CI aggregate (`ci-lint`, `ci-unit`, …) is not enough: a guard test
@@ -182,6 +207,47 @@ be classified in `tests/test_issue_bot_gates.py` (`FAST_GATES` or `DEFERRED`) �
 entry reds `linux/unit` ~12 min in, after the fast legs looked fine. Run that guard file locally
 right after wiring the Makefile (`make unit` or `pytest tests/test_issue_bot_gates.py`) instead of
 discovering it in CI. Classify by cost: a tree-only static read belongs in `DEFERRED`, not `FAST`.
+
+## `check-wiring` is a SECOND registry: `.PHONY` + host-only fixture, and it ROUND-TRIPS
+
+`check-wiring` reds a new `check-*` / script target for reasons `.PHONY`-in-aggregate and
+`issue_bot_gates` do NOT cover. A brand-new target/script typically needs BOTH of these, and each
+reds a different line of the same job:
+
+- **`.PHONY` declaration.** A new target must be declared `.PHONY` — the checker scans for a
+  declaration near the target's recipe (an explicit `.PHONY:` line right after the recipe is enough;
+  the repo's shared `.PHONY:` block also counts). A target wired into an aggregate without `.PHONY`
+  reds `check-wiring` even when the recipe itself is correct. Watch the patch tool here: a fuzzy
+  edit near `.PHONY:` can silently re-write whitespace on an unrelated line — revert and re-apply as
+  a surgical single-line insert, then `git diff` the Makefile to confirm only your line moved.
+- **host-only fixture entry.** A script CI cannot reach (it needs the host — a live `jobs.json`
+  probe, a launcher/image read) must be recorded as an explicit host-only entry in the wiring
+  fixture JSON, or `check-wiring` reds it as "a script nobody runs and nobody declared host-only".
+
+**The round-trip trap: the host-only entry becomes STALE the moment a test makes the script
+CI-reachable.** `scripts/unit_tests.py` DISCOVERS `tests/test_<x>.py`, so adding
+`tests/test_<script>.py` pulls `scripts/<script>.py` into the CI unit leg — and `check-wiring` then
+reds the host-only entry as STALE (declared host-only, yet CI now runs it). Delete the entry in the
+SAME PR that adds the test. Decide the branch by whether a test exists: target+script only → ADD
+the host-only entry; target+script+test → do NOT add it, and if it was already committed, remove it.
+Run `make check-wiring` AFTER both edits (`.PHONY` + fixture), never just one — they are separate
+reds in the same job and fixing one exposes the other.
+
+**Edit the wiring fixture JSON with `ensure_ascii=True`, from a pristine copy.** A
+`json.dump(..., ensure_ascii=False)` round-trip un-escapes every `\u2014` (em-dash) in the file and
+churns dozens of unrelated lines into the diff. Start from `git show origin/main:<fixture> > f.json`,
+add ONLY your entry with `ensure_ascii=True`, and confirm `git diff origin/main -- <fixture>` is a
+handful of lines — a 20-line diff for a one-entry change is the escaping churn, not your change.
+
+## A gate comparing a file to a JSON string must normalize ONE trailing newline
+
+When a drift/existence gate compares a tracked file's bytes against a value stored in a JSON blob
+(`jobs.json`, a manifest), `make lint`'s "every tracked text file ends with a newline" rule and the
+JSON string's own lack of a trailing `\n` are in direct conflict: add the newline for lint and the
+byte comparison reds; drop it and lint reds. The fix is a PARSE-LEVEL normalization — strip at most
+one trailing `\n` from the file side (or both sides) before comparing — never weakening the
+comparison into a substring/`in` check. Prove both arms: normalized-equal → exit `0`, and a genuine
+text divergence → exit `1`. A gate that only ever greened is untested.
 
 ## Tests that read the LIVE host red on OTHER lanes' drift
 

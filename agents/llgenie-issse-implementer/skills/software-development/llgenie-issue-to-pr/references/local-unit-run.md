@@ -59,6 +59,35 @@ Then run green by deselecting them explicitly and SAY SO in the PR body (`131 pa
 pre-existing live-profile-drift tests that fail identically on base`). Editing such a test to match
 one host is the wrong fix; it bakes host state into the suite.
 
+**A single test that passes ALONE but fails only in the full local venv suite is an order/env
+artifact, not your regression.** Run that exact `test_nodeid` in isolation at your head AND at an
+`origin/main` checkout — green in both places means the full-suite red is local-venv state leakage
+(env left set by an earlier test, profile/host drift), not something your diff introduced. The
+authoritative full-suite verdict is the containerized `linux / unit` CI row; a local venv full run is
+never the gate of record. Reproduce a red at main before writing any fix for it; when your branch
+legitimately unblocks a pre-existing red (matching an established sibling pattern), keep it but say
+in the PR/report that the red pre-existed — do not claim it as a fix your PR introduced.
+
+## `make ci-unit` on the host carries host-state checks the clean CI container passes
+
+The full `make ci-unit` recipe bundles checks that compare against THIS machine, not only the
+committed tree, so a host run reds on gates CI greens:
+
+- `check-engine-launchers` reads launcher image tags and reds when THIS host carries STALE tags
+  (e.g. `llgenie/strata:3f6d9c28 != expected d94bac6a`) — the pinned tags in your tree are fine;
+  the host's built-image tags are old. In CI's clean container the launchers are built fresh, so
+  it passes. Prove it is host state with `git stash` on base (fails identically), then treat it as
+  environmental — do NOT re-pin launcher tags in your diff to green a host run you do not own.
+- `check-agent-profiles` live half reds on other lanes' uncommitted live files; run
+  `HOME=/tmp/emptyhome python3 scripts/check_agent_profiles.py check` for the CI-equivalent
+  tree-only verdict (see `skill-reference-gates.md`).
+
+A docs- or skill-pointer-only diff (SKILL.md + `references/*.md`, no code) does NOT need the full
+host `make ci-unit` (~8-9 min) to be believed: verify the task-relative gates DIRECTLY instead —
+`tests/test_agent_profiles.py` for `skill-reference-missing`, `make lint` for the new-file newline
+red, `skills-validate` — and let `ci-scope` at the PR head decide whether the heavy rows even run.
+A host `check-engine-launchers` red is noise for such a diff, not a blocker.
+
 ## OpenSpec without the container
 
 The Makefile's `openspec-validate` falls back to an npm install; do the same to a USER prefix (no
@@ -104,6 +133,29 @@ looks identical mid-run and complete at 100%, and repeated `sleep`+`tail` probes
 answering the only question that matters). The sentinel also records the head sha, so a verdict can
 never be silently attributed to the wrong commit after a move.
 
+## Test evidence is bound to the sha it ran at — an old-head run does not prove a rebased head
+
+After a rebase/amend the head moves; a suite result captured at the OLD sha proves nothing about the
+new one. Before reporting a suite result, assert the head it ran at equals the CURRENT pushed head:
+`gh pr view <n> --json headRefOid` vs the sha you built the run from. If they differ, either re-run
+at the new head or label the result explicitly SUPPORTING-ONLY / superseded — never present an
+old-head EXITCODE as evidence for the new head.
+
+To run the suite at a rebased/floating head WITHOUT disturbing another lane's worktree (e.g. the
+rebase lane's `/tmp/wt-…`), make your OWN throwaway detached worktree from the canonical clone at
+that exact sha, run the battery against it, then remove it:
+
+```
+git -C <canonical> worktree add --detach <scratch-wt> <full-40-char-sha>
+docker run --rm -u root -v <scratch-wt>:/repo:rw -w /repo -e HOME=/root llgenie/test:latest \
+  python -m pytest tests/<file>.py -q -p no:cacheprovider
+git -C <canonical> worktree remove --force <scratch-wt>   # if it fails, see the root-owned section in local-worktree-hygiene.md
+```
+
+This binds the `N passed` / `EXITCODE` line to the exact sha, and because the worktree is detached
+and disposable there is no branch or shared tree to corrupt. Record the sha in the same line as the
+exit code (`head=<sha> EXITCODE=0`) so the evidence can never be mis-attributed after another move.
+
 ## A docker run started before a rebase reads a LIVE mount — discard its verdict
 
 `docker run -v "$PWD":/repo` bind-mounts the worktree, so a full-suite run that
@@ -135,6 +187,15 @@ seconds before you discover CI is already green buys nothing and muddies the rep
 
 ## Test-writing gotchas that cost a cycle here
 
+- **A test that shells out to the CLI does NOT inherit the env its in-process sibling sets.** When a
+  subprocess test runs a command that filters models against a registry (e.g. `--matrix` against
+  `matrix-smoke-registry.json`), the subprocess sees only the OS env you pass in its `env=` dict — not
+  the pytest env, not module constants. If the registry's model is outside the default VRAM band (a
+  2 GB smoke model vs the default 8-48 GB band, #227), the subprocess prints 0 models and every
+  URL/row assertion fails — even though a hermetic sibling that calls the same code in-process passes.
+  Fix: set in the subprocess `env=` dict the SAME widening the hermetic sibling already sets
+  (`LLGENIE_VRAM_RANGE: "1, 64"`); never change the production band or the registry to green a test.
+  The tell is a red that disappears when you run the command by hand with the widening env set.
 - `capsys.readouterr()` CLEARS the buffer — read it once and assert on that variable; a second call
   returns empty and looks like the code printed nothing.
 - Code that prints via `print(..., file=sys.stderr)` is caught by pytest's `capsys`, NOT by a
