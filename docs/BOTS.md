@@ -2794,7 +2794,10 @@ A green `/health` with a stale `HINDSIGHT_API_LLM_BASE_URL` in `/proc/<pid>/envi
 not a healthy one.
 
 The pointer from the lane profiles reference (`agents/*/skills/*/references/agent-profiles.md`) is tracked
-separately as **#2064**; this docs change is `docs/`-only by its own scope rule.
+separately as **#2064**; this docs change is `docs/`-only by its own scope rule. The link the lanes reach
+first is the cross-link from this file's own profiles section above — `docs/BOTS.md` is the reference four
+lane skills preload (`llgenie-pipeline-maintenance`, `llgenie-docs-maintainer`, `github-issue-triage`,
+`llgenie-bot-orchestration`).
 
 ## How the bots stay out of each other's way
 
