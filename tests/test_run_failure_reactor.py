@@ -28,7 +28,8 @@ def gh_stub(tmp_path: Path, run: dict, prs: list[dict], comments: dict | None = 
             filed: list[str] | None = None, fail_read: str | None = None,
             checks: dict | None = None, commits: dict | None = None,
             rest: dict | None = None, fork_prs: dict | None = None,
-            pr_meta: dict | None = None, newer_runs: list[dict] | None = None) -> Path:
+            pr_meta: dict | None = None, newer_runs: list[dict] | None = None,
+            dispatch_error: str | None = None) -> Path:
     """A `gh` that answers the shapes the reactor uses, and logs every argv.
 
     `run` is the `gh run view --json` object; `prs` is the REST `pull_requests` array; `comments`
@@ -36,7 +37,9 @@ def gh_stub(tmp_path: Path, run: dict, prs: list[dict], comments: dict | None = 
     `fail_read` is a substring of an argv that should make `gh` exit non-zero (a crashed read);
     `checks` maps PR number -> its `gh pr checks` rows; `commits` maps PR number -> its commit
     message headlines (the fix-bot attempt counter); `newer_runs` is the branch's `gh run list`
-    answer, which is what decides whether a failure was superseded (issue #565).
+    answer, which is what decides whether a failure was superseded (issue #565); `dispatch_error` is
+    the stderr `gh workflow run` answers instead of dispatching, with a non-zero exit (the API's
+    refusal of a dispatch credential, issue #2086).
     """
     bin_dir = tmp_path / "bin"; bin_dir.mkdir(exist_ok=True)
     scenario = tmp_path / "scenario.json"
@@ -44,7 +47,8 @@ def gh_stub(tmp_path: Path, run: dict, prs: list[dict], comments: dict | None = 
                                     "filed": filed or [], "fail_read": fail_read,
                                     "checks": checks or {}, "commits": commits or {},
                                     "rest": rest or {}, "fork_prs": fork_prs or {},
-                                    "pr_meta": pr_meta or {}, "newer_runs": newer_runs or []}))
+                                    "pr_meta": pr_meta or {}, "newer_runs": newer_runs or [],
+                                    "dispatch_error": dispatch_error}))
     log = tmp_path / "gh-calls"
     log.write_text("")
     gh = bin_dir / "gh"
@@ -84,7 +88,8 @@ elif a[:2] == ["pr", "view"]:
 elif a[:2] == ["pr", "comment"]:
     pass
 elif a[:2] == ["workflow", "run"]:
-    pass
+    if sc.get("dispatch_error"):
+        sys.stderr.write(sc["dispatch_error"] + "\\n"); sys.exit(1)
 elif a[:2] == ["issue", "list"]:
     # Model GitHub's search phrase rule, which the reactor must satisfy (issue #1990): a quoted
     # phrase cannot itself contain a double-quote, so a query for a marker that embeds one (e.g.
@@ -366,6 +371,85 @@ def test_a_missing_dispatch_token_is_loud_and_dispatches_nothing(tmp_path):
     calls = log.read_text().splitlines()
     assert not [l for l in calls if l.startswith("workflow run")], calls
     assert not [l for l in calls if l.startswith("issue create")], calls
+
+
+#: The API's refusal of the dispatch credential, verbatim as `gh` prints it (issue #2086, run
+#: 42442836444). Never the literal secret name: the test asserts the BEHAVIOUR, not a variable.
+REFUSED_403 = ("could not create workflow dispatch event: HTTP 403: Resource not accessible by "
+               "personal access token (https://api.github.com/repos/asimov-agent/llgenie/"
+               "actions/workflows/384587805/dispatches)")
+
+
+def test_a_refused_dispatch_is_posted_on_the_pr_and_does_not_red_the_job(tmp_path):
+    """The repair leg dying on a credential must say so on the PR, not red the reactor (#2086)."""
+
+    # Given a red same-repo PR, and a dispatch credential the API refuses with HTTP 403
+    log = gh_stub(tmp_path, failed_run(), [pr(252)], checks={"252": RED},
+                  dispatch_error=REFUSED_403)
+
+    # When  the reactor routes the run
+    r = run_reactor(tmp_path, ["--repo", f"{OWNER}/llgenie", "--run-id", "123"])
+
+    # Then  the job does not red on a credential refusal (the reactor's own reds keep meaning
+    #       "the reactor broke"), and it says so out loud in the job log
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "REPAIR UNAVAILABLE" in r.stdout, r.stdout
+    assert "::warning::" in r.stderr, r.stderr
+
+    # And   the refusal is POSTED on the PR with the HTTP status and the missing scope, so the
+    #       board reads "no repair" instead of nothing
+    calls = log.read_text().splitlines()
+    comments = [l for l in calls if l.startswith("pr comment")]
+    refusal = [c for c in comments if "repair unavailable" in c]
+    assert len(refusal) == 1, comments
+    assert "HTTP 403" in refusal[0], refusal[0]
+    assert "workflow" in refusal[0] and "Actions: write" in refusal[0], refusal[0]
+
+    # And   the claim written before the dispatch is RELEASED in that same comment, so the PR is
+    #       not left occupied for the whole TTL by a repair that never started
+    assert "bot-done" in refusal[0], refusal[0]
+
+    # And   no issue is filed for it: the PR comment is the consumer, filing would duplicate the
+    #       repair the fix-bot owns
+    assert not [l for l in calls if l.startswith("issue create")], calls
+
+
+def test_a_refusal_with_no_recognisable_status_is_still_surfaced(tmp_path):
+    """An unparseable refusal is reported with no status, never swallowed (issue #2086)."""
+
+    # Given a dispatch that fails without the `HTTP <code>` shape in its stderr
+    log = gh_stub(tmp_path, failed_run(), [pr(252)], checks={"252": RED},
+                  dispatch_error="error: could not create workflow dispatch event: boom")
+
+    # When  the reactor routes the run
+    r = run_reactor(tmp_path, ["--repo", f"{OWNER}/llgenie", "--run-id", "123"])
+
+    # Then  the refusal still reaches the PR, saying the API did not name a known refusal
+    assert r.returncode == 0, r.stdout + r.stderr
+    refusal = [l for l in log.read_text().splitlines()
+               if l.startswith("pr comment") and "repair unavailable" in l]
+    assert len(refusal) == 1, refusal
+    assert "HTTP ?" in refusal[0] and "boom" in refusal[0], refusal[0]
+
+
+def test_a_refusal_names_the_status_and_the_scope_the_credential_lacks():
+    """The status -> missing-scope table is the part a maintainer acts on (#2086)."""
+
+    # Given  gh's stderr for a classic PAT without the dispatch scope
+    refused = reactor.parse_dispatch_refusal(REFUSED_403)
+
+    # Then   the status is read and the missing scope is named in the API's own terms
+    assert refused.status == 403, refused.status
+    assert "workflow" in refused.missing_scope and "Actions: write" in refused.missing_scope, (
+        refused.missing_scope)
+
+    # And    an invalid credential and an invisible workflow are not misreported as the same thing
+    assert "invalid or expired" in reactor.parse_dispatch_refusal("HTTP 401: Bad credentials").missing_scope
+    assert "not visible" in reactor.parse_dispatch_refusal("HTTP 404: Not Found").missing_scope
+
+    # And    an unrecognised answer is a refusal with no status, not a silent pass
+    unknown = reactor.parse_dispatch_refusal("something the API said")
+    assert unknown.status is None and "unknown" in unknown.missing_scope
 
 
 def test_a_fifth_party_fork_run_is_not_dispatched(tmp_path):

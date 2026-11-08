@@ -91,6 +91,11 @@ jobs:
           # The dispatch identity (issue #555): `gh workflow run` makes the dispatched run's actor
           # the token's identity, and fix-bot's guard refuses `github-actions[bot]` — a dispatch
           # with `github.token` died in that guard (run 39917926028). Env only, never argv.
+          # The token needs the DISPATCH scope: a classic PAT must carry `workflow`, a fine-grained
+          # one `Actions: write`. Without it the API answers HTTP 403 and the leg repairs nothing
+          # (measured run 42442836444) — `scripts/run_failure_reactor.py` then POSTS the refusal on
+          # the PR ("repair unavailable: HTTP 403 — missing scope: …") and releases the claim
+          # instead of reddening this job (issue #2086).
           DISPATCH_TOKEN: ${{ secrets.BUMP_TOKEN }}
           RUN_ID: ${{ github.event.workflow_run.id }}
           REPO: ${{ github.repository }}
