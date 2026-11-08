@@ -25,8 +25,14 @@ probe `wait_published` uses (issue #169). LLGENIE_REGISTRY overrides the registr
 (a fork's GHCR), matching every other engine path.
 
 Usage:
-    python3 scripts/check_engine_pins_published.py check [--base REF]   # exit 1 on an unavailable repinned tag
-    python3 scripts/check_engine_pins_published.py report [--base REF]  # print the repinned set and the lookups
+    python3 scripts/check_engine_pins_published.py check [--base REF] [--all]   # exit 1 on an unavailable tag
+    python3 scripts/check_engine_pins_published.py report [--base REF]  # print the repinned set
+
+`--all` verifies EVERY committed enabled engine cell's exact tag (the full params
+matrix, all backends) instead of only engines THIS change repins — the guard for
+the recurring publish-gap class (#1365/#1622) where a bumped pin's image was
+never rebuilt (issue #2190: tensorfold/cuda at ef27f74f sat committed while no
+PR re-pinned it, so the repin-only gate never fired).
 
 `--base` is resolved by scripts/base_ref (issue #925) when not given, so it
 compares against the same tree CI does.
@@ -72,6 +78,57 @@ def exact_tags(engine: str, variant: str) -> str:
     return ei.resolve(engine, None, variant)["tag"]
 
 
+def committed_cells(root: Path | None = None) -> list[tuple[str, str]]:
+    """Every (engine, variant) the committed params declare buildable — all backends.
+
+    The image matrix is derived from the params (every non-disabled variant is a
+    CI cell), so this is the FULL committed engine set, not the repin diff. It is
+    the set a fresh install can actually pull, so a cell whose tag resolves no
+    manifest is a real publish-gap (the #1365/#1622 class) whether or not THIS
+    change touched it — issue #2190 (tensorfold/cuda pinned ef27f74f, never
+    rebuilt after the #1519 bump).
+    """
+    root = root or REPO
+    params_dir = root / "containers" / "engines" / "params"
+    cells: list[tuple[str, str]] = []
+    for path in sorted(params_dir.glob("*.json")):
+        with path.open() as fh:
+            params = json.load(fh)
+        for variant in sorted(params["variants"]):
+            if ei.disabled(params["id"], variant):
+                continue
+            cells.append((params["id"], variant))
+    return cells
+
+
+def _probe(cells: list[tuple[str, str]], probe: Callable[[str], tuple[str, str]],
+           registry: str, what: str) -> int:
+    """Probe every (engine, variant) cell's exact tag; exit 1 when any is not published.
+
+    `cells` is the scope being verified (the repin diff, or the full committed set);
+    `what` names it in the output for the two call sites.
+    """
+    missing: list[str] = []
+    checked = 0
+    for engine, variant in cells:
+        tag = exact_tags(engine, variant)
+        ref = f"{registry}/{tag}"
+        d, err = probe(ref)
+        checked += 1
+        if d:
+            print(f"[pins] PUBLISHED {ref}")
+        else:
+            missing.append(ref)
+            print(f"[pins] NOT PUBLISHED {ref} ({err})")
+    if missing:
+        print(f"[pins] FAIL {len(missing)} {what} image(s) are not published "
+              f"(of {checked} checked): dispatch engine-build with push=true, "
+              f"then re-run this check (issue #1622)", file=sys.stderr)
+        return 1
+    print(f"[pins] every {what} engine image ({checked}) is published")
+    return 0
+
+
 def check(base: str, root: Path | None = None,
           digest: Callable[[str], tuple[str, str]] | None = None,
           registry: str | None = None) -> int:
@@ -82,30 +139,33 @@ def check(base: str, root: Path | None = None,
     if not ids:
         print("[pins] no engine this change repins; nothing to check")
         return 0
-    missing: list[str] = []
-    checked = 0
-    for engine in ids:
-        params = json.loads((REPO / "containers" / "engines" / "params" / f"{engine}.json").read_text())
-        for variant in sorted(params["variants"]):
-            if ei.disabled(engine, variant):
-                continue
-            tag = exact_tags(engine, variant)
-            ref = f"{registry}/{tag}"
-            d, err = probe(ref)
-            checked += 1
-            if d:
-                print(f"[pins] PUBLISHED {ref}")
-            else:
-                missing.append(ref)
-                print(f"[pins] NOT PUBLISHED {ref} ({err})")
-    if missing:
-        print(f"[pins] FAIL {len(missing)} repinned image(s) are not published "
-              f"(of {checked} checked): a pin bump may merge only once its image is "
-              f"on the registry — dispatch engine-build with push=true for the "
-              f"repinned engine, then re-run this check (issue #1622)", file=sys.stderr)
-        return 1
-    print(f"[pins] every repinned engine image ({checked}) is published")
-    return 0
+    return _probe([(e, v) for e in ids
+                   for v in _enabled_variants(e)], probe, registry, "repinned")
+
+
+def check_committed(digest: Callable[[str], tuple[str, str]] | None = None,
+                    registry: str | None = None, root: Path | None = None,
+                    cells: list[tuple[str, str]] | None = None) -> int:
+    """Exit 0 only when EVERY committed enabled engine cell's tag resolves a manifest.
+
+    The committed set, not the repin diff: a cell whose committed tag is absent
+    from GHCR is a publish-gap a fresh install hits whether or not a PR moved it
+    (issue #2190). `cells` injects the set for tests.
+    """
+    registry = registry if registry is not None else ei.REGISTRY
+    probe = digest if digest is not None else ei._digest_http
+    scope = cells if cells is not None else committed_cells(root)
+    if not scope:
+        print("[pins] no committed engine cells; nothing to check")
+        return 0
+    return _probe(scope, probe, registry, "committed")
+
+
+def _enabled_variants(engine: str) -> list[str]:
+    params = json.loads((REPO / "containers" / "engines" / "params" / f"{engine}.json").read_text())
+    return [v for v in sorted(params["variants"]) if not ei.disabled(engine, v)]
+
+
 
 
 def report(base: str) -> int:
@@ -118,10 +178,14 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("cmd", choices=("check", "report"), nargs="?", default="check")
     ap.add_argument("--base", default="")
+    ap.add_argument("--all", action="store_true",
+                    help="verify EVERY committed enabled engine cell's tag, not just engines this change repins")
     args = ap.parse_args(argv)
     base = base_ref.resolve_base(explicit=args.base, quiet=True)
     if args.cmd == "report":
         return report(base)
+    if args.all:
+        return check_committed()
     return check(base)
 
 

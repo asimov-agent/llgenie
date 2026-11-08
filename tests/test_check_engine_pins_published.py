@@ -18,9 +18,12 @@ Mirrors the fake-digest pattern of tests/test_ci_publish_order.py (issue #169).
 """
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 from pathlib import Path
+
+import pytest
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -140,3 +143,76 @@ def test_the_gate_is_wired_into_ci_unit_and_phony():
     target = re.search(r"^check-engine-pins-published:.*(?=^\S)", mk, re.MULTILINE | re.DOTALL)
     assert target and "python3 scripts/check_engine_pins_published.py check" in target.group(0)
     assert target and "--base" in target.group(0), "the gate must diff against the base"
+
+
+# --- committed-set pin-validity guard (issue #2190) --------------------------
+# The repin diff (above) catches an engine a PR moves. The committed-set sweep
+# catches the recurring publish-gap where a bumped pin's image was NEVER rebuilt:
+# tensorfold/cuda at ef27f74f sat committed on main with no PR re-pinning it, so
+# the repin-only gate never fired while `ghcr.io/.../tensorfold:ef27f74f-*` 404'd.
+# check_committed sweeps the FULL params matrix (every enabled cell, all backends).
+
+COMPANY_REGISTRY = "ghcr.io/example/llgenie"
+
+
+def test_committed_red_when_a_committed_tag_is_absent(monkeypatch):
+    """`check --all`: a committed cell whose exact tag resolves no manifest reds."""
+    # tensorfold/cuda declares a cuda cell; its exact tag must exist for a fresh install
+    engine, variant = "tensorfold", "cuda"
+    params = json.loads(
+        (REPO / "containers" / "engines" / "params" / f"{engine}.json").read_text())
+    assert variant in params["variants"], f"{engine} must declare a {variant} cell"
+    tag = ei.resolve(engine, None, variant)["tag"]
+    ref = f"{COMPANY_REGISTRY}/{tag}"
+    fake, calls = _fake_digest({ref: ""})     # the exact committed tag 404s
+    rc = cpp.check_committed(digest=fake, registry=COMPANY_REGISTRY,
+                             cells=[(engine, variant)])
+    assert rc == 1, "a committed cell with no published image must red the sweep"
+    assert ref in calls, f"the committed tag {ref} must be looked up"
+
+
+def test_committed_green_when_the_same_committed_tag_resolves(monkeypatch):
+    """The identical committed cell is GREEN once its exact tag resolves the registry."""
+    engine, variant = "tensorfold", "cuda"
+    tag = ei.resolve(engine, None, variant)["tag"]
+    ref = f"{COMPANY_REGISTRY}/{tag}"
+    fake, calls = _fake_digest({ref: "sha256:" + "0" * 64})
+    rc = cpp.check_committed(digest=fake, registry=COMPANY_REGISTRY,
+                             cells=[(engine, variant)])
+    assert rc == 0, "a committed cell whose image IS published must pass"
+    assert ref in calls
+
+
+def test_committed_sweeps_every_non_disabled_cell(monkeypatch):
+    """The sweep enumerates every committed (engine, variant) cell the matrix builds."""
+    cells = cpp.committed_cells()
+    assert cells, "the committed params matrix must declare at least one cell"
+    assert ("sglang", "rocm") in cells, "committed_cells must include all-backend cells"
+    for engine, variant in cells:
+        params = json.loads(
+            (REPO / "containers" / "engines" / "params" / f"{engine}.json").read_text())
+        assert variant in params["variants"]
+        assert not ei.disabled(engine, variant), \
+            f"committed_cells must skip disabled cells, got ({engine}, {variant})"
+
+
+def test_committed_wired_into_make_and_phony():
+    """The committed-set sweep has its own runnable make target and is .PHONY."""
+    mk = (REPO / "Makefile").read_text()
+    target = re.search(r"^check-engine-pins-valid:.*(?=^\S)", mk, re.MULTILINE | re.DOTALL)
+    assert target and "check --all" in target.group(0), \
+        "check-engine-pins-valid must invoke the committed-set sweep"
+    phony = re.search(r"^\.PHONY:.*?^\S", mk, re.MULTILINE | re.DOTALL)
+    assert phony and re.search(r"\bcheck-engine-pins-valid\b", phony.group(0)), \
+        "check-engine-pins-valid is not .PHONY"
+
+
+@pytest.mark.network
+def test_every_committed_engine_cell_tag_is_published_live():
+    """Real GHCR (ci-network, issue #1000): every committed enabled engine cell's
+    exact tag resolves a manifest. Reds the class #2190 caught — a committed pin
+    whose image was never rebuilt. Runs live because the answer depends on what
+    CI actually published, never a committed snapshot."""
+    rc = cpp.check_committed()
+    assert rc == 0, "every committed engine cell's published image must resolve a manifest"
+

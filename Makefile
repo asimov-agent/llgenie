@@ -85,7 +85,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	security-bumps security-bumps-plan check-security-bumps \
 	agent-shell-keys-check \
 	agent-fetch search-smoke require-env web-coverage issue-evidence \
-	engine-bump-rebase generate-engine-params check-engine-params check-engine-coverage engine-coverage-report check-engine-source engine-source-report check-engine-capabilities engine-capabilities-report check-engine-launchers engine-launchers-report check-engine-pins-published engine-pins-published-report engine-build-pr-trigger engine-build-pr-trigger-report check-model-links model-links-report build-engine run-engine stop-engine list-engine-images engine-build-matrix test-engine-host ci-lint ci-unit ci-agents-read \
+	engine-bump-rebase generate-engine-params check-engine-params check-engine-coverage engine-coverage-report check-engine-source engine-source-report check-engine-capabilities engine-capabilities-report check-engine-launchers engine-launchers-report check-engine-pins-published check-engine-pins-valid engine-pins-published-report engine-build-pr-trigger engine-build-pr-trigger-report check-model-links model-links-report build-engine run-engine stop-engine list-engine-images engine-build-matrix test-engine-host ci-lint ci-unit ci-agents-read \
 	ci-openspec ci-cpu-health ci-top-tier ci-install ci-install-dry-args ci-free-disk ci-slow-rows ci-scope ci-verdict verdict-roster test-engine-stage bot-sync-main bot-sync-branch ci-wait-engine-images \
 	ci-install-dry ci-install-run ci-install-uninstall test-env test-top-tier test-top-tier-ci test-top-tier-cli-ci test-top-tier-serve test-top-tier-serve-ci \
 	check-agent-model model-pin-report check-agent-skills agent-skills-report test-agent-skills-live hermes-skills-register \
@@ -1350,6 +1350,12 @@ engine-launchers-report: ## Print, per engine, the image tag this host's launche
 	python3 scripts/check_engine_launchers.py report $(if $(BIN),--bin "$(BIN)",) $(if $(ARCH),--arch "$(ARCH)",)
 check-engine-pins-published: ## CI: fail when an engine THIS CHANGE repins is not yet published in the registry — a pin bump may merge only once its exact image tag resolves a manifest (issue #1622; PRE-BASE resolves via scripts/base_ref, issue #925; no engine repinned => green and no network)
 	python3 scripts/check_engine_pins_published.py check $(if $(BASE),--base "$(BASE)",)
+# Deliberately internal (no ## help line): the committed-set sweep's own routable hook is the
+# @pytest.mark.network live test in tests/test_check_engine_pins_published.py (ci-network pipeline,
+# issue #1000), so this target exists for a manual/all-new-backend call, never a CI gate that would
+# red a normal PR on any temporarily-unpublished cell.
+check-engine-pins-valid:
+	python3 scripts/check_engine_pins_published.py check --all
 engine-pins-published-report: ## Print the engines this change repins vs the base and their published-tag set (issue #1622)
 	python3 scripts/check_engine_pins_published.py report $(if $(BASE),--base "$(BASE)",)
 engine-build-pr-trigger: ## CI: dispatch engine-build push=true for every engine THIS change repins and await each verdict — the "will" arm of the pin-bump gate (issue #1633; PR_BASE/BASE resolves the base; no engine repinned => green, hermetic, nothing dispatched; --dry prints the plan)
