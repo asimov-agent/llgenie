@@ -553,6 +553,119 @@ def test_unreadable_reference_never_holds():
     assert True  # RuntimeError path is exercised by the CLI tests above via skip; this documents intent
 
 
+# --- the three-state gate: unproven red / proven-awaiting-writer green / proven-ticked green (#2187) ---
+# The #1644/#1808 write-back that ticks an acceptance box is verdict-gated and has NO CI trigger, so a
+# criterion the reviewer PROVED (a trusted approve verdict at the current head) but has not yet ticked
+# must NOT read like an unproven box. The gate reads the verdict trail: unproven stays `acceptance
+# -unchecked` (red), proven-but-unticked becomes `acceptance-proven-awaiting-writer` (a distinct,
+# non-red state), proven-and-ticked stays green. A `changes` verdict proves nothing.
+
+
+def test_unticked_with_no_verdict_stays_unproven_RED():
+    # the #2187 base case, unchanged: no verdict trail on the PR => the box is genuinely unproven.
+    findings = g.acceptance_verdict(_issue(ticked=[], total=1), _pr("closes #1000"), 1000)
+    assert any(f["key"] == "acceptance-unchecked" for f in findings)
+    assert all(f.get("blocking", True) for f in findings)
+
+
+def test_unticked_with_approve_verdict_is_proven_awaiting_writer_GREEN():
+    # THE #2187 fix: a trusted approve verdict at the current head proves the tree was reviewed, so
+    # the unticked box is awaiting its write-back — a distinct, non-red state, never acceptance-unchecked.
+    verdict = {"head": "a" * 40, "run": "4245", "verdict": "approve", "reviewer": "github-actions[bot]"}
+    findings = g.acceptance_verdict(_issue(ticked=[], total=1), _pr("closes #1000"), 1000, verdict=verdict)
+    assert findings, "a verdict-proven criterion is still a REPORTED state"
+    assert all(f["key"] == "acceptance-proven-awaiting-writer" for f in findings), \
+        [f["key"] for f in findings]
+    assert all(not f.get("blocking", True) for f in findings), "proven-awaiting-writer must not red the gate"
+    assert all("acceptance-unchecked" != f["key"] for f in findings)
+
+
+def test_changes_verdict_does_NOT_prove_unproven_stays_RED(tmp_path, monkeypatch):
+    # a `changes`/reject verdict is not evidence: `verdict_evidence` (the layer that resolves the trail)
+    # filters to ACCEPTING verdicts, so a changes marker returns None and the box stays genuinely unproven.
+    _fake_gh_verdict(tmp_path, _issue(ticked=[], total=1), _verdict_comment(verdict="changes"), monkeypatch)
+    assert g.verdict_evidence("gh", "asimov-agent/llgenie", "123", "c" * 40) is None
+    findings = g.acceptance_verdict(_issue(ticked=[], total=1), _pr("closes #1000"), 1000)
+    assert any(f["key"] == "acceptance-unchecked" for f in findings)
+
+
+def test_verdict_at_another_head_does_NOT_prove_later_head(tmp_path, monkeypatch):
+    # a verdict names ONE tree (#852): `verdict_evidence` resolves the EXACT head, so a marker for a
+    # different head is stale and returns None — the current-head box stays unproven.
+    _fake_gh_verdict(tmp_path, _issue(ticked=[], total=1), _verdict_comment(head="0" * 40), monkeypatch)
+    assert g.verdict_evidence("gh", "asimov-agent/llgenie", "123", "c" * 40) is None
+    findings = g.acceptance_verdict(_issue(ticked=[], total=1), _pr("closes #1000"), 1000)
+    assert any(f["key"] == "acceptance-unchecked" for f in findings)
+
+
+def _fake_gh_verdict(tmp_path: Path, issue_body: str, comments: list[dict], monkeypatch) -> None:
+    """A fake gh answering `pr view N --json comments` (the verdict trail) AND the issue read.
+
+    `comments` is served verbatim for any `pr view`; the issues-api read (per #1589) serves `issue_body`
+    as a live ISSUE. This is the two-source shape `check_pr_acceptance` now reads at merge time: the
+    linked ISSUE's criteria (live) and the PR's trusted verdict trail (the #2187 evidence).
+    """
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    (bindir / "issue.json").write_text(json.dumps({"body": issue_body, "state": "OPEN"}))
+    (bindir / "comments.json").write_text(json.dumps(comments))
+    gh = bindir / "gh"
+    gh.write_text(
+        "#!/usr/bin/env python3\nimport json, sys, os\n"
+        "here = os.path.dirname(os.path.abspath(__file__))\n"
+        "if sys.argv[1:2] == ['pr'] and sys.argv[2:3] == ['view']:\n"
+        "    print(json.dumps({'comments': json.load(open(here + '/comments.json'))})); sys.exit(0)\n"
+        "if sys.argv[1:2] == ['api'] or sys.argv[1:2] == ['issue']:\n"
+        "    print(open(here + '/issue.json').read()); sys.exit(0)\n"
+        "sys.exit(1)\n")
+    gh.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
+
+
+def _verdict_comment(head: str = "", verdict: str = "approve") -> list[dict]:
+    """A trusted bot comment carrying the #852 marker for `head` (a real 40-hex value)."""
+    h = head or ("c" * 40)
+    return [{
+        "author": {"login": "github-actions[bot]"},
+        "body": (f"<!-- bot-verdict: head={h} run=4245 verdict={verdict} "
+                 f"reviewer=github-actions[bot] -->\n**Bot review verdict: approve** at head `{h[:12]}`"),
+    }]
+
+
+def test_cli_unticked_with_approve_verdict_is_PROVEN_AWAITING_GREEN(tmp_path, monkeypatch):
+    # THE live fix: an unticked issue whose PR carries a trusted approve verdict at the head exits 0
+    # (green), reported as `proven-awaiting-writer`, not `acceptance-unchecked` — and no write-back has
+    # run (the box is still `- [ ]`), proving the gate reads the verdict comment as evidence (#2187).
+    _fake_gh_verdict(tmp_path, _issue(ticked=[], total=1), _verdict_comment(), monkeypatch)
+    body = tmp_path / "pr.md"
+    body.write_text("closes #1000\n")
+    out = tmp_path / "out.txt"
+    import contextlib
+    with open(out, "w") as fh, contextlib.redirect_stdout(fh):
+        rc = run_cli(["check", "--body-file", str(body), "--pr", "123", "--rev", "c" * 40])
+    assert rc == 0, "a verdict-proven-but-unticked box must not red the gate (issue #2187)"
+    text = out.read_text()
+    assert "proven-awaiting-writer" in text, text
+    assert "acceptance-unchecked" not in text.split(".py")[0], text
+
+
+def test_cli_unticked_with_NO_verdict_stays_RED(tmp_path, monkeypatch):
+    # negative control: the same unticked box with an EMPTY comment trail (no verdict) stays red, so
+    # the fix never manufactures a pass from evidence that is not on the PR (#2187 AC-3).
+    _fake_gh_verdict(tmp_path, _issue(ticked=[], total=1), [], monkeypatch)
+    body = tmp_path / "pr.md"
+    body.write_text("closes #1000\n")
+    assert run_cli(["check", "--body-file", str(body), "--pr", "123", "--rev", "c" * 40]) != 0
+
+
+def test_cli_changes_verdict_still_RED(tmp_path, monkeypatch):
+    # a comments trail carrying only a `changes` verdict is not proof (#2187): the box stays unproven.
+    _fake_gh_verdict(tmp_path, _issue(ticked=[], total=1), _verdict_comment(verdict="changes"), monkeypatch)
+    body = tmp_path / "pr.md"
+    body.write_text("closes #1000\n")
+    assert run_cli(["check", "--body-file", str(body), "--pr", "123", "--rev", "c" * 40]) != 0
+
+
 # --- the acceptance-gate workflow steps pass the live squash range (issue #1815) ----------------
 # A body-only CI fix must clear on rerun; the squash union requires the guard step to export
 # PR_BASE/PR_HEAD and refresh origin/main (the #1589 live read) or the closes never include the

@@ -808,7 +808,14 @@ acceptance-side sibling that stops a merge verifying green against an issue's un
 #1815): GitHub's native close-on-merge reads the SQUASH text, so a `(closes #N)` that lives only in the
 commit messages would otherwise auto-close a multi-lane rollout umbrella while its criteria are still
 unticked — the gate now holds it (and the close parse is negation-aware: `does not close #N` is not a
-close). When the canonical `## Acceptance criteria` section is ABSENT but `- [ ]` checkboxes sit under
+close). Since #2187, an unticked box whose PR carries a TRUSTED approve verdict at the current head (a
+`bot_verdict` marker, #852 — trusted author, reviewer == author, exact head) is reported
+`acceptance-proven-awaiting-writer`, a distinct and non-red state: the write-back that ticks the box
+(`acceptance_writeback`/`review_finalize`, #1644/#1808) is verdict-gated and has no CI trigger, so a
+reviewed-green close must not read as unproven. A genuinely unproven box — no verdict, a `changes`
+verdict, or a verdict at another head — still reds `acceptance-unchecked`; the gate exits non-zero only
+when a BLOCKING finding exists. When the canonical `## Acceptance criteria` section is ABSENT but
+`- [ ]` checkboxes sit under
 another `##` heading (issue #1811), a found-headings canary names those headings and refuses the
 unproven close instead of silently passing. It is VERIFICATION only: it never ticks a box — that stays
 `acceptance_writeback`'s verdict-gated seam (issue #1644). Both `ci.yml`'s `guard` job and `scope.yml`'s
