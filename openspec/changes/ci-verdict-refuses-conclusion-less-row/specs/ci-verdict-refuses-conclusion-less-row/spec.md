@@ -22,6 +22,8 @@ THEN it reports that the run is not settled and exits 2 without producing or pos
   `conclusion`
 - **When** the judge runs against that run
 - **Then** it names the unsettled job and exits 2, and no `ci-verdict` check-run is posted for it
+- **Test:** `tests/test_ci_verdict.py::test_a_mid_upload_job_row_is_refused_not_a_verdict` (and, on
+  the run-id path, `tests/test_ci_verdict.py::test_a_mid_upload_row_is_an_error_never_a_pass_through_the_api`)
 
 #### Scenario: a job reports completed before its conclusion is written (the #2046 half of the race)
 
@@ -30,6 +32,7 @@ THEN it reports that the run is not settled and exits 2 without producing or pos
 - **When** the judge runs against that run
 - **Then** it names the unsettled job and exits 2, and no `ci-verdict` check-run is posted for it —
   the row is never counted `pending`, so no red verdict is reached from an unsettled snapshot
+- **Test:** `tests/test_ci_verdict.py::test_a_completed_row_without_a_conclusion_is_refused_not_a_red_verdict`
 
 ### Requirement: a fully settled run is judged exactly as before
 
@@ -46,6 +49,7 @@ THEN it verifies and posts the verdict exactly as before the settle gate's concl
 - **Given** a completed run whose `linux / unit` failed and carries `conclusion: failure`
 - **When** the judge verifies it (every job `completed` with a conclusion)
 - **Then** the verdict is `red` with the failing gate named, exit 1, exactly as today
+- **Test:** `tests/test_ci_verdict.py::test_a_fully_settled_red_run_still_exits_one_through_the_settle_gate`
 
 #### Scenario: a settled cancelled row stays a legitimate `none`
 
@@ -53,3 +57,4 @@ THEN it verifies and posts the verdict exactly as before the settle gate's concl
   `completed` with conclusions (`cancelled`/`skipped`)
 - **When** the judge verifies it
 - **Then** the verdict is `none` (red), because no decision says a skip is legitimate — unchanged
+- **Test:** `tests/test_ci_verdict.py::test_a_fully_settled_no_decision_run_is_still_red_through_the_settle_gate`

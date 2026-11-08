@@ -42,3 +42,10 @@ gate, and a settled cancelled `none` (no artifact) still exits 1. `tests/test_ci
 
 Implementing PR closes #2046. The check-pr-acceptance write-back on `#1696`/`#2039`/`#2043`/`#2049`
 and `#2050` are out of the dispatch's scope (reviewer lane owns them).
+
+## Spec ↔ test lock-step
+
+Every `#### Scenario:` in `openspec/changes/ci-verdict-refuses-conclusion-less-row/specs/…/spec.md`
+carries a `- **Test:**` line naming the exact test that locks it (the mid-upload row, the
+completed-before-conclusion row, the settled red, and the settled cancelled `none`), so a reviewer
+can jump from the contract to its proof without re-deriving it.
