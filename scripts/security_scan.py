@@ -228,11 +228,16 @@ def scan(tool: str) -> int:
         if not pack.is_file():
             raise SystemExit("[security-scan] the pinned semgrep rules pack is missing — "
                              "make scanner-digests / commit containers/scanners/semgrep/rules/default.yml")
-        rc = _run(["scan", "--config", f"/work/{pack.relative_to(REPO)}", "--json", "--output",
+        rc = _run(["scan", "--config", f"/work/{pack.relative_to(REPO)}",
+                   "--exclude", "security-reports",
+                   "--json", "--output",
                    "/work/security-reports/semgrep.json", "--metrics", "off", "."], image_ref(tool))
         # Two scans of the same tree must be byte-identical (issue #1284): semgrep embeds a `time`
         # (and `profiling_results`) block of wall-clock measurements, which differs every run. Strip
-        # it so `semgrep.json` is reproducible from the tree + the pinned pack.
+        # it so `semgrep.json` is reproducible from the tree + the pinned pack. The report directory
+        # itself is excluded from the scan, or the second run would scan the first run's own output
+        # and `paths.scanned` would grow — measured by the review of PR #2082, where the naive
+        # two-run differed at exactly that key.
         out = REPORTS / "semgrep.json"
         if out.is_file() and rc == 0:
             _strip_semgrep_timing(out)

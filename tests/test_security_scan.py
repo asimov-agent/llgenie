@@ -559,6 +559,24 @@ def test_semgrep_uses_the_committed_content_addressed_pack(tmp_path, monkeypatch
     assert "--metrics" in argv and "off" in argv
 
 
+def test_semgrep_scan_excludes_the_report_directory(tmp_path, monkeypatch):
+    """The scan must not scan its own output: `security-reports/` is excluded from the semgrep run,
+    or the second of two scans at the same tree sha reports `paths.scanned` with one more entry
+    (issue #1284's byte-identical criterion; measured in the review of PR #2082)."""
+
+    # Given a docker stub that records the argv
+    log = _docker_stub(tmp_path, monkeypatch, pull_ok=True, inspect_ok=True)
+
+    # When  a semgrep scan is launched
+    ss.scan("semgrep")
+
+    # Then  the argv excludes the report directory the scan writes into
+    runs = [json.loads(l) for l in log.read_text().splitlines() if json.loads(l)[0] == "run"]
+    argv = runs[-1]
+    pair = [argv[i + 1] for i, a in enumerate(argv) if a == "--exclude"]
+    assert "security-reports" in pair, argv
+
+
 def test_semgrep_strips_wallclock_so_output_is_reproducible(tmp_path, monkeypatch):
     """Two scans of the same tree / pack must be byte-identical (issue #1284): the `time` and
     `profiling_results` wall-clock blocks semgrep embeds every run are removed from semgrep.json."""
