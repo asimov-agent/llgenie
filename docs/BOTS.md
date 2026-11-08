@@ -1533,6 +1533,8 @@ What it will and will not touch:
 | head moved after the run started | deferred: the newer run decides |
 | `do-not-merge` label | **held** — the human escape hatch; remove it and the next green run merges |
 | a head check-run concluded `failure`, `timed_out`, or `startup_failure` (`scope`, `ci-verdict`, `linux / unit`, or any other job) | **not merged** — the gate defers and does not use `--admin`. `skipped` and `cancelled` are not a red pipeline (issue #1386) |
+| `gh pr merge` **refused** because a sibling run already landed the same PR (a concurrent merge — issue #2236) | **success, never a red run** — the gate re-reads the PR, sees `MERGED`, and verifies the closure; there is nothing to defer |
+| `gh pr merge` **refused** while the PR is still open | deferred to a human with the refusal reason **on the PR**, exits 0 — never a red run |
 
 **It publishes what it acted on (fleet rule 14, #873).** The automation is a lane too, so every act is
 written where a reader looks rather than only in a job log: a merge posts one comment naming the
