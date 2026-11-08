@@ -237,8 +237,10 @@ def test_the_repair_pushes_to_the_pr_head_remote():
     """The workflow checks the branch out from its head remote and pushes there."""
     wf = (REPO / ".github" / "workflows" / "fix-bot.yml").read_text()
 
-    # The decision is told which fork it may push to
-    assert "OWN_FORK=andyholst" in wf
+    # The sweep job (which carried `make fix-bot-sweep ... OWN_FORK=andyholst`) is gone: the bot is
+    # dispatch-only (owner directive 2026-11-08, #2293), so the PR comes from the dispatch, and the
+    # fix job resolves the head remote itself. No sweep remains to tell which fork to collect from.
+    assert "OWN_FORK=" not in wf
 
     # The resolve step records the head repository the push has to target
     assert "headrepo=$headrepo" in wf
@@ -273,15 +275,17 @@ def test_a_failed_run_repairs_its_own_pr_with_five_attempts(tmp_path):
     assert "pr_number=21" not in dispatch[0]
 
 
-def test_a_workflow_run_trigger_is_wired_to_the_ci_workflow():
-    """The bot is woken by the failure it repairs, and its own default is five attempts."""
+def test_left_fix_bot_trigger_manually_only():
+    """The bot is started only by a human (or the human-dispatched reactor): no schedule, no
+    `workflow_run`, no auto-trigger at all (owner directive 2026-11-08, #2293)."""
 
     wf = (REPO / ".github" / "workflows" / "fix-bot.yml").read_text()
 
-    assert "workflow_run:" in wf and 'workflows: ["CI"]' in wf, "CI failures must wake the bot"
-    assert "conclusion == 'failure'" in wf, "a failed run must be able to dispatch a repair"
-    assert "conclusion == 'timed_out'" in wf, "a timed-out run must also be able to dispatch a repair (#1465)"
-    assert "ATTEMPTS=5" in wf, "the sweep cap is five"
+    assert "workflow_run:" not in wf, "a `workflow_run` trigger would auto-start the bot on a failed run"
+    assert "workflow_run:" not in wf.replace("github.event", ""), "no workflow_run reference allowed"
+    assert "schedule:" not in wf, "the hourly schedule is gone"
+    assert '"17 * * * *"' not in wf and "17 * * * *" not in wf, "the schedule cron is gone"
+    assert "workflow_dispatch:" in wf, "a human dispatch remains the only way to start the bot"
     assert 'default: "5"' in wf, "a manual dispatch defaults to five rounds"
 
 

@@ -2,21 +2,24 @@ name: run-failure-reactor — routes a failed run to a fix or a deduped issue (n
 
 # RUN-FAILURE-REACTOR — reacts to a FAILED CI run (issue #286): any run, not just a PR check.
 #
-# Trigger surface: `workflow_run` on the repo's own workflows, `types: [completed]`. The reactor
-# reads the run's conclusion and routes it to a remedy. It is NOT dispatchable by hand — it is a
-# reaction, not an action — so it carries no `workflow_dispatch` and no owner/collaborator guard
-# (issue #295's guard is for workflows a human can start; this one cannot be started by a human).
+# Trigger surface: `workflow_dispatch` ONLY (owner 2026-11-08, #2293). It used to run on
+# `workflow_run: [completed]` over the repo's own workflows, and on a failed run with no pushable
+# PR it filed a NEW issue on the board automatically. The owner's directive: a red PR is no longer
+# an automatic issue factory — it is surfaced to a human, and the reactor runs only when a person
+# dispatches it by hand. So the `workflow_run` trigger and its 32-name roster are gone, and the
+# `gh issue create` arm below runs only on a human dispatch (its own header, issue #286, is
+# updated to match — the old one said it was "reaction, not an action — so it carries no
+# `workflow_dispatch`"; that is precisely what the owner reversed).
 #
-# `workflows:` is REQUIRED by GitHub for a `workflow_run` trigger: a file that omits it is REFUSED
-# outright ("`on.workflow_run` does not reference any workflows"), and the refusal is silent — the
-# run arrives with 0 jobs, `conclusion=failure`, and a `name` equal to the file path (the #330
-# signature). So every workflow this repo owns is named here, EXCEPT this one: the reactor skips
-# its own completion, which also makes a self-trigger loop structurally impossible. GitHub matches
-# these against a workflow's top-level `name:`, so a workflow whose `name:` changes must be renamed
-# here too — `make check-workflows` fails when a `workflow_run` carries no `workflows:` list.
+# The dispatch carries ONE required input, `run_id`: the completed run to route. A human dispatches
+# with the run id (from `gh run list` / the Actions page), and the reactor reads the rest exactly as
+# it did from `github.event.workflow_run` — the `run_id` replaces that event's id. There is no
+# longer an automatic consumer, so `make check-workflows`' manual-only rule REFUSES a re-added
+# `workflow_run`/`schedule` trigger in this file (#2293).
 #
-# Flow: the reactor step calls `make run-failure-reactor` (scripts/run_failure_reactor.py), which
-#       decides in code (issue #107 — never a job `if:` that can silently skip):
+# Flow: guard (owner/collaborator, BEFORE any secret is read) -> the reactor step calls `make
+#       run-failure-reactor` (scripts/run_failure_reactor.py), which decides in code (issue #107 —
+#       never a job `if:` that can silently skip):
 #         Route A — the failed run has a pushable same-repo PR: claim it (scripts/bot_claims.py,
 #                    issues #279/#285) and dispatch the EXISTING fix-bot for it.
 #         Route B — no pushable PR (a red main push, a red scheduled bot run, a red publish job):
@@ -28,40 +31,17 @@ name: run-failure-reactor — routes a failed run to a fix or a deduped issue (n
 #        owns implementation, the fix-bot owns PR repair. A run it cannot diagnose is reported
 #        loudly, never silently dropped.
 on:
-  workflow_run:
-    workflows:
-      - architecture-bot — rewrites docs/ARCHITECTURE.md from the tree and opens a linked issue + PR (never merges)
-      - arms — fails when an open, mergeable, default-based PR is finished but carries no auto-merge (rule 16, #873)
-      - auto-merge
-      - ci-frozen-reaper — cancel + re-run a run stuck in_progress past its threshold, every 2 hours
-      - ci-requeue — re-runs only the cancelled runs no later run superseded, every 30 minutes
-      - CI
-      - ci-scope — selects the CI stages a diff needs, and runs the docs gates a docs-only PR still needs
-      - ci-verdict — holds a finished CI run to its published scope decision, and says "no verdict" out loud
-      - code-review-bot — reviews the tree and the pipelines and files one issue per finding (never edits code)
-      - engine-build — builds and verifies EVERY engine at its committed pin, in parallel (never merges)
-      - engine-build-pr-trigger — a pin-bump PR starts the producer and waits on it (issue #1633)
-      - engine-bump-rebase — rebases every open engine-bump PR onto the latest main
-      - engine-bump — bumps pinned engines to their newest upstream release and opens the PR
-      - fix-bot — repairs a failing PR branch until its checks pass (never merges)
-      - holds — fails when a do-not-merge label names no resolving issue
-      - issue-bot — implements ONE issue per run as a reviewable PR (never merges)
-      - issue-dedupe — retires a duplicate of an issue, FOUR times a day, never a claimed one
-      - issue-refiner — reviews ONE not-yet-implemented issue, never opens a PR
-      - main-ruleset — fails when the main ruleset has no required status checks (the missing merge-block gate)
-      - pipeline
-      - publish-agent-image — builds + pushes the Hermes agent image when its hash is not on GHCR yet
-      - queued-alarm — reports CI jobs queued far too long, once per affected run
-      - rebase-bot — keeps every open PR current with main, every eligible PR per run (never merges)
-      - registry-sync-review — a GREEN registry-sync PR is reviewed into ONE agent:implement issue
-      - registry-liveness — a committed pinned engine image whose manifest is missing must be named to the board, not left green
-      - registry-sync — syncs the vendored registry and regenerates the derived tables, then opens the PR
-      - review-verdict — record a submitted review as the bot-verdict marker at the head it judged
-      - search-smoke — one real Firecrawl request proves the masked web reach
-      - security-bot — turns ONE auto-fixable vulnerability issue into a green PR (never merges)
-      - stale-branch-cleanup — delete non-main branches with no live vehicle, older than 3 days (daily cron)
-      - zero-job-pending — a dispatched run that instantiates no jobs must be named, not left pending
-    types: [completed]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "the completed CI run id to route to a fix or a deduped issue (from `gh run list` / the Actions page)"
+        required: true
+        type: string
+      context:
+        description: "what triggered this dispatch (a red PR, a red main push, a scan red) — recorded, not used by the route"
+        required: false
+        type: string
+        default: "manual"
 
 permissions:
   actions: write
@@ -74,7 +54,57 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Owner / collaborator trigger guard
+        env:
+          ACTOR: ${{ github.actor }}
+          TRIGGER: ${{ github.triggering_actor }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.repository }}
+          # The run's head repository: empty for every non-PR event (issue #510).
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name || '' }}
+          # The event + ref: on a `workflow_dispatch` the head repo is empty, so the bot's same-repo-head
+          # intent is reached via event+ref instead (the all-pipelines sweep dispatching `main`, issue
+          # #1571).
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for u in "$ACTOR" "$TRIGGER"; do
+            if [ "$u" = "$OWNER" ]; then continue; fi
+            # The repository's own bot is a GitHub App login, so it is never a collaborator and the
+            # permission read below answers 404 -> `none`: every bot-opened PR was refused (run
+            # 39650944430, #495). It may pass ONLY when the run's head is a branch in THIS repository —
+            # a same-repo head can be produced only by a token with write access — while the bot as the
+            # actor of a FOREIGN head (a bot commenting on a stranger's PR) is still refused (#510).
+            # It also passes on a `workflow_dispatch` of this repository (issue #1571): a dispatch can
+            # only target this repository's own refs, and only this repository's own automation (a
+            # workflow scoped `actions: write` dispatching via GITHUB_TOKEN) can make the bot the
+            # actor of one — the same-repo-head intent reached via the event instead of the (empty)
+            # HEAD_REPO. A workflow_dispatch is how the weekly all-pipelines sweep drives its targets.
+            if [ "$u" = "github-actions[bot]" ]; then
+              if [ -n "${HEAD_REPO:-}" ] && [ "${HEAD_REPO:-}" = "$REPO" ]; then
+                echo "Repository bot $u on a same-repo head ($HEAD_REPO) - allowed."
+                continue
+              fi
+              if [ "${EVENT:-}" = "workflow_dispatch" ]; then
+                echo "Repository bot $u on a workflow_dispatch of this repository - allowed."
+                continue
+              fi
+            fi
+            perm=$(gh api "repos/$REPO/collaborators/$u/permission" --jq .permission 2>/dev/null || echo none)
+            case "$perm" in
+              admin|maintain|write) echo "Collaborator $u has $perm - allowed." ;;
+              *) echo "Refused: $u is not the owner or a collaborator with write access (permission: ${perm:-none})."; exit 1 ;;
+            esac
+          done
+          echo "Allowed: actor=$ACTOR triggering_actor=$TRIGGER"
   react:
+    needs: guard
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -99,7 +129,7 @@ jobs:
           # the PR ("repair unavailable: HTTP 403 — missing scope: …") and releases the claim
           # instead of reddening this job (issue #2086).
           DISPATCH_TOKEN: ${{ secrets.BUMP_TOKEN }}
-          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_ID: ${{ inputs.run_id }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -110,5 +140,5 @@ jobs:
         run: |
           echo "### run-failure-reactor" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Routed run ${{ github.event.workflow_run.id }} (see the reactor step above)." >> "$GITHUB_STEP_SUMMARY"
+          echo "Routed run ${{ inputs.run_id }} (see the reactor step above)." >> "$GITHUB_STEP_SUMMARY"
           echo "The reactor never merges; the issue-bot owns implementation, the fix-bot owns PR repair." >> "$GITHUB_STEP_SUMMARY"

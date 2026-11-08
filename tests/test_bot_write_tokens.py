@@ -38,7 +38,9 @@ ISSUE_WRITE_STEPS = [
 ]
 
 DISPATCH_STEPS = [
-    ("fix-bot.yml", "make fix-bot-sweep", "actions"),
+    # fix-bot's own sweep job was removed with its schedule+workflow_run triggers (#2293): a "fix-bot
+    # dispatches fix-bot" step no longer exists. The reactor still dispatches the fix-bot (its entry
+    # below), and the fix-bot itself never self-dispatches anymore.
     ("run-failure-reactor.yml", "make run-failure-reactor", "actions"),
 ]
 

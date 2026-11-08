@@ -212,23 +212,28 @@ def test_allow_none_still_resolves_a_live_pr(tmp_path, monkeypatch):
     assert output.read_text() == "number=506\n", output.read_text()
 
 
-def test_the_fix_bot_workflow_resolves_through_the_lenient_target():
-    """The lenient answer belongs to the fix-bot's sweep, and only to it (issue #629)."""
+def test_the_fix_bot_workflow_no_longer_resolves_a_run():
+    """The fix-bot's sweep (whose resolve step used the lenient target) is gone: the bot is
+    dispatch-only (owner directive 2026-11-08, #2293), so it no longer resolves a run at all.
+    The lenient answer remains a HOST utility — the only workflow precondition is that the merge
+    gate keeps its loud failure."""
 
     # Given the real fix-bot workflow and the real make targets
     fix_bot = (REPO / ".github" / "workflows" / "fix-bot.yml").read_text()
     makefile = (REPO / "Makefile").read_text()
 
-    # When  the sweep's resolution step and both targets' recipes are read
-    step = fix_bot.split("- name: Resolve the PR the failed run belongs to", 1)[1]
-    step = step.split("- name:", 1)[0]
+    # When  the workflow and targets are read
     lenient = makefile.split("fix-bot-resolve:", 1)[1].split(chr(10) * 2, 1)[0]
     strict = makefile.split("auto-merge-resolve:", 1)[1].split(chr(10) * 2, 1)[0]
 
-    # Then  the sweep calls the lenient target, and it is the ONLY place the flag is passed
-    assert "make fix-bot-resolve" in step, step
-    assert "make auto-merge-resolve" not in step, step
-    assert "--allow-none" in lenient, lenient
+    # Then  the fix-bot is manual-only (no sweep job, no run resolution step), while the lenient
+    # target is NOT the one the merge gate refuses to weaken
+    assert "Resolve the PR the failed run belongs to" not in fix_bot
+    assert "make fix-bot-resolve" not in fix_bot
+    assert (
+        "resolve_run_pr.py resolve --repo" in lenient
+        and "--allow-none" in lenient
+    ), lenient
     assert "--allow-none" not in strict, strict
     assert "--allow-none" not in WORKFLOW, "the merge gate must keep its loud failure"
 

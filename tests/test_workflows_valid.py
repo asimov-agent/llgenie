@@ -417,6 +417,59 @@ def test_this_repository_passes_its_own_gate():
     assert items == [], cw.render(items)
 
 
+# ---------------------------------------------------------------------------
+# manual-only (owner directive 2026-11-08, #2293): a re-added non-dispatch trigger in the
+# run-failure-reactor or the fix-bot is a violation.
+# ---------------------------------------------------------------------------
+def _manual_only_wf(on_extra: str = "") -> str:
+    return ("name: fix-bot — repairs a failing PR branch until its checks pass (never merges)\n"
+            "on:\n" + on_extra +
+            "  workflow_dispatch:\n"
+            "    inputs:\n"
+            "      pr_number:\n"
+            "        description: print the PR to repair\n"
+            "        required: false\n"
+            "        default: \"\"\n"
+            "\n"
+            "jobs:\n"
+            "  go:\n"
+            "    runs-on: ubuntu-latest\n"
+            "    steps:\n"
+            "      - run: echo hi\n")
+
+
+def _manual_only_tree(tmp_path: Path, on_extra: str = "") -> Path:
+    """A fixture root whose `.github/workflows/fix-bot.yml` is the manual-only workflow under test."""
+    root = tmp_path / "repo"
+    (root / cw.WORKFLOWS).mkdir(parents=True, exist_ok=True)
+    (root / cw.WORKFLOWS / "fix-bot.yml").write_text(_manual_only_wf(on_extra))
+    return root
+
+
+def test_a_manual_only_workflow_regaining_schedule_is_a_violation(tmp_path: Path):
+    """Re-adding a `schedule` trigger to a manual-only file fails the gate (#2293)."""
+
+    root = _manual_only_tree(tmp_path, "  schedule:\n    - cron: \"17 * * * *\"\n")
+
+    assert "workflow-manual-only" in _keys(root), _keys(root)
+
+
+def test_a_manual_only_workflow_regaining_workflow_run_is_a_violation(tmp_path: Path):
+    """Re-adding a `workflow_run` trigger to a manual-only file fails the gate (#2293)."""
+
+    root = _manual_only_tree(tmp_path, "  workflow_run:\n    workflows: [\"CI\"]\n    types: [completed]\n")
+
+    assert "workflow-manual-only" in _keys(root), _keys(root)
+
+
+def test_a_manual_only_workflow_with_no_extra_trigger_is_accepted(tmp_path: Path):
+    """A manual-only file with only `workflow_dispatch` passes the manual-only rule."""
+
+    root = _manual_only_tree(tmp_path)
+
+    assert "workflow-manual-only" not in _keys(root), _keys(root)
+
+
 def test_check_exits_non_zero_on_a_violation_and_zero_on_this_repo(tmp_path: Path):
     """`main(["check"])` is what `ci-unit` gates on."""
 

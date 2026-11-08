@@ -1,11 +1,11 @@
 # PR fix-bot (issue #222): repair a red PR with Hermes, re-check, stop.
 #
-# Triggered by `workflow_dispatch` (by hand or by the scheduled sweep's dispatch call)
-# and by its OWN `schedule`, whose `sweep` job decides which PR deserves the bot.
-# There is deliberately NO `workflow_run` trigger — a bot-authored PR (pushed with
-# GITHUB_TOKEN elsewhere) would otherwise be able to re-trigger the bot — and no
-# conditional job in ci.yml, because issue #107 requires that decision to live in code
-# (scripts/fix_bot_sweep.py), not in a job `if:` that can silently skip a job.
+# Triggered by `workflow_dispatch` ONLY (by hand, or by the run-failure-reactor's dispatch call).
+# Its OWN `schedule` and `workflow_run` triggers are gone — owner directive 2026-11-08 (#2293): a
+# red PR is no longer an automatic issue/repair factory, so the bot runs only when a person (or a
+# human-dispatched reactor) starts it. A re-added non-dispatch trigger makes `make check-workflows`
+# FAIL (#2293). There is no conditional job in ci.yml either, because issue #107 requires that
+# decision to live in code (scripts/fix_bot_sweep.py), not in a job `if:` that can silently skip a job.
 #
 # The loop (scripts/fix_loop.sh) runs the failing check, hands the failure to Hermes,
 # re-checks, up to FIX_ROUNDS (default 3) — and NEVER commits or pushes. This workflow
@@ -27,26 +27,13 @@
 #   NOUS_API_KEY=... FIX_ROUNDS=3 scripts/fix_loop.sh
 name: fix-bot — repairs a failing PR branch until its checks pass (never merges)
 
-# Trigger surface: its own schedule (hourly, `17 * * * *`), the scheduled sweep's own dispatch call,
-#                  and `workflow_dispatch` by hand (owner/collaborator).
+# Trigger surface: `workflow_dispatch` only (by hand or by the run-failure-reactor's dispatch call).
 # Flow: guard (owner/collaborator, BEFORE any secret is read) -> make fix-bot-sweep (decide which PR
 #       deserves the bot) -> make fix-loop-image (run the failing check, hand it to Hermes, re-check,
 #       up to `rounds`) -> push the green tree as ONE commit -> make fix-bot-report (comment).
 # Never: never merges, never pushes to `main`, never commits or pushes a tree whose check is still
 #        red, never loops past `rounds` attempts.
 on:
-  # The sweep (below) asks scripts/fix_bot_sweep.py which PR to repair, then dispatches
-  # this workflow with that PR; the sibling repo's lesson is that a schedule is a safer
-  # trigger than workflow_run for anything a bot can push to.
-  schedule:
-    - cron: "17 * * * *"
-  # Re-triggered by the failure it exists to repair (issue #538): a `pull_request` CI run that
-  # concluded `failure` hands this bot that run's PR and its failed job's log, so a red PR is acted
-  # on within minutes instead of waiting for the next hourly sweep (GitHub delivers ~9 of those in
-  # 36 hours, measured). `workflow_run` executes on the default branch with its secrets.
-  workflow_run:
-    workflows: ["CI"]
-    types: [completed]
   workflow_dispatch:
     inputs:
       pr_number:
@@ -84,7 +71,7 @@ concurrency:
 
 jobs:
   fix:
-    # Only a real dispatch (the sweep's or a human's) repairs a PR.
+    # Only a real dispatch (a human's, or the run-failure-reactor's) repairs a PR.
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     # FIX_ROUNDS rounds x (check + agent); see the header for the measured arithmetic.
@@ -100,7 +87,7 @@ jobs:
       TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
       FIX_ROUNDS: ${{ inputs.rounds || '3' }}
       FIX_CHECK: ${{ inputs.check || 'make ci-unit' }}
-      # The failed run's log, when a `workflow_run` triggered this (issue #538).
+      # The failed run's log, when a dispatch carried it (issue #538).
       REPORT_FILE: ${{ inputs.report_file }}
     steps:
       # ---------------------------------------------------------------- guards
@@ -360,83 +347,3 @@ jobs:
           } > /tmp/fix-comment.md
           gh pr comment "$NUM" --repo "${{ github.repository }}" --body-file /tmp/fix-comment.md
 
-  # ------------------------------------------------------------------
-  # sweep (issue #222): the scheduled half. It runs unconditionally —
-  # issue #107 forbids a job that can skip itself, so the DECISION lives in
-  # scripts/fix_bot_sweep.py: open, non-draft, same-repo PRs with a failing
-  # check and fewer than 3 `fix(bot):` commits, oldest first, one per sweep.
-  # It dispatches the `fix` job above for the winner and does nothing otherwise.
-  # ------------------------------------------------------------------
-  sweep:
-    if: >-
-      github.event_name == 'schedule' ||
-      (github.event_name == 'workflow_run' &&
-       github.event.workflow_run.event == 'pull_request' &&
-       (github.event.workflow_run.conclusion == 'failure' ||
-        github.event.workflow_run.conclusion == 'timed_out'))
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      pull-requests: write
-      actions: write
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      # A `workflow_run` gives us a RUN, not a PR (issue #538). `make fix-bot-resolve` is the resolution
-      # the merge gate uses, asked with THIS caller's consequence (issue #629): a `CI` failure report can
-      # arrive after its PR already merged or closed, and then there is nothing to repair — so an empty
-      # answer is an answer (exit 0, `number=`), not a red run and not a reactor issue. The owner PAT is
-      # needed because a fork head's branch is invisible to the job token.
-      - name: Resolve the PR the failed run belongs to
-        if: github.event_name == 'workflow_run'
-        id: pr
-        env:
-          GH_TOKEN: ${{ secrets.BUMP_TOKEN }}
-          REPO: ${{ github.repository }}
-          RUN_ID: ${{ github.event.workflow_run.id }}
-          HEAD_OWNER: ${{ github.event.workflow_run.head_repository.owner.login }}
-          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
-        run: |
-          set -euo pipefail
-          make fix-bot-resolve REPO="$REPO" RUN_ID="$RUN_ID" HEAD_OWNER="$HEAD_OWNER" HEAD_BRANCH="$HEAD_BRANCH"
-          # No `number=` means the PR this run belonged to is gone: the sweep below then decides on its
-          # own, exactly as its scheduled form does, and does nothing when no PR deserves the bot.
-          pr="$(awk -F= '/^number=/{v=$2} END{print v}' "$GITHUB_OUTPUT" 2>/dev/null || true)"
-          if [ -z "$pr" ]; then
-            echo "the failed run's PR has already merged or closed — nothing to repair for it; sweeping the open PRs"
-          else
-            echo "the failed run belongs to PR #$pr"
-          fi
-
-      # The repair context: the failed job's own log, so the loop can attempt a fix for a check it
-      # cannot reproduce on this runner (a macOS-only failure, a GPU-only image test) instead of
-      # discarding the attempt because the local check is green.
-      - name: Capture the failed run's log
-        if: github.event_name == 'workflow_run'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RUN_ID: ${{ github.event.workflow_run.id }}
-        run: |
-          set -euo pipefail
-          gh run view "$RUN_ID" --repo "${{ github.repository }}" --log-failed \
-            > "$RUNNER_TEMP/failed.log" 2>/dev/null || true
-          if [ -s "$RUNNER_TEMP/failed.log" ]; then
-            echo "captured $(wc -l < "$RUNNER_TEMP/failed.log") line(s) of the failed run"
-          else
-            echo "::warning::the failed run's log is empty — the loop will use its local check"
-          fi
-
-      - name: Sweep the open PRs for one the fix-bot should repair
-        env:
-          # `gh workflow run` needs Actions write, which this job declares — and which the
-          # owner PAT does not carry: every dispatch was refused with 403
-          # "Resource not accessible by personal access token" (issue #412).
-          GH_TOKEN: ${{ github.token }}
-          # Empty on a schedule (the sweep chooses), set when a failed run pointed at its PR.
-          PR: ${{ steps.pr.outputs.number }}
-        run: |
-          set -euo pipefail
-          REPORT="$RUNNER_TEMP/failed.log"
-          make fix-bot-sweep REPO="${{ github.repository }}" CHECK="make ci-unit" ATTEMPTS=5 OWN_FORK=andyholst \
-            PR="$PR" \
-            REPORT_FILE="$([ -s "$REPORT" ] && echo "$REPORT")"

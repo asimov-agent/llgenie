@@ -69,6 +69,15 @@ WORKFLOW_RUN_KEY = re.compile(r"^(?P<indent>[ \t]*)workflow_run:\s*(?P<rest>.*)$
 WORKFLOWS_KEY = re.compile(r"^(?P<indent>[ \t]*)workflows:\s*(?P<rest>.*)$")
 #: A top-level `name:` value, quoted or bare — the string GitHub matches `workflow_run.workflows` on.
 NAME_KEY = re.compile(r"^name:\s*(?P<value>.+?)\s*$", re.M)
+#: A `workflow_dispatch` trigger key, at any indentation (never inside a `run:` block).
+DISPATCH_KEY = re.compile(r"^(?P<indent>[ \t]*)workflow_dispatch:\s*$")
+#: A top-level trigger key under `on:` — a schedule, a `workflow_run`, a push, a PR event …
+ON_TRIGGER_KEY = re.compile(r"^(?P<indent>[ \t]*)([A-Za-z_][\w-]*?):\s*(#.*)?$")
+#: Workflows that must be MANUAL-ONLY (owner directive 2026-11-08, #2293): a red PR is no longer an
+#: automatic issue factory, so the run-failure-reactor and the fix-bot may start only on a human
+#: `workflow_dispatch`. Re-adding ANY other trigger to either file is the exact regression this rule
+#: exists to refuse.
+MANUAL_ONLY_WORKFLOWS = ("run-failure-reactor.yml", "fix-bot.yml")
 #: Workflows a `workflow_run` consumer deliberately does NOT watch (#349). An entry is a dated decision
 #: with a `reason`, never a literal in this guard: exempting a workflow takes an edit here that says
 #: why, and an entry naming no workflow (the workflow was renamed or deleted) is reported STALE so the
@@ -509,6 +518,53 @@ def check_workflow_run_coverage(root: Path = REPO_ROOT) -> list[dict]:
     return out
 
 
+def _on_triggers(lines: list[str]) -> list[str]:
+    """The trigger keys under `on:` (the workflow's *event* surface), read from lines."""
+
+    for i, line in enumerate(lines):
+        if re.match(r"^on:", line):
+            body = _indented_block(lines, i, 0)
+            break
+    else:
+        return []
+    triggers: list[str] = []
+    for l in body:
+        m = ON_TRIGGER_KEY.match(l)
+        if m is None:
+            continue
+        indent = len(m.group("indent"))
+        if indent != 2:                       # only the top-level triggers under `on:`
+            continue
+        triggers.append(m.group(2))
+    return triggers
+
+
+def check_manual_only(root: Path = REPO_ROOT) -> list[dict]:
+    """Every MANUAL_ONLY_WORKFLOWS file may only trigger on `workflow_dispatch` (#2293)."""
+
+    out: list[dict] = []
+    for path in workflow_files(root):
+        if path.name not in MANUAL_ONLY_WORKFLOWS:
+            continue
+        tr = _on_triggers(path.read_text().splitlines())
+        bad = [t for t in tr if t != "workflow_dispatch"]
+        if not bad:
+            continue
+        where = str(path.relative_to(root))
+        out.append({
+            "key": f"workflow-manual-only/{where}/{'/'.join(bad)}",
+            "title": f"ci: {where} re-gained a non-dispatch trigger: {', '.join(bad)}",
+            "evidence": (
+                f"`{where}` carries {', '.join('`' + t + '`' for t in bad)} in its `on:` block. "
+                f"Owner directive 2026-11-08 (#2293): the run-failure-reactor and the fix-bot are "
+                f"MANUAL-ONLY — a red PR is surfaced to a human, not auto-filed or auto-repaired — so "
+                f"only `workflow_dispatch` may trigger them. Remove `{', '.join(bad)}`."
+            ),
+            "where": where,
+        })
+    return out
+
+
 def _jobs_block(lines: list[str]) -> "tuple[int, list[str]] | None":
     """The `jobs:` mapping and its indented body, read from lines so no YAML library is required.
 
@@ -597,6 +653,7 @@ def check_verdict_roster(root: Path = REPO_ROOT) -> list[dict]:
 def findings(root: Path = REPO_ROOT) -> list[dict]:
     return (check_expressions(root) + check_newlines(root) + check_workflow_names(root)
             + check_workflow_run_refs(root) + check_workflow_run_coverage(root)
+            + check_manual_only(root)
             + check_uses_job_keys(root) + check_verdict_roster(root))
 
 
@@ -604,7 +661,8 @@ def render(items: list[dict]) -> str:
     if not items:
         return ("[workflows] OK: every YAML file parses, ends with a newline, names its workflow, "
                 "every `workflow_run` names the workflows it reacts to, every workflow's "
-                "completion is routed to a consumer, every `pull_request` workflow carries a "
+                "completion is routed to a consumer, every manual-only workflow is dispatch-only "
+                "(#2293), every `pull_request` workflow carries a "
                 "judgement decision the verdict can name, and no `uses:` job carries a job-level "
                 "key GitHub rejects at load time")
     lines = [f"[workflows] {len(items)} violation(s)"]
