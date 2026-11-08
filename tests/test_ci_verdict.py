@@ -656,6 +656,75 @@ def test_a_genuinely_short_listing_still_raises_even_when_spread_across_pages(mo
     raise AssertionError("superseding_run accepted a genuinely short multi-page listing as a verdict")
 
 
+def test_a_multi_page_check_run_listing_is_fully_walked(monkeypatch):
+    """#2156: a busy head exceeds one API page of 100 check-runs — the fetch must walk every page.
+
+    Measured 2026-11-08 on a `push` to `main` at head `520db900` (CI run `42452592982`): the head
+    reported **192** check-runs and a single page returned 100. The pre-fix read refused a one-page
+    listing as "truncated" (`head ... reports 192 check-run(s) and one page returned 100`), so the
+    verdict exited 2 and the head carried no `ci-verdict` row at all — the defect behind #2156. A
+    well-formed two-page listing is NOT truncation; the guard must only refuse a genuine shortfall.
+    """
+    # 192 check-runs across two full pages (per_page=100: 100 + 92).
+    page1 = [{"id": 300000 + i} for i in range(100)]
+    page2 = [{"id": 300100 + i} for i in range(92)]
+    pages = {"": {"check_runs": page1, "total_count": 192},
+             "&page=2": {"check_runs": page2, "total_count": 192}}
+
+    def fake_api(path):
+        suffix = path.split("filter=latest", 1)[1] if "filter=latest" in path else ""
+        return pages.get(suffix, {"check_runs": [], "total_count": 192})
+
+    monkeypatch.setattr(cv, "_api", fake_api)
+
+    rows = cv.check_runs_of("o/r", "5" * 40)
+
+    assert len(rows) == 192, len(rows)
+    assert {r["id"] for r in rows} == set(range(300000, 300192))
+
+
+def test_a_genuinely_short_check_run_listing_still_raises(monkeypatch):
+    """#2156/#1617: pagination fixes a FALSE truncation, never a real one — the guard still binds.
+
+    A listing whose pages together still fall short of `total_count` (here 192 total, the pages only
+    ever deliver 100) must refuse, exactly like `branch_runs` — a short listing is never a verdict.
+    """
+    page1 = [{"id": 300000 + i} for i in range(100)]
+    pages = {"": {"check_runs": page1, "total_count": 192},
+             "&page=2": {"check_runs": [], "total_count": 192}}
+
+    def fake_api(path):
+        suffix = path.split("filter=latest", 1)[1] if "filter=latest" in path else ""
+        return pages.get(suffix, {"check_runs": [], "total_count": 192})
+
+    monkeypatch.setattr(cv, "_api", fake_api)
+
+    try:
+        cv.check_runs_of("o/r", "5" * 40)
+    except RuntimeError as exc:
+        assert "truncated listing" in str(exc)
+        return
+    raise AssertionError("check_runs_of accepted a genuinely short multi-page listing as a verdict")
+
+
+def test_an_empty_check_run_listing_is_not_truncation(monkeypatch):
+    """A head with no check-runs (`total_count=0`) is a clean empty list, never a shortfall.
+
+    Every `#2116` fixture answers `/commits/` with `check_runs: []` and `total_count: 0`; the fetch
+    must return `[]` (so a head with nothing beside the judged workflow is judged clean) rather than
+    raising a false truncation on `total_count == 0`.
+    """
+
+    def fake_api(path):
+        assert "&page=" not in path, "an empty listing must not walk past page 1"
+        return {"check_runs": [], "total_count": 0}
+
+    monkeypatch.setattr(cv, "_api", fake_api)
+
+    assert cv.check_runs_of("o/r", "5" * 40) == []
+
+
+
 def test_a_cancelled_run_with_no_successor_is_red_even_through_the_api(tmp_path, monkeypatch, capsys):
     # Given a cancelled run with no decision artifact and NO later run
     monkeypatch.setenv("CI_VERDICT_GH", _stub_gh(tmp_path, artifact=False, later_run=False))
