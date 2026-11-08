@@ -77,6 +77,7 @@
    "check_report_hygiene",
    "check_secret_output",
    "check_skill_code_parity",
+   "check_tick_prompt",
    "check_wiring",
    "check_workflows",
    "check_zero_job_pending",

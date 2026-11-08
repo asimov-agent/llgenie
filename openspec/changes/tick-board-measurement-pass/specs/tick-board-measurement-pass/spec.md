@@ -46,7 +46,7 @@ exists.
 
 #### Scenario: the live prompt matches the versioned copy
 
-Given a host with the live `jobs.json` whose prompt equals the versioned `cron/llgenie-orchestrator-tick.md`,
+Given a host with the live `jobs.json` whose prompt equals the versioned `prompts/llgenie-orchestrator-tick.md`,
 when `make check-tick-prompt` runs,
 then it exits 0 and prints the byte count.
 

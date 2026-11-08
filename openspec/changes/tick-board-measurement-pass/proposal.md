@@ -26,7 +26,7 @@ pass so two passes were not comparable.
    its exact command and the output line it quotes as evidence; red PRs and the
    board-wide stale-base sweep precede any backlog dispatch; no step refers
    forward. The running `jobs.json` prompt was already rewritten to this shape
-   and is captured verbatim under `agents/llgenie-planner/cron/llgenie-orchestrator-tick.md`
+   and is captured verbatim under `agents/llgenie-planner/prompts/llgenie-orchestrator-tick.md`
    (kept as the initial commit per #2136).
 4. **A drift gate** `make check-tick-prompt` reds when the live `jobs.json`
    prompt diverges from the versioned copy — host-only (a CI runner has no live

@@ -5,7 +5,7 @@ HOST-ONLY, mirroring profile-drift-alarm: a CI runner has no live
 `~/.hermes/profiles/llgenie-planner/cron/jobs.json`, so this check can only run
 where that file exists. It reds when the prompt of the live orchestrator cron job
 (`cc5d2bd4083a`) diverges from the versioned copy
-`agents/llgenie-planner/cron/llgenie-orchestrator-tick.md`.
+`agents/llgenie-planner/prompts/llgenie-orchestrator-tick.md`.
 
 Exit: 0 prompt identical; 1 prompt differs (names both byte counts); 2 the live
 file or job is missing, or a read failed (never a silent "no change").
@@ -25,7 +25,7 @@ def main() -> int:
     ap.add_argument("--live", default=Path.home() / ".hermes/profiles/llgenie-planner/cron/jobs.json")
     ap.add_argument("--versioned", type=Path,
                     default=Path(__file__).resolve().parent.parent
-                    / "agents" / "llgenie-planner" / "cron" / "llgenie-orchestrator-tick.md")
+                    / "agents" / "llgenie-planner" / "prompts" / "llgenie-orchestrator-tick.md")
     ap.add_argument("--job-id", default=LIVE_JOB_ID)
     args = ap.parse_args()
 
