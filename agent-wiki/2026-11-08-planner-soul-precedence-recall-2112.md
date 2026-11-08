@@ -23,13 +23,14 @@ would have been a no-op — the tree had never received these two rules at all.
 
 ## Lifted, not reinvented
 
-The rule text was lifted from `references/host-lane-precedence-over-ci.md` in the planner skill and the
-orchestrator tick prompt (cron `cc5d2bd4083a`, its `PRECEDENCE — HOST LANES FIRST` and
-`RECALL BEFORE YOU CLASSIFY` steps), per the issue's instruction.
+The rule text was lifted from `references/host-lane-precedence.md` in the planner skill (landed with
+#2073's skill half, `c3f3b2ac`) and the orchestrator tick prompt (cron `cc5d2bd4083a`, its
+`PRECEDENCE — HOST LANES FIRST` and `RECALL BEFORE YOU CLASSIFY` steps), per the issue's instruction.
 
-Note: that reference file is **live-only** at this sha — it does not exist under `agents/llgenie-planner/`
-in the tree. That is part of #2084's missing-references defect, tracked separately; this PR does not
-attempt to fold it.
+Note: at the dispatch sha (`648896aa`) that reference did not yet exist in the tree — it was live-only
+under the name `host-lane-precedence-over-ci.md`, which is part of #2084's missing-references defect.
+Main advanced to `c3f3b2ac` (#2077) mid-flight with the skill half, so this SOUL rule now cites the real
+tree path `references/host-lane-precedence.md`.
 
 ## Deliberately not added (already present under different wording)
 
