@@ -178,10 +178,18 @@ def test_ci_yml_publishes_the_decision_and_the_caller_consumes_it():
     assert set(guard["outputs"]) == {"top_tier_rows"}
     assert guard["outputs"]["top_tier_rows"] == f"${{{{ steps.{step['id']}.outputs.top_tier_rows }}}}"
 
-    # And  the caller passes it in and waits for that job
-    assert ci["linux"]["with"]["top_tier_rows"] == "${{ needs.guard.outputs.top_tier_rows }}"
+    # And  the caller passes it in, waits for that job, and carries a guard-decoupling `if` so a
+    #       guard BODY-text red (check-pr-acceptance-form, issue #2285) does not skip the linux
+    #       fan-out GitHub's needs-default would otherwise impose. The `with` still consumes the
+    #       guard's row-selection, with a fallback (`|| ...`) for the red-guard case where the
+    #       failed job's outputs are not propagated.
+    top = ci["linux"]["with"]["top_tier_rows"]
+    assert "needs.guard.outputs.top_tier_rows" in top    # still reads the guard's row selection
+    assert " || " in top and "none" in top               # fallback placeholder on a guard body-red
     assert "guard" in ci["linux"]["needs"]
     assert ci["linux"]["uses"] == "./.github/workflows/pipeline.yml"
+    lf = ci["linux"]["if"]
+    assert "always()" in lf and "needs['ci-images'].result" in lf, lf
 
 
 def test_the_top_tier_row_is_the_only_axis_and_runs_no_work_when_absent():

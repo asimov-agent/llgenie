@@ -548,8 +548,14 @@ def test_only_linux_calls_the_pipeline_file_and_no_macos_runner_is_requested():
     #       guard's decision, so the top-tier row follows the `ci:slow` label while every other row
     #       of the same call is unchanged) ...
     assert set(callers) == {"linux"}, callers
-    assert callers["linux"]["with"] == {"runner": "ubuntu-latest",
-                                        "top_tier_rows": "${{ needs.guard.outputs.top_tier_rows }}"}
+    lw = callers["linux"]["with"]
+    assert lw["runner"] == "ubuntu-latest"
+    # the row-selection input is the guard's output, with a fallback so a guard that BODY-reds and
+    # never reaches its `rows` step (a failed job's outputs are not propagated) still lets the call
+    # start with the PR-safe placeholder (issue #2285); the linux caller itself carries an `if` that
+    # overrides the needs-skip on a guard body-text red so the code fan-out is measured, not skipped
+    assert "needs.guard.outputs.top_tier_rows" in lw["top_tier_rows"] and " || " in lw["top_tier_rows"]
+    assert "always()" in callers["linux"]["if"] and "needs['ci-images'].result" in callers["linux"]["if"]
     # ... no macOS job survived in any form, and no macOS label is named anywhere in the workflow
     assert not [n for n in ci if "macos" in n.lower()], list(ci)
     assert "macos-15-intel" not in (REPO / ".github/workflows/ci.yml").read_text()
@@ -630,10 +636,17 @@ _PUSH_WAIT = (
 
 
 def _job_if_allowed(cond):
-    """A job if: may only wait for its needs, skip the none row, or scope the auto-merge job to a PR."""
+    """A job if: may only wait for its needs (or override the needs-skip of its OWN gating guard),
+    skip the none row, or scope the auto-merge job to a PR."""
 
     flat = cond.replace(" ", "")
     if flat in _PUSH_WAIT:
+        return True
+    # linux (issue #2285): `always()` overrides GitHub's default needs-skip so a guard that reds on
+    # a PR-BODY text gate does not cancel the code-verification fan-out; the `needs['ci-images']`
+    # half still stops the call on a genuine image-build FAILURE. This runs the call MORE (it never
+    # skips in a normal green push), so it is the opposite of the skip-condition this family bans.
+    if flat == "${{always()&&needs['ci-images'].result!='failure'}}":
         return True
     # engine-image: the none placeholder builds nothing
     if flat == "${{matrix.engine!='none'}}":
