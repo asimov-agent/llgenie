@@ -59,12 +59,15 @@ printf 'agents_md: %sb %sl   <- cite this sha and size in every brief\n' "$AGENT
 
 # --- B. OPEN PRs: base, staleness vs the freshly-fetched tip, DIRTY ---------
 # A DIRTY PR gets NO CI run at all, so nobody is ever notified of it again.
-say "B. OPEN PRs (base vs main, staleness, DIRTY)"
+say "B. OPEN PRs (base vs main, staleness, DIRTY, arm state)"
 if [ -n "${PR_LIST_JSON:-}" ]; then
   cat "$PR_LIST_JSON"
 else
+  # autoMergeRequest + reviewDecision are REQUIRED here: omitting them silently
+  # reads unarmed for every PR (issue #2182 — a false measurement that looked
+  # authoritative). gh pr list returns them only when the field list asks.
   gh pr list --repo "$SLUG" --state open --limit 100 \
-    --json number,baseRefOid,mergeStateStatus,mergeable,headRefOid,title 2>/dev/null
+    --json number,baseRefOid,mergeStateStatus,mergeable,headRefOid,title,autoMergeRequest,reviewDecision 2>/dev/null
 fi \
 | python3 -c "
 import sys,json
@@ -72,15 +75,36 @@ try: d=json.load(sys.stdin)
 except Exception: d=[]
 main='$MAIN'
 stale=dirty=0
+armed=unarmed=inert=0
 for p in d:
     base=(p.get('baseRefOid') or '')[:8]
     st=p.get('mergeStateStatus') or '?'
+    review=p.get('reviewDecision') or '-'
     is_stale = base != main
     is_dirty = st == 'DIRTY'
     stale += is_stale; dirty += is_dirty
+    am = p.get('autoMergeRequest')
+    has_arm = bool(am)
+    # four-arm classification (issue #2182): an armed-but-DIRTY/CONFLICTING arm is
+    # INERT — it can never merge (DIRTY gets no CI run, queue never sees it) and
+    # must never be counted as handled.
+    if has_arm and is_dirty:
+        arm = 'ARM-INERT (armed, impossible)'
+        inert += 1
+    elif has_arm:
+        arm = 'ARMED'
+        armed += 1
+    elif is_dirty:
+        arm = 'unarmed DIRTY'
+        unarmed += 1
+    else:
+        arm = 'unarmed'
+        unarmed += 1
     tag = ('STALE ' if is_stale else 'fresh ') + ('DIRTY' if is_dirty else st)
-    print(f\"  #{p['number']:<5} {tag:<22} base={base} head={(p.get('headRefOid') or '')[:8]}  {p['title'][:52]}\")
+    print(f\"  #{p['number']:<5} {tag:<22} base={base} head={(p.get('headRefOid') or '')[:8]} {arm:<28} {review:<15} {p['title'][:30]}\")
 print(f'\n  TOTAL open={len(d)}  stale={stale}  dirty={dirty}')
+print(f'  ARM armed={armed} unarmed={unarmed} armed-but-DIRTY(inert)={inert}')
+print('  ARMED != handled: an armed-but-DIRTY PR is impossible, not waiting.')
 print('  A stale base is ONE board-wide sweep, not N tasks. A DIRTY PR has no CI run at all.')
 "
 
