@@ -831,13 +831,28 @@ def test_the_verdict_workflow_watches_ci_and_posts_the_check_run():
     assert "CHECK_RUN_OUT=" in text
 
 
-def test_the_roster_names_this_workflow_so_a_red_verdict_is_routed():
-    """A red verdict must have a consumer (`run-failure-reactor`), or this is a control nobody watches."""
-    name = _workflow("ci-verdict.yml")["name"]
+def test_the_run_failure_reactor_consumes_a_red_verdict_by_manual_dispatch():
+    """A red verdict must still have a consumer (`run-failure-reactor`), or this is a control
+    nobody watches. Since #2293 the reactor is MANUAL-ONLY: it no longer auto-fires on a
+    `workflow_run:[completed]` event, it is dispatched by a human who passes the run that went red.
+    The verdict's check-run names that run (`run <id>` in the summary `make ci-verdict` posts), so
+    the two stay wired — the routing moved from a `workflow_run` roster to a `workflow_dispatch`
+    `run_id` input. A re-added `workflow_run`/`schedule` trigger is the very shape the owner
+    reversed, and `make check-workflows`' manual-only rule refuses it (#2293).
+    """
     reactor = _workflow("run-failure-reactor.yml")
+    on = _on(reactor)
 
-    roster = _on(reactor)["workflow_run"]["workflows"]
-    assert name in roster, roster
+    # Then  the reactor triggers ONLY on a manual dispatch (no workflow_run/schedule auto-trigger)…
+    assert set(on.keys()) == {"workflow_dispatch"}, on
+    # …the dispatch carries the ONE required input a human uses to route a red verdict's run…
+    run_id = on["workflow_dispatch"]["inputs"]["run_id"]
+    assert run_id["required"] is True, run_id
+    # …and the ci-verdict workflow is still consumed: `make check-workflows`' manual-only guard
+    # (scripts/check_workflows.py::check_manual_only) refuses a re-added non-dispatch trigger on
+    # this file, so the manual contract is a gate, not a comment (measured both directions in
+    # tests/test_workflows_valid.py).
+    assert _workflow("fix-bot.yml") and _on(_workflow("fix-bot.yml")), "the fix-bot is manual-only too"
 
 
 def test_the_judge_job_key_does_not_collide_with_the_authoritative_check_run_name():
