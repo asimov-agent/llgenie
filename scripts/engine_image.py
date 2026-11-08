@@ -424,6 +424,29 @@ def ensure_nvidia_modeset(run_args: list[str]) -> None:
             "[llgenie] create it with: nvidia-modprobe -m")
 
 
+def _dump_serve_log(name: str) -> None:
+    """Print the engine's OWN serve log and the container's stdout tail after a failed readiness wait.
+
+    `engine_runner.py serve` redirects the engine's real output to `$TMPDIR/engine-runner-serve.log`
+    INSIDE the container, so `docker logs` shows only the launcher's banner — a "not ready after Ns"
+    failure therefore reads identically to a silent hang (measured: vllm/cpu at 8cb8e6f7, job
+    128571645259, 600 s with the banner as the ONLY captured line). The caller removes the container in
+    a `finally`, so this is the last moment the evidence exists — a dead engine must print why.
+    """
+    tail = _sh([RUNTIME, "exec", name, "sh", "-c",
+                'tail -c 4000 "${TMPDIR:-/tmp}/engine-runner-serve.log" 2>/dev/null'])
+    if tail.stdout.strip():
+        print(f"[engine-image] --- {name} in-container serve log (last 4000 bytes) ---", flush=True)
+        print(tail.stdout.rstrip(), flush=True)
+    else:
+        print(f"[engine-image] --- {name} in-container serve log EMPTY/absent "
+              f"(no engine output captured) ---", flush=True)
+    logs = _sh([RUNTIME, "logs", "--tail", "60", name])
+    if logs.stdout.strip():
+        print(f"[engine-image] --- {name} docker logs (last 60 lines) ---", flush=True)
+        print(logs.stdout.rstrip(), flush=True)
+
+
 def run(spec: dict, model: str, port: int, name: str, models_dir: Path, wait: float) -> int:
     tag = spec["tag"]
     if not image_exists(tag):
@@ -448,7 +471,7 @@ def run(spec: dict, model: str, port: int, name: str, models_dir: Path, wait: fl
         state = subprocess.run([RUNTIME, "inspect", "-f", "{{.State.Running}}", name],  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (migrate onto scripts/proc.py in a per-module batch)
                                capture_output=True, text=True).stdout.strip()
         if state != "true":
-            _sh([RUNTIME, "logs", "--tail", "60", name])
+            _dump_serve_log(name)
             print(f"[engine-image] FAIL {name} exited")
             return 1
         try:
@@ -458,7 +481,8 @@ def run(spec: dict, model: str, port: int, name: str, models_dir: Path, wait: fl
             return 0
         except Exception:
             time.sleep(2)
-    print(f"[engine-image] FAIL {name} not ready after {wait:.0f}s; see: {RUNTIME} logs {name}")
+    _dump_serve_log(name)
+    print(f"[engine-image] FAIL {name} not ready after {wait:.0f}s")
     return 1
 
 
