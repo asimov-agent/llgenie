@@ -26,7 +26,41 @@ lane.
 ```bash
 make -s check-agent-profiles          # the gate: names the gap CLASSES (and reds CI on tree-only ones)
 make sync-agent-profile PROFILE=<p> CHECK=1   # byte-compares ONE profile's tree copy against its live (exit 0 = identical)
+make tester-fold-live PROFILE=<p>             # per-file census of ONE profile: N same / N drifted / live-only / mid-write
 ```
+
+### Run parity TWICE — a lone `CHECK=1` OK is not a pass
+
+A `sync-agent-profile CHECK=1` that reports `OK: N file(s) … byte for byte` while `fold-live` reports
+`DRIFT` on the same profile is a **mid-write race**, not a green: the live copy was being rewritten
+between the two reads (check the live files' mtimes — a fresh mtime, and an `OK` that a `sha256sum` of
+the same pair contradicts, is the tell). Always run the pair a second time before recording a parity
+number, and reconcile against `sha256sum` on both copies rather than trusting either tool's verdict
+alone. Recording the transient `OK` as the lane's parity is how a richer live copy gets called
+identical and then truncated.
+
+### `tester-fold-live` is the read-only census; `COPY=1` is destructive
+
+`make tester-fold-live PROFILE=<p>` (no `COPY`) is the safe per-file read-only view: it prints one
+`same`/`DRIFT` line per file plus the summary `N same, N drifted, N live-missing, N live-only, N
+mid-write` — the `mid-write` count is the race detector above, and it distinguishes a file that only
+exists live from one that differs.
+
+**Never run `tester-fold-live … COPY=1` (nor a write-mode `sync`) against a profile whose live side is
+richer.** `COPY=1` copies file-for-file and does not merge, so every **tree-only line** in a differing
+file is deleted with no gate noticing. Measure the direction per file *before* any fold:
+
+```bash
+diff <(sort tree/<file>) <(sort live/<file>) | grep -c '^<'   # tree-only lines — these DIE on COPY=1
+diff <(sort tree/<file>) <(sort live/<file>) | grep -c '^>'   # live-only lines — these are what you want to keep
+```
+
+Zero tree-only lines and a positive live-only count means the tree copy is a truncated prefix: the fix
+direction is **live→tree via an issue + PR under `agents/<profile>/`**, then re-`CHECK=1`. A
+non-zero tree-only count means a blind fold destroys real instruction — reconcile those hunks by hand
+(a tree line that live has *rewritten* is superseded, not lost; a tree line live never had is a
+regression the fold must not commit). If a destructive fold is ever run by mistake, `git checkout --
+agents/<profile>` restores the tree, then re-verify `git status --porcelain agents/<profile>` is empty.
 
 Notes:
 
