@@ -144,6 +144,7 @@
    "issue_implementer",
    "issue_refiner",
    "jev_preflight_tracker",
+   "memory_bootstrap",
    "nerve_profile_check",
    "orchestrator_tick",
    "pr_heads",
@@ -339,6 +340,11 @@
    "from": "lane_preflight",
    "to": "issue_bot_gates",
    "reason": "the lane pre-flight runs the fleet's FAST_GATES from issue_bot_gates, so the lane and the bot cannot disagree about the list (issue #475)."
+  },
+  {
+   "from": "memory_bootstrap",
+   "to": "proc",
+   "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
   },
   {
    "from": "rebase_bot_sweep",
