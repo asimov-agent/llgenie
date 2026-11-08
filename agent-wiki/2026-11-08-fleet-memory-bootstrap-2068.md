@@ -33,9 +33,13 @@ is #2057/#2063) adds `scripts/memory_bootstrap.py` with three entrypoints and a 
   <= actual`), `--dry-run` byte-identical tree, zero credential hits in output, bootstrap env
   equals the plugin runtime builder, 0600 modes, verify names failing profiles.
 - Config + env files are written `0600`.
+- `scripts/memory_bootstrap.py` uses the ONE subprocess seam (`scripts/proc.py`) for the PID probe
+  and carries a `# proc-allow:` reason only on the detached daemon spawn (`Popen` has no policy in
+  `proc.py` and would block a `run_*` call), so `make check-proc-gate` is green.
 - The plugin fixture `tests/fixtures/fake-hindsight-plugin/embedded.py` is a stand-in for the
   third-party dependency (the `fake-nerve-plugin` convention, #611), never a mock of the product.
-- The credited PR number is added by the job that opens the PR from this tree.
+- The PR that carries this change is #2092 (opened from branch
+  `agent/issue-2068-feat-memory-install-hindsight-and-bootst`).
 
 ## Files
 

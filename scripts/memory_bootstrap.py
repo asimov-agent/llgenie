@@ -70,6 +70,10 @@ DAEMON_ENV_BASE_URL = "HINDSIGHT_API_LLM_BASE_URL"
 DAEMON_ENV_PROVIDER = "HINDSIGHT_API_LLM_PROVIDER"
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from scripts import proc  # noqa: E402  the ONE subprocess seam (issue #797)
 
 
 def hermes_home() -> Path:
@@ -327,7 +331,7 @@ def cmd_install(argv: list[str]) -> int:
     log.parent.mkdir(parents=True, exist_ok=True)
     with open(log, "ab") as out:
         try:
-            subprocess.Popen(cmd, stdout=out, stderr=out, stdin=subprocess.DEVNULL,
+            subprocess.Popen(cmd, stdout=out, stderr=out, stdin=subprocess.DEVNULL,  # proc-allow: a detached long-lived daemon (new session, reparented to 1); scripts/proc.py has no spawn policy and a run_* call would block on it
                              start_new_session=True, close_fds=True)
         except FileNotFoundError as exc:
             print(f"[memory] install: cannot provision the daemon: {exc} — "
@@ -496,8 +500,7 @@ def _listen_pids(port: int) -> list[int]:
     """PIDs listening on *port*, via ss/lsof (best-effort, non-fatal)."""
     for cmd in (["ss", "-ltnp"], ["lsof", "-tiTCP", str(port), "-sTCP:LISTEN"]):
         try:
-            out = subprocess.run(cmd, capture_output=True, text=True, timeout=5,
-                                 check=False).stdout
+            out = proc.run_ok(cmd, timeout=5).stdout
         except (OSError, subprocess.SubprocessError):
             continue
         found: list[int] = []
