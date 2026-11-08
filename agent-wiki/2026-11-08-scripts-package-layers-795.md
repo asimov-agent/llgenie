@@ -15,6 +15,10 @@ already gave (the subprocess seam `proc`, the issue-body renderer, the base-ref 
 formula, …). This is NOT a strict layering: `gates -> bots` and `bots -> gates` both exist, so the
 gate is a declared-edge allowlist, never an abstract "lower layer may not import higher".
 
+Re-measured after the branch was rebased onto `origin/main@ea8c239e` (the run's
+`check-pr-base` job refused a branch cut from the old base): 151 modules, the same 45 stated
+crossings, still 0 cycles — main had added files, not a `scripts/` module.
+
 ## What changed
 
 - **`scripts/package-layers.json`** — the layering as data: `groups` places every module of

@@ -19,7 +19,7 @@ invisible to any analysis, and `import scripts.engine_bump` drags in half of the
 
 - **The layering becomes data.** `scripts/package-layers.json` places every module of `scripts/` in
   exactly one of the five groups and lists every cross-group import the repository has agreed to,
-  each with a one-line reason (45 edges at `origin/main@e51f2fd0`).
+  each with a one-line reason (45 edges, re-measured at `origin/main@ea8c239e`).
 - **The layering becomes a gate.** `scripts/check_package_layers.py`, wired as
   `make check-package-layers` inside `make ci-unit`, refuses: a cycle (always, whichever groups it
   spans), a cross-group import absent from the file, an allowlisted edge the tree no longer has (so
