@@ -338,20 +338,32 @@ def check_workflow_names(root: Path = REPO_ROOT) -> list[dict]:
     return out
 
 
-def _indented_block(lines: list[str], start: int, indent: int) -> list[str]:
-    """The lines a mapping key at `indent` owns: deeper-indented, up to the next peer.
+def _vr():
+    """`scripts/verdict_roster.py`, imported lazily — it owns the workflow-file reading this gate shares.
 
-    Blank lines and comments are skipped rather than read as a dedent, so a commented `workflows:`
-    never counts and an interleaved blank line never truncates the block early.
+    ONE direction only (`check_workflows -> verdict_roster`): the roster module never imports this
+    guard, so `make check-package-layers` sees no cycle, and `scripts/package-layers.json` states the
+    `ci_verdict -> verdict_roster` edge.
     """
-    out: list[str] = []
-    for line in lines[start + 1:]:
-        if not line.strip() or line.lstrip().startswith("#"):
-            continue
-        if len(line) - len(line.lstrip(" \t")) <= indent:
-            break
-        out.append(line)
-    return out
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import verdict_roster  # noqa: PLC0415 - deliberate laziness, see the docstring
+    return verdict_roster
+
+
+def _indented_block(lines: list[str], start: int, indent: int) -> list[str]:
+    return _vr().indented_block(lines, start, indent)
+
+
+def _unquote(value: str) -> str:
+    return _vr().unquote(value)
+
+
+def workflow_names(root: Path = REPO_ROOT) -> dict[str, str]:
+    return _vr().workflow_names(root)
+
+
+def workflow_run_lists(path: Path) -> list[tuple[int, list[str]]]:
+    return _vr().workflow_run_lists(path)
 
 
 def check_workflow_run_refs(root: Path = REPO_ROOT) -> list[dict]:
@@ -382,54 +394,6 @@ def check_workflow_run_refs(root: Path = REPO_ROOT) -> list[dict]:
                 ),
                 "where": where,
             })
-    return out
-
-
-def _unquote(value: str) -> str:
-    """A YAML scalar's value: GitHub matches the DECODED string, so quotes never count."""
-    value = value.strip()
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
-        return value[1:-1]
-    return value
-
-
-def workflow_names(root: Path = REPO_ROOT) -> dict[str, str]:
-    """Every workflow's top-level `name:` -> its file name. The roster is matched against these."""
-    out: dict[str, str] = {}
-    for path in workflow_files(root):
-        m = NAME_KEY.search(path.read_text())
-        if m is not None:
-            out[_unquote(m.group("value"))] = path.name
-    return out
-
-
-def workflow_run_lists(path: Path) -> list[tuple[int, list[str]]]:
-    """Each `workflow_run.workflows:` list in a file: (line number of the key, the names it lists).
-
-    Both shapes GitHub accepts are read: the block form (`- name` per line, this repo's) and the inline
-    form (`[CI, pipeline]`). A name is returned exactly as it is written minus YAML quoting, because
-    that is what GitHub compares against each workflow's `name:` — no globbing, no fuzzy match.
-    """
-    lines = path.read_text().splitlines()
-    out: list[tuple[int, list[str]]] = []
-    for i, line in enumerate(lines):
-        m = WORKFLOW_RUN_KEY.match(line)
-        if m is None:
-            continue
-        body = _indented_block(lines, i, len(m.group("indent")))
-        for j, item in enumerate(body):
-            w = WORKFLOWS_KEY.match(item)
-            if w is None:
-                continue
-            rest = w.group("rest").strip()
-            if rest.startswith("["):
-                out.append((i + 1, [_unquote(x) for x in rest.strip("[]").split(",") if x.strip()]))
-                continue
-            names = []
-            for entry in _indented_block(body, j, len(w.group("indent"))):
-                if entry.strip().startswith("-"):
-                    names.append(_unquote(entry.split("-", 1)[1]))
-            out.append((i + 1, names))
     return out
 
 
@@ -608,17 +572,29 @@ def check_uses_job_keys(root: Path = REPO_ROOT) -> list[dict]:
     return out
 
 
+def check_verdict_roster(root: Path = REPO_ROOT) -> list[dict]:
+    """Every workflow that can post a check-run at a PR head must carry a judgement decision (#2116).
+
+    `ci-verdict.yml`'s `workflow_run.workflows:` roster is matched VERBATIM against a `name:` (no
+    wildcard), so a `pull_request` workflow it does not list puts a check-run on the head that the
+    verdict never reads — while `auto_merge.py` refuses the merge on any red one. The comparison is
+    `scripts/verdict_roster.py`'s (a SUBSET check, never equality: the workflow set grows by design).
+    """
+    return _vr().coverage(root)
+
+
 def findings(root: Path = REPO_ROOT) -> list[dict]:
     return (check_expressions(root) + check_newlines(root) + check_workflow_names(root)
             + check_workflow_run_refs(root) + check_workflow_run_coverage(root)
-            + check_uses_job_keys(root))
+            + check_uses_job_keys(root) + check_verdict_roster(root))
 
 
 def render(items: list[dict]) -> str:
     if not items:
         return ("[workflows] OK: every YAML file parses, ends with a newline, names its workflow, "
                 "every `workflow_run` names the workflows it reacts to, every workflow's "
-                "completion is routed to a consumer, and no `uses:` job carries a job-level "
+                "completion is routed to a consumer, every `pull_request` workflow carries a "
+                "judgement decision the verdict can name, and no `uses:` job carries a job-level "
                 "key GitHub rejects at load time")
     lines = [f"[workflows] {len(items)} violation(s)"]
     for f in items:

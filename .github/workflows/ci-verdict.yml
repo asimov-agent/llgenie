@@ -24,8 +24,17 @@ name: ci-verdict — holds a finished CI run to its published scope decision, an
 # `neutral` for a head a later run of the same workflow already owns.
 #
 # Flow: read the finished run's job rows -> read back the `ci-scope-decision` artifact (absent = no
-#       decision, never an error) -> `make ci-verdict` (scripts/ci_verdict.py) decides ->
-#       post the check-run it wrote.
+#       decision, never an error) -> `make ci-verdict` (scripts/ci_verdict.py) decides -> read the
+#       head's OTHER check-runs (issue #2116) -> post the check-run it wrote.
+# UNJUDGED REDS (#2116): this file judges ONE workflow (`CI`). Any other `pull_request` workflow's
+# check-run on the head is outside that judgment, and `scripts/auto_merge.py` refuses a merge on ANY
+# blocking check-run at the head (#1386) — so a green `CI` beside a red `engine-build-pr-trigger` used
+# to read `ci-verdict: success` with auto-merge armed and no merge possible (PR #1982 head aeac049f,
+# run 42440650801). `scripts/ci_verdict.py` now reads the head's check-runs, resolves each blocking one
+# to its workflow through the Actions run in `details_url`, and NAMES every one it did not judge; the
+# conclusion is `failure`, never a plain `success`. The roster that decides which workflows are judged
+# is `data/verdict-roster.json` + `scripts/verdict_roster.py` (`make verdict-roster`), gated by
+# `make check-workflows` — a new `pull_request` workflow without a dated judgement decision reds CI.
 # Trigger surface: `workflow_run` (every finished CI run, auto-judged) plus `workflow_dispatch`
 #                  (a manual re-judge of one finished run, owner/collaborator-only) — never a
 #                  `pull_request` or `push`.

@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "comment": "One entry per workflow that can post a check-run at a pull request head, keyed by its FILE name (issue #2116). `judged: true` means the workflow's `name:` is in .github/workflows/ci-verdict.yml's workflow_run.workflows roster, so the judged run already accounts for its check-runs. `judged: false` means it is deliberately outside that roster and MUST carry reason/date/issue: scripts/ci_verdict.py names its red check-run instead of posting a plain success. A subset check (judged <= posters) holds; an entry naming no poster is reported STALE. Render it with `make verdict-roster`; `make check-workflows` fails on a finding.",
+  "workflows": {
+    "ci.yml": {
+      "judged": true
+    },
+    "scope.yml": {
+      "judged": false,
+      "reason": "the classifier is a separate run: its guard publishes the ci-scope-decision artifact the judged CI run is held to, so a red here is precisely the run whose decision is missing. Its jobs are not rows of the CI decision table, so the verdict names its red check-run instead of adopting them.",
+      "date": "2026-11-08",
+      "issue": 2116
+    },
+    "holds.yml": {
+      "judged": false,
+      "reason": "a hold is a label/issue condition, not a CI stage, and its jobs have no entry in the ci-scope decision table. A red hold is named by the verdict's unjudged-red rule rather than modelled as a judged job.",
+      "date": "2026-11-08",
+      "issue": 2116
+    },
+    "engine-build-pr-trigger.yml": {
+      "judged": false,
+      "reason": "its jobs proxy a producer engine-build run on pin-bump PRs; the judged CI run never models that producer, so the trigger's red sat beside a ci-verdict success (PR #1982 head aeac049f, run 42440650801). The verdict names it, with its run id, instead of judging it.",
+      "date": "2026-11-08",
+      "issue": 2116
+    }
+  }
+}

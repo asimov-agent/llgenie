@@ -94,6 +94,7 @@
    "skill_parity",
    "targets_coverage",
    "unit_tests",
+   "verdict_roster",
    "worktree_base",
    "worktree_prune_guard",
    "worktree_report"
@@ -253,6 +254,11 @@
    "from": "ci_images",
    "to": "proc",
    "reason": "scripts/proc.py is the ONE subprocess policy seam (issue #797); every module that runs a subprocess imports it by design."
+  },
+  {
+   "from": "ci_verdict",
+   "to": "verdict_roster",
+   "reason": "the verdict must know which workflows its own roster judges before it can name a red it did not judge (#2116); the roster is the structural gate that reads .github/workflows and data/verdict-roster.json."
   },
   {
    "from": "detect_server",

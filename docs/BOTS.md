@@ -2176,7 +2176,14 @@ make ci-verdict            # hold a FINISHED run to the scope decision it publis
                            # 2 = the verdict could not be reached. It NEVER scores a skip as a pass by
                            # itself: a skip is green only when the published `ci-scope-decision` artifact
                            # says that job was not selected, and a head a LATER run of the same workflow
-                           # superseded is neutral, never success
+                           # superseded is neutral, never success. It also reads the head's OTHER
+                           # check-runs and NAMES any blocking one it did not judge (issue #2116) — a red
+                           # `engine-build-pr-trigger` beside a green `CI` is `failure` with the check
+                           # name and its run id in the body, never a plain success
+make verdict-roster        # print every workflow that can post a check-run at a PR head, the set
+                           # `ci-verdict` judges, the difference, and the roster findings (issue #2116);
+                           # a SUBSET check (`judged <= posters`), never equality, so the workflow set
+                           # can grow; `make check-workflows` fails on a poster with no dated decision
 
 Scheduled: `.github/workflows/ci-requeue.yml` runs that same target every 30 minutes (`23,53 * * * *`,
 off the hour and off the other bots' minutes) with `concurrency: cancel-in-progress: false`, so one
@@ -2194,6 +2201,29 @@ survive — and posts a `ci-verdict` check-run on the head: `failure` for a run 
 the summary every board line quotes read `success=3, failed=0`, while the same class of change at
 `d92ee6a3` had failed that gate for real. The verdict writes `verdict=none — 0 failures is not a
 verdict` for that head. Its own red is routed by `run-failure-reactor.yml`'s roster.
+
+**A red the verdict did not judge is NAMED, never hidden (issue #2116).** `ci-verdict` judged exactly
+one workflow (`CI`), matched VERBATIM against a workflow's `name:` (no wildcard, #349), while
+`auto_merge.py` refuses the merge on ANY blocking check-run at the head (#1386). Three `pull_request`
+workflows (`engine-build-pr-trigger`, `holds`, `ci-scope`) post check-runs the verdict never read, so
+a head could read `ci-verdict: success` and `autoMergeRequest` armed while being unmergeable in fact —
+measured on PR #1982 head `aeac049f`: `engine-build-pr-trigger` `failure` (run 42440650801, log
+`[will] FAIL engine=surogate: wait bound (60 min) expired`) beside a green `ci-verdict`. Now:
+
+- `scripts/ci_verdict.py` reads the head's check-runs, resolves each blocking one to its workflow through
+  the Actions run in its `details_url` (the run's **`path`** is the identity — GitHub truncates a run's
+  `name`), and when the judged run is green and a check-run it did not judge blocks the merge, the
+  posted verdict is `failure` naming that check, its workflow and its run id. The blocking set is
+  exactly `auto_merge.RED_CONCLUSIONS`, asserted equal by a test, so the verdict can never call a head
+  clean that the merger will refuse.
+- `scripts/verdict_roster.py` (rendered by `make verdict-roster`) lists every workflow that can post a
+  check-run at a PR head, the judged set, and the difference, and holds the two as a **subset**
+  (`judged <= posters`) so the workflow set can grow. `data/verdict-roster.json` carries one dated
+  decision per poster (`judged: true`, or `judged: false` with reason/date/issue); a new `pull_request`
+  workflow with no decision, a decision claiming `judged` that `ci-verdict.yml` does not list, an
+  undated exemption or a decision naming a workflow that no longer posts all fail
+  `make check-workflows`.
+
 
 make run-failure-reactor  # route a failed CI run to a remedy (REPO=; RUN_ID=; DRY=1 previews): a PR this bot can push
                        # (this repo or the owner's fork) -> dispatch the fix-bot as the OWNER (DISPATCH_TOKEN); else file
