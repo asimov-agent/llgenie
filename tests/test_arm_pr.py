@@ -208,3 +208,36 @@ def test_all_sweep_classifies_four_states(tmp_path):
     assert "gh pr merge 1" not in out.stdout                   # armed PRs not re-armed
     assert "gh pr merge 3" not in out.stdout                   # inert PRs not armed
 
+
+def test_all_sweep_propagates_exit_964_defect(tmp_path):
+    # One PR whose arm returns exit 0 but arms NOTHING (#964) must fail the whole
+    # sweep — `|| true` swallowing every arm's code would let the tick read a
+    # green aggregate while a real arm defect went unreported.
+    pr_list = [{"number": 1}, {"number": 2}]
+    view_map = {
+        1: _pr(),                                   # green+approved -> would arm
+        2: _pr(armed=True, ms="DIRTY", mergeable="CONFLICTING"),  # inert
+    }
+    # non-dry with VIEW_AFTER="unarmed": PR #1 runs `gh pr merge --auto` (fake
+    # exit 0) then reads back an UNARMED view -> the #964 fatal (return 2).
+    tmp = Path(tempfile.mkdtemp())
+    fgh = FakeGH(tmp, view_map=view_map, view_after_arm="unarmed")
+    plf = tmp / "prlist.json"
+    plf.write_text(json.dumps(pr_list))
+    env = {
+        **os.environ,
+        "PATH": f"{fgh.dir}:{os.environ.get('PATH','')}",
+        "REPO": str(tmp),
+        "SLUG": "asimov-agent/llgenie",
+        "PR_LIST": str(plf),
+        "PR_STATE": "",
+        "VIEW_AFTER": "unarmed",
+        "DRY": "0",
+    }
+    out = subprocess.run(
+        ["bash", str(SCRIPT), "--all"], capture_output=True, text=True, env=env, timeout=60
+    )
+    assert out.returncode == 2, f"sweep must exit 2, got {out.returncode}"
+    assert "autoMergeRequest is STILL absent" in out.stdout
+    assert "NOT success" in out.stdout
+
