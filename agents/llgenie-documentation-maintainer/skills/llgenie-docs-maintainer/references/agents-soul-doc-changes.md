@@ -30,6 +30,19 @@ from pathlib import Path; print(c._stated_block(Path("agents/<lane>/SOUL.md").re
 c.fleet_block(Path("agents")))'` — must print `True`. Note this SOUL.md write hits the protected-write
 prompt (§6): without a live human answer it does not land, and the PR stays correctly BLOCKED.
 
+### 2b. An EXEMPT profile does not red the fleet-block gate — test that claim before writing it down
+`agents/fleet-block-exemptions.json` lists profiles whose SOUL legitimately lags the canonical block, and
+`_fleet_findings` **skips** them. So "putting a lane-specific rule in the fleet block would red
+`fleet-block-drift`" is usually FALSE — the lane is exempt. Do not write that sentence into a change note
+without measuring it: insert a throwaway bullet inside the block, run
+`python3 scripts/check_agent_profiles.py check --only fleet-block-drift`, note the rc, and restore the file.
+
+The real reason to keep lane-specific rules OUT of the fleet block is structural, not the current gate
+state: the block is defined as a verbatim copy of `agents/standing-rules.md`, and the exemption is a
+**debt** (retiring it is enforced by `fleet-exemption-stale`). A lane-specific bullet inside the block
+means the lane can never state the canonical block verbatim, so the debt can never be retired. Write that
+reason; a note claiming a red that does not occur is a false claim a reviewer will catch.
+
 ## 3. A whole-fleet propagation reds twice more — fix the SYNC lines and the splice source
 
 When the canonical fleet bullet is propagated to **every** lane SOUL (a fleet-rule PR, not the
@@ -78,6 +91,29 @@ Run the gates a dispatch names **as `make` targets** (`make -s check-docs check-
 lint`), not by invoking the underlying `scripts/*.py` directly: those named gates *are* make targets, and a
 completion/verification check that still reports the run unmet after a direct script call is cleared by
 re-running through `make` (the target, not the script, is the registered verification).
+
+### 4b. A content pin in `tests/test_agent_profiles.py` is THIS lane's practice, not a scope breach
+"You never implement — a change under `scripts/`, `tests/`, `containers/` or `.github/workflows/` belongs
+to another lane" governs **product behaviour**, not the lane's verification of its own doc claim. When an
+issue's acceptance criterion is "the rule is verifiable at the merged sha", the sanctioned answer is a
+content pin appended to `tests/test_agent_profiles.py` — that is what the lane's own fleet-rule PRs did
+(`test_fleet_rule_19`, `test_fleet_rule_20`), and both touched the test file. Writing a rule into SOUL and
+pinning it are one deliverable; removing the pin to "stay in scope" LEAVES the criterion unverifiable and
+is a loss of evidence dressed as discipline.
+
+Check precedent before citing a scope rule to delete work: `gh pr view <a previous fleet-rule PR> --json
+files --jq '.files[].path' | grep tests/`. If earlier PRs of this lane carry the file, the scope objection
+is wrong. State the precedent in the PR body so a reviewer does not re-litigate it.
+
+Pin shape: a module-level `def test_<what>_is_stated_...` that reads the SOUL, asserts 3–6 **byte-exact**
+substrings (copy them from the inserted bullet — see §4a on backtick/case traps), and asserts each
+pre-existing rule the dispatch said not to duplicate still occurs **exactly once** (`soul.count(...) == 1`).
+Prove the pin bites before pushing: temporarily replace the rule text, re-run the single test, confirm it
+REDS, restore the file, and report that mutation check — a pin that cannot fail is not evidence.
+
+A practical pitfall: `git diff` scope claims in the PR body go stale the moment you add or drop the pin.
+Re-read `gh pr view <n> --json files` and correct any "no `tests/` change" sentence in the same edit, or
+the body contradicts the diff.
 
 ## 5. Run the profile gate in CI-parity mode
 On a dev host with `~/.hermes/profiles`, `check_agent_profiles.py` reports `live-longer` /
@@ -148,6 +184,18 @@ tests/test_agent_profiles.py -q` at head and at a detached base worktree, then r
 delta (head N vs base N−1 = only the one test you added) with the one failing test named identically in
 both. Note also that a `docs`-classified PR can **skip** the `linux / unit` matrix in CI, so a local
 environment-baseline red in that suite may never gate the merge — do not chase it.
+
+### 7c. A pytest red that is neither yours nor main's: the `tmp_path` host artifact
+Some tests inspect the **report path** they were handed, and assert no profile name appears in it. On a
+host where pytest's default `tmp_path` resolves under `~/.hermes/profiles/<your-lane>/cache/scratch/…`,
+your own lane name is inside that path, so the assertion fails — identically at the merge-base, which makes
+it look like "main's baseline". It is neither: CI runs with a different tmpdir and is green.
+
+Distinguish it before spending any time on it: re-run the file with the basetemp moved off the profile
+tree — `pytest tests/test_agent_profiles.py -q --basetemp=/tmp/bt-lane` — and confirm it goes green. That
+single flag turns "pre-existing red" into "host artifact, green in CI", which is a materially different
+report to a reviewer than an unexplained failure. Quote the mechanism (the lane name in `tmp_path`) rather
+than only the observation, so the next reader does not re-diagnose it.
 
 ## 8. Posting the bookend / evidence comment: use `--body-file`
 A quoted heredoc (`<<'EOF'`) does **not** interpolate `$PR` / `$SHA`, so a literal `${PR}` lands on the

@@ -12,8 +12,16 @@ metadata:
 
 # Maintaining the LLGenie docs
 
+> Write `$HOME`, never `/home/<user>`, in anything you author; cut worktrees under `$HOME`, never
+> `/tmp`; and a stacked PR is closed for good when its base merges — `references/authoring-and-delivery.md`.
+>
 > A dispatch may race a fix already merged by another lane: check issue state, the closing PR and
 > `make check-docs` before branching — `references/dispatch-race-verification.md`.
+> A gate red on YOUR branch may be main's red: reproduce it on a clean detached base first, because a
+> red `main` disables the gate for every PR and is an issue to file, not a drive-by fix — and the
+> architecture census pointer is the usual culprit (`git merge-base --is-ancestor <ptr> HEAD`) —
+> `references/gate-red-triage.md`. A red `ci-verdict` is usually downstream of that same guard (it
+> reads a scope-decision artifact the guard never published) — trace the chain before re-judging.
 > Editing an `agents/<profile>/` SOUL or skill is a behavioural-surface change with its own gates
 > (change→note, verbatim fleet block, protected-write prompt) — `references/agents-soul-doc-changes.md`.
 > A change landed via `cp`+git can leave a completion gate reporting "no task-relevant changed path",
@@ -25,6 +33,10 @@ metadata:
 > issue (main sha, CI run id, green job id, issue state), and (2) message the lane *about to act* to
 > reconcile against those ids before branching. Then stand by — the stale cache is the other lane's
 > defect. "Green on merged main" needs the CI run: `references/merged-ci-verification.md`.
+>
+> **A red `scope` step may be an exemption-format bug, not a by-design hold.** Read the gate's own
+> source and test it against the on-wire PR body before labelling it verdict-gated — the
+> `## Not covered` exemption is a single line ending in a bare `#<n>` —`references/acceptance-writeback.md`.
 
 <!-- host-bot-tools:begin -->
 

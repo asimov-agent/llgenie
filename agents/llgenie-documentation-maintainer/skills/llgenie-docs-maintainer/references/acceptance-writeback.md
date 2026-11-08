@@ -55,6 +55,78 @@ The honest sequence:
    `agent:implement`, leaving the issue documented-proven at 0/5 until the gate is fixed.
 3. Never fabricate a "5/5 proven" read-back: the wire still shows 0/5 until one of the above runs.
 
+## The other remedy: a `## Not covered` exemption in the PR body
+
+Ticking the issue is one way to satisfy `check-pr-acceptance`; the gate itself also accepts an
+**exemption written in the PR body**. When a criterion is genuinely out of a vehicle's scope (a
+docs-only PR whose AC names an `agents/` file), this is the honest remedy — not a self-tick, and not
+a claim that the criterion is satisfied.
+
+Mechanics of `scripts/check_pr_acceptance.py::_declared_out_of_scope`, both required:
+
+1. The `## Not covered` section must contain a line matching `^-.*\s*#\d+\s*$` — a **single line**
+   starting with `-` and ending with a **bare** `#<n>`.
+2. The criterion's leading three normalised words (`re.sub(r"[^A-Za-z0-9 ]", " ", text).lower()`, first
+   3 tokens) must appear in that section's text.
+
+The two formatting traps that silently fail BOTH checks:
+
+- A **multi-line** bullet (text wrapped over several lines) never matches the `^…$` single-line regex.
+- **Bold/backtick markup around the id** — `**#1234**` or `` `#1234` `` — does not match `\s*#\d+\s*$`;
+  end the line with a bare `#1234`, no emphasis.
+
+A bullet that mentions `docs/BOTS.md` can also accidentally exempt a *different* criterion whose
+leading words are the same — write the exemption so only the intended criterion's lead is present.
+
+**A criterion whose named target crosses the vehicle's own scope is the exemption case, not a
+reason to widen the diff.** A docs-only PR ("no script, no Makefile target, no code") whose AC says
+"link it from `agents/…/references/…`" cannot satisfy that AC without violating its own scope rule:
+provide the in-scope equivalent where the doc already lives, file the cross-scope pointer as its own
+follow-up issue, and name the criterion out of scope with that issue's number.
+
+Verify locally against the **on-wire body**, not your draft file (the gate reads the PR body it is
+given):
+
+```bash
+gh pr view <n> --repo <o/r> --json body --jq .body > /tmp/wirebody.md
+python3 scripts/check_pr_acceptance.py check --body-file /tmp/wirebody.md --base origin/main --rev HEAD
+# [check-pr-acceptance] OK — every closed issue's `## Acceptance criteria` is checked or named out of scope
+```
+
+## Closing-set mechanics: one keyword per issue, and the honest `does not close`
+
+`check-pr-closing` compares two sets — the issues the **joined commit messages** close and the issues
+the **PR body** closes — and reds when they differ, because the squash body is what `git log` keeps and
+the PR body is what GitHub auto-closes from. Three consequences:
+
+- The closing regex is `\b(?:fix(?:e[sd])?|close[sd]?|resolve[sd]?)\s+#(\d+)`. A **comma is not a
+  separator**: `closes #11, #12, #13` closes only `#11`. Repeat the keyword, one issue per line, in the
+  body and the commit message alike.
+- A branch that **carries a base PR's commits** (stacked) also carries that PR's `closes #N`, so `#N`
+  must appear in your body too. When the base lands and you rebase, those commits leave the branch and
+  `#N` must come **out** of the body in the same push.
+- Naming an issue resolvingly without closing it is itself a red. If a PR genuinely cannot satisfy an
+  issue's acceptance criteria (its remaining ACs name something that is not a repository artifact —
+  a cron prompt, a live host profile), write an explicit `does not close #<n> because <reason>` note.
+  That removes the issue from `check-pr-acceptance` entirely, which is the honest alternative to a
+  self-tick or leaving the issue silently orphaned.
+
+Related: the `BASE:` line must name the **same** `origin/main` sha as the `AGENTS:` line
+(`BASE: <sha> (== origin/main at open)`). A branch name in that slot fails `agents-line`, and so does a
+sha that differs from the `AGENTS:` one — "stacked on #N" belongs in prose, not in that line.
+
+## Never call a gate red "by design" without reading its own logic
+
+A red `check-pr-acceptance` (or any `scope` step) looks like the documented "un-reviewed merge stays
+honest" state, so it is tempting to report it as by-design and move on. Before you do, open the gate's
+source and test it against the real body: most such gates carry an exemption/repair path (a lenient
+heading match, an out-of-scope declaration, a canary). A red you labelled by-design and never read is
+a defect you left on the board — and a body-only edit needs a gate re-read to take effect. Check-runs are keyed to the head sha, so a
+body edit alone re-triggers nothing — but you do not need a new commit to validate it: re-running the
+failed jobs (`gh run rerun <run-id> --failed`) re-reads the PR body from the wire at run time, so the
+corrected body is exactly what the gate judges. Push an empty commit only when you also need a fresh
+head sha.
+
 ## Don't reconstruct a merged fold's boxes by eye
 
 If a dispatch says "tick the boxes via the seam", the deliverable is the seam's output (the issue
