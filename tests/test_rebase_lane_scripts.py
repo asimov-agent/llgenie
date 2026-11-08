@@ -184,11 +184,14 @@ def test_the_shipped_tools_exist_and_are_independent_implementations():
 def test_the_revert_detector_catches_a_revert_and_clears_a_restored_tree():
     """Run the shipped negative control for the `-X theirs` detector, in-container.
 
-    The detector lives inside `post-rebase-verify.sh` and asserts that no tracked text file loses
-    a line the base has without gaining anything. Its control builds a throwaway repo, because on
-    this lane's real branch the precondition ("base is an ancestor of HEAD") does not hold, so the
-    check is skipped by design there. Running the control here means a regression in the detector
-    reds CI instead of waiting for the next bad rebase to find it.
+    The detector lives inside `post-rebase-verify.sh` check 11 and asserts that no tracked text
+    file loses a base line the branch's own diff never deleted (the #2099 semantics: a deliberate
+    substitution -- lines the branch deleted itself -- must PASS, a `-X theirs` revert -- a base
+    line dropped that the branch never touched -- must FAIL). Its control builds throwaway repos
+    that perform REAL rebases, because on this lane's real branch the precondition ("base is an
+    ancestor of HEAD") does not hold, so the check is skipped by design there. Running the control
+    here means a regression in the detector reds CI instead of waiting for the next bad rebase to
+    find it.
     """
     import subprocess
 
@@ -203,13 +206,15 @@ def test_the_revert_detector_catches_a_revert_and_clears_a_restored_tree():
         "the revert-detector control failed — the detector no longer distinguishes a revert "
         f"from a clean tree:\n{r.stdout[-800:]}\n{r.stderr[-400:]}")
     # Assert the control's verdict line, not its exit code alone: a script that exits 0 without
-    # running the cases would pass an rc-only check. The three case rcs are asserted inside the
-    # script itself, so this line is the evidence that it reached the verdict.
-    assert "PASS: catches the substitution revert, allows a deliberate deletion" in r.stdout, \
-        r.stdout[-800:]
-    assert "case4 authorship:    verify rc=1" in r.stdout, \
+    # running the cases would pass an rc-only check. The case rcs are asserted inside the script
+    # itself, so these lines are the evidence that it reached the verdicts.
+    assert "PASS: a deliberate edit passes, a real -X theirs revert reds, a pure deletion passes" \
+        in r.stdout, r.stdout[-800:]
+    assert "case2 -X theirs revert:     verify rc=1" in r.stdout, \
+        "a real -X theirs revert must still red the push:\n" + r.stdout[-500:]
+    assert "case4 authorship:           verify rc=1" in r.stdout, \
         "the authorship assertion must be wired AND able to fail:\n" + r.stdout[-500:]
-    assert "case7 divergent+clean: verify rc=0" in r.stdout, \
+    assert "case7 divergent+clean:      verify rc=0" in r.stdout, \
         "a divergent branch that merges cleanly is the ordinary PR state and must not block:\n" \
         + r.stdout[-600:]
 
