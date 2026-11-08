@@ -30,9 +30,13 @@ import tempfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-#: The scanner image, pinned: the test image has no container engine inside, so the scanner cannot
-#: live in it, and a floating tag would silently change the rules between runs.
-GITLEAKS_IMAGE = "ghcr.io/gitleaks/gitleaks:v8.30.1"
+#: The scanner image, content-pinned by digest (issue #2235): it is a third-party upstream image this
+#: repo does not build, so a mutable upstream tag (`:v8.30.1`) could be re-pushed under us — every
+#: other scanner here is content-addressed. The digest below resolves `v8.30.1` to the multi-arch
+#: manifest digest measured on 2026-11-08, and `make check-gitleaks-pin` fails if this reference
+#: moves, diverges across the three sites (this file, the Makefile, the self-test) or reverts to a
+#: bare tag. This constant is the single source of truth the guard checks the others against.
+GITLEAKS_IMAGE = "ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f"
 CONFIG = ".gitleaks.toml"
 
 

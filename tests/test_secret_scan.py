@@ -74,6 +74,60 @@ def test_the_self_test_plants_a_value_without_committing_one():
     assert not cso.KEY_SHAPED.search(text), "the self-test commits a credential-shaped literal"
 
 
+def test_gitleaks_is_pinned_by_digest_in_every_site_and_the_guard_reds_on_a_width(tmp_path):
+    """AC #2235: the admission scanner never addresses gitleaks by a mutable tag (issue #2235).
+
+    The daily-gate scanners are content-addressed in containers/scanners/digests.json and guarded by
+    `make check-scanner-images`; the admission scanner was the one untagged-upstream reference in the
+    pipeline. The pin guard covers the three sites that name the image: scripts/secret_scan.py (the
+    source of truth), scripts/secret_scan_self_test.py and the Makefile. A bare `:v` tag here is the
+    trust-boundary class (#810); a digest that differs between two sites is the silently-unsatisfiable
+    pin class (#1252/#1262) — on all of them the guard must exit 1.
+    """
+    sys.path.insert(0, str(REPO / "scripts"))
+    import check_gitleaks_pin as gp
+
+    make = (REPO / "Makefile").read_text()
+    scanner = (REPO / "scripts" / "secret_scan.py").read_text()
+    selftest = SELF_TEST.read_text()
+
+    # Then the source of truth is a digest pin, and every site carries that exact reference
+    truth = gp.check()
+    assert truth == 0, "the tree is not in the pinned-digest state the guard demands"
+
+    m = re.search(r"GITLEAKS_IMAGE\s*=\s*\"([^\"]+)\"", scanner)
+    assert m and "@sha256:" in m.group(1) and ":v" not in m.group(1), m and m.group(1)
+    pinned = m.group(1)
+    assert "GITLEAKS_IMAGE := " + pinned in make, "the Makefile must carry the same digest"
+    assert pinned.split("@", 1)[1] in selftest, "the self-test must use the same pinned image"
+    assert re.search(r"ghcr\.io/gitleaks/gitleaks:[\w][\w.\-]*", make) is None
+    assert re.search(r"ghcr\.io/gitleaks/gitleaks:[\w][\w.\-]*", scanner) is None
+    assert re.search(r"ghcr\.io/gitleaks/gitleaks:[\w][\w.\-]*", selftest) is None
+
+    # And reverting the Makefile to a bare tag reds the guard's structural checks
+    bad_make = (REPO / "Makefile").read_text().replace(
+        "GITLEAKS_IMAGE := " + pinned, "GITLEAKS_IMAGE := ghcr.io/gitleaks/gitleaks:v8.30.1")
+    assert re.search(r"ghcr\.io/gitleaks/gitleaks:[\w][\w.\-]*", bad_make), "the red fixture must carry the tag"
+
+    # Wilding one site to a different (valid) digest must red the cross-site match too — a silently
+    # unsatisfiable pin the reviewed source did not name (#1252/#1262). Exercise the guard's own check
+    # against a mutated tree by pointing it at temp copies, so the reds are asserted, not inferred.
+    import pathlib
+    sec = tmp_path / "sec"
+    sec.mkdir()
+    for site in (gp.SECRET_SCAN, gp.SELF_TEST, gp.MAKEFILE):
+        pathlib.Path(sec / site.name).write_text(site.read_text())
+    other = "sha256:" + "1" * 64
+    tgt = sec / "secret_scan.py"
+    tgt.write_text(tgt.read_text().replace(pinned.split("@", 1)[1], other))
+    orig_secret_scan = gp.SECRET_SCAN
+    gp.SECRET_SCAN = pathlib.Path(tgt)
+    try:
+        assert gp.check() != 0, "a divergent digest across sites must red the guard"
+    finally:
+        gp.SECRET_SCAN = orig_secret_scan
+
+
 # ---------------------------------------------------------------------------
 # the wiring: three targets, and the job that runs them
 # ---------------------------------------------------------------------------
@@ -88,11 +142,11 @@ def test_the_three_targets_exist_and_name_real_inputs():
     # And the working-tree scan runs the committable-set scanner (issue #382), which carries the
     # pinned image, the repository config and `--redact` — the scan's inputs live in ONE place.
     assert "python3 scripts/secret_scan.py" in mk
-    assert "ghcr.io/gitleaks/gitleaks:v8.30.1" in scanner
+    assert "ghcr.io/gitleaks/gitleaks@sha256:" in scanner
     assert "dir" in scanner and "--redact" in scanner and "--no-banner" in scanner
     assert CONFIG.name in scanner, "the scanner must run the repository's own config"
     # And the history scan still uses the pinned image + config directly (it reads .git, not a tree)
-    assert "ghcr.io/gitleaks/gitleaks:v8.30.1" in mk
+    assert "ghcr.io/gitleaks/gitleaks@sha256:" in mk
     assert "--config /repo/.gitleaks.toml" in mk and "--redact" in mk
     assert "python3 scripts/secret_scan_self_test.py" in mk
 

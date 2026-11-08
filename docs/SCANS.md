@@ -95,7 +95,8 @@ would leave root-owned files in the tree (issue #433).
 | `make security-scan TOOL=<id>` | one scanner from its pinned image (Grype needs `make sbom` first) |
 | `make security-scan-all` | `make engine-pins`, then Syft SBOM, then Trivy, Grype, Semgrep |
 | `make security-verdict MODE=full\|pr` | apply the policy to the reports; the run's exit code |
-| `make check-security-scan` | **The gate** (inside `make ci-unit`): empty/unknown policy severities, `pr_fail_on ⊄ fail_on`, a scanner missing from `digests.json`, a semgrep rule pack with no content pin, an engine version older than the declared baseline, or an engine install-string pin absent from the SBOM fails |
+| `make check-security-scan` | **The gate** (inside `make ci-unit`): empty/unknown policy severities, `pr_fail_on ⊄ fail_on`, a scanner missing from `digests.json`, a semgrep rule pack with no content pin, an engine version older than the declared baseline, an engine install-string pin absent from the SBOM, or the gitleaks admission scanner addressed by a mutable tag fails |
+| `make check-gitleaks-pin` | The gitleaks admission-pin guard (runs inside `make check-security-scan`): fails when the secret-scan gate addresses gitleaks by a bare `:v` tag or by a digest that diverges from the reviewed pin across the three reference sites (`scripts/secret_scan.py`, the `Makefile` and `scripts/secret_scan_self_test.py`) — the #1252/#1262 silently-unsatisfiable-pin class (issue #2235) |
 
 ## Findings become tagged issues
 

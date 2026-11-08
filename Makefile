@@ -77,7 +77,7 @@ SERVER_BIN_STAMP := $(HOME)/.llgenie/server.bin.path
 	architecture-bot-brief architecture-bot-doc architecture-bot-publish architecture-bot check-arms arms-report \
 	scrub-log \
 	check-pr-heads pr-heads-report bot-verdict bot-verdict-read \
-	run-failure-reactor rebase-bot-agent check-docs docs-report changes-index changes-index-report changes-resolve check-pr-hygiene check-pr-agents-line check-pr-sync-line pr-hygiene-report check-report-hygiene report-hygiene-report check-module-names check-claim-reader check-issue-bodies issue-bodies-report auto-merge auto-merge-resolve auto-merge-channel fix-bot-resolve auto-merge-explain auto-merge-recheck verify-closure check-pr-authors pr-authors-report check-workflows workflows-report issue-refiner-pick issue-refiner issue-refiner-apply issue-dedup-pick issue-dedup issue-dedup-apply check-dispatch-forms dispatch-forms-report security-scan security-scan-all security-verdict security-issues security-issues-reconcile security-issues-plan check-security-issues security-bot security-bot-pick check-security-bot sbom check-security-scan engine-pins scanner-image test-scanner-image scanner-digests scanner-ref publish-scanner-images ci-scanner-images check-scanner-images \
+	run-failure-reactor rebase-bot-agent check-docs docs-report changes-index changes-index-report changes-resolve check-pr-hygiene check-pr-agents-line check-pr-sync-line pr-hygiene-report check-report-hygiene report-hygiene-report check-module-names check-claim-reader check-issue-bodies issue-bodies-report auto-merge auto-merge-resolve auto-merge-channel fix-bot-resolve auto-merge-explain auto-merge-recheck verify-closure check-pr-authors pr-authors-report check-workflows workflows-report issue-refiner-pick issue-refiner issue-refiner-apply issue-dedup-pick issue-dedup issue-dedup-apply check-dispatch-forms dispatch-forms-report security-scan security-scan-all security-verdict security-issues security-issues-reconcile security-issues-plan check-security-issues security-bot security-bot-pick check-security-bot sbom check-security-scan check-gitleaks-pin engine-pins scanner-image test-scanner-image scanner-digests scanner-ref publish-scanner-images ci-scanner-images check-scanner-images \
 	run-failure-reactor rebase-bot-agent check-docs docs-report changes-index changes-index-report check-pr-hygiene pr-hygiene-report check-issue-bodies issue-bodies-report auto-merge auto-merge-resolve auto-merge-channel fix-bot-resolve auto-merge-explain auto-merge-recheck verify-closure check-pr-authors pr-authors-report check-workflows workflows-report issue-refiner-pick issue-refiner issue-refiner-apply issue-dedup-pick issue-dedup issue-dedup-apply check-dispatch-forms dispatch-forms-report scanner-image test-scanner-image scanner-digests scanner-ref publish-scanner-images ci-scanner-images check-scanner-images \
 	run-failure-reactor rebase-bot-agent check-docs docs-report changes-index changes-index-report check-pr-hygiene pr-hygiene-report auto-merge auto-merge-resolve auto-merge-channel fix-bot-resolve auto-merge-explain auto-merge-recheck verify-closure check-pr-authors pr-authors-report check-workflows workflows-report issue-refiner-pick issue-refiner issue-refiner-apply issue-dedup-pick issue-dedup issue-dedup-apply check-dispatch-forms dispatch-forms-report check-actions actions-report update-actions \
 	run-failure-reactor rebase-bot-agent check-docs docs-report changes-index changes-index-report check-pr-hygiene pr-hygiene-report auto-merge auto-merge-resolve auto-merge-channel fix-bot-resolve auto-merge-explain auto-merge-recheck verify-closure check-pr-authors pr-authors-report check-workflows workflows-report issue-refiner-pick issue-refiner issue-refiner-apply issue-dedup-pick issue-dedup issue-dedup-apply check-dispatch-forms dispatch-forms-report check-renovate renovate-report \
@@ -990,7 +990,7 @@ secret-output-report: ## Show which files name a secret-shaped variable, and whe
 # the test image has no docker inside, so the scanner cannot live in it.
 # `--redact` keeps the finding out of the log, and `.gitleaks.toml` allowlists only
 # documented PLACEHOLDERS — a real value is removed and rotated, never allowlisted.
-GITLEAKS_IMAGE := ghcr.io/gitleaks/gitleaks:v8.30.1
+GITLEAKS_IMAGE := ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
 GITLEAKS_RUN := $(RUNTIME) run --rm -v "$$PWD":/repo -w /repo $(GITLEAKS_IMAGE)
 
 # The working-tree scan reads the COMMITTABLE set, not the whole filesystem (issue #382): `gitleaks
@@ -1236,9 +1236,12 @@ security-scan-all: engine-pins ## Run every scanner from its pinned image in dep
 	python3 scripts/security_scan.py all
 security-verdict: ## Apply data/security-policy.json to the reports (EVENT=<github event> decides whether that event may gate; ENFORCE=pr forces report-only; issue #715, #738)
 	python3 scripts/security_scan.py verdict --event "$(EVENT)" $(if $(ENFORCE),--mode "$(ENFORCE)",)
-check-security-scan: ## CI: fail when the scan policy is empty/unknown, a scanner ref is missing from digests.json, the semgrep rule pack lacks a content pin or lags the declared baseline, the engine install-string pins are not inventoried / absent from the SBOM (issues #715, #1282, #1284)
+check-security-scan: ## CI: fail when the scan policy is empty/unknown, a scanner ref is missing from digests.json, the semgrep rule pack lacks a content pin or lags the declared baseline, the engine install-string pins are not inventoried / absent from the SBOM, or the gitleaks admission scanner is addressed by a mutable tag (issues #715, #1282, #1284, #2235)
+	$(MAKE) check-gitleaks-pin
 	python3 scripts/security_scan.py check
 	python3 scripts/engine_pins.py check
+check-gitleaks-pin: ## CI: fail when the secret-scan admission gate addresses gitleaks by a mutable tag or by a digest that diverges from the reviewed pin (issue #2235) — the #1252/#1262 silently-unsatisfiable-pin guard
+	python3 scripts/check_gitleaks_pin.py check
 engine-pins: ## Invent the engine install-string dependency pins (torch/litert/ziglang and every --index-url) into security-reports/engine-pins/ so the SBOM/Trivy pass covers them (issue #1282)
 	python3 scripts/engine_pins.py inventory
 security-issues-plan: ## Print the tagged issues the current reports would create/update/clear and mutate nothing (issue #716)
