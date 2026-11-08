@@ -49,6 +49,12 @@ def _fake_gh(monkeypatch, before_ids=None, new_run=None, guard_conclusion="succe
         target = args[0] if args else ""
         target_jq = args[2] if len(args) > 2 else ""
         in_progress_ids = {str(stall_holder)} if stall_holder else set()
+        # A 404 on the run-id poll routes the re-resolve to the run-LIST read, whose jq selects by
+        # head_branch+run id. Answer THAT re-resolve with the run's real verdict (the list endpoint
+        # is "readable earlier" than the run's own resource), so a 404-then-visible producer is
+        # re-resolved to SUCCESS instead of waiting out the bound.
+        if new_run == "404" and "head_branch" in target_jq:
+            return "{\"status\": \"completed\", \"conclusion\": \"success\"}"
         if "per_page=100" in target:
             # The mock models the GitHub API's ACTUAL `.path` shape — no leading slash (the
             # leading-slash spelling in a source filter matches 0 runs and makes discovery
@@ -88,7 +94,12 @@ def _fake_gh(monkeypatch, before_ids=None, new_run=None, guard_conclusion="succe
             return "\n".join(str(r["id"]) for r in runs)
         if "/jobs" in target:
             return json.dumps({"jobs": [{"name": "guard", "conclusion": state["guard_conclusion"]}]})
-        # single-run verdict
+        # single-run verdict (the awaited run's own id)
+        if new_run == "404":
+            # A 404 on the run-id poll reads as EMPTY stdout (gh api exits non-zero): the code
+            # decodes {} (not-a-verdict) and re-resolves by head_sha via the list read intercepted
+            # above, which answers with the run's real (success) verdict.
+            return ""
         return json.dumps(new_run if new_run is not None else {"status": "queued", "conclusion": None})
 
     monkeypatch.setattr(ebt, "_gh", fake_gh_api)
@@ -268,6 +279,49 @@ def test_stalled_without_holder_is_a_plain_failure(monkeypatch, capsys):
     # A pending run with no holder still fails at the wait bound, named with run + last status.
     assert "wait bound (0 min) expired" in captured.err
     assert "last status pending" in captured.err
+
+
+def test_404_poll_is_reresolved_by_head_sha_to_success(monkeypatch, capsys):
+    """A producer run that polls as 404 still concludes SUCCESS when re-resolved by head_sha+branch.
+
+    Regression for #2059 (measured on #1982, run 42428364793): a successful producer run
+    (`engine-build-surogate-cuda`) polled as 404 for the FULL 60-min bound because the run-id
+    endpoint was invisible to the polling token shortly after dispatch, so the old code treated
+    "404" as "not concluded" and waited out the bound before failing — a green PR read as a real
+    build failure for an hour. On a 404 the trigger must re-resolve through the run-LIST endpoint
+    keyed by head_sha+branch (readable earlier than the run's own resource) and conclude from THAT
+    verdict. A far `--wait-min` proves we do not wait the 404 out.
+    """
+    _stub_base(monkeypatch)
+    _stub_repin(monkeypatch, engine="surogate")
+    _fake_gh(monkeypatch, before_ids=[1], new_run="404")  # the run-id endpoint 404s
+    rc = _run(["check", "--base", _BASE, "--repo", "asimov-agent/llgenie", "--branch", "main",
+               "--wait-min", "120", "--gh", "gh"])
+    assert rc == 0
+    captured = capsys.readouterr()
+    assert "producer run 77 success" in captured.out
+    # The success line names the RESOLVED run id (the same dispatched run, found via the list).
+    assert "run 77 success" in captured.out and "never concluded" not in captured.err
+
+
+def test_404_visibility_is_named_on_expiry(monkeypatch, capsys):
+    """The expiry message names a 404 visibility race vs a real conclusion.
+
+    #2059 acceptance: a reader must be able to tell a poll race from a concluded build failure.
+    When the dispatched run's LAST read was a 404 (and re-resolve found nothing), the failure
+    line says so explicitly instead of reporting a bare last status.
+    """
+    _stub_base(monkeypatch)
+    _stub_repin(monkeypatch, engine="surogate")
+    _fake_gh(monkeypatch, before_ids=[1], new_run="404")  # run-id endpoint 404s
+    # Re-resolve by head_sha never finds the run either → last read stays a 404.
+    monkeypatch.setattr(ebt, "_resolve_run_by_head_sha", lambda repo, branch, run_id, gh: {})
+    rc = _run(["check", "--base", _BASE, "--repo", "asimov-agent/llgenie", "--branch", "main",
+               "--wait-min", "0", "--gh", "gh"])
+    assert rc == 1
+    captured = capsys.readouterr()
+    assert "never became visible (last poll 404)" in captured.err
+    assert "poll visibility race, not a concluded build failure" in captured.err
 
 
 def test_report_never_dispatches(monkeypatch):

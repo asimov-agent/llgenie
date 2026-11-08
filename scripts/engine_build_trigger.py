@@ -71,6 +71,37 @@ DEFAULT_MAX_WAIT = 60  # minutes a push=true build may take before the trigger g
 SUBPROCESS_TIMEOUT = 30  # seconds a single shell/gh call may take
 
 
+def _resolve_run_by_head_sha(repo: str, branch: str, run_id: str, gh: str) -> dict:
+    """Re-resolve a dispatched run when its run-id endpoint returns a 404.
+
+    A run-id 404 is a visibility/propagation race, never "the run has not concluded": the
+    token that dispatched a push=true run may not yet read the run's own resource (or the API
+    briefly routes it as not-found) even though the run id exists and carries a real verdict
+    (measured: #1982, run 42428364793 polled producer 42428385314 — concluded `success` — as
+    404 for the full 60-min bound). The run-LIST endpoint is scoped by the head_sha+branch the
+    production code KNOWS (it just dispatched there), and is readable earlier than the
+    per-run resource. The dispatch on the trigger is at `--branch`; the run-list key is
+    `head_branch` + run `id`. Returns the run object `{status, conclusion, completed_at}`
+    when the list now shows the run, else {} (still invisible — the caller reports the 404,
+    never a bare verdict). Never raises: an empty / non-JSON read yields {}.
+    """
+    raw = _gh(repo, "?event=workflow_dispatch&per_page=100", "--jq",
+              '.workflow_runs[] | select(.path == ".github/workflows/engine-build.yml") | '
+              f'select(.head_branch == "{branch}") | select((.id|tostring) == "{run_id}") | '
+              "{status, conclusion, completed_at}", gh=gh)
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            cand = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        # The list is newest-first; the first object matching our run id is the run itself.
+        return {k: cand.get(k) for k in ("status", "conclusion", "completed_at")}
+    return {}
+
+
 def _sh(args: list[str]) -> str:
     try:
         return subprocess.run(args, capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT).stdout  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (timeout so a stalled call cannot hold the poll past its deadline)
@@ -128,12 +159,28 @@ def _dispatch_and_wait(repo: str, branch: str, engine: str, arch: str,
     # Await THAT run's verdict.
     deadline = time.time() + wait_min * 60
     stall_holder = ""  # an in_progress push run holding the global engine-build-push group, if any
+    #: Whether the poll's LAST read of the run was a 404 (never a verdict). Tracked so the
+    #: expiry message can name a poll-visibility race distinctly from a real conclusion (#2059):
+    #: a 404 on a just-dispatched run is a token/propagation race — the run exists and carries a
+    #: verdict — so it must never be treated as "not concluded" and waited out to the full bound.
+    last_was_404 = False
     while True:
         raw = _gh(repo, f"{wanted}", "--jq", "{status, conclusion, completed_at}")
         try:
             run = json.loads(raw)
         except json.JSONDecodeError:
             run = {}
+        if not run:
+            # 404 / empty response: the run-id endpoint cannot see the run yet (propagation or
+            # token scope on a just-dispatched run), NOT a verdict. Re-resolve by head_sha+branch
+            # through the run-LIST endpoint, which is readable earlier; a producer that already
+            # concluded success is then SUCCESS not "not concluded" (measured: #1982, a successful
+            # producer 404'd for the full 60-min bound). Never fall through to "wait out the bound"
+            # on a bare 404.
+            last_was_404 = True
+            run = _resolve_run_by_head_sha(repo, branch, wanted, gh)
+        else:
+            last_was_404 = False
         # A push=true run sits `pending` with 0 jobs and NO heartbeat while it waits behind the
         # global engine-build-push concurrency group (engine-build.yml:80, issue #917/#621). It will
         # never materialise a job until the group holder concludes — a re-dispatch is futile and this
@@ -176,7 +223,7 @@ def _dispatch_and_wait(repo: str, branch: str, engine: str, arch: str,
         # never a bare "concluded queued/None" that reads like a verdict that never happened.
         if time.time() > deadline:
             kwargs = {"run_id": wanted, "status": run.get("status"), "conclusion": run.get("conclusion"),
-                      "expired": True}
+                      "expired": True, "last_was_404": last_was_404}
             if stall_holder and not run.get("conclusion"):
                 kwargs["stalled_behind"] = stall_holder
             return kwargs
@@ -227,8 +274,18 @@ def check(base: str, engine_filter: str = "", arch: str = "", dry: bool = False,
                   file=sys.stderr)
             failures += 1
         elif outcome.get("expired"):
-            msg = (f"[will] FAIL engine={e}: wait bound ({wait_min} min) expired — producer run "
-                   f"{outcome.get('run_id')} never concluded, last status {outcome.get('status')}")
+            if outcome.get("last_was_404"):
+                # The producer run was never VISIBLE to this token (a 404 poll visibility race,
+                # not a real conclusion) — name it as such so a reader can tell it from a build
+                # failure (#2059). This is what #1982 measured: a successful producer 404'd for
+                # the whole bound and read exactly like a real failure.
+                msg = (f"[will] FAIL engine={e}: wait bound ({wait_min} min) expired — producer run "
+                       f"{outcome.get('run_id')} never became visible (last poll 404), so its "
+                       f"verdict is UNKNOWN — this is a poll visibility race, not a concluded "
+                       f"build failure")
+            else:
+                msg = (f"[will] FAIL engine={e}: wait bound ({wait_min} min) expired — producer run "
+                       f"{outcome.get('run_id')} never concluded, last status {outcome.get('status')}")
             if outcome.get("stalled_behind"):
                 msg += (f" — STALLED behind engine-build-push group holder run "
                         f"{outcome['stalled_behind']} (that holder must conclude or be owner-cancelled; "
