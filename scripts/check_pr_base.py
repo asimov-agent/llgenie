@@ -187,6 +187,32 @@ def _verdict(root: Path, base: str, rev: str) -> tuple[str, list[str], list[str]
     return "foreign", own, leaked or foreign
 
 
+def staleness_from_compare(compare: dict) -> bool:
+    """Is the head of a GitHub `compare` payload behind the base? THE staleness definition.
+
+    This is the single source both `check-pr-base`'s verdict and the rebase sweep's eligibility
+    read (#2071, #845): a head is behind iff its **merge-base with the base is not the base tip**.
+    The `compare` endpoint answers exactly those three facts —
+    `merge_base_commit.sha`, `base_commit.sha`, `behind_by` — so a consumer that only has REST
+    access (the rebase sweep, on a remote PR head the runner never fetched) can apply the same
+    rule the local git gate applies, instead of restating it in a second place where the two
+    could drift.
+
+    `merge_base_commit` is the authoritative field; `behind_by` is cross-checked only when both
+    are present, so a payload shape change surfaces as a disagreement rather than a silent
+    "not behind".
+    """
+    mb = ((compare.get("merge_base_commit") or {}).get("sha") or "")
+    tip = ((compare.get("base_commit") or {}).get("sha") or "")
+    if mb and tip:
+        behind = mb != tip
+        if "behind_by" in compare:
+            # Both signals must agree: a mismatch means the payload is not what we think it is.
+            return behind or bool(compare.get("behind_by"))
+        return behind
+    return bool(compare.get("behind_by"))
+
+
 def check(root: Path, base: str, rev: str) -> tuple[bool, list[str]]:
     """Is the branch cut from `base` itself? Returns (ok, foreign_or_error_lines).
 
