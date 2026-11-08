@@ -39,7 +39,7 @@ def _path_names(path: pathlib.Path) -> str:
 # duty, the report line or the merge rule cannot pass.
 CONTRACT = [
     ("report-line", r"working\s+on\s+#",
-     "every reply must open with `BOT <lane> · working on #<id> · branch · since · blocked · next` — a SOUL that drops the id-bearing report line loses the fleet's per-reply audit hook"),
+     "every reply must open with `BOT <lane> · working on #<id> · branch <ref> · since <hh:mmZ> · blocked on <x|none> · next <y>` — a SOUL that drops the id-bearing report line loses the fleet's per-reply audit hook"),
     ("never-merge", r"never.*merge|never merge|do not merge|no merge",
      "a lane must be committed to not merging/pushing main"),
     ("bookend", r"bookend|announce.*work|start comment|finish comment",

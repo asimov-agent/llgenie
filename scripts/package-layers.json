@@ -97,6 +97,7 @@
    "targets_coverage",
    "unit_tests",
    "verdict_roster",
+   "verify_lane_contract",
    "worktree_base",
    "worktree_prune_guard",
    "worktree_report"
