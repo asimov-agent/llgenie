@@ -160,7 +160,10 @@ picks which start script or image to run.
 
 The tree is 3989 tracked files: `data/` 13, `skills/` 18 (17 engine directories plus their
 `README.md`), `containers/` 60, `tests/` 286, `scripts/` 168, `openspec/` 1581, `agent-wiki/`
-693 and `docs/` 702. (measured at `7b8bc3e8be844e40d963452bcc3abc1f604bea13`)
+693, `docs/` 702 and `agents/` 391 (13 profile dirs plus `manifest.json`, `README.md`,
+`standing-rules.md` and `fleet-block-exemptions.json`). The nine named content dirs sum to
+3912; the remaining 77 tracked files are `.github/`, `.hermes/`, `tools/`,
+`docker-compose-files/`, `bots/` and the root-level files. (measured at `7b8bc3e8be844e40d963452bcc3abc1f604bea13`)
 
 | Path | Role |
 |---|---|
@@ -172,6 +175,7 @@ The tree is 3989 tracked files: `data/` 13, `skills/` 18 (17 engine directories 
 | `containers/test/` | the test image every Python gate runs in (`Dockerfile` only; no inference server inside it) |
 | `containers/agent/` | the pinned Hermes agent image (`Dockerfile`) every bot leg runs in: the Hermes CLI, the `nous-deepseek` model alias, the nerve plugin (installed, enabled and layered by `scripts/install_nerve_ci.sh` under the host's `operator` profile), the profile/settings parity check the build runs (`scripts/nerve_profile_check.py`), the `.hermes/skills` registration and the `agent_jev_preflight.sh` entry gate |
 | `.hermes/skills/` | the Hermes **project skills** — `issue-triage`, `issue-implement`, `issue-refiner`, `issue-dedup`, `pr-fix`, `rebase-conflict`, `architecture-doc`, `engine-params-review`, `registry-sync-review`, `agent-fetch`, `bot-unattended` (plus a `README.md`), each leg's contract preloaded with `hermes -s <name>`, and the HOST skills `llgenie-architecture-pass`, `llgenie-engine-improver`, `llgenie-pr-rebase` and `security-pipeline`, which no leg preloads (admitted by name in `HOST_SKILLS`) — all guarded by `make check-agent-skills` (issues #577, #805) |
+| `agents/` | one directory per HOST-lane profile — `agents/<profile>/` holds that lane's `SOUL.md`, its skills and its references; `agents/manifest.json` is the profile roster `make check-agent-profiles` reads against the tree (issue #791), `agents/standing-rules.md` is the fleet rulebook each SOUL states, `agents/fleet-block-exemptions.json` lists the lanes exempt from a standing block, and `agents/README.md` documents the layout — materialised into each profile's Hermes home by `make sync-agent-profile` / `scripts/provision_agent_profiles.py`, so the tree is the canonical version of every lane's behaviour |
 | `containers/ci-variant/` | the CUDA-toolkit variant-build image (`make test-variant-image`): its `Dockerfile` only — the two lockfiles are copied from `tools/` into a temp build context and are never tracked here (a committed copy is a stale pin the scan can never clear, issue #787) |
 | `data/` | vendored registry, the vendored model contract (schema + prose) it is validated against, quant catalog, strata model map, engine-skill gap, unsupported engines, trending README, and the scan failure/issue policy |
 | `docs/` | `ARCHITECTURE.md` (this map), `ENGINES.md` (per-engine build/serve), `BOTS.md` (automation, crons, credentials), `SCANS.md` (the scan pipeline), `SCANNERS.md` (scanner images), `SECURITY.md` (supply-chain pins), `RENOVATE.md` (dependency updates), and `changes.d/` (one index row per change — the change index is a directory, never one shared table, issue #934) |
