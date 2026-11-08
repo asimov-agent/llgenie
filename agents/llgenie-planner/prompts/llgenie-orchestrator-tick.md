@@ -14,9 +14,20 @@ STEP 1 — PREFLIGHT. One command, and it is the sha for the whole pass:
 Quote: `main_sha:` and `agents_md:` bytes+lines. Every brief you write carries that sha and size.
 Never quote a sha from an earlier turn — main moves about every 26 minutes here.
 
-STEP 2 — RECALL THE FAILURE CLASS before you interpret anything:
-    hindsight_recall(query="<the failure class, e.g. check-pr-acceptance write-back / check-pr-base stale base / ci-verdict no verdict / trigger 404 poll / check-docs change note>")
-Quote: the class you matched, or `no prior match` if nothing came back. If nothing came back and you
+STEP 2 — RECALL THE FAILURE CLASS before you interpret anything. Use whichever of these you have:
+    # (a) if the agent tool exists in this turn:
+    hindsight_recall(query="<failure class: check-pr-acceptance write-back / check-pr-base stale base / ci-verdict no verdict / trigger 404 poll / check-docs change note>")
+    # (b) ALWAYS-WORKS fallback — the daemon is on 127.0.0.1:9177, NOT 8888:
+    curl -s -m 8 -X POST http://127.0.0.1:9177/v1/default/banks/llgenie-planner/memories/recall \
+      -H 'Content-Type: application/json' -d '{"query":"<failure class>","limit":3}'
+    # health, if you doubt it:  curl -s http://127.0.0.1:9177/health
+Quote: the class you matched, or `no prior match` if nothing came back.
+NEVER report the instrument as absent without running (b). Measured 2026-11-08: a pass declared
+"Cannot connect to Hindsight API — http://localhost:8888" and skipped recall entirely, while the
+daemon was active and healthy on **9177** the whole time and answered that same query. Port 8888 is a
+CLI default that appears only COMMENTED OUT in `$HOME/.hindsight/profiles/hermes.env`; the live value
+is `HINDSIGHT_API_PORT=9177`. A pass that skips recall skips the one step that stops it re-diagnosing
+a known class from first principles — report `no prior match` only after (b) has actually answered. If nothing came back and you
 diagnose it yourself, `hindsight_retain` the class→cause→owning-lane mapping at the end.
 
 STEP 3 — MEASURE THE WHOLE BOARD, once:

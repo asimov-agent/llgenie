@@ -16,7 +16,7 @@ This change makes each pass a procedure:
   staleness/DIRTY, lanes with idle, queue with every READY task, stalled workers
   both classes, CI at the tip tagged TIP/other by `headSha`, lane drift). A step
   either has a section of that output to act on, or it did not run.
-- **`agents/llgenie-planner/cron/llgenie-orchestrator-tick.md`** — the running
+- **`agents/llgenie-planner/prompts/llgenie-orchestrator-tick.md`** — the running
   orchestrator prompt captured verbatim (per #2136, the initial commit is the
   real running instruction): a strict **`STEP 1 … STEP 13`** sequence, every step
   naming its exact command and the line it must quote (`Quote:` per step), red

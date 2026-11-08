@@ -21,7 +21,7 @@ VERSIONED = (
     Path(__file__).resolve().parent.parent
     / "agents"
     / "llgenie-planner"
-    / "cron"
+    / "prompts"
     / "llgenie-orchestrator-tick.md"
 )
 
