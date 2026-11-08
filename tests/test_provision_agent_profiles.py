@@ -38,6 +38,37 @@ def _profiles_count():
     return len(m["profiles"])
 
 
+def _make_seam(dest, *flags):
+    """Run the REAL make target the rebuild invokes (the wiring, not the script)."""
+    env_flags = " ".join(f"{f}" for f in flags)  # CHECK=1 style
+    cmd = f"make -C {REPO} provision-agent-profiles DEST={dest} {env_flags}"
+    return subprocess.run(["bash", "-lc", cmd], capture_output=True, text=True,
+                          env={**os.environ, "HERMES_PROFILE_HOME": str(dest / "llgenie-tester")},
+                          timeout=300)
+
+
+def test_make_seam_provisions_and_gates(tmp_path):
+    # The AC "wired where install/setup runs, so a rebuild cannot skip it": the
+    # actual make target (which `install` depends on), not just the script.
+    n = _profiles_count()
+    r = _make_seam(tmp_path)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert len([p for p in tmp_path.iterdir() if p.is_dir()]) == n
+    gate = _make_seam(tmp_path, "CHECK=1")
+    assert gate.returncode == 0, gate.stdout + gate.stderr
+    # negative control through the seam: a removed SOUL.md reds the make gate
+    (tmp_path / "llgenie-tester" / "SOUL.md").unlink()
+    red = _make_seam(tmp_path, "CHECK=1")
+    assert red.returncode != 0
+    assert "llgenie-tester" in (red.stdout + red.stderr)
+
+
+def test_install_invokes_provisioning(tmp_path):
+    # The real wiring: `make install` depends on `provision-agent-profiles`.
+    mk = (REPO / "Makefile").read_text()
+    assert "install: bash-check venv-install engine-launchers link test-built-engine smoke provision-agent-profiles" in mk
+
+
 def test_provisions_every_lane_and_is_idempotent(tmp_path):
     n = _profiles_count()
     r1 = _run(tmp_path)
