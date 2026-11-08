@@ -1,4 +1,4 @@
-"""A stand-in for `plugins/hindsight/embedded.py` from the Hindsight Hermes plugin (issue #2059).
+"""A stand-in for `plugins/hindsight/embedded.py` from the Hindsight Hermes plugin (issue #2068).
 
 WHY A STAND-IN: the Hindsight plugin is a third-party package installed from its pinned
 commit at image-build time (`hermes plugins install`), so it cannot be vendored into this

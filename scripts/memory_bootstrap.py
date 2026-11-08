@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install, bootstrap and verify the fleet's Hindsight memory wiring (issue #2059).
+"""Install, bootstrap and verify the fleet's Hindsight memory wiring (issue #2068).
 
 WHY THIS EXISTS. The Hindsight memory wiring is host state: a per-profile
 `hindsight/config.json`, a per-profile `.env` key, and one shared
@@ -193,7 +193,7 @@ def profiles_from_manifest(agents: Path) -> list[str]:
 
 
 def template_config(profile: str, llm_api_key: str | None = None) -> dict:
-    """The one Hindsight config template every profile is written from (#2059)."""
+    """The one Hindsight config template every profile is written from (#2068)."""
     return {
         "mode": "local_embedded",
         "profile": "hermes",
@@ -245,7 +245,7 @@ def memory_provider(home: Path, profile: str) -> str:
 
     Reads the profile's `config.yaml`/`settings.yaml` the way Hermes does, at the
     simplest plausible surface. An empty provider is exactly the measured failure of
-    #2059 — the plugin installed but never running.
+    #2068 — the plugin installed but never running.
     """
     for rel in ("config.yaml", "settings.yaml"):
         path = home / profile / rel if (home / profile).is_dir() else profile_home(home, profile) / rel
@@ -470,7 +470,7 @@ def _write_provider_stub(home: Path, profile: str, ph: Path, current: str) -> in
     with os.fdopen(fd, "a", encoding="utf-8") as stream:
         if existing and not existing.rstrip().endswith("\n"):
             stream.write("\n")
-        stream.write("# llgenie memory bootstrap (#2059)\n" + line)
+        stream.write("# llgenie memory bootstrap (#2068)\n" + line)
     os.chmod(path, 0o600)
     return 1
 

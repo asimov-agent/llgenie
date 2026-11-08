@@ -1,4 +1,4 @@
-"""Install, bootstrap and verify the fleet's Hindsight memory wiring (issue #2059).
+"""Install, bootstrap and verify the fleet's Hindsight memory wiring (issue #2068).
 
 The acceptance contract (from the issue) this file locks, each with real script logic run
 as a subprocess or an import — nothing here mocks the product:

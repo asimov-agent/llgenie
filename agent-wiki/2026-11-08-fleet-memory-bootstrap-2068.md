@@ -1,4 +1,4 @@
-# Install, bootstrap and verify the fleet's Hindsight memory wiring (#2059)
+# Install, bootstrap and verify the fleet's Hindsight memory wiring (#2068)
 
 ## What changed
 
@@ -45,7 +45,7 @@ is #2057/#2063) adds `scripts/memory_bootstrap.py` with three entrypoints and a 
   `.PHONY`; internal automation targets — no `##` help line, because AC9 forbids a docs/
   section (the BOTS.md topology is #2057/#2063) and the fleet-memory commands therefore do
   not enter the README surface)
-- this note + `docs/changes.d/2026-11-08-fleet-memory-bootstrap-2059.md` + CHANGES.md row
+- this note + `docs/changes.d/2026-11-08-fleet-memory-bootstrap-2068.md` + CHANGES.md row
 
 ## Not covered
 
