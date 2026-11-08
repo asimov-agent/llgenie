@@ -236,7 +236,11 @@ def test_llgenie_matrix_arch_override_in_header(matrix_env, arch, tmp_path):
     variants in the header and exits 0 (no download/serve)."""
     smoke = REPO / "tests" / "fixtures" / "matrix-smoke-registry.json"
     env = {**os.environ, "LLGENIE_REGISTRY_SRC": str(smoke),
-           "LLAMA_MODELS_ROOT": str(tmp_path), "LLAMA_BACKEND": "cpu"}
+           "LLAMA_MODELS_ROOT": str(tmp_path), "LLAMA_BACKEND": "cpu",
+           # the smoke model is the 2 GB health-check tier; widen the default band
+           # so this CLI-plumbing test keeps exercising the full matrix machinery
+           # (issue #227: the default band is 8-48 GB, the smoke model is below it)
+           "LLGENIE_VRAM_RANGE": "1, 64"}
     import subprocess
     r = subprocess.run([sys.executable, str(REPO / "scripts" / "llgenie_serve.py"),
                         "--matrix", "24", "32", arch],
@@ -255,7 +259,11 @@ def test_llgenie_matrix_explicit_flags(matrix_env, arch, tmp_path):
     always states them plainly. The flag wins over an equivalent positional."""
     smoke = REPO / "tests" / "fixtures" / "matrix-smoke-registry.json"
     env = {**os.environ, "LLGENIE_REGISTRY_SRC": str(smoke),
-           "LLAMA_MODELS_ROOT": str(tmp_path), "LLAMA_BACKEND": "cpu"}
+           "LLAMA_MODELS_ROOT": str(tmp_path), "LLAMA_BACKEND": "cpu",
+           # the smoke model is the 2 GB health-check tier; widen the default band
+           # so this CLI-plumbing test keeps exercising the full matrix machinery
+           # (issue #227: the default band is 8-48 GB, the smoke model is below it)
+           "LLGENIE_VRAM_RANGE": "1, 64"}
     import subprocess
     # Given the explicit --vram/--ram/--arch form (the flagship smoke model fits 24 GB)
     r = subprocess.run([sys.executable, str(REPO / "scripts" / "llgenie_serve.py"),
@@ -273,7 +281,11 @@ def test_llgenie_matrix_flag_wins_over_positional(matrix_env, tmp_path):
     tests exactly what the caller asked for."""
     smoke = REPO / "tests" / "fixtures" / "matrix-smoke-registry.json"
     env = {**os.environ, "LLGENIE_REGISTRY_SRC": str(smoke),
-           "LLAMA_MODELS_ROOT": str(tmp_path), "LLAMA_BACKEND": "cpu"}
+           "LLAMA_MODELS_ROOT": str(tmp_path), "LLAMA_BACKEND": "cpu",
+           # the smoke model is the 2 GB health-check tier; widen the default band
+           # so this CLI-plumbing test keeps exercising the full matrix machinery
+           # (issue #227: the default band is 8-48 GB, the smoke model is below it)
+           "LLGENIE_VRAM_RANGE": "1, 64"}
     import subprocess
     # Given BOTH a positional GB (99) and an explicit --vram (24), RAM via --ram
     r = subprocess.run([sys.executable, str(REPO / "scripts" / "llgenie_serve.py"),

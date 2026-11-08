@@ -239,3 +239,44 @@ def test_llgenie_matrix_prints_urls(tmp_path):
     assert r.returncode == 0, r.stderr
     assert "huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/" in r.stdout
     assert "no download, no serve" in r.stdout
+
+
+# -- issue #2047 regression: a fitting model outside the default band is skipped, never dropped ---
+def test_matrix_skips_a_fitting_model_outside_the_default_vram_band(monkeypatch):
+    """The #669 offer-or-skip invariant survives the #227 band: a model the card
+    gate fits but whose README display tier falls outside the default 8-48 GB band
+    is accounted in `skipped` with the band named as the reason — never silently
+    dropped (issue #2047, regression of main-red ci-hf-live after merge 6921b35f).
+    Hermetic: stubbed Hub tree + engine registry, no network (run by make test-unit).
+    """
+    monkeypatch.setattr(mp, "_tree", lambda repo, revision="main": _trees().get(repo, []))
+    monkeypatch.setattr(mp, "engine_ids", lambda: IDS)
+    monkeypatch.setenv("LLGENIE_QUANT_CATALOG", "0")
+    monkeypatch.delenv("LLGENIE_VRAM_RANGE", raising=False)
+
+    # a model whose measured minimum fits a 16 GB card but whose README tier (6 GB)
+    # is below the default band's lower edge — the bonsai-2-2b shape
+    offband = _model("bon-2b", "Bonsai 2 2B", "6GB", "FakeOrg/Bon-2B-GGUF",
+                     150, "RTX 3060 12GB")
+    offband["vram_min"] = "4GB"  # the #669 measured minimum, lower than the tier
+
+    # an in-band model that also fits, to prove the band still narrows ONLY the offered set
+    inband = _model("qwen-8b", "Qwen 8B", "8GB", "FakeOrg/Qwen-8B-GGUF",
+                    120, "RTX 3060 12GB")
+    inband["vram_min"] = "6GB"
+
+    reg = {"generated_utc": "2026-10-31T00:00:00Z", "models": [offband, inband]}
+
+    # When matrix() runs on a 16 GB cuda host with the default band
+    res = mp.matrix(reg, 16, 32, "cuda")
+
+    # Then the in-band model is considered (offered or skipped-for-a-real-reason),
+    offband_skipped = next((s for s in res["skipped"] if s["model"] == "bon-2b"), None)
+    assert offband_skipped is not None, f"bonsai-shaped model silently dropped: {res['skipped']}"
+    assert "VRAM band" in offband_skipped["why"] and "6GB" in offband_skipped["why"], offband_skipped
+    assert "bon-2b" not in {r["model"]["id"] for r in res["permutations"]}
+    # and the off-band reason is DISTINCT from the no-download reason (which the
+    # in-band row would get in its stead) — never conflated with an engine gap
+    inband_skipped = {s["model"]: s["why"] for s in res["skipped"]}.get("qwen-8b", "")
+    assert "VRAM band" not in inband_skipped, (inband_skipped, res["skipped"])
+
