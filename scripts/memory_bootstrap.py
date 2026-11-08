@@ -73,7 +73,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts import proc  # noqa: E402  the ONE subprocess seam (issue #797)
+from scripts.proc import run_ok  # noqa: E402  the ONE subprocess seam (issue #797), spelled so check_package_layers sees it
 
 
 def hermes_home() -> Path:
@@ -500,7 +500,7 @@ def _listen_pids(port: int) -> list[int]:
     """PIDs listening on *port*, via ss/lsof (best-effort, non-fatal)."""
     for cmd in (["ss", "-ltnp"], ["lsof", "-tiTCP", str(port), "-sTCP:LISTEN"]):
         try:
-            out = proc.run_ok(cmd, timeout=5).stdout
+            out = run_ok(cmd, timeout=5).stdout
         except (OSError, subprocess.SubprocessError):
             continue
         found: list[int] = []
