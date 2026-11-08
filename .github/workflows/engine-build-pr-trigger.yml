@@ -82,4 +82,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          make engine-build-pr-trigger BASE="${{ github.event.pull_request.base.sha }}"
+          # A pull_request checkout is DETACHED: `git rev-parse --abbrev-ref HEAD` is the literal
+          # `HEAD`, and a dispatch at it dies with HTTP 422 `No ref found for: HEAD` — so a repin PR
+          # never actually built (issue #2089, carried from PR #1696). Dispatch at the SOURCE branch.
+          make engine-build-pr-trigger BASE="${{ github.event.pull_request.base.sha }}" BRANCH="${{ github.head_ref }}"

@@ -42,7 +42,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import engine_skills as es  # noqa: E402
 import hf_auth  # noqa: E402
-from proc import run_ok  # noqa: E402  the subprocess policy seam (issue #797)
+from proc import run_ok, run_live  # noqa: E402  the subprocess policy seam (issue #797)
 
 # Generated with the params (make generate-engine-params): engine -> variant ->
 # {binary, flags}. The binary-file check reads it instead of a skill, so the
@@ -138,6 +138,21 @@ def _sh(cmd: list[str], **kw) -> subprocess.CompletedProcess:
                 sys.stderr.write(stream if stream.endswith("\n") else stream + "\n")
                 sys.stderr.flush()
     return r
+
+
+def _sh_live(cmd: list[str], **kw) -> subprocess.CompletedProcess:
+    """Run a LONG build step, streaming both streams to this process's log as they are written.
+
+    Deliberately separate from `_sh`: `_sh` CAPTURES so a short command's failure can be re-surfaced
+    in one block, which is right for a probe and wrong for a build. A cold HIP/nvcc compile runs for
+    30-60 minutes, so captured output means the run log is silent for that whole window — and when the
+    runner SIGKILLs the build (`make: Killed`, run 41696864556) the log carries no compiler progress
+    to say which step died (issue #2089). `_sh_live` hands the child this process's own descriptors
+    (proc.py's `run_live` policy), so `--progress=plain` output lands line by line. Same `rc`
+    contract: the caller inspects `returncode`; nothing is captured, so nothing is re-surfaced.
+    """
+    print("[engine-image] $", " ".join(cmd), flush=True)
+    return run_live(cmd, **kw)
 
 
 def image_exists(tag: str) -> bool:
@@ -280,7 +295,10 @@ def _buildx(tag: str, ctx: str, push: bool, cache_ref: str, force: bool = False,
         # push ONLY the registry-qualified tag (a bare llgenie/... tag would go to Docker Hub)
         cmd = [RUNTIME, "buildx", "build", "--progress=plain", "-t", f"{REGISTRY}/{tag}", *no_cache, *cache_args,
                *_cache_write_args(cache_ref, cache_exists), "--push", ctx]
-        rc = _sh(cmd).returncode
+        # The compile itself: streamed, not captured (a cold HIP/nvcc build is 30-60 min of progress,
+        # issue #2089). The post-build pull/tag below stay captured `_sh` — they are short and their
+        # failure is re-surfaced in one block.
+        rc = _sh_live(cmd).returncode
         if rc == 0:  # make the image available locally under its bare tag too
             _sh([RUNTIME, "pull", f"{REGISTRY}/{tag}"], capture_output=True)
             _sh([RUNTIME, "tag", f"{REGISTRY}/{tag}", tag], capture_output=True)
@@ -321,7 +339,8 @@ def _buildx(tag: str, ctx: str, push: bool, cache_ref: str, force: bool = False,
         print(f"[engine-image] {tag}: local build runs on the docker driver (no cache export) — "
               f"its image cannot afford the container driver's export+load on a hosted runner "
               f"(issue #1915)", flush=True)
-    return _sh(cmd + [ctx]).returncode
+    # Same reason as the push branch: the local build IS the long compile — stream it.
+    return _sh_live(cmd + [ctx]).returncode
 
 
 def _available(tag: str) -> bool:

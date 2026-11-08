@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -76,6 +77,29 @@ def _sh(args: list[str]) -> str:
         return subprocess.run(args, capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT).stdout  # proc-allow: direct subprocess call site, tracked remainder for issue #797 (timeout so a stalled call cannot hold the poll past its deadline)
     except subprocess.TimeoutExpired:
         return ""  # no verdict this poll; the caller's deadline check decides
+
+
+def _dispatch_ref(explicit: str) -> str:
+    """A ref `gh workflow run --ref` will accept, or "" when the checkout cannot name one.
+
+    A `pull_request` checkout is DETACHED, so `git rev-parse --abbrev-ref HEAD` is the literal
+    `HEAD` and `--ref HEAD` is rejected with HTTP 422 `No ref found for: HEAD` (issue #2089,
+    carried from PR #1696). Actions exports the source branch of that event as `GITHUB_HEAD_REF`,
+    which the workflow also forwards as `BRANCH=`; an explicit `--branch`, that variable, or a
+    non-detached checkout's own branch each win in that order. When none of them names a ref this
+    returns "" — the caller refuses instead of dispatching at a ref GitHub cannot resolve, and the
+    reason it prints names the two inputs that would have resolved it.
+    """
+    name = (explicit or "").strip()
+    if name and name != "HEAD":
+        return name
+    head_ref = os.environ.get("GITHUB_HEAD_REF", "").strip()
+    if head_ref and head_ref != "HEAD":
+        return head_ref
+    symbolic = _sh(["git", "rev-parse", "--abbrev-ref", "HEAD"]).strip()
+    if symbolic and symbolic != "HEAD":
+        return symbolic
+    return ""
 
 
 def _gh(repo: str, *args: str, gh: str = "gh") -> str:
@@ -135,6 +159,21 @@ def _existing_run_ids(repo: str, gh: str) -> set[str]:
     return {line.strip() for line in raw.splitlines() if line.strip()}
 
 
+def _workflow_run_args(gh: str, repo: str, branch: str, fields: list[str]) -> list[str]:
+    """`gh workflow run` argv with ONE `--field` per input.
+
+    `gh workflow run`'s `--field/-f` takes a SINGLE value, so `["--field", "engine=x", "push=true"]`
+    hands `push=true` to `gh` as a positional argument and the dispatch is rejected without a run
+    ever starting — the shape `main` carried, measured as a pull_request trigger run that dispatched
+    nothing and reported a bare `run  concluded queued/None` (issue #2089; run 42423190271 job
+    128555865778). Every input gets its own `--field`.
+    """
+    cmd = [gh, "workflow", "run", ENGINE_BUILD_WORKFLOW, "--repo", repo, "--ref", branch]
+    for field in fields:
+        cmd.extend(["--field", field])
+    return cmd
+
+
 def _dispatch_and_wait(repo: str, branch: str, engine: str, arch: str,
                        wait_min: int, gh: str) -> dict:
     """Dispatch engine-build push=true for ONE engine, await the NEW run's own verdict (#964 discipline).
@@ -145,13 +184,21 @@ def _dispatch_and_wait(repo: str, branch: str, engine: str, arch: str,
     fields = [f"engine={engine}", "push=true"]
     if arch:
         fields.append(f"arch={arch}")
+    # Exit 0 is not a verdict (#964), and a NON-zero exit is a dispatch that never started a run.
+    # Report the CLI's own rejection text (`HTTP 422: No ref found for: HEAD`, an unknown input, a
+    # permission refusal) instead of awaiting a run that does not exist (issue #2089).
     try:
-        subprocess.run([gh, "workflow", "run", ENGINE_BUILD_WORKFLOW, "--repo", repo, "--ref", branch,  # proc-allow: engine-build dispatch is a deliberate CLI dispatch on the seam's tracked remainder (#797); check=False is required because gh workflow run exit 0 is not a verdict (the NEW run is awaited below, #964)
-                        "--field", *[f for f in fields]], check=False, timeout=SUBPROCESS_TIMEOUT)
+        dispatched = subprocess.run(_workflow_run_args(gh, repo, branch, fields),  # proc-allow: engine-build dispatch is a deliberate CLI dispatch on the seam's tracked remainder (#797); check=False is required because gh workflow run exit 0 is not a verdict (the NEW run is awaited below, #964)
+                                    check=False, capture_output=True, text=True,
+                                    timeout=SUBPROCESS_TIMEOUT)
     except subprocess.TimeoutExpired:
         # The dispatch call itself stalled; the discovery loop below still looks for the
         # NEW workflow_dispatch run (the real verdict) and bails at DISPATCH_TIMEOUT.
-        pass
+        dispatched = None
+    if dispatched is not None and dispatched.returncode != 0:
+        err = (dispatched.stderr or dispatched.stdout or "").strip()
+        return {"run_id": "", "status": "dispatch-failed", "conclusion": "failure",
+                "error": err or f"gh workflow run exited {dispatched.returncode}"}
     # The NEW run — a workflow_dispatch-event run not present before — is the fact, not the dispatch exit.
     t0 = time.time()
     wanted = ""
@@ -252,7 +299,14 @@ def check(base: str, engine_filter: str = "", arch: str = "", dry: bool = False,
         print("[will] no engine this change repins; nothing to dispatch (hermetic, same rule as the may-arm)")
         return 0
     repo = repo or base_ref.BASE_REPO
-    branch = branch or _sh(["git", "rev-parse", "--abbrev-ref", "HEAD"]).strip().strip()
+    branch = _dispatch_ref(branch)
+    if not branch:
+        # Refuse rather than dispatch at a ref GitHub cannot resolve: a detached checkout used to
+        # send `--ref HEAD` and the dispatch died with HTTP 422 (issue #2089). Name both inputs that
+        # would have resolved it, so the next reader does not have to infer the workflow change.
+        print("[will] refusing to dispatch: the checkout names no ref (detached HEAD) and "
+              "GITHUB_HEAD_REF is unset. Pass --branch / BRANCH=${{ github.head_ref }}.", file=sys.stderr)
+        return 1
     print(f"[will] {len(ids)} repinned engine(s) vs {base}: {', '.join(sorted(ids))}")
     if dry:
         for e in sorted(ids):
@@ -285,8 +339,12 @@ def check(base: str, engine_filter: str = "", arch: str = "", dry: bool = False,
             print(msg, file=sys.stderr)
             failures += 1
         elif outcome.get("conclusion") != "success":
+            # A rejected dispatch carries its own reason (`HTTP 422: No ref found for: HEAD`, an
+            # unknown input, a permission refusal) — print it, so the log says which refusal this
+            # was instead of a bare `run  concluded queued/None` (issue #2089).
+            extra = f" — {outcome['error']}" if outcome.get("error") else ""
             print(f"[will] FAIL engine={e}: run {outcome.get('run_id')} concluded "
-                  f"{outcome.get('status')}/{outcome.get('conclusion')}", file=sys.stderr)
+                  f"{outcome.get('status')}/{outcome.get('conclusion')}{extra}", file=sys.stderr)
             failures += 1
         else:
             print(f"[will] OK engine={e}: producer run {outcome.get('run_id')} success")

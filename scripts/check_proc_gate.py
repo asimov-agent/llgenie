@@ -10,8 +10,8 @@ This gate implements one rule:
     `# proc-allow: <reason>` comment. Anything else is a finding.
 
 The `# proc-allow:` comment is the tracked remainder — the visible shrinking list of direct call sites
-that a later change must migrate onto `scripts/proc.py` (the three named policies `run_text`/`run_ok`/
-`run_checked`). The census (`report`) lists each allowed site with its reason, so the total is a number
+that a later change must migrate onto `scripts/proc.py` (the four named policies `run_text`/`run_ok`/
+`run_checked`/`run_live`). The census (`report`) lists each allowed site with its reason, so the total is a number
 a reviewer can watch fall, not an invisible count.
 
 Commands:
