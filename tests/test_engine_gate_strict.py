@@ -38,7 +38,7 @@ def test_a_version_must_look_like_a_version():
         # union: vllm bumped to 0.33.0 by this PR (#1520); llama.cpp commit from
         # the merged #1522 bump (sibling engine, main is authoritative)
         "vllm/cpu: installed 0.33.0+cpu": "0.33.0",
-        "llama.cpp/cpu: installed version: 0.7.0-dev (build 11870, commit 1b6935b20)": "0.7.0",
+        "llama.cpp/cpu: installed version: 0.7.0-dev (build 11870, commit 7d7f02870)": "0.7.0",
         "installed pin 3c75be02f450": "pin 3c75be02f450",
         "tensorfold-native 1.2.1": "1.2.1",
         # measured on the published laurentzuijdwijk/cpu image: a log line, THEN the real version
