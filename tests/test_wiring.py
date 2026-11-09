@@ -484,6 +484,8 @@ def test_the_json_subcommand_is_valid_json_with_the_three_keys(tmp_path):
     # And   every value is a list, never a set (json.dumps would have raised)
     for section in doc.values():
         assert all(isinstance(v, list) for v in section.values()), section
+
+
 def test_a_decision_for_a_target_that_no_longer_claims_ci_is_stale(tmp_path):
     """The decision exists ONLY for a claim; once the help line stops claiming, the entry hides drift.
 
@@ -503,3 +505,107 @@ def test_a_decision_for_a_target_that_no_longer_claims_ci_is_stale(tmp_path):
     # Then  the entry is reported as stale and must be deleted
     assert r.returncode == 1, r.stdout + r.stderr
     assert "no longer claims CI coverage" in (r.stdout + r.stderr)
+
+
+# ---------------------------------------------------------------------------
+# the split makefiles (issue #800): targets move into mk/*.mk and stay wired
+# ---------------------------------------------------------------------------
+def _split_tree(tmp_path: Path, makefile: str, mk: dict, tests: dict, workflows: dict | None = None):
+    """A checkout split into mk/*.mk (issue #800): the top Makefile carries `include mk/*.mk` and
+    the domain files carry targets. `tests` and `workflows` are optional and default empty."""
+    (tmp_path / "Makefile").write_text(makefile)
+    for name, body in (mk or {}).items():
+        (tmp_path / "mk").mkdir(exist_ok=True)
+        (tmp_path / "mk" / name).write_text(body)
+    for name, body in (tests or {}).items():
+        (tmp_path / "tests").mkdir(exist_ok=True)
+        (tmp_path / "tests" / name).write_text(body)
+    for name, body in (workflows or {}).items():
+        (tmp_path / ".github/workflows").mkdir(parents=True, exist_ok=True)
+        (tmp_path / ".github/workflows" / name).write_text(body)
+    return tmp_path
+
+
+def test_a_target_moved_into_an_included_mk_file_stays_wired(tmp_path):
+    """Issue #800 phase 2: the split moves a target out of the top Makefile into mk/*.mk; the gate
+    must resolve `include mk/*.mk` FIRST so a moved target stays a target, stays .PHONY-checked,
+    and its `##` help line still reaches `make help`. This is the acceptance criterion — the split
+    cannot make check-wiring go blind."""
+
+    # Given a checkout whose Makefile includes mk/gates.mk, whose target lives there
+    root = _split_tree(
+        tmp_path,
+        ".PHONY: test-unit lint\ninclude mk/gates.mk\n",
+        {"gates.mk": "test-unit: ## CI: run the unit suite\n\tpython3 -m pytest tests/test_a.py\n"
+                    "lint: ## a runnable lint\n\t@echo hi\n"},
+        {"test_a.py": "def test_a():\n    assert True\n"},
+        {"ci.yml": "jobs:\n  unit:\n    steps:\n      - run: make test-unit\n"})
+
+    # When  the wiring is checked
+    r = _run(root, "check")
+
+    # Then  it is green — the moved target is discovered through the include, not lost
+    assert r.returncode == 0, r.stdout + r.stderr
+    g = cw.graph(root)
+    assert "test-unit" in g["recipes"] and "lint" in g["recipes"]
+    assert "test-unit" in g["phony"]
+    assert "test-unit" in g["claim_targets"]
+    assert g["reachable"]["tests/test_a.py"] == {"make test-unit"}
+
+
+def test_a_duplicate_target_across_includes_is_a_finding(tmp_path):
+    """Issue #800 phase 4 acceptance: a target name declared in TWO included mk/*.mk files is the
+    merge-conflict-class defect — which recipe wins depends on include order. The gate must fail,
+    naming the target and both files.
+
+    This is the test the issue's acceptance criterion 3 asks for directly.
+    """
+
+    # Given two mk files that both declare `build-engine` (and a top that includes both)
+    root = _split_tree(
+        tmp_path,
+        ".PHONY: build-engine\ninclude mk/a.mk\ninclude mk/b.mk\n",
+        {"a.mk": "build-engine: ## a\n\t@echo A\n",
+         "b.mk": "other: ## b\n\t@echo B\nbuild-engine: ## a duplicate\n\t@echo DUP\n"},
+        {"test_a.py": "def test_a():\n    assert True\n"},
+        {"ci.yml": "jobs:\n  unit:\n    steps:\n      - run: make build-engine\n"})
+
+    # Given the real make keeps only ONE recipe (the last include wins)
+    run = subprocess.run(["make", "-C", str(root), "-qp"], capture_output=True, text=True)
+    dup = cw._target_files(root)
+
+    # Then  the graph records the duplicate, naming both files
+    assert "build-engine" in dup and dup["build-engine"] == ["mk/a.mk", "mk/b.mk"]
+
+    # When  the wiring is checked
+    r = _run(root, "check")
+
+    # Then  it fails, naming the target and both included files
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "`make build-engine` is declared in mk/a.mk, mk/b.mk" in r.stderr
+    assert "merge-conflict-class" in r.stderr
+
+
+def test_an_mk_file_over_its_line_budget_is_a_finding(tmp_path):
+    """Issue #800 phase 4: each mk/*.mk file carries a stated line budget so the monolith cannot
+    quietly grow back. A file over its budget fails, naming the file, the count and the budget."""
+
+    # Given an mk/bots.mk far longer than its 480-line budget
+    root = _split_tree(
+        tmp_path,
+        ".PHONY: bot\ninclude mk/bots.mk\n",
+        {"bots.mk": "\n".join(["# %d" % i for i in range(cw.MK_LINE_BUDGET["mk/bots.mk"] + 50)])},
+        {"test_a.py": "def test_a():\n    assert True\n"},
+        {"ci.yml": "jobs:\n  unit:\n    steps:\n      - run: make bot\n"})
+    (root / "mk/bots.mk").write_text(  # a budget-exceeding mk file, but no target -> wiring noise
+        ".PHONY: bot\nbot: ## bot\n\t@echo hi\n" + "\n".join("# %d" % i
+        for i in range(cw.MK_LINE_BUDGET["mk/bots.mk"])) + "\n")
+
+    # When  the wiring is checked
+    r = _run(root, "check")
+
+    # Then  it fails, naming the file, its line count and the budget
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "mk/bots.mk is" in r.stderr and "over its" in r.stderr
+    budget = cw.MK_LINE_BUDGET["mk/bots.mk"]
+    assert str(budget) in r.stderr

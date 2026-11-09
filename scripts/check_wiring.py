@@ -80,10 +80,90 @@ MAKE_RE = re.compile(r"(?:\$\(MAKE\)|make)(?:\s+-(?!C\s)[^\s$]+)*\s+(?:-C\s+\S+\
                      r"([a-z0-9][a-z0-9._-]*)(?=\s|$)")
 
 
+def _makefile_list(root: Path) -> list[str]:
+    """The makefiles that together define the graph, read in include order (issue #800).
+
+    The top `Makefile` is first; then every `mk/*.mk` it `include`s, in the order the directives
+    name them; then `tools/Makefile`. A target that moves out of the top makefile is still
+    discovered because its file is part of the resolved set — the split cannot make the gate blind.
+    GNU make expands a wildcard in an `include mk/*.mk` directive to every matching file, sorted;
+    the resolver mirrors that (one pattern per directive).
+    """
+    out: list[str] = []
+    pending = ["Makefile"]
+    seen: set[str] = set()
+    while pending:
+        rel = pending.pop(0)
+        if rel in seen:
+            continue
+        seen.add(rel)
+        path = root / rel
+        if not path.exists():
+            continue
+        out.append(rel)
+        for m in re.finditer(r"^\s*include\s+(\S+)\s*$", path.read_text(), re.M):
+            inc = m.group(1)
+            if "*" in inc:
+                pending.extend(sorted(p.relative_to(root).as_posix()
+                                      for p in root.glob(inc)))
+            else:
+                pending.append(inc)
+    for extra in ("tools/Makefile",):
+        if extra not in seen and (root / extra).exists():
+            out.append(extra)
+    return out
+
+
+def _target_files(root: Path) -> dict[str, list[str]]:
+    """target -> the makefiles that declare it (issue #800).
+
+    A target declared in more than one of the included `mk/*.mk` files is the merge-conflict-class
+    defect (issue #460's class): two files both own the name, and which recipe wins depends on
+    include order. `tools/Makefile` is a separate make invocation (`-C tools`), so a name that also
+    lives there is not a duplicate within one makefile.
+    """
+    decl: dict[str, set[str]] = {}
+    for rel in _makefile_list(root):
+        if rel == "tools/Makefile":
+            continue
+        path = root / rel
+        if not path.exists():
+            continue
+        for name in TARGET_RE.findall(path.read_text()):
+            decl.setdefault(name, set()).add(rel)
+    return {t: sorted(f) for t, f in decl.items() if len(f) > 1}
+
+
+#: Per-file line budget for the split makefiles (issue #800, phase 4). A domain makefile may not
+#: quietly grow back toward the 2,000-line monolith; the top makefile is the includes + help/phony
+#: only, so it carries a small budget of its own.
+MK_LINE_BUDGET = {
+    "mk/engines.mk": 420,
+    "mk/gates.mk": 380,
+    "mk/ci.mk": 260,
+    "mk/security.mk": 260,
+    "mk/bots.mk": 480,
+    "mk/install.mk": 300,
+}
+
+
+def _line_budget_over(root: Path) -> list[tuple[str, int, int]]:
+    """(file, line count, budget) for every mk/*.mk over its stated budget (issue #800)."""
+    over: list[tuple[str, int, int]] = []
+    for rel, budget in MK_LINE_BUDGET.items():
+        path = root / rel
+        if not path.exists():
+            continue
+        count = len(path.read_text().splitlines())
+        if count > budget:
+            over.append((rel, count, budget))
+    return over
+
+
 def _recipes(root: Path) -> tuple[dict[str, str], dict[str, set]]:
     """(target -> recipe text, target -> prerequisites). A prerequisite is a real edge:
     `ci-lint: bash-check` means CI running ci-lint runs bash-check."""
-    text = "\n\n".join((root / rel).read_text() for rel in MAKEFILES if (root / rel).exists())
+    text = "\n\n".join((root / rel).read_text() for rel in _makefile_list(root))
     spans = [(m.group(1), m.start()) for m in TARGET_RE.finditer(text)]
     out, prereqs = {}, {}
     for i, (name, start) in enumerate(spans):
@@ -104,7 +184,7 @@ def _phony_targets(root: Path) -> set[str]:
     a target is harmless to make, so only the targets are compared against it.
     """
     out: set[str] = set()
-    for rel in MAKEFILES:
+    for rel in _makefile_list(root):
         path = root / rel
         if not path.exists():
             continue
@@ -275,14 +355,15 @@ def _close(root: Path, docs: list[str], recipes: dict[str, str], calls: dict[str
 
 def _help_lines(root: Path = REPO) -> dict[str, str]:
     """Every target's `##` help line — the text a human reads at `make help` time."""
-    mk = root / "Makefile"
-    if not mk.exists():
-        return {}
-    out = {}
-    for line in mk.read_text().splitlines():
-        m = re.match(r"^([A-Za-z0-9_.-]+):[^#]*##\s*(.+)$", line)
-        if m:
-            out[m.group(1)] = m.group(2).strip()
+    out: dict[str, str] = {}
+    for rel in _makefile_list(root):
+        mk = root / rel
+        if not mk.exists():
+            continue
+        for line in mk.read_text().splitlines():
+            m = re.match(r"^([A-Za-z0-9_.-]+):[^#]*##\s*(.+)$", line)
+            if m:
+                out[m.group(1)] = m.group(2).strip()
     return out
 
 
@@ -320,6 +401,10 @@ def graph(root: Path = REPO) -> dict:
         "tests": [d for d in docs if d.startswith("tests/")],
         "scripts": [d for d in docs if d.startswith("scripts/")],
         "workflow_targets": workflow_targets, "ci_targets": ci_targets,
+        # the split domain files (issue #800): which targets are declared twice across them, and
+        # which mk/*.mk is over its stated line budget.
+        "duplicate_targets": _target_files(root),
+        "line_budget_over": _line_budget_over(root),
         # what each target names directly (plus the aggregator's selection, issue #393): the
         # `json` subcommand prints it, so it has to be part of the graph rather than a local of
         # this function (issue #395 — the key was missing and `json` died with a KeyError).
@@ -376,6 +461,18 @@ def check(g: dict, exceptions: dict) -> list[str]:
     a `.PHONY` entry that names no target or a target that runs nothing (issue #883)."""
     recorded = exceptions.get("documents") or {}
     errors = list(g.get("aggregator_errors") or [])
+
+    # The split-domain findings (issue #800): a target declared twice across the included
+    # mk/*.mk files, or a domain file over its stated line budget — the monolith must not
+    # quietly grow back one piece at a time.
+    for target, files in sorted((g.get("duplicate_targets") or {}).items()):
+        errors.append(f"`make {target}` is declared in {', '.join(files)} — two included makefiles "
+                      f"own the same target name and which recipe wins depends on include order "
+                      f"(the merge-conflict-class defect, issue #460). Keep one definition.")
+    for rel, count, budget in g.get("line_budget_over") or []:
+        errors.append(f"{rel} is {count} lines, over its {budget}-line budget (issue #800): move a "
+                      f"stage out of it or split the domain — the split must not grow back.")
+
     for w, targets in g["workflow_targets"].items():
         for t in sorted(targets):
             if t not in g["recipes"]:
