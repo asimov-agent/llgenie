@@ -1,0 +1,170 @@
+name: semgrep-rules-refresh — re-resolves the semgrep rules pack from upstream p/default and opens the re-pin PR (never merges)
+
+# Issue #2283 criterion 2: the committed semgrep rules pack
+# (containers/scanners/semgrep/rules/default.yml) is content-pinned AND has a recency floor
+# (rules_captured_at vs `RULES_BASELINE_DAYS = 30`, merged PR #2315) but no refresh path. This
+# workflow is that path: it re-resolves upstream `p/default` THROUGH THE PINNED SCANNER IMAGE
+# (semgrep --config p/default --validate inside digests.json['semgrep'].ref), rewrites
+# `default.yml`, and re-stamps `rules_sha` / `rules_captured_at` / `rules_count` via
+# `scripts/scanner_image.py::write` (the `make scanner-digests` byte/sha discipline). Only when
+# something changed does it commit and open or update `chore/semgrep-rules-refresh` — a re-pin PR
+# whose `rules_sha == sha256(rewritten default.yml)` and `rules_captured_at == the refresh date`.
+#
+# Trigger surface: schedule monthly (`1 6 * * 15`: 06:01 UTC on the 15th, its own odd minute —
+#                  issue #275, no other workflow owns it) and workflow_dispatch (owner / repository
+#                  bot / collaborator with write). NOTHING else — the pack must never be touched by
+#                  a PR or push (issue #738).
+# Never: never merges, never pushes to `main`, never weakens the policy, never edits
+#        data/security-policy.json, never opens a PR for a pack that did not change.
+# Flow: guard (owner / repository bot / collaborator with write) -> make semgrep-rules-refresh
+#       (resolve through the pinned image -> fetch -> neutralise -> write default.yml + digests.json)
+#       -> changed? (git diff on the pack + digests) -> make secret-scan + check-security-scan on the
+#       refreshed tree -> commit + open / edit the `chore/semgrep-rules-refresh` PR.
+on:
+  schedule:
+    - cron: "1 6 * * 15"   # monthly on the 15th 06:01 UTC — its own odd minute (issue #275)
+  workflow_dispatch:
+# dispatch: no inputs — the refresh has no modes: it always re-resolves p/default through the pinned scanner image and opens the re-pin PR only when the pack changed.
+
+permissions:
+  contents: write          # the chore/semgrep-rules-refresh branch and the re-pin commit
+  pull-requests: write     # the one re-pin PR
+
+# concurrency: stacking is intended — a second refresh while one PR is open must not race the
+# branch; group on this workflow only, never cancel an in-progress run (issue #275).
+concurrency:
+  group: semgrep-rules-refresh
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Owner / collaborator trigger guard
+        env:
+          ACTOR: ${{ github.actor }}
+          TRIGGER: ${{ github.triggering_actor }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.repository }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name || '' }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for u in "$ACTOR" "$TRIGGER"; do
+            if [ "$u" = "$OWNER" ]; then continue; fi
+            # The repository's own bot is a GitHub App login, so it is never a collaborator and the
+            # permission read below answers 404 -> `none`: every bot-opened PR was refused (run
+            # 39650944430, #495). It may pass ONLY when the run's head is a branch in THIS repository —
+            # a same-repo head can be produced only by a token with write access — while the bot as the
+            # actor of a FOREIGN head (a bot commenting on a stranger's PR) is still refused (#510).
+            # It also passes on a `workflow_dispatch` of this repository (issue #1571): a dispatch can
+            # only target this repository's own refs, and only this repository's own automation (a
+            # workflow scoped `actions: write` dispatching via GITHUB_TOKEN) can make the bot the
+            # actor of one — the same-repo-head intent reached via the event instead of the (empty)
+            # HEAD_REPO. A workflow_dispatch is how the weekly all-pipelines sweep drives its targets.
+            if [ "$u" = "github-actions[bot]" ]; then
+              if [ -n "${HEAD_REPO:-}" ] && [ "${HEAD_REPO:-}" = "$REPO" ]; then
+                echo "Repository bot $u on a same-repo head ($HEAD_REPO) - allowed."
+                continue
+              fi
+              if [ "${EVENT:-}" = "workflow_dispatch" ]; then
+                echo "Repository bot $u on a workflow_dispatch of this repository - allowed."
+                continue
+              fi
+            fi
+            perm=$(gh api "repos/$REPO/collaborators/$u/permission" --jq .permission 2>/dev/null || echo none)
+            case "$perm" in
+              admin|maintain|write) echo "Collaborator $u has $perm - allowed." ;;
+              *) echo "Refused: $u is not the owner or a collaborator with write access (permission: ${perm:-none})."; exit 1 ;;
+            esac
+          done
+          echo "Allowed: actor=$ACTOR triggering_actor=$TRIGGER"
+
+  refresh:
+    needs: [guard]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Check out main (pushed + pulled with the owner PAT, so the re-pin PR starts CI, issue #136)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          token: ${{ secrets.BUMP_TOKEN || secrets.GITHUB_TOKEN }}
+          ref: main
+
+      - name: Re-resolve and rewrite the semgrep rules pack (make semgrep-rules-refresh)
+        run: make semgrep-rules-refresh
+
+      - name: changed?
+        id: diff
+        run: |
+          if git diff --quiet -- containers/scanners/semgrep/rules/default.yml containers/scanners/digests.json; then
+            echo "changed=" >> "$GITHUB_OUTPUT"
+            echo "pack unchanged (rules_sha/count/captured_at still match upstream) - no re-pin PR"
+          else
+            echo "changed=1" >> "$GITHUB_OUTPUT"
+            echo "pack changed - the re-pin PR will be opened"
+          fi
+
+      - name: make secret-scan + check-security-scan on the refreshed tree
+        # A raw `p/default` fetch reintroduces the pack's own credential-shaped rule bodies
+        # (-----BEGIN ... PRIVATE KEY ----- headers, the Slack webhook URL); make
+        # semgrep-rules-refresh re-applies the \x59 / \x2e / \x2f escapes so the committed bytes
+        # carry none. Proven: the neutralised live pack is gitleaks-clean and `--validate` loads
+        # it. This gate is the fail-closed guard that a bad upstream edit cannot slip past.
+        if: steps.diff.outputs.changed
+        run: |
+          make secret-scan
+          make check-security-scan
+
+      - name: Build the re-pin PR body
+        if: steps.diff.outputs.changed
+        run: |
+          {
+            echo 'Issue: the committed semgrep rules pack (containers/scanners/semgrep/rules/default.yml) reached or passed its recency floor or drifted from upstream p/default (issue #2283). The SAST surface was content-pinned with no refresh path.'
+            echo ''
+            echo 'Fix: re-resolved upstream p/default through the pinned scanner image (semgrep --config p/default --validate), rewrote default.yml (re-applying the \x59 / \x2e / \x2f escapes so no rule body is a credential shape), and re-stamped containers/scanners/digests.json: rules_sha == sha256 of the rewritten default.yml, rules_captured_at == the refresh date, rules_count updated — via make semgrep-rules-refresh / make scanner-digests.'
+            echo ''
+            echo 'Benefit: the daily SAST scan reflects rules at most the declared-baseline age old, and the pack carries a working re-resolve path instead of a red-only floor.'
+            echo ''
+            echo 'Technical: make semgrep-rules-refresh (scripts/semgrep_rules.py refresh -&gt; resolve through the pinned image + fetch + neutralise + write via scripts/scanner_image.py::write), then make secret-scan and make check-security-scan pass on the refreshed tree. A data refresh: the same scanners, the same policy (data/security-policy.json untouched), no gate weakened.'
+          } > /tmp/pr-body.md
+          # The author a reviewer sees, before the diff (issue #840): the same identity the commit
+          # above carries, read from the same seam that set it.
+          body="$(cat /tmp/pr-body.md)"
+          body=$(printf '%s\n\n%s' "$(make -s git-identity-line)" "$body")
+          printf '%s\n' "$body" > /tmp/pr-body.md
+
+      - name: Commit and push the re-pin branch
+        if: steps.diff.outputs.changed
+        env:
+          GH_TOKEN: ${{ secrets.BUMP_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          # Authored as one of the two identities a PR's commits may carry (`Asimov Agent`, issue
+          # #345), sourced from the ONE seam that sets it (issue #840). Inline -m flags (a typed
+          # Conventional Commit subject + the Issue/Fix/Benefit body) keep the commit machine-
+          # readable for `git log` and `check-pr-hygiene` (issue #313 #840).
+          make git-identity-apply
+          git switch -C chore/semgrep-rules-refresh
+          git add containers/scanners/semgrep/rules/default.yml containers/scanners/digests.json
+          git commit -m "fix(rule-freshness): re-capture the semgrep rules pack from upstream p/default (issue #2283)" -m "$(sed -n '1,6p' /tmp/pr-body.md)"
+          git push --force origin chore/semgrep-rules-refresh
+
+      - name: Open / update the re-pin PR
+        if: steps.diff.outputs.changed
+        env:
+          GH_TOKEN: ${{ secrets.BUMP_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          # The AGENTS:/BASE: pair is written by the seam that OPENS the PR, not by a leg
+          # remembering it (issue #2050). BASE=main because this job checks `ref: main` out.
+          make bot-stamp-body BODY=/tmp/pr-body.md BASE=main REFS=origin/main
+          if gh pr view chore/semgrep-rules-refresh --json state -q .state 2>/dev/null | grep -q OPEN; then
+            gh pr edit chore/semgrep-rules-refresh --title "security(rule-freshness): re-capture the semgrep rules pack from upstream p/default (issue #2283)" --body-file /tmp/pr-body.md
+          else
+            gh pr create --base main --head chore/semgrep-rules-refresh --title "security(rule-freshness): re-capture the semgrep rules pack from upstream p/default (issue #2283)" --body-file /tmp/pr-body.md
+          fi
