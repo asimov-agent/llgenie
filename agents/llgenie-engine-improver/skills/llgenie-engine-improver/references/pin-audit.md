@@ -83,6 +83,32 @@ does not clear the next — report each explicitly instead of one "verified" sta
 Drift found on a bump branch goes to the BRANCH OWNER: a verification-only lane reports it in the PR
 thread and never edits or force-pushes another lane's bump branch to "just fix" the base tag.
 
+## Filing the finding: prove it is not already tracked
+
+Before `gh issue create` for a measured finding, prove no open issue already routes it. The planner and
+sibling lanes file from the same sweeps within minutes, so a fresh red is often already an OPEN ticket:
+
+```bash
+gh issue list -R <repo> --state all --search "<distinct phrase from the finding>" --json number,title,state
+gh issue list -R <repo> --state all --limit 20 --json number,title,createdAt   # scan the time window
+```
+
+When an existing issue already routes the same reds to owning trackers, post the measured per-cell roots
+(job id + quoted error line per cell) as a comment on THAT issue and on the origin/AC issue, and file
+nothing new — a duplicate finding splits the routing and invites a third. Only file when no open issue
+names the finding.
+
+**`gh issue create --label <l>` fails ATOMICALLY when the label does not exist: no issue is created.**
+Run `gh label list -R <repo>` first (the fleet's set is small — `bug`, `ci:*`, `agent:*`; a bare `engine`
+label generally does not exist), or omit `--label`. Empty stdout after a create is not proof either way —
+confirm with `gh issue list --search "<title fragment>" --state all` instead of assuming an orphan landed
+or assuming it did not.
+
+**A per-cell verdict is only a verdict after reading every red cell's OWN log.** A sweep that shows
+`26 success / 3 failure` can carry three unrelated roots (a missing build backend, a cold-cache
+`not found`, and a ghcr `403` on `--cache-to`) — route each red to its own tracker, never as one
+"sweep is red" line, and never let a mid-flight `0 reds` snapshot stand as the conclusion.
+
 ## Serving-drift check
 
 For headless-capable engines confirm the pinned image resolves in ghcr

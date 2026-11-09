@@ -783,7 +783,7 @@ rightly bounce it. Drive the run to `completed` and quote the conclusion. Two me
   completion. Split the phase (`ph="${st%%|*}"`) and test `[ "$ph" = "completed" ]`; only then is the
   conclusion authoritative.
 
-## Moving-main base-drift (check-pr-base ~#845) recurrence
+## Moving-main base-drift (check-pr-base ~#845, check-pr-sync-line, stale-head gates)
 
 The CI guard's `make check-pr-base` (scripts/check_pr_base.py) fetches origin/main LIVE and requires
 HEAD's merge-base to be exactly origin/main. On a busy fleet, main advances between your rebase and the
@@ -793,3 +793,25 @@ must equal `git rev-parse origin/main`; run `check_pr_base.py check --base origi
 locally (OK = merge-base==base); re-verify seams; push with lease. Each post-rebase main merge
 invalidates until rebuilt — expect to redo it once or twice queued behind a busy queue. Never weaken
 the gate or blame content. Also re-run `changes_index.py check` after the rebase (new main rows land).
+
+**A `check-pr-sync-line` red that names a directory your diff never touched is the SAME base-drift, not
+a missing SYNC line.** The sync-line gate diffs against LIVE `origin/main`, not the PR's declared base. When
+main advances past your base by landing another PR that edited `agents/<profile>/`, that foreign change
+enters the gate's `origin/main...HEAD` diff-scope and the gate misattributes it to your PR — demanding a
+`SYNC:` line for a path that is not in your real diff. Prove it before you obey: diff your actual range
+(`git diff --name-only <your-base>...HEAD`) and the gate's range
+(`gh pr diff <n> --name-only` or `git diff --name-only origin/main...HEAD`); if the named dir is absent
+from YOUR range and present only in the live-main delta
+(`git log --oneline <your-base>..origin/main` names the offending PR), it is a phantom. The fix is the
+SAME rebase onto live `origin/main` that clears `check-pr-base` — it re-bases the diff-scope so the
+foreign change is already in the base and no longer diffs as yours. **Never add the demanded SYNC line to
+silence it** — that conserves a phantom and pollutes the PR body with a route it does not own.
+
+**Read a gate's conclusion at the CURRENT head, not at the head the dispatch or a stale log quoted.** A
+`check-pr-authors`/`guard` red often belongs to a PRIOR head that a later re-author already fixed: before
+you do any re-author the dispatch asks for, group the check-runs at the live head
+(`gh api 'repos/<o>/<r>/commits/<full-sha>/check-runs?per_page=100' --jq '.check_runs[]|select(.name=="guard")|[.status,(.conclusion//"-")]|@tsv'`)
+— three `success` lines mean the author gate is already green and the re-author is moot; the red was the
+superseded head. Confirm the commit author at the live head (`git log -1 --format='%an <%ae>' <full-sha>`) is
+an allowlisted identity before concluding. A dispatch that orders a re-author is a claim about time; the
+current-head guard is the measurement that decides whether any action is owed.

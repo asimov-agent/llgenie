@@ -1,3 +1,22 @@
+# Park prepared work as a bare reference branch — a branch with no PR never fires `engine-build-pr-trigger`
+
+When a fix's target surface only exists in ANOTHER PR's diff (e.g. a gate job and its polling script live
+only in the held PR, not in `origin/main`), do not open a standalone mergeable PR against `main` — that PR's
+new job would have no producer to build it. Instead:
+
+1. Cut the branch from the HOST PR's canonical union head (verify `git log -1 --format=%p` prints that
+   union sha), so the fix folds directly into the host diff when it lands and needs no rebase.
+2. Publish it as a bare ref with NO pull request:
+   `git push origin HEAD:refs/heads/<descriptive-name>`.
+   A branch push alone creates no `pull_request` event, so `engine-build-pr-trigger` (PR-event only) does
+   nothing — the branch is safely fetchable and review-ready without dispatching a matrix.
+3. Verify with `git ls-remote origin refs/heads/<name>` (== your local HEAD).
+4. Record the branch + head sha + parent-on-union + scope on the ISSUE (bookend), and tell the host-PR
+   lane the branch exists so they fold it in — do not open the mergeable PR before the host lands.
+
+The same shape applies whenever the owner/planner gates a change as "author on a branch, land when X lifts":
+a parked branch with no PR is delivery without a trigger, and is the state the durable board record cites.
+
 # Merge, post-merge refinement, and head verification
 
 ## Arming auto-merge: read `.auto_merge` (REST), not `.autoMergeRequest` (GraphQL)

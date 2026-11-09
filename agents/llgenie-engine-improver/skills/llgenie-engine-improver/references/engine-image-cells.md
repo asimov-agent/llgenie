@@ -153,6 +153,18 @@ pushing, **verify the detect/version line inside the ACTUAL prebuilt base** (`do
 surface than a locally-built one; a green detect at the real base is the pre-push gate in place of a local
 build (this lane never builds an engine image).
 
+## A per-engine cell query returns MULTIPLE conclusions — red is ANY non-success
+
+When you read an engine's producing cell state from CI (the newest completed `engine-build` dispatch
+run, filtered to that engine's jobs), a multi-arch engine yields several conclusions for one id —
+e.g. `vllm` → `success` (cpu) plus `failure` ×2 (cuda, rocm) — and the query helper may join them as a
+single newline-separated string `"success\nfailure\nfailure"` (unique values, so an all-red dry run shows
+one `failure`, not a count). Do NOT equality-compare that whole string to `success`: that silently reads a
+red engine as green when only its sibling arches are fine. Split on newlines and treat the engine as RED
+if ANY line is non-success (`failure`/`cancelled`/`timed_out`). This is the premise a publish-gated check
+must test (a red producing cell → no publish can ever happen → skip the wait), and it matches what the
+GHCR tags will show (a red arch leaves that variant unpublished even when a sibling arch published).
+
 ## What a Prism cell proves once published
 
 `llama.cpp-prism` is the only build that reads a fork-specific ternary quant (`PQ2_0 = 142`,

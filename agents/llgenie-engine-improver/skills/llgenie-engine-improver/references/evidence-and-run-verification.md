@@ -70,6 +70,67 @@ to run.
 `git log <base>..<branch> --oneline` and confirm the branch is ahead by your commit
 before retrying.
 
+## A write that printed nothing did not happen
+
+`gh issue comment --body-file <f>` can exit **0 with empty stdout and post nothing**.
+An exit code is not the fact: never report a comment, label, or edit as posted until you
+have read the resource back.
+
+```
+gh api repos/<o>/<r>/issues/<n>/comments --jq '[.[].id] | max'   # id, not count alone
+gh api repos/<o>/<r>/issues/<n>/comments --jq '[.[]|{id,created_at}]|max_by(.created_at)'
+```
+
+If the max id is still the one you saw before the write, the write did not land. Re-post
+the body through the API with a file reference, then read the id back again:
+
+```
+gh api repos/<o>/<r>/issues/<n>/comments -F "body=@/tmp/<body>.md" --jq '{id,created_at}'
+```
+
+Same rule for PR comments, labels and review-requests: read the field back. Note
+`gh api` has no `-o` flag — redirect stdout to a file (`> out.json`) and parse that,
+rather than inventing a flag and losing the response.
+
+## Acceptance = the failure signature is absent from every red job's log
+
+An overall run `conclusion` is a verdict, not a cause. When a matrix run is red but your
+fix targets one specific failure mode, the acceptance question is *"is my failure mode
+still present anywhere?"*, not *"is the run green?"*:
+
+1. `gh api repos/<o>/<r>/actions/runs/<id>/jobs --jq '.jobs[]|select(.conclusion=="failure")|{id,name}'`
+   — enumerate the red cells.
+2. Pull each job's **own** log: `gh api repos/<o>/<r>/actions/jobs/<job_id>/logs`.
+   A jq'd blob fetch returning `BlobNotFound` or 0 bytes is a wrong endpoint, not a
+   missing log; drop the `--jq` and fetch the raw job-log text.
+3. Grep every log for the **signature tokens of the failure you fixed** (scope/pull-denied/
+   manifest-not-found strings, a specific step name, a specific rc). Report the hit count
+   across all red jobs.
+4. Classify each red cell by its own cause. Seam/your-fix causes vs unrelated causes
+   (runner disk exhaustion, a skip that printed but was not honoured, a serve-timeout
+   after a successful build, a killed step). "0 signature hits across N red cells" is a
+   real, citable acceptance result; "the matrix is red" alone is not a refutation, and
+   "the matrix is red so my fix failed" is a wrong claim when no cell shows your signature.
+
+Report both facts separately in one comment: acceptance of the fix (with the signature
+scan), and the non-target reds as findings routed to their owners — never silently
+de-scoped, and never blurred into the same verdict.
+
+## Prove a NEW gate's decision by importing the module and driving it against LIVE data
+
+A gate that decides on live API state (a pre-poll that skips a wait when a producer cell is already red, a selector that reads a run's conclusions) cannot be accepted on unit tests alone — the stubs prove the branch logic, not that the live query returns what you think. Prove the whole path without a fake bench:
+
+```python
+import importlib.util
+spec = importlib.util.spec_from_file_location("m", "scripts/<gate>.py")
+m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+print(m._producer_cell_conclusions("<owner>/<repo>", "<branch>", "<engine>", GH))  # real gh, real cells
+```
+
+- Call the internal query against the REAL repo/branch and quote what it returns for both a red-involved engine and a green one — the green case is what proves you did not weaken the gate (red ⇒ skip, green ⇒ still polls).
+- Exercise it on the branch the gate actually targets (the PR head), not only `main`; the producer's cell conclusions differ per branch and the branch is the real input.
+- Keep the gh binary path explicit (the mise shim path) — a `gh` subprocess launched from a bare `subprocess.run(["gh", …])` inside an interpreter sandbox can return empty stdout while the same call via the terminal tool works; an empty result is not proof the API has no runs, it means re-run the query through the working channel before concluding.
+
 ## Registry ranking sanity
 
 A tps figure is only valid evidence for the model it was measured on. A PrismML-fork

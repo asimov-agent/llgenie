@@ -12,6 +12,30 @@ the wall time on every run is not "unlucky infra" — it is this loop. Raising t
 the fix (and may be closed as out of scope); the loop only breaks when the cold compile fits under the
 wall (fewer archs, or a faster host) or runs on a host that outlasts it.
 
+### The `docker pull <compute-tag> → manifest unknown` line is the cold-build ENTRY, not a defect
+A never-yet-built cell's log opens with `docker pull ghcr.io/.../<id>:<pin>-<hash>-<variant>` failing with
+`manifest unknown`, then `imagetools inspect ...buildcache-<variant>` absent → `cold build (cache read
+skipped)`. That is the #1842/#1880 cache path working as designed — the tag has not been published because
+no build has ever finished, so there is nothing to pull and nothing to warm from. Do NOT report the
+`manifest unknown` as the cause or as "tag missing = code defect"; it merely proves this run is cold. The
+cause lives in whatever kills the cold compile below.
+
+### Telling a concurrency-cap kill from a per-cell OOM/SIGKILL — the timestamps decide
+A cell that ends `Killed` is NOT automatically the concurrency/timeout cap. Compute the two clocks from
+`gh api repos/<o>/<r>/actions/runs/<id>` + `/jobs`: `run.created_at` vs the failing step's `completed_at`,
+then subtract. If the cell ran LONGER than the workflow's cap window (a ~44-min cell alone under a 30-min
+cap), the cap did NOT fire — the process was SIGKILLed from below (OOM-killer / host pressure). Never file
+"hit the concurrency cap" when the arithmetic disproves it; cap and OOM are opposite routing classes
+(cap = wall/scheduling, OOM = host RAM; both want a bigger runner, but a shorter timeout cures neither).
+
+Read the exit code before naming the root — the two kill classes have different log signatures:
+
+- `make: *** [<Makefile>:<line>: <target>] Killed` + exit **2** → SIGKILL from the OOM killer. Usually NO
+docker error line precedes it (the compile was simply cut off); the same cold compile re-hits it every run.
+- `wait: No child processes` + exit **143** → SIGTERM, a runner shutdown / cancellation, not OOM.
+2-vs-143 is the difference between an OOM tracker and a runner-shutdown tracker — quote the exit code in
+the finding so it routes correctly.
+
 ## Distinguish runner death from a compiler error from a boot cost
 
 Read the job's STEP list — `gh api repos/<owner>/<repo>/actions/runs/<id>/jobs` — and classify by the
@@ -72,6 +96,49 @@ classification, and the per-job log with `gh run view --job <id> --log` after th
   symbol: a test may lock the exact string for some engine; a per-container override leaves that lock
   untouched as long as the locked engine is a different one.
 - **(d) Tighten the merge gate.** Weakens a guard — never without owner sign-off.
+- **(e) `FROM` an upstream prebuilt engine image** (e.g. AMD's `docker.io/rocm/vllm`). The prebuilt
+  bakes the CUDA/ROCm toolchain, torch, triton and vendor QA — exactly the levers that consume the
+  ~40-min cold wall. There are TWO shapes and they are NOT interchangeable; pick by whether the pin must
+  survive:
+
+  **e1 — thin prebuilt cell (zero compile, pin NOT preserved).** `prebuilt: true` + `base: <upstream
+  image>` in the skill's `container.<backend>` block: the generator emits `install: []` and a Dockerfile
+  that is ONLY `FROM <base>` + the entrypoint/healthcheck wrap. No `-e .`, no toolchain, no poetry — the
+  served engine version is the BASE's baked one, and the pin in the skill is documentation only. Choose
+  this whenever the owner says "build a Dockerfile based on the base image, trim it, that's it": it is
+  the cheapest cell and the base carries vendor QA. `detect` must probe the BAKED base, not a build
+  artifact (`python3 -c 'from vllm import __version__ as v; print(v)'`), and the cell's "separate
+  pipeline" is the EXISTING per-cell dispatch (`--field engine=<id> --field arch=<backend>`) — never a
+  new workflow. Vendor the pattern from an engine already built this way (`prebuilt: true` precedents:
+  sglang, tensorrt-llm) instead of inventing a mechanism.
+
+  **e2 — multi-stage overlay (keeps the pin, keeps a smaller compile).** Build YOUR pinned commit on the
+  devel base and land it in a final stage `FROM <prebuilt>` via `runtime_base`, copying the compiled
+  site-packages across. Only reach for e2 when the pin MUST be preserved; it still compiles the pinned
+  delta, so it is a strictly more complex and slower cell than e1.
+
+  Either shape is a build-strategy / product-coverage decision the owner makes; state the tradeoff
+  explicitly ("served version = base's baked one, pin not enforced" for e1) and never silently lower the
+  pin without saying so.
+  Probe the real state before wiring: `docker manifest inspect docker.io/<repo>:<tag>` plus a local run of
+  the base to record its python version, present toolchain (`uv cmake hipcc gcc make ninja git`) and
+  baked engine version — see `rocm-build-verification.md` for the measured rocm/vllm version gap and the
+  base-probe recipe.
+
+  **The multi-stage seam (e2) is `runtime_base`** — `engine_skills.py` renders `FROM <build base> AS build`
+  then a separate final stage `FROM <runtime_base>`. Point `runtime_base` at the prebuilt tag; the build
+  stage still compiles your pin. Do not hand-roll this seam when e1 fits — `prebuilt: true` is one
+  boolean and no compile. Two defects this shape has shipped before, both silent:
+  1. **The final stage must COPY your compiled site-packages, not just `/opt/llgenie/app`.** A runtime
+     stage that copies only the entrypoint+params layer bakes the BASE's older engine and never ships your
+     pin — the image builds green and serves the wrong version. After generating, read the final stage's
+     `COPY --from=build` lines and confirm they carry the installed package tree; prove it by
+     `docker run --rm <image> <binary> --version` matching the PIN, not the base's baked version.
+  2. **An invented container key is silently ignored.** A field you add to the skill's `container:` block
+     (e.g. `install_wheel:`) that `engine_skills.py` never reads produces no Dockerfile change and no
+     error. Before relying on any new key, grep the parser for it (`grep -n <key> scripts/engine_skills.py`)
+     and confirm the generated params/Dockerfile actually changed — a key the parser does not read is a
+     no-op that looks like a fix.
 
 Never pick (b)/(c) silently as a "fix" for an (a)-class wall: they trade product coverage or build
 complexity for wall time and need an explicit owner call. Report which lever, why the others were

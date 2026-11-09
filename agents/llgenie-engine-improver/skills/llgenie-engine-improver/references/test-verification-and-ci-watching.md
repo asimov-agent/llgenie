@@ -18,6 +18,20 @@ execution by either:
 If the in-process run *times out while still running*, that proves the test executes — it is slow, not
 broken. The authoritative green is the real CI job conclusion, not a local reproduction.
 
+## A polling-loop test with mocked sleep hangs until the REAL deadline — prove the path, do not spin
+When testing a code path that polls until a deadline (`--wait-min`), do NOT write a test where the
+mocked probe returns a persistent "not found" (404) for the whole wait: with `time.sleep` monkeypatched
+the loop spins fast but the deadline check uses real wall-clock, so the test hangs for the full `wait_min`
+(minutes) instead of failing fast. Two correct shapes:
+- To prove the WAIT branch runs, have the probe resolve on the 2nd call (not-found then found) so the
+  loop exits immediately with a pass; or
+- To prove a publish-gap RED, use a one-shot (`wait_min=0`) so the immediate red is exercised without
+  polling.
+Also remember: while a path is gated behind `wait_min`, run the non-wait assertion with `wait_min=0`
+and only use `wait_min>0` in the resolve-on-2nd test. If the whole FILE hangs, isolate each test with
+`pytest -q --timeout`/single-node runs to find the spinning one — a passing 0.06 s neighbour next to a
+120 s hang is the signature.
+
 ## Map a test class to the workflow that actually runs it BEFORE claiming a PR-head verdict
 A PR-head CI run and the pipeline that proves a network/acceptance test are DIFFERENT workflows. Read the
 `on:` blocks and the make target before concluding "the acceptance case passed at this head":

@@ -18,6 +18,58 @@ workflow_dispatch ref must resolve to a branch/tag). For a full publish sweep of
 stands on main, use `--ref main`; its run binds to the `head_sha` main pointed at when it started (see
 "a cold build dispatched with `--ref main`" below).
 
+### A run with `conclusion: success` is NOT your witness until its JOBS name your cell at your head
+
+Finding a green engine-build run is not proof your cell built. A single-cell or other-engine dispatch
+materialises only `guard` + `matrix` + ONE `engine-build-<id>-<arch>` job, and reports run-level
+`conclusion: success` — so a "recent success" you grab off the runs list can be a verify of a
+DIFFERENT engine at a DIFFERENT branch. My fresh "success" `42326880733` was three jobs
+(`guard`, `matrix`, `engine-build-tensorfold-cuda`) at `fix/1888-...`, not the vllm cell I needed.
+Before citing ANY run as the witness, read its job list and confirm a job literally named
+`engine-build-<your-engine>-<your-arch>` is present AND `success`, and that the run's `head_sha` equals
+the committed pin's head you mean to prove — never the run-level conclusion alone:
+
+    gh api repos/asimov-agent/llgenie/actions/runs/<id>/jobs --jq '[.jobs[]|{name,conclusion}]'
+
+A cell absent from the job list is unproven no matter how green the run reads; a cell present but at a
+stale `head_sha` proves nothing about your branch. Only a run whose job inventory CONTAINS your
+`engine-build-<engine>-<arch>` cell at YOUR head is a witness.
+
+**Query the workflow-scoped runs endpoint, not the global list filtered by name.** A global
+`/actions/runs?...&branch=main` with a `select(.name|...)` jq filter silently returns `[]` when the
+field/path does not match, which reads as "no runs" and sends you chasing a phantom. Use
+`/actions/workflows/395994204/runs` (optionally `?per_page=10`) — it lists exactly the engine-build
+runs and needs no name predicate.
+
+### Re-proving a full-matrix AC on live `main` (the post-merge sweep)
+
+The narrow per-cell dispatch above is the proof for "THIS engine cell builds on THIS PR". A different
+acceptance shape — "a *default* `make engine-build` sweep (no `ENGINE`/`ARCH` filter) runs every cell
+green on current main", typically the post-merge re-prove of a fix that changes the cache/params/build
+path for ALL engines — needs the opposite dispatch: the full matrix at the main branch.
+
+    git ls-remote origin refs/heads/main    # tip must equal the main sha you are proving against
+    gh workflow run 395994204 -R asimov-agent/llgenie --ref main -f engine="" -f arch=""
+
+- **Pin the ref sha, not a sha from a message.** `--ref main` resolves at dispatch time; read the run's
+  `head_sha` back and compare it to `refs/heads/main` you just fetched. A main sha quoted in a chat
+  message, an issue or an earlier turn is stale by the time you dispatch — quote the sha you fetched in
+  the same minute you fired.
+- **Leave `push` unset (`false`) for an AC that only asks "cells build green".** A full sweep with
+  `push=true` joins the global `engine-build-push` group and republishes every tag in the fleet; a
+  verify-only sweep answers the AC and cannot disturb publish state or race live publish tags.
+- **`gh workflow run` prints the new run's URL (`…/runs/<id>`) — take the id from that line** rather
+  than a follow-up `gh run list`, then `gh run view <id> --json status,jobs` to confirm it materialised
+  guard + matrix + the cell jobs.
+- **Quote the cell inventory you dispatched in the bookend comment.** A default sweep materialises
+  `guard` + `matrix` + one `engine-build-<id>-<arch>` job per committed variant row (~25–30 jobs, every
+  engine the tree ships). Recording that count at dispatch is what lets a later reader tell a genuine
+  "all cells green" read from a sweep that was truncated by a filter or an empty input.
+- **A full sweep is a long matrix and its cells finish in waves** — cpu/vulkan rows settle in ~15 min
+  while the cuda/rocm rows keep building. Report it in-flight at dispatch (run id + inventory +
+  "watching"), and only read green/red off the CONCLUDED run, per the watcher rules in
+  `ci-run-watching.md`. An in-flight sweep is never evidence an AC is met.
+
 ### Concurrency: what a run can serialise against, and how to tell whether it PUBLISHES
 
 `engine-build.yml` has ONE concurrency group whose name depends on the `push` input:
@@ -444,6 +496,8 @@ those counts are what you quote as evidence — not the exit code alone.
   A trailing-newline-at-EOF difference (`\ No newline at end of file` on one side only) trips byte-identity even when the content is identical — append `printf '\n' >> <file>` (or add the missing blank line) so the hashes match before you call the mirror done. Regenerate any downstream artifact (`engine_skills.py params`) from the primary's edited skill so params/dockerfiles stay consistent too.
 
 **A mirror/byte-identity proof is only valid when the reference tree is a FRESH clean `origin/main` — a stale, dirty clone proves nothing.** Before trusting a `sha256sum primary/<path> == branch` (or `diff primary/<path> <branch>`) result, read `git -C <primary> rev-parse HEAD`, compare it to freshly-fetched `git rev-parse origin/main`, and count `git status --porcelain | wc -l`. A primary checkout dozens of commits behind origin/main with dirty files is NOT the tree the integrity guard inspects, so a hash that "matches" against it can both (a) fail to reconcile with the origin branch's file and (b) certify content no gate ever reads. When the primary is behind/dirty, build the reference from the remote itself — `git worktree add --detach /tmp/clean-verify-wt origin/main` (must be 0 dirty) — and derive every reference hash from `git show origin/<branch>:<path>` / `git show origin/main:<path>`, never from the primary working tree. Fetch the branch ref explicitly (`git fetch origin main refs/heads/<branch>:refs/remotes/origin/<branch>`) so `origin/<branch>` is the live tip and not a stale shadow.
+
+**Never mirror the branch's files into a STALE primary — the copy can BREAK the shared builder workspace, not merely prove nothing.** A file copied from the branch base can import a symbol the stale tree's sibling module lacks (e.g. a new `engine_image.py` that does `from proc import run_ok, run_live` landed in a primary whose `proc.py` predates `run_live`) — the primary then red-imports (`ImportError`) for every later lane that treats it as `origin/main`, and its own test runs die at collection (`INTERNALERROR … pytest_sessionstart`) with a cause that looks like a code defect but is your mirror. The authoritative verification of the change is the WORKTREE at the PR head (run the suite there, quote head sha == PR `headRefOid`); never treat the primary — a shared, often-behind builder checkout — as the verification target. If you already copied into a stale primary, revert each tracked file to its own HEAD with a SEPARATE `git checkout HEAD -- <path>` per file: a single multi-pathspec checkout that names even one untracked path (a new test file) aborts the WHOLE command atomically (`error: pathspec … did not match any file(s) known to git`) and reverts NOTHING, leaving every copied file in place — then `rm` the untracked duplicate and confirm the primary's module imports again before moving on.
 
 **`patch` on a near-duplicate line can corrupt the wrong text.** When a file has two lines that share a long prefix (e.g. a paragraph split across a prior edit), an inexact `old_string` matches the wrong span and replaces live content with junk. Read the exact target region (`read_file` with offset/limit) immediately before patching, and `diff` the file against the branch after every `patch` — do not assume the edit landed where you intended because the tool returned success.
 
