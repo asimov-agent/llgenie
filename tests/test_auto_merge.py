@@ -594,6 +594,35 @@ def test_the_workflow_has_no_top_level_concurrency_block():
         "a top-level concurrency block cancels every job, including the retry (#2101)")
 
 
+def test_a_top_level_only_concurrency_block_does_not_satisfy_the_job_level_reader():
+    """Negative control for #2124: a workflow that carries ONLY a top-level `concurrency:`
+    must not satisfy the job-level reader.
+
+    If `_concurrency_block` fell back to reading a workflow-level block, a repair that moved
+    `concurrency:` back off the `merge` job (reinstating the #2101 defect) would pass the two
+    #917 tests by reading the wrong block. The reader must REJECT a top-level-only mapping —
+    this is what stops an implementer from undoing #2101 to green a test.
+    """
+    import pytest as _pytest
+
+    top_level_only = (
+        "name: auto-merge\n"
+        "on:\n"
+        "  workflow_run:\n"
+        "    workflows: [CI]\n"
+        "concurrency:\n"
+        "  group: auto-merge-sweep\n"
+        "  cancel-in-progress: true\n"
+        "jobs:\n"
+        "  merge:\n"
+        "    runs-on: ubuntu-latest\n"
+        "    steps:\n"
+        "      - uses: checkout\n"
+    )
+    with _pytest.raises(AssertionError):
+        _concurrency_block(top_level_only, job="merge")
+
+
 def test_the_recheck_job_is_never_cancelled_by_a_newer_sweep():
     """The retry keeps its own group with `cancel-in-progress: false` (issue #2101)."""
     block = _concurrency_block(MERGE_WF, job="recheck")
