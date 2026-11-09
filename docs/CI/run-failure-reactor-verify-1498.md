@@ -28,7 +28,12 @@ to route. `--ref <sha>` pins the workflow to a specific revision.
 | S4 | Route B → deduped issue | `42582349730` | `42588102669` | `58874356` | success, filed issue #2378 |
 | S5 | idempotent (re-dispatch) | `42582349730` | `42588200159` | `58874356` | success, no duplicate |
 
-Run URLs: `https://github.com/asimov-agent/llgenie/actions/runs/<id>`.
+Run URL form used throughout: `https://github.com/asimov-agent/llgenie/actions/runs/<id>` (reactor runs: S1
+https://github.com/asimov-agent/llgenie/actions/runs/42587824106 · S2
+https://github.com/asimov-agent/llgenie/actions/runs/42587885407 · S3
+https://github.com/asimov-agent/llgenie/actions/runs/42587961691 · S4
+https://github.com/asimov-agent/llgenie/actions/runs/42588102669 · S5
+https://github.com/asimov-agent/llgenie/actions/runs/42588200159).
 
 ## Checklist results
 
