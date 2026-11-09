@@ -101,13 +101,24 @@ env:
 health: "GET /health"
 alias_mode: flag
 container:
-  # cuda installs the pinned prebuilt CUDA wheel (v0.33.0, sha
-  # 4b6bdec4ab269990bf70d45a3c1e94c3760a27064513760193b26d6f0da883aa) + cu130 torch family;
-  # rocm/cpu compile the pinned sha (issue #2386 supersedes #937/#615 for cuda only).
+  # Build-strategy (owner 2026-11-08): each vllm GPU cell is a THIN image over vLLM's official
+  # prebuilt serving base for that backend — `prebuilt: true` runs ZERO install steps, so the
+  # Dockerfile is only `FROM <official-image>` + the llgenie entrypoint wrap (base as-is, trimmed).
+  # No source compile, no wheel-install chain, no poetry. The served version is the base's baked vllm.
+  #  - rocm: FROM docker.io/rocm/vllm:<AMD-tag>   (issue #1558 / PR #2274)
+  #  - cuda: FROM docker.io/vllm/vllm-openai:v0.33.0  (issue #2386 / PR #2429, supersedes #937/#615 for cuda)
+  #  - cpu:  source-compiled (remains; no prebuilt cpu serving image today)
   cuda:
-    apt: [python3-dev]
+    # vLLM's official CUDA serving image, pinned to our vllm ref (v0.33.0). prebuilt: true runs
+    # zero install steps; the image ships the baked vllm + CUDA runtime, and `detect` probes it
+    # via `from vllm import __version__`. Entrypoint serves (see launch below).
+    base: docker.io/vllm/vllm-openai:v0.33.0
+    prebuilt: true
+    binary: "vllm"
+    binary_flags: ["--version"]
   rocm:
     apt: [python3-dev]
+    # (thin prebuilt — #2274 carried the AMD rocm/vllm change; comment kept minimal here)
   cpu:
     apt: [python3-dev, libnuma-dev]
 upstream_watch: [pyproject.toml, requirements/cuda.txt, requirements/rocm.txt, requirements/cpu.txt, docs/getting_started/installation/gpu.md, docs/getting_started/installation/cpu.md, docker/Dockerfile.rocm_base]
@@ -115,16 +126,19 @@ upstream_watch: [pyproject.toml, requirements/cuda.txt, requirements/rocm.txt, r
 
 # vLLM
 
-Built from the pinned sha on the shared devel base for the backend, installed into the engine
-image's own Python with `uv pip install --no-build-isolation -e .` (the container is the
-isolation; nothing is installed on the host).
+The GPU cells (cuda, rocm) are THIN images over vLLM's official prebuilt serving base for that
+backend (see `container` above): the Dockerfile is `FROM <official-image>` + the llgenie entrypoint
+wrap, `prebuilt: true` runs zero install steps, and the served version is the base's baked vllm.
+The cpu cell compiles the pinned sha on the shared devel base into the engine image's own Python
+(`uv pip install --no-build-isolation -e .`; the container is the isolation, nothing is installed
+on the host).
 
 ## Hardware parameters
 
 | Backend | Selection | Notes |
 |---|---|---|
-| cuda | compile at the pin: `uv pip install --no-build-isolation -e .` with `CMAKE_ARGS=-DCMAKE_CUDA_ARCHITECTURES` | compute capability >= 7.5, fat arch list `75;80;86;89;90;120` |
-| rocm | compile at the pin: same editable install with `VLLM_TARGET_DEVICE=rocm` + `PYTORCH_ROCM_ARCH` | gfx90a/942/950, RDNA3 gfx1100/1101, RDNA4 gfx1200/1201, Ryzen AI gfx1150/1151 (ROCm >= 7.0.2) |
+| cuda | prebuilt: `FROM docker.io/vllm/vllm-openai:v0.33.0` (zero install) | compute capability >= 7.5, fat arch list `75;80;86;89;90;120`; the official CUDA serving image ships vllm + CUDA runtime |
+| rocm | prebuilt: `FROM docker.io/rocm/vllm:<AMD-tag>` (zero install) | gfx90a/942/950, RDNA3 gfx1100/1101, RDNA4 gfx1200/1201, Ryzen AI gfx1150/1151; AMD's official rocm/vllm image ships the ROCm runtime |
 | cpu | compile at the pin: `VLLM_TARGET_DEVICE=cpu uv pip install --no-build-isolation -e .` | pure Python/C++ CPU build, AVX2/AVX512 or NEON |
 
 There is no macOS GPU backend. `vllm-metal` is a separate project.

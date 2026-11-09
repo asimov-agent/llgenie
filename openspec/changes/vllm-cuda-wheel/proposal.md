@@ -1,9 +1,9 @@
 name: vllm-cuda-wheel
-about: cuda cell installs the prebuilt vllm CUDA wheel instead of source-compiling the pin
+about: cuda cell is a thin image over vLLM's official CUDA serving base instead of source-compiling the pin
 status: active
 ---
 
-# `engines(vllm)`: cuda cell installs the pinned prebuilt vLLM CUDA wheel (issue #2386)
+# `engines(vllm)`: cuda cell is a THIN image over vLLM's official CUDA serving base (issue #2386)
 
 ## Proposal
 
@@ -14,36 +14,39 @@ requirements/build/cuda.txt`, `tools/build_rust.sh` (a Rust toolchain bootstrap)
 the sibling rocm cell; issue #1832 reddened the cuda cell) and depends on a Rust toolchain the base
 does not ship.
 
-This change installs vLLM's official prebuilt CUDA wheel instead, for the **cuda cell only**: keep
-`FROM llgenie/base-cuda:79cfaf25ba`, `curl` the pinned wheel
-(`vllm-0.33.0-cp38-abi3-manylinux_2_28_x86_64.whl`, sha256
-`4b6bdec4ab269990bf70d45a3c1e94c3760a27064513760193b26d6f0da883aa`), `sha256sum -c` it, then `uv
-pip install` the cu130 torch family from `--index-url https://download.pytorch.org/whl/cu130`
-(`torch==2.14.0`, `torchaudio==2.11.0`, `torchvision==0.29.0`, `torchcodec>=0.14`) and the wheel.
-ROCm and CPU variants stay source-compiled, unchanged.
+This change makes the cuda cell a **thin image over vLLM's official prebuilt CUDA serving base**
+instead, for the **cuda cell only**: `container.cuda` declares `prebuilt: true` with
+`base: docker.io/vllm/vllm-openai:v0.33.0`, so the generated `Dockerfile.cuda` is only
+`FROM docker.io/vllm/vllm-openai:v0.33.0` plus the llgenie entrypoint/healthcheck wrap — **zero
+install steps** (`install: []`). The base (vLLM's official CUDA serving image) already ships the
+compiled vllm + CUDA runtime; the served version is its baked vllm and `detect` probes it via
+`from vllm import __version__`. This mirrors the rocm cell treatment (#1558 / PR #2274:
+`FROM docker.io/rocm/vllm:<AMD-tag>`, `prebuilt: true`).
 
-The ABI-skew case #937/#615 were filed against is rebutted for cuda by matching the base CUDA
-(13.0.2) exactly, resolving torch from the same cu130 index the source build already uses, and
-installing vLLM's fat CUDA wheel (fixed arch set). No `LLGENIE_CUDA_ARCH` build arg is consumed by
-the wheel path.
+Supersedes #937/#615's anti-wheel/source-compile direction **for the cuda cell only**, and
+supersedes the interim wheel-install plan (#2386's earlier "curl + pip install the wheel" form) in
+favour of pulling the official prebuilt serving image (no install chain at all). ROCm is thin and
+prebuilt too; CPU remains source-compiled (no prebuilt cpu serving image today).
 
 ## Motivation
 
-A prebuilt, hash-pinned, reproducible wheel install removes the clone, requirement-file install,
-Rust bootstrap and in-place build. It cuts the cuda cell from a multi-hour, red-prone compile to a
-`curl` + `pip install` that finishes in minutes. `detect` and the serve contract are unchanged.
+A prebuilt, hash-fixed upstream serving image removes the clone, requirement-file install, Rust
+bootstrap, in-place build **and any install chain**. It cuts the cuda cell from a multi-hour,
+red-prone compile to a `FROM` + wrap that finishes in minutes, byte-identical and reproducible.
+`detect` and the serve contract are unchanged (the base runs `vllm serve … --host 0.0.0.0
+--port 11434 --served-model-name llm-local`, `GET /health`).
 
 ## Change
 
-1. `skills/engines/vllm/SKILL.md`: rewrite `install.cuda` to the wheel flow (curl + hash-check +
-   cu130 torch family + wheel), record the wheel sha in the `container.cuda` block, replace the
-   "no upstream wheel (issue #937)" comment. `install.rocm` / `install.cpu` unchanged.
+1. `skills/engines/vllm/SKILL.md`: `container.cuda` → `base: docker.io/vllm/vllm-openai:v0.33.0` +
+   `prebuilt: true` + `binary: "vllm"`; `install.cuda` cleared (0 steps). `container.rocm` thin
+   (#2274); `install.cpu` unchanged (source-compiled).
 2. `make generate-engine-params ENGINE=vllm`; commit the regenerated `params/vllm.json` and
-   `containers/engines/dockerfiles/vllm/Dockerfile.cuda`.
-3. `scripts/engine_source_guard.py`: add `("vllm", "cuda")` to `KNOWN_NOT_SOURCE` — the wheel
-   install is a pull, not a source build — so `check-engine-source` stays green.
-4. `tests/test_engine_skills.py`: a hermetic test asserting the cuda install has no source step
-   (no `git clone`, `-e .`, `build_rust.sh`, `-r …/cuda.txt`) and DOES curl + hash-check the wheel.
+   `containers/engines/dockerfiles/vllm/Dockerfile.cuda` (now thin `FROM vllm/vllm-openai:v0.33.0`).
+3. `scripts/engine_source_guard.py`: `("vllm", "cuda")` in `KNOWN_NOT_SOURCE` — the cell is a thin
+   image pull, not a source build — so `check-engine-source` stays green.
+4. `tests/test_engine_skills.py`: hermetic test asserting the cuda cell is `prebuilt`/thin with no
+   source step and no install chain; a regression back to `-e .`/`build_rust.sh`/wheel reds.
 5. `agent-wiki/2026-11-09-vllm-cuda-wheel.md` + `docs/changes.d/…` + regenerated `CHANGES.md`.
 
 ## Impact
@@ -55,6 +58,5 @@ Rust bootstrap and in-place build. It cuts the cuda cell from a multi-hour, red-
 
 ## Not covered
 
-- ROCm and CPU vLLM variants (stay source-compiled at the pin; #1694 is their compile cost
-  context). No image-size-shrink / runtime-base migration beyond what the wheel inherently changes.
-- Other engines unchanged.
+- CPU vLLM variant (stays source-compiled at the pin; no prebuilt cpu serving image today).
+  Other engines unchanged.

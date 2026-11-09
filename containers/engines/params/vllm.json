@@ -12,24 +12,17 @@
       "engine": "vLLM",
       "backend": "cuda",
       "arch": "75;80;86;89;90;120",
-      "base": "nvidia/cuda:13.0.2-devel-ubuntu24.04",
-      "prebuilt": false,
+      "base": "docker.io/vllm/vllm-openai:v0.33.0",
+      "prebuilt": true,
       "runtime_base": "",
       "runtime_copy": [],
-      "apt": [
-        "python3-dev"
-      ],
+      "apt": [],
       "build_args": {
         "CUDA_ARCH": "75;80;86;89;90;120",
         "GPU_TARGETS": "",
         "TORCH_BACKEND": "cu130"
       },
-      "install": [
-        "curl -fSL --retry 3 -o /opt/llgenie/engines/vllm/vllm.whl https://files.pythonhosted.org/packages/8b/a8/92e278093df40fde4c4bfd6572704bb8f398d6a2280d8c82cb5efaf12047/vllm-0.33.0-cp38-abi3-manylinux_2_28_x86_64.whl",
-        "echo '4b6bdec4ab269990bf70d45a3c1e94c3760a27064513760193b26d6f0da883aa  /opt/llgenie/engines/vllm/vllm.whl' | sha256sum -c -",
-        "uv pip install --system --break-system-packages torch==2.14.0 torchvision==0.29.0 torchaudio==2.11.0 torchcodec --index-url https://download.pytorch.org/whl/cu130",
-        "uv pip install --system --break-system-packages /opt/llgenie/engines/vllm/vllm.whl && rm -f /opt/llgenie/engines/vllm/vllm.whl"
-      ],
+      "install": [],
       "env": {},
       "detect": "python3 -c 'from vllm import __version__ as v; print(v)'",
       "pre_launch": null,
